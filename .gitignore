@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+.venv*/
+venv/
+env/
+.codex/
+services/browser/artifacts/
+
+tests/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# AI/Agent tools
+.claude/
+.codex/
+
+# Lint/Format cache
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Project specific
+user_session_db
+config/config.py
+debug_data/
+/artifacts/
+downloads/
+auth_data/
+tmp/
+tasks/
+shared/config.py
+
+# Logs
+*.log
+logs/
+
+# Environment variables
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db

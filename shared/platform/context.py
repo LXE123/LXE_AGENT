@@ -1,0 +1,20 @@
+"""Platform-neutral session context."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+@dataclass(slots=True)
+class SessionContext:
+    platform: str
+    connector_key: str
+    user_input: str
+    user_id: str
+    card_id: str
+    conversation_id: str
+    is_group: bool
+    message_id: str
+    sender_nick: str = ""
+    raw_data: dict[str, Any] = field(default_factory=dict)
+    user_content_blocks: list[dict[str, Any]] = field(default_factory=list)

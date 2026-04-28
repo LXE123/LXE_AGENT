@@ -1,0 +1,2 @@
+"""Mabang agent CLI entrypoints."""
+
