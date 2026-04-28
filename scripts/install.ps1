@@ -12,7 +12,6 @@ $PythonVersion = "3.12.10"
 $ProjectName = "lxe-agent"
 $LauncherDir = Join-Path $env:USERPROFILE ".lxefba\bin"
 $LauncherPath = Join-Path $LauncherDir "LXEFBA.cmd"
-$InstallDirSpecified = $PSBoundParameters.ContainsKey("InstallDir")
 
 function Resolve-FullPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -120,14 +119,6 @@ function Download-SourceZip {
 }
 
 function Get-ProjectRoot {
-    $scriptProjectRoot = Resolve-FullPath (Join-Path $PSScriptRoot "..")
-    if (-not $script:InstallDirSpecified -and (Test-LxeProjectRoot -Path $scriptProjectRoot)) {
-        return @{
-            Path = $scriptProjectRoot
-            SourceAlreadyPresent = $true
-        }
-    }
-
     $target = $InstallDir
     if ([string]::IsNullOrWhiteSpace($target)) {
         $target = Join-Path $env:USERPROFILE ".lxe_agent"
@@ -161,7 +152,6 @@ function Get-ProjectRoot {
     }
     return @{
         Path = $target
-        SourceAlreadyPresent = $false
     }
 }
 
