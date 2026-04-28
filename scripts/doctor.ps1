@@ -10,7 +10,7 @@ function Resolve-Uv {
     if ($null -ne $command) {
         return $command.Source
     }
-    $localUv = Join-Path $HOME ".local\bin\uv.exe"
+    $localUv = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
     if (Test-Path -LiteralPath $localUv) {
         $env:Path = "$(Split-Path -Parent $localUv);$env:Path"
         return $localUv

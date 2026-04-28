@@ -1,5 +1,5 @@
 param(
-    [string]$RepoUrl = "https://github.com/LXE123/LXE_AGENT_LOCAL.git",
+    [string]$RepoUrl = "https://github.com/LXE123/LXE_AGENT_LOCAL_FBA.git",
     [string]$Ref = "main",
     [string]$InstallDir = "",
     [switch]$NoPath
@@ -10,8 +10,8 @@ Set-StrictMode -Version Latest
 
 $PythonVersion = "3.12.10"
 $ProjectName = "lxe-agent"
-$LauncherDir = Join-Path $env:USERPROFILE ".lxe\bin"
-$LauncherPath = Join-Path $LauncherDir "LXE.cmd"
+$LauncherDir = Join-Path $env:USERPROFILE ".lxefba\bin"
+$LauncherPath = Join-Path $LauncherDir "LXEFBA.cmd"
 $InstallDirSpecified = $PSBoundParameters.ContainsKey("InstallDir")
 
 function Resolve-FullPath {
@@ -40,11 +40,18 @@ function Resolve-Uv {
         return $command.Source
     }
 
+    $localBin = Join-Path $env:USERPROFILE ".local\bin"
+    $localUv = Join-Path $localBin "uv.exe"
+    if (Test-Path -LiteralPath $localUv) {
+        $env:Path = "$localBin;$env:Path"
+        return $localUv
+    }
+
     Write-Host "uv not found. Installing uv with the official installer..."
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $env:UV_INSTALL_DIR = $localBin
     Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
 
-    $localBin = Join-Path $HOME ".local\bin"
     if (Test-Path -LiteralPath $localBin) {
         $env:Path = "$localBin;$env:Path"
     }
@@ -164,27 +171,27 @@ function Write-Launcher {
     $content = @"
 @echo off
 setlocal
-set "LXE_ROOT=$ProjectRoot"
+set "LXEFBA_ROOT=$ProjectRoot"
 
 if /I "%~1"=="start" goto start
 if /I "%~1"=="doctor" goto doctor
 if /I "%~1"=="update" goto update
 
-echo Usage: LXE ^<start^|doctor^|update^>
+echo Usage: LXEFBA ^<start^|doctor^|update^>
 exit /b 2
 
 :start
-cd /d "%LXE_ROOT%" || exit /b 1
+cd /d "%LXEFBA_ROOT%" || exit /b 1
 uv run --frozen python .\main.py
 exit /b %ERRORLEVEL%
 
 :doctor
-cd /d "%LXE_ROOT%" || exit /b 1
+cd /d "%LXEFBA_ROOT%" || exit /b 1
 powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1
 exit /b %ERRORLEVEL%
 
 :update
-cd /d "%LXE_ROOT%" || exit /b 1
+cd /d "%LXEFBA_ROOT%" || exit /b 1
 powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1
 exit /b %ERRORLEVEL%
 "@
@@ -247,4 +254,4 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Install completed."
-Write-Host "Start the agent with: LXE start"
+Write-Host "Start the agent with: LXEFBA start"

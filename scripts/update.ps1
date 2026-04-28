@@ -10,7 +10,7 @@ function Resolve-Uv {
     if ($null -ne $command) {
         return $command.Source
     }
-    $localUv = Join-Path $HOME ".local\bin\uv.exe"
+    $localUv = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
     if (Test-Path -LiteralPath $localUv) {
         $env:Path = "$(Split-Path -Parent $localUv);$env:Path"
         return $localUv
@@ -21,7 +21,7 @@ function Resolve-Uv {
 function Resolve-Git {
     $command = Get-Command git -ErrorAction SilentlyContinue
     if ($null -eq $command) {
-        throw "git is required for LXE update."
+        throw "git is required for LXEFBA update."
     }
     return $command.Source
 }
@@ -49,7 +49,7 @@ if (-not [string]::Equals([System.IO.Path]::GetFullPath($topLevel).TrimEnd("\"),
 
 $status = & $git status --porcelain
 if (-not [string]::IsNullOrWhiteSpace(($status -join ""))) {
-    throw "Local changes detected. Commit or stash them before running LXE update."
+    throw "Local changes detected. Commit or stash them before running LXEFBA update."
 }
 
 Invoke-Checked "git pull" { & $git pull --ff-only }
