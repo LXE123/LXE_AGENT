@@ -16,14 +16,15 @@ type: default
 
 - 不要调用外部项目的 CLI：`python -m logistics_ingest.cli.ingest_file`。
 - 不要现场拼接内联 Python。
-- 不要自己解析混杂日志；只解析桥接脚本返回的 JSON。
-- 固定使用当前仓库的虚拟环境解释器和桥接脚本。
+- 不要直接调用物流 API；固定使用当前仓库的虚拟环境解释器和脚本。
+- 不要自己解析混杂日志；只解析脚本返回的最后一行 JSON。
 
 前置检查：
 
 - 必填参数只有 `file_path`，缺失就先向用户追问，不执行。
 - 输入文件建议符合命名规范：`公司名-线路-YYYY.MM.DD.xlsx`。
-- 外部物流项目 `D:\rpa\PRD\amazon\20260212 - AMAZON_logistic\logistics_excel` 需要能从它自己的 `.env` / `.env.local` / `.env.example` 读取 `PG_DSN`。
+- `file_path` 必须是物流 API 服务所在机器能访问的路径。
+- 当前仓库通过 `LOGISTICS_API_BASE_URL` 连接物流 API，默认 `http://127.0.0.1:8000`。
 
 固定执行：
 
@@ -40,23 +41,34 @@ type: default
 
 - 如果 `exec` 直接返回完成结果，读取返回 JSON 中的 `output`，并把它当作桥接脚本的唯一输出解析。
 - 如果 `exec` 返回 `status=\"running\"`，用 `process(action=\"poll\", session=\"...\")` 等到结束；需要完整输出时再用 `process(action=\"log\", session=\"...\", offset=1)` 读取并解析完整 `output`。
-- 只解析桥接脚本输出的 JSON，不要从其它文本猜测状态。
+- 只解析脚本输出的 JSON，不要从其它文本猜测状态。
 
-桥接 JSON 协议：
+脚本 JSON 协议：
 
 - 成功：
   - `ok=true`
   - `file_path`
+  - `job_id`
+  - `status=succeeded`
   - `result`
+- 仍在后台执行：
+  - `ok=true`
+  - `file_path`
+  - `job_id`
+  - `status=running`
+  - `message`
 - 失败：
   - `ok=false`
   - `file_path`
+  - `job_id`（如果已经创建任务）
+  - `status=failed`（如果服务端任务失败）
   - `error`
-  - `error_type`
+  - `error_type`（如果脚本本地异常）
 
 业务结果处理：
 
 - `ok=false`：只原样转述 `error`，不要自行补充原因。
-- `ok=true`：读取 `result.status`、`result.decision_reason` 和外部服务原样返回的字段。
-- `result.status` 即使是 `rejected` 或 `ignored`，也表示桥接脚本执行成功；不要把它当成脚本失败。
+- `ok=true` 且 `status=succeeded`：告诉用户物流报价导入完成，按需转述 `result.status`、`result.decision_reason` 和服务端原样返回字段。
+- `ok=true` 且 `status=running`：告诉用户导入任务仍在后台执行，并保留 `job_id`，后续可用 `--job-id <job_id>` 查询。
+- `result.status` 即使是 `rejected` 或 `ignored`，也表示脚本执行成功；不要把它当成脚本失败。
 - 除非用户追问，否则不要自行解释 `decision_reason` 的业务含义。

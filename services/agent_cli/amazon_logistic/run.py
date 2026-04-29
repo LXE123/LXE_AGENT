@@ -9,17 +9,18 @@ from typing import Any
 
 from agent_runtime.ipc_client import configure_gateway_ipc
 from services.agent_cli._shared.json_output import configure_utf8_stdio
-from services.amazon.amazon_logistic.artifacts.renderer import build_multi_channel_pricing_markdown
+from services.amazon.amazon_logistic.artifacts.renderer import (
+    build_multi_channel_pricing_markdown,
+    build_single_channel_pricing_markdown,
+)
 from services.amazon.amazon_logistic.artifacts.store import save_artifacts
 from services.amazon.amazon_logistic.input.validator import (
     VALID_SHIPMENT_PATTERN,
     normalize_consignment_no,
     normalize_shipment_no,
 )
+from services.amazon.amazon_logistic.remote_client import quote_pricing
 from services.amazon.amazon_logistic.sources.consignment_excel import load_pricing_boxes_from_local_excel
-from services.amazon.amazon_logistic.workflow.service import run_fba_logistics_workflow
-from services.amazon.amazon_logistic.workflow.single_flow import compute_single_shipment_pricing_with_boxes
-from services.amazon.amazon_logistic.workflow.support import ensure_schema_if_needed
 from shared.config import config
 from shared.infra.net import close_all_network_clients
 from shared.worker_core.utils import send_file_to_current_session
@@ -84,6 +85,69 @@ def _to_single_box_payload(box_record: dict[str, Any]) -> list[dict[str, str]]:
     ]
 
 
+def _to_quote_boxes_payload(boxes_payload: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        _to_single_box_payload(dict(item or {}))[0]
+        for item in list(boxes_payload or [])
+    ]
+
+
+def _fba_logistics_default(key: str, default: str) -> str:
+    defaults = getattr(config, "FBA_LOGISTICS_DEFAULTS", {}) or {}
+    value = defaults.get(key) if isinstance(defaults, dict) else None
+    return str(value or default).strip() or default
+
+
+def _build_quote_payload(
+    *,
+    shipment_no: str,
+    consignment_no: str,
+    destination_address: str,
+    boxes_payload: list[dict[str, Any]],
+) -> dict[str, Any]:
+    configured_cargo_nature = getattr(config, "FBA_LOGISTICS_FIXED_CARGO_NATURE", "")
+    cargo_nature = str(
+        configured_cargo_nature or _fba_logistics_default("cargo_nature", "general")
+    ).strip().lower() or "general"
+    return {
+        "shipment_no": shipment_no,
+        "consignment_no": consignment_no,
+        "destination_address": destination_address,
+        "transport_mode": _fba_logistics_default("transport_mode", "air").lower(),
+        "cargo_nature": cargo_nature,
+        "tax_included": _fba_logistics_default("tax_included", "any").lower(),
+        "boxes": _to_quote_boxes_payload(boxes_payload),
+        "top_n": 50,
+        "allow_any_destination": True,
+    }
+
+
+async def _quote_single_shipment(
+    *,
+    shipment_no: str,
+    consignment_no: str,
+    destination_address: str,
+    boxes_payload: list[dict[str, Any]],
+) -> dict[str, Any]:
+    response = await quote_pricing(
+        _build_quote_payload(
+            shipment_no=shipment_no,
+            consignment_no=consignment_no,
+            destination_address=destination_address,
+            boxes_payload=boxes_payload,
+        )
+    )
+    return {
+        "shipment_no": shipment_no,
+        "consignment_no": consignment_no,
+        "destination_address": destination_address,
+        "pricing_snapshots": list(response.get("pricing_snapshots") or []),
+        "recommended": list(response.get("recommended") or []),
+        "target_country": str(response.get("target_country") or "").strip(),
+        "rejected_summary": dict(response.get("rejected_summary") or {}),
+    }
+
+
 def _parse_tsv_input(input_text: str) -> tuple[str, list[dict[str, str]]]:
     text = str(input_text or "")
     lines = [line for line in text.splitlines() if str(line or "").strip()]
@@ -143,11 +207,29 @@ async def _run_single_mode(
     consignment_no: str,
     destination_address: str,
 ) -> dict[str, str | bool]:
-    markdown_path = await run_fba_logistics_workflow(
+    _, boxes_payload = load_pricing_boxes_from_local_excel(consignment_no)
+    if len(boxes_payload) != 1:
+        raise RuntimeError(
+            f"装箱单 {consignment_no} 解析到 {len(boxes_payload)} 个箱子；"
+            "单票模式只接受单箱装箱单，多箱请使用 TSV 多票模式"
+        )
+    quote_result = await _quote_single_shipment(
         shipment_no=shipment_no,
         consignment_no=consignment_no,
         destination_address=destination_address,
-        progress_callback=None,
+        boxes_payload=boxes_payload,
+    )
+    markdown = build_single_channel_pricing_markdown(
+        list(quote_result.get("pricing_snapshots") or []),
+        shipment_no=shipment_no,
+        consignment_no=consignment_no,
+        destination_address=destination_address,
+        limit=50,
+    )
+    markdown_path = save_artifacts(
+        markdown,
+        f"{shipment_no}_{consignment_no}",
+        "channel_pricing",
     )
     if not await send_file_to_current_session(session_id, markdown_path):
         raise RuntimeError("物流优选结果文件已生成，但发送失败")
@@ -164,7 +246,6 @@ async def _run_batch_mode(
     consignment_no: str,
     rows: list[dict[str, str]],
 ) -> dict[str, str | bool]:
-    await ensure_schema_if_needed(force=False)
     _, shared_boxes_payload = load_pricing_boxes_from_local_excel(consignment_no)
     if len(rows) != len(shared_boxes_payload):
         raise RuntimeError(
@@ -178,13 +259,11 @@ async def _run_batch_mode(
         destination_address = str(row.get("destination_address") or "").strip()
         mapped_box = dict(shared_boxes_payload[index] or {})
         try:
-            result = await compute_single_shipment_pricing_with_boxes(
+            result = await _quote_single_shipment(
                 shipment_no=shipment_no,
                 consignment_no=consignment_no,
                 destination_address=destination_address,
                 boxes_payload=_to_single_box_payload(mapped_box),
-                test_case_key=None,
-                progress_callback=None,
             )
         except Exception as exc:
             raise RuntimeError(f"第{line_no}行 ({shipment_no}) 失败: {_exception_text(exc)}") from exc

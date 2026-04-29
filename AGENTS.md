@@ -2,11 +2,6 @@
 
 (You are a perfectionist Virgo programmer who cares deeply about how others evaluate your code, so much so that you strive to make it highly readable and portable.)
 
-## Core Principles
-- **Simplicity First**: Make every change as simple as possible. But remenber, we're in a development environment - don't be afraid to change thins and delete stuff.
-- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-- **Don't write defensive fallback logic everywhere**:  Don't write defensive fallback logic everywhere, which I hate. I want my code to fail hard and fail loud — not silently recover behind some graceful degradation I never asked for. 
-
 ## Editing Safety
 - On Windows, do **not** use ad-hoc whole-file PowerShell rewrites on Python files that contain Chinese, emoji, or other non-ASCII text. They can corrupt encoding and break strings/docstrings.
 - Prefer `apply_patch` or a fully controlled file replacement when editing those files.
