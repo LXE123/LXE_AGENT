@@ -56,6 +56,19 @@ _MAX_OUTPUT = 10_000
 _MAX_GREP = 100
 _MAX_FIND = 200
 _BINARY_SNIFF_BYTES = 4096
+_COMMAND_OUTPUT_KEYS = frozenset({"output", "new_output"})
+_COMMAND_CONTROL_KEYS = (
+    "session",
+    "status",
+    "pid",
+    "exit_code",
+    "duration_sec",
+    "total_lines",
+    "showing",
+    "truncated",
+    "message",
+    "error",
+)
 
 _READ_DESCRIPTION = (
     "Read the contents of a file under the project root (workspace). Supports text files and images (jpg, png, gif, webp). "
@@ -157,6 +170,126 @@ async def _terminate_subprocess(proc: asyncio.subprocess.Process | None) -> None
 def _json_tool_result(payload: dict[str, Any]) -> ToolResult:
     return ToolResult(
         content=[text_content_block(json.dumps(dict(payload or {}), indent=2, ensure_ascii=False))],
+        details=dict(payload or {}),
+    )
+
+
+def _try_parse_json_text(value: Any) -> Any | None:
+    if not isinstance(value, str):
+        return None
+    candidate = value.strip()
+    if not candidate or candidate in {"(no output)", "(no new output)"}:
+        return None
+
+    for _ in range(2):
+        try:
+            parsed = json.loads(candidate)
+        except (TypeError, json.JSONDecodeError):
+            return None
+        if isinstance(parsed, str) and parsed.strip().startswith(("{", "[")):
+            candidate = parsed.strip()
+            continue
+        return parsed if isinstance(parsed, (dict, list)) else None
+    return None
+
+
+def _plain_scalar(value: Any) -> str:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if value is None:
+        return "null"
+    return str(value)
+
+
+def _append_scalar_field(lines: list[str], label: str, value: Any, *, indent: int = 0) -> None:
+    if value is None:
+        return
+    text = _plain_scalar(value)
+    if not text.strip():
+        return
+    prefix = " " * max(0, indent)
+    if "\n" not in text:
+        lines.append(f"{prefix}{label}: {text}")
+        return
+    lines.append(f"{prefix}{label}:")
+    child_prefix = " " * max(0, indent + 2)
+    lines.extend(f"{child_prefix}{line}" for line in text.splitlines())
+
+
+def _append_plain_value(lines: list[str], value: Any, *, indent: int = 0) -> None:
+    prefix = " " * max(0, indent)
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_text = str(key)
+            if isinstance(item, (dict, list, tuple)):
+                lines.append(f"{prefix}{key_text}:")
+                _append_plain_value(lines, item, indent=indent + 2)
+            else:
+                _append_scalar_field(lines, key_text, item, indent=indent)
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            if isinstance(item, dict):
+                lines.append(f"{prefix}-")
+                _append_plain_value(lines, item, indent=indent + 2)
+            elif isinstance(item, (list, tuple)):
+                lines.append(f"{prefix}-")
+                _append_plain_value(lines, item, indent=indent + 2)
+            else:
+                text = _plain_scalar(item)
+                if "\n" not in text:
+                    lines.append(f"{prefix}- {text}")
+                else:
+                    lines.append(f"{prefix}-")
+                    child_prefix = " " * max(0, indent + 2)
+                    lines.extend(f"{child_prefix}{line}" for line in text.splitlines())
+        return
+    lines.append(f"{prefix}{_plain_scalar(value)}")
+
+
+def _format_parsed_command_output(value: Any, *, label: str) -> list[str]:
+    lines = [f"{label}:"]
+    _append_plain_value(lines, value, indent=2)
+    return lines
+
+
+def _format_command_payload_text(payload: dict[str, Any]) -> str:
+    data = dict(payload or {})
+    lines: list[str] = []
+    for key in _COMMAND_CONTROL_KEYS:
+        if key in data:
+            _append_scalar_field(lines, key, data.get(key))
+
+    output_key = "new_output" if "new_output" in data else "output" if "output" in data else ""
+    if output_key:
+        output_value = data.get(output_key)
+        parsed_output = _try_parse_json_text(output_value)
+        if parsed_output is not None:
+            lines.extend(_format_parsed_command_output(parsed_output, label=output_key))
+        else:
+            lines.append(f"{output_key}:")
+            lines.append(str(output_value or "") or "(no output)")
+
+    remaining_keys = [
+        key for key in data
+        if key not in _COMMAND_CONTROL_KEYS and key not in _COMMAND_OUTPUT_KEYS
+    ]
+    for key in remaining_keys:
+        value = data.get(key)
+        if isinstance(value, (dict, list, tuple)):
+            lines.append(f"{key}:")
+            _append_plain_value(lines, value, indent=2)
+        else:
+            _append_scalar_field(lines, key, value)
+
+    return "\n".join(lines).strip()
+
+
+def _command_payload_tool_result(payload: dict[str, Any]) -> ToolResult:
+    return ToolResult(
+        content=[text_content_block(_format_command_payload_text(payload))],
         details=dict(payload or {}),
     )
 
@@ -737,7 +870,7 @@ async def _handle_exec(
     )
     if str(payload.get("status") or "").strip() == "running":
         return _exec_running_tool_result(payload)
-    return _json_tool_result(payload)
+    return _command_payload_tool_result(payload)
 
 
 async def _handle_process(
@@ -755,7 +888,7 @@ async def _handle_process(
         offset=offset,
         limit=limit,
     )
-    return _json_tool_result(payload)
+    return _command_payload_tool_result(payload)
 
 
 # ===================================================================
