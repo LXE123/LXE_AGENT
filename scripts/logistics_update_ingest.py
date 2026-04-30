@@ -3,10 +3,15 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
-from services.amazon.amazon_logistic.remote_client import create_import_job, get_import_job
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from services.amazon.amazon_logistic.remote_client import create_import_job, get_import_job, upload_import_file
 from shared.config import config
 from shared.infra.net import close_all_network_clients
 
@@ -118,8 +123,12 @@ async def _submit_and_poll(file_path: str) -> dict[str, Any]:
     safe_file_path = str(file_path or "").strip()
     if not safe_file_path:
         raise ValueError("file_path 不能为空")
+    is_local_file = Path(safe_file_path).is_file()
 
-    created = await create_import_job(safe_file_path)
+    if is_local_file:
+        created = await upload_import_file(safe_file_path)
+    else:
+        created = await create_import_job(safe_file_path)
     created_status = _status(created)
     job_id = _job_id(created)
     if created_status in {TERMINAL_SUCCESS_STATUS, TERMINAL_FAILED_STATUS}:

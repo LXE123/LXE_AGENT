@@ -23,8 +23,9 @@ type: default
 
 - 必填参数只有 `file_path`，缺失就先向用户追问，不执行。
 - 输入文件建议符合命名规范：`公司名-线路-YYYY.MM.DD.xlsx`。
-- `file_path` 必须是物流 API 服务所在机器能访问的路径。
-- 当前仓库通过 `LOGISTICS_API_BASE_URL` 连接物流 API，默认 `http://127.0.0.1:8000`。
+- `file_path` 可以是飞书下载得到的 agent 本机 Excel 路径；脚本会自动通过 HTTP 上传到物流 API。
+- 如果用户直接提供物流 API 服务所在机器可访问的路径，也可以原样执行。
+- 当前仓库通过 `LOGISTICS_API_BASE_URL` 连接物流 API；默认按配置开关连接远端 `http://192.168.1.142:8000`。
 
 固定执行：
 
@@ -32,7 +33,7 @@ type: default
 {
   "tool": "exec",
   "args": {
-    "command": "uv run --frozen python -X utf8 .\\scripts\\logistics_update_ingest.py --file-path \"{file_path}\""
+    "command": "uv run --frozen python -X utf8 -m scripts.logistics_update_ingest --file-path \"{file_path}\""
   }
 }
 ```
