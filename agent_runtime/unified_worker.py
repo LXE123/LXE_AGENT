@@ -226,6 +226,16 @@ async def handle_unified_turn_job(job: Any) -> Any:
         )
         if not pending_events:
             logger.info("[ExecNotify] heartbeat noop: owner_session_id=%s job_id=%s", session_id, job_id)
+            await update_agent_session(
+                session_id,
+                status=AgentSessionStatus.WAITING_USER_INPUT,
+                state_data_patch={
+                    RUNTIME_KEY: {
+                        "active_turn_id": "",
+                        "active_turn_started_at": 0,
+                    },
+                },
+            )
             return job_handled()
         formatted_events = _format_system_events(pending_events)
         heartbeat_prompt = (

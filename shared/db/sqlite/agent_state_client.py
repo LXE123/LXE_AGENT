@@ -16,6 +16,8 @@ from .agent_sessions import (
     cancel_agent_session,
     clear_agent_session_memory,
     create_agent_session,
+    discard_agent_session_pending_event,
+    has_agent_session_pending_events,
     load_active_agent_session,
     load_active_agent_session_by_owner,
     load_latest_agent_session_for_conversation,
@@ -224,6 +226,14 @@ def append_agent_session_pending_event_state(
     return append_agent_session_pending_event(session_id, event)
 
 
+def discard_agent_session_pending_event_state(session_id: str, job_id: str) -> int:
+    return discard_agent_session_pending_event(session_id, job_id)
+
+
+def has_agent_session_pending_events_state(session_id: str) -> bool:
+    return has_agent_session_pending_events(session_id)
+
+
 def pop_agent_session_pending_events_state(session_id: str):
     return pop_agent_session_pending_events(session_id)
 
@@ -244,7 +254,9 @@ __all__ = [
     "cancel_agent_session_state",
     "clear_agent_session_memory_state",
     "create_agent_session_state",
+    "discard_agent_session_pending_event_state",
     "dispose",
+    "has_agent_session_pending_events_state",
     "init_schema",
     "load_active_agent_session_state",
     "load_active_agent_session_state_by_owner",

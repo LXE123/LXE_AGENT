@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from agent_runtime.ipc_client import request_heartbeat_wake
 from shared.logging import logger
-from shared.db.client import append_agent_session_pending_event
+from shared.db.client import append_agent_session_pending_event, discard_agent_session_pending_event
 
 
 DEFAULT_YIELD_MS = 10_000.0
@@ -84,6 +84,8 @@ class ExecSession:
     notification_task: asyncio.Task[None] | None = field(default=None, repr=False)
     notify_on_exit: bool = False
     notified: bool = False
+    completion_consumed: bool = False
+    completion_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
 
 
 class SessionRegistry:
@@ -252,40 +254,50 @@ def _completion_event(session: ExecSession) -> dict[str, Any]:
 
 
 async def _notify_completion(session: ExecSession) -> None:
-    if session.notified or not session.notify_on_exit:
-        return
-    owner_session_id = str(session.owner_session_id or "").strip()
-    logger.info(
-        "[ExecNotify] notify start: exec_session_id=%s owner_session_id=%s origin_turn_id=%s status=%s exit_code=%s",
-        session.id,
-        owner_session_id,
-        str(session.origin_turn_id or "").strip(),
-        session.status.value,
-        session.exit_code,
-    )
-    if not owner_session_id:
-        logger.warning(
-            "[ExecNotify] notify skipped: exec_session_id=%s reason=missing_owner_session",
+    owner_session_id = ""
+    event: dict[str, Any] = {}
+    async with session.completion_lock:
+        if session.completion_consumed:
+            logger.info(
+                "[ExecNotify] notify skipped: exec_session_id=%s reason=completion_consumed",
+                session.id,
+            )
+            return
+        if session.notified or not session.notify_on_exit:
+            return
+        owner_session_id = str(session.owner_session_id or "").strip()
+        logger.info(
+            "[ExecNotify] notify start: exec_session_id=%s owner_session_id=%s origin_turn_id=%s status=%s exit_code=%s",
             session.id,
+            owner_session_id,
+            str(session.origin_turn_id or "").strip(),
+            session.status.value,
+            session.exit_code,
         )
-        return
-    event = _completion_event(session)
-    enqueued_session = await append_agent_session_pending_event(owner_session_id, event)
-    if enqueued_session is None:
-        logger.warning(
-            "[ExecNotify] event enqueue failed: exec_session_id=%s owner_session_id=%s event_id=%s reason=session_missing",
+        if not owner_session_id:
+            logger.warning(
+                "[ExecNotify] notify skipped: exec_session_id=%s reason=missing_owner_session",
+                session.id,
+            )
+            return
+        event = _completion_event(session)
+        enqueued_session = await append_agent_session_pending_event(owner_session_id, event)
+        if enqueued_session is None:
+            logger.warning(
+                "[ExecNotify] event enqueue failed: exec_session_id=%s owner_session_id=%s event_id=%s reason=session_missing",
+                session.id,
+                owner_session_id,
+                str(event.get("event_id") or "").strip(),
+            )
+            return
+        logger.info(
+            "[ExecNotify] event enqueued: exec_session_id=%s owner_session_id=%s event_id=%s job_id=%s",
             session.id,
             owner_session_id,
             str(event.get("event_id") or "").strip(),
+            str(event.get("job_id") or "").strip(),
         )
-        return
-    logger.info(
-        "[ExecNotify] event enqueued: exec_session_id=%s owner_session_id=%s event_id=%s job_id=%s",
-        session.id,
-        owner_session_id,
-        str(event.get("event_id") or "").strip(),
-        str(event.get("job_id") or "").strip(),
-    )
+
     await request_heartbeat_wake(session_id=owner_session_id, reason="exec-event")
     logger.info(
         "[ExecNotify] wake requested: exec_session_id=%s owner_session_id=%s event_id=%s heartbeat_reason=%s",
@@ -294,7 +306,9 @@ async def _notify_completion(session: ExecSession) -> None:
         str(event.get("event_id") or "").strip(),
         "exec-event",
     )
-    session.notified = True
+    async with session.completion_lock:
+        if not session.completion_consumed:
+            session.notified = True
     logger.info(
         "[ExecNotify] notify done: exec_session_id=%s owner_session_id=%s event_id=%s",
         session.id,
@@ -304,6 +318,12 @@ async def _notify_completion(session: ExecSession) -> None:
 
 
 def _schedule_completion_notification(session: ExecSession) -> None:
+    if session.completion_consumed:
+        logger.info(
+            "[ExecNotify] notify skipped: exec_session_id=%s reason=completion_consumed",
+            session.id,
+        )
+        return
     if session.notified:
         logger.info(
             "[ExecNotify] notify skipped: exec_session_id=%s reason=already_notified",
@@ -339,7 +359,8 @@ def _schedule_completion_notification(session: ExecSession) -> None:
                 exc,
                 exc_info=True,
             )
-            session.notified = False
+            if not session.completion_consumed:
+                session.notified = False
 
     session.notification_task = loop.create_task(_runner(), name=f"exec-notify:{session.id}")
 
@@ -400,6 +421,39 @@ async def _enforce_timeout(session: ExecSession, timeout_sec: float) -> None:
 
 def _duration_seconds(session: ExecSession) -> float:
     return round(((session.ended_at or time.time()) - session.started_at), 2)
+
+
+def _is_terminal_status(status: SessionStatus | str) -> bool:
+    value = status.value if isinstance(status, SessionStatus) else status
+    return str(value or "").strip() != SessionStatus.RUNNING.value
+
+
+async def _consume_completion(session: ExecSession, *, reason: str) -> bool:
+    if not _is_terminal_status(session.status):
+        return False
+    async with session.completion_lock:
+        if not _is_terminal_status(session.status) or session.completion_consumed:
+            return False
+        previous_notify_on_exit = bool(session.notify_on_exit)
+        session.completion_consumed = True
+        session.notify_on_exit = False
+        owner_session_id = str(session.owner_session_id or "").strip()
+        deleted = 0
+        try:
+            if owner_session_id:
+                deleted = await discard_agent_session_pending_event(owner_session_id, session.id)
+        except Exception:
+            session.completion_consumed = False
+            session.notify_on_exit = previous_notify_on_exit
+            raise
+        logger.info(
+            "[ExecNotify] completion consumed: exec_session_id=%s owner_session_id=%s reason=%s deleted_events=%s",
+            session.id,
+            owner_session_id,
+            str(reason or "").strip() or "process",
+            deleted,
+        )
+        return True
 
 
 def _completed_payload(session: ExecSession) -> dict[str, Any]:
@@ -585,6 +639,8 @@ async def process_exec_session(
             payload["duration_sec"] = _duration_seconds(session)
         if session.truncated:
             payload["truncated"] = True
+        if session.status != SessionStatus.RUNNING:
+            await _consume_completion(session, reason="process.poll")
         return payload
 
     if safe_action == "log":
@@ -603,6 +659,8 @@ async def process_exec_session(
             payload["message"] = f"还有 {len(lines) - end} 行。用 offset={end + 1} 继续。"
         if session.truncated:
             payload["truncated"] = True
+        if session.status != SessionStatus.RUNNING:
+            await _consume_completion(session, reason="process.log")
         return payload
 
     if safe_action == "write":

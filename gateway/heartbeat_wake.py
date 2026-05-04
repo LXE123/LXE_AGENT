@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from gateway.session_scheduler import SessionScheduler
 from shared.agent_ipc import AgentJob, HeartbeatWakeRequest
-from shared.db.client import load_agent_session
+from shared.db.client import has_agent_session_pending_events, load_agent_session
 from shared.logging import logger
 
 _NORMAL_DELAY_S = 0.25
@@ -123,6 +123,13 @@ class HeartbeatWakeManager:
         logger.info("[ExecNotify] wake batch start: count=%s", len(batch))
         try:
             for wake in batch:
+                if not await has_agent_session_pending_events(wake.session_id):
+                    logger.info(
+                        "[ExecNotify] wake dropped: owner_session_id=%s heartbeat_reason=%s reason=no_pending_events",
+                        wake.session_id,
+                        wake.reason,
+                    )
+                    continue
                 if self._scheduler.has_inflight_work(wake.session_id):
                     logger.info(
                         "[ExecNotify] wake deferred: owner_session_id=%s heartbeat_reason=%s reason=session_busy",

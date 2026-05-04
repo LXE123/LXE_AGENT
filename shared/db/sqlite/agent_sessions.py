@@ -288,6 +288,19 @@ def _count_pending_events(conn: Connection, session_id: str) -> int:
     return int(row["count"] if row is not None else 0)
 
 
+def _has_pending_events(conn: Connection, session_id: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM agent_session_pending_events
+        WHERE session_id = ?
+        LIMIT 1
+        """,
+        (session_id,),
+    ).fetchone()
+    return row is not None
+
+
 def _touch_session_row(conn: Connection, session_id: str, base_time: datetime) -> None:
     conn.execute(
         "UPDATE agent_sessions SET updated_at = ? WHERE session_id = ?",
@@ -828,6 +841,36 @@ def pop_agent_session_pending_events(session_id: str) -> list[dict[str, Any]]:
         return pending_events
 
 
+def discard_agent_session_pending_event(session_id: str, job_id: str) -> int:
+    safe_session_id = str(session_id or "").strip()
+    safe_job_id = str(job_id or "").strip()
+    if not safe_session_id or not safe_job_id:
+        return 0
+
+    with connection_scope() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        result = conn.execute(
+            """
+            DELETE FROM agent_session_pending_events
+            WHERE session_id = ? AND job_id = ?
+            """,
+            (safe_session_id, safe_job_id),
+        )
+        deleted = int(result.rowcount or 0)
+        if deleted > 0:
+            _touch_session_row(conn, safe_session_id, utc_now())
+        return deleted
+
+
+def has_agent_session_pending_events(session_id: str) -> bool:
+    safe_session_id = str(session_id or "").strip()
+    if not safe_session_id:
+        return False
+
+    with connection_scope() as conn:
+        return _has_pending_events(conn, safe_session_id)
+
+
 def cancel_agent_session(
     session_id: str,
     *,
@@ -938,6 +981,8 @@ __all__ = [
     "cleanup_orphaned_agent_services",
     "clear_agent_session_memory",
     "create_agent_session",
+    "discard_agent_session_pending_event",
+    "has_agent_session_pending_events",
     "load_active_agent_session",
     "load_active_agent_session_by_owner",
     "load_agent_session",

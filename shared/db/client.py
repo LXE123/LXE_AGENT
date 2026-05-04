@@ -258,6 +258,21 @@ async def append_agent_session_pending_event(session_id: str, event: dict[str, A
     )
 
 
+async def discard_agent_session_pending_event(session_id: str, job_id: str) -> int:
+    return await _run_db_call(
+        _agent_state.discard_agent_session_pending_event_state,
+        session_id,
+        job_id,
+    )
+
+
+async def has_agent_session_pending_events(session_id: str) -> bool:
+    return await _run_db_call(
+        _agent_state.has_agent_session_pending_events_state,
+        session_id,
+    )
+
+
 async def pop_agent_session_pending_events(session_id: str):
     return await _run_db_call(
         _agent_state.pop_agent_session_pending_events_state,
@@ -295,7 +310,9 @@ __all__ = [
     "clear_agent_session_memory",
     "create_agent_session",
     "create_card_context",
+    "discard_agent_session_pending_event",
     "dispose",
+    "has_agent_session_pending_events",
     "init_schema",
     "load_active_agent_session",
     "load_active_agent_session_by_owner",
