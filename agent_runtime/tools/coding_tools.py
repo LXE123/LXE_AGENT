@@ -789,6 +789,8 @@ def _project_python_executable() -> Path:
 
 
 def _quote_command_path(path: Path) -> str:
+    if os.name == "nt":
+        return f'& "{path}"'
     return f'"{path}"'
 
 
@@ -985,6 +987,7 @@ CODING_EXEC = ToolDefinition(
         "Execute shell commands. Returns result if command finishes within yield_ms "
         "(default 10s), otherwise backgrounds the command and returns a session ID. "
         "Use the process tool to check progress of backgrounded commands. "
+        "On Windows commands run in PowerShell by default; use cmd /c for cmd.exe syntax. "
         "Python and pip commands in this workspace are forced to use .venv."
     ),
     parameters={

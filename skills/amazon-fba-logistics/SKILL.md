@@ -15,7 +15,7 @@ type: amazon_store
 
 ## Hard Rules
 
-- 只使用固定 CLI：`python -m services.agent_cli.amazon_logistic.run`
+- 只使用固定 CLI：`uv run --frozen python -m services.agent_cli.amazon_logistic.run`
 - 不要尝试从 `shipment_no` 自动查询地址。
 - 不要自己解析装箱 Excel。
 - 不要猜测或改写收货地址。

@@ -22,7 +22,7 @@ type: amazon_store
 2. 使用紫鸟浏览器工具 `ziniao_browser` 中的 `open_store` 直接打开店铺（不要用 `attach_store`）。
 
 ### 注意 context 参数的输入格式
---context 必须是 JSON 对象，传给 cmd.exe 的 JSON 要用 双引号包起来
+--context 必须是 JSON 对象；用 `exec` 执行时按 PowerShell 字符串参数传入，保持 JSON 字段名和值使用双引号。
 ### 注意 
 - 你唯一要做的事就是根据所处阶段执行下面的 CLI 脚本，不要尝试自己操作网页，毫无意义。你只需要关心目前状况需要执行哪个 CLI 脚本。出问题直接丢给用户就行。
 -执行每一阶段的脚本后都可以直接结束当前对话，放心，系统后台会在任务有结果时通知你。
@@ -32,7 +32,7 @@ type: amazon_store
 ### 第一段：prepare_upload
 
 ```bash
-python -m services.agent_cli.browser.amazon_fba.prepare_upload --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
+uv run --frozen python -m services.agent_cli.browser.amazon_fba.prepare_upload --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
 ```
 
 用 `exec` 调用上述命令，然后按照下方 **CLI 结果解读规则** 处理返回。
@@ -45,7 +45,7 @@ python -m services.agent_cli.browser.amazon_fba.prepare_upload --context '{"stor
 前置条件：第一段已执行成功（`finished=true` 且无异常）。
 
 ```bash
-python -m services.agent_cli.browser.amazon_fba.prepare_multi_box_excel --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
+uv run --frozen python -m services.agent_cli.browser.amazon_fba.prepare_multi_box_excel --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
 ```
 
 同样按照 **CLI 结果解读规则** 处理返回。第二段特有判断：
@@ -56,7 +56,7 @@ python -m services.agent_cli.browser.amazon_fba.prepare_multi_box_excel --contex
 前置条件：第二段已执行成功，且 `notice` 对应自己的承运人页面。
 
 ```bash
-python -m services.agent_cli.browser.amazon_fba.confirm_own_carrier --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
+uv run --frozen python -m services.agent_cli.browser.amazon_fba.confirm_own_carrier --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
 ```
 
 第三段完成标志只有一个：
@@ -70,7 +70,7 @@ python -m services.agent_cli.browser.amazon_fba.confirm_own_carrier --context '{
 
 运行下面模块 CLI：
 ```bash
-python -m services.agent_cli.browser.amazon_fba.enter_tracking_codes --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
+uv run --frozen python -m services.agent_cli.browser.amazon_fba.enter_tracking_codes --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
 ```
 
 第四段完成标志：

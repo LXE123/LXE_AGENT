@@ -20,7 +20,7 @@ type: default
 {
   "tool": "exec",
   "args": {
-    "command": "uv run python -X utf8 \"skills/coze-workflow/scripts/ImgBackgroundBatchReplace.py\" --archive-file-path \"{archive_file_path}\" --prompt-text \"{prompt_text}\"",
+    "command": "uv run --frozen python -X utf8 \"skills/coze-workflow/scripts/ImgBackgroundBatchReplace.py\" --archive-file-path \"{archive_file_path}\" --prompt-text \"{prompt_text}\"",
     "background": true
   }
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 from dataclasses import dataclass, field
 from enum import Enum
@@ -27,6 +28,44 @@ DEFAULT_LOG_LIMIT = 2_000
 _COMMAND_LOG_PREVIEW = 160
 _TAIL_LOG_PREVIEW = 200
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _windows_powershell_encoded_command(command: str) -> str:
+    body = str(command or "").strip()
+    script = "\n".join(
+        [
+            "$ErrorActionPreference = 'Continue'",
+            "$ProgressPreference = 'SilentlyContinue'",
+            "$__lxe_utf8 = [System.Text.UTF8Encoding]::new($false)",
+            "[Console]::InputEncoding = $__lxe_utf8",
+            "[Console]::OutputEncoding = $__lxe_utf8",
+            "$OutputEncoding = $__lxe_utf8",
+            body,
+            "$__lxe_success = $?",
+            "$__lxe_last_exit_code = $global:LASTEXITCODE",
+            "if (-not $__lxe_success) {",
+            "    if ($__lxe_last_exit_code -is [int]) { exit $__lxe_last_exit_code }",
+            "    exit 1",
+            "}",
+            "exit 0",
+            "",
+        ]
+    )
+    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+
+
+def _windows_powershell_exec_args(command: str) -> list[str]:
+    return [
+        "powershell.exe",
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-OutputFormat",
+        "Text",
+        "-EncodedCommand",
+        _windows_powershell_encoded_command(command),
+    ]
 
 
 def _project_venv_scripts_dir() -> Path:
@@ -518,15 +557,26 @@ async def run_exec_command(
             origin_turn_id=origin_turn_id,
             exec_session_id=session.id,
         )
-        proc = await asyncio.create_subprocess_shell(
-            str(command or "").strip(),
-            cwd=str(cwd or "").strip(),
-            env=child_env,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            stdin=asyncio.subprocess.PIPE,
-            creationflags=creationflags,
-        )
+        if os.name == "nt":
+            proc = await asyncio.create_subprocess_exec(
+                *_windows_powershell_exec_args(str(command or "").strip()),
+                cwd=str(cwd or "").strip(),
+                env=child_env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                stdin=asyncio.subprocess.PIPE,
+                creationflags=creationflags,
+            )
+        else:
+            proc = await asyncio.create_subprocess_shell(
+                str(command or "").strip(),
+                cwd=str(cwd or "").strip(),
+                env=child_env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                stdin=asyncio.subprocess.PIPE,
+                creationflags=creationflags,
+            )
     except Exception as exc:
         session.status = SessionStatus.FAILED
         session.ended_at = time.time()

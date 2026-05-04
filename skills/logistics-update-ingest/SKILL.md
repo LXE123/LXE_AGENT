@@ -14,7 +14,7 @@ type: default
 
 先记住这些硬约束：
 
-- 不要调用外部项目的 CLI：`python -m logistics_ingest.cli.ingest_file`。
+- 不要调用外部项目的物流 ingest CLI。
 - 不要现场拼接内联 Python。
 - 不要直接调用物流 API；固定使用当前仓库的虚拟环境解释器和脚本。
 - 不要自己解析混杂日志；只解析脚本返回的最后一行 JSON。
