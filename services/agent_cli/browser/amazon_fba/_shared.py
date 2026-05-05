@@ -10,7 +10,7 @@ from services.agent_cli._shared.browser_session import browser_session
 from services.agent_cli._shared.context_json import (
     context_payload,
     merge_context_payloads,
-    parse_context_argument,
+    parse_context_file_argument,
 )
 from services.agent_cli.browser.amazon_common.region_switch import normalize_site_code
 from services.browser.workflows.amazon_fba_common import selected_store as _selected_store
@@ -26,14 +26,14 @@ _FBA_CLI_GATEWAY_IPC_CONFIGURED = False
 
 
 def build_parser(prog: str) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=prog)
-    parser.add_argument("--context")
+    parser = argparse.ArgumentParser(prog=prog, allow_abbrev=False)
+    parser.add_argument("--context-file")
     parser.add_argument("--timeout-sec", type=int, default=180)
     return parser
 
 
 def validate_args(args: argparse.Namespace) -> tuple[dict[str, str], int]:
-    context = parse_context_argument(getattr(args, "context", ""))
+    context = parse_context_file_argument(getattr(args, "context_file", ""))
     timeout_sec = max(30, int(getattr(args, "timeout_sec", 180) or 180))
     return context, timeout_sec
 

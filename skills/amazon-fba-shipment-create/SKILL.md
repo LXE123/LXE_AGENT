@@ -21,8 +21,19 @@ type: amazon_store
    - `transport_mode` — 运输方式业务输入，后续所有 CLI 结果都会原样回传
 2. 使用紫鸟浏览器工具 `ziniao_browser` 中的 `open_store` 直接打开店铺（不要用 `attach_store`）。
 
-### 注意 context 参数的输入格式
---context 必须是 JSON 对象；用 `exec` 执行时按 PowerShell 字符串参数传入，保持 JSON 字段名和值使用双引号。
+### 注意 context 文件的输入格式
+不要把 JSON 直接放进命令行参数。执行 CLI 前，先用 `write` 工具写入 `artifacts/amazon_fba/context_<consignment_no>.json`：
+
+```json
+{
+  "store_id": "<store_id>",
+  "site": "<site>",
+  "consignment_no": "<consignment_no>",
+  "transport_mode": "<transport_mode>"
+}
+```
+
+四段 CLI 都使用这个 JSON 文件路径作为 `--context-file` 参数。
 ### 注意 
 - 你唯一要做的事就是根据所处阶段执行下面的 CLI 脚本，不要尝试自己操作网页，毫无意义。你只需要关心目前状况需要执行哪个 CLI 脚本。出问题直接丢给用户就行。
 -执行每一阶段的脚本后都可以直接结束当前对话，放心，系统后台会在任务有结果时通知你。
@@ -32,7 +43,7 @@ type: amazon_store
 ### 第一段：prepare_upload
 
 ```bash
-uv run --frozen python -m services.agent_cli.browser.amazon_fba.prepare_upload --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
+uv run --frozen python -m services.agent_cli.browser.amazon_fba.prepare_upload --context-file "artifacts/amazon_fba/context_<consignment_no>.json"
 ```
 
 用 `exec` 调用上述命令，然后按照下方 **CLI 结果解读规则** 处理返回。
@@ -45,7 +56,7 @@ uv run --frozen python -m services.agent_cli.browser.amazon_fba.prepare_upload -
 前置条件：第一段已执行成功（`finished=true` 且无异常）。
 
 ```bash
-uv run --frozen python -m services.agent_cli.browser.amazon_fba.prepare_multi_box_excel --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
+uv run --frozen python -m services.agent_cli.browser.amazon_fba.prepare_multi_box_excel --context-file "artifacts/amazon_fba/context_<consignment_no>.json"
 ```
 
 同样按照 **CLI 结果解读规则** 处理返回。第二段特有判断：
@@ -56,7 +67,7 @@ uv run --frozen python -m services.agent_cli.browser.amazon_fba.prepare_multi_bo
 前置条件：第二段已执行成功，且 `notice` 对应自己的承运人页面。
 
 ```bash
-uv run --frozen python -m services.agent_cli.browser.amazon_fba.confirm_own_carrier --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
+uv run --frozen python -m services.agent_cli.browser.amazon_fba.confirm_own_carrier --context-file "artifacts/amazon_fba/context_<consignment_no>.json"
 ```
 
 第三段完成标志只有一个：
@@ -70,7 +81,7 @@ uv run --frozen python -m services.agent_cli.browser.amazon_fba.confirm_own_carr
 
 运行下面模块 CLI：
 ```bash
-uv run --frozen python -m services.agent_cli.browser.amazon_fba.enter_tracking_codes --context '{"store_id":"<store_id>","site":"<site>","consignment_no":"<consignment_no>","transport_mode":"<transport_mode>"}'
+uv run --frozen python -m services.agent_cli.browser.amazon_fba.enter_tracking_codes --context-file "artifacts/amazon_fba/context_<consignment_no>.json"
 ```
 
 第四段完成标志：
