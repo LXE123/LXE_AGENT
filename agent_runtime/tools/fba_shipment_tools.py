@@ -123,6 +123,25 @@ def _find_header_row(
     return None
 
 
+def _find_header_column(
+    worksheet: Any,
+    *,
+    header_row: int,
+    header_columns: dict[str, int],
+    header: str,
+) -> int:
+    normalized_header = _normalize_template_text(header)
+    if normalized_header in header_columns:
+        return int(header_columns[normalized_header])
+
+    max_col = max(1, int(getattr(worksheet, "max_column", 0) or 0))
+    for col_idx in range(1, max_col + 1):
+        normalized = _normalize_template_text(worksheet.cell(row=int(header_row), column=col_idx).value)
+        if normalized == normalized_header:
+            return col_idx
+    return 0
+
+
 def _select_template_sheet(
     workbook: Any,
     *,
@@ -213,7 +232,51 @@ def _clear_template_rows(
     max_row = int(getattr(worksheet, "max_row", 0) or 0)
     for row_idx in range(max(1, int(start_row)), max_row + 1):
         for col_idx in columns:
-            worksheet.cell(row=row_idx, column=int(col_idx), value=None)
+            worksheet.cell(row=row_idx, column=int(col_idx)).value = None
+
+
+def _merged_range_for_cell(worksheet: Any, *, row: int, column: int):
+    coordinate = worksheet.cell(row=int(row), column=int(column)).coordinate
+    for cell_range in getattr(getattr(worksheet, "merged_cells", None), "ranges", []) or []:
+        if coordinate in cell_range:
+            return cell_range
+    return None
+
+
+def _writable_cell(worksheet: Any, *, row: int, column: int):
+    cell_range = _merged_range_for_cell(worksheet, row=row, column=column)
+    if cell_range is not None:
+        return worksheet.cell(row=cell_range.min_row, column=cell_range.min_col)
+    return worksheet.cell(row=int(row), column=int(column))
+
+
+def _find_label_value_cell(
+    worksheet: Any,
+    label: str,
+    *,
+    search_row_limit: int = 40,
+    search_col_limit: int = 20,
+):
+    normalized_label = _normalize_template_text(label)
+    max_row = min(max(1, int(getattr(worksheet, "max_row", 0) or 0)), max(1, int(search_row_limit)))
+    max_col = min(max(1, int(getattr(worksheet, "max_column", 0) or 0)), max(1, int(search_col_limit)))
+
+    for row_idx in range(1, max_row + 1):
+        for col_idx in range(1, max_col + 1):
+            if _normalize_template_text(worksheet.cell(row=row_idx, column=col_idx).value) != normalized_label:
+                continue
+            value_col = col_idx + 1
+            label_range = _merged_range_for_cell(worksheet, row=row_idx, column=col_idx)
+            if label_range is not None and value_col <= int(label_range.max_col):
+                value_col = int(label_range.max_col) + 1
+            return _writable_cell(worksheet, row=row_idx, column=value_col)
+
+    raise RuntimeError(f"Amazon 非美国站模板中未找到字段: {label}")
+
+
+def _write_notus_default_owner_fields(worksheet: Any) -> None:
+    _find_label_value_cell(worksheet, "Default prep owner").value = "Seller"
+    _find_label_value_cell(worksheet, "Default labeling owner").value = "Seller"
 
 
 def _write_us_template(
@@ -243,19 +306,31 @@ def _write_notus_template(
 ) -> int:
     sku_col = int(header_columns[_normalize_template_text("Merchant SKU")])
     quantity_col = int(header_columns[_normalize_template_text("Quantity")])
-    prep_owner_col = quantity_col + 1
-    label_owner_col = quantity_col + 2
-    current_row = int(header_row) + 1
-    _clear_template_rows(
+    prep_owner_col = _find_header_column(
         worksheet,
-        start_row=current_row,
-        columns=(sku_col, quantity_col, prep_owner_col, label_owner_col),
+        header_row=header_row,
+        header_columns=header_columns,
+        header="Prep owner",
     )
+    label_owner_col = _find_header_column(
+        worksheet,
+        header_row=header_row,
+        header_columns=header_columns,
+        header="Labeling owner",
+    )
+    clear_columns = tuple(
+        dict.fromkeys(
+            col
+            for col in (sku_col, quantity_col, prep_owner_col, label_owner_col)
+            if int(col or 0) > 0
+        )
+    )
+    current_row = int(header_row) + 1
+    _write_notus_default_owner_fields(worksheet)
+    _clear_template_rows(worksheet, start_row=current_row, columns=clear_columns)
     for item in rows:
         worksheet.cell(row=current_row, column=sku_col, value=item["msku"])
         worksheet.cell(row=current_row, column=quantity_col, value=item["quantity"])
-        worksheet.cell(row=current_row, column=prep_owner_col, value="seller")
-        worksheet.cell(row=current_row, column=label_owner_col, value="seller")
         current_row += 1
     return len(rows)
 

@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 from services.agent_cli.browser.amazon_common.seller_central_url import (
     DEFAULT_SELLER_CENTRAL_ORIGIN,
-    build_seller_central_url,
 )
 from services.browser.browser.actions import (
     _download_dir_from_path,
@@ -205,9 +205,24 @@ def _download_dir_for_session(session: Any):
     return _download_dir_from_path(str(getattr(session, "download_path", "") or "").strip())
 
 
+def _current_page_origin(session: Any) -> str:
+    driver = getattr(session, "driver", None)
+    current_url = str(getattr(driver, "current_url", "") or "").strip()
+    parsed = urlsplit(current_url)
+    scheme = str(parsed.scheme or "").strip().lower()
+    netloc = str(parsed.netloc or "").strip()
+    if scheme in {"http", "https"} and netloc:
+        return f"{scheme}://{netloc}"
+    return DEFAULT_SELLER_CENTRAL_ORIGIN
+
+
+def build_send_to_amazon_url(session: Any) -> str:
+    return f"{_current_page_origin(session).rstrip('/')}{SEND_TO_AMAZON_PATH}"
+
+
 def open_send_to_amazon_upload_mode(session: Any, *, timeout_seconds: int = 60) -> dict[str, Any]:
     deadline = time.time() + max(10, int(timeout_seconds or 0))
-    session.open_url(build_seller_central_url(session, SEND_TO_AMAZON_PATH))
+    session.open_url(build_send_to_amazon_url(session))
     last_state: dict[str, Any] = {}
     start_new_clicked = False
 
@@ -333,6 +348,7 @@ def upload_filled_template(session: Any, filled_template_path: str, *, timeout_s
 __all__ = [
     "SEND_TO_AMAZON_PATH",
     "SEND_TO_AMAZON_URL",
+    "build_send_to_amazon_url",
     "download_template",
     "open_send_to_amazon_upload_mode",
     "upload_filled_template",
