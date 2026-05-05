@@ -9,6 +9,7 @@ from shared.config import config
 
 from .ziniao_client import ZiniaoClient
 from .ziniao_lifecycle import ZiniaoLifecycleManager
+from .ziniao_process import download_driver, kill_process, normalize_browser_version
 
 
 def _user_info() -> dict[str, str]:
@@ -56,7 +57,19 @@ class ZiniaoBrowserClient:
     def client(self) -> ZiniaoClient:
         return self._client
 
+    def _prepare_client_startup(self) -> None:
+        raw_version = getattr(config, "ZINIAO_BROWSER_VERSION", "") or os.getenv(
+            "ZINIAO_BROWSER_VERSION",
+            "v6",
+        )
+        browser_version = normalize_browser_version(
+            str(raw_version)
+        )
+        download_driver(str(getattr(config, "ZINIAO_WEBDRIVER_PATH", "") or "").strip())
+        kill_process(browser_version)
+
     def open_client(self) -> None:
+        self._prepare_client_startup()
         try:
             self._client.get_browser_list()
             resolved_pid = ZiniaoLifecycleManager.register_client(

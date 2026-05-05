@@ -18,6 +18,8 @@ services/browser/artifacts/
 
 tests/
 
+services/test_file/
+
 # IDE
 .vscode/
 .idea/
