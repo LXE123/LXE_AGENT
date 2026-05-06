@@ -14,7 +14,6 @@ from services.browser.browser.actions import (
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
 
 
-_READY_SKU_NOTICE_SELECTOR = '[data-testid="bold-translation"]'
 _MULTI_BOX_RADIO_SELECTOR = 'input[name="cli-input-method"][value="MULTI_BOX_WEBFORM"]'
 _BOX_COUNT_INPUT_SELECTOR = 'input[type="number"]'
 _DOWNLOAD_FILENAME_SELECTOR = '[data-testid="download-link-filename"]'
@@ -43,25 +42,6 @@ def _execute_page_script(driver: Any, script_body: str, *args):
 
 def _download_dir_for_session(session: Any):
     return _download_dir_from_path(str(getattr(session, "download_path", "") or "").strip())
-
-
-def _read_ready_sku_notice(driver: Any) -> str:
-    raw_notice = _execute_page_script(
-        driver,
-        """
-function cleanText(value) {
-  return String(value || '').replace(/\\s+/g, ' ').trim();
-}
-
-const root = deepQuerySelector(arguments[0]);
-if (!root) return '';
-const text = cleanText(root.innerText || root.textContent || '');
-if (!text.includes('准备发送的 SKU')) return '';
-return text;
-""",
-        _READY_SKU_NOTICE_SELECTOR,
-    )
-    return str(raw_notice or "").strip()
 
 
 def _read_download_filename_notice(driver: Any) -> str:
@@ -503,14 +483,7 @@ def _wait_for_notice(reader, *, timeout_seconds: int, interval_seconds: float = 
 
 def probe_multi_box_ready(session: Any, *, timeout_seconds: int = 10) -> dict[str, Any]:
     deadline = time.time() + max(1, min(int(timeout_seconds or 0), 10))
-    notice = ""
     while time.time() < deadline:
-        notice = str(_read_ready_sku_notice(session.driver) or "").strip()
-        if notice:
-            return {
-                "ready": True,
-                "notice": notice,
-            }
         if _has_multi_box_radio(session.driver):
             return {
                 "ready": True,
@@ -518,8 +491,8 @@ def probe_multi_box_ready(session: Any, *, timeout_seconds: int = 10) -> dict[st
             }
         time.sleep(0.5)
     return {
-        "ready": bool(notice),
-        "notice": notice,
+        "ready": False,
+        "notice": "",
     }
 
 

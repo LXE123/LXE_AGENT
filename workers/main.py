@@ -12,7 +12,6 @@ from agent_runtime.unified_worker import handle_unified_turn_job
 from shared.agent_ipc import AgentJob
 from shared.config import config
 from shared.db.client import dispose as dispose_shared_state, init_schema
-from shared.db.fba_pricing_state_client import dispose as dispose_fba_pricing_state
 from shared.infra.net import close_all_network_clients
 from shared.logging import logger
 
@@ -246,7 +245,6 @@ async def main_async(
         loop.set_exception_handler(default_exception_handler)
         await server.stop()
         await close_all_network_clients()
-        dispose_fba_pricing_state()
         dispose_shared_state()
         logger.info("👋 [Worker] 已停止")
     if server.fatal_exit_code:

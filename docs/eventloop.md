@@ -11,7 +11,7 @@ It is not a design-history file anymore. The old `OLD / NEW / Aggressive` compar
 3. DingTalk message entry and card callback entry are both fast-ack only.
 4. Heavy business work runs through the managed task pool.
 5. Browser auth does not run on the main loop. It is delegated to `browser_auth_service`.
-6. Database access stays sync internally, but async callers reach it through client wrappers that offload work to thread pools. Agent shared-state uses SQLite; FBA pricing still uses PostgreSQL.
+6. Database access stays sync internally, but async callers reach it through client wrappers that offload work to thread pools. Agent shared-state uses SQLite; FBA logistics pricing is handled by the remote logistics API.
 
 ## Deployment Baseline
 
@@ -60,16 +60,14 @@ flowchart TD
     V --> W["browser_auth_service subprocess"]
 
     O --> X["clients/database/shared_state_client.py<br/>async wrapper"]
-    P --> Z["clients/database/fba_pricing_state_client.py<br/>async wrapper"]
+    P --> Z["remote logistics API<br/>HTTP client"]
     R --> X
     S --> X
     T --> X
 
     X --> X1["thread pool"]
-    Z --> Z1["thread pool"]
 
     X1 --> X2["sqlite/agent_*<br/>sync sqlite3"]
-    Z1 --> Z2["postgresql/fba_pricing_state/*<br/>sync SQLAlchemy"]
 
     A --> AA["APScheduler thread<br/>daily cleanup only"]
 
@@ -78,8 +76,8 @@ flowchart TD
     classDef io fill:#fff6df,stroke:#b88a2a,color:#000;
 
     class C,D,E,F,I,J loop;
-    class K,L,M,N,O,P,Q,R,S,T,U,V,X,Z,X1,Z1 safe;
-    class W,X2,Z2,AA io;
+    class K,L,M,N,O,P,Q,R,S,T,U,V,X,Z,X1 safe;
+    class W,X2,AA io;
 ```
 # Event Loop Error Report
 

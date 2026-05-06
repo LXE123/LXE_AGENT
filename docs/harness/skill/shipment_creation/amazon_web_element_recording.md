@@ -157,6 +157,15 @@ https://sellercentral.amazon.com/fba/sendtoamazon?ref=fbacentral_nav_fba
 ```html
 <div class="display-block"><kat-icon name="checkmark" class="placement-group-tile-selected-icon" size="small"></kat-icon><h5 class="">亚马逊运营中心</h5><div class="shipment-destination-tile-content"><div data-testid="afn-content"><div data-testid="afn-overview" class="margin-bottom-8px"><b>1 至 5 个货件</b></div><div data-testid="afn-benefits"><div class="flex flex-gap-half-rem margin-bottom-4px flex-align-center"><img src="https://db6vplsgwgjo.cloudfront.net/fba/sendtoamazon/images/PaidService.8e0e6d390d1cecda621e.png" width="32" height="32" alt="Afn-PaidService">配置服务费用因货件拆分而异</div><div class="flex flex-gap-half-rem margin-bottom-4px flex-align-center"><img src="https://db6vplsgwgjo.cloudfront.net/fba/sendtoamazon/images/Warehouse.b79c576562598e808a90.png" width="32" height="32" alt="Warehouse">库存满足近期买家需求的最佳选择</div></div></div></div></div>
 ```
+第三阶段另一种可能性
+点击这个出现下拉框
+```html
+<div class="select-header" part="dropdown-header" id="katal-id-508" title="亚马逊合作承运人" tabindex="0"> <div class="header-row"> <div class="header-row-text value"> <div class="selection-text"> <slot name="selected-option"><!----><!----><!---->亚马逊合作承运人<!----><!----><!----></slot> </div> <div class="placeholder-text hidden"> <slot name="placeholder"><!---->选择承运人类型<!----></slot> </div> <div class="header-row-overflow"></div> </div>  <div class="indicator"> <kat-icon size="small" name="chevron-down"></kat-icon> </div> </div> </div>
+```
+下拉框里选择这个
+```html
+<div class="standard-option-content"> <div class="standard-option-name"><!---->非亚马逊合作承运人<!----></div> <div class="standard-option-icon"><!----><!----></div> </div>
+```
 
 第三步选择配送方式（自己的承运人）
 ```html
@@ -184,7 +193,7 @@ https://sellercentral.amazon.com/fba/sendtoamazon?ref=fbacentral_nav_fba
 
 点击这个会出来一个弹窗，让用户选择日期
 ```html
-<span class="container"> <input part="input" id="katal-id-557" type="text" spellcheck="false" inputmode="" enterkeyhint="">  <span class="ring"></span> </span>
+<kat-input data-testid="plan-delivery-window-input" value="2026年5月6日" size="large" type="text" unique-id="katal-id-719" inputmode="" enterkeyhint="" class="touched"><span slot="private-light-dom" style="max-width: 0px; max-height: 0px; overflow: hidden;"></span></kat-input>
 ```
 弹窗里的日历，用来选择日期
 ```html
