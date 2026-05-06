@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_runtime.packs.browser.driver_session import attached_driver, check_ip, open_launcher_page
+from agent_runtime.packs.browser.driver_session import (
+    attached_driver,
+    check_ip,
+    open_launcher_page,
+    select_first_normal_tab,
+)
 from services.browser.store.store_session_service import StoreSessionService
 from services.browser.store.ziniao_browser_client import ZiniaoBrowserClient
 from services.browser.store.ziniao_lifecycle import ZiniaoLifecycleManager
@@ -173,6 +178,7 @@ def dispatch_ziniao_browser(runtime: Any, arguments: dict[str, Any], *, output_d
                 browser_path=str(store_session.browser_path or "").strip(),
                 debugging_port=int(store_session.debugging_port or 0),
             ) as driver:
+                select_first_normal_tab(driver, allow_blank=True)
                 if not check_ip(driver, ip_detection_page):
                     raise RuntimeError("紫鸟 IP 检测失败")
                 open_launcher_page(driver, launcher_page)

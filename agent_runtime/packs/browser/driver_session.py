@@ -45,6 +45,91 @@ def detach_driver(driver: Any) -> None:
         pass
 
 
+def is_normal_tab_url(url: str, *, allow_blank: bool = False) -> bool:
+    text = str(url or "").strip().lower()
+    if allow_blank and text == "about:blank":
+        return True
+    return text.startswith("http://") or text.startswith("https://")
+
+
+def _safe_current_url(driver: Any) -> str:
+    try:
+        return str(getattr(driver, "current_url", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def _safe_title(driver: Any) -> str:
+    try:
+        return str(getattr(driver, "title", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def list_browser_tabs(driver: Any) -> list[dict[str, str]]:
+    if driver is None:
+        return []
+
+    try:
+        handles = list(getattr(driver, "window_handles", []) or [])
+    except Exception:
+        handles = []
+
+    try:
+        original_handle = str(getattr(driver, "current_window_handle", "") or "").strip()
+    except Exception:
+        original_handle = ""
+
+    tabs: list[dict[str, str]] = []
+    for handle in handles:
+        safe_handle = str(handle or "").strip()
+        try:
+            driver.switch_to.window(handle)
+            tabs.append(
+                {
+                    "handle": safe_handle,
+                    "url": _safe_current_url(driver),
+                    "title": _safe_title(driver),
+                }
+            )
+        except Exception as exc:
+            tabs.append(
+                {
+                    "handle": safe_handle,
+                    "url": "",
+                    "title": f"无法读取标签页: {str(exc).strip()}",
+                }
+            )
+
+    if original_handle:
+        try:
+            driver.switch_to.window(original_handle)
+        except Exception:
+            pass
+
+    return tabs
+
+
+def _format_tab_summary(tabs: list[dict[str, str]]) -> str:
+    if not tabs:
+        return "(no tabs)"
+    lines: list[str] = []
+    for index, tab in enumerate(tabs, start=1):
+        title = str(tab.get("title") or "").strip() or "-"
+        url = str(tab.get("url") or "").strip() or "-"
+        lines.append(f"{index}. title={title} url={url}")
+    return "; ".join(lines)
+
+
+def select_first_normal_tab(driver: Any, *, allow_blank: bool = False) -> dict[str, str]:
+    tabs = list_browser_tabs(driver)
+    for tab in tabs:
+        if is_normal_tab_url(str(tab.get("url") or ""), allow_blank=allow_blank):
+            driver.switch_to.window(tab["handle"])
+            return dict(tab)
+    raise RuntimeError(f"未找到可操作的普通页面。当前标签页: {_format_tab_summary(tabs)}")
+
+
 @contextmanager
 def attached_driver(*, browser_path: str, debugging_port: int) -> Iterator[Any]:
     driver = create_driver(browser_path=browser_path, debugging_port=debugging_port)
@@ -85,5 +170,8 @@ __all__ = [
     "check_ip",
     "create_driver",
     "detach_driver",
+    "is_normal_tab_url",
+    "list_browser_tabs",
     "open_launcher_page",
+    "select_first_normal_tab",
 ]

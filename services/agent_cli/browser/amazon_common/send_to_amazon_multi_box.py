@@ -15,6 +15,7 @@ from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
 
 
 _MULTI_BOX_RADIO_SELECTOR = 'input[name="cli-input-method"][value="MULTI_BOX_WEBFORM"]'
+_STEP1_CONTINUE_SELECTOR = '[data-testid="step1-continue"]'
 _BOX_COUNT_INPUT_SELECTOR = 'input[type="number"]'
 _DOWNLOAD_FILENAME_SELECTOR = '[data-testid="download-link-filename"]'
 _STEP2_UPLOAD_FILE_INPUT_SELECTOR = 'input[type="file"]'
@@ -218,6 +219,8 @@ return null;
 
 
 def _click_pack_single_units_button(driver: Any) -> bool:
+    if _click_first_matching(driver, (_STEP1_CONTINUE_SELECTOR,)):
+        return True
     return _click_button_by_text(driver, "包装单件商品")
 
 
@@ -496,14 +499,34 @@ def probe_multi_box_ready(session: Any, *, timeout_seconds: int = 10) -> dict[st
     }
 
 
+def advance_to_multi_box_entry(session: Any, *, timeout_seconds: int = 60) -> dict[str, Any]:
+    deadline = time.time() + max(10, int(timeout_seconds or 0))
+    clicked_continue = False
+
+    while time.time() < deadline:
+        if _has_multi_box_radio(session.driver):
+            return {
+                "ready": True,
+                "notice": "已进入包装箱输入方式选择页面",
+            }
+
+        if not clicked_continue and _click_pack_single_units_button(session.driver):
+            clicked_continue = True
+            time.sleep(1.0)
+            continue
+
+        time.sleep(0.5)
+
+    raise RuntimeError("等待进入多包装箱流程超时")
+
+
 def generate_multi_box_excel(session: Any, box_count: int, *, timeout_seconds: int = 60) -> dict[str, Any]:
     safe_box_count = int(box_count or 0)
     if safe_box_count <= 0:
         raise RuntimeError(f"箱数必须大于 0: {box_count}")
 
     if not _has_multi_box_radio(session.driver):
-        _wait_for_click("包装单件商品按钮", lambda: _click_pack_single_units_button(session.driver), timeout_seconds=timeout_seconds)
-        time.sleep(1.0)
+        raise RuntimeError("当前页面未进入多包装箱流程")
 
     _wait_for_click("需要多个包装箱单选框", lambda: _click_multi_box_radio(session.driver), timeout_seconds=timeout_seconds)
     time.sleep(0.5)
@@ -644,6 +667,7 @@ def confirm_and_continue_to_own_carrier(session: Any, *, timeout_seconds: int = 
 
 
 __all__ = [
+    "advance_to_multi_box_entry",
     "confirm_and_continue_to_own_carrier",
     "download_generated_multi_box_template",
     "generate_multi_box_excel",

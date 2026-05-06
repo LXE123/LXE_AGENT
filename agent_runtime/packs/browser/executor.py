@@ -8,7 +8,7 @@ from typing import Any, Iterator
 from shared.agent_state import ensure_agent_state, runtime_patch_from_state
 from shared.logging import logger
 
-from agent_runtime.packs.browser.driver_session import attached_driver
+from agent_runtime.packs.browser.driver_session import attached_driver, select_first_normal_tab
 from agent_runtime.packs.browser.dispatcher import dispatch_ziniao_browser, dispatch_ziniao_page
 from agent_runtime.packs.browser.models import ExecuteToolResult
 from agent_runtime.packs.browser.tools import build_browser_tool_call
@@ -58,6 +58,7 @@ def _page_workflow_session(runtime: Any, *, store_id: str, output_dir: Path) -> 
             )
             driver = driver_context.__enter__()
         try:
+            select_first_normal_tab(driver)
             workflow_session = WorkflowBrowserSession(
                 driver=driver,
                 state_data=ensure_agent_state(getattr(runtime, "state_data", {}) or {}),

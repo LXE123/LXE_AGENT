@@ -6,7 +6,7 @@ from typing import Any, Iterator
 
 from shared.agent_state import ensure_agent_state
 from shared.db.sqlite import agent_state_client as shared_state_client
-from agent_runtime.packs.browser.driver_session import attached_driver
+from agent_runtime.packs.browser.driver_session import attached_driver, select_first_normal_tab
 from services.browser.store.store_session_service import StoreSessionService
 from services.browser.workflows.amazon_fba_common import WorkflowBrowserSession
 
@@ -49,6 +49,7 @@ def browser_session(
         )
         driver = driver_context.__enter__()
     try:
+        select_first_normal_tab(driver)
         yield WorkflowBrowserSession(
             driver=driver,
             state_data=state_data,

@@ -12,6 +12,7 @@ from services.agent_cli.browser.amazon_common.send_to_amazon import (
     open_send_to_amazon_upload_mode,
     upload_filled_template,
 )
+from services.agent_cli.browser.amazon_common.send_to_amazon_multi_box import advance_to_multi_box_entry
 from services.browser.models.protocol import bind_event_writer
 from services.browser.workflows.amazon_fba_common import (
     WorkflowBrowserSession,
@@ -42,6 +43,7 @@ def run_prepare_upload_workflow(
     open_upload_mode_fn: Callable[..., dict[str, Any]] = open_send_to_amazon_upload_mode,
     download_template_fn: Callable[..., dict[str, Any]] = download_template,
     upload_template_fn: Callable[..., dict[str, Any]] = upload_filled_template,
+    advance_multi_box_entry_fn: Callable[..., dict[str, Any]] = advance_to_multi_box_entry,
 ) -> dict[str, Any]:
     _ = event_writer
     try:
@@ -119,6 +121,7 @@ def run_prepare_upload_workflow(
             if not filled_template_path:
                 raise RuntimeError("Amazon 模板填写完成后未返回 filled_template_path")
             upload_payload = dict(upload_template_fn(workflow_session, filled_template_path, timeout_seconds=timeout_sec) or {})
+            entry_payload = dict(advance_multi_box_entry_fn(workflow_session, timeout_seconds=timeout_sec) or {})
         except Exception as exc:
             return _result_with_details(
                 params_ready=True,
@@ -133,8 +136,10 @@ def run_prepare_upload_workflow(
             )
 
         upload_notice = str(upload_payload.get("notice") or "").strip()
-        if upload_notice:
-            notice = f"第一阶段完成，{upload_notice}，{_PREPARE_UPLOAD_DONE_NOTICE_SUFFIX}"
+        entry_notice = str(entry_payload.get("notice") or "").strip()
+        details = [text for text in (upload_notice, entry_notice) if text]
+        if details:
+            notice = f"第一阶段完成，{'，'.join(details)}，{_PREPARE_UPLOAD_DONE_NOTICE_SUFFIX}"
         else:
             notice = f"第一阶段完成，{_PREPARE_UPLOAD_DONE_NOTICE_SUFFIX}"
 
