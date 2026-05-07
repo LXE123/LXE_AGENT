@@ -72,35 +72,34 @@ def extract_box_count_from_consignment_excel(excel_path: str | Path) -> int:
     target_sheet = "FBA装箱任务" if "FBA装箱任务" in sheet_names else sheet_names[0]
 
     try:
-        df = pd.read_excel(excel_file, sheet_name=target_sheet, header=None)
+        df = pd.read_excel(excel_file, sheet_name=target_sheet)
     except Exception as exc:
         raise RuntimeError(f"读取托运单 Excel sheet 失败: {excel_file.name}#{target_sheet}, error={exc}") from exc
 
     if df.empty or int(df.shape[1] or 0) <= 0:
-        raise RuntimeError(f"托运单 Excel 第一列为空: {excel_file.name}")
+        raise RuntimeError(f"托运单 Excel 为空: {excel_file.name}")
+    if "箱编号" not in df.columns:
+        raise RuntimeError(f"托运单 Excel 缺少 箱编号 列: {excel_file.name}")
 
-    series = df.iloc[:, 0]
-    values = []
-    for item in list(series):
+    box_numbers: list[int] = []
+    for item in list(df["箱编号"]):
         text = str(item or "").strip()
         if not text or text.lower() == "nan":
             continue
-        values.append(item)
-    if not values:
-        raise RuntimeError(f"托运单 Excel 第一列没有有效箱数: {excel_file.name}")
-
-    raw_value = values[-1]
-    try:
-        numeric = float(raw_value)
-    except Exception as exc:
-        raise RuntimeError(f"托运单 Excel 第一列最后一行不是数字: {raw_value}") from exc
-    rounded = round(numeric)
-    if abs(numeric - rounded) > 1e-6:
-        raise RuntimeError(f"托运单 Excel 箱数不是整数: {raw_value}")
-    box_count = int(rounded)
-    if box_count <= 0:
-        raise RuntimeError(f"托运单 Excel 箱数必须大于 0: {raw_value}")
-    return box_count
+        try:
+            numeric = float(text)
+        except Exception as exc:
+            raise RuntimeError(f"托运单 Excel 箱编号 不是数字: {item}") from exc
+        rounded = round(numeric)
+        if abs(numeric - rounded) > 1e-6:
+            raise RuntimeError(f"托运单 Excel 箱编号 不是整数: {item}")
+        box_number = int(rounded)
+        if box_number <= 0:
+            raise RuntimeError(f"托运单 Excel 箱编号 必须大于 0: {item}")
+        box_numbers.append(box_number)
+    if not box_numbers:
+        raise RuntimeError(f"托运单 Excel 箱编号 列没有有效箱号: {excel_file.name}")
+    return max(box_numbers)
 
 
 def run_prepare_multi_box_excel_workflow(

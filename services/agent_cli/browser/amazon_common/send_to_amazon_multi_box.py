@@ -25,9 +25,9 @@ _STEP2_UPLOAD_WARNING_SELECTOR = '[data-testid="inbound-problem-message"]'
 _STEP2_UPLOAD_SUCCESS_SELECTOR = '[data-testid="pack-group-success-results"]'
 _CONFIRM_AND_CONTINUE_SELECTOR = '[data-testid="confirm-and-continue"]'
 _WORKFLOW_LOADING_LABEL_SELECTOR = '[data-testid="workflow-loading-label"]'
-_PLACEMENT_GROUP_SELECTED_ICON_SELECTOR = '.placement-group-tile-selected-icon'
-_AMAZON_OPERATIONS_CENTER_TITLE = "亚马逊运营中心"
-_AMAZON_OPERATIONS_CENTER_READY_NOTICE = "已进入亚马逊运营中心步骤"
+_STEP_HEADER_TITLE_SELECTOR = 'h4[data-testid="step-header-title"]'
+_STEP_HEADER_CHECKMARK_SELECTOR = 'kat-icon[data-testid="header-checkmark"][name="check"]'
+_PACK_SINGLE_UNITS_COMPLETED_NOTICE = "已完成包装单件商品步骤"
 _STEP2_UPLOAD_VALIDATE_WAIT_SECONDS = 60
 _STEP2_UPLOAD_RESULT_WAIT_SECONDS = 60
 _STEP2_UPLOAD_ALLOWLISTED_WARNING_MARKERS = (
@@ -62,39 +62,6 @@ return cleanText(root.innerText || root.textContent || '');
     return str(raw_notice or "").strip()
 
 
-def _read_amazon_operations_center_notice(driver: Any) -> str:
-    raw_notice = _execute_page_script(
-        driver,
-        """
-function cleanText(value) {
-  return String(value || '').replace(/\\s+/g, ' ').trim();
-}
-
-const selectedIconSelector = String(arguments[0] || '');
-const expectedTitle = cleanText(arguments[1]);
-for (const icon of deepQuerySelectorAll(selectedIconSelector)) {
-  let current = icon;
-  for (let depth = 0; depth < 8 && current; depth += 1) {
-    const title = deepQuerySelector('h5', current);
-    const text = cleanText(title?.innerText || title?.textContent || '');
-    if (text === expectedTitle) {
-      return text;
-    }
-    const rootNode = typeof current.getRootNode === 'function' ? current.getRootNode() : null;
-    current = current.parentElement || (rootNode && rootNode.host ? rootNode.host : null);
-  }
-}
-return '';
-""",
-        _PLACEMENT_GROUP_SELECTED_ICON_SELECTOR,
-        _AMAZON_OPERATIONS_CENTER_TITLE,
-    )
-    notice = str(raw_notice or "").strip()
-    if notice == _AMAZON_OPERATIONS_CENTER_TITLE:
-        return _AMAZON_OPERATIONS_CENTER_READY_NOTICE
-    return ""
-
-
 def _slow_workflow_loading_visible(driver: Any) -> bool:
     return bool(
         _execute_page_script(
@@ -106,6 +73,44 @@ return Boolean(root);
             _WORKFLOW_LOADING_LABEL_SELECTOR,
         )
     )
+
+
+def _read_pack_single_units_completed_notice(driver: Any) -> str:
+    raw_notice = _execute_page_script(
+        driver,
+        """
+function cleanText(value) {
+  return String(value || '').replace(/\\s+/g, ' ').trim();
+}
+
+const titleSelector = String(arguments[0] || '');
+const checkmarkSelector = String(arguments[1] || '');
+const doneNotice = String(arguments[2] || '');
+
+for (const title of deepQuerySelectorAll(titleSelector)) {
+  const titleText = cleanText(title.innerText || title.textContent || '');
+  if (!titleText.includes('第 1b') || !titleText.includes('包装单件商品')) continue;
+
+  let current = title;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    const rowText = cleanText(current.innerText || current.textContent || '');
+    const classText = cleanText(current.getAttribute ? current.getAttribute('class') || '' : '');
+    const isHeaderRow = classText.includes('flexRow') || classText.includes('flex-row');
+    if (isHeaderRow && rowText.includes('第 1b') && rowText.includes('包装单件商品')) {
+      const checkmark = deepQuerySelector(checkmarkSelector, current);
+      return checkmark ? doneNotice : '';
+    }
+    const rootNode = typeof current.getRootNode === 'function' ? current.getRootNode() : null;
+    current = current.parentElement || (rootNode && rootNode.host ? rootNode.host : null);
+  }
+}
+return '';
+""",
+        _STEP_HEADER_TITLE_SELECTOR,
+        _STEP_HEADER_CHECKMARK_SELECTOR,
+        _PACK_SINGLE_UNITS_COMPLETED_NOTICE,
+    )
+    return str(raw_notice or "").strip()
 
 
 def _has_multi_box_radio(driver: Any) -> bool:
@@ -651,7 +656,7 @@ def confirm_and_continue_to_own_carrier(session: Any, *, timeout_seconds: int = 
 
     while remaining_budget > 0:
         loop_started = time.time()
-        notice = _read_amazon_operations_center_notice(session.driver)
+        notice = _read_pack_single_units_completed_notice(session.driver)
         if notice:
             return {"notice": notice}
         if not clicked and _click_confirm_and_continue_button(session.driver):
@@ -663,7 +668,7 @@ def confirm_and_continue_to_own_carrier(session: Any, *, timeout_seconds: int = 
         if not _slow_workflow_loading_visible(session.driver):
             remaining_budget -= elapsed
 
-    raise RuntimeError("等待第三步自己的承运人页面出现超时")
+    raise RuntimeError("等待第 1b 步包装单件商品完成超时")
 
 
 __all__ = [
