@@ -39,6 +39,7 @@ _TEMPLATE_UPLOAD_BUTTON_SELECTORS = (
 _UPLOAD_SUCCESS_NOTICE_SELECTORS = (
     '[data-testid="bold-translation"]',
 )
+_AGL_ELIGIBLE_CHECKBOX_SELECTOR = 'kat-checkbox[data-testid="agl-eligible-checkbox"]'
 
 
 def _execute_page_script(driver: Any, script_body: str, *args):
@@ -145,6 +146,118 @@ def _click_file_upload_mode(driver: Any) -> bool:
     return _click_first_matching(driver, _FILE_UPLOAD_MODE_SELECTORS)
 
 
+def _read_agl_checkbox_state(driver: Any) -> dict[str, Any]:
+    result = _execute_page_script(
+        driver,
+        """
+const selector = String(arguments[0] || '');
+const checkbox = deepQuerySelector(selector);
+if (!checkbox) {
+  return { found: false, checked: false };
+}
+
+const root = checkbox.shadowRoot || checkbox;
+const checkNode = deepQuerySelector('div[part~="checkbox-check"][role="checkbox"], [part~="checkbox-check"][role="checkbox"], [role="checkbox"]', checkbox);
+const innerInput = deepQuerySelector('input[type="checkbox"]', root);
+const checked = Boolean(
+  checkbox.checked === true ||
+  checkbox.hasAttribute('checked') ||
+  checkbox.getAttribute('aria-checked') === 'true' ||
+  (checkNode && (
+    checkNode.getAttribute('aria-checked') === 'true' ||
+    String(checkNode.className || '').split(/\\s+/).includes('checked')
+  )) ||
+  (innerInput && (innerInput.checked === true || innerInput.getAttribute('aria-checked') === 'true'))
+);
+return { found: true, checked };
+""",
+        _AGL_ELIGIBLE_CHECKBOX_SELECTOR,
+    )
+    return dict(result or {})
+
+
+def _click_agl_checkbox(driver: Any) -> bool:
+    return bool(
+        _execute_page_script(
+            driver,
+            """
+const selector = String(arguments[0] || '');
+const checkbox = deepQuerySelector(selector);
+if (!checkbox || checkbox.hasAttribute('disabled') || checkbox.getAttribute('aria-disabled') === 'true') {
+  return false;
+}
+const checkNode = deepQuerySelector('div[part~="checkbox-check"][role="checkbox"], [part~="checkbox-check"][role="checkbox"], [role="checkbox"]', checkbox);
+if (checkNode && (
+  checkNode.getAttribute('aria-disabled') === 'true' ||
+  checkNode.hasAttribute('disabled')
+)) {
+  return false;
+}
+
+function clickElement(el) {
+  if (!el) return false;
+  try {
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+  } catch (error) {}
+  try {
+    if (el.focus) el.focus();
+  } catch (error) {}
+  const eventTypes = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+  for (const type of eventTypes) {
+    try {
+      const EventClass = type.startsWith('pointer') && window.PointerEvent ? PointerEvent : MouseEvent;
+      el.dispatchEvent(new EventClass(type, { bubbles: true, cancelable: true, view: window }));
+    } catch (error) {
+      try {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      } catch (innerError) {}
+    }
+  }
+  try {
+    el.click();
+    return true;
+  } catch (error) {}
+  return true;
+}
+
+const root = checkbox.shadowRoot || checkbox;
+const innerTarget = deepQuerySelector('input[type="checkbox"], [role="checkbox"], button', root);
+if (clickElement(checkNode)) return true;
+if (clickElement(innerTarget)) return true;
+return clickElement(checkbox);
+""",
+            _AGL_ELIGIBLE_CHECKBOX_SELECTOR,
+        )
+    )
+
+
+def _ensure_agl_unchecked(driver: Any, *, timeout_seconds: float = 5.0) -> dict[str, Any]:
+    state = _read_agl_checkbox_state(driver)
+    if not bool(state.get("found")) or not bool(state.get("checked")):
+        return {
+            "found": bool(state.get("found")),
+            "checked": bool(state.get("checked")),
+            "clicked": False,
+        }
+
+    if not _click_agl_checkbox(driver):
+        raise RuntimeError("取消亚马逊全球物流勾选失败")
+
+    deadline = time.time() + max(0.5, float(timeout_seconds or 0))
+    last_state = state
+    while time.time() < deadline:
+        time.sleep(0.2)
+        last_state = _read_agl_checkbox_state(driver)
+        if not bool(last_state.get("found")) or not bool(last_state.get("checked")):
+            return {
+                "found": bool(last_state.get("found")),
+                "checked": bool(last_state.get("checked")),
+                "clicked": True,
+            }
+
+    raise RuntimeError("取消亚马逊全球物流勾选失败")
+
+
 def _click_template_download(driver: Any) -> bool:
     return _click_first_matching(driver, _TEMPLATE_DOWNLOAD_SELECTORS)
 
@@ -223,12 +336,19 @@ def open_send_to_amazon_upload_mode(session: Any, *, timeout_seconds: int = 60) 
             start_new_clicked = False
 
         if bool(state.get("has_template_download")):
+            agl_state = _ensure_agl_unchecked(session.driver)
+            if bool(agl_state.get("clicked")):
+                time.sleep(1.0)
+                continue
             return {"state": state}
 
         if bool(state.get("has_file_upload_radio")):
             if not _click_file_upload_mode(session.driver):
                 raise RuntimeError("未找到文件上传模式按钮")
             time.sleep(1.0)
+            agl_state = _ensure_agl_unchecked(session.driver)
+            if bool(agl_state.get("clicked")):
+                time.sleep(1.0)
             continue
 
         if bool(state.get("has_start_new")):
@@ -246,12 +366,19 @@ def open_send_to_amazon_upload_mode(session: Any, *, timeout_seconds: int = 60) 
                 start_new_clicked = False
 
             if bool(follow_up_state.get("has_template_download")):
+                agl_state = _ensure_agl_unchecked(session.driver)
+                if bool(agl_state.get("clicked")):
+                    time.sleep(1.0)
+                    continue
                 return {"state": follow_up_state}
 
             if bool(follow_up_state.get("has_file_upload_radio")):
                 if not _click_file_upload_mode(session.driver):
                     raise RuntimeError("未找到文件上传模式按钮")
                 time.sleep(1.0)
+                agl_state = _ensure_agl_unchecked(session.driver)
+                if bool(agl_state.get("clicked")):
+                    time.sleep(1.0)
                 continue
 
             time.sleep(1.0)

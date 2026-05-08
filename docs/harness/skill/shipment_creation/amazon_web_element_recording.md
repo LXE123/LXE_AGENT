@@ -83,6 +83,18 @@ https://sellercentral.amazon.com/fba/sendtoamazon?ref=fbacentral_nav_fba
 ```HTML
 <kat-radiobutton name="file-upload" value="STA_SKU_SELECTION_METHOD_FILE_UPLOAD" label="文件上传" data-testid="file-upload-radio-button" checked="true"><template shadowrootmode="open"><!----> <div class="wrapper"> <div class="indicator"><slot name="radio"></slot></div> <div class="text"> <slot> <kat-label part="radiobutton-label" for="katal-id-219" variant="default" text="文件上传"><template shadowrootmode="open"><!----> <label class=" " for="katal-id-219"> <slot><!----> <span part="label-text"><!---->文件上传<!----></span><!----></slot> <span class="private"> <slot name="private-light-dom"></slot></span> </label> <!----></template><span slot="private-light-dom"><label for="katal-id-219"><!----> <span part="label-text"><!---->文件上传<!----></span><!----></label></span></kat-label> <kat-label part="radiobutton-constraint-label" variant="constraint" id="katal-id-220" for="katal-id-219"><template shadowrootmode="open"><!----> <label class="hide" for="katal-id-219"> <slot><!----> <!----></slot> <span class="private"> <slot name="private-light-dom"></slot></span> </label> <!----></template><span slot="private-light-dom"><label for="katal-id-219"><!----> <!----></label></span></kat-label> </slot> </div> </div> <!----></template><input type="radio" part="radiobutton-input" class="kat-radio" slot="radio" role="radio" id="katal-id-219" name="file-upload" value="STA_SKU_SELECTION_METHOD_FILE_UPLOAD" aria-label="文件上传" aria-describedby="katal-id-220" aria-labelledby="undefined"><span class="kat-radiobutton-icon" part="radiobutton-icon" slot="radio" checked=""></span></kat-radiobutton>
 ```
+
+如果有这个元素，需要点一下,确认没有勾选，没有就不用管
+勾选状态
+```html
+<kat-checkbox class="agl-checkbox-with-label" data-testid="agl-eligible-checkbox" label="我想通过亚马逊全球物流运送。" checked=""><div part="checkbox-check" role="checkbox" class="checkbox checked" tabindex="0" aria-checked="true" aria-disabled="false" aria-labelledby="katal-id-207"> <svg class="checkbox__icon" focusable="false" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"> <path d="M6.0001 10.78L3.2201 7.99999L2.27344 8.93999L6.0001 12.6667L14.0001 4.66665L13.0601 3.72665L6.0001 10.78Z"></path> </svg> </div><span slot="private-light-dom" style="max-width: 0px; max-height: 0px; overflow: hidden;"></span></kat-checkbox>
+```
+未勾选状态
+```html
+<kat-checkbox class="agl-checkbox-with-label" data-testid="agl-eligible-checkbox" label="我想通过亚马逊全球物流运送。"><div part="checkbox-check" role="checkbox" class="checkbox" tabindex="0" aria-checked="false" aria-disabled="false" aria-labelledby="katal-id-207">  </div><span slot="private-light-dom" style="max-width: 0px; max-height: 0px; overflow: hidden;"></span></kat-checkbox>
+```
+
+
 上传第一步文件
 ```HTML
 <input data-testid="file-upload-button-input" type="file" class="display-none">
