@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 import time
 from typing import Any
-from urllib.parse import urlsplit
 
 from services.agent_cli.browser.amazon_common.seller_central_url import (
     DEFAULT_SELLER_CENTRAL_ORIGIN,
+    build_seller_central_url,
 )
 from services.browser.browser.actions import (
     _download_dir_from_path,
@@ -205,19 +205,8 @@ def _download_dir_for_session(session: Any):
     return _download_dir_from_path(str(getattr(session, "download_path", "") or "").strip())
 
 
-def _current_page_origin(session: Any) -> str:
-    driver = getattr(session, "driver", None)
-    current_url = str(getattr(driver, "current_url", "") or "").strip()
-    parsed = urlsplit(current_url)
-    scheme = str(parsed.scheme or "").strip().lower()
-    netloc = str(parsed.netloc or "").strip()
-    if scheme in {"http", "https"} and netloc:
-        return f"{scheme}://{netloc}"
-    return DEFAULT_SELLER_CENTRAL_ORIGIN
-
-
 def build_send_to_amazon_url(session: Any) -> str:
-    return f"{_current_page_origin(session).rstrip('/')}{SEND_TO_AMAZON_PATH}"
+    return build_seller_central_url(session, SEND_TO_AMAZON_PATH)
 
 
 def open_send_to_amazon_upload_mode(session: Any, *, timeout_seconds: int = 60) -> dict[str, Any]:

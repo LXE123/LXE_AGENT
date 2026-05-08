@@ -1,11 +1,22 @@
+这是“非亚马逊合作承运人”的父元素
+```html
+<kat-dropdown placeholder="选择承运人类型" value="PCP" data-testid="carrier-type-placement-list-view-dropdown" mobile-emulated-modal="" size="large" expand-direction="auto"><span slot="private-light-dom" style="max-width: 0px; max-height: 0px; overflow: hidden;"></span></kat-dropdown>
+```
+
 从这里选择“非亚马逊合作承运人”
 ```html
 <div class="option-inner-content" tabindex="-1" part=""> <slot name="select-header"><!----><!----></slot> <slot role="listbox"><!----><!----> <kat-option tabindex="-1" part="dropdown-option0" selected="" value="PCP" aria-selected="true" role="option"> <div class="standard-option-content"> <div class="standard-option-name"><!---->亚马逊合作承运人<!----></div> <div class="standard-option-icon"><!----><!----></div> </div> </kat-option> <!----> <kat-option tabindex="-1" part="dropdown-option1" value="nPCP" aria-selected="false" role="option"> <div class="standard-option-content"> <div class="standard-option-name"><!---->非亚马逊合作承运人<!----></div> <div class="standard-option-icon"><!----><!----></div> </div> </kat-option> <!----><!----></slot>  </div>
 ```
 
+
 点击这个会出来一个弹窗，让用户选择日期
+父元素，用来定位
 ```html
-<kat-input data-testid="plan-delivery-window-input" value="2026年5月7日" type="text" unique-id="katal-id-78" size="large" inputmode="" enterkeyhint=""><span slot="private-light-dom" style="max-width: 0px; max-height: 0px; overflow: hidden;"></span><span class="container"> <input part="input" id="katal-id-78" type="text" spellcheck="false" inputmode="" enterkeyhint="">  <span class="ring"></span> </span></kat-input>
+<kat-input data-testid="arrival-edit-delivery-window-link" value="5月17日 - 2026年5月23日" size="large" type="text" unique-id="katal-id-914" inputmode="" enterkeyhint=""><span slot="private-light-dom" style="max-width: 0px; max-height: 0px; overflow: hidden;"></span></kat-input>
+```
+应该点击父元素里的这个元素就可唤出日历弹窗
+```html
+<span class="container"> <input part="input" id="katal-id-914" type="text" spellcheck="false" inputmode="" enterkeyhint="">  <span class="ring"></span> </span>
 ```
 日期弹窗
 ```html

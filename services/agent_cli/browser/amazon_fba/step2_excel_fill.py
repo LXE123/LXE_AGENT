@@ -9,6 +9,7 @@ _BOX_HEADER_RE = re.compile(r"包装箱\s*(\d+)\s*数量")
 _BOX_TOTAL_LABEL = "包装箱总数"
 _SKU_TOTAL_LABEL = "SKU 总数"
 _SKU_HEADER_LABEL = "SKU"
+_SOURCE_BOX_SEQUENCE_COLUMN = "箱序号"
 _BOX_SPEC_LABELS = {
     "length": "包装箱长度",
     "width": "包装箱宽度",
@@ -91,8 +92,8 @@ def _read_source_data(source_file: Path):
         raise RuntimeError(f"读取文件失败: {exc}") from exc
 
     expected_columns = [
-        "箱编号",
-        "箱号2",
+        "箱子编号",
+        _SOURCE_BOX_SEQUENCE_COLUMN,
         "MSKU",
         "FBA产品名称",
         "本地sku",
@@ -107,20 +108,20 @@ def _read_source_data(source_file: Path):
     if len(df.columns) >= len(expected_columns):
         df.columns = expected_columns[: len(df.columns)]
 
-    required_cols = ("箱编号", "MSKU", "装箱数量")
+    required_cols = (_SOURCE_BOX_SEQUENCE_COLUMN, "MSKU", "装箱数量")
     for column in required_cols:
         if column not in df.columns:
             raise RuntimeError(f"找不到必要列: {column}")
 
-    df["箱编号"] = df["箱编号"].map(_normalize_box_id)
+    df[_SOURCE_BOX_SEQUENCE_COLUMN] = df[_SOURCE_BOX_SEQUENCE_COLUMN].map(_normalize_box_id)
     df["MSKU"] = df["MSKU"].map(lambda value: str(value or "").strip())
-    df = df[(df["箱编号"] != "") & (df["MSKU"] != "")]
+    df = df[(df[_SOURCE_BOX_SEQUENCE_COLUMN] != "") & (df["MSKU"] != "")]
     if df.empty:
         raise RuntimeError(f"源数据没有有效装箱信息: {source_file.name}")
 
-    pivot = df.groupby(["箱编号", "MSKU"])["装箱数量"].sum().reset_index()
-    pivot_table = pivot.pivot(index="MSKU", columns="箱编号", values="装箱数量").fillna(0)
-    box_info = df.groupby("箱编号")[["长", "宽", "高", "毛重"]].first()
+    pivot = df.groupby([_SOURCE_BOX_SEQUENCE_COLUMN, "MSKU"])["装箱数量"].sum().reset_index()
+    pivot_table = pivot.pivot(index="MSKU", columns=_SOURCE_BOX_SEQUENCE_COLUMN, values="装箱数量").fillna(0)
+    box_info = df.groupby(_SOURCE_BOX_SEQUENCE_COLUMN)[["长", "宽", "高", "毛重"]].first()
     return pivot_table, box_info
 
 

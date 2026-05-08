@@ -291,7 +291,9 @@ https://sellercentral.amazon.com/fba/sendtoamazon?ref=fbacentral_nav_fba
 https://sellercentral.amazon.com.br/ap/signin
 ```
 ```HTML
-<input id="continue" aria-describedby="legalTextRow" class="a-button-input" type="submit" aria-labelledby="continue-announce">
+<span id="continue" class="a-button a-button-span12 a-button-primary"><span class="a-button-inner"><input id="continue" aria-describedby="legalTextRow" class="a-button-input" type="submit" aria-labelledby="continue-announce"><span id="continue-announce" class="a-button-text" aria-hidden="true">
+              继续
+            </span></span></span>
 ```
 密码：
 ```bash
@@ -311,3 +313,4 @@ https://sellercentral.amazon.com.br/ap/mfa
           Sign in
         </span></span>
 ```
+不同的国家站点 域名会不同 这个例子中的 sellercentral.amazon.com.br 只是演示。以路径（path）为准。

@@ -29,6 +29,7 @@ from services.browser.workflows.amazon_fba_common import (
 
 WorkflowEventWriter = Callable[[dict[str, Any]], None]
 _PREPARE_MULTI_BOX_DONE_NOTICE = "第二阶段完成，已可选择自己的承运人，请执行第三阶段CLI。"
+_CONSIGNMENT_BOX_SEQUENCE_COLUMNS = ("箱序号", "箱编号")
 
 
 def _weight_capped_notice(items: list[dict[str, Any]]) -> str:
@@ -78,27 +79,31 @@ def extract_box_count_from_consignment_excel(excel_path: str | Path) -> int:
 
     if df.empty or int(df.shape[1] or 0) <= 0:
         raise RuntimeError(f"托运单 Excel 为空: {excel_file.name}")
-    if "箱编号" not in df.columns:
-        raise RuntimeError(f"托运单 Excel 缺少 箱编号 列: {excel_file.name}")
+    box_sequence_column = next(
+        (column for column in _CONSIGNMENT_BOX_SEQUENCE_COLUMNS if column in df.columns),
+        "",
+    )
+    if not box_sequence_column:
+        raise RuntimeError(f"托运单 Excel 缺少 箱序号 列: {excel_file.name}")
 
     box_numbers: list[int] = []
-    for item in list(df["箱编号"]):
+    for item in list(df[box_sequence_column]):
         text = str(item or "").strip()
         if not text or text.lower() == "nan":
             continue
         try:
             numeric = float(text)
         except Exception as exc:
-            raise RuntimeError(f"托运单 Excel 箱编号 不是数字: {item}") from exc
+            raise RuntimeError(f"托运单 Excel {box_sequence_column} 不是数字: {item}") from exc
         rounded = round(numeric)
         if abs(numeric - rounded) > 1e-6:
-            raise RuntimeError(f"托运单 Excel 箱编号 不是整数: {item}")
+            raise RuntimeError(f"托运单 Excel {box_sequence_column} 不是整数: {item}")
         box_number = int(rounded)
         if box_number <= 0:
-            raise RuntimeError(f"托运单 Excel 箱编号 必须大于 0: {item}")
+            raise RuntimeError(f"托运单 Excel {box_sequence_column} 必须大于 0: {item}")
         box_numbers.append(box_number)
     if not box_numbers:
-        raise RuntimeError(f"托运单 Excel 箱编号 列没有有效箱号: {excel_file.name}")
+        raise RuntimeError(f"托运单 Excel {box_sequence_column} 列没有有效箱号: {excel_file.name}")
     return max(box_numbers)
 
 

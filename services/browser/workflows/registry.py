@@ -8,6 +8,7 @@ from services.browser.workflows.amazon_fba_confirm_own_carrier import (
 from services.browser.workflows.amazon_fba_enter_tracking_codes import (
     run_enter_tracking_codes_workflow,
 )
+from services.browser.workflows.amazon_fba_login_verify import run_login_verify_workflow
 from services.browser.workflows.amazon_fba_prepare_multi_box_excel import (
     run_prepare_multi_box_excel_workflow,
 )
@@ -20,6 +21,7 @@ FixedFlowRunner = Callable[..., dict[str, Any]]
 _BROWSER_FLOW_RUNNERS: dict[str, FixedFlowRunner] = {
     "amazon_fba.confirm_own_carrier": run_confirm_own_carrier_workflow,
     "amazon_fba.enter_tracking_codes": run_enter_tracking_codes_workflow,
+    "amazon_fba.login_verify": run_login_verify_workflow,
     "amazon_fba.prepare_multi_box_excel": run_prepare_multi_box_excel_workflow,
     "amazon_fba.prepare_upload": run_prepare_upload_workflow,
 }

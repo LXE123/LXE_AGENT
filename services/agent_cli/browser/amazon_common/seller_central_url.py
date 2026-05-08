@@ -5,10 +5,9 @@ from urllib.parse import urlsplit
 
 
 DEFAULT_SELLER_CENTRAL_ORIGIN = "https://sellercentral.amazon.com"
-_SELLER_CENTRAL_HOST_PREFIX = "sellercentral.amazon."
 
 
-def _seller_central_origin_from_url(url: str) -> str:
+def origin_from_url(url: str) -> str:
     raw = str(url or "").strip()
     if not raw:
         return ""
@@ -17,8 +16,6 @@ def _seller_central_origin_from_url(url: str) -> str:
     netloc = str(parsed.netloc or "").strip()
     if scheme not in {"http", "https"} or not netloc:
         return ""
-    if not netloc.lower().startswith(_SELLER_CENTRAL_HOST_PREFIX):
-        return ""
     return f"{scheme}://{netloc}"
 
 
@@ -26,7 +23,7 @@ def seller_central_origin(session: Any) -> str:
     driver = getattr(session, "driver", None)
     driver_url = str(getattr(driver, "current_url", "") or "").strip()
     if driver_url:
-        origin = _seller_central_origin_from_url(driver_url)
+        origin = origin_from_url(driver_url)
         if origin:
             return origin
 
@@ -38,9 +35,11 @@ def build_seller_central_url(session: Any, path_with_query: str) -> str:
     if not raw_path:
         raise ValueError("path_with_query 不能为空")
     if raw_path.lower().startswith(("http://", "https://")):
-        origin = _seller_central_origin_from_url(raw_path)
+        origin = origin_from_url(raw_path)
         if origin:
             return raw_path
+    parsed = urlsplit(raw_path)
+    if parsed.scheme and parsed.scheme.lower() not in {"http", "https"}:
         raise ValueError(f"无效的 Seller Central URL: {raw_path}")
     if not raw_path.startswith("/"):
         raw_path = f"/{raw_path}"
@@ -50,5 +49,6 @@ def build_seller_central_url(session: Any, path_with_query: str) -> str:
 __all__ = [
     "DEFAULT_SELLER_CENTRAL_ORIGIN",
     "build_seller_central_url",
+    "origin_from_url",
     "seller_central_origin",
 ]

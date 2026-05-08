@@ -4,6 +4,7 @@ import json
 import time
 from typing import Any
 
+from services.agent_cli.browser.amazon_common.login_verify import verify_seller_central_login
 from services.agent_cli.browser.amazon_common.seller_central_url import (
     DEFAULT_SELLER_CENTRAL_ORIGIN,
     build_seller_central_url,
@@ -13,6 +14,7 @@ from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
 
 MARKETPLACE_SWITCHER_PATH = "/account-switcher/default/merchantMarketplace"
 MARKETPLACE_SWITCHER_URL = f"{DEFAULT_SELLER_CENTRAL_ORIGIN}{MARKETPLACE_SWITCHER_PATH}"
+_LOGIN_VERIFY_PATHS = {"/ap/signin", "/ap/mfa"}
 
 _SITE_ALIASES: dict[str, tuple[str, ...]] = {
     "US": ("US", "USA", "UNITED STATES", "美国", "美国站"),
@@ -195,6 +197,38 @@ def _read_home_region_label(session: Any) -> str:
     return str(session.driver.execute_script(_HOME_REGION_LABEL_JS) or "").strip()
 
 
+def _read_current_path(driver: Any) -> str:
+    return str(
+        driver.execute_script(
+            """
+return String((window.location && window.location.pathname) || '').trim();
+"""
+        )
+        or ""
+    ).strip()
+
+
+def _verify_login_if_needed(session: Any, *, timeout_seconds: int) -> dict[str, Any]:
+    path = _read_current_path(session.driver)
+    if path not in _LOGIN_VERIFY_PATHS:
+        return {}
+
+    verify_payload = dict(
+        verify_seller_central_login(
+            session.driver,
+            timeout_seconds=timeout_seconds,
+        )
+        or {}
+    )
+    if bool(verify_payload.get("manual_required")):
+        click_count = int(verify_payload.get("click_count") or 0)
+        notice = str(verify_payload.get("notice") or "").strip() or "登录验证未完成，请用户手动操作"
+        if click_count:
+            notice = f"{notice}，共点击 {click_count} 次"
+        raise RuntimeError(notice)
+    return verify_payload
+
+
 def _execute_switcher_script(driver: Any, script_body: str, *args):
     return driver.execute_script(SHADOW_DOM_HELPERS_JS + _SWITCHER_SHARED_JS + script_body, *args)
 
@@ -353,6 +387,7 @@ def switch_region(session: Any, site: str, *, timeout_seconds: int = 60) -> dict
             f" target={target_site} available={json.dumps(available, ensure_ascii=False)}"
         )
 
+    _verify_login_if_needed(session, timeout_seconds=timeout_seconds)
     last_label = _wait_for_home_region_match(session, target_site, home_wait_seconds)
     if _label_matches_site(last_label, target_site):
         return {

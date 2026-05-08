@@ -19,7 +19,7 @@ type: amazon_store
    - `site` — 标准站点代码，如 `US`、`UK`、`DE`、`FR`、`IT`、`ES`、`CA`、`JP`
    - `consignment_no` — 托运单号
    - `transport_mode` — 运输方式业务输入，后续所有 CLI 结果都会原样回传
-2. 使用紫鸟浏览器工具 `ziniao_browser` 中的 `open_store` 直接打开店铺（不要用 `attach_store`）。
+2. 如果店铺未打开，使用紫鸟浏览器工具 `ziniao_browser` 中的 `open_store` 直接打开店铺。如果已打开，可以直接使用`store_id`控制。
 
 ### 注意 context 文件的输入格式
 不要把 JSON 直接放进命令行参数。执行 CLI 前，先用 `write` 工具写入 `artifacts/amazon_fba/context_<consignment_no>.json`：

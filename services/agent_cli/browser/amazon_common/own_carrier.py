@@ -20,7 +20,7 @@ _LAYOUT_LEGACY = "legacy"
 _CROSS_BORDER_NON_PCP_BOX_SELECTOR = '[data-testid="cross-border-non-pcp-box-test-id"]'
 _PCP_OPTION_SELECTOR = 'kat-option[value="PCP"]'
 _NPCP_OPTION_SELECTOR = 'kat-option[value="nPCP"]'
-_PLAN_DELIVERY_WINDOW_INPUT_SELECTOR = '[data-testid="plan-delivery-window-input"]'
+_CARRIER_TYPE_PLACEMENT_DROPDOWN_SELECTOR = '[data-testid="carrier-type-placement-list-view-dropdown"]'
 _DELIVERY_WINDOW_MODAL_CONFIRM_BUTTON_SELECTOR = '[data-testid="delivery-window-modal-confirm-button"]'
 _SHIPPING_CARRIER_NON_PCP_DROPDOWN_SELECTOR = '[data-testid="shipping-carrier-non-pcp-dropdown"]'
 _NON_PCP_CARRIER_CHOICES_SELECTOR = '[data-testid="non-pcp-carrier-choices"]'
@@ -269,8 +269,10 @@ function collectOptions(root) {
 }
 
 const roots = [];
-const dropdown = deepQuerySelector(dropdownSelector);
-if (dropdown) roots.push(dropdown);
+if (dropdownSelector) {
+  const dropdown = deepQuerySelector(dropdownSelector);
+  if (dropdown) roots.push(dropdown);
+}
 roots.push(document);
 
 const seen = new Set();
@@ -357,6 +359,22 @@ return roots.map((root) => ({
             raise RuntimeError(f"第{index}个货件摘要字段缺失: {', '.join(missing)}")
         summaries.append(summary)
     return summaries
+
+
+def _wait_collect_shipment_summaries(driver: Any, *, timeout_seconds: float = 10) -> list[dict[str, str]]:
+    deadline = time.time() + max(0.1, float(timeout_seconds or 0))
+    last_error: RuntimeError | None = None
+    while time.time() < deadline:
+        _raise_if_returned_to_step2_start(driver)
+        try:
+            return _collect_shipment_summaries(driver)
+        except RuntimeError as exc:
+            last_error = exc
+        time.sleep(0.5)
+    _raise_if_returned_to_step2_start(driver)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("未找到货件摘要区域 shipment-summary")
 
 
 def _sanitize_excel_filename(raw_name: str) -> str:
@@ -583,7 +601,12 @@ return false;
 
 
 def _select_non_amazon_partner_carrier_type(driver: Any) -> bool:
-    return _select_option_by_text(driver, "非亚马逊合作承运人")
+    return _select_dropdown_option_by_value(
+        driver,
+        _CARRIER_TYPE_PLACEMENT_DROPDOWN_SELECTOR,
+        "nPCP",
+        option_text="非亚马逊合作承运人",
+    )
 
 
 def _click_own_carrier_entry(driver: Any) -> bool:
@@ -664,7 +687,53 @@ def _click_date_input(driver: Any) -> bool:
 
 
 def _click_phase_3_1_date_input(driver: Any) -> bool:
-    return _click_first_matching(driver, (_PLAN_DELIVERY_WINDOW_INPUT_SELECTOR,))
+    return bool(
+        _execute_page_script(
+            driver,
+            """
+const root = deepQuerySelector(String(arguments[0] || ''));
+if (!root) return false;
+
+function clickElement(el) {
+  if (!el) return false;
+  try {
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+  } catch (error) {}
+  try {
+    if (el.focus) el.focus();
+  } catch (error) {}
+  const eventTypes = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+  for (const type of eventTypes) {
+    try {
+      const EventClass = type.startsWith('pointer') && window.PointerEvent ? PointerEvent : MouseEvent;
+      el.dispatchEvent(new EventClass(type, { bubbles: true, cancelable: true, view: window }));
+    } catch (error) {
+      try {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      } catch (innerError) {}
+    }
+  }
+  try {
+    el.click();
+    return true;
+  } catch (error) {}
+  return true;
+}
+
+const candidates = [
+  deepQuerySelector('input[part="input"]', root),
+  deepQuerySelector('input[type="text"]', root),
+  root,
+];
+
+for (const el of candidates) {
+  if (clickElement(el)) return true;
+}
+return false;
+""",
+            _DELIVERY_WINDOW_LINK_SELECTOR,
+        )
+    )
 
 
 _PHASE_3_2_DATE_PICKER_SCOPE_JS = r"""
@@ -893,6 +962,15 @@ def _open_carrier_dropdown(driver: Any) -> bool:
 
 def _open_phase_3_1_carrier_dropdown(driver: Any) -> bool:
     return _click_dropdown_by_selector(driver, _SHIPPING_CARRIER_NON_PCP_DROPDOWN_SELECTOR)
+
+
+def _select_phase_3_1_other_carrier(driver: Any) -> bool:
+    return _select_dropdown_option_by_value(
+        driver,
+        _SHIPPING_CARRIER_NON_PCP_DROPDOWN_SELECTOR,
+        "OTHER",
+        option_text="其他",
+    )
 
 
 def _select_other_carrier(driver: Any) -> bool:
@@ -1400,7 +1478,7 @@ def _wait_phase_3_2_refresh_after_selection() -> None:
 
 
 def _wait_phase_3_2_after_carrier_before_dates() -> None:
-    time.sleep(5.0)
+    time.sleep(1.0)
 
 
 def _select_pickup_date(driver: Any, target_date: date, *, timeout_seconds: int = 60) -> None:
@@ -1479,8 +1557,6 @@ def _select_phase_3_2_pickup_date(driver: Any, target_date: date, *, timeout_sec
 
 def _select_phase_3_2_ship_date(driver: Any, ship_date: date, *, timeout_seconds: int = 60) -> None:
     _raise_if_returned_to_step2_start(driver)
-    if _phase_3_2_ship_date_value_matches(driver, ship_date):
-        return
     if not _phase_3_2_ship_date_calendar_visible(driver):
         _wait_for_click("发货日期输入框", lambda: _click_phase_3_2_ship_date_input(driver), timeout_seconds=timeout_seconds, driver=driver)
         _wait_for_condition("发货日期日历出现", lambda: _phase_3_2_ship_date_calendar_visible(driver), timeout_seconds=timeout_seconds, driver=driver)
@@ -1645,13 +1721,7 @@ def _select_carrier_mode_for_layout(
     timeout_seconds: int,
 ) -> None:
     if layout == _LAYOUT_PHASE_3_1:
-        _wait_for_click(
-            "非合作承运人下拉框",
-            lambda: _open_phase_3_1_carrier_dropdown(driver),
-            timeout_seconds=min(timeout_seconds, 10),
-            driver=driver,
-        )
-        _wait_for_click("其他承运人选项", lambda: _select_other_carrier(driver), timeout_seconds=min(timeout_seconds, 10), driver=driver)
+        _wait_for_click("其他承运人选项", lambda: _select_phase_3_1_other_carrier(driver), timeout_seconds=min(timeout_seconds, 10), driver=driver)
         return
 
     if layout == _LAYOUT_PHASE_3_2:
@@ -1762,7 +1832,7 @@ def confirm_own_carrier_shipment(
             interval_seconds=1.0,
             driver=driver,
         )
-        shipment_summaries = _collect_shipment_summaries(driver)
+        shipment_summaries = _wait_collect_shipment_summaries(driver, timeout_seconds=10)
         shipment_summary_excel_path = _write_shipment_summary_excel(
             Path(getattr(session, "output_dir", Path.cwd())),
             shipment_summaries,

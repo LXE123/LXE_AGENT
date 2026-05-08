@@ -12,8 +12,6 @@ type: amazon_store
 
 1. 如果用户目标站点不清晰，先直接向用户追问，要求给出标准站点代码，例如 `US`、`UK`、`DE`。
 2. 先用 `ziniao_browser(action=get_status)` 确认目标店铺状态：
-   - 已选中 → 跳过
-   - 在 `running_stores` 中但未选中 → `ziniao_browser(action=attach_store, store_id=...)`
    - 未运行 → `ziniao_browser(action=open_store, store_id=...)`
 3. 先进入 Seller Central `/home`，再用 `ziniao_page(action=get_content)` 确认当前站点，避免重复切换。
 4. 需要切换时，进入 marketplace / region 切换页，用 `ziniao_page(action=query, mode=page)` 找到目标站点按钮和确认按钮，再逐步点击。
