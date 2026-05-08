@@ -1644,7 +1644,12 @@ def _select_pickup_date_for_layout(
         driver=driver,
     )
     _select_pickup_date(driver, target_date, timeout_seconds=safe_timeout)
-    _wait_for_click("更新按钮", lambda: _click_update_button(driver), timeout_seconds=min(timeout_seconds, 10), driver=driver)
+    _wait_for_click(
+        "更新按钮",
+        lambda: _click_update_button(driver),
+        timeout_seconds=min(timeout_seconds, 30),
+        driver=driver,
+    )
 
 
 def _prepare_phase_3_2_own_carrier_entry(driver: Any, *, timeout_seconds: int) -> None:

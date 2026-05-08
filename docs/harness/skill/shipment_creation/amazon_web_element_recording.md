@@ -288,6 +288,7 @@ https://sellercentral.amazon.com/fba/sendtoamazon?ref=fbacentral_nav_fba
 
 第三步如果执行超时出现下面的元素说明亚马逊返回到第二步开头，直接在返回字段 notice 告诉 AI 请执行第二步(其它字段，finished为TRUE，exception为空，context正常返回，)
 ```html
+<kat-button data-testid="skip-packing-and-continue" class="margin-top-8px" label="创建货件并稍后包装" size="base" variant="secondary" type="button"><button class="button" type="button"> <div class="icon__container">  <span class="icon"><slot name="icon"></slot></span> </div> <div class="content"> <slot> <span><!---->创建货件并稍后包装<!----></span> </slot> </div> <div tabindex="-1"></div> </button></kat-button>
 <button class="button" type="button"> <div class="icon__container">  <span class="icon"><slot name="icon"></slot></span> </div> <div class="content"> <slot> <span><!---->创建货件并稍后包装<!----></span> </slot> </div> <div tabindex="-1"></div> </button>
 ```
 
