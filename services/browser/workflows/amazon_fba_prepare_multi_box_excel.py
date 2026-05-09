@@ -35,17 +35,31 @@ _CONSIGNMENT_BOX_SEQUENCE_COLUMNS = ("箱序号", "箱编号")
 def _weight_capped_notice(items: list[dict[str, Any]]) -> str:
     if not items:
         return ""
-    box_numbers = [
-        str(int(item.get("box_no") or 0))
-        for item in items
-        if int(item.get("box_no") or 0) > 0
-    ]
-    if not box_numbers:
-        return "有包装箱重量超过 40 lb，已自动按 40 lb 填写。"
-    return (
-        f"有 {len(box_numbers)} 个包装箱重量超过 40 lb，"
-        f"已自动按 40 lb 填写（箱号: {', '.join(box_numbers)}）。"
-    )
+
+    grouped: dict[tuple[int, str], list[str]] = {}
+    for item in items:
+        unit = str(item.get("weight_unit") or "").strip().lower()
+        if unit not in {"kg", "lb"}:
+            unit = "lb" if item.get("capped_weight_lb") is not None else "kg"
+        max_weight = int(item.get("max_weight") or item.get("capped_weight") or 0)
+        if max_weight <= 0:
+            max_weight = 40 if unit == "lb" else 23
+        box_no = int(item.get("box_no") or 0)
+        box_numbers = grouped.setdefault((max_weight, unit), [])
+        if box_no > 0:
+            box_numbers.append(str(box_no))
+
+    parts: list[str] = []
+    for (max_weight, unit), box_numbers in sorted(grouped.items(), key=lambda item: (item[0][1], item[0][0])):
+        unit_label = "lb" if unit == "lb" else "kg"
+        if not box_numbers:
+            parts.append(f"有包装箱重量超过 {max_weight} {unit_label}，已自动按 {max_weight} {unit_label} 填写。")
+            continue
+        parts.append(
+            f"有 {len(box_numbers)} 个包装箱重量超过 {max_weight} {unit_label}，"
+            f"已自动按 {max_weight} {unit_label} 填写（箱号: {', '.join(box_numbers)}）。"
+        )
+    return "".join(parts)
 
 
 def extract_box_count_from_consignment_excel(excel_path: str | Path) -> int:

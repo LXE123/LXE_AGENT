@@ -21,12 +21,14 @@ _DOWNLOAD_FILENAME_SELECTOR = '[data-testid="download-link-filename"]'
 _STEP2_UPLOAD_FILE_INPUT_SELECTOR = 'input[type="file"]'
 _STEP2_UPLOAD_ERROR_SELECTOR = '[data-testid="pack-group-row-validation-error-message"]'
 _STEP2_UPLOAD_ERROR_WITH_SKU_SELECTOR = '[data-testid="inbound-problem-message-with-sku-list"]'
+_STEP2_UPLOAD_WARNING_ALERT_SELECTOR = '[data-testid="pack-group-cli-warning-results"]'
 _STEP2_UPLOAD_WARNING_SELECTOR = '[data-testid="inbound-problem-message"]'
 _STEP2_UPLOAD_SUCCESS_SELECTOR = '[data-testid="pack-group-success-results"]'
 _CONFIRM_AND_CONTINUE_SELECTOR = '[data-testid="confirm-and-continue"]'
 _WORKFLOW_LOADING_LABEL_SELECTOR = '[data-testid="workflow-loading-label"]'
 _STEP_HEADER_TITLE_SELECTOR = 'h4[data-testid="step-header-title"]'
 _STEP_HEADER_CHECKMARK_SELECTOR = 'kat-icon[data-testid="header-checkmark"][name="check"]'
+_CONFIRMED_INVENTORY_COMPLETED_NOTICE = "已确认要发送的库存"
 _PACK_SINGLE_UNITS_COMPLETED_NOTICE = "已完成包装单件商品步骤"
 _STEP2_UPLOAD_VALIDATE_WAIT_SECONDS = 60
 _STEP2_UPLOAD_RESULT_WAIT_SECONDS = 60
@@ -75,7 +77,7 @@ return Boolean(root);
     )
 
 
-def _read_pack_single_units_completed_notice(driver: Any) -> str:
+def _read_completed_step_notice(driver: Any, required_keywords: tuple[str, ...], done_notice: str) -> str:
     raw_notice = _execute_page_script(
         driver,
         """
@@ -85,18 +87,20 @@ function cleanText(value) {
 
 const titleSelector = String(arguments[0] || '');
 const checkmarkSelector = String(arguments[1] || '');
-const doneNotice = String(arguments[2] || '');
+const requiredKeywords = Array.from(arguments[2] || []).map((value) => String(value || '').trim()).filter(Boolean);
+const doneNotice = String(arguments[3] || '');
+if (!requiredKeywords.length) return '';
 
 for (const title of deepQuerySelectorAll(titleSelector)) {
   const titleText = cleanText(title.innerText || title.textContent || '');
-  if (!titleText.includes('第 1b') || !titleText.includes('包装单件商品')) continue;
+  if (!requiredKeywords.every((keyword) => titleText.includes(keyword))) continue;
 
   let current = title;
   for (let depth = 0; depth < 8 && current; depth += 1) {
     const rowText = cleanText(current.innerText || current.textContent || '');
     const classText = cleanText(current.getAttribute ? current.getAttribute('class') || '' : '');
     const isHeaderRow = classText.includes('flexRow') || classText.includes('flex-row');
-    if (isHeaderRow && rowText.includes('第 1b') && rowText.includes('包装单件商品')) {
+    if (isHeaderRow && requiredKeywords.every((keyword) => rowText.includes(keyword))) {
       const checkmark = deepQuerySelector(checkmarkSelector, current);
       return checkmark ? doneNotice : '';
     }
@@ -108,9 +112,26 @@ return '';
 """,
         _STEP_HEADER_TITLE_SELECTOR,
         _STEP_HEADER_CHECKMARK_SELECTOR,
-        _PACK_SINGLE_UNITS_COMPLETED_NOTICE,
+        list(required_keywords),
+        done_notice,
     )
     return str(raw_notice or "").strip()
+
+
+def _read_confirmed_inventory_completed_notice(driver: Any) -> str:
+    return _read_completed_step_notice(
+        driver,
+        ("第 1 步", _CONFIRMED_INVENTORY_COMPLETED_NOTICE),
+        _CONFIRMED_INVENTORY_COMPLETED_NOTICE,
+    )
+
+
+def _read_pack_single_units_completed_notice(driver: Any) -> str:
+    return _read_completed_step_notice(
+        driver,
+        ("第 1b", "包装单件商品"),
+        _PACK_SINGLE_UNITS_COMPLETED_NOTICE,
+    )
 
 
 def _has_multi_box_radio(driver: Any) -> bool:
@@ -421,7 +442,18 @@ function cleanText(value) {
   return String(value || '').replace(/\\s+/g, ' ').trim();
 }
 
-const warningRoot = deepQuerySelector(arguments[2]);
+const warningAlert = deepQuerySelector(arguments[2]);
+if (warningAlert) {
+  const rows = [];
+  for (const row of deepQuerySelectorAll('.alert-error-list', warningAlert)) {
+    const rowText = cleanText(row.innerText || row.textContent || '');
+    if (rowText) rows.push(rowText);
+  }
+  const text = rows.length ? rows.join('；') : cleanText(warningAlert.innerText || warningAlert.textContent || '');
+  if (text) return { status: 'warning', notice: text };
+}
+
+const warningRoot = deepQuerySelector(arguments[3]);
 if (warningRoot) {
   const text = cleanText(warningRoot.innerText || warningRoot.textContent || '');
   if (text) return { status: 'warning', notice: text };
@@ -434,7 +466,7 @@ for (const selector of [arguments[0], arguments[1]]) {
   if (text) return { status: 'error', notice: text };
 }
 
-const successRoot = deepQuerySelector(arguments[3]);
+const successRoot = deepQuerySelector(arguments[4]);
 if (successRoot) {
   const text = cleanText(successRoot.innerText || successRoot.textContent || '');
   if (text) return { status: 'success', notice: text };
@@ -444,6 +476,7 @@ return { status: '', notice: '' };
     """,
         _STEP2_UPLOAD_ERROR_SELECTOR,
         _STEP2_UPLOAD_ERROR_WITH_SKU_SELECTOR,
+        _STEP2_UPLOAD_WARNING_ALERT_SELECTOR,
         _STEP2_UPLOAD_WARNING_SELECTOR,
         _STEP2_UPLOAD_SUCCESS_SELECTOR,
     )
@@ -509,10 +542,11 @@ def advance_to_multi_box_entry(session: Any, *, timeout_seconds: int = 60) -> di
     clicked_continue = False
 
     while time.time() < deadline:
-        if _has_multi_box_radio(session.driver):
+        notice = _read_confirmed_inventory_completed_notice(session.driver)
+        if notice:
             return {
                 "ready": True,
-                "notice": "已进入包装箱输入方式选择页面",
+                "notice": notice,
             }
 
         if not clicked_continue and _click_pack_single_units_button(session.driver):
@@ -522,7 +556,7 @@ def advance_to_multi_box_entry(session: Any, *, timeout_seconds: int = 60) -> di
 
         time.sleep(0.5)
 
-    raise RuntimeError("等待进入多包装箱流程超时")
+    raise RuntimeError("等待第 1 步库存确认完成超时")
 
 
 def generate_multi_box_excel(session: Any, box_count: int, *, timeout_seconds: int = 60) -> dict[str, Any]:

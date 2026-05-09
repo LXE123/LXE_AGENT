@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
 import shutil
 from pathlib import Path
@@ -17,6 +18,15 @@ _BOX_SPEC_LABELS = {
     "weight": "包装箱重量",
 }
 _MAX_WEIGHT_LB = 40
+_MAX_WEIGHT_KG = 23
+_CM_TO_INCH = 0.393701
+_KG_TO_LB = 2.20462
+
+
+@dataclass(frozen=True)
+class _BoxSpecRow:
+    row: int
+    unit: str
 
 
 def _resolve_path(raw: str | Path) -> Path:
@@ -80,6 +90,30 @@ def _parse_positive_int(value: Any) -> int | None:
     if rounded <= 0 or abs(numeric - rounded) > 1e-6:
         return None
     return int(rounded)
+
+
+def _detect_dimension_unit(text: str) -> str:
+    normalized = _normalize_text(text).lower()
+    if "英寸" in normalized or re.search(r"\bin(?:ch(?:es)?)?\b", normalized):
+        return "inch"
+    if "厘米" in normalized or "公分" in normalized or re.search(r"\bcm\b", normalized):
+        return "cm"
+    return "cm"
+
+
+def _detect_weight_unit(text: str) -> str:
+    normalized = _normalize_text(text).lower()
+    if "磅" in normalized or re.search(r"\blbs?\b", normalized):
+        return "lb"
+    if "千克" in normalized or "公斤" in normalized or re.search(r"\bkg\b", normalized):
+        return "kg"
+    return "kg"
+
+
+def _detect_box_spec_unit(key: str, text: str) -> str:
+    if key == "weight":
+        return _detect_weight_unit(text)
+    return _detect_dimension_unit(text)
 
 
 def _read_source_data(source_file: Path):
@@ -234,10 +268,10 @@ def _find_sku_header_cell(ws: Any, header_row: int) -> tuple[int, int]:
     raise RuntimeError("找不到模板中的 SKU 列标题")
 
 
-def _find_box_spec_rows(ws: Any) -> dict[str, int]:
+def _find_box_spec_rows(ws: Any) -> dict[str, _BoxSpecRow]:
     max_row = int(ws.max_row or 0)
     max_col = int(ws.max_column or 0)
-    found: dict[str, int] = {}
+    found: dict[str, _BoxSpecRow] = {}
     for row in range(1, max_row + 1):
         for col in range(1, max_col + 1):
             text = _normalize_text(ws.cell(row=row, column=col).value)
@@ -245,7 +279,7 @@ def _find_box_spec_rows(ws: Any) -> dict[str, int]:
                 continue
             for key, label in _BOX_SPEC_LABELS.items():
                 if key not in found and label in text:
-                    found[key] = row
+                    found[key] = _BoxSpecRow(row=row, unit=_detect_box_spec_unit(key, text))
         if len(found) == len(_BOX_SPEC_LABELS):
             break
 
@@ -340,6 +374,42 @@ def _to_int(value: Any, factor: float = 1.0) -> int:
     return int(round(numeric * factor)) if numeric else 0
 
 
+def _dimension_value(source_cm: Any, target_unit: str) -> int:
+    factor = _CM_TO_INCH if target_unit == "inch" else 1.0
+    return _to_int(source_cm, factor)
+
+
+def _weight_value(box_num: int, source_kg: Any, target_unit: str) -> tuple[int, dict[str, int | str] | None]:
+    if target_unit == "lb":
+        weight = _to_int(source_kg, _KG_TO_LB)
+        capped_weight = min(weight, _MAX_WEIGHT_LB)
+        if capped_weight == weight:
+            return capped_weight, None
+        return capped_weight, {
+            "box_no": int(box_num),
+            "weight_unit": "lb",
+            "max_weight": int(_MAX_WEIGHT_LB),
+            "original_weight": int(weight),
+            "capped_weight": int(capped_weight),
+            "original_weight_lb": int(weight),
+            "capped_weight_lb": int(capped_weight),
+        }
+
+    weight = _to_int(source_kg)
+    capped_weight = min(weight, _MAX_WEIGHT_KG)
+    if capped_weight == weight:
+        return capped_weight, None
+    return capped_weight, {
+        "box_no": int(box_num),
+        "weight_unit": "kg",
+        "max_weight": int(_MAX_WEIGHT_KG),
+        "original_weight": int(weight),
+        "capped_weight": int(capped_weight),
+        "original_weight_kg": int(weight),
+        "capped_weight_kg": int(capped_weight),
+    }
+
+
 def fill_multi_box_step2_template(consignment_excel_path: str | Path, template_path: str | Path) -> dict[str, Any]:
     consignment_file = _resolve_path(consignment_excel_path)
     template_file = _resolve_path(template_path)
@@ -365,7 +435,7 @@ def fill_multi_box_step2_template(consignment_excel_path: str | Path, template_p
     expected_box_numbers = _validate_box_columns(box_columns, total_boxes)
     spec_rows = _find_box_spec_rows(worksheet)
     sku_header_row, sku_col = _find_sku_header_cell(worksheet, header_row)
-    data_end_row = min(spec_rows.values()) - 1
+    data_end_row = min(spec.row for spec in spec_rows.values()) - 1
     sku_to_row = _build_sku_row_map(
         worksheet,
         sku_col=sku_col,
@@ -382,29 +452,24 @@ def fill_multi_box_step2_template(consignment_excel_path: str | Path, template_p
             if qty > 0:
                 worksheet.cell(row=row, column=box_columns[box_num], value=qty)
 
-    cm_to_inch = 0.393701
-    kg_to_lb = 2.20462
-    weight_capped_boxes: list[dict[str, int]] = []
+    weight_capped_boxes: list[dict[str, int | str]] = []
     for box_num in source_box_numbers:
         col = box_columns[box_num]
-        length_inch = _to_int(box_info.loc[box_num, "长"], cm_to_inch)
-        width_inch = _to_int(box_info.loc[box_num, "宽"], cm_to_inch)
-        height_inch = _to_int(box_info.loc[box_num, "高"], cm_to_inch)
-        weight_lb = _to_int(box_info.loc[box_num, "毛重"], kg_to_lb)
-        capped_weight_lb = min(weight_lb, _MAX_WEIGHT_LB)
-        if capped_weight_lb != weight_lb:
-            weight_capped_boxes.append(
-                {
-                    "box_no": int(box_num),
-                    "original_weight_lb": int(weight_lb),
-                    "capped_weight_lb": int(capped_weight_lb),
-                }
-            )
+        length_value = _dimension_value(box_info.loc[box_num, "长"], spec_rows["length"].unit)
+        width_value = _dimension_value(box_info.loc[box_num, "宽"], spec_rows["width"].unit)
+        height_value = _dimension_value(box_info.loc[box_num, "高"], spec_rows["height"].unit)
+        weight_value, capped_payload = _weight_value(
+            int(box_num),
+            box_info.loc[box_num, "毛重"],
+            spec_rows["weight"].unit,
+        )
+        if capped_payload is not None:
+            weight_capped_boxes.append(capped_payload)
 
-        worksheet.cell(row=spec_rows["length"], column=col, value=length_inch)
-        worksheet.cell(row=spec_rows["width"], column=col, value=width_inch)
-        worksheet.cell(row=spec_rows["height"], column=col, value=height_inch)
-        worksheet.cell(row=spec_rows["weight"], column=col, value=capped_weight_lb)
+        worksheet.cell(row=spec_rows["length"].row, column=col, value=length_value)
+        worksheet.cell(row=spec_rows["width"].row, column=col, value=width_value)
+        worksheet.cell(row=spec_rows["height"].row, column=col, value=height_value)
+        worksheet.cell(row=spec_rows["weight"].row, column=col, value=weight_value)
 
     try:
         workbook.save(filled_file)
