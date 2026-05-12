@@ -12,13 +12,15 @@ from pathlib import Path
 from typing import Any
 
 from services.agent_cli._shared.json_output import configure_utf8_stdio
+from services.mabang.stock_sku_export import export_stock_sku_names
 from services.mabang.amazon.fba import download_fba_delivery_csv
 from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
 from shared.infra.net import close_all_network_clients
 
 DELIVERY_CSV_DIR = Path("artifacts") / "mabang_fba_delivery"
 OUTPUT_DIR = Path("artifacts") / "mabang_fba_tax_summary"
-EXPORT_TAX_PRODUCTS_PATH = Path("data") / "export_tax" / "export_tax_products.xls"
+STOCK_SKU_OUTPUT_DIR = Path("artifacts") / "mabang_stock_sku"
+EXPORT_TAX_PRODUCTS_PATH = Path("data") / "export_tax" / "export_tax_products.xlsx"
 EXPORT_TAX_PRODUCTS_SHEET = "Sheet1"
 SKU_SHIP_QTY_COLUMN = "SKU发货量"
 TAX_PRODUCT_SKU_COLUMN = "sku"
@@ -26,7 +28,7 @@ TAX_PRODUCT_NAME_COLUMN = "产品名称"
 MATCHED_SHEET_NAME = "可出口退税"
 UNMATCHED_SHEET_NAME = "不可出口退税"
 MATCHED_COLUMNS = ("SKU", "产品名称", "发货量")
-UNMATCHED_COLUMNS = ("SKU", "发货量")
+UNMATCHED_COLUMNS = ("SKU", "产品名称", "发货量")
 SOURCE = "fba_delivery_tax_summary"
 ITEM_SPLIT_PATTERN = re.compile(r"[，,\r\n;；]+")
 SKU_QTY_PATTERN = re.compile(r"^\s*(?P<sku>.+?)\s*(?:×|x|X|\*)\s*(?P<qty>\d+(?:\.\d+)?)\s*$")
@@ -211,7 +213,7 @@ def split_tax_sku_summary(
         product = products.get(key)
         quantity_value = _decimal_to_cell_value(quantity)
         if product is None:
-            unmatched_rows.append([sku, quantity_value])
+            unmatched_rows.append([sku, "", quantity_value])
             continue
         matched_rows.append([
             str(product.get("sku") or sku).strip(),
@@ -219,6 +221,25 @@ def split_tax_sku_summary(
             quantity_value,
         ])
     return matched_rows, unmatched_rows
+
+
+def fill_unmatched_product_names(
+    unmatched_rows: list[list[Any]],
+    stock_names_by_key: dict[str, str],
+) -> tuple[list[list[Any]], int, int]:
+    filled_rows: list[list[Any]] = []
+    matched_count = 0
+    missing_count = 0
+    for row in unmatched_rows:
+        sku = str(row[0] if row else "").strip()
+        quantity = row[2] if len(row) >= 3 else (row[1] if len(row) >= 2 else "")
+        product_name = str(stock_names_by_key.get(_sku_match_key(sku)) or "").strip()
+        if product_name:
+            matched_count += 1
+        else:
+            missing_count += 1
+        filled_rows.append([sku, product_name, quantity])
+    return filled_rows, matched_count, missing_count
 
 
 def write_summary_xlsx(
@@ -260,12 +281,28 @@ async def summarize_delivery_tax_sku(
     csv_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
     products_path: str | Path | None = None,
+    stock_sku_output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     target = _require_delivery_no(delivery_no)
     csv_path = await resolve_delivery_csv(target, csv_dir=csv_dir)
     summary = summarize_tax_sku_quantities(csv_path)
     products = load_export_tax_products(products_path=products_path)
     matched_rows, unmatched_rows = split_tax_sku_summary(summary, products)
+    stock_sku_xlsx_paths: list[str] = []
+    stock_name_matched_count = 0
+    stock_name_missing_count = 0
+    if unmatched_rows:
+        stock_result = await export_stock_sku_names(
+            [str(row[0] or "").strip() for row in unmatched_rows],
+            delivery_no=target,
+            output_dir=STOCK_SKU_OUTPUT_DIR if stock_sku_output_dir is None else stock_sku_output_dir,
+        )
+        stock_sku_xlsx_paths = list(getattr(stock_result, "xlsx_paths", []) or [])
+        stock_names_by_key = dict(getattr(stock_result, "names_by_key", {}) or {})
+        unmatched_rows, stock_name_matched_count, stock_name_missing_count = fill_unmatched_product_names(
+            unmatched_rows,
+            stock_names_by_key,
+        )
     xlsx_path = write_summary_xlsx(
         matched_rows,
         unmatched_rows,
@@ -280,6 +317,9 @@ async def summarize_delivery_tax_sku(
         "sku_count": len(summary),
         "matched_sku_count": len(matched_rows),
         "unmatched_sku_count": len(unmatched_rows),
+        "stock_sku_xlsx_paths": stock_sku_xlsx_paths,
+        "stock_name_matched_count": stock_name_matched_count,
+        "stock_name_missing_count": stock_name_missing_count,
         "source": SOURCE,
     }
 

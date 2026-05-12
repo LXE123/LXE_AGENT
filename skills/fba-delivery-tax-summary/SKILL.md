@@ -12,11 +12,13 @@ type: amazon_store
 
 ## Hard Rules
 
-- 只使用固定 CLI：`uv run --frozen python -m services.agent_cli.mabang.summarize_fba_delivery_tax_sku`
+- 生成汇总时只使用固定 CLI：`uv run --frozen python -m services.agent_cli.mabang.summarize_fba_delivery_tax_sku`
 - 不要自己解析 CSV。
 - 不要自己生成 xlsx。
-- 退税产品白名单固定来自 `data/export_tax/export_tax_products.xls` 的 `Sheet1`。
+- 退税产品白名单固定来自 `data/export_tax/export_tax_products.xlsx` 的 `Sheet1`。
+- 不可出口退税 SKU 的产品名由 CLI 自动通过马帮库存 SKU 导出补全。
 - 不要手写或复用 bearer/freeToken。
+- 不要手写或复用马帮 Cookie。
 - CLI 失败时只转述最后一行 JSON 里的 `exception` 原文，不要猜测原因。
 
 ## Required Input
@@ -46,6 +48,11 @@ uv run --frozen python -m services.agent_cli.mabang.summarize_fba_delivery_tax_s
   "sku_count": 29,
   "matched_sku_count": 12,
   "unmatched_sku_count": 17,
+  "stock_sku_xlsx_paths": [
+    "artifacts/mabang_stock_sku/SP260508022_batch001.xlsx"
+  ],
+  "stock_name_matched_count": 17,
+  "stock_name_missing_count": 0,
   "source": "fba_delivery_tax_summary"
 }
 ```
@@ -64,4 +71,5 @@ uv run --frozen python -m services.agent_cli.mabang.summarize_fba_delivery_tax_s
 
 - `success=true`：告诉用户出口退税 SKU 汇总 xlsx 已生成，并提供 `xlsx_path`。
 - 结果文件包含两个 sheet：`可出口退税` 和 `不可出口退税`。
+- `不可出口退税` sheet 也包含产品名称；名称来自马帮库存 SKU 导出。
 - `success=false`：只转述 `exception`。
