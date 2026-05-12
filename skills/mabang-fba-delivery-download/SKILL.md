@@ -16,6 +16,7 @@ type: amazon_store
 - 不要直接拼马帮 API 请求。
 - 不要手写、复用或展示 bearer/freeToken。
 - 不要把 CSV 转换成 xlsx；当前 v1 交付马帮导出的 CSV。
+- 不要使用 `services.agent_cli.mabang.download_wms_consignment_excel`；那是 WMS 装箱/托运单 Excel，不是发货单 SKU CSV。
 - CLI 失败时只转述最后一行 JSON 里的 `exception` 原文，不要猜测原因。
 
 ## Required Input
@@ -62,4 +63,5 @@ uv run --frozen python -m services.agent_cli.mabang.download_fba_delivery_csv --
 ## Result Handling
 
 - `success=true`：告诉用户 FBA 发货单 CSV 已下载完成，并提供 `csv_path`。
+- 如果用户要求“发给我”或“发送文件”，使用 CLI 返回的 `csv_path` 发送文件；该路径位于 `artifacts/mabang_fba_delivery/`。
 - `success=false`：只转述 `exception`。

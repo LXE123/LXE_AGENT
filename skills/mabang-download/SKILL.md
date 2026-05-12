@@ -1,21 +1,23 @@
 ---
 name: mabang-download
-description: 从马帮下载业务文件或数据，包括 WMS 托运单装箱数据 Excel 等下载任务。
+description: 下载马帮 WMS 托运单装箱数据 Excel。用户明确要求装箱数据、托运单 Excel、WMS 下载，或为 Amazon FBA 创建货件准备装箱 Excel 时使用；不要用于 FBA 发货单、发货单 SKU 数据、发货单表格下载。
 type: amazon_store
 ---
 
 ## When to Use
 
-- 用户要从马帮下载业务文件或数据。
 - 用户要下载或刷新马帮 WMS 托运单 Excel。
 - 用户要先准备 `services/test_file/<ship_no>.xls|xlsx`，再执行 Amazon FBA 创建货件流程。
-- 用户提到“装箱数据”“托运单 Excel”“WMS 下载”“SP 单号”等需求。
+- 用户明确提到“装箱数据”“托运单 Excel”“WMS 下载”等需求。
+- 如果用户说“发货单”“FBA 发货单”“发货单 SKU 数据”“发货单表格”，不要使用本 skill，应使用 `mabang-fba-delivery-download`。
 
 ## Hard Rules
 
 - 只执行本 skill 明确列出的固定 CLI。
 - 不要直接调用 Python 内部函数。
 - 不要猜测本地路径；以 CLI 返回的 `excel_path` 为准。
+- 不要因为用户只给了 `SP...` 单号就使用本 skill；必须同时明确是 WMS 装箱/托运单需求。
+- 不要用于下载 FBA 发货单 CSV。
 - CLI 失败时只转述 `exception` 原文，不要猜测原因。
 
 ## WMS 托运单装箱 Excel
