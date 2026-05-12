@@ -58,3 +58,6 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+data/export_tax/export_tax_products.xlsx
+data/export_tax/~$*.xlsx
