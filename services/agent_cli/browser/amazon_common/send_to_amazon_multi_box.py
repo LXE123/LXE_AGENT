@@ -16,6 +16,10 @@ from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
 
 _MULTI_BOX_RADIO_SELECTOR = 'input[name="cli-input-method"][value="MULTI_BOX_WEBFORM"]'
 _STEP1_CONTINUE_SELECTOR = '[data-testid="step1-continue"]'
+_PACKING_METHOD_BOX_SELECTOR = '[data-testid="packing-method-box"]'
+_PACKING_METHOD_BOX_CONTENT_SELECTOR = '[data-testid="packing-method-box-content"]'
+_STANDARD_PACKING_METHOD_TEXT = "标准包装方式"
+_PACK_GROUP_CONTROLS_SELECTOR = '[data-testid="pack-group-controls"]'
 _BOX_COUNT_INPUT_SELECTOR = 'input[type="number"]'
 _DOWNLOAD_FILENAME_SELECTOR = '[data-testid="download-link-filename"]'
 _STEP2_UPLOAD_FILE_INPUT_SELECTOR = 'input[type="file"]'
@@ -144,6 +148,128 @@ return Boolean(deepQuerySelector(arguments[0]));
             _MULTI_BOX_RADIO_SELECTOR,
         )
     )
+
+
+def _has_pack_group_controls(driver: Any) -> bool:
+    return bool(
+        _execute_page_script(
+            driver,
+            """
+return Boolean(deepQuerySelector(arguments[0]));
+""",
+            _PACK_GROUP_CONTROLS_SELECTOR,
+        )
+    )
+
+
+def _read_packing_method_box_state(driver: Any) -> str:
+    raw_state = _execute_page_script(
+        driver,
+        """
+const boxes = deepQuerySelectorAll(arguments[0]);
+const targetText = String(arguments[1] || '');
+const root = boxes.find((box) => String(box.innerText || box.textContent || '').includes(targetText));
+if (!root) return 'missing';
+
+const classText = String(root.getAttribute('class') || '');
+const classes = new Set(classText.split(/\\s+/).filter(Boolean));
+if (classes.has('not-selected')) return 'not_selected';
+
+const checkmark = deepQuerySelector('kat-icon[name="checkmark"], .checkmark-icon', root);
+if (classes.has('selected') || checkmark) return 'selected';
+return 'present';
+""",
+        _PACKING_METHOD_BOX_SELECTOR,
+        _STANDARD_PACKING_METHOD_TEXT,
+    )
+    return str(raw_state or "").strip()
+
+
+def _click_packing_method_box_if_present(driver: Any) -> bool:
+    return bool(
+        _execute_page_script(
+            driver,
+            """
+const boxes = deepQuerySelectorAll(arguments[0]);
+const targetText = String(arguments[2] || '');
+const root = boxes.find((box) => String(box.innerText || box.textContent || '').includes(targetText));
+if (!root) return false;
+const target = deepQuerySelector(arguments[1], root) || root;
+
+function dispatchPointerOrMouseEvent(el, eventName) {
+  const EventClass = eventName.startsWith('pointer') && window.PointerEvent ? PointerEvent : MouseEvent;
+  try {
+    el.dispatchEvent(new EventClass(eventName, {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+    }));
+    return true;
+  } catch (error) {
+    try {
+      el.dispatchEvent(new MouseEvent(eventName, {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      }));
+      return true;
+    } catch (innerError) {}
+  }
+  return false;
+}
+
+try {
+  target.scrollIntoView({ block: 'center', inline: 'center' });
+} catch (error) {}
+try {
+  if (target.focus) target.focus();
+} catch (error) {}
+
+let dispatched = false;
+for (const eventName of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+  dispatched = dispatchPointerOrMouseEvent(target, eventName) || dispatched;
+}
+try {
+  target.click();
+  return true;
+} catch (error) {}
+return dispatched;
+""",
+            _PACKING_METHOD_BOX_SELECTOR,
+            _PACKING_METHOD_BOX_CONTENT_SELECTOR,
+            _STANDARD_PACKING_METHOD_TEXT,
+        )
+    )
+
+
+def _packing_method_box_is_complete(driver: Any) -> bool:
+    return _has_pack_group_controls(driver) and _read_packing_method_box_state(driver) == "selected"
+
+
+def _wait_click_packing_method_box_or_skip(driver: Any, *, timeout_seconds: float = 5.0) -> bool:
+    deadline = time.time() + max(0.0, float(timeout_seconds or 0))
+    click_count = 0
+
+    while True:
+        if _packing_method_box_is_complete(driver):
+            return True
+
+        state = _read_packing_method_box_state(driver)
+        if state == "not_selected" and click_count < 2:
+            click_count += 1
+            _click_packing_method_box_if_present(driver)
+            time.sleep(0.5)
+            if _packing_method_box_is_complete(driver):
+                return True
+            continue
+
+        if state == "not_selected" and click_count >= 2:
+            return False
+
+        if time.time() >= deadline:
+            return False
+
+        time.sleep(0.5)
 
 
 def _click_button_by_text(driver: Any, text: str) -> bool:
@@ -524,6 +650,17 @@ def _wait_for_notice(reader, *, timeout_seconds: int, interval_seconds: float = 
 
 def probe_multi_box_ready(session: Any, *, timeout_seconds: int = 10) -> dict[str, Any]:
     deadline = time.time() + max(1, min(int(timeout_seconds or 0), 10))
+    if _has_multi_box_radio(session.driver):
+        return {
+            "ready": True,
+            "notice": "",
+        }
+
+    _wait_click_packing_method_box_or_skip(
+        session.driver,
+        timeout_seconds=min(5.0, max(0.0, deadline - time.time())),
+    )
+
     while time.time() < deadline:
         if _has_multi_box_radio(session.driver):
             return {
@@ -564,7 +701,11 @@ def generate_multi_box_excel(session: Any, box_count: int, *, timeout_seconds: i
     if safe_box_count <= 0:
         raise RuntimeError(f"箱数必须大于 0: {box_count}")
 
+    packing_ready = _wait_click_packing_method_box_or_skip(session.driver, timeout_seconds=5.0)
+
     if not _has_multi_box_radio(session.driver):
+        if not packing_ready:
+            raise RuntimeError("标准包装方式卡片点击后仍未选中")
         raise RuntimeError("当前页面未进入多包装箱流程")
 
     _wait_for_click("需要多个包装箱单选框", lambda: _click_multi_box_radio(session.driver), timeout_seconds=timeout_seconds)
