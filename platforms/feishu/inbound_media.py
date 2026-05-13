@@ -10,7 +10,7 @@ from typing import Any
 from shared.infra.net import HttpSessionPurpose, get_aiohttp_session
 from shared.logging import logger
 
-from agent_runtime.vision import compress_image_bytes
+from shared.media.image_processing import compress_image_bytes
 
 from .auth import token_manager
 from .config import FEISHU_API_HOST

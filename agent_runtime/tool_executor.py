@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable
 
 from shared.agent_state import ensure_agent_state, merge_agent_state
 from shared.logging import logger
+from shared.media.image_processing import compress_image_bytes
 
 from .facts import ToolExecutionFact
 from .types import (
@@ -149,6 +150,10 @@ def _tool_result_from_fact(tool_name: str, fact: ToolExecutionFact) -> ToolResul
         except Exception as exc:
             raise ToolExecutionError(f"读取截图文件失败: {exc}") from exc
         media_type = str(mimetypes.guess_type(str(screenshot_path))[0] or "").strip() or "image/png"
+        compressed_bytes, compressed_media_type = compress_image_bytes(image_bytes)
+        if compressed_bytes and compressed_media_type:
+            image_bytes = compressed_bytes
+            media_type = compressed_media_type
         return ToolResult(
             content=[
                 text_content_block(f"MEDIA:{screenshot_path}"),
