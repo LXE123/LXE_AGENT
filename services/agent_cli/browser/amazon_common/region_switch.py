@@ -25,6 +25,7 @@ _SITE_ALIASES: dict[str, tuple[str, ...]] = {
     "ES": ("ES", "SPAIN", "西班牙", "西班牙站"),
     "CA": ("CA", "CANADA", "加拿大", "加拿大站"),
     "JP": ("JP", "JAPAN", "日本", "日本站"),
+    "AU": ("AU", "AUS", "AUSTRALIA", "澳大利亚", "澳大利亚站"),
 }
 
 _SWITCHER_SHARED_JS = """
