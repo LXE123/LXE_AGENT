@@ -61,11 +61,17 @@ CUSTOMS_DETAIL_HEADER_LABELS = (
     "件数",
 )
 CUSTOMS_DETAIL_BLOCK_ROWS = 3
+MAX_CUSTOMS_PRODUCT_ROWS = 50
 SUPPORTED_DESTINATION_COUNTRIES = ("日本", "澳大利亚", "德国", "英国", "美国", "加拿大")
 CONSIGNMENT_BOX_SEQUENCE_ALIASES = ("箱序号", "箱子编号", "箱号", "Box No", "Box Number")
 CONSIGNMENT_GROSS_WEIGHT_ALIASES = ("毛重", "Gross Weight", "gross_weight", "weight")
 ONE_DECIMAL = Decimal("0.1")
 TWO_DECIMALS = Decimal("0.01")
+THREE_DECIMALS = Decimal("0.001")
+RMB_UPPER_DIGITS = ("零", "壹", "贰", "叁", "肆", "伍", "陆", "柒", "捌", "玖")
+RMB_INTEGER_UNITS = ("", "拾", "佰", "仟")
+RMB_SECTION_UNITS = ("", "万", "亿", "兆")
+RMB_FRACTION_UNITS = ("角", "分", "厘")
 SP_NO_PATTERN = re.compile(r"(SP\d+)", re.IGNORECASE)
 CELL_REF_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_])"
@@ -254,6 +260,107 @@ def _parse_positive_decimal(value: Any, *, field_name: str) -> Decimal:
     if numeric <= 0:
         raise ValueError(f"{field_name} 必须大于 0: {value}")
     return numeric
+
+
+def calculate_total_amount(rows: list[SourceDeclarationRow]) -> Decimal:
+    total = Decimal("0")
+    for row in rows:
+        amount = _parse_decimal(row.total_price, field_name=f"第{row.row_number}行总价")
+        if amount < 0:
+            raise ValueError(f"第{row.row_number}行总价 不能小于 0: {row.total_price}")
+        total += amount
+    return total.quantize(THREE_DECIMALS, rounding=ROUND_HALF_UP)
+
+
+def _convert_four_digit_rmb_section(value: int) -> str:
+    if not 0 <= value <= 9999:
+        raise ValueError(f"人民币金额分组超出范围: {value}")
+
+    parts: list[str] = []
+    zero_pending = False
+    remaining = value
+    for divisor, unit in (
+        (1000, RMB_INTEGER_UNITS[3]),
+        (100, RMB_INTEGER_UNITS[2]),
+        (10, RMB_INTEGER_UNITS[1]),
+        (1, RMB_INTEGER_UNITS[0]),
+    ):
+        digit = remaining // divisor
+        remaining %= divisor
+        if digit:
+            if zero_pending and parts:
+                parts.append("零")
+            parts.append(f"{RMB_UPPER_DIGITS[digit]}{unit}")
+            zero_pending = False
+        elif parts:
+            zero_pending = True
+    return "".join(parts)
+
+
+def _convert_integer_rmb(value: int) -> str:
+    if value == 0:
+        return "零"
+    if value < 0:
+        raise ValueError("人民币金额不能小于 0")
+
+    sections: list[int] = []
+    remaining = value
+    while remaining:
+        sections.append(remaining % 10000)
+        remaining //= 10000
+    if len(sections) > len(RMB_SECTION_UNITS):
+        raise ValueError(f"人民币金额整数部分过大: {value}")
+
+    parts: list[str] = []
+    zero_pending = False
+    for section_index in range(len(sections) - 1, -1, -1):
+        section = sections[section_index]
+        if section == 0:
+            if parts:
+                zero_pending = True
+            continue
+        if parts and (zero_pending or section < 1000):
+            parts.append("零")
+        parts.append(f"{_convert_four_digit_rmb_section(section)}{RMB_SECTION_UNITS[section_index]}")
+        zero_pending = False
+    return "".join(parts).rstrip("零")
+
+
+def _convert_fraction_rmb(fraction_units: int, *, integer_part: int) -> str:
+    if fraction_units == 0:
+        return "整"
+
+    digits = [
+        fraction_units // 100,
+        (fraction_units // 10) % 10,
+        fraction_units % 10,
+    ]
+    parts: list[str] = []
+    zero_pending = False
+    for index, digit in enumerate(digits):
+        if digit:
+            if parts and zero_pending:
+                parts.append("零")
+            elif not parts and integer_part and index > 0:
+                parts.append("零" * index)
+            parts.append(f"{RMB_UPPER_DIGITS[digit]}{RMB_FRACTION_UNITS[index]}")
+            zero_pending = False
+        elif parts:
+            zero_pending = True
+    return "".join(parts)
+
+
+def amount_to_chinese_upper_rmb(amount: Decimal) -> str:
+    if amount < 0:
+        raise ValueError("人民币金额不能小于 0")
+
+    rounded = amount.quantize(THREE_DECIMALS, rounding=ROUND_HALF_UP)
+    amount_in_li = int((rounded * Decimal("1000")).to_integral_value(rounding=ROUND_HALF_UP))
+    integer_part = amount_in_li // 1000
+    fraction_units = amount_in_li % 1000
+    integer_text = _convert_integer_rmb(integer_part)
+    fraction_text = _convert_fraction_rmb(fraction_units, integer_part=integer_part)
+    return f"人民币{integer_text}圆{fraction_text}"
 
 
 def _parse_box_sequence(value: Any) -> int:
@@ -449,6 +556,42 @@ def _write_merged_safe(worksheet: Any, *, row: int, column: int, value: Any) -> 
     worksheet.cell(row=target_row, column=target_col).value = value
 
 
+def _find_cell_exact_text(worksheet: Any, text: str) -> tuple[int, int]:
+    expected = _clean_cell(text)
+    for row_index in range(1, worksheet.max_row + 1):
+        for column_index in range(1, worksheet.max_column + 1):
+            if _clean_cell(worksheet.cell(row=row_index, column=column_index).value) == expected:
+                return row_index, column_index
+    raise ValueError(f"{worksheet.title} sheet 找不到单元格: {text}")
+
+
+def _write_uppercase_amount(workbook: Any, amount_upper: str) -> None:
+    if "发票" not in workbook.sheetnames:
+        raise ValueError("报关资料模板缺少 sheet: 发票")
+    if "合同" not in workbook.sheetnames:
+        raise ValueError("报关资料模板缺少 sheet: 合同")
+
+    invoice_sheet = workbook["发票"]
+    invoice_total_row, invoice_total_col = _find_cell_exact_text(invoice_sheet, "TOTAL:")
+    if invoice_total_col <= 1:
+        raise ValueError("发票 sheet TOTAL: 左侧没有可填写中文金额的单元格")
+    _write_merged_safe(
+        invoice_sheet,
+        row=invoice_total_row,
+        column=invoice_total_col - 1,
+        value=amount_upper,
+    )
+
+    contract_sheet = workbook["合同"]
+    contract_total_row, contract_total_col = _find_cell_exact_text(contract_sheet, "Total Amount:")
+    _write_merged_safe(
+        contract_sheet,
+        row=contract_total_row + 1,
+        column=contract_total_col,
+        value=amount_upper,
+    )
+
+
 def _detail_block_has_template_content(worksheet: Any, *, start_row: int, max_col: int) -> bool:
     end_row = start_row + CUSTOMS_DETAIL_BLOCK_ROWS - 1
     for row_index in range(start_row, end_row + 1):
@@ -521,6 +664,46 @@ def _clear_customs_detail_owned_fields(
         _write_merged_safe(worksheet, row=start_row, column=layout.gross_weight_col, value=None)
         _write_merged_safe(worksheet, row=quantity_row, column=layout.quantity_col, value=None)
         _write_merged_safe(worksheet, row=quantity_row, column=layout.unit_col, value=None)
+
+
+def _resize_customs_package_count_merge(
+    worksheet: Any,
+    *,
+    layout: CustomsDetailLayout,
+    row_count: int,
+) -> None:
+    first_row = _customs_detail_start_row(layout, index=1)
+    last_row = _customs_detail_start_row(layout, index=row_count) + CUSTOMS_DETAIL_BLOCK_ROWS - 1
+    for merged_range in list(worksheet.merged_cells.ranges):
+        if (
+            merged_range.min_col <= layout.package_count_col <= merged_range.max_col
+            and merged_range.min_row <= first_row <= merged_range.max_row
+        ):
+            worksheet.unmerge_cells(str(merged_range))
+            break
+    worksheet.merge_cells(
+        start_row=first_row,
+        start_column=layout.package_count_col,
+        end_row=last_row,
+        end_column=layout.package_count_col,
+    )
+
+
+def _delete_unused_customs_detail_blocks(
+    worksheet: Any,
+    *,
+    layout: CustomsDetailLayout,
+    row_count: int,
+) -> None:
+    unused_block_count = layout.block_count - row_count
+    if unused_block_count <= 0:
+        return
+    delete_start_row = _customs_detail_start_row(layout, index=row_count + 1)
+    _delete_rows_preserving_template(
+        worksheet,
+        start_row=delete_start_row,
+        amount=unused_block_count * CUSTOMS_DETAIL_BLOCK_ROWS,
+    )
 
 
 def _calculate_net_weight(gross_weight: Decimal) -> Decimal:
@@ -606,10 +789,21 @@ def _write_customs_detail_rows(
         column=layout.package_count_col,
         value=box_count,
     )
-    _clear_customs_detail_owned_fields(
+    _resize_customs_package_count_merge(
         worksheet,
         layout=layout,
-        start_index=len(rows) + 1,
+        row_count=len(rows),
+    )
+    _write_merged_safe(
+        worksheet,
+        row=_customs_detail_start_row(layout, index=1),
+        column=layout.package_count_col,
+        value=box_count,
+    )
+    _delete_unused_customs_detail_blocks(
+        worksheet,
+        layout=layout,
+        row_count=len(rows),
     )
     return len(rows)
 
@@ -727,6 +921,39 @@ def _translate_formula_after_row_insert(
     return CELL_REF_PATTERN.sub(replace, formula)
 
 
+def _translate_formula_after_row_delete(
+    formula: Any,
+    *,
+    current_sheet_name: str,
+    delete_start: int,
+    amount: int,
+) -> Any:
+    if not isinstance(formula, str) or not formula.startswith("=") or amount <= 0:
+        return formula
+
+    delete_end = delete_start + amount - 1
+
+    def replace(match: re.Match[str]) -> str:
+        sheet_reference = match.group("sheet")
+        referenced_sheet = _formula_sheet_name(sheet_reference)
+        row_absolute = match.group("row_absolute")
+        row_number = int(match.group("row"))
+        if referenced_sheet and referenced_sheet != current_sheet_name:
+            new_row = row_number
+        elif row_absolute or row_number <= delete_end:
+            new_row = row_number
+        else:
+            new_row = row_number - amount
+        return (
+            f"{sheet_reference or ''}"
+            f"{match.group('column')}"
+            f"{row_absolute}"
+            f"{new_row}"
+        )
+
+    return CELL_REF_PATTERN.sub(replace, formula)
+
+
 def _copy_cell_style(source_cell: Any, target_cell: Any) -> None:
     if source_cell.has_style:
         target_cell._style = copy.copy(source_cell._style)
@@ -800,6 +1027,73 @@ def _insert_rows_preserving_template(worksheet: Any, *, insert_at: int, amount: 
                 cell.value,
                 current_sheet_name=worksheet.title,
                 insert_at=insert_at,
+                amount=amount,
+            )
+
+
+def _delete_rows_preserving_template(worksheet: Any, *, start_row: int, amount: int) -> None:
+    if amount <= 0:
+        return
+
+    end_row = start_row + amount - 1
+    old_max_row = worksheet.max_row
+    retained_merged_ranges: list[tuple[int, int, int, int]] = []
+    original_merged_ranges = list(worksheet.merged_cells.ranges)
+    for merged_range in original_merged_ranges:
+        bounds = (
+            merged_range.min_col,
+            merged_range.min_row,
+            merged_range.max_col,
+            merged_range.max_row,
+        )
+        if merged_range.max_row < start_row:
+            retained_merged_ranges.append(bounds)
+        elif merged_range.min_row > end_row:
+            retained_merged_ranges.append(
+                (
+                    merged_range.min_col,
+                    merged_range.min_row - amount,
+                    merged_range.max_col,
+                    merged_range.max_row - amount,
+                )
+            )
+        elif merged_range.min_row >= start_row and merged_range.max_row <= end_row:
+            pass
+        elif merged_range.min_row < start_row and merged_range.max_row <= end_row:
+            retained_merged_ranges.append(
+                (
+                    merged_range.min_col,
+                    merged_range.min_row,
+                    merged_range.max_col,
+                    start_row - 1,
+                )
+            )
+        else:
+            raise ValueError(f"{worksheet.title} sheet 合并单元格跨越删除区域: {merged_range}")
+
+    for merged_range in original_merged_ranges:
+        worksheet.unmerge_cells(str(merged_range))
+
+    worksheet.delete_rows(start_row, amount=amount)
+
+    for bounds in retained_merged_ranges:
+        if not _merged_range_exists(worksheet, bounds):
+            worksheet.merge_cells(
+                start_column=bounds[0],
+                start_row=bounds[1],
+                end_column=bounds[2],
+                end_row=bounds[3],
+            )
+
+    for row_index in range(start_row, max(start_row, old_max_row - amount + 1)):
+        for column_index in range(1, worksheet.max_column + 1):
+            cell = worksheet.cell(row=row_index, column=column_index)
+            if cell.__class__.__name__ == "MergedCell":
+                continue
+            cell.value = _translate_formula_after_row_delete(
+                cell.value,
+                current_sheet_name=worksheet.title,
+                delete_start=start_row,
                 amount=amount,
             )
 
@@ -908,12 +1202,14 @@ def _fill_formula_sheet(
             owned_columns=owned_columns,
         )
 
-    _clear_formula_rows(
-        worksheet,
-        owned_columns=owned_columns,
-        start_row=formula_start_row + row_count,
-        end_row=formula_start_row + available_rows - 1,
-    )
+    unused_row_count = available_rows - row_count
+    if unused_row_count > 0:
+        _delete_rows_preserving_template(
+            worksheet,
+            start_row=formula_start_row + row_count,
+            amount=unused_row_count,
+        )
+        summary_row -= unused_row_count
     _update_formula_summary(
         worksheet,
         config=config,
@@ -1096,6 +1392,13 @@ def fill_customs_declaration(
     sp_nos = [bundle.sp_no for bundle in bundles]
     destination_country = _validate_bundle_destinations(bundles)
     source_rows = [row for bundle in bundles for row in bundle.source_rows]
+    if len(source_rows) > MAX_CUSTOMS_PRODUCT_ROWS:
+        raise ValueError(
+            "商品数超过报关资料模板容量: "
+            f"需要 {len(source_rows)} 行商品，最多支持 {MAX_CUSTOMS_PRODUCT_ROWS} 行商品"
+        )
+    total_amount = calculate_total_amount(source_rows)
+    total_amount_upper = amount_to_chinese_upper_rmb(total_amount)
     weight_allocation = _combine_weight_allocations(bundles)
     box_count = sum(bundle.consignment_weight_info.box_count for bundle in bundles)
     total_gross_weight = _round_one_decimal(
@@ -1132,6 +1435,7 @@ def fill_customs_declaration(
         box_count=box_count,
     )
     formula_sheets = _fill_formula_sheets(workbook, row_count=len(source_rows))
+    _write_uppercase_amount(workbook, total_amount_upper)
     workbook.save(output_path)
 
     payload: dict[str, Any] = {
@@ -1147,6 +1451,8 @@ def fill_customs_declaration(
         },
         "box_count": box_count,
         "total_gross_weight": _decimal_to_json_number(total_gross_weight),
+        "total_amount": _decimal_to_json_number(total_amount),
+        "total_amount_upper": total_amount_upper,
         "row_count": len(source_rows),
         "customs_detail_row_count": customs_detail_row_count,
         "formula_sheet_row_count": len(source_rows),
