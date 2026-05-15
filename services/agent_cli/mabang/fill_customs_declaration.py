@@ -62,6 +62,8 @@ CUSTOMS_DETAIL_HEADER_LABELS = (
 )
 CUSTOMS_DETAIL_BLOCK_ROWS = 3
 MAX_CUSTOMS_PRODUCT_ROWS = 50
+CUSTOMS_DETAIL_BLANK_BLOCKS_TO_KEEP = 2
+FORMULA_BLANK_ROWS_TO_KEEP = 5
 SUPPORTED_DESTINATION_COUNTRIES = ("日本", "澳大利亚", "德国", "英国", "美国", "加拿大")
 CONSIGNMENT_BOX_SEQUENCE_ALIASES = ("箱序号", "箱子编号", "箱号", "Box No", "Box Number")
 CONSIGNMENT_GROSS_WEIGHT_ALIASES = ("毛重", "Gross Weight", "gross_weight", "weight")
@@ -656,14 +658,12 @@ def _clear_customs_detail_owned_fields(
 ) -> None:
     for index in range(start_index, layout.block_count + 1):
         start_row = _customs_detail_start_row(layout, index=index)
-        quantity_row = start_row + 2
-        _write_merged_safe(worksheet, row=start_row, column=layout.item_no_col, value=None)
-        _write_merged_safe(worksheet, row=start_row, column=layout.price_col, value=None)
-        _write_merged_safe(worksheet, row=start_row, column=layout.destination_country_col, value=None)
-        _write_merged_safe(worksheet, row=start_row, column=layout.net_weight_col, value=None)
-        _write_merged_safe(worksheet, row=start_row, column=layout.gross_weight_col, value=None)
-        _write_merged_safe(worksheet, row=quantity_row, column=layout.quantity_col, value=None)
-        _write_merged_safe(worksheet, row=quantity_row, column=layout.unit_col, value=None)
+        for row_index in range(start_row, start_row + CUSTOMS_DETAIL_BLOCK_ROWS):
+            for column_index in range(1, layout.package_count_col + 1):
+                cell = worksheet.cell(row=row_index, column=column_index)
+                if cell.__class__.__name__ == "MergedCell":
+                    continue
+                cell.value = None
 
 
 def _resize_customs_package_count_merge(
@@ -695,15 +695,18 @@ def _delete_unused_customs_detail_blocks(
     layout: CustomsDetailLayout,
     row_count: int,
 ) -> None:
-    unused_block_count = layout.block_count - row_count
-    if unused_block_count <= 0:
-        return
-    delete_start_row = _customs_detail_start_row(layout, index=row_count + 1)
-    _delete_rows_preserving_template(
+    _clear_customs_detail_owned_fields(
         worksheet,
-        start_row=delete_start_row,
-        amount=unused_block_count * CUSTOMS_DETAIL_BLOCK_ROWS,
+        layout=layout,
+        start_index=row_count + 1,
     )
+    first_deleted_block = row_count + CUSTOMS_DETAIL_BLANK_BLOCKS_TO_KEEP + 1
+    if first_deleted_block <= layout.block_count:
+        _delete_rows_preserving_template(
+            worksheet,
+            start_row=_customs_detail_start_row(layout, index=first_deleted_block),
+            amount=(layout.block_count - first_deleted_block + 1) * CUSTOMS_DETAIL_BLOCK_ROWS,
+        )
 
 
 def _calculate_net_weight(gross_weight: Decimal) -> Decimal:
@@ -988,6 +991,96 @@ def _merged_range_exists(worksheet: Any, bounds: tuple[int, int, int, int]) -> b
     return False
 
 
+def _print_area_bounds(worksheet: Any) -> tuple[int, int, int, int] | None:
+    print_area = _clean_cell(worksheet.print_area)
+    if not print_area:
+        return None
+    if "," in print_area:
+        raise ValueError(f"{worksheet.title} sheet 打印区域不是单段区域: {print_area}")
+    range_text = print_area.rsplit("!", 1)[-1]
+    try:
+        from openpyxl.utils.cell import range_boundaries
+    except Exception as exc:
+        raise RuntimeError("缺少 openpyxl 依赖，无法解析打印区域") from exc
+    return range_boundaries(range_text)
+
+
+def _adjust_print_area_after_row_delete(worksheet: Any, *, start_row: int, amount: int) -> int | None:
+    bounds = _print_area_bounds(worksheet)
+    if bounds is None:
+        return None
+    min_col, min_row, max_col, max_row = bounds
+    delete_end = start_row + amount - 1
+    if delete_end < min_row:
+        min_row = max(1, min_row - amount)
+        max_row = max(min_row, max_row - amount)
+    elif start_row <= max_row:
+        removed_count = min(max_row, delete_end) - max(min_row, start_row) + 1
+        if removed_count > 0:
+            max_row = max(min_row, max_row - removed_count)
+
+    try:
+        from openpyxl.utils.cell import get_column_letter
+    except Exception as exc:
+        raise RuntimeError("缺少 openpyxl 依赖，无法更新打印区域") from exc
+    worksheet.print_area = (
+        f"{get_column_letter(min_col)}{min_row}:"
+        f"{get_column_letter(max_col)}{max_row}"
+    )
+    return max_row
+
+
+def _adjust_row_breaks_after_row_delete(
+    worksheet: Any,
+    *,
+    start_row: int,
+    amount: int,
+    print_area_end_row: int | None,
+) -> None:
+    if amount <= 0 or not worksheet.row_breaks.brk:
+        return
+
+    try:
+        from openpyxl.worksheet.pagebreak import Break
+    except Exception as exc:
+        raise RuntimeError("缺少 openpyxl 依赖，无法更新分页符") from exc
+
+    delete_end = start_row + amount - 1
+    adjusted_breaks = []
+    for row_break in worksheet.row_breaks.brk:
+        break_id = int(row_break.id)
+        if start_row <= break_id <= delete_end:
+            continue
+        if break_id > delete_end:
+            break_id -= amount
+        if print_area_end_row is not None and break_id > print_area_end_row:
+            continue
+        adjusted_breaks.append(
+            Break(
+                id=break_id,
+                min=row_break.min,
+                max=row_break.max,
+                man=row_break.man,
+                pt=row_break.pt,
+            )
+        )
+    worksheet.row_breaks.brk = adjusted_breaks
+
+
+def _adjust_print_settings_after_row_delete(worksheet: Any, *, start_row: int, amount: int) -> None:
+    print_area_end_row = _adjust_print_area_after_row_delete(
+        worksheet,
+        start_row=start_row,
+        amount=amount,
+    )
+    _adjust_row_breaks_after_row_delete(
+        worksheet,
+        start_row=start_row,
+        amount=amount,
+        print_area_end_row=print_area_end_row,
+    )
+
+
 def _insert_rows_preserving_template(worksheet: Any, *, insert_at: int, amount: int) -> None:
     if amount <= 0:
         return
@@ -1038,17 +1131,11 @@ def _delete_rows_preserving_template(worksheet: Any, *, start_row: int, amount: 
     end_row = start_row + amount - 1
     old_max_row = worksheet.max_row
     retained_merged_ranges: list[tuple[int, int, int, int]] = []
-    original_merged_ranges = list(worksheet.merged_cells.ranges)
-    for merged_range in original_merged_ranges:
-        bounds = (
-            merged_range.min_col,
-            merged_range.min_row,
-            merged_range.max_col,
-            merged_range.max_row,
-        )
+    ranges_to_unmerge: list[str] = []
+    for merged_range in list(worksheet.merged_cells.ranges):
         if merged_range.max_row < start_row:
-            retained_merged_ranges.append(bounds)
-        elif merged_range.min_row > end_row:
+            continue
+        if merged_range.min_row > end_row:
             retained_merged_ranges.append(
                 (
                     merged_range.min_col,
@@ -1057,9 +1144,12 @@ def _delete_rows_preserving_template(worksheet: Any, *, start_row: int, amount: 
                     merged_range.max_row - amount,
                 )
             )
-        elif merged_range.min_row >= start_row and merged_range.max_row <= end_row:
-            pass
-        elif merged_range.min_row < start_row and merged_range.max_row <= end_row:
+            ranges_to_unmerge.append(str(merged_range))
+            continue
+        if merged_range.min_row >= start_row and merged_range.max_row <= end_row:
+            ranges_to_unmerge.append(str(merged_range))
+            continue
+        if merged_range.min_row < start_row and merged_range.max_row <= end_row:
             retained_merged_ranges.append(
                 (
                     merged_range.min_col,
@@ -1068,11 +1158,12 @@ def _delete_rows_preserving_template(worksheet: Any, *, start_row: int, amount: 
                     start_row - 1,
                 )
             )
-        else:
-            raise ValueError(f"{worksheet.title} sheet 合并单元格跨越删除区域: {merged_range}")
+            ranges_to_unmerge.append(str(merged_range))
+            continue
+        raise ValueError(f"{worksheet.title} sheet 合并单元格跨越删除区域: {merged_range}")
 
-    for merged_range in original_merged_ranges:
-        worksheet.unmerge_cells(str(merged_range))
+    for merged_range_ref in ranges_to_unmerge:
+        worksheet.unmerge_cells(merged_range_ref)
 
     worksheet.delete_rows(start_row, amount=amount)
 
@@ -1096,6 +1187,11 @@ def _delete_rows_preserving_template(worksheet: Any, *, start_row: int, amount: 
                 delete_start=start_row,
                 amount=amount,
             )
+    _adjust_print_settings_after_row_delete(
+        worksheet,
+        start_row=start_row,
+        amount=amount,
+    )
 
 
 def _copy_formula_row(
@@ -1202,14 +1298,21 @@ def _fill_formula_sheet(
             owned_columns=owned_columns,
         )
 
+    _clear_formula_rows(
+        worksheet,
+        owned_columns=owned_columns,
+        start_row=formula_start_row + row_count,
+        end_row=formula_start_row + available_rows - 1,
+    )
     unused_row_count = available_rows - row_count
-    if unused_row_count > 0:
+    deleted_row_count = max(0, unused_row_count - FORMULA_BLANK_ROWS_TO_KEEP)
+    if deleted_row_count > 0:
         _delete_rows_preserving_template(
             worksheet,
-            start_row=formula_start_row + row_count,
-            amount=unused_row_count,
+            start_row=formula_start_row + row_count + FORMULA_BLANK_ROWS_TO_KEEP,
+            amount=deleted_row_count,
         )
-        summary_row -= unused_row_count
+        summary_row -= deleted_row_count
     _update_formula_summary(
         worksheet,
         config=config,
