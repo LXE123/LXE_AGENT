@@ -16,7 +16,7 @@ type: amazon_store
 
 1. 确认以下字段都已明确（缺任何一项就直接向用户追问，不要启动 CLI）：
    - `store_id` — 只接受 `ziniao_browser` 中的 `get_status` 返回的 `store_id`，不要猜店铺名或简称
-   - `site` — 标准站点代码，如 `US`、`UK`、`DE`、`FR`、`IT`、`ES`、`CA`、`JP`
+   - `site` — 标准站点代码，如 `US`、`UK`、`DE`、`FR`、`IT`、`ES`、`CA`、`JP`、`AU`
    - `consignment_no` — 托运单号
    - `transport_mode` — 运输方式业务输入，后续所有 CLI 结果都会原样回传
 2. 如果店铺未打开，使用紫鸟浏览器工具 `ziniao_browser` 中的 `open_store` 直接打开店铺。如果已打开，可以直接使用`store_id`控制。

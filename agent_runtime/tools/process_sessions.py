@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import lru_cache
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 from threading import Lock
@@ -30,41 +31,90 @@ _TAIL_LOG_PREVIEW = 200
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _windows_powershell_encoded_command(command: str) -> str:
-    body = str(command or "").strip()
-    script = "\n".join(
-        [
-            "$ErrorActionPreference = 'Continue'",
-            "$ProgressPreference = 'SilentlyContinue'",
-            "$__lxe_utf8 = [System.Text.UTF8Encoding]::new($false)",
-            "[Console]::InputEncoding = $__lxe_utf8",
-            "[Console]::OutputEncoding = $__lxe_utf8",
-            "$OutputEncoding = $__lxe_utf8",
-            body,
-            "$__lxe_success = $?",
-            "$__lxe_last_exit_code = $global:LASTEXITCODE",
-            "if (-not $__lxe_success) {",
-            "    if ($__lxe_last_exit_code -is [int]) { exit $__lxe_last_exit_code }",
-            "    exit 1",
-            "}",
-            "exit 0",
-            "",
-        ]
+def _is_pwsh_7_or_newer(executable: str) -> bool:
+    try:
+        completed = subprocess.run(
+            [
+                executable,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$PSVersionTable.PSVersion.Major",
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5.0,
+            check=False,
+        )
+    except Exception:
+        return False
+    if completed.returncode != 0:
+        return False
+    first_line = str(completed.stdout or "").strip().splitlines()[0:1]
+    if not first_line:
+        return False
+    try:
+        return int(first_line[0].strip()) >= 7
+    except ValueError:
+        return False
+
+
+def _candidate_path(*parts: str | None) -> Path | None:
+    safe_parts = [str(part or "").strip() for part in parts]
+    if any(not part for part in safe_parts):
+        return None
+    return Path(*safe_parts)
+
+
+def _existing_file(path: Path | None) -> str:
+    if path is None:
+        return ""
+    try:
+        return str(path) if path.exists() and path.is_file() else ""
+    except OSError:
+        return ""
+
+
+@lru_cache(maxsize=1)
+def _resolve_windows_powershell() -> str:
+    program_files = os.environ.get("ProgramFiles") or os.environ.get("PROGRAMFILES") or r"C:\Program Files"
+    program_w6432 = os.environ.get("ProgramW6432") or ""
+
+    for candidate in (
+        _existing_file(_candidate_path(program_files, "PowerShell", "7", "pwsh.exe")),
+        _existing_file(_candidate_path(program_w6432, "PowerShell", "7", "pwsh.exe"))
+        if program_w6432 and program_w6432 != program_files
+        else "",
+        shutil.which("pwsh") or shutil.which("pwsh.exe") or "",
+    ):
+        if candidate and _is_pwsh_7_or_newer(candidate):
+            return candidate
+
+    system_root = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or ""
+    windows_powershell = _existing_file(
+        _candidate_path(system_root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
     )
-    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+    if windows_powershell:
+        return windows_powershell
+
+    return shutil.which("powershell") or shutil.which("powershell.exe") or ""
 
 
 def _windows_powershell_exec_args(command: str) -> list[str]:
+    powershell = _resolve_windows_powershell()
+    if not powershell:
+        raise FileNotFoundError("No PowerShell executable found on this Windows host.")
+    body = str(command or "").strip()
+    if Path(powershell).name.lower() in {"pwsh", "pwsh.exe"}:
+        body = "$PSStyle.OutputRendering = 'PlainText'; " + body
     return [
-        "powershell.exe",
+        powershell,
         "-NoProfile",
         "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-OutputFormat",
-        "Text",
-        "-EncodedCommand",
-        _windows_powershell_encoded_command(command),
+        "-Command",
+        body,
     ]
 
 
@@ -106,9 +156,12 @@ class ExecSession:
     process: asyncio.subprocess.Process | None = None
     status: SessionStatus = SessionStatus.RUNNING
     exit_code: int | None = None
-    output: str = ""
-    pending: str = ""
-    tail: str = ""
+    stdout: str = ""
+    stderr: str = ""
+    pending_stdout: str = ""
+    pending_stderr: str = ""
+    stdout_tail: str = ""
+    stderr_tail: str = ""
     max_output: int = DEFAULT_OUTPUT_LIMIT
     max_pending: int = DEFAULT_PENDING_LIMIT
     truncated: bool = False
@@ -117,7 +170,8 @@ class ExecSession:
     timeout_sec: float | None = None
     done_event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     pending_event: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
-    output_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    stdout_task: asyncio.Task[None] | None = field(default=None, repr=False)
+    stderr_task: asyncio.Task[None] | None = field(default=None, repr=False)
     waiter_task: asyncio.Task[None] | None = field(default=None, repr=False)
     timeout_task: asyncio.Task[None] | None = field(default=None, repr=False)
     notification_task: asyncio.Task[None] | None = field(default=None, repr=False)
@@ -204,27 +258,61 @@ def _append_limited(existing: str, addition: str, limit: int) -> tuple[str, bool
     return existing + addition[:allowed], True
 
 
-def _append_output(session: ExecSession, text: str) -> None:
+def _combine_stream_text(stdout: str, stderr: str) -> str:
+    safe_stdout = str(stdout or "")
+    safe_stderr = str(stderr or "")
+    if safe_stdout and safe_stderr:
+        return safe_stdout.rstrip() + "\n[stderr]\n" + safe_stderr.lstrip()
+    return safe_stdout or safe_stderr
+
+
+def _session_output(session: ExecSession) -> str:
+    return _combine_stream_text(session.stdout, session.stderr)
+
+
+def _session_pending_output(session: ExecSession) -> str:
+    return _combine_stream_text(session.pending_stdout, session.pending_stderr)
+
+
+def _session_tail(session: ExecSession) -> str:
+    return _combine_stream_text(session.stdout_tail, session.stderr_tail)
+
+
+def _append_stream_output(session: ExecSession, *, stream: str, text: str) -> None:
     safe_text = str(text or "")
     if not safe_text:
         return
-    session.output, output_truncated = _append_limited(session.output, safe_text, session.max_output)
-    session.pending, pending_truncated = _append_limited(session.pending, safe_text, session.max_pending)
-    session.tail = (session.tail + safe_text)[-DEFAULT_TAIL_LIMIT:]
+    if stream == "stderr":
+        session.stderr, output_truncated = _append_limited(session.stderr, safe_text, session.max_output)
+        session.pending_stderr, pending_truncated = _append_limited(
+            session.pending_stderr,
+            safe_text,
+            session.max_pending,
+        )
+        session.stderr_tail = (session.stderr_tail + safe_text)[-DEFAULT_TAIL_LIMIT:]
+    else:
+        session.stdout, output_truncated = _append_limited(session.stdout, safe_text, session.max_output)
+        session.pending_stdout, pending_truncated = _append_limited(
+            session.pending_stdout,
+            safe_text,
+            session.max_pending,
+        )
+        session.stdout_tail = (session.stdout_tail + safe_text)[-DEFAULT_TAIL_LIMIT:]
     if output_truncated or pending_truncated:
         session.truncated = True
     session.pending_event.set()
 
 
-async def _pump_output(session: ExecSession) -> None:
+async def _pump_stream_output(session: ExecSession, *, stream: str) -> None:
     proc = session.process
-    if proc is None or proc.stdout is None:
+    reader = None if proc is None else (proc.stderr if stream == "stderr" else proc.stdout)
+    if reader is None:
         return
     while True:
-        chunk = await proc.stdout.read(4096)
+        chunk = await reader.read(4096)
         if not chunk:
             return
-        _append_output(session, chunk.decode("utf-8", errors="replace"))
+        _append_stream_output(session, stream=stream, text=chunk.decode("utf-8", errors="replace"))
 
 
 async def _run_taskkill(pid: int) -> bool:
@@ -264,7 +352,7 @@ def _cancel_task(task: asyncio.Task[Any] | None) -> None:
 
 
 def _completion_tail(session: ExecSession) -> str:
-    tail = str(session.tail or session.output or "").strip()
+    tail = str(_session_tail(session) or _session_output(session) or "").strip()
     if not tail:
         return "(no output)"
     return tail[-400:]
@@ -439,9 +527,12 @@ async def _watch_session(session: ExecSession) -> None:
         return
     try:
         await proc.wait()
-        if session.output_task is not None:
+        if session.stdout_task is not None:
             with contextlib.suppress(asyncio.CancelledError):
-                await session.output_task
+                await session.stdout_task
+        if session.stderr_task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await session.stderr_task
     finally:
         _finish_session(session)
 
@@ -500,7 +591,7 @@ def _completed_payload(session: ExecSession) -> dict[str, Any]:
         "status": session.status.value,
         "session": session.id,
         "exit_code": session.exit_code,
-        "output": session.output.strip() or "(no output)",
+        "output": _session_output(session).strip() or "(no output)",
         "duration_sec": _duration_seconds(session),
     }
     if session.truncated:
@@ -523,7 +614,7 @@ def _running_payload(session: ExecSession) -> dict[str, Any]:
         "session": session.id,
         "pid": session.pid,
         "message": message,
-        "tail": session.tail or "(暂无输出)",
+        "tail": _session_tail(session) or "(暂无输出)",
     }
     if session.truncated:
         payload["truncated"] = True
@@ -563,7 +654,7 @@ async def run_exec_command(
                 cwd=str(cwd or "").strip(),
                 env=child_env,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+                stderr=asyncio.subprocess.PIPE,
                 stdin=asyncio.subprocess.PIPE,
                 creationflags=creationflags,
             )
@@ -573,7 +664,7 @@ async def run_exec_command(
                 cwd=str(cwd or "").strip(),
                 env=child_env,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
+                stderr=asyncio.subprocess.PIPE,
                 stdin=asyncio.subprocess.PIPE,
                 creationflags=creationflags,
             )
@@ -606,7 +697,8 @@ async def run_exec_command(
         str(cwd or "").strip(),
         _log_preview(session.command, limit=_COMMAND_LOG_PREVIEW),
     )
-    session.output_task = asyncio.create_task(_pump_output(session))
+    session.stdout_task = asyncio.create_task(_pump_stream_output(session, stream="stdout"))
+    session.stderr_task = asyncio.create_task(_pump_stream_output(session, stream="stderr"))
     session.waiter_task = asyncio.create_task(_watch_session(session))
     if session.timeout_sec is not None:
         session.timeout_task = asyncio.create_task(_enforce_timeout(session, session.timeout_sec))
@@ -659,7 +751,7 @@ async def process_exec_session(
         return {"error": f"会话 {safe_session_id} 不存在。"}
 
     if safe_action == "poll":
-        if session.status == SessionStatus.RUNNING and not session.pending:
+        if session.status == SessionStatus.RUNNING and not _session_pending_output(session):
             waiter = asyncio.create_task(session.done_event.wait())
             pending_waiter = asyncio.create_task(session.pending_event.wait())
             try:
@@ -680,9 +772,10 @@ async def process_exec_session(
         payload: dict[str, Any] = {
             "session": session.id,
             "status": session.status.value,
-            "new_output": session.pending or "(no new output)",
+            "new_output": _session_pending_output(session) or "(no new output)",
         }
-        session.pending = ""
+        session.pending_stdout = ""
+        session.pending_stderr = ""
         session.pending_event.clear()
         if session.status != SessionStatus.RUNNING:
             payload["exit_code"] = session.exit_code
@@ -694,19 +787,24 @@ async def process_exec_session(
         return payload
 
     if safe_action == "log":
-        lines = session.output.splitlines()
+        stdout_lines = session.stdout.splitlines()
+        stderr_lines = session.stderr.splitlines()
         start = max(0, int(offset or 1) - 1)
         safe_limit = max(1, int(limit or DEFAULT_LOG_LIMIT))
-        end = min(len(lines), start + safe_limit)
-        page = lines[start:end]
+        stdout_end = min(len(stdout_lines), start + safe_limit)
+        stderr_end = min(len(stderr_lines), start + safe_limit)
+        stdout_page = stdout_lines[start:stdout_end]
+        stderr_page = stderr_lines[start:stderr_end]
+        total_lines = max(len(stdout_lines), len(stderr_lines))
+        showing_end = min(total_lines, start + safe_limit)
         payload = {
             "session": session.id,
-            "total_lines": len(lines),
-            "showing": f"{start + 1}-{end}" if lines else "0-0",
-            "output": "\n".join(page) if page else "(no output)",
+            "total_lines": total_lines,
+            "showing": f"{start + 1}-{showing_end}" if total_lines else "0-0",
+            "output": _combine_stream_text("\n".join(stdout_page), "\n".join(stderr_page)) or "(no output)",
         }
-        if end < len(lines):
-            payload["message"] = f"还有 {len(lines) - end} 行。用 offset={end + 1} 继续。"
+        if showing_end < total_lines:
+            payload["message"] = f"还有 {total_lines - showing_end} 行。用 offset={showing_end + 1} 继续。"
         if session.truncated:
             payload["truncated"] = True
         if session.status != SessionStatus.RUNNING:
@@ -753,6 +851,8 @@ async def clear_exec_sessions_for_tests() -> None:
     sessions = _REGISTRY.list_all()
     for session in sessions:
         _cancel_task(session.notification_task)
+        _cancel_task(session.stdout_task)
+        _cancel_task(session.stderr_task)
         if session.process is not None and session.process.returncode is None:
             await _terminate_process(session)
             _finish_session(session, status_override=SessionStatus.KILLED)
