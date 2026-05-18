@@ -31,11 +31,16 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m services.agent_cli.mabang.download_msku_detail_excel"
     )
     parser.add_argument("--ship-no", default="")
+    parser.add_argument("--delivery-no", default="")
     return parser
 
 
 async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
     ship_no = normalize_ship_no(getattr(args, "ship_no", ""))
+    delivery_no = normalize_ship_no(getattr(args, "delivery_no", ""))
+    if ship_no and delivery_no and ship_no != delivery_no:
+        raise ValueError(f"ship_no 和 delivery_no 不一致: ship_no={ship_no}, delivery_no={delivery_no}")
+    ship_no = delivery_no or ship_no
     result = await download_msku_detail_excel(ship_no)
     return result.to_payload()
 
@@ -45,7 +50,9 @@ def main(argv: list[str] | None = None) -> int:
     ship_no = ""
     try:
         args = build_parser().parse_args(argv)
-        ship_no = normalize_ship_no(getattr(args, "ship_no", ""))
+        ship_no = normalize_ship_no(getattr(args, "delivery_no", "")) or normalize_ship_no(
+            getattr(args, "ship_no", "")
+        )
         payload = asyncio.run(_run_async(args))
     except Exception as exc:
         payload = {

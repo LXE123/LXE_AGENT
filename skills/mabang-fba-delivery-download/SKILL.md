@@ -33,6 +33,10 @@ type: amazon_store
 uv run --frozen python -m services.agent_cli.mabang.download_fba_delivery_csv --delivery-no <delivery_no>
 ```
 
+- 发货单导出通常需要几十秒；CLI 内部已经会轮询马帮导出任务直到完成。
+- 如果工具返回命令仍在运行/session running，AI 不要频繁轮询该 session，也不要硬等刷日志；等待最终完成通知，或隔较长时间再查一次。
+- 不要因为命令一时没有返回就重复启动，也不要自行改用其它下载脚本。
+
 只读取 CLI 输出的最后一行 JSON。
 
 成功时：
