@@ -36,6 +36,8 @@ def _reason_label(scope: str, require_wms_cookie_header: bool) -> str:
         return "获取货件数据需要"
     if normalized_scope == "erp":
         return "执行Amazon补货流程需要"
+    if normalized_scope == "private_amz":
+        return "获取Amazon后台Cookie需要"
     if normalized_scope == "temu":
         return "执行TEMU流程需要"
     return "业务流程需要"

@@ -20,6 +20,15 @@ LOGIN_URL = "https://private.mabangerp.com/index.htm"
 TEMU_TARGET_URL = "https://private.mabangerp.com/index.php?mod=order.exportOrderByTemplate"
 FBA_HOME_URL = "https://private.mabangerp.com/"
 FBA_JUMP_WMS_URL = "https://private.mabangerp.com/index.php?mod=main.jumpToWms"
+PRIVATE_AMZ_HOST = "private-amz.mabangerp.com"
+PRIVATE_AMZ_COOKIE_REFRESH_URL = "https://private.mabangerp.com/index.php?mod=stock.list&searchStatus=3"
+PRIVATE_AMZ_REQUIRED_COOKIE_NAMES = (
+    "PHPSESSID",
+    "MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE",
+    "MABANG_ERP_PRO_MEMBERINFO_LOGIN_PLUS",
+    "signed",
+    "route",
+)
 KNOWN_LOGIN_HOSTS = {
     "login.dingtalk.com",
     "passport.dingtalk.com",
@@ -32,8 +41,8 @@ def ensure_auth(
     require_wms_cookie_header: bool = False,
 ) -> dict[str, Any]:
     normalized_scope = str(scope or "").strip().lower()
-    if normalized_scope not in {"temu", "fba", "erp"}:
-        raise ValueError("scope 仅支持 temu、fba 或 erp")
+    if normalized_scope not in {"temu", "fba", "erp", "private_amz"}:
+        raise ValueError("scope 仅支持 temu、fba、erp 或 private_amz")
 
     resolved_account, password = _resolve_credentials(normalized_scope, account)
     state_file = _state_file(resolved_account)
@@ -51,6 +60,15 @@ def ensure_auth(
 
     if normalized_scope == "erp":
         return _ensure_erp_auth(
+            account=resolved_account,
+            password=password,
+            state_file=state_file,
+            payload=payload,
+            phpsessid_status=phpsessid_status,
+        )
+
+    if normalized_scope == "private_amz":
+        return _ensure_private_amz_auth(
             account=resolved_account,
             password=password,
             state_file=state_file,
@@ -286,6 +304,31 @@ def _storage_lookup_domain_cookies(payload: dict[str, Any], host: str) -> list[d
     return matched
 
 
+def _storage_lookup_domain_cookie_names(payload: dict[str, Any], host: str) -> set[str]:
+    return {
+        str(item.get("name") or "").strip()
+        for item in _storage_lookup_domain_cookies(payload, host)
+        if str(item.get("name") or "").strip()
+    }
+
+
+def _missing_cookie_names_for_host(
+    payload: dict[str, Any],
+    host: str,
+    required_names: tuple[str, ...],
+) -> list[str]:
+    names = _storage_lookup_domain_cookie_names(payload, host)
+    return [name for name in required_names if name not in names]
+
+
+def _has_private_amz_cookie_bundle(payload: dict[str, Any]) -> bool:
+    return not _missing_cookie_names_for_host(
+        payload,
+        PRIVATE_AMZ_HOST,
+        PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
+    )
+
+
 def _coerce_refresh_timestamp(value: Any) -> int | None:
     try:
         numeric = int(float(value))
@@ -496,6 +539,73 @@ def _ensure_erp_auth(
         "source": "relogin",
         "cookies_by_domain": _parse_cookies_by_domain(saved_payload),
     }
+
+
+def _ensure_private_amz_auth(
+    account: str,
+    password: str,
+    state_file: Path,
+    payload: dict[str, Any],
+    phpsessid_status: dict[str, Any],
+) -> dict[str, Any]:
+    if phpsessid_status.get("valid") and _has_private_amz_cookie_bundle(payload):
+        return {
+            "success": True,
+            "scope": "private_amz",
+            "account": account,
+            "source": "cache",
+            "cookies_by_domain": _parse_cookies_by_domain(payload),
+        }
+
+    can_reuse_state = bool(payload) and state_file.exists()
+    used_relogin = False
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        context = _open_context(browser, state_file, can_reuse_state=can_reuse_state)
+        try:
+            page = context.new_page()
+            if not phpsessid_status.get("valid"):
+                _perform_login(page, account, password)
+                page.wait_for_timeout(1000)
+                used_relogin = True
+
+            _visit_private_amz_cookie_refresh_page(page)
+            if _is_login_page(page):
+                _perform_login(page, account, password)
+                page.wait_for_timeout(1000)
+                used_relogin = True
+                _visit_private_amz_cookie_refresh_page(page)
+
+            saved_payload = _save_storage_state(context, state_file)
+        finally:
+            context.close()
+            browser.close()
+
+    missing = _missing_cookie_names_for_host(
+        saved_payload,
+        PRIVATE_AMZ_HOST,
+        PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
+    )
+    if missing:
+        raise RuntimeError(f"未获取到 private-amz 关键 Cookie: {', '.join(missing)}")
+
+    return {
+        "success": True,
+        "scope": "private_amz",
+        "account": account,
+        "source": "relogin" if used_relogin else "refresh",
+        "cookies_by_domain": _parse_cookies_by_domain(saved_payload),
+    }
+
+
+def _visit_private_amz_cookie_refresh_page(page) -> None:
+    page.goto(PRIVATE_AMZ_COOKIE_REFRESH_URL, wait_until="domcontentloaded")
+    try:
+        page.wait_for_load_state("networkidle", timeout=10000)
+    except PlaywrightTimeoutError:
+        pass
+    page.wait_for_timeout(1500)
 
 
 def _ensure_fba_auth(

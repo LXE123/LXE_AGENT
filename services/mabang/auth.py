@@ -32,7 +32,7 @@ def _resolve_account(scope: str, account: str) -> str:
     if account_text:
         return account_text
     normalized_scope = str(scope or "").strip().lower()
-    if normalized_scope == "erp":
+    if normalized_scope in {"erp", "private_amz"}:
         return str(getattr(config, "MABANG_ACCOUNT", "") or "").strip()
     return ""
 
