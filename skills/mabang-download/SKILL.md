@@ -7,7 +7,7 @@ type: amazon_store
 ## When to Use
 
 - 用户要下载或刷新马帮 WMS 托运单 Excel。
-- 用户要先准备 `services/test_file/<ship_no>.xls|xlsx`，再执行 Amazon FBA 创建货件流程。
+- 用户要先准备 `artifacts/mabang_wms_consignment/<ship_no>.xls|xlsx`，再执行 Amazon FBA 创建货件流程。
 - 用户明确提到“装箱数据”“托运单 Excel”“WMS 下载”等需求。
 - 如果用户说“发货单”“FBA 发货单”“发货单 SKU 数据”“发货单表格”，不要使用本 skill，应使用 `mabang-fba-delivery-download`。
 

@@ -19,7 +19,7 @@ from ...errors import MabangAuthError, MabangBusinessError
 DEFAULT_WMS_EXPORT_URL = "https://wms.private.mabangerp.com/export_service/fbaamazon/ExeclFbaPackInfo2Amazon"
 DEFAULT_WMS_EXPORT_ORIGIN = "https://wms.private.mabangerp.com"
 DEFAULT_WMS_EXPORT_REFERER = "https://wms.private.mabangerp.com/redirect/40402/page"
-DEFAULT_WMS_EXCEL_DIR = "test_file"
+DEFAULT_WMS_EXCEL_DIR = "artifacts/mabang_wms_consignment"
 AUTH_FAIL_STATUS = {401, 403}
 
 
@@ -39,7 +39,7 @@ def _resolve_excel_dir() -> Path:
     raw = str(getattr(config, "FBA_LOGISTICS_WMS_EXCEL_DIR", DEFAULT_WMS_EXCEL_DIR) or DEFAULT_WMS_EXCEL_DIR).strip()
     path = Path(raw)
     if not path.is_absolute():
-        path = Path(__file__).resolve().parents[3] / raw
+        path = Path(__file__).resolve().parents[4] / raw
     path.mkdir(parents=True, exist_ok=True)
     return path
 

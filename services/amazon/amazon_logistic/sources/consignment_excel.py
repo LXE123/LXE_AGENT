@@ -12,7 +12,7 @@ from shared.logging import logger
 
 from ..input.validator import normalize_consignment_no
 
-DEFAULT_TEST_FILE_DIR = "test_file"
+DEFAULT_TEST_FILE_DIR = "artifacts/mabang_wms_consignment"
 
 
 def _parse_bool(value: Any, default: bool = False) -> bool:
@@ -30,11 +30,11 @@ def _parse_bool(value: Any, default: bool = False) -> bool:
 
 
 def resolve_test_file_dir() -> Path:
-    """解析本地托运单 Excel 目录。"""
+    """解析本地托运单 Excel 缓存目录。"""
     raw = str(getattr(config, "FBA_LOGISTICS_TEST_FILE_DIR", DEFAULT_TEST_FILE_DIR) or DEFAULT_TEST_FILE_DIR).strip()
     base = Path(raw)
     if not base.is_absolute():
-        base = Path(__file__).resolve().parents[3] / raw
+        base = Path(__file__).resolve().parents[4] / raw
     return base
 
 
@@ -42,7 +42,7 @@ def find_consignment_excel(consignment_no: str) -> Path:
     """按托运单号查找本地 Excel。"""
     base_dir = resolve_test_file_dir()
     if not base_dir.exists():
-        raise FileNotFoundError(f"测试文件目录不存在: {base_dir}")
+        raise FileNotFoundError(f"托运单 Excel 缓存目录不存在: {base_dir}")
 
     key = normalize_consignment_no(consignment_no)
     candidates = [
@@ -61,7 +61,7 @@ def find_unique_local_consignment_excel(consignment_no: str) -> Path:
     """按托运单号查找唯一的本地 Excel。"""
     base_dir = resolve_test_file_dir()
     if not base_dir.exists():
-        raise FileNotFoundError(f"测试文件目录不存在: {base_dir}")
+        raise FileNotFoundError(f"托运单 Excel 缓存目录不存在: {base_dir}")
 
     key = normalize_consignment_no(consignment_no)
     candidates = [

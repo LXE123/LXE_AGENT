@@ -40,7 +40,7 @@ type: amazon_store
 
 装箱文件查找规则固定：
 
-- 目录：`services/test_file`
+- 目录：`artifacts/mabang_wms_consignment`
 - 文件名：
   - `{consignment_no}.xls`
   - `{consignment_no}.xlsx`

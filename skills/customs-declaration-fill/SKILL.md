@@ -33,7 +33,7 @@ type: amazon_store
 - 单次报关资料最多包含 50 行商品。
 - 每个文件名中必须包含 `SP...` 发货单号。
 - 每个文件名中必须包含目的国，且多文件时目的国必须一致；仅支持：`日本`、`澳大利亚`、`德国`、`英国`、`美国`、`加拿大`。
-- 本地必须已经存在每个 SP 对应的装箱数据 Excel，通常位于 `services/test_file/<SP单号>.xls` 或 `services/test_file/<SP单号>.xlsx`。
+- 本地必须已经存在每个 SP 对应的装箱数据 Excel，通常位于 `artifacts/mabang_wms_consignment/<SP单号>.xls` 或 `artifacts/mabang_wms_consignment/<SP单号>.xlsx`。
 - 如果用户没有提供 xlsx 文件，先追问文件。
 
 ## How to Execute
