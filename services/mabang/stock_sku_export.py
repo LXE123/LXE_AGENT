@@ -24,6 +24,20 @@ MEMCACHE_COOKIE_NAME = "MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE"
 MAX_SKUS_PER_BATCH = 3000
 STOCK_SKU_COLUMN = "库存SKU"
 STOCK_SKU_NAME_COLUMN = "库存SKU中文名称"
+STOCK_SKU_WAREHOUSE_ID = "1014318"
+STOCK_SKU_EXPORT_FIELDS: tuple[tuple[str, str], ...] = (
+    (STOCK_SKU_COLUMN, "uq101"),
+    (STOCK_SKU_NAME_COLUMN, "uq103"),
+    ("库存sku图片", "uq1244"),
+    ("库存总量（按勾选仓库）", "uq2161"),
+    ("可用库存总量（按勾选仓库）", "uq2162"),
+    ("未发货总量（按勾选仓库）", "uq2163"),
+    ("最新采购价(RMB)", "uq1271"),
+    ("最低采购价(RMB)", "uq1272"),
+    ("标准采购价(RMB)", "uq1273"),
+    ("仓库名称", "uq222"),
+    ("仓库可用库存量", "uq254"),
+)
 AUTH_FAIL_STATUS = {401, 403}
 SOURCE = "mabang_stock_sku_export"
 WHITESPACE_PATTERN = re.compile(r"\s+")
@@ -177,34 +191,41 @@ async def _resolve_private_auth() -> tuple[str, str]:
 
 def _step1_form_data(skus: list[str], *, memcache_key: str) -> list[tuple[str, str]]:
     order_ids = "\r\n".join(skus) + "\r\n"
-    return [
+    form: list[tuple[str, str]] = [
         ("backUrl", ""),
         ("orderIds", order_ids),
-        ("fieldlabel", "uq101"),
-        ("fieldlabel", "uq103"),
-        ("map-name[]", STOCK_SKU_COLUMN),
-        ("map-uq[]", "uq101"),
-        ("map-text[]", ""),
-        ("map-name[]", STOCK_SKU_NAME_COLUMN),
-        ("map-uq[]", "uq103"),
-        ("map-text[]", ""),
-        ("templateName", ""),
-        ("templateId", "0"),
-        ("datasOpen", "1"),
-        ("memcacheKey", memcache_key),
-        ("showRmbColumn", "2"),
-        ("pageSave", "1"),
-        ("operateType", "3"),
-        ("params", ""),
-        ("InterfaceUrl", ""),
-        ("mainMenu", ""),
-        ("hiddenPage", "1"),
-        ("hiddenPageSize", ""),
-        ("tableBase", ""),
-        ("isMerage", "1"),
-        ("version", "v2"),
-        ("step", "1"),
     ]
+    form.extend(("fieldlabel", uq) for _, uq in STOCK_SKU_EXPORT_FIELDS)
+    form.append(("warehouseIds[]", STOCK_SKU_WAREHOUSE_ID))
+    for name, uq in STOCK_SKU_EXPORT_FIELDS:
+        form.extend(
+            [
+                ("map-name[]", name),
+                ("map-uq[]", uq),
+                ("map-text[]", ""),
+            ]
+        )
+    form.extend(
+        [
+            ("templateName", ""),
+            ("templateId", "0"),
+            ("datasOpen", "1"),
+            ("memcacheKey", memcache_key),
+            ("showRmbColumn", "2"),
+            ("pageSave", "1"),
+            ("operateType", "3"),
+            ("params", ""),
+            ("InterfaceUrl", ""),
+            ("mainMenu", ""),
+            ("hiddenPage", ""),
+            ("hiddenPageSize", ""),
+            ("tableBase", ""),
+            ("isMerage", "1"),
+            ("version", "v2"),
+            ("step", "1"),
+        ]
+    )
+    return form
 
 
 def _step2_form_data(*, sn: str, sub_no: int) -> list[tuple[str, str]]:
@@ -369,6 +390,8 @@ def load_stock_sku_names(xlsx_path: str | Path) -> OrderedDict[str, str]:
 
     columns = [str(column or "").strip() for column in list(df.columns)]
     df.columns = columns
+    if not columns and df.empty:
+        raise RuntimeError("库存SKU导出结果为空，可能这些库存 SKU 在马帮库存中查不到")
     missing_columns = [column for column in (STOCK_SKU_COLUMN, STOCK_SKU_NAME_COLUMN) if column not in columns]
     if missing_columns:
         raise RuntimeError(f"库存SKU导出xlsx缺少列: {', '.join(missing_columns)}")
@@ -494,7 +517,9 @@ async def export_stock_sku_names(
 __all__ = [
     "MAX_SKUS_PER_BATCH",
     "STOCK_SKU_COLUMN",
+    "STOCK_SKU_EXPORT_FIELDS",
     "STOCK_SKU_NAME_COLUMN",
+    "STOCK_SKU_WAREHOUSE_ID",
     "StockSkuBatchExport",
     "StockSkuExportAuthError",
     "StockSkuExportError",
