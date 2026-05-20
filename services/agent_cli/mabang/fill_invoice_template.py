@@ -16,12 +16,17 @@ from typing import Any
 
 from services.agent_cli._shared.json_output import configure_utf8_stdio
 from services.agent_cli.mabang.fill_customs_declaration import (
-    INPUT_HEADERS,
     SourceDeclarationRow,
     _clean_cell,
     classify_declaration,
     extract_destination_country_from_filename,
     extract_sp_no_from_filename,
+)
+from services.agent_cli.mabang.restock_workbook import (
+    MERGE_DETAIL_HEADERS,
+    SUMMARY_HEADERS,
+    find_merge_detail_sheet,
+    find_summary_sheet,
 )
 from services.amazon.amazon_logistic.sources.consignment_excel import (
     find_consignment_excel,
@@ -57,7 +62,7 @@ IMAGE_MAX_HEIGHT = 80
 IMAGE_ROW_HEIGHT = 65
 IMAGE_COLUMN_WIDTH = 14
 UNKNOWN_DECLARED_PRICE_TEXT = "没有该材质的计算价格方式"
-MERGE_DETAIL_HEADERS = ("SKU", "产品名称", "发货量", "规则型号", "单价")
+INPUT_HEADERS = SUMMARY_HEADERS
 MERGE_PRICE_QUANTIZE = Decimal("0.01")
 MATERIAL_TRANSLATIONS = {
     "硅胶": "silicone",
@@ -180,22 +185,12 @@ def _load_workbook(path: str | Path, *, data_only: bool = False):
         raise RuntimeError(f"读取 xlsx 文件失败: {source_path}, error={exc}") from exc
 
 
-def _validate_input_headers(actual_headers: list[str]) -> None:
+def _validate_input_headers(actual_headers: list[str], *, input_path: str | Path, sheet_name: str) -> None:
     expected = list(INPUT_HEADERS)
     actual = actual_headers[: len(expected)]
     if actual != expected:
         raise ValueError(
-            "第 3 个 sheet 第 1 行表头不匹配，"
-            f"expected={expected}, actual={actual}"
-        )
-
-
-def _validate_merge_detail_headers(actual_headers: list[str]) -> None:
-    expected = list(MERGE_DETAIL_HEADERS)
-    actual = actual_headers[: len(expected)]
-    if actual != expected:
-        raise ValueError(
-            "第 2 个 sheet 第 1 行表头不匹配，"
+            f"文件 {Path(input_path).name} 的 sheet {sheet_name} 第 1 行表头不匹配，"
             f"expected={expected}, actual={actual}"
         )
 
@@ -207,15 +202,12 @@ def read_invoice_source_rows(input_xlsx: str | Path) -> list[InvoiceSourceRow]:
 
     workbook = _load_workbook(path, data_only=True)
     try:
-        if len(workbook.worksheets) < 3:
-            raise ValueError("输入 workbook 少于 3 个 sheet")
-
-        worksheet = workbook.worksheets[2]
+        worksheet = find_summary_sheet(workbook, path)
         headers = [
             _clean_cell(worksheet.cell(row=1, column=index).value)
             for index in range(1, len(INPUT_HEADERS) + 1)
         ]
-        _validate_input_headers(headers)
+        _validate_input_headers(headers, input_path=path, sheet_name=worksheet.title)
         column_indexes = {header: index + 1 for index, header in enumerate(INPUT_HEADERS)}
 
         rows: list[InvoiceSourceRow] = []
@@ -237,7 +229,7 @@ def read_invoice_source_rows(input_xlsx: str | Path) -> list[InvoiceSourceRow]:
                 )
             )
         if not rows:
-            raise ValueError("输入 xlsx 第 3 个 sheet 未解析到有效数据")
+            raise ValueError(f"输入 xlsx 的 sheet {worksheet.title} 未解析到有效数据: {path.name}")
         return rows
     finally:
         workbook.close()
@@ -250,15 +242,7 @@ def read_stock_sku_merge_infos(input_xlsx: str | Path) -> OrderedDict[str, Stock
 
     workbook = _load_workbook(path, data_only=True)
     try:
-        if len(workbook.worksheets) < 2:
-            raise ValueError("输入 workbook 少于 2 个 sheet，无法读取库存 SKU 合并明细")
-
-        worksheet = workbook.worksheets[1]
-        headers = [
-            _clean_cell(worksheet.cell(row=1, column=index).value)
-            for index in range(1, len(MERGE_DETAIL_HEADERS) + 1)
-        ]
-        _validate_merge_detail_headers(headers)
+        worksheet = find_merge_detail_sheet(workbook, path)
         column_indexes = {header: index + 1 for index, header in enumerate(MERGE_DETAIL_HEADERS)}
 
         merge_infos: OrderedDict[str, StockSkuMergeInfo] = OrderedDict()
@@ -270,7 +254,7 @@ def read_stock_sku_merge_infos(input_xlsx: str | Path) -> OrderedDict[str, Stock
             sku_key = normalize_sku_key(sku)
             if not sku_key:
                 continue
-            row_context = f"第 2 个 sheet 第{row_number}行 SKU={sku}"
+            row_context = f"财务合并明细表 {worksheet.title} 第{row_number}行 SKU={sku}"
             model = _clean_cell(worksheet.cell(row=row_number, column=column_indexes["规则型号"]).value)
             if not model:
                 raise ValueError(f"{row_context} 缺少规则型号")
@@ -307,9 +291,9 @@ def read_stock_sku_merge_infos(input_xlsx: str | Path) -> OrderedDict[str, Stock
         if conflicting_skus:
             preview = "; ".join(conflicting_skus[:10])
             suffix = " ..." if len(conflicting_skus) > 10 else ""
-            raise ValueError(f"第 2 个 sheet 同一 SKU 存在不同规则型号或单价，无法建立合并映射: {preview}{suffix}")
+            raise ValueError(f"财务合并明细表同一 SKU 存在不同规则型号或单价，无法建立合并映射: {preview}{suffix}")
         if not merge_infos:
-            raise ValueError("第 2 个 sheet 未解析到有效库存 SKU 合并明细")
+            raise ValueError(f"财务合并明细表 {worksheet.title} 未解析到有效库存 SKU 合并明细")
         return merge_infos
     finally:
         workbook.close()
@@ -637,7 +621,7 @@ def build_invoice_box_rows(
             sku_key = normalize_sku_key(sku)
             merge_info = stock_sku_merge_infos.get(sku_key)
             if merge_info is None:
-                raise ValueError(f"拆分得到的库存 SKU 不在第 2 个 sheet 合并明细中: SKU={sku}, MSKU={consignment_row.msku}")
+                raise ValueError(f"拆分得到的库存 SKU 不在财务合并明细表中: SKU={sku}, MSKU={consignment_row.msku}")
             source_row = source_by_merge_key.get(merge_info.merge_key)
             if source_row is None:
                 raise ValueError(

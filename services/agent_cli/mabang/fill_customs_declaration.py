@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from services.agent_cli._shared.json_output import configure_utf8_stdio
+from services.agent_cli.mabang.restock_workbook import (
+    SUMMARY_HEADERS,
+    SUMMARY_WORKSHEET_NAME,
+    find_summary_sheet,
+)
 from services.amazon.amazon_logistic.sources.consignment_excel import (
     find_consignment_excel,
     resolve_column,
@@ -20,23 +25,8 @@ from services.amazon.amazon_logistic.sources.consignment_excel import (
 SOURCE = "customs_declaration_fill"
 DEFAULT_TEMPLATE_PATH = Path("data") / "customs_declaration" / "custom_declaration_documents.xlsx"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "customs_declaration"
-SOURCE_WORKSHEET_NAME = "汇总表"
-
-INPUT_HEADERS = (
-    "日期",
-    "SKU",
-    "品名",
-    "规格型号",
-    "发货量",
-    "单价",
-    "供货商",
-    "采购订单号",
-    "采购总价",
-    "商品名称",
-    "售价",
-    "总价",
-    "单位",
-)
+SOURCE_WORKSHEET_NAME = SUMMARY_WORKSHEET_NAME
+INPUT_HEADERS = SUMMARY_HEADERS
 TARGET_HEADERS = (
     "序号",
     "品名",
@@ -411,15 +401,6 @@ def _load_workbook(path: Path, *, data_only: bool = False):
         raise RuntimeError(f"读取 xlsx 文件失败: {path}, error={exc}") from exc
 
 
-def select_source_worksheet(workbook: Any, input_path: str | Path):
-    path = Path(input_path)
-    if SOURCE_WORKSHEET_NAME in workbook.sheetnames:
-        return workbook[SOURCE_WORKSHEET_NAME]
-    if len(workbook.worksheets) < 3:
-        raise ValueError(f"输入 workbook 少于 3 个 sheet，且缺少 {SOURCE_WORKSHEET_NAME}: {path.name}")
-    return workbook.worksheets[2]
-
-
 def _validate_input_headers(actual_headers: list[str], *, input_path: str | Path, sheet_name: str) -> None:
     expected = list(INPUT_HEADERS)
     actual = actual_headers[: len(expected)]
@@ -437,7 +418,7 @@ def read_source_rows(input_xlsx: str | Path) -> list[SourceDeclarationRow]:
 
     workbook = _load_workbook(path, data_only=True)
     try:
-        worksheet = select_source_worksheet(workbook, path)
+        worksheet = find_summary_sheet(workbook, path)
         headers = [_clean_cell(worksheet.cell(row=1, column=index).value) for index in range(1, len(INPUT_HEADERS) + 1)]
         _validate_input_headers(headers, input_path=path, sheet_name=worksheet.title)
         column_indexes = {header: index + 1 for index, header in enumerate(INPUT_HEADERS)}
