@@ -8,11 +8,10 @@ from typing import Any
 
 from shared.config import config
 from services.mabang.amazon.fba import download_consignment_excel_from_wms
+from services.mabang.amazon.fba.consignment_paths import resolve_wms_consignment_dir
 from shared.logging import logger
 
 from ..input.validator import normalize_consignment_no
-
-DEFAULT_TEST_FILE_DIR = "artifacts/mabang_wms_consignment"
 
 
 def _parse_bool(value: Any, default: bool = False) -> bool:
@@ -31,11 +30,7 @@ def _parse_bool(value: Any, default: bool = False) -> bool:
 
 def resolve_test_file_dir() -> Path:
     """解析本地托运单 Excel 缓存目录。"""
-    raw = str(getattr(config, "FBA_LOGISTICS_TEST_FILE_DIR", DEFAULT_TEST_FILE_DIR) or DEFAULT_TEST_FILE_DIR).strip()
-    base = Path(raw)
-    if not base.is_absolute():
-        base = Path(__file__).resolve().parents[4] / raw
-    return base
+    return resolve_wms_consignment_dir()
 
 
 def find_consignment_excel(consignment_no: str) -> Path:

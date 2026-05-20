@@ -47,9 +47,27 @@ if (-not [string]::Equals([System.IO.Path]::GetFullPath($topLevel).TrimEnd("\"),
     throw "update.ps1 must be run from the project repository root. Git root: $topLevel"
 }
 
-$status = & $git status --porcelain
-if (-not [string]::IsNullOrWhiteSpace(($status -join ""))) {
-    throw "Local changes detected. Commit or stash them before running LXEFBA update."
+$trackedStatus = @(& $git status --porcelain --untracked-files=no)
+if ($LASTEXITCODE -ne 0) {
+    throw "git status failed with exit code $LASTEXITCODE."
+}
+if (-not [string]::IsNullOrWhiteSpace(($trackedStatus -join ""))) {
+    Write-Host "Tracked local changes detected:"
+    foreach ($line in $trackedStatus) {
+        Write-Host "  $line"
+    }
+    throw "Tracked local changes detected. Commit or stash them before running LXEFBA update."
+}
+
+$untrackedFiles = @(& $git ls-files --others --exclude-standard)
+if ($LASTEXITCODE -ne 0) {
+    throw "git ls-files failed with exit code $LASTEXITCODE."
+}
+if ($untrackedFiles.Count -gt 0) {
+    Write-Host "Untracked files detected and ignored for update:"
+    foreach ($path in $untrackedFiles) {
+        Write-Host "  $path"
+    }
 }
 
 Invoke-Checked "git pull" { & $git pull --ff-only }
