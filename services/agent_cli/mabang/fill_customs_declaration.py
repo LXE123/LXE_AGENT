@@ -20,6 +20,7 @@ from services.amazon.amazon_logistic.sources.consignment_excel import (
 SOURCE = "customs_declaration_fill"
 DEFAULT_TEMPLATE_PATH = Path("data") / "customs_declaration" / "custom_declaration_documents.xlsx"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "customs_declaration"
+SOURCE_WORKSHEET_NAME = "汇总表"
 
 INPUT_HEADERS = (
     "日期",
@@ -410,12 +411,21 @@ def _load_workbook(path: Path, *, data_only: bool = False):
         raise RuntimeError(f"读取 xlsx 文件失败: {path}, error={exc}") from exc
 
 
-def _validate_input_headers(actual_headers: list[str]) -> None:
+def select_source_worksheet(workbook: Any, input_path: str | Path):
+    path = Path(input_path)
+    if SOURCE_WORKSHEET_NAME in workbook.sheetnames:
+        return workbook[SOURCE_WORKSHEET_NAME]
+    if len(workbook.worksheets) < 3:
+        raise ValueError(f"输入 workbook 少于 3 个 sheet，且缺少 {SOURCE_WORKSHEET_NAME}: {path.name}")
+    return workbook.worksheets[2]
+
+
+def _validate_input_headers(actual_headers: list[str], *, input_path: str | Path, sheet_name: str) -> None:
     expected = list(INPUT_HEADERS)
     actual = actual_headers[: len(expected)]
     if actual != expected:
         raise ValueError(
-            "第 3 个 sheet 第 1 行表头不匹配，"
+            f"文件 {Path(input_path).name} 的 sheet {sheet_name} 第 1 行表头不匹配，"
             f"expected={expected}, actual={actual}"
         )
 
@@ -426,34 +436,34 @@ def read_source_rows(input_xlsx: str | Path) -> list[SourceDeclarationRow]:
         raise FileNotFoundError(f"输入 xlsx 不存在: {path}")
 
     workbook = _load_workbook(path, data_only=True)
-    if len(workbook.worksheets) < 3:
-        raise ValueError("输入 workbook 少于 3 个 sheet")
+    try:
+        worksheet = select_source_worksheet(workbook, path)
+        headers = [_clean_cell(worksheet.cell(row=1, column=index).value) for index in range(1, len(INPUT_HEADERS) + 1)]
+        _validate_input_headers(headers, input_path=path, sheet_name=worksheet.title)
+        column_indexes = {header: index + 1 for index, header in enumerate(INPUT_HEADERS)}
 
-    worksheet = workbook.worksheets[2]
-    headers = [_clean_cell(worksheet.cell(row=1, column=index).value) for index in range(1, len(INPUT_HEADERS) + 1)]
-    _validate_input_headers(headers)
-    column_indexes = {header: index + 1 for index, header in enumerate(INPUT_HEADERS)}
-
-    rows: list[SourceDeclarationRow] = []
-    for row_number in range(2, worksheet.max_row + 1):
-        if not _clean_cell(worksheet.cell(row=row_number, column=column_indexes["日期"]).value):
-            break
-        rows.append(
-            SourceDeclarationRow(
-                row_number=row_number,
-                source_name=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["品名"]).value),
-                model=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["规格型号"]).value),
-                quantity=worksheet.cell(row=row_number, column=column_indexes["发货量"]).value,
-                commodity_name=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["商品名称"]).value),
-                sale_price=worksheet.cell(row=row_number, column=column_indexes["售价"]).value,
-                total_price=worksheet.cell(row=row_number, column=column_indexes["总价"]).value,
-                unit=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["单位"]).value),
+        rows: list[SourceDeclarationRow] = []
+        for row_number in range(2, worksheet.max_row + 1):
+            if not _clean_cell(worksheet.cell(row=row_number, column=column_indexes["日期"]).value):
+                break
+            rows.append(
+                SourceDeclarationRow(
+                    row_number=row_number,
+                    source_name=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["品名"]).value),
+                    model=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["规格型号"]).value),
+                    quantity=worksheet.cell(row=row_number, column=column_indexes["发货量"]).value,
+                    commodity_name=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["商品名称"]).value),
+                    sale_price=worksheet.cell(row=row_number, column=column_indexes["售价"]).value,
+                    total_price=worksheet.cell(row=row_number, column=column_indexes["总价"]).value,
+                    unit=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["单位"]).value),
+                )
             )
-        )
 
-    if not rows:
-        raise ValueError("输入 xlsx 第 3 个 sheet 未解析到有效数据")
-    return rows
+        if not rows:
+            raise ValueError(f"输入 xlsx 的 sheet {worksheet.title} 未解析到有效数据: {path.name}")
+        return rows
+    finally:
+        workbook.close()
 
 
 def classify_declaration(row: SourceDeclarationRow) -> ClassificationResult:
