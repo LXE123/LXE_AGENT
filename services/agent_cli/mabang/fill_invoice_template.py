@@ -8,7 +8,7 @@ import json
 import re
 import sys
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import BytesIO
 from pathlib import Path
@@ -297,6 +297,39 @@ def read_stock_sku_merge_infos(input_xlsx: str | Path) -> OrderedDict[str, Stock
         return merge_infos
     finally:
         workbook.close()
+
+
+def infer_missing_summary_models(
+    source_rows: list[InvoiceSourceRow],
+    stock_sku_merge_infos: OrderedDict[str, StockSkuMergeInfo],
+) -> tuple[list[InvoiceSourceRow], list[str]]:
+    inferred_rows: list[InvoiceSourceRow] = []
+    notices: list[str] = []
+    for row in source_rows:
+        if _clean_cell(row.model):
+            inferred_rows.append(row)
+            continue
+        sku_key = normalize_sku_key(row.sku)
+        if not sku_key:
+            raise ValueError(f"汇总表第{row.row_number}行 SKU 不能为空，无法补全规格型号")
+        merge_info = stock_sku_merge_infos.get(sku_key)
+        if merge_info is None:
+            raise ValueError(f"汇总表第{row.row_number}行 SKU={row.sku} 规格型号为空，且财务合并明细表找不到同 SKU")
+        summary_price = _normalized_price_key(
+            row.purchase_price,
+            row_context=f"汇总表第{row.row_number}行 SKU={row.sku}",
+        )
+        merge_model, merge_price = merge_info.merge_key
+        if summary_price != merge_price:
+            raise ValueError(
+                f"汇总表第{row.row_number}行 SKU={row.sku} 规格型号为空，"
+                "但财务合并明细表同 SKU 单价不一致: "
+                f"汇总表单价={_decimal_sort_text(summary_price)}, "
+                f"财务合并明细表单价={_decimal_sort_text(merge_price)}"
+            )
+        inferred_rows.append(replace(row, model=merge_model))
+        notices.append(f"汇总表第{row.row_number}行 SKU={row.sku} 规格型号为空，已按财务合并明细表补为 {merge_model}")
+    return inferred_rows, notices
 
 
 def unique_source_skus(rows: list[InvoiceSourceRow]) -> list[str]:
@@ -974,6 +1007,7 @@ async def fill_invoice_template(
     destination_country = extract_destination_country_from_filename(input_path)
     source_rows = read_invoice_source_rows(input_path)
     stock_sku_merge_infos = read_stock_sku_merge_infos(input_path)
+    source_rows, inferred_model_notices = infer_missing_summary_models(source_rows, stock_sku_merge_infos)
     delivery_csv_path = resolve_delivery_csv_path(sp_no, delivery_csv)
     consignment_excel_path = resolve_consignment_excel_path(sp_no, consignment_excel)
     delivery_components = read_delivery_msku_components(delivery_csv_path)
@@ -994,6 +1028,7 @@ async def fill_invoice_template(
         template_path=template_path,
         output_dir=output_dir,
     )
+    payload["notice"] = inferred_model_notices + list(payload.get("notice", []))
     payload["input_xlsx"] = str(input_path)
     payload["delivery_csv_path"] = str(delivery_csv_path)
     payload["consignment_excel_path"] = str(consignment_excel_path)
