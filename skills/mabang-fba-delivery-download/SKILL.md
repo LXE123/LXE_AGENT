@@ -1,7 +1,7 @@
 ---
 name: mabang-fba-delivery-download
 description: 下载马帮 FBA 发货单 SKU 数据 CSV。用户要求获取、导出、下载 FBA 发货单、发货单 SKU 数据、发货单表格、SP 发货单 CSV 时使用。
-type: amazon_store
+type: amazon-fba
 ---
 
 ## When to Use

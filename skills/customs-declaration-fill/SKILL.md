@@ -1,7 +1,7 @@
 ---
 name: customs-declaration-fill
 description: 根据用户上传的一个或多个备货 xlsx 填写报关资料模板，生成申报要素、报关单明细、发票、箱单和合同已填好的报关资料文件。
-type: amazon_store
+type: amazon-fba
 ---
 
 ## When to Use

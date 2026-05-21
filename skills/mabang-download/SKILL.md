@@ -1,7 +1,7 @@
 ---
 name: mabang-download
 description: 下载马帮 WMS 托运单装箱数据 Excel。用户明确要求装箱数据、托运单 Excel、WMS 下载，或为 Amazon FBA 创建货件准备装箱 Excel 时使用；不要用于 FBA 发货单、发货单 SKU 数据、发货单表格下载。
-type: amazon_store
+type: amazon-fba
 ---
 
 ## When to Use

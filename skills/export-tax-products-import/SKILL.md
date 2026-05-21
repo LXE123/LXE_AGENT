@@ -1,7 +1,7 @@
 ---
 name: export-tax-products-import
 description: 维护出口退税产品白名单。用户要求把一批 SKU 加入出口退税产品列表、导入可出口退税 SKU、更新退税产品白名单时使用。
-type: amazon_store
+type: amazon-fba
 ---
 
 ## When to Use

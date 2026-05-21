@@ -1,7 +1,7 @@
 ---
 name: logistics-update-ingest
 description: 物流更新 Excel 导入指南。用户要求导入物流报价表、运行物流更新脚本、ingest 物流 Excel、更新物流价格文件时，使用这个 skill。
-type: default
+type: amazon-fba
 ---
 
 ## When to Use
