@@ -32,6 +32,7 @@ _CONFIRM_AND_CONTINUE_SELECTOR = '[data-testid="confirm-and-continue"]'
 _WORKFLOW_LOADING_LABEL_SELECTOR = '[data-testid="workflow-loading-label"]'
 _STEP_HEADER_TITLE_SELECTOR = 'h4[data-testid="step-header-title"]'
 _STEP_HEADER_CHECKMARK_SELECTOR = 'kat-icon[data-testid="header-checkmark"][name="check"]'
+_STEP1_SKU_FOOTER_ERROR_ALERT_SELECTOR = 'kat-alert[data-testid="all-sku-footer-error-results"]'
 _CONFIRMED_INVENTORY_COMPLETED_NOTICE = "已确认要发送的库存"
 _PACK_SINGLE_UNITS_COMPLETED_NOTICE = "已完成包装单件商品步骤"
 _STEP2_UPLOAD_VALIDATE_WAIT_SECONDS = 60
@@ -136,6 +137,50 @@ def _read_pack_single_units_completed_notice(driver: Any) -> str:
         ("第 1b", "包装单件商品"),
         _PACK_SINGLE_UNITS_COMPLETED_NOTICE,
     )
+
+
+def _read_step1_sku_footer_error(driver: Any) -> str:
+    raw_notice = _execute_page_script(
+        driver,
+        """
+function cleanText(value) {
+  return String(value || '').replace(/\\s+/g, ' ').trim();
+}
+
+const root = deepQuerySelector(arguments[0]);
+if (!root) return '';
+
+const messages = [];
+for (const item of deepQuerySelectorAll('.alert-error-list', root)) {
+  const problemMessages = deepQuerySelectorAll('[data-testid="inbound-problem-message"]', item);
+  if (problemMessages.length) {
+    for (const problem of problemMessages) {
+      const text = cleanText(problem.innerText || problem.textContent || '');
+      if (text) messages.push(text);
+    }
+    continue;
+  }
+  const itemText = cleanText(item.innerText || item.textContent || '');
+  if (itemText) messages.push(itemText);
+}
+if (!messages.length) {
+  for (const item of deepQuerySelectorAll('[data-testid="inbound-problem-message"]', root)) {
+    const text = cleanText(item.innerText || item.textContent || '');
+    if (text) messages.push(text);
+  }
+}
+if (!messages.length) {
+  const text = cleanText(root.innerText || root.textContent || '');
+  if (text) messages.push(text);
+}
+return Array.from(new Set(messages)).join('；');
+""",
+        _STEP1_SKU_FOOTER_ERROR_ALERT_SELECTOR,
+    )
+    message = str(raw_notice or "").strip()
+    if not message:
+        return ""
+    return f"第一阶段库存确认失败: {message}"
 
 
 def _has_multi_box_radio(driver: Any) -> bool:
@@ -677,6 +722,7 @@ def probe_multi_box_ready(session: Any, *, timeout_seconds: int = 10) -> dict[st
 def advance_to_multi_box_entry(session: Any, *, timeout_seconds: int = 60) -> dict[str, Any]:
     deadline = time.time() + max(10, int(timeout_seconds or 0))
     clicked_continue = False
+    clicked_at: float | None = None
 
     while time.time() < deadline:
         notice = _read_confirmed_inventory_completed_notice(session.driver)
@@ -686,8 +732,14 @@ def advance_to_multi_box_entry(session: Any, *, timeout_seconds: int = 60) -> di
                 "notice": notice,
             }
 
+        if clicked_at is not None and time.time() - clicked_at >= 10.0:
+            error_notice = _read_step1_sku_footer_error(session.driver)
+            if error_notice:
+                raise RuntimeError(error_notice)
+
         if not clicked_continue and _click_pack_single_units_button(session.driver):
             clicked_continue = True
+            clicked_at = time.time()
             time.sleep(1.0)
             continue
 

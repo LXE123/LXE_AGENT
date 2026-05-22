@@ -344,10 +344,23 @@ def _wait_for_home_region_match(session: Any, site: str, timeout_seconds: float)
 def switch_region(session: Any, site: str, *, timeout_seconds: int = 60) -> dict[str, Any]:
     target_site = normalize_site_code(site)
     screenshots: list[str] = []
-    switcher_url = build_seller_central_url(session, MARKETPLACE_SWITCHER_PATH)
     option_wait_seconds = 10.0
     home_wait_seconds = 15.0
 
+    try:
+        current_label = _read_home_region_label(session)
+    except Exception:
+        current_label = ""
+    if _label_matches_site(current_label, target_site):
+        return {
+            "site": target_site,
+            "switched": False,
+            "current_label": current_label,
+            "available_options": [],
+            "screenshots": [],
+        }
+
+    switcher_url = build_seller_central_url(session, MARKETPLACE_SWITCHER_PATH)
     open_result = session.open_url(switcher_url)
     screenshots.append(str(open_result.get("screenshot_path") or "").strip())
     time.sleep(2.0)

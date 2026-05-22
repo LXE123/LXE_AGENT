@@ -28,14 +28,19 @@ def _parse_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
-def resolve_test_file_dir() -> Path:
+def resolve_consignment_excel_dir() -> Path:
     """解析本地托运单 Excel 缓存目录。"""
     return resolve_wms_consignment_dir()
 
 
+def resolve_test_file_dir() -> Path:
+    """兼容旧命名：解析本地托运单 Excel 缓存目录。"""
+    return resolve_consignment_excel_dir()
+
+
 def find_consignment_excel(consignment_no: str) -> Path:
     """按托运单号查找本地 Excel。"""
-    base_dir = resolve_test_file_dir()
+    base_dir = resolve_consignment_excel_dir()
     if not base_dir.exists():
         raise FileNotFoundError(f"托运单 Excel 缓存目录不存在: {base_dir}")
 
@@ -54,7 +59,7 @@ def find_consignment_excel(consignment_no: str) -> Path:
 
 def find_unique_local_consignment_excel(consignment_no: str) -> Path:
     """按托运单号查找唯一的本地 Excel。"""
-    base_dir = resolve_test_file_dir()
+    base_dir = resolve_consignment_excel_dir()
     if not base_dir.exists():
         raise FileNotFoundError(f"托运单 Excel 缓存目录不存在: {base_dir}")
 

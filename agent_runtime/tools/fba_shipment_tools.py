@@ -10,7 +10,7 @@ from services.amazon.amazon_logistic.sources.consignment_excel import (
     ensure_consignment_excel_ready,
     find_consignment_excel,
     resolve_column,
-    resolve_test_file_dir,
+    resolve_consignment_excel_dir,
 )
 
 
@@ -26,13 +26,9 @@ def _resolve_any_path(raw: str) -> Path:
     return path
 
 
-def _resolve_prepare_upload_test_file_dir() -> Path:
-    return Path(__file__).resolve().parents[2] / "services" / "test_file"
-
-
 def _detect_consignment_source(excel_path: Path) -> str:
     try:
-        local_dir = resolve_test_file_dir().resolve()
+        local_dir = resolve_consignment_excel_dir().resolve()
         if excel_path.resolve().is_relative_to(local_dir):
             return "local"
     except Exception:
@@ -347,36 +343,6 @@ def _build_download_consignment_payload(consignment_no: str, excel_path: Path) -
     }
 
 
-def _build_local_download_consignment_payload(consignment_no: str, excel_path: Path) -> dict[str, Any]:
-    normalized = normalize_consignment_no(consignment_no)
-    if not normalized:
-        raise RuntimeError("consignment_no 不能为空")
-    return {
-        "consignment_no": normalized,
-        "excel_path": str(excel_path),
-        "source": "local",
-        "message": "托运单 Excel 已准备好。",
-    }
-
-
-def _find_prepare_upload_consignment_excel(consignment_no: str) -> Path:
-    base_dir = _resolve_prepare_upload_test_file_dir()
-    if not base_dir.exists():
-        raise FileNotFoundError(f"测试文件目录不存在: {base_dir}")
-
-    key = normalize_consignment_no(consignment_no)
-    candidates = [
-        base_dir / f"{key}.xls",
-        base_dir / f"{key}.xlsx",
-        base_dir / f"{key.lower()}.xls",
-        base_dir / f"{key.lower()}.xlsx",
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-    raise FileNotFoundError(f"未找到托运单Excel: {key} (目录: {base_dir})")
-
-
 def _sync_fill_shipment_template(template_path: str, consignment_excel_path: str, site: str) -> dict[str, Any]:
     template_file = _resolve_any_path(template_path)
     consignment_file = _resolve_any_path(consignment_excel_path)
@@ -468,10 +434,10 @@ def prepare_upload_local_consignment_excel_payload(consignment_no: str) -> dict[
     if not normalized:
         raise RuntimeError("consignment_no 不能为空")
     try:
-        excel_path = _find_prepare_upload_consignment_excel(normalized)
+        excel_path = find_consignment_excel(normalized)
     except Exception as exc:
         raise RuntimeError(f"托运单数据准备失败: {exc}") from exc
-    return _build_local_download_consignment_payload(normalized, excel_path)
+    return _build_download_consignment_payload(normalized, excel_path)
 
 
 def fill_shipment_template_payload(

@@ -16,9 +16,7 @@ env/
 .codex/
 services/browser/artifacts/
 
-tests/*
-!tests/test_mabang_fba_store_resolver.py
-!tests/test_mabang_fba_store_resolver_cli.py
+
 
 services/test_file/
 
