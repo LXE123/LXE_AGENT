@@ -126,6 +126,7 @@ def _project_venv_scripts_dir() -> Path:
 
 def _prepare_child_env(*, owner_session_id: str, origin_turn_id: str, exec_session_id: str) -> dict[str, str]:
     child_env = os.environ.copy()
+    child_env["PYTHONIOENCODING"] = "utf-8"
     venv_scripts = _project_venv_scripts_dir()
     if venv_scripts.exists():
         child_env["VIRTUAL_ENV"] = str(venv_scripts.parent)

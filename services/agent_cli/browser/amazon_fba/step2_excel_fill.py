@@ -11,6 +11,38 @@ _BOX_TOTAL_LABEL = "包装箱总数"
 _SKU_TOTAL_LABEL = "SKU 总数"
 _SKU_HEADER_LABEL = "SKU"
 _SOURCE_BOX_SEQUENCE_COLUMN = "箱序号"
+_SOURCE_LEGACY_COLUMNS = [
+    "箱子编号",
+    _SOURCE_BOX_SEQUENCE_COLUMN,
+    "MSKU",
+    "FBA产品名称",
+    "本地sku",
+    "本地sku所属店铺",
+    "FNSKU",
+    "装箱数量",
+    "长",
+    "宽",
+    "高",
+    "毛重",
+]
+_SOURCE_COLUMN_ALIASES = {
+    _SOURCE_BOX_SEQUENCE_COLUMN: (
+        _SOURCE_BOX_SEQUENCE_COLUMN,
+        "箱编号",
+        "箱子编号",
+        "箱号",
+        "Box No",
+        "Box Number",
+        "box_no",
+        "box_number",
+    ),
+    "MSKU": ("MSKU", "Merchant SKU", "merchant_sku"),
+    "装箱数量": ("装箱数量", "数量", "Quantity", "quantity"),
+    "长": ("长", "长度", "Length", "length"),
+    "宽": ("宽", "Width", "width"),
+    "高": ("高", "Height", "height"),
+    "毛重": ("毛重", "重量", "Gross Weight", "gross_weight", "weight"),
+}
 _BOX_SPEC_LABELS = {
     "length": "包装箱长度",
     "width": "包装箱宽度",
@@ -75,6 +107,60 @@ def _normalize_text(value: Any) -> str:
     return " ".join(str(value or "").replace("\n", " ").split()).strip()
 
 
+def _normalize_column_name(value: Any) -> str:
+    return _normalize_text(value).lower().replace(" ", "").replace("_", "").replace("-", "")
+
+
+def _resolve_source_column(columns: list[Any], aliases: tuple[str, ...]) -> Any | None:
+    normalized_columns = {_normalize_column_name(column): column for column in columns}
+    for alias in aliases:
+        exact = normalized_columns.get(_normalize_column_name(alias))
+        if exact is not None:
+            return exact
+    for column in columns:
+        current = _normalize_column_name(column)
+        for alias in aliases:
+            normalized_alias = _normalize_column_name(alias)
+            if normalized_alias and normalized_alias in current:
+                return column
+    return None
+
+
+def _apply_legacy_source_columns(df: Any) -> Any:
+    rename_map = {
+        df.columns[index]: column_name
+        for index, column_name in enumerate(_SOURCE_LEGACY_COLUMNS)
+        if index < len(df.columns)
+    }
+    return df.rename(columns=rename_map)
+
+
+def _resolve_source_columns(df: Any) -> dict[str, Any]:
+    required = (_SOURCE_BOX_SEQUENCE_COLUMN, "MSKU", "装箱数量", "长", "宽", "高", "毛重")
+    columns = list(df.columns)
+    resolved = {
+        canonical: _resolve_source_column(columns, _SOURCE_COLUMN_ALIASES[canonical])
+        for canonical in required
+    }
+    if all(resolved.values()):
+        return resolved
+    missing = [canonical for canonical, column in resolved.items() if not column]
+    raise RuntimeError(f"装箱数据缺少必要列: {', '.join(missing)}")
+
+
+def _canonical_source_dataframe(df: Any) -> Any:
+    try:
+        source_columns = _resolve_source_columns(df)
+        return df.rename(columns={source: canonical for canonical, source in source_columns.items()})
+    except RuntimeError as original_error:
+        legacy_df = _apply_legacy_source_columns(df)
+        try:
+            source_columns = _resolve_source_columns(legacy_df)
+        except RuntimeError:
+            raise original_error
+        return legacy_df.rename(columns={source: canonical for canonical, source in source_columns.items()})
+
+
 def _parse_positive_int(value: Any) -> int | None:
     text = _normalize_text(value)
     if not text:
@@ -125,27 +211,7 @@ def _read_source_data(source_file: Path):
     except Exception as exc:
         raise RuntimeError(f"读取文件失败: {exc}") from exc
 
-    expected_columns = [
-        "箱子编号",
-        _SOURCE_BOX_SEQUENCE_COLUMN,
-        "MSKU",
-        "FBA产品名称",
-        "本地sku",
-        "本地sku所属店铺",
-        "FNSKU",
-        "装箱数量",
-        "长",
-        "宽",
-        "高",
-        "毛重",
-    ]
-    if len(df.columns) >= len(expected_columns):
-        df.columns = expected_columns[: len(df.columns)]
-
-    required_cols = (_SOURCE_BOX_SEQUENCE_COLUMN, "MSKU", "装箱数量")
-    for column in required_cols:
-        if column not in df.columns:
-            raise RuntimeError(f"找不到必要列: {column}")
+    df = _canonical_source_dataframe(df)
 
     df[_SOURCE_BOX_SEQUENCE_COLUMN] = df[_SOURCE_BOX_SEQUENCE_COLUMN].map(_normalize_box_id)
     df["MSKU"] = df["MSKU"].map(lambda value: str(value or "").strip())

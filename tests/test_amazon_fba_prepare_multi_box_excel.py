@@ -80,6 +80,18 @@ def test_extract_box_count_uses_max_box_sequence_column(tmp_path: Path) -> None:
     assert extract_box_count_from_consignment_excel(excel_path) == 2
 
 
+def test_extract_box_count_prefers_box_sequence_over_box_id(tmp_path: Path) -> None:
+    excel_path = tmp_path / "consignment.xlsx"
+    pd.DataFrame(
+        [
+            {"箱子编号": 99, "箱序号": 1, "MSKU": "SKU-1", "装箱数量": 10},
+            {"箱子编号": 99, "箱序号": 2, "MSKU": "SKU-2", "装箱数量": 20},
+        ]
+    ).to_excel(excel_path, sheet_name="FBA装箱任务", index=False)
+
+    assert extract_box_count_from_consignment_excel(excel_path) == 2
+
+
 def test_extract_box_count_supports_legacy_box_number_column(tmp_path: Path) -> None:
     excel_path = tmp_path / "consignment.xlsx"
     pd.DataFrame(
@@ -96,7 +108,7 @@ def test_extract_box_count_supports_legacy_box_number_column(tmp_path: Path) -> 
 
 def test_extract_box_count_requires_box_sequence_column(tmp_path: Path) -> None:
     excel_path = tmp_path / "consignment.xlsx"
-    pd.DataFrame([{"箱子编号": 1, "MSKU": "SKU-1", "装箱数量": 10}]).to_excel(
+    pd.DataFrame([{"MSKU": "SKU-1", "装箱数量": 10}]).to_excel(
         excel_path,
         sheet_name="FBA装箱任务",
         index=False,
@@ -141,6 +153,105 @@ def test_step2_source_data_uses_box_sequence_column(tmp_path: Path) -> None:
     assert int(box_info.loc[2, "毛重"]) == 15
 
 
+def test_step2_source_data_supports_13_column_wms_headers(tmp_path: Path) -> None:
+    excel_path = tmp_path / "consignment.xlsx"
+    columns = [
+        "箱子编号",
+        "箱序号",
+        "MSKU",
+        "商品图片",
+        "FBA商品名称",
+        "库存sku",
+        "库存sku中文名称",
+        "FNSKU",
+        "装箱数量",
+        "长",
+        "宽",
+        "高",
+        "毛重",
+    ]
+    pd.DataFrame(
+        [
+            ["", 1, "SKU-1", "image-a", "", "", "", "", 10, 35, 36, 37, 14],
+            [2, 2, "SKU-1", "image-b", "", "", "", "", 30, 40, 41, 42, 15],
+        ],
+        columns=columns,
+    ).to_excel(excel_path, sheet_name="FBA装箱任务", index=False)
+
+    pivot_table, box_info = _read_source_data(excel_path)
+
+    assert list(pivot_table.columns) == [1, 2]
+    assert int(pivot_table.loc["SKU-1", 1]) == 10
+    assert int(pivot_table.loc["SKU-1", 2]) == 30
+    assert int(box_info.loc[1, "长"]) == 35
+    assert int(box_info.loc[2, "毛重"]) == 15
+
+
+def test_step2_source_data_supports_reordered_headers_and_extra_columns(tmp_path: Path) -> None:
+    excel_path = tmp_path / "consignment.xlsx"
+    pd.DataFrame(
+        [
+            {
+                "备注": "ignored",
+                "毛重": 14,
+                "MSKU": "SKU-1",
+                "宽": 36,
+                "箱序号": 1,
+                "装箱数量": 10,
+                "长": 35,
+                "商品图片": "image-a",
+                "高": 37,
+            },
+            {
+                "备注": "ignored",
+                "毛重": 15,
+                "MSKU": "SKU-1",
+                "宽": 41,
+                "箱序号": 2,
+                "装箱数量": 30,
+                "长": 40,
+                "商品图片": "image-b",
+                "高": 42,
+            },
+        ]
+    ).to_excel(excel_path, sheet_name="FBA装箱任务", index=False)
+
+    pivot_table, box_info = _read_source_data(excel_path)
+
+    assert list(pivot_table.columns) == [1, 2]
+    assert int(pivot_table.loc["SKU-1", 2]) == 30
+    assert int(box_info.loc[2, "宽"]) == 41
+
+
+def test_step2_source_data_supports_legacy_13_columns_without_length_mismatch(tmp_path: Path) -> None:
+    excel_path = tmp_path / "consignment.xlsx"
+    pd.DataFrame(
+        [
+            [1, 1, "SKU-1", "", "", "", "", 10, 35, 36, 37, 14, "extra"],
+            [2, 2, "SKU-1", "", "", "", "", 30, 40, 41, 42, 15, "extra"],
+        ],
+        columns=[f"column_{index}" for index in range(13)],
+    ).to_excel(excel_path, sheet_name="FBA装箱任务", index=False)
+
+    pivot_table, box_info = _read_source_data(excel_path)
+
+    assert list(pivot_table.columns) == [1, 2]
+    assert int(pivot_table.loc["SKU-1", 1]) == 10
+    assert int(box_info.loc[2, "高"]) == 42
+
+
+def test_step2_source_data_reports_missing_required_columns(tmp_path: Path) -> None:
+    excel_path = tmp_path / "consignment.xlsx"
+    pd.DataFrame(
+        [
+            {"箱序号": 1, "MSKU": "SKU-1", "装箱数量": 10, "长": 35, "宽": 36, "高": 37},
+        ]
+    ).to_excel(excel_path, sheet_name="FBA装箱任务", index=False)
+
+    with pytest.raises(RuntimeError, match="装箱数据缺少必要列: 毛重"):
+        _read_source_data(excel_path)
+
+
 def test_step2_template_uses_imperial_units_and_40_lb_cap(tmp_path: Path) -> None:
     consignment_path = tmp_path / "consignment.xlsx"
     template_path = tmp_path / "template.xlsx"
@@ -174,6 +285,45 @@ def test_step2_template_uses_imperial_units_and_40_lb_cap(tmp_path: Path) -> Non
         }
     ]
     assert "40 lb" in _weight_capped_notice(payload["weight_capped_boxes"])
+
+
+def test_step2_template_fills_from_13_column_wms_headers(tmp_path: Path) -> None:
+    consignment_path = tmp_path / "consignment.xlsx"
+    template_path = tmp_path / "template.xlsx"
+    pd.DataFrame(
+        [
+            {
+                "箱子编号": 1,
+                "箱序号": 1,
+                "MSKU": "SKU-1",
+                "商品图片": "image-a",
+                "FBA商品名称": "",
+                "库存sku": "",
+                "库存sku中文名称": "",
+                "FNSKU": "",
+                "装箱数量": 10,
+                "长": 30,
+                "宽": 20,
+                "高": 10,
+                "毛重": 20,
+            }
+        ]
+    ).to_excel(consignment_path, sheet_name="FBA装箱任务", index=False)
+    _write_step2_template(
+        template_path,
+        length_label="包装箱长度（厘米）：",
+        width_label="包装箱宽度（厘米）：",
+        height_label="包装箱高度（厘米）：",
+        weight_label="包装箱重量（千克）：",
+    )
+
+    payload = fill_multi_box_step2_template(consignment_path, template_path)
+
+    workbook = load_workbook(payload["filled_template_path"])
+    worksheet = workbook["Step2"]
+    assert worksheet.cell(row=5, column=4).value == 10
+    assert worksheet.cell(row=8, column=4).value == 30
+    assert worksheet.cell(row=11, column=4).value == 20
 
 
 def test_step2_template_uses_metric_units_and_23_kg_cap(tmp_path: Path) -> None:

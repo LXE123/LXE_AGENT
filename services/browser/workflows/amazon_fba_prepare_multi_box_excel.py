@@ -29,7 +29,7 @@ from services.browser.workflows.amazon_fba_common import (
 
 WorkflowEventWriter = Callable[[dict[str, Any]], None]
 _PREPARE_MULTI_BOX_DONE_NOTICE = "第二阶段完成，已可选择自己的承运人，请执行第三阶段CLI。"
-_CONSIGNMENT_BOX_SEQUENCE_COLUMNS = ("箱序号", "箱编号")
+_CONSIGNMENT_BOX_SEQUENCE_COLUMNS = ("箱序号", "箱编号", "箱子编号", "箱号", "Box No", "Box Number")
 
 
 def _weight_capped_notice(items: list[dict[str, Any]]) -> str:
