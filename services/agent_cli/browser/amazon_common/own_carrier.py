@@ -1177,7 +1177,13 @@ def _click_phase_3_2_calendar_prev_month(driver: Any) -> bool:
             """
 const calendar = getScopedCalendar();
 if (!calendar) return false;
-return clickElement(scopedQuerySelector('[part="calendar-prev-month"]', calendar));
+const button = scopedQuerySelector('[part="calendar-prev-month"]', calendar);
+if (!button) return false;
+try {
+  button.scrollIntoView({ block: 'center', inline: 'center' });
+} catch (error) {}
+button.click();
+return true;
 """,
         )
     )
@@ -1190,7 +1196,13 @@ def _click_phase_3_2_calendar_next_month(driver: Any) -> bool:
             """
 const calendar = getScopedCalendar();
 if (!calendar) return false;
-return clickElement(scopedQuerySelector('[part="calendar-next-month"]', calendar));
+const button = scopedQuerySelector('[part="calendar-next-month"]', calendar);
+if (!button) return false;
+try {
+  button.scrollIntoView({ block: 'center', inline: 'center' });
+} catch (error) {}
+button.click();
+return true;
 """,
         )
     )
@@ -1287,8 +1299,43 @@ return '';
     return str(raw_value or "").strip()
 
 
-def _phase_3_2_ship_date_value_matches(driver: Any, ship_date: date) -> bool:
-    return _date_picker_value_matches(_read_phase_3_2_ship_date_value(driver), ship_date)
+def _phase_3_2_ship_date_completed(driver: Any, ship_date: date) -> bool:
+    raw_payload = _execute_phase_3_2_ship_date_script(
+        driver,
+        """
+const picker = getShipDatePicker();
+if (!picker) return { value: '', state: '' };
+
+let value = '';
+for (const item of [picker.value, picker.getAttribute('value')]) {
+  if (item === undefined || item === null) continue;
+  const text = String(item).trim();
+  if (text) {
+    value = text;
+    break;
+  }
+}
+if (!value) {
+  const input = scopedQuerySelector('input', picker);
+  if (input) {
+    for (const item of [input.value, input.getAttribute('value')]) {
+      if (item === undefined || item === null) continue;
+      const text = String(item).trim();
+      if (text) {
+        value = text;
+        break;
+      }
+    }
+  }
+}
+
+const state = String(picker.getAttribute('state') || picker.state || '').trim();
+return { value, state };
+""",
+    )
+    payload = raw_payload if isinstance(raw_payload, dict) else {}
+    state = str(payload.get("state") or "").strip().lower()
+    return state != "error" and _date_picker_value_matches(str(payload.get("value") or ""), ship_date)
 
 
 def _phase_3_2_ship_date_calendar_visible(driver: Any) -> bool:
@@ -1477,6 +1524,10 @@ def _wait_phase_3_2_refresh_after_selection() -> None:
     time.sleep(1.0)
 
 
+def _wait_phase_3_2_after_carrier_mode_round() -> None:
+    time.sleep(2.0)
+
+
 def _wait_phase_3_2_after_carrier_before_dates() -> None:
     time.sleep(1.0)
 
@@ -1565,14 +1616,10 @@ def _select_phase_3_2_ship_date(driver: Any, ship_date: date, *, timeout_seconds
     clicked_target = False
     while time.time() < deadline:
         _raise_if_returned_to_step2_start(driver)
-        if _phase_3_2_ship_date_value_matches(driver, ship_date):
-            return
-        if _phase_3_2_ship_date_calendar_day_selected(driver, ship_date):
-            return
         if _click_phase_3_2_ship_date_calendar_day(driver, ship_date):
             clicked_target = True
             time.sleep(0.2)
-            if _phase_3_2_ship_date_calendar_day_selected(driver, ship_date):
+            if _phase_3_2_ship_date_completed(driver, ship_date):
                 return
             continue
         current_year, current_month = _parse_calendar_month_label(_read_phase_3_2_ship_date_calendar_month_label(driver))
@@ -1590,7 +1637,7 @@ def _select_phase_3_2_ship_date(driver: Any, ship_date: date, *, timeout_seconds
         time.sleep(0.5)
     _raise_if_returned_to_step2_start(driver)
     if clicked_target:
-        raise RuntimeError(f"等待发货日期目标日期选中超时: {ship_date.isoformat()}")
+        raise RuntimeError(f"等待发货日期写入完成超时: {ship_date.isoformat()}")
     raise RuntimeError(f"等待发货日期目标日期出现或可点击超时: {ship_date.isoformat()}")
 
 
@@ -1718,6 +1765,77 @@ def _select_phase_3_2_dropdown_value(
     _wait_phase_3_2_refresh_after_selection()
 
 
+def _phase_3_2_dropdown_display_selected(driver: Any, dropdown_selector: str, expected_value: str, expected_text: str) -> bool:
+    return bool(
+        _execute_page_script(
+            driver,
+            """
+const dropdownSelector = String(arguments[0] || '');
+const expectedValue = String(arguments[1] || '').trim().toUpperCase();
+const expectedText = String(arguments[2] || '').replace(/\\s+/g, ' ').trim();
+
+function cleanText(value) {
+  return String(value || '').replace(/\\s+/g, ' ').trim();
+}
+
+const root = deepQuerySelector(dropdownSelector);
+if (!root || !expectedText) return false;
+
+for (const item of [root.value, root.getAttribute('value')]) {
+  if (item === undefined || item === null) continue;
+  if (String(item).trim().toUpperCase() === expectedValue) return true;
+}
+
+const header = deepQuerySelector('.select-header[part~="dropdown-header"]', root);
+if (!header) return false;
+
+const rowText = deepQuerySelector('.header-row-text', header);
+if (rowText && rowText.classList && rowText.classList.contains('placeholder')) {
+  return false;
+}
+
+const title = cleanText(header.getAttribute('title') || '');
+const selectionElement = deepQuerySelector('.selection-text', header);
+const selection = cleanText(selectionElement ? (selectionElement.innerText || selectionElement.textContent || '') : '');
+return title.includes(expectedText) || selection.includes(expectedText);
+""",
+            dropdown_selector,
+            expected_value,
+            expected_text,
+        )
+    )
+
+
+def _select_phase_3_2_dropdown_option(
+    driver: Any,
+    *,
+    dropdown_selector: str,
+    option_value: str,
+    option_text: str,
+    step_name: str,
+    timeout_seconds: int,
+) -> None:
+    _wait_for_click(
+        f"{step_name}选项",
+        lambda: _select_dropdown_option_by_value(
+            driver,
+            dropdown_selector,
+            option_value,
+            option_text=option_text,
+        ),
+        timeout_seconds=min(timeout_seconds, 10),
+        driver=driver,
+    )
+
+
+def _raise_phase_3_2_carrier_mode_selection_error(transport_selected: bool, carrier_selected: bool, transport_text: str) -> None:
+    if not transport_selected and not carrier_selected:
+        raise RuntimeError("运输方式和非合作承运人未完成选择")
+    if not transport_selected:
+        raise RuntimeError(f"运输方式未选择为 {transport_text}")
+    raise RuntimeError("非合作承运人未选择为 其他")
+
+
 def _select_carrier_mode_for_layout(
     driver: Any,
     mode: dict[str, Any],
@@ -1731,26 +1849,44 @@ def _select_carrier_mode_for_layout(
 
     if layout == _LAYOUT_PHASE_3_2:
         transport_value = _phase_3_2_transport_target_value(mode)
-        for _index in range(2):
-            _select_phase_3_2_dropdown_value(
+        transport_text = str(mode["ui_text"])
+        transport_selected = False
+        carrier_selected = False
+        for _index in range(3):
+            _select_phase_3_2_dropdown_option(
                 driver,
                 dropdown_selector=_TRANSPORTATION_MODE_DROPDOWN_SELECTOR,
                 option_value=transport_value,
-                option_text=str(mode["ui_text"]),
-                step_name=f"{mode['ui_text']}运输方式",
-                value_label="运输方式",
+                option_text=transport_text,
+                step_name=f"{transport_text}运输方式",
                 timeout_seconds=timeout_seconds,
             )
 
-            _select_phase_3_2_dropdown_value(
+            _select_phase_3_2_dropdown_option(
                 driver,
                 dropdown_selector=_NON_PCP_CARRIER_CHOICES_SELECTOR,
                 option_value="OTHER",
                 option_text="其他",
                 step_name="非合作承运人",
-                value_label="非合作承运人",
                 timeout_seconds=timeout_seconds,
             )
+            _wait_phase_3_2_after_carrier_mode_round()
+
+            transport_selected = _phase_3_2_dropdown_display_selected(
+                driver,
+                _TRANSPORTATION_MODE_DROPDOWN_SELECTOR,
+                transport_value,
+                transport_text,
+            )
+            carrier_selected = _phase_3_2_dropdown_display_selected(
+                driver,
+                _NON_PCP_CARRIER_CHOICES_SELECTOR,
+                "OTHER",
+                "其他",
+            )
+            if transport_selected and carrier_selected:
+                return
+        _raise_phase_3_2_carrier_mode_selection_error(transport_selected, carrier_selected, transport_text)
         return
 
     _wait_for_click("承运人下拉框", lambda: _open_carrier_dropdown(driver), timeout_seconds=min(timeout_seconds, 10), driver=driver)

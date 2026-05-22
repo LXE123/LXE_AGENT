@@ -1,6 +1,6 @@
 ---
 name: mabang-fba-store-resolve
-description: 解析马帮 Amazon FBA 店铺名到可查询 ID，支持顶层 fbaWarehouseIds 区域/整组查询和欧洲区子站点 shopId 查询。用户要求查询店铺 ID、确认店铺名、按店铺下载 MSKU 数据前需要解析店铺名，或店铺名不完整需要候选确认时使用。
+description: 解析马帮 Amazon FBA 店铺名到可查询 ID，支持顶层 fbaWarehouseIds 区域/整组查询和欧洲区子站点 shopId 查询。用户要求查询马帮店铺 ID、确认店铺名、按店铺下载 MSKU 数据前需要解析店铺名，或店铺名不完整需要候选确认时使用（这里没有紫鸟店铺 ID）。
 type: Amazon_replenish
 ---
 

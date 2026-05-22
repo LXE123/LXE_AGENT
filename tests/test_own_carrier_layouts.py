@@ -179,6 +179,7 @@ def test_phase_3_2_selects_date_transport_and_carrier_without_update(monkeypatch
     monkeypatch.setattr(own_carrier, "_wait_for_click", fake_wait_for_click)
     monkeypatch.setattr(own_carrier, "_wait_for_condition", fake_wait_for_condition)
     monkeypatch.setattr(own_carrier, "_wait_phase_3_2_refresh_after_selection", lambda: calls.append("refresh_wait"))
+    monkeypatch.setattr(own_carrier, "_wait_phase_3_2_after_carrier_mode_round", lambda: calls.append("carrier_round_wait"))
     monkeypatch.setattr(own_carrier, "_click_phase_3_2_date_input", lambda _driver: calls.append("click_date") or True)
     monkeypatch.setattr(own_carrier, "_phase_3_2_calendar_visible", lambda _driver: calls.append("scoped_calendar_visible") or True)
     monkeypatch.setattr(
@@ -193,9 +194,10 @@ def test_phase_3_2_selects_date_transport_and_carrier_without_update(monkeypatch
     )
     monkeypatch.setattr(
         own_carrier,
-        "_select_phase_3_2_dropdown_value",
+        "_select_phase_3_2_dropdown_option",
         lambda _driver, **kwargs: calls.append(f"select_dropdown:{kwargs['step_name']}:{kwargs['option_value']}"),
     )
+    monkeypatch.setattr(own_carrier, "_phase_3_2_dropdown_display_selected", lambda *_args: True)
 
     own_carrier._select_pickup_date_for_layout(
         driver,
@@ -219,8 +221,7 @@ def test_phase_3_2_selects_date_transport_and_carrier_without_update(monkeypatch
         "refresh_wait",
         "select_dropdown:海运运输方式:OCEAN",
         "select_dropdown:非合作承运人:OTHER",
-        "select_dropdown:海运运输方式:OCEAN",
-        "select_dropdown:非合作承运人:OTHER",
+        "carrier_round_wait",
     ]
 
 
@@ -266,6 +267,32 @@ def test_phase_3_2_calendar_day_uses_delivery_window_picker_scope(monkeypatch) -
             "2026年5月20日",
         )
     ]
+
+
+def test_phase_3_2_delivery_window_month_buttons_use_light_click(monkeypatch) -> None:
+    driver = object()
+    scripts: list[str] = []
+
+    def fake_execute(_driver, script_body: str):
+        scripts.append(script_body)
+        return True
+
+    monkeypatch.setattr(own_carrier, "_execute_phase_3_2_date_picker_script", fake_execute)
+
+    assert own_carrier._click_phase_3_2_calendar_prev_month(driver) is True
+    assert own_carrier._click_phase_3_2_calendar_next_month(driver) is True
+
+    assert len(scripts) == 2
+    assert "[part=\"calendar-prev-month\"]" in scripts[0]
+    assert "[part=\"calendar-next-month\"]" in scripts[1]
+    for script in scripts:
+        assert "getScopedCalendar()" in script
+        assert "scrollIntoView" in script
+        assert "button.click()" in script
+        assert "clickElement" not in script
+        assert "pointerdown" not in script
+        assert "mousedown" not in script
+        assert "mouseup" not in script
 
 
 def test_phase_3_2_ship_date_input_uses_ship_date_picker(monkeypatch) -> None:
@@ -331,9 +358,10 @@ def test_select_phase_3_2_ship_date_reclicks_when_picker_value_matches(monkeypat
 
     monkeypatch.setattr(own_carrier, "_wait_for_click", fake_wait_for_click)
     monkeypatch.setattr(own_carrier, "_wait_for_condition", fake_wait_for_condition)
-    monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_value_matches", lambda _driver, _ship_date: True)
     monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_calendar_visible", lambda _driver: calls.append("calendar_visible") or state["calendar_visible"])
     monkeypatch.setattr(own_carrier, "_click_phase_3_2_ship_date_input", lambda _driver: calls.append("click_input") or state.__setitem__("calendar_visible", True) or True)
+    monkeypatch.setattr(own_carrier, "_click_phase_3_2_ship_date_calendar_day", lambda _driver, _ship_date: calls.append("click_day") or True)
+    monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_completed", lambda _driver, _ship_date: calls.append("completed") or True)
 
     own_carrier._select_phase_3_2_ship_date(driver, date(2026, 5, 7), timeout_seconds=5)
 
@@ -343,7 +371,59 @@ def test_select_phase_3_2_ship_date_reclicks_when_picker_value_matches(monkeypat
         "click_input",
         "wait_condition:发货日期日历出现",
         "calendar_visible",
+        "click_day",
+        "completed",
     ]
+
+
+def test_phase_3_2_ship_date_completed_requires_value_and_non_error_state(monkeypatch) -> None:
+    driver = object()
+    payloads: list[dict[str, str]] = []
+
+    def fake_execute(_driver, script: str, picker_selector: str, fallback_selectors: list[str]):
+        assert "getShipDatePicker()" in script
+        assert "state" in script
+        assert "aria-pressed" not in script
+        assert "selected" not in script
+        return payloads.pop(0)
+
+    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
+
+    payloads.append({"value": "", "state": "error"})
+    assert own_carrier._phase_3_2_ship_date_completed(driver, date(2026, 5, 7)) is False
+
+    payloads.append({"value": "2026/5/7", "state": "error"})
+    assert own_carrier._phase_3_2_ship_date_completed(driver, date(2026, 5, 7)) is False
+
+    payloads.append({"value": "2026/05/07", "state": ""})
+    assert own_carrier._phase_3_2_ship_date_completed(driver, date(2026, 5, 7)) is True
+
+
+def test_select_phase_3_2_ship_date_ignores_default_selected_day_until_value_completed(monkeypatch) -> None:
+    driver = object()
+    clock = {"now": 0.0}
+    calls: list[str] = []
+    completed = {"value": False}
+
+    monkeypatch.setattr(own_carrier.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(own_carrier.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + float(seconds)))
+    monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_calendar_visible", lambda _driver: True)
+    monkeypatch.setattr(
+        own_carrier,
+        "_phase_3_2_ship_date_calendar_day_selected",
+        lambda _driver, _ship_date: pytest.fail("ship date must not use calendar selected as completion"),
+    )
+    monkeypatch.setattr(own_carrier, "_click_phase_3_2_ship_date_calendar_day", lambda _driver, _ship_date: calls.append("click_day") or True)
+    monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_completed", lambda _driver, _ship_date: calls.append("completed") or completed["value"])
+    monkeypatch.setattr(own_carrier, "_read_phase_3_2_ship_date_calendar_month_label", lambda _driver: pytest.fail("clicked target should retry completion"))
+
+    with pytest.raises(RuntimeError, match="等待发货日期写入完成超时: 2026-05-07"):
+        own_carrier._select_phase_3_2_ship_date(driver, date(2026, 5, 7), timeout_seconds=1)
+
+    assert calls
+    assert len(calls) % 2 == 0
+    assert calls[0:2] == ["click_day", "completed"]
+    assert all(calls[index : index + 2] == ["click_day", "completed"] for index in range(0, len(calls), 2))
 
 
 def test_date_picker_value_matches_unpadded_ship_date() -> None:
@@ -352,16 +432,29 @@ def test_date_picker_value_matches_unpadded_ship_date() -> None:
     assert own_carrier._date_picker_value_matches("2026/5/8", date(2026, 5, 7)) is False
 
 
-def test_phase_3_2_reselects_transport_then_carrier_when_values_already_match(monkeypatch) -> None:
+def test_phase_3_2_selects_transport_then_carrier_until_display_selected(monkeypatch) -> None:
     driver = object()
     calls: list[str] = []
+    refresh_count = {"value": 0}
+    selected_checks: list[tuple[str, str, str]] = []
 
     def fake_select_dropdown(_driver, **kwargs):
         calls.append(
             f"{kwargs['dropdown_selector']}:{kwargs['option_value']}:{kwargs['option_text']}"
         )
 
-    monkeypatch.setattr(own_carrier, "_select_phase_3_2_dropdown_value", fake_select_dropdown)
+    def fake_wait_carrier_round():
+        refresh_count["value"] += 1
+        calls.append("carrier_round_wait")
+
+    monkeypatch.setattr(own_carrier, "_select_phase_3_2_dropdown_option", fake_select_dropdown)
+    monkeypatch.setattr(own_carrier, "_wait_phase_3_2_after_carrier_mode_round", fake_wait_carrier_round)
+
+    def fake_display_selected(_driver, selector: str, expected_value: str, expected_text: str):
+        selected_checks.append((selector, expected_value, expected_text))
+        return refresh_count["value"] >= 2
+
+    monkeypatch.setattr(own_carrier, "_phase_3_2_dropdown_display_selected", fake_display_selected)
 
     own_carrier._select_carrier_mode_for_layout(
         driver,
@@ -373,9 +466,105 @@ def test_phase_3_2_reselects_transport_then_carrier_when_values_already_match(mo
     assert calls == [
         f"{own_carrier._TRANSPORTATION_MODE_DROPDOWN_SELECTOR}:AIR:空运",
         f"{own_carrier._NON_PCP_CARRIER_CHOICES_SELECTOR}:OTHER:其他",
+        "carrier_round_wait",
         f"{own_carrier._TRANSPORTATION_MODE_DROPDOWN_SELECTOR}:AIR:空运",
         f"{own_carrier._NON_PCP_CARRIER_CHOICES_SELECTOR}:OTHER:其他",
+        "carrier_round_wait",
     ]
+    assert selected_checks == [
+        (own_carrier._TRANSPORTATION_MODE_DROPDOWN_SELECTOR, "AIR", "空运"),
+        (own_carrier._NON_PCP_CARRIER_CHOICES_SELECTOR, "OTHER", "其他"),
+        (own_carrier._TRANSPORTATION_MODE_DROPDOWN_SELECTOR, "AIR", "空运"),
+        (own_carrier._NON_PCP_CARRIER_CHOICES_SELECTOR, "OTHER", "其他"),
+    ]
+
+
+def test_phase_3_2_carrier_mode_round_waits_two_seconds(monkeypatch) -> None:
+    sleeps: list[float] = []
+
+    monkeypatch.setattr(own_carrier.time, "sleep", lambda seconds: sleeps.append(float(seconds)))
+
+    own_carrier._wait_phase_3_2_after_carrier_mode_round()
+
+    assert sleeps == [2.0]
+
+
+def test_phase_3_2_dropdown_display_selected_accepts_dropdown_value(monkeypatch) -> None:
+    driver = object()
+    seen_args: list[tuple[str, str, str]] = []
+
+    def fake_execute(_driver, script: str, dropdown_selector: str, expected_value: str, expected_text: str):
+        seen_args.append((dropdown_selector, expected_value, expected_text))
+        assert "root.value" in script
+        assert "root.getAttribute('value')" in script
+        assert "toUpperCase() === expectedValue" in script
+        assert '.select-header[part~="dropdown-header"]' in script
+        assert ".header-row-text" in script
+        assert "placeholder" in script
+        assert "getAttribute('title')" in script
+        assert ".selection-text" in script
+        return True
+
+    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
+
+    assert own_carrier._phase_3_2_dropdown_display_selected(driver, own_carrier._TRANSPORTATION_MODE_DROPDOWN_SELECTOR, "AIR", "空运") is True
+    assert seen_args == [(own_carrier._TRANSPORTATION_MODE_DROPDOWN_SELECTOR, "AIR", "空运")]
+
+
+def test_phase_3_2_dropdown_display_selected_script_keeps_value_and_header_fallback(monkeypatch) -> None:
+    driver = object()
+
+    def fake_execute(_driver, script: str, _dropdown_selector: str, _expected_value: str, _expected_text: str):
+        assert "for (const item of [root.value, root.getAttribute('value')])" in script
+        assert "String(item).trim().toUpperCase() === expectedValue" in script
+        assert "return true;" in script
+        assert "classList.contains('placeholder')" in script
+        assert "title.includes(expectedText) || selection.includes(expectedText)" in script
+        return False
+
+    monkeypatch.setattr(own_carrier, "_execute_page_script", fake_execute)
+
+    assert own_carrier._phase_3_2_dropdown_display_selected(driver, "[dropdown]", "AIR", "空运") is False
+
+
+def test_phase_3_2_carrier_mode_fails_after_three_unselected_rounds(monkeypatch) -> None:
+    driver = object()
+    calls: list[str] = []
+
+    def fake_select_dropdown(_driver, **kwargs):
+        calls.append(f"{kwargs['step_name']}:{kwargs['option_value']}")
+
+    monkeypatch.setattr(own_carrier, "_select_phase_3_2_dropdown_option", fake_select_dropdown)
+    monkeypatch.setattr(own_carrier, "_wait_phase_3_2_after_carrier_mode_round", lambda: calls.append("carrier_round_wait"))
+    monkeypatch.setattr(own_carrier, "_phase_3_2_dropdown_display_selected", lambda *_args: False)
+
+    with pytest.raises(RuntimeError, match="运输方式和非合作承运人未完成选择"):
+        own_carrier._select_carrier_mode_for_layout(
+            driver,
+            {"canonical": "AIR", "ui_text": "空运"},
+            layout="phase_3_2",
+            timeout_seconds=60,
+        )
+
+    assert calls == [
+        "空运运输方式:AIR",
+        "非合作承运人:OTHER",
+        "carrier_round_wait",
+        "空运运输方式:AIR",
+        "非合作承运人:OTHER",
+        "carrier_round_wait",
+        "空运运输方式:AIR",
+        "非合作承运人:OTHER",
+        "carrier_round_wait",
+    ]
+
+
+def test_phase_3_2_carrier_mode_partial_failure_messages() -> None:
+    with pytest.raises(RuntimeError, match="运输方式未选择为 空运"):
+        own_carrier._raise_phase_3_2_carrier_mode_selection_error(False, True, "空运")
+
+    with pytest.raises(RuntimeError, match="非合作承运人未选择为 其他"):
+        own_carrier._raise_phase_3_2_carrier_mode_selection_error(True, False, "空运")
 
 
 def test_select_phase_3_2_dropdown_value_clicks_option_and_waits(monkeypatch) -> None:
@@ -703,18 +892,17 @@ def test_select_phase_3_2_pickup_date_uses_scoped_next_month(monkeypatch) -> Non
 
 def test_select_phase_3_2_ship_date_uses_ship_date_scoped_next_month(monkeypatch) -> None:
     driver = object()
-    state = {"month": 5, "selected": False}
+    state = {"month": 5, "completed": False}
     month_labels = {5: "五月 2026", 6: "六月 2026"}
 
     monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_calendar_visible", lambda _driver: True)
-    monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_value_matches", lambda _driver, _target_date: False)
-    monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_calendar_day_selected", lambda _driver, _target_date: state["selected"])
+    monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_completed", lambda _driver, _target_date: state["completed"])
     monkeypatch.setattr(own_carrier, "_read_phase_3_2_ship_date_calendar_month_label", lambda _driver: month_labels[state["month"]])
 
     def fake_click_day(_driver, _target_date):
         if state["month"] != 6:
             return False
-        state["selected"] = True
+        state["completed"] = True
         return True
 
     monkeypatch.setattr(own_carrier, "_click_phase_3_2_ship_date_calendar_day", fake_click_day)
@@ -728,7 +916,7 @@ def test_select_phase_3_2_ship_date_uses_ship_date_scoped_next_month(monkeypatch
 
     own_carrier._select_phase_3_2_ship_date(driver, date(2026, 6, 5), timeout_seconds=5)
 
-    assert state == {"month": 6, "selected": True}
+    assert state == {"month": 6, "completed": True}
 
 
 def test_select_pickup_date_moves_to_previous_month(monkeypatch) -> None:
