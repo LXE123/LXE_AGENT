@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -165,6 +166,10 @@ def _safe_file_part(value: Any) -> str:
     return text.strip("._-") or "store_msku"
 
 
+def _timestamp_text(value: datetime | None = None) -> str:
+    return (value or datetime.now()).strftime("%Y%m%d%H%M")
+
+
 def _resolve_output_dir(output_dir: str | Path | None = None) -> Path:
     if output_dir is not None:
         path = Path(output_dir)
@@ -187,6 +192,13 @@ def normalize_store_id(value: Any) -> str:
     if not store_id:
         raise ValueError("store_id 不能为空")
     return store_id
+
+
+def normalize_store_name(value: Any) -> str:
+    store_name = _clean_text(value)
+    if not store_name:
+        raise ValueError("store_name 不能为空")
+    return store_name
 
 
 def normalize_id_type(value: Any) -> str:
@@ -437,8 +449,8 @@ async def download_store_msku_excel_from_url(
         raise ValueError("file_url 不能为空")
 
     directory = _resolve_output_dir(output_dir)
-    prefix = _safe_file_part(store_name) if _clean_text(store_name) else _safe_file_part(store_id)
-    target_path = directory / f"{prefix}_msku_data{_excel_suffix_from_url(url)}"
+    prefix = _safe_file_part(normalize_store_name(store_name))
+    target_path = directory / f"{_timestamp_text()}-{prefix}_msku_data{_excel_suffix_from_url(url)}"
     headers = {
         "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/octet-stream,*/*"
     }
@@ -554,7 +566,7 @@ async def download_store_msku_excel(
 ) -> StoreMskuExcelResult:
     clean_store_id = normalize_store_id(store_id)
     clean_id_type = normalize_id_type(id_type)
-    clean_store_name = _clean_text(store_name)
+    clean_store_name = normalize_store_name(store_name)
 
     auth = await resolve_store_msku_auth()
     ids = await fetch_store_msku_ids(
@@ -605,9 +617,11 @@ __all__ = [
     "fetch_store_msku_ids",
     "normalize_id_type",
     "normalize_store_id",
+    "normalize_store_name",
     "normalize_store_msku_excel",
     "parse_store_msku_export_gourl",
     "parse_store_msku_ids",
     "resolve_store_msku_auth",
+    "_timestamp_text",
     "validate_store_msku_excel_headers",
 ]

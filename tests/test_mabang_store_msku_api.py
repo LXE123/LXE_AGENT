@@ -211,6 +211,7 @@ def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(msku, "get_auth_context", _fake_auth_context)
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
     monkeypatch.setattr(msku, "external_http_session", fake_session)
+    monkeypatch.setattr(msku, "_timestamp_text", lambda *_args, **_kwargs: "202605251530")
 
     result = asyncio.run(
         msku.download_store_msku_excel(
@@ -227,7 +228,7 @@ def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None
         "store_id": "697456821",
         "id_type": "shopId",
         "id_count": 3,
-        "xlsx_path": str(tmp_path / "Amazon-Lerxiuer-FR_msku_data.xlsx"),
+        "xlsx_path": str(tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx"),
         "converted": False,
         "raw_excel_deleted": False,
         "source": "mabang_store_msku_download",
@@ -237,8 +238,42 @@ def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None
     assert len([call for call in fake_session.calls if call["method"] == "GET"]) == 1
 
 
+def test_download_store_msku_excel_requires_store_name() -> None:
+    with pytest.raises(ValueError, match="store_name 不能为空"):
+        asyncio.run(msku.download_store_msku_excel("697456821", "shopId"))
+
+
+def test_download_store_msku_excel_overwrites_same_minute_file(monkeypatch, tmp_path) -> None:
+    target_path = tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx"
+    target_path.write_bytes(b"old-file")
+    new_body = _xlsx_bytes([{"店铺名称": "Amazon-Lerxiuer-FR", "MSKU": "MSKU-NEW"}])
+    fake_session = _FakeSession(
+        [
+            _FakeResponse({"success": True, "id": "1001"}),
+            _FakeResponse({"success": True, "gourl": "https://upload.example.test/store.xlsx"}),
+            _FakeResponse(body=new_body),
+        ]
+    )
+    monkeypatch.setattr(msku, "get_auth_context", _fake_auth_context)
+    monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "external_http_session", fake_session)
+    monkeypatch.setattr(msku, "_timestamp_text", lambda *_args, **_kwargs: "202605251530")
+
+    result = asyncio.run(
+        msku.download_store_msku_excel(
+            "697456821",
+            "shopId",
+            store_name="Amazon-Lerxiuer-FR",
+            output_dir=tmp_path,
+        )
+    )
+
+    assert result.xlsx_path == str(target_path)
+    assert target_path.read_bytes() == new_body
+
+
 def test_normalize_store_msku_excel_converts_xls_and_deletes_raw(monkeypatch, tmp_path) -> None:
-    xls_path = tmp_path / "store_msku.xls"
+    xls_path = tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xls"
     xls_path.write_bytes(b"legacy-xls")
     calls: list[dict] = []
 
@@ -265,7 +300,7 @@ def test_normalize_store_msku_excel_converts_xls_and_deletes_raw(monkeypatch, tm
 
     xlsx_path, converted, raw_deleted = msku.normalize_store_msku_excel(xls_path)
 
-    assert xlsx_path == tmp_path / "store_msku.xlsx"
+    assert xlsx_path == tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx"
     assert converted is True
     assert raw_deleted is True
     assert not xls_path.exists()

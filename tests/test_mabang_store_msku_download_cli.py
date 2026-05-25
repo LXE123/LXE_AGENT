@@ -79,6 +79,28 @@ def test_invalid_id_type_returns_failure_json(monkeypatch, capsys) -> None:
     assert close_calls == ["close"]
 
 
+def test_missing_store_name_returns_failure_json(monkeypatch, capsys) -> None:
+    close_calls: list[str] = []
+
+    async def fake_close_all_network_clients() -> None:
+        close_calls.append("close")
+
+    monkeypatch.setattr(cli, "close_all_network_clients", fake_close_all_network_clients)
+
+    exit_code = cli.main(["--store-id", "697456821", "--id-type", "shopId"])
+
+    payload = _read_payload(capsys)
+    assert exit_code == 1
+    assert payload == {
+        "success": False,
+        "store_name": "",
+        "store_id": "697456821",
+        "id_type": "shopId",
+        "exception": "store_name 不能为空",
+    }
+    assert close_calls == ["close"]
+
+
 def test_success_returns_downloaded_store_msku_path(monkeypatch, capsys) -> None:
     close_calls: list[str] = []
 
@@ -94,7 +116,7 @@ def test_success_returns_downloaded_store_msku_path(monkeypatch, capsys) -> None
             store_id="697456821",
             id_type="shopId",
             id_count=123,
-            xlsx_path="artifacts/mabang_store_msku/Amazon-Lerxiuer-FR_msku_data.xlsx",
+            xlsx_path="artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
             converted=True,
             raw_excel_deleted=True,
         )
@@ -121,7 +143,7 @@ def test_success_returns_downloaded_store_msku_path(monkeypatch, capsys) -> None
         "store_id": "697456821",
         "id_type": "shopId",
         "id_count": 123,
-        "xlsx_path": "artifacts/mabang_store_msku/Amazon-Lerxiuer-FR_msku_data.xlsx",
+        "xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
         "converted": True,
         "raw_excel_deleted": True,
         "source": "mabang_store_msku_download",
@@ -141,13 +163,22 @@ def test_download_error_returns_failure_json(monkeypatch, capsys) -> None:
     monkeypatch.setattr(cli, "close_all_network_clients", fake_close_all_network_clients)
     monkeypatch.setattr(cli, "download_store_msku_excel", fake_download_store_msku_excel)
 
-    exit_code = cli.main(["--store-id", "697456821", "--id-type", "shopId"])
+    exit_code = cli.main(
+        [
+            "--store-id",
+            "697456821",
+            "--id-type",
+            "shopId",
+            "--store-name",
+            "Amazon-Lerxiuer-FR",
+        ]
+    )
 
     payload = _read_payload(capsys)
     assert exit_code == 1
     assert payload == {
         "success": False,
-        "store_name": "",
+        "store_name": "Amazon-Lerxiuer-FR",
         "store_id": "697456821",
         "id_type": "shopId",
         "exception": "download failed for 697456821",
