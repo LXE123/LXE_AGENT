@@ -17,7 +17,7 @@ def test_detect_own_carrier_layout_phase_3_2_takes_priority(monkeypatch) -> None
             'kat-input[kat-aria-label="发货日期"]',
             'kat-option[value="PCP"]',
             'kat-option[value="nPCP"]',
-        }
+    }
 
     monkeypatch.setattr(own_carrier, "_has_selector", fake_has_selector)
 
@@ -36,7 +36,19 @@ def test_detect_own_carrier_layout_phase_3_1(monkeypatch) -> None:
 def test_detect_own_carrier_layout_phase_3_ca(monkeypatch) -> None:
     def fake_has_selector(_driver, selector: str) -> bool:
         return selector in {
-            '[data-testid="transportation-mode-carrier-tile"]',
+            '[data-testid="non-pcp-carrier-choices"]',
+            '[data-testid="transportation-mode-dropdown"]',
+            'kat-input[kat-aria-label="发货日期"]',
+        }
+
+    monkeypatch.setattr(own_carrier, "_has_selector", fake_has_selector)
+
+    assert own_carrier._detect_own_carrier_layout(object()) == "phase_3_ca"
+
+
+def test_detect_own_carrier_layout_phase_3_ca_does_not_require_delivery_date_input(monkeypatch) -> None:
+    def fake_has_selector(_driver, selector: str) -> bool:
+        return selector in {
             '[data-testid="non-pcp-carrier-choices"]',
             '[data-testid="transportation-mode-dropdown"]',
             'kat-input[kat-aria-label="发货日期"]',
@@ -895,6 +907,54 @@ def test_confirm_own_carrier_phase_3_ca_selects_tile_carrier_and_dates(monkeypat
     assert "collect_summaries" in calls
 
 
+def test_prepare_phase_3_ca_carrier_tile_noops_when_tile_missing(monkeypatch) -> None:
+    driver = object()
+
+    monkeypatch.setattr(own_carrier, "_has_selector", lambda _driver, _selector: False)
+    monkeypatch.setattr(
+        own_carrier,
+        "_phase_3_ca_carrier_tile_selected",
+        lambda _driver: pytest.fail("missing tile should not check selected state"),
+    )
+    monkeypatch.setattr(
+        own_carrier,
+        "_wait_for_click",
+        lambda *_args, **_kwargs: pytest.fail("missing tile should not click"),
+    )
+
+    own_carrier._prepare_phase_3_ca_carrier_tile(driver, timeout_seconds=60)
+
+
+def test_prepare_phase_3_ca_carrier_tile_clicks_when_unselected(monkeypatch) -> None:
+    driver = object()
+    calls: list[str] = []
+    selected = {"value": False}
+
+    def fake_wait_for_click(step_name, clicker, **_kwargs):
+        calls.append(f"wait_click:{step_name}")
+        assert clicker() is True
+
+    def fake_wait_for_condition(step_name, checker, **_kwargs):
+        calls.append(f"wait_condition:{step_name}")
+        assert checker() is True
+
+    monkeypatch.setattr(own_carrier, "_has_selector", lambda _driver, _selector: True)
+    monkeypatch.setattr(own_carrier, "_phase_3_ca_carrier_tile_selected", lambda _driver: calls.append("selected") or selected["value"])
+    monkeypatch.setattr(own_carrier, "_click_phase_3_ca_carrier_tile", lambda _driver: calls.append("click_tile") or selected.__setitem__("value", True) or True)
+    monkeypatch.setattr(own_carrier, "_wait_for_click", fake_wait_for_click)
+    monkeypatch.setattr(own_carrier, "_wait_for_condition", fake_wait_for_condition)
+
+    own_carrier._prepare_phase_3_ca_carrier_tile(driver, timeout_seconds=60)
+
+    assert calls == [
+        "selected",
+        "wait_click:非亚马逊合作承运人卡片",
+        "click_tile",
+        "wait_condition:非亚马逊合作承运人卡片选中",
+        "selected",
+    ]
+
+
 def test_phase_3_2_raises_when_carrier_value_stays_wrong(monkeypatch) -> None:
     driver = object()
     clock = {"now": 0.0}
@@ -1020,6 +1080,7 @@ def test_select_phase_3_ca_pickup_date_uses_delivery_host_and_global_next_month(
 
     monkeypatch.setattr(own_carrier, "_wait_for_click", fake_wait_for_click)
     monkeypatch.setattr(own_carrier, "_wait_for_condition", fake_wait_for_condition)
+    monkeypatch.setattr(own_carrier, "_phase_3_ca_date_input_visible", lambda _driver, date_kind: calls.append(f"input_visible:{date_kind}") or True)
     monkeypatch.setattr(own_carrier, "_click_phase_3_ca_date_input", lambda _driver, date_kind: calls.append(f"click_input:{date_kind}") or True)
     monkeypatch.setattr(own_carrier, "_phase_3_ca_calendar_visible", lambda _driver, date_kind: calls.append(f"calendar_visible:{date_kind}") or True)
     monkeypatch.setattr(own_carrier, "_click_phase_3_ca_calendar_day", fake_click_day)
@@ -1032,6 +1093,8 @@ def test_select_phase_3_ca_pickup_date_uses_delivery_host_and_global_next_month(
     own_carrier._select_phase_3_ca_pickup_date(driver, date(2026, 6, 24), timeout_seconds=5)
 
     assert calls == [
+        "wait_condition:送达日期输入框",
+        "input_visible:delivery",
         "wait_click:送达日期输入框",
         "click_input:delivery",
         "wait_condition:送达日期日历出现",
@@ -1042,6 +1105,23 @@ def test_select_phase_3_ca_pickup_date_uses_delivery_host_and_global_next_month(
         "click_day:delivery:2026-06-24",
         "completed:delivery",
     ]
+
+
+def test_select_phase_3_ca_pickup_date_waits_for_delivery_input(monkeypatch) -> None:
+    driver = object()
+    clock = {"now": 0.0}
+
+    monkeypatch.setattr(own_carrier.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(own_carrier.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + float(seconds)))
+    monkeypatch.setattr(own_carrier, "_phase_3_ca_date_input_visible", lambda _driver, _date_kind: False)
+    monkeypatch.setattr(
+        own_carrier,
+        "_click_phase_3_ca_date_input",
+        lambda *_args, **_kwargs: pytest.fail("should not click before delivery input appears"),
+    )
+
+    with pytest.raises(RuntimeError, match="等待送达日期输入框超时"):
+        own_carrier._select_phase_3_ca_pickup_date(driver, date(2026, 6, 24), timeout_seconds=1)
 
 
 def test_select_phase_3_2_ship_date_uses_ship_date_scoped_next_month(monkeypatch) -> None:

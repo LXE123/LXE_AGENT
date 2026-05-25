@@ -28,6 +28,7 @@ type: amazon-fba
    5. 货件创建 context 里仍然写 `site=CA`。
    6. 由 CLI 进入店铺后执行站点切换；如果 `CA` 不在该账号可切换站点里，再让 CLI 返回真实错误。
 3. 如果店铺未打开，使用紫鸟浏览器工具 `ziniao_browser` 中的 `open_store` 直接打开店铺。如果已打开，可以直接使用`store_id`控制。
+4. 记得先使用紫鸟浏览器工具 `ziniao_browser` 中的 `get_status` 直看看状态。
 
 ### 注意 context 文件的输入格式
 不要把 JSON 直接放进命令行参数。执行 CLI 前，先用 `write` 工具写入 `artifacts/amazon_fba/context_<consignment_no>.json`：
@@ -46,7 +47,7 @@ type: amazon-fba
 - 你唯一要做的事就是根据所处阶段执行下面的 CLI 脚本，不要尝试自己操作网页，毫无意义。你只需要关心目前状况需要执行哪个 CLI 脚本。出问题直接丢给用户就行。
 -执行每一阶段的脚本后都可以直接结束当前对话，放心，系统后台会在任务有结果时通知你。
 - 每一阶段的脚本执行成功后放心执行下一阶段的脚本。
-- 如果你重启了店铺，意味着整个流程要重新开始。（从 prepare_upload 开始）
+- 如果你重启了店铺，意味着整个流程要重新开始。（从 prepare_upload 开始），所以只要店铺是开启状态就不要使用 open_store
 
 ### 失败处理硬规则
 

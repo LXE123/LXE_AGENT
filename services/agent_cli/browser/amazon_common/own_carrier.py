@@ -640,8 +640,7 @@ def _has_pcp_npcp_options(driver: Any) -> bool:
 
 def _has_phase_3_ca_layout(driver: Any) -> bool:
     return (
-        _has_selector(driver, _TRANSPORTATION_MODE_CARRIER_TILE_SELECTOR)
-        and _has_selector(driver, _NON_PCP_CARRIER_CHOICES_SELECTOR)
+        _has_selector(driver, _NON_PCP_CARRIER_CHOICES_SELECTOR)
         and _has_selector(driver, _TRANSPORTATION_MODE_DROPDOWN_SELECTOR)
         and _has_selector(driver, _PHASE_3_CA_SHIP_DATE_INPUT_SELECTOR)
     )
@@ -1431,6 +1430,10 @@ def _phase_3_ca_calendar_visible(driver: Any, date_kind: str) -> bool:
     return bool(_execute_phase_3_ca_date_script(driver, date_kind, "return Boolean(getGlobalCalendar());"))
 
 
+def _phase_3_ca_date_input_visible(driver: Any, date_kind: str) -> bool:
+    return bool(_execute_phase_3_ca_date_script(driver, date_kind, "return Boolean(getDateHost());"))
+
+
 def _read_phase_3_ca_calendar_month_label(driver: Any, date_kind: str) -> str:
     raw_label = _execute_phase_3_ca_date_script(
         driver,
@@ -1886,6 +1889,12 @@ def _select_phase_3_ca_date(
     timeout_seconds: int = 60,
 ) -> None:
     _raise_if_returned_to_step2_start(driver)
+    _wait_for_condition(
+        f"{input_label}输入框",
+        lambda: _phase_3_ca_date_input_visible(driver, date_kind),
+        timeout_seconds=min(timeout_seconds, 30),
+        driver=driver,
+    )
     _wait_for_click(
         f"{input_label}输入框",
         lambda: _click_phase_3_ca_date_input(driver, date_kind),
@@ -2083,6 +2092,8 @@ return clickElement(root);
 
 
 def _prepare_phase_3_ca_carrier_tile(driver: Any, *, timeout_seconds: int) -> None:
+    if not _has_selector(driver, _TRANSPORTATION_MODE_CARRIER_TILE_SELECTOR):
+        return
     if _phase_3_ca_carrier_tile_selected(driver):
         return
     _wait_for_click(
