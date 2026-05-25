@@ -52,8 +52,8 @@ _BROWSER_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
         "name": "ziniao_browser",
         "description": (
             "Manage Ziniao store lifecycle. "
-            "Use get_status to inspect store status and discover store_id; "
-            "use open_store/exit_store to start or stop one store."
+            "Use get_status first; if the store is already running, reuse store_id instead of open_store. "
+            "Use open_store to start a non-running store, and exit_store to stop one."
         ),
         "input_schema": {
             "type": "object",
@@ -65,7 +65,7 @@ _BROWSER_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
                 },
                 "store_id": {
                     "type": "string",
-                    "description": "Target store oauth. Required by open_store and exit_store.",
+                    "description": "Target store oauth from get_status. Required by open_store and exit_store.",
                 },
             },
             "required": ["action"],
