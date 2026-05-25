@@ -19,7 +19,15 @@ type: amazon-fba
    - `site` — 标准站点代码，如 `US`、`UK`、`DE`、`FR`、`IT`、`ES`、`CA`、`JP`、`AU`
    - `consignment_no` — 托运单号
    - `transport_mode` — 运输方式业务输入，后续所有 CLI 结果都会原样回传
-2. 如果店铺未打开，使用紫鸟浏览器工具 `ziniao_browser` 中的 `open_store` 直接打开店铺。如果已打开，可以直接使用`store_id`控制。
+2. 解析店铺时，不要把紫鸟店铺名里的 `-US`/`-CA`/`-UK` 后缀当成业务站点约束。
+   如果用户给出 `店铺=Amazon-Liansheng`、`站点=CA`：
+   1. 先用 `ziniao_browser.get_status` 获取所有 `store_id`/`store_name`。
+   2. 优先找完整匹配 `Amazon-Liansheng-CA`。
+   3. 如果没有完整匹配，则按去除站点后缀后的基础店铺名匹配，例如 `Amazon-Liansheng-US` -> `Amazon-Liansheng`。
+   4. 如果基础店铺名唯一匹配，就使用该 `store_id`。
+   5. 货件创建 context 里仍然写 `site=CA`。
+   6. 由 CLI 进入店铺后执行站点切换；如果 `CA` 不在该账号可切换站点里，再让 CLI 返回真实错误。
+3. 如果店铺未打开，使用紫鸟浏览器工具 `ziniao_browser` 中的 `open_store` 直接打开店铺。如果已打开，可以直接使用`store_id`控制。
 
 ### 注意 context 文件的输入格式
 不要把 JSON 直接放进命令行参数。执行 CLI 前，先用 `write` 工具写入 `artifacts/amazon_fba/context_<consignment_no>.json`：

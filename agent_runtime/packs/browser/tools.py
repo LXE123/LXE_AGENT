@@ -52,7 +52,8 @@ _BROWSER_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (
         "name": "ziniao_browser",
         "description": (
             "Manage Ziniao store lifecycle. "
-            "Use it to open one store, inspect current running-store status, or exit one store."
+            "Use get_status to inspect store status and discover store_id; "
+            "use open_store/exit_store to start or stop one store."
         ),
         "input_schema": {
             "type": "object",

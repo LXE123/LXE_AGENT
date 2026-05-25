@@ -16,8 +16,10 @@ _OWN_CARRIER_SELECTORS = (
 )
 _LAYOUT_PHASE_3_1 = "phase_3_1"
 _LAYOUT_PHASE_3_2 = "phase_3_2"
+_LAYOUT_PHASE_3_CA = "phase_3_ca"
 _LAYOUT_LEGACY = "legacy"
 _CROSS_BORDER_NON_PCP_BOX_SELECTOR = '[data-testid="cross-border-non-pcp-box-test-id"]'
+_TRANSPORTATION_MODE_CARRIER_TILE_SELECTOR = '[data-testid="transportation-mode-carrier-tile"]'
 _PCP_OPTION_SELECTOR = 'kat-option[value="PCP"]'
 _NPCP_OPTION_SELECTOR = 'kat-option[value="nPCP"]'
 _CARRIER_TYPE_PLACEMENT_DROPDOWN_SELECTOR = '[data-testid="carrier-type-placement-list-view-dropdown"]'
@@ -32,6 +34,7 @@ _PHASE_3_2_SHIP_DATE_PICKER_FALLBACK_SELECTORS = (
     "kat-date-picker#sendByDatePicker",
     'kat-date-picker[kat-aria-label="发货日期"]',
 )
+_PHASE_3_CA_SHIP_DATE_INPUT_SELECTOR = 'kat-input[kat-aria-label="发货日期"]'
 _DIALOG_SELECTOR = ".dialog"
 _DELIVERY_WINDOW_LINK_SELECTOR = '[data-testid="arrival-edit-delivery-window-link"]'
 _PLACEMENT_GROUP_SELECTED_ICON_SELECTOR = '.placement-group-tile-selected-icon'
@@ -635,9 +638,20 @@ def _has_pcp_npcp_options(driver: Any) -> bool:
     return _has_selector(driver, _PCP_OPTION_SELECTOR) and _has_selector(driver, _NPCP_OPTION_SELECTOR)
 
 
+def _has_phase_3_ca_layout(driver: Any) -> bool:
+    return (
+        _has_selector(driver, _TRANSPORTATION_MODE_CARRIER_TILE_SELECTOR)
+        and _has_selector(driver, _NON_PCP_CARRIER_CHOICES_SELECTOR)
+        and _has_selector(driver, _TRANSPORTATION_MODE_DROPDOWN_SELECTOR)
+        and _has_selector(driver, _PHASE_3_CA_SHIP_DATE_INPUT_SELECTOR)
+    )
+
+
 def _detect_own_carrier_layout(driver: Any) -> str:
     if _has_selector(driver, _CROSS_BORDER_NON_PCP_BOX_SELECTOR):
         return _LAYOUT_PHASE_3_2
+    if _has_phase_3_ca_layout(driver):
+        return _LAYOUT_PHASE_3_CA
     if _has_pcp_npcp_options(driver):
         return _LAYOUT_PHASE_3_1
     return _LAYOUT_LEGACY
@@ -892,6 +906,122 @@ function clickElement(el) {
 """
 
 
+_PHASE_3_CA_DATE_SCOPE_JS = r"""
+const phase3caDateKind = String(arguments[0] || '').trim();
+
+function cleanText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function uniqueElements(items) {
+  const results = [];
+  const seen = new Set();
+  for (const item of items || []) {
+    if (!item || seen.has(item)) continue;
+    seen.add(item);
+    results.push(item);
+  }
+  return results;
+}
+
+function getDateHosts() {
+  return uniqueElements([
+    ...deepQuerySelectorAll('kat-input[part="date-picker-input"]'),
+    ...deepQuerySelectorAll('kat-input[placeholder="YYYY/MM/DD"]'),
+  ]);
+}
+
+function getInputForHost(host) {
+  return deepQuerySelector('input[part="input"]', host) || deepQuerySelector('input[type="text"]', host);
+}
+
+function isShipDateHost(host) {
+  if (!host) return false;
+  const input = getInputForHost(host);
+  const hostLabel = String(host.getAttribute('kat-aria-label') || '');
+  const inputLabel = String(input ? input.getAttribute('aria-label') || '' : '');
+  return hostLabel.includes('发货日期') || inputLabel.includes('发货日期');
+}
+
+function getDateHost() {
+  const hosts = getDateHosts();
+  if (phase3caDateKind === 'ship') {
+    return hosts.find(isShipDateHost) || null;
+  }
+  const candidates = hosts.filter((host) => !isShipDateHost(host));
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+function getDateHostIndex() {
+  const host = getDateHost();
+  if (!host) return -1;
+  return getDateHosts().indexOf(host);
+}
+
+function getGlobalCalendar() {
+  const index = getDateHostIndex();
+  if (index < 0) return null;
+  return deepQuerySelectorAll('.calendar')[index] || null;
+}
+
+function getDateValue() {
+  const host = getDateHost();
+  if (!host) return '';
+  for (const item of [host.value, host.getAttribute('value')]) {
+    if (item === undefined || item === null) continue;
+    const text = String(item).trim();
+    if (text) return text;
+  }
+  const input = getInputForHost(host);
+  if (!input) return '';
+  for (const item of [input.value, input.getAttribute('value')]) {
+    if (item === undefined || item === null) continue;
+    const text = String(item).trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function clickElement(el) {
+  if (!el) return false;
+  try {
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+  } catch (error) {}
+  try {
+    if (el.focus) el.focus();
+  } catch (error) {}
+  const eventTypes = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+  for (const type of eventTypes) {
+    try {
+      const EventClass = type.startsWith('pointer') && window.PointerEvent ? PointerEvent : MouseEvent;
+      el.dispatchEvent(new EventClass(type, { bubbles: true, cancelable: true, view: window }));
+    } catch (error) {
+      try {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      } catch (innerError) {}
+    }
+  }
+  try {
+    el.click();
+    return true;
+  } catch (error) {}
+  return true;
+}
+
+function clickLight(el) {
+  if (!el) return false;
+  try {
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+  } catch (error) {}
+  try {
+    el.click();
+    return true;
+  } catch (error) {}
+  return false;
+}
+"""
+
+
 def _execute_phase_3_2_date_picker_script(driver: Any, script_body: str, *args):
     return _execute_page_script(
         driver,
@@ -908,6 +1038,15 @@ def _execute_phase_3_2_ship_date_script(driver: Any, script_body: str, *args):
         _PHASE_3_2_SHIP_DATE_SCOPE_JS + script_body,
         _PHASE_3_2_SHIP_DATE_PICKER_SELECTOR,
         list(_PHASE_3_2_SHIP_DATE_PICKER_FALLBACK_SELECTORS),
+        *args,
+    )
+
+
+def _execute_phase_3_ca_date_script(driver: Any, date_kind: str, script_body: str, *args):
+    return _execute_page_script(
+        driver,
+        _PHASE_3_CA_DATE_SCOPE_JS + script_body,
+        date_kind,
         *args,
     )
 
@@ -1273,6 +1412,103 @@ def _date_picker_value_matches(value: str, target_date: date) -> bool:
     return (year, month, day) == (target_date.year, target_date.month, target_date.day)
 
 
+def _click_phase_3_ca_date_input(driver: Any, date_kind: str) -> bool:
+    return bool(
+        _execute_phase_3_ca_date_script(
+            driver,
+            date_kind,
+            """
+const host = getDateHost();
+if (!host) return false;
+const input = getInputForHost(host);
+return clickElement(input || host);
+""",
+        )
+    )
+
+
+def _phase_3_ca_calendar_visible(driver: Any, date_kind: str) -> bool:
+    return bool(_execute_phase_3_ca_date_script(driver, date_kind, "return Boolean(getGlobalCalendar());"))
+
+
+def _read_phase_3_ca_calendar_month_label(driver: Any, date_kind: str) -> str:
+    raw_label = _execute_phase_3_ca_date_script(
+        driver,
+        date_kind,
+        """
+const calendar = getGlobalCalendar();
+if (!calendar) return '';
+const month = deepQuerySelector('.cal-month', calendar);
+return cleanText(month ? (month.innerText || month.textContent || '') : '');
+""",
+    )
+    return str(raw_label or "").strip()
+
+
+def _click_phase_3_ca_calendar_prev_month(driver: Any, date_kind: str) -> bool:
+    return bool(
+        _execute_phase_3_ca_date_script(
+            driver,
+            date_kind,
+            """
+const calendar = getGlobalCalendar();
+if (!calendar) return false;
+return clickLight(deepQuerySelector('[part="calendar-prev-month"]', calendar));
+""",
+        )
+    )
+
+
+def _click_phase_3_ca_calendar_next_month(driver: Any, date_kind: str) -> bool:
+    return bool(
+        _execute_phase_3_ca_date_script(
+            driver,
+            date_kind,
+            """
+const calendar = getGlobalCalendar();
+if (!calendar) return false;
+return clickLight(deepQuerySelector('[part="calendar-next-month"]', calendar));
+""",
+        )
+    )
+
+
+def _click_phase_3_ca_calendar_day(driver: Any, date_kind: str, target_date: date) -> bool:
+    label_prefix = f"{target_date.year}年{target_date.month}月{target_date.day}日"
+    return bool(
+        _execute_phase_3_ca_date_script(
+            driver,
+            date_kind,
+            """
+const labelPrefix = String(arguments[1] || '').trim();
+const calendar = getGlobalCalendar();
+if (!calendar) return false;
+
+function isDisabledDay(button) {
+  if (!button) return true;
+  if (button.disabled || button.getAttribute('aria-disabled') === 'true') return true;
+  const cell = deepClosest(button, 'td') || button.parentElement;
+  return Boolean(cell && cell.classList && cell.classList.contains('disabled'));
+}
+
+for (const button of deepQuerySelectorAll('button[aria-label]', calendar)) {
+  const label = String(button.getAttribute('aria-label') || '').trim();
+  if (!labelPrefix || !label.startsWith(labelPrefix)) continue;
+  if (isDisabledDay(button)) continue;
+  if (clickElement(button)) return true;
+}
+return false;
+""",
+            label_prefix,
+        )
+    )
+
+
+def _phase_3_ca_date_completed(driver: Any, date_kind: str, target_date: date) -> bool:
+    raw_value = _execute_phase_3_ca_date_script(driver, date_kind, "return getDateValue();")
+    return _date_picker_value_matches(str(raw_value or ""), target_date)
+
+
 def _read_phase_3_2_ship_date_value(driver: Any) -> str:
     raw_value = _execute_phase_3_2_ship_date_script(
         driver,
@@ -1479,9 +1715,9 @@ def normalize_transport_mode(raw_mode: str) -> dict[str, Any]:
 
 
 def calculate_pickup_date(raw_mode: str, *, today: date | None = None) -> date:
-    mode = normalize_transport_mode(raw_mode)
+    normalize_transport_mode(raw_mode)
     base_date = today or date.today()
-    return base_date + timedelta(days=int(mode["offset_days"]))
+    return base_date + timedelta(days=30)
 
 
 def _wait_for_condition(
@@ -1641,6 +1877,77 @@ def _select_phase_3_2_ship_date(driver: Any, ship_date: date, *, timeout_seconds
     raise RuntimeError(f"等待发货日期目标日期出现或可点击超时: {ship_date.isoformat()}")
 
 
+def _select_phase_3_ca_date(
+    driver: Any,
+    target_date: date,
+    *,
+    date_kind: str,
+    input_label: str,
+    timeout_seconds: int = 60,
+) -> None:
+    _raise_if_returned_to_step2_start(driver)
+    _wait_for_click(
+        f"{input_label}输入框",
+        lambda: _click_phase_3_ca_date_input(driver, date_kind),
+        timeout_seconds=min(timeout_seconds, 10),
+        driver=driver,
+    )
+    _wait_for_condition(
+        f"{input_label}日历出现",
+        lambda: _phase_3_ca_calendar_visible(driver, date_kind),
+        timeout_seconds=timeout_seconds,
+        driver=driver,
+    )
+
+    deadline = time.time() + max(1, int(timeout_seconds or 0))
+    clicked_target = False
+    while time.time() < deadline:
+        _raise_if_returned_to_step2_start(driver)
+        if _click_phase_3_ca_calendar_day(driver, date_kind, target_date):
+            clicked_target = True
+            time.sleep(0.2)
+            if _phase_3_ca_date_completed(driver, date_kind, target_date):
+                return
+            continue
+        current_year, current_month = _parse_calendar_month_label(_read_phase_3_ca_calendar_month_label(driver, date_kind))
+        current_tuple = (current_year, current_month)
+        target_tuple = (target_date.year, target_date.month)
+        if current_tuple < target_tuple:
+            if not _click_phase_3_ca_calendar_next_month(driver, date_kind):
+                raise RuntimeError(f"{input_label}日历切换到下一月失败")
+        elif current_tuple > target_tuple:
+            if not _click_phase_3_ca_calendar_prev_month(driver, date_kind):
+                raise RuntimeError(f"{input_label}日历切换到上一月失败")
+        else:
+            time.sleep(0.5)
+            continue
+        time.sleep(0.5)
+    _raise_if_returned_to_step2_start(driver)
+    if clicked_target:
+        raise RuntimeError(f"等待{input_label}写入完成超时: {target_date.isoformat()}")
+    raise RuntimeError(f"等待{input_label}目标日期出现或可点击超时: {target_date.isoformat()}")
+
+
+def _select_phase_3_ca_ship_date(driver: Any, ship_date: date, *, timeout_seconds: int = 60) -> None:
+    _select_phase_3_ca_date(
+        driver,
+        ship_date,
+        date_kind="ship",
+        input_label="发货日期",
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def _select_phase_3_ca_pickup_date(driver: Any, target_date: date, *, timeout_seconds: int = 60) -> None:
+    _select_phase_3_ca_date(
+        driver,
+        target_date,
+        date_kind="delivery",
+        input_label="送达日期",
+        timeout_seconds=timeout_seconds,
+    )
+
+
 def _select_pickup_date_for_layout(
     driver: Any,
     target_date: date,
@@ -1684,6 +1991,11 @@ def _select_pickup_date_for_layout(
         _wait_phase_3_2_refresh_after_selection()
         return
 
+    if layout == _LAYOUT_PHASE_3_CA:
+        _select_phase_3_ca_pickup_date(driver, target_date, timeout_seconds=safe_timeout)
+        _wait_phase_3_2_refresh_after_selection()
+        return
+
     _wait_for_condition(
         "日期选择器出现",
         lambda: _date_picker_visible(driver),
@@ -1709,6 +2021,79 @@ def _prepare_phase_3_2_own_carrier_entry(driver: Any, *, timeout_seconds: int) -
     _wait_for_click(
         "非合作承运人确认弹窗",
         lambda: _confirm_modal_if_visible(driver),
+        timeout_seconds=min(timeout_seconds, 10),
+        driver=driver,
+    )
+
+
+def _phase_3_ca_carrier_tile_selected(driver: Any) -> bool:
+    return bool(
+        _execute_page_script(
+            driver,
+            """
+const root = deepQuerySelector(arguments[0]);
+if (!root) return false;
+if (root.classList && root.classList.contains('selected')) return true;
+return Boolean(deepQuerySelector('.checkmark-icon', root));
+""",
+            _TRANSPORTATION_MODE_CARRIER_TILE_SELECTOR,
+        )
+    )
+
+
+def _click_phase_3_ca_carrier_tile(driver: Any) -> bool:
+    return bool(
+        _execute_page_script(
+            driver,
+            """
+const root = deepQuerySelector(arguments[0]);
+if (!root) return false;
+
+function clickElement(el) {
+  if (!el) return false;
+  try {
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+  } catch (error) {}
+  try {
+    if (el.focus) el.focus();
+  } catch (error) {}
+  const eventTypes = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+  for (const type of eventTypes) {
+    try {
+      const EventClass = type.startsWith('pointer') && window.PointerEvent ? PointerEvent : MouseEvent;
+      el.dispatchEvent(new EventClass(type, { bubbles: true, cancelable: true, view: window }));
+    } catch (error) {
+      try {
+        el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
+      } catch (innerError) {}
+    }
+  }
+  try {
+    el.click();
+    return true;
+  } catch (error) {}
+  return true;
+}
+
+return clickElement(root);
+""",
+            _TRANSPORTATION_MODE_CARRIER_TILE_SELECTOR,
+        )
+    )
+
+
+def _prepare_phase_3_ca_carrier_tile(driver: Any, *, timeout_seconds: int) -> None:
+    if _phase_3_ca_carrier_tile_selected(driver):
+        return
+    _wait_for_click(
+        "非亚马逊合作承运人卡片",
+        lambda: _click_phase_3_ca_carrier_tile(driver),
+        timeout_seconds=min(timeout_seconds, 10),
+        driver=driver,
+    )
+    _wait_for_condition(
+        "非亚马逊合作承运人卡片选中",
+        lambda: _phase_3_ca_carrier_tile_selected(driver),
         timeout_seconds=min(timeout_seconds, 10),
         driver=driver,
     )
@@ -1847,7 +2232,7 @@ def _select_carrier_mode_for_layout(
         _wait_for_click("其他承运人选项", lambda: _select_phase_3_1_other_carrier(driver), timeout_seconds=min(timeout_seconds, 10), driver=driver)
         return
 
-    if layout == _LAYOUT_PHASE_3_2:
+    if layout in {_LAYOUT_PHASE_3_2, _LAYOUT_PHASE_3_CA}:
         transport_value = _phase_3_2_transport_target_value(mode)
         transport_text = str(mode["ui_text"])
         transport_selected = False
@@ -1911,7 +2296,7 @@ def probe_own_carrier_ready(session: Any, *, timeout_seconds: int = 10) -> dict[
         if _delivery_window_link_visible(session.driver):
             return {"ready": True, "notice": "已进入日期选择器步骤"}
         layout = _detect_own_carrier_layout(session.driver)
-        if layout in {_LAYOUT_PHASE_3_1, _LAYOUT_PHASE_3_2}:
+        if layout in {_LAYOUT_PHASE_3_1, _LAYOUT_PHASE_3_2, _LAYOUT_PHASE_3_CA}:
             return {"ready": True, "notice": f"已识别自己的承运人页面布局: {layout}"}
         if _amazon_operations_center_selected(session.driver):
             return {"ready": True, "notice": _AMAZON_OPERATIONS_CENTER_READY_NOTICE}
@@ -1955,6 +2340,13 @@ def confirm_own_carrier_shipment(
             _select_carrier_mode_for_layout(driver, mode, layout=layout, timeout_seconds=timeout_seconds)
             _wait_phase_3_2_after_carrier_before_dates()
             _select_phase_3_2_ship_date(driver, ship_date, timeout_seconds=timeout_seconds)
+            _wait_phase_3_2_refresh_after_selection()
+            _select_pickup_date_for_layout(driver, target_date, layout=layout, timeout_seconds=timeout_seconds)
+        elif layout == _LAYOUT_PHASE_3_CA:
+            _prepare_phase_3_ca_carrier_tile(driver, timeout_seconds=timeout_seconds)
+            _select_carrier_mode_for_layout(driver, mode, layout=layout, timeout_seconds=timeout_seconds)
+            _wait_phase_3_2_after_carrier_before_dates()
+            _select_phase_3_ca_ship_date(driver, ship_date, timeout_seconds=timeout_seconds)
             _wait_phase_3_2_refresh_after_selection()
             _select_pickup_date_for_layout(driver, target_date, layout=layout, timeout_seconds=timeout_seconds)
         else:

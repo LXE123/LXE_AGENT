@@ -11,6 +11,10 @@ def test_detect_own_carrier_layout_phase_3_2_takes_priority(monkeypatch) -> None
     def fake_has_selector(_driver, selector: str) -> bool:
         return selector in {
             '[data-testid="cross-border-non-pcp-box-test-id"]',
+            '[data-testid="transportation-mode-carrier-tile"]',
+            '[data-testid="non-pcp-carrier-choices"]',
+            '[data-testid="transportation-mode-dropdown"]',
+            'kat-input[kat-aria-label="发货日期"]',
             'kat-option[value="PCP"]',
             'kat-option[value="nPCP"]',
         }
@@ -29,10 +33,29 @@ def test_detect_own_carrier_layout_phase_3_1(monkeypatch) -> None:
     assert own_carrier._detect_own_carrier_layout(object()) == "phase_3_1"
 
 
+def test_detect_own_carrier_layout_phase_3_ca(monkeypatch) -> None:
+    def fake_has_selector(_driver, selector: str) -> bool:
+        return selector in {
+            '[data-testid="transportation-mode-carrier-tile"]',
+            '[data-testid="non-pcp-carrier-choices"]',
+            '[data-testid="transportation-mode-dropdown"]',
+            'kat-input[kat-aria-label="发货日期"]',
+        }
+
+    monkeypatch.setattr(own_carrier, "_has_selector", fake_has_selector)
+
+    assert own_carrier._detect_own_carrier_layout(object()) == "phase_3_ca"
+
+
 def test_detect_own_carrier_layout_legacy(monkeypatch) -> None:
     monkeypatch.setattr(own_carrier, "_has_selector", lambda _driver, _selector: False)
 
     assert own_carrier._detect_own_carrier_layout(object()) == "legacy"
+
+
+@pytest.mark.parametrize("transport_mode", ["空运", "海运", "陆运", "DHL/UPS快递（空运速派）"])
+def test_calculate_pickup_date_always_uses_30_days(transport_mode: str) -> None:
+    assert own_carrier.calculate_pickup_date(transport_mode, today=date(2026, 5, 25)) == date(2026, 6, 24)
 
 
 def test_phase_3_1_selects_date_updates_and_skips_transport_mode(monkeypatch) -> None:
@@ -397,6 +420,41 @@ def test_phase_3_2_ship_date_completed_requires_value_and_non_error_state(monkey
 
     payloads.append({"value": "2026/05/07", "state": ""})
     assert own_carrier._phase_3_2_ship_date_completed(driver, date(2026, 5, 7)) is True
+
+
+def test_phase_3_ca_date_completed_uses_kat_input_value(monkeypatch) -> None:
+    driver = object()
+    values = iter(["", "2026/06/24"])
+
+    def fake_execute(_driver, date_kind: str, script: str, *args):
+        assert date_kind == "delivery"
+        assert "getDateValue" in script
+        assert args == ()
+        return next(values)
+
+    monkeypatch.setattr(own_carrier, "_execute_phase_3_ca_date_script", fake_execute)
+
+    assert own_carrier._phase_3_ca_date_completed(driver, "delivery", date(2026, 6, 24)) is False
+    assert own_carrier._phase_3_ca_date_completed(driver, "delivery", date(2026, 6, 24)) is True
+
+
+def test_phase_3_ca_month_buttons_use_global_calendar_light_click(monkeypatch) -> None:
+    driver = object()
+    calls: list[tuple[str, str]] = []
+
+    def fake_execute(_driver, date_kind: str, script: str, *args):
+        calls.append((date_kind, script))
+        assert "getGlobalCalendar()" in script
+        assert "clickLight" in script
+        assert "clickElement" not in script
+        assert args == ()
+        return True
+
+    monkeypatch.setattr(own_carrier, "_execute_phase_3_ca_date_script", fake_execute)
+
+    assert own_carrier._click_phase_3_ca_calendar_prev_month(driver, "delivery") is True
+    assert own_carrier._click_phase_3_ca_calendar_next_month(driver, "delivery") is True
+    assert [date_kind for date_kind, _script in calls] == ["delivery", "delivery"]
 
 
 def test_select_phase_3_2_ship_date_ignores_default_selected_day_until_value_completed(monkeypatch) -> None:
@@ -788,6 +846,55 @@ def test_confirm_own_carrier_phase_3_2_selects_carrier_before_date(monkeypatch) 
     assert "collect_summaries" in calls
 
 
+def test_confirm_own_carrier_phase_3_ca_selects_tile_carrier_and_dates(monkeypatch) -> None:
+    calls: list[str] = []
+    driver = object()
+    session = type("Session", (), {"driver": driver})()
+
+    monkeypatch.setattr(own_carrier, "_detect_own_carrier_layout", lambda _driver: "phase_3_ca")
+    monkeypatch.setattr(own_carrier, "calculate_pickup_date", lambda _transport_mode, **_kwargs: date(2026, 6, 6))
+    monkeypatch.setattr(own_carrier, "normalize_transport_mode", lambda _transport_mode: {"canonical": "AIR", "ui_text": "空运"})
+    monkeypatch.setattr(
+        own_carrier,
+        "_prepare_phase_3_ca_carrier_tile",
+        lambda _driver, **_kwargs: calls.append("prepare_ca_tile"),
+    )
+    monkeypatch.setattr(
+        own_carrier,
+        "_select_carrier_mode_for_layout",
+        lambda _driver, _mode, **_kwargs: calls.append(f"select_carrier_mode:{_kwargs['layout']}"),
+    )
+    monkeypatch.setattr(own_carrier, "_wait_phase_3_2_after_carrier_before_dates", lambda: calls.append("wait_after_carrier"))
+    monkeypatch.setattr(
+        own_carrier,
+        "_select_phase_3_ca_ship_date",
+        lambda _driver, selected_date, **_kwargs: calls.append(f"select_ca_ship_date:{selected_date.isoformat()}"),
+    )
+    monkeypatch.setattr(own_carrier, "_wait_phase_3_2_refresh_after_selection", lambda: calls.append("refresh_wait"))
+    monkeypatch.setattr(
+        own_carrier,
+        "_select_pickup_date_for_layout",
+        lambda _driver, _target_date, **_kwargs: calls.append(f"select_date:{_kwargs['layout']}:{_target_date.isoformat()}"),
+    )
+    monkeypatch.setattr(own_carrier, "_wait_for_click", lambda _step_name, clicker, **_kwargs: calls.append("accept") or None)
+    monkeypatch.setattr(own_carrier, "_wait_for_condition", lambda _step_name, checker, **_kwargs: calls.append("tracking_ready") or None)
+    monkeypatch.setattr(own_carrier, "_wait_collect_shipment_summaries", lambda _driver, **_kwargs: calls.append("collect_summaries") or [])
+    monkeypatch.setattr(own_carrier, "_write_shipment_summary_excel", lambda *_args, **_kwargs: "")
+
+    result = own_carrier.confirm_own_carrier_shipment(session, "空运", timeout_seconds=60, today=date(2026, 5, 7))
+
+    assert result["notice"] == own_carrier._FINAL_SUCCESS_NOTICE
+    assert calls[:6] == [
+        "prepare_ca_tile",
+        "select_carrier_mode:phase_3_ca",
+        "wait_after_carrier",
+        "select_ca_ship_date:2026-05-07",
+        "refresh_wait",
+        "select_date:phase_3_ca:2026-06-06",
+    ]
+    assert "collect_summaries" in calls
+
+
 def test_phase_3_2_raises_when_carrier_value_stays_wrong(monkeypatch) -> None:
     driver = object()
     clock = {"now": 0.0}
@@ -888,6 +995,53 @@ def test_select_phase_3_2_pickup_date_uses_scoped_next_month(monkeypatch) -> Non
     own_carrier._select_phase_3_2_pickup_date(driver, date(2026, 6, 5), timeout_seconds=5)
 
     assert state == {"month": 6, "selected": True}
+
+
+def test_select_phase_3_ca_pickup_date_uses_delivery_host_and_global_next_month(monkeypatch) -> None:
+    driver = object()
+    state = {"month": 5, "completed": False}
+    calls: list[str] = []
+    month_labels = {5: "五月 2026", 6: "六月 2026"}
+
+    def fake_wait_for_click(step_name, clicker, **_kwargs):
+        calls.append(f"wait_click:{step_name}")
+        assert clicker() is True
+
+    def fake_wait_for_condition(step_name, checker, **_kwargs):
+        calls.append(f"wait_condition:{step_name}")
+        assert checker() is True
+
+    def fake_click_day(_driver, date_kind: str, target_date: date) -> bool:
+        calls.append(f"click_day:{date_kind}:{target_date.isoformat()}")
+        if state["month"] == 6:
+            state["completed"] = True
+            return True
+        return False
+
+    monkeypatch.setattr(own_carrier, "_wait_for_click", fake_wait_for_click)
+    monkeypatch.setattr(own_carrier, "_wait_for_condition", fake_wait_for_condition)
+    monkeypatch.setattr(own_carrier, "_click_phase_3_ca_date_input", lambda _driver, date_kind: calls.append(f"click_input:{date_kind}") or True)
+    monkeypatch.setattr(own_carrier, "_phase_3_ca_calendar_visible", lambda _driver, date_kind: calls.append(f"calendar_visible:{date_kind}") or True)
+    monkeypatch.setattr(own_carrier, "_click_phase_3_ca_calendar_day", fake_click_day)
+    monkeypatch.setattr(own_carrier, "_phase_3_ca_date_completed", lambda _driver, date_kind, _target_date: calls.append(f"completed:{date_kind}") or state["completed"])
+    monkeypatch.setattr(own_carrier, "_read_phase_3_ca_calendar_month_label", lambda _driver, date_kind: calls.append(f"read_month:{date_kind}") or month_labels[state["month"]])
+    monkeypatch.setattr(own_carrier, "_click_phase_3_ca_calendar_next_month", lambda _driver, date_kind: calls.append(f"next_month:{date_kind}") or state.__setitem__("month", 6) or True)
+    monkeypatch.setattr(own_carrier, "_click_phase_3_ca_calendar_prev_month", lambda _driver, _date_kind: pytest.fail("should not move to previous month"))
+    monkeypatch.setattr(own_carrier.time, "sleep", lambda _seconds: None)
+
+    own_carrier._select_phase_3_ca_pickup_date(driver, date(2026, 6, 24), timeout_seconds=5)
+
+    assert calls == [
+        "wait_click:送达日期输入框",
+        "click_input:delivery",
+        "wait_condition:送达日期日历出现",
+        "calendar_visible:delivery",
+        "click_day:delivery:2026-06-24",
+        "read_month:delivery",
+        "next_month:delivery",
+        "click_day:delivery:2026-06-24",
+        "completed:delivery",
+    ]
 
 
 def test_select_phase_3_2_ship_date_uses_ship_date_scoped_next_month(monkeypatch) -> None:
