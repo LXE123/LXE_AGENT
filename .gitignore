@@ -64,3 +64,5 @@ data/export_tax/~$*.xlsx
 data/customs_declaration/custom_declaration_documents.xlsx
 data/customs_declaration/~$*.xlsx
 data/
+!tests/test_mabang_store_msku_sales_analysis.py
+!tests/test_mabang_store_msku_sales_analysis_cli.py
