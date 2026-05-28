@@ -7,8 +7,8 @@ from shared.config import config
 
 ALL = "*"
 
-USER_LYX = "ou_0493c1935b93341d48c6bb456df12063"
-USER_ZGL = "ou_965bb6cee1c170b16fbe00b5d4b348be"
+USER_LYX = "ou_0f27213c7af8393a910e071f8d897194"
+USER_ZGL = "ou_7ce2a0ec83356336d5187a6fee0ebbd3"
 
 BOT_LXE_CLAW = "LXE_CLAW"
 BOT_LXE_FBA_AGENT = "LXE_FBA_AGENT"

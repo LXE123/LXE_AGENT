@@ -370,6 +370,10 @@ def _clear_state_file(state_file: Path) -> None:
         logger.warning(f"[BrowserAuth] 删除 storage_state 失败: file={state_file}, error={exc}")
 
 
+def _browser_auth_headless() -> bool:
+    return bool(getattr(config, "BROWSER_AUTH_HEADLESS", getattr(config, "FBA_LOGISTICS_TOKEN_HEADLESS", False)))
+
+
 def _playwright_storage_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
     storage_state: dict[str, Any] = {}
     cookies = payload.get("cookies")
@@ -481,7 +485,7 @@ def _ensure_temu_auth(
     _clear_state_file(state_file)
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(headless=_browser_auth_headless())
         context = _open_context(browser, state_file, can_reuse_state=False)
         try:
             page = context.new_page()
@@ -521,7 +525,7 @@ def _ensure_erp_auth(
     _clear_state_file(state_file)
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(headless=_browser_auth_headless())
         context = _open_context(browser, state_file, can_reuse_state=False)
         try:
             page = context.new_page()
@@ -561,7 +565,7 @@ def _ensure_private_amz_auth(
     used_relogin = False
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(headless=_browser_auth_headless())
         context = _open_context(browser, state_file, can_reuse_state=can_reuse_state)
         try:
             page = context.new_page()
@@ -627,7 +631,7 @@ def _ensure_fba_auth(
     ).strip()
     wms_host = str(getattr(config, "FBA_LOGISTICS_WMS_HOST", "wms.private.mabangerp.com") or "wms.private.mabangerp.com").strip().lower().lstrip(".")
     wms_entry_text = str(getattr(config, "FBA_LOGISTICS_WMS_ENTRY_TEXT", "马帮WMS系统") or "马帮WMS系统").strip()
-    headless = bool(getattr(config, "FBA_LOGISTICS_TOKEN_HEADLESS", True))
+    headless = bool(getattr(config, "FBA_LOGISTICS_TOKEN_HEADLESS", _browser_auth_headless()))
 
     cached_token = _storage_lookup_token(payload, token_origin, token_key)
     cached_wms_cookies = _storage_lookup_domain_cookies(payload, wms_host)
