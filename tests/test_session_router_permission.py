@@ -7,10 +7,10 @@ import gateway.session_router as router_mod
 from gateway.models import InboundEvent
 from gateway.session_router import SessionRouter
 from shared.agent_sessions import AgentSessionStatus
-from shared.permission_policy import BOT_ID_LXE_CLAW, BOT_ID_LXE_FBA_AGENT, USER_LYX, USER_ZQY
+from shared.permission_policy import BOT_ID_LXE_CLAW, BOT_ID_LXE_FBA_AGENT, USER_LYX, USER_ZGL
 
 OPEN_ID_LYX = "ou_lyx_open_id"
-OPEN_ID_ZQY = "ou_zqy_open_id"
+OPEN_ID_ZGL = "ou_zgl_open_id"
 
 
 class _FakeAdapter:
@@ -111,7 +111,7 @@ def test_router_denies_user_without_agent_access(monkeypatch) -> None:
     monkeypatch.setattr(router_mod, "create_agent_session", fail_db_call)
 
     decision = asyncio.run(
-        router.route_message(_event(user_id=OPEN_ID_ZQY, union_id=USER_ZQY, app_id=BOT_ID_LXE_CLAW))
+        router.route_message(_event(user_id=OPEN_ID_ZGL, union_id=USER_ZGL, app_id=BOT_ID_LXE_CLAW))
     )
 
     assert decision.route_kind == "permission_denied"
@@ -180,7 +180,7 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     monkeypatch.setattr(router_mod, "pop_agent_session_pending_events", fake_pop_pending_events)
 
     decision = asyncio.run(
-        router.route_message(_event(user_id=OPEN_ID_ZQY, union_id=USER_ZQY, app_id=BOT_ID_LXE_FBA_AGENT))
+        router.route_message(_event(user_id=OPEN_ID_ZGL, union_id=USER_ZGL, app_id=BOT_ID_LXE_FBA_AGENT))
     )
 
     assert decision.route_kind == "agent_message"
@@ -189,7 +189,7 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     job, front = scheduler.jobs[0]
     assert not front
     assert job.session_id == "session-1"
-    assert job.user_id == OPEN_ID_ZQY
+    assert job.user_id == OPEN_ID_ZGL
     assert job.raw_data["app_id"] == BOT_ID_LXE_FBA_AGENT
-    assert job.raw_data["union_id"] == USER_ZQY
+    assert job.raw_data["union_id"] == USER_ZGL
     assert adapter.outbound_requests == []

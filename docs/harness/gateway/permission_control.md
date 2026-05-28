@@ -61,11 +61,11 @@ zgl: ou_965bb6cee1c170b16fbe00b5d4b348be    // FBA Module Business Specialist, C
 ```
 
 对 ID 的权限分配如下
-"union_id": "on_ceda19124b8eef9e07c9e7aaec989043" # ZQY  // FBA Module Business Specialist, Can access FBA_AGENT
+"union_id": "on_ceda19124b8eef9e07c9e7aaec989043" # LYX  // Developer, can access all AGENTs
 
-"union_id": "on_a71a8f244e06602e0f37b3abe68d6ac3" # LYX  // Developer, can access all AGENTs
+"union_id": "on_a71a8f244e06602e0f37b3abe68d6ac3" # ZQY  // Developer, can access all AGENTs
 
-"union_id": "on_09af343a868258c25a3e53ad0464caa4" # ZGL  // Developer, can access all AGENTs
+"union_id": "on_09af343a868258c25a3e53ad0464caa4" # ZGL  // FBA Module Business Specialist, Can access FBA_AGENT
 ---
 
 2. bot_ID(app_ID):

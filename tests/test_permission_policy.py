@@ -27,13 +27,13 @@ def test_policy_user_access_matrix() -> None:
     assert can_user_access_bot(USER_LYX, BOT_ID_LXE_FBA_AGENT)
     assert can_user_access_bot(USER_LYX, BOT_ID_AMAZON_REPLENISH)
 
-    assert can_user_access_bot(USER_ZGL, BOT_ID_LXE_CLAW)
-    assert can_user_access_bot(USER_ZGL, BOT_ID_LXE_FBA_AGENT)
-    assert can_user_access_bot(USER_ZGL, BOT_ID_AMAZON_REPLENISH)
-
+    assert can_user_access_bot(USER_ZQY, BOT_ID_LXE_CLAW)
     assert can_user_access_bot(USER_ZQY, BOT_ID_LXE_FBA_AGENT)
-    assert not can_user_access_bot(USER_ZQY, BOT_ID_LXE_CLAW)
-    assert not can_user_access_bot(USER_ZQY, BOT_ID_AMAZON_REPLENISH)
+    assert can_user_access_bot(USER_ZQY, BOT_ID_AMAZON_REPLENISH)
+
+    assert can_user_access_bot(USER_ZGL, BOT_ID_LXE_FBA_AGENT)
+    assert not can_user_access_bot(USER_ZGL, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_ZGL, BOT_ID_AMAZON_REPLENISH)
 
     assert len({USER_LYX, USER_ZGL, USER_ZQY}) == 3
     assert not can_user_access_bot("unknown_union_id", BOT_ID_LXE_FBA_AGENT)

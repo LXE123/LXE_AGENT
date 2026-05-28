@@ -7,8 +7,8 @@ from shared.config import config
 
 ALL = "*"
 
-USER_ZQY = "on_ceda19124b8eef9e07c9e7aaec989043"
-USER_LYX = "on_a71a8f244e06602e0f37b3abe68d6ac3"
+USER_LYX = "on_ceda19124b8eef9e07c9e7aaec989043"
+USER_ZQY = "on_a71a8f244e06602e0f37b3abe68d6ac3"
 USER_ZGL = "on_09af343a868258c25a3e53ad0464caa4"
 
 BOT_LXE_CLAW = "LXE_CLAW"
@@ -30,8 +30,8 @@ BOT_ID_TO_KEY = {
 
 USER_AGENT_POLICY = {
     USER_LYX: {ALL},
-    USER_ZGL: {ALL},
-    USER_ZQY: {BOT_LXE_FBA_AGENT},
+    USER_ZQY: {ALL},
+    USER_ZGL: {BOT_LXE_FBA_AGENT},
 }
 
 BOT_SKILL_POLICY = {
