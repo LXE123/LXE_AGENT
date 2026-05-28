@@ -7,8 +7,7 @@ import sys
 from typing import Any
 
 from services.agent_cli._shared.json_output import configure_utf8_stdio
-from services.mabang.amazon.fba import download_fba_delivery_csv
-from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
+from services.mabang.amazon.fba.store_msku_actual_inventory import export_store_msku_actual_inventory
 from shared.infra.net import close_all_network_clients
 
 
@@ -27,48 +26,32 @@ def _exception_text(exc: Exception) -> str:
     return message or exc.__class__.__name__
 
 
-def _require_delivery_no(value: Any) -> str:
-    delivery_no = normalize_delivery_no(value)
-    if not delivery_no:
-        raise ValueError("delivery_no 不能为空")
-    if not delivery_no.startswith("SP"):
-        raise ValueError(f"delivery_no 格式无效: {delivery_no}")
-    return delivery_no
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.download_fba_delivery_csv"
+        prog="python -m services.agent_cli.mabang.export_store_msku_actual_inventory"
     )
-    parser.add_argument("--delivery-no", default="")
-    parser.add_argument("--timeout-sec", type=float, default=180)
-    parser.add_argument("--poll-interval-sec", type=float, default=10)
+    parser.add_argument("--store-name", default="")
     return parser
 
 
 async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
-    delivery_no = _require_delivery_no(getattr(args, "delivery_no", ""))
-    timeout_sec = getattr(args, "timeout_sec", 180)
-    poll_interval_sec = getattr(args, "poll_interval_sec", 10)
-    result = await download_fba_delivery_csv(
-        delivery_no,
-        timeout_sec=float(180 if timeout_sec is None else timeout_sec),
-        poll_interval_sec=float(10 if poll_interval_sec is None else poll_interval_sec),
+    result = await export_store_msku_actual_inventory(
+        str(getattr(args, "store_name", "") or "").strip(),
     )
     return result.to_payload()
 
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
-    delivery_no = ""
+    store_name = ""
     try:
         args = build_parser().parse_args(argv)
-        delivery_no = normalize_delivery_no(getattr(args, "delivery_no", ""))
+        store_name = str(getattr(args, "store_name", "") or "").strip()
         payload = asyncio.run(_run_async(args))
     except Exception as exc:
         payload = {
             "success": False,
-            "delivery_no": delivery_no,
+            "store_name": store_name,
             "exception": _exception_text(exc),
         }
     finally:

@@ -1,7 +1,7 @@
 ---
 name: amazon-fba-shipment-create
 description: 用固定 CLI 完成 Amazon FBA 货件创建：第一段 prepare_upload；第二段 prepare_multi_box_excel；第三段 confirm_own_carrier；第四段 enter_tracking_codes。
-type: amazon-fba
+type: amazon_fba
 ---
 
 ## When to Use

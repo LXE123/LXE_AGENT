@@ -346,14 +346,14 @@ async def wait_for_delivery_task(
     *,
     token: str | None = None,
     timeout_sec: float = 180,
-    poll_interval_sec: float = 3,
+    poll_interval_sec: float = 10,
 ) -> BatchDeliveryTask:
     normalized_task_id = int(task_id or 0)
     if normalized_task_id <= 0:
         raise ValueError("task_id 必须是正整数")
 
     safe_timeout = max(0.0, float(timeout_sec))
-    safe_interval = max(0.1, float(poll_interval_sec))
+    safe_interval = max(10.0, float(poll_interval_sec))
     deadline = asyncio.get_running_loop().time() + safe_timeout
     last_summary = "not_found"
 
@@ -488,7 +488,7 @@ async def download_fba_delivery_csv(
     delivery_no: str,
     *,
     timeout_sec: float = 180,
-    poll_interval_sec: float = 3,
+    poll_interval_sec: float = 10,
     report_date: str | date | None = None,
     output_dir: str | Path | None = None,
 ) -> BatchDeliveryCsvResult:

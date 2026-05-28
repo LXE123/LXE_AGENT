@@ -1,7 +1,7 @@
 ---
 name: mabang-msku-detail-download
 description: 根据 SP 单号从 FBA 发货单提取 MSKU，并下载马帮 MSKU 明细 Excel。用户要求获取 MSKU 详细数据、MSKU 明细、为发票填写准备 MSKU 数据文件时使用。
-type: amazon-fba
+type: amazon_fba
 ---
 
 ## When to Use

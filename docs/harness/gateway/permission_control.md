@@ -23,15 +23,17 @@ bot_id 控制能力边界，user_id 控制访问边界。
 
 # 权限控制方案V1
 ---
-所有消息都会先进入 Gateway，那么就由 Gateway 统一做权限判断。
+
 权限判断分两层：
 1. user_id 控制访问边界
  判断“这个用户能不能使用这个 Bot / Agent”。
+ 在 gateway 实现（ if/else 判断）。
  例如： 
  FBA 业务人员只能访问 LXE_FBA_AGENT 
  开发人员可以访问所有 agent
 2. bot_id 控制能力边界
  判断“这个 Bot / Agent 能看到哪些 skill”。
+ 在组装上下文时实现（ if/else 判断）
  例如：
  LXE_FBA_AGENT 只能看到 amazon-fba 类型的 skill
  LXE_claw 可以看到全部 skill
@@ -45,3 +47,17 @@ bot_id 控制能力边界，user_id 控制访问边界。
 ---
 
 有 agent_id 吗？可以说 bot_id 就是 agent_id，因为一个 bot 只会链接一个 agent。
+
+
+第一批
+1. user_id：
+lyx: ou_0493c1935b93341d48c6bb456df12063    // Developer, can access all AGENTs
+zgl: ou_965bb6cee1c170b16fbe00b5d4b348be    // FBA Module Business Specialist, Can access FBA_AGENT
+
+2. bot_ID(app_ID):
+LXE_CLAW: cli_a97ac28237781bd8  // Developer agent, capable of utilizing all skills.
+LXE_FBA_AGENT: cli_a93d57dc47385cc0 // FBA business module agent, utilizing skills with the `amazon_fba` type.
+
+---
+
+虽然说设计成 LXE_CLAW 可以看见所有 skill，但是我是必须加上一个手动控制 skill 可见范围的功能。

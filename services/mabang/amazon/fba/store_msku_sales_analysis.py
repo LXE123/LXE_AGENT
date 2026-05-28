@@ -12,6 +12,8 @@ from shared.config import config
 DEFAULT_INPUT_DIR = Path("artifacts") / "mabang_store_msku"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_store_msku_analysis"
 SOURCE = "mabang_store_msku_sales_analysis"
+EXCEL_ROW_HEIGHT = 15
+EXCEL_COLUMN_WIDTH = 15
 SOURCE_FILE_RE = re.compile(r"^(?P<source_time>\d{12})-(?P<store>.+)_msku_data\.xlsx$", re.IGNORECASE)
 PRODUCT_LINK_COLUMN = "商品链接"
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
@@ -386,10 +388,11 @@ def _write_table(worksheet: Any, headers: list[str], rows: list[dict[str, Any]])
     worksheet.freeze_panes = "A2"
     if rows:
         worksheet.auto_filter.ref = worksheet.dimensions
+    worksheet.sheet_format.defaultRowHeight = EXCEL_ROW_HEIGHT
+    for row_index in range(1, worksheet.max_row + 1):
+        worksheet.row_dimensions[row_index].height = EXCEL_ROW_HEIGHT
     for column_cells in worksheet.columns:
-        header = _clean_text(column_cells[0].value)
-        width = min(max(len(header) + 2, 10), 28)
-        worksheet.column_dimensions[column_cells[0].column_letter].width = width
+        worksheet.column_dimensions[column_cells[0].column_letter].width = EXCEL_COLUMN_WIDTH
 
 
 def _write_report(

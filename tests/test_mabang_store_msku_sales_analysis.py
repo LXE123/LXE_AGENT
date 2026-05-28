@@ -62,6 +62,23 @@ def _load_sheet_headers(path: Path, sheet_name: str) -> list[str]:
         workbook.close()
 
 
+def _assert_standard_dimensions(path: Path, sheet_names: tuple[str, ...]) -> None:
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+
+    workbook = load_workbook(path)
+    try:
+        for sheet_name in sheet_names:
+            worksheet = workbook[sheet_name]
+            assert worksheet.sheet_format.defaultRowHeight == 15
+            for row_index in range(1, worksheet.max_row + 1):
+                assert worksheet.row_dimensions[row_index].height == 15
+            for column_index in range(1, worksheet.max_column + 1):
+                assert worksheet.column_dimensions[get_column_letter(column_index)].width == 15
+    finally:
+        workbook.close()
+
+
 def test_find_latest_store_msku_file_uses_timestamp_prefix_and_ignores_malformed(tmp_path) -> None:
     store_name = "Amazon-Lerxiuer-FR"
     older = _write_source_xlsx(
@@ -163,6 +180,7 @@ def test_analyze_generates_report_with_aggregations_detail_columns_and_stale_fla
 
     report_path = Path(result.report_xlsx_path)
     assert report_path.is_file()
+    _assert_standard_dimensions(report_path, analysis.REPORT_SHEETS)
     link_records = _load_sheet_records(report_path, analysis.LINK_TOP_SHEET)
     parent_1 = next(row for row in link_records if row["父ASIN"] == "PARENT-1")
     assert parent_1["MSKU数"] == 2

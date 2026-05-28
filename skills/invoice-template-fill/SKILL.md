@@ -1,7 +1,7 @@
 ---
 name: invoice-template-fill
 description: 填写发票导入模板。用户上传备货 xlsx 并要求填写发票模板、生成发票导入表、把备货单写入 invoice_Template 时使用。
-type: amazon-fba
+type: amazon_fba
 ---
 
 ## When to Use

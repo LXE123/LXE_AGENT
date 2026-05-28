@@ -66,6 +66,48 @@ def test_wait_for_delivery_task_times_out(monkeypatch):
         )
 
 
+def test_wait_for_delivery_task_uses_ten_second_min_poll_interval(monkeypatch):
+    calls = {"count": 0}
+    sleeps: list[float] = []
+
+    async def fake_fetch(task_id: int, *, token: str | None = None) -> dict:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {
+                "taskId": task_id,
+                "taskStatus": 0,
+                "taskStatusText": "待处理",
+                "errMessage": "",
+                "fileHash": "",
+            }
+        return {
+            "taskId": task_id,
+            "taskStatus": 2,
+            "taskStatusText": "处理完成",
+            "errMessage": "done",
+            "fileHash": "hash-1",
+            "fileName": "delivery.csv",
+        }
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(batch_delivery, "fetch_task_report_row", fake_fetch)
+    monkeypatch.setattr(batch_delivery.asyncio, "sleep", fake_sleep)
+
+    task = asyncio.run(
+        batch_delivery.wait_for_delivery_task(
+            370502,
+            token="token",
+            timeout_sec=30,
+            poll_interval_sec=0.1,
+        )
+    )
+
+    assert task.task_id == 370502
+    assert sleeps == [10.0]
+
+
 def test_wait_for_delivery_task_returns_completed(monkeypatch):
     async def fake_fetch(task_id: int, *, token: str | None = None) -> dict:
         return {

@@ -1,7 +1,7 @@
 ---
 name: amazon-fba-logistics
 description: 用固定 CLI 执行 Amazon FBA 物流优选。用户提到物流优选并且发送类似这些（SP260226004 FBA19BY640PC）的编号时，使用这个 skill。
-type: amazon-fba
+type: amazon_fba
 ---
 
 ## When to Use

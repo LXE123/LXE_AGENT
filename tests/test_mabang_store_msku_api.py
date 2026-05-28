@@ -193,6 +193,23 @@ def test_export_store_msku_file_url_posts_full_export_form(monkeypatch) -> None:
     assert _form_values(call, "fieldlabel") == list(msku.STORE_MSKU_FIELDLABELS)
     assert _form_values(call, "map-name[]") == [name for name, _ in msku.STORE_MSKU_EXPORT_FIELDS]
     assert _form_values(call, "map-uq[]") == [uq for _, uq in msku.STORE_MSKU_EXPORT_FIELDS]
+    assert _form_values(call, "map-text[]") == [map_text for _, _, map_text in msku.STORE_MSKU_EXPORT_FIELD_DEFS]
+    assert "uq122" not in _form_values(call, "fieldlabel")
+    assert "uq185" not in _form_values(call, "fieldlabel")
+    assert "uq122" not in _form_values(call, "map-uq[]")
+    assert "uq185" not in _form_values(call, "map-uq[]")
+    assert "本地库存" not in _form_values(call, "map-name[]")
+    assert "总库存量(默认设置)" not in _form_values(call, "map-name[]")
+    assert "uq131" in _form_values(call, "fieldlabel")
+    assert "uq131" in _form_values(call, "map-uq[]")
+    weight_index = _form_values(call, "map-name[]").index("单品重量(g)(cm)")
+    assert _form_values(call, "map-uq[]")[weight_index] == "uq131"
+    assert _form_values(call, "map-text[]")[weight_index] == "1"
+    assert all(
+        value == ""
+        for index, value in enumerate(_form_values(call, "map-text[]"))
+        if index != weight_index
+    )
     assert _form_value(call, "templateId") == "1052958"
     assert _form_value(call, "datasOpen") == "2"
     assert _form_value(call, "memcacheKey") == "memcache-key"
