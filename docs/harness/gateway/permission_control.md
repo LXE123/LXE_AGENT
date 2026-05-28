@@ -54,9 +54,23 @@ bot_id 控制能力边界，user_id 控制访问边界。
 lyx: ou_0493c1935b93341d48c6bb456df12063    // Developer, can access all AGENTs
 zgl: ou_965bb6cee1c170b16fbe00b5d4b348be    // FBA Module Business Specialist, Can access FBA_AGENT
 
+经过仔细研究后终于找到了 一个可以在 bot 之间共通且相同的 id，也就是 `union_id`，原始数据如下
+```bash
+➤ 2026-05-28 18:06:04,372 INFO     [FeishuDebug] raw_message_receive_event={"challenge": null, "ts": null, "uuid": null, "token": null, "type": null, "schema": 
+"2.0", "header": {"event_id": "efb15d718be82dbd8beee1b8f99d7676", "token": "", "create_time": "1779962764113", "event_type": "im.message.receive_v1", "tenant_key": "14996c395ed4d75d", "app_id": "cli_a97ac28237781bd8"}, "event": {"sender": {"sender_id": {"user_id": null, "open_id": "ou_7ce2a0ec83356336d5187a6fee0ebbd3", "union_id": "on_09af343a868258c25a3e53ad0464caa4"}, "sender_type": "user", "tenant_key": "14996c395ed4d75d"}, "message": {"message_id": "om_x100b6eb5767a0098b2c1526a19b1d95", "root_id": null, "parent_id": null, "create_time": "1779962763596", "update_time": "1779962763713", "chat_id": "oc_86984522ba8288160e542abb82262fe6", "thread_id": null, "chat_type": "group", "message_type": "text", "content": "{\"text\":\"@_user_1 你好\"}", "mentions": [{"key": "@_user_1", "id": {"user_id": null, "open_id": "ou_b3655d3b87d90da8cf254e8d8bf395ca", "union_id": "on_7306f0fd821b14438052de877dde698c"}, "name": "AMAZON-FBA", "tenant_key": "14996c395ed4d75d"}], "user_agent": null}}}
+```
+
+对 ID 的权限分配如下
+"union_id": "on_ceda19124b8eef9e07c9e7aaec989043" # ZQY  // FBA Module Business Specialist, Can access FBA_AGENT
+
+"union_id": "on_a71a8f244e06602e0f37b3abe68d6ac3" # LYX  // Developer, can access all AGENTs
+
+"union_id": "on_09af343a868258c25a3e53ad0464caa4" # ZGL  // Developer, can access all AGENTs
+---
+
 2. bot_ID(app_ID):
-LXE_CLAW: cli_a97ac28237781bd8  // Developer agent, capable of utilizing all skills.
-LXE_FBA_AGENT: cli_a93d57dc47385cc0 // FBA business module agent, utilizing skills with the `amazon_fba` type.
+LXE_CLAW: cli_a93d57dc47385cc0  // Developer agent, capable of utilizing all skills.
+LXE_FBA_AGENT: cli_a97ac28237781bd8 // FBA business module agent, utilizing skills with the `amazon_fba` type.
 Amazon_备货：cli_aa9d657db5385cdd // Amazon replenishment module agent, utilizing skills with the `amazon_replenish` type.
 
 目前的 gateway 是可以链接到多个 bot 的，比如说可以链接到飞书和钉钉，所以会担心一个问题，万一有人特意链接到钉钉上然后对话怎么办？

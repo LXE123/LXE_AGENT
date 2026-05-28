@@ -16,6 +16,7 @@ class InboundEvent:
     message_id: str
     sender_nick: str = ""
     card_id: str = ""
+    union_id: str = ""
     raw_data: dict[str, Any] = field(default_factory=dict)
     user_content_blocks: list[dict[str, Any]] = field(default_factory=list)
 

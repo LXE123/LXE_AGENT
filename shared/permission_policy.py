@@ -7,15 +7,16 @@ from shared.config import config
 
 ALL = "*"
 
-USER_LYX = "ou_0f27213c7af8393a910e071f8d897194"
-USER_ZGL = "ou_7ce2a0ec83356336d5187a6fee0ebbd3"
+USER_ZQY = "on_ceda19124b8eef9e07c9e7aaec989043"
+USER_LYX = "on_a71a8f244e06602e0f37b3abe68d6ac3"
+USER_ZGL = "on_09af343a868258c25a3e53ad0464caa4"
 
 BOT_LXE_CLAW = "LXE_CLAW"
 BOT_LXE_FBA_AGENT = "AMAZON_FBA"
 BOT_AMAZON_REPLENISH = "Amazon_备货"
 
-BOT_ID_LXE_CLAW = "cli_a97ac28237781bd8"
-BOT_ID_LXE_FBA_AGENT = "cli_a93d57dc47385cc0"
+BOT_ID_LXE_CLAW = "cli_a93d57dc47385cc0"
+BOT_ID_LXE_FBA_AGENT = "cli_a97ac28237781bd8"
 BOT_ID_AMAZON_REPLENISH = "cli_aa9d657db5385cdd"
 
 SKILL_TYPE_AMAZON_FBA = "amazon_fba"
@@ -29,7 +30,8 @@ BOT_ID_TO_KEY = {
 
 USER_AGENT_POLICY = {
     USER_LYX: {ALL},
-    USER_ZGL: {BOT_LXE_FBA_AGENT},
+    USER_ZGL: {ALL},
+    USER_ZQY: {BOT_LXE_FBA_AGENT},
 }
 
 BOT_SKILL_POLICY = {
@@ -63,6 +65,15 @@ def bot_key_for_bot_id(bot_id: str) -> str:
 
 def is_known_bot_id(bot_id: str) -> bool:
     return bool(bot_key_for_bot_id(bot_id))
+
+
+def resolve_permission_user_id(source: Any) -> str:
+    raw = _raw_data(source)
+    return (
+        _source_text(source, "union_id")
+        or _clean_text(raw.get("union_id"))
+        or _clean_text(raw.get("sender_union_id"))
+    )
 
 
 def can_user_access_bot(user_id: str, bot_id: str) -> bool:
@@ -117,10 +128,12 @@ __all__ = [
     "SKILL_TYPE_AMAZON_REPLENISH",
     "USER_AGENT_POLICY",
     "USER_LYX",
+    "USER_ZQY",
     "USER_ZGL",
     "allowed_skill_types_for_bot",
     "bot_key_for_bot_id",
     "can_user_access_bot",
     "is_known_bot_id",
     "resolve_bot_id",
+    "resolve_permission_user_id",
 ]

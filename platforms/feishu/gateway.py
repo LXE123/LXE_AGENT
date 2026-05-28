@@ -164,12 +164,13 @@ class FeishuStreamAdapter:
         if self._inbound_sink is None:
             raise RuntimeError("inbound sink not configured for feishu adapter")
         logger.info(
-            "[Feishu] inbound accepted: connector=%s chat_type=%s chat_id=%s msg_id=%s user_id=%s text=%s",
+            "[Feishu] inbound accepted: connector=%s chat_type=%s chat_id=%s msg_id=%s user_id=%s union_id=%s text=%s",
             self.connector_key,
             "group" if event.is_group else "p2p",
             str(event.conversation_id or "").strip(),
             str(event.message_id or "").strip(),
             str(event.user_id or "").strip(),
+            str(event.union_id or "").strip(),
             str(event.user_input or "")[:120],
         )
         self._inbound_sink(event)
@@ -637,6 +638,7 @@ class FeishuStreamAdapter:
 
     @staticmethod
     def _snapshot_message_event(data) -> dict[str, Any] | None:
+        header = getattr(data, "header", None)
         event = getattr(data, "event", None)
         message = getattr(event, "message", None)
         if not event or not message:
@@ -651,11 +653,15 @@ class FeishuStreamAdapter:
                 {
                     "key": str(getattr(mention, "key", "") or "").strip(),
                     "name": str(getattr(mention, "name", "") or "").strip(),
-                    "id": {"open_id": str(getattr(mention_id, "open_id", "") or "").strip()},
+                    "id": {
+                        "open_id": str(getattr(mention_id, "open_id", "") or "").strip(),
+                        "union_id": str(getattr(mention_id, "union_id", "") or "").strip(),
+                    },
                 }
             )
 
         return {
+            "app_id": str(getattr(header, "app_id", "") or "").strip(),
             "message_type": str(getattr(message, "message_type", "") or "text").strip() or "text",
             "content": str(getattr(message, "content", "") or "{}"),
             "chat_type": str(getattr(message, "chat_type", "") or "p2p").strip() or "p2p",
@@ -664,6 +670,7 @@ class FeishuStreamAdapter:
             "mentions": mentions_raw,
             "sender_open_id": str(getattr(sender_id, "open_id", "") or "").strip(),
             "sender_user_id": str(getattr(sender_id, "user_id", "") or "").strip(),
+            "sender_union_id": str(getattr(sender_id, "union_id", "") or "").strip(),
         }
 
     async def _handle_inbound_message(self, snapshot: dict[str, Any]) -> None:
@@ -733,12 +740,14 @@ class FeishuStreamAdapter:
         sender_nick = ""
         sender_open_id = str(data.get("sender_open_id") or "").strip()
         sender_user_id = str(data.get("sender_user_id") or "").strip()
-        if sender_open_id or sender_user_id:
-            open_id = sender_open_id or sender_user_id
-            sender_nick = sender_user_id or open_id
+        sender_union_id = str(data.get("sender_union_id") or "").strip()
+        if sender_open_id:
+            open_id = sender_open_id
+            sender_nick = sender_user_id or sender_union_id or open_id
         if not open_id:
             logger.warning("[Feishu] skip message without sender open_id: msg_id=%s", message_id)
             return None
+        union_id = sender_union_id
 
         user_content_blocks: list[dict[str, Any]] = []
         resource_metadata: list[dict[str, Any]] = []
@@ -783,15 +792,20 @@ class FeishuStreamAdapter:
             is_group=(chat_type == "group"),
             message_id=message_id,
             sender_nick=sender_nick,
+            union_id=union_id,
             raw_data={
                 "platform": self.platform,
                 "connector_key": self.connector_key,
-                "app_id": FEISHU_APP_ID,
+                "app_id": str(data.get("app_id") or FEISHU_APP_ID).strip(),
                 "chat_id": chat_id,
                 "chat_type": chat_type,
                 "message_id": message_id,
                 "message_type": message_type,
                 "open_id": open_id,
+                "sender_open_id": sender_open_id,
+                "sender_user_id": sender_user_id,
+                "sender_union_id": sender_union_id,
+                "union_id": union_id,
                 "resources": resource_metadata,
             },
             user_content_blocks=user_content_blocks,

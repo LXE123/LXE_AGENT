@@ -12,11 +12,13 @@ from shared.permission_policy import (
     SKILL_TYPE_AMAZON_FBA,
     SKILL_TYPE_AMAZON_REPLENISH,
     USER_LYX,
+    USER_ZQY,
     USER_ZGL,
     allowed_skill_types_for_bot,
     can_user_access_bot,
     is_known_bot_id,
     resolve_bot_id,
+    resolve_permission_user_id,
 )
 
 
@@ -25,11 +27,16 @@ def test_policy_user_access_matrix() -> None:
     assert can_user_access_bot(USER_LYX, BOT_ID_LXE_FBA_AGENT)
     assert can_user_access_bot(USER_LYX, BOT_ID_AMAZON_REPLENISH)
 
+    assert can_user_access_bot(USER_ZGL, BOT_ID_LXE_CLAW)
     assert can_user_access_bot(USER_ZGL, BOT_ID_LXE_FBA_AGENT)
-    assert not can_user_access_bot(USER_ZGL, BOT_ID_LXE_CLAW)
-    assert not can_user_access_bot(USER_ZGL, BOT_ID_AMAZON_REPLENISH)
+    assert can_user_access_bot(USER_ZGL, BOT_ID_AMAZON_REPLENISH)
 
-    assert not can_user_access_bot("ou_unknown", BOT_ID_LXE_FBA_AGENT)
+    assert can_user_access_bot(USER_ZQY, BOT_ID_LXE_FBA_AGENT)
+    assert not can_user_access_bot(USER_ZQY, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_ZQY, BOT_ID_AMAZON_REPLENISH)
+
+    assert len({USER_LYX, USER_ZGL, USER_ZQY}) == 3
+    assert not can_user_access_bot("unknown_union_id", BOT_ID_LXE_FBA_AGENT)
     assert not can_user_access_bot(USER_LYX, "cli_unknown")
     assert not is_known_bot_id("cli_unknown")
 
@@ -57,6 +64,13 @@ def test_resolve_bot_id_uses_stable_platform_identity() -> None:
     assert resolve_bot_id(dingtalk_source) == "ding-robot"
 
 
+def test_resolve_permission_user_id_is_hard_cut_to_union_id() -> None:
+    assert resolve_permission_user_id(SimpleNamespace(union_id=USER_LYX, user_id="ou_open_id")) == USER_LYX
+    assert resolve_permission_user_id(SimpleNamespace(raw_data={"union_id": USER_ZGL}, user_id="ou_open_id")) == USER_ZGL
+    assert resolve_permission_user_id(SimpleNamespace(raw_data={"sender_union_id": USER_ZQY}, user_id="ou_open_id")) == USER_ZQY
+    assert resolve_permission_user_id(SimpleNamespace(user_id=USER_LYX, raw_data={"sender_user_id": USER_LYX})) == ""
+
+
 def test_runtime_filters_available_skills_by_bot() -> None:
     index = load_skill_index(force_reload=True)
     manifest_by_name = {manifest.name: manifest for manifest in index.all()}
@@ -79,4 +93,3 @@ def test_runtime_filters_available_skills_by_bot() -> None:
     replenish_skills = load_available_skills_for_session(replenish_session)
     assert replenish_skills
     assert {manifest_by_name[item.name].type for item in replenish_skills} == {SKILL_TYPE_AMAZON_REPLENISH}
-

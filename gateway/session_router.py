@@ -26,6 +26,7 @@ from shared.permission_policy import (
     can_user_access_bot,
     is_known_bot_id,
     resolve_bot_id,
+    resolve_permission_user_id,
 )
 from shared.platform.context import SessionContext
 
@@ -72,14 +73,16 @@ class SessionRouter:
     async def route_message(self, event: InboundEvent) -> RouteDecision:
         if self._scheduler is None:
             raise RuntimeError("session scheduler not configured")
+        union_id = resolve_permission_user_id(event)
         logger.info(
-            "[SessionRouter] inbound event: platform=%s connector=%s conversation=%s is_group=%s msg_id=%s user_id=%s text=%s",
+            "[SessionRouter] inbound event: platform=%s connector=%s conversation=%s is_group=%s msg_id=%s user_id=%s union_id=%s text=%s",
             event.platform,
             event.connector_key,
             event.conversation_id,
             event.is_group,
             event.message_id,
             event.user_id,
+            union_id,
             str(event.user_input or "")[:120],
         )
         lane = LaneKey(
@@ -93,11 +96,12 @@ class SessionRouter:
         bot_key = bot_key_for_bot_id(bot_id)
         if not is_known_bot_id(bot_id):
             logger.warning(
-                "[SessionRouter] permission denied: unknown bot platform=%s connector=%s bot_id=%s user_id=%s",
+                "[SessionRouter] permission denied: unknown bot platform=%s connector=%s bot_id=%s user_id=%s union_id=%s",
                 ctx.platform,
                 ctx.connector_key,
                 bot_id or "<empty>",
                 ctx.user_id,
+                union_id,
             )
             await self._send_permission_feedback(ctx, markdown="当前 Bot 未授权接入 Agent。")
             return RouteDecision(
@@ -106,14 +110,15 @@ class SessionRouter:
                 connector_key=event.connector_key,
                 platform=event.platform,
             )
-        if not can_user_access_bot(ctx.user_id, bot_id):
+        if not can_user_access_bot(union_id, bot_id):
             logger.warning(
-                "[SessionRouter] permission denied: user cannot access bot platform=%s connector=%s bot_id=%s bot=%s user_id=%s",
+                "[SessionRouter] permission denied: user cannot access bot platform=%s connector=%s bot_id=%s bot=%s user_id=%s union_id=%s",
                 ctx.platform,
                 ctx.connector_key,
                 bot_id,
                 bot_key or "<unknown>",
                 ctx.user_id,
+                union_id,
             )
             await self._send_permission_feedback(ctx, markdown="你没有权限使用当前 Agent。")
             return RouteDecision(
