@@ -110,4 +110,4 @@ def test_skill_index_loads_mabang_fba_store_actual_inventory() -> None:
 
     assert manifest is not None
     assert manifest.name == "mabang-fba-store-actual-inventory"
-    assert manifest.type == "Amazon_replenish"
+    assert manifest.type == "amazon_replenish"

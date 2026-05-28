@@ -21,6 +21,12 @@ from shared.db.client import (
 )
 from shared.dingtalk.credentials import normalize_bot_name
 from shared.logging import logger
+from shared.permission_policy import (
+    bot_key_for_bot_id,
+    can_user_access_bot,
+    is_known_bot_id,
+    resolve_bot_id,
+)
 from shared.platform.context import SessionContext
 
 
@@ -83,6 +89,39 @@ class SessionRouter:
             scope="agent",
         ).as_key()
         ctx = _to_session_context(event)
+        bot_id = resolve_bot_id(event)
+        bot_key = bot_key_for_bot_id(bot_id)
+        if not is_known_bot_id(bot_id):
+            logger.warning(
+                "[SessionRouter] permission denied: unknown bot platform=%s connector=%s bot_id=%s user_id=%s",
+                ctx.platform,
+                ctx.connector_key,
+                bot_id or "<empty>",
+                ctx.user_id,
+            )
+            await self._send_permission_feedback(ctx, markdown="当前 Bot 未授权接入 Agent。")
+            return RouteDecision(
+                route_kind="permission_denied",
+                lane_key=lane,
+                connector_key=event.connector_key,
+                platform=event.platform,
+            )
+        if not can_user_access_bot(ctx.user_id, bot_id):
+            logger.warning(
+                "[SessionRouter] permission denied: user cannot access bot platform=%s connector=%s bot_id=%s bot=%s user_id=%s",
+                ctx.platform,
+                ctx.connector_key,
+                bot_id,
+                bot_key or "<unknown>",
+                ctx.user_id,
+            )
+            await self._send_permission_feedback(ctx, markdown="你没有权限使用当前 Agent。")
+            return RouteDecision(
+                route_kind="permission_denied",
+                lane_key=lane,
+                connector_key=event.connector_key,
+                platform=event.platform,
+            )
         control_command = _normalize_control_command(ctx.user_input)
         if control_command:
             session = await self._load_control_session(ctx)
@@ -196,6 +235,9 @@ class SessionRouter:
                 )
                 message = "上下文已清除。"
         await self._send_control_feedback(ctx, session_id=session_id, markdown=message)
+
+    async def _send_permission_feedback(self, ctx: SessionContext, *, markdown: str) -> None:
+        await self._send_control_feedback(ctx, session_id="", markdown=markdown)
 
     @staticmethod
     async def _load_session(ctx: SessionContext):

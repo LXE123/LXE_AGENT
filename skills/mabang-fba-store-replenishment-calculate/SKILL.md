@@ -1,7 +1,7 @@
 ---
 name: mabang-fba-store-replenishment-calculate
 description: 基于本地销量分析报告和真实库存报告生成马帮 Amazon 店铺 MSKU 备货建议。用户要求计算某个店铺的备货量、补货量、运输方式、链接备货汇总或“xxx店铺备货建议/补货建议”时使用；如果用户只给模糊店铺名，先使用 mabang-fba-store-resolve 获取规范 store_name。
-type: Amazon_replenish
+type: amazon_replenish
 ---
 
 ## When to Use

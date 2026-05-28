@@ -1,4 +1,4 @@
-这个 SKILL 的分类为 Amazon_replenish
+这个 SKILL 的分类为 amazon_replenish
 
 ---
 

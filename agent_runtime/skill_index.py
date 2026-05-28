@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 import yaml
@@ -60,9 +61,17 @@ class SkillIndex:
     def all(self) -> list[SkillManifest]:
         return list(self._skills.values())
 
-    def queue(self, *, limit: int = MAX_SKILL_QUEUE_SIZE) -> list[SkillQueueItem]:
+    def queue(
+        self,
+        *,
+        limit: int = MAX_SKILL_QUEUE_SIZE,
+        allowed_types: Collection[str] | None = None,
+    ) -> list[SkillQueueItem]:
         safe_limit = max(0, int(limit or 0))
+        safe_allowed_types = {str(item or "").strip() for item in list(allowed_types or []) if str(item or "").strip()}
         manifests = sorted(self._skills.values(), key=lambda item: item.name.casefold())
+        if allowed_types is not None and "*" not in safe_allowed_types:
+            manifests = [manifest for manifest in manifests if manifest.type in safe_allowed_types]
         return [
             SkillQueueItem(
                 name=manifest.name,

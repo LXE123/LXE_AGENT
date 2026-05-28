@@ -786,6 +786,7 @@ class FeishuStreamAdapter:
             raw_data={
                 "platform": self.platform,
                 "connector_key": self.connector_key,
+                "app_id": FEISHU_APP_ID,
                 "chat_id": chat_id,
                 "chat_type": chat_type,
                 "message_id": message_id,

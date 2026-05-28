@@ -1,7 +1,7 @@
 ---
 name: mabang-fba-store-actual-inventory
 description: 基于本地已下载的马帮 Amazon 店铺 MSKU 数据查询并生成真实库存报告。用户要求查看某个店铺 MSKU、本地SKU、组合SKU 或备货分析所需的真实库存数量时使用；如果用户只给模糊店铺名，先使用 mabang-fba-store-resolve 获取规范 store_name。
-type: Amazon_replenish
+type: amazon_replenish
 ---
 
 ## When to Use
