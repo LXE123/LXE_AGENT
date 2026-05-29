@@ -11,6 +11,7 @@ from shared.permission_policy import (
     BOT_ID_LXE_FBA_AGENT,
     SKILL_TYPE_AMAZON_FBA,
     SKILL_TYPE_AMAZON_REPLENISH,
+    SKILL_TYPE_DEFAULT,
     USER_LYX,
     USER_ZQY,
     USER_ZGL,
@@ -43,8 +44,14 @@ def test_policy_user_access_matrix() -> None:
 
 def test_policy_skill_type_matrix() -> None:
     assert allowed_skill_types_for_bot(BOT_ID_LXE_CLAW) == {ALL}
-    assert allowed_skill_types_for_bot(BOT_ID_LXE_FBA_AGENT) == {SKILL_TYPE_AMAZON_FBA}
-    assert allowed_skill_types_for_bot(BOT_ID_AMAZON_REPLENISH) == {SKILL_TYPE_AMAZON_REPLENISH}
+    assert allowed_skill_types_for_bot(BOT_ID_LXE_FBA_AGENT) == {
+        SKILL_TYPE_AMAZON_FBA,
+        SKILL_TYPE_DEFAULT,
+    }
+    assert allowed_skill_types_for_bot(BOT_ID_AMAZON_REPLENISH) == {
+        SKILL_TYPE_AMAZON_REPLENISH,
+        SKILL_TYPE_DEFAULT,
+    }
     assert allowed_skill_types_for_bot("cli_unknown") == set()
 
 
@@ -88,8 +95,14 @@ def test_runtime_filters_available_skills_by_bot() -> None:
 
     fba_skills = load_available_skills_for_session(fba_session)
     assert fba_skills
-    assert {manifest_by_name[item.name].type for item in fba_skills} == {SKILL_TYPE_AMAZON_FBA}
+    assert {manifest_by_name[item.name].type for item in fba_skills} == {
+        SKILL_TYPE_AMAZON_FBA,
+        SKILL_TYPE_DEFAULT,
+    }
 
     replenish_skills = load_available_skills_for_session(replenish_session)
     assert replenish_skills
-    assert {manifest_by_name[item.name].type for item in replenish_skills} == {SKILL_TYPE_AMAZON_REPLENISH}
+    assert {manifest_by_name[item.name].type for item in replenish_skills} == {
+        SKILL_TYPE_AMAZON_REPLENISH,
+        SKILL_TYPE_DEFAULT,
+    }
