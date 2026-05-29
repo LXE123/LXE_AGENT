@@ -71,6 +71,8 @@ STORE_MSKU_FIELDLABELS = (
     "uq167",
     "uq178",
     "uq186",
+    "uq201",
+    "uq202",
 )
 STORE_MSKU_EXPORT_FIELD_DEFS = (
     ("店铺名称", "uq101", ""),
@@ -101,11 +103,13 @@ STORE_MSKU_EXPORT_FIELD_DEFS = (
     ("待入库", "uq125", ""),
     ("在途", "uq128", ""),
     ("预留", "uq126", ""),
+    ("待调仓", "uq201", ""),
+    ("调仓中", "uq202", ""),
+    ("单品重量(g)(cm)", "uq131", "1"),
     ("计划入库", "uq127", ""),
     ("采购在途", "uq120", ""),
     ("总在途量(默认设置)", "uq186", ""),
     ("申请补货量", "uq138", ""),
-    ("单品重量(g)(cm)", "uq131", "1"),
     ("备注", "uq136", ""),
 )
 STORE_MSKU_EXPORT_FIELDS = tuple((name, uq) for name, uq, _map_text in STORE_MSKU_EXPORT_FIELD_DEFS)

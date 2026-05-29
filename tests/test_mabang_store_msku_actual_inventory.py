@@ -219,6 +219,40 @@ def test_combo_step1_form_appends_hsp022_once_and_uses_export_fields() -> None:
     assert _form_value({"data": form}, "hiddenPage") == "1"
 
 
+def test_combo_prewarm_forms_append_hsp022_once() -> None:
+    list_form = inv._combo_list_prewarm_form_data(["SKU-A", "HSP022"])
+    template_form = inv._combo_export_template_prewarm_form_data(["SKU-A", "HSP022"])
+
+    assert _form_value({"data": list_form}, "searchLike") == "comboSku"
+    assert _form_value({"data": list_form}, "operate") == "Like"
+    assert _form_value({"data": list_form}, "isBatchSearch") == "1"
+    assert _form_value({"data": list_form}, "selecttype") == "comboSku"
+    assert _form_value({"data": list_form}, "stockData") == "SKU-A\r\nHSP022"
+    assert _form_value({"data": template_form}, "mod") == "export.exportTemplate"
+    assert _form_value({"data": template_form}, "data") == "SKU-A\r\nHSP022"
+    assert _form_value({"data": template_form}, "type") == "1"
+    assert _form_value({"data": template_form}, "menu") == "combosku"
+    assert _form_value({"data": template_form}, "exportUrl") == inv._combo_export_url()
+
+
+def test_combo_prewarm_failure_blocks_export(monkeypatch) -> None:
+    fake_session = _FakeSession([_FakeResponse(status=500, text_body="server error")])
+    monkeypatch.setattr(inv, "erp_http_session", fake_session)
+
+    with pytest.raises(Exception, match="组合SKU预热 1请求失败"):
+        asyncio.run(
+            inv.prewarm_combo_sku_export(
+                ["SKU-A"],
+                private_cookie_header="private-cookie",
+                private_amz_cookie_header="private-amz-cookie",
+                delay_sec=0,
+            )
+        )
+
+    assert len(fake_session.calls) == 1
+    assert fake_session.calls[0]["url"] == inv._combo_list_url()
+
+
 def test_warehouse_search_form_uses_fixed_warehouse_and_crlf_skus() -> None:
     form = inv._warehouse_search_form_data(["SKU-A", "SKU-B"])
 
@@ -323,7 +357,7 @@ def test_load_store_msku_rows_requires_sales_and_fba_stock_columns(tmp_path) -> 
         columns=["MSKU", "父ASIN", "ASIN", "本地SKU", "商品链接"],
     )
 
-    with pytest.raises(inv.StoreMskuActualInventoryError, match="7天销量.*在途"):
+    with pytest.raises(inv.StoreMskuActualInventoryError, match="7天销量.*调仓中"):
         inv.load_store_msku_rows(source_path)
 
 
@@ -345,6 +379,8 @@ def test_load_store_msku_rows_parses_invalid_sales_and_fba_stock_as_zero(tmp_pat
                 "待入库": "",
                 "预留": "nan",
                 "在途": "not-a-number",
+                "待调仓": "2",
+                "调仓中": "bad",
             }
         ],
         columns=[
@@ -360,6 +396,8 @@ def test_load_store_msku_rows_parses_invalid_sales_and_fba_stock_as_zero(tmp_pat
             "待入库",
             "预留",
             "在途",
+            "待调仓",
+            "调仓中",
         ],
     )
 
@@ -373,6 +411,8 @@ def test_load_store_msku_rows_parses_invalid_sales_and_fba_stock_as_zero(tmp_pat
     assert rows[0].fba_inbound == Decimal("0")
     assert rows[0].fba_reserved == Decimal("0")
     assert rows[0].fba_in_transit == Decimal("0")
+    assert rows[0].fba_pending_transfer == Decimal("2")
+    assert rows[0].fba_transferring == Decimal("0")
 
 
 def test_calculate_inventory_rows_handles_normal_combo_and_missing_stock() -> None:
@@ -390,6 +430,8 @@ def test_calculate_inventory_rows_handles_normal_combo_and_missing_stock() -> No
             fba_inbound=Decimal("3"),
             fba_reserved=Decimal("2"),
             fba_in_transit=Decimal("1"),
+            fba_pending_transfer=Decimal("6"),
+            fba_transferring=Decimal("7"),
         ),
         inv.StoreMskuRow(
             "MSKU-C",
@@ -404,6 +446,8 @@ def test_calculate_inventory_rows_handles_normal_combo_and_missing_stock() -> No
             fba_inbound=Decimal("15"),
             fba_reserved=Decimal("10"),
             fba_in_transit=Decimal("5"),
+            fba_pending_transfer=Decimal("4"),
+            fba_transferring=Decimal("6"),
         ),
         inv.StoreMskuRow("MSKU-M", "PARENT-M", "ASIN-M", "SKU-MISSING", "https://example.test/m"),
         inv.StoreMskuRow("MSKU-CM", "PARENT-CM", "ASIN-CM", "COMBO-MISSING", "https://example.test/cm"),
@@ -440,12 +484,12 @@ def test_calculate_inventory_rows_handles_normal_combo_and_missing_stock() -> No
         "https://example.test/cm",
     ]
     assert [row.is_combo_sku for row in result_rows] == [False, True, False, True]
-    assert result_rows[0].fba_total_inventory == Decimal("10")
+    assert result_rows[0].fba_total_inventory == Decimal("23")
     assert result_rows[0].weighted_daily_sales == Decimal("1.0")
-    assert result_rows[0].sales_days == Decimal("1E+1")
-    assert result_rows[1].fba_total_inventory == Decimal("50")
+    assert result_rows[0].sales_days == Decimal("23")
+    assert result_rows[1].fba_total_inventory == Decimal("60")
     assert result_rows[1].weighted_daily_sales == Decimal("10.0")
-    assert result_rows[1].sales_days == Decimal("5")
+    assert result_rows[1].sales_days == Decimal("6")
     assert result_rows[1].child_skus == "STOCK-A * 1, STOCK-B * 2"
     assert missing == ["SKU-MISSING", "STOCK-MISSING"]
 
@@ -600,6 +644,8 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
                 "待入库": 3,
                 "预留": 2,
                 "在途": 1,
+                "待调仓": 6,
+                "调仓中": 7,
             },
             {
                 "MSKU": "MSKU-C",
@@ -614,6 +660,8 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
                 "待入库": 15,
                 "预留": 10,
                 "在途": 5,
+                "待调仓": 4,
+                "调仓中": 6,
             },
             {
                 "MSKU": "MSKU-N",
@@ -628,6 +676,8 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
                 "待入库": 5,
                 "预留": 6,
                 "在途": 7,
+                "待调仓": 8,
+                "调仓中": 9,
             },
         ],
         columns=[
@@ -643,10 +693,14 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
             "待入库",
             "预留",
             "在途",
+            "待调仓",
+            "调仓中",
         ],
     )
     fake_session = _FakeSession(
         [
+            _FakeResponse({"ignored": "prewarm-list"}),
+            _FakeResponse({"ignored": "prewarm-template"}),
             _FakeResponse({"success_type": 2, "sn": "sn-1", "subtask_num": 1, "chunkNum": 10000, "success": True}),
             _FakeResponse({"updateR": True, "subO": [{"id": "1", "success": "1"}], "success": True}),
             _FakeResponse({"async": True, "taskId": "task-1", "success": True}),
@@ -687,6 +741,12 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
     monkeypatch.setattr(inv, "external_http_session", fake_session)
     monkeypatch.setattr(inv, "get_auth_context", _fake_auth_context)
     monkeypatch.setattr(inv, "_timestamp_text", lambda *_args, **_kwargs: "202605271530")
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr(inv.asyncio, "sleep", fake_sleep)
 
     result = asyncio.run(
         inv.export_store_msku_actual_inventory(
@@ -720,22 +780,33 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
     stock_records = _load_records(Path(result.xlsx_path), "真实库存-库存sku")
     assert combo_records[0]["真实库存数量"] == 6
     assert combo_records[0]["商品链接"] == "https://example.test/c"
-    assert combo_records[0]["FBA总库存"] == 50
+    assert combo_records[0]["FBA总库存"] == 60
     assert combo_records[0]["加权日销"] == 10
-    assert combo_records[0]["可销售天数"] == 5
+    assert combo_records[0]["可销售天数"] == 6
     assert combo_records[0]["子SKU"] == "STOCK-A * 1, STOCK-B * 2"
     assert stock_records[0]["真实库存数量"] == 9
     assert stock_records[0]["商品链接"] == "https://example.test/a"
-    assert stock_records[0]["FBA总库存"] == 10
+    assert stock_records[0]["FBA总库存"] == 23
     assert stock_records[0]["加权日销"] == 1
-    assert stock_records[0]["可销售天数"] == 10
+    assert stock_records[0]["可销售天数"] == 23
     no_local_records = _load_records(Path(result.xlsx_path), "无本地SKU")
     assert [record["MSKU"] for record in no_local_records] == ["MSKU-N"]
     assert no_local_records[0]["商品链接"] == "https://example.test/no-local"
     assert _load_records(Path(result.xlsx_path), "无库存数据") == []
 
     post_calls = [call for call in fake_session.calls if call["method"] == "POST"]
-    assert [_form_value(call, "step") for call in post_calls[:4]] == ["1", "2", "3", "4"]
-    assert _form_value(post_calls[0], "orderIds") == "SKU-A\r\nCOMBO-A\r\nHSP022\r\n"
-    assert _form_value(post_calls[4], "stockSkuStr") == "SKU-A\r\nSTOCK-A\r\nSTOCK-B\r\n"
-    assert _form_value(post_calls[4], "warehouseIds[]") == "1014318"
+    assert [call["url"] for call in post_calls[:6]] == [
+        inv._combo_list_url(),
+        inv._combo_export_template_url(),
+        inv._combo_export_url(),
+        inv._combo_export_url(),
+        inv._combo_export_url(),
+        inv._combo_export_url(),
+    ]
+    assert sleep_calls == [1.0]
+    assert _form_value(post_calls[0], "stockData") == "SKU-A\r\nCOMBO-A\r\nHSP022"
+    assert _form_value(post_calls[1], "data") == "SKU-A\r\nCOMBO-A\r\nHSP022"
+    assert [_form_value(call, "step") for call in post_calls[2:6]] == ["1", "2", "3", "4"]
+    assert _form_value(post_calls[2], "orderIds") == "SKU-A\r\nCOMBO-A\r\nHSP022\r\n"
+    assert _form_value(post_calls[6], "stockSkuStr") == "SKU-A\r\nSTOCK-A\r\nSTOCK-B\r\n"
+    assert _form_value(post_calls[6], "warehouseIds[]") == "1014318"

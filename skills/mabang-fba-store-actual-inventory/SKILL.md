@@ -73,7 +73,7 @@ uv run --frozen python -m services.agent_cli.mabang.export_store_msku_actual_inv
 - 结果文件固定包含 4 个 sheet：`真实库存-组合sku`、`真实库存-库存sku`、`无本地SKU`、`无库存数据`。
 - `真实库存-组合sku` 和 `真实库存-库存sku` 包含列：`MSKU`、`父ASIN`、`ASIN`、`本地SKU`、`商品链接`、`FBA总库存`、`加权日销`、`可销售天数`、`真实库存数量`、`子SKU`；按 `加权日销` 降序。
 - `无本地SKU` 和 `无库存数据` 包含列：`MSKU`、`父ASIN`、`ASIN`、`本地SKU`、`商品链接`、`真实库存数量`、`子SKU`。
-- `商品链接` 直接复制自源 MSKU 文件；`FBA总库存 = 可售 + 待入库 + 预留 + 在途`；`加权日销 = 7天销量 / 7 * 0.6 + 14天销量 / 14 * 0.3 + 30天销量 / 30 * 0.1`。
+- `商品链接` 直接复制自源 MSKU 文件；`FBA总库存 = 可售 + 待入库 + 预留 + 在途 + 待调仓 + 调仓中`；`加权日销 = 7天销量 / 7 * 0.6 + 14天销量 / 14 * 0.3 + 30天销量 / 30 * 0.1`。
 - `no_local_sku_count > 0`：提醒这些 MSKU 源数据没有 `本地SKU`，没有参与库存查询，详情在 `无本地SKU` sheet。
 - `no_inventory_row_count > 0`：提醒这些 MSKU 有 `本地SKU` 但没有查到库存数量，详情在 `无库存数据` sheet。
 - `missing_stock_sku_count > 0`：明确提醒这些库存 SKU 未查到，相关报告行在 `无库存数据` sheet，`真实库存数量` 留空。
