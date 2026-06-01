@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -24,6 +25,7 @@ from shared.llm.transports.anthropic_stream import (
     complete_streaming_message,
     stream_message_events,
 )
+from shared.llm.transports.anthropic_sdk_stream import stream_message_events as sdk_stream_message_events
 from shared.llm.transports.wire_trace import WireTraceContext
 from shared.llm.transports.openai_chat import OpenAIChatCompletion, chat_with_tools as openai_chat_with_tools
 from shared.logging import logger
@@ -88,6 +90,20 @@ def _config_int(name: str, default: int) -> int:
 
 def agent_provider_descriptor() -> ProviderDescriptor:
     return active_agent_planner_descriptor()
+
+
+def _anthropic_transport_mode() -> str:
+    mode = str(
+        os.getenv(
+            "AGENT_ANTHROPIC_TRANSPORT",
+            str(getattr(config, "AGENT_ANTHROPIC_TRANSPORT", "manual") or "manual"),
+        )
+        or "manual"
+    ).strip().lower()
+    if mode in {"manual", "sdk"}:
+        return mode
+    logger.warning("[LLMAdapter] unsupported AGENT_ANTHROPIC_TRANSPORT=%s; using manual", mode)
+    return "manual"
 
 
 def _collect_anthropic_text_blocks(content_blocks: list[dict[str, Any]] | None) -> str:
@@ -273,10 +289,12 @@ async def _stream_anthropic_events(
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[object] = asyncio.Queue()
     sentinel = object()
+    transport_mode = _anthropic_transport_mode()
+    stream_events_fn = sdk_stream_message_events if transport_mode == "sdk" else stream_message_events
 
     def _worker() -> None:
         try:
-            for raw_event in stream_message_events(
+            for raw_event in stream_events_fn(
                 descriptor=descriptor,
                 system_prompt=system_prompt,
                 messages=messages,
@@ -293,7 +311,7 @@ async def _stream_anthropic_events(
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
-    thread = threading.Thread(target=_worker, name="kimi-stream-reader", daemon=True)
+    thread = threading.Thread(target=_worker, name=f"{descriptor.name}-{transport_mode}-stream-reader", daemon=True)
     thread.start()
 
     while True:
