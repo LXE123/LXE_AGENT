@@ -5,9 +5,9 @@ from typing import Any, Iterable, Literal
 
 from anthropic import Anthropic
 
+from shared.llm.errors import AnthropicStreamError
 from shared.llm.events import LLMStreamEvent, LLMToolCall
 from shared.llm.provider_catalog import ProviderDescriptor
-from shared.llm.transports.anthropic_stream import AnthropicStreamError
 from shared.llm.transports.wire_trace import WireTraceContext, WireTraceWriter
 
 ToolChoiceMode = Literal["auto", "none"]

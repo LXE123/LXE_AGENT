@@ -52,33 +52,6 @@ def _prepend_system_message(system_prompt: str, messages: list[dict[str, Any]]) 
     return payload
 
 
-def _strip_code_fence(text: str) -> str:
-    stripped = str(text or "").strip()
-    if not stripped.startswith("```"):
-        return stripped
-    lines = stripped.splitlines()
-    if len(lines) >= 2 and lines[0].startswith("```") and lines[-1].strip() == "```":
-        return "\n".join(lines[1:-1]).strip()
-    return stripped
-
-
-def _parse_json_object(content: str) -> dict[str, Any] | None:
-    cleaned = _strip_code_fence(content)
-    candidates = [cleaned]
-    start = cleaned.find("{")
-    end = cleaned.rfind("}")
-    if start >= 0 and end > start:
-        candidates.append(cleaned[start : end + 1])
-    for candidate in candidates:
-        try:
-            parsed = json.loads(candidate)
-        except Exception:
-            continue
-        if isinstance(parsed, dict):
-            return parsed
-    return None
-
-
 def _response_to_dict(response: Any) -> dict[str, Any]:
     if hasattr(response, "model_dump"):
         return dict(response.model_dump(mode="python"))
@@ -120,41 +93,6 @@ def _parse_tool_call_arguments(raw_arguments: Any) -> dict[str, Any]:
     except Exception:
         return {}
     return dict(parsed) if isinstance(parsed, dict) else {}
-
-
-async def chat_text(
-    *,
-    descriptor: ProviderDescriptor,
-    system_prompt: str,
-    user_text: str,
-    temperature: float,
-    timeout_s: int,
-) -> str:
-    response = await _cached_client(descriptor, timeout_s).chat.completions.create(
-        model=descriptor.default_model,
-        messages=_prepend_system_message(system_prompt, [{"role": "user", "content": str(user_text or "")}]),
-        temperature=temperature,
-        stream=False,
-    )
-    return _content_to_text(response.choices[0].message.content)
-
-
-async def chat_json_object(
-    *,
-    descriptor: ProviderDescriptor,
-    system_prompt: str,
-    user_text: str,
-    temperature: float,
-    timeout_s: int,
-) -> dict[str, Any] | None:
-    response = await _cached_client(descriptor, timeout_s).chat.completions.create(
-        model=descriptor.default_model,
-        messages=_prepend_system_message(system_prompt, [{"role": "user", "content": str(user_text or "")}]),
-        response_format={"type": "json_object"},
-        temperature=temperature,
-        stream=False,
-    )
-    return _parse_json_object(_content_to_text(response.choices[0].message.content))
 
 
 async def chat_with_tools(
@@ -207,7 +145,5 @@ async def chat_with_tools(
 __all__ = [
     "OpenAIChatCompletion",
     "OpenAIToolCall",
-    "chat_json_object",
-    "chat_text",
     "chat_with_tools",
 ]

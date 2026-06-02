@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-import os
 import threading
 import time
 from dataclasses import dataclass, field
@@ -18,14 +17,9 @@ from requests import exceptions as requests_exceptions
 
 from shared.config import config
 from shared.llm.agent_planner import active_agent_planner_descriptor, effective_agent_planner_max_tokens
+from shared.llm.errors import AnthropicStreamError
 from shared.llm.events import LLMStreamEvent, LLMToolCall
 from shared.llm.provider_catalog import ProviderDescriptor
-from shared.llm.transports.anthropic_stream import (
-    AnthropicStreamError,
-    AnthropicStreamEvent,
-    complete_streaming_message,
-    stream_message_events,
-)
 from shared.llm.transports.anthropic_sdk_stream import stream_message_events as sdk_stream_message_events
 from shared.llm.transports.wire_trace import WireTraceContext
 from shared.llm.transports.openai_chat import OpenAIChatCompletion, chat_with_tools as openai_chat_with_tools
@@ -67,31 +61,6 @@ def _config_int(name: str, default: int) -> int:
 
 def agent_provider_descriptor() -> ProviderDescriptor:
     return active_agent_planner_descriptor()
-
-
-def _anthropic_transport_mode() -> str:
-    mode = str(
-        os.getenv(
-            "AGENT_ANTHROPIC_TRANSPORT",
-            str(getattr(config, "AGENT_ANTHROPIC_TRANSPORT", "manual") or "manual"),
-        )
-        or "manual"
-    ).strip().lower()
-    if mode in {"manual", "sdk"}:
-        return mode
-    logger.warning("[LLMAdapter] unsupported AGENT_ANTHROPIC_TRANSPORT=%s; using manual", mode)
-    return "manual"
-
-
-def _collect_anthropic_text_blocks(content_blocks: list[dict[str, Any]] | None) -> str:
-    lines: list[str] = []
-    for block in list(content_blocks or []):
-        if str(dict(block or {}).get("type") or "").strip() != "text":
-            continue
-        text = str(dict(block or {}).get("text") or "").strip()
-        if text:
-            lines.append(text)
-    return "\n".join(lines).strip()
 
 
 def _collect_anthropic_public_text(content_blocks: list[dict[str, Any]] | None) -> str:
@@ -153,36 +122,6 @@ def _canonicalize_anthropic_content_blocks(content_blocks: list[dict[str, Any]] 
     return canonical_blocks
 
 
-def _parse_anthropic_response(payload: dict[str, Any], latency_ms: int) -> LLMResponse:
-    content_blocks = list(payload.get("content") or [])
-    text = _collect_anthropic_text_blocks(content_blocks)
-    public_text = _collect_anthropic_public_text(content_blocks)
-    assistant_content = _canonicalize_anthropic_content_blocks(content_blocks)
-    usage = dict(payload.get("usage") or {})
-
-    tool_calls: list[LLMToolCall] = []
-    for block in content_blocks:
-        item = dict(block or {})
-        if str(item.get("type") or "").strip() == "tool_use":
-            tool_calls.append(
-                LLMToolCall(
-                    id=str(item.get("id") or "").strip(),
-                    name=str(item.get("name") or "").strip(),
-                    arguments=dict(item.get("input") or {}),
-                )
-            )
-
-    return LLMResponse(
-        text=text,
-        public_text=public_text or text,
-        assistant_content=assistant_content,
-        tool_calls=tool_calls,
-        raw=payload,
-        usage=usage,
-        latency_ms=latency_ms,
-    )
-
-
 def _parse_openai_response(completion: OpenAIChatCompletion, latency_ms: int) -> LLMResponse:
     tool_calls = [
         LLMToolCall(
@@ -216,30 +155,6 @@ def _parse_openai_response(completion: OpenAIChatCompletion, latency_ms: int) ->
     )
 
 
-def _map_anthropic_stream_event(event: AnthropicStreamEvent) -> LLMStreamEvent:
-    tool_call = None
-    if event.event_type == "tool_use":
-        tool_call = LLMToolCall(
-            id=str(event.tool_id or "").strip(),
-            name=str(event.tool_name or "").strip(),
-            arguments=dict(event.tool_input or {}),
-        )
-    return LLMStreamEvent(
-        event_type=event.event_type,
-        text=str(event.text or ""),
-        thinking_text=str(event.thinking_text or ""),
-        signature=str(event.signature or "").strip(),
-        redacted_data=str(event.redacted_data or ""),
-        tool_call=tool_call,
-        usage=dict(event.usage or {}),
-        stop_reason=str(event.stop_reason or "").strip(),
-        message_id=str(event.message_id or "").strip(),
-        model=str(event.model or "").strip(),
-        index=int(event.index),
-        raw=dict(event.raw or {}),
-    )
-
-
 async def _maybe_emit_stream_event(
     on_stream_event: Callable[[LLMStreamEvent], Awaitable[None] | None] | None,
     event: LLMStreamEvent,
@@ -266,44 +181,27 @@ async def _stream_anthropic_events(
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[object] = asyncio.Queue()
     sentinel = object()
-    transport_mode = _anthropic_transport_mode()
 
     def _worker() -> None:
         try:
-            if transport_mode == "sdk":
-                for event in sdk_stream_message_events(
-                    descriptor=descriptor,
-                    system_prompt=system_prompt,
-                    messages=messages,
-                    tool_schemas=tool_schemas,
-                    tool_choice_mode=tool_choice_mode,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    timeout_s=timeout_s,
-                    wire_trace_context=wire_trace_context,
-                ):
-                    loop.call_soon_threadsafe(queue.put_nowait, event)
-                return
-
-            effective_max_tokens = effective_agent_planner_max_tokens(max_tokens)
-            for raw_event in stream_message_events(
+            for event in sdk_stream_message_events(
                 descriptor=descriptor,
                 system_prompt=system_prompt,
                 messages=messages,
                 tool_schemas=tool_schemas,
                 tool_choice_mode=tool_choice_mode,
-                max_tokens=effective_max_tokens,
+                max_tokens=max_tokens,
                 temperature=temperature,
                 timeout_s=timeout_s,
                 wire_trace_context=wire_trace_context,
             ):
-                loop.call_soon_threadsafe(queue.put_nowait, _map_anthropic_stream_event(raw_event))
+                loop.call_soon_threadsafe(queue.put_nowait, event)
         except Exception as exc:
             loop.call_soon_threadsafe(queue.put_nowait, exc)
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
-    thread = threading.Thread(target=_worker, name=f"{descriptor.name}-{transport_mode}-stream-reader", daemon=True)
+    thread = threading.Thread(target=_worker, name=f"{descriptor.name}-sdk-stream-reader", daemon=True)
     thread.start()
 
     while True:
@@ -439,7 +337,7 @@ async def chat_with_tools_streaming(
             await _maybe_emit_stream_event(on_stream_event, event)
 
         if not saw_message_stop:
-            raise AnthropicStreamError("SSE stream ended before message_stop")
+            raise AnthropicStreamError("stream ended before message_stop")
 
         latency_ms = int((time.perf_counter() - started_at) * 1000)
         content_blocks: list[dict[str, Any]] = []
@@ -527,27 +425,24 @@ async def chat_with_tools(
     """Send a multi-turn messages request with optional tool schemas."""
     desc = descriptor or agent_provider_descriptor()
     effective_timeout = timeout_s or max(10, _config_int("LLM_REQUEST_TIMEOUT_S", 30))
-    effective_max_tokens = effective_agent_planner_max_tokens(max_tokens)
 
     started_at = time.perf_counter()
     try:
         if desc.api_style == "anthropic-messages":
-            completion = await asyncio.to_thread(
-                complete_streaming_message,
-                descriptor=desc,
+            return await chat_with_tools_streaming(
                 system_prompt=system_prompt,
-                messages=adapt_messages_for_anthropic(messages),
-                tool_schemas=adapt_tool_schemas(tool_schemas, desc.api_style),
+                messages=messages,
+                tool_schemas=tool_schemas,
                 tool_choice_mode=tool_choice_mode,
-                max_tokens=effective_max_tokens,
+                max_tokens=max_tokens,
                 temperature=temperature,
                 timeout_s=effective_timeout,
+                descriptor=desc,
                 wire_trace_context=wire_trace_context,
             )
-            latency_ms = int((time.perf_counter() - started_at) * 1000)
-            return _parse_anthropic_response(dict(completion.raw or {}), latency_ms)
 
         if desc.api_style == "openai-chat":
+            effective_max_tokens = effective_agent_planner_max_tokens(max_tokens)
             completion = await openai_chat_with_tools(
                 descriptor=desc,
                 system_prompt=system_prompt,
