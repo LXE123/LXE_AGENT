@@ -245,7 +245,9 @@ response.usage
 
 for block in response.content:
     ...
-所以非流式处理是比较简单的，直接有完整的 block 可以解析
+
+所以非流式比较简单：response.content 里已经是完整的 content blocks，
+比如 text block、tool_use block、thinking block。
 
 2. 流式
 stream = client.messages.create(..., stream=True)
@@ -266,7 +268,9 @@ for event in stream:
     ...
 
 各个 event 解释：
-1. message_start // 一条 assistant message 开始了。
+
+1. message_start
+一条 assistant message 开始了。可读取 message_id、model、role、初始 usage。
 
 ```py
 if event.type == "message_start":
@@ -276,7 +280,15 @@ if event.type == "message_start":
     usage = event.message.usage
 ```
 
-2. content_block_start  // 一个新的 content block 开始了。
+2. content_block_start 
+一个新的 content block 开始。这里看 event.content_block.type：
+- text
+- tool_use
+- thinking
+- redacted_thinking 等
+
+event.index 用来标识这是第几个 block，后续 delta 要按 index 归属。
+
 ```py
 if event.type == "content_block_start":
     index = event.index
@@ -284,7 +296,7 @@ if event.type == "content_block_start":
 
     if block.type == "text":
         # 一个文本 block 开始
-        pass
+        
 
     elif block.type == "tool_use":
         # 一个工具调用 block 开始
@@ -293,25 +305,37 @@ if event.type == "content_block_start":
 
     elif block.type == "thinking":
         # 一个 thinking block 开始
-        pass
+        
 ```
 
 3. content_block_delta  // 当前 content block 新增了一小段内容
-有三种类型 text / tool_use / thinking
+有以下类型：
+- text_delta：文本增量
+- input_json_delta：tool_use 的参数 JSON 片段
+- thinking_delta：thinking 内容增量
+- signature_delta：thinking 签名增量
+- citations_delta：引用信息增量
 
-4. content_block_stop   // 当前 content block 结束了
+4. content_block_stop
+当前 content block 结束。
+如果这个 block 是 tool_use，那么该 tool_use 的 JSON 参数已经完整，可以解析。
+但基础实现通常先缓存，等整条 message 结束后统一处理。
 
-5. message_delta    // 整条 assistant message 的元信息更新。
+5. message_delta    
+整条 assistant message 的元信息更新。比如 stop_reason、stop_sequence、usage。
+event.type == "message_delta"
+event.delta.stop_reason
+event.delta.stop_sequence
+event.usage
 
-6. message_stop // 整条 assistant message 结束。
-
-还有不同的 delta：
-delta.type:
-  text_delta
-  input_json_delta
-  thinking_delta
-  signature_delta
-  citations_delta
+6. message_stop 
+整条 assistant message 结束。
+到这里可以组装完整 assistant message：
+- content
+- tool_calls
+- reasoning_content
+- usage
+- stop_reason
 
 
 关于 event 和 delta 的关系：
@@ -323,4 +347,20 @@ delta.type:
 ---
 
 问：关于 tool_use，一轮响应中可能会遇到多个 tool_use，那么这个 tool_use 是不是在流式过程中（比如说刚解析完第一个）就开始执行 tool 呢？
-答：不会，只有在接收所有响应后才会开始依次执行 tool。
+答：不一定，取决于具体代码，我选择只有在接收所有响应后才会开始依次执行 tool。
+
+---
+
+目前项目中有 1 个依赖点需要解决
+
+1.
+目前是：
+SDK event
+  -> 伪 SSE lines
+  -> iter_anthropic_sse_events()
+  -> AnthropicStreamEvent
+  -> LLMStreamEvent
+要改成
+SDK event
+-> AnthropicStreamEvent
+-> LLMStreamEvent

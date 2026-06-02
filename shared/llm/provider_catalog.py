@@ -96,7 +96,9 @@ def descriptor_for_provider(provider_name: str, *, model_override: str = "") -> 
             },
         )
 
-    default_model = str(model_override or _config_text("AMAZON_STORE_AGENT_PLANNER_MODEL") or kimi_coding_client.default_model()).strip()
+    default_model = kimi_coding_client.normalize_model(
+        model_override or _config_text("AMAZON_STORE_AGENT_PLANNER_MODEL") or kimi_coding_client.default_model()
+    )
     return ProviderDescriptor(
         name=normalized_name,
         label=kimi_coding_client.provider_label(),

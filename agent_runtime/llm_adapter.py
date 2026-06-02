@@ -18,6 +18,7 @@ from requests import exceptions as requests_exceptions
 
 from shared.config import config
 from shared.llm.agent_planner import active_agent_planner_descriptor, effective_agent_planner_max_tokens
+from shared.llm.events import LLMStreamEvent, LLMToolCall
 from shared.llm.provider_catalog import ProviderDescriptor
 from shared.llm.transports.anthropic_stream import (
     AnthropicStreamError,
@@ -35,30 +36,6 @@ from .types import ToolSchema
 
 ToolChoiceMode = Literal["auto", "none"]
 _REDACTED_THINKING_PLACEHOLDER = "[部分思考已加密]"
-
-
-@dataclass(frozen=True, slots=True)
-class LLMToolCall:
-    """Parsed tool_use block from the LLM response."""
-    id: str
-    name: str
-    arguments: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class LLMStreamEvent:
-    event_type: str
-    text: str = ""
-    thinking_text: str = ""
-    signature: str = ""
-    redacted_data: str = ""
-    tool_call: LLMToolCall | None = None
-    usage: dict[str, Any] = field(default_factory=dict)
-    stop_reason: str = ""
-    message_id: str = ""
-    model: str = ""
-    index: int = -1
-    raw: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,7 +258,7 @@ async def _stream_anthropic_events(
     messages: list[dict[str, Any]],
     tool_schemas: list[dict[str, Any]] | None,
     tool_choice_mode: ToolChoiceMode,
-    max_tokens: int,
+    max_tokens: int | None,
     temperature: float,
     timeout_s: int,
     wire_trace_context: WireTraceContext | None = None,
@@ -290,17 +267,32 @@ async def _stream_anthropic_events(
     queue: asyncio.Queue[object] = asyncio.Queue()
     sentinel = object()
     transport_mode = _anthropic_transport_mode()
-    stream_events_fn = sdk_stream_message_events if transport_mode == "sdk" else stream_message_events
 
     def _worker() -> None:
         try:
-            for raw_event in stream_events_fn(
+            if transport_mode == "sdk":
+                for event in sdk_stream_message_events(
+                    descriptor=descriptor,
+                    system_prompt=system_prompt,
+                    messages=messages,
+                    tool_schemas=tool_schemas,
+                    tool_choice_mode=tool_choice_mode,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    timeout_s=timeout_s,
+                    wire_trace_context=wire_trace_context,
+                ):
+                    loop.call_soon_threadsafe(queue.put_nowait, event)
+                return
+
+            effective_max_tokens = effective_agent_planner_max_tokens(max_tokens)
+            for raw_event in stream_message_events(
                 descriptor=descriptor,
                 system_prompt=system_prompt,
                 messages=messages,
                 tool_schemas=tool_schemas,
                 tool_choice_mode=tool_choice_mode,
-                max_tokens=max_tokens,
+                max_tokens=effective_max_tokens,
                 temperature=temperature,
                 timeout_s=timeout_s,
                 wire_trace_context=wire_trace_context,
@@ -338,10 +330,10 @@ async def chat_with_tools_streaming(
 ) -> LLMResponse:
     desc = descriptor or agent_provider_descriptor()
     effective_timeout = timeout_s or max(10, _config_int("LLM_REQUEST_TIMEOUT_S", 30))
-    effective_max_tokens = effective_agent_planner_max_tokens(max_tokens)
     started_at = time.perf_counter()
 
     if desc.api_style != "anthropic-messages":
+        effective_max_tokens = effective_agent_planner_max_tokens(max_tokens)
         response = await chat_with_tools(
             system_prompt=system_prompt,
             messages=messages,
@@ -401,7 +393,7 @@ async def chat_with_tools_streaming(
             messages=adapted_messages,
             tool_schemas=adapted_tool_schemas,
             tool_choice_mode=tool_choice_mode,
-            max_tokens=effective_max_tokens,
+            max_tokens=max_tokens,
             temperature=temperature,
             timeout_s=effective_timeout,
             wire_trace_context=wire_trace_context,

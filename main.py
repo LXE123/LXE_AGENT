@@ -2,7 +2,7 @@ import asyncio
 import os
 import signal
 
-from shared.llm.agent_planner import bootstrap_agent_planner_selection, log_active_agent_planner_summary
+from shared.llm.agent_planner import log_active_agent_planner_summary
 from gateway.app import GatewayApp
 from shared.infra.net import bootstrap_network_policy
 from shared.logging import logger
@@ -12,7 +12,6 @@ bootstrap_network_policy(label="gateway", emit=logger.info)
 
 
 async def _run_gateway() -> None:
-    bootstrap_agent_planner_selection()
     log_active_agent_planner_summary()
     app = GatewayApp.from_config()
     loop = asyncio.get_running_loop()

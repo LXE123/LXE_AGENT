@@ -5,6 +5,8 @@ import os
 from shared.config import config
 
 PROVIDER_NAME = "kimi_coding"
+DEFAULT_MODEL = "kimi-for-coding"
+_LEGACY_MODEL_ALIASES = {"kimi-code"}
 
 
 def provider_label() -> str:
@@ -39,13 +41,19 @@ def base_url() -> str:
 
 
 def default_model() -> str:
-    return str(
+    return normalize_model(
         os.getenv(
             "KIMI_CODE_MODEL",
-            str(getattr(config, "KIMI_CODE_MODEL", "kimi-code") or ""),
+            str(getattr(config, "KIMI_CODE_MODEL", DEFAULT_MODEL) or ""),
         )
-        or ""
-    ).strip() or "kimi-code"
+    )
+
+
+def normalize_model(model_name: str) -> str:
+    model = str(model_name or "").strip()
+    if not model or model.lower() in _LEGACY_MODEL_ALIASES:
+        return DEFAULT_MODEL
+    return model
 
 
 def user_agent() -> str:

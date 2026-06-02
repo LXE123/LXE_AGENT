@@ -63,7 +63,7 @@ _MODEL_OVERRIDES = {
         "supports_thinking": True,
         "supports_temperature": True,
     },
-    ("kimi_coding", "kimi-code"): {
+    ("kimi_coding", "kimi-for-coding"): {
         "context_window_tokens": 256000,
         "max_output_tokens": 32768,
         "supports_vision": True,
