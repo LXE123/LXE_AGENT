@@ -44,7 +44,7 @@ def _clean_context_patch(value: dict[str, Any] | None) -> dict[str, Any]:
 
 
 def _normalize_platform(value: Any) -> str:
-    return str(value or "").strip() or "dingtalk"
+    return str(value or "").strip() or "feishu"
 
 
 def _normalize_connector_key(value: Any) -> str:

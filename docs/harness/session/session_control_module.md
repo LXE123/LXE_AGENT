@@ -3,7 +3,7 @@
 2. /clear 只是创建一个新会话，而不是直接清空所有会话历史
 
 问：复用是指什么
-答：切换到就 session，后续消息继续追加到就 session
+答：切换到某个 session，后续消息继续追加到这个 session
 ---
 
 为此，我需要新的两张数据库表格，
@@ -35,6 +35,29 @@ tool_calls  // 	JSON 字符串，保存 assistant 发起的 tool calls。
 tool_name   // 	tool 名称。通常用于 tool result 消息。
 timestamp   // 	消息时间，Unix timestamp。
 token_count // 该消息相关 token 数。不是所有消息都会填。
+
+以及一个 session.json 文件用来存储第三方平台的各个属性，比如飞书就是：
+{
+  "agent:main:feishu:group:<chat_id>:<user_id>": {
+    "session_key": "agent:main:feishu:group:<chat_id>:<user_id>",
+    "session_id": "20260603_143000_ab12cd34",
+    "created_at": "...",
+    "updated_at": "...",
+    "origin": {
+      "platform": "feishu",
+      "chat_id": "...",
+      "chat_type": "group",
+      "user_id": "...",
+      "thread_id": null
+    },
+    "platform": "feishu",
+    "chat_type": "group",
+    "resume_pending": false,
+    "suspended": false
+  }
+}
+其中的 session_id 就是 agent_chat_session 中的 id，session_key 由 gateway 生成和 session_id 是映射关系。（系统内部会根据 session_key 找到 session_id）
+
 
 ---
 

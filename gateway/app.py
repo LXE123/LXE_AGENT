@@ -17,7 +17,6 @@ from gateway.ipc_server import GatewayIpcServer
 from gateway.models import InboundEvent
 from gateway.session_scheduler import SessionScheduler
 from gateway.session_router import SessionRouter
-from platforms.dingtalk.gateway import DingTalkStreamAdapter
 from platforms.feishu.config import FEISHU_ENABLED, feishu_runtime_status, validate_feishu_runtime_config
 from shared.config import config
 from shared.agent_state import runtime_patch, runtime_state
@@ -27,7 +26,6 @@ from shared.db.client import (
     load_agent_session,
     update_agent_session,
 )
-from shared.dingtalk.credentials import agent_connector_key
 from shared.gateway_identity import gateway_identity_text
 from shared.infra.net import close_all_network_clients
 from shared.logging import logger
@@ -135,24 +133,17 @@ class GatewayApp:
     @classmethod
     def from_config(cls) -> "GatewayApp":
         registry = ChannelRegistry()
-        agent_connector = agent_connector_key()
-        registry.register(
-            DingTalkStreamAdapter(
-                connector_key=agent_connector,
-                client_id=config.DINGTALK_AGENT_CLIENT_ID,
-                client_secret=config.DINGTALK_AGENT_CLIENT_SECRET,
-            )
-        )
-        if FEISHU_ENABLED:
-            if importlib.util.find_spec("lark_oapi") is None:
-                raise RuntimeError(
-                    "Feishu is enabled, but dependency 'lark-oapi' is missing. "
-                    "Run scripts/install.ps1 or uv sync --frozen --all-groups before starting the gateway."
-                )
-            from platforms.feishu.gateway import FeishuStreamAdapter
-
+        if not FEISHU_ENABLED:
             validate_feishu_runtime_config()
-            registry.register(FeishuStreamAdapter(connector_key="agent"))
+        if importlib.util.find_spec("lark_oapi") is None:
+            raise RuntimeError(
+                "Feishu is enabled, but dependency 'lark-oapi' is missing. "
+                "Run scripts/install.ps1 or uv sync --frozen --all-groups before starting the gateway."
+            )
+        from platforms.feishu.gateway import FeishuStreamAdapter
+
+        validate_feishu_runtime_config()
+        registry.register(FeishuStreamAdapter(connector_key="agent"))
 
         return cls(
             registry=registry,

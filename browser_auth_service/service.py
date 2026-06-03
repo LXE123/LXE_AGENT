@@ -29,10 +29,7 @@ PRIVATE_AMZ_REQUIRED_COOKIE_NAMES = (
     "signed",
     "route",
 )
-KNOWN_LOGIN_HOSTS = {
-    "login.dingtalk.com",
-    "passport.dingtalk.com",
-}
+KNOWN_LOGIN_HOSTS: set[str] = set()
 
 
 def ensure_auth(

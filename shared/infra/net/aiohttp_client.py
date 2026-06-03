@@ -9,7 +9,6 @@ import aiohttp
 
 
 class HttpSessionPurpose(str, Enum):
-    DINGTALK = "dingtalk"
     ERP = "erp"
     EXTERNAL = "external"
 
@@ -25,13 +24,6 @@ class HttpSessionOptions:
 
 
 _SESSION_OPTIONS: Dict[HttpSessionPurpose, HttpSessionOptions] = {
-    HttpSessionPurpose.DINGTALK: HttpSessionOptions(
-        connector_limit=32,
-        connector_limit_per_host=16,
-        total_timeout_s=20,
-        keepalive_timeout_s=15,
-        headers={"User-Agent": "RobotCoze-DingTalk/1.0"},
-    ),
     HttpSessionPurpose.ERP: HttpSessionOptions(
         connector_limit=64,
         connector_limit_per_host=32,
@@ -108,7 +100,6 @@ def get_aiohttp_session(purpose: HttpSessionPurpose | str) -> aiohttp.ClientSess
     return HttpSessionRegistry.get(purpose)
 
 
-dingtalk_http_session = HttpSessionProxy(HttpSessionPurpose.DINGTALK)
 erp_http_session = HttpSessionProxy(HttpSessionPurpose.ERP)
 external_http_session = HttpSessionProxy(HttpSessionPurpose.EXTERNAL)
 
@@ -122,7 +113,6 @@ __all__ = [
     "HttpSessionPurpose",
     "HttpSessionRegistry",
     "close_all_aiohttp_sessions",
-    "dingtalk_http_session",
     "erp_http_session",
     "external_http_session",
     "get_aiohttp_session",

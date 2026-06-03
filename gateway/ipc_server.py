@@ -9,7 +9,6 @@ from gateway.channel_registry import ChannelRegistry
 from gateway.models import OutboundRequest as GatewayOutboundRequest
 from shared.agent_ipc import EmitRequest, HeartbeatWakeRequest
 from shared.db.client import load_agent_session
-from shared.dingtalk.credentials import normalize_bot_name
 from shared.logging import logger
 
 
@@ -100,8 +99,6 @@ class GatewayIpcServer:
         emit_kind = str(emit.emit_kind or "").strip()
         platform = str(session.platform or "").strip()
         connector_key = str(session.connector_key or "agent").strip() or "agent"
-        if platform == "dingtalk":
-            connector_key = normalize_bot_name(connector_key, default="agent")
         adapter = self._registry.get(platform, connector_key)
         logger.info(
             "[GatewayIPC] dispatch emit: session_id=%s kind=%s platform=%s connector=%s content_len=%d files=%d",

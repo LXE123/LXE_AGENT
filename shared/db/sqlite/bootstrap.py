@@ -10,7 +10,7 @@ def init_schema() -> None:
             CREATE TABLE IF NOT EXISTS card_owners (
                 out_track_id TEXT PRIMARY KEY,
                 owner_user_id TEXT NOT NULL,
-                platform TEXT NOT NULL DEFAULT 'dingtalk',
+                platform TEXT NOT NULL DEFAULT 'feishu',
                 connector_key TEXT NOT NULL DEFAULT 'agent',
                 platform_message_id TEXT,
                 conversation_id TEXT,
@@ -43,7 +43,7 @@ def init_schema() -> None:
             CREATE TABLE IF NOT EXISTS agent_contexts (
                 context_id TEXT PRIMARY KEY,
                 owner_user_id TEXT NOT NULL,
-                platform TEXT NOT NULL DEFAULT 'dingtalk',
+                platform TEXT NOT NULL DEFAULT 'feishu',
                 connector_key TEXT NOT NULL DEFAULT 'agent',
                 context_data TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
@@ -59,7 +59,7 @@ def init_schema() -> None:
                 context_id TEXT,
                 card_id TEXT NOT NULL,
                 owner_user_id TEXT NOT NULL,
-                platform TEXT NOT NULL DEFAULT 'dingtalk',
+                platform TEXT NOT NULL DEFAULT 'feishu',
                 connector_key TEXT NOT NULL DEFAULT 'agent',
                 conversation_id TEXT,
                 conversation_type TEXT,

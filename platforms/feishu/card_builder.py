@@ -1,13 +1,13 @@
-"""Translate build_general_card_params() output → Feishu Card JSON (schema 2.0).
+"""Translate card_params output into Feishu Card JSON (schema 2.0).
 
-The card_params dict from DingTalk presenters is our intermediate representation.
+The card_params dict is the agent's intermediate card representation.
 This module converts it to Feishu-native interactive card JSON.
 """
 from __future__ import annotations
 
 from typing import Any
 
-# DingTalk button color → Feishu button type
+# Intermediate button color to Feishu button type.
 _BUTTON_TYPE_MAP: dict[str, str] = {
     "blue": "primary",
     "red": "danger",

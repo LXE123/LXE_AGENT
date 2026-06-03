@@ -143,7 +143,7 @@ def create_agent_session_state(
     conversation_id: str,
     conversation_type: str,
     sender_nick: str = "",
-    platform: str = "dingtalk",
+    platform: str = "feishu",
     connector_key: str = "agent",
     status: str,
     state_data: dict[str, Any] | None = None,

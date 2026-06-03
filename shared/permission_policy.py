@@ -105,14 +105,6 @@ def resolve_bot_id(source: Any) -> str:
     if platform == "feishu":
         return direct_bot_id or _clean_text(getattr(config, "FEISHU_APP_ID", ""))
 
-    if platform == "dingtalk":
-        return (
-            direct_bot_id
-            or _clean_text(raw.get("robotCode"))
-            or _clean_text(raw.get("_bot_name"))
-            or connector_key
-        )
-
     return direct_bot_id or connector_key
 
 

@@ -63,12 +63,19 @@ def test_resolve_bot_id_uses_stable_platform_identity() -> None:
     )
     assert resolve_bot_id(feishu_source) == BOT_ID_AMAZON_REPLENISH
 
-    dingtalk_source = SimpleNamespace(
-        platform="dingtalk",
-        connector_key="ding-connector",
-        raw_data={"robotCode": "ding-robot"},
+    generic_source = SimpleNamespace(
+        platform="api_server",
+        connector_key="api-connector",
+        raw_data={"bot_id": "api-bot"},
     )
-    assert resolve_bot_id(dingtalk_source) == "ding-robot"
+    assert resolve_bot_id(generic_source) == "api-bot"
+
+    fallback_source = SimpleNamespace(
+        platform="api_server",
+        connector_key="api-connector",
+        raw_data={},
+    )
+    assert resolve_bot_id(fallback_source) == "api-connector"
 
 
 def test_resolve_permission_user_id_is_hard_cut_to_union_id() -> None:

@@ -19,7 +19,6 @@ from shared.db.client import (
     request_agent_turn_stop,
     update_agent_session,
 )
-from shared.dingtalk.credentials import normalize_bot_name
 from shared.logging import logger
 from shared.permission_policy import (
     bot_key_for_bot_id,
@@ -319,8 +318,6 @@ class SessionRouter:
         await create_card_context(ctx)
         platform = str(ctx.platform or "").strip()
         connector_key = str(ctx.connector_key or "").strip()
-        if platform == "dingtalk":
-            connector_key = normalize_bot_name(connector_key, default="agent")
         adapter = self._registry.get(platform, connector_key)
         await adapter.handle_outbound(
             OutboundRequest(

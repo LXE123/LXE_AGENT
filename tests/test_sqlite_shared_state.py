@@ -513,9 +513,9 @@ def _create_completed_exec_session(owner_session_id: str):
     )
     session.status = SessionStatus.COMPLETED
     session.exit_code = 0
-    session.output = "line 1\nline 2\n"
-    session.pending = "line 2\n"
-    session.tail = session.output
+    session.stdout = "line 1\nline 2\n"
+    session.pending_stdout = "line 2\n"
+    session.stdout_tail = session.stdout
     session.ended_at = session.started_at + 1.0
     session.notify_on_exit = True
     session.done_event.set()

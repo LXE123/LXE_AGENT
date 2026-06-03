@@ -10,7 +10,6 @@ from requests.adapters import HTTPAdapter
 
 
 class RequestsPurpose(str, Enum):
-    DINGTALK = "dingtalk"
     LLM = "llm"
     OCR = "ocr"
     EXTERNAL = "external"
@@ -37,12 +36,6 @@ class ManagedRequestsSession(requests.Session):
 
 
 _SESSION_OPTIONS: Dict[RequestsPurpose, RequestsSessionOptions] = {
-    RequestsPurpose.DINGTALK: RequestsSessionOptions(
-        pool_connections=32,
-        pool_maxsize=32,
-        timeout_s=30,
-        headers={"User-Agent": "RobotCoze-DingTalk/1.0"},
-    ),
     RequestsPurpose.LLM: RequestsSessionOptions(
         pool_connections=16,
         pool_maxsize=16,
@@ -127,7 +120,6 @@ def get_requests_session(purpose: RequestsPurpose | str) -> ManagedRequestsSessi
     return RequestsSessionRegistry.get(purpose)
 
 
-dingtalk_requests_session = RequestsSessionProxy(RequestsPurpose.DINGTALK)
 llm_requests_session = RequestsSessionProxy(RequestsPurpose.LLM)
 ocr_requests_session = RequestsSessionProxy(RequestsPurpose.OCR)
 external_requests_session = RequestsSessionProxy(RequestsPurpose.EXTERNAL)
@@ -143,7 +135,6 @@ __all__ = [
     "RequestsPurpose",
     "RequestsSessionRegistry",
     "close_all_requests_sessions",
-    "dingtalk_requests_session",
     "external_requests_session",
     "get_requests_session",
     "llm_requests_session",

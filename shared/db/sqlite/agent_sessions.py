@@ -82,7 +82,7 @@ def _clean_optional_text(value: Any) -> Optional[str]:
 
 
 def _normalize_platform(value: Any) -> str:
-    return str(value or "").strip() or "dingtalk"
+    return str(value or "").strip() or "feishu"
 
 
 def _normalize_connector_key(value: Any) -> str:
@@ -552,7 +552,7 @@ def create_agent_session(
     conversation_id: str,
     conversation_type: str,
     sender_nick: str = "",
-    platform: str = "dingtalk",
+    platform: str = "feishu",
     connector_key: str = "agent",
     status: str,
     state_data: dict[str, Any] | None = None,

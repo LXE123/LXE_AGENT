@@ -3,7 +3,6 @@ from __future__ import annotations
 from .aiohttp_client import (
     HttpSessionPurpose,
     close_all_aiohttp_sessions,
-    dingtalk_http_session,
     erp_http_session,
     external_http_session,
     get_aiohttp_session,
@@ -17,7 +16,6 @@ from .policy import (
 from .requests_client import (
     RequestsPurpose,
     close_all_requests_sessions,
-    dingtalk_requests_session,
     external_requests_session,
     get_requests_session,
     llm_requests_session,
@@ -41,8 +39,6 @@ __all__ = [
     "close_all_network_clients",
     "close_all_requests_sessions",
     "connect_websocket",
-    "dingtalk_http_session",
-    "dingtalk_requests_session",
     "erp_http_session",
     "external_http_session",
     "external_requests_session",
