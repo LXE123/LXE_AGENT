@@ -7,8 +7,6 @@ from shared.logging import logger
 from . import bootstrap
 from .agent_contexts import (
     load_agent_context,
-    load_agent_context_by_user,
-    upsert_agent_context,
     update_agent_context,
 )
 from .agent_sessions import (
@@ -18,9 +16,6 @@ from .agent_sessions import (
     create_agent_session,
     discard_agent_session_pending_event,
     has_agent_session_pending_events,
-    load_active_agent_session,
-    load_active_agent_session_by_owner,
-    load_latest_agent_session_for_conversation,
     load_agent_session,
     pop_agent_session_pending_events,
     request_agent_turn_stop,
@@ -49,33 +44,6 @@ def load_agent_context_state(context_id: str):
     return load_agent_context(context_id)
 
 
-def load_agent_context_state_by_user(
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-):
-    return load_agent_context_by_user(
-        owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-    )
-
-
-def upsert_agent_context_state(
-    *,
-    owner_user_id: str,
-    platform: str,
-    connector_key: str,
-    context_data: dict[str, Any] | None = None,
-):
-    return upsert_agent_context(
-        owner_user_id=owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-        context_data=context_data,
-    )
-
-
 def update_agent_context_state(
     context_id: str,
     *,
@@ -84,79 +52,15 @@ def update_agent_context_state(
     return update_agent_context(context_id, context_patch=context_patch)
 
 
-def load_active_agent_session_state(
-    conversation_id: str,
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-):
-    return load_active_agent_session(
-        conversation_id,
-        owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-    )
-
-
-def load_active_agent_session_state_by_owner(
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-):
-    return load_active_agent_session_by_owner(
-        owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-    )
-
-
-def load_active_agent_session_state_by_user(
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-):
-    return load_active_agent_session_by_owner(
-        owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-    )
-
-
-def load_latest_agent_session_state_for_conversation(
-    conversation_id: str,
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-):
-    return load_latest_agent_session_for_conversation(
-        conversation_id,
-        owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-    )
-
-
 def create_agent_session_state(
     *,
-    card_id: str,
-    owner_user_id: str,
-    conversation_id: str,
-    conversation_type: str,
-    sender_nick: str = "",
-    platform: str = "feishu",
-    connector_key: str = "agent",
+    source: dict[str, Any] | None = None,
     status: str,
     state_data: dict[str, Any] | None = None,
     session_id: str = "",
 ):
     return create_agent_session(
-        card_id=card_id,
-        owner_user_id=owner_user_id,
-        conversation_id=conversation_id,
-        conversation_type=conversation_type,
-        sender_nick=sender_nick,
-        platform=platform,
-        connector_key=connector_key,
+        source=source,
         status=status,
         state_data=state_data,
         session_id=session_id,
@@ -166,19 +70,13 @@ def create_agent_session_state(
 def update_agent_session_state(
     session_id: str,
     *,
-    card_id: str | None = None,
-    conversation_id: str | None = None,
-    conversation_type: str | None = None,
-    sender_nick: str | None = None,
+    source: dict[str, Any] | None = None,
     status: str | None = None,
     state_data_patch: dict[str, Any] | None = None,
 ):
     return update_agent_session(
         session_id,
-        card_id=card_id,
-        conversation_id=conversation_id,
-        conversation_type=conversation_type,
-        sender_nick=sender_nick,
+        source=source,
         status=status,
         state_data_patch=state_data_patch,
     )
@@ -258,17 +156,11 @@ __all__ = [
     "dispose",
     "has_agent_session_pending_events_state",
     "init_schema",
-    "load_active_agent_session_state",
-    "load_active_agent_session_state_by_owner",
-    "load_active_agent_session_state_by_user",
-    "load_latest_agent_session_state_for_conversation",
     "load_agent_context_state",
-    "load_agent_context_state_by_user",
     "load_agent_session_state",
     "pop_agent_session_pending_events_state",
     "request_agent_turn_stop_state",
     "reset_agent_session_state",
-    "upsert_agent_context_state",
     "update_agent_context_state",
     "update_agent_session_state",
 ]

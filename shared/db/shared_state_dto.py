@@ -10,7 +10,6 @@ class CardContext:
     out_track_id: str
     owner_user_id: str
     platform: str
-    connector_key: str
     platform_message_id: Optional[str]
     conversation_id: Optional[str]
     conversation_type: Optional[str]
@@ -23,9 +22,6 @@ class CardContext:
 @dataclass
 class AgentContextState:
     context_id: str
-    owner_user_id: str
-    platform: str
-    connector_key: str
     context_data: Dict[str, Any]
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
@@ -35,13 +31,7 @@ class AgentContextState:
 class AgentSessionState:
     session_id: str
     context_id: str
-    card_id: str
-    owner_user_id: str
-    platform: str
-    connector_key: str
-    conversation_id: Optional[str]
-    conversation_type: Optional[str]
-    sender_nick: Optional[str]
+    source: Dict[str, Any]
     status: str
     state_data: Dict[str, Any]
     created_at: Optional[datetime]

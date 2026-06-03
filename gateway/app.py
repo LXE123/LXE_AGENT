@@ -37,8 +37,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def _adapter_label(adapter) -> str:
     platform = str(getattr(adapter, "platform", "") or "").strip() or "unknown"
-    connector_key = str(getattr(adapter, "connector_key", "") or "").strip() or "unknown"
-    return f"{platform}:{connector_key}"
+    return platform
 
 
 class GatewayApp:
@@ -102,8 +101,11 @@ class GatewayApp:
         job_kind = str(getattr(job, "job_kind", "") or "turn").strip() or "turn"
         _turn_id = str(getattr(job, "job_id", "") or "").strip()
         logger.info(
-            "[Gateway] writing active_turn_id: session_id=%s turn_id=%s job_kind=%s",
-            job.session_id, _turn_id, job_kind,
+            "[Gateway] writing active turn: session_id=%s turn_id=%s card_id=%s job_kind=%s",
+            job.session_id,
+            _turn_id,
+            str(getattr(job, "card_id", "") or "").strip(),
+            job_kind,
         )
         await update_agent_session(
             job.session_id,
@@ -111,6 +113,7 @@ class GatewayApp:
             state_data_patch=runtime_patch(
                 {
                     "active_turn_id": _turn_id,
+                    "active_card_id": str(getattr(job, "card_id", "") or "").strip(),
                     "active_turn_started_at": int(time.time()),
                 }
             ),
@@ -143,7 +146,7 @@ class GatewayApp:
         from platforms.feishu.gateway import FeishuStreamAdapter
 
         validate_feishu_runtime_config()
-        registry.register(FeishuStreamAdapter(connector_key="agent"))
+        registry.register(FeishuStreamAdapter())
 
         return cls(
             registry=registry,
@@ -183,9 +186,9 @@ class GatewayApp:
 
         health = await self._registry.health_snapshot()
         logger.info(
-            "🚀 [Gateway] 启动成功 (%s mode=stream connectors=%s health=%s)",
+            "🚀 [Gateway] 启动成功 (%s mode=stream adapters=%s health=%s)",
             gateway_identity_text(self._gateway_id),
-            self._registry.connector_keys(),
+            self._registry.adapter_keys(),
             health,
         )
         self._started = True
@@ -290,9 +293,8 @@ class GatewayApp:
                 await self._session_router.route_message(event)
             except Exception:
                 logger.error(
-                    "[Gateway] dispatch failed: platform=%s connector=%s event_type=%s",
+                    "[Gateway] dispatch failed: platform=%s event_type=%s",
                     event.platform,
-                    event.connector_key,
                     event.event_type,
                     exc_info=True,
                 )

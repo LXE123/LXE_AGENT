@@ -84,16 +84,11 @@ def _normalize_platform(value: Any) -> str:
     return str(value or "").strip() or "feishu"
 
 
-def _normalize_connector_key(value: Any) -> str:
-    return str(value or "").strip() or "agent"
-
-
 def _to_context(row: Row) -> CardContext:
     return CardContext(
         out_track_id=str(row["out_track_id"]),
         owner_user_id=str(row["owner_user_id"]),
         platform=_normalize_platform(row["platform"]),
-        connector_key=_normalize_connector_key(row["connector_key"]),
         platform_message_id=str(row["platform_message_id"] or "").strip() or None,
         conversation_id=row["conversation_id"],
         conversation_type=row["conversation_type"],
@@ -111,16 +106,8 @@ def create_context(ctx: Any) -> None:
     now = _datetime_to_storage(_utc_now())
     raw_data = dict(getattr(ctx, "raw_data", {}) or {})
     platform = _normalize_platform(getattr(ctx, "platform", None) or raw_data.get("platform"))
-    connector_key = _normalize_connector_key(
-        getattr(ctx, "connector_key", None)
-        or raw_data.get("connector_key")
-        or raw_data.get("_bot_name")
-    )
     extra_data = {
         "platform": platform,
-        "connector_key": connector_key,
-        "bot_name": str(raw_data.get("_bot_name") or getattr(ctx, "connector_key", "") or "").strip() or "agent",
-        "robot_code": str(raw_data.get("robotCode") or "").strip(),
         "source_message_id": str(
             getattr(ctx, "message_id", "") or raw_data.get("message_id") or ""
         ).strip(),
@@ -133,7 +120,6 @@ def create_context(ctx: Any) -> None:
                 out_track_id,
                 owner_user_id,
                 platform,
-                connector_key,
                 platform_message_id,
                 conversation_id,
                 conversation_type,
@@ -142,11 +128,10 @@ def create_context(ctx: Any) -> None:
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(out_track_id) DO UPDATE SET
                 owner_user_id = excluded.owner_user_id,
                 platform = excluded.platform,
-                connector_key = excluded.connector_key,
                 conversation_id = excluded.conversation_id,
                 conversation_type = excluded.conversation_type,
                 sender_nick = excluded.sender_nick,
@@ -157,7 +142,6 @@ def create_context(ctx: Any) -> None:
                 str(ctx.card_id),
                 str(ctx.user_id),
                 platform,
-                connector_key,
                 getattr(ctx, "conversation_id", None),
                 "2" if bool(getattr(ctx, "is_group", False)) else "1",
                 getattr(ctx, "sender_nick", None),
@@ -198,19 +182,15 @@ def save_session_patch(out_track_id: str, patch: dict[str, Any]) -> None:
         current_data = _json_object_from_storage(row["extra_data"])
         current_data.update(dict(_sanitize_json_for_storage(patch) or {}))
         platform = row["platform"]
-        connector_key = row["connector_key"]
         platform_message_id = row["platform_message_id"]
         if "platform" in patch:
             platform = _normalize_platform(patch.get("platform"))
-        if "connector_key" in patch:
-            connector_key = _normalize_connector_key(patch.get("connector_key"))
         if "platform_message_id" in patch:
             platform_message_id = _sanitize_optional_text(patch.get("platform_message_id"))
         conn.execute(
             """
             UPDATE card_owners
             SET platform = ?,
-                connector_key = ?,
                 platform_message_id = ?,
                 extra_data = ?,
                 updated_at = ?
@@ -218,7 +198,6 @@ def save_session_patch(out_track_id: str, patch: dict[str, Any]) -> None:
             """,
             (
                 platform,
-                connector_key,
                 platform_message_id,
                 _json_object_to_storage(current_data),
                 _datetime_to_storage(_utc_now()),
@@ -231,7 +210,6 @@ def save_delivery_handle(
     out_track_id: str,
     *,
     platform: str | None = None,
-    connector_key: str | None = None,
     platform_message_id: str | None = None,
 ) -> bool:
     safe_out_track_id = str(out_track_id or "").strip()
@@ -248,14 +226,10 @@ def save_delivery_handle(
 
         extra_data = _json_object_from_storage(row["extra_data"])
         stored_platform = row["platform"]
-        stored_connector_key = row["connector_key"]
         stored_platform_message_id = row["platform_message_id"]
         if platform is not None:
             stored_platform = _normalize_platform(platform)
             extra_data["platform"] = stored_platform
-        if connector_key is not None:
-            stored_connector_key = _normalize_connector_key(connector_key)
-            extra_data["connector_key"] = stored_connector_key
         if platform_message_id is not None:
             stored_platform_message_id = _sanitize_optional_text(platform_message_id)
 
@@ -263,7 +237,6 @@ def save_delivery_handle(
             """
             UPDATE card_owners
             SET platform = ?,
-                connector_key = ?,
                 platform_message_id = ?,
                 extra_data = ?,
                 updated_at = ?
@@ -271,7 +244,6 @@ def save_delivery_handle(
             """,
             (
                 stored_platform,
-                stored_connector_key,
                 stored_platform_message_id,
                 _json_object_to_storage(extra_data),
                 _datetime_to_storage(_utc_now()),

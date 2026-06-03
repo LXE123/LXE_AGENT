@@ -58,24 +58,21 @@ def test_policy_skill_type_matrix() -> None:
 def test_resolve_bot_id_uses_stable_platform_identity() -> None:
     feishu_source = SimpleNamespace(
         platform="feishu",
-        connector_key="agent",
         raw_data={"app_id": BOT_ID_AMAZON_REPLENISH},
     )
     assert resolve_bot_id(feishu_source) == BOT_ID_AMAZON_REPLENISH
 
     generic_source = SimpleNamespace(
         platform="api_server",
-        connector_key="api-connector",
         raw_data={"bot_id": "api-bot"},
     )
     assert resolve_bot_id(generic_source) == "api-bot"
 
     fallback_source = SimpleNamespace(
         platform="api_server",
-        connector_key="api-connector",
         raw_data={},
     )
-    assert resolve_bot_id(fallback_source) == "api-connector"
+    assert resolve_bot_id(fallback_source) == ""
 
 
 def test_resolve_permission_user_id_is_hard_cut_to_union_id() -> None:
@@ -90,11 +87,10 @@ def test_runtime_filters_available_skills_by_bot() -> None:
     manifest_by_name = {manifest.name: manifest for manifest in index.all()}
     all_skill_names = {item.name for item in index.queue(allowed_types={ALL})}
 
-    claw_session = SimpleNamespace(platform="feishu", connector_key="agent", raw_data={"app_id": BOT_ID_LXE_CLAW})
-    fba_session = SimpleNamespace(platform="feishu", connector_key="agent", raw_data={"app_id": BOT_ID_LXE_FBA_AGENT})
+    claw_session = SimpleNamespace(platform="feishu", raw_data={"app_id": BOT_ID_LXE_CLAW})
+    fba_session = SimpleNamespace(platform="feishu", raw_data={"app_id": BOT_ID_LXE_FBA_AGENT})
     replenish_session = SimpleNamespace(
         platform="feishu",
-        connector_key="agent",
         raw_data={"app_id": BOT_ID_AMAZON_REPLENISH},
     )
 

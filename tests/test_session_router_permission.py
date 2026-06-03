@@ -15,7 +15,6 @@ OPEN_ID_ZGL = "ou_zgl_open_id"
 
 class _FakeAdapter:
     platform = "feishu"
-    connector_key = "agent"
 
     def __init__(self) -> None:
         self.outbound_requests = []
@@ -28,9 +27,8 @@ class _FakeRegistry:
     def __init__(self, adapter: _FakeAdapter) -> None:
         self.adapter = adapter
 
-    def get(self, platform: str, connector_key: str):
+    def get(self, platform: str):
         assert platform == "feishu"
-        assert connector_key == "agent"
         return self.adapter
 
 
@@ -45,7 +43,6 @@ class _FakeScheduler:
 def _event(*, user_id: str, union_id: str, app_id: str) -> InboundEvent:
     return InboundEvent(
         platform="feishu",
-        connector_key="agent",
         event_type="agent_message",
         user_input="hello",
         user_id=user_id,
@@ -55,9 +52,16 @@ def _event(*, user_id: str, union_id: str, app_id: str) -> InboundEvent:
         sender_nick="sender",
         card_id="card-1",
         union_id=union_id,
+        source={
+            "platform": "feishu",
+            "chat_id": "chat-1",
+            "chat_type": "p2p",
+            "user_id": user_id,
+            "user_id_alt": union_id,
+            "user_name": "sender",
+        },
         raw_data={
             "platform": "feishu",
-            "connector_key": "agent",
             "app_id": app_id,
             "union_id": union_id,
         },
@@ -67,6 +71,11 @@ def _event(*, user_id: str, union_id: str, app_id: str) -> InboundEvent:
 def _router(adapter: _FakeAdapter, scheduler: _FakeScheduler) -> SessionRouter:
     router = SessionRouter(registry=_FakeRegistry(adapter))
     router.bind_scheduler(scheduler)
+    router._bindings = SimpleNamespace(
+        get=lambda _session_key: None,
+        get_or_create=lambda _source: SimpleNamespace(session_id="session-1"),
+        rotate=lambda _source: SimpleNamespace(session_id="session-rotated"),
+    )
     return router
 
 
@@ -82,7 +91,6 @@ def test_router_denies_unknown_bot_without_enqueue(monkeypatch) -> None:
         raise AssertionError("permission denied route should not touch agent session storage")
 
     monkeypatch.setattr(router_mod, "create_card_context", fake_create_card_context)
-    monkeypatch.setattr(router_mod, "load_active_agent_session_by_user", fail_db_call)
     monkeypatch.setattr(router_mod, "create_agent_session", fail_db_call)
 
     decision = asyncio.run(
@@ -107,7 +115,6 @@ def test_router_denies_user_without_agent_access(monkeypatch) -> None:
         raise AssertionError("permission denied route should not touch agent session storage")
 
     monkeypatch.setattr(router_mod, "create_card_context", fake_create_card_context)
-    monkeypatch.setattr(router_mod, "load_active_agent_session_by_user", fail_db_call)
     monkeypatch.setattr(router_mod, "create_agent_session", fail_db_call)
 
     decision = asyncio.run(
@@ -132,7 +139,6 @@ def test_router_does_not_fallback_to_open_id_for_user_access(monkeypatch) -> Non
         raise AssertionError("permission denied route should not touch agent session storage")
 
     monkeypatch.setattr(router_mod, "create_card_context", fake_create_card_context)
-    monkeypatch.setattr(router_mod, "load_active_agent_session_by_user", fail_db_call)
     monkeypatch.setattr(router_mod, "create_agent_session", fail_db_call)
 
     decision = asyncio.run(
@@ -161,12 +167,7 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
         calls["created"] += 1
         return SimpleNamespace(
             session_id="session-1",
-            platform=kwargs["platform"],
-            connector_key=kwargs["connector_key"],
-            owner_user_id=kwargs["owner_user_id"],
-            conversation_id=kwargs["conversation_id"],
-            conversation_type=kwargs["conversation_type"],
-            sender_nick=kwargs["sender_nick"],
+            source=kwargs["source"],
             status=AgentSessionStatus.WAITING_USER_INPUT,
             state_data=kwargs["state_data"],
         )
@@ -175,7 +176,7 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
         return []
 
     monkeypatch.setattr(router_mod, "create_card_context", fake_create_card_context)
-    monkeypatch.setattr(router_mod, "load_active_agent_session_by_user", fake_load_session)
+    monkeypatch.setattr(router_mod, "load_agent_session", fake_load_session)
     monkeypatch.setattr(router_mod, "create_agent_session", fake_create_agent_session)
     monkeypatch.setattr(router_mod, "pop_agent_session_pending_events", fake_pop_pending_events)
 
@@ -189,7 +190,11 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     job, front = scheduler.jobs[0]
     assert not front
     assert job.session_id == "session-1"
-    assert job.user_id == OPEN_ID_ZGL
+    assert job.session_key == f"agent:main:feishu:dm:chat-1"
+    assert job.card_id == "card-1"
+    assert job.user_id == USER_ZGL
     assert job.raw_data["app_id"] == BOT_ID_LXE_FBA_AGENT
     assert job.raw_data["union_id"] == USER_ZGL
+    assert job.raw_data["session_key"] == "agent:main:feishu:dm:chat-1"
+    assert job.source["user_id_alt"] == USER_ZGL
     assert adapter.outbound_requests == []

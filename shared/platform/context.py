@@ -8,7 +8,6 @@ from typing import Any
 @dataclass(slots=True)
 class SessionContext:
     platform: str
-    connector_key: str
     user_input: str
     user_id: str
     card_id: str
@@ -16,5 +15,7 @@ class SessionContext:
     is_group: bool
     message_id: str
     sender_nick: str = ""
+    session_key: str = ""
+    source: dict[str, Any] = field(default_factory=dict)
     raw_data: dict[str, Any] = field(default_factory=dict)
     user_content_blocks: list[dict[str, Any]] = field(default_factory=list)

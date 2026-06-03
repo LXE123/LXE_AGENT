@@ -49,12 +49,6 @@ class FeishuCardSender:
             or raw_data.get("message_id")
             or getattr(ctx, "message_id", "")
         ).strip()
-        connector_key = str(
-            getattr(ctx, "connector_key", "")
-            or raw_data.get("connector_key")
-            or "feishu_agent"
-        ).strip()
-
         session = get_aiohttp_session(HttpSessionPurpose.EXTERNAL)
         headers = {
             "Authorization": f"Bearer {token}",
@@ -85,7 +79,6 @@ class FeishuCardSender:
             await save_card_delivery_handle(
                 card_id,
                 platform="feishu",
-                connector_key=connector_key,
                 platform_message_id=platform_message_id,
             )
         logger.info("[Feishu] card sent: card_id=%s feishu_msg_id=%s", card_id, platform_message_id)
@@ -128,10 +121,9 @@ class FeishuCardSender:
             logger.warning("[Feishu] update_card failed: card_id=%s resp=%s", card_id, data)
 
 
-def build_markdown_card_context(card_ctx, *, connector_key: str = "feishu_agent") -> Any:
+def build_markdown_card_context(card_ctx) -> Any:
     return SimpleNamespace(
         platform="feishu",
-        connector_key=connector_key,
         card_id="",
         user_id=card_ctx.owner_user_id,
         conversation_id=card_ctx.conversation_id or "",
@@ -140,7 +132,6 @@ def build_markdown_card_context(card_ctx, *, connector_key: str = "feishu_agent"
         message_id="",
         raw_data={
             "platform": "feishu",
-            "connector_key": connector_key,
             "chat_id": str(card_ctx.conversation_id or "").strip(),
             "source_message_id": str(dict(card_ctx.extra_data or {}).get("source_message_id") or "").strip(),
         },

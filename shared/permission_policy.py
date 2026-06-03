@@ -50,6 +50,9 @@ def _raw_data(source: Any) -> dict[str, Any]:
     raw = getattr(source, "raw_data", None)
     if isinstance(raw, dict):
         return dict(raw)
+    raw = getattr(source, "source", None)
+    if isinstance(raw, dict):
+        return dict(raw)
     return {}
 
 
@@ -100,12 +103,10 @@ def resolve_bot_id(source: Any) -> str:
         or _clean_text(raw.get("bot_app_id"))
     )
     platform = (_source_text(source, "platform") or _clean_text(raw.get("platform"))).lower()
-    connector_key = _source_text(source, "connector_key") or _clean_text(raw.get("connector_key"))
-
     if platform == "feishu":
         return direct_bot_id or _clean_text(getattr(config, "FEISHU_APP_ID", ""))
 
-    return direct_bot_id or connector_key
+    return direct_bot_id
 
 
 __all__ = [

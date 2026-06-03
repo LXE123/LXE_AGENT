@@ -202,7 +202,6 @@ class FeishuCardKitSender:
                 await save_card_delivery_handle(
                     card_id,
                     platform="feishu",
-                    connector_key=str(getattr(ctx, "connector_key", "") or "agent").strip() or "agent",
                     platform_message_id=platform_message_id,
                 )
         return cardkit_card_id

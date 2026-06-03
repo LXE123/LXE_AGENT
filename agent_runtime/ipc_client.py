@@ -63,6 +63,7 @@ async def request_heartbeat_wake(*, session_id: str, reason: str = "exec-event")
 async def emit(
     *,
     session_id: str,
+    card_id: str = "",
     content: str = "",
     files: list[str] | None = None,
     emit_kind: str,
@@ -99,6 +100,7 @@ async def emit(
     await send_emit_request(
         EmitRequest(
             session_id=normalized_session_id,
+            card_id=str(card_id or "").strip(),
             content=normalized_content,
             files=normalized_files,
             emit_kind=normalized_emit_kind,
@@ -113,12 +115,14 @@ async def emit(
 async def emit_final(
     *,
     session_id: str,
+    card_id: str = "",
     content: str,
     files: list[str] | None = None,
     emit_id: str = "",
 ) -> None:
     await emit(
         session_id=session_id,
+        card_id=card_id,
         content=content,
         files=files,
         emit_kind="final",
@@ -129,6 +133,7 @@ async def emit_final(
 async def emit_tool(
     *,
     session_id: str,
+    card_id: str = "",
     files: list[str],
     emit_id: str = "",
 ) -> None:
@@ -136,6 +141,7 @@ async def emit_tool(
         return
     await emit(
         session_id=session_id,
+        card_id=card_id,
         files=files,
         emit_kind="tool",
         emit_id=emit_id,
@@ -145,6 +151,7 @@ async def emit_tool(
 async def emit_stream(
     *,
     session_id: str,
+    card_id: str = "",
     stream_type: str,
     state: str,
     seq: int,
@@ -153,6 +160,7 @@ async def emit_stream(
 ) -> None:
     await emit(
         session_id=session_id,
+        card_id=card_id,
         content=content,
         emit_kind="stream",
         emit_id=emit_id,

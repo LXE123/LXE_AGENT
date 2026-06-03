@@ -71,7 +71,7 @@ class FeishuMediaSender:
             return False
         try:
             await self._card_sender.send_card(
-                build_markdown_card_context(ctx, connector_key=ctx.connector_key or "feishu_agent"),
+                build_markdown_card_context(ctx),
                 ctx.out_track_id,
                 build_markdown_card(safe_markdown, title=str(title or "").strip()),
             )

@@ -159,10 +159,11 @@ def _validate_sort_rule(sort_rule: str) -> str:
 
 def _current_feishu_chat_id() -> str:
     ctx = get_tool_context()
-    platform = str(getattr(ctx.session, "platform", "") or "").strip().lower()
+    source = dict(getattr(ctx.session, "source", {}) or {})
+    platform = str(source.get("platform") or "").strip().lower()
     if platform != "feishu":
         return ""
-    return str(getattr(ctx.session, "conversation_id", "") or "").strip()
+    return str(source.get("chat_id") or "").strip()
 
 
 def _format_message_content(msg_type: str, raw_content: str) -> str:

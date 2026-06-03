@@ -33,14 +33,13 @@ from ._agent_storage import (
     json_object_from_storage,
     json_object_to_storage,
     sanitize_json_for_storage,
-    sanitize_optional_text,
     utc_now,
 )
 from .agent_contexts import (
     AgentContextRecord,
     _apply_agent_context_patch,
     _clean_context_data,
-    _ensure_agent_context_record,
+    _create_agent_context_record,
     _load_agent_context_record,
     _save_agent_context_record,
     _touch_agent_context_record,
@@ -59,13 +58,7 @@ _STATE_DATA_PATCH_KEYS = {
 class AgentSessionRecord:
     session_id: str
     context_id: Optional[str]
-    card_id: str
-    owner_user_id: str
-    platform: str
-    connector_key: str
-    conversation_id: Optional[str]
-    conversation_type: Optional[str]
-    sender_nick: Optional[str]
+    source: dict[str, Any]
     status: str
     state_data: dict[str, Any]
     created_at: Optional[datetime]
@@ -77,16 +70,8 @@ def _session_activity_marker(base_time: Optional[datetime] = None) -> int:
     return int(current.timestamp())
 
 
-def _clean_optional_text(value: Any) -> Optional[str]:
-    return sanitize_optional_text(value)
-
-
-def _normalize_platform(value: Any) -> str:
-    return str(value or "").strip() or "feishu"
-
-
-def _normalize_connector_key(value: Any) -> str:
-    return str(value or "").strip() or "agent"
+def _clean_source(value: dict[str, Any] | None) -> dict[str, Any]:
+    return sanitize_json_for_storage(dict(value or {}))
 
 
 def _clean_session_storage_state(value: dict[str, Any] | None) -> dict[str, Any]:
@@ -100,13 +85,10 @@ def _record_from_row(row: Row | None) -> AgentSessionRecord | None:
     return AgentSessionRecord(
         session_id=str(row["session_id"]),
         context_id=str(row["context_id"] or "").strip() or None,
-        card_id=str(row["card_id"]),
-        owner_user_id=str(row["owner_user_id"]),
-        platform=_normalize_platform(row["platform"]),
-        connector_key=_normalize_connector_key(row["connector_key"]),
-        conversation_id=row["conversation_id"],
-        conversation_type=row["conversation_type"],
-        sender_nick=row["sender_nick"],
+        source=json_object_from_storage(
+            row["source"],
+            field_name="agent_sessions.source",
+        ),
         status=str(row["status"]),
         state_data=json_object_from_storage(
             row["state_data"],
@@ -133,13 +115,7 @@ def _save_session_record(conn: Connection, record: AgentSessionRecord) -> None:
         """
         UPDATE agent_sessions
         SET context_id = ?,
-            card_id = ?,
-            owner_user_id = ?,
-            platform = ?,
-            connector_key = ?,
-            conversation_id = ?,
-            conversation_type = ?,
-            sender_nick = ?,
+            source = ?,
             status = ?,
             state_data = ?,
             updated_at = ?
@@ -147,13 +123,10 @@ def _save_session_record(conn: Connection, record: AgentSessionRecord) -> None:
         """,
         (
             record.context_id,
-            record.card_id,
-            record.owner_user_id,
-            _normalize_platform(record.platform),
-            _normalize_connector_key(record.connector_key),
-            record.conversation_id,
-            record.conversation_type,
-            record.sender_nick,
+            json_object_to_storage(
+                _clean_source(record.source),
+                field_name="agent_sessions.source",
+            ),
             record.status,
             json_object_to_storage(
                 record.state_data,
@@ -171,30 +144,21 @@ def _insert_session_record(conn: Connection, record: AgentSessionRecord) -> None
         INSERT INTO agent_sessions (
             session_id,
             context_id,
-            card_id,
-            owner_user_id,
-            platform,
-            connector_key,
-            conversation_id,
-            conversation_type,
-            sender_nick,
+            source,
             status,
             state_data,
             created_at,
             updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             record.session_id,
             record.context_id,
-            record.card_id,
-            record.owner_user_id,
-            _normalize_platform(record.platform),
-            _normalize_connector_key(record.connector_key),
-            record.conversation_id,
-            record.conversation_type,
-            record.sender_nick,
+            json_object_to_storage(
+                _clean_source(record.source),
+                field_name="agent_sessions.source",
+            ),
             record.status,
             json_object_to_storage(
                 record.state_data,
@@ -204,30 +168,6 @@ def _insert_session_record(conn: Connection, record: AgentSessionRecord) -> None
             datetime_to_storage(record.updated_at or utc_now()),
         ),
     )
-
-
-def _active_status_clause() -> tuple[str, list[str]]:
-    statuses = sorted(ACTIVE_AGENT_SESSION_STATUSES)
-    placeholders = ", ".join("?" for _ in statuses)
-    return f"status IN ({placeholders})", statuses
-
-
-def _select_one_session(
-    conn: Connection,
-    *,
-    conditions: list[str],
-    params: list[Any],
-) -> AgentSessionRecord | None:
-    row = conn.execute(
-        f"""
-        SELECT * FROM agent_sessions
-        WHERE {" AND ".join(conditions)}
-        ORDER BY updated_at DESC, created_at DESC
-        LIMIT 1
-        """,
-        tuple(params),
-    ).fetchone()
-    return _record_from_row(row)
 
 
 def _normalize_pending_event(event: dict[str, Any] | None) -> dict[str, Any]:
@@ -345,11 +285,8 @@ def _ensure_record_context(
         existing = _load_agent_context_record(conn, context_id=str(record.context_id or "").strip())
     if existing is not None:
         return existing
-    created = _ensure_agent_context_record(
+    created = _create_agent_context_record(
         conn,
-        owner_user_id=str(record.owner_user_id or "").strip(),
-        platform=_normalize_platform(record.platform),
-        connector_key=_normalize_connector_key(record.connector_key),
         initial_context_data=initial_context_data,
     )
     record.context_id = str(created.context_id or "").strip() or None
@@ -404,13 +341,7 @@ def _to_state(
     return AgentSessionState(
         session_id=str(record.session_id),
         context_id=str(record.context_id or ""),
-        card_id=str(record.card_id),
-        owner_user_id=str(record.owner_user_id),
-        platform=_normalize_platform(record.platform),
-        connector_key=_normalize_connector_key(record.connector_key),
-        conversation_id=record.conversation_id,
-        conversation_type=record.conversation_type,
-        sender_nick=record.sender_nick,
+        source=_clean_source(record.source),
         status=str(record.status),
         state_data=_compose_record_state(record, conn=conn, context_record=context_record),
         created_at=record.created_at,
@@ -465,103 +396,14 @@ def load_agent_session(session_id: str) -> Optional[AgentSessionState]:
         return _to_state(record, conn=conn)
 
 
-def load_active_agent_session(
-    conversation_id: str,
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-) -> Optional[AgentSessionState]:
-    if not conversation_id or not owner_user_id:
-        return None
-    with connection_scope() as conn:
-        active_clause, active_params = _active_status_clause()
-        conditions = [
-            "conversation_id = ?",
-            "owner_user_id = ?",
-            active_clause,
-        ]
-        params: list[Any] = [
-            str(conversation_id or "").strip(),
-            str(owner_user_id or "").strip(),
-            *active_params,
-        ]
-        if platform:
-            conditions.append("platform = ?")
-            params.append(str(platform).strip())
-        if connector_key:
-            conditions.append("connector_key = ?")
-            params.append(str(connector_key).strip())
-        record = _select_one_session(conn, conditions=conditions, params=params)
-        if record is None:
-            return None
-        return _prepare_loaded_active_session(conn, record)
-
-
-def load_active_agent_session_by_owner(
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-) -> Optional[AgentSessionState]:
-    if not owner_user_id:
-        return None
-    with connection_scope() as conn:
-        active_clause, active_params = _active_status_clause()
-        conditions = ["owner_user_id = ?", active_clause]
-        params: list[Any] = [str(owner_user_id or "").strip(), *active_params]
-        if platform:
-            conditions.append("platform = ?")
-            params.append(str(platform).strip())
-        if connector_key:
-            conditions.append("connector_key = ?")
-            params.append(str(connector_key).strip())
-        record = _select_one_session(conn, conditions=conditions, params=params)
-        if record is None:
-            return None
-        return _prepare_loaded_active_session(conn, record)
-
-
-def load_latest_agent_session_for_conversation(
-    conversation_id: str,
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-) -> Optional[AgentSessionState]:
-    safe_conversation_id = str(conversation_id or "").strip()
-    safe_owner_user_id = str(owner_user_id or "").strip()
-    if not safe_conversation_id or not safe_owner_user_id:
-        return None
-    with connection_scope() as conn:
-        conditions = ["conversation_id = ?", "owner_user_id = ?"]
-        params: list[Any] = [safe_conversation_id, safe_owner_user_id]
-        if platform:
-            conditions.append("platform = ?")
-            params.append(str(platform).strip())
-        if connector_key:
-            conditions.append("connector_key = ?")
-            params.append(str(connector_key).strip())
-        record = _select_one_session(conn, conditions=conditions, params=params)
-        if record is None:
-            return None
-        return _to_state(record, conn=conn)
-
-
 def create_agent_session(
     *,
-    card_id: str,
-    owner_user_id: str,
-    conversation_id: str,
-    conversation_type: str,
-    sender_nick: str = "",
-    platform: str = "feishu",
-    connector_key: str = "agent",
+    source: dict[str, Any] | None,
     status: str,
     state_data: dict[str, Any] | None = None,
     session_id: str = "",
 ) -> AgentSessionState:
     now = utc_now()
-    safe_owner_user_id = str(owner_user_id or "").strip()
-    if not safe_owner_user_id:
-        raise RuntimeError("owner_user_id required")
     initial_state_data = ensure_agent_state(state_data)
     initial_runtime = runtime_state(initial_state_data)
     _validate_runtime_patch(initial_runtime)
@@ -569,50 +411,17 @@ def create_agent_session(
     initial_state_data[RUNTIME_KEY] = initial_runtime
     session_state_data, context_data = split_agent_state_for_storage(initial_state_data)
     clean_session_state = _clean_session_storage_state(session_state_data)
-    safe_platform = _normalize_platform(platform)
-    safe_connector_key = _normalize_connector_key(connector_key)
 
     with connection_scope() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        active_clause, active_params = _active_status_clause()
-        existing = _select_one_session(
+        context_record = _create_agent_context_record(
             conn,
-            conditions=[
-                "owner_user_id = ?",
-                active_clause,
-                "platform = ?",
-                "connector_key = ?",
-            ],
-            params=[
-                safe_owner_user_id,
-                *active_params,
-                safe_platform,
-                safe_connector_key,
-            ],
-        )
-        if existing is not None:
-            existing_state = _prepare_loaded_active_session(conn, existing)
-            if existing_state is not None:
-                raise RuntimeError(f"active agent session already exists for owner: {safe_owner_user_id}")
-
-        context_record = _ensure_agent_context_record(
-            conn,
-            owner_user_id=safe_owner_user_id,
-            platform=safe_platform,
-            connector_key=safe_connector_key,
             initial_context_data=context_data,
         )
-
         record = AgentSessionRecord(
             session_id=str(session_id or uuid4().hex),
             context_id=str(context_record.context_id),
-            card_id=str(card_id or "").strip(),
-            owner_user_id=safe_owner_user_id,
-            platform=safe_platform,
-            connector_key=safe_connector_key,
-            conversation_id=str(conversation_id or "").strip() or None,
-            conversation_type=str(conversation_type or "").strip() or None,
-            sender_nick=str(sender_nick or "").strip() or None,
+            source=_clean_source(source),
             status=str(status or "").strip(),
             state_data=clean_session_state,
             created_at=now,
@@ -625,10 +434,7 @@ def create_agent_session(
 def update_agent_session(
     session_id: str,
     *,
-    card_id: str | None = None,
-    conversation_id: str | None = None,
-    conversation_type: str | None = None,
-    sender_nick: str | None = None,
+    source: dict[str, Any] | None = None,
     status: str | None = None,
     state_data_patch: dict[str, Any] | None = None,
 ) -> Optional[AgentSessionState]:
@@ -642,27 +448,11 @@ def update_agent_session(
             return None
 
         now = utc_now()
-        if card_id is not None:
-            record.card_id = str(card_id or "").strip() or record.card_id
-        if conversation_id is not None:
-            record.conversation_id = _clean_optional_text(conversation_id)
-        if conversation_type is not None:
-            record.conversation_type = _clean_optional_text(conversation_type)
-        if sender_nick is not None:
-            record.sender_nick = _clean_optional_text(sender_nick)
+        if source is not None:
+            record.source = _clean_source(source)
         if status is not None:
             record.status = str(status or "").strip() or record.status
         _merge_state_data(conn, record, state_data_patch, base_time=now)
-        if (
-            card_id is not None
-            or conversation_id is not None
-            or conversation_type is not None
-            or sender_nick is not None
-        ):
-            _touch_session_activity(record, base_time=now)
-            context_record = _ensure_record_context(conn, record)
-            _touch_agent_context_record(context_record, base_time=now)
-            _save_agent_context_record(conn, context_record)
         record.updated_at = now
         _save_session_record(conn, record)
         return _to_state(record, conn=conn)
@@ -983,10 +773,7 @@ __all__ = [
     "create_agent_session",
     "discard_agent_session_pending_event",
     "has_agent_session_pending_events",
-    "load_active_agent_session",
-    "load_active_agent_session_by_owner",
     "load_agent_session",
-    "load_latest_agent_session_for_conversation",
     "pop_agent_session_pending_events",
     "request_agent_turn_stop",
     "reset_agent_session_context",

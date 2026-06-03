@@ -23,6 +23,13 @@ FEISHU_APP_ID: str = _config_text("FEISHU_APP_ID")
 FEISHU_APP_SECRET: str = _config_text("FEISHU_APP_SECRET")
 FEISHU_BOT_OPEN_ID: str = _config_text("FEISHU_BOT_OPEN_ID")
 FEISHU_API_HOST: str = _config_text("FEISHU_API_HOST", "https://open.feishu.cn/open-apis")
+FEISHU_RAW_EVENT_DUMP_ENABLED: bool = bool(
+    getattr(shared_config, "FEISHU_RAW_EVENT_DUMP_ENABLED", False)
+)
+FEISHU_RAW_EVENT_DUMP_DIR: str = _config_text(
+    "FEISHU_RAW_EVENT_DUMP_DIR",
+    "logs/feishu_raw_events",
+)
 
 
 def feishu_missing_required_config() -> list[str]:
@@ -45,6 +52,8 @@ def feishu_runtime_status() -> dict[str, Any]:
         "app_id_masked": _mask_value(FEISHU_APP_ID),
         "bot_open_id_configured": bool(FEISHU_BOT_OPEN_ID),
         "api_host": FEISHU_API_HOST,
+        "raw_event_dump_enabled": FEISHU_RAW_EVENT_DUMP_ENABLED,
+        "raw_event_dump_dir": FEISHU_RAW_EVENT_DUMP_DIR,
     }
 
 
@@ -63,6 +72,8 @@ __all__ = [
     "FEISHU_APP_SECRET",
     "FEISHU_BOT_OPEN_ID",
     "FEISHU_ENABLED",
+    "FEISHU_RAW_EVENT_DUMP_DIR",
+    "FEISHU_RAW_EVENT_DUMP_ENABLED",
     "feishu_missing_required_config",
     "feishu_runtime_status",
     "validate_feishu_runtime_config",

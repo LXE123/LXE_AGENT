@@ -7,7 +7,6 @@ from typing import Any
 @dataclass(slots=True)
 class InboundEvent:
     platform: str
-    connector_key: str
     event_type: str
     user_input: str
     user_id: str
@@ -17,6 +16,7 @@ class InboundEvent:
     sender_nick: str = ""
     card_id: str = ""
     union_id: str = ""
+    source: dict[str, Any] = field(default_factory=dict)
     raw_data: dict[str, Any] = field(default_factory=dict)
     user_content_blocks: list[dict[str, Any]] = field(default_factory=list)
 
@@ -24,7 +24,6 @@ class InboundEvent:
 @dataclass(slots=True)
 class CallbackEvent:
     platform: str
-    connector_key: str
     out_track_id: str
     message_id: str
     user_id: str
@@ -36,7 +35,6 @@ class CallbackEvent:
 @dataclass(frozen=True, slots=True)
 class LaneKey:
     platform: str
-    connector_key: str
     owner_id: str
     conversation_id: str = ""
     scope: str = "message"
@@ -45,7 +43,6 @@ class LaneKey:
         return "|".join(
             [
                 str(self.platform or "").strip(),
-                str(self.connector_key or "").strip(),
                 str(self.scope or "").strip(),
                 str(self.owner_id or "").strip(),
                 str(self.conversation_id or "").strip(),
@@ -57,7 +54,6 @@ class LaneKey:
 class RouteDecision:
     route_kind: str
     lane_key: str
-    connector_key: str
     platform: str
 
 
@@ -65,7 +61,6 @@ class RouteDecision:
 class OutboundRequest:
     action: str
     platform: str
-    connector_key: str
     payload: dict[str, Any] = field(default_factory=dict)
     session_id: str = ""
     card_id: str = ""
@@ -76,6 +71,5 @@ class OutboundRequest:
 @dataclass(slots=True)
 class OutboundHandle:
     platform: str
-    connector_key: str
     conversation_id: str
     platform_message_id: str = ""

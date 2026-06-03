@@ -13,7 +13,7 @@ class ChannelRegistry:
 
     @staticmethod
     def _adapter_key(adapter: ChannelAdapter) -> str:
-        return f"{adapter.platform}:{adapter.connector_key}"
+        return str(adapter.platform or "").strip()
 
     def register(self, adapter: ChannelAdapter) -> None:
         key = self._adapter_key(adapter)
@@ -24,11 +24,11 @@ class ChannelRegistry:
     def list(self) -> list[ChannelAdapter]:
         return list(self._adapters.values())
 
-    def connector_keys(self) -> list[str]:
+    def adapter_keys(self) -> list[str]:
         return list(self._adapters.keys())
 
-    def get(self, platform: str, connector_key: str) -> ChannelAdapter:
-        key = f"{str(platform or '').strip()}:{str(connector_key or '').strip()}"
+    def get(self, platform: str) -> ChannelAdapter:
+        key = str(platform or "").strip()
         try:
             return self._adapters[key]
         except KeyError as error:
@@ -44,16 +44,14 @@ class ChannelRegistry:
                 await asyncio.wait_for(adapter.stop(), timeout=max(0.1, float(timeout_s)))
             except asyncio.TimeoutError:
                 logger.warning(
-                    "[ChannelRegistry] adapter stop timed out: platform=%s connector=%s timeout=%.1fs",
+                    "[ChannelRegistry] adapter stop timed out: platform=%s timeout=%.1fs",
                     getattr(adapter, "platform", ""),
-                    getattr(adapter, "connector_key", ""),
                     float(timeout_s),
                 )
             except BaseException as exc:
                 logger.warning(
-                    "[ChannelRegistry] adapter stop failed: platform=%s connector=%s error=%s",
+                    "[ChannelRegistry] adapter stop failed: platform=%s error=%s",
                     getattr(adapter, "platform", ""),
-                    getattr(adapter, "connector_key", ""),
                     exc,
                 )
                 continue

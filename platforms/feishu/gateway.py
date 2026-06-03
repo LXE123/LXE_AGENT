@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import json
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
 
@@ -21,17 +24,195 @@ from .config import (
     FEISHU_APP_ID,
     FEISHU_APP_SECRET,
     FEISHU_BOT_OPEN_ID,
+    FEISHU_RAW_EVENT_DUMP_DIR,
+    FEISHU_RAW_EVENT_DUMP_ENABLED,
     feishu_runtime_status,
     validate_feishu_runtime_config,
 )
 from .inbound_media import resolve_inbound_message
 from .media_sender import FeishuMediaSender
 from .api_client import api_client
+from .history_formatter import format_message_list
 from .message_parser import is_bot_mentioned, parse_message_payload_async, strip_bot_mention
 
 
 _RECOVERABLE_CARDKIT_ERROR_CODE = 200850
+_RAW_EVENT_DUMP_MAX_DEPTH = 8
+_FEISHU_INBOUND_DEDUP_TTL_SECONDS = 12 * 60 * 60
+_FEISHU_INBOUND_MAX_AGE_SECONDS = 5 * 60
 _StreamStatus = Literal["streaming", "reopening", "dead", "finalized"]
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _monotonic_seconds() -> float:
+    return time.monotonic()
+
+
+def _parse_feishu_millis(value: Any) -> int | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except Exception:
+        return None
+
+
+def _feishu_raw_event_dump_enabled() -> bool:
+    return bool(FEISHU_RAW_EVENT_DUMP_ENABLED)
+
+
+def _feishu_raw_event_dump_dir() -> Path:
+    configured = str(FEISHU_RAW_EVENT_DUMP_DIR or "").strip()
+    return Path(configured or "logs/feishu_raw_events")
+
+
+def _json_safe(value: Any, *, depth: int = 0, seen: set[int] | None = None) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if depth >= _RAW_EVENT_DUMP_MAX_DEPTH:
+        return repr(value)
+
+    active_seen = seen if seen is not None else set()
+    object_id = id(value)
+    if object_id in active_seen:
+        return "<cycle>"
+
+    if isinstance(value, dict):
+        active_seen.add(object_id)
+        try:
+            return {
+                str(key): _json_safe(item, depth=depth + 1, seen=active_seen)
+                for key, item in value.items()
+            }
+        finally:
+            active_seen.discard(object_id)
+    if isinstance(value, (list, tuple, set, frozenset)):
+        active_seen.add(object_id)
+        try:
+            return [_json_safe(item, depth=depth + 1, seen=active_seen) for item in value]
+        finally:
+            active_seen.discard(object_id)
+
+    for method_name in ("to_dict", "model_dump"):
+        method = getattr(value, method_name, None)
+        if not callable(method):
+            continue
+        try:
+            active_seen.add(object_id)
+            return _json_safe(method(), depth=depth + 1, seen=active_seen)
+        except Exception:
+            continue
+        finally:
+            active_seen.discard(object_id)
+
+    raw_dict = getattr(value, "__dict__", None)
+    if isinstance(raw_dict, dict):
+        active_seen.add(object_id)
+        try:
+            return _json_safe(raw_dict, depth=depth + 1, seen=active_seen)
+        finally:
+            active_seen.discard(object_id)
+
+    return repr(value)
+
+
+def _write_feishu_raw_event_dump(record: dict[str, Any]) -> None:
+    dump_dir = _feishu_raw_event_dump_dir()
+    dump_dir.mkdir(parents=True, exist_ok=True)
+    file_name = datetime.now(timezone.utc).strftime("%Y%m%d.jsonl")
+    target = dump_dir / file_name
+    with target.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+
+
+def _dump_feishu_raw_event(*, adapter: str, data: Any, snapshot: dict[str, Any] | None) -> None:
+    if not _feishu_raw_event_dump_enabled():
+        return
+    try:
+        event_class = f"{data.__class__.__module__}.{data.__class__.__qualname__}"
+        record = {
+            "dumped_at": datetime.now(timezone.utc).isoformat(),
+            "adapter": str(adapter or "").strip(),
+            "event_class": event_class,
+            "raw_event": _json_safe(data),
+            "snapshot": _json_safe(snapshot or {}),
+        }
+        _write_feishu_raw_event_dump(record)
+    except Exception as error:
+        logger.warning("[FeishuRawEventDump] dump failed: %s", error, exc_info=True)
+
+
+def _select_formatted_message(items: list[dict[str, Any]], message_id: str) -> dict[str, Any]:
+    safe_message_id = str(message_id or "").strip()
+    for item in list(items or []):
+        if str((item or {}).get("message_id") or "").strip() == safe_message_id:
+            return dict(item or {})
+    if items:
+        return dict(items[0] or {})
+    return {}
+
+
+def _quoted_message_text(parent_id: str, item: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    safe_parent_id = str(parent_id or "").strip()
+    sender = item.get("sender") if isinstance(item.get("sender"), dict) else {}
+    sender_name = str(
+        sender.get("name")
+        or sender.get("open_id")
+        or sender.get("sender_type")
+        or "unknown"
+    ).strip() or "unknown"
+    content = str(item.get("content") or "").strip() or "<empty>"
+    text = f"[Replying to message_id={safe_parent_id}]\n{sender_name}: {content}"
+    return text, {
+        "message_id": safe_parent_id,
+        "available": True,
+        "sender_name": sender_name,
+        "content": content,
+        "formatted": dict(item or {}),
+    }
+
+
+def _quoted_message_unavailable(parent_id: str, *, error: str = "") -> tuple[str, dict[str, Any]]:
+    safe_parent_id = str(parent_id or "").strip()
+    payload: dict[str, Any] = {
+        "message_id": safe_parent_id,
+        "available": False,
+    }
+    if error:
+        payload["error"] = error
+    return f"[Replying to message_id={safe_parent_id}; quoted message unavailable]", payload
+
+
+def _inject_quote_context(
+    *,
+    user_input: str,
+    user_content_blocks: list[dict[str, Any]],
+    quote_context: str,
+) -> tuple[str, list[dict[str, Any]]]:
+    safe_quote = str(quote_context or "").strip()
+    if not safe_quote:
+        return str(user_input or "").strip(), list(user_content_blocks or [])
+
+    current_text = str(user_input or "").strip()
+    combined_text = "\n\n".join(part for part in [safe_quote, current_text] if part).strip()
+    blocks = list(user_content_blocks or [])
+    if not blocks:
+        return combined_text, []
+
+    tail_blocks = list(blocks)
+    if current_text and tail_blocks:
+        first_block = tail_blocks[0]
+        if (
+            isinstance(first_block, dict)
+            and str(first_block.get("type") or "").strip() == "text"
+            and str(first_block.get("text") or "").strip() == current_text
+        ):
+            tail_blocks = tail_blocks[1:]
+    return combined_text, [{"type": "text", "text": combined_text}, *tail_blocks]
 
 
 @dataclass(slots=True)
@@ -52,9 +233,8 @@ class _StreamWriterState:
 class FeishuStreamAdapter:
     platform = "feishu"
 
-    def __init__(self, *, connector_key: str = "agent") -> None:
+    def __init__(self) -> None:
         validate_feishu_runtime_config()
-        self.connector_key = str(connector_key or "").strip() or "agent"
         self._inbound_sink: InboundSink | None = None
         self._host_loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -65,6 +245,7 @@ class FeishuStreamAdapter:
         self._media_sender = FeishuMediaSender()
         self._stream_state: dict[str, _StreamWriterState] = {}
         self._stream_locks: dict[str, asyncio.Lock] = {}
+        self._seen_message_ids: dict[str, float] = {}
         self._bot_open_id = str(FEISHU_BOT_OPEN_ID or "").strip()
         self._bot_name = ""
         self._bot_open_id_source = "env" if self._bot_open_id else ""
@@ -97,7 +278,6 @@ class FeishuStreamAdapter:
             "connection_state": connection_state,
             "thread": self._thread.name if self._thread else "",
             "loop": self._loop.__class__.__name__ if self._loop else "",
-            "connector_key": self.connector_key,
             "bot_open_id_configured": bool(self._bot_open_id),
             "bot_open_id_source": self._bot_open_id_source,
             "bot_name": self._bot_name,
@@ -122,7 +302,7 @@ class FeishuStreamAdapter:
         self._stopping = False
         self._thread = threading.Thread(
             target=self._run_thread,
-            name=f"adapter:feishu:{self.connector_key}",
+            name="adapter:feishu",
             daemon=True,
         )
         self._thread.start()
@@ -164,8 +344,7 @@ class FeishuStreamAdapter:
         if self._inbound_sink is None:
             raise RuntimeError("inbound sink not configured for feishu adapter")
         logger.info(
-            "[Feishu] inbound accepted: connector=%s chat_type=%s chat_id=%s msg_id=%s user_id=%s union_id=%s text=%s",
-            self.connector_key,
+            "[Feishu] inbound accepted: chat_type=%s chat_id=%s msg_id=%s user_id=%s union_id=%s text=%s",
             "group" if event.is_group else "p2p",
             str(event.conversation_id or "").strip(),
             str(event.message_id or "").strip(),
@@ -178,12 +357,11 @@ class FeishuStreamAdapter:
     async def handle_outbound(self, request: OutboundRequest) -> None:
         card_ctx = await _load_send_context(request.card_id, session_id=request.session_id)
         logger.info(
-            "[Feishu] outbound request: action=%s session_id=%s card_id=%s event_id=%s connector=%s",
+            "[Feishu] outbound request: action=%s session_id=%s card_id=%s event_id=%s",
             request.action,
             str(request.session_id or "").strip(),
             str(request.card_id or "").strip(),
             str(request.event_id or "").strip(),
-            self.connector_key,
         )
         if request.action == "stream_message":
             await self._handle_stream_message(request, card_ctx)
@@ -209,7 +387,7 @@ class FeishuStreamAdapter:
                 return
             raise RuntimeError(f"feishu file send failed: {path}")
         if request.action == "react":
-            logger.info("[Feishu] ignore unsupported react action for connector=%s", self.connector_key)
+            logger.info("[Feishu] ignore unsupported react action")
             return
         raise RuntimeError(f"unsupported outbound action: {request.action}")
 
@@ -609,11 +787,84 @@ class FeishuStreamAdapter:
         if clear_host_loop and (loop_matches or thread_matches):
             self._host_loop = None
 
+    def _try_record_inbound_message_id(self, message_id: str) -> bool:
+        safe_message_id = str(message_id or "").strip()
+        if not safe_message_id:
+            return True
+
+        seen = getattr(self, "_seen_message_ids", None)
+        if not isinstance(seen, dict):
+            seen = {}
+            self._seen_message_ids = seen
+
+        now = _monotonic_seconds()
+        ttl = float(_FEISHU_INBOUND_DEDUP_TTL_SECONDS)
+        cutoff = now - ttl
+        for stored_message_id, recorded_at in list(seen.items()):
+            try:
+                if float(recorded_at) < cutoff:
+                    seen.pop(stored_message_id, None)
+            except Exception:
+                seen.pop(stored_message_id, None)
+
+        if safe_message_id in seen:
+            return False
+        seen[safe_message_id] = now
+        return True
+
+    def _accept_inbound_snapshot(self, snapshot: dict[str, Any]) -> bool:
+        message_id = str((snapshot or {}).get("message_id") or "").strip()
+        chat_id = str((snapshot or {}).get("chat_id") or "").strip()
+        create_time_text = str((snapshot or {}).get("create_time") or "").strip()
+
+        if not self._try_record_inbound_message_id(message_id):
+            logger.info(
+                "[Feishu] drop inbound message: reason=duplicate chat_id=%s msg_id=%s create_time=%s",
+                chat_id,
+                message_id,
+                create_time_text,
+            )
+            return False
+
+        create_time_ms = _parse_feishu_millis(create_time_text)
+        if create_time_text and create_time_ms is None:
+            logger.info(
+                "[Feishu] inbound message create_time invalid; skip time filter: chat_id=%s msg_id=%s create_time=%s",
+                chat_id,
+                message_id,
+                create_time_text,
+            )
+            return True
+        if create_time_ms is None:
+            return True
+
+        now_ms = _now_ms()
+        age_ms = now_ms - create_time_ms
+        max_age_seconds = int(_FEISHU_INBOUND_MAX_AGE_SECONDS)
+        if max_age_seconds > 0 and age_ms > max_age_seconds * 1000:
+            logger.info(
+                "[Feishu] drop inbound message: reason=max_age chat_id=%s msg_id=%s create_time=%s age_ms=%d",
+                chat_id,
+                message_id,
+                create_time_text,
+                age_ms,
+            )
+            return False
+
+        return True
+
     def _build_message_handler(self, _event_type):
         def _handle(data) -> None:
             snapshot = self._snapshot_message_event(data)
+            _dump_feishu_raw_event(
+                adapter=self.platform,
+                data=data,
+                snapshot=snapshot,
+            )
             if snapshot is None:
                 logger.info("[Feishu] skip inbound event without message payload")
+                return
+            if not self._accept_inbound_snapshot(snapshot):
                 return
             target_loop = self._host_loop
             if target_loop is None or not target_loop.is_running():
@@ -666,8 +917,14 @@ class FeishuStreamAdapter:
             "content": str(getattr(message, "content", "") or "{}"),
             "chat_type": str(getattr(message, "chat_type", "") or "p2p").strip() or "p2p",
             "chat_id": str(getattr(message, "chat_id", "") or "").strip(),
+            "thread_id": str(getattr(message, "thread_id", "") or "").strip(),
+            "root_id": str(getattr(message, "root_id", "") or "").strip(),
+            "parent_id": str(getattr(message, "parent_id", "") or "").strip(),
+            "create_time": str(getattr(message, "create_time", "") or "").strip(),
+            "update_time": str(getattr(message, "update_time", "") or "").strip(),
             "message_id": str(getattr(message, "message_id", "") or "").strip(),
             "mentions": mentions_raw,
+            "sender_type": str(getattr(sender, "sender_type", "") or "").strip(),
             "sender_open_id": str(getattr(sender_id, "open_id", "") or "").strip(),
             "sender_user_id": str(getattr(sender_id, "user_id", "") or "").strip(),
             "sender_union_id": str(getattr(sender_id, "union_id", "") or "").strip(),
@@ -710,6 +967,11 @@ class FeishuStreamAdapter:
         raw_content = str(data.get("content") or "{}")
         chat_type = str(data.get("chat_type") or "p2p").strip() or "p2p"
         chat_id = str(data.get("chat_id") or "").strip()
+        thread_id = str(data.get("thread_id") or "").strip()
+        root_id = str(data.get("root_id") or "").strip()
+        parent_id = str(data.get("parent_id") or "").strip()
+        create_time = str(data.get("create_time") or "").strip()
+        update_time = str(data.get("update_time") or "").strip()
         message_id = str(data.get("message_id") or "").strip()
         mentions_raw = list(data.get("mentions") or [])
         parsed_message = await parse_message_payload_async(
@@ -763,6 +1025,18 @@ class FeishuStreamAdapter:
         else:
             user_input = str(user_input or "").strip()
 
+        quoted_message: dict[str, Any] | None = None
+        if parent_id:
+            quote_context, quoted_message = await self._load_quoted_message_context(
+                parent_id=parent_id,
+                chat_id=chat_id,
+            )
+            user_input, user_content_blocks = _inject_quote_context(
+                user_input=user_input,
+                user_content_blocks=user_content_blocks,
+                quote_context=quote_context,
+            )
+
         if not user_input and not user_content_blocks:
             log_method = logger.warning if parsed_message.resources else logger.info
             log_method(
@@ -781,9 +1055,43 @@ class FeishuStreamAdapter:
             return None
 
         card_id = uuid.uuid4().hex
+        source = {
+            "platform": self.platform,
+            "chat_id": chat_id,
+            "chat_type": chat_type,
+            "user_id": open_id,
+            "user_id_alt": union_id,
+            "user_name": sender_nick,
+            "thread_id": thread_id,
+            "message_id": message_id,
+            "root_id": root_id,
+            "parent_id": parent_id,
+        }
+        raw_data = {
+            "platform": self.platform,
+            "app_id": str(data.get("app_id") or FEISHU_APP_ID).strip(),
+            "chat_id": chat_id,
+            "chat_type": chat_type,
+            "thread_id": thread_id,
+            "root_id": root_id,
+            "parent_id": parent_id,
+            "create_time": create_time,
+            "update_time": update_time,
+            "message_id": message_id,
+            "message_type": message_type,
+            "sender_type": str(data.get("sender_type") or "").strip(),
+            "open_id": open_id,
+            "sender_open_id": sender_open_id,
+            "sender_user_id": sender_user_id,
+            "sender_union_id": sender_union_id,
+            "union_id": union_id,
+            "source": source,
+            "resources": resource_metadata,
+        }
+        if quoted_message is not None:
+            raw_data["quoted_message"] = quoted_message
         return InboundEvent(
             platform=self.platform,
-            connector_key=self.connector_key,
             event_type="agent_message",
             user_input=user_input,
             user_id=open_id,
@@ -793,42 +1101,47 @@ class FeishuStreamAdapter:
             message_id=message_id,
             sender_nick=sender_nick,
             union_id=union_id,
-            raw_data={
-                "platform": self.platform,
-                "connector_key": self.connector_key,
-                "app_id": str(data.get("app_id") or FEISHU_APP_ID).strip(),
-                "chat_id": chat_id,
-                "chat_type": chat_type,
-                "message_id": message_id,
-                "message_type": message_type,
-                "open_id": open_id,
-                "sender_open_id": sender_open_id,
-                "sender_user_id": sender_user_id,
-                "sender_union_id": sender_union_id,
-                "union_id": union_id,
-                "resources": resource_metadata,
-            },
+            source=source,
+            raw_data=raw_data,
             user_content_blocks=user_content_blocks,
         )
+
+    async def _load_quoted_message_context(self, *, parent_id: str, chat_id: str) -> tuple[str, dict[str, Any]]:
+        safe_parent_id = str(parent_id or "").strip()
+        if not safe_parent_id:
+            return "", {}
+        try:
+            items = await api_client.get_message_items(safe_parent_id)
+            formatted_items = await format_message_list(list(items or []), chat_id=str(chat_id or "").strip())
+            selected = _select_formatted_message(formatted_items, safe_parent_id)
+            if not selected:
+                return _quoted_message_unavailable(safe_parent_id, error="message not found")
+            return _quoted_message_text(safe_parent_id, selected)
+        except Exception as exc:
+            logger.warning(
+                "[Feishu] failed to load quoted message: parent_id=%s chat_id=%s error=%s",
+                safe_parent_id,
+                str(chat_id or "").strip(),
+                exc,
+            )
+            return _quoted_message_unavailable(safe_parent_id, error=str(exc))
 
 
 class FeishuAgentGateway(FeishuStreamAdapter):
     def __init__(self) -> None:
-        super().__init__(connector_key="agent")
+        super().__init__()
 
 
 async def _load_send_context(card_id: str, *, session_id: str = ""):
     card_ctx = await load_card_context(card_id)
     if card_ctx is None:
         raise RuntimeError(f"missing card context: {card_id}")
-    connector_key = str(card_ctx.connector_key or "agent").strip() or "agent"
     extra_data = dict(card_ctx.extra_data or {})
     source_message_id = ""
     _ = session_id
     source_message_id = str(extra_data.get("source_message_id") or "").strip()
     return SimpleNamespace(
         platform="feishu",
-        connector_key=connector_key,
         card_id=card_id,
         out_track_id=card_id,
         platform_message_id=str(card_ctx.platform_message_id or "").strip(),
@@ -840,7 +1153,6 @@ async def _load_send_context(card_id: str, *, session_id: str = ""):
         extra_data=extra_data,
         raw_data={
             "platform": "feishu",
-            "connector_key": connector_key,
             "chat_id": str(card_ctx.conversation_id or "").strip(),
             "source_message_id": source_message_id,
         },

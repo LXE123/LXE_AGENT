@@ -177,6 +177,9 @@ class AgentControlServer:
             fake_job = SimpleNamespace(
                 payload={
                     "session_id": job.session_id,
+                    "card_id": job.card_id,
+                    "session_key": job.session_key,
+                    "source": dict(job.source or {}),
                     "user_text": job.user_input,
                     "job_id": job.job_id,
                     "job_kind": job.job_kind,

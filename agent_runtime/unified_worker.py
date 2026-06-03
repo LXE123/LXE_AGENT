@@ -72,7 +72,8 @@ def _prepend_system_events_to_blocks(
 
 
 def _should_stream_final_answer(session: Any) -> bool:
-    return str(getattr(session, "platform", "") or "").strip() == "feishu"
+    source = dict(getattr(session, "source", {}) or {})
+    return str(source.get("platform") or "").strip() == "feishu"
 
 
 async def _turn_cancel_requested(session_id: str, job_id: str) -> bool:
@@ -97,6 +98,7 @@ def _finalize_runtime_patch(outcome: TurnOutcome, *, latest_session: Any, job_id
     latest_runtime = runtime_state(getattr(latest_session, "state_data", {}) or {})
     runtime_updates = {
         "active_turn_id": "",
+        "active_card_id": "",
         "active_turn_started_at": 0,
     }
     if str(latest_runtime.get("stop_turn_id") or "").strip() == str(job_id or "").strip():
@@ -115,6 +117,7 @@ def _finalize_runtime_patch(outcome: TurnOutcome, *, latest_session: Any, job_id
 
 async def _emit_final_answer_stream_frame(
     session_id: str,
+    card_id: str,
     stream_type: str,
     state: str,
     seq: int,
@@ -123,6 +126,7 @@ async def _emit_final_answer_stream_frame(
 ) -> None:
     await emit_stream(
         session_id=session_id,
+        card_id=card_id,
         stream_type=stream_type,
         state=state,
         seq=seq,
@@ -135,6 +139,7 @@ async def _persist_and_deliver(
     session: Any,
     outcome: TurnOutcome,
     *,
+    card_id: str,
     skip_emit_final: bool = False,
 ) -> None:
     session_id = str(getattr(session, "session_id", "") or "").strip()
@@ -157,6 +162,7 @@ async def _persist_and_deliver(
     try:
         await emit_final(
             session_id=session_id,
+            card_id=card_id,
             content=message,
             emit_id=uuid4().hex,
         )
@@ -167,10 +173,12 @@ async def _persist_and_deliver(
 async def handle_unified_turn_job(job: Any) -> Any:
     payload = dict(getattr(job, "payload", {}) or {})
     session_id = str(payload.get("session_id") or "").strip()
+    card_id = str(payload.get("card_id") or "").strip()
     user_text = str(payload.get("user_text") or "").strip()
     job_id = str(getattr(job, "job_id", "") or payload.get("job_id") or "").strip()
     job_kind = str(payload.get("job_kind") or "turn").strip() or "turn"
     raw_data = dict(payload.get("raw_data") or {})
+    source = dict(payload.get("source") or {})
     user_content_blocks = list(payload.get("user_content_blocks") or [])
 
     if not session_id:
@@ -199,10 +207,11 @@ async def handle_unified_turn_job(job: Any) -> Any:
     final_answer_streamer = (
         FinalAnswerStreamer(
             session_id=session_id,
+            card_id=card_id,
             emit_stream=_emit_final_answer_stream_frame,
             min_interval_ms=150,
         )
-        if _should_stream_final_answer(session)
+        if _should_stream_final_answer(session) and card_id
         else None
     )
 
@@ -232,6 +241,7 @@ async def handle_unified_turn_job(job: Any) -> Any:
                 state_data_patch={
                     RUNTIME_KEY: {
                         "active_turn_id": "",
+                        "active_card_id": "",
                         "active_turn_started_at": 0,
                     },
                 },
@@ -345,6 +355,7 @@ async def handle_unified_turn_job(job: Any) -> Any:
     await _persist_and_deliver(
         latest_session,
         outcome,
+        card_id=card_id,
         skip_emit_final=stream_final_delivered or outcome.status == "cancelled",
     )
     return job_handled()

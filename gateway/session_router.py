@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from gateway.channel_registry import ChannelRegistry
 from gateway.models import InboundEvent, LaneKey, OutboundRequest, RouteDecision
@@ -9,13 +10,10 @@ from shared.agent_ipc import AgentJob
 from shared.agent_sessions import AgentSessionStatus
 from shared.agent_state import build_initial_agent_state, runtime_state
 from shared.db.client import (
-    pop_agent_session_pending_events,
-    clear_agent_session_memory,
     create_agent_session,
     create_card_context,
-    load_active_agent_session_by_user,
     load_agent_session,
-    load_latest_agent_session_for_conversation,
+    pop_agent_session_pending_events,
     request_agent_turn_stop,
     update_agent_session,
 )
@@ -28,6 +26,7 @@ from shared.permission_policy import (
     resolve_permission_user_id,
 )
 from shared.platform.context import SessionContext
+from shared.session_bindings import SessionBindingStore, SessionSource
 
 
 _CONTROL_COMMANDS = {
@@ -45,25 +44,57 @@ def _normalize_control_command(text: str) -> str:
     return _CONTROL_COMMANDS.get(command, "")
 
 
-def _to_session_context(event: InboundEvent) -> SessionContext:
+def _source_from_event(event: InboundEvent) -> SessionSource:
+    raw = dict(event.source or {})
+    raw.setdefault("platform", str(event.platform or "").strip())
+    raw.setdefault("chat_id", str(event.conversation_id or "").strip())
+    raw.setdefault("chat_type", "group" if bool(event.is_group) else "dm")
+    raw.setdefault("user_id", str(event.user_id or "").strip())
+    if str(event.union_id or "").strip() and not str(raw.get("user_id_alt") or "").strip():
+        raw["user_id_alt"] = str(event.union_id or "").strip()
+    raw.setdefault("user_name", str(event.sender_nick or "").strip())
+    raw.setdefault("message_id", str(event.message_id or "").strip())
+    return SessionSource.from_dict(raw)
+
+
+def _to_session_context(
+    event: InboundEvent,
+    *,
+    source: SessionSource,
+    session_key: str,
+) -> SessionContext:
+    source_dict = source.to_dict()
     return SessionContext(
-        platform=str(event.platform or "").strip(),
-        connector_key=str(event.connector_key or "").strip(),
+        platform=str(source.platform or event.platform or "").strip(),
         user_input=str(event.user_input or "").strip(),
-        user_id=str(event.user_id or "").strip(),
+        user_id=str(source.user_key or event.user_id or "").strip(),
         card_id=str(event.card_id or "").strip() or uuid.uuid4().hex,
-        conversation_id=str(event.conversation_id or "").strip(),
-        is_group=bool(event.is_group),
-        message_id=str(event.message_id or "").strip(),
-        sender_nick=str(event.sender_nick or "").strip(),
+        conversation_id=str(source.chat_id or event.conversation_id or "").strip(),
+        is_group=str(source.chat_type or "").strip().lower() == "group",
+        message_id=str(event.message_id or source.message_id or "").strip(),
+        sender_nick=str(source.user_name or event.sender_nick or "").strip(),
+        session_key=session_key,
+        source=source_dict,
         raw_data=dict(event.raw_data or {}),
         user_content_blocks=list(event.user_content_blocks or []),
     )
 
 
+def _merge_job_raw_data(ctx: SessionContext, pending_events: list[dict[str, Any]]) -> dict[str, Any]:
+    raw_data = {
+        **dict(ctx.raw_data or {}),
+        "session_key": str(ctx.session_key or "").strip(),
+        "source": dict(ctx.source or {}),
+    }
+    if pending_events:
+        raw_data["system_events"] = pending_events
+    return raw_data
+
+
 class SessionRouter:
     def __init__(self, *, registry: ChannelRegistry) -> None:
         self._registry = registry
+        self._bindings = SessionBindingStore()
         self._scheduler: SessionScheduler | None = None
 
     def bind_scheduler(self, scheduler: SessionScheduler) -> None:
@@ -72,238 +103,194 @@ class SessionRouter:
     async def route_message(self, event: InboundEvent) -> RouteDecision:
         if self._scheduler is None:
             raise RuntimeError("session scheduler not configured")
+
+        source = _source_from_event(event)
+        session_key = source.session_key
+        ctx = _to_session_context(event, source=source, session_key=session_key)
         union_id = resolve_permission_user_id(event)
-        logger.info(
-            "[SessionRouter] inbound event: platform=%s connector=%s conversation=%s is_group=%s msg_id=%s user_id=%s union_id=%s text=%s",
-            event.platform,
-            event.connector_key,
-            event.conversation_id,
-            event.is_group,
-            event.message_id,
-            event.user_id,
-            union_id,
-            str(event.user_input or "")[:120],
-        )
         lane = LaneKey(
-            platform=event.platform,
-            connector_key=event.connector_key,
-            owner_id=event.user_id,
+            platform=ctx.platform,
+            owner_id=session_key,
             scope="agent",
         ).as_key()
-        ctx = _to_session_context(event)
+
+        logger.info(
+            "[SessionRouter] inbound event: platform=%s session_key=%s chat=%s chat_type=%s msg_id=%s user_id=%s union_id=%s text=%s",
+            ctx.platform,
+            session_key,
+            ctx.conversation_id,
+            dict(ctx.source or {}).get("chat_type") or "",
+            ctx.message_id,
+            ctx.user_id,
+            union_id,
+            str(ctx.user_input or "")[:120],
+        )
+
         bot_id = resolve_bot_id(event)
         bot_key = bot_key_for_bot_id(bot_id)
         if not is_known_bot_id(bot_id):
             logger.warning(
-                "[SessionRouter] permission denied: unknown bot platform=%s connector=%s bot_id=%s user_id=%s union_id=%s",
+                "[SessionRouter] permission denied: unknown bot platform=%s bot_id=%s user_id=%s union_id=%s",
                 ctx.platform,
-                ctx.connector_key,
                 bot_id or "<empty>",
                 ctx.user_id,
                 union_id,
             )
             await self._send_permission_feedback(ctx, markdown="当前 Bot 未授权接入 Agent。")
-            return RouteDecision(
-                route_kind="permission_denied",
-                lane_key=lane,
-                connector_key=event.connector_key,
-                platform=event.platform,
-            )
+            return RouteDecision(route_kind="permission_denied", lane_key=lane, platform=ctx.platform)
         if not can_user_access_bot(union_id, bot_id):
             logger.warning(
-                "[SessionRouter] permission denied: user cannot access bot platform=%s connector=%s bot_id=%s bot=%s user_id=%s union_id=%s",
+                "[SessionRouter] permission denied: user cannot access bot platform=%s bot_id=%s bot=%s user_id=%s union_id=%s",
                 ctx.platform,
-                ctx.connector_key,
                 bot_id,
                 bot_key or "<unknown>",
                 ctx.user_id,
                 union_id,
             )
             await self._send_permission_feedback(ctx, markdown="你没有权限使用当前 Agent。")
-            return RouteDecision(
-                route_kind="permission_denied",
-                lane_key=lane,
-                connector_key=event.connector_key,
-                platform=event.platform,
-            )
+            return RouteDecision(route_kind="permission_denied", lane_key=lane, platform=ctx.platform)
+
         control_command = _normalize_control_command(ctx.user_input)
         if control_command:
-            session = await self._load_control_session(ctx)
+            session = await self._load_bound_session(ctx)
             await self._handle_control_command(control_command, session=session, ctx=ctx)
-            return RouteDecision(
-                route_kind="agent_control",
-                lane_key=lane,
-                connector_key=event.connector_key,
-                platform=event.platform,
-            )
+            return RouteDecision(route_kind="agent_control", lane_key=lane, platform=ctx.platform)
 
-        session = await self._load_session(ctx)
-        if session is None:
-            session = await self._create_session(ctx)
-        else:
-            session = await self._rebind_session(session, ctx)
-        pending_events = []
-        if session is not None:
-            pending_events = await pop_agent_session_pending_events(session.session_id)
+        session = await self._load_or_create_bound_session(ctx)
+        pending_events = await pop_agent_session_pending_events(session.session_id)
         job = AgentJob(
             job_id=uuid.uuid4().hex,
             session_id=session.session_id,
-            platform=session.platform,
-            connector_key=session.connector_key,
-            user_id=session.owner_user_id,
-            conversation_id=str(session.conversation_id or "").strip(),
-            is_group=bool(str(session.conversation_type or "").strip() == "2"),
+            session_key=ctx.session_key,
+            card_id=ctx.card_id,
+            user_id=ctx.user_id,
+            conversation_id=ctx.conversation_id,
+            is_group=ctx.is_group,
             message_id=ctx.message_id,
             user_input=ctx.user_input,
             job_kind="turn",
-            sender_nick=str(session.sender_nick or ctx.sender_nick or "").strip(),
-            raw_data={
-                **dict(ctx.raw_data or {}),
-                **({"system_events": pending_events} if pending_events else {}),
-            },
+            sender_nick=ctx.sender_nick,
+            raw_data=_merge_job_raw_data(ctx, pending_events),
+            source=dict(ctx.source or {}),
             user_content_blocks=list(ctx.user_content_blocks or []),
         )
         await self._scheduler.enqueue(job)
-        return RouteDecision(
-            route_kind="agent_message",
-            lane_key=lane,
-            connector_key=event.connector_key,
-            platform=event.platform,
-        )
+        return RouteDecision(route_kind="agent_message", lane_key=lane, platform=ctx.platform)
 
     async def _handle_control_command(self, command: str, *, session, ctx: SessionContext) -> None:
+        if command == "stop":
+            await self._handle_stop(session=session, ctx=ctx)
+            return
+        await self._handle_clear(session=session, ctx=ctx)
+
+    async def _handle_stop(self, *, session, ctx: SessionContext) -> None:
         if session is None:
-            fallback = await load_active_agent_session_by_user(
-                ctx.user_id,
-                platform=ctx.platform,
-                connector_key=ctx.connector_key,
-            )
-            if fallback is not None:
-                logger.warning(
-                    "[SessionRouter] control command fallback: conversation lookup missed but user lookup found session. "
-                    "command=%s conversation_id=%s user_id=%s fallback_session=%s",
-                    command,
-                    ctx.conversation_id,
-                    ctx.user_id,
-                    fallback.session_id,
-                )
-                session = fallback
-        if session is None:
-            message = "当前没有正在执行的回复。" if command == "stop" else "上下文已清除。"
             logger.info(
-                "[SessionRouter] %s without session: user_id=%s conversation_id=%s card_id=%s message_id=%s",
-                command,
-                ctx.user_id,
-                ctx.conversation_id,
+                "[SessionRouter] stop without session: session_key=%s card_id=%s message_id=%s",
+                ctx.session_key,
                 ctx.card_id,
                 ctx.message_id,
             )
-            await self._send_control_feedback(ctx, session_id="", markdown=message)
+            await self._send_control_feedback(ctx, session_id="", markdown="当前没有正在执行的回复。")
             return
 
         session_id = str(session.session_id or "").strip()
+        fresh = await load_agent_session(session_id)
+        runtime = runtime_state(getattr(fresh or session, "state_data", {}) or {})
+        active_turn_id = str(runtime.get("active_turn_id") or "").strip()
+        logger.info("[SessionRouter] stop: session_id=%s active_turn_id=%s", session_id, active_turn_id)
+        if not active_turn_id:
+            message = "当前没有正在执行的回复。"
+        else:
+            await request_agent_turn_stop(
+                session_id,
+                turn_id=active_turn_id,
+                reason="slash_command_stop",
+            )
+            message = "已请求停止当前回复。"
+        await self._send_control_feedback(ctx, session_id=session_id, markdown=message)
 
-        if command == "stop":
+    async def _handle_clear(self, *, session, ctx: SessionContext) -> None:
+        if session is not None:
+            session_id = str(session.session_id or "").strip()
             fresh = await load_agent_session(session_id)
             runtime = runtime_state(getattr(fresh or session, "state_data", {}) or {})
             active_turn_id = str(runtime.get("active_turn_id") or "").strip()
-            logger.info(
-                "[SessionRouter] stop: session_id=%s active_turn_id=%s",
-                session_id,
-                active_turn_id,
-            )
-            if not active_turn_id:
-                message = "当前没有正在执行的回复。"
-            else:
-                await request_agent_turn_stop(
-                    session_id,
-                    turn_id=active_turn_id,
-                    reason="slash_command_stop",
-                )
-                message = "已请求停止当前回复。"
-        else:
-            rebound_session = await self._rebind_session(session, ctx)
-            runtime = runtime_state(getattr(rebound_session, "state_data", {}) or {})
-            active_turn_id = str(runtime.get("active_turn_id") or "").strip()
-            logger.info(
-                "[SessionRouter] clear: session_id=%s active_turn_id=%s",
-                session_id,
-                active_turn_id,
-            )
             if active_turn_id:
-                message = "当前有进行中的回复，暂不清除上下文。"
-            else:
-                await clear_agent_session_memory(
+                logger.info(
+                    "[SessionRouter] clear refused: session_id=%s active_turn_id=%s",
                     session_id,
-                    reason="slash_command_clear",
+                    active_turn_id,
                 )
-                message = "上下文已清除。"
-        await self._send_control_feedback(ctx, session_id=session_id, markdown=message)
+                await self._send_control_feedback(
+                    ctx,
+                    session_id=session_id,
+                    markdown="当前有进行中的回复，暂不创建新会话。",
+                )
+                return
+
+        new_session = await self._rotate_session(ctx)
+        logger.info(
+            "[SessionRouter] clear created new session: session_key=%s session_id=%s",
+            ctx.session_key,
+            new_session.session_id,
+        )
+        await self._send_control_feedback(
+            ctx,
+            session_id=new_session.session_id,
+            markdown="已创建新会话。",
+        )
 
     async def _send_permission_feedback(self, ctx: SessionContext, *, markdown: str) -> None:
         await self._send_control_feedback(ctx, session_id="", markdown=markdown)
 
-    @staticmethod
-    async def _load_session(ctx: SessionContext):
-        return await load_active_agent_session_by_user(
-            ctx.user_id,
-            platform=ctx.platform,
-            connector_key=ctx.connector_key,
-        )
+    async def _load_bound_session(self, ctx: SessionContext):
+        entry = self._bindings.get(ctx.session_key)
+        if entry is None or not str(entry.session_id or "").strip():
+            return None
+        return await load_agent_session(entry.session_id)
 
-    @staticmethod
-    async def _load_control_session(ctx: SessionContext):
-        return await load_latest_agent_session_for_conversation(
-            ctx.conversation_id,
-            ctx.user_id,
-            platform=ctx.platform,
-            connector_key=ctx.connector_key,
-        )
+    async def _load_or_create_bound_session(self, ctx: SessionContext):
+        entry = self._bindings.get_or_create(SessionSource.from_dict(ctx.source))
+        session = await load_agent_session(entry.session_id)
+        if session is None:
+            return await self._create_session(ctx, session_id=entry.session_id)
+        return await self._rebind_session(session, ctx)
+
+    async def _rotate_session(self, ctx: SessionContext):
+        entry = self._bindings.rotate(SessionSource.from_dict(ctx.source))
+        return await self._create_session(ctx, session_id=entry.session_id)
 
     @staticmethod
     async def _rebind_session(session, ctx: SessionContext):
         await create_card_context(ctx)
         refreshed = await update_agent_session(
             session.session_id,
-            card_id=ctx.card_id,
-            conversation_id=ctx.conversation_id,
-            conversation_type="2" if ctx.is_group else "1",
-            sender_nick=ctx.sender_nick,
+            source=dict(ctx.source or {}),
         )
         if refreshed is None:
             return session
         logger.info(
-            "[SessionRouter] rebound session target: session=%s user=%s conversation=%s card=%s",
+            "[SessionRouter] rebound session source: session=%s session_key=%s card=%s",
             refreshed.session_id,
-            ctx.user_id,
-            ctx.conversation_id,
+            ctx.session_key,
             ctx.card_id,
         )
         return refreshed
 
     @staticmethod
-    async def _create_session(ctx: SessionContext):
+    async def _create_session(ctx: SessionContext, *, session_id: str):
         await create_card_context(ctx)
         session = await create_agent_session(
-            card_id=ctx.card_id,
-            owner_user_id=ctx.user_id,
-            conversation_id=ctx.conversation_id,
-            conversation_type="2" if ctx.is_group else "1",
-            sender_nick=ctx.sender_nick,
-            platform=ctx.platform,
-            connector_key=ctx.connector_key,
+            source=dict(ctx.source or {}),
             status=AgentSessionStatus.WAITING_USER_INPUT,
-            state_data=build_initial_agent_state(
-                entry_text=ctx.user_input,
-            ),
-            session_id="",
+            state_data=build_initial_agent_state(entry_text=ctx.user_input),
+            session_id=session_id,
         )
         logger.info(
-            "[SessionRouter] created session: platform=%s connector=%s user=%s conversation=%s session=%s",
+            "[SessionRouter] created session: platform=%s session_key=%s session=%s",
             ctx.platform,
-            ctx.connector_key,
-            ctx.user_id,
-            ctx.conversation_id,
+            ctx.session_key,
             session.session_id,
         )
         return session
@@ -317,13 +304,11 @@ class SessionRouter:
     ) -> None:
         await create_card_context(ctx)
         platform = str(ctx.platform or "").strip()
-        connector_key = str(ctx.connector_key or "").strip()
-        adapter = self._registry.get(platform, connector_key)
+        adapter = self._registry.get(platform)
         await adapter.handle_outbound(
             OutboundRequest(
                 action="send_message",
                 platform=platform,
-                connector_key=connector_key,
                 payload={"markdown": str(markdown or "")},
                 session_id=str(session_id or "").strip(),
                 card_id=str(ctx.card_id or "").strip(),

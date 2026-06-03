@@ -8,7 +8,7 @@ from aiohttp import web
 from gateway.channel_registry import ChannelRegistry
 from gateway.models import OutboundRequest as GatewayOutboundRequest
 from shared.agent_ipc import EmitRequest, HeartbeatWakeRequest
-from shared.db.client import load_agent_session
+from shared.db.client import load_agent_session, load_card_context
 from shared.logging import logger
 
 
@@ -97,15 +97,20 @@ class GatewayIpcServer:
         if session is None:
             raise RuntimeError(f"agent session not found: {emit.session_id}")
         emit_kind = str(emit.emit_kind or "").strip()
-        platform = str(session.platform or "").strip()
-        connector_key = str(session.connector_key or "agent").strip() or "agent"
-        adapter = self._registry.get(platform, connector_key)
+        card_id = str(emit.card_id or "").strip()
+        card_ctx = await load_card_context(card_id) if card_id else None
+        source = dict(getattr(session, "source", {}) or {})
+        if card_ctx is not None:
+            platform = str(card_ctx.platform or "").strip()
+        else:
+            platform = str(source.get("platform") or "").strip()
+        adapter = self._registry.get(platform)
         logger.info(
-            "[GatewayIPC] dispatch emit: session_id=%s kind=%s platform=%s connector=%s content_len=%d files=%d",
+            "[GatewayIPC] dispatch emit: session_id=%s kind=%s platform=%s card_id=%s content_len=%d files=%d",
             emit.session_id,
             emit_kind,
             platform,
-            connector_key,
+            card_id,
             len(str(emit.content or "")),
             len(list(emit.files or [])),
         )
@@ -121,22 +126,19 @@ class GatewayIpcServer:
                 adapter,
                 emit=emit,
                 platform=platform,
-                connector_key=connector_key,
-                card_id=str(getattr(session, "card_id", "") or "").strip(),
+                card_id=card_id,
             )
             return
         if emit_kind not in {"tool", "final"}:
             raise RuntimeError(f"unsupported emit_kind: {emit_kind}")
 
-        card_id = str(getattr(session, "card_id", "") or "").strip()
         if emit_kind == "tool":
-            await self._send_files(adapter, emit=emit, platform=platform, connector_key=connector_key, card_id=card_id)
+            await self._send_files(adapter, emit=emit, platform=platform, card_id=card_id)
             if emit.content:
                 await self._send_message(
                     adapter,
                     emit=emit,
                     platform=platform,
-                    connector_key=connector_key,
                     card_id=card_id,
                     content=emit.content,
                 )
@@ -147,11 +149,10 @@ class GatewayIpcServer:
                 adapter,
                 emit=emit,
                 platform=platform,
-                connector_key=connector_key,
                 card_id=card_id,
                 content=emit.content,
             )
-        await self._send_files(adapter, emit=emit, platform=platform, connector_key=connector_key, card_id=card_id)
+        await self._send_files(adapter, emit=emit, platform=platform, card_id=card_id)
 
     async def _send_stream_message(
         self,
@@ -159,7 +160,6 @@ class GatewayIpcServer:
         *,
         emit: EmitRequest,
         platform: str,
-        connector_key: str,
         card_id: str,
     ) -> None:
         safe_content = str(emit.content or "").strip()
@@ -177,7 +177,6 @@ class GatewayIpcServer:
         request = GatewayOutboundRequest(
             action="stream_message",
             platform=platform,
-            connector_key=connector_key,
             payload={
                 "stream_type": str(emit.stream_type or "").strip(),
                 "state": str(emit.state or "").strip(),
@@ -196,7 +195,6 @@ class GatewayIpcServer:
         *,
         emit: EmitRequest,
         platform: str,
-        connector_key: str,
         card_id: str,
         content: str,
     ) -> None:
@@ -212,7 +210,6 @@ class GatewayIpcServer:
         request = GatewayOutboundRequest(
             action="send_message",
             platform=platform,
-            connector_key=connector_key,
             payload={"markdown": safe_content},
             session_id=emit.session_id,
             card_id=card_id,
@@ -226,7 +223,6 @@ class GatewayIpcServer:
         *,
         emit: EmitRequest,
         platform: str,
-        connector_key: str,
         card_id: str,
     ) -> None:
         for path in list(emit.files or []):
@@ -242,7 +238,6 @@ class GatewayIpcServer:
             request = GatewayOutboundRequest(
                 action="send_file",
                 platform=platform,
-                connector_key=connector_key,
                 payload={"path": file_path},
                 session_id=emit.session_id,
                 card_id=card_id,

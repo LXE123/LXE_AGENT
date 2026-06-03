@@ -12,7 +12,6 @@ InboundSink = Callable[[Any], Any]
 
 class ChannelAdapter(Protocol):
     platform: str
-    connector_key: str
 
     def set_inbound_sink(self, sink: InboundSink) -> None:
         ...

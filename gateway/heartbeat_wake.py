@@ -5,8 +5,10 @@ from dataclasses import dataclass
 
 from gateway.session_scheduler import SessionScheduler
 from shared.agent_ipc import AgentJob, HeartbeatWakeRequest
+from shared.agent_state import runtime_state
 from shared.db.client import has_agent_session_pending_events, load_agent_session
 from shared.logging import logger
+from shared.session_bindings import SessionSource
 
 _NORMAL_DELAY_S = 0.25
 _RETRY_DELAY_S = 1.0
@@ -146,20 +148,37 @@ class HeartbeatWakeManager:
                         wake.reason,
                     )
                     continue
+                source = dict(getattr(session, "source", {}) or {})
+                source_obj = SessionSource.from_dict(source)
+                try:
+                    session_key = source_obj.session_key
+                except RuntimeError as exc:
+                    logger.warning(
+                        "[ExecNotify] wake dropped: owner_session_id=%s heartbeat_reason=%s reason=invalid_source error=%s",
+                        wake.session_id,
+                        wake.reason,
+                        exc,
+                    )
+                    continue
+                runtime = runtime_state(getattr(session, "state_data", {}) or {})
+                card_id = str(runtime.get("active_card_id") or "").strip()
                 job = AgentJob(
                     job_id=f"heartbeat-{wake.session_id}-{asyncio.get_running_loop().time():.6f}",
                     session_id=wake.session_id,
-                    platform=str(getattr(session, "platform", "") or "").strip(),
-                    connector_key=str(getattr(session, "connector_key", "") or "").strip(),
-                    user_id=str(getattr(session, "owner_user_id", "") or "").strip(),
-                    conversation_id=str(getattr(session, "conversation_id", "") or "").strip(),
-                    is_group=bool(str(getattr(session, "conversation_type", "") or "").strip() == "2"),
+                    session_key=session_key,
+                    card_id=card_id,
+                    user_id=source_obj.user_key,
+                    conversation_id=str(source_obj.chat_id or "").strip(),
+                    is_group=str(source_obj.chat_type or "").strip() == "group",
                     message_id="",
                     user_input="",
                     job_kind="heartbeat",
-                    sender_nick=str(getattr(session, "sender_nick", "") or "").strip(),
+                    sender_nick=str(source_obj.user_name or "").strip(),
+                    source=source,
                     raw_data={
                         "heartbeat_reason": wake.reason,
+                        "session_key": session_key,
+                        "source": source,
                     },
                     user_content_blocks=[],
                 )

@@ -17,7 +17,7 @@ def test_gateway_from_config_registers_only_feishu(monkeypatch) -> None:
 
     app = app_mod.GatewayApp.from_config()
 
-    assert app._registry.connector_keys() == ["feishu:agent"]
+    assert app._registry.adapter_keys() == ["feishu"]
 
 
 def test_gateway_from_config_fails_without_feishu_config(monkeypatch) -> None:

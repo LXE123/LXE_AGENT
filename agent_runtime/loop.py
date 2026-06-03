@@ -475,7 +475,8 @@ class AgentLoop:
         self.state_data, _ = prune_processed_history_images(self.state_data)
         request_user_message = make_user_message(user_content_blocks if user_content_blocks else user_input)
         current_turn_messages: list[dict[str, Any]] = [request_user_message]
-        platform = str(getattr(self.session, "platform", "") or "feishu").strip()
+        session_source = dict(getattr(self.session, "source", {}) or {})
+        platform = str(session_source.get("platform") or "feishu").strip()
         tool_names = _active_tool_names(tool_registry=self.tool_registry)
         tool_schemas = self.tool_registry.tool_schemas(tool_names)
         system_prompt = build_system_prompt(

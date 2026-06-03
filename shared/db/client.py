@@ -41,14 +41,12 @@ async def save_card_delivery_handle(
     out_track_id: str,
     *,
     platform: str | None = None,
-    connector_key: str | None = None,
     platform_message_id: str | None = None,
 ):
     return await _run_db_call(
         _sqlite_card_state.save_delivery_handle,
         out_track_id,
         platform=platform,
-        connector_key=connector_key,
         platform_message_id=platform_message_id,
     )
 
@@ -65,35 +63,6 @@ async def load_agent_context(context_id: str):
     return await _run_db_call(_agent_state.load_agent_context_state, context_id)
 
 
-async def load_agent_context_by_user(
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-):
-    return await _run_db_call(
-        _agent_state.load_agent_context_state_by_user,
-        owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-    )
-
-
-async def upsert_agent_context(
-    *,
-    owner_user_id: str,
-    platform: str,
-    connector_key: str,
-    context_data: dict | None = None,
-):
-    return await _run_db_call(
-        _agent_state.upsert_agent_context_state,
-        owner_user_id=owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-        context_data=context_data,
-    )
-
-
 async def update_agent_context(
     context_id: str,
     *,
@@ -106,84 +75,16 @@ async def update_agent_context(
     )
 
 
-async def load_active_agent_session(
-    conversation_id: str,
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-):
-    return await _run_db_call(
-        _agent_state.load_active_agent_session_state,
-        conversation_id,
-        owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-    )
-
-
-async def load_active_agent_session_by_owner(
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-):
-    return await _run_db_call(
-        _agent_state.load_active_agent_session_state_by_owner,
-        owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-    )
-
-
-async def load_active_agent_session_by_user(
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-):
-    return await _run_db_call(
-        _agent_state.load_active_agent_session_state_by_user,
-        owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-    )
-
-
-async def load_latest_agent_session_for_conversation(
-    conversation_id: str,
-    owner_user_id: str,
-    platform: str | None = None,
-    connector_key: str | None = None,
-):
-    return await _run_db_call(
-        _agent_state.load_latest_agent_session_state_for_conversation,
-        conversation_id,
-        owner_user_id,
-        platform=platform,
-        connector_key=connector_key,
-    )
-
-
 async def create_agent_session(
     *,
-    card_id: str,
-    owner_user_id: str,
-    conversation_id: str,
-    conversation_type: str,
-    sender_nick: str = "",
-    platform: str = "feishu",
-    connector_key: str = "agent",
+    source: dict[str, Any] | None = None,
     status: str,
     state_data: dict | None = None,
     session_id: str = "",
 ):
     return await _run_db_call(
         _agent_state.create_agent_session_state,
-        card_id=card_id,
-        owner_user_id=owner_user_id,
-        conversation_id=conversation_id,
-        conversation_type=conversation_type,
-        sender_nick=sender_nick,
-        platform=platform,
-        connector_key=connector_key,
+        source=source,
         status=status,
         state_data=state_data,
         session_id=session_id,
@@ -193,20 +94,14 @@ async def create_agent_session(
 async def update_agent_session(
     session_id: str,
     *,
-    card_id: str | None = None,
-    conversation_id: str | None = None,
-    conversation_type: str | None = None,
-    sender_nick: str | None = None,
+    source: dict[str, Any] | None = None,
     status: str | None = None,
     state_data_patch: dict | None = None,
 ):
     return await _run_db_call(
         _agent_state.update_agent_session_state,
         session_id,
-        card_id=card_id,
-        conversation_id=conversation_id,
-        conversation_type=conversation_type,
-        sender_nick=sender_nick,
+        source=source,
         status=status,
         state_data_patch=state_data_patch,
     )
@@ -314,12 +209,7 @@ __all__ = [
     "dispose",
     "has_agent_session_pending_events",
     "init_schema",
-    "load_active_agent_session",
-    "load_active_agent_session_by_owner",
-    "load_active_agent_session_by_user",
-    "load_latest_agent_session_for_conversation",
     "load_agent_context",
-    "load_agent_context_by_user",
     "load_agent_session",
     "load_card_context",
     "load_card_session",
@@ -329,7 +219,6 @@ __all__ = [
     "save_card_session_patch",
     "save_card_delivery_handle",
     "touch_card",
-    "upsert_agent_context",
     "update_agent_context",
     "update_agent_session",
 ]

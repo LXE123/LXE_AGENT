@@ -10,6 +10,7 @@ from agent_runtime.final_answer_streamer import FinalAnswerStreamer
 @dataclass(frozen=True)
 class EmitCall:
     session_id: str
+    card_id: str
     channel: str
     state: str
     seq: int
@@ -36,14 +37,23 @@ def test_push_delta_does_not_wait_for_slow_emit() -> None:
         first_emit_started = asyncio.Event()
         release_first_emit = asyncio.Event()
 
-        async def emit_stream(session_id: str, channel: str, state: str, seq: int, content: str, emit_id: str) -> None:
-            calls.append(EmitCall(session_id, channel, state, seq, content, emit_id))
+        async def emit_stream(
+            session_id: str,
+            card_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+        ) -> None:
+            calls.append(EmitCall(session_id, card_id, channel, state, seq, content, emit_id))
             first_emit_started.set()
             if seq == 1:
                 await release_first_emit.wait()
 
         streamer = FinalAnswerStreamer(
             session_id="session-1",
+            card_id="card-1",
             emit_stream=emit_stream,
             min_interval_ms=0,
             emit_id="emit-1",
@@ -72,14 +82,23 @@ def test_deltas_merge_to_latest_buffer_while_emit_is_in_flight() -> None:
         first_emit_started = asyncio.Event()
         release_first_emit = asyncio.Event()
 
-        async def emit_stream(session_id: str, channel: str, state: str, seq: int, content: str, emit_id: str) -> None:
-            calls.append(EmitCall(session_id, channel, state, seq, content, emit_id))
+        async def emit_stream(
+            session_id: str,
+            card_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+        ) -> None:
+            calls.append(EmitCall(session_id, card_id, channel, state, seq, content, emit_id))
             if seq == 1:
                 first_emit_started.set()
                 await release_first_emit.wait()
 
         streamer = FinalAnswerStreamer(
             session_id="session-1",
+            card_id="card-1",
             emit_stream=emit_stream,
             min_interval_ms=0,
             emit_id="emit-1",
@@ -110,6 +129,7 @@ def test_only_one_emit_is_in_flight_at_a_time() -> None:
 
         async def emit_stream(
             _session_id: str,
+            _card_id: str,
             _channel: str,
             _state: str,
             seq: int,
@@ -126,6 +146,7 @@ def test_only_one_emit_is_in_flight_at_a_time() -> None:
 
         streamer = FinalAnswerStreamer(
             session_id="session-1",
+            card_id="card-1",
             emit_stream=emit_stream,
             min_interval_ms=0,
             emit_id="emit-1",
@@ -150,14 +171,23 @@ def test_finish_waits_for_final_full_content_emit() -> None:
         first_emit_started = asyncio.Event()
         release_first_emit = asyncio.Event()
 
-        async def emit_stream(session_id: str, channel: str, state: str, seq: int, content: str, emit_id: str) -> None:
-            calls.append(EmitCall(session_id, channel, state, seq, content, emit_id))
+        async def emit_stream(
+            session_id: str,
+            card_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+        ) -> None:
+            calls.append(EmitCall(session_id, card_id, channel, state, seq, content, emit_id))
             if seq == 1:
                 first_emit_started.set()
                 await release_first_emit.wait()
 
         streamer = FinalAnswerStreamer(
             session_id="session-1",
+            card_id="card-1",
             emit_stream=emit_stream,
             min_interval_ms=0,
             emit_id="emit-1",
@@ -182,11 +212,20 @@ def test_fail_emits_error_state() -> None:
     async def scenario() -> list[EmitCall]:
         calls: list[EmitCall] = []
 
-        async def emit_stream(session_id: str, channel: str, state: str, seq: int, content: str, emit_id: str) -> None:
-            calls.append(EmitCall(session_id, channel, state, seq, content, emit_id))
+        async def emit_stream(
+            session_id: str,
+            card_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+        ) -> None:
+            calls.append(EmitCall(session_id, card_id, channel, state, seq, content, emit_id))
 
         streamer = FinalAnswerStreamer(
             session_id="session-1",
+            card_id="card-1",
             emit_stream=emit_stream,
             min_interval_ms=0,
             emit_id="emit-1",
@@ -197,7 +236,7 @@ def test_fail_emits_error_state() -> None:
 
     calls = _run(scenario())
     assert calls == [
-        EmitCall("session-1", "final_answer", "error", 1, "failed", "emit-1"),
+        EmitCall("session-1", "card-1", "final_answer", "error", 1, "failed", "emit-1"),
     ]
 
 
@@ -205,11 +244,20 @@ def test_cancel_preserves_already_sent_content() -> None:
     async def scenario() -> list[EmitCall]:
         calls: list[EmitCall] = []
 
-        async def emit_stream(session_id: str, channel: str, state: str, seq: int, content: str, emit_id: str) -> None:
-            calls.append(EmitCall(session_id, channel, state, seq, content, emit_id))
+        async def emit_stream(
+            session_id: str,
+            card_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+        ) -> None:
+            calls.append(EmitCall(session_id, card_id, channel, state, seq, content, emit_id))
 
         streamer = FinalAnswerStreamer(
             session_id="session-1",
+            card_id="card-1",
             emit_stream=emit_stream,
             min_interval_ms=0,
             emit_id="emit-1",
@@ -222,6 +270,6 @@ def test_cancel_preserves_already_sent_content() -> None:
 
     calls = _run(scenario())
     assert calls == [
-        EmitCall("session-1", "final_answer", "delta", 1, "hello", "emit-1"),
-        EmitCall("session-1", "final_answer", "final", 2, "hello", "emit-1"),
+        EmitCall("session-1", "card-1", "final_answer", "delta", 1, "hello", "emit-1"),
+        EmitCall("session-1", "card-1", "final_answer", "final", 2, "hello", "emit-1"),
     ]
