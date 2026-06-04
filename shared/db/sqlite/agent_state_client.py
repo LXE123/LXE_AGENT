@@ -5,10 +5,6 @@ from typing import Any
 from shared.logging import logger
 
 from . import bootstrap
-from .agent_contexts import (
-    load_agent_context,
-    update_agent_context,
-)
 from .agent_sessions import (
     append_agent_session_pending_event,
     cancel_agent_session,
@@ -38,18 +34,6 @@ def dispose() -> None:
 
 def load_agent_session_state(session_id: str):
     return load_agent_session(session_id)
-
-
-def load_agent_context_state(context_id: str):
-    return load_agent_context(context_id)
-
-
-def update_agent_context_state(
-    context_id: str,
-    *,
-    context_patch: dict[str, Any] | None = None,
-):
-    return update_agent_context(context_id, context_patch=context_patch)
 
 
 def create_agent_session_state(
@@ -156,11 +140,9 @@ __all__ = [
     "dispose",
     "has_agent_session_pending_events_state",
     "init_schema",
-    "load_agent_context_state",
     "load_agent_session_state",
     "pop_agent_session_pending_events_state",
     "request_agent_turn_stop_state",
     "reset_agent_session_state",
-    "update_agent_context_state",
     "update_agent_session_state",
 ]

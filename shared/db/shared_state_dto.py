@@ -20,17 +20,8 @@ class CardContext:
 
 
 @dataclass
-class AgentContextState:
-    context_id: str
-    context_data: Dict[str, Any]
-    created_at: Optional[datetime]
-    updated_at: Optional[datetime]
-
-
-@dataclass
 class AgentSessionState:
     session_id: str
-    context_id: str
     source: Dict[str, Any]
     status: str
     state_data: Dict[str, Any]
@@ -52,7 +43,6 @@ class ZiniaoStoreSessionState:
 
 
 __all__ = [
-    "AgentContextState",
     "AgentSessionState",
     "CardContext",
     "ZiniaoStoreSessionState",

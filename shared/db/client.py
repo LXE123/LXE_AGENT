@@ -59,22 +59,6 @@ async def load_agent_session(session_id: str):
     return await _run_db_call(_agent_state.load_agent_session_state, session_id)
 
 
-async def load_agent_context(context_id: str):
-    return await _run_db_call(_agent_state.load_agent_context_state, context_id)
-
-
-async def update_agent_context(
-    context_id: str,
-    *,
-    context_patch: dict | None = None,
-):
-    return await _run_db_call(
-        _agent_state.update_agent_context_state,
-        context_id,
-        context_patch=context_patch,
-    )
-
-
 async def create_agent_session(
     *,
     source: dict[str, Any] | None = None,
@@ -209,7 +193,6 @@ __all__ = [
     "dispose",
     "has_agent_session_pending_events",
     "init_schema",
-    "load_agent_context",
     "load_agent_session",
     "load_card_context",
     "load_card_session",
@@ -219,6 +202,5 @@ __all__ = [
     "save_card_session_patch",
     "save_card_delivery_handle",
     "touch_card",
-    "update_agent_context",
     "update_agent_session",
 ]

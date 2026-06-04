@@ -19,7 +19,6 @@ from gateway.heartbeat_wake import HeartbeatWakeManager
 from shared.agent_sessions import AgentSessionStatus
 from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY, runtime_state
 from shared.db import client as shared_db_client
-from shared.db.sqlite.agent_contexts import load_agent_context, update_agent_context
 from shared.db.sqlite.agent_sessions import (
     append_agent_session_pending_event,
     cancel_agent_session,
@@ -43,6 +42,7 @@ from shared.db.sqlite.card_state import (
     touch,
 )
 from shared.db.sqlite.engine import connect
+from shared.db.sqlite.session_messages import load_session_messages, save_session_messages, session_messages_path
 from shared.db.sqlite.store_sessions import (
     clear_store_sessions,
     delete_store_session,
@@ -310,26 +310,27 @@ def test_ziniao_store_session_validation_and_clear(sqlite_db):
     assert list_store_sessions(host_id="host-a") == []
 
 
-def test_agent_context_create_load_and_update(sqlite_db):
+def test_session_message_jsonl_create_load_and_update(sqlite_db):
+    assert load_session_messages("missing-session") == []
+
     created = _create_session(
         "session-context",
         state_data=_state([{"role": "user", "content": "hello"}]),
     )
-    context = load_agent_context(created.context_id)
-    assert context is not None
-    assert context.context_id == created.context_id
-    assert context.context_data["messages"][0]["content"] == "hello"
+    path = session_messages_path(created.session_id)
+    assert path.is_file()
+    assert load_session_messages(created.session_id)[0]["content"] == "hello"
 
-    updated = update_agent_context(
-        created.context_id,
-        context_patch={
-            "messages": [{"role": "assistant", "content": "ok"}],
-            "ignored": "value",
-        },
+    updated = update_agent_session(
+        created.session_id,
+        state_data_patch={CONTEXT_KEY: {"messages": [{"role": "assistant", "content": "ok"}]}},
     )
     assert updated is not None
-    assert updated.context_data["messages"][0]["role"] == "assistant"
-    assert "ignored" not in updated.context_data
+    assert updated.state_data[CONTEXT_KEY]["messages"][0]["role"] == "assistant"
+    assert load_session_messages(created.session_id)[0]["content"][0]["text"] == "ok"
+
+    save_session_messages(created.session_id, [{"role": "not-a-role", "content": "ignored"}])
+    assert load_session_messages(created.session_id) == []
 
 
 def test_agent_session_create_update_and_source(sqlite_db):
@@ -357,20 +358,20 @@ def test_agent_session_create_update_and_source(sqlite_db):
             "SELECT source, state_data FROM agent_sessions WHERE session_id = ?",
             ("session-1",),
         ).fetchone()
-        context_row = conn.execute(
-            "SELECT context_data FROM agent_contexts WHERE context_id = ?",
-            (created.context_id,),
+        agent_contexts_exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agent_contexts'"
         ).fetchone()
     finally:
         conn.close()
     assert "source" in session_columns
+    assert "context_id" not in session_columns
     assert "pending_events" not in session_columns
     assert "card_id" not in session_columns
     assert session_row is not None
-    assert context_row is not None
+    assert agent_contexts_exists is None
     assert json.loads(session_row["source"])["chat_id"] == "chat-1"
     assert CONTEXT_KEY not in json.loads(session_row["state_data"])
-    assert json.loads(context_row["context_data"])["messages"][0]["content"] == "hello"
+    assert load_session_messages("session-1")[0]["content"] == "hello"
 
     updated = update_agent_session(
         "session-1",
@@ -766,31 +767,10 @@ def test_agent_session_validation_and_bad_storage_fail_loud(sqlite_db):
             {"job_id": "job-1", "created_at": 1, "text": "missing event id"},
         )
 
-    conn = connect()
-    try:
-        conn.execute(
-            """
-            INSERT INTO agent_contexts (
-                context_id,
-                context_data,
-                created_at,
-                updated_at
-            )
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                "bad-context",
-                json.dumps(["not-object"]),
-                "2026-01-01T00:00:00+00:00",
-                "2026-01-01T00:00:00+00:00",
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    with pytest.raises(RuntimeError, match="agent_contexts.context_data must be a JSON object"):
-        load_agent_context("bad-context")
+    session_message_path = session_messages_path("session-bad-event")
+    session_message_path.write_text("{not-json}\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="invalid session message JSONL"):
+        load_session_messages("session-bad-event")
 
 
 def test_public_agent_client_uses_sqlite_backend(sqlite_db):

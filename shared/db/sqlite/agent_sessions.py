@@ -15,10 +15,10 @@ from shared.agent_sessions import (
 )
 from shared.agent_state import (
     CONTEXT_KEY,
+    MESSAGES_KEY,
     RUNTIME_ALLOWED_KEYS,
     RUNTIME_KEY,
     compose_agent_state,
-    empty_context_state,
     ensure_agent_state,
     reset_context_only,
     runtime_state,
@@ -35,16 +35,8 @@ from ._agent_storage import (
     sanitize_json_for_storage,
     utc_now,
 )
-from .agent_contexts import (
-    AgentContextRecord,
-    _apply_agent_context_patch,
-    _clean_context_data,
-    _create_agent_context_record,
-    _load_agent_context_record,
-    _save_agent_context_record,
-    _touch_agent_context_record,
-)
 from .engine import connection_scope
+from .session_messages import clear_session_messages, load_session_messages, save_session_messages
 
 
 MAX_PENDING_EVENTS = 10
@@ -57,7 +49,6 @@ _STATE_DATA_PATCH_KEYS = {
 @dataclass
 class AgentSessionRecord:
     session_id: str
-    context_id: Optional[str]
     source: dict[str, Any]
     status: str
     state_data: dict[str, Any]
@@ -84,7 +75,6 @@ def _record_from_row(row: Row | None) -> AgentSessionRecord | None:
         return None
     return AgentSessionRecord(
         session_id=str(row["session_id"]),
-        context_id=str(row["context_id"] or "").strip() or None,
         source=json_object_from_storage(
             row["source"],
             field_name="agent_sessions.source",
@@ -114,15 +104,13 @@ def _save_session_record(conn: Connection, record: AgentSessionRecord) -> None:
     conn.execute(
         """
         UPDATE agent_sessions
-        SET context_id = ?,
-            source = ?,
+        SET source = ?,
             status = ?,
             state_data = ?,
             updated_at = ?
         WHERE session_id = ?
         """,
         (
-            record.context_id,
             json_object_to_storage(
                 _clean_source(record.source),
                 field_name="agent_sessions.source",
@@ -143,18 +131,16 @@ def _insert_session_record(conn: Connection, record: AgentSessionRecord) -> None
         """
         INSERT INTO agent_sessions (
             session_id,
-            context_id,
             source,
             status,
             state_data,
             created_at,
             updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
         (
             record.session_id,
-            record.context_id,
             json_object_to_storage(
                 _clean_source(record.source),
                 field_name="agent_sessions.source",
@@ -261,36 +247,11 @@ def _compose_record_state(
     record: AgentSessionRecord,
     *,
     conn: Connection,
-    context_record: AgentContextRecord | None = None,
 ) -> dict[str, Any]:
-    resolved_context = context_record
-    if resolved_context is None and str(record.context_id or "").strip():
-        resolved_context = _load_agent_context_record(
-            conn,
-            context_id=str(record.context_id or "").strip(),
-        )
+    _ = conn
     raw_state = dict(record.state_data or {})
-    context_data = dict(resolved_context.context_data or {}) if resolved_context is not None else {}
+    context_data = {MESSAGES_KEY: load_session_messages(record.session_id)}
     return compose_agent_state(raw_state, context_data)
-
-
-def _ensure_record_context(
-    conn: Connection,
-    record: AgentSessionRecord,
-    *,
-    initial_context_data: dict[str, Any] | None = None,
-) -> AgentContextRecord:
-    existing = None
-    if str(record.context_id or "").strip():
-        existing = _load_agent_context_record(conn, context_id=str(record.context_id or "").strip())
-    if existing is not None:
-        return existing
-    created = _create_agent_context_record(
-        conn,
-        initial_context_data=initial_context_data,
-    )
-    record.context_id = str(created.context_id or "").strip() or None
-    return created
 
 
 def _touch_session_activity(record: AgentSessionRecord, base_time: Optional[datetime] = None) -> None:
@@ -336,14 +297,12 @@ def _to_state(
     record: AgentSessionRecord,
     *,
     conn: Connection,
-    context_record: AgentContextRecord | None = None,
 ) -> AgentSessionState:
     return AgentSessionState(
         session_id=str(record.session_id),
-        context_id=str(record.context_id or ""),
         source=_clean_source(record.source),
         status=str(record.status),
-        state_data=_compose_record_state(record, conn=conn, context_record=context_record),
+        state_data=_compose_record_state(record, conn=conn),
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -379,9 +338,9 @@ def _merge_state_data(
     current_state[RUNTIME_KEY] = existing_runtime
     record.state_data = _clean_session_storage_state(current_state)
     if CONTEXT_KEY in raw_patch:
-        context_record = _ensure_record_context(conn, record)
-        _apply_agent_context_patch(context_record, context_patch, base_time=now)
-        _save_agent_context_record(conn, context_record)
+        _ = now
+        if MESSAGES_KEY in context_patch:
+            save_session_messages(record.session_id, context_patch.get(MESSAGES_KEY))
 
 
 def load_agent_session(session_id: str) -> Optional[AgentSessionState]:
@@ -411,16 +370,13 @@ def create_agent_session(
     initial_state_data[RUNTIME_KEY] = initial_runtime
     session_state_data, context_data = split_agent_state_for_storage(initial_state_data)
     clean_session_state = _clean_session_storage_state(session_state_data)
+    safe_session_id = str(session_id or uuid4().hex)
 
     with connection_scope() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        context_record = _create_agent_context_record(
-            conn,
-            initial_context_data=context_data,
-        )
+        save_session_messages(safe_session_id, dict(context_data or {}).get(MESSAGES_KEY) or [])
         record = AgentSessionRecord(
-            session_id=str(session_id or uuid4().hex),
-            context_id=str(context_record.context_id),
+            session_id=safe_session_id,
             source=_clean_source(source),
             status=str(status or "").strip(),
             state_data=clean_session_state,
@@ -428,7 +384,7 @@ def create_agent_session(
             updated_at=now,
         )
         _insert_session_record(conn, record)
-        return _to_state(record, conn=conn, context_record=context_record)
+        return _to_state(record, conn=conn)
 
 
 def update_agent_session(
@@ -484,12 +440,9 @@ def request_agent_turn_stop(
         _ = reason
         record.state_data = _clean_session_storage_state({RUNTIME_KEY: runtime})
 
-        context_record = _ensure_record_context(conn, record)
-        _touch_agent_context_record(context_record, base_time=now)
-        _save_agent_context_record(conn, context_record)
         record.updated_at = now
         _save_session_record(conn, record)
-        return _to_state(record, conn=conn, context_record=context_record)
+        return _to_state(record, conn=conn)
 
 
 def clear_agent_session_memory(
@@ -511,11 +464,8 @@ def clear_agent_session_memory(
         safe_reason = str(reason or "").strip() or "slash_command_clear"
         status_before = str(record.status or "").strip()
 
-        context_record = _ensure_record_context(conn, record)
-        message_count_before = len(list(dict(context_record.context_data or {}).get("messages") or []))
-        context_record.context_data = _clean_context_data(empty_context_state())
-        _touch_agent_context_record(context_record, base_time=now)
-        _save_agent_context_record(conn, context_record)
+        message_count_before = len(load_session_messages(safe_session_id))
+        clear_session_messages(safe_session_id)
 
         runtime = runtime_state(record.state_data)
         _validate_runtime_patch(runtime)
@@ -530,16 +480,15 @@ def clear_agent_session_memory(
         _save_session_record(conn, record)
 
         logger.info(
-            "[AgentSessions] memory cleared: session_id=%s context_id=%s reason=%s"
+            "[AgentSessions] memory cleared: session_id=%s reason=%s"
             " status_before=%s status_after=%s message_count_before=%d",
             safe_session_id,
-            str(getattr(context_record, "context_id", "") or "").strip(),
             safe_reason,
             status_before,
             status_after,
             message_count_before,
         )
-        return _to_state(record, conn=conn, context_record=context_record)
+        return _to_state(record, conn=conn)
 
 
 def append_agent_session_pending_event(
@@ -686,9 +635,6 @@ def cancel_agent_session(
         record.status = AgentSessionStatus.CANCELLED
         record.updated_at = now
 
-        context_record = _ensure_record_context(conn, record)
-        _touch_agent_context_record(context_record, base_time=now)
-        _save_agent_context_record(conn, context_record)
         _save_session_record(conn, record)
         return _to_state(record, conn=conn)
 
@@ -727,12 +673,9 @@ def reset_agent_session_context(
         _validate_runtime_patch(runtime)
         runtime["session_activity_at"] = _session_activity_marker(now)
 
-        context_record = _ensure_record_context(conn, record)
-        context_record.context_data = _clean_context_data(empty_context_state())
-        _touch_agent_context_record(context_record, base_time=now)
-        _save_agent_context_record(conn, context_record)
+        clear_session_messages(safe_session_id)
 
-        reset_state = _compose_record_state(record, conn=conn, context_record=context_record)
+        reset_state = _compose_record_state(record, conn=conn)
         reset_state[RUNTIME_KEY] = runtime
         record.state_data = _clean_session_storage_state(
             reset_context_only(reset_state, keep_runtime_keys=keep_runtime_keys)

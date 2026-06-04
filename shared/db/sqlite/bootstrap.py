@@ -44,31 +44,16 @@ def _create_card_owners(conn) -> None:
     )
 
 
-def _create_agent_contexts(conn) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS agent_contexts (
-            context_id TEXT PRIMARY KEY,
-            context_data TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-
-
 def _create_agent_sessions(conn) -> None:
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS agent_sessions (
             session_id TEXT PRIMARY KEY,
-            context_id TEXT,
             source TEXT NOT NULL DEFAULT '{}',
             status TEXT NOT NULL DEFAULT 'waiting_user_input',
             state_data TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY(context_id) REFERENCES agent_contexts(context_id)
+            updated_at TEXT NOT NULL
         )
         """
     )
@@ -132,32 +117,8 @@ def _migrate_card_owners(conn) -> None:
     conn.execute("DROP TABLE card_owners_legacy")
 
 
-def _migrate_agent_contexts(conn) -> None:
-    if not _table_exists(conn, "agent_contexts"):
-        _create_agent_contexts(conn)
-        return
-    cols = _columns(conn, "agent_contexts")
-    if "owner_user_id" not in cols and _LEGACY_ROUTE_COLUMN not in cols and "platform" not in cols:
-        return
-    conn.execute("ALTER TABLE agent_contexts RENAME TO agent_contexts_legacy")
-    _create_agent_contexts(conn)
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO agent_contexts (
-            context_id,
-            context_data,
-            created_at,
-            updated_at
-        )
-        SELECT
-            context_id,
-            context_data,
-            created_at,
-            updated_at
-        FROM agent_contexts_legacy
-        """
-    )
-    conn.execute("DROP TABLE agent_contexts_legacy")
+def _drop_agent_contexts(conn) -> None:
+    conn.execute("DROP TABLE IF EXISTS agent_contexts")
 
 
 def _write_legacy_bindings(rows: list[Any]) -> None:
@@ -180,35 +141,43 @@ def _write_legacy_bindings(rows: list[Any]) -> None:
         store.save_all(entries)
 
 
+def _json_object_from_text(value: Any) -> dict[str, Any]:
+    try:
+        parsed = json.loads(str(value or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _migrate_agent_sessions(conn) -> None:
     if not _table_exists(conn, "agent_sessions"):
         _create_agent_sessions(conn)
         return
     cols = _columns(conn, "agent_sessions")
-    if "source" in cols and _LEGACY_ROUTE_COLUMN not in cols and "card_id" not in cols:
+    if "source" in cols and _LEGACY_ROUTE_COLUMN not in cols and "card_id" not in cols and "context_id" not in cols:
         return
     legacy_rows = conn.execute("SELECT * FROM agent_sessions").fetchall()
-    _write_legacy_bindings(legacy_rows)
+    if "source" not in cols:
+        _write_legacy_bindings(legacy_rows)
+    conn.execute("DROP TABLE IF EXISTS agent_session_pending_events")
     conn.execute("ALTER TABLE agent_sessions RENAME TO agent_sessions_legacy")
     _create_agent_sessions(conn)
     for row in legacy_rows:
-        source = _source_from_legacy_session(row)
+        source = _json_object_from_text(row["source"]) if "source" in cols else _source_from_legacy_session(row)
         conn.execute(
             """
             INSERT INTO agent_sessions (
                 session_id,
-                context_id,
                 source,
                 status,
                 state_data,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 row["session_id"],
-                row["context_id"],
                 json.dumps(source, ensure_ascii=False, separators=(",", ":")),
                 row["status"],
                 row["state_data"],
@@ -269,10 +238,6 @@ def _create_indexes(conn) -> None:
         "ON card_owners (platform)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_agent_sessions_context_id "
-        "ON agent_sessions (context_id)"
-    )
-    conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_sessions_status "
         "ON agent_sessions (status)"
     )
@@ -281,12 +246,10 @@ def _create_indexes(conn) -> None:
 def init_schema() -> None:
     with connection_scope() as conn:
         _migrate_card_owners(conn)
-        _migrate_agent_contexts(conn)
         _migrate_agent_sessions(conn)
+        _drop_agent_contexts(conn)
         _create_card_owners(conn)
         _create_ziniao_sessions(conn)
-        _create_agent_contexts(conn)
         _create_agent_sessions(conn)
         _create_pending_events(conn)
         _create_indexes(conn)
-

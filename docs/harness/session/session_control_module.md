@@ -1,71 +1,61 @@
+session 是上下文的唯一归属单位。
+session_id 同时负责定位 session 元数据和 message JSONL 文件。
+
 为了适配可视化页面的 session 页面，我需要在目前的 harness 框架中加入 session 管理模块，我要实现的功能如下：
 1. 存储多份 session，用户可以主动创建、删除和复用某个 session
 2. /clear 只是创建一个新会话，而不是直接清空所有会话历史
 
 问：复用是指什么
 答：切换到某个 session，后续消息继续追加到这个 session
+
 ---
 
-为此，我需要新的两张数据库表格，
-agent_chat_session，存储有哪些 session
+
+
+扩展 agent_sessions，并新增每个 session 一个 JSONL message 文件
+agent_sessions，存储有哪些 session
 具体字段如下：
-id  // 会话 ID，也就是代码里常说的 session_id。
-source  // 会话来源，比如 cli、tui、telegram、api_server、feishu 等（我的项目目前 feishu）
-user_id // 
+session_id  // 会话 ID，也就是代码里常说的 session_id。
+source  // JSON，保存 session 的平台来源快照
 model   // 这个会话使用的模型名。
 model_config    // 保存会话创建时的模型相关配置，比如 max iterations、reasoning config 等。
-started_at  // 会话开始时间，Unix timestamp。
-ended_at    // 会话结束时间。为空表示还没结束。
-message_count   // 消息数量计数。append_message() 时递增。
-tool_call_count // tool 调用数量计数。assistant 有 tool_calls 或 role 是 tool 时会增加。
-input_tokens    // 输入 token 累计。
-output_tokens   // 输出 token 累计。
+created_at  // 会话开始时间，Unix timestamp。
+last_active_at  // 会话最后一次启用的时间，可以按照这个来排序
+message_count   // 当前 JSONL 文件里的 message 行数
+tool_call_count // tool 调用数量计数。每调用一次 +1，按实际 LLM tool call 累计
+input_tokens    // 输入 token 累计。session 生命周期内累计统计，不随 JSONL 裁剪减少
+output_tokens   // 输出 token 累计。session 生命周期内累计统计，不随 JSONL 裁剪减少
 title   // 会话标题。
 api_call_count  // 这个 session 内累计的大模型 API 调用次数。
 
+然后是 <session_id>.jsonl，每一个 session_id 都是唯一的，所以直接以 session_id 命名。
+为什么是 JSONL 文件中，因为 message 本身就是数组，天然适合一行一行存储。
+因为是 JSONL 文件，所以持久上下文时按完整 messages 快照重写文件，而不是追加。
 
-agent_chat_message，存储某个具体的 session 中的上下文
-具体字段如下：
-id  // 消息行 ID，自增主键。
-session_id  // 所属会话 ID，外键指向 sessions.id。
-role    // 消息角色：system、user、assistant、tool。
-content // 消息正文。多模态内容会被转换/编码后保存。
-tool_call_id    // 	tool 结果对应的 tool call ID。通常用于 role='tool' 的消息。
-tool_calls  // 	JSON 字符串，保存 assistant 发起的 tool calls。
-tool_name   // 	tool 名称。通常用于 tool result 消息。
-timestamp   // 	消息时间，Unix timestamp。
-token_count // 该消息相关 token 数。不是所有消息都会填。
-
-以及一个 session.json 文件用来存储第三方平台的各个属性，比如飞书就是：
+sessions.json 用来保存 session_key -> session_id 映射，并附带 origin 快照。比如飞书可以是：
 {
-  "agent:main:feishu:group:<chat_id>:<user_id>": {
-    "session_key": "agent:main:feishu:group:<chat_id>:<user_id>",
+  "agent:main:feishu:group:oc_xxx:on_xxx": {
+    "session_key": "agent:main:feishu:group:oc_xxx:on_xxx",
     "session_id": "20260603_143000_ab12cd34",
-    "created_at": "...",
-    "updated_at": "...",
+    "created_at": "2026-06-03T14:30:00+08:00",
+    "updated_at": "2026-06-03T14:30:00+08:00",
     "origin": {
       "platform": "feishu",
-      "chat_id": "...",
+      "chat_id": "oc_xxx",
       "chat_type": "group",
-      "user_id": "...",
-      "thread_id": null
+      "user_id": "ou_xxx",
+      "user_id_alt": "on_xxx"
     },
     "platform": "feishu",
-    "chat_type": "group",
-    "resume_pending": false,
-    "suspended": false
+    "chat_type": "group"
   }
 }
-其中的 session_id 就是 agent_chat_session 中的 id，session_key 由 gateway 生成和 session_id 是映射关系。（系统内部会根据 session_key 找到 session_id）
+其中的 session_id 就是 agent_sessions 中的 session_id，session_key 由 gateway 生成和 session_id 是映射关系。（系统内部会根据 session_key 找到 session_id）
 
 
 ---
 
-问：目前判断消息来源靠 platform、connector_key，切换成 source 是不是不合适？
-答：实际使用中，agent 对应的单个平台只会链接一个 bot，不存在同一平台，多个bot的情况。所以 connector_key 是不是没有存在的必要
 
-问：从 agent_chat_message 的字段来看，是要把上下文中的 message 在数据库中的格式变成一条一条记录，需要时根据 session_id 搜索，然后按照 id 排序吗？
-答：是的，id 是 SQLite 自增主键，更能表示真实写入顺序
 
 问：不同的模型供应商支持的上下文协议格式不同，该怎么适配
 答：首先，有一个 agent 自己的基础格式。然后假设有多个模型供应商，那么和这些供应商交流的流程大概是 基础格式 -> 适配格式 -> 发送给供应商 -> 得到供应商的响应 -> 把供应商的响应转成基础格式
