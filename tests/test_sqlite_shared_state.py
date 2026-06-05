@@ -107,13 +107,11 @@ def _create_session(
     session_id: str,
     *,
     source: dict | None = None,
-    status: str | None = None,
     state_data: dict | None = None,
 ):
     return create_agent_session(
         session_id=session_id,
         source=source or _source(),
-        status=status,
         state_data=state_data or _state(),
     )
 

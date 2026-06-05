@@ -482,14 +482,12 @@ def load_agent_session(session_id: str) -> Optional[AgentSessionState]:
 def create_agent_session(
     *,
     source: dict[str, Any] | None = None,
-    status: str | None = None,
     state_data: dict[str, Any] | None = None,
     session_id: str = "",
     model: str | None = None,
     model_config: dict[str, Any] | None = None,
     title: str = "",
 ) -> AgentSessionState:
-    _ = status
     now = _now_ts()
     initial_state_data = ensure_agent_state(state_data)
     initial_runtime = runtime_state(initial_state_data)
@@ -526,7 +524,6 @@ def update_agent_session(
     session_id: str,
     *,
     source: dict[str, Any] | None = None,
-    status: str | None = None,
     state_data_patch: dict[str, Any] | None = None,
     metrics_delta: dict[str, Any] | None = None,
     model: str | None = None,
@@ -534,7 +531,6 @@ def update_agent_session(
     title: str | None = None,
     title_candidate: str | None = None,
 ) -> Optional[AgentSessionState]:
-    _ = status
     if not session_id:
         return None
 
@@ -739,9 +735,14 @@ def cancel_agent_session(
         if record is None:
             return None
 
-        _ = cancel_reason
+        safe_reason = str(cancel_reason or "").strip() or "user_requested_stop"
         record.last_active_at = _now_ts()
         _save_session_record(conn, record)
+        logger.info(
+            "[AgentSessions] session cancelled: session_id=%s reason=%s",
+            safe_session_id,
+            safe_reason,
+        )
         return _to_state(record, conn=conn)
 
 
@@ -771,28 +772,24 @@ def reset_agent_session_context(
         if record is None:
             return None
 
-        _ = reset_reason
+        safe_reason = str(reset_reason or "").strip() or "user_requested_context_reset"
         clear_session_messages(safe_session_id)
         record.message_count = 0
         record.last_active_at = _now_ts()
         _save_session_record(conn, record)
+        logger.info(
+            "[AgentSessions] context reset: session_id=%s reason=%s",
+            safe_session_id,
+            safe_reason,
+        )
 
     shutil.rmtree(_session_artifacts_dir(safe_session_id), ignore_errors=True)
     return load_agent_session(safe_session_id)
 
 
-def reset_stuck_running_sessions() -> int:
-    return 0
-
-
-def cleanup_orphaned_agent_services() -> int:
-    return 0
-
-
 __all__ = [
     "append_agent_session_pending_event",
     "cancel_agent_session",
-    "cleanup_orphaned_agent_services",
     "clear_agent_session_memory",
     "create_agent_session",
     "discard_agent_session_pending_event",
@@ -800,6 +797,5 @@ __all__ = [
     "load_agent_session",
     "pop_agent_session_pending_events",
     "reset_agent_session_context",
-    "reset_stuck_running_sessions",
     "update_agent_session",
 ]

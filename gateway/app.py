@@ -11,6 +11,8 @@ from agent_runtime.turn_handler import handle_unified_turn_job
 from clients.auth.browser_auth_client import ensure_auth_sync
 from gateway.agent_queue import AgentQueue
 from gateway.channel_registry import ChannelRegistry
+from gateway.dashboard import DashboardServer
+from gateway.dashboard.settings import dashboard_enabled, dashboard_host, dashboard_port
 from gateway.emitter import GatewayEmitter
 from gateway.heartbeat_wake import HeartbeatWakeManager
 from gateway.models import InboundEvent
@@ -39,6 +41,7 @@ class GatewayApp:
         "session_scheduler": 3.0,
         "dispatcher_task": 3.0,
         "channel_registry": 8.0,
+        "dashboard": 3.0,
         "network_clients": 5.0,
     }
 
@@ -64,6 +67,14 @@ class GatewayApp:
         self._session_router = session_router
         self._session_router.bind_scheduler(self._session_scheduler)
         self._adapter_recycle_lock = asyncio.Lock()
+        self._dashboard_server: DashboardServer | None = (
+            DashboardServer(
+                host=dashboard_host(),
+                port=dashboard_port(),
+            )
+            if dashboard_enabled()
+            else None
+        )
         self._started = False
 
     async def _handle_heartbeat_wake_request(self, request) -> None:
@@ -111,6 +122,8 @@ class GatewayApp:
 
         self._loop = asyncio.get_running_loop()
         init_schema()
+        if self._dashboard_server is not None:
+            await self._dashboard_server.start()
         self._log_feishu_runtime("Gateway", connects_gateway=True)
         configure_emit_handler(self._emitter.emit)
         configure_heartbeat_wake_handler(self._handle_heartbeat_wake_request)
@@ -127,6 +140,8 @@ class GatewayApp:
                 self._dispatcher_task = None
             await self._session_scheduler.stop()
             await self._registry.stop_all()
+            if self._dashboard_server is not None:
+                await self._dashboard_server.stop()
             reset_emit_handlers()
             raise
 
@@ -142,6 +157,8 @@ class GatewayApp:
             self._registry.adapter_keys(),
             health,
         )
+        if self._dashboard_server is not None and self._dashboard_server.state().get("started"):
+            logger.info("🖥️ [Dashboard] available at %s", self._dashboard_server.url)
         self._started = True
 
     async def wait_forever(self) -> None:
@@ -183,6 +200,12 @@ class GatewayApp:
             self._registry.stop_all(timeout_s=5.0),
             timeout_s=self._STOP_TIMEOUTS["channel_registry"],
         )
+        if self._dashboard_server is not None:
+            await self._await_stop_step(
+                "dashboard server",
+                self._dashboard_server.stop(),
+                timeout_s=self._STOP_TIMEOUTS["dashboard"],
+            )
 
         scheduler = self._scheduler
         self._scheduler = None

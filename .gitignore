@@ -35,6 +35,11 @@ services/test_file/
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/
+.playwright-mcp/
+
+# Frontend
+node_modules/
+*.tsbuildinfo
 
 # Project specific
 user_session_db

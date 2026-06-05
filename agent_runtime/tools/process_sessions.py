@@ -563,6 +563,30 @@ def _duration_seconds(session: ExecSession) -> float:
     return round(((session.ended_at or time.time()) - session.started_at), 2)
 
 
+def _exec_session_snapshot(session: ExecSession) -> dict[str, Any]:
+    return {
+        "task_id": session.id,
+        "session_id": str(session.owner_session_id or "").strip(),
+        "origin_turn_id": str(session.origin_turn_id or "").strip(),
+        "card_id": str(session.card_id or "").strip(),
+        "status": session.status.value if isinstance(session.status, SessionStatus) else str(session.status or ""),
+        "pid": session.pid,
+        "command": session.command,
+        "cwd": session.cwd,
+        "started_at": float(session.started_at or 0),
+        "ended_at": float(session.ended_at) if session.ended_at is not None else None,
+        "duration_sec": _duration_seconds(session),
+        "background": bool(session.explicit_background),
+        "exit_code": session.exit_code,
+        "truncated": bool(session.truncated),
+        "output_tail": _session_tail(session),
+    }
+
+
+def list_exec_session_snapshots() -> list[dict[str, Any]]:
+    return [_exec_session_snapshot(session) for session in _REGISTRY.list_all()]
+
+
 def _is_terminal_status(status: SessionStatus | str) -> bool:
     value = status.value if isinstance(status, SessionStatus) else status
     return str(value or "").strip() != SessionStatus.RUNNING.value

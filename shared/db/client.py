@@ -62,7 +62,6 @@ async def load_agent_session(session_id: str):
 async def create_agent_session(
     *,
     source: dict[str, Any] | None = None,
-    status: str | None = None,
     state_data: dict | None = None,
     session_id: str = "",
     model: str | None = None,
@@ -72,7 +71,6 @@ async def create_agent_session(
     return await _run_db_call(
         _agent_state.create_agent_session_state,
         source=source,
-        status=status,
         state_data=state_data,
         session_id=session_id,
         model=model,
@@ -85,7 +83,6 @@ async def update_agent_session(
     session_id: str,
     *,
     source: dict[str, Any] | None = None,
-    status: str | None = None,
     state_data_patch: dict | None = None,
     metrics_delta: dict[str, Any] | None = None,
     model: str | None = None,
@@ -97,7 +94,6 @@ async def update_agent_session(
         _agent_state.update_agent_session_state,
         session_id,
         source=source,
-        status=status,
         state_data_patch=state_data_patch,
         metrics_delta=metrics_delta,
         model=model,
