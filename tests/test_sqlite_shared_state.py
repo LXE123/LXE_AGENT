@@ -16,7 +16,6 @@ from agent_runtime.tools.process_sessions import (
 )
 from agent_runtime.turn_handler import handle_unified_turn_job
 from gateway.heartbeat_wake import HeartbeatWakeManager
-from shared.agent_sessions import AgentSessionStatus
 from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY
 from shared.db import client as shared_db_client
 from shared.db.sqlite.agent_sessions import (
@@ -108,7 +107,7 @@ def _create_session(
     session_id: str,
     *,
     source: dict | None = None,
-    status: str = AgentSessionStatus.WAITING_USER_INPUT,
+    status: str | None = None,
     state_data: dict | None = None,
 ):
     return create_agent_session(
@@ -317,6 +316,7 @@ def test_session_message_jsonl_create_load_and_update(sqlite_db):
     )
     path = session_messages_path(created.session_id)
     assert path.is_file()
+    assert created.message_count == 1
     assert load_session_messages(created.session_id)[0]["content"] == "hello"
 
     updated = update_agent_session(
@@ -324,6 +324,7 @@ def test_session_message_jsonl_create_load_and_update(sqlite_db):
         state_data_patch={CONTEXT_KEY: {"messages": [{"role": "assistant", "content": "ok"}]}},
     )
     assert updated is not None
+    assert updated.message_count == 1
     assert updated.state_data[CONTEXT_KEY]["messages"][0]["role"] == "assistant"
     assert load_session_messages(created.session_id)[0]["content"][0]["text"] == "ok"
 
@@ -343,7 +344,15 @@ def test_agent_session_create_update_and_source(sqlite_db):
     assert created.session_id == "session-1"
     assert created.source["platform"] == "feishu"
     assert created.source["chat_id"] == "chat-1"
-    assert int(created.state_data[RUNTIME_KEY]["session_activity_at"]) > 0
+    assert created.created_at > 0
+    assert created.last_active_at >= created.created_at
+    assert created.message_count == 1
+    assert created.tool_call_count == 0
+    assert created.input_tokens == 0
+    assert created.output_tokens == 0
+    assert created.api_call_count == 0
+    assert created.title == ""
+    assert created.model_config["provider"]
     assert created.state_data[CONTEXT_KEY]["messages"][0]["content"] == "hello"
 
     conn = connect()
@@ -353,7 +362,7 @@ def test_agent_session_create_update_and_source(sqlite_db):
             for row in conn.execute("PRAGMA table_info(agent_sessions)").fetchall()
         }
         session_row = conn.execute(
-            "SELECT source, state_data FROM agent_sessions WHERE session_id = ?",
+            "SELECT source, model, model_config, message_count FROM agent_sessions WHERE session_id = ?",
             ("session-1",),
         ).fetchone()
         agent_contexts_exists = conn.execute(
@@ -365,16 +374,22 @@ def test_agent_session_create_update_and_source(sqlite_db):
     assert "context_id" not in session_columns
     assert "pending_events" not in session_columns
     assert "card_id" not in session_columns
+    assert "status" not in session_columns
+    assert "updated_at" not in session_columns
+    assert "state_data" not in session_columns
+    assert "last_active_at" in session_columns
+    assert "message_count" in session_columns
+    assert "api_call_count" in session_columns
     assert session_row is not None
     assert agent_contexts_exists is None
     assert json.loads(session_row["source"])["chat_id"] == "chat-1"
-    assert CONTEXT_KEY not in json.loads(session_row["state_data"])
+    assert json.loads(session_row["model_config"])["model"] == session_row["model"]
+    assert session_row["message_count"] == 1
     assert load_session_messages("session-1")[0]["content"] == "hello"
 
     updated = update_agent_session(
         "session-1",
         source=_source(chat_id="chat-2", chat_type="group", thread_id="thread-1"),
-        status=AgentSessionStatus.WAITING_USER_INPUT,
         state_data_patch={
             RUNTIME_KEY: {
                 "session_activity_at": 2,
@@ -384,16 +399,28 @@ def test_agent_session_create_update_and_source(sqlite_db):
             },
             CONTEXT_KEY: {"messages": [{"role": "assistant", "content": "running"}]},
         },
+        metrics_delta={
+            "api_call_count": 2,
+            "tool_call_count": 3,
+            "input_tokens": 11,
+            "output_tokens": 7,
+        },
+        title_candidate="  首条 用户 问题  ",
     )
     assert updated is not None
-    assert updated.status == AgentSessionStatus.WAITING_USER_INPUT
     assert updated.source["chat_id"] == "chat-2"
     assert updated.source["thread_id"] == "thread-1"
-    assert updated.state_data[RUNTIME_KEY]["session_activity_at"] == 2
+    assert updated.state_data[RUNTIME_KEY] == {}
     assert "active_turn_id" not in updated.state_data[RUNTIME_KEY]
     assert "active_card_id" not in updated.state_data[RUNTIME_KEY]
     assert "active_turn_started_at" not in updated.state_data[RUNTIME_KEY]
     assert updated.state_data[CONTEXT_KEY]["messages"][0]["content"][0]["text"] == "running"
+    assert updated.message_count == 1
+    assert updated.api_call_count == 2
+    assert updated.tool_call_count == 3
+    assert updated.input_tokens == 11
+    assert updated.output_tokens == 7
+    assert updated.title == "首条 用户 问题"
     assert load_agent_session("session-1").session_id == "session-1"
 
     second = _create_session("session-2", source=_source(chat_id="chat-1", chat_type="group"))
@@ -678,11 +705,8 @@ def test_heartbeat_wake_enqueues_job_with_source_and_active_card(sqlite_db):
     assert job.source["chat_id"] == "chat-heartbeat"
 
 
-def test_heartbeat_noop_restores_waiting_status(sqlite_db):
-    _create_session(
-        "session-heartbeat-noop",
-        status=AgentSessionStatus.RUNNING,
-    )
+def test_heartbeat_noop_keeps_session_metadata(sqlite_db):
+    created = _create_session("session-heartbeat-noop")
 
     async def _run():
         job = SimpleNamespace(
@@ -703,8 +727,8 @@ def test_heartbeat_noop_restores_waiting_status(sqlite_db):
 
     session = load_agent_session("session-heartbeat-noop")
     assert session is not None
-    assert session.status == AgentSessionStatus.WAITING_USER_INPUT
-    assert int(session.state_data[RUNTIME_KEY]["session_activity_at"]) > 0
+    assert session.last_active_at >= created.last_active_at
+    assert session.state_data[CONTEXT_KEY]["messages"] == []
 
 
 def test_agent_session_control_operations(sqlite_db):
@@ -715,7 +739,7 @@ def test_agent_session_control_operations(sqlite_db):
 
     cleared = clear_agent_session_memory("session-control")
     assert cleared is not None
-    assert cleared.status == AgentSessionStatus.WAITING_USER_INPUT
+    assert cleared.message_count == 0
     assert cleared.state_data[CONTEXT_KEY]["messages"] == []
 
     update_agent_session(
@@ -724,12 +748,12 @@ def test_agent_session_control_operations(sqlite_db):
     )
     reset = reset_agent_session_context("session-control")
     assert reset is not None
-    assert reset.status == AgentSessionStatus.WAITING_USER_INPUT
+    assert reset.message_count == 0
     assert reset.state_data[CONTEXT_KEY]["messages"] == []
 
     cancelled = cancel_agent_session("session-control")
     assert cancelled is not None
-    assert cancelled.status == AgentSessionStatus.CANCELLED
+    assert cancelled.session_id == "session-control"
 
 
 def test_agent_session_validation_and_bad_storage_fail_loud(sqlite_db):
@@ -758,7 +782,6 @@ def test_public_agent_client_uses_sqlite_backend(sqlite_db):
         shared_db_client.create_agent_session(
             session_id="public-session",
             source=_source(chat_id="public-chat", user_id="public-owner", user_id_alt=""),
-            status=AgentSessionStatus.WAITING_USER_INPUT,
             state_data=_state(),
         )
     )

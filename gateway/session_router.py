@@ -7,7 +7,6 @@ from gateway.channel_registry import ChannelRegistry
 from gateway.models import InboundEvent, LaneKey, OutboundRequest, RouteDecision
 from gateway.session_scheduler import SessionScheduler
 from shared.agent_io import AgentJob
-from shared.agent_sessions import AgentSessionStatus
 from shared.agent_state import build_initial_agent_state
 from shared.db.client import (
     create_agent_session,
@@ -271,7 +270,6 @@ class SessionRouter:
         await create_card_context(ctx)
         session = await create_agent_session(
             source=dict(ctx.source or {}),
-            status=AgentSessionStatus.WAITING_USER_INPUT,
             state_data=build_initial_agent_state(entry_text=ctx.user_input),
             session_id=session_id,
         )

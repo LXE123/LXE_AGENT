@@ -8,7 +8,6 @@ from uuid import uuid4
 
 from agent_runtime.emit_bus import emit_final as default_emit_final
 from agent_runtime.emit_bus import emit_stream as default_emit_stream
-from shared.agent_sessions import AgentSessionStatus
 from shared.db.client import (
     load_agent_session,
     pop_agent_session_pending_events,
@@ -23,14 +22,6 @@ from .types import TurnOutcome
 
 FinalEmitter = Callable[..., Awaitable[None]]
 StreamEmitter = Callable[..., Awaitable[None]]
-
-
-_STATUS_MAP: dict[str, str] = {
-    "done": AgentSessionStatus.WAITING_USER_INPUT,
-    "waiting": AgentSessionStatus.WAITING_USER_INPUT,
-    "cancelled": AgentSessionStatus.WAITING_USER_INPUT,
-    "error": AgentSessionStatus.WAITING_USER_INPUT,
-}
 
 
 def _sanitize_system_prefixed_text(text: str) -> str:
@@ -120,20 +111,25 @@ async def _persist_and_deliver(
     card_id: str,
     emit_final_fn: FinalEmitter,
     skip_emit_final: bool = False,
+    title_candidate: str = "",
 ) -> None:
     session_id = str(getattr(session, "session_id", "") or "").strip()
 
-    session_status = _STATUS_MAP.get(
-        outcome.status,
-        AgentSessionStatus.WAITING_USER_INPUT,
-    )
     message = str(outcome.reply or "").strip()
     state_patch = dict(outcome.state_data_patch or {})
+    turn_log = outcome.turn_log
+    metrics_delta = {
+        "api_call_count": int(getattr(turn_log, "total_llm_calls", 0) or 0),
+        "tool_call_count": int(getattr(turn_log, "total_tool_calls", 0) or 0),
+        "input_tokens": int(getattr(turn_log, "total_input_tokens", 0) or 0),
+        "output_tokens": int(getattr(turn_log, "total_output_tokens", 0) or 0),
+    }
 
     await update_agent_session(
         session_id,
-        status=session_status,
         state_data_patch=state_patch,
+        metrics_delta=metrics_delta,
+        title_candidate=title_candidate,
     )
 
     if skip_emit_final or not message:
@@ -177,6 +173,7 @@ async def handle_unified_turn_job(
     session_id = str(payload.get("session_id") or "").strip()
     card_id = str(payload.get("card_id") or "").strip()
     user_text = str(payload.get("user_text") or "").strip()
+    original_user_text = user_text
     job_id = str(getattr(job, "job_id", "") or payload.get("job_id") or "").strip()
     job_kind = str(payload.get("job_kind") or "turn").strip() or "turn"
     raw_data = dict(payload.get("raw_data") or {})
@@ -246,10 +243,7 @@ async def handle_unified_turn_job(
         )
         if not pending_events:
             logger.info("[ExecNotify] heartbeat noop: owner_session_id=%s job_id=%s", session_id, job_id)
-            await update_agent_session(
-                session_id,
-                status=AgentSessionStatus.WAITING_USER_INPUT,
-            )
+            await update_agent_session(session_id)
             return job_handled()
         formatted_events = _format_system_events(pending_events)
         heartbeat_prompt = (
@@ -363,6 +357,7 @@ async def handle_unified_turn_job(
         card_id=card_id,
         emit_final_fn=emit_final_fn,
         skip_emit_final=stream_final_delivered or outcome.status == "cancelled",
+        title_candidate=original_user_text if job_kind != "heartbeat" else "",
     )
     return job_handled()
 

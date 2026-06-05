@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from shared.session_bindings import SessionBindingStore, SessionSource
@@ -50,10 +51,16 @@ def _create_agent_sessions(conn) -> None:
         CREATE TABLE IF NOT EXISTS agent_sessions (
             session_id TEXT PRIMARY KEY,
             source TEXT NOT NULL DEFAULT '{}',
-            status TEXT NOT NULL DEFAULT 'waiting_user_input',
-            state_data TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            model TEXT NOT NULL DEFAULT '',
+            model_config TEXT NOT NULL DEFAULT '{}',
+            created_at REAL NOT NULL,
+            last_active_at REAL NOT NULL,
+            message_count INTEGER NOT NULL DEFAULT 0,
+            tool_call_count INTEGER NOT NULL DEFAULT 0,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            title TEXT NOT NULL DEFAULT '',
+            api_call_count INTEGER NOT NULL DEFAULT 0
         )
         """
     )
@@ -149,12 +156,67 @@ def _json_object_from_text(value: Any) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _timestamp_from_legacy(value: Any, *, default: float) -> float:
+    if isinstance(value, (int, float)):
+        try:
+            parsed = float(value)
+            return parsed if parsed > 0 else float(default)
+        except Exception:
+            return float(default)
+    raw = str(value or "").strip()
+    if not raw:
+        return float(default)
+    try:
+        return float(raw)
+    except Exception:
+        pass
+    try:
+        normalized = raw.replace("Z", "+00:00")
+        return datetime.fromisoformat(normalized).timestamp()
+    except Exception:
+        return float(default)
+
+
+def _int_from_legacy(value: Any, *, default: int = 0) -> int:
+    try:
+        return max(0, int(value))
+    except Exception:
+        return int(default)
+
+
+def _text_from_legacy(value: Any, *, default: str = "") -> str:
+    raw = str(value if value is not None else default).strip()
+    return raw if raw else str(default)
+
+
 def _migrate_agent_sessions(conn) -> None:
     if not _table_exists(conn, "agent_sessions"):
         _create_agent_sessions(conn)
         return
     cols = _columns(conn, "agent_sessions")
-    if "source" in cols and _LEGACY_ROUTE_COLUMN not in cols and "card_id" not in cols and "context_id" not in cols:
+    required_cols = {
+        "session_id",
+        "source",
+        "model",
+        "model_config",
+        "created_at",
+        "last_active_at",
+        "message_count",
+        "tool_call_count",
+        "input_tokens",
+        "output_tokens",
+        "title",
+        "api_call_count",
+    }
+    legacy_cols = {
+        _LEGACY_ROUTE_COLUMN,
+        "card_id",
+        "context_id",
+        "status",
+        "state_data",
+        "updated_at",
+    }
+    if required_cols.issubset(cols) and not (cols & legacy_cols):
         return
     legacy_rows = conn.execute("SELECT * FROM agent_sessions").fetchall()
     if "source" not in cols:
@@ -164,25 +226,43 @@ def _migrate_agent_sessions(conn) -> None:
     _create_agent_sessions(conn)
     for row in legacy_rows:
         source = _json_object_from_text(row["source"]) if "source" in cols else _source_from_legacy_session(row)
+        now = datetime.now(timezone.utc).timestamp()
+        created_at = _timestamp_from_legacy(row["created_at"] if "created_at" in cols else None, default=now)
+        last_active_at = _timestamp_from_legacy(
+            row["last_active_at"] if "last_active_at" in cols else row["updated_at"] if "updated_at" in cols else None,
+            default=created_at,
+        )
         conn.execute(
             """
             INSERT INTO agent_sessions (
                 session_id,
                 source,
-                status,
-                state_data,
+                model,
+                model_config,
                 created_at,
-                updated_at
+                last_active_at,
+                message_count,
+                tool_call_count,
+                input_tokens,
+                output_tokens,
+                title,
+                api_call_count
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row["session_id"],
                 json.dumps(source, ensure_ascii=False, separators=(",", ":")),
-                row["status"],
-                row["state_data"],
-                row["created_at"],
-                row["updated_at"],
+                _text_from_legacy(row["model"] if "model" in cols else "", default=""),
+                _text_from_legacy(row["model_config"] if "model_config" in cols else "{}", default="{}"),
+                created_at,
+                last_active_at,
+                _int_from_legacy(row["message_count"] if "message_count" in cols else 0),
+                _int_from_legacy(row["tool_call_count"] if "tool_call_count" in cols else 0),
+                _int_from_legacy(row["input_tokens"] if "input_tokens" in cols else 0),
+                _int_from_legacy(row["output_tokens"] if "output_tokens" in cols else 0),
+                _text_from_legacy(row["title"] if "title" in cols else "", default=""),
+                _int_from_legacy(row["api_call_count"] if "api_call_count" in cols else 0),
             ),
         )
     conn.execute("DROP TABLE agent_sessions_legacy")
@@ -238,8 +318,12 @@ def _create_indexes(conn) -> None:
         "ON card_owners (platform)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_agent_sessions_status "
-        "ON agent_sessions (status)"
+        "CREATE INDEX IF NOT EXISTS idx_agent_sessions_last_active_at "
+        "ON agent_sessions (last_active_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_sessions_model "
+        "ON agent_sessions (model)"
     )
 
 

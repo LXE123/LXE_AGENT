@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import gateway.session_router as router_mod
 from gateway.models import InboundEvent
 from gateway.session_router import SessionRouter
-from shared.agent_sessions import AgentSessionStatus
 from shared.permission_policy import BOT_ID_LXE_CLAW, BOT_ID_LXE_FBA_AGENT, USER_LYX, USER_ZGL
 
 OPEN_ID_LYX = "ou_lyx_open_id"
@@ -180,7 +179,6 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
         return SimpleNamespace(
             session_id="session-1",
             source=kwargs["source"],
-            status=AgentSessionStatus.WAITING_USER_INPUT,
             state_data=kwargs["state_data"],
         )
 

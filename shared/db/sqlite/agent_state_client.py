@@ -32,15 +32,21 @@ def load_agent_session_state(session_id: str):
 def create_agent_session_state(
     *,
     source: dict[str, Any] | None = None,
-    status: str,
+    status: str | None = None,
     state_data: dict[str, Any] | None = None,
     session_id: str = "",
+    model: str | None = None,
+    model_config: dict[str, Any] | None = None,
+    title: str = "",
 ):
     return create_agent_session(
         source=source,
         status=status,
         state_data=state_data,
         session_id=session_id,
+        model=model,
+        model_config=model_config,
+        title=title,
     )
 
 
@@ -50,12 +56,22 @@ def update_agent_session_state(
     source: dict[str, Any] | None = None,
     status: str | None = None,
     state_data_patch: dict[str, Any] | None = None,
+    metrics_delta: dict[str, Any] | None = None,
+    model: str | None = None,
+    model_config: dict[str, Any] | None = None,
+    title: str | None = None,
+    title_candidate: str | None = None,
 ):
     return update_agent_session(
         session_id,
         source=source,
         status=status,
         state_data_patch=state_data_patch,
+        metrics_delta=metrics_delta,
+        model=model,
+        model_config=model_config,
+        title=title,
+        title_candidate=title_candidate,
     )
 
 

@@ -23,10 +23,17 @@ class CardContext:
 class AgentSessionState:
     session_id: str
     source: Dict[str, Any]
-    status: str
     state_data: Dict[str, Any]
-    created_at: Optional[datetime]
-    updated_at: Optional[datetime]
+    model: str
+    model_config: Dict[str, Any]
+    created_at: float
+    last_active_at: float
+    message_count: int
+    tool_call_count: int
+    input_tokens: int
+    output_tokens: int
+    title: str
+    api_call_count: int
 
 
 @dataclass

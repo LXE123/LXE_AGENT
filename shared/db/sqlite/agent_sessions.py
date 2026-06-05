@@ -1,18 +1,13 @@
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from sqlite3 import Connection, Row
 from typing import Any, Optional
 from uuid import uuid4
 
-from shared.agent_sessions import (
-    ACTIVE_AGENT_SESSION_STATUSES,
-    AgentSessionStatus,
-    TERMINAL_AGENT_SESSION_STATUSES,
-)
 from shared.agent_state import (
     CONTEXT_KEY,
     MESSAGES_KEY,
@@ -20,16 +15,17 @@ from shared.agent_state import (
     RUNTIME_KEY,
     compose_agent_state,
     ensure_agent_state,
-    reset_context_only,
     runtime_state,
     split_agent_state_for_storage,
 )
+from shared.config import config
 from shared.db.shared_state_dto import AgentSessionState
+from shared.llm.kimi_coding import client as kimi_coding_client
+from shared.llm.model_capabilities import _resolve_model_capabilities_match
+from shared.llm.provider_catalog import descriptor_for_provider, normalize_provider_name
 from shared.logging import logger
 
 from ._agent_storage import (
-    datetime_from_storage,
-    datetime_to_storage,
     json_object_from_storage,
     json_object_to_storage,
     sanitize_json_for_storage,
@@ -51,30 +47,95 @@ _LEGACY_RUNTIME_KEYS = {
     "stop_turn_id",
     "stop_requested_at",
 }
+_METRIC_FIELDS = {
+    "tool_call_count",
+    "input_tokens",
+    "output_tokens",
+    "api_call_count",
+}
+_TITLE_LIMIT = 60
 
 
 @dataclass
 class AgentSessionRecord:
     session_id: str
     source: dict[str, Any]
-    status: str
-    state_data: dict[str, Any]
-    created_at: Optional[datetime]
-    updated_at: Optional[datetime]
+    model: str
+    model_config: dict[str, Any]
+    created_at: float
+    last_active_at: float
+    message_count: int
+    tool_call_count: int
+    input_tokens: int
+    output_tokens: int
+    title: str
+    api_call_count: int
 
 
-def _session_activity_marker(base_time: Optional[datetime] = None) -> int:
-    current = base_time or utc_now()
-    return int(current.timestamp())
+def _now_ts() -> float:
+    return float(utc_now().timestamp())
 
 
 def _clean_source(value: dict[str, Any] | None) -> dict[str, Any]:
     return sanitize_json_for_storage(dict(value or {}))
 
 
-def _clean_session_storage_state(value: dict[str, Any] | None) -> dict[str, Any]:
-    runtime_storage, _ = split_agent_state_for_storage(sanitize_json_for_storage(value))
-    return sanitize_json_for_storage(runtime_storage)
+def _clean_model_config(value: dict[str, Any] | None) -> dict[str, Any]:
+    return sanitize_json_for_storage(dict(value or {}))
+
+
+def _clean_int(value: Any, *, default: int = 0) -> int:
+    try:
+        return max(0, int(value))
+    except Exception:
+        return int(default)
+
+
+def _clean_float(value: Any, *, default: float = 0.0) -> float:
+    try:
+        parsed = float(value)
+        return parsed if parsed > 0 else float(default)
+    except Exception:
+        return float(default)
+
+
+def _config_text(name: str, default: str = "") -> str:
+    return str(getattr(config, name, default) or default).strip()
+
+
+def _current_model_metadata() -> tuple[str, dict[str, Any]]:
+    provider_name = os.getenv("AMAZON_STORE_AGENT_PLANNER_PROVIDER", "") or _config_text(
+        "AMAZON_STORE_AGENT_PLANNER_PROVIDER",
+        kimi_coding_client.PROVIDER_NAME,
+    )
+    model_override = os.getenv("AMAZON_STORE_AGENT_PLANNER_MODEL", "") or _config_text(
+        "AMAZON_STORE_AGENT_PLANNER_MODEL",
+        "",
+    )
+    try:
+        provider_name = normalize_provider_name(provider_name)
+        descriptor = descriptor_for_provider(provider_name, model_override=model_override)
+        capabilities, capability_match = _resolve_model_capabilities_match(
+            descriptor.name,
+            descriptor.default_model,
+        )
+        model_config = {
+            "provider": descriptor.name,
+            "label": descriptor.label,
+            "api_style": descriptor.api_style,
+            "model": descriptor.default_model,
+            "base_url": descriptor.base_url,
+            "capability_match": capability_match,
+            "context_window_tokens": capabilities.context_window_tokens,
+            "max_output_tokens": capabilities.max_output_tokens,
+            "supports_vision": capabilities.supports_vision,
+            "supports_thinking": capabilities.supports_thinking,
+            "supports_temperature": capabilities.supports_temperature,
+        }
+        return descriptor.default_model, _clean_model_config(model_config)
+    except Exception as exc:
+        logger.warning("[AgentSessions] model metadata unavailable: %s", exc)
+        return "", {}
 
 
 def _record_from_row(row: Row | None) -> AgentSessionRecord | None:
@@ -86,13 +147,19 @@ def _record_from_row(row: Row | None) -> AgentSessionRecord | None:
             row["source"],
             field_name="agent_sessions.source",
         ),
-        status=str(row["status"]),
-        state_data=json_object_from_storage(
-            row["state_data"],
-            field_name="agent_sessions.state_data",
+        model=str(row["model"] or ""),
+        model_config=json_object_from_storage(
+            row["model_config"],
+            field_name="agent_sessions.model_config",
         ),
-        created_at=datetime_from_storage(row["created_at"]),
-        updated_at=datetime_from_storage(row["updated_at"]),
+        created_at=_clean_float(row["created_at"]),
+        last_active_at=_clean_float(row["last_active_at"]),
+        message_count=_clean_int(row["message_count"]),
+        tool_call_count=_clean_int(row["tool_call_count"]),
+        input_tokens=_clean_int(row["input_tokens"]),
+        output_tokens=_clean_int(row["output_tokens"]),
+        title=str(row["title"] or ""),
+        api_call_count=_clean_int(row["api_call_count"]),
     )
 
 
@@ -112,9 +179,15 @@ def _save_session_record(conn: Connection, record: AgentSessionRecord) -> None:
         """
         UPDATE agent_sessions
         SET source = ?,
-            status = ?,
-            state_data = ?,
-            updated_at = ?
+            model = ?,
+            model_config = ?,
+            last_active_at = ?,
+            message_count = ?,
+            tool_call_count = ?,
+            input_tokens = ?,
+            output_tokens = ?,
+            title = ?,
+            api_call_count = ?
         WHERE session_id = ?
         """,
         (
@@ -122,12 +195,18 @@ def _save_session_record(conn: Connection, record: AgentSessionRecord) -> None:
                 _clean_source(record.source),
                 field_name="agent_sessions.source",
             ),
-            record.status,
+            str(record.model or ""),
             json_object_to_storage(
-                record.state_data,
-                field_name="agent_sessions.state_data",
+                _clean_model_config(record.model_config),
+                field_name="agent_sessions.model_config",
             ),
-            datetime_to_storage(record.updated_at or utc_now()),
+            float(record.last_active_at or _now_ts()),
+            _clean_int(record.message_count),
+            _clean_int(record.tool_call_count),
+            _clean_int(record.input_tokens),
+            _clean_int(record.output_tokens),
+            str(record.title or ""),
+            _clean_int(record.api_call_count),
             record.session_id,
         ),
     )
@@ -139,12 +218,18 @@ def _insert_session_record(conn: Connection, record: AgentSessionRecord) -> None
         INSERT INTO agent_sessions (
             session_id,
             source,
-            status,
-            state_data,
+            model,
+            model_config,
             created_at,
-            updated_at
+            last_active_at,
+            message_count,
+            tool_call_count,
+            input_tokens,
+            output_tokens,
+            title,
+            api_call_count
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             record.session_id,
@@ -152,13 +237,19 @@ def _insert_session_record(conn: Connection, record: AgentSessionRecord) -> None
                 _clean_source(record.source),
                 field_name="agent_sessions.source",
             ),
-            record.status,
+            str(record.model or ""),
             json_object_to_storage(
-                record.state_data,
-                field_name="agent_sessions.state_data",
+                _clean_model_config(record.model_config),
+                field_name="agent_sessions.model_config",
             ),
-            datetime_to_storage(record.created_at or utc_now()),
-            datetime_to_storage(record.updated_at or utc_now()),
+            float(record.created_at or _now_ts()),
+            float(record.last_active_at or _now_ts()),
+            _clean_int(record.message_count),
+            _clean_int(record.tool_call_count),
+            _clean_int(record.input_tokens),
+            _clean_int(record.output_tokens),
+            str(record.title or ""),
+            _clean_int(record.api_call_count),
         ),
     )
 
@@ -234,10 +325,10 @@ def _has_pending_events(conn: Connection, session_id: str) -> bool:
     return row is not None
 
 
-def _touch_session_row(conn: Connection, session_id: str, base_time: datetime) -> None:
+def _touch_session_row(conn: Connection, session_id: str, base_time: float | None = None) -> None:
     conn.execute(
-        "UPDATE agent_sessions SET updated_at = ? WHERE session_id = ?",
-        (datetime_to_storage(base_time), session_id),
+        "UPDATE agent_sessions SET last_active_at = ? WHERE session_id = ?",
+        (_clean_float(base_time, default=_now_ts()) if base_time is not None else _now_ts(), session_id),
     )
 
 
@@ -250,14 +341,6 @@ def _validate_runtime_patch(runtime_values: dict[str, Any]) -> None:
         )
 
 
-def _runtime_storage_values(runtime_values: dict[str, Any] | None) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in dict(runtime_values or {}).items()
-        if key in RUNTIME_ALLOWED_KEYS
-    }
-
-
 def _runtime_patch_values(runtime_values: dict[str, Any] | None) -> dict[str, Any]:
     raw = dict(runtime_values or {})
     invalid_keys = sorted(key for key in raw if key not in RUNTIME_ALLOWED_KEYS and key not in _LEGACY_RUNTIME_KEYS)
@@ -266,7 +349,11 @@ def _runtime_patch_values(runtime_values: dict[str, Any] | None) -> dict[str, An
             "non-control runtime fields are not allowed in state_data_patch: "
             + ", ".join(invalid_keys)
         )
-    return _runtime_storage_values(raw)
+    return {
+        key: raw[key]
+        for key in RUNTIME_ALLOWED_KEYS
+        if key in raw
+    }
 
 
 def _compose_record_state(
@@ -275,47 +362,8 @@ def _compose_record_state(
     conn: Connection,
 ) -> dict[str, Any]:
     _ = conn
-    raw_state = dict(record.state_data or {})
     context_data = {MESSAGES_KEY: load_session_messages(record.session_id)}
-    return compose_agent_state(raw_state, context_data)
-
-
-def _touch_session_activity(record: AgentSessionRecord, base_time: Optional[datetime] = None) -> None:
-    now = base_time or utc_now()
-    runtime = _runtime_storage_values(runtime_state(record.state_data))
-    runtime["session_activity_at"] = _session_activity_marker(now)
-    record.state_data = _clean_session_storage_state({RUNTIME_KEY: runtime})
-
-
-def _cancel_incompatible_session_record(
-    conn: Connection,
-    record: AgentSessionRecord,
-    *,
-    base_time: Optional[datetime] = None,
-) -> None:
-    now = base_time or utc_now()
-    record.state_data = _clean_session_storage_state(
-        {
-            RUNTIME_KEY: {
-                "session_activity_at": _session_activity_marker(now),
-            },
-        }
-    )
-    record.status = AgentSessionStatus.CANCELLED
-    record.updated_at = now
-    _save_session_record(conn, record)
-
-
-def _prepare_loaded_active_session(
-    conn: Connection,
-    record: AgentSessionRecord,
-) -> Optional[AgentSessionState]:
-    now = utc_now()
-    raw_state = dict(record.state_data or {})
-    if not isinstance(raw_state.get(RUNTIME_KEY), dict):
-        _cancel_incompatible_session_record(conn, record, base_time=now)
-        return None
-    return _to_state(record, conn=conn)
+    return compose_agent_state({}, context_data)
 
 
 def _to_state(
@@ -326,10 +374,17 @@ def _to_state(
     return AgentSessionState(
         session_id=str(record.session_id),
         source=_clean_source(record.source),
-        status=str(record.status),
         state_data=_compose_record_state(record, conn=conn),
-        created_at=record.created_at,
-        updated_at=record.updated_at,
+        model=str(record.model or ""),
+        model_config=_clean_model_config(record.model_config),
+        created_at=float(record.created_at or 0),
+        last_active_at=float(record.last_active_at or 0),
+        message_count=_clean_int(record.message_count),
+        tool_call_count=_clean_int(record.tool_call_count),
+        input_tokens=_clean_int(record.input_tokens),
+        output_tokens=_clean_int(record.output_tokens),
+        title=str(record.title or ""),
+        api_call_count=_clean_int(record.api_call_count),
     )
 
 
@@ -337,33 +392,81 @@ def _merge_state_data(
     conn: Connection,
     record: AgentSessionRecord,
     patch: dict[str, Any] | None,
-    *,
-    base_time: Optional[datetime] = None,
-) -> None:
+) -> int | None:
+    _ = conn
     if not patch:
-        return
-    now = base_time or utc_now()
+        return None
     raw_patch = dict(patch or {})
     invalid_patch_keys = sorted(key for key in raw_patch if key not in _STATE_DATA_PATCH_KEYS)
     if invalid_patch_keys:
         raise RuntimeError("invalid state_data_patch keys: " + ", ".join(invalid_patch_keys))
-    runtime_patch_values = (
+    if isinstance(raw_patch.get(RUNTIME_KEY), dict):
         _runtime_patch_values(raw_patch.get(RUNTIME_KEY))
-        if isinstance(raw_patch.get(RUNTIME_KEY), dict)
-        else {}
-    )
     context_patch = dict(raw_patch.get(CONTEXT_KEY) or {}) if isinstance(raw_patch.get(CONTEXT_KEY), dict) else {}
-    current_state = dict(record.state_data or {})
-    existing_runtime = _runtime_storage_values(current_state.get(RUNTIME_KEY))
+    if CONTEXT_KEY in raw_patch and MESSAGES_KEY in context_patch:
+        saved_messages = save_session_messages(record.session_id, context_patch.get(MESSAGES_KEY))
+        return len(saved_messages)
+    return None
 
-    if runtime_patch_values:
-        existing_runtime.update(runtime_patch_values)
-    current_state[RUNTIME_KEY] = existing_runtime
-    record.state_data = _clean_session_storage_state(current_state)
-    if CONTEXT_KEY in raw_patch:
-        _ = now
-        if MESSAGES_KEY in context_patch:
-            save_session_messages(record.session_id, context_patch.get(MESSAGES_KEY))
+
+def _metrics_delta_values(metrics_delta: dict[str, Any] | None) -> dict[str, int]:
+    raw = dict(metrics_delta or {})
+    return {
+        field: _clean_int(raw.get(field), default=0)
+        for field in _METRIC_FIELDS
+    }
+
+
+def _title_from_text(text: str) -> str:
+    normalized = " ".join(str(text or "").split())
+    if not normalized or normalized.startswith("/"):
+        return ""
+    return normalized[:_TITLE_LIMIT]
+
+
+def _text_from_user_message(message: dict[str, Any]) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            raw_block = dict(block or {})
+            if str(raw_block.get("type") or "").strip() == "text":
+                parts.append(str(raw_block.get("text") or ""))
+        return "\n".join(parts).strip()
+    return ""
+
+
+def _title_from_messages(messages: list[dict[str, Any]]) -> str:
+    for message in list(messages or []):
+        raw_message = dict(message or {})
+        if str(raw_message.get("role") or "").strip() != "user":
+            continue
+        title = _title_from_text(_text_from_user_message(raw_message))
+        if title:
+            return title
+    return ""
+
+
+def _maybe_fill_title(
+    record: AgentSessionRecord,
+    *,
+    title: str | None = None,
+    title_candidate: str | None = None,
+    messages: list[dict[str, Any]] | None = None,
+) -> None:
+    explicit_title = str(title or "").strip()
+    if explicit_title:
+        record.title = explicit_title[:_TITLE_LIMIT]
+        return
+    if str(record.title or "").strip():
+        return
+    candidate = _title_from_text(str(title_candidate or ""))
+    if not candidate and messages is not None:
+        candidate = _title_from_messages(messages)
+    if candidate:
+        record.title = candidate
 
 
 def load_agent_session(session_id: str) -> Optional[AgentSessionState]:
@@ -373,38 +476,47 @@ def load_agent_session(session_id: str) -> Optional[AgentSessionState]:
         record = _load_session_record(conn, session_id)
         if record is None:
             return None
-        if str(record.status or "").strip() in ACTIVE_AGENT_SESSION_STATUSES:
-            return _prepare_loaded_active_session(conn, record)
         return _to_state(record, conn=conn)
 
 
 def create_agent_session(
     *,
-    source: dict[str, Any] | None,
-    status: str,
+    source: dict[str, Any] | None = None,
+    status: str | None = None,
     state_data: dict[str, Any] | None = None,
     session_id: str = "",
+    model: str | None = None,
+    model_config: dict[str, Any] | None = None,
+    title: str = "",
 ) -> AgentSessionState:
-    now = utc_now()
+    _ = status
+    now = _now_ts()
     initial_state_data = ensure_agent_state(state_data)
     initial_runtime = runtime_state(initial_state_data)
     _validate_runtime_patch(initial_runtime)
-    initial_runtime["session_activity_at"] = _session_activity_marker(now)
-    initial_state_data[RUNTIME_KEY] = initial_runtime
     session_state_data, context_data = split_agent_state_for_storage(initial_state_data)
-    clean_session_state = _clean_session_storage_state(session_state_data)
+    _ = session_state_data
     safe_session_id = str(session_id or uuid4().hex)
+    default_model, default_model_config = _current_model_metadata()
+    selected_model = str(model if model is not None else default_model or "").strip()
+    selected_model_config = _clean_model_config(model_config if model_config is not None else default_model_config)
 
     with connection_scope() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        save_session_messages(safe_session_id, dict(context_data or {}).get(MESSAGES_KEY) or [])
+        saved_messages = save_session_messages(safe_session_id, dict(context_data or {}).get(MESSAGES_KEY) or [])
         record = AgentSessionRecord(
             session_id=safe_session_id,
             source=_clean_source(source),
-            status=str(status or "").strip(),
-            state_data=clean_session_state,
+            model=selected_model,
+            model_config=selected_model_config,
             created_at=now,
-            updated_at=now,
+            last_active_at=now,
+            message_count=len(saved_messages),
+            tool_call_count=0,
+            input_tokens=0,
+            output_tokens=0,
+            title=_title_from_text(title),
+            api_call_count=0,
         )
         _insert_session_record(conn, record)
         return _to_state(record, conn=conn)
@@ -416,7 +528,13 @@ def update_agent_session(
     source: dict[str, Any] | None = None,
     status: str | None = None,
     state_data_patch: dict[str, Any] | None = None,
+    metrics_delta: dict[str, Any] | None = None,
+    model: str | None = None,
+    model_config: dict[str, Any] | None = None,
+    title: str | None = None,
+    title_candidate: str | None = None,
 ) -> Optional[AgentSessionState]:
+    _ = status
     if not session_id:
         return None
 
@@ -426,13 +544,32 @@ def update_agent_session(
         if record is None:
             return None
 
-        now = utc_now()
+        now = _now_ts()
         if source is not None:
             record.source = _clean_source(source)
-        if status is not None:
-            record.status = str(status or "").strip() or record.status
-        _merge_state_data(conn, record, state_data_patch, base_time=now)
-        record.updated_at = now
+        if model is not None:
+            record.model = str(model or "").strip()
+        if model_config is not None:
+            record.model_config = _clean_model_config(model_config)
+
+        new_message_count = _merge_state_data(conn, record, state_data_patch)
+        messages = None
+        if new_message_count is not None:
+            record.message_count = new_message_count
+            messages = load_session_messages(record.session_id)
+
+        metrics = _metrics_delta_values(metrics_delta)
+        record.tool_call_count += metrics["tool_call_count"]
+        record.input_tokens += metrics["input_tokens"]
+        record.output_tokens += metrics["output_tokens"]
+        record.api_call_count += metrics["api_call_count"]
+        _maybe_fill_title(
+            record,
+            title=title,
+            title_candidate=title_candidate,
+            messages=messages,
+        )
+        record.last_active_at = now
         _save_session_record(conn, record)
         return _to_state(record, conn=conn)
 
@@ -452,31 +589,17 @@ def clear_agent_session_memory(
         if record is None:
             return None
 
-        now = utc_now()
         safe_reason = str(reason or "").strip() or "slash_command_clear"
-        status_before = str(record.status or "").strip()
-
         message_count_before = len(load_session_messages(safe_session_id))
         clear_session_messages(safe_session_id)
-
-        runtime = _runtime_storage_values(runtime_state(record.state_data))
-        runtime["session_activity_at"] = _session_activity_marker(now)
-        record.state_data = _clean_session_storage_state({RUNTIME_KEY: runtime})
-
-        if str(record.status or "").strip() not in TERMINAL_AGENT_SESSION_STATUSES:
-            record.status = AgentSessionStatus.WAITING_USER_INPUT
-        status_after = str(record.status or "").strip()
-
-        record.updated_at = now
+        record.message_count = 0
+        record.last_active_at = _now_ts()
         _save_session_record(conn, record)
 
         logger.info(
-            "[AgentSessions] memory cleared: session_id=%s reason=%s"
-            " status_before=%s status_after=%s message_count_before=%d",
+            "[AgentSessions] memory cleared: session_id=%s reason=%s message_count_before=%d",
             safe_session_id,
             safe_reason,
-            status_before,
-            status_after,
             message_count_before,
         )
         return _to_state(record, conn=conn)
@@ -507,7 +630,7 @@ def append_agent_session_pending_event(
         if record is None:
             return None
 
-        now = utc_now()
+        now = _now_ts()
         pending_count = _count_pending_events(conn, safe_session_id)
         if pending_count >= MAX_PENDING_EVENTS:
             logger.error(
@@ -540,11 +663,11 @@ def append_agent_session_pending_event(
                 str(pending_event["job_id"]),
                 str(pending_event["created_at"]),
                 str(pending_event["text"]),
-                datetime_to_storage(now),
+                str(now),
             ),
         )
-        record.updated_at = now
-        _touch_session_row(conn, safe_session_id, now)
+        record.last_active_at = now
+        _save_session_record(conn, record)
         return _to_state(record, conn=conn)
 
 
@@ -559,7 +682,6 @@ def pop_agent_session_pending_events(session_id: str) -> list[dict[str, Any]]:
         if record is None:
             return []
 
-        now = utc_now()
         pending_events = _load_pending_events(conn, safe_session_id)
         if not pending_events:
             return []
@@ -567,7 +689,8 @@ def pop_agent_session_pending_events(session_id: str) -> list[dict[str, Any]]:
             "DELETE FROM agent_session_pending_events WHERE session_id = ?",
             (safe_session_id,),
         )
-        _touch_session_row(conn, safe_session_id, now)
+        record.last_active_at = _now_ts()
+        _save_session_record(conn, record)
         return pending_events
 
 
@@ -588,7 +711,7 @@ def discard_agent_session_pending_event(session_id: str, job_id: str) -> int:
         )
         deleted = int(result.rowcount or 0)
         if deleted > 0:
-            _touch_session_row(conn, safe_session_id, utc_now())
+            _touch_session_row(conn, safe_session_id, _now_ts())
         return deleted
 
 
@@ -616,15 +739,8 @@ def cancel_agent_session(
         if record is None:
             return None
 
-        now = utc_now()
         _ = cancel_reason
-        runtime = _runtime_storage_values(runtime_state(record.state_data))
-        runtime["session_activity_at"] = _session_activity_marker(now)
-        record.state_data = _clean_session_storage_state({RUNTIME_KEY: runtime})
-
-        record.status = AgentSessionStatus.CANCELLED
-        record.updated_at = now
-
+        record.last_active_at = _now_ts()
         _save_session_record(conn, record)
         return _to_state(record, conn=conn)
 
@@ -649,28 +765,16 @@ def reset_agent_session_context(
     if not safe_session_id:
         return None
 
-    keep_runtime_keys = {"session_activity_at"}
-
     with connection_scope() as conn:
         conn.execute("BEGIN IMMEDIATE")
         record = _load_session_record(conn, safe_session_id)
         if record is None:
             return None
 
-        now = utc_now()
         _ = reset_reason
-        runtime = _runtime_storage_values(runtime_state(record.state_data))
-        runtime["session_activity_at"] = _session_activity_marker(now)
-
         clear_session_messages(safe_session_id)
-
-        reset_state = _compose_record_state(record, conn=conn)
-        reset_state[RUNTIME_KEY] = runtime
-        record.state_data = _clean_session_storage_state(
-            reset_context_only(reset_state, keep_runtime_keys=keep_runtime_keys)
-        )
-        record.status = AgentSessionStatus.WAITING_USER_INPUT
-        record.updated_at = now
+        record.message_count = 0
+        record.last_active_at = _now_ts()
         _save_session_record(conn, record)
 
     shutil.rmtree(_session_artifacts_dir(safe_session_id), ignore_errors=True)
@@ -678,19 +782,7 @@ def reset_agent_session_context(
 
 
 def reset_stuck_running_sessions() -> int:
-    with connection_scope() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        now = datetime_to_storage(utc_now())
-        result = conn.execute(
-            """
-            UPDATE agent_sessions
-            SET status = ?,
-                updated_at = ?
-            WHERE status = ?
-            """,
-            (AgentSessionStatus.FAILED, now, AgentSessionStatus.RUNNING),
-        )
-        return int(result.rowcount or 0)
+    return 0
 
 
 def cleanup_orphaned_agent_services() -> int:

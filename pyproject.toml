@@ -10,6 +10,7 @@ dependencies = [
     "apscheduler>=3.10.0",
     "beautifulsoup4>=4.12.0",
     "cozepy>=0.9.1",
+    "fastapi",
     "lark-oapi>=1.4.0",
     "openai==2.15.0",
     "openpyxl>=3.1.0",
@@ -23,6 +24,7 @@ dependencies = [
     "selenium>=4.0.0",
     "sqlalchemy>=2.0.0",
     "urllib3==2.6.3",
+    "uvicorn",
     "websockets==15.0.1",
     "xlrd>=2.0.0",
 ]
