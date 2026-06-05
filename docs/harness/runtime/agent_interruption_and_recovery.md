@@ -59,3 +59,25 @@ RunHandle:
 已经被 agent runtime 接收并形成完整 message/block 的内容，才可能持久化；
 半截 stream delta、半截 tool args、未完成 JSON，不应该写入上下文；
 一旦完整 tool_call 被写入上下文，就必须最终配上真实 tool_result 或 synthetic error tool_result。
+
+---
+
+问答：
+1. tool args 半截 JSON：“会把这个 tool_call 写进 message 中，然后主动补上补一条协议合法的 synthetic error tool result，类似比如： 
+{
+  "role": "tool",
+  "content": [
+    {
+      "type": "tool_result",
+      "tool_call_id": "call_123",
+      "is_error": true,
+      "content": "[The conversation was interrupted before this tool could finish.]"
+    }
+  ]
+} 
+半截 tool args -> 不写
+完整 tool_use + 未执行 -> 写 tool_use + synthetic error tool_result
+完整 tool_use + 执行中被取消 -> 写 tool_use + synthetic error tool_result
+完整 tool_use + 已有真实结果 -> 写 tool_use + 真实 tool_result
+2. assistant message 没有真正结束：如果sdk接收的流没有完整的 block （也就是没拿到 message_stop）就不记录上下文 
+3. Anthropic thinking block 有签名语义，半截保存后再发回去容易不合法。半截说明流没发完，也不会进入上下文

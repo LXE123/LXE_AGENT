@@ -1,0 +1,186 @@
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+from typing import Any
+
+from agent_runtime import loop as loop_mod
+from agent_runtime.context_pipeline import load_context_messages, validate_tool_call_closure
+from agent_runtime.llm_adapter import LLMResponse
+from agent_runtime.loop import AgentLoop
+from agent_runtime.tool_registry import UnifiedToolRegistry
+from agent_runtime.types import ToolDefinition, TurnInput, text_tool_result
+from shared.llm.events import LLMToolCall
+
+
+def _session() -> SimpleNamespace:
+    return SimpleNamespace(
+        session_id="session-1",
+        owner_user_id="user-1",
+        state_data={},
+        source={"platform": "feishu"},
+        conversation_type="1",
+    )
+
+
+def _turn_input() -> TurnInput:
+    return TurnInput(
+        user_input="请处理",
+        session_id="session-1",
+        user_id="user-1",
+        available_skills=[],
+    )
+
+
+def _agent(*, cancellation_check=None) -> AgentLoop:
+    agent = AgentLoop(
+        session=_session(),
+        state_data={},
+        cancellation_check=cancellation_check,
+    )
+    agent.tool_registry = UnifiedToolRegistry()
+    return agent
+
+
+def test_cancelled_stream_without_complete_response_persists_user_only(monkeypatch) -> None:
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        raise loop_mod._TurnCancelledError()
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(_agent().run(_turn_input()))
+    messages = load_context_messages(outcome.state_data_patch)
+
+    assert outcome.status == "cancelled"
+    assert messages == [{"role": "user", "content": "请处理"}]
+
+
+def test_cancel_after_complete_text_response_persists_assistant_text(monkeypatch) -> None:
+    cancel_after_response = {"value": False}
+
+    async def cancellation_check() -> bool:
+        return bool(cancel_after_response["value"])
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        cancel_after_response["value"] = True
+        return LLMResponse(
+            text="完成",
+            public_text="完成",
+            assistant_content=[{"type": "text", "text": "完成"}],
+        )
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(_agent(cancellation_check=cancellation_check).run(_turn_input()))
+    messages = load_context_messages(outcome.state_data_patch)
+
+    assert outcome.status == "cancelled"
+    assert messages == [
+        {"role": "user", "content": "请处理"},
+        {"role": "assistant", "content": [{"type": "text", "text": "完成"}]},
+    ]
+
+
+def test_cancel_after_complete_tool_use_persists_synthetic_tool_result(monkeypatch) -> None:
+    cancel_after_response = {"value": False}
+    tool_call = LLMToolCall(id="toolu-1", name="read", arguments={"path": "a.txt"})
+
+    async def cancellation_check() -> bool:
+        return bool(cancel_after_response["value"])
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        cancel_after_response["value"] = True
+        return LLMResponse(
+            text="",
+            assistant_content=[
+                {
+                    "type": "tool_call",
+                    "id": tool_call.id,
+                    "name": tool_call.name,
+                    "arguments": dict(tool_call.arguments),
+                }
+            ],
+            tool_calls=[tool_call],
+        )
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(_agent(cancellation_check=cancellation_check).run(_turn_input()))
+    messages = load_context_messages(outcome.state_data_patch)
+
+    assert outcome.status == "cancelled"
+    assert messages[1] == {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "tool_call",
+                "id": "toolu-1",
+                "name": "read",
+                "arguments": {"path": "a.txt"},
+            }
+        ],
+    }
+    assert messages[2]["role"] == "tool"
+    assert messages[2]["content"][0]["tool_call_id"] == "toolu-1"
+    assert messages[2]["content"][0]["is_error"] is True
+    validate_tool_call_closure(messages)
+
+
+def test_cancel_after_partial_tool_completion_closes_remaining_tool_calls(monkeypatch) -> None:
+    cancel_after_first_tool = {"value": False}
+    called_tools: list[str] = []
+    tool_1 = LLMToolCall(id="toolu-1", name="first_tool", arguments={})
+    tool_2 = LLMToolCall(id="toolu-2", name="second_tool", arguments={})
+
+    async def cancellation_check() -> bool:
+        return bool(cancel_after_first_tool["value"])
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        return LLMResponse(
+            text="",
+            assistant_content=[
+                {"type": "tool_call", "id": tool_1.id, "name": tool_1.name, "arguments": {}},
+                {"type": "tool_call", "id": tool_2.id, "name": tool_2.name, "arguments": {}},
+            ],
+            tool_calls=[tool_1, tool_2],
+        )
+
+    async def first_tool() -> Any:
+        called_tools.append("first")
+        cancel_after_first_tool["value"] = True
+        return text_tool_result("真实结果")
+
+    async def second_tool() -> Any:
+        called_tools.append("second")
+        return text_tool_result("不应执行")
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+    agent = _agent(cancellation_check=cancellation_check)
+    agent.tool_registry.register(
+        ToolDefinition(
+            name="first_tool",
+            description="first",
+            parameters={"type": "object", "properties": {}},
+            handler=first_tool,
+        )
+    )
+    agent.tool_registry.register(
+        ToolDefinition(
+            name="second_tool",
+            description="second",
+            parameters={"type": "object", "properties": {}},
+            handler=second_tool,
+        )
+    )
+
+    outcome = asyncio.run(agent.run(_turn_input()))
+    messages = load_context_messages(outcome.state_data_patch)
+    tool_blocks = messages[2]["content"]
+
+    assert outcome.status == "cancelled"
+    assert called_tools == ["first"]
+    assert tool_blocks[0]["tool_call_id"] == "toolu-1"
+    assert tool_blocks[0].get("is_error") is not True
+    assert tool_blocks[1]["tool_call_id"] == "toolu-2"
+    assert tool_blocks[1]["is_error"] is True
+    validate_tool_call_closure(messages)

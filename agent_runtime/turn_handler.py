@@ -1,12 +1,13 @@
-"""Agent execution handlers for the root gateway runtime."""
+"""Agent turn execution handlers for the root gateway runtime."""
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
-from agent_runtime.ipc_client import emit_final, emit_stream
-from shared.agent_state import RUNTIME_KEY, runtime_state
+from agent_runtime.emit_bus import emit_final as default_emit_final
+from agent_runtime.emit_bus import emit_stream as default_emit_stream
 from shared.agent_sessions import AgentSessionStatus
 from shared.db.client import (
     load_agent_session,
@@ -14,11 +15,14 @@ from shared.db.client import (
     update_agent_session,
 )
 from shared.logging import logger
-from shared.worker_core.outcome import job_handled
+from shared.runtime_core.outcome import job_handled
 
 from .final_answer_streamer import FinalAnswerStreamer
 from .runtime import run_turn
 from .types import TurnOutcome
+
+FinalEmitter = Callable[..., Awaitable[None]]
+StreamEmitter = Callable[..., Awaitable[None]]
 
 
 _STATUS_MAP: dict[str, str] = {
@@ -86,33 +90,7 @@ async def _turn_cancel_requested(session_id: str, job_id: str) -> bool:
     if not latest:
         return True
 
-    latest_status = str(getattr(latest, "status", "") or "").strip()
-    if latest_status in {AgentSessionStatus.CANCELLED, AgentSessionStatus.FAILED}:
-        return True
-
-    latest_runtime = runtime_state(getattr(latest, "state_data", {}) or {})
-    return str(latest_runtime.get("stop_turn_id") or "").strip() == safe_job_id
-
-
-def _finalize_runtime_patch(outcome: TurnOutcome, *, latest_session: Any, job_id: str) -> dict[str, Any]:
-    latest_runtime = runtime_state(getattr(latest_session, "state_data", {}) or {})
-    runtime_updates = {
-        "active_turn_id": "",
-        "active_card_id": "",
-        "active_turn_started_at": 0,
-    }
-    if str(latest_runtime.get("stop_turn_id") or "").strip() == str(job_id or "").strip():
-        runtime_updates.update(
-            {
-                "stop_turn_id": "",
-                "stop_requested_at": 0,
-            }
-        )
-    patch = dict(outcome.state_data_patch or {})
-    patch_runtime = dict(patch.get(RUNTIME_KEY) or {}) if isinstance(patch.get(RUNTIME_KEY), dict) else {}
-    patch_runtime.update(runtime_updates)
-    patch[RUNTIME_KEY] = patch_runtime
-    return patch
+    return False
 
 
 async def _emit_final_answer_stream_frame(
@@ -124,7 +102,7 @@ async def _emit_final_answer_stream_frame(
     content: str,
     emit_id: str,
 ) -> None:
-    await emit_stream(
+    await default_emit_stream(
         session_id=session_id,
         card_id=card_id,
         stream_type=stream_type,
@@ -140,6 +118,7 @@ async def _persist_and_deliver(
     outcome: TurnOutcome,
     *,
     card_id: str,
+    emit_final_fn: FinalEmitter,
     skip_emit_final: bool = False,
 ) -> None:
     session_id = str(getattr(session, "session_id", "") or "").strip()
@@ -160,18 +139,41 @@ async def _persist_and_deliver(
     if skip_emit_final or not message:
         return
     try:
-        await emit_final(
+        await emit_final_fn(
             session_id=session_id,
             card_id=card_id,
             content=message,
             emit_id=uuid4().hex,
         )
     except Exception as exc:
-        logger.warning("[UnifiedWorker] final emit failed: %s", exc)
+        logger.warning("[TurnHandler] final emit failed: %s", exc)
 
 
-async def handle_unified_turn_job(job: Any) -> Any:
-    payload = dict(getattr(job, "payload", {}) or {})
+def _payload_from_job(job: Any) -> dict[str, Any]:
+    payload = getattr(job, "payload", None)
+    if isinstance(payload, dict):
+        return dict(payload or {})
+    return {
+        "session_id": str(getattr(job, "session_id", "") or "").strip(),
+        "card_id": str(getattr(job, "card_id", "") or "").strip(),
+        "session_key": str(getattr(job, "session_key", "") or "").strip(),
+        "source": dict(getattr(job, "source", {}) or {}),
+        "user_text": str(getattr(job, "user_input", "") or "").strip(),
+        "job_id": str(getattr(job, "job_id", "") or "").strip(),
+        "job_kind": str(getattr(job, "job_kind", "turn") or "turn").strip() or "turn",
+        "raw_data": dict(getattr(job, "raw_data", {}) or {}),
+        "user_content_blocks": list(getattr(job, "user_content_blocks", []) or []),
+    }
+
+
+async def handle_unified_turn_job(
+    job: Any,
+    *,
+    run_handle: Any = None,
+    emit_final: FinalEmitter | None = None,
+    emit_stream: StreamEmitter | None = None,
+) -> Any:
+    payload = _payload_from_job(job)
     session_id = str(payload.get("session_id") or "").strip()
     card_id = str(payload.get("card_id") or "").strip()
     user_text = str(payload.get("user_text") or "").strip()
@@ -186,29 +188,36 @@ async def handle_unified_turn_job(job: Any) -> Any:
 
     session = await load_agent_session(session_id)
     if not session:
-        logger.warning("[UnifiedWorker] session not found: %s", session_id)
+        logger.warning("[TurnHandler] session not found: %s", session_id)
         return job_handled()
 
-    allowed_statuses = {
-        AgentSessionStatus.STARTING,
-        AgentSessionStatus.RUNNING,
-    }
-    if job_kind == "heartbeat":
-        allowed_statuses.add(AgentSessionStatus.WAITING_USER_INPUT)
-    if str(session.status or "").strip() not in allowed_statuses:
-        logger.info(
-            "[UnifiedWorker] skip stale turn job: session_id=%s status=%s job_kind=%s",
-            session_id,
-            session.status,
-            job_kind,
+    emit_final_fn = emit_final or default_emit_final
+    emit_stream_fn = emit_stream or default_emit_stream
+
+    async def _emit_stream_frame(
+        session_id: str,
+        card_id: str,
+        stream_type: str,
+        state: str,
+        seq: int,
+        content: str,
+        emit_id: str,
+    ) -> None:
+        await emit_stream_fn(
+            session_id=session_id,
+            card_id=card_id,
+            stream_type=stream_type,
+            state=state,
+            seq=seq,
+            content=content,
+            emit_id=emit_id,
         )
-        return job_handled()
 
     final_answer_streamer = (
         FinalAnswerStreamer(
             session_id=session_id,
             card_id=card_id,
-            emit_stream=_emit_final_answer_stream_frame,
+            emit_stream=_emit_stream_frame,
             min_interval_ms=150,
         )
         if _should_stream_final_answer(session) and card_id
@@ -216,6 +225,8 @@ async def handle_unified_turn_job(job: Any) -> Any:
     )
 
     async def cancellation_check() -> bool:
+        if run_handle is not None and bool(getattr(run_handle, "cancelled", False)):
+            return True
         return await _turn_cancel_requested(session_id, job_id)
 
     if job_kind == "heartbeat":
@@ -238,13 +249,6 @@ async def handle_unified_turn_job(job: Any) -> Any:
             await update_agent_session(
                 session_id,
                 status=AgentSessionStatus.WAITING_USER_INPUT,
-                state_data_patch={
-                    RUNTIME_KEY: {
-                        "active_turn_id": "",
-                        "active_card_id": "",
-                        "active_turn_started_at": 0,
-                    },
-                },
             )
             return job_handled()
         formatted_events = _format_system_events(pending_events)
@@ -287,6 +291,13 @@ async def handle_unified_turn_job(job: Any) -> Any:
                 on_final_text_delta=final_answer_streamer.push_delta if final_answer_streamer is not None else None,
                 on_stream_cancel=final_answer_streamer.cancel if final_answer_streamer is not None else None,
                 cancellation_check=cancellation_check,
+                cancel_event=getattr(run_handle, "cancel_event", None),
+                thread_cancel_event=getattr(run_handle, "thread_cancel_event", None),
+                provider_cancel_registrar=getattr(run_handle, "set_provider_cancel_handle", None),
+                tool_run_registrar=getattr(run_handle, "register_tool_run", None),
+                tool_run_finisher=getattr(run_handle, "finish_tool_run", None),
+                run_id=job_id,
+                card_id=card_id,
             )
             if job_kind == "heartbeat":
                 logger.info(
@@ -297,7 +308,7 @@ async def handle_unified_turn_job(job: Any) -> Any:
                     len(str(outcome.reply or "")),
                 )
         except Exception as exc:
-            logger.error("[UnifiedWorker] turn failed: %s", exc, exc_info=True)
+            logger.error("[TurnHandler] turn failed: %s", exc, exc_info=True)
             if job_kind == "heartbeat":
                 logger.error(
                     "[ExecNotify] heartbeat turn failed: owner_session_id=%s job_id=%s error=%s",
@@ -323,18 +334,12 @@ async def handle_unified_turn_job(job: Any) -> Any:
                 await final_answer_streamer.finish(outcome.reply or "Done.")
             stream_final_delivered = final_answer_streamer.delivered_any
         except Exception as exc:
-            logger.warning("[UnifiedWorker] final answer stream emit failed: %s", exc, exc_info=True)
+            logger.warning("[TurnHandler] final answer stream emit failed: %s", exc, exc_info=True)
 
     latest_session = await load_agent_session(session_id)
     if latest_session is None:
-        logger.info("[UnifiedWorker] session disappeared before persist: session_id=%s", session_id)
+        logger.info("[TurnHandler] session disappeared before persist: session_id=%s", session_id)
         return job_handled()
-
-    outcome.state_data_patch = _finalize_runtime_patch(
-        outcome,
-        latest_session=latest_session,
-        job_id=job_id,
-    )
 
     if job_kind == "heartbeat":
         logger.info(
@@ -356,6 +361,7 @@ async def handle_unified_turn_job(job: Any) -> Any:
         latest_session,
         outcome,
         card_id=card_id,
+        emit_final_fn=emit_final_fn,
         skip_emit_final=stream_final_delivered or outcome.status == "cancelled",
     )
     return job_handled()

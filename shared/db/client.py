@@ -103,20 +103,6 @@ async def cancel_agent_session(
     )
 
 
-async def request_agent_turn_stop(
-    session_id: str,
-    *,
-    turn_id: str,
-    reason: str = "slash_command_stop",
-):
-    return await _run_db_call(
-        _agent_state.request_agent_turn_stop_state,
-        session_id,
-        turn_id=turn_id,
-        reason=reason,
-    )
-
-
 async def clear_agent_session_memory(
     session_id: str,
     *,
@@ -197,7 +183,6 @@ __all__ = [
     "load_card_context",
     "load_card_session",
     "pop_agent_session_pending_events",
-    "request_agent_turn_stop",
     "reset_agent_session_context",
     "save_card_session_patch",
     "save_card_delivery_handle",

@@ -7,7 +7,6 @@ import os
 import sys
 from typing import Any
 
-from agent_runtime.ipc_client import configure_gateway_ipc
 from services.agent_cli._shared.json_output import configure_utf8_stdio
 from services.amazon.amazon_logistic.artifacts.renderer import (
     build_multi_channel_pricing_markdown,
@@ -23,7 +22,7 @@ from services.amazon.amazon_logistic.remote_client import quote_pricing
 from services.amazon.amazon_logistic.sources.consignment_excel import load_pricing_boxes_from_local_excel
 from shared.config import config
 from shared.infra.net import close_all_network_clients
-from shared.worker_core.utils import send_file_to_current_session
+from shared.runtime_core.utils import send_file_to_current_session
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -48,12 +47,8 @@ def _resolve_agent_session_id() -> str:
     return str(os.environ.get("LXE_AGENT_SESSION_ID") or "").strip()
 
 
-def _configure_gateway_ipc() -> None:
-    gateway_ipc_url = (
-        f"http://{str(config.GATEWAY_IPC_HOST or '127.0.0.1').strip() or '127.0.0.1'}:"
-        f"{int(config.GATEWAY_IPC_PORT)}"
-    )
-    configure_gateway_ipc(gateway_ipc_url)
+def _configure_emit() -> None:
+    return None
 
 
 def _write_result(payload: dict[str, str | bool]) -> None:
@@ -335,7 +330,7 @@ def main() -> int:
 
     try:
         args = parser.parse_args()
-        _configure_gateway_ipc()
+        _configure_emit()
         result = asyncio.run(_run_async(args))
     except Exception as exc:
         result = _result(

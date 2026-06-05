@@ -84,6 +84,7 @@ class EmitRequest:
 class HeartbeatWakeRequest:
     session_id: str
     reason: str = "exec-event"
+    card_id: str = ""
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "HeartbeatWakeRequest":
@@ -91,6 +92,7 @@ class HeartbeatWakeRequest:
         return cls(
             session_id=str(raw.get("session_id") or "").strip(),
             reason=str(raw.get("reason") or "exec-event").strip() or "exec-event",
+            card_id=str(raw.get("card_id") or "").strip(),
         )
 
     def to_dict(self) -> dict[str, Any]:

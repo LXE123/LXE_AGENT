@@ -177,6 +177,8 @@ async def _stream_anthropic_events(
     temperature: float,
     timeout_s: int,
     wire_trace_context: WireTraceContext | None = None,
+    thread_cancel_event: Any = None,
+    provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None,
 ):
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[object] = asyncio.Queue()
@@ -194,6 +196,8 @@ async def _stream_anthropic_events(
                 temperature=temperature,
                 timeout_s=timeout_s,
                 wire_trace_context=wire_trace_context,
+                cancel_event=thread_cancel_event,
+                provider_cancel_registrar=provider_cancel_registrar,
             ):
                 loop.call_soon_threadsafe(queue.put_nowait, event)
         except Exception as exc:
@@ -205,7 +209,13 @@ async def _stream_anthropic_events(
     thread.start()
 
     while True:
-        item = await queue.get()
+        try:
+            item = await asyncio.wait_for(queue.get(), timeout=0.1)
+        except asyncio.TimeoutError:
+            if thread_cancel_event is not None and bool(thread_cancel_event.is_set()):
+                yield LLMStreamEvent(event_type="cancelled")
+                break
+            continue
         if item is sentinel:
             break
         if isinstance(item, Exception):
@@ -225,6 +235,8 @@ async def chat_with_tools_streaming(
     descriptor: ProviderDescriptor | None = None,
     on_stream_event: Callable[[LLMStreamEvent], Awaitable[None] | None] | None = None,
     wire_trace_context: WireTraceContext | None = None,
+    thread_cancel_event: Any = None,
+    provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None,
 ) -> LLMResponse:
     desc = descriptor or agent_provider_descriptor()
     effective_timeout = timeout_s or max(10, _config_int("LLM_REQUEST_TIMEOUT_S", 30))
@@ -295,6 +307,8 @@ async def chat_with_tools_streaming(
             temperature=temperature,
             timeout_s=effective_timeout,
             wire_trace_context=wire_trace_context,
+            thread_cancel_event=thread_cancel_event,
+            provider_cancel_registrar=provider_cancel_registrar,
         ):
             stream_events.append(
                 {

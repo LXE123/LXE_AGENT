@@ -92,6 +92,11 @@ class TurnInput:
     user_id: str
     available_skills: list[SkillQueueItem]
     user_content_blocks: list[dict[str, Any]] = field(default_factory=list)
+    run_id: str = ""
+    card_id: str = ""
+    provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None
+    tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None
+    tool_run_finisher: Callable[[str], None] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -182,12 +187,13 @@ class TurnLog:
 class TurnOutcome:
     """The single output contract of the agent loop.
 
-    The worker layer reads these fields directly — no intermediate
+    The runtime layer reads these fields directly — no intermediate
     translation needed.
     """
     status: str  # "done" | "waiting" | "cancelled" | "error"
     reply: str
     state_data_patch: dict[str, Any] = field(default_factory=dict)
+    messages_to_persist: list[dict[str, Any]] = field(default_factory=list)
     turn_log: TurnLog | None = None
 
 

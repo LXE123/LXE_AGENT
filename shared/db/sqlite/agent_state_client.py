@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.logging import logger
-
 from . import bootstrap
 from .agent_sessions import (
     append_agent_session_pending_event,
@@ -14,8 +12,6 @@ from .agent_sessions import (
     has_agent_session_pending_events,
     load_agent_session,
     pop_agent_session_pending_events,
-    request_agent_turn_stop,
-    reset_stuck_running_sessions,
     reset_agent_session_context,
     update_agent_session,
 )
@@ -23,9 +19,6 @@ from .agent_sessions import (
 
 def init_schema() -> None:
     bootstrap.init_schema()
-    reset_count = reset_stuck_running_sessions()
-    if reset_count > 0:
-        logger.info("[SQLite] startup cleanup: %d running agent sessions reset to failed", reset_count)
 
 
 def dispose() -> None:
@@ -74,19 +67,6 @@ def cancel_agent_session_state(
     return cancel_agent_session(
         session_id,
         cancel_reason=cancel_reason,
-    )
-
-
-def request_agent_turn_stop_state(
-    session_id: str,
-    *,
-    turn_id: str,
-    reason: str = "slash_command_stop",
-):
-    return request_agent_turn_stop(
-        session_id,
-        turn_id=turn_id,
-        reason=reason,
     )
 
 
@@ -142,7 +122,6 @@ __all__ = [
     "init_schema",
     "load_agent_session_state",
     "pop_agent_session_pending_events_state",
-    "request_agent_turn_stop_state",
     "reset_agent_session_state",
     "update_agent_session_state",
 ]

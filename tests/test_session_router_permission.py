@@ -35,9 +35,21 @@ class _FakeRegistry:
 class _FakeScheduler:
     def __init__(self) -> None:
         self.jobs = []
+        self.stopped_sessions = set()
+        self.inflight_sessions = set()
 
     async def enqueue(self, job, *, front: bool = False) -> None:
         self.jobs.append((job, front))
+
+    def request_stop(self, session_id: str) -> bool:
+        safe_session_id = str(session_id or "").strip()
+        if safe_session_id not in self.inflight_sessions:
+            return False
+        self.stopped_sessions.add(safe_session_id)
+        return True
+
+    def has_inflight_work(self, session_id: str) -> bool:
+        return str(session_id or "").strip() in self.inflight_sessions
 
 
 def _event(*, user_id: str, union_id: str, app_id: str) -> InboundEvent:

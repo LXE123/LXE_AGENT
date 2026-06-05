@@ -6,9 +6,8 @@ from shared.logging import logger
 
 
 async def emit_tool_files_to_session(session_id: str, files: list[str]) -> bool:
-    # 延迟导入避免循环依赖
-    from agent_runtime.ipc_client import emit_tool
-    
+    from agent_runtime.emit_bus import emit_tool
+
     file_paths = [
         os.path.abspath(str(path or "").strip())
         for path in list(files or [])
@@ -22,11 +21,15 @@ async def emit_tool_files_to_session(session_id: str, files: list[str]) -> bool:
             session_id=str(session_id or "").strip(),
             files=file_paths,
         )
-        logger.info("[Worker] session_id=%s | sent_files=%s", session_id, [os.path.basename(path) for path in file_paths])
+        logger.info(
+            "[Runtime] session_id=%s | sent_files=%s",
+            session_id,
+            [os.path.basename(path) for path in file_paths],
+        )
         return True
     except Exception as error:
         logger.error(
-            "[Worker] session_id=%s | file_send_failed=%s | error=%s",
+            "[Runtime] session_id=%s | file_send_failed=%s | error=%s",
             session_id,
             file_paths,
             error,
@@ -40,3 +43,6 @@ async def send_file_to_current_session(session_id: str, path: str) -> bool:
     if not normalized_path:
         return False
     return await emit_tool_files_to_session(str(session_id or "").strip(), [normalized_path])
+
+
+__all__ = ["emit_tool_files_to_session", "send_file_to_current_session"]

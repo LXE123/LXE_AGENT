@@ -1,6 +1,7 @@
 """Unified ReAct agent loop with turn-based context management."""
 from __future__ import annotations
 
+import copy
 import time
 import traceback
 from typing import Any, Awaitable, Callable, Literal
@@ -61,6 +62,7 @@ _TOOL_TRACEBACK_TAIL_CHARS = 1000
 _LLM_ERROR_REPLY = "LLM 通信连续失败，请稍后重试。"
 _DEFAULT_EMPTY_REPLY = "我不确定该如何继续。"
 _MAX_STEPS_TERMINAL_REPLY = "本轮已达到最大步骤，请发送下一条消息继续。"
+_INTERRUPTED_TOOL_RESULT = "[The conversation was interrupted before this tool could finish.]"
 
 
 class _TurnCancelledError(RuntimeError):
@@ -130,6 +132,10 @@ def _response_public_text(response: LLMResponse) -> str:
     return str(getattr(response, "public_text", "") or getattr(response, "text", "") or "").strip()
 
 
+def _copy_messages_for_persistence(messages: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    return copy.deepcopy(list(messages or []))
+
+
 def _assistant_history_blocks(response: LLMResponse) -> list[dict[str, Any]]:
     assistant_content = list(getattr(response, "assistant_content", None) or [])
     if assistant_content:
@@ -148,6 +154,44 @@ def _assistant_history_blocks(response: LLMResponse) -> list[dict[str, Any]]:
             }
         )
     return blocks
+
+
+def _tool_call_id(tool_call: Any) -> str:
+    return str(getattr(tool_call, "id", "") or "").strip()
+
+
+def _synthetic_cancel_tool_result_block(tool_call: Any) -> dict[str, Any]:
+    return {
+        "type": "tool_result",
+        "tool_name": str(getattr(tool_call, "name", "") or "").strip(),
+        "tool_call_id": _tool_call_id(tool_call),
+        "content": _INTERRUPTED_TOOL_RESULT,
+        "is_error": True,
+    }
+
+
+def _completed_tool_result_ids(tool_result_blocks: list[dict[str, Any]]) -> set[str]:
+    completed: set[str] = set()
+    for raw_block in list(tool_result_blocks or []):
+        block = dict(raw_block or {})
+        tool_call_id = str(block.get("tool_call_id") or "").strip()
+        if tool_call_id:
+            completed.add(tool_call_id)
+    return completed
+
+
+def _append_synthetic_cancel_results(
+    *,
+    tool_calls: list[Any],
+    tool_result_blocks: list[dict[str, Any]],
+) -> None:
+    completed = _completed_tool_result_ids(tool_result_blocks)
+    for tool_call in list(tool_calls or []):
+        tool_call_id = _tool_call_id(tool_call)
+        if not tool_call_id or tool_call_id in completed:
+            continue
+        tool_result_blocks.append(_synthetic_cancel_tool_result_block(tool_call))
+        completed.add(tool_call_id)
 
 
 def _log_step(step_log: StepLog) -> None:
@@ -267,6 +311,11 @@ class AgentLoop:
         on_final_text_delta: FinalTextCallback | None = None,
         on_stream_cancel: StreamCancelCallback | None = None,
         cancellation_check: Callable[[], Awaitable[bool]] | None = None,
+        cancel_event: Any = None,
+        thread_cancel_event: Any = None,
+        provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None,
+        tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None,
+        tool_run_finisher: Callable[[str], None] | None = None,
     ) -> None:
         self.session = session
         self.state_data = dict(state_data or {})
@@ -274,14 +323,19 @@ class AgentLoop:
         self.on_final_text_delta = on_final_text_delta
         self.on_stream_cancel = on_stream_cancel
         self.cancellation_check = cancellation_check
+        self.cancel_event = cancel_event
+        self.thread_cancel_event = thread_cancel_event
+        self.provider_cancel_registrar = provider_cancel_registrar
+        self.tool_run_registrar = tool_run_registrar
+        self.tool_run_finisher = tool_run_finisher
         self.tool_registry = ensure_all_tools_registered(get_registry())
         self.stream_logging_config = load_stream_logging_config()
         self.wire_trace_config = load_wire_trace_config()
         self._turn_trace_writer: TurnTraceWriter | None = None
         self._last_stream_summary: StreamStepSummary | None = None
-        self._active_turn_session_id = ""
-        self._active_turn_id = ""
-        self._active_turn_started_at = 0.0
+        self._trace_session_id = ""
+        self._trace_turn_id = ""
+        self._trace_turn_started_at = 0.0
         self._wire_trace_turn_dir = ""
         self._stream_cancel_notified = False
 
@@ -300,12 +354,29 @@ class AgentLoop:
         if self.on_stream_cancel is not None:
             await self.on_stream_cancel()
 
-    async def _cancel_outcome(self) -> TurnOutcome:
+    async def _cancel_outcome(
+        self,
+        *,
+        messages_to_persist: list[dict[str, Any]] | None = None,
+    ) -> TurnOutcome:
         await self._notify_stream_cancel()
         return TurnOutcome(
             status="cancelled",
             reply="",
+            messages_to_persist=_copy_messages_for_persistence(messages_to_persist),
         )
+
+    def _register_tool_run(self, tool_call: Any) -> Callable[[], None]:
+        tool_call_id = _tool_call_id(tool_call)
+        tool_name = str(getattr(tool_call, "name", "") or "").strip()
+        if tool_call_id and self.tool_run_registrar is not None:
+            self.tool_run_registrar(tool_call_id, tool_name, None)
+
+        def _finish() -> None:
+            if tool_call_id and self.tool_run_finisher is not None:
+                self.tool_run_finisher(tool_call_id)
+
+        return _finish
 
     async def _request_llm_step(
         self,
@@ -361,12 +432,12 @@ class AgentLoop:
         for attempt in range(1, _LLM_STEP_MAX_ATTEMPTS + 1):
             observer.start_attempt(attempt)
             wire_trace_context = WireTraceContext(
-                session_id=self._active_turn_session_id,
-                turn_id=self._active_turn_id,
+                session_id=self._trace_session_id,
+                turn_id=self._trace_turn_id,
                 step=step_idx,
                 attempt=attempt,
                 provider=provider_name,
-                turn_started_at=self._active_turn_started_at,
+                turn_started_at=self._trace_turn_started_at,
             )
             try:
                 response = await chat_with_tools_streaming(
@@ -377,6 +448,8 @@ class AgentLoop:
                     timeout_s=_LLM_STEP_TIMEOUT_S,
                     on_stream_event=stream_callback,
                     wire_trace_context=wire_trace_context,
+                    thread_cancel_event=self.thread_cancel_event,
+                    provider_cancel_registrar=self.provider_cancel_registrar,
                 )
                 _remember_wire_trace_path(wire_trace_context)
                 observer.finish_attempt(response)
@@ -438,19 +511,26 @@ class AgentLoop:
         )
 
     async def run(self, turn: TurnInput) -> TurnOutcome:
+        if turn.provider_cancel_registrar is not None:
+            self.provider_cancel_registrar = turn.provider_cancel_registrar
+        if turn.tool_run_registrar is not None:
+            self.tool_run_registrar = turn.tool_run_registrar
+        if turn.tool_run_finisher is not None:
+            self.tool_run_finisher = turn.tool_run_finisher
+
         user_input = str(turn.user_input or "").strip()
         user_content_blocks = list(turn.user_content_blocks or [])
         available_skills = list(turn.available_skills or [])
 
         turn_log = TurnLog(
             session_id=turn.session_id,
-            turn_id=uuid4().hex,
+            turn_id=str(turn.run_id or "").strip() or uuid4().hex,
             user_input_preview=user_input[:100],
             started_at=time.time(),
         )
-        self._active_turn_session_id = turn_log.session_id
-        self._active_turn_id = turn_log.turn_id
-        self._active_turn_started_at = turn_log.started_at
+        self._trace_session_id = turn_log.session_id
+        self._trace_turn_id = turn_log.turn_id
+        self._trace_turn_started_at = turn_log.started_at
         self._wire_trace_turn_dir = wire_trace_turn_dir(
             self.wire_trace_config,
             session_id=turn_log.session_id,
@@ -523,6 +603,9 @@ class AgentLoop:
             state_data=self.state_data,
             on_progress=self.on_progress,
             cancellation_check=self.cancellation_check,
+            turn_id=turn_log.turn_id,
+            card_id=str(turn.card_id or "").strip(),
+            cancel_event=self.cancel_event,
         )
         set_tool_context(exec_ctx)
         try:
@@ -541,15 +624,20 @@ class AgentLoop:
             if self._turn_trace_writer is not None:
                 self._turn_trace_writer.close()
                 self._turn_trace_writer = None
-            self._active_turn_session_id = ""
-            self._active_turn_id = ""
-            self._active_turn_started_at = 0.0
+            self._trace_session_id = ""
+            self._trace_turn_id = ""
+            self._trace_turn_started_at = 0.0
             self._wire_trace_turn_dir = ""
 
-        if outcome.status != "cancelled":
+        messages_to_append = (
+            list(outcome.messages_to_persist or [])
+            if outcome.status == "cancelled"
+            else current_turn_messages
+        )
+        if messages_to_append:
             self.state_data = append_messages_to_state(
                 self.state_data,
-                messages=current_turn_messages,
+                messages=messages_to_append,
             )
 
             self.state_data, compacted = await maybe_compact_history(
@@ -610,7 +698,7 @@ class AgentLoop:
 
         for step_idx in range(MAX_STEPS):
             if await self._cancel_requested():
-                return await self._cancel_outcome()
+                return await self._cancel_outcome(messages_to_persist=current_turn_messages)
 
             is_last_step = step_idx == MAX_STEPS - 1
             request_tool_schemas = [] if is_last_step else tool_schemas
@@ -626,7 +714,7 @@ class AgentLoop:
                 )
                 overflow_recovered = False
             except _TurnCancelledError:
-                return await self._cancel_outcome()
+                return await self._cancel_outcome(messages_to_persist=current_turn_messages)
             except Exception as error:
                 if is_context_overflow_error(error) and not overflow_recovered:
                     exec_ctx.state_data, compacted = await maybe_compact_history(
@@ -660,26 +748,30 @@ class AgentLoop:
                 )
 
             stream_summary = self._take_last_stream_summary()
-            if await self._cancel_requested():
-                return await self._cancel_outcome()
             if not response.is_tool_call:
-                return self._complete_text_reply(
+                outcome = self._complete_text_reply(
                     step_idx=step_idx,
                     response=response,
                     append_message=_append_message,
                     turn_log=turn_log,
                     stream_summary=stream_summary,
                 )
+                if await self._cancel_requested():
+                    return await self._cancel_outcome(messages_to_persist=current_turn_messages)
+                return outcome
 
             tool_calls = list(response.tool_calls or [])
             if not tool_calls:
-                return self._complete_text_reply(
+                outcome = self._complete_text_reply(
                     step_idx=step_idx,
                     response=response,
                     append_message=_append_message,
                     turn_log=turn_log,
                     stream_summary=stream_summary,
                 )
+                if await self._cancel_requested():
+                    return await self._cancel_outcome(messages_to_persist=current_turn_messages)
+                return outcome
 
             if is_last_step:
                 logger.warning(
@@ -715,7 +807,13 @@ class AgentLoop:
             tool_result_blocks: list[dict[str, Any]] = []
             for tool_call in tool_calls:
                 if await self._cancel_requested():
-                    return await self._cancel_outcome()
+                    _append_synthetic_cancel_results(
+                        tool_calls=tool_calls,
+                        tool_result_blocks=tool_result_blocks,
+                    )
+                    if tool_result_blocks:
+                        _append_message(make_tool_results_message(tool_results=tool_result_blocks))
+                    return await self._cancel_outcome(messages_to_persist=current_turn_messages)
                 if self.on_progress is not None:
                     await self.on_progress(f"🔧 {tool_call.name}")
 
@@ -742,10 +840,17 @@ class AgentLoop:
                     turn_log.steps.append(_unk_step)
                     _log_step(_unk_step)
                     if await self._cancel_requested():
-                        return await self._cancel_outcome()
+                        _append_synthetic_cancel_results(
+                            tool_calls=tool_calls,
+                            tool_result_blocks=tool_result_blocks,
+                        )
+                        if tool_result_blocks:
+                            _append_message(make_tool_results_message(tool_results=tool_result_blocks))
+                        return await self._cancel_outcome(messages_to_persist=current_turn_messages)
                     continue
 
                 started_at = time.time()
+                finish_tool_run = self._register_tool_run(tool_call)
                 try:
                     result: ToolResult = await tool_def.handler(**tool_call.arguments)
                 except Exception as error:
@@ -772,8 +877,16 @@ class AgentLoop:
                     turn_log.steps.append(_te_step)
                     _log_step(_te_step)
                     if await self._cancel_requested():
-                        return await self._cancel_outcome()
+                        _append_synthetic_cancel_results(
+                            tool_calls=tool_calls,
+                            tool_result_blocks=tool_result_blocks,
+                        )
+                        if tool_result_blocks:
+                            _append_message(make_tool_results_message(tool_results=tool_result_blocks))
+                        return await self._cancel_outcome(messages_to_persist=current_turn_messages)
                     continue
+                finally:
+                    finish_tool_run()
 
                 tool_result_blocks.append(
                     {
@@ -796,7 +909,13 @@ class AgentLoop:
                 turn_log.steps.append(_tr_step)
                 _log_step(_tr_step)
                 if await self._cancel_requested():
-                    return await self._cancel_outcome()
+                    _append_synthetic_cancel_results(
+                        tool_calls=tool_calls,
+                        tool_result_blocks=tool_result_blocks,
+                    )
+                    if tool_result_blocks:
+                        _append_message(make_tool_results_message(tool_results=tool_result_blocks))
+                    return await self._cancel_outcome(messages_to_persist=current_turn_messages)
 
             if tool_result_blocks:
                 _append_message(make_tool_results_message(tool_results=tool_result_blocks))
@@ -816,11 +935,18 @@ async def run_agent_turn(
     user_content_blocks: list[dict[str, Any]] | None = None,
     session_id: str = "",
     user_id: str = "",
+    run_id: str = "",
+    card_id: str = "",
     available_skills: list[Any] | None = None,
     on_progress: ProgressCallback | None = None,
     on_final_text_delta: FinalTextCallback | None = None,
     on_stream_cancel: StreamCancelCallback | None = None,
     cancellation_check: Callable[[], Awaitable[bool]] | None = None,
+    cancel_event: Any = None,
+    thread_cancel_event: Any = None,
+    provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None,
+    tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None,
+    tool_run_finisher: Callable[[str], None] | None = None,
 ) -> TurnOutcome:
     loop = AgentLoop(
         session=session,
@@ -829,6 +955,11 @@ async def run_agent_turn(
         on_final_text_delta=on_final_text_delta,
         on_stream_cancel=on_stream_cancel,
         cancellation_check=cancellation_check,
+        cancel_event=cancel_event,
+        thread_cancel_event=thread_cancel_event,
+        provider_cancel_registrar=provider_cancel_registrar,
+        tool_run_registrar=tool_run_registrar,
+        tool_run_finisher=tool_run_finisher,
     )
     turn_input = TurnInput(
         user_input=user_text,
@@ -836,6 +967,11 @@ async def run_agent_turn(
         user_id=user_id or str(getattr(session, "owner_user_id", "") or "").strip(),
         available_skills=list(available_skills or []),
         user_content_blocks=list(user_content_blocks or []),
+        run_id=str(run_id or "").strip(),
+        card_id=str(card_id or "").strip(),
+        provider_cancel_registrar=provider_cancel_registrar,
+        tool_run_registrar=tool_run_registrar,
+        tool_run_finisher=tool_run_finisher,
     )
     return await loop.run(turn_input)
 

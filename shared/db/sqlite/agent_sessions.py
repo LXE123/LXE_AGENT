@@ -44,6 +44,13 @@ _STATE_DATA_PATCH_KEYS = {
     RUNTIME_KEY,
     CONTEXT_KEY,
 }
+_LEGACY_RUNTIME_KEYS = {
+    "active_turn_id",
+    "active_card_id",
+    "active_turn_started_at",
+    "stop_turn_id",
+    "stop_requested_at",
+}
 
 
 @dataclass
@@ -243,6 +250,25 @@ def _validate_runtime_patch(runtime_values: dict[str, Any]) -> None:
         )
 
 
+def _runtime_storage_values(runtime_values: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in dict(runtime_values or {}).items()
+        if key in RUNTIME_ALLOWED_KEYS
+    }
+
+
+def _runtime_patch_values(runtime_values: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(runtime_values or {})
+    invalid_keys = sorted(key for key in raw if key not in RUNTIME_ALLOWED_KEYS and key not in _LEGACY_RUNTIME_KEYS)
+    if invalid_keys:
+        raise RuntimeError(
+            "non-control runtime fields are not allowed in state_data_patch: "
+            + ", ".join(invalid_keys)
+        )
+    return _runtime_storage_values(raw)
+
+
 def _compose_record_state(
     record: AgentSessionRecord,
     *,
@@ -256,8 +282,7 @@ def _compose_record_state(
 
 def _touch_session_activity(record: AgentSessionRecord, base_time: Optional[datetime] = None) -> None:
     now = base_time or utc_now()
-    runtime = runtime_state(record.state_data)
-    _validate_runtime_patch(runtime)
+    runtime = _runtime_storage_values(runtime_state(record.state_data))
     runtime["session_activity_at"] = _session_activity_marker(now)
     record.state_data = _clean_session_storage_state({RUNTIME_KEY: runtime})
 
@@ -323,15 +348,13 @@ def _merge_state_data(
     if invalid_patch_keys:
         raise RuntimeError("invalid state_data_patch keys: " + ", ".join(invalid_patch_keys))
     runtime_patch_values = (
-        dict(raw_patch.get(RUNTIME_KEY) or {})
+        _runtime_patch_values(raw_patch.get(RUNTIME_KEY))
         if isinstance(raw_patch.get(RUNTIME_KEY), dict)
         else {}
     )
     context_patch = dict(raw_patch.get(CONTEXT_KEY) or {}) if isinstance(raw_patch.get(CONTEXT_KEY), dict) else {}
     current_state = dict(record.state_data or {})
-    existing_runtime = dict(current_state.get(RUNTIME_KEY) or {})
-    _validate_runtime_patch(existing_runtime)
-    _validate_runtime_patch(runtime_patch_values)
+    existing_runtime = _runtime_storage_values(current_state.get(RUNTIME_KEY))
 
     if runtime_patch_values:
         existing_runtime.update(runtime_patch_values)
@@ -414,37 +437,6 @@ def update_agent_session(
         return _to_state(record, conn=conn)
 
 
-def request_agent_turn_stop(
-    session_id: str,
-    *,
-    turn_id: str,
-    reason: str = "slash_command_stop",
-) -> Optional[AgentSessionState]:
-    safe_session_id = str(session_id or "").strip()
-    safe_turn_id = str(turn_id or "").strip()
-    if not safe_session_id or not safe_turn_id:
-        return None
-
-    with connection_scope() as conn:
-        conn.execute("BEGIN IMMEDIATE")
-        record = _load_session_record(conn, safe_session_id)
-        if record is None:
-            return None
-
-        now = utc_now()
-        runtime = runtime_state(record.state_data)
-        _validate_runtime_patch(runtime)
-        runtime["session_activity_at"] = _session_activity_marker(now)
-        runtime["stop_turn_id"] = safe_turn_id
-        runtime["stop_requested_at"] = _session_activity_marker(now)
-        _ = reason
-        record.state_data = _clean_session_storage_state({RUNTIME_KEY: runtime})
-
-        record.updated_at = now
-        _save_session_record(conn, record)
-        return _to_state(record, conn=conn)
-
-
 def clear_agent_session_memory(
     session_id: str,
     *,
@@ -467,8 +459,7 @@ def clear_agent_session_memory(
         message_count_before = len(load_session_messages(safe_session_id))
         clear_session_messages(safe_session_id)
 
-        runtime = runtime_state(record.state_data)
-        _validate_runtime_patch(runtime)
+        runtime = _runtime_storage_values(runtime_state(record.state_data))
         runtime["session_activity_at"] = _session_activity_marker(now)
         record.state_data = _clean_session_storage_state({RUNTIME_KEY: runtime})
 
@@ -627,8 +618,7 @@ def cancel_agent_session(
 
         now = utc_now()
         _ = cancel_reason
-        runtime = runtime_state(record.state_data)
-        _validate_runtime_patch(runtime)
+        runtime = _runtime_storage_values(runtime_state(record.state_data))
         runtime["session_activity_at"] = _session_activity_marker(now)
         record.state_data = _clean_session_storage_state({RUNTIME_KEY: runtime})
 
@@ -669,8 +659,7 @@ def reset_agent_session_context(
 
         now = utc_now()
         _ = reset_reason
-        runtime = runtime_state(record.state_data)
-        _validate_runtime_patch(runtime)
+        runtime = _runtime_storage_values(runtime_state(record.state_data))
         runtime["session_activity_at"] = _session_activity_marker(now)
 
         clear_session_messages(safe_session_id)
@@ -718,7 +707,6 @@ __all__ = [
     "has_agent_session_pending_events",
     "load_agent_session",
     "pop_agent_session_pending_events",
-    "request_agent_turn_stop",
     "reset_agent_session_context",
     "reset_stuck_running_sessions",
     "update_agent_session",

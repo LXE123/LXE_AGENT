@@ -38,6 +38,7 @@ def _obj(**values: Any) -> _FakeSdkObject:
 class _FakeStream:
     def __init__(self, events: list[Any]) -> None:
         self._events = list(events)
+        self.closed = False
 
     def __enter__(self) -> "_FakeStream":
         return self
@@ -48,11 +49,17 @@ class _FakeStream:
     def __iter__(self):
         return iter(self._events)
 
+    def close(self) -> None:
+        self.closed = True
+        _RECORDER["stream_closed"] = int(_RECORDER.get("stream_closed") or 0) + 1
+
 
 class _FakeMessages:
     def create(self, **kwargs: Any) -> _FakeStream:
         _RECORDER["create_kwargs"] = dict(kwargs)
-        return _FakeStream(list(_RECORDER.get("events") or []))
+        stream = _FakeStream(list(_RECORDER.get("events") or []))
+        _RECORDER["stream"] = stream
+        return stream
 
 
 class _FakeAnthropic:
@@ -60,6 +67,9 @@ class _FakeAnthropic:
         _RECORDER["client_kwargs"] = dict(kwargs)
         self.default_headers = dict(kwargs.get("default_headers") or {})
         self.messages = _FakeMessages()
+
+    def close(self) -> None:
+        _RECORDER["client_closed"] = int(_RECORDER.get("client_closed") or 0) + 1
 
 
 _RECORDER: dict[str, Any] = {}
@@ -175,6 +185,45 @@ def test_sdk_stream_request_shape_and_direct_events(monkeypatch) -> None:
     assert parsed[7].tool_call.arguments == {"path": "a.txt", "limit": 1}
     assert parsed[8].stop_reason == "tool_use"
     assert parsed[8].usage == {"output_tokens": 7}
+
+
+def test_sdk_stream_registers_provider_cancel_handle(monkeypatch) -> None:
+    events = [
+        _obj(
+            type="message_start",
+            message=_obj(id="msg_1", model="kimi-for-coding", usage=_obj(input_tokens=1)),
+        ),
+        _obj(type="message_stop"),
+    ]
+    _install_fake_sdk(monkeypatch, events)
+    registered: list[Any] = []
+
+    def registrar(cancel_handle: Any) -> None:
+        registered.append(cancel_handle)
+
+    stream_iter = anthropic_sdk_stream.stream_message_events(
+        descriptor=_descriptor(),
+        system_prompt="system",
+        messages=[{"role": "user", "content": "hi"}],
+        tool_schemas=[],
+        tool_choice_mode="none",
+        max_tokens=None,
+        temperature=0.1,
+        timeout_s=11,
+        provider_cancel_registrar=registrar,
+    )
+
+    first_event = next(stream_iter)
+    assert first_event.event_type == "message_start"
+    assert callable(registered[-1])
+
+    registered[-1]()
+    assert _RECORDER["client_closed"] >= 1
+    assert _RECORDER["stream_closed"] >= 1
+
+    remaining = list(stream_iter)
+    assert [event.event_type for event in remaining] == ["message_stop"]
+    assert registered[-1] is None
 
 
 def test_sdk_stream_uses_default_max_tokens_when_unspecified(monkeypatch) -> None:
@@ -373,4 +422,3 @@ def test_chat_with_tools_anthropic_route_uses_sdk_streaming(monkeypatch) -> None
     assert response.public_text == "hello"
     assert response.usage == {"input_tokens": 2, "output_tokens": 1}
     assert response.raw["id"] == "msg_2"
-

@@ -14,10 +14,10 @@ from agent_runtime.tools.process_sessions import (
     get_exec_session_registry,
     process_exec_session,
 )
-from agent_runtime.unified_worker import handle_unified_turn_job
+from agent_runtime.turn_handler import handle_unified_turn_job
 from gateway.heartbeat_wake import HeartbeatWakeManager
 from shared.agent_sessions import AgentSessionStatus
-from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY, runtime_state
+from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY
 from shared.db import client as shared_db_client
 from shared.db.sqlite.agent_sessions import (
     append_agent_session_pending_event,
@@ -28,9 +28,7 @@ from shared.db.sqlite.agent_sessions import (
     has_agent_session_pending_events,
     load_agent_session,
     pop_agent_session_pending_events,
-    request_agent_turn_stop,
     reset_agent_session_context,
-    reset_stuck_running_sessions,
     update_agent_session,
 )
 from shared.db.sqlite.bootstrap import init_schema
@@ -339,13 +337,13 @@ def test_agent_session_create_update_and_source(sqlite_db):
         source=_source(chat_id="chat-1", chat_type="group"),
         state_data=_state(
             [{"role": "user", "content": "hello"}],
-            runtime={"active_turn_id": "turn-0"},
+            runtime={"session_activity_at": 1},
         ),
     )
     assert created.session_id == "session-1"
     assert created.source["platform"] == "feishu"
     assert created.source["chat_id"] == "chat-1"
-    assert created.state_data[RUNTIME_KEY]["active_turn_id"] == "turn-0"
+    assert int(created.state_data[RUNTIME_KEY]["session_activity_at"]) > 0
     assert created.state_data[CONTEXT_KEY]["messages"][0]["content"] == "hello"
 
     conn = connect()
@@ -376,18 +374,25 @@ def test_agent_session_create_update_and_source(sqlite_db):
     updated = update_agent_session(
         "session-1",
         source=_source(chat_id="chat-2", chat_type="group", thread_id="thread-1"),
-        status=AgentSessionStatus.RUNNING,
+        status=AgentSessionStatus.WAITING_USER_INPUT,
         state_data_patch={
-            RUNTIME_KEY: {"active_turn_id": "turn-1", "active_card_id": "card-1"},
+            RUNTIME_KEY: {
+                "session_activity_at": 2,
+                "active_turn_id": "legacy-turn",
+                "active_card_id": "legacy-card",
+                "active_turn_started_at": 123,
+            },
             CONTEXT_KEY: {"messages": [{"role": "assistant", "content": "running"}]},
         },
     )
     assert updated is not None
-    assert updated.status == AgentSessionStatus.RUNNING
+    assert updated.status == AgentSessionStatus.WAITING_USER_INPUT
     assert updated.source["chat_id"] == "chat-2"
     assert updated.source["thread_id"] == "thread-1"
-    assert updated.state_data[RUNTIME_KEY]["active_turn_id"] == "turn-1"
-    assert updated.state_data[RUNTIME_KEY]["active_card_id"] == "card-1"
+    assert updated.state_data[RUNTIME_KEY]["session_activity_at"] == 2
+    assert "active_turn_id" not in updated.state_data[RUNTIME_KEY]
+    assert "active_card_id" not in updated.state_data[RUNTIME_KEY]
+    assert "active_turn_started_at" not in updated.state_data[RUNTIME_KEY]
     assert updated.state_data[CONTEXT_KEY]["messages"][0]["content"][0]["text"] == "running"
     assert load_agent_session("session-1").session_id == "session-1"
 
@@ -434,10 +439,9 @@ def test_agent_session_pending_events_survive_session_writes(sqlite_db):
             "update",
             lambda session_id: update_agent_session(
                 session_id,
-                state_data_patch={RUNTIME_KEY: {"active_turn_id": "turn-update"}},
+                state_data_patch={RUNTIME_KEY: {"session_activity_at": 3}},
             ),
         ),
-        ("stop", lambda session_id: request_agent_turn_stop(session_id, turn_id="turn-stop")),
         ("clear", lambda session_id: clear_agent_session_memory(session_id)),
         ("reset", lambda session_id: reset_agent_session_context(session_id)),
         ("cancel", lambda session_id: cancel_agent_session(session_id)),
@@ -615,10 +619,7 @@ def test_process_list_does_not_consume_terminal_completion(sqlite_db):
 
 
 def test_heartbeat_wake_drops_session_without_pending_events(sqlite_db):
-    _create_session(
-        "session-no-pending-wake",
-        state_data=_state(runtime={"active_turn_id": "turn-1", "active_card_id": "card-1"}),
-    )
+    _create_session("session-no-pending-wake")
 
     class FakeScheduler:
         def __init__(self) -> None:
@@ -632,7 +633,7 @@ def test_heartbeat_wake_drops_session_without_pending_events(sqlite_db):
 
     async def _run():
         manager = HeartbeatWakeManager(scheduler=FakeScheduler())
-        manager._queue_pending("session-no-pending-wake", "exec-event")
+        manager._queue_pending("session-no-pending-wake", "exec-event", "card-1")
         await manager._run_batch()
         assert manager._scheduler.jobs == []
         await manager.stop()
@@ -644,7 +645,6 @@ def test_heartbeat_wake_enqueues_job_with_source_and_active_card(sqlite_db):
     _create_session(
         "session-heartbeat-enqueue",
         source=_source(chat_id="chat-heartbeat", chat_type="group", user_id_alt="on_heartbeat"),
-        state_data=_state(runtime={"active_turn_id": "turn-1", "active_card_id": "card-heartbeat"}),
     )
     append_agent_session_pending_event(
         "session-heartbeat-enqueue",
@@ -664,7 +664,7 @@ def test_heartbeat_wake_enqueues_job_with_source_and_active_card(sqlite_db):
     async def _run():
         scheduler = FakeScheduler()
         manager = HeartbeatWakeManager(scheduler=scheduler)
-        manager._queue_pending("session-heartbeat-enqueue", "exec-event")
+        manager._queue_pending("session-heartbeat-enqueue", "exec-event", "card-heartbeat")
         await manager._run_batch()
         await manager.stop()
         return scheduler.jobs
@@ -682,13 +682,6 @@ def test_heartbeat_noop_restores_waiting_status(sqlite_db):
     _create_session(
         "session-heartbeat-noop",
         status=AgentSessionStatus.RUNNING,
-        state_data=_state(
-            runtime={
-                "active_turn_id": "heartbeat-job",
-                "active_card_id": "card-heartbeat-noop",
-                "active_turn_started_at": 123,
-            }
-        ),
     )
 
     async def _run():
@@ -711,10 +704,7 @@ def test_heartbeat_noop_restores_waiting_status(sqlite_db):
     session = load_agent_session("session-heartbeat-noop")
     assert session is not None
     assert session.status == AgentSessionStatus.WAITING_USER_INPUT
-    runtime = runtime_state(session.state_data)
-    assert runtime["active_turn_id"] == ""
-    assert runtime["active_card_id"] == ""
-    assert runtime["active_turn_started_at"] == 0
+    assert int(session.state_data[RUNTIME_KEY]["session_activity_at"]) > 0
 
 
 def test_agent_session_control_operations(sqlite_db):
@@ -722,10 +712,6 @@ def test_agent_session_control_operations(sqlite_db):
         "session-control",
         state_data=_state([{"role": "user", "content": "keep me briefly"}]),
     )
-
-    stopped = request_agent_turn_stop("session-control", turn_id="turn-stop")
-    assert stopped is not None
-    assert stopped.state_data[RUNTIME_KEY]["stop_turn_id"] == "turn-stop"
 
     cleared = clear_agent_session_memory("session-control")
     assert cleared is not None
@@ -744,13 +730,6 @@ def test_agent_session_control_operations(sqlite_db):
     cancelled = cancel_agent_session("session-control")
     assert cancelled is not None
     assert cancelled.status == AgentSessionStatus.CANCELLED
-
-    _create_session(
-        "session-stuck",
-        status=AgentSessionStatus.RUNNING,
-    )
-    assert reset_stuck_running_sessions() == 1
-    assert load_agent_session("session-stuck").status == AgentSessionStatus.FAILED
 
 
 def test_agent_session_validation_and_bad_storage_fail_loud(sqlite_db):

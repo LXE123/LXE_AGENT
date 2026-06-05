@@ -357,6 +357,7 @@ function stripInvalidImageKeys(text: string): string {
 我决定把这个项目改成一个单进程项目，在该进程内，多个线程相互协作。
 gateway 会天然自带一个主线程，
 这个主线程是做什么的？
+大概如下
 1. 管理一个 event_loop
 2. 启动各个平台的 adapter (比如飞书)
 3. 创建和管理 asyncio task 

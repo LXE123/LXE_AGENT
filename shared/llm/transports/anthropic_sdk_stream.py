@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable, Literal
+from typing import Any, Callable, Iterable, Literal
 
 from anthropic import Anthropic
 
@@ -95,12 +95,16 @@ def _iter_sdk_stream_events(
     events: Iterable[Any],
     *,
     wire_trace_writer: WireTraceWriter | None = None,
+    cancel_event: Any = None,
 ) -> Iterable[LLMStreamEvent]:
     tool_metadata_by_index: dict[int, dict[str, str]] = {}
     tool_initial_input_by_index: dict[int, dict[str, Any]] = {}
     tool_input_buffer_by_index: dict[int, list[str]] = {}
 
     for event in events:
+        if cancel_event is not None and bool(cancel_event.is_set()):
+            yield LLMStreamEvent(event_type="cancelled")
+            return
         payload = _sdk_event_payload(event)
         event_type = str(_field(event, payload, "type", payload.get("type") or "") or "").strip()
         _write_sdk_wire_event(wire_trace_writer, event_name=event_type, payload=payload)
@@ -313,6 +317,8 @@ def stream_message_events(
     temperature: float,
     timeout_s: int,
     wire_trace_context: WireTraceContext | None = None,
+    cancel_event: Any = None,
+    provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None,
 ) -> Iterable[LLMStreamEvent]:
     _ = temperature
     request_payload = _request_payload(
@@ -345,20 +351,46 @@ def stream_message_events(
 
     ok = False
     error_text = ""
+    stream = None
+
+    def _close_targets() -> None:
+        for close_target in (stream, client):
+            close_func = getattr(close_target, "close", None)
+            if callable(close_func):
+                try:
+                    close_func()
+                except Exception:
+                    pass
+
+    def _register_cancel_handle() -> None:
+        if provider_cancel_registrar is None:
+            return
+        provider_cancel_registrar(_close_targets)
+
+    _register_cancel_handle()
     try:
         stream = client.messages.create(**request_payload, timeout=float(timeout_s))
+        _register_cancel_handle()
         if wire_trace_writer is not None:
             wire_trace_writer.write_response_start(
                 status_code=0,
                 response_headers={"source": "anthropic-sdk"},
             )
         with stream:
-            yield from _iter_sdk_stream_events(stream, wire_trace_writer=wire_trace_writer)
+            yield from _iter_sdk_stream_events(
+                stream,
+                wire_trace_writer=wire_trace_writer,
+                cancel_event=cancel_event,
+            )
             ok = True
     except Exception as error:
         error_text = str(error or "").strip() or type(error).__name__
         raise
     finally:
+        if cancel_event is not None and bool(cancel_event.is_set()):
+            _close_targets()
+        if provider_cancel_registrar is not None:
+            provider_cancel_registrar(None)
         if wire_trace_writer is not None:
             wire_trace_writer.write_request_end(ok=ok, error=error_text)
             wire_trace_writer.close()

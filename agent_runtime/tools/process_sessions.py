@@ -14,7 +14,7 @@ from threading import Lock
 from typing import Any
 from uuid import uuid4
 
-from agent_runtime.ipc_client import request_heartbeat_wake
+from agent_runtime.emit_bus import request_heartbeat_wake
 from shared.logging import logger
 from shared.db.client import append_agent_session_pending_event, discard_agent_session_pending_event
 
@@ -107,6 +107,7 @@ def _windows_powershell_exec_args(command: str) -> list[str]:
     if not powershell:
         raise FileNotFoundError("No PowerShell executable found on this Windows host.")
     body = str(command or "").strip()
+    body = f"{body}; if ($null -ne $LASTEXITCODE) {{ exit $LASTEXITCODE }}"
     if Path(powershell).name.lower() in {"pwsh", "pwsh.exe"}:
         body = "$PSStyle.OutputRendering = 'PlainText'; " + body
     return [
@@ -152,6 +153,7 @@ class ExecSession:
     cwd: str
     owner_session_id: str = ""
     origin_turn_id: str = ""
+    card_id: str = ""
     explicit_background: bool = False
     pid: int | None = None
     process: asyncio.subprocess.Process | None = None
@@ -195,6 +197,7 @@ class SessionRegistry:
         *,
         owner_session_id: str = "",
         origin_turn_id: str = "",
+        card_id: str = "",
     ) -> ExecSession:
         session = ExecSession(
             id=f"exec_{uuid4().hex[:8]}",
@@ -202,6 +205,7 @@ class SessionRegistry:
             cwd=str(cwd or "").strip(),
             owner_session_id=str(owner_session_id or "").strip(),
             origin_turn_id=str(origin_turn_id or "").strip(),
+            card_id=str(card_id or "").strip(),
         )
         with self._lock:
             self._sweep_locked()
@@ -378,6 +382,7 @@ def _completion_event(session: ExecSession) -> dict[str, Any]:
         "job_id": session.id,
         "created_at": int(time.time()),
         "text": text,
+        "card_id": str(session.card_id or "").strip(),
     }
 
 
@@ -426,7 +431,11 @@ async def _notify_completion(session: ExecSession) -> None:
             str(event.get("job_id") or "").strip(),
         )
 
-    await request_heartbeat_wake(session_id=owner_session_id, reason="exec-event")
+    await request_heartbeat_wake(
+        session_id=owner_session_id,
+        reason="exec-event",
+        card_id=str(session.card_id or "").strip(),
+    )
     logger.info(
         "[ExecNotify] wake requested: exec_session_id=%s owner_session_id=%s event_id=%s heartbeat_reason=%s",
         session.id,
@@ -631,12 +640,15 @@ async def run_exec_command(
     yield_ms: float | None = None,
     owner_session_id: str = "",
     origin_turn_id: str = "",
+    card_id: str = "",
+    cancel_event: asyncio.Event | None = None,
 ) -> dict[str, Any]:
     session = _REGISTRY.create(
         command=command,
         cwd=cwd,
         owner_session_id=owner_session_id,
         origin_turn_id=origin_turn_id,
+        card_id=card_id,
     )
     session.explicit_background = bool(background)
     session.notify_on_exit = bool(background)
@@ -707,10 +719,24 @@ async def run_exec_command(
     if not background:
         wait_sec = max(0.0, float(DEFAULT_YIELD_MS if yield_ms is None else yield_ms) / 1000.0)
         if wait_sec > 0:
+            wait_tasks: set[asyncio.Task[Any]] = {asyncio.create_task(session.done_event.wait())}
+            if cancel_event is not None:
+                wait_tasks.add(asyncio.create_task(cancel_event.wait()))
             try:
-                await asyncio.wait_for(session.done_event.wait(), timeout=wait_sec)
-            except asyncio.TimeoutError:
-                pass
+                done, pending = await asyncio.wait(
+                    wait_tasks,
+                    timeout=wait_sec,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in pending:
+                    task.cancel()
+                if cancel_event is not None and cancel_event.is_set() and session.status == SessionStatus.RUNNING:
+                    await _terminate_process(session)
+                    _finish_session(session, status_override=SessionStatus.KILLED)
+            finally:
+                for task in wait_tasks:
+                    if not task.done():
+                        task.cancel()
     if not session.done_event.is_set():
         session.notify_on_exit = True
     elif session.notify_on_exit:

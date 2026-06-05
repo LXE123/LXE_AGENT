@@ -1,63 +1,51 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Awaitable, Callable
 from uuid import uuid4
 
-from shared.agent_ipc import EmitRequest, HeartbeatWakeRequest
-from shared.infra.net import HttpSessionPurpose, get_aiohttp_session
-from shared.logging import logger
-
-_GATEWAY_IPC_URL = ""
+from shared.agent_io import EmitRequest, HeartbeatWakeRequest
 
 
-def configure_gateway_ipc(url: str) -> None:
-    global _GATEWAY_IPC_URL
-    _GATEWAY_IPC_URL = str(url or "").rstrip("/")
+EmitHandler = Callable[[EmitRequest], Awaitable[None]]
+HeartbeatWakeHandler = Callable[[HeartbeatWakeRequest], Awaitable[None]]
+
+_emit_handler: EmitHandler | None = None
+_heartbeat_wake_handler: HeartbeatWakeHandler | None = None
+
+
+def configure_emit_handler(handler: EmitHandler | None) -> None:
+    global _emit_handler
+    _emit_handler = handler
+
+
+def configure_heartbeat_wake_handler(handler: HeartbeatWakeHandler | None) -> None:
+    global _heartbeat_wake_handler
+    _heartbeat_wake_handler = handler
+
+
+def reset_emit_handlers() -> None:
+    configure_emit_handler(None)
+    configure_heartbeat_wake_handler(None)
 
 
 async def send_emit_request(request: EmitRequest) -> None:
-    if not _GATEWAY_IPC_URL:
-        raise RuntimeError("gateway IPC url not configured")
-    session = get_aiohttp_session(HttpSessionPurpose.EXTERNAL)
-    async with session.post(f"{_GATEWAY_IPC_URL}/agent/emit", json=request.to_dict(), timeout=None) as response:
-        payload = await response.json(content_type=None)
-        if response.status != 200 or not bool(payload.get("ok")):
-            raise RuntimeError(str(payload.get("error") or f"gateway emit failed: status={response.status}"))
+    if _emit_handler is None:
+        raise RuntimeError("runtime emit handler not configured")
+    await _emit_handler(request)
 
 
-async def request_heartbeat_wake(*, session_id: str, reason: str = "exec-event") -> None:
-    if not _GATEWAY_IPC_URL:
-        raise RuntimeError("gateway IPC url not configured")
+async def request_heartbeat_wake(*, session_id: str, reason: str = "exec-event", card_id: str = "") -> None:
+    if _heartbeat_wake_handler is None:
+        raise RuntimeError("heartbeat wake handler not configured")
     request = HeartbeatWakeRequest(
         session_id=str(session_id or "").strip(),
         reason=str(reason or "exec-event").strip() or "exec-event",
+        card_id=str(card_id or "").strip(),
     )
     if not request.session_id:
         raise RuntimeError("session_id is required")
-    logger.info(
-        "[ExecNotify] wake ipc send: owner_session_id=%s heartbeat_reason=%s gateway_url=%s",
-        request.session_id,
-        request.reason,
-        _GATEWAY_IPC_URL,
-    )
-    session = get_aiohttp_session(HttpSessionPurpose.EXTERNAL)
-    async with session.post(
-        f"{_GATEWAY_IPC_URL}/agent/heartbeat-wake",
-        json=request.to_dict(),
-        timeout=None,
-    ) as response:
-        payload = await response.json(content_type=None)
-        payload_preview = str(payload.get("error") or payload)[:200]
-        logger.info(
-            "[ExecNotify] wake ipc response: owner_session_id=%s heartbeat_reason=%s status_code=%s ok=%s payload=%s",
-            request.session_id,
-            request.reason,
-            response.status,
-            bool(payload.get("ok")),
-            payload_preview,
-        )
-        if response.status != 200 or not bool(payload.get("ok")):
-            raise RuntimeError(str(payload.get("error") or f"gateway heartbeat wake failed: status={response.status}"))
+    await _heartbeat_wake_handler(request)
 
 
 async def emit(
@@ -86,7 +74,6 @@ async def emit(
         raise RuntimeError(f"unsupported emit_kind: {normalized_emit_kind}")
     normalized_stream_type = str(stream_type or "").strip()
     normalized_state = str(state or "").strip()
-    # `seq` is the source event order. Downstream adapters may remap it to platform-specific sequencing.
     normalized_seq = int(seq or 0)
     if normalized_emit_kind == "stream":
         if normalized_stream_type != "final_answer":
@@ -151,7 +138,7 @@ async def emit_tool(
 async def emit_stream(
     *,
     session_id: str,
-    card_id: str = "",
+    card_id: str,
     stream_type: str,
     state: str,
     seq: int,
@@ -168,3 +155,16 @@ async def emit_stream(
         state=state,
         seq=seq,
     )
+
+
+__all__ = [
+    "configure_emit_handler",
+    "configure_heartbeat_wake_handler",
+    "emit",
+    "emit_final",
+    "emit_stream",
+    "emit_tool",
+    "request_heartbeat_wake",
+    "reset_emit_handlers",
+    "send_emit_request",
+]

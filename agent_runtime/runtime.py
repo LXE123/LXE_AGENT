@@ -30,10 +30,17 @@ async def run_turn(
     session: Any,
     user_text: str,
     user_content_blocks: list[dict[str, Any]] | None = None,
+    run_id: str = "",
+    card_id: str = "",
     on_progress: ProgressCallback | None = None,
     on_final_text_delta: FinalTextCallback | None = None,
     on_stream_cancel: StreamCancelCallback | None = None,
     cancellation_check: CancellationCallback | None = None,
+    cancel_event: Any = None,
+    thread_cancel_event: Any = None,
+    provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None,
+    tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None,
+    tool_run_finisher: Callable[[str], None] | None = None,
 ) -> TurnOutcome:
     tool_registry = ensure_all_tools_registered(get_registry())
     state_data = dict(getattr(session, "state_data", {}) or {})
@@ -44,11 +51,18 @@ async def run_turn(
         state_data=state_data,
         user_text=user_text,
         user_content_blocks=list(user_content_blocks or []),
+        run_id=run_id,
+        card_id=card_id,
         available_skills=available_skills,
         on_progress=on_progress,
         on_final_text_delta=on_final_text_delta,
         on_stream_cancel=on_stream_cancel,
         cancellation_check=cancellation_check,
+        cancel_event=cancel_event,
+        thread_cancel_event=thread_cancel_event,
+        provider_cancel_registrar=provider_cancel_registrar,
+        tool_run_registrar=tool_run_registrar,
+        tool_run_finisher=tool_run_finisher,
     )
 
 

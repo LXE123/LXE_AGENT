@@ -22,7 +22,7 @@ from typing import Any
 from PIL import Image
 
 from shared.logging import logger
-from shared.worker_core.utils import send_file_to_current_session
+from shared.runtime_core.utils import send_file_to_current_session
 
 from agent_runtime.tool_executor import get_tool_context
 from agent_runtime.tools.process_sessions import process_exec_session, run_exec_command
@@ -851,15 +851,18 @@ async def _handle_exec(
 
     owner_session_id = ""
     origin_turn_id = ""
+    card_id = ""
+    cancel_event = None
     try:
         tool_ctx = get_tool_context()
     except RuntimeError:
         tool_ctx = None
     if tool_ctx is not None:
         session = getattr(tool_ctx, "session", None)
-        runtime = dict(getattr(tool_ctx, "state_data", {}) or {})
         owner_session_id = str(getattr(session, "session_id", "") or "").strip()
-        origin_turn_id = str(dict(runtime.get("runtime") or {}).get("active_turn_id") or "").strip()
+        origin_turn_id = str(getattr(tool_ctx, "turn_id", "") or "").strip()
+        card_id = str(getattr(tool_ctx, "card_id", "") or "").strip()
+        cancel_event = getattr(tool_ctx, "cancel_event", None)
 
     payload = await run_exec_command(
         command=cmd,
@@ -869,6 +872,8 @@ async def _handle_exec(
         yield_ms=float(yield_ms) if yield_ms is not None else None,
         owner_session_id=owner_session_id,
         origin_turn_id=origin_turn_id,
+        card_id=card_id,
+        cancel_event=cancel_event,
     )
     if str(payload.get("status") or "").strip() == "running":
         return _exec_running_tool_result(payload)

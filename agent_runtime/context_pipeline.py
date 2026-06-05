@@ -292,6 +292,34 @@ def _clean_canonical_messages(messages: list[dict[str, Any]] | None) -> list[dic
     return cleaned
 
 
+def validate_tool_call_closure(messages: list[dict[str, Any]] | None) -> None:
+    pending_tool_calls: dict[str, str] = {}
+    for raw_message in list(messages or []):
+        message = dict(raw_message or {})
+        role = str(message.get("role") or "").strip()
+        if role == "assistant":
+            for raw_block in list(message.get("content") or []):
+                block = dict(raw_block or {})
+                if str(block.get("type") or "").strip() != "tool_call":
+                    continue
+                tool_call_id = str(block.get("id") or "").strip()
+                if tool_call_id:
+                    pending_tool_calls[tool_call_id] = str(block.get("name") or "").strip()
+            continue
+        if role != "tool":
+            continue
+        for raw_block in list(message.get("content") or []):
+            block = dict(raw_block or {})
+            if str(block.get("type") or "").strip() != "tool_result":
+                continue
+            tool_call_id = str(block.get("tool_call_id") or "").strip()
+            if tool_call_id:
+                pending_tool_calls.pop(tool_call_id, None)
+    if pending_tool_calls:
+        pending_ids = ", ".join(sorted(pending_tool_calls))
+        raise RuntimeError(f"context has assistant tool_call without tool_result: {pending_ids}")
+
+
 def make_user_message(content: str | list[dict[str, Any]]) -> dict[str, Any]:
     if isinstance(content, list):
         return {"role": "user", "content": _clean_inline_content_blocks(content)}
@@ -745,6 +773,7 @@ def append_messages_to_state(
 ) -> dict[str, Any]:
     persisted = load_context_messages(state_data)
     persisted.extend(_clean_canonical_messages(messages))
+    validate_tool_call_closure(persisted)
     return update_context_state(
         state_data,
         {
@@ -991,4 +1020,5 @@ __all__ = [
     "maybe_compact_history",
     "prune_processed_history_images",
     "prune_tool_results",
+    "validate_tool_call_closure",
 ]

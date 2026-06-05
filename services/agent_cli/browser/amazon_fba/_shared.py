@@ -5,7 +5,6 @@ import asyncio
 import os
 from typing import Any, Callable
 
-from agent_runtime.ipc_client import configure_gateway_ipc
 from services.agent_cli._shared.browser_session import browser_session
 from services.agent_cli._shared.context_json import (
     context_payload,
@@ -15,14 +14,13 @@ from services.agent_cli._shared.context_json import (
 from services.agent_cli.browser.amazon_common.region_switch import normalize_site_code
 from services.browser.workflows.amazon_fba_common import selected_store as _selected_store
 from services.browser.workflows.amazon_fba_common import workflow_output_dir as _workflow_output_dir
-from shared.config import config
 from shared.infra.net import close_all_network_clients
 from shared.logging import logger
-from shared.worker_core.utils import send_file_to_current_session
+from shared.runtime_core.utils import send_file_to_current_session
 
 
 FixedFlowRunner = Callable[..., dict[str, Any]]
-_FBA_CLI_GATEWAY_IPC_CONFIGURED = False
+_FBA_CLI_EMIT_CONFIGURED = False
 
 
 def build_parser(prog: str) -> argparse.ArgumentParser:
@@ -97,16 +95,11 @@ def normalize_result(
     )
 
 
-def ensure_gateway_ipc_configured_for_fba_cli() -> None:
-    global _FBA_CLI_GATEWAY_IPC_CONFIGURED
-    if _FBA_CLI_GATEWAY_IPC_CONFIGURED:
+def ensure_emit_configured_for_fba_cli() -> None:
+    global _FBA_CLI_EMIT_CONFIGURED
+    if _FBA_CLI_EMIT_CONFIGURED:
         return
-    gateway_ipc_url = (
-        f"http://{str(config.GATEWAY_IPC_HOST or '127.0.0.1').strip() or '127.0.0.1'}:"
-        f"{int(config.GATEWAY_IPC_PORT)}"
-    )
-    configure_gateway_ipc(gateway_ipc_url)
-    _FBA_CLI_GATEWAY_IPC_CONFIGURED = True
+    _FBA_CLI_EMIT_CONFIGURED = True
 
 
 def finalize_fba_cli_process() -> None:
@@ -135,7 +128,7 @@ def send_selected_result_files(
     if not file_paths:
         return safe_payload
 
-    ensure_gateway_ipc_configured_for_fba_cli()
+    ensure_emit_configured_for_fba_cli()
     session_id = resolve_agent_session_id()
     if not session_id:
         return safe_payload
@@ -223,7 +216,7 @@ __all__ = [
     "not_ready_result",
     "result_with_details",
     "run_direct_fba_workflow",
-    "ensure_gateway_ipc_configured_for_fba_cli",
+    "ensure_emit_configured_for_fba_cli",
     "send_selected_result_files",
     "validate_args",
 ]

@@ -6,15 +6,14 @@ from typing import Any
 from gateway.channel_registry import ChannelRegistry
 from gateway.models import InboundEvent, LaneKey, OutboundRequest, RouteDecision
 from gateway.session_scheduler import SessionScheduler
-from shared.agent_ipc import AgentJob
+from shared.agent_io import AgentJob
 from shared.agent_sessions import AgentSessionStatus
-from shared.agent_state import build_initial_agent_state, runtime_state
+from shared.agent_state import build_initial_agent_state
 from shared.db.client import (
     create_agent_session,
     create_card_context,
     load_agent_session,
     pop_agent_session_pending_events,
-    request_agent_turn_stop,
     update_agent_session,
 )
 from shared.logging import logger
@@ -195,32 +194,21 @@ class SessionRouter:
             return
 
         session_id = str(session.session_id or "").strip()
-        fresh = await load_agent_session(session_id)
-        runtime = runtime_state(getattr(fresh or session, "state_data", {}) or {})
-        active_turn_id = str(runtime.get("active_turn_id") or "").strip()
-        logger.info("[SessionRouter] stop: session_id=%s active_turn_id=%s", session_id, active_turn_id)
-        if not active_turn_id:
+        stopped = self._scheduler.request_stop(session_id) if self._scheduler is not None else False
+        logger.info("[SessionRouter] stop: session_id=%s stopped=%s", session_id, stopped)
+        if not stopped:
             message = "当前没有正在执行的回复。"
         else:
-            await request_agent_turn_stop(
-                session_id,
-                turn_id=active_turn_id,
-                reason="slash_command_stop",
-            )
             message = "已请求停止当前回复。"
         await self._send_control_feedback(ctx, session_id=session_id, markdown=message)
 
     async def _handle_clear(self, *, session, ctx: SessionContext) -> None:
         if session is not None:
             session_id = str(session.session_id or "").strip()
-            fresh = await load_agent_session(session_id)
-            runtime = runtime_state(getattr(fresh or session, "state_data", {}) or {})
-            active_turn_id = str(runtime.get("active_turn_id") or "").strip()
-            if active_turn_id:
+            if self._scheduler is not None and self._scheduler.has_inflight_work(session_id):
                 logger.info(
-                    "[SessionRouter] clear refused: session_id=%s active_turn_id=%s",
+                    "[SessionRouter] clear refused: session_id=%s reason=inflight_work",
                     session_id,
-                    active_turn_id,
                 )
                 await self._send_control_feedback(
                     ctx,

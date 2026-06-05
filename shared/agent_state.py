@@ -8,11 +8,6 @@ RUNTIME_KEY = "runtime"
 CONTEXT_KEY = "context"
 MESSAGES_KEY = "messages"
 RUNTIME_ALLOWED_KEYS = {
-    "active_turn_id",
-    "active_card_id",
-    "active_turn_started_at",
-    "stop_turn_id",
-    "stop_requested_at",
     "session_activity_at",
 }
 _COMPACTION_SUMMARY_PREFIX = "The conversation history before this point was compacted into the following summary: "

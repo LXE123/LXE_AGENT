@@ -2,37 +2,29 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
-import time
 from concurrent.futures import CancelledError as FutureCancelledError
-from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from agent_runtime.emit_bus import configure_emit_handler, configure_heartbeat_wake_handler, reset_emit_handlers
+from agent_runtime.turn_handler import handle_unified_turn_job
 from clients.auth.browser_auth_client import ensure_auth_sync
 from gateway.agent_queue import AgentQueue
-from gateway.agent_supervisor import AgentSupervisor
 from gateway.channel_registry import ChannelRegistry
+from gateway.emitter import GatewayEmitter
 from gateway.heartbeat_wake import HeartbeatWakeManager
-from gateway.ipc_server import GatewayIpcServer
 from gateway.models import InboundEvent
-from gateway.session_scheduler import SessionScheduler
+from gateway.session_scheduler import RunHandle, SessionScheduler
 from gateway.session_router import SessionRouter
 from platforms.feishu.config import FEISHU_ENABLED, feishu_runtime_status, validate_feishu_runtime_config
 from shared.config import config
-from shared.agent_state import runtime_patch, runtime_state
 from shared.db.client import (
     dispose,
     init_schema,
-    load_agent_session,
-    update_agent_session,
 )
 from shared.gateway_identity import gateway_identity_text
 from shared.infra.net import close_all_network_clients
 from shared.logging import logger
-from shared.agent_sessions import AgentSessionStatus
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _adapter_label(adapter) -> str:
@@ -45,9 +37,7 @@ class GatewayApp:
     _STOP_TIMEOUTS = {
         "heartbeat_wake": 3.0,
         "session_scheduler": 3.0,
-        "agent_supervisor": 8.0,
         "dispatcher_task": 3.0,
-        "ipc_server": 3.0,
         "channel_registry": 8.0,
         "network_clients": 5.0,
     }
@@ -67,25 +57,10 @@ class GatewayApp:
         self._gateway_id = str(config.GATEWAY_ID or "agent-gateway").strip() or "agent-gateway"
         self._session_scheduler = SessionScheduler(
             executor=self._execute_agent_job,
-            max_concurrency=int(config.WORKER_MAX_CONCURRENCY),
+            max_concurrency=int(config.AGENT_MAX_CONCURRENCY),
         )
+        self._emitter = GatewayEmitter(registry=registry)
         self._heartbeat_wake = HeartbeatWakeManager(scheduler=self._session_scheduler)
-        self._ipc_server = GatewayIpcServer(
-            registry=registry,
-            host=str(config.GATEWAY_IPC_HOST or "127.0.0.1").strip() or "127.0.0.1",
-            port=int(config.GATEWAY_IPC_PORT),
-            on_heartbeat_wake=self._handle_heartbeat_wake_request,
-        )
-        self._agent_supervisor = AgentSupervisor(
-            project_root=PROJECT_ROOT,
-            gateway_id=self._gateway_id,
-            enabled=bool(config.GATEWAY_AUTO_START_WORKER),
-            auto_open_dashboard=bool(config.GATEWAY_AUTO_OPEN_WORKER_DASHBOARD),
-            dashboard_open_delay_s=int(config.GATEWAY_DASHBOARD_OPEN_DELAY_S),
-            worker_dashboard_host=str(config.WORKER_DASHBOARD_HOST or "127.0.0.1"),
-            worker_dashboard_port=int(config.WORKER_DASHBOARD_PORT),
-            gateway_ipc_url=self._ipc_server.base_url,
-        )
         self._session_router = session_router
         self._session_router.bind_scheduler(self._session_scheduler)
         self._adapter_recycle_lock = asyncio.Lock()
@@ -94,44 +69,21 @@ class GatewayApp:
     async def _handle_heartbeat_wake_request(self, request) -> None:
         await self._heartbeat_wake.handle_request(request)
 
-    async def _execute_agent_job(self, job) -> None:
-        session = await load_agent_session(job.session_id)
-        if session is None:
-            raise RuntimeError(f"agent session not found: {job.session_id}")
+    async def _execute_agent_job(self, job, run_handle: RunHandle) -> None:
         job_kind = str(getattr(job, "job_kind", "") or "turn").strip() or "turn"
-        _turn_id = str(getattr(job, "job_id", "") or "").strip()
         logger.info(
-            "[Gateway] writing active turn: session_id=%s turn_id=%s card_id=%s job_kind=%s",
+            "[Gateway] execute agent job inline: session_id=%s job_id=%s card_id=%s job_kind=%s",
             job.session_id,
-            _turn_id,
+            str(getattr(job, "job_id", "") or "").strip(),
             str(getattr(job, "card_id", "") or "").strip(),
             job_kind,
         )
-        await update_agent_session(
-            job.session_id,
-            status=AgentSessionStatus.RUNNING,
-            state_data_patch=runtime_patch(
-                {
-                    "active_turn_id": _turn_id,
-                    "active_card_id": str(getattr(job, "card_id", "") or "").strip(),
-                    "active_turn_started_at": int(time.time()),
-                }
-            ),
+        await handle_unified_turn_job(
+            job,
+            run_handle=run_handle,
+            emit_final=self._emitter.emit_final,
+            emit_stream=self._emitter.emit_stream,
         )
-        _verify = await load_agent_session(job.session_id)
-        _verify_rt = runtime_state(getattr(_verify, "state_data", {}) or {}) if _verify else {}
-        logger.info(
-            "[Gateway] verify active_turn_id after write: session_id=%s stored=%s",
-            job.session_id, _verify_rt.get("active_turn_id"),
-        )
-        try:
-            await self._agent_supervisor.execute_agent_job(job)
-        except Exception:
-            await update_agent_session(
-                job.session_id,
-                status=AgentSessionStatus.WAITING_USER_INPUT,
-            )
-            raise
 
     @classmethod
     def from_config(cls) -> "GatewayApp":
@@ -160,23 +112,22 @@ class GatewayApp:
         self._loop = asyncio.get_running_loop()
         init_schema()
         self._log_feishu_runtime("Gateway", connects_gateway=True)
+        configure_emit_handler(self._emitter.emit)
+        configure_heartbeat_wake_handler(self._handle_heartbeat_wake_request)
 
         self._dispatcher_task = asyncio.create_task(self._dispatch_loop(), name="gateway:dispatch")
         for adapter in self._registry.list():
             adapter.set_inbound_sink(self.publish_from_adapter)
         try:
-            await self._ipc_server.start()
-            await self._agent_supervisor.start()
             await self._registry.start_all()
         except Exception:
-            await self._agent_supervisor.stop()
             if self._dispatcher_task is not None:
                 self._dispatcher_task.cancel()
                 await asyncio.gather(self._dispatcher_task, return_exceptions=True)
                 self._dispatcher_task = None
             await self._session_scheduler.stop()
-            await self._ipc_server.stop()
             await self._registry.stop_all()
+            reset_emit_handlers()
             raise
 
         self._scheduler = self._build_scheduler()
@@ -218,11 +169,6 @@ class GatewayApp:
             self._session_scheduler.stop(timeout_s=self._STOP_TIMEOUTS["session_scheduler"]),
             timeout_s=self._STOP_TIMEOUTS["session_scheduler"] + 0.5,
         )
-        await self._await_stop_step(
-            "agent supervisor",
-            self._agent_supervisor.stop(),
-            timeout_s=self._STOP_TIMEOUTS["agent_supervisor"],
-        )
         if self._dispatcher_task is not None:
             self._dispatcher_task.cancel()
             await self._await_stop_step(
@@ -232,11 +178,6 @@ class GatewayApp:
             )
             self._dispatcher_task = None
 
-        await self._await_stop_step(
-            "gateway ipc server",
-            self._ipc_server.stop(),
-            timeout_s=self._STOP_TIMEOUTS["ipc_server"],
-        )
         await self._await_stop_step(
             "channel adapters",
             self._registry.stop_all(timeout_s=5.0),
@@ -258,6 +199,7 @@ class GatewayApp:
 
         logger.info("🛑 [Gateway] stopping local shared-state store")
         dispose()
+        reset_emit_handlers()
         logger.info("🔒 [SQLite] 共享状态连接已释放")
         logger.info("👋 服务已完全停止，Bye!")
         self._started = False

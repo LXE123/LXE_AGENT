@@ -223,7 +223,7 @@ def test_remote_quote_failure_returns_cli_error(monkeypatch, capsys):
         ],
     )
     monkeypatch.setattr(cli, "configure_utf8_stdio", lambda: None)
-    monkeypatch.setattr(cli, "_configure_gateway_ipc", lambda: None)
+    monkeypatch.setattr(cli, "_configure_emit", lambda: None)
     monkeypatch.setattr(cli, "load_pricing_boxes_from_local_excel", fake_load_boxes)
     monkeypatch.setattr(cli, "quote_pricing", fake_quote_pricing)
     monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
