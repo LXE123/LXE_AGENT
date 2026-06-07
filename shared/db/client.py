@@ -1,4 +1,4 @@
-"""Public shared-state database interface for card context operations."""
+"""Public shared-state database interface for response route operations."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from functools import partial
 from typing import Any
 
 from shared.db.sqlite import agent_state_client as _agent_state
-from shared.db.sqlite import card_state as _sqlite_card_state
+from shared.db.sqlite import response_route_state as _response_route_state
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="shared_state_db")
 
@@ -18,41 +18,41 @@ async def _run_db_call(func, *args, **kwargs):
     return await loop.run_in_executor(_EXECUTOR, partial(func, *args, **kwargs))
 
 
-async def create_card_context(ctx) -> None:
-    await _run_db_call(_sqlite_card_state.create_context, ctx)
+async def create_response_route_context(ctx) -> None:
+    await _run_db_call(_response_route_state.create_context, ctx)
 
 
-async def load_card_context(out_track_id: str):
-    return await _run_db_call(_sqlite_card_state.load_context, out_track_id)
+async def load_response_route_context(response_route_id: str):
+    return await _run_db_call(_response_route_state.load_context, response_route_id)
 
 
-async def load_card_session(out_track_id: str):
-    context = await load_card_context(out_track_id)
+async def load_response_route_session(response_route_id: str):
+    context = await load_response_route_context(response_route_id)
     if not context:
         return {}
     return dict(context.extra_data or {})
 
 
-async def save_card_session_patch(out_track_id: str, patch):
-    await _run_db_call(_sqlite_card_state.save_session_patch, out_track_id, patch)
+async def save_response_route_patch(response_route_id: str, patch):
+    await _run_db_call(_response_route_state.save_session_patch, response_route_id, patch)
 
 
-async def save_card_delivery_handle(
-    out_track_id: str,
+async def save_response_route_delivery_handle(
+    response_route_id: str,
     *,
     platform: str | None = None,
     platform_message_id: str | None = None,
 ):
     return await _run_db_call(
-        _sqlite_card_state.save_delivery_handle,
-        out_track_id,
+        _response_route_state.save_delivery_handle,
+        response_route_id,
         platform=platform,
         platform_message_id=platform_message_id,
     )
 
 
-async def touch_card(out_track_id: str):
-    return await _run_db_call(_sqlite_card_state.touch, out_track_id)
+async def touch_response_route(response_route_id: str):
+    return await _run_db_call(_response_route_state.touch, response_route_id)
 
 
 async def load_agent_session(session_id: str):
@@ -180,24 +180,24 @@ def dispose() -> None:
         _EXECUTOR.shutdown(wait=False, cancel_futures=True)
 
 
-# Shared card context lifecycle used by the agent gateway.
+# Shared response route lifecycle used by the agent gateway.
 __all__ = [
     "append_agent_session_pending_event",
     "cancel_agent_session",
     "clear_agent_session_memory",
     "create_agent_session",
-    "create_card_context",
+    "create_response_route_context",
     "discard_agent_session_pending_event",
     "dispose",
     "has_agent_session_pending_events",
     "init_schema",
     "load_agent_session",
-    "load_card_context",
-    "load_card_session",
+    "load_response_route_context",
+    "load_response_route_session",
     "pop_agent_session_pending_events",
     "reset_agent_session_context",
-    "save_card_session_patch",
-    "save_card_delivery_handle",
-    "touch_card",
+    "save_response_route_patch",
+    "save_response_route_delivery_handle",
+    "touch_response_route",
     "update_agent_session",
 ]

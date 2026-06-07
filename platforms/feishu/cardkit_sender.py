@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from shared.db.client import save_card_delivery_handle, save_card_session_patch
+from shared.db.client import save_response_route_delivery_handle, save_response_route_patch
 from shared.infra.net import HttpSessionPurpose, get_aiohttp_session
 from shared.logging import logger
 
@@ -97,7 +97,7 @@ class FeishuCardKitSender:
     async def stream_text(
         self,
         ctx: Any,
-        card_id: str,
+        response_route_id: str,
         *,
         content: str,
         sequence: int,
@@ -105,7 +105,7 @@ class FeishuCardKitSender:
     ) -> None:
         cardkit_card_id = await self._ensure_stream_message(
             ctx,
-            card_id,
+            response_route_id,
             initial_content=content,
             emit_id=emit_id,
         )
@@ -118,7 +118,7 @@ class FeishuCardKitSender:
     async def finalize_text(
         self,
         ctx: Any,
-        card_id: str,
+        response_route_id: str,
         *,
         content: str,
         sequence: int,
@@ -127,7 +127,7 @@ class FeishuCardKitSender:
     ) -> None:
         cardkit_card_id = await self._ensure_stream_message(
             ctx,
-            card_id,
+            response_route_id,
             initial_content=content,
             emit_id=emit_id,
         )
@@ -146,7 +146,7 @@ class FeishuCardKitSender:
             sequence=close_sequence,
             summary=summary,
         )
-        await save_card_session_patch(card_id, {"cardkit_card_id": "", "cardkit_emit_id": ""})
+        await save_response_route_patch(response_route_id, {"cardkit_card_id": "", "cardkit_emit_id": ""})
 
     async def reopen_streaming_mode(
         self,
@@ -180,15 +180,22 @@ class FeishuCardKitSender:
                 cardkit_card_id=cardkit_card_id,
             )
 
-    async def _ensure_stream_message(self, ctx: Any, card_id: str, *, initial_content: str, emit_id: str) -> str:
+    async def _ensure_stream_message(
+        self,
+        ctx: Any,
+        response_route_id: str,
+        *,
+        initial_content: str,
+        emit_id: str,
+    ) -> str:
         extra_data = dict(getattr(ctx, "extra_data", {}) or {})
         cardkit_card_id = str(extra_data.get("cardkit_card_id") or "").strip()
         current_emit_id = str(extra_data.get("cardkit_emit_id") or "").strip()
         reuse_current_stream = bool(cardkit_card_id) and current_emit_id == str(emit_id or "").strip()
         if not reuse_current_stream:
             cardkit_card_id = await self._create_card_entity(initial_content="")
-            await save_card_session_patch(
-                card_id,
+            await save_response_route_patch(
+                response_route_id,
                 {
                     "cardkit_card_id": cardkit_card_id,
                     "cardkit_emit_id": str(emit_id or "").strip(),
@@ -199,8 +206,8 @@ class FeishuCardKitSender:
         if not platform_message_id:
             platform_message_id = await self._send_card_message(ctx, cardkit_card_id)
             if platform_message_id:
-                await save_card_delivery_handle(
-                    card_id,
+                await save_response_route_delivery_handle(
+                    response_route_id,
                     platform="feishu",
                     platform_message_id=platform_message_id,
                 )
@@ -220,7 +227,7 @@ class FeishuCardKitSender:
         cardkit_card_id = str((payload.get("data") or {}).get("card_id") or "").strip()
         if not cardkit_card_id:
             raise RuntimeError(f"[Feishu] create_stream_card missing card_id: resp={payload}")
-        logger.info("[Feishu] CardKit card created: card_id=%s", cardkit_card_id)
+        logger.info("[Feishu] CardKit card created: cardkit_card_id=%s", cardkit_card_id)
         return cardkit_card_id
 
     async def _send_card_message(self, ctx: Any, cardkit_card_id: str) -> str:
@@ -259,7 +266,7 @@ class FeishuCardKitSender:
         message_id = str((payload.get("data") or {}).get("message_id") or "").strip()
         if not message_id:
             raise RuntimeError(f"[Feishu] send_stream_card missing message_id: resp={payload}")
-        logger.info("[Feishu] CardKit stream message sent: msg_id=%s card_id=%s", message_id, cardkit_card_id)
+        logger.info("[Feishu] CardKit stream message sent: msg_id=%s cardkit_card_id=%s", message_id, cardkit_card_id)
         return message_id
 
     async def _update_stream_content(self, cardkit_card_id: str, *, content: str, sequence: int) -> None:

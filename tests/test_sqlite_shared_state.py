@@ -15,7 +15,9 @@ from agent_runtime.tools.process_sessions import (
     process_exec_session,
 )
 from agent_runtime.turn_handler import handle_unified_turn_job
+from agent_runtime.emit_bus import configure_emit_handler, reset_emit_handlers
 from gateway.heartbeat_wake import HeartbeatWakeManager
+from shared.agent_io import AgentJob, EmitRequest, HeartbeatWakeRequest
 from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY
 from shared.db import client as shared_db_client
 from shared.db.sqlite.agent_sessions import (
@@ -31,7 +33,7 @@ from shared.db.sqlite.agent_sessions import (
     update_agent_session,
 )
 from shared.db.sqlite.bootstrap import init_schema
-from shared.db.sqlite.card_state import (
+from shared.db.sqlite.response_route_state import (
     create_context,
     load_context,
     save_delivery_handle,
@@ -48,6 +50,7 @@ from shared.db.sqlite.store_sessions import (
     upsert_store_session,
 )
 from shared.session_bindings import SessionBindingStore, SessionSource
+from shared.runtime_core.utils import send_file_to_current_session
 
 
 @pytest.fixture()
@@ -60,7 +63,7 @@ def sqlite_db(monkeypatch, tmp_path):
 
 def _ctx(**overrides):
     values = {
-        "card_id": "card-1",
+        "response_route_id": "route-1",
         "user_id": "user-1",
         "platform": "feishu",
         "conversation_id": "chat-1",
@@ -116,11 +119,180 @@ def _create_session(
     )
 
 
-def test_card_context_create_patch_delivery_and_touch(sqlite_db):
+def test_response_routes_migration_copies_legacy_card_owners(monkeypatch, tmp_path):
+    db_path = tmp_path / "legacy.sqlite3"
+    monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(db_path))
+    monkeypatch.setenv("AGENT_SESSION_BINDINGS_PATH", str(tmp_path / "sessions.json"))
+
+    conn = sqlite3.connect(str(db_path))
+    try:
+        conn.execute(
+            """
+            CREATE TABLE card_owners (
+                out_track_id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL,
+                platform TEXT NOT NULL DEFAULT 'feishu',
+                platform_message_id TEXT,
+                conversation_id TEXT,
+                conversation_type TEXT,
+                sender_nick TEXT,
+                extra_data TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO card_owners (
+                out_track_id,
+                owner_user_id,
+                platform,
+                platform_message_id,
+                conversation_id,
+                conversation_type,
+                sender_nick,
+                extra_data,
+                created_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-route",
+                "user-1",
+                "feishu",
+                "msg-1",
+                "chat-1",
+                "2",
+                "测试用户",
+                json.dumps({"cardkit_card_id": "cardkit-1"}, ensure_ascii=False),
+                "2026-01-01T00:00:00+00:00",
+                "2026-01-01T00:00:01+00:00",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    init_schema()
+
+    conn = connect()
+    try:
+        migrated = conn.execute(
+            "SELECT * FROM response_routes WHERE response_route_id = ?",
+            ("legacy-route",),
+        ).fetchone()
+        old_table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'card_owners'"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert migrated is not None
+    assert migrated["owner_user_id"] == "user-1"
+    assert migrated["platform_message_id"] == "msg-1"
+    assert json.loads(migrated["extra_data"])["cardkit_card_id"] == "cardkit-1"
+    assert old_table is None
+
+
+def test_route_payloads_accept_legacy_card_id_but_emit_response_route_id() -> None:
+    job = AgentJob.from_dict(
+        {
+            "job_id": "job-1",
+            "session_id": "session-1",
+            "session_key": "key-1",
+            "card_id": "legacy-route",
+            "user_id": "user-1",
+            "conversation_id": "chat-1",
+            "is_group": True,
+            "message_id": "msg-1",
+            "user_input": "hello",
+        }
+    )
+    emit = EmitRequest.from_dict(
+        {
+            "session_id": "session-1",
+            "card_id": "legacy-route",
+            "files": ["artifact.csv"],
+            "emit_kind": "tool",
+        }
+    )
+    heartbeat = HeartbeatWakeRequest.from_dict(
+        {
+            "session_id": "session-1",
+            "reason": "exec-event",
+            "card_id": "legacy-route",
+        }
+    )
+
+    assert job.response_route_id == "legacy-route"
+    assert emit.response_route_id == "legacy-route"
+    assert heartbeat.response_route_id == "legacy-route"
+    assert "card_id" not in job.to_dict()
+    assert "card_id" not in emit.to_dict()
+    assert "card_id" not in heartbeat.to_dict()
+    assert job.to_dict()["response_route_id"] == "legacy-route"
+    assert emit.to_dict()["response_route_id"] == "legacy-route"
+    assert heartbeat.to_dict()["response_route_id"] == "legacy-route"
+
+
+def test_send_file_to_current_session_passes_response_route_id(tmp_path):
+    artifact = tmp_path / "result.csv"
+    artifact.write_text("id,value\n1,ok\n", encoding="utf-8")
+    requests: list[EmitRequest] = []
+
+    async def handler(request: EmitRequest) -> None:
+        requests.append(request)
+
+    async def _run() -> None:
+        configure_emit_handler(handler)
+        try:
+            await send_file_to_current_session(
+                "session-1",
+                artifact,
+                response_route_id="route-1",
+            )
+        finally:
+            reset_emit_handlers()
+
+    asyncio.run(_run())
+
+    assert len(requests) == 1
+    assert requests[0].session_id == "session-1"
+    assert requests[0].response_route_id == "route-1"
+    assert requests[0].files == [str(artifact.resolve())]
+    assert requests[0].emit_kind == "tool"
+
+
+def test_send_file_to_current_session_preserves_emit_error(tmp_path):
+    artifact = tmp_path / "result.csv"
+    artifact.write_text("id,value\n1,ok\n", encoding="utf-8")
+
+    async def handler(_request: EmitRequest) -> None:
+        raise RuntimeError("missing response route: route-1")
+
+    async def _run() -> None:
+        configure_emit_handler(handler)
+        try:
+            await send_file_to_current_session(
+                "session-1",
+                artifact,
+                response_route_id="route-1",
+            )
+        finally:
+            reset_emit_handlers()
+
+    with pytest.raises(RuntimeError, match="missing response route: route-1"):
+        asyncio.run(_run())
+
+
+def test_response_route_context_create_patch_delivery_and_touch(sqlite_db):
     create_context(_ctx())
 
-    loaded = load_context("card-1")
+    loaded = load_context("route-1")
     assert loaded is not None
+    assert loaded.response_route_id == "route-1"
     assert loaded.owner_user_id == "user-1"
     assert loaded.platform == "feishu"
     assert loaded.conversation_type == "2"
@@ -130,7 +302,7 @@ def test_card_context_create_patch_delivery_and_touch(sqlite_db):
     assert loaded.updated_at is not None
 
     save_session_patch(
-        "card-1",
+        "route-1",
         {
             "cardkit_card_id": "cardkit-1",
             "cardkit_emit_id": "emit-1",
@@ -139,13 +311,13 @@ def test_card_context_create_patch_delivery_and_touch(sqlite_db):
         },
     )
     assert save_delivery_handle(
-        "card-1",
+        "route-1",
         platform="feishu",
         platform_message_id="pm-2",
     )
-    assert touch("card-1")
+    assert touch("route-1")
 
-    reloaded = load_context("card-1")
+    reloaded = load_context("route-1")
     assert reloaded is not None
     assert reloaded.platform_message_id == "pm-2"
     assert reloaded.extra_data["cardkit_card_id"] == "cardkit-1"
@@ -154,24 +326,24 @@ def test_card_context_create_patch_delivery_and_touch(sqlite_db):
     assert reloaded.extra_data["platform"] == "feishu"
 
 
-def test_public_card_client_uses_sqlite_backend(sqlite_db):
-    asyncio.run(shared_db_client.create_card_context(_ctx(card_id="public-card")))
-    loaded = asyncio.run(shared_db_client.load_card_context("public-card"))
+def test_public_response_route_client_uses_sqlite_backend(sqlite_db):
+    asyncio.run(shared_db_client.create_response_route_context(_ctx(response_route_id="public-route")))
+    loaded = asyncio.run(shared_db_client.load_response_route_context("public-route"))
     assert loaded is not None
-    assert loaded.out_track_id == "public-card"
+    assert loaded.response_route_id == "public-route"
 
-    asyncio.run(shared_db_client.save_card_session_patch("public-card", {"cardkit_emit_id": "emit-public"}))
-    patched = asyncio.run(shared_db_client.load_card_session("public-card"))
+    asyncio.run(shared_db_client.save_response_route_patch("public-route", {"cardkit_emit_id": "emit-public"}))
+    patched = asyncio.run(shared_db_client.load_response_route_session("public-route"))
     assert patched["cardkit_emit_id"] == "emit-public"
 
 
-def test_card_context_extra_data_must_be_json_object(sqlite_db):
+def test_response_route_context_extra_data_must_be_json_object(sqlite_db):
     conn = connect()
     try:
         conn.execute(
             """
-            INSERT INTO card_owners (
-                out_track_id,
+            INSERT INTO response_routes (
+                response_route_id,
                 owner_user_id,
                 platform,
                 extra_data,
@@ -181,7 +353,7 @@ def test_card_context_extra_data_must_be_json_object(sqlite_db):
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                "bad-card",
+                "bad-route",
                 "user-1",
                 "feishu",
                 json.dumps(["not-object"]),
@@ -194,7 +366,7 @@ def test_card_context_extra_data_must_be_json_object(sqlite_db):
         conn.close()
 
     with pytest.raises(RuntimeError, match="extra_data must be a JSON object"):
-        load_context("bad-card")
+        load_context("bad-route")
 
 
 def test_session_source_key_rules() -> None:
@@ -658,7 +830,7 @@ def test_heartbeat_wake_drops_session_without_pending_events(sqlite_db):
 
     async def _run():
         manager = HeartbeatWakeManager(scheduler=FakeScheduler())
-        manager._queue_pending("session-no-pending-wake", "exec-event", "card-1")
+        manager._queue_pending("session-no-pending-wake", "exec-event", "route-1")
         await manager._run_batch()
         assert manager._scheduler.jobs == []
         await manager.stop()
@@ -689,7 +861,7 @@ def test_heartbeat_wake_enqueues_job_with_source_and_active_card(sqlite_db):
     async def _run():
         scheduler = FakeScheduler()
         manager = HeartbeatWakeManager(scheduler=scheduler)
-        manager._queue_pending("session-heartbeat-enqueue", "exec-event", "card-heartbeat")
+        manager._queue_pending("session-heartbeat-enqueue", "exec-event", "route-heartbeat")
         await manager._run_batch()
         await manager.stop()
         return scheduler.jobs
@@ -698,7 +870,7 @@ def test_heartbeat_wake_enqueues_job_with_source_and_active_card(sqlite_db):
     assert len(jobs) == 1
     job = jobs[0]
     assert job.session_id == "session-heartbeat-enqueue"
-    assert job.card_id == "card-heartbeat"
+    assert job.response_route_id == "route-heartbeat"
     assert job.session_key == "agent:main:feishu:group:chat-heartbeat:on_heartbeat"
     assert job.source["chat_id"] == "chat-heartbeat"
 
@@ -711,7 +883,7 @@ def test_heartbeat_noop_keeps_session_metadata(sqlite_db):
             job_id="heartbeat-job",
             payload={
                 "session_id": "session-heartbeat-noop",
-                "card_id": "card-heartbeat-noop",
+                "response_route_id": "route-heartbeat-noop",
                 "job_id": "heartbeat-job",
                 "job_kind": "heartbeat",
                 "raw_data": {"heartbeat_reason": "exec-event"},

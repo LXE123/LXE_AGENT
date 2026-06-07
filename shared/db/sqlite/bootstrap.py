@@ -26,11 +26,11 @@ def _columns(conn, table: str) -> set[str]:
     return {str(row["name"]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
 
 
-def _create_card_owners(conn) -> None:
+def _create_response_routes(conn) -> None:
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS card_owners (
-            out_track_id TEXT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS response_routes (
+            response_route_id TEXT PRIMARY KEY,
             owner_user_id TEXT NOT NULL,
             platform TEXT NOT NULL DEFAULT 'feishu',
             platform_message_id TEXT,
@@ -84,19 +84,20 @@ def _source_from_legacy_session(row: Any) -> dict[str, Any]:
     return source.to_dict()
 
 
-def _migrate_card_owners(conn) -> None:
+def _migrate_response_routes(conn) -> None:
+    _create_response_routes(conn)
     if not _table_exists(conn, "card_owners"):
-        _create_card_owners(conn)
         return
+
     cols = _columns(conn, "card_owners")
-    if _LEGACY_ROUTE_COLUMN not in cols:
+    if "out_track_id" not in cols:
+        conn.execute("DROP TABLE card_owners")
         return
-    conn.execute("ALTER TABLE card_owners RENAME TO card_owners_legacy")
-    _create_card_owners(conn)
+
     conn.execute(
         """
-        INSERT INTO card_owners (
-            out_track_id,
+        INSERT OR IGNORE INTO response_routes (
+            response_route_id,
             owner_user_id,
             platform,
             platform_message_id,
@@ -118,10 +119,10 @@ def _migrate_card_owners(conn) -> None:
             extra_data,
             created_at,
             updated_at
-        FROM card_owners_legacy
+        FROM card_owners
         """
     )
-    conn.execute("DROP TABLE card_owners_legacy")
+    conn.execute("DROP TABLE card_owners")
 
 
 def _drop_agent_contexts(conn) -> None:
@@ -306,16 +307,16 @@ def _create_ziniao_sessions(conn) -> None:
 
 def _create_indexes(conn) -> None:
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_card_owners_platform_message_id "
-        "ON card_owners (platform_message_id)"
+        "CREATE INDEX IF NOT EXISTS idx_response_routes_platform_message_id "
+        "ON response_routes (platform_message_id)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_card_owners_owner_user_id "
-        "ON card_owners (owner_user_id)"
+        "CREATE INDEX IF NOT EXISTS idx_response_routes_owner_user_id "
+        "ON response_routes (owner_user_id)"
     )
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_card_owners_platform "
-        "ON card_owners (platform)"
+        "CREATE INDEX IF NOT EXISTS idx_response_routes_platform "
+        "ON response_routes (platform)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_agent_sessions_last_active_at "
@@ -329,10 +330,10 @@ def _create_indexes(conn) -> None:
 
 def init_schema() -> None:
     with connection_scope() as conn:
-        _migrate_card_owners(conn)
+        _migrate_response_routes(conn)
         _migrate_agent_sessions(conn)
         _drop_agent_contexts(conn)
-        _create_card_owners(conn)
+        _create_response_routes(conn)
         _create_ziniao_sessions(conn)
         _create_agent_sessions(conn)
         _create_pending_events(conn)

@@ -38,32 +38,29 @@ class FeishuMediaSender:
     async def send_file(self, ctx, path: str) -> bool:
         safe_path = os.path.abspath(str(path or "").strip())
         if not safe_path:
-            return False
+            raise RuntimeError("[FeishuMedia] file path is required")
         file_path = Path(safe_path)
         if not file_path.is_file():
-            logger.warning("[FeishuMedia] file path missing: %s", safe_path)
-            return False
+            raise RuntimeError(f"[FeishuMedia] file path missing: {safe_path}")
         if file_path.suffix.lower() not in _IMAGE_EXTENSIONS:
             try:
                 file_key = await self._upload_file(file_path)
                 if not file_key:
-                    return False
+                    raise RuntimeError("[FeishuMedia] upload_file returned empty file_key")
                 await self._send_file_message(ctx, file_key=file_key)
-                logger.info("[FeishuMedia] file sent: card_id=%s path=%s", ctx.out_track_id, safe_path)
+                logger.info("[FeishuMedia] file sent: response_route_id=%s path=%s", ctx.response_route_id, safe_path)
                 return True
             except Exception as error:
-                logger.error("[FeishuMedia] send_file failed: %s", error, exc_info=True)
-                return False
+                raise RuntimeError(f"[FeishuMedia] send_file failed: path={safe_path} error={error}") from error
         try:
             image_key = await self._upload_image(file_path)
             if not image_key:
-                return False
+                raise RuntimeError("[FeishuMedia] upload_image returned empty image_key")
             await self._send_image_message(ctx, image_key=image_key)
-            logger.info("[FeishuMedia] image sent: card_id=%s path=%s", ctx.out_track_id, safe_path)
+            logger.info("[FeishuMedia] image sent: response_route_id=%s path=%s", ctx.response_route_id, safe_path)
             return True
         except Exception as error:
-            logger.error("[FeishuMedia] send_file failed: %s", error, exc_info=True)
-            return False
+            raise RuntimeError(f"[FeishuMedia] send_image failed: path={safe_path} error={error}") from error
 
     async def send_markdown_card(self, ctx, markdown: str, *, title: str = "") -> bool:
         safe_markdown = str(markdown or "").strip()
@@ -72,7 +69,7 @@ class FeishuMediaSender:
         try:
             await self._card_sender.send_card(
                 build_markdown_card_context(ctx),
-                ctx.out_track_id,
+                ctx.response_route_id,
                 build_markdown_card(safe_markdown, title=str(title or "").strip()),
             )
             return True

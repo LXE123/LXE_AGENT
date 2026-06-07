@@ -6,8 +6,8 @@ from typing import Any, Dict, Optional
 
 
 @dataclass
-class CardContext:
-    out_track_id: str
+class ResponseRouteContext:
+    response_route_id: str
     owner_user_id: str
     platform: str
     platform_message_id: Optional[str]
@@ -51,6 +51,6 @@ class ZiniaoStoreSessionState:
 
 __all__ = [
     "AgentSessionState",
-    "CardContext",
+    "ResponseRouteContext",
     "ZiniaoStoreSessionState",
 ]

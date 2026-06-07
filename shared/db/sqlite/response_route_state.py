@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlite3 import Row
 from typing import Any, Optional
 
-from shared.db.shared_state_dto import CardContext
+from shared.db.shared_state_dto import ResponseRouteContext
 from shared.logging import logger
 
 from .engine import connection_scope
@@ -74,9 +74,9 @@ def _json_object_from_storage(value: Any) -> dict[str, Any]:
     try:
         parsed = json.loads(str(value or "{}"))
     except json.JSONDecodeError as exc:
-        raise RuntimeError("invalid card_owners.extra_data JSON") from exc
+        raise RuntimeError("invalid response_routes.extra_data JSON") from exc
     if not isinstance(parsed, dict):
-        raise RuntimeError("card_owners.extra_data must be a JSON object")
+        raise RuntimeError("response_routes.extra_data must be a JSON object")
     return parsed
 
 
@@ -84,9 +84,9 @@ def _normalize_platform(value: Any) -> str:
     return str(value or "").strip() or "feishu"
 
 
-def _to_context(row: Row) -> CardContext:
-    return CardContext(
-        out_track_id=str(row["out_track_id"]),
+def _to_context(row: Row) -> ResponseRouteContext:
+    return ResponseRouteContext(
+        response_route_id=str(row["response_route_id"]),
         owner_user_id=str(row["owner_user_id"]),
         platform=_normalize_platform(row["platform"]),
         platform_message_id=str(row["platform_message_id"] or "").strip() or None,
@@ -100,7 +100,10 @@ def _to_context(row: Row) -> CardContext:
 
 
 def create_context(ctx: Any) -> None:
-    if not getattr(ctx, "card_id", None) or not getattr(ctx, "user_id", None):
+    response_route_id = str(
+        getattr(ctx, "response_route_id", "") or getattr(ctx, "card_id", "") or ""
+    ).strip()
+    if not response_route_id or not getattr(ctx, "user_id", None):
         return
 
     now = _datetime_to_storage(_utc_now())
@@ -116,8 +119,8 @@ def create_context(ctx: Any) -> None:
     with connection_scope() as conn:
         conn.execute(
             """
-            INSERT INTO card_owners (
-                out_track_id,
+            INSERT INTO response_routes (
+                response_route_id,
                 owner_user_id,
                 platform,
                 platform_message_id,
@@ -129,7 +132,7 @@ def create_context(ctx: Any) -> None:
                 updated_at
             )
             VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(out_track_id) DO UPDATE SET
+            ON CONFLICT(response_route_id) DO UPDATE SET
                 owner_user_id = excluded.owner_user_id,
                 platform = excluded.platform,
                 conversation_id = excluded.conversation_id,
@@ -139,7 +142,7 @@ def create_context(ctx: Any) -> None:
                 updated_at = excluded.updated_at
             """,
             (
-                str(ctx.card_id),
+                response_route_id,
                 str(ctx.user_id),
                 platform,
                 getattr(ctx, "conversation_id", None),
@@ -152,31 +155,31 @@ def create_context(ctx: Any) -> None:
         )
 
 
-def load_context(out_track_id: str) -> Optional[CardContext]:
-    safe_out_track_id = str(out_track_id or "").strip()
-    if not safe_out_track_id:
+def load_context(response_route_id: str) -> Optional[ResponseRouteContext]:
+    safe_response_route_id = str(response_route_id or "").strip()
+    if not safe_response_route_id:
         return None
 
     with connection_scope() as conn:
         row = conn.execute(
-            "SELECT * FROM card_owners WHERE out_track_id = ?",
-            (safe_out_track_id,),
+            "SELECT * FROM response_routes WHERE response_route_id = ?",
+            (safe_response_route_id,),
         ).fetchone()
         return _to_context(row) if row is not None else None
 
 
-def save_session_patch(out_track_id: str, patch: dict[str, Any]) -> None:
-    safe_out_track_id = str(out_track_id or "").strip()
-    if not safe_out_track_id or not patch:
+def save_session_patch(response_route_id: str, patch: dict[str, Any]) -> None:
+    safe_response_route_id = str(response_route_id or "").strip()
+    if not safe_response_route_id or not patch:
         return
 
     with connection_scope() as conn:
         row = conn.execute(
-            "SELECT * FROM card_owners WHERE out_track_id = ?",
-            (safe_out_track_id,),
+            "SELECT * FROM response_routes WHERE response_route_id = ?",
+            (safe_response_route_id,),
         ).fetchone()
         if row is None:
-            logger.warning("[CardState] card missing, skip patch: %s", safe_out_track_id)
+            logger.warning("[ResponseRouteState] response route missing, skip patch: %s", safe_response_route_id)
             return
 
         current_data = _json_object_from_storage(row["extra_data"])
@@ -189,37 +192,37 @@ def save_session_patch(out_track_id: str, patch: dict[str, Any]) -> None:
             platform_message_id = _sanitize_optional_text(patch.get("platform_message_id"))
         conn.execute(
             """
-            UPDATE card_owners
+            UPDATE response_routes
             SET platform = ?,
                 platform_message_id = ?,
                 extra_data = ?,
                 updated_at = ?
-            WHERE out_track_id = ?
+            WHERE response_route_id = ?
             """,
             (
                 platform,
                 platform_message_id,
                 _json_object_to_storage(current_data),
                 _datetime_to_storage(_utc_now()),
-                safe_out_track_id,
+                safe_response_route_id,
             ),
         )
 
 
 def save_delivery_handle(
-    out_track_id: str,
+    response_route_id: str,
     *,
     platform: str | None = None,
     platform_message_id: str | None = None,
 ) -> bool:
-    safe_out_track_id = str(out_track_id or "").strip()
-    if not safe_out_track_id:
+    safe_response_route_id = str(response_route_id or "").strip()
+    if not safe_response_route_id:
         return False
 
     with connection_scope() as conn:
         row = conn.execute(
-            "SELECT * FROM card_owners WHERE out_track_id = ?",
-            (safe_out_track_id,),
+            "SELECT * FROM response_routes WHERE response_route_id = ?",
+            (safe_response_route_id,),
         ).fetchone()
         if row is None:
             return False
@@ -235,33 +238,33 @@ def save_delivery_handle(
 
         conn.execute(
             """
-            UPDATE card_owners
+            UPDATE response_routes
             SET platform = ?,
                 platform_message_id = ?,
                 extra_data = ?,
                 updated_at = ?
-            WHERE out_track_id = ?
+            WHERE response_route_id = ?
             """,
             (
                 stored_platform,
                 stored_platform_message_id,
                 _json_object_to_storage(extra_data),
                 _datetime_to_storage(_utc_now()),
-                safe_out_track_id,
+                safe_response_route_id,
             ),
         )
         return True
 
 
-def touch(out_track_id: str) -> bool:
-    safe_out_track_id = str(out_track_id or "").strip()
-    if not safe_out_track_id:
+def touch(response_route_id: str) -> bool:
+    safe_response_route_id = str(response_route_id or "").strip()
+    if not safe_response_route_id:
         return False
 
     with connection_scope() as conn:
         result = conn.execute(
-            "UPDATE card_owners SET updated_at = ? WHERE out_track_id = ?",
-            (_datetime_to_storage(_utc_now()), safe_out_track_id),
+            "UPDATE response_routes SET updated_at = ? WHERE response_route_id = ?",
+            (_datetime_to_storage(_utc_now()), safe_response_route_id),
         )
         return bool(result.rowcount or 0)
 

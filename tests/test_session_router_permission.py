@@ -61,7 +61,7 @@ def _event(*, user_id: str, union_id: str, app_id: str) -> InboundEvent:
         is_group=False,
         message_id="msg-1",
         sender_nick="sender",
-        card_id="card-1",
+        response_route_id="route-1",
         union_id=union_id,
         source={
             "platform": "feishu",
@@ -95,13 +95,13 @@ def test_router_denies_unknown_bot_without_enqueue(monkeypatch) -> None:
     scheduler = _FakeScheduler()
     router = _router(adapter, scheduler)
 
-    async def fake_create_card_context(_ctx) -> None:
+    async def fake_create_response_route_context(_ctx) -> None:
         return None
 
     async def fail_db_call(*_args, **_kwargs):
         raise AssertionError("permission denied route should not touch agent session storage")
 
-    monkeypatch.setattr(router_mod, "create_card_context", fake_create_card_context)
+    monkeypatch.setattr(router_mod, "create_response_route_context", fake_create_response_route_context)
     monkeypatch.setattr(router_mod, "create_agent_session", fail_db_call)
 
     decision = asyncio.run(
@@ -119,13 +119,13 @@ def test_router_denies_user_without_agent_access(monkeypatch) -> None:
     scheduler = _FakeScheduler()
     router = _router(adapter, scheduler)
 
-    async def fake_create_card_context(_ctx) -> None:
+    async def fake_create_response_route_context(_ctx) -> None:
         return None
 
     async def fail_db_call(*_args, **_kwargs):
         raise AssertionError("permission denied route should not touch agent session storage")
 
-    monkeypatch.setattr(router_mod, "create_card_context", fake_create_card_context)
+    monkeypatch.setattr(router_mod, "create_response_route_context", fake_create_response_route_context)
     monkeypatch.setattr(router_mod, "create_agent_session", fail_db_call)
 
     decision = asyncio.run(
@@ -143,13 +143,13 @@ def test_router_does_not_fallback_to_open_id_for_user_access(monkeypatch) -> Non
     scheduler = _FakeScheduler()
     router = _router(adapter, scheduler)
 
-    async def fake_create_card_context(_ctx) -> None:
+    async def fake_create_response_route_context(_ctx) -> None:
         return None
 
     async def fail_db_call(*_args, **_kwargs):
         raise AssertionError("permission denied route should not touch agent session storage")
 
-    monkeypatch.setattr(router_mod, "create_card_context", fake_create_card_context)
+    monkeypatch.setattr(router_mod, "create_response_route_context", fake_create_response_route_context)
     monkeypatch.setattr(router_mod, "create_agent_session", fail_db_call)
 
     decision = asyncio.run(
@@ -168,7 +168,7 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     router = _router(adapter, scheduler)
     calls = {"created": 0}
 
-    async def fake_create_card_context(_ctx) -> None:
+    async def fake_create_response_route_context(_ctx) -> None:
         return None
 
     async def fake_load_session(*_args, **_kwargs):
@@ -185,7 +185,7 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     async def fake_pop_pending_events(_session_id: str):
         return []
 
-    monkeypatch.setattr(router_mod, "create_card_context", fake_create_card_context)
+    monkeypatch.setattr(router_mod, "create_response_route_context", fake_create_response_route_context)
     monkeypatch.setattr(router_mod, "load_agent_session", fake_load_session)
     monkeypatch.setattr(router_mod, "create_agent_session", fake_create_agent_session)
     monkeypatch.setattr(router_mod, "pop_agent_session_pending_events", fake_pop_pending_events)
@@ -201,7 +201,7 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     assert not front
     assert job.session_id == "session-1"
     assert job.session_key == f"agent:main:feishu:dm:chat-1"
-    assert job.card_id == "card-1"
+    assert job.response_route_id == "route-1"
     assert job.user_id == USER_ZGL
     assert job.raw_data["app_id"] == BOT_ID_LXE_FBA_AGENT
     assert job.raw_data["union_id"] == USER_ZGL

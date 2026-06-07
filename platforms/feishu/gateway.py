@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from typing import Any, Literal
 
 from gateway.models import InboundEvent, OutboundRequest
-from shared.db.client import load_card_context
+from shared.db.client import load_response_route_context
 from shared.logging import logger
 from shared.platform.adapter import InboundSink
 
@@ -355,26 +355,26 @@ class FeishuStreamAdapter:
         self._inbound_sink(event)
 
     async def handle_outbound(self, request: OutboundRequest) -> None:
-        card_ctx = await _load_send_context(request.card_id, session_id=request.session_id)
+        route_ctx = await _load_send_context(request.response_route_id, session_id=request.session_id)
         logger.info(
-            "[Feishu] outbound request: action=%s session_id=%s card_id=%s event_id=%s",
+            "[Feishu] outbound request: action=%s session_id=%s response_route_id=%s event_id=%s",
             request.action,
             str(request.session_id or "").strip(),
-            str(request.card_id or "").strip(),
+            str(request.response_route_id or "").strip(),
             str(request.event_id or "").strip(),
         )
         if request.action == "stream_message":
-            await self._handle_stream_message(request, card_ctx)
+            await self._handle_stream_message(request, route_ctx)
             return
         if request.action == "send_message":
             card_params = dict(request.payload.get("card_params") or {})
             markdown = str(request.payload.get("markdown") or "").strip()
             title = str(request.payload.get("title") or "").strip()
             if card_params:
-                await self._card_sender.send_card(card_ctx, request.card_id, card_params)
+                await self._card_sender.send_card(route_ctx, request.response_route_id, card_params)
                 return
             if markdown:
-                sent = await self._media_sender.send_markdown_card(card_ctx, markdown, title=title)
+                sent = await self._media_sender.send_markdown_card(route_ctx, markdown, title=title)
                 if sent:
                     return
             raise RuntimeError("empty feishu send_message payload")
@@ -382,7 +382,7 @@ class FeishuStreamAdapter:
             path = str(request.payload.get("path") or "").strip()
             if not path:
                 raise RuntimeError("missing file path")
-            sent = await self._media_sender.send_file(card_ctx, path)
+            sent = await self._media_sender.send_file(route_ctx, path)
             if sent:
                 return
             raise RuntimeError(f"feishu file send failed: {path}")
@@ -391,7 +391,7 @@ class FeishuStreamAdapter:
             return
         raise RuntimeError(f"unsupported outbound action: {request.action}")
 
-    async def _handle_stream_message(self, request: OutboundRequest, card_ctx: Any) -> None:
+    async def _handle_stream_message(self, request: OutboundRequest, route_ctx: Any) -> None:
         session_id = str(request.session_id or "").strip()
         if not session_id:
             raise RuntimeError("missing session_id for feishu stream_message")
@@ -446,7 +446,7 @@ class FeishuStreamAdapter:
                     session_id=session_id,
                     writer=writer,
                     request=request,
-                    card_ctx=card_ctx,
+                    route_ctx=route_ctx,
                     emit_id=emit_id,
                 )
                 return
@@ -455,7 +455,7 @@ class FeishuStreamAdapter:
                 session_id=session_id,
                 writer=writer,
                 request=request,
-                card_ctx=card_ctx,
+                route_ctx=route_ctx,
                 emit_id=emit_id,
             )
             if writer.finished:
@@ -483,14 +483,14 @@ class FeishuStreamAdapter:
         session_id: str,
         writer: _StreamWriterState,
         request: OutboundRequest,
-        card_ctx: Any,
+        route_ctx: Any,
         emit_id: str,
     ) -> None:
         sequence = self._next_card_sequence(writer)
         try:
             await self._cardkit_sender.stream_text(
-                card_ctx,
-                request.card_id,
+                route_ctx,
+                request.response_route_id,
                 content=writer.last_content,
                 sequence=sequence,
                 emit_id=emit_id,
@@ -500,7 +500,7 @@ class FeishuStreamAdapter:
                 session_id=session_id,
                 writer=writer,
                 request=request,
-                card_ctx=card_ctx,
+                route_ctx=route_ctx,
                 emit_id=emit_id,
                 error=error,
                 terminal=False,
@@ -515,14 +515,14 @@ class FeishuStreamAdapter:
         session_id: str,
         writer: _StreamWriterState,
         request: OutboundRequest,
-        card_ctx: Any,
+        route_ctx: Any,
         emit_id: str,
     ) -> None:
         sequence = self._reserve_finalize_sequence(writer)
         try:
             await self._cardkit_sender.finalize_text(
-                card_ctx,
-                request.card_id,
+                route_ctx,
+                request.response_route_id,
                 content=writer.last_content,
                 sequence=sequence,
                 error=writer.final_error,
@@ -533,7 +533,7 @@ class FeishuStreamAdapter:
                 session_id=session_id,
                 writer=writer,
                 request=request,
-                card_ctx=card_ctx,
+                route_ctx=route_ctx,
                 emit_id=emit_id,
                 error=error,
                 terminal=True,
@@ -550,7 +550,7 @@ class FeishuStreamAdapter:
         session_id: str,
         writer: _StreamWriterState,
         request: OutboundRequest,
-        card_ctx: Any,
+        route_ctx: Any,
         emit_id: str,
         error: FeishuCardKitError,
         terminal: bool,
@@ -566,8 +566,8 @@ class FeishuStreamAdapter:
                 task = asyncio.create_task(
                     self._resume_after_reopen(
                         session_id=session_id,
-                        card_id=request.card_id,
-                        card_ctx=card_ctx,
+                        response_route_id=request.response_route_id,
+                        route_ctx=route_ctx,
                         emit_id=emit_id,
                         cardkit_card_id=error.cardkit_card_id,
                     )
@@ -583,9 +583,9 @@ class FeishuStreamAdapter:
 
         writer.status = "dead"
         logger.warning(
-            "[Feishu] mark stream dead: session_id=%s card_id=%s code=%s operation=%s terminal=%s",
+            "[Feishu] mark stream dead: session_id=%s response_route_id=%s code=%s operation=%s terminal=%s",
             session_id,
-            request.card_id,
+            request.response_route_id,
             error.code,
             error.operation,
             terminal,
@@ -598,8 +598,8 @@ class FeishuStreamAdapter:
         self,
         *,
         session_id: str,
-        card_id: str,
-        card_ctx: Any,
+        response_route_id: str,
+        route_ctx: Any,
         emit_id: str,
         cardkit_card_id: str,
     ) -> None:
@@ -626,9 +626,9 @@ class FeishuStreamAdapter:
                     writer.finished = True
                     self._cleanup_stream_state(session_id)
             logger.warning(
-                "[Feishu] reopen failed: session_id=%s card_id=%s code=%s operation=%s",
+                "[Feishu] reopen failed: session_id=%s response_route_id=%s code=%s operation=%s",
                 session_id,
-                card_id,
+                response_route_id,
                 error.code,
                 error.operation,
             )
@@ -642,8 +642,8 @@ class FeishuStreamAdapter:
                 if writer.final_requested:
                     sequence = self._reserve_finalize_sequence(writer)
                     await self._cardkit_sender.finalize_text(
-                        card_ctx,
-                        card_id,
+                        route_ctx,
+                        response_route_id,
                         content=writer.last_content,
                         sequence=sequence,
                         error=writer.final_error,
@@ -659,8 +659,8 @@ class FeishuStreamAdapter:
                 if writer.last_content != writer.last_sent_content:
                     sequence = self._next_card_sequence(writer)
                     await self._cardkit_sender.stream_text(
-                        card_ctx,
-                        card_id,
+                        route_ctx,
+                        response_route_id,
                         content=writer.last_content,
                         sequence=sequence,
                         emit_id=emit_id,
@@ -671,9 +671,9 @@ class FeishuStreamAdapter:
             except FeishuCardKitError as error:
                 writer.status = "dead"
                 logger.warning(
-                    "[Feishu] resume after reopen failed: session_id=%s card_id=%s code=%s operation=%s",
+                    "[Feishu] resume after reopen failed: session_id=%s response_route_id=%s code=%s operation=%s",
                     session_id,
-                    card_id,
+                    response_route_id,
                     error.code,
                     error.operation,
                 )
@@ -1054,7 +1054,7 @@ class FeishuStreamAdapter:
                 )
             return None
 
-        card_id = uuid.uuid4().hex
+        response_route_id = uuid.uuid4().hex
         source = {
             "platform": self.platform,
             "chat_id": chat_id,
@@ -1095,7 +1095,7 @@ class FeishuStreamAdapter:
             event_type="agent_message",
             user_input=user_input,
             user_id=open_id,
-            card_id=card_id,
+            response_route_id=response_route_id,
             conversation_id=chat_id,
             is_group=(chat_type == "group"),
             message_id=message_id,
@@ -1132,28 +1132,27 @@ class FeishuAgentGateway(FeishuStreamAdapter):
         super().__init__()
 
 
-async def _load_send_context(card_id: str, *, session_id: str = ""):
-    card_ctx = await load_card_context(card_id)
-    if card_ctx is None:
-        raise RuntimeError(f"missing card context: {card_id}")
-    extra_data = dict(card_ctx.extra_data or {})
+async def _load_send_context(response_route_id: str, *, session_id: str = ""):
+    route_ctx = await load_response_route_context(response_route_id)
+    if route_ctx is None:
+        raise RuntimeError(f"missing response route: {response_route_id}")
+    extra_data = dict(route_ctx.extra_data or {})
     source_message_id = ""
     _ = session_id
     source_message_id = str(extra_data.get("source_message_id") or "").strip()
     return SimpleNamespace(
         platform="feishu",
-        card_id=card_id,
-        out_track_id=card_id,
-        platform_message_id=str(card_ctx.platform_message_id or "").strip(),
-        owner_user_id=str(card_ctx.owner_user_id or "").strip(),
-        conversation_id=str(card_ctx.conversation_id or "").strip(),
-        conversation_type=str(card_ctx.conversation_type or "").strip(),
-        sender_nick=str(card_ctx.sender_nick or "").strip(),
+        response_route_id=response_route_id,
+        platform_message_id=str(route_ctx.platform_message_id or "").strip(),
+        owner_user_id=str(route_ctx.owner_user_id or "").strip(),
+        conversation_id=str(route_ctx.conversation_id or "").strip(),
+        conversation_type=str(route_ctx.conversation_type or "").strip(),
+        sender_nick=str(route_ctx.sender_nick or "").strip(),
         message_id=source_message_id,
         extra_data=extra_data,
         raw_data={
             "platform": "feishu",
-            "chat_id": str(card_ctx.conversation_id or "").strip(),
+            "chat_id": str(route_ctx.conversation_id or "").strip(),
             "source_message_id": source_message_id,
         },
     )

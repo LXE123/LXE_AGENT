@@ -68,16 +68,15 @@ def _read_payload(capsys) -> dict:
     return json.loads(output[-1])
 
 
-def _patch_file_delivery(monkeypatch, saved_markdowns: list[str]) -> list[tuple[str, Path]]:
-    sent_files: list[tuple[str, Path]] = []
+def _patch_file_delivery(monkeypatch, saved_markdowns: list[str]) -> list[tuple[str, Path, str]]:
+    sent_files: list[tuple[str, Path, str]] = []
 
     def fake_save_artifacts(markdown: str, _name: str, _kind: str) -> Path:
         saved_markdowns.append(markdown)
         return Path(r"D:\fake\channel_pricing.md")
 
-    async def fake_send_file(session_id: str, path: Path) -> bool:
-        sent_files.append((session_id, path))
-        return True
+    async def fake_send_file(session_id: str, path: Path, *, response_route_id: str = "") -> None:
+        sent_files.append((session_id, path, response_route_id))
 
     monkeypatch.setattr(cli, "save_artifacts", fake_save_artifacts)
     monkeypatch.setattr(cli, "send_file_to_current_session", fake_send_file)
@@ -109,6 +108,7 @@ def test_single_quote_uses_remote_api_and_sends_markdown(monkeypatch):
     result = asyncio.run(
         cli._run_single_mode(
             session_id="session-1",
+            response_route_id="route-1",
             shipment_no="FBAABCD1",
             consignment_no="SP001",
             destination_address="ONT8, CA 92551, US",
@@ -137,12 +137,12 @@ def test_single_quote_uses_remote_api_and_sends_markdown(monkeypatch):
     }
     assert len(saved_markdowns) == 1
     assert "Remote Channel FBAABCD1" in saved_markdowns[0]
-    assert sent_files == [("session-1", Path(r"D:\fake\channel_pricing.md"))]
+    assert sent_files == [("session-1", Path(r"D:\fake\channel_pricing.md"), "route-1")]
 
 
 def test_batch_quote_calls_remote_api_once_per_tsv_row(monkeypatch):
     saved_markdowns: list[str] = []
-    _patch_file_delivery(monkeypatch, saved_markdowns)
+    sent_files = _patch_file_delivery(monkeypatch, saved_markdowns)
     quote_calls: list[dict] = []
 
     def fake_load_boxes(consignment_no: str):
@@ -154,6 +154,7 @@ def test_batch_quote_calls_remote_api_once_per_tsv_row(monkeypatch):
         return _quote_response(payload)
 
     monkeypatch.setenv("LXE_AGENT_SESSION_ID", "session-2")
+    monkeypatch.setenv("LXE_RESPONSE_ROUTE_ID", "route-2")
     monkeypatch.setattr(cli, "load_pricing_boxes_from_local_excel", fake_load_boxes)
     monkeypatch.setattr(cli, "quote_pricing", fake_quote_pricing)
     monkeypatch.setattr(cli.config, "FBA_LOGISTICS_FIXED_CARGO_NATURE", "general")
@@ -199,6 +200,7 @@ def test_batch_quote_calls_remote_api_once_per_tsv_row(monkeypatch):
     assert len(saved_markdowns) == 1
     assert "Remote Channel FBAABCD1" in saved_markdowns[0]
     assert "Remote Channel FBAABCD2" in saved_markdowns[0]
+    assert sent_files == [("session-2", Path(r"D:\fake\channel_pricing.md"), "route-2")]
 
 
 def test_remote_quote_failure_returns_cli_error(monkeypatch, capsys):

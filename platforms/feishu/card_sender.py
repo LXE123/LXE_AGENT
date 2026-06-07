@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 from typing import Any
 
-from shared.db.client import load_card_context, save_card_delivery_handle
+from shared.db.client import load_response_route_context, save_response_route_delivery_handle
 from shared.infra.net import HttpSessionPurpose, get_aiohttp_session
 from shared.logging import logger
 
@@ -31,7 +31,7 @@ class FeishuCardSender:
     async def send_card(
         self,
         ctx: Any,
-        card_id: str,
+        response_route_id: str,
         card_params: dict[str, Any],
     ) -> str:
         token = await token_manager.get_token()
@@ -76,27 +76,34 @@ class FeishuCardSender:
 
         platform_message_id = str((data.get("data") or {}).get("message_id") or "").strip()
         if platform_message_id:
-            await save_card_delivery_handle(
-                card_id,
+            await save_response_route_delivery_handle(
+                response_route_id,
                 platform="feishu",
                 platform_message_id=platform_message_id,
             )
-        logger.info("[Feishu] card sent: card_id=%s feishu_msg_id=%s", card_id, platform_message_id)
-        return platform_message_id or card_id
+        logger.info(
+            "[Feishu] card sent: response_route_id=%s feishu_msg_id=%s",
+            response_route_id,
+            platform_message_id,
+        )
+        return platform_message_id or response_route_id
 
     async def update_card(
         self,
-        card_id: str,
+        response_route_id: str,
         card_params: dict[str, Any],
     ) -> None:
-        card_ctx = await load_card_context(card_id)
-        if card_ctx is None:
-            logger.warning("[Feishu] update_card: missing card context for card_id=%s", card_id)
+        route_ctx = await load_response_route_context(response_route_id)
+        if route_ctx is None:
+            logger.warning("[Feishu] update_card: missing response route for response_route_id=%s", response_route_id)
             return
 
-        platform_message_id = str(card_ctx.platform_message_id or "").strip()
+        platform_message_id = str(route_ctx.platform_message_id or "").strip()
         if not platform_message_id:
-            logger.warning("[Feishu] update_card: missing platform_message_id for card_id=%s", card_id)
+            logger.warning(
+                "[Feishu] update_card: missing platform_message_id for response_route_id=%s",
+                response_route_id,
+            )
             return
 
         token = await token_manager.get_token()
@@ -118,21 +125,21 @@ class FeishuCardSender:
         )
         code = data.get("code", -1)
         if code != 0:
-            logger.warning("[Feishu] update_card failed: card_id=%s resp=%s", card_id, data)
+            logger.warning("[Feishu] update_card failed: response_route_id=%s resp=%s", response_route_id, data)
 
 
-def build_markdown_card_context(card_ctx) -> Any:
+def build_markdown_card_context(route_ctx) -> Any:
     return SimpleNamespace(
         platform="feishu",
-        card_id="",
-        user_id=card_ctx.owner_user_id,
-        conversation_id=card_ctx.conversation_id or "",
-        is_group=str(card_ctx.conversation_type or "") == "2",
-        sender_nick=card_ctx.sender_nick or "",
+        response_route_id="",
+        user_id=route_ctx.owner_user_id,
+        conversation_id=route_ctx.conversation_id or "",
+        is_group=str(route_ctx.conversation_type or "") == "2",
+        sender_nick=route_ctx.sender_nick or "",
         message_id="",
         raw_data={
             "platform": "feishu",
-            "chat_id": str(card_ctx.conversation_id or "").strip(),
-            "source_message_id": str(dict(card_ctx.extra_data or {}).get("source_message_id") or "").strip(),
+            "chat_id": str(route_ctx.conversation_id or "").strip(),
+            "source_message_id": str(dict(route_ctx.extra_data or {}).get("source_message_id") or "").strip(),
         },
     )

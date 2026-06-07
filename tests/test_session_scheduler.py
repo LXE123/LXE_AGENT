@@ -11,7 +11,7 @@ def _job(session_id: str, job_id: str) -> AgentJob:
         job_id=job_id,
         session_id=session_id,
         session_key=f"key:{session_id}",
-        card_id=f"card:{job_id}",
+        response_route_id=f"route:{job_id}",
         user_id="user",
         conversation_id="chat",
         is_group=False,
@@ -38,7 +38,7 @@ def test_scheduler_tracks_active_run_and_stop_request() -> None:
         active = scheduler.active_run("session-1")
         assert active is not None
         assert active.job_id == "job-1"
-        assert active.card_id == "card:job-1"
+        assert active.response_route_id == "route:job-1"
         assert scheduler.has_inflight_work("session-1") is True
 
         assert scheduler.request_stop("session-1") is True

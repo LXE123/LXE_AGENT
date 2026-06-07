@@ -197,7 +197,7 @@ def test_background_tasks_endpoint_returns_running_exec_snapshot(dashboard_clien
         "D:/workspace",
         owner_session_id="agent-session-1",
         origin_turn_id="turn-1",
-        card_id="card-1",
+        response_route_id="route-1",
     )
     session.explicit_background = True
     session.pid = 12345
@@ -214,7 +214,7 @@ def test_background_tasks_endpoint_returns_running_exec_snapshot(dashboard_clien
     assert task["session_id"] == "agent-session-1"
     assert task["session_title"] == "Task Owner"
     assert task["origin_turn_id"] == "turn-1"
-    assert task["card_id"] == "card-1"
+    assert task["response_route_id"] == "route-1"
     assert task["status"] == "running"
     assert task["pid"] == 12345
     assert task["background"] is True

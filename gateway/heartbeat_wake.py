@@ -21,7 +21,7 @@ _WAKE_PRIORITY = {
 class _PendingWake:
     session_id: str
     reason: str
-    card_id: str = ""
+    response_route_id: str = ""
 
 
 class HeartbeatWakeManager:
@@ -44,15 +44,25 @@ class HeartbeatWakeManager:
         self._pending.clear()
 
     async def handle_request(self, request: HeartbeatWakeRequest) -> None:
-        await self.request_now(session_id=request.session_id, reason=request.reason, card_id=request.card_id)
+        await self.request_now(
+            session_id=request.session_id,
+            reason=request.reason,
+            response_route_id=request.response_route_id,
+        )
 
-    async def request_now(self, *, session_id: str, reason: str = "exec-event", card_id: str = "") -> None:
+    async def request_now(
+        self,
+        *,
+        session_id: str,
+        reason: str = "exec-event",
+        response_route_id: str = "",
+    ) -> None:
         safe_session_id = str(session_id or "").strip()
         safe_reason = str(reason or "exec-event").strip() or "exec-event"
-        safe_card_id = str(card_id or "").strip()
+        safe_response_route_id = str(response_route_id or "").strip()
         if not safe_session_id:
             raise RuntimeError("session_id required")
-        self._queue_pending(safe_session_id, safe_reason, safe_card_id)
+        self._queue_pending(safe_session_id, safe_reason, safe_response_route_id)
         logger.info(
             "[ExecNotify] wake queued: owner_session_id=%s heartbeat_reason=%s pending_count=%s",
             safe_session_id,
@@ -61,8 +71,12 @@ class HeartbeatWakeManager:
         )
         self._ensure_scheduled(_RETRY_DELAY_S if safe_reason == "retry" else _NORMAL_DELAY_S, safe_reason)
 
-    def _queue_pending(self, session_id: str, reason: str, card_id: str = "") -> None:
-        next_wake = _PendingWake(session_id=session_id, reason=reason, card_id=str(card_id or "").strip())
+    def _queue_pending(self, session_id: str, reason: str, response_route_id: str = "") -> None:
+        next_wake = _PendingWake(
+            session_id=session_id,
+            reason=reason,
+            response_route_id=str(response_route_id or "").strip(),
+        )
         previous = self._pending.get(session_id)
         if previous is None:
             self._pending[session_id] = next_wake
@@ -74,8 +88,8 @@ class HeartbeatWakeManager:
                 previous.reason,
                 next_wake.reason,
             )
-            if not next_wake.card_id and previous.card_id:
-                next_wake.card_id = previous.card_id
+            if not next_wake.response_route_id and previous.response_route_id:
+                next_wake.response_route_id = previous.response_route_id
             self._pending[session_id] = next_wake
 
     def _ensure_scheduled(self, delay_s: float, kind: str) -> None:
@@ -141,7 +155,7 @@ class HeartbeatWakeManager:
                         wake.session_id,
                         wake.reason,
                     )
-                    self._queue_pending(wake.session_id, "retry", wake.card_id)
+                    self._queue_pending(wake.session_id, "retry", wake.response_route_id)
                     continue
                 session = await load_agent_session(wake.session_id)
                 if session is None:
@@ -167,7 +181,7 @@ class HeartbeatWakeManager:
                     job_id=f"heartbeat-{wake.session_id}-{asyncio.get_running_loop().time():.6f}",
                     session_id=wake.session_id,
                     session_key=session_key,
-                    card_id=str(wake.card_id or "").strip(),
+                    response_route_id=str(wake.response_route_id or "").strip(),
                     user_id=source_obj.user_key,
                     conversation_id=str(source_obj.chat_id or "").strip(),
                     is_group=str(source_obj.chat_type or "").strip() == "group",

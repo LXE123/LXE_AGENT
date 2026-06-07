@@ -604,7 +604,7 @@ class AgentLoop:
             on_progress=self.on_progress,
             cancellation_check=self.cancellation_check,
             turn_id=turn_log.turn_id,
-            card_id=str(turn.card_id or "").strip(),
+            response_route_id=str(turn.response_route_id or "").strip(),
             cancel_event=self.cancel_event,
         )
         set_tool_context(exec_ctx)
@@ -936,7 +936,7 @@ async def run_agent_turn(
     session_id: str = "",
     user_id: str = "",
     run_id: str = "",
-    card_id: str = "",
+    response_route_id: str = "",
     available_skills: list[Any] | None = None,
     on_progress: ProgressCallback | None = None,
     on_final_text_delta: FinalTextCallback | None = None,
@@ -968,7 +968,7 @@ async def run_agent_turn(
         available_skills=list(available_skills or []),
         user_content_blocks=list(user_content_blocks or []),
         run_id=str(run_id or "").strip(),
-        card_id=str(card_id or "").strip(),
+        response_route_id=str(response_route_id or "").strip(),
         provider_cancel_registrar=provider_cancel_registrar,
         tool_run_registrar=tool_run_registrar,
         tool_run_finisher=tool_run_finisher,

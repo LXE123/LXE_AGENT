@@ -14,7 +14,7 @@ class InboundEvent:
     is_group: bool
     message_id: str
     sender_nick: str = ""
-    card_id: str = ""
+    response_route_id: str = ""
     union_id: str = ""
     source: dict[str, Any] = field(default_factory=dict)
     raw_data: dict[str, Any] = field(default_factory=dict)
@@ -24,7 +24,7 @@ class InboundEvent:
 @dataclass(slots=True)
 class CallbackEvent:
     platform: str
-    out_track_id: str
+    response_route_id: str
     message_id: str
     user_id: str
     raw_data: dict[str, Any] = field(default_factory=dict)
@@ -63,7 +63,7 @@ class OutboundRequest:
     platform: str
     payload: dict[str, Any] = field(default_factory=dict)
     session_id: str = ""
-    card_id: str = ""
+    response_route_id: str = ""
     event_id: str = ""
     execution_token: str = ""
 

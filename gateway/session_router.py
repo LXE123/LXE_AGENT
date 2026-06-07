@@ -10,7 +10,7 @@ from shared.agent_io import AgentJob
 from shared.agent_state import build_initial_agent_state
 from shared.db.client import (
     create_agent_session,
-    create_card_context,
+    create_response_route_context,
     load_agent_session,
     pop_agent_session_pending_events,
     update_agent_session,
@@ -66,7 +66,9 @@ def _to_session_context(
         platform=str(source.platform or event.platform or "").strip(),
         user_input=str(event.user_input or "").strip(),
         user_id=str(source.user_key or event.user_id or "").strip(),
-        card_id=str(event.card_id or "").strip() or uuid.uuid4().hex,
+        response_route_id=str(
+            getattr(event, "response_route_id", "") or getattr(event, "card_id", "") or ""
+        ).strip() or uuid.uuid4().hex,
         conversation_id=str(source.chat_id or event.conversation_id or "").strip(),
         is_group=str(source.chat_type or "").strip().lower() == "group",
         message_id=str(event.message_id or source.message_id or "").strip(),
@@ -160,7 +162,7 @@ class SessionRouter:
             job_id=uuid.uuid4().hex,
             session_id=session.session_id,
             session_key=ctx.session_key,
-            card_id=ctx.card_id,
+            response_route_id=ctx.response_route_id,
             user_id=ctx.user_id,
             conversation_id=ctx.conversation_id,
             is_group=ctx.is_group,
@@ -184,9 +186,9 @@ class SessionRouter:
     async def _handle_stop(self, *, session, ctx: SessionContext) -> None:
         if session is None:
             logger.info(
-                "[SessionRouter] stop without session: session_key=%s card_id=%s message_id=%s",
+                "[SessionRouter] stop without session: session_key=%s response_route_id=%s message_id=%s",
                 ctx.session_key,
-                ctx.card_id,
+                ctx.response_route_id,
                 ctx.message_id,
             )
             await self._send_control_feedback(ctx, session_id="", markdown="当前没有正在执行的回复。")
@@ -250,7 +252,7 @@ class SessionRouter:
 
     @staticmethod
     async def _rebind_session(session, ctx: SessionContext):
-        await create_card_context(ctx)
+        await create_response_route_context(ctx)
         refreshed = await update_agent_session(
             session.session_id,
             source=dict(ctx.source or {}),
@@ -258,16 +260,16 @@ class SessionRouter:
         if refreshed is None:
             return session
         logger.info(
-            "[SessionRouter] rebound session source: session=%s session_key=%s card=%s",
+            "[SessionRouter] rebound session source: session=%s session_key=%s response_route_id=%s",
             refreshed.session_id,
             ctx.session_key,
-            ctx.card_id,
+            ctx.response_route_id,
         )
         return refreshed
 
     @staticmethod
     async def _create_session(ctx: SessionContext, *, session_id: str):
-        await create_card_context(ctx)
+        await create_response_route_context(ctx)
         session = await create_agent_session(
             source=dict(ctx.source or {}),
             state_data=build_initial_agent_state(entry_text=ctx.user_input),
@@ -288,7 +290,7 @@ class SessionRouter:
         session_id: str,
         markdown: str,
     ) -> None:
-        await create_card_context(ctx)
+        await create_response_route_context(ctx)
         platform = str(ctx.platform or "").strip()
         adapter = self._registry.get(platform)
         await adapter.handle_outbound(
@@ -297,7 +299,7 @@ class SessionRouter:
                 platform=platform,
                 payload={"markdown": str(markdown or "")},
                 session_id=str(session_id or "").strip(),
-                card_id=str(ctx.card_id or "").strip(),
+                response_route_id=str(ctx.response_route_id or "").strip(),
                 event_id=uuid.uuid4().hex,
             )
         )

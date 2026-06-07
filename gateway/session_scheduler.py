@@ -27,7 +27,7 @@ class ToolRunHandle:
 class RunHandle:
     session_id: str
     job_id: str
-    card_id: str = ""
+    response_route_id: str = ""
     task: asyncio.Task | None = None
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     thread_cancel_event: threading.Event = field(default_factory=threading.Event)
@@ -249,7 +249,7 @@ class SessionScheduler:
             handle = RunHandle(
                 session_id=session_id,
                 job_id=str(job.job_id or "").strip(),
-                card_id=str(job.card_id or "").strip(),
+                response_route_id=str(job.response_route_id or "").strip(),
             )
             task = asyncio.create_task(self._run_job(job, handle), name=f"agent-job:{job.job_id}")
             handle.task = task

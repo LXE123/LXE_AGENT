@@ -10,7 +10,7 @@ class SessionContext:
     platform: str
     user_input: str
     user_id: str
-    card_id: str
+    response_route_id: str
     conversation_id: str
     is_group: bool
     message_id: str

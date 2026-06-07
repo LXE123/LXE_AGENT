@@ -16,13 +16,13 @@ class FinalAnswerStreamer:
         self,
         *,
         session_id: str,
-        card_id: str,
+        response_route_id: str,
         emit_stream: StreamEmitter,
         min_interval_ms: int = 150,
         emit_id: str = "",
     ) -> None:
         self.session_id = str(session_id or "").strip()
-        self.card_id = str(card_id or "").strip()
+        self.response_route_id = str(response_route_id or "").strip()
         self.emit_id = str(emit_id or "").strip() or uuid4().hex
         self._emit_stream = emit_stream
         self._min_interval_s = max(0.0, int(min_interval_ms or 0) / 1000.0)
@@ -166,7 +166,7 @@ class FinalAnswerStreamer:
         try:
             await self._emit_stream(
                 self.session_id,
-                self.card_id,
+                self.response_route_id,
                 "final_answer",
                 state,
                 seq,

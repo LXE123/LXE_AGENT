@@ -125,7 +125,13 @@ def _project_venv_scripts_dir() -> Path:
     return _WORKSPACE_ROOT / ".venv" / "bin"
 
 
-def _prepare_child_env(*, owner_session_id: str, origin_turn_id: str, exec_session_id: str) -> dict[str, str]:
+def _prepare_child_env(
+    *,
+    owner_session_id: str,
+    origin_turn_id: str,
+    exec_session_id: str,
+    response_route_id: str,
+) -> dict[str, str]:
     child_env = os.environ.copy()
     child_env["PYTHONIOENCODING"] = "utf-8"
     venv_scripts = _project_venv_scripts_dir()
@@ -135,6 +141,7 @@ def _prepare_child_env(*, owner_session_id: str, origin_turn_id: str, exec_sessi
     child_env["LXE_AGENT_SESSION_ID"] = str(owner_session_id or "").strip()
     child_env["LXE_AGENT_TURN_ID"] = str(origin_turn_id or "").strip()
     child_env["LXE_EXEC_SESSION_ID"] = str(exec_session_id or "").strip()
+    child_env["LXE_RESPONSE_ROUTE_ID"] = str(response_route_id or "").strip()
     return child_env
 
 
@@ -153,7 +160,7 @@ class ExecSession:
     cwd: str
     owner_session_id: str = ""
     origin_turn_id: str = ""
-    card_id: str = ""
+    response_route_id: str = ""
     explicit_background: bool = False
     pid: int | None = None
     process: asyncio.subprocess.Process | None = None
@@ -197,7 +204,7 @@ class SessionRegistry:
         *,
         owner_session_id: str = "",
         origin_turn_id: str = "",
-        card_id: str = "",
+        response_route_id: str = "",
     ) -> ExecSession:
         session = ExecSession(
             id=f"exec_{uuid4().hex[:8]}",
@@ -205,7 +212,7 @@ class SessionRegistry:
             cwd=str(cwd or "").strip(),
             owner_session_id=str(owner_session_id or "").strip(),
             origin_turn_id=str(origin_turn_id or "").strip(),
-            card_id=str(card_id or "").strip(),
+            response_route_id=str(response_route_id or "").strip(),
         )
         with self._lock:
             self._sweep_locked()
@@ -382,7 +389,7 @@ def _completion_event(session: ExecSession) -> dict[str, Any]:
         "job_id": session.id,
         "created_at": int(time.time()),
         "text": text,
-        "card_id": str(session.card_id or "").strip(),
+        "response_route_id": str(session.response_route_id or "").strip(),
     }
 
 
@@ -434,7 +441,7 @@ async def _notify_completion(session: ExecSession) -> None:
     await request_heartbeat_wake(
         session_id=owner_session_id,
         reason="exec-event",
-        card_id=str(session.card_id or "").strip(),
+        response_route_id=str(session.response_route_id or "").strip(),
     )
     logger.info(
         "[ExecNotify] wake requested: exec_session_id=%s owner_session_id=%s event_id=%s heartbeat_reason=%s",
@@ -568,7 +575,7 @@ def _exec_session_snapshot(session: ExecSession) -> dict[str, Any]:
         "task_id": session.id,
         "session_id": str(session.owner_session_id or "").strip(),
         "origin_turn_id": str(session.origin_turn_id or "").strip(),
-        "card_id": str(session.card_id or "").strip(),
+        "response_route_id": str(session.response_route_id or "").strip(),
         "status": session.status.value if isinstance(session.status, SessionStatus) else str(session.status or ""),
         "pid": session.pid,
         "command": session.command,
@@ -664,7 +671,7 @@ async def run_exec_command(
     yield_ms: float | None = None,
     owner_session_id: str = "",
     origin_turn_id: str = "",
-    card_id: str = "",
+    response_route_id: str = "",
     cancel_event: asyncio.Event | None = None,
 ) -> dict[str, Any]:
     session = _REGISTRY.create(
@@ -672,7 +679,7 @@ async def run_exec_command(
         cwd=cwd,
         owner_session_id=owner_session_id,
         origin_turn_id=origin_turn_id,
-        card_id=card_id,
+        response_route_id=response_route_id,
     )
     session.explicit_background = bool(background)
     session.notify_on_exit = bool(background)
@@ -684,6 +691,7 @@ async def run_exec_command(
             owner_session_id=owner_session_id,
             origin_turn_id=origin_turn_id,
             exec_session_id=session.id,
+            response_route_id=response_route_id,
         )
         if os.name == "nt":
             proc = await asyncio.create_subprocess_exec(

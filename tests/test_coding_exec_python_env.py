@@ -98,6 +98,16 @@ def test_exec_injects_agent_session_env():
     assert "session_for_test" in str(payload.get("output") or "")
 
 
+def test_exec_injects_response_route_env():
+    payload = _run_exec(
+        'python -c "import os; print(os.environ.get(\'LXE_RESPONSE_ROUTE_ID\', \'\'))"',
+        response_route_id="route_for_test",
+    )
+
+    assert payload["status"] == "completed"
+    assert "route_for_test" in str(payload.get("output") or "")
+
+
 def test_exec_does_not_rewrite_uv_run_commands():
     command = 'uv run --frozen python -c "print(\'uv-ok\')"'
 

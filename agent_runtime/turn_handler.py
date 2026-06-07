@@ -86,7 +86,7 @@ async def _turn_cancel_requested(session_id: str, job_id: str) -> bool:
 
 async def _emit_final_answer_stream_frame(
     session_id: str,
-    card_id: str,
+    response_route_id: str,
     stream_type: str,
     state: str,
     seq: int,
@@ -95,7 +95,7 @@ async def _emit_final_answer_stream_frame(
 ) -> None:
     await default_emit_stream(
         session_id=session_id,
-        card_id=card_id,
+        response_route_id=response_route_id,
         stream_type=stream_type,
         state=state,
         seq=seq,
@@ -108,7 +108,7 @@ async def _persist_and_deliver(
     session: Any,
     outcome: TurnOutcome,
     *,
-    card_id: str,
+    response_route_id: str,
     emit_final_fn: FinalEmitter,
     skip_emit_final: bool = False,
     title_candidate: str = "",
@@ -137,7 +137,7 @@ async def _persist_and_deliver(
     try:
         await emit_final_fn(
             session_id=session_id,
-            card_id=card_id,
+            response_route_id=response_route_id,
             content=message,
             emit_id=uuid4().hex,
         )
@@ -151,7 +151,9 @@ def _payload_from_job(job: Any) -> dict[str, Any]:
         return dict(payload or {})
     return {
         "session_id": str(getattr(job, "session_id", "") or "").strip(),
-        "card_id": str(getattr(job, "card_id", "") or "").strip(),
+        "response_route_id": str(
+            getattr(job, "response_route_id", "") or getattr(job, "card_id", "") or ""
+        ).strip(),
         "session_key": str(getattr(job, "session_key", "") or "").strip(),
         "source": dict(getattr(job, "source", {}) or {}),
         "user_text": str(getattr(job, "user_input", "") or "").strip(),
@@ -171,7 +173,7 @@ async def handle_unified_turn_job(
 ) -> Any:
     payload = _payload_from_job(job)
     session_id = str(payload.get("session_id") or "").strip()
-    card_id = str(payload.get("card_id") or "").strip()
+    response_route_id = str(payload.get("response_route_id") or payload.get("card_id") or "").strip()
     user_text = str(payload.get("user_text") or "").strip()
     original_user_text = user_text
     job_id = str(getattr(job, "job_id", "") or payload.get("job_id") or "").strip()
@@ -193,7 +195,7 @@ async def handle_unified_turn_job(
 
     async def _emit_stream_frame(
         session_id: str,
-        card_id: str,
+        response_route_id: str,
         stream_type: str,
         state: str,
         seq: int,
@@ -202,7 +204,7 @@ async def handle_unified_turn_job(
     ) -> None:
         await emit_stream_fn(
             session_id=session_id,
-            card_id=card_id,
+            response_route_id=response_route_id,
             stream_type=stream_type,
             state=state,
             seq=seq,
@@ -213,11 +215,11 @@ async def handle_unified_turn_job(
     final_answer_streamer = (
         FinalAnswerStreamer(
             session_id=session_id,
-            card_id=card_id,
+            response_route_id=response_route_id,
             emit_stream=_emit_stream_frame,
             min_interval_ms=150,
         )
-        if _should_stream_final_answer(session) and card_id
+        if _should_stream_final_answer(session) and response_route_id
         else None
     )
 
@@ -291,7 +293,7 @@ async def handle_unified_turn_job(
                 tool_run_registrar=getattr(run_handle, "register_tool_run", None),
                 tool_run_finisher=getattr(run_handle, "finish_tool_run", None),
                 run_id=job_id,
-                card_id=card_id,
+                response_route_id=response_route_id,
             )
             if job_kind == "heartbeat":
                 logger.info(
@@ -354,7 +356,7 @@ async def handle_unified_turn_job(
     await _persist_and_deliver(
         latest_session,
         outcome,
-        card_id=card_id,
+        response_route_id=response_route_id,
         emit_final_fn=emit_final_fn,
         skip_emit_final=stream_final_delivered or outcome.status == "cancelled",
         title_candidate=original_user_text if job_kind != "heartbeat" else "",

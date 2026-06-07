@@ -9,7 +9,7 @@ class AgentJob:
     job_id: str
     session_id: str
     session_key: str
-    card_id: str
+    response_route_id: str
     user_id: str
     conversation_id: str
     is_group: bool
@@ -29,7 +29,7 @@ class AgentJob:
             job_kind=str(raw.get("job_kind") or "turn").strip() or "turn",
             session_id=str(raw.get("session_id") or "").strip(),
             session_key=str(raw.get("session_key") or "").strip(),
-            card_id=str(raw.get("card_id") or "").strip(),
+            response_route_id=str(raw.get("response_route_id") or raw.get("card_id") or "").strip(),
             user_id=str(raw.get("user_id") or "").strip(),
             conversation_id=str(raw.get("conversation_id") or "").strip(),
             is_group=bool(raw.get("is_group")),
@@ -48,7 +48,7 @@ class AgentJob:
 @dataclass(slots=True)
 class EmitRequest:
     session_id: str
-    card_id: str = ""
+    response_route_id: str = ""
     content: str = ""
     files: list[str] = field(default_factory=list)
     emit_kind: str = ""
@@ -66,7 +66,7 @@ class EmitRequest:
             files = [str(item or "").strip() for item in files_raw if str(item or "").strip()]
         return cls(
             session_id=str(raw.get("session_id") or "").strip(),
-            card_id=str(raw.get("card_id") or "").strip(),
+            response_route_id=str(raw.get("response_route_id") or raw.get("card_id") or "").strip(),
             content=str(raw.get("content") or "").strip(),
             files=files,
             emit_kind=str(raw.get("emit_kind") or "").strip(),
@@ -84,7 +84,7 @@ class EmitRequest:
 class HeartbeatWakeRequest:
     session_id: str
     reason: str = "exec-event"
-    card_id: str = ""
+    response_route_id: str = ""
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "HeartbeatWakeRequest":
@@ -92,7 +92,7 @@ class HeartbeatWakeRequest:
         return cls(
             session_id=str(raw.get("session_id") or "").strip(),
             reason=str(raw.get("reason") or "exec-event").strip() or "exec-event",
-            card_id=str(raw.get("card_id") or "").strip(),
+            response_route_id=str(raw.get("response_route_id") or raw.get("card_id") or "").strip(),
         )
 
     def to_dict(self) -> dict[str, Any]:

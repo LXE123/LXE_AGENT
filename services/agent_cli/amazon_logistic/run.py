@@ -47,6 +47,10 @@ def _resolve_agent_session_id() -> str:
     return str(os.environ.get("LXE_AGENT_SESSION_ID") or "").strip()
 
 
+def _resolve_response_route_id() -> str:
+    return str(os.environ.get("LXE_RESPONSE_ROUTE_ID") or "").strip()
+
+
 def _configure_emit() -> None:
     return None
 
@@ -198,6 +202,7 @@ def _parse_tsv_input(input_text: str) -> tuple[str, list[dict[str, str]]]:
 async def _run_single_mode(
     *,
     session_id: str,
+    response_route_id: str,
     shipment_no: str,
     consignment_no: str,
     destination_address: str,
@@ -226,8 +231,11 @@ async def _run_single_mode(
         f"{shipment_no}_{consignment_no}",
         "channel_pricing",
     )
-    if not await send_file_to_current_session(session_id, markdown_path):
-        raise RuntimeError("物流优选结果文件已生成，但发送失败")
+    await send_file_to_current_session(
+        session_id,
+        markdown_path,
+        response_route_id=response_route_id,
+    )
     return _result(
         success=True,
         message="已完成计算流程，文件已发送。",
@@ -238,6 +246,7 @@ async def _run_single_mode(
 async def _run_batch_mode(
     *,
     session_id: str,
+    response_route_id: str,
     consignment_no: str,
     rows: list[dict[str, str]],
 ) -> dict[str, str | bool]:
@@ -274,8 +283,11 @@ async def _run_batch_mode(
         f"batch_{consignment_no}",
         "channel_pricing",
     )
-    if not await send_file_to_current_session(session_id, markdown_path):
-        raise RuntimeError("物流优选结果文件已生成，但发送失败")
+    await send_file_to_current_session(
+        session_id,
+        markdown_path,
+        response_route_id=response_route_id,
+    )
     return _result(
         success=True,
         message="已完成计算流程，文件已发送。",
@@ -301,6 +313,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, str | bool]:
             raise RuntimeError("缺少 LXE_AGENT_SESSION_ID")
         return await _run_batch_mode(
             session_id=session_id,
+            response_route_id=_resolve_response_route_id(),
             consignment_no=parsed_consignment_no,
             rows=parsed_rows,
         )
@@ -317,6 +330,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, str | bool]:
 
     return await _run_single_mode(
         session_id=session_id,
+        response_route_id=_resolve_response_route_id(),
         shipment_no=shipment_no,
         consignment_no=consignment_no,
         destination_address=destination_address,

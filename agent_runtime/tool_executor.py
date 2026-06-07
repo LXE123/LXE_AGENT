@@ -36,7 +36,7 @@ class ToolExecutionContext:
         on_progress: Callable[[str], Awaitable[None]] | None = None,
         cancellation_check: Callable[[], Awaitable[bool]] | None = None,
         turn_id: str = "",
-        card_id: str = "",
+        response_route_id: str = "",
         cancel_event: Any = None,
     ) -> None:
         self.session = session
@@ -44,7 +44,7 @@ class ToolExecutionContext:
         self.on_progress = on_progress
         self.cancellation_check = cancellation_check
         self.turn_id = str(turn_id or "").strip()
-        self.card_id = str(card_id or "").strip()
+        self.response_route_id = str(response_route_id or "").strip()
         self.cancel_event = cancel_event
 
     def update_state(self, patch: dict[str, Any] | None) -> None:

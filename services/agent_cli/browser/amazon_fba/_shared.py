@@ -45,6 +45,10 @@ def resolve_agent_session_id() -> str:
     return str(os.environ.get("LXE_AGENT_SESSION_ID") or "").strip()
 
 
+def resolve_response_route_id() -> str:
+    return str(os.environ.get("LXE_RESPONSE_ROUTE_ID") or "").strip()
+
+
 def result_with_details(
     *,
     params_ready: bool,
@@ -132,12 +136,19 @@ def send_selected_result_files(
     session_id = resolve_agent_session_id()
     if not session_id:
         return safe_payload
+    response_route_id = resolve_response_route_id()
 
     async def _send_all() -> list[str]:
         failed: list[str] = []
         for path in file_paths:
-            if not await send_file_to_current_session(session_id, path):
-                failed.append(path)
+            try:
+                await send_file_to_current_session(
+                    session_id,
+                    path,
+                    response_route_id=response_route_id,
+                )
+            except Exception as exc:
+                failed.append(f"{path} ({exception_text(exc)})")
         return failed
 
     failed_files = asyncio.run(_send_all())

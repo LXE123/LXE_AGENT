@@ -746,12 +746,18 @@ async def _handle_send_file(path: str = "", **_: Any) -> ToolResult:
 
     ctx = get_tool_context()
     session_id = str(getattr(getattr(ctx, "session", None), "session_id", "") or "").strip()
+    response_route_id = str(getattr(ctx, "response_route_id", "") or "").strip()
     if not session_id:
         _tool_error("当前没有可用会话，无法发送文件。")
 
-    sent = await send_file_to_current_session(session_id, str(resolved))
-    if not sent:
-        _tool_error(f"文件发送失败: {resolved}")
+    try:
+        await send_file_to_current_session(
+            session_id,
+            str(resolved),
+            response_route_id=response_route_id,
+        )
+    except Exception as exc:
+        raise ToolExecutionError(f"文件发送失败: {resolved}; error={exc}") from exc
 
     try:
         display_path = str(resolved.relative_to(WORKSPACE_ROOT))
@@ -851,7 +857,7 @@ async def _handle_exec(
 
     owner_session_id = ""
     origin_turn_id = ""
-    card_id = ""
+    response_route_id = ""
     cancel_event = None
     try:
         tool_ctx = get_tool_context()
@@ -861,7 +867,7 @@ async def _handle_exec(
         session = getattr(tool_ctx, "session", None)
         owner_session_id = str(getattr(session, "session_id", "") or "").strip()
         origin_turn_id = str(getattr(tool_ctx, "turn_id", "") or "").strip()
-        card_id = str(getattr(tool_ctx, "card_id", "") or "").strip()
+        response_route_id = str(getattr(tool_ctx, "response_route_id", "") or "").strip()
         cancel_event = getattr(tool_ctx, "cancel_event", None)
 
     payload = await run_exec_command(
@@ -872,7 +878,7 @@ async def _handle_exec(
         yield_ms=float(yield_ms) if yield_ms is not None else None,
         owner_session_id=owner_session_id,
         origin_turn_id=origin_turn_id,
-        card_id=card_id,
+        response_route_id=response_route_id,
         cancel_event=cancel_event,
     )
     if str(payload.get("status") or "").strip() == "running":
