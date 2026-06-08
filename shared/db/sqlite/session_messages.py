@@ -112,16 +112,21 @@ def _display_item_ranges(messages: list[dict[str, Any]]) -> list[tuple[int, int]
 def load_session_messages_page(
     session_id: str,
     *,
-    limit: int = 50,
-    before: int | None = None,
+    limit: int = 25,
+    page: int | None = None,
 ) -> dict[str, Any]:
     safe_limit = max(1, min(int(limit), 200))
     messages = load_session_messages(session_id)
     raw_total = len(messages)
     ranges = _display_item_ranges(messages)
     total = len(ranges)
-    end = total if before is None else max(0, min(int(before), total))
-    start = max(0, end - safe_limit)
+    total_pages = max(1, (total + safe_limit - 1) // safe_limit)
+    if page is None:
+        current_page = total_pages
+    else:
+        current_page = max(1, min(int(page), total_pages))
+    start = min(total, (current_page - 1) * safe_limit)
+    end = min(total, start + safe_limit)
     selected_ranges = ranges[start:end]
     if selected_ranges:
         raw_start = selected_ranges[0][0]
@@ -137,7 +142,10 @@ def load_session_messages_page(
             "start": start,
             "end": end,
             "limit": safe_limit,
-            "has_older": start > 0,
+            "current_page": current_page,
+            "total_pages": total_pages,
+            "has_previous": current_page > 1,
+            "has_next": current_page < total_pages,
         },
     }
 

@@ -1,0 +1,79 @@
+{
+  "name": "默认模板",
+  "version": 1,
+  "description": "当前默认备货算法参数",
+  "params": {
+    "weighted_sales": {
+      "7d_weight": 0.6,
+      "14d_weight": 0.3,
+      "30d_weight": 0.1
+    },
+    "trend_groups": {
+      "growth": ["快速增长", "增长", "新增出单/恢复出单"],
+      "decline": ["快速下降", "下降"],
+      "stable": ["平稳", "无销量"],
+      "skip": ["样本不足"]
+    },
+    "replenishment_days": [
+      {
+        "label": "极高销量",
+        "daily_sales_gt": 10,
+        "growth": 90,
+        "stable": 90,
+        "decline": 75
+      },
+      {
+        "label": "高销量",
+        "daily_sales_gt": 5,
+        "growth": 90,
+        "stable": 75,
+        "decline": 60
+      },
+      {
+        "label": "普通销量",
+        "daily_sales_gt": 2,
+        "growth": 75,
+        "stable": 60,
+        "decline": 45
+      },
+      {
+        "label": "低销量",
+        "daily_sales_gt": null,
+        "growth": 60,
+        "stable": 45,
+        "decline": 45
+      }
+    ],
+    "shipping": {
+      "air_urgent_sales_days_lte": 40,
+      "air_sales_days_lte": 70
+    },
+    "sea": {
+      "min_daily_sales": 5,
+      "min_weight_kg": 60,
+      "tiers": [
+        {
+          "daily_sales_gt": 5,
+          "daily_sales_lte": 10,
+          "days": [90]
+        },
+        {
+          "daily_sales_gt": 10,
+          "daily_sales_lte": 20,
+          "days": [95]
+        },
+        {
+          "daily_sales_gt": 20,
+          "daily_sales_lte": 50,
+          "days": [100]
+        },
+        {
+          "daily_sales_gt": 50,
+          "daily_sales_lte": null,
+          "days": [100, 110]
+        }
+      ]
+    },
+    "special_rules": []
+  }
+}

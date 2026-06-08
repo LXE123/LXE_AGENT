@@ -79,7 +79,10 @@ type MessagesPagePayload = {
   start: number;
   end: number;
   limit: number;
-  has_older: boolean;
+  current_page: number;
+  total_pages: number;
+  has_previous: boolean;
+  has_next: boolean;
 };
 
 type SessionDetailPayload = {
@@ -142,7 +145,7 @@ type ApiList<T> = {
   offset?: number;
 };
 
-const SESSION_MESSAGE_PAGE_LIMIT = 50;
+const SESSION_MESSAGE_PAGE_LIMIT = 25;
 
 type DashboardData = {
   sessions: ApiList<SessionPayload>;
@@ -541,18 +544,18 @@ function SessionDetailView({
   detail,
   loading,
   error,
-  olderLoading,
-  olderError,
-  onLoadOlder,
+  pageLoading,
+  pageError,
+  onPageChange,
   onBack
 }: {
   fallbackSession: SessionPayload;
   detail: SessionDetailPayload | null;
   loading: boolean;
   error: string;
-  olderLoading: boolean;
-  olderError: string;
-  onLoadOlder: () => void;
+  pageLoading: boolean;
+  pageError: string;
+  onPageChange: (page: number) => void;
   onBack: () => void;
 }) {
   const session = detail?.session || fallbackSession;
@@ -603,20 +606,6 @@ function SessionDetailView({
       {!loading && !error ? (
         messages.length ? (
           <>
-            <div className="message-page-toolbar">
-              <div>
-                <div className="message-page-count">
-                  已显示 {formatNumber(visibleItemCount)} / {formatNumber(page?.total || renderItems.length)} conversation items
-                  {page ? <span> · {formatNumber(page.raw_message_total)} raw messages</span> : null}
-                </div>
-                {olderError ? <div className="message-page-error">{olderError}</div> : null}
-              </div>
-              {page?.has_older ? (
-                <button className="load-older-button" type="button" disabled={olderLoading} onClick={onLoadOlder}>
-                  {olderLoading ? "Loading..." : "加载更早消息"}
-                </button>
-              ) : null}
-            </div>
             <div className="message-list">
               {renderItems.map((item) => {
                 if (item.type === "tool_group") {
@@ -642,6 +631,34 @@ function SessionDetailView({
                   </article>
                 );
               })}
+            </div>
+            <div className="message-page-toolbar">
+              <button
+                className="page-nav-button"
+                type="button"
+                disabled={pageLoading || !page?.has_previous}
+                onClick={() => page && onPageChange(page.current_page - 1)}
+              >
+                上一页
+              </button>
+              <div className="message-page-center">
+                <div className="message-page-count">
+                  当前页 {formatNumber(visibleItemCount)} / 总 {formatNumber(page?.total || renderItems.length)} conversation items
+                  {page ? <span> · {formatNumber(page.raw_message_total)} raw messages</span> : null}
+                </div>
+                <div className="message-page-index">
+                  第 {formatNumber(page?.current_page || 1)} / {formatNumber(page?.total_pages || 1)} 页
+                </div>
+                {pageError ? <div className="message-page-error">{pageError}</div> : null}
+              </div>
+              <button
+                className="page-nav-button"
+                type="button"
+                disabled={pageLoading || !page?.has_next}
+                onClick={() => page && onPageChange(page.current_page + 1)}
+              >
+                下一页
+              </button>
             </div>
           </>
         ) : (
@@ -1164,9 +1181,9 @@ function App() {
   const [selectedSession, setSelectedSession] = useState<SessionPayload | null>(null);
   const [sessionDetail, setSessionDetail] = useState<SessionDetailPayload | null>(null);
   const [sessionDetailLoading, setSessionDetailLoading] = useState(false);
-  const [sessionDetailOlderLoading, setSessionDetailOlderLoading] = useState(false);
+  const [sessionDetailPageLoading, setSessionDetailPageLoading] = useState(false);
   const [sessionDetailError, setSessionDetailError] = useState("");
-  const [sessionDetailOlderError, setSessionDetailOlderError] = useState("");
+  const [sessionDetailPageError, setSessionDetailPageError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1218,9 +1235,9 @@ function App() {
     setSelectedSession(session);
     setSessionDetail(null);
     setSessionDetailError("");
-    setSessionDetailOlderError("");
+    setSessionDetailPageError("");
     setSessionDetailLoading(true);
-    setSessionDetailOlderLoading(false);
+    setSessionDetailPageLoading(false);
     try {
       const detail = await fetchJson<SessionDetailPayload>(
         `/api/sessions/${encodeURIComponent(session.session_id)}?message_limit=${SESSION_MESSAGE_PAGE_LIMIT}`
@@ -1233,34 +1250,26 @@ function App() {
     }
   }
 
-  async function loadOlderSessionMessages() {
-    if (!selectedSession || !sessionDetail || !sessionDetail.messages_page.has_older || sessionDetailOlderLoading) {
+  async function loadSessionMessagesPage(page: number) {
+    if (!selectedSession || !sessionDetail || sessionDetailPageLoading) {
       return;
     }
-    setSessionDetailOlderLoading(true);
-    setSessionDetailOlderError("");
+    setSessionDetailPageLoading(true);
+    setSessionDetailPageError("");
     try {
-      const older = await fetchJson<SessionDetailPayload>(
-        `/api/sessions/${encodeURIComponent(selectedSession.session_id)}?message_limit=${SESSION_MESSAGE_PAGE_LIMIT}&message_before=${sessionDetail.messages_page.start}`
+      const nextDetail = await fetchJson<SessionDetailPayload>(
+        `/api/sessions/${encodeURIComponent(selectedSession.session_id)}?message_limit=${SESSION_MESSAGE_PAGE_LIMIT}&message_page=${page}`
       );
       setSessionDetail((current) => {
         if (!current || current.session.session_id !== selectedSession.session_id) {
-          return older;
+          return nextDetail;
         }
-        return {
-          session: current.session,
-          messages: [...older.messages, ...current.messages],
-          messages_page: {
-            ...older.messages_page,
-            end: current.messages_page.end,
-            has_older: older.messages_page.has_older,
-          },
-        };
+        return nextDetail;
       });
     } catch (err) {
-      setSessionDetailOlderError(err instanceof Error ? err.message : String(err));
+      setSessionDetailPageError(err instanceof Error ? err.message : String(err));
     } finally {
-      setSessionDetailOlderLoading(false);
+      setSessionDetailPageLoading(false);
     }
   }
 
@@ -1268,9 +1277,9 @@ function App() {
     setSelectedSession(null);
     setSessionDetail(null);
     setSessionDetailError("");
-    setSessionDetailOlderError("");
+    setSessionDetailPageError("");
     setSessionDetailLoading(false);
-    setSessionDetailOlderLoading(false);
+    setSessionDetailPageLoading(false);
   }
 
   const totalTokens = (data?.sessions.items || []).reduce(
@@ -1364,9 +1373,9 @@ function App() {
                   detail={sessionDetail}
                   loading={sessionDetailLoading}
                   error={sessionDetailError}
-                  olderLoading={sessionDetailOlderLoading}
-                  olderError={sessionDetailOlderError}
-                  onLoadOlder={loadOlderSessionMessages}
+                  pageLoading={sessionDetailPageLoading}
+                  pageError={sessionDetailPageError}
+                  onPageChange={loadSessionMessagesPage}
                   onBack={closeSessionDetail}
                 />
               ) : null}

@@ -122,12 +122,15 @@ def test_session_detail_endpoint_returns_metadata_and_messages(dashboard_client)
         "raw_message_total": 2,
         "start": 0,
         "end": 2,
-        "limit": 50,
-        "has_older": False,
+        "limit": 25,
+        "current_page": 1,
+        "total_pages": 1,
+        "has_previous": False,
+        "has_next": False,
     }
 
 
-def test_session_detail_endpoint_defaults_to_latest_50_display_items(dashboard_client):
+def test_session_detail_endpoint_defaults_to_latest_25_display_items(dashboard_client):
     messages = [{"role": "user", "content": f"message {index}"} for index in range(100)]
     created = create_agent_session(
         session_id="long-detail-session",
@@ -140,19 +143,22 @@ def test_session_detail_endpoint_defaults_to_latest_50_display_items(dashboard_c
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["content"] for item in payload["messages"]] == [f"message {index}" for index in range(50, 100)]
+    assert [item["content"] for item in payload["messages"]] == [f"message {index}" for index in range(75, 100)]
     assert payload["session"]["message_count"] == 100
     assert payload["messages_page"] == {
         "total": 100,
         "raw_message_total": 100,
-        "start": 50,
+        "start": 75,
         "end": 100,
-        "limit": 50,
-        "has_older": True,
+        "limit": 25,
+        "current_page": 4,
+        "total_pages": 4,
+        "has_previous": True,
+        "has_next": False,
     }
 
 
-def test_session_detail_endpoint_loads_previous_display_page(dashboard_client):
+def test_session_detail_endpoint_loads_requested_display_page(dashboard_client):
     messages = [{"role": "user", "content": f"message {index}"} for index in range(100)]
     created = create_agent_session(
         session_id="previous-detail-session",
@@ -161,18 +167,48 @@ def test_session_detail_endpoint_loads_previous_display_page(dashboard_client):
         title="Previous Detail",
     )
 
-    response = dashboard_client.get(f"/api/sessions/{created.session_id}?message_limit=20&message_before=50")
+    response = dashboard_client.get(f"/api/sessions/{created.session_id}?message_limit=20&message_page=2")
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["content"] for item in payload["messages"]] == [f"message {index}" for index in range(30, 50)]
+    assert [item["content"] for item in payload["messages"]] == [f"message {index}" for index in range(20, 40)]
     assert payload["messages_page"] == {
         "total": 100,
         "raw_message_total": 100,
-        "start": 30,
-        "end": 50,
+        "start": 20,
+        "end": 40,
         "limit": 20,
-        "has_older": True,
+        "current_page": 2,
+        "total_pages": 5,
+        "has_previous": True,
+        "has_next": True,
+    }
+
+
+def test_session_detail_endpoint_clamps_message_page(dashboard_client):
+    messages = [{"role": "user", "content": f"message {index}"} for index in range(12)]
+    created = create_agent_session(
+        session_id="clamp-detail-session",
+        source=_source("chat-clamp-detail"),
+        state_data=_state(messages),
+        title="Clamp Detail",
+    )
+
+    response = dashboard_client.get(f"/api/sessions/{created.session_id}?message_limit=5&message_page=999")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["content"] for item in payload["messages"]] == [f"message {index}" for index in range(10, 12)]
+    assert payload["messages_page"] == {
+        "total": 12,
+        "raw_message_total": 12,
+        "start": 10,
+        "end": 12,
+        "limit": 5,
+        "current_page": 3,
+        "total_pages": 3,
+        "has_previous": True,
+        "has_next": False,
     }
 
 
@@ -198,19 +234,22 @@ def test_session_detail_endpoint_counts_contiguous_tools_as_one_display_item(das
         title="Tool Page",
     )
 
-    response = dashboard_client.get(f"/api/sessions/{created.session_id}?message_limit=2")
+    response = dashboard_client.get(f"/api/sessions/{created.session_id}?message_limit=1&message_page=2")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["messages"] == messages[1:]
+    assert payload["messages"] == messages[1:5]
     assert payload["session"]["message_count"] == 6
     assert payload["messages_page"] == {
         "total": 3,
         "raw_message_total": 6,
         "start": 1,
-        "end": 3,
-        "limit": 2,
-        "has_older": True,
+        "end": 2,
+        "limit": 1,
+        "current_page": 2,
+        "total_pages": 3,
+        "has_previous": True,
+        "has_next": True,
     }
 
 
@@ -233,8 +272,11 @@ def test_session_detail_endpoint_returns_empty_messages_when_jsonl_missing(dashb
         "raw_message_total": 0,
         "start": 0,
         "end": 0,
-        "limit": 50,
-        "has_older": False,
+        "limit": 25,
+        "current_page": 1,
+        "total_pages": 1,
+        "has_previous": False,
+        "has_next": False,
     }
 
 

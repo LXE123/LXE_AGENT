@@ -8,6 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from shared.config import config
+from services.mabang.amazon.fba.replenishment_template import (
+    DEFAULT_TEMPLATE_NAME,
+    ReplenishmentTemplate,
+    calculate_weighted_daily_sales,
+    effective_params_for_msku,
+    get_template,
+    replenishment_days_from_template,
+    sea_day_candidates_from_template,
+    trend_group_from_template,
+    validate_template,
+)
 
 DEFAULT_SALES_ANALYSIS_DIR = Path("artifacts") / "mabang_store_msku_analysis"
 DEFAULT_ACTUAL_INVENTORY_DIR = Path("artifacts") / "mabang_store_msku_inventory"
@@ -40,6 +51,8 @@ DETAIL_COLUMNS = (
     "本地SKU",
     "商品链接",
     "SKU类型",
+    "模板名称",
+    "命中规则",
     "销量趋势",
     "趋势分组",
     "加权日销",
@@ -82,7 +95,17 @@ INVENTORY_REQUIRED_COLUMNS = (
     "真实库存数量",
     "子SKU",
 )
-SALES_REQUIRED_COLUMNS = ("MSKU", "父ASIN", "ASIN", "本地SKU", "销量趋势", "单品重量(g)(cm)")
+SALES_REQUIRED_COLUMNS = (
+    "MSKU",
+    "父ASIN",
+    "ASIN",
+    "本地SKU",
+    "7天销量",
+    "14天销量",
+    "30天销量",
+    "销量趋势",
+    "单品重量(g)(cm)",
+)
 TRANSPORT_ORDER = (AIR_URGENT_SHEET, AIR_SHEET, SEA_SHEET, NO_SHIP_SHEET, SAMPLE_INSUFFICIENT_SHEET)
 TWO_DECIMAL_COLUMNS = {"加权日销", "可销售天数", "FBA总库存", "真实库存数量", "单品重量(g)", "预计总重量kg", "最大加权日销", "合计加权日销", "最小可销售天数", "链接真实本地库存汇总"}
 INTEGER_COLUMNS = {"MSKU数", "总补货量", "空运（急发）补货量", "空运补货量", "海运建议量", "补货天数", "补货量", "海运天数"}
@@ -112,6 +135,9 @@ class MatchedReports:
 class SalesDetail:
     trend: str
     weight_grams: float | None
+    sales_7d: float
+    sales_14d: float
+    sales_30d: float
 
 
 @dataclass(frozen=True)
@@ -137,6 +163,8 @@ class ReplenishmentRow:
     local_sku: str
     product_link: str
     sku_type: str
+    template_name: str
+    matched_rule: str
     sales_trend: str
     trend_group: str
     weighted_daily_sales: float
@@ -161,6 +189,8 @@ class ReplenishmentRow:
             "本地SKU": self.local_sku,
             "商品链接": self.product_link,
             "SKU类型": self.sku_type,
+            "模板名称": self.template_name,
+            "命中规则": self.matched_rule,
             "销量趋势": self.sales_trend,
             "趋势分组": self.trend_group,
             "加权日销": _display_float(self.weighted_daily_sales),
@@ -184,6 +214,8 @@ class StoreMskuReplenishmentResult:
     source_data_time: str
     sales_analysis_xlsx_path: str
     actual_inventory_xlsx_path: str
+    template_name: str
+    template_version: int
     row_count: int
     link_count: int
     air_urgent_count: int
@@ -201,6 +233,8 @@ class StoreMskuReplenishmentResult:
             "source_data_time": self.source_data_time,
             "sales_analysis_xlsx_path": self.sales_analysis_xlsx_path,
             "actual_inventory_xlsx_path": self.actual_inventory_xlsx_path,
+            "template_name": self.template_name,
+            "template_version": self.template_version,
             "row_count": self.row_count,
             "link_count": self.link_count,
             "air_urgent_count": self.air_urgent_count,
@@ -484,47 +518,45 @@ def load_sales_details(xlsx_path: str | Path) -> dict[tuple[str, str, str, str],
         details[key] = SalesDetail(
             trend=_clean_text(record.get("销量趋势")),
             weight_grams=parse_weight_grams(record.get("单品重量(g)(cm)")),
+            sales_7d=_number(record.get("7天销量")),
+            sales_14d=_number(record.get("14天销量")),
+            sales_30d=_number(record.get("30天销量")),
         )
     return details
 
 
 def trend_group(trend: str) -> str | None:
-    clean_trend = _clean_text(trend)
-    if clean_trend in {"快速增长", "增长", "新增出单/恢复出单"}:
-        return "增长"
-    if clean_trend in {"快速下降", "下降"}:
-        return "下降"
-    if clean_trend in {"平稳", "无销量"}:
-        return "平稳"
-    if clean_trend == "样本不足":
-        return None
-    raise StoreMskuReplenishmentError(f"未知销量趋势: {clean_trend}")
+    return trend_group_from_template(trend, get_template(DEFAULT_TEMPLATE_NAME))
 
 
 def replenishment_days(weighted_daily_sales: float, mapped_trend: str) -> int:
-    if weighted_daily_sales > 10:
-        return {"增长": 90, "平稳": 90, "下降": 75}[mapped_trend]
-    if weighted_daily_sales > 5:
-        return {"增长": 90, "平稳": 75, "下降": 60}[mapped_trend]
-    if weighted_daily_sales > 2:
-        return {"增长": 75, "平稳": 60, "下降": 45}[mapped_trend]
-    return {"增长": 60, "平稳": 45, "下降": 45}[mapped_trend]
+    return replenishment_days_from_template(
+        weighted_daily_sales,
+        mapped_trend,
+        get_template(DEFAULT_TEMPLATE_NAME).params,
+    )
 
 
 def _sea_day_candidates(weighted_daily_sales: float) -> list[int]:
-    if weighted_daily_sales <= 5:
-        return []
-    if weighted_daily_sales <= 10:
-        return [90]
-    if weighted_daily_sales <= 20:
-        return [95]
-    if weighted_daily_sales <= 50:
-        return [100]
-    return [100, 110]
+    return sea_day_candidates_from_template(weighted_daily_sales, get_template(DEFAULT_TEMPLATE_NAME).params)
 
 
-def calculate_replenishment_row(row: InventoryInputRow, sales_detail: SalesDetail) -> ReplenishmentRow:
-    mapped_trend = trend_group(sales_detail.trend)
+def calculate_replenishment_row(
+    row: InventoryInputRow,
+    sales_detail: SalesDetail,
+    template: ReplenishmentTemplate | None = None,
+) -> ReplenishmentRow:
+    active_template = template or get_template(DEFAULT_TEMPLATE_NAME)
+    params, matched_rule = effective_params_for_msku(active_template, row.msku)
+    weighted_daily_sales = calculate_weighted_daily_sales(
+        sales_7d=sales_detail.sales_7d,
+        sales_14d=sales_detail.sales_14d,
+        sales_30d=sales_detail.sales_30d,
+        params=params,
+    )
+    sales_days = None if weighted_daily_sales <= 0 else row.fba_total_inventory / weighted_daily_sales
+    rule_name = matched_rule or "默认规则"
+    mapped_trend = trend_group_from_template(sales_detail.trend, active_template)
     if mapped_trend is None:
         return ReplenishmentRow(
             msku=row.msku,
@@ -533,10 +565,12 @@ def calculate_replenishment_row(row: InventoryInputRow, sales_detail: SalesDetai
             local_sku=row.local_sku,
             product_link=row.product_link,
             sku_type=row.sku_type,
+            template_name=active_template.name,
+            matched_rule=rule_name,
             sales_trend=sales_detail.trend,
             trend_group="样本不足",
-            weighted_daily_sales=row.weighted_daily_sales,
-            sales_days=row.sales_days,
+            weighted_daily_sales=weighted_daily_sales,
+            sales_days=sales_days,
             fba_total_inventory=row.fba_total_inventory,
             actual_inventory=row.actual_inventory,
             weight_grams=sales_detail.weight_grams,
@@ -550,8 +584,8 @@ def calculate_replenishment_row(row: InventoryInputRow, sales_detail: SalesDetai
             sheet_name=SAMPLE_INSUFFICIENT_SHEET,
         )
 
-    replenish_day_count = replenishment_days(row.weighted_daily_sales, mapped_trend)
-    replenish_quantity = math.ceil(row.weighted_daily_sales * replenish_day_count)
+    replenish_day_count = replenishment_days_from_template(weighted_daily_sales, mapped_trend, params)
+    replenish_quantity = math.ceil(weighted_daily_sales * replenish_day_count)
     base_kwargs = {
         "msku": row.msku,
         "parent_asin": row.parent_asin,
@@ -559,10 +593,12 @@ def calculate_replenishment_row(row: InventoryInputRow, sales_detail: SalesDetai
         "local_sku": row.local_sku,
         "product_link": row.product_link,
         "sku_type": row.sku_type,
+        "template_name": active_template.name,
+        "matched_rule": rule_name,
         "sales_trend": sales_detail.trend,
         "trend_group": mapped_trend,
-        "weighted_daily_sales": row.weighted_daily_sales,
-        "sales_days": row.sales_days,
+        "weighted_daily_sales": weighted_daily_sales,
+        "sales_days": sales_days,
         "fba_total_inventory": row.fba_total_inventory,
         "actual_inventory": row.actual_inventory,
         "weight_grams": sales_detail.weight_grams,
@@ -571,7 +607,7 @@ def calculate_replenishment_row(row: InventoryInputRow, sales_detail: SalesDetai
         "child_skus": row.child_skus,
     }
 
-    if row.sales_days is None:
+    if sales_days is None:
         return ReplenishmentRow(
             **base_kwargs,
             sea_days=None,
@@ -580,32 +616,35 @@ def calculate_replenishment_row(row: InventoryInputRow, sales_detail: SalesDetai
             decision_reason="可销售天数为空，暂不建议发货",
             sheet_name=NO_SHIP_SHEET,
         )
-    if row.sales_days <= 40:
+    air_urgent_days = float(params["shipping"]["air_urgent_sales_days_lte"])
+    air_days = float(params["shipping"]["air_sales_days_lte"])
+    if sales_days <= air_urgent_days:
         return ReplenishmentRow(
             **base_kwargs,
             sea_days=None,
             sea_quantity=None,
             estimated_weight_kg=None,
-            decision_reason=f"可销售天数={row.sales_days:.2f} <= 40，建议空运（急发）",
+            decision_reason=f"可销售天数={sales_days:.2f} <= {air_urgent_days:g}，建议空运（急发）",
             sheet_name=AIR_URGENT_SHEET,
         )
-    if row.sales_days <= 70:
+    if sales_days <= air_days:
         return ReplenishmentRow(
             **base_kwargs,
             sea_days=None,
             sea_quantity=None,
             estimated_weight_kg=None,
-            decision_reason=f"40 < 可销售天数={row.sales_days:.2f} <= 70，建议空运",
+            decision_reason=f"{air_urgent_days:g} < 可销售天数={sales_days:.2f} <= {air_days:g}，建议空运",
             sheet_name=AIR_SHEET,
         )
 
-    if row.weighted_daily_sales <= 5:
+    min_daily_sales = float(params["sea"]["min_daily_sales"])
+    if weighted_daily_sales <= min_daily_sales:
         return ReplenishmentRow(
             **base_kwargs,
             sea_days=None,
             sea_quantity=None,
             estimated_weight_kg=None,
-            decision_reason=f"可销售天数={row.sales_days:.2f} > 70，但加权日销={row.weighted_daily_sales:.2f} <= 5，不建议海运",
+            decision_reason=f"可销售天数={sales_days:.2f} > {air_days:g}，但加权日销={weighted_daily_sales:.2f} <= {min_daily_sales:g}，不建议海运",
             sheet_name=NO_SHIP_SHEET,
         )
     if sales_detail.weight_grams is None:
@@ -614,16 +653,17 @@ def calculate_replenishment_row(row: InventoryInputRow, sales_detail: SalesDetai
             sea_days=None,
             sea_quantity=None,
             estimated_weight_kg=None,
-            decision_reason="可销售天数 > 70 且加权日销 > 5，但缺少单品重量，暂不建议海运",
+            decision_reason=f"可销售天数 > {air_days:g} 且加权日销 > {min_daily_sales:g}，但缺少单品重量，暂不建议海运",
             sheet_name=NO_SHIP_SHEET,
         )
 
     tried: list[str] = []
-    for sea_days in _sea_day_candidates(row.weighted_daily_sales):
-        sea_quantity = math.ceil(row.weighted_daily_sales * sea_days)
+    min_weight_kg = float(params["sea"]["min_weight_kg"])
+    for sea_days in sea_day_candidates_from_template(weighted_daily_sales, params):
+        sea_quantity = math.ceil(weighted_daily_sales * sea_days)
         estimated_weight_kg = sea_quantity * sales_detail.weight_grams / 1000
-        tried.append(f"{sea_days}天: ceil({row.weighted_daily_sales:.2f}*{sea_days})={sea_quantity}, 重量={estimated_weight_kg:.2f}kg")
-        if estimated_weight_kg > 60:
+        tried.append(f"{sea_days}天: ceil({weighted_daily_sales:.2f}*{sea_days})={sea_quantity}, 重量={estimated_weight_kg:.2f}kg")
+        if estimated_weight_kg > min_weight_kg:
             return ReplenishmentRow(
                 **base_kwargs,
                 sea_days=sea_days,
@@ -638,7 +678,7 @@ def calculate_replenishment_row(row: InventoryInputRow, sales_detail: SalesDetai
         sea_days=None,
         sea_quantity=None,
         estimated_weight_kg=None,
-        decision_reason="可销售天数 > 70，但海运重量未超过60kg；计算方法：" + "；".join(tried),
+        decision_reason=f"可销售天数 > {air_days:g}，但海运重量未超过{min_weight_kg:g}kg；计算方法：" + "；".join(tried),
         sheet_name=NO_SHIP_SHEET,
     )
 
@@ -646,8 +686,10 @@ def calculate_replenishment_row(row: InventoryInputRow, sales_detail: SalesDetai
 def calculate_replenishment_rows(
     inventory_rows: list[InventoryInputRow],
     sales_details: dict[tuple[str, str, str, str], SalesDetail],
+    template: ReplenishmentTemplate | None = None,
 ) -> list[ReplenishmentRow]:
     result: list[ReplenishmentRow] = []
+    active_template = template or get_template(DEFAULT_TEMPLATE_NAME)
     for row in inventory_rows:
         key = _row_key(row)
         sales_detail = sales_details.get(key)
@@ -655,7 +697,7 @@ def calculate_replenishment_rows(
             raise StoreMskuReplenishmentError(
                 f"销量分析MSKU明细缺少匹配行: MSKU={key[0]}, 父ASIN={key[1]}, ASIN={key[2]}, 本地SKU={key[3]}"
             )
-        result.append(calculate_replenishment_row(row, sales_detail))
+        result.append(calculate_replenishment_row(row, sales_detail, active_template))
     return result
 
 
@@ -805,11 +847,13 @@ def _detail_sort_key(row: ReplenishmentRow) -> tuple[int, str, str]:
 def calculate_store_msku_replenishment(
     store_name: str,
     *,
+    template_name: str | None = None,
     sales_analysis_dir: str | Path | None = None,
     actual_inventory_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
 ) -> StoreMskuReplenishmentResult:
     clean_store_name = normalize_store_name(store_name)
+    template = validate_template(get_template(template_name or DEFAULT_TEMPLATE_NAME)).template
     reports = find_matching_report_files(
         clean_store_name,
         sales_analysis_dir=sales_analysis_dir,
@@ -817,7 +861,7 @@ def calculate_store_msku_replenishment(
     )
     inventory_rows = load_inventory_rows(reports.actual_inventory_path)
     sales_details = load_sales_details(reports.sales_analysis_path)
-    replenishment_rows = calculate_replenishment_rows(inventory_rows, sales_details)
+    replenishment_rows = calculate_replenishment_rows(inventory_rows, sales_details, template)
     report_path = _output_dir(output_dir) / f"{reports.source_data_time}-{_safe_file_part(clean_store_name)}_replenishment.xlsx"
     write_replenishment_report(replenishment_rows, report_path)
     summary_rows = summarize_links(replenishment_rows)
@@ -827,6 +871,8 @@ def calculate_store_msku_replenishment(
         source_data_time=reports.source_data_time,
         sales_analysis_xlsx_path=str(reports.sales_analysis_path),
         actual_inventory_xlsx_path=str(reports.actual_inventory_path),
+        template_name=template.name,
+        template_version=template.version,
         row_count=len(replenishment_rows),
         link_count=len(summary_rows),
         air_urgent_count=sum(1 for row in replenishment_rows if row.sheet_name == AIR_URGENT_SHEET),

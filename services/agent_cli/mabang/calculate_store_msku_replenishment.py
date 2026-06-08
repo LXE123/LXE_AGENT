@@ -29,6 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m services.agent_cli.mabang.calculate_store_msku_replenishment"
     )
     parser.add_argument("--store-name", default="")
+    parser.add_argument("--template", default="")
     return parser
 
 
@@ -38,7 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = build_parser().parse_args(argv)
         store_name = str(getattr(args, "store_name", "") or "").strip()
-        result = calculate_store_msku_replenishment(store_name)
+        template_name = str(getattr(args, "template", "") or "").strip()
+        result = calculate_store_msku_replenishment(store_name, template_name=template_name or None)
         payload = result.to_payload()
     except Exception as exc:
         payload = {

@@ -658,6 +658,14 @@ h1 {
   background: #fbfdfc;
 }
 
+.message-page-center {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+  gap: 3px;
+  text-align: center;
+}
+
 .message-page-count {
   color: #536960;
   font-size: 12px;
@@ -669,6 +677,12 @@ h1 {
   font-weight: 600;
 }
 
+.message-page-index {
+  color: #263832;
+  font-size: 13px;
+  font-weight: 800;
+}
+
 .message-page-error {
   margin-top: 3px;
   color: #a24d4d;
@@ -676,8 +690,9 @@ h1 {
   font-weight: 700;
 }
 
-.load-older-button {
+.page-nav-button {
   min-height: 32px;
+  min-width: 78px;
   padding: 5px 10px;
   border: 1px solid #d7e0dc;
   border-radius: 8px;
@@ -688,12 +703,12 @@ h1 {
   font-weight: 800;
 }
 
-.load-older-button:hover:not(:disabled) {
+.page-nav-button:hover:not(:disabled) {
   border-color: #aec1b9;
   background: #f7faf8;
 }
 
-.load-older-button:disabled {
+.page-nav-button:disabled {
   cursor: default;
   opacity: 0.65;
 }

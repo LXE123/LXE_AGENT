@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from services.mabang.amazon.fba import store_msku_replenishment as repl
+from services.mabang.amazon.fba import replenishment_template as tmpl
 
 
 def _write_workbook(path: Path, sheets: dict[str, tuple[list[str], list[dict]]]) -> Path:
@@ -80,7 +82,7 @@ def _inventory_headers() -> list[str]:
 
 
 def _sales_headers() -> list[str]:
-    return ["MSKU", "父ASIN", "ASIN", "本地SKU", "销量趋势", "单品重量(g)(cm)"]
+    return ["MSKU", "父ASIN", "ASIN", "本地SKU", "7天销量", "14天销量", "30天销量", "销量趋势", "单品重量(g)(cm)"]
 
 
 def _write_inventory_report(path: Path) -> Path:
@@ -97,7 +99,7 @@ def _write_inventory_report(path: Path) -> Path:
                         "ASIN": "ASIN-SEA",
                         "本地SKU": "COMBO-SEA",
                         "商品链接": "美国 http://www.amazon.com/gp/product/ASIN-SEA",
-                        "FBA总库存": 1000,
+                        "FBA总库存": 480,
                         "加权日销": 6,
                         "可销售天数": 80,
                         "真实库存数量": 20,
@@ -161,11 +163,11 @@ def _write_inventory_report(path: Path) -> Path:
 def _write_sales_report(path: Path) -> Path:
     headers = _sales_headers()
     rows = [
-        {"MSKU": "SEA-1", "父ASIN": "PARENT-SEA", "ASIN": "ASIN-SEA", "本地SKU": "COMBO-SEA", "销量趋势": "增长", "单品重量(g)(cm)": "120g 10*10*10"},
-        {"MSKU": "URGENT-1", "父ASIN": "PARENT-AIR", "ASIN": "ASIN-U", "本地SKU": "SKU-U", "销量趋势": "平稳", "单品重量(g)(cm)": "10"},
-        {"MSKU": "AIR-1", "父ASIN": "PARENT-AIR", "ASIN": "ASIN-A", "本地SKU": "SKU-A", "销量趋势": "下降", "单品重量(g)(cm)": "20"},
-        {"MSKU": "NO-1", "父ASIN": "PARENT-NO", "ASIN": "ASIN-N", "本地SKU": "SKU-N", "销量趋势": "平稳", "单品重量(g)(cm)": "100"},
-        {"MSKU": "SAMPLE-1", "父ASIN": "PARENT-SAMPLE", "ASIN": "ASIN-S", "本地SKU": "SKU-S", "销量趋势": "样本不足", "单品重量(g)(cm)": "50"},
+        {"MSKU": "SEA-1", "父ASIN": "PARENT-SEA", "ASIN": "ASIN-SEA", "本地SKU": "COMBO-SEA", "7天销量": 42, "14天销量": 84, "30天销量": 180, "销量趋势": "增长", "单品重量(g)(cm)": "120g 10*10*10"},
+        {"MSKU": "URGENT-1", "父ASIN": "PARENT-AIR", "ASIN": "ASIN-U", "本地SKU": "SKU-U", "7天销量": 21, "14天销量": 42, "30天销量": 90, "销量趋势": "平稳", "单品重量(g)(cm)": "10"},
+        {"MSKU": "AIR-1", "父ASIN": "PARENT-AIR", "ASIN": "ASIN-A", "本地SKU": "SKU-A", "7天销量": 42, "14天销量": 84, "30天销量": 180, "销量趋势": "下降", "单品重量(g)(cm)": "20"},
+        {"MSKU": "NO-1", "父ASIN": "PARENT-NO", "ASIN": "ASIN-N", "本地SKU": "SKU-N", "7天销量": 28, "14天销量": 56, "30天销量": 120, "销量趋势": "平稳", "单品重量(g)(cm)": "100"},
+        {"MSKU": "SAMPLE-1", "父ASIN": "PARENT-SAMPLE", "ASIN": "ASIN-S", "本地SKU": "SKU-S", "7天销量": 56, "14天销量": 112, "30天销量": 240, "销量趋势": "样本不足", "单品重量(g)(cm)": "50"},
     ]
     return _write_workbook(path, {"MSKU明细": (headers, rows)})
 
@@ -219,6 +221,8 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         "source_data_time": "202605251530",
         "sales_analysis_xlsx_path": str(sales_path),
         "actual_inventory_xlsx_path": str(inventory_path),
+        "template_name": "默认模板",
+        "template_version": 1,
         "row_count": 5,
         "link_count": 4,
         "air_urgent_count": 1,
@@ -237,6 +241,8 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         headers = _headers(report_path, sheet_name)
         assert "真实库存数量" in headers
         assert "真实库存" not in headers
+        assert "模板名称" in headers
+        assert "命中规则" in headers
 
     sea_rows = _load_records(report_path, "海运")
     assert sea_rows[0]["MSKU"] == "SEA-1"
@@ -247,6 +253,8 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert sea_rows[0]["预计总重量kg"] == 64.8
     assert "ceil(6.00*90)=540" in sea_rows[0]["决策原因"]
     assert sea_rows[0]["真实库存数量"] == 20
+    assert sea_rows[0]["模板名称"] == "默认模板"
+    assert sea_rows[0]["命中规则"] == "默认规则"
 
     urgent_rows = _load_records(report_path, "空运（急发）")
     assert urgent_rows[0]["MSKU"] == "URGENT-1"
@@ -293,3 +301,39 @@ def test_parse_weight_grams_uses_first_number() -> None:
     assert repl.parse_weight_grams("120g 10*20*30") == 120
     assert repl.parse_weight_grams("1,200.5g") == 1200.5
     assert repl.parse_weight_grams("") is None
+
+
+def test_custom_template_changes_replenishment_result(tmp_path, monkeypatch) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    output_dir = tmp_path / "output"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_sales_analysis.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_actual_inventory.xlsx")
+
+    custom_params = tmpl.load_default_template().to_store_payload()
+    custom_params["name"] = "保守海运模板"
+    custom_params["version"] = 2
+    custom_params["params"]["sea"]["min_weight_kg"] = 100
+    store_path = tmp_path / "artifacts" / "mabang_replenishment_templates" / "templates.json"
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    store_path.write_text(
+        json.dumps({"templates": [custom_params]}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    result = repl.calculate_store_msku_replenishment(
+        "Amazon-Test",
+        template_name="保守海运模板",
+        sales_analysis_dir=sales_dir,
+        actual_inventory_dir=inventory_dir,
+        output_dir=output_dir,
+    )
+
+    assert result.template_name == "保守海运模板"
+    assert result.template_version == 2
+    report_path = Path(result.report_xlsx_path)
+    sea_rows = _load_records(report_path, "海运")
+    no_ship_rows = _load_records(report_path, "暂不建议发货")
+    assert sea_rows == []
+    assert any(row["MSKU"] == "SEA-1" and "未超过100kg" in row["决策原因"] for row in no_ship_rows)
