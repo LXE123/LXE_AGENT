@@ -73,9 +73,19 @@ type SessionMessage = {
   [key: string]: unknown;
 };
 
+type MessagesPagePayload = {
+  total: number;
+  raw_message_total: number;
+  start: number;
+  end: number;
+  limit: number;
+  has_older: boolean;
+};
+
 type SessionDetailPayload = {
   session: SessionPayload;
   messages: SessionMessage[];
+  messages_page: MessagesPagePayload;
 };
 
 type ConversationRenderItem =
@@ -131,6 +141,8 @@ type ApiList<T> = {
   limit?: number;
   offset?: number;
 };
+
+const SESSION_MESSAGE_PAGE_LIMIT = 50;
 
 type DashboardData = {
   sessions: ApiList<SessionPayload>;
@@ -529,16 +541,24 @@ function SessionDetailView({
   detail,
   loading,
   error,
+  olderLoading,
+  olderError,
+  onLoadOlder,
   onBack
 }: {
   fallbackSession: SessionPayload;
   detail: SessionDetailPayload | null;
   loading: boolean;
   error: string;
+  olderLoading: boolean;
+  olderError: string;
+  onLoadOlder: () => void;
   onBack: () => void;
 }) {
   const session = detail?.session || fallbackSession;
   const messages = detail?.messages || [];
+  const page = detail?.messages_page;
+  const visibleItemCount = page ? Math.max(0, page.end - page.start) : 0;
   const renderItems = useMemo(() => buildConversationItems(messages), [messages]);
   const [expandedToolGroups, setExpandedToolGroups] = useState<Set<string>>(() => new Set());
   const toggleToolGroup = (key: string) => {
@@ -582,32 +602,48 @@ function SessionDetailView({
       {error ? <EmptyState label={`Session error: ${error}`} /> : null}
       {!loading && !error ? (
         messages.length ? (
-          <div className="message-list">
-            {renderItems.map((item) => {
-              if (item.type === "tool_group") {
+          <>
+            <div className="message-page-toolbar">
+              <div>
+                <div className="message-page-count">
+                  已显示 {formatNumber(visibleItemCount)} / {formatNumber(page?.total || renderItems.length)} conversation items
+                  {page ? <span> · {formatNumber(page.raw_message_total)} raw messages</span> : null}
+                </div>
+                {olderError ? <div className="message-page-error">{olderError}</div> : null}
+              </div>
+              {page?.has_older ? (
+                <button className="load-older-button" type="button" disabled={olderLoading} onClick={onLoadOlder}>
+                  {olderLoading ? "Loading..." : "加载更早消息"}
+                </button>
+              ) : null}
+            </div>
+            <div className="message-list">
+              {renderItems.map((item) => {
+                if (item.type === "tool_group") {
+                  return (
+                    <ToolTurnGroup
+                      expanded={expandedToolGroups.has(item.key)}
+                      item={item}
+                      key={item.key}
+                      onToggle={() => toggleToolGroup(item.key)}
+                    />
+                  );
+                }
+                const { message, index } = item;
+                const role = roleLabel(message.role);
                 return (
-                  <ToolTurnGroup
-                    expanded={expandedToolGroups.has(item.key)}
-                    item={item}
-                    key={item.key}
-                    onToggle={() => toggleToolGroup(item.key)}
-                  />
+                  <article className={`message-card role-${role}`} key={`${role}-${index}`}>
+                    <div className="message-header">
+                      <span className={`role-badge role-${role}`}>{role}</span>
+                      {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
+                      {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
+                    </div>
+                    <MessageContent content={message.content} message={message} />
+                  </article>
                 );
-              }
-              const { message, index } = item;
-              const role = roleLabel(message.role);
-              return (
-                <article className={`message-card role-${role}`} key={`${role}-${index}`}>
-                  <div className="message-header">
-                    <span className={`role-badge role-${role}`}>{role}</span>
-                    {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
-                    {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
-                  </div>
-                  <MessageContent content={message.content} message={message} />
-                </article>
-              );
-            })}
-          </div>
+              })}
+            </div>
+          </>
         ) : (
           <EmptyState label="该 session 暂无对话记录。" />
         )
@@ -1128,7 +1164,9 @@ function App() {
   const [selectedSession, setSelectedSession] = useState<SessionPayload | null>(null);
   const [sessionDetail, setSessionDetail] = useState<SessionDetailPayload | null>(null);
   const [sessionDetailLoading, setSessionDetailLoading] = useState(false);
+  const [sessionDetailOlderLoading, setSessionDetailOlderLoading] = useState(false);
   const [sessionDetailError, setSessionDetailError] = useState("");
+  const [sessionDetailOlderError, setSessionDetailOlderError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -1180,9 +1218,13 @@ function App() {
     setSelectedSession(session);
     setSessionDetail(null);
     setSessionDetailError("");
+    setSessionDetailOlderError("");
     setSessionDetailLoading(true);
+    setSessionDetailOlderLoading(false);
     try {
-      const detail = await fetchJson<SessionDetailPayload>(`/api/sessions/${encodeURIComponent(session.session_id)}`);
+      const detail = await fetchJson<SessionDetailPayload>(
+        `/api/sessions/${encodeURIComponent(session.session_id)}?message_limit=${SESSION_MESSAGE_PAGE_LIMIT}`
+      );
       setSessionDetail(detail);
     } catch (err) {
       setSessionDetailError(err instanceof Error ? err.message : String(err));
@@ -1191,11 +1233,44 @@ function App() {
     }
   }
 
+  async function loadOlderSessionMessages() {
+    if (!selectedSession || !sessionDetail || !sessionDetail.messages_page.has_older || sessionDetailOlderLoading) {
+      return;
+    }
+    setSessionDetailOlderLoading(true);
+    setSessionDetailOlderError("");
+    try {
+      const older = await fetchJson<SessionDetailPayload>(
+        `/api/sessions/${encodeURIComponent(selectedSession.session_id)}?message_limit=${SESSION_MESSAGE_PAGE_LIMIT}&message_before=${sessionDetail.messages_page.start}`
+      );
+      setSessionDetail((current) => {
+        if (!current || current.session.session_id !== selectedSession.session_id) {
+          return older;
+        }
+        return {
+          session: current.session,
+          messages: [...older.messages, ...current.messages],
+          messages_page: {
+            ...older.messages_page,
+            end: current.messages_page.end,
+            has_older: older.messages_page.has_older,
+          },
+        };
+      });
+    } catch (err) {
+      setSessionDetailOlderError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSessionDetailOlderLoading(false);
+    }
+  }
+
   function closeSessionDetail() {
     setSelectedSession(null);
     setSessionDetail(null);
     setSessionDetailError("");
+    setSessionDetailOlderError("");
     setSessionDetailLoading(false);
+    setSessionDetailOlderLoading(false);
   }
 
   const totalTokens = (data?.sessions.items || []).reduce(
@@ -1289,6 +1364,9 @@ function App() {
                   detail={sessionDetail}
                   loading={sessionDetailLoading}
                   error={sessionDetailError}
+                  olderLoading={sessionDetailOlderLoading}
+                  olderError={sessionDetailOlderError}
+                  onLoadOlder={loadOlderSessionMessages}
                   onBack={closeSessionDetail}
                 />
               ) : null}

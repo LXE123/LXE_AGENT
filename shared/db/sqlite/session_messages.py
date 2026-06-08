@@ -60,6 +60,88 @@ def load_session_messages(session_id: str) -> list[dict[str, Any]]:
     return _clean_messages(messages)
 
 
+def _message_role(message: dict[str, Any]) -> str:
+    return str((message or {}).get("role") or "").strip().lower()
+
+
+def _block_type(block: Any) -> str:
+    return str(dict(block or {}).get("type") or "").strip() if isinstance(block, dict) else ""
+
+
+def _is_tool_call_block(block: Any) -> bool:
+    return _block_type(block) in {"tool_use", "tool_call"}
+
+
+def _is_pure_tool_assistant_message(message: dict[str, Any]) -> bool:
+    if _message_role(message) != "assistant":
+        return False
+    content = message.get("content")
+    if not isinstance(content, list) or not content:
+        return False
+    return all(_is_tool_call_block(block) for block in content)
+
+
+def _is_tool_group_message(message: dict[str, Any]) -> bool:
+    return _message_role(message) == "tool" or _is_pure_tool_assistant_message(message)
+
+
+def _display_item_ranges(messages: list[dict[str, Any]]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    pending_start: int | None = None
+    pending_end = 0
+
+    def flush_pending() -> None:
+        nonlocal pending_start, pending_end
+        if pending_start is not None:
+            ranges.append((pending_start, pending_end))
+            pending_start = None
+            pending_end = 0
+
+    for index, message in enumerate(messages):
+        if _is_tool_group_message(message):
+            if pending_start is None:
+                pending_start = index
+            pending_end = index + 1
+            continue
+        flush_pending()
+        ranges.append((index, index + 1))
+    flush_pending()
+    return ranges
+
+
+def load_session_messages_page(
+    session_id: str,
+    *,
+    limit: int = 50,
+    before: int | None = None,
+) -> dict[str, Any]:
+    safe_limit = max(1, min(int(limit), 200))
+    messages = load_session_messages(session_id)
+    raw_total = len(messages)
+    ranges = _display_item_ranges(messages)
+    total = len(ranges)
+    end = total if before is None else max(0, min(int(before), total))
+    start = max(0, end - safe_limit)
+    selected_ranges = ranges[start:end]
+    if selected_ranges:
+        raw_start = selected_ranges[0][0]
+        raw_end = selected_ranges[-1][1]
+        page_messages = messages[raw_start:raw_end]
+    else:
+        page_messages = []
+    return {
+        "messages": page_messages,
+        "page": {
+            "total": total,
+            "raw_message_total": raw_total,
+            "start": start,
+            "end": end,
+            "limit": safe_limit,
+            "has_older": start > 0,
+        },
+    }
+
+
 def save_session_messages(session_id: str, messages: Any) -> list[dict[str, Any]]:
     safe_session_id = _clean_session_id(session_id)
     cleaned = _clean_messages(messages)
@@ -99,6 +181,7 @@ def clear_session_messages(session_id: str) -> list[dict[str, Any]]:
 __all__ = [
     "clear_session_messages",
     "load_session_messages",
+    "load_session_messages_page",
     "save_session_messages",
     "session_messages_dir",
     "session_messages_path",

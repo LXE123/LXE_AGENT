@@ -117,6 +117,101 @@ def test_session_detail_endpoint_returns_metadata_and_messages(dashboard_client)
         {"role": "user", "content": "hello"},
         {"role": "assistant", "content": [{"type": "text", "text": "hi"}]},
     ]
+    assert payload["messages_page"] == {
+        "total": 2,
+        "raw_message_total": 2,
+        "start": 0,
+        "end": 2,
+        "limit": 50,
+        "has_older": False,
+    }
+
+
+def test_session_detail_endpoint_defaults_to_latest_50_display_items(dashboard_client):
+    messages = [{"role": "user", "content": f"message {index}"} for index in range(100)]
+    created = create_agent_session(
+        session_id="long-detail-session",
+        source=_source("chat-long-detail"),
+        state_data=_state(messages),
+        title="Long Detail",
+    )
+
+    response = dashboard_client.get(f"/api/sessions/{created.session_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["content"] for item in payload["messages"]] == [f"message {index}" for index in range(50, 100)]
+    assert payload["session"]["message_count"] == 100
+    assert payload["messages_page"] == {
+        "total": 100,
+        "raw_message_total": 100,
+        "start": 50,
+        "end": 100,
+        "limit": 50,
+        "has_older": True,
+    }
+
+
+def test_session_detail_endpoint_loads_previous_display_page(dashboard_client):
+    messages = [{"role": "user", "content": f"message {index}"} for index in range(100)]
+    created = create_agent_session(
+        session_id="previous-detail-session",
+        source=_source("chat-previous-detail"),
+        state_data=_state(messages),
+        title="Previous Detail",
+    )
+
+    response = dashboard_client.get(f"/api/sessions/{created.session_id}?message_limit=20&message_before=50")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["content"] for item in payload["messages"]] == [f"message {index}" for index in range(30, 50)]
+    assert payload["messages_page"] == {
+        "total": 100,
+        "raw_message_total": 100,
+        "start": 30,
+        "end": 50,
+        "limit": 20,
+        "has_older": True,
+    }
+
+
+def test_session_detail_endpoint_counts_contiguous_tools_as_one_display_item(dashboard_client):
+    messages = [
+        {"role": "user", "content": "start"},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_call", "id": "tool_1", "name": "read", "arguments": {"path": "a"}}],
+        },
+        {"role": "tool", "content": [{"type": "tool_result", "tool_call_id": "tool_1", "content": "a"}]},
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_call", "id": "tool_2", "name": "exec", "arguments": {"command": "echo ok"}}],
+        },
+        {"role": "tool", "content": [{"type": "tool_result", "tool_call_id": "tool_2", "content": "ok"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "done"}]},
+    ]
+    created = create_agent_session(
+        session_id="tool-page-session",
+        source=_source("chat-tool-page"),
+        state_data=_state(messages),
+        title="Tool Page",
+    )
+
+    response = dashboard_client.get(f"/api/sessions/{created.session_id}?message_limit=2")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["messages"] == messages[1:]
+    assert payload["session"]["message_count"] == 6
+    assert payload["messages_page"] == {
+        "total": 3,
+        "raw_message_total": 6,
+        "start": 1,
+        "end": 3,
+        "limit": 2,
+        "has_older": True,
+    }
 
 
 def test_session_detail_endpoint_returns_empty_messages_when_jsonl_missing(dashboard_client):
@@ -133,6 +228,14 @@ def test_session_detail_endpoint_returns_empty_messages_when_jsonl_missing(dashb
     assert response.status_code == 200
     payload = response.json()
     assert payload["messages"] == []
+    assert payload["messages_page"] == {
+        "total": 0,
+        "raw_message_total": 0,
+        "start": 0,
+        "end": 0,
+        "limit": 50,
+        "has_older": False,
+    }
 
 
 def test_session_detail_endpoint_returns_404_for_missing_session(dashboard_client):

@@ -18,7 +18,7 @@ from agent_runtime.tools.feishu_im_tools import FEISHU_IM_TOOLS
 from agent_runtime.tools.process_sessions import list_exec_session_snapshots
 from shared.config import config
 from shared.db.sqlite.engine import connection_scope
-from shared.db.sqlite.session_messages import load_session_messages
+from shared.db.sqlite.session_messages import load_session_messages_page
 from shared.llm.agent_planner import agent_planner_selection_options
 from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import resolve_model_capabilities
@@ -162,16 +162,22 @@ def _list_sessions(*, limit: int, offset: int) -> dict[str, Any]:
     }
 
 
-def _session_detail(session_id: str) -> dict[str, Any]:
+def _session_detail(session_id: str, *, message_limit: int = 50, message_before: int | None = None) -> dict[str, Any]:
     safe_session_id = str(session_id or "").strip()
     with connection_scope() as conn:
         row = _select_session_row(conn, session_id=safe_session_id)
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
     session = _session_row_payload(row)
+    messages_page = load_session_messages_page(
+        session["session_id"],
+        limit=message_limit,
+        before=message_before,
+    )
     return {
         "session": session,
-        "messages": load_session_messages(session["session_id"]),
+        "messages": messages_page["messages"],
+        "messages_page": messages_page["page"],
     }
 
 
@@ -295,8 +301,12 @@ def create_dashboard_app() -> FastAPI:
         return _list_sessions(limit=limit, offset=offset)
 
     @app.get("/api/sessions/{session_id}")
-    async def session_detail(session_id: str) -> dict[str, Any]:
-        return _session_detail(session_id)
+    async def session_detail(
+        session_id: str,
+        message_limit: int = Query(default=50, ge=1, le=200),
+        message_before: int | None = Query(default=None, ge=0),
+    ) -> dict[str, Any]:
+        return _session_detail(session_id, message_limit=message_limit, message_before=message_before)
 
     @app.get("/api/skills")
     async def skills() -> dict[str, Any]:
