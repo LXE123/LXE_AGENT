@@ -70,4 +70,8 @@ if ($LASTEXITCODE -ne 0) {
     throw "Playwright Chromium check failed with exit code $LASTEXITCODE."
 }
 
+Invoke-Checked "Dashboard UI" {
+    powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\webui.ps1") -EnsureBuilt
+}
+
 Write-Host "Doctor checks passed."

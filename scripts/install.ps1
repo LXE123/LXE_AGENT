@@ -156,7 +156,10 @@ function Get-ProjectRoot {
 }
 
 function Write-Launcher {
-    param([Parameter(Mandatory = $true)][string]$ProjectRoot)
+    param(
+        [Parameter(Mandatory = $true)][string]$ProjectRoot,
+        [Parameter(Mandatory = $true)][string]$UvPath
+    )
     New-Item -ItemType Directory -Path $LauncherDir -Force | Out-Null
     $content = @"
 @echo off
@@ -172,7 +175,7 @@ exit /b 2
 
 :start
 cd /d "%LXEFBA_ROOT%" || exit /b 1
-uv run --frozen python .\main.py
+"$UvPath" run --frozen python .\main.py
 exit /b %ERRORLEVEL%
 
 :doctor
@@ -201,7 +204,7 @@ function Add-LauncherPath {
     }
     $exists = $false
     foreach ($part in $parts) {
-        if ([string]::Equals($part.TrimEnd("\"), $LauncherDir.TrimEnd("\"), [StringComparison]::OrdinalIgnoreCase)) {
+        if ([string]::Equals($part.TrimEnd([char[]]'\\'), $LauncherDir.TrimEnd([char[]]'\\'), [StringComparison]::OrdinalIgnoreCase)) {
             $exists = $true
             break
         }
@@ -210,7 +213,7 @@ function Add-LauncherPath {
         $newPath = if ([string]::IsNullOrWhiteSpace($currentUserPath)) { $LauncherDir } else { "$currentUserPath;$LauncherDir" }
         [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
     }
-    if (-not ($env:Path.Split(";") | Where-Object { [string]::Equals($_.TrimEnd("\"), $LauncherDir.TrimEnd("\"), [StringComparison]::OrdinalIgnoreCase) })) {
+    if (-not ($env:Path.Split(";") | Where-Object { [string]::Equals($_.TrimEnd([char[]]'\\'), $LauncherDir.TrimEnd([char[]]'\\'), [StringComparison]::OrdinalIgnoreCase) })) {
         $env:Path = "$LauncherDir;$env:Path"
     }
 }
@@ -235,7 +238,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "Playwright Chromium installation failed with exit code $LASTEXITCODE."
 }
 
-Write-Launcher -ProjectRoot $ProjectRoot
+powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\webui.ps1") -Build
+if ($LASTEXITCODE -ne 0) {
+    throw "Dashboard UI build failed with exit code $LASTEXITCODE."
+}
+
+Write-Launcher -ProjectRoot $ProjectRoot -UvPath $uv
 Add-LauncherPath
 
 powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\doctor.ps1")

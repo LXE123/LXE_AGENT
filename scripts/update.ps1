@@ -73,6 +73,7 @@ if ($untrackedFiles.Count -gt 0) {
 Invoke-Checked "git pull" { & $git pull --ff-only }
 Invoke-Checked "uv sync" { & $uv sync --frozen --all-groups --python $PythonVersion }
 Invoke-Checked "Playwright Chromium install" { & $uv run --frozen python -m playwright install chromium }
+Invoke-Checked "Dashboard UI build" { powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\webui.ps1") -Build }
 Invoke-Checked "doctor" { powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\doctor.ps1") }
 
 Write-Host "Update completed."
