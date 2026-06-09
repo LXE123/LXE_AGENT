@@ -3,7 +3,12 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import anthropic
+import httpx
+import pytest
+
 from agent_runtime import llm_adapter
+from shared.llm.errors import AnthropicStreamError, LLMProviderError
 from shared.llm.events import LLMStreamEvent
 from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import resolve_model_capabilities
@@ -56,6 +61,9 @@ class _FakeStream:
 class _FakeMessages:
     def create(self, **kwargs: Any) -> _FakeStream:
         _RECORDER["create_kwargs"] = dict(kwargs)
+        create_error = _RECORDER.get("create_error")
+        if create_error is not None:
+            raise create_error
         stream = _FakeStream(list(_RECORDER.get("events") or []))
         _RECORDER["stream"] = stream
         return stream
@@ -102,6 +110,16 @@ def _install_fake_sdk(monkeypatch, events: list[Any]) -> None:
     _RECORDER.clear()
     _RECORDER["events"] = list(events)
     monkeypatch.setattr(anthropic_sdk_stream, "Anthropic", _FakeAnthropic)
+
+
+def _api_status_error(status_code: int, body: Any) -> anthropic.APIStatusError:
+    request = httpx.Request("POST", "https://api.kimi.test/coding/v1/messages")
+    response = httpx.Response(status_code, request=request, json=body if isinstance(body, dict) else {"message": body})
+    return anthropic.APIStatusError(
+        f"Error code: {status_code} - {body}",
+        response=response,
+        body=body,
+    )
 
 
 def test_sdk_stream_request_shape_and_direct_events(monkeypatch) -> None:
@@ -306,6 +324,119 @@ def test_sdk_stream_omits_tools_when_none(monkeypatch) -> None:
     assert create_kwargs["max_tokens"] == 4096
     assert "tools" not in create_kwargs
     assert create_kwargs["tool_choice"] == {"type": "none"}
+
+
+@pytest.mark.parametrize(
+    ("status_code", "message", "category", "retryable"),
+    [
+        (401, "The API Key appears to be invalid or may have expired", "认证错误", False),
+        (403, "Kimi For Coding is currently only available for Coding Agents", "权限错误", False),
+        (404, "Not found the model kimi-for-coding or Permission denied", "资源未找到", False),
+        (429, "We're receiving too many requests", "限流与配额", True),
+        (500, "503 Service Unavailable", "服务端内部错误", True),
+    ],
+)
+def test_sdk_status_errors_are_classified_for_kimi(
+    monkeypatch,
+    status_code: int,
+    message: str,
+    category: str,
+    retryable: bool,
+) -> None:
+    _install_fake_sdk(monkeypatch, [])
+    _RECORDER["create_error"] = _api_status_error(status_code, {"error": {"message": message}})
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        list(
+            anthropic_sdk_stream.stream_message_events(
+                descriptor=_descriptor(),
+                system_prompt="system",
+                messages=[{"role": "user", "content": "hi"}],
+                tool_schemas=None,
+                tool_choice_mode="auto",
+                max_tokens=None,
+                temperature=0.1,
+                timeout_s=30,
+            )
+        )
+
+    error = exc_info.value
+    assert error.provider == "kimi_coding"
+    assert error.status_code == status_code
+    assert error.category == category
+    assert error.retryable is retryable
+    assert error.user_message.startswith("Kimi Coding")
+
+
+def test_sdk_status_errors_for_non_kimi_preserve_sdk_error(monkeypatch) -> None:
+    _install_fake_sdk(monkeypatch, [])
+    sdk_error = _api_status_error(401, {"error": {"message": "Invalid Authentication"}})
+    _RECORDER["create_error"] = sdk_error
+
+    with pytest.raises(anthropic.APIStatusError) as exc_info:
+        list(
+            anthropic_sdk_stream.stream_message_events(
+                descriptor=_non_kimi_descriptor(),
+                system_prompt="system",
+                messages=[{"role": "user", "content": "hi"}],
+                tool_schemas=None,
+                tool_choice_mode="auto",
+                max_tokens=None,
+                temperature=0.1,
+                timeout_s=30,
+            )
+        )
+
+    assert exc_info.value is sdk_error
+
+
+def test_sdk_stream_error_event_is_classified_for_kimi(monkeypatch) -> None:
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            _obj(
+                type="error",
+                error={"message": "You've reached kimi monthly usage limit", "status_code": 429},
+            )
+        ],
+    )
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        list(
+            anthropic_sdk_stream.stream_message_events(
+                descriptor=_descriptor(),
+                system_prompt="system",
+                messages=[{"role": "user", "content": "hi"}],
+                tool_schemas=None,
+                tool_choice_mode="auto",
+                max_tokens=None,
+                temperature=0.1,
+                timeout_s=30,
+            )
+        )
+
+    assert exc_info.value.category == "限流与配额"
+    assert exc_info.value.retryable is True
+
+
+def test_sdk_stream_error_event_for_non_kimi_uses_stream_error(monkeypatch) -> None:
+    _install_fake_sdk(monkeypatch, [_obj(type="error", error={"message": "stream failed"})])
+
+    with pytest.raises(AnthropicStreamError) as exc_info:
+        list(
+            anthropic_sdk_stream.stream_message_events(
+                descriptor=_non_kimi_descriptor(),
+                system_prompt="system",
+                messages=[{"role": "user", "content": "hi"}],
+                tool_schemas=None,
+                tool_choice_mode="auto",
+                max_tokens=None,
+                temperature=0.1,
+                timeout_s=30,
+            )
+        )
+
+    assert str(exc_info.value) == "stream failed"
 
 
 async def _collect_adapter_events(**kwargs: Any) -> list[LLMStreamEvent]:

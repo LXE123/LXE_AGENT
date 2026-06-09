@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from typing import Any, Callable, Iterable, Literal
 
-from anthropic import Anthropic
+from anthropic import APIStatusError, Anthropic
 
-from shared.llm.errors import AnthropicStreamError
+from shared.llm.errors import AnthropicStreamError, LLMProviderError
 from shared.llm.events import LLMStreamEvent, LLMToolCall
+from shared.llm.kimi_coding.errors import classify_kimi_coding_error
 from shared.llm.provider_catalog import ProviderDescriptor
 from shared.llm.transports.wire_trace import WireTraceContext, WireTraceWriter
 
@@ -17,12 +18,16 @@ _KIMI_CODE_USER_AGENT = "claude-code/0.1.0"
 _REDACTED_THINKING_PLACEHOLDER = "[部分思考已加密]"
 
 
+def _is_kimi_coding_provider(provider_name: str) -> bool:
+    return str(provider_name or "").strip() == _KIMI_CODING_PROVIDER_NAME
+
+
 def _message_endpoint(base_url: str) -> str:
     return f"{str(base_url or '').rstrip('/')}/v1/messages"
 
 
 def _client_default_headers(descriptor: ProviderDescriptor) -> dict[str, str] | None:
-    if str(descriptor.name or "").strip() != _KIMI_CODING_PROVIDER_NAME:
+    if not _is_kimi_coding_provider(descriptor.name):
         return None
     user_agent = str(dict(descriptor.default_headers or {}).get("User-Agent") or "").strip()
     return {"User-Agent": user_agent or _KIMI_CODE_USER_AGENT}
@@ -91,9 +96,56 @@ def _error_message(payload: dict[str, Any]) -> str:
     return str(payload or "stream error")
 
 
+def _payload_status_code(payload: dict[str, Any]) -> int:
+    error = payload.get("error")
+    candidates: list[Any] = [payload.get("status_code"), payload.get("status")]
+    if isinstance(error, dict):
+        candidates.extend([error.get("status_code"), error.get("status")])
+    for candidate in candidates:
+        try:
+            value = int(candidate or 0)
+        except (TypeError, ValueError):
+            continue
+        if value:
+            return value
+    return 0
+
+
+def _sdk_error_body(error: APIStatusError) -> Any:
+    body = getattr(error, "body", None)
+    if body is not None:
+        return body
+    response = getattr(error, "response", None)
+    if response is None:
+        return None
+    try:
+        return response.json()
+    except Exception:
+        pass
+    try:
+        return response.text
+    except Exception:
+        return None
+
+
+def _sdk_error_status_code(error: APIStatusError) -> int:
+    try:
+        value = int(getattr(error, "status_code", 0) or 0)
+    except (TypeError, ValueError):
+        value = 0
+    if value:
+        return value
+    response = getattr(error, "response", None)
+    try:
+        return int(getattr(response, "status_code", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _iter_sdk_stream_events(
     events: Iterable[Any],
     *,
+    provider_name: str = "",
     wire_trace_writer: WireTraceWriter | None = None,
     cancel_event: Any = None,
 ) -> Iterable[LLMStreamEvent]:
@@ -112,7 +164,14 @@ def _iter_sdk_stream_events(
         if event_type == "ping":
             continue
         if event_type == "error":
-            raise AnthropicStreamError(_error_message(payload))
+            message = _error_message(payload)
+            if _is_kimi_coding_provider(provider_name):
+                raise classify_kimi_coding_error(
+                    status_code=_payload_status_code(payload),
+                    message=message,
+                    body=payload,
+                )
+            raise AnthropicStreamError(message)
 
         if event_type == "message_start":
             message = _field(event, payload, "message", payload.get("message") or {})
@@ -381,12 +440,27 @@ def stream_message_events(
         with stream:
             yield from _iter_sdk_stream_events(
                 stream,
+                provider_name=descriptor.name,
                 wire_trace_writer=wire_trace_writer,
                 cancel_event=cancel_event,
             )
             ok = True
-    except Exception as error:
+    except APIStatusError as error:
+        if _is_kimi_coding_provider(descriptor.name):
+            provider_error = classify_kimi_coding_error(
+                status_code=_sdk_error_status_code(error),
+                message=str(error or "").strip(),
+                body=_sdk_error_body(error),
+            )
+            error_text = provider_error.summary()
+            raise provider_error from error
         error_text = str(error or "").strip() or type(error).__name__
+        raise
+    except Exception as error:
+        if isinstance(error, LLMProviderError):
+            error_text = error.summary()
+        else:
+            error_text = str(error or "").strip() or type(error).__name__
         raise
     finally:
         if cancel_event is not None and bool(cancel_event.is_set()):

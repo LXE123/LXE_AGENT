@@ -5,11 +5,12 @@ from types import SimpleNamespace
 from typing import Any
 
 from agent_runtime import loop as loop_mod
-from agent_runtime.context_pipeline import load_context_messages, validate_tool_call_closure
+from agent_runtime.context_pipeline import is_context_overflow_error, load_context_messages, validate_tool_call_closure
 from agent_runtime.llm_adapter import LLMResponse
 from agent_runtime.loop import AgentLoop
 from agent_runtime.tool_registry import UnifiedToolRegistry
 from agent_runtime.types import ToolDefinition, TurnInput, text_tool_result
+from shared.llm.errors import LLMProviderError
 from shared.llm.events import LLMToolCall
 
 
@@ -184,3 +185,99 @@ def test_cancel_after_partial_tool_completion_closes_remaining_tool_calls(monkey
     assert tool_blocks[1]["tool_call_id"] == "toolu-2"
     assert tool_blocks[1]["is_error"] is True
     validate_tool_call_closure(messages)
+
+
+def test_non_retryable_provider_error_stops_after_one_attempt(monkeypatch) -> None:
+    calls = {"count": 0}
+    user_message = "Kimi Coding 认证失败，请检查 API Key 是否无效或已过期。"
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        calls["count"] += 1
+        raise LLMProviderError(
+            "Invalid Authentication",
+            provider="kimi_coding",
+            status_code=401,
+            category="认证错误",
+            user_message=user_message,
+            retryable=False,
+        )
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(_agent().run(_turn_input()))
+    messages = load_context_messages(outcome.state_data_patch)
+
+    assert calls["count"] == 1
+    assert outcome.status == "error"
+    assert outcome.reply == user_message
+    assert messages[-1] == {
+        "role": "assistant",
+        "content": [{"type": "text", "text": user_message}],
+    }
+
+
+def test_retryable_provider_error_uses_step_retry_budget(monkeypatch) -> None:
+    calls = {"count": 0}
+    user_message = "Kimi Coding 服务暂时异常，请稍后重试。"
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        calls["count"] += 1
+        raise LLMProviderError(
+            "503 Service Unavailable",
+            provider="kimi_coding",
+            status_code=503,
+            category="服务端内部错误",
+            user_message=user_message,
+            retryable=True,
+        )
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(_agent().run(_turn_input()))
+
+    assert calls["count"] == loop_mod._LLM_STEP_MAX_ATTEMPTS
+    assert outcome.status == "error"
+    assert outcome.reply == user_message
+
+
+def test_context_overflow_provider_error_triggers_compaction_retry(monkeypatch) -> None:
+    calls = {"count": 0}
+    triggers: list[str] = []
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise LLMProviderError(
+                "Your request exceeded model token limit: 262144",
+                provider="kimi_coding",
+                status_code=400,
+                category="请求格式错误",
+                user_message="Kimi Coding 上下文超过限制，已尝试压缩历史后仍无法发送，请缩短输入后重试。",
+                retryable=False,
+                context_overflow=True,
+            )
+        return LLMResponse(
+            text="完成",
+            public_text="完成",
+            assistant_content=[{"type": "text", "text": "完成"}],
+        )
+
+    async def fake_maybe_compact_history(**kwargs: Any):
+        trigger = str(kwargs.get("trigger") or "")
+        triggers.append(trigger)
+        return dict(kwargs.get("state_data") or {}), trigger == "overflow"
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+    monkeypatch.setattr(loop_mod, "maybe_compact_history", fake_maybe_compact_history)
+
+    outcome = asyncio.run(_agent().run(_turn_input()))
+
+    assert calls["count"] == 2
+    assert "overflow" in triggers
+    assert outcome.status == "done"
+    assert outcome.reply == "完成"
+
+
+def test_context_canceled_is_not_context_overflow() -> None:
+    assert is_context_overflow_error(RuntimeError("context canceled")) is False
+    assert is_context_overflow_error(RuntimeError("Your request exceeded model token limit: 262144")) is True

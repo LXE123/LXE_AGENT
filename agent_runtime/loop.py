@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Literal
 from uuid import uuid4
 
 from shared.llm.transports.wire_trace import WireTraceContext, load_wire_trace_config, wire_trace_turn_dir
+from shared.llm.errors import LLMProviderError
 from shared.logging import logger
 
 from .context_pipeline import (
@@ -130,6 +131,12 @@ def _stream_summary_suffix(summary: StreamStepSummary | None) -> str:
 
 def _response_public_text(response: LLMResponse) -> str:
     return str(getattr(response, "public_text", "") or getattr(response, "text", "") or "").strip()
+
+
+def _llm_error_reply(error: BaseException) -> str:
+    if isinstance(error, LLMProviderError):
+        return str(error.user_message or "").strip() or _LLM_ERROR_REPLY
+    return _LLM_ERROR_REPLY
 
 
 def _copy_messages_for_persistence(messages: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
@@ -465,6 +472,9 @@ class AgentLoop:
                 if is_context_overflow_error(error):
                     self._last_stream_summary = _build_summary()
                     raise
+                if isinstance(error, LLMProviderError) and not error.retryable:
+                    self._last_stream_summary = _build_summary()
+                    raise
                 last_error = error if isinstance(error, Exception) else RuntimeError(str(error))
                 logger.warning(
                     "[Turn:LLM] step=%d attempt=%d/%d failed after %ds: %s",
@@ -741,10 +751,11 @@ class AgentLoop:
                 )
                 turn_log.steps.append(_err_step)
                 _log_step(_err_step)
-                _append_message(make_assistant_text_message(_LLM_ERROR_REPLY))
+                reply = _llm_error_reply(error)
+                _append_message(make_assistant_text_message(reply))
                 return TurnOutcome(
                     status="error",
-                    reply=_LLM_ERROR_REPLY,
+                    reply=reply,
                 )
 
             stream_summary = self._take_last_stream_summary()

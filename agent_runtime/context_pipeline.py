@@ -985,15 +985,22 @@ async def maybe_compact_history(
 
 
 def is_context_overflow_error(error: BaseException) -> bool:
+    if bool(getattr(error, "context_overflow", False)):
+        return True
     text = str(error or "").strip().lower()
     indicators = (
-        "context",
+        "context overflow",
+        "context window",
         "maximum context",
         "context length",
         "too many tokens",
         "prompt is too long",
         "input is too long",
         "overloaded input",
+        "model token limit",
+        "exceeded model token limit",
+        "total message size",
+        "exceeds limit",
     )
     return any(token in text for token in indicators)
 
