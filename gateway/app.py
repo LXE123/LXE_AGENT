@@ -18,8 +18,8 @@ from gateway.heartbeat_wake import HeartbeatWakeManager
 from gateway.models import InboundEvent
 from gateway.session_scheduler import RunHandle, SessionScheduler
 from gateway.session_router import SessionRouter
+from gateway import config as gateway_settings
 from platforms.feishu.config import FEISHU_ENABLED, feishu_runtime_status, validate_feishu_runtime_config
-from shared.config import config
 from shared.db.client import (
     dispose,
     init_schema,
@@ -57,10 +57,10 @@ class GatewayApp:
         self._dispatcher_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self._scheduler: BackgroundScheduler | None = None
-        self._gateway_id = str(config.GATEWAY_ID or "agent-gateway").strip() or "agent-gateway"
+        self._gateway_id = str(gateway_settings.GATEWAY_ID or "agent-gateway").strip() or "agent-gateway"
         self._session_scheduler = SessionScheduler(
             executor=self._execute_agent_job,
-            max_concurrency=int(config.AGENT_MAX_CONCURRENCY),
+            max_concurrency=int(gateway_settings.AGENT_MAX_CONCURRENCY),
         )
         self._emitter = GatewayEmitter(registry=registry)
         self._heartbeat_wake = HeartbeatWakeManager(scheduler=self._session_scheduler)
@@ -277,7 +277,7 @@ class GatewayApp:
             coalesce=True,
             max_instances=1,
         )
-        if bool(config.GATEWAY_ADAPTER_RECYCLE_ENABLED):
+        if bool(gateway_settings.GATEWAY_ADAPTER_RECYCLE_ENABLED):
             scheduler.add_job(
                 self._schedule_adapter_recycle,
                 "interval",
@@ -288,7 +288,7 @@ class GatewayApp:
                 max_instances=1,
             )
             logger.info("♻️ [Gateway] adapter recycle enabled: interval=60m")
-        if bool(config.GATEWAY_ADAPTER_WATCHDOG_ENABLED):
+        if bool(gateway_settings.GATEWAY_ADAPTER_WATCHDOG_ENABLED):
             scheduler.add_job(
                 self._schedule_adapter_watchdog,
                 "interval",

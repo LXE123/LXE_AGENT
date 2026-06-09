@@ -3,12 +3,12 @@ from __future__ import annotations
 import os
 import sys
 
-from shared.config import config
 from shared.logging import logger
 from shared.llm.glm import client as glm_client
 from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import ModelCapabilities, _resolve_model_capabilities_match
 from shared.llm.provider_catalog import ProviderDescriptor, descriptor_for_provider, normalize_provider_name
+from shared.llm import runtime_config as runtime_settings
 
 _ACTIVE_PROVIDER_ENV = "AGENT_LLM_PROVIDER"
 _ACTIVE_MODEL_ENV = "AGENT_LLM_MODEL"
@@ -17,12 +17,12 @@ _KIMI_THINKING_ENV = "KIMI_CODE_THINKING_ENABLED"
 
 
 def _config_text(name: str, default: str = "") -> str:
-    return str(getattr(config, name, default) or default).strip()
+    return str(getattr(runtime_settings, name, default) or default).strip()
 
 
 def _config_int(name: str, default: int) -> int:
     try:
-        return int(getattr(config, name, default) or default)
+        return int(getattr(runtime_settings, name, default) or default)
     except Exception:
         return int(default)
 
@@ -32,18 +32,18 @@ def _set_active_agent_planner(provider_name: str, model_name: str) -> None:
     chosen_model = str(model_name or "").strip()
     os.environ[_ACTIVE_PROVIDER_ENV] = normalized_name
     os.environ[_ACTIVE_MODEL_ENV] = chosen_model
-    setattr(config, _ACTIVE_PROVIDER_ENV, normalized_name)
-    setattr(config, _ACTIVE_MODEL_ENV, chosen_model)
+    setattr(runtime_settings, _ACTIVE_PROVIDER_ENV, normalized_name)
+    setattr(runtime_settings, _ACTIVE_MODEL_ENV, chosen_model)
 
 
 def _current_kimi_thinking_enabled() -> bool:
-    return bool(getattr(config, _KIMI_THINKING_ENV, True))
+    return bool(getattr(runtime_settings, _KIMI_THINKING_ENV, True))
 
 
 def _set_kimi_thinking_enabled(enabled: bool) -> None:
     normalized = bool(enabled)
     os.environ[_KIMI_THINKING_ENV] = "1" if normalized else "0"
-    setattr(config, _KIMI_THINKING_ENV, normalized)
+    setattr(runtime_settings, _KIMI_THINKING_ENV, normalized)
 
 
 def _prompt_bool(prompt: str, *, default: bool) -> bool:
@@ -110,7 +110,7 @@ def log_active_agent_planner_summary() -> None:
     capabilities, match_kind = _active_capabilities_with_match()
     thinking_mode = "default"
     if descriptor.name == kimi_coding_client.PROVIDER_NAME:
-        thinking_mode = "enabled" if bool(getattr(config, "KIMI_CODE_THINKING_ENABLED", True)) else "disabled"
+        thinking_mode = "enabled" if bool(runtime_settings.KIMI_CODE_THINKING_ENABLED) else "disabled"
     logger.info(
         "[AgentLLM] active provider=%s model=%s context_window=%s max_tokens=%s vision=%s thinking=%s thinking_mode=%s",
         descriptor.name,

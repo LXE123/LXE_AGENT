@@ -20,8 +20,8 @@ async def _noop_sleep(_seconds: float) -> None:
 
 
 def _patch_fast_polling(monkeypatch, *, max_polls: int = 6) -> None:
-    monkeypatch.setattr(cli.config, "LOGISTICS_IMPORT_POLL_INTERVAL_SECONDS", 0)
-    monkeypatch.setattr(cli.config, "LOGISTICS_IMPORT_MAX_POLLS", max_polls)
+    monkeypatch.setattr(cli.logistics_settings, "LOGISTICS_IMPORT_POLL_INTERVAL_SECONDS", 0)
+    monkeypatch.setattr(cli.logistics_settings, "LOGISTICS_IMPORT_MAX_POLLS", max_polls)
     monkeypatch.setattr(cli.asyncio, "sleep", _noop_sleep)
     monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 

@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from services.amazon.amazon_logistic.remote_client import create_import_job, get_import_job, upload_import_file
-from shared.config import config
+from services.amazon.amazon_logistic import config as logistics_settings
 from shared.infra.net import close_all_network_clients
 
 
@@ -69,7 +69,7 @@ def _job_error(payload: dict[str, Any]) -> str:
 
 def _config_int(name: str, default: int) -> int:
     try:
-        return int(getattr(config, name, default))
+        return int(getattr(logistics_settings, name, default))
     except Exception:
         return default
 

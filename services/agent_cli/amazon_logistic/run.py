@@ -20,9 +20,10 @@ from services.amazon.amazon_logistic.input.validator import (
 )
 from services.amazon.amazon_logistic.remote_client import quote_pricing
 from services.amazon.amazon_logistic.sources.consignment_excel import load_pricing_boxes_from_local_excel
-from shared.config import config
 from shared.infra.net import close_all_network_clients
 from shared.runtime_core.utils import send_file_to_current_session
+
+from . import defaults
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -91,10 +92,8 @@ def _to_quote_boxes_payload(boxes_payload: list[dict[str, Any]]) -> list[dict[st
     ]
 
 
-def _fba_logistics_default(key: str, default: str) -> str:
-    defaults = getattr(config, "FBA_LOGISTICS_DEFAULTS", {}) or {}
-    value = defaults.get(key) if isinstance(defaults, dict) else None
-    return str(value or default).strip() or default
+def _default_text(value: Any, fallback: str) -> str:
+    return str(value or fallback).strip() or fallback
 
 
 def _build_quote_payload(
@@ -104,17 +103,14 @@ def _build_quote_payload(
     destination_address: str,
     boxes_payload: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    configured_cargo_nature = getattr(config, "FBA_LOGISTICS_FIXED_CARGO_NATURE", "")
-    cargo_nature = str(
-        configured_cargo_nature or _fba_logistics_default("cargo_nature", "general")
-    ).strip().lower() or "general"
+    cargo_nature = _default_text(defaults.DEFAULT_CARGO_NATURE, "general").lower()
     return {
         "shipment_no": shipment_no,
         "consignment_no": consignment_no,
         "destination_address": destination_address,
-        "transport_mode": _fba_logistics_default("transport_mode", "air").lower(),
+        "transport_mode": _default_text(defaults.DEFAULT_TRANSPORT_MODE, "air").lower(),
         "cargo_nature": cargo_nature,
-        "tax_included": _fba_logistics_default("tax_included", "any").lower(),
+        "tax_included": _default_text(defaults.DEFAULT_TAX_INCLUDED, "any").lower(),
         "boxes": _to_quote_boxes_payload(boxes_payload),
         "top_n": 50,
         "allow_any_destination": True,

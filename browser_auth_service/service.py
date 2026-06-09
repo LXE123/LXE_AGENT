@@ -9,8 +9,10 @@ from urllib.parse import urlparse
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from shared.config import config
 from shared.logging import logger
+from services.mabang import config as mabang_settings
+
+from . import config as auth_settings
 
 PHPSESSID_COOKIE_NAME = "PHPSESSID"
 PHPSESSID_HOST = "private.mabangerp.com"
@@ -90,11 +92,11 @@ def ensure_auth(
 
 def _resolve_credentials(scope: str, account: str) -> tuple[str, str]:
     if scope == "temu":
-        resolved_account = str(account or getattr(config, "MABANG_ACCOUNT_TEMU", "") or "").strip()
-        password = str(getattr(config, "MABANG_PASSWORD_TEMU", "") or "").strip()
+        resolved_account = str(account or mabang_settings.MABANG_ACCOUNT_TEMU or "").strip()
+        password = str(mabang_settings.MABANG_PASSWORD_TEMU or "").strip()
     else:
-        resolved_account = str(account or getattr(config, "MABANG_ACCOUNT", "") or "").strip()
-        password = str(getattr(config, "MABANG_PASSWORD", "") or "").strip()
+        resolved_account = str(account or mabang_settings.MABANG_ACCOUNT or "").strip()
+        password = str(mabang_settings.MABANG_PASSWORD or "").strip()
 
     if not resolved_account:
         raise ValueError(f"{scope} 账号为空")
@@ -373,7 +375,7 @@ def _clear_state_file(state_file: Path) -> None:
 
 
 def _browser_auth_headless() -> bool:
-    return bool(getattr(config, "BROWSER_AUTH_HEADLESS", getattr(config, "FBA_LOGISTICS_TOKEN_HEADLESS", False)))
+    return bool(auth_settings.BROWSER_AUTH_HEADLESS)
 
 
 def _playwright_storage_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -627,7 +629,7 @@ def _ensure_fba_auth(
     target_url = FBA_LOGISTICS_TOKEN_TARGET_URL
     wms_host = FBA_LOGISTICS_WMS_HOST.strip().lower().lstrip(".")
     wms_entry_text = FBA_LOGISTICS_WMS_ENTRY_TEXT
-    headless = bool(getattr(config, "FBA_LOGISTICS_TOKEN_HEADLESS", _browser_auth_headless()))
+    headless = bool(auth_settings.FBA_LOGISTICS_TOKEN_HEADLESS)
 
     cached_token = _storage_lookup_token(payload, token_origin, token_key)
     cached_wms_cookies = _storage_lookup_domain_cookies(payload, wms_host)

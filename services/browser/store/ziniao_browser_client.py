@@ -5,9 +5,9 @@ import subprocess
 import time
 from typing import Any
 
-from shared.config import config
 from shared.logging import logger
 
+from . import ziniao_config as ziniao_settings
 from .ziniao_client import ZiniaoClient, ZiniaoClientError
 from .ziniao_lifecycle import ZiniaoLifecycleManager
 from .ziniao_process import download_driver, kill_process, normalize_browser_version
@@ -15,18 +15,18 @@ from .ziniao_process import download_driver, kill_process, normalize_browser_ver
 
 def _user_info() -> dict[str, str]:
     return {
-        "company": str(getattr(config, "ZINIAO_COMPANY", "") or "").strip(),
-        "username": str(getattr(config, "ZINIAO_USERNAME", "") or "").strip(),
-        "password": str(getattr(config, "ZINIAO_PASSWORD", "") or "").strip(),
+        "company": str(ziniao_settings.ZINIAO_COMPANY or "").strip(),
+        "username": str(ziniao_settings.ZINIAO_USERNAME or "").strip(),
+        "password": str(ziniao_settings.ZINIAO_PASSWORD or "").strip(),
     }
 
 
 def _client_path() -> str:
-    return str(getattr(config, "ZINIAO_CLIENT_PATH", "") or "").strip()
+    return str(ziniao_settings.ZINIAO_CLIENT_PATH or "").strip()
 
 
 def _control_port() -> int:
-    safe_port = int(getattr(config, "ZINIAO_SOCKET_PORT", 0) or 0)
+    safe_port = int(ziniao_settings.ZINIAO_SOCKET_PORT or 0)
     if safe_port <= 0:
         raise RuntimeError("ZINIAO_SOCKET_PORT 未配置")
     return safe_port
@@ -64,14 +64,11 @@ class ZiniaoBrowserClient:
         return self._client
 
     def _prepare_client_startup(self) -> None:
-        raw_version = getattr(config, "ZINIAO_BROWSER_VERSION", "") or os.getenv(
-            "ZINIAO_BROWSER_VERSION",
-            "v6",
-        )
+        raw_version = ziniao_settings.ZINIAO_BROWSER_VERSION or os.getenv("ZINIAO_BROWSER_VERSION", "v6")
         browser_version = normalize_browser_version(
             str(raw_version)
         )
-        download_driver(str(getattr(config, "ZINIAO_WEBDRIVER_PATH", "") or "").strip())
+        download_driver(str(ziniao_settings.ZINIAO_WEBDRIVER_PATH or "").strip())
         kill_process(browser_version)
 
     def _mark_client_ready(self, *, client_pid: int = 0) -> None:

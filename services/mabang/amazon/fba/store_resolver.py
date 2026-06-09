@@ -8,8 +8,8 @@ from typing import Any
 
 from bs4 import BeautifulSoup
 
-from shared.config import config
 from shared.infra.net import erp_http_session
+from services.mabang import config as mabang_settings
 
 from ...auth import get_auth_context
 from ...cookies import build_cookie_header, extract_named_cookies, list_cookie_names
@@ -159,7 +159,7 @@ class FbaStoreResolverAuth:
 
 
 def _configured_text(name: str, default: str) -> str:
-    return str(getattr(config, name, default) or default).strip()
+    return mabang_settings.configured_text(name, default)
 
 
 def _clean_text(value: Any) -> str:
@@ -180,7 +180,7 @@ def _resolve_output_dir(output_dir: str | Path | None = None) -> Path:
     if output_dir is not None:
         path = Path(output_dir)
     else:
-        configured = str(getattr(config, "MABANG_FBA_STORE_RESOLVER_OUTPUT_DIR", "") or "").strip()
+        configured = str(mabang_settings.MABANG_FBA_STORE_RESOLVER_OUTPUT_DIR or "").strip()
         path = Path(configured) if configured else DEFAULT_OUTPUT_DIR
     path.mkdir(parents=True, exist_ok=True)
     return path

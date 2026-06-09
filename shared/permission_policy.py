@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.config import config
+from platforms.feishu.config import FEISHU_APP_ID
 
 
 ALL = "*"
@@ -104,7 +104,7 @@ def resolve_bot_id(source: Any) -> str:
     )
     platform = (_source_text(source, "platform") or _clean_text(raw.get("platform"))).lower()
     if platform == "feishu":
-        return direct_bot_id or _clean_text(getattr(config, "FEISHU_APP_ID", ""))
+        return direct_bot_id or _clean_text(FEISHU_APP_ID)
 
     return direct_bot_id
 

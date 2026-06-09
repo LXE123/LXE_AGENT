@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from clients.auth.browser_auth_client import ensure_auth
-from shared.config import config
+from services.mabang import config as mabang_settings
 
 from .cookies import extract_named_cookies, require_cookie_values
 from .errors import MabangAuthError
@@ -33,7 +33,7 @@ def _resolve_account(scope: str, account: str) -> str:
         return account_text
     normalized_scope = str(scope or "").strip().lower()
     if normalized_scope in {"erp", "private_amz"}:
-        return str(getattr(config, "MABANG_ACCOUNT", "") or "").strip()
+        return str(mabang_settings.MABANG_ACCOUNT or "").strip()
     return ""
 
 

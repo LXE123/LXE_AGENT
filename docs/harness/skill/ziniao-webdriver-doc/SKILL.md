@@ -122,11 +122,11 @@ graph LR
 
 查看店铺列表 - get_browser_list()：
 ```py
-python -c "from services.browser.store.ziniao_client import ZiniaoClient; from shared.config import config; import json; client = ZiniaoClient(int(config.ZINIAO_SOCKET_PORT), {'company': str(config.ZINIAO_COMPANY or '').strip(), 'username': str(config.ZINIAO_USERNAME or '').strip(), 'password': str(config.ZINIAO_PASSWORD or '').strip()}); print(json.dumps(client.get_browser_list(), ensure_ascii=False, indent=2))"
+python -c "from services.browser.store.ziniao_client import ZiniaoClient; from services.browser.store import ziniao_config as ziniao_settings; import json; client = ZiniaoClient(int(ziniao_settings.ZINIAO_SOCKET_PORT), {'company': str(ziniao_settings.ZINIAO_COMPANY or '').strip(), 'username': str(ziniao_settings.ZINIAO_USERNAME or '').strip(), 'password': str(ziniao_settings.ZINIAO_PASSWORD or '').strip()}); print(json.dumps(client.get_browser_list(), ensure_ascii=False, indent=2))"
 ```
 获取当前店铺运行信息 - get_running_info()：
 ```py
-python -c "from services.browser.store.ziniao_client import ZiniaoClient; from shared.config import config; from pathlib import Path; import json; client = ZiniaoClient(int(config.ZINIAO_SOCKET_PORT), {'company': str(config.ZINIAO_COMPANY or '').strip(), 'username': str(config.ZINIAO_USERNAME or '').strip(), 'password': str(config.ZINIAO_PASSWORD or '').strip()}); Path('running_info.json').write_text(json.dumps(client.get_running_info(), ensure_ascii=False, indent=2), encoding='utf-8')")"
+python -c "from services.browser.store.ziniao_client import ZiniaoClient; from services.browser.store import ziniao_config as ziniao_settings; from pathlib import Path; import json; client = ZiniaoClient(int(ziniao_settings.ZINIAO_SOCKET_PORT), {'company': str(ziniao_settings.ZINIAO_COMPANY or '').strip(), 'username': str(ziniao_settings.ZINIAO_USERNAME or '').strip(), 'password': str(ziniao_settings.ZINIAO_PASSWORD or '').strip()}); Path('running_info.json').write_text(json.dumps(client.get_running_info(), ensure_ascii=False, indent=2), encoding='utf-8')")"
 ```
 
 

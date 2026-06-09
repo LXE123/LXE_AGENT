@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from shared.config import config
 from shared.llm.auth_profiles import api_key_for_provider, load_auth_profiles
 from shared.llm.provider_catalog import (
     descriptor_for_provider,
@@ -53,9 +52,8 @@ def test_auth_profile_reads_api_key_from_env_aliases(monkeypatch) -> None:
     assert api_key_for_provider("glm") == "zhipu-key"
 
 
-def test_auth_profile_does_not_read_shared_config_fallback(monkeypatch) -> None:
+def test_auth_profile_does_not_read_python_config_fallback(monkeypatch) -> None:
     monkeypatch.delenv("DEEPSEEK_API", raising=False)
-    monkeypatch.setattr(config, "DEEPSEEK_API", "config-only-key", raising=False)
 
     descriptor = descriptor_for_provider("deepseek")
 

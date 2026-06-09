@@ -6,26 +6,12 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from shared.config import config
 from services.mabang.amazon.fba import download_consignment_excel_from_wms
 from services.mabang.amazon.fba.consignment_paths import resolve_wms_consignment_dir
 from shared.logging import logger
 
 from ..input.validator import normalize_consignment_no
-
-
-def _parse_bool(value: Any, default: bool = False) -> bool:
-    """解析宽松布尔值。"""
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in {"1", "true", "yes", "y", "on", "是", "开启"}:
-        return True
-    if text in {"0", "false", "no", "n", "off", "否", "关闭"}:
-        return False
-    return default
+from . import wms_export_config as wms_export_settings
 
 
 def resolve_consignment_excel_dir() -> Path:
@@ -92,8 +78,8 @@ def find_unique_local_consignment_excel(consignment_no: str) -> Path:
 async def ensure_consignment_excel_ready(consignment_no: str) -> Path:
     """优先通过 WMS 导出托运单 Excel，失败时回退本地文件。"""
     normalized = normalize_consignment_no(consignment_no)
-    enable_export = _parse_bool(getattr(config, "FBA_LOGISTICS_ENABLE_WMS_EXPORT", True), True)
-    strict_export = _parse_bool(getattr(config, "FBA_LOGISTICS_WMS_EXPORT_STRICT", True), True)
+    enable_export = bool(wms_export_settings.FBA_LOGISTICS_ENABLE_WMS_EXPORT)
+    strict_export = bool(wms_export_settings.FBA_LOGISTICS_WMS_EXPORT_STRICT)
     wms_error: Exception | None = None
 
     if enable_export:

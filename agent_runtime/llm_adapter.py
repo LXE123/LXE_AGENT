@@ -15,11 +15,11 @@ from typing import Any, Awaitable, Callable, Literal
 
 from requests import exceptions as requests_exceptions
 
-from shared.config import config
 from shared.llm.agent_planner import active_agent_planner_descriptor, effective_agent_planner_max_tokens
 from shared.llm.errors import AnthropicStreamError
 from shared.llm.events import LLMStreamEvent, LLMToolCall
 from shared.llm.provider_catalog import ProviderDescriptor
+from shared.llm import runtime_config as runtime_settings
 from shared.llm.transports.anthropic_sdk_stream import stream_message_events as sdk_stream_message_events
 from shared.llm.transports.wire_trace import WireTraceContext
 from shared.llm.transports.openai_chat import OpenAIChatCompletion, chat_with_tools as openai_chat_with_tools
@@ -54,7 +54,7 @@ class LLMResponse:
 
 def _config_int(name: str, default: int) -> int:
     try:
-        return int(getattr(config, name, default) or default)
+        return int(getattr(runtime_settings, name, default) or default)
     except Exception:
         return int(default)
 

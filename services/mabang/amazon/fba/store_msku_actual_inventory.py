@@ -11,8 +11,8 @@ from decimal import Decimal, InvalidOperation, ROUND_FLOOR, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
-from shared.config import config
 from shared.infra.net import erp_http_session, external_http_session
+from services.mabang import config as mabang_settings
 
 from ...auth import get_auth_context
 from ...cookies import build_cookie_header, extract_named_cookies
@@ -184,7 +184,7 @@ class ActualInventoryResult:
 
 
 def _configured_text(name: str, default: str) -> str:
-    return str(getattr(config, name, default) or default).strip()
+    return mabang_settings.configured_text(name, default)
 
 
 def _clean_text(value: Any) -> str:
@@ -261,7 +261,7 @@ def _display_quantity(value: Decimal) -> str:
 def _resolve_store_msku_dir(input_dir: str | Path | None = None) -> Path:
     if input_dir is not None:
         return Path(input_dir)
-    configured = str(getattr(config, "MABANG_STORE_MSKU_OUTPUT_DIR", "") or "").strip()
+    configured = str(mabang_settings.MABANG_STORE_MSKU_OUTPUT_DIR or "").strip()
     return Path(configured) if configured else DEFAULT_STORE_MSKU_DIR
 
 
@@ -269,7 +269,7 @@ def _resolve_output_dir(output_dir: str | Path | None = None) -> Path:
     if output_dir is not None:
         path = Path(output_dir)
     else:
-        configured = str(getattr(config, "MABANG_STORE_MSKU_INVENTORY_OUTPUT_DIR", "") or "").strip()
+        configured = str(mabang_settings.MABANG_STORE_MSKU_INVENTORY_OUTPUT_DIR or "").strip()
         path = Path(configured) if configured else DEFAULT_OUTPUT_DIR
     path.mkdir(parents=True, exist_ok=True)
     return path

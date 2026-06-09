@@ -10,7 +10,6 @@ from typing import Any
 from uuid import uuid4
 
 from shared.agent_state import context_state, update_context_state
-from shared.config import config
 from shared.llm.agent_planner import active_agent_planner_capabilities
 from shared.logging import logger
 
@@ -147,7 +146,7 @@ Keep each section concise. Preserve exact file paths, function names, and error 
 def _repo_root() -> Path:
     current = Path(__file__).resolve()
     for parent in current.parents:
-        if (parent / "shared" / "config.py").is_file() and (parent / "agent_runtime").is_dir():
+        if (parent / "shared").is_dir() and (parent / "agent_runtime").is_dir():
             return parent
     return current.parents[1]
 
@@ -737,8 +736,7 @@ def _model_context_window_tokens() -> int:
 
 
 def _history_limit(platform: str, *, is_group: bool) -> int:
-    limits = getattr(config, "AGENT_CHANNEL_HISTORY_LIMITS", DEFAULT_CHANNEL_HISTORY_LIMITS)
-    channel_limits = dict(dict(limits or {}).get(str(platform or "").strip(), {}) or {})
+    channel_limits = dict(DEFAULT_CHANNEL_HISTORY_LIMITS.get(str(platform or "").strip(), {}) or {})
     if is_group:
         return int(channel_limits.get("groupHistoryLimit") or 0)
     return int(channel_limits.get("dmHistoryLimit") or 0)

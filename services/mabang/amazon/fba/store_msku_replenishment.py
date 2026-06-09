@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from shared.config import config
+from services.mabang import config as mabang_settings
 from services.mabang.amazon.fba.replenishment_template import (
     DEFAULT_TEMPLATE_NAME,
     ReplenishmentTemplate,
@@ -265,8 +265,7 @@ def normalize_store_name(value: Any) -> str:
 
 
 def _configured_path(name: str, default: Path) -> Path:
-    configured = str(getattr(config, name, "") or "").strip()
-    return Path(configured) if configured else default
+    return mabang_settings.configured_path(name, default)
 
 
 def _sales_analysis_dir(input_dir: str | Path | None = None) -> Path:

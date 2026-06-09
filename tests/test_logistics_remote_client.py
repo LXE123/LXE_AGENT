@@ -61,12 +61,13 @@ def test_upload_import_file_posts_multipart_file_field(monkeypatch, tmp_path):
     fake_session = _FakeSession({"ok": True, "job_id": "imp_upload", "status": "queued"})
     monkeypatch.setattr(remote_client.aiohttp, "FormData", fake_form_data)
     monkeypatch.setattr(remote_client, "external_http_session", fake_session)
-    monkeypatch.setattr(remote_client.config, "LOGISTICS_API_BASE_URL", "http://logistics.test")
+    monkeypatch.setattr(remote_client.logistics_settings, "LOGISTICS_API_BASE_URL", "http://logistics.test")
 
     payload = asyncio.run(remote_client.upload_import_file(str(file_path)))
 
     assert payload["job_id"] == "imp_upload"
     assert fake_session.calls[0]["url"] == "http://logistics.test/api/v1/pricing/import-jobs/upload"
+    assert fake_session.calls[0]["headers"] == {"Accept": "application/json"}
     assert fake_session.calls[0]["data"] is form_instances[0]
     assert form_instances[0].fields[0][0] == "file"
     assert form_instances[0].fields[0][2]["filename"] == "quote.xlsx"
@@ -77,7 +78,7 @@ def test_upload_import_file_requires_job_id(monkeypatch, tmp_path):
     file_path.write_bytes(b"quote-data")
     fake_session = _FakeSession({"ok": True, "status": "queued"})
     monkeypatch.setattr(remote_client, "external_http_session", fake_session)
-    monkeypatch.setattr(remote_client.config, "LOGISTICS_API_BASE_URL", "http://logistics.test")
+    monkeypatch.setattr(remote_client.logistics_settings, "LOGISTICS_API_BASE_URL", "http://logistics.test")
 
     with pytest.raises(remote_client.LogisticsApiError, match="missing job_id"):
         asyncio.run(remote_client.upload_import_file(str(file_path)))

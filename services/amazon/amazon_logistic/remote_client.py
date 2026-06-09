@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 import aiohttp
 
-from shared.config import config
+from services.amazon.amazon_logistic import config as logistics_settings
 from shared.infra.net import external_http_session
 
 
@@ -16,23 +16,19 @@ class LogisticsApiError(RuntimeError):
 
 
 def _base_url() -> str:
-    value = str(getattr(config, "LOGISTICS_API_BASE_URL", "") or "").strip().rstrip("/")
+    value = str(logistics_settings.LOGISTICS_API_BASE_URL or "").strip().rstrip("/")
     if not value:
         raise LogisticsApiError("LOGISTICS_API_BASE_URL is not configured")
     return value
 
 
 def _timeout() -> aiohttp.ClientTimeout:
-    seconds = max(1, int(getattr(config, "LOGISTICS_API_TIMEOUT_SECONDS", 30) or 30))
+    seconds = max(1, int(logistics_settings.LOGISTICS_API_TIMEOUT_SECONDS or 30))
     return aiohttp.ClientTimeout(total=seconds)
 
 
 def _headers() -> dict[str, str]:
-    headers = {"Accept": "application/json"}
-    api_key = str(getattr(config, "LOGISTICS_API_KEY", "") or "").strip()
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
-    return headers
+    return {"Accept": "application/json"}
 
 
 def _endpoint(path: str) -> str:

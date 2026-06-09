@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 
-from shared.config import config
+from shared.env_config import env_flag, env_int, env_text
 from shared.llm.transports.wire_trace import dated_session_trace_dir
 from shared.logging import logger
 
@@ -106,14 +106,6 @@ def _repo_root() -> Path:
 
 def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="milliseconds")
-
-
-def _safe_int(value: Any, default: int, *, minimum: int = 0) -> int:
-    try:
-        parsed = int(value)
-    except Exception:
-        parsed = int(default)
-    return max(int(minimum), parsed)
 
 
 def _normalize_key(key: Any) -> str:
@@ -223,20 +215,20 @@ def _normalize_preview(text: str, *, limit: int) -> str:
 
 
 def load_stream_logging_config() -> StreamLoggingConfig:
-    raw_mode = str(getattr(config, "AGENT_STREAM_LOG_MODE", "summary") or "summary").strip().lower()
+    raw_mode = env_text("AGENT_STREAM_LOG_MODE", "summary").lower()
     mode: StreamLogMode = raw_mode if raw_mode in {"summary", "debug", "trace"} else "summary"
 
-    trace_dir_raw = str(getattr(config, "AGENT_STREAM_TRACE_DIR", "logs/agent_traces") or "logs/agent_traces").strip()
+    trace_dir_raw = env_text("AGENT_STREAM_TRACE_DIR", "logs/agent_traces")
     trace_dir = Path(trace_dir_raw or "logs/agent_traces")
     if not trace_dir.is_absolute():
         trace_dir = (_repo_root() / trace_dir).resolve()
 
     return StreamLoggingConfig(
         mode=mode,
-        trace_enabled=bool(getattr(config, "AGENT_STREAM_TRACE_ENABLED", True)),
-        heartbeat_ms=_safe_int(getattr(config, "AGENT_STREAM_HEARTBEAT_MS", 1000), 1000),
-        heartbeat_chars=_safe_int(getattr(config, "AGENT_STREAM_HEARTBEAT_CHARS", 300), 300, minimum=1),
-        debug_preview_chars=_safe_int(getattr(config, "AGENT_STREAM_DEBUG_PREVIEW_CHARS", 80), 80, minimum=1),
+        trace_enabled=env_flag("AGENT_STREAM_TRACE_ENABLED", True),
+        heartbeat_ms=env_int("AGENT_STREAM_HEARTBEAT_MS", 1000, minimum=0),
+        heartbeat_chars=env_int("AGENT_STREAM_HEARTBEAT_CHARS", 300, minimum=1),
+        debug_preview_chars=env_int("AGENT_STREAM_DEBUG_PREVIEW_CHARS", 80, minimum=1),
         trace_dir=trace_dir,
     )
 

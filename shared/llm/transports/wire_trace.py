@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
-from shared.config import config
+from shared.env_config import env_flag, env_text
 from shared.logging import logger
 
 _TRACE_STRING_LIMIT = 8192
@@ -75,11 +75,6 @@ def _repo_root() -> Path:
 
 def _now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="milliseconds")
-
-
-def _env_flag(name: str, default: bool) -> bool:
-    raw = str(getattr(config, name, "1" if default else "0") or "").strip().lower()
-    return raw not in {"0", "false", "no", "off", ""}
 
 
 def _normalize_key(key: Any) -> str:
@@ -193,12 +188,12 @@ def sanitize_wire_payload(
 
 
 def load_wire_trace_config() -> WireTraceConfig:
-    trace_dir_raw = str(getattr(config, "AGENT_SSE_WIRE_TRACE_DIR", "logs/sse_wire_traces") or "").strip()
+    trace_dir_raw = env_text("AGENT_SSE_WIRE_TRACE_DIR", "logs/sse_wire_traces")
     trace_dir = Path(trace_dir_raw or "logs/sse_wire_traces")
     if not trace_dir.is_absolute():
         trace_dir = (_repo_root() / trace_dir).resolve()
     return WireTraceConfig(
-        enabled=_env_flag("AGENT_SSE_WIRE_TRACE_ENABLED", True),
+        enabled=env_flag("AGENT_SSE_WIRE_TRACE_ENABLED", True),
         trace_dir=trace_dir,
     )
 

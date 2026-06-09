@@ -41,15 +41,15 @@ def _client_path(tmp_path):
 
 
 def _configure(monkeypatch, tmp_path, *, client_path: str | None = None) -> None:
-    monkeypatch.setattr(ziniao_browser_client.config, "ZINIAO_BROWSER_VERSION", "v6", raising=False)
-    monkeypatch.setattr(ziniao_browser_client.config, "ZINIAO_WEBDRIVER_PATH", str(tmp_path), raising=False)
+    monkeypatch.setattr(ziniao_browser_client.ziniao_settings, "ZINIAO_BROWSER_VERSION", "v6", raising=False)
+    monkeypatch.setattr(ziniao_browser_client.ziniao_settings, "ZINIAO_WEBDRIVER_PATH", str(tmp_path), raising=False)
     monkeypatch.setattr(
-        ziniao_browser_client.config,
+        ziniao_browser_client.ziniao_settings,
         "ZINIAO_CLIENT_PATH",
         client_path if client_path is not None else _client_path(tmp_path),
         raising=False,
     )
-    monkeypatch.setattr(ziniao_browser_client.config, "ZINIAO_SOCKET_PORT", 19000, raising=False)
+    monkeypatch.setattr(ziniao_browser_client.ziniao_settings, "ZINIAO_SOCKET_PORT", 19000, raising=False)
 
 
 def test_open_client_api_available_does_not_prepare_or_launch(monkeypatch, tmp_path):
@@ -222,7 +222,7 @@ def test_stop_browser_and_close_client_do_not_start_when_api_unavailable(monkeyp
 
 def test_open_client_invalid_browser_version_does_not_launch(monkeypatch, tmp_path):
     _configure(monkeypatch, tmp_path)
-    monkeypatch.setattr(ziniao_browser_client.config, "ZINIAO_BROWSER_VERSION", "v7", raising=False)
+    monkeypatch.setattr(ziniao_browser_client.ziniao_settings, "ZINIAO_BROWSER_VERSION", "v7", raising=False)
     monkeypatch.setattr(
         ziniao_browser_client,
         "download_driver",

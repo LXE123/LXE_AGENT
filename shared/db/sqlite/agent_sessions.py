@@ -18,11 +18,11 @@ from shared.agent_state import (
     runtime_state,
     split_agent_state_for_storage,
 )
-from shared.config import config
 from shared.db.shared_state_dto import AgentSessionState
 from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import _resolve_model_capabilities_match
 from shared.llm.provider_catalog import descriptor_for_provider, normalize_provider_name
+from shared.llm import runtime_config as runtime_settings
 from shared.logging import logger
 
 from ._agent_storage import (
@@ -99,19 +99,11 @@ def _clean_float(value: Any, *, default: float = 0.0) -> float:
         return float(default)
 
 
-def _config_text(name: str, default: str = "") -> str:
-    return str(getattr(config, name, default) or default).strip()
-
-
 def _current_model_metadata() -> tuple[str, dict[str, Any]]:
-    provider_name = os.getenv("AGENT_LLM_PROVIDER", "") or _config_text(
-        "AGENT_LLM_PROVIDER",
-        kimi_coding_client.PROVIDER_NAME,
-    )
-    model_override = os.getenv("AGENT_LLM_MODEL", "") or _config_text(
-        "AGENT_LLM_MODEL",
-        "",
-    )
+    provider_name = os.getenv("AGENT_LLM_PROVIDER", "") or str(
+        runtime_settings.AGENT_LLM_PROVIDER or kimi_coding_client.PROVIDER_NAME
+    ).strip()
+    model_override = os.getenv("AGENT_LLM_MODEL", "") or str(runtime_settings.AGENT_LLM_MODEL or "").strip()
     try:
         provider_name = normalize_provider_name(provider_name)
         descriptor = descriptor_for_provider(provider_name, model_override=model_override)

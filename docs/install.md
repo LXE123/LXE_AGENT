@@ -31,7 +31,7 @@ uv lock --check
 uv sync --frozen --all-groups --python 3.12.10 --check
 关键 import：psycopg、pandas、playwright
 Playwright Chromium 可用
-shared/config.py 存在
+.env.example 存在；真实部署值由 .env 或系统环境变量提供
 
 2. scripts/update.ps1
 这个做什么？

@@ -41,7 +41,7 @@ $uv = Resolve-Uv
 
 Require-Path (Join-Path $ProjectRoot "pyproject.toml")
 Require-Path (Join-Path $ProjectRoot "uv.lock")
-Require-Path (Join-Path $ProjectRoot "shared\config.py")
+Require-Path (Join-Path $ProjectRoot ".env.example")
 
 Invoke-Checked "uv lock" { & $uv lock --check }
 Invoke-Checked "uv sync" { & $uv sync --frozen --all-groups --python $PythonVersion --check }

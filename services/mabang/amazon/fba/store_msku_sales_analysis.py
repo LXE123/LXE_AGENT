@@ -7,7 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from shared.config import config
+from services.mabang import config as mabang_settings
 
 DEFAULT_INPUT_DIR = Path("artifacts") / "mabang_store_msku"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_store_msku_analysis"
@@ -91,8 +91,7 @@ def normalize_store_name(value: Any) -> str:
 
 
 def _configured_path(name: str, default: Path) -> Path:
-    configured = str(getattr(config, name, "") or "").strip()
-    return Path(configured) if configured else default
+    return mabang_settings.configured_path(name, default)
 
 
 def _input_dir(input_dir: str | Path | None = None) -> Path:

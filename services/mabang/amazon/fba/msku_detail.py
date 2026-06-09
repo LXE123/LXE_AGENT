@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from shared.config import config
 from shared.infra.net import erp_http_session, external_http_session
+from services.mabang import config as mabang_settings
 
 from ...auth import get_auth_context
 from ...cookies import build_cookie_header, extract_named_cookies, list_cookie_names
@@ -120,7 +120,7 @@ class MskuDetailExcelResult:
 
 
 def _configured_text(name: str, default: str) -> str:
-    return str(getattr(config, name, default) or default).strip()
+    return mabang_settings.configured_text(name, default)
 
 
 def _clean_cell(value: Any) -> str:
@@ -153,7 +153,7 @@ def _resolve_output_dir(output_dir: str | Path | None = None) -> Path:
     if output_dir is not None:
         path = Path(output_dir)
     else:
-        configured = str(getattr(config, "MABANG_MSKU_DETAIL_OUTPUT_DIR", "") or "").strip()
+        configured = str(mabang_settings.MABANG_MSKU_DETAIL_OUTPUT_DIR or "").strip()
         path = Path(configured) if configured else DEFAULT_OUTPUT_DIR
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -162,7 +162,7 @@ def _resolve_output_dir(output_dir: str | Path | None = None) -> Path:
 def _resolve_delivery_file_dir(delivery_file_dir: str | Path | None = None) -> Path:
     if delivery_file_dir is not None:
         return Path(delivery_file_dir)
-    configured = str(getattr(config, "FBA_DELIVERY_CSV_DIR", "") or "").strip()
+    configured = str(mabang_settings.FBA_DELIVERY_CSV_DIR or "").strip()
     return Path(configured) if configured else DEFAULT_DELIVERY_FILE_DIR
 
 

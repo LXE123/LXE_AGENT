@@ -16,14 +16,15 @@ from agent_runtime.tool_registry import ensure_all_tools_registered, get_registr
 from agent_runtime.tools.coding_tools import CODING_TOOL_NAMES
 from agent_runtime.tools.feishu_im_tools import FEISHU_IM_TOOLS
 from agent_runtime.tools.process_sessions import list_exec_session_snapshots
-from shared.config import config
 from shared.db.sqlite.engine import connection_scope
 from shared.db.sqlite.session_messages import load_session_messages_page
 from shared.llm.agent_planner import agent_planner_selection_options
 from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import resolve_model_capabilities
 from shared.llm.provider_catalog import descriptor_for_provider, normalize_provider_name
+from shared.llm import runtime_config as runtime_settings
 from shared.permission_policy import ALL, allowed_skill_types_for_bot
+from platforms.feishu.config import FEISHU_APP_ID
 
 
 def _repo_root() -> Path:
@@ -71,10 +72,10 @@ def _descriptor_payload(descriptor) -> dict[str, Any]:
 
 def _current_planner_descriptor():
     provider_name = os.getenv("AGENT_LLM_PROVIDER", "") or str(
-        getattr(config, "AGENT_LLM_PROVIDER", kimi_coding_client.PROVIDER_NAME) or ""
+        runtime_settings.AGENT_LLM_PROVIDER or kimi_coding_client.PROVIDER_NAME
     ).strip()
     model_name = os.getenv("AGENT_LLM_MODEL", "") or str(
-        getattr(config, "AGENT_LLM_MODEL", "") or ""
+        runtime_settings.AGENT_LLM_MODEL or ""
     ).strip()
     provider_name = normalize_provider_name(provider_name or kimi_coding_client.PROVIDER_NAME)
     return descriptor_for_provider(provider_name, model_override=model_name)
@@ -184,7 +185,7 @@ def _session_detail(session_id: str, *, message_limit: int = 25, message_page: i
 
 def _skills_payload() -> list[dict[str, Any]]:
     index = load_skill_index()
-    current_bot_id = str(getattr(config, "FEISHU_APP_ID", "") or "").strip()
+    current_bot_id = str(FEISHU_APP_ID or "").strip()
     allowed_types = allowed_skill_types_for_bot(current_bot_id)
     allow_all = ALL in allowed_types
     items = []

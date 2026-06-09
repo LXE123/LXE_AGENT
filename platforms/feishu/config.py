@@ -1,13 +1,13 @@
-"""Feishu platform configuration sourced from shared.config."""
+"""Feishu platform configuration sourced from environment variables."""
 from __future__ import annotations
 
 from typing import Any
 
-from shared.config import config as shared_config
+from shared.env_config import env_flag, env_text
 
 
 def _config_text(name: str, default: str = "") -> str:
-    return str(getattr(shared_config, name, default) or "").strip()
+    return env_text(name, default)
 
 
 def _mask_value(value: str, *, keep: int = 4) -> str:
@@ -23,9 +23,7 @@ FEISHU_APP_ID: str = _config_text("FEISHU_APP_ID")
 FEISHU_APP_SECRET: str = _config_text("FEISHU_APP_SECRET")
 FEISHU_BOT_OPEN_ID: str = _config_text("FEISHU_BOT_OPEN_ID")
 FEISHU_API_HOST: str = "https://open.feishu.cn/open-apis"
-FEISHU_RAW_EVENT_DUMP_ENABLED: bool = bool(
-    getattr(shared_config, "FEISHU_RAW_EVENT_DUMP_ENABLED", False)
-)
+FEISHU_RAW_EVENT_DUMP_ENABLED: bool = env_flag("FEISHU_RAW_EVENT_DUMP_ENABLED", True)
 FEISHU_RAW_EVENT_DUMP_DIR: str = _config_text(
     "FEISHU_RAW_EVENT_DUMP_DIR",
     "logs/feishu_raw_events",

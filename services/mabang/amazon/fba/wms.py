@@ -9,13 +9,13 @@ from urllib.parse import urlsplit
 
 import aiohttp
 
-from shared.config import config
 from shared.infra.net import erp_http_session
 from shared.logging import logger
 
 from ...auth import get_fba_wms_cookie_header
 from ...errors import MabangAuthError, MabangBusinessError
 from .consignment_paths import resolve_wms_consignment_dir
+from . import wms_config as wms_settings
 
 DEFAULT_WMS_EXPORT_URL = "https://wms.private.mabangerp.com/export_service/fbaamazon/ExeclFbaPackInfo2Amazon"
 DEFAULT_WMS_EXPORT_ORIGIN = "https://wms.private.mabangerp.com"
@@ -171,7 +171,7 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
     if not normalized.startswith("SP"):
         raise ValueError(f"ship_no 格式无效: {ship_no}")
 
-    retry = max(0, int(getattr(config, "FBA_LOGISTICS_WMS_EXPORT_RETRY", 1) or 1))
+    retry = max(0, int(wms_settings.FBA_LOGISTICS_WMS_EXPORT_RETRY or 1))
     attempts = retry + 1
     last_error: Exception | None = None
 

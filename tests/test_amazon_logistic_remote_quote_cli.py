@@ -98,12 +98,6 @@ def test_single_quote_uses_remote_api_and_sends_markdown(monkeypatch):
 
     monkeypatch.setattr(cli, "load_pricing_boxes_from_local_excel", fake_load_boxes)
     monkeypatch.setattr(cli, "quote_pricing", fake_quote_pricing)
-    monkeypatch.setattr(cli.config, "FBA_LOGISTICS_FIXED_CARGO_NATURE", "general")
-    monkeypatch.setattr(
-        cli.config,
-        "FBA_LOGISTICS_DEFAULTS",
-        {"transport_mode": "air", "tax_included": "any"},
-    )
 
     result = asyncio.run(
         cli._run_single_mode(
@@ -157,12 +151,6 @@ def test_batch_quote_calls_remote_api_once_per_tsv_row(monkeypatch):
     monkeypatch.setenv("LXE_RESPONSE_ROUTE_ID", "route-2")
     monkeypatch.setattr(cli, "load_pricing_boxes_from_local_excel", fake_load_boxes)
     monkeypatch.setattr(cli, "quote_pricing", fake_quote_pricing)
-    monkeypatch.setattr(cli.config, "FBA_LOGISTICS_FIXED_CARGO_NATURE", "general")
-    monkeypatch.setattr(
-        cli.config,
-        "FBA_LOGISTICS_DEFAULTS",
-        {"transport_mode": "air", "tax_included": "any"},
-    )
 
     input_text = "\n".join(
         [
