@@ -13,7 +13,6 @@ build/
 .venv*/
 venv/
 env/
-.codex/
 services/browser/artifacts/
 
 
@@ -58,16 +57,17 @@ logs/
 
 # Environment variables
 .env
-.env.local
+.env.*
+!.env.example
 
 # OS
 .DS_Store
 Thumbs.db
 
-data/export_tax/export_tax_products.xlsx
-data/export_tax/~$*.xlsx
-data/customs_declaration/custom_declaration_documents.xlsx
-data/customs_declaration/~$*.xlsx
-data/
-!tests/test_mabang_store_msku_sales_analysis.py
-!tests/test_mabang_store_msku_sales_analysis_cli.py
+# Local business data and templates
+data/**/*.xlsx
+data/**/*.xlsm
+data/**/*.xls
+data/**/~$*.xlsx
+data/**/~$*.xlsm
+data/**/~$*.xls

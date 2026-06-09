@@ -25,6 +25,14 @@ function Require-Path {
     }
 }
 
+function Warn-LocalBusinessDataFile {
+    param([Parameter(Mandatory = $true)][string]$RelativePath)
+    $absolutePath = Join-Path $ProjectRoot $RelativePath
+    if (-not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
+        Write-Warning "Optional local business data file missing: $RelativePath. FBA-related skills that use this file will be unavailable until it is copied from the internal business data package."
+    }
+}
+
 function Invoke-Checked {
     param(
         [Parameter(Mandatory = $true)][string]$Label,
@@ -42,6 +50,10 @@ $uv = Resolve-Uv
 Require-Path (Join-Path $ProjectRoot "pyproject.toml")
 Require-Path (Join-Path $ProjectRoot "uv.lock")
 Require-Path (Join-Path $ProjectRoot ".env.example")
+
+Warn-LocalBusinessDataFile "data\customs_declaration\custom_declaration_documents.xlsx"
+Warn-LocalBusinessDataFile "data\export_tax\export_tax_products.xlsx"
+Warn-LocalBusinessDataFile "data\invoice_Template\invoice_Template.xlsx"
 
 Invoke-Checked "uv lock" { & $uv lock --check }
 Invoke-Checked "uv sync" { & $uv sync --frozen --all-groups --python $PythonVersion --check }
