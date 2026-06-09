@@ -290,9 +290,11 @@ def _request_payload(
     tool_choice_mode: ToolChoiceMode,
     max_tokens: int | None,
 ) -> dict[str, Any]:
+    model_limit = max(1, int(descriptor.max_tokens or _ANTHROPIC_DEFAULT_OUTPUT_LIMIT))
+    requested_limit = model_limit if max_tokens is None else max(1, min(int(max_tokens), model_limit))
     payload: dict[str, Any] = {
         "model": descriptor.default_model,
-        "max_tokens": _ANTHROPIC_DEFAULT_OUTPUT_LIMIT if max_tokens is None else int(max_tokens),
+        "max_tokens": requested_limit,
         "system": str(system_prompt or "").strip(),
         "messages": list(messages),
         "stream": True,

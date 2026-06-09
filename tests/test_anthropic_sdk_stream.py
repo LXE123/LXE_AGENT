@@ -4,7 +4,6 @@ import asyncio
 from typing import Any
 
 from agent_runtime import llm_adapter
-from shared.config import config
 from shared.llm.events import LLMStreamEvent
 from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import resolve_model_capabilities
@@ -343,8 +342,6 @@ def test_adapter_uses_sdk_events_even_with_legacy_transport_env(monkeypatch) -> 
 
 def test_kimi_coding_default_model_is_kimi_for_coding(monkeypatch) -> None:
     monkeypatch.delenv("KIMI_CODE_MODEL", raising=False)
-    monkeypatch.setattr(config, "KIMI_CODE_MODEL", "kimi-code", raising=False)
-    monkeypatch.setattr(config, "AMAZON_STORE_AGENT_PLANNER_MODEL", "kimi-code", raising=False)
 
     assert kimi_coding_client.default_model() == "kimi-for-coding"
     assert kimi_coding_client.normalize_model("kimi-code") == "kimi-for-coding"
@@ -353,7 +350,7 @@ def test_kimi_coding_default_model_is_kimi_for_coding(monkeypatch) -> None:
     capabilities = resolve_model_capabilities("kimi_coding", "kimi-for-coding")
     assert capabilities.provider == "kimi_coding"
     assert capabilities.model == "kimi-for-coding"
-    assert capabilities.max_output_tokens == 32768
+    assert capabilities.max_tokens == 32768
 
 
 def test_chat_with_tools_streaming_sdk_preserves_unspecified_max_tokens(monkeypatch) -> None:

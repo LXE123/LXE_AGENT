@@ -10,8 +10,9 @@ from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import ModelCapabilities, _resolve_model_capabilities_match
 from shared.llm.provider_catalog import ProviderDescriptor, descriptor_for_provider, normalize_provider_name
 
-_ACTIVE_PROVIDER_ENV = "AMAZON_STORE_AGENT_PLANNER_PROVIDER"
-_ACTIVE_MODEL_ENV = "AMAZON_STORE_AGENT_PLANNER_MODEL"
+_ACTIVE_PROVIDER_ENV = "AGENT_LLM_PROVIDER"
+_ACTIVE_MODEL_ENV = "AGENT_LLM_MODEL"
+_MAX_TOKENS_CONFIG = "AGENT_LLM_MAX_TOKENS"
 _KIMI_THINKING_ENV = "KIMI_CODE_THINKING_ENABLED"
 
 
@@ -80,7 +81,7 @@ def active_agent_planner_descriptor() -> ProviderDescriptor:
         model_override=_current_model_name(),
     )
     if not descriptor.api_key:
-        raise RuntimeError(f"Missing API key for agent planner provider: {descriptor.name}")
+        raise RuntimeError(f"Missing API key for agent LLM provider: {descriptor.name}")
     return descriptor
 
 
@@ -95,8 +96,8 @@ def active_agent_planner_capabilities() -> ModelCapabilities:
 
 def effective_agent_planner_max_tokens(requested: int | None = None) -> int:
     capabilities = active_agent_planner_capabilities()
-    configured_limit = _config_int("AMAZON_STORE_AGENT_PLANNER_MAX_TOKENS", 0)
-    effective_upper_bound = int(capabilities.max_output_tokens)
+    configured_limit = _config_int(_MAX_TOKENS_CONFIG, 0)
+    effective_upper_bound = int(capabilities.max_tokens)
     if configured_limit > 0:
         effective_upper_bound = min(effective_upper_bound, int(configured_limit))
     if requested is None:
@@ -111,18 +112,18 @@ def log_active_agent_planner_summary() -> None:
     if descriptor.name == kimi_coding_client.PROVIDER_NAME:
         thinking_mode = "enabled" if bool(getattr(config, "KIMI_CODE_THINKING_ENABLED", True)) else "disabled"
     logger.info(
-        "[AgentPlanner] active provider=%s model=%s context_window=%s max_output=%s vision=%s thinking=%s thinking_mode=%s",
+        "[AgentLLM] active provider=%s model=%s context_window=%s max_tokens=%s vision=%s thinking=%s thinking_mode=%s",
         descriptor.name,
         descriptor.default_model,
         capabilities.context_window_tokens,
-        capabilities.max_output_tokens,
+        capabilities.max_tokens,
         capabilities.supports_vision,
         capabilities.supports_thinking,
         thinking_mode,
     )
     if match_kind != "exact":
         logger.warning(
-            "[AgentPlanner] capability fallback applied: provider=%s model=%s match=%s",
+            "[AgentLLM] capability fallback applied: provider=%s model=%s match=%s",
             descriptor.name,
             descriptor.default_model,
             match_kind,
@@ -139,7 +140,7 @@ def bootstrap_agent_planner_selection() -> None:
     default_option = next((item for item in options if item.name == current_provider), options[0])
     fallback_option = next((item for item in options if item.api_key), None)
 
-    print("\n=== Agent Planner Selection ===")
+    print("\n=== Agent LLM Selection ===")
     for index, option in enumerate(options, start=1):
         status = "ready" if option.api_key else "missing api key"
         print(f"{index}. {option.label} ({option.default_model}) [{status}]")
@@ -148,7 +149,7 @@ def bootstrap_agent_planner_selection() -> None:
         (index for index, option in enumerate(options, start=1) if option.name == default_option.name),
         1,
     )
-    raw_choice = input(f"Select planner [default {default_index}]: ").strip()
+    raw_choice = input(f"Select Agent LLM [default {default_index}]: ").strip()
     selected_index = default_index
     if raw_choice:
         try:
@@ -176,9 +177,9 @@ def bootstrap_agent_planner_selection() -> None:
         thinking_enabled = _prompt_bool(f"Enable thinking? [{thinking_hint}]: ", default=default_thinking)
         _set_kimi_thinking_enabled(thinking_enabled)
         thinking_label = "enabled" if thinking_enabled else "disabled"
-        print(f"Using agent planner: {selected_option.label} / {chosen_model} / thinking={thinking_label}\n")
+        print(f"Using agent LLM: {selected_option.label} / {chosen_model} / thinking={thinking_label}\n")
         return
-    print(f"Using agent planner: {selected_option.label} / {chosen_model}\n")
+    print(f"Using agent LLM: {selected_option.label} / {chosen_model}\n")
 
 
 __all__ = [

@@ -1,0 +1,24 @@
+{
+  "name": "kimi_coding",
+  "label": "Kimi Coding",
+  "api_style": "anthropic-messages",
+  "base_url": "https://api.kimi.com/coding/",
+  "default_model": "kimi-for-coding",
+  "default_headers": {
+    "User-Agent": "claude-code/0.1.0",
+    "anthropic-version": "2023-06-01"
+  },
+  "aliases": ["kimi-coding", "kimi_code", "kimi-code"],
+  "model_aliases": {
+    "kimi-code": "kimi-for-coding"
+  },
+  "models": {
+    "kimi-for-coding": {
+      "context_window_tokens": 256000,
+      "max_tokens": 32768,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false
+    }
+  }
+}

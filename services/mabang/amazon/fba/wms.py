@@ -65,12 +65,7 @@ def _decode_response_body(body: bytes) -> str:
 
 
 def _resolve_request_meta() -> tuple[str, str, str]:
-    api_url = str(getattr(config, "FBA_LOGISTICS_WMS_EXPORT_URL", DEFAULT_WMS_EXPORT_URL) or DEFAULT_WMS_EXPORT_URL).strip()
-    origin = str(getattr(config, "FBA_LOGISTICS_WMS_EXPORT_ORIGIN", DEFAULT_WMS_EXPORT_ORIGIN) or DEFAULT_WMS_EXPORT_ORIGIN).strip()
-    referer = str(
-        getattr(config, "FBA_LOGISTICS_WMS_EXPORT_REFERER", DEFAULT_WMS_EXPORT_REFERER) or DEFAULT_WMS_EXPORT_REFERER
-    ).strip()
-    return api_url, origin, referer
+    return DEFAULT_WMS_EXPORT_URL, DEFAULT_WMS_EXPORT_ORIGIN, DEFAULT_WMS_EXPORT_REFERER
 
 
 def _erp_request_timeout_seconds() -> str:

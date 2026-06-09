@@ -1,29 +1,26 @@
 from __future__ import annotations
 
-import os
-
-from shared.config import config
+from shared.llm.auth_profiles import api_key_for_provider
+from shared.llm.provider_catalog import provider_spec_for_name
 
 PROVIDER_NAME = "deepseek"
 
 
+def _spec():
+    return provider_spec_for_name(PROVIDER_NAME)
+
+
 def provider_label() -> str:
-    return "DeepSeek"
+    return _spec().label
 
 
 def api_key() -> str:
-    return str(os.getenv("DEEPSEEK_API", str(getattr(config, "DEEPSEEK_API", "") or "")) or "").strip()
+    return api_key_for_provider(PROVIDER_NAME)
 
 
 def base_url() -> str:
-    return str(
-        os.getenv("DEEPSEEK_BASE_URL", str(getattr(config, "DEEPSEEK_BASE_URL", "https://api.deepseek.com") or ""))
-        or ""
-    ).strip() or "https://api.deepseek.com"
+    return _spec().base_url
 
 
 def default_model() -> str:
-    return str(
-        os.getenv("DEEPSEEK_CHAT_MODEL", str(getattr(config, "DEEPSEEK_CHAT_MODEL", "deepseek-chat") or ""))
-        or ""
-    ).strip() or "deepseek-chat"
+    return _spec().default_model

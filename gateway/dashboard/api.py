@@ -50,7 +50,8 @@ def _capabilities_payload(provider_name: str, model_name: str) -> dict[str, Any]
         "provider": capabilities.provider,
         "model": capabilities.model,
         "context_window_tokens": capabilities.context_window_tokens,
-        "max_output_tokens": capabilities.max_output_tokens,
+        "max_tokens": capabilities.max_tokens,
+        "max_output_tokens": capabilities.max_tokens,
         "supports_vision": capabilities.supports_vision,
         "supports_thinking": capabilities.supports_thinking,
         "supports_temperature": capabilities.supports_temperature,
@@ -69,11 +70,11 @@ def _descriptor_payload(descriptor) -> dict[str, Any]:
 
 
 def _current_planner_descriptor():
-    provider_name = os.getenv("AMAZON_STORE_AGENT_PLANNER_PROVIDER", "") or str(
-        getattr(config, "AMAZON_STORE_AGENT_PLANNER_PROVIDER", kimi_coding_client.PROVIDER_NAME) or ""
+    provider_name = os.getenv("AGENT_LLM_PROVIDER", "") or str(
+        getattr(config, "AGENT_LLM_PROVIDER", kimi_coding_client.PROVIDER_NAME) or ""
     ).strip()
-    model_name = os.getenv("AMAZON_STORE_AGENT_PLANNER_MODEL", "") or str(
-        getattr(config, "AMAZON_STORE_AGENT_PLANNER_MODEL", "") or ""
+    model_name = os.getenv("AGENT_LLM_MODEL", "") or str(
+        getattr(config, "AGENT_LLM_MODEL", "") or ""
     ).strip()
     provider_name = normalize_provider_name(provider_name or kimi_coding_client.PROVIDER_NAME)
     return descriptor_for_provider(provider_name, model_override=model_name)

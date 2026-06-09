@@ -1,0 +1,24 @@
+{
+  "profiles": {
+    "deepseek": {
+      "type": "api_key",
+      "env_names": ["DEEPSEEK_API"],
+      "required": true
+    },
+    "kimi": {
+      "type": "api_key",
+      "env_names": ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
+      "required": true
+    },
+    "kimi_coding": {
+      "type": "api_key",
+      "env_names": ["KIMI_CODE_API_KEY"],
+      "required": true
+    },
+    "glm": {
+      "type": "api_key",
+      "env_names": ["GLM_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY"],
+      "required": true
+    }
+  }
+}

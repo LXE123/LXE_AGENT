@@ -22,7 +22,7 @@ def _mask_value(value: str, *, keep: int = 4) -> str:
 FEISHU_APP_ID: str = _config_text("FEISHU_APP_ID")
 FEISHU_APP_SECRET: str = _config_text("FEISHU_APP_SECRET")
 FEISHU_BOT_OPEN_ID: str = _config_text("FEISHU_BOT_OPEN_ID")
-FEISHU_API_HOST: str = _config_text("FEISHU_API_HOST", "https://open.feishu.cn/open-apis")
+FEISHU_API_HOST: str = "https://open.feishu.cn/open-apis"
 FEISHU_RAW_EVENT_DUMP_ENABLED: bool = bool(
     getattr(shared_config, "FEISHU_RAW_EVENT_DUMP_ENABLED", False)
 )

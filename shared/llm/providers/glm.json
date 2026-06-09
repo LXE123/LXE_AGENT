@@ -1,0 +1,20 @@
+{
+  "name": "glm",
+  "label": "GLM",
+  "api_style": "anthropic-messages",
+  "base_url": "https://open.bigmodel.cn/api/anthropic",
+  "default_model": "glm-5v-turbo",
+  "default_headers": {
+    "anthropic-version": "2023-06-01"
+  },
+  "aliases": ["zhipu", "zhipuai", "bigmodel", "big_model", "big-model"],
+  "models": {
+    "glm-5v-turbo": {
+      "context_window_tokens": 200000,
+      "max_tokens": 42000,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": true
+    }
+  }
+}

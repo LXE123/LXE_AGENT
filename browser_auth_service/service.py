@@ -20,6 +20,11 @@ LOGIN_URL = "https://private.mabangerp.com/index.htm"
 TEMU_TARGET_URL = "https://private.mabangerp.com/index.php?mod=order.exportOrderByTemplate"
 FBA_HOME_URL = "https://private.mabangerp.com/"
 FBA_JUMP_WMS_URL = "https://private.mabangerp.com/index.php?mod=main.jumpToWms"
+FBA_LOGISTICS_TOKEN_TARGET_URL = "https://private.mabangerp.com/index.php?mod=main.fbaCargo&platform=amazon&version=1"
+FBA_LOGISTICS_TOKEN_ORIGIN = "https://amz1-private.mabangerp.com"
+FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY = "freeToken"
+FBA_LOGISTICS_WMS_HOST = "wms.private.mabangerp.com"
+FBA_LOGISTICS_WMS_ENTRY_TEXT = "马帮WMS系统"
 PRIVATE_AMZ_HOST = "private-amz.mabangerp.com"
 PRIVATE_AMZ_COOKIE_REFRESH_URL = "https://private.mabangerp.com/index.php?mod=stock.list&searchStatus=3"
 PRIVATE_AMZ_REQUIRED_COOKIE_NAMES = (
@@ -617,17 +622,11 @@ def _ensure_fba_auth(
     phpsessid_status: dict[str, Any],
     require_wms_cookie_header: bool,
 ) -> dict[str, Any]:
-    token_origin = str(
-        getattr(config, "FBA_LOGISTICS_TOKEN_ORIGIN", "https://amz1-private.mabangerp.com")
-        or "https://amz1-private.mabangerp.com"
-    ).strip()
-    token_key = str(getattr(config, "FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY", "freeToken") or "freeToken").strip()
-    target_url = str(
-        getattr(config, "FBA_LOGISTICS_TOKEN_TARGET_URL", "https://private.mabangerp.com/index.php?mod=main.fbaCargo&platform=amazon&version=1")
-        or "https://private.mabangerp.com/index.php?mod=main.fbaCargo&platform=amazon&version=1"
-    ).strip()
-    wms_host = str(getattr(config, "FBA_LOGISTICS_WMS_HOST", "wms.private.mabangerp.com") or "wms.private.mabangerp.com").strip().lower().lstrip(".")
-    wms_entry_text = str(getattr(config, "FBA_LOGISTICS_WMS_ENTRY_TEXT", "马帮WMS系统") or "马帮WMS系统").strip()
+    token_origin = FBA_LOGISTICS_TOKEN_ORIGIN
+    token_key = FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY
+    target_url = FBA_LOGISTICS_TOKEN_TARGET_URL
+    wms_host = FBA_LOGISTICS_WMS_HOST.strip().lower().lstrip(".")
+    wms_entry_text = FBA_LOGISTICS_WMS_ENTRY_TEXT
     headless = bool(getattr(config, "FBA_LOGISTICS_TOKEN_HEADLESS", _browser_auth_headless()))
 
     cached_token = _storage_lookup_token(payload, token_origin, token_key)

@@ -28,7 +28,8 @@ type CapabilityPayload = {
   provider: string;
   model: string;
   context_window_tokens: number;
-  max_output_tokens: number;
+  max_tokens: number;
+  max_output_tokens?: number;
   supports_vision: boolean;
   supports_thinking: boolean;
   supports_temperature: boolean;
@@ -765,7 +766,7 @@ function ModelsView({ models, current }: { models: ModelPayload[]; current: Mode
               </div>
               <div>
                 <dt>Output</dt>
-                <dd>{formatNumber(model.capabilities.max_output_tokens)}</dd>
+                <dd>{formatNumber(model.capabilities.max_tokens ?? model.capabilities.max_output_tokens ?? 0)}</dd>
               </div>
               <div>
                 <dt>Vision</dt>

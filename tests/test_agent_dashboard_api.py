@@ -306,7 +306,8 @@ def test_current_model_endpoint_returns_capabilities(dashboard_client):
     assert payload["provider"]
     assert payload["model"]
     assert payload["capabilities"]["context_window_tokens"] > 0
-    assert payload["capabilities"]["max_output_tokens"] > 0
+    assert payload["capabilities"]["max_tokens"] > 0
+    assert payload["capabilities"]["max_output_tokens"] == payload["capabilities"]["max_tokens"]
 
 
 def test_toolsets_endpoint_lists_registered_tools_without_handlers(dashboard_client):

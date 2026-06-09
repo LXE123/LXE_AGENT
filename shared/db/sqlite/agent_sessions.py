@@ -104,12 +104,12 @@ def _config_text(name: str, default: str = "") -> str:
 
 
 def _current_model_metadata() -> tuple[str, dict[str, Any]]:
-    provider_name = os.getenv("AMAZON_STORE_AGENT_PLANNER_PROVIDER", "") or _config_text(
-        "AMAZON_STORE_AGENT_PLANNER_PROVIDER",
+    provider_name = os.getenv("AGENT_LLM_PROVIDER", "") or _config_text(
+        "AGENT_LLM_PROVIDER",
         kimi_coding_client.PROVIDER_NAME,
     )
-    model_override = os.getenv("AMAZON_STORE_AGENT_PLANNER_MODEL", "") or _config_text(
-        "AMAZON_STORE_AGENT_PLANNER_MODEL",
+    model_override = os.getenv("AGENT_LLM_MODEL", "") or _config_text(
+        "AGENT_LLM_MODEL",
         "",
     )
     try:
@@ -127,7 +127,8 @@ def _current_model_metadata() -> tuple[str, dict[str, Any]]:
             "base_url": descriptor.base_url,
             "capability_match": capability_match,
             "context_window_tokens": capabilities.context_window_tokens,
-            "max_output_tokens": capabilities.max_output_tokens,
+            "max_tokens": capabilities.max_tokens,
+            "max_output_tokens": capabilities.max_tokens,
             "supports_vision": capabilities.supports_vision,
             "supports_thinking": capabilities.supports_thinking,
             "supports_temperature": capabilities.supports_temperature,
