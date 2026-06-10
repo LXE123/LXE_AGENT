@@ -1,3 +1,5 @@
+. (Join-Path $PSScriptRoot "_console_encoding.ps1")
+
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
