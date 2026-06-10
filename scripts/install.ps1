@@ -17,6 +17,24 @@ function Resolve-FullPath {
     return [System.IO.Path]::GetFullPath($expanded)
 }
 
+function Invoke-PowerShellFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$ScriptPath,
+        [string[]]$Arguments = @()
+    )
+
+    $powershell = Get-Command powershell -ErrorAction SilentlyContinue
+    if ($null -eq $powershell) {
+        throw "powershell is not available."
+    }
+
+    & $powershell.Source -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments 2>&1 | ForEach-Object {
+        Write-Host ([string]$_)
+    }
+    $exitCode = $LASTEXITCODE
+    return $exitCode
+}
+
 function Test-LxeProjectRoot {
     param([Parameter(Mandatory = $true)][string]$Path)
     $pyproject = Join-Path $Path "pyproject.toml"
@@ -47,7 +65,22 @@ function Resolve-Uv {
     Write-Host "uv not found. Installing uv with the official installer..."
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     $env:UV_INSTALL_DIR = $localBin
-    Invoke-RestMethod https://astral.sh/uv/install.ps1 | Invoke-Expression
+
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-uv-installer-" + [Guid]::NewGuid().ToString("N"))
+    $uvInstaller = Join-Path $tempRoot "install-uv.ps1"
+    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+    try {
+        Invoke-WebRequest -Uri https://astral.sh/uv/install.ps1 -OutFile $uvInstaller
+        $uvInstallExit = Invoke-PowerShellFile -ScriptPath $uvInstaller
+        if ($uvInstallExit -ne 0) {
+            throw "uv installer failed with exit code $uvInstallExit."
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
 
     if (Test-Path -LiteralPath $localBin) {
         $env:Path = "$localBin;$env:Path"
@@ -163,9 +196,13 @@ function Invoke-LauncherSetup {
     } else {
         $env:LXE_LAUNCHER_NO_PATH = "0"
     }
-    powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\launcher.ps1") -ProjectRoot $ProjectRoot -UvPath $UvPath -NoPath:$NoPath
-    if ($LASTEXITCODE -ne 0) {
-        throw "launcher setup failed with exit code $LASTEXITCODE."
+    $launcherArgs = @("-ProjectRoot", $ProjectRoot, "-UvPath", $UvPath)
+    if ($NoPath) {
+        $launcherArgs += "-NoPath"
+    }
+    $launcherExit = Invoke-PowerShellFile -ScriptPath (Join-Path $ProjectRoot "scripts\launcher.ps1") -Arguments $launcherArgs
+    if ($launcherExit -ne 0) {
+        throw "launcher setup failed with exit code $launcherExit."
     }
 }
 
@@ -189,16 +226,16 @@ if ($LASTEXITCODE -ne 0) {
     throw "Playwright Chromium installation failed with exit code $LASTEXITCODE."
 }
 
-powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\webui.ps1") -Build
-if ($LASTEXITCODE -ne 0) {
-    throw "Dashboard UI build failed with exit code $LASTEXITCODE."
+$webuiExit = Invoke-PowerShellFile -ScriptPath (Join-Path $ProjectRoot "scripts\webui.ps1") -Arguments @("-Build")
+if ($webuiExit -ne 0) {
+    throw "Dashboard UI build failed with exit code $webuiExit."
 }
 
 Invoke-LauncherSetup -ProjectRoot $ProjectRoot -UvPath $uv
 
-powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\doctor.ps1")
-if ($LASTEXITCODE -ne 0) {
-    throw "doctor.ps1 failed with exit code $LASTEXITCODE."
+$doctorExit = Invoke-PowerShellFile -ScriptPath (Join-Path $ProjectRoot "scripts\doctor.ps1")
+if ($doctorExit -ne 0) {
+    throw "doctor.ps1 failed with exit code $doctorExit."
 }
 
 Write-Host "Install completed."

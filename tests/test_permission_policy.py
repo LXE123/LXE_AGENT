@@ -7,6 +7,8 @@ from agent_runtime.skill_index import load_skill_index
 from shared.permission_policy import (
     ALL,
     BOT_ID_AMAZON_REPLENISH,
+    BOT_ID_AMAZON_REPLENISH_GROUP_2,
+    BOT_ID_AMAZON_REPLENISH_GROUP_3,
     BOT_ID_LXE_CLAW,
     BOT_ID_LXE_FBA_AGENT,
     SKILL_TYPE_AMAZON_FBA,
@@ -24,17 +26,24 @@ from shared.permission_policy import (
 
 
 def test_policy_user_access_matrix() -> None:
+    replenish_bot_ids = {
+        BOT_ID_AMAZON_REPLENISH,
+        BOT_ID_AMAZON_REPLENISH_GROUP_2,
+        BOT_ID_AMAZON_REPLENISH_GROUP_3,
+    }
+
     assert can_user_access_bot(USER_LYX, BOT_ID_LXE_CLAW)
     assert can_user_access_bot(USER_LYX, BOT_ID_LXE_FBA_AGENT)
-    assert can_user_access_bot(USER_LYX, BOT_ID_AMAZON_REPLENISH)
 
     assert can_user_access_bot(USER_ZQY, BOT_ID_LXE_CLAW)
     assert can_user_access_bot(USER_ZQY, BOT_ID_LXE_FBA_AGENT)
-    assert can_user_access_bot(USER_ZQY, BOT_ID_AMAZON_REPLENISH)
 
     assert can_user_access_bot(USER_ZGL, BOT_ID_LXE_FBA_AGENT)
     assert not can_user_access_bot(USER_ZGL, BOT_ID_LXE_CLAW)
-    assert not can_user_access_bot(USER_ZGL, BOT_ID_AMAZON_REPLENISH)
+    for bot_id in replenish_bot_ids:
+        assert can_user_access_bot(USER_LYX, bot_id)
+        assert can_user_access_bot(USER_ZQY, bot_id)
+        assert not can_user_access_bot(USER_ZGL, bot_id)
 
     assert len({USER_LYX, USER_ZGL, USER_ZQY}) == 3
     assert not can_user_access_bot("unknown_union_id", BOT_ID_LXE_FBA_AGENT)
@@ -43,15 +52,22 @@ def test_policy_user_access_matrix() -> None:
 
 
 def test_policy_skill_type_matrix() -> None:
+    replenish_bot_ids = {
+        BOT_ID_AMAZON_REPLENISH,
+        BOT_ID_AMAZON_REPLENISH_GROUP_2,
+        BOT_ID_AMAZON_REPLENISH_GROUP_3,
+    }
+
     assert allowed_skill_types_for_bot(BOT_ID_LXE_CLAW) == {ALL}
     assert allowed_skill_types_for_bot(BOT_ID_LXE_FBA_AGENT) == {
         SKILL_TYPE_AMAZON_FBA,
         SKILL_TYPE_DEFAULT,
     }
-    assert allowed_skill_types_for_bot(BOT_ID_AMAZON_REPLENISH) == {
-        SKILL_TYPE_AMAZON_REPLENISH,
-        SKILL_TYPE_DEFAULT,
-    }
+    for bot_id in replenish_bot_ids:
+        assert allowed_skill_types_for_bot(bot_id) == {
+            SKILL_TYPE_AMAZON_REPLENISH,
+            SKILL_TYPE_DEFAULT,
+        }
     assert allowed_skill_types_for_bot("cli_unknown") == set()
 
 
@@ -97,11 +113,6 @@ def test_runtime_filters_available_skills_by_bot() -> None:
 
     claw_session = SimpleNamespace(platform="feishu", raw_data={"app_id": BOT_ID_LXE_CLAW})
     fba_session = SimpleNamespace(platform="feishu", raw_data={"app_id": BOT_ID_LXE_FBA_AGENT})
-    replenish_session = SimpleNamespace(
-        platform="feishu",
-        raw_data={"app_id": BOT_ID_AMAZON_REPLENISH},
-    )
-
     assert {item.name for item in load_available_skills_for_session(claw_session)} == all_skill_names
 
     fba_skills = load_available_skills_for_session(fba_session)
@@ -111,9 +122,15 @@ def test_runtime_filters_available_skills_by_bot() -> None:
         SKILL_TYPE_DEFAULT,
     }
 
-    replenish_skills = load_available_skills_for_session(replenish_session)
-    assert replenish_skills
-    assert {manifest_by_name[item.name].type for item in replenish_skills} == {
-        SKILL_TYPE_AMAZON_REPLENISH,
-        SKILL_TYPE_DEFAULT,
-    }
+    for bot_id in {
+        BOT_ID_AMAZON_REPLENISH,
+        BOT_ID_AMAZON_REPLENISH_GROUP_2,
+        BOT_ID_AMAZON_REPLENISH_GROUP_3,
+    }:
+        replenish_session = SimpleNamespace(platform="feishu", raw_data={"app_id": bot_id})
+        replenish_skills = load_available_skills_for_session(replenish_session)
+        assert replenish_skills
+        assert {manifest_by_name[item.name].type for item in replenish_skills} == {
+            SKILL_TYPE_AMAZON_REPLENISH,
+            SKILL_TYPE_DEFAULT,
+        }

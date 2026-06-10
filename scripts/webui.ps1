@@ -17,9 +17,12 @@ function Invoke-Checked {
         [Parameter(Mandatory = $true)][scriptblock]$Command
     )
     Write-Host "Running: $Label"
-    & $Command
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label failed with exit code $LASTEXITCODE."
+    & $Command 2>&1 | ForEach-Object {
+        Write-Host ([string]$_)
+    }
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "$Label failed with exit code $exitCode."
     }
 }
 
@@ -170,9 +173,34 @@ function Test-DashboardDist {
     }
 }
 
+function Get-ResolvedNpmPath {
+    param([Parameter(Mandatory = $true)]$NodeResolution)
+
+    if ($NodeResolution -is [array]) {
+        if ($NodeResolution.Count -eq 1) {
+            $NodeResolution = $NodeResolution[0]
+        }
+        else {
+            throw "Failed to resolve Node/npm paths: command output leaked into the resolver result."
+        }
+    }
+    if ($null -eq $NodeResolution -or -not ($NodeResolution -is [System.Collections.IDictionary])) {
+        throw "Failed to resolve Node/npm paths: resolver returned an unexpected result."
+    }
+    if (-not $NodeResolution.Contains("Npm")) {
+        throw "Failed to resolve Node/npm paths: npm path is missing."
+    }
+
+    $npmPath = [string]$NodeResolution["Npm"]
+    if (-not $npmPath) {
+        throw "Failed to resolve Node/npm paths: npm path is empty."
+    }
+    return $npmPath
+}
+
 function Build-Dashboard {
     $node = Resolve-Node -InstallIfMissing:($true)
-    $npm = [string]$node["Npm"]
+    $npm = Get-ResolvedNpmPath -NodeResolution $node
     Test-DashboardSource
 
     $previousLocation = Get-Location
