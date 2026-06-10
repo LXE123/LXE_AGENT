@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="https://github.com/LXE123/LXE_AGENT_LOCAL_FBA.git"
+REPO_URL="https://github.com/LXE123/LXE_AGENT.git"
 REF="main"
 INSTALL_DIR=""
 NO_PATH=0
 PYTHON_VERSION="3.12.10"
 PROJECT_NAME="lxe-agent"
-LAUNCHER_DIR="$HOME/.lxefba/bin"
-LAUNCHER_PATH="$LAUNCHER_DIR/LXEFBA"
+LAUNCHER_DIR="$HOME/.lxe/bin"
+LAUNCHER_PATH="$LAUNCHER_DIR/LXE"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -207,15 +207,15 @@ write_launcher() {
   cat > "$LAUNCHER_PATH" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-LXEFBA_ROOT="$project_root"
+LXE_ROOT="$project_root"
 
 case "\${1:-}" in
   start)
-    cd "\$LXEFBA_ROOT"
+    cd "\$LXE_ROOT"
     "$uv_path" run --frozen python ./main.py
     ;;
   *)
-    echo "Usage: LXEFBA <start>" >&2
+    echo "Usage: LXE <start>" >&2
     exit 2
     ;;
 esac
@@ -258,4 +258,4 @@ write_launcher "$project_root" "$uv_path"
 add_launcher_path
 
 echo "Install completed."
-echo "Start the agent with: LXEFBA start"
+echo "Start the agent with: LXE start"

@@ -4,6 +4,13 @@ Set-StrictMode -Version Latest
 $PythonVersion = "3.12.10"
 $ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 Set-Location $ProjectRoot
+$LauncherScript = Join-Path $ProjectRoot "scripts\launcher.ps1"
+if (Test-Path -LiteralPath $LauncherScript) {
+    powershell -ExecutionPolicy Bypass -File $LauncherScript -ProjectRoot $ProjectRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "launcher setup failed with exit code $LASTEXITCODE."
+    }
+}
 
 function Resolve-Uv {
     $command = Get-Command uv -ErrorAction SilentlyContinue

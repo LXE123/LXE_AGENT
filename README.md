@@ -23,19 +23,19 @@
 Windows PowerShell：
 
 ```powershell
-irm https://raw.githubusercontent.com/LXE123/LXE_AGENT_LOCAL_FBA/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/LXE123/LXE_AGENT/main/scripts/install.ps1 | iex
 ```
 
 启动：
 
 ```powershell
-LXEFBA start
+LXE start
 ```
 
 更新：
 
 ```powershell
-LXEFBA update
+LXE update
 ```
 
 ## 本地配置

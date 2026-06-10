@@ -1,5 +1,5 @@
 param(
-    [string]$RepoUrl = "https://github.com/LXE123/LXE_AGENT_LOCAL_FBA.git",
+    [string]$RepoUrl = "https://github.com/LXE123/LXE_AGENT.git",
     [string]$Ref = "main",
     [string]$InstallDir = "",
     [switch]$NoPath
@@ -10,8 +10,6 @@ Set-StrictMode -Version Latest
 
 $PythonVersion = "3.12.10"
 $ProjectName = "lxe-agent"
-$LauncherDir = Join-Path $env:USERPROFILE ".lxefba\bin"
-$LauncherPath = Join-Path $LauncherDir "LXEFBA.cmd"
 
 function Resolve-FullPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -155,66 +153,19 @@ function Get-ProjectRoot {
     }
 }
 
-function Write-Launcher {
+function Invoke-LauncherSetup {
     param(
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
         [Parameter(Mandatory = $true)][string]$UvPath
     )
-    New-Item -ItemType Directory -Path $LauncherDir -Force | Out-Null
-    $content = @"
-@echo off
-setlocal
-set "LXEFBA_ROOT=$ProjectRoot"
-
-if /I "%~1"=="start" goto start
-if /I "%~1"=="doctor" goto doctor
-if /I "%~1"=="update" goto update
-
-echo Usage: LXEFBA ^<start^|doctor^|update^>
-exit /b 2
-
-:start
-cd /d "%LXEFBA_ROOT%" || exit /b 1
-"$UvPath" run --frozen python .\main.py
-exit /b %ERRORLEVEL%
-
-:doctor
-cd /d "%LXEFBA_ROOT%" || exit /b 1
-powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1
-exit /b %ERRORLEVEL%
-
-:update
-cd /d "%LXEFBA_ROOT%" || exit /b 1
-powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1
-exit /b %ERRORLEVEL%
-"@
-    Set-Content -LiteralPath $LauncherPath -Value $content -Encoding ASCII
-}
-
-function Add-LauncherPath {
     if ($NoPath) {
-        Write-Host "Skipping user PATH update because -NoPath was provided."
-        return
+        $env:LXE_LAUNCHER_NO_PATH = "1"
+    } else {
+        $env:LXE_LAUNCHER_NO_PATH = "0"
     }
-
-    $currentUserPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    $parts = @()
-    if (-not [string]::IsNullOrWhiteSpace($currentUserPath)) {
-        $parts = $currentUserPath.Split(";") | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-    }
-    $exists = $false
-    foreach ($part in $parts) {
-        if ([string]::Equals($part.TrimEnd([char[]]'\\'), $LauncherDir.TrimEnd([char[]]'\\'), [StringComparison]::OrdinalIgnoreCase)) {
-            $exists = $true
-            break
-        }
-    }
-    if (-not $exists) {
-        $newPath = if ([string]::IsNullOrWhiteSpace($currentUserPath)) { $LauncherDir } else { "$currentUserPath;$LauncherDir" }
-        [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-    }
-    if (-not ($env:Path.Split(";") | Where-Object { [string]::Equals($_.TrimEnd([char[]]'\\'), $LauncherDir.TrimEnd([char[]]'\\'), [StringComparison]::OrdinalIgnoreCase) })) {
-        $env:Path = "$LauncherDir;$env:Path"
+    powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\launcher.ps1") -ProjectRoot $ProjectRoot -UvPath $UvPath -NoPath:$NoPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "launcher setup failed with exit code $LASTEXITCODE."
     }
 }
 
@@ -243,8 +194,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Dashboard UI build failed with exit code $LASTEXITCODE."
 }
 
-Write-Launcher -ProjectRoot $ProjectRoot -UvPath $uv
-Add-LauncherPath
+Invoke-LauncherSetup -ProjectRoot $ProjectRoot -UvPath $uv
 
 powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\doctor.ps1")
 if ($LASTEXITCODE -ne 0) {
@@ -252,4 +202,4 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Install completed."
-Write-Host "Start the agent with: LXEFBA start"
+Write-Host "Start the agent with: LXE start"

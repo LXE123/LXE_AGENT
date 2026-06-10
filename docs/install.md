@@ -13,9 +13,9 @@
 2. uv python install 3.12.10
 3. uv sync --frozen --all-groups --python 3.12.10
 4. 安装 Playwright Chromium
-5. 创建 LXEFBA 启动器（创建一个独立 shim，只用于启动项目）并设置用户 PATH
+5. 创建 LXE 启动器（创建一个独立 shim，只用于启动项目）并设置用户 PATH
 6. 跑健康检查
-7. 输出启动命令：LXEFBA start
+7. 输出启动命令：LXE start
 
 ---
 

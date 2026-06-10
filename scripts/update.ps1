@@ -21,7 +21,7 @@ function Resolve-Uv {
 function Resolve-Git {
     $command = Get-Command git -ErrorAction SilentlyContinue
     if ($null -eq $command) {
-        throw "git is required for LXEFBA update."
+        throw "git is required for LXE update."
     }
     return $command.Source
 }
@@ -56,7 +56,7 @@ if (-not [string]::IsNullOrWhiteSpace(($trackedStatus -join ""))) {
     foreach ($line in $trackedStatus) {
         Write-Host "  $line"
     }
-    throw "Tracked local changes detected. Commit or stash them before running LXEFBA update."
+    throw "Tracked local changes detected. Commit or stash them before running LXE update."
 }
 
 $untrackedFiles = @(& $git ls-files --others --exclude-standard)
@@ -71,6 +71,7 @@ if ($untrackedFiles.Count -gt 0) {
 }
 
 Invoke-Checked "git pull" { & $git pull --ff-only }
+Invoke-Checked "launcher setup" { powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\launcher.ps1") -ProjectRoot $ProjectRoot -UvPath $uv }
 Invoke-Checked "uv sync" { & $uv sync --frozen --all-groups --python $PythonVersion }
 Invoke-Checked "Playwright Chromium install" { & $uv run --frozen python -m playwright install chromium }
 Invoke-Checked "Dashboard UI build" { powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\webui.ps1") -Build }
