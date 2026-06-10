@@ -26,6 +26,14 @@ Windows PowerShell：
 irm https://raw.githubusercontent.com/LXE123/LXE_AGENT/main/scripts/install.ps1 | iex
 ```
 
+如果提示禁止运行脚本，先执行：
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+```
+
+再重新运行安装命令。
+
 启动：
 
 ```powershell
