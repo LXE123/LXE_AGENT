@@ -1,4 +1,4 @@
-. (Join-Path $PSScriptRoot "_console_encoding.ps1")
+. (Join-Path $PSScriptRoot "_dependencies.ps1")
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -7,66 +7,15 @@ $PythonVersion = "3.12.10"
 $ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 Set-Location $ProjectRoot
 
-function Resolve-Uv {
-    $command = Get-Command uv -ErrorAction SilentlyContinue
-    if ($null -ne $command) {
-        return $command.Source
-    }
-    $localUv = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
-    if (Test-Path -LiteralPath $localUv) {
-        $env:Path = "$(Split-Path -Parent $localUv);$env:Path"
-        return $localUv
-    }
-    throw "uv is not available on PATH."
-}
-
-function Resolve-Git {
-    $command = Get-Command git -ErrorAction SilentlyContinue
-    if ($null -eq $command) {
-        throw "git is required for LXE update."
-    }
-    return $command.Source
-}
-
-function Resolve-PowerShell {
-    $command = Get-Command powershell -ErrorAction SilentlyContinue
-    if ($null -eq $command) {
-        throw "powershell is not available on PATH."
-    }
-    return $command.Source
-}
-
-function Invoke-Checked {
-    param(
-        [Parameter(Mandatory = $true)][string]$Label,
-        [Parameter(Mandatory = $true)][scriptblock]$Command
-    )
-    Write-Host "Running: $Label"
-    & $Command
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label failed with exit code $LASTEXITCODE."
-    }
-}
-
-function Invoke-NativeChecked {
-    param(
-        [Parameter(Mandatory = $true)][string]$Label,
-        [Parameter(Mandatory = $true)][string]$FilePath,
-        [string[]]$Arguments = @()
-    )
-    Write-Host "Running: $Label"
-    $exitCode = Invoke-LxeNativeCommand -FilePath $FilePath -Arguments $Arguments
-    if ($exitCode -ne 0) {
-        throw "$Label failed with exit code $exitCode."
-    }
-}
-
 $git = Resolve-Git
 $uv = Resolve-Uv
 $powershell = Resolve-PowerShell
 
-Invoke-Checked "git repository check" { & $git rev-parse --is-inside-work-tree | Out-Null }
+Invoke-NativeChecked -Label "git repository check" -FilePath $git -Arguments @("rev-parse", "--is-inside-work-tree")
 $topLevel = (& $git rev-parse --show-toplevel).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "git rev-parse --show-toplevel failed with exit code $LASTEXITCODE."
+}
 if (-not [string]::Equals([System.IO.Path]::GetFullPath($topLevel).TrimEnd("\"), $ProjectRoot.TrimEnd("\"), [StringComparison]::OrdinalIgnoreCase)) {
     throw "update.ps1 must be run from the project repository root. Git root: $topLevel"
 }
@@ -94,8 +43,8 @@ if ($untrackedFiles.Count -gt 0) {
     }
 }
 
-Invoke-NativeChecked "git pull" $git @("pull", "--ff-only")
-Invoke-NativeChecked "launcher setup" $powershell @(
+Invoke-NativeChecked -Label "git pull" -FilePath $git -Arguments @("pull", "--ff-only")
+Invoke-NativeChecked -Label "launcher setup" -FilePath $powershell -Arguments @(
     "-ExecutionPolicy",
     "Bypass",
     "-File",
@@ -105,16 +54,16 @@ Invoke-NativeChecked "launcher setup" $powershell @(
     "-UvPath",
     $uv
 )
-Invoke-NativeChecked "uv sync" $uv @("sync", "--frozen", "--all-groups", "--python", $PythonVersion)
-Invoke-NativeChecked "Playwright Chromium install" $uv @("run", "--frozen", "python", "-m", "playwright", "install", "chromium")
-Invoke-NativeChecked "Dashboard UI build" $powershell @(
+Invoke-NativeChecked -Label "uv sync" -FilePath $uv -Arguments @("sync", "--frozen", "--all-groups", "--python", $PythonVersion)
+Invoke-NativeChecked -Label "Playwright Chromium install" -FilePath $uv -Arguments @("run", "--frozen", "python", "-m", "playwright", "install", "chromium")
+Invoke-NativeChecked -Label "Dashboard UI build" -FilePath $powershell -Arguments @(
     "-ExecutionPolicy",
     "Bypass",
     "-File",
     (Join-Path $ProjectRoot "scripts\webui.ps1"),
     "-Build"
 )
-Invoke-NativeChecked "doctor" $powershell @(
+Invoke-NativeChecked -Label "doctor" -FilePath $powershell -Arguments @(
     "-ExecutionPolicy",
     "Bypass",
     "-File",

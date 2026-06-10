@@ -2,88 +2,67 @@ param(
     [string]$RepoUrl = "https://github.com/LXE123/LXE_AGENT.git",
     [string]$Ref = "main",
     [string]$InstallDir = "",
-    [switch]$NoPath
+    [switch]$NoPath,
+    [switch]$AllowZipFallback
 )
 
-$consoleEncodingHelper = ""
-if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
-    $candidate = Join-Path $PSScriptRoot "_console_encoding.ps1"
-    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-        $consoleEncodingHelper = $candidate
+$ErrorActionPreference = "Stop"
+
+function Get-RawGitHubFileUrl {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryUrl,
+        [Parameter(Mandatory = $true)][string]$RepositoryRef,
+        [Parameter(Mandatory = $true)][string]$RelativePath
+    )
+
+    $trimmed = $RepositoryUrl.Trim().TrimEnd([char[]]"/")
+    if ($trimmed.EndsWith(".git")) {
+        $trimmed = $trimmed.Substring(0, $trimmed.Length - 4)
     }
-}
-if ($consoleEncodingHelper) {
-    . $consoleEncodingHelper
-}
-else {
-    $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
-    try {
-        [Console]::OutputEncoding = $utf8NoBom
+
+    $match = [regex]::Match($trimmed, "^https://github\.com/(?<owner>[^/]+)/(?<repo>[^/]+)$")
+    if (-not $match.Success) {
+        $match = [regex]::Match($trimmed, "^git@github\.com:(?<owner>[^/]+)/(?<repo>[^/]+)$")
     }
-    catch {
+    if (-not $match.Success) {
+        throw "Cannot resolve raw GitHub file URL from RepoUrl: $RepositoryUrl"
     }
-    try {
-        [Console]::InputEncoding = $utf8NoBom
-    }
-    catch {
-    }
-    $OutputEncoding = $utf8NoBom
-    if ($env:OS -eq "Windows_NT") {
-        try {
-            & chcp.com 65001 > $null 2> $null
-        }
-        catch {
-        }
-    }
-    $env:PYTHONUTF8 = "1"
-    $env:PYTHONIOENCODING = "utf-8"
+
+    $owner = $match.Groups["owner"].Value
+    $repo = $match.Groups["repo"].Value
+    $path = $RelativePath.TrimStart([char[]]"\/")
+    return "https://raw.githubusercontent.com/$owner/$repo/$RepositoryRef/$path"
 }
 
-$ErrorActionPreference = "Stop"
+$dependencyHelper = ""
+$dependencyTempRoot = ""
+if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+    $candidate = Join-Path $PSScriptRoot "_dependencies.ps1"
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        $dependencyHelper = $candidate
+    }
+}
+if (-not $dependencyHelper) {
+    $dependencyTempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-dependencies-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $dependencyTempRoot -Force | Out-Null
+    $dependencyHelper = Join-Path $dependencyTempRoot "_dependencies.ps1"
+    $dependencyUrl = Get-RawGitHubFileUrl -RepositoryUrl $RepoUrl -RepositoryRef $Ref -RelativePath "scripts/_dependencies.ps1"
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    }
+    catch {
+    }
+    Invoke-WebRequest -Uri $dependencyUrl -OutFile $dependencyHelper
+}
+. $dependencyHelper
+if ($dependencyTempRoot -and (Test-Path -LiteralPath $dependencyTempRoot)) {
+    Remove-Item -LiteralPath $dependencyTempRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 Set-StrictMode -Version Latest
 
 $PythonVersion = "3.12.10"
 $ProjectName = "lxe-agent"
-
-function Resolve-FullPath {
-    param([Parameter(Mandatory = $true)][string]$Path)
-    $expanded = [Environment]::ExpandEnvironmentVariables($Path)
-    return [System.IO.Path]::GetFullPath($expanded)
-}
-
-function Invoke-PowerShellFile {
-    param(
-        [Parameter(Mandatory = $true)][string]$ScriptPath,
-        [string[]]$Arguments = @()
-    )
-
-    $powershell = Get-Command powershell -ErrorAction SilentlyContinue
-    if ($null -eq $powershell) {
-        throw "powershell is not available."
-    }
-
-    $stdoutPath = [System.IO.Path]::GetTempFileName()
-    $stderrPath = [System.IO.Path]::GetTempFileName()
-    try {
-        & $powershell.Source -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments 1> $stdoutPath 2> $stderrPath
-        $exitCode = $LASTEXITCODE
-        foreach ($line in Get-Content -LiteralPath $stdoutPath -Encoding UTF8) {
-            Write-Host $line
-        }
-        foreach ($line in Get-Content -LiteralPath $stderrPath -Encoding UTF8) {
-            Write-Host $line
-        }
-        return $exitCode
-    }
-    finally {
-        if (Test-Path -LiteralPath $stdoutPath) {
-            Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
-        }
-        if (Test-Path -LiteralPath $stderrPath) {
-            Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
-        }
-    }
-}
 
 function Test-LxeProjectRoot {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -97,50 +76,6 @@ function Test-LxeProjectRoot {
     }
     $content = Get-Content -LiteralPath $pyproject -Raw
     return $content -match 'name\s*=\s*"lxe-agent"'
-}
-
-function Resolve-Uv {
-    $command = Get-Command uv -ErrorAction SilentlyContinue
-    if ($null -ne $command) {
-        return $command.Source
-    }
-
-    $localBin = Join-Path $env:USERPROFILE ".local\bin"
-    $localUv = Join-Path $localBin "uv.exe"
-    if (Test-Path -LiteralPath $localUv) {
-        $env:Path = "$localBin;$env:Path"
-        return $localUv
-    }
-
-    Write-Host "uv not found. Installing uv with the official installer..."
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $env:UV_INSTALL_DIR = $localBin
-
-    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-uv-installer-" + [Guid]::NewGuid().ToString("N"))
-    $uvInstaller = Join-Path $tempRoot "install-uv.ps1"
-    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
-    try {
-        Invoke-WebRequest -Uri https://astral.sh/uv/install.ps1 -OutFile $uvInstaller
-        $uvInstallExit = Invoke-PowerShellFile -ScriptPath $uvInstaller
-        if ($uvInstallExit -ne 0) {
-            throw "uv installer failed with exit code $uvInstallExit."
-        }
-    }
-    finally {
-        if (Test-Path -LiteralPath $tempRoot) {
-            Remove-Item -LiteralPath $tempRoot -Recurse -Force
-        }
-    }
-
-    if (Test-Path -LiteralPath $localBin) {
-        $env:Path = "$localBin;$env:Path"
-    }
-
-    $command = Get-Command uv -ErrorAction SilentlyContinue
-    if ($null -eq $command) {
-        throw "uv installation finished, but uv is still not available on PATH."
-    }
-    return $command.Source
 }
 
 function Ensure-Python {
@@ -200,13 +135,15 @@ function Download-SourceZip {
 }
 
 function Get-ProjectRoot {
+    param([string]$GitPath = "")
+
     $target = $InstallDir
     if ([string]::IsNullOrWhiteSpace($target)) {
-        $target = Join-Path $env:USERPROFILE ".lxe_agent"
+        $target = Join-Path (Get-LxeUserHome) ".lxe_agent"
     }
     $target = Resolve-FullPath $target
     if (Test-Path -LiteralPath $target) {
-        throw "Install directory already exists: $target. This installer does not support repeated installation. Delete it manually and run again."
+        throw "Install directory already exists: $target. This installer does not support repeated installation. Delete it manually or run LXE update from the existing installation."
     }
 
     $parent = Split-Path -Parent $target
@@ -214,22 +151,36 @@ function Get-ProjectRoot {
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
 
-    $git = Get-Command git -ErrorAction SilentlyContinue
-    if ($null -ne $git) {
+    if (-not [string]::IsNullOrWhiteSpace($GitPath)) {
         Write-Host "Cloning $RepoUrl ($Ref) to $target..."
-        & $git.Source clone --branch $Ref --single-branch $RepoUrl $target
+        & $GitPath clone --branch $Ref --single-branch $RepoUrl $target
         if ($LASTEXITCODE -ne 0) {
-            throw "git clone failed with exit code $LASTEXITCODE."
+            $cloneExit = $LASTEXITCODE
+            if (-not $AllowZipFallback) {
+                throw "git clone failed with exit code $cloneExit."
+            }
+            Write-Warning "git clone failed with exit code $cloneExit. Falling back to source zip because -AllowZipFallback was provided."
+            if (Test-Path -LiteralPath $target) {
+                Remove-Item -LiteralPath $target -Recurse -Force
+            }
         }
     }
-    else {
+
+    if (-not (Test-Path -LiteralPath $target)) {
+        if (-not $AllowZipFallback) {
+            throw "Git is required for installation so LXE update can work later. Install Git and rerun this script, or pass -AllowZipFallback for a non-updatable zip install."
+        }
         $zipUrl = Get-ZipUrl -RepositoryUrl $RepoUrl -RepositoryRef $Ref
-        Write-Host "git not found. Downloading source zip: $zipUrl"
+        Write-Warning "Installing from source zip. This installation will not support LXE update until it is replaced with a git clone."
+        Write-Host "Downloading source zip: $zipUrl"
         Download-SourceZip -Destination $target -ZipUrl $zipUrl
     }
 
     if (-not (Test-LxeProjectRoot -Path $target)) {
         throw "Downloaded source is not a valid $ProjectName project: $target"
+    }
+    if (-not $AllowZipFallback -and -not (Test-Path -LiteralPath (Join-Path $target ".git"))) {
+        throw "Installed source is not a git repository: $target"
     }
     return @{
         Path = $target
@@ -243,7 +194,8 @@ function Invoke-LauncherSetup {
     )
     if ($NoPath) {
         $env:LXE_LAUNCHER_NO_PATH = "1"
-    } else {
+    }
+    else {
         $env:LXE_LAUNCHER_NO_PATH = "0"
     }
     $launcherArgs = @("-ProjectRoot", $ProjectRoot, "-UvPath", $UvPath)
@@ -256,25 +208,32 @@ function Invoke-LauncherSetup {
     }
 }
 
-$uv = Resolve-Uv
-$project = Get-ProjectRoot
+$git = ""
+try {
+    $git = Resolve-Git -InstallIfMissing
+}
+catch {
+    if (-not $AllowZipFallback) {
+        throw
+    }
+    Write-Warning "$($_.Exception.Message) Falling back to source zip because -AllowZipFallback was provided."
+}
+
+$uv = Resolve-Uv -InstallIfMissing
+$project = Get-ProjectRoot -GitPath $git
 $ProjectRoot = [string]$project["Path"]
 
 Set-Location $ProjectRoot
 Write-Host "Using uv: $uv"
+if (-not [string]::IsNullOrWhiteSpace($git)) {
+    Write-Host "Using git: $git"
+}
 Write-Host "Project root: $ProjectRoot"
 
 Ensure-Python -UvPath $uv -Version $PythonVersion
 
-& $uv sync --frozen --all-groups --python $PythonVersion
-if ($LASTEXITCODE -ne 0) {
-    throw "uv sync failed with exit code $LASTEXITCODE."
-}
-
-& $uv run --frozen python -m playwright install chromium
-if ($LASTEXITCODE -ne 0) {
-    throw "Playwright Chromium installation failed with exit code $LASTEXITCODE."
-}
+Invoke-NativeChecked -Label "uv sync" -FilePath $uv -Arguments @("sync", "--frozen", "--all-groups", "--python", $PythonVersion)
+Invoke-NativeChecked -Label "Playwright Chromium installation" -FilePath $uv -Arguments @("run", "--frozen", "python", "-m", "playwright", "install", "chromium")
 
 $webuiExit = Invoke-PowerShellFile -ScriptPath (Join-Path $ProjectRoot "scripts\webui.ps1") -Arguments @("-Build")
 if ($webuiExit -ne 0) {
