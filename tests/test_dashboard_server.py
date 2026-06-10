@@ -77,7 +77,11 @@ def test_dashboard_server_swallows_uvicorn_system_exit(monkeypatch) -> None:
 
 
 def test_gateway_start_continues_when_dashboard_start_fails(monkeypatch) -> None:
+    opened_urls: list[str] = []
+
     class FakeDashboardServer:
+        host = "127.0.0.1"
+        port = 8765
         url = "http://127.0.0.1:8765"
         stopped = False
 
@@ -130,6 +134,7 @@ def test_gateway_start_continues_when_dashboard_start_fails(monkeypatch) -> None
 
     monkeypatch.setattr("gateway.app.init_schema", lambda: None)
     monkeypatch.setattr("gateway.app.dispose", lambda: None)
+    monkeypatch.setattr("gateway.app.webbrowser.open", lambda *args, **kwargs: opened_urls.append(args[0]) or True)
     monkeypatch.setattr("gateway.app.GatewayApp._build_scheduler", lambda _self: FakeScheduler())
     monkeypatch.setattr("gateway.app.GatewayApp._refresh_mabang_erp_cookie", staticmethod(lambda: None))
     monkeypatch.setattr(
@@ -147,6 +152,170 @@ def test_gateway_start_continues_when_dashboard_start_fails(monkeypatch) -> None
 
         await app.start()
         assert app._started is True
+        assert opened_urls == []
+        await app.stop()
+
+    asyncio.run(_run())
+
+
+def test_gateway_start_opens_dashboard_browser(monkeypatch) -> None:
+    opened_urls: list[str] = []
+
+    class FakeDashboardServer:
+        host = "0.0.0.0"
+        port = 8765
+        url = "http://0.0.0.0:8765"
+        stopped = False
+
+        async def start(self) -> bool:
+            return True
+
+        async def stop(self) -> None:
+            self.stopped = True
+
+        def state(self) -> dict:
+            return {
+                "enabled": True,
+                "url": self.url,
+                "started": True,
+                "running": True,
+                "error": "",
+            }
+
+    class FakeRegistry:
+        def list(self) -> list:
+            return []
+
+        async def start_all(self) -> None:
+            return None
+
+        async def stop_all(self, timeout_s: float | None = None) -> None:
+            return None
+
+        async def health_snapshot(self) -> dict:
+            return {}
+
+        def adapter_keys(self) -> list:
+            return []
+
+    class FakeRouter:
+        def bind_scheduler(self, _scheduler) -> None:
+            return None
+
+        async def route_message(self, _event) -> None:
+            return None
+
+    class FakeScheduler:
+        running = False
+
+        def start(self) -> None:
+            self.running = True
+
+        def shutdown(self, wait: bool = False) -> None:
+            self.running = False
+
+    monkeypatch.delenv("AGENT_DASHBOARD_OPEN_BROWSER", raising=False)
+    monkeypatch.setattr("gateway.app.init_schema", lambda: None)
+    monkeypatch.setattr("gateway.app.dispose", lambda: None)
+    monkeypatch.setattr("gateway.app.webbrowser.open", lambda *args, **kwargs: opened_urls.append(args[0]) or True)
+    monkeypatch.setattr("gateway.app.GatewayApp._build_scheduler", lambda _self: FakeScheduler())
+    monkeypatch.setattr("gateway.app.GatewayApp._refresh_mabang_erp_cookie", staticmethod(lambda: None))
+    monkeypatch.setattr(
+        "gateway.app.feishu_runtime_status",
+        lambda: {
+            "missing_required": [],
+            "app_id_masked": "cli_xxx",
+            "api_host": "https://open.feishu.cn",
+        },
+    )
+
+    async def _run() -> None:
+        app = GatewayApp(registry=FakeRegistry(), session_router=FakeRouter())
+        app._dashboard_server = FakeDashboardServer()
+
+        await app.start()
+        assert opened_urls == ["http://127.0.0.1:8765"]
+        await app.stop()
+
+    asyncio.run(_run())
+
+
+def test_gateway_start_can_skip_dashboard_browser(monkeypatch) -> None:
+    opened_urls: list[str] = []
+
+    class FakeDashboardServer:
+        host = "127.0.0.1"
+        port = 8765
+        url = "http://127.0.0.1:8765"
+
+        async def start(self) -> bool:
+            return True
+
+        async def stop(self) -> None:
+            return None
+
+        def state(self) -> dict:
+            return {
+                "enabled": True,
+                "url": self.url,
+                "started": True,
+                "running": True,
+                "error": "",
+            }
+
+    class FakeRegistry:
+        def list(self) -> list:
+            return []
+
+        async def start_all(self) -> None:
+            return None
+
+        async def stop_all(self, timeout_s: float | None = None) -> None:
+            return None
+
+        async def health_snapshot(self) -> dict:
+            return {}
+
+        def adapter_keys(self) -> list:
+            return []
+
+    class FakeRouter:
+        def bind_scheduler(self, _scheduler) -> None:
+            return None
+
+        async def route_message(self, _event) -> None:
+            return None
+
+    class FakeScheduler:
+        running = False
+
+        def start(self) -> None:
+            self.running = True
+
+        def shutdown(self, wait: bool = False) -> None:
+            self.running = False
+
+    monkeypatch.setenv("AGENT_DASHBOARD_OPEN_BROWSER", "0")
+    monkeypatch.setattr("gateway.app.init_schema", lambda: None)
+    monkeypatch.setattr("gateway.app.dispose", lambda: None)
+    monkeypatch.setattr("gateway.app.webbrowser.open", lambda *args, **kwargs: opened_urls.append(args[0]) or True)
+    monkeypatch.setattr("gateway.app.GatewayApp._build_scheduler", lambda _self: FakeScheduler())
+    monkeypatch.setattr("gateway.app.GatewayApp._refresh_mabang_erp_cookie", staticmethod(lambda: None))
+    monkeypatch.setattr(
+        "gateway.app.feishu_runtime_status",
+        lambda: {
+            "missing_required": [],
+            "app_id_masked": "cli_xxx",
+            "api_host": "https://open.feishu.cn",
+        },
+    )
+
+    async def _run() -> None:
+        app = GatewayApp(registry=FakeRegistry(), session_router=FakeRouter())
+        app._dashboard_server = FakeDashboardServer()
+
+        await app.start()
+        assert opened_urls == []
         await app.stop()
 
     asyncio.run(_run())

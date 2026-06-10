@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import webbrowser
 from concurrent.futures import CancelledError as FutureCancelledError
 from datetime import datetime
 
@@ -13,7 +14,7 @@ from clients.auth.browser_auth_client import ensure_auth_sync
 from gateway.agent_queue import AgentQueue
 from gateway.channel_registry import ChannelRegistry
 from gateway.dashboard import DashboardServer
-from gateway.dashboard.settings import dashboard_enabled, dashboard_host, dashboard_port
+from gateway.dashboard.settings import dashboard_enabled, dashboard_host, dashboard_open_browser, dashboard_port
 from gateway.emitter import GatewayEmitter
 from gateway.heartbeat_wake import HeartbeatWakeManager
 from gateway.models import InboundEvent
@@ -78,6 +79,7 @@ class GatewayApp:
             if dashboard_enabled()
             else None
         )
+        self._dashboard_browser_opened = False
         self._started = False
 
     async def _handle_heartbeat_wake_request(self, request) -> None:
@@ -162,6 +164,7 @@ class GatewayApp:
         )
         if self._dashboard_server is not None and self._dashboard_server.state().get("started"):
             logger.info("🖥️ [Dashboard] available at %s", self._dashboard_server.url)
+            await self._open_dashboard_browser()
         self._started = True
 
     async def wait_forever(self) -> None:
@@ -173,6 +176,32 @@ class GatewayApp:
 
     def request_shutdown(self) -> None:
         self._stop_event.set()
+
+    async def _open_dashboard_browser(self) -> None:
+        dashboard = self._dashboard_server
+        if dashboard is None or self._dashboard_browser_opened or not dashboard_open_browser():
+            return
+        url = self._dashboard_browser_url()
+        try:
+            opened = await asyncio.to_thread(webbrowser.open, url, new=2, autoraise=True)
+        except Exception as exc:
+            logger.warning("[Dashboard] browser open failed: url=%s error=%s", url, exc)
+            return
+        if not opened:
+            logger.warning("[Dashboard] browser open returned false: url=%s", url)
+            return
+        self._dashboard_browser_opened = True
+        logger.info("[Dashboard] browser opened: url=%s", url)
+
+    def _dashboard_browser_url(self) -> str:
+        dashboard = self._dashboard_server
+        if dashboard is None:
+            return ""
+        host = str(getattr(dashboard, "host", "") or "").strip() or "127.0.0.1"
+        port = int(getattr(dashboard, "port", 8765) or 8765)
+        if host in {"0.0.0.0", "::", "[::]"}:
+            host = "127.0.0.1"
+        return f"http://{host}:{port}"
 
     async def stop(self) -> None:
         if not self._started and self._dispatcher_task is None:

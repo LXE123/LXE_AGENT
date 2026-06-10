@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Copy,
   Database,
   FileText,
   Info,
@@ -213,20 +214,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function shortText(value: unknown, limit = 2200): string {
+function displayText(value: unknown): string {
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  return text || "";
+}
+
+function shortText(value: unknown, limit = 2200): string {
+  const text = displayText(value);
   if (!text) {
     return "";
   }
   return text.length > limit ? `${text.slice(0, limit)}\n... [truncated]` : text;
 }
 
-function sanitizeForDisplay(value: unknown): unknown {
+function sanitizeForDisplay(value: unknown, options: { truncateStrings?: boolean } = {}): unknown {
+  const truncateStrings = options.truncateStrings ?? true;
   if (typeof value === "string") {
-    return value.length > 600 ? `${value.slice(0, 600)}... [${value.length} chars]` : value;
+    return truncateStrings && value.length > 600 ? `${value.slice(0, 600)}... [${value.length} chars]` : value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => sanitizeForDisplay(item));
+    return value.map((item) => sanitizeForDisplay(item, options));
   }
   if (!isRecord(value)) {
     return value;
@@ -236,10 +243,29 @@ function sanitizeForDisplay(value: unknown): unknown {
     if ((key === "data" || key === "base64") && typeof item === "string" && item.length > 120) {
       cleaned[key] = `[omitted ${item.length} chars]`;
     } else {
-      cleaned[key] = sanitizeForDisplay(item);
+      cleaned[key] = sanitizeForDisplay(item, options);
     }
   }
   return cleaned;
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.setAttribute("readonly", "true");
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.select();
+  try {
+    document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textArea);
+  }
 }
 
 function roleLabel(role: string): string {
@@ -305,16 +331,7 @@ function MessageBlock({ block }: { block: unknown }) {
     );
   }
   if (type === "tool_result") {
-    return (
-      <div className={block.is_error ? "message-block result-block error" : "message-block result-block"}>
-        <div className="block-title">
-          <PackageCheck size={14} />
-          <span>{block.is_error ? "tool result error" : "tool result"}</span>
-          {block.tool_call_id ? <code>{String(block.tool_call_id)}</code> : null}
-        </div>
-        <pre className="message-json">{shortText(sanitizeForDisplay(block.content ?? ""))}</pre>
-      </div>
-    );
+    return <ToolResultBlock block={block} />;
   }
   if (type === "image" || type === "file") {
     return (
@@ -334,6 +351,54 @@ function MessageBlock({ block }: { block: unknown }) {
         <span>{type}</span>
       </div>
       <pre className="message-json">{shortText(sanitizeForDisplay(block))}</pre>
+    </div>
+  );
+}
+
+function ToolResultBlock({ block }: { block: Record<string, unknown> }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const previewText = shortText(sanitizeForDisplay(block.content ?? ""));
+  const fullText = displayText(sanitizeForDisplay(block.content ?? "", { truncateStrings: false }));
+  const canExpand = fullText !== previewText;
+  const renderedText = expanded ? fullText : previewText;
+  const copyLabel = copied ? "已复制" : "复制结果";
+
+  const handleCopy = async () => {
+    try {
+      await copyTextToClipboard(fullText);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  return (
+    <div className={block.is_error ? "message-block result-block error" : "message-block result-block"}>
+      <div className="block-title block-title-split">
+        <div className="block-title-main">
+          <PackageCheck size={14} />
+          <span>{block.is_error ? "tool result error" : "tool result"}</span>
+          {block.tool_call_id ? <code>{String(block.tool_call_id)}</code> : null}
+        </div>
+        {canExpand ? (
+          <div className="tool-result-actions">
+            <button
+              className="tool-result-button"
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded ? "收起" : "查看完整结果"}
+            </button>
+            <button className="tool-result-button" type="button" onClick={handleCopy}>
+              {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
+              <span>{copyLabel}</span>
+            </button>
+          </div>
+        ) : null}
+      </div>
+      <pre className={expanded ? "message-json tool-result-full" : "message-json"}>{renderedText}</pre>
     </div>
   );
 }

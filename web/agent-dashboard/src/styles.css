@@ -913,6 +913,51 @@ h1 {
   font-weight: 800;
 }
 
+.block-title-split {
+  justify-content: space-between;
+}
+
+.block-title-main {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.tool-result-actions {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.tool-result-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid #d8c99f;
+  border-radius: 6px;
+  background: #fffaf0;
+  color: #755615;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tool-result-button:hover,
+.tool-result-button:focus {
+  border-color: #c59d48;
+  background: #fff4d7;
+}
+
+.tool-result-button:focus {
+  outline: 2px solid #d8b15b;
+  outline-offset: 1px;
+}
+
 code {
   padding: 1px 5px;
   border-radius: 6px;
@@ -927,6 +972,11 @@ code {
   max-height: 320px;
   border-radius: 0;
   background: transparent;
+}
+
+.message-json.tool-result-full {
+  max-height: min(620px, 70vh);
+  background: #fffefa;
 }
 
 .modal-backdrop {

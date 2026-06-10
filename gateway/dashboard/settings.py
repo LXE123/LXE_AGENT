@@ -27,4 +27,8 @@ def dashboard_port() -> int:
     return _env_int("AGENT_DASHBOARD_PORT", 8765)
 
 
-__all__ = ["dashboard_enabled", "dashboard_host", "dashboard_port"]
+def dashboard_open_browser() -> bool:
+    return _env_flag("AGENT_DASHBOARD_OPEN_BROWSER", True)
+
+
+__all__ = ["dashboard_enabled", "dashboard_host", "dashboard_open_browser", "dashboard_port"]
