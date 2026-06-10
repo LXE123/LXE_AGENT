@@ -71,7 +71,7 @@ zgl: ou_965bb6cee1c170b16fbe00b5d4b348be    // FBA Module Business Specialist, C
 2. bot_ID(app_ID):
 LXE_CLAW: cli_a93d57dc47385cc0  // Developer agent, capable of utilizing all skills.
 LXE_FBA_AGENT: cli_a97ac28237781bd8 // FBA business module agent, utilizing skills with the `amazon_fba` type.
-Amazon_备货：cli_aa9d657db5385cdd // Amazon replenishment module agent, utilizing skills with the `amazon_replenish` type.
+Amazon_备货一组：cli_aa9d657db5385cdd // Amazon replenishment module agent, utilizing skills with the `amazon_replenish` type.
 
 目前的 gateway 是可以链接到多个 bot 的，比如说可以链接到飞书和钉钉，所以会担心一个问题，万一有人特意链接到钉钉上然后对话怎么办？
 我觉得其实是不用担心的，因为我们可以只允许白名单里 bot_id 发来的信息发送给 agent，这种情况下绑定到多个 bot 也没用。（gateway 控制）  
@@ -79,4 +79,3 @@ Amazon_备货：cli_aa9d657db5385cdd // Amazon replenishment module agent, utili
 ---
 
 虽然说设计成 LXE_CLAW 可以看见所有 skill，但是我是必须加上一个手动控制 skill 可见范围的功能。这样才方便测试不同 SKILL 可见范围的情况下 AGENT 的发挥表现。
-
