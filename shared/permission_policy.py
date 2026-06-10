@@ -56,6 +56,12 @@ def _raw_data(source: Any) -> dict[str, Any]:
     return {}
 
 
+def _extra_data(source: Any) -> dict[str, Any]:
+    raw = _raw_data(source)
+    extra = raw.get("extra")
+    return dict(extra) if isinstance(extra, dict) else {}
+
+
 def _source_text(source: Any, name: str) -> str:
     try:
         return _clean_text(getattr(source, name))
@@ -97,10 +103,13 @@ def allowed_skill_types_for_bot(bot_id: str) -> set[str]:
 
 def resolve_bot_id(source: Any) -> str:
     raw = _raw_data(source)
+    extra = _extra_data(source)
     direct_bot_id = (
         _clean_text(raw.get("bot_id"))
         or _clean_text(raw.get("app_id"))
         or _clean_text(raw.get("bot_app_id"))
+        or _clean_text(extra.get("bot_app_id"))
+        or _clean_text(extra.get("bot_id"))
     )
     platform = (_source_text(source, "platform") or _clean_text(raw.get("platform"))).lower()
     if platform == "feishu":

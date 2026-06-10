@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -22,6 +22,10 @@ def _utc_now_text() -> str:
 
 def _clean_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _clean_extra(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
 
 
 def _normalize_chat_type(value: Any) -> str:
@@ -56,6 +60,7 @@ class SessionSource:
     root_id: str = ""
     parent_id: str = ""
     is_bot: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, value: dict[str, Any] | None) -> "SessionSource":
@@ -73,6 +78,7 @@ class SessionSource:
             root_id=_clean_text(raw.get("root_id")),
             parent_id=_clean_text(raw.get("parent_id")),
             is_bot=bool(raw.get("is_bot")),
+            extra=_clean_extra(raw.get("extra")),
         )
 
     def normalized(self) -> "SessionSource":
@@ -108,7 +114,11 @@ class SessionSource:
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["chat_type"] = _normalize_chat_type(data.get("chat_type"))
-        return {key: value for key, value in data.items() if value not in {"", None}}
+        return {
+            key: value
+            for key, value in data.items()
+            if value is not None and value != "" and not (key == "extra" and not value)
+        }
 
 
 @dataclass(slots=True)

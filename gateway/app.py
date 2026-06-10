@@ -454,17 +454,11 @@ class GatewayApp:
             return
 
         logger.info(
-            "🪶 [%s] Feishu config ready: app_id=%s api_host=%s bot_open_id=%s",
+            "🪶 [%s] Feishu config ready: app_id=%s api_host=%s bot_identity=probe",
             process_name,
             status.get("app_id_masked") or "<empty>",
             status.get("api_host") or "<empty>",
-            "set" if status.get("bot_open_id_configured") else "missing",
         )
-        if not status.get("bot_open_id_configured"):
-            logger.warning(
-                "⚠️ [%s] FEISHU_BOT_OPEN_ID not configured; group @ mention filtering will be skipped.",
-                process_name,
-            )
         if not connects_gateway:
             logger.info(
                 "ℹ️ [%s] Feishu WebSocket is started only by main.py gateway; this process only registers senders.",

@@ -68,6 +68,14 @@ def test_resolve_bot_id_uses_stable_platform_identity() -> None:
     )
     assert resolve_bot_id(generic_source) == "api-bot"
 
+    persisted_feishu_source = SimpleNamespace(
+        source={
+            "platform": "feishu",
+            "extra": {"bot_app_id": BOT_ID_LXE_FBA_AGENT, "bot_id": "ou_bot"},
+        },
+    )
+    assert resolve_bot_id(persisted_feishu_source) == BOT_ID_LXE_FBA_AGENT
+
     fallback_source = SimpleNamespace(
         platform="api_server",
         raw_data={},

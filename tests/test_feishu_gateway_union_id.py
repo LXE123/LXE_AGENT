@@ -13,8 +13,14 @@ from platforms.feishu.message_parser import InboundResource, ParsedMessageConten
 
 def _adapter_without_runtime() -> FeishuStreamAdapter:
     adapter = object.__new__(FeishuStreamAdapter)
+    adapter._thread = None
+    adapter._loop = None
+    adapter._client = None
     adapter._bot_open_id = ""
+    adapter._bot_name = ""
     adapter._bot_open_id_source = "none"
+    adapter._last_probe_ok = False
+    adapter._last_probe_at = 0.0
     adapter._host_loop = None
     adapter._seen_message_ids = {}
     return adapter
@@ -44,6 +50,38 @@ def _install_handler_probe(monkeypatch, adapter: FeishuStreamAdapter, now_ref: d
 
     monkeypatch.setattr(feishu_gateway.asyncio, "run_coroutine_threadsafe", fake_run_coroutine_threadsafe)
     return submitted
+
+
+def test_feishu_adapter_ignores_manual_bot_open_id_env(monkeypatch) -> None:
+    monkeypatch.setenv("FEISHU_BOT_OPEN_ID", "ou_manual_bot")
+    monkeypatch.setattr(feishu_gateway, "validate_feishu_runtime_config", lambda: None)
+
+    adapter = FeishuStreamAdapter()
+
+    assert adapter._bot_open_id == ""
+    assert adapter._bot_open_id_source == ""
+
+
+def test_feishu_adapter_probe_populates_bot_identity(monkeypatch) -> None:
+    async def fake_probe():
+        return SimpleNamespace(
+            ok=True,
+            app_id="cli_app",
+            bot_open_id="ou_probe_bot",
+            bot_name="FBA业务助手",
+            error="",
+        )
+
+    monkeypatch.setattr(feishu_gateway, "probe_feishu_bot_identity", fake_probe)
+    adapter = _adapter_without_runtime()
+
+    asyncio.run(adapter._refresh_bot_identity())
+
+    assert adapter._bot_open_id == "ou_probe_bot"
+    assert adapter._bot_name == "FBA业务助手"
+    assert adapter._bot_open_id_source == "probe"
+    assert adapter._last_probe_ok is True
+    assert adapter.health()["bot_open_id_available"] is True
 
 
 def _fake_lark_message_event(
@@ -216,6 +254,9 @@ def test_feishu_parse_keeps_open_id_as_session_user_and_sets_union_id(monkeypatc
 
     monkeypatch.setattr(feishu_gateway, "parse_message_payload_async", fake_parse_message_payload_async)
     adapter = _adapter_without_runtime()
+    adapter._bot_open_id = "ou_probe_bot"
+    adapter._bot_name = "FBA业务助手"
+    adapter._bot_open_id_source = "probe"
 
     event = asyncio.run(
         adapter._parse_message_event(
@@ -247,6 +288,13 @@ def test_feishu_parse_keeps_open_id_as_session_user_and_sets_union_id(monkeypatc
     assert event.source["chat_type"] == "p2p"
     assert event.source["user_id"] == "ou_sender_open_id"
     assert event.source["user_id_alt"] == "on_sender_union_id"
+    assert event.source["extra"] == {
+        "bot_app_id": "cli_app",
+        "bot_id": "ou_probe_bot",
+        "bot_name": "FBA业务助手",
+        "bot_id_source": "probe",
+        "message_type": "text",
+    }
 
 
 def test_feishu_parse_without_parent_does_not_fetch_quoted_message(monkeypatch) -> None:

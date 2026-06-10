@@ -51,7 +51,13 @@ class _FakeScheduler:
         return str(session_id or "").strip() in self.inflight_sessions
 
 
-def _event(*, user_id: str, union_id: str, app_id: str) -> InboundEvent:
+def _event(
+    *,
+    user_id: str,
+    union_id: str,
+    app_id: str,
+    source_extra: dict | None = None,
+) -> InboundEvent:
     return InboundEvent(
         platform="feishu",
         event_type="agent_message",
@@ -70,6 +76,7 @@ def _event(*, user_id: str, union_id: str, app_id: str) -> InboundEvent:
             "user_id": user_id,
             "user_id_alt": union_id,
             "user_name": "sender",
+            **({"extra": dict(source_extra)} if source_extra else {}),
         },
         raw_data={
             "platform": "feishu",
@@ -191,7 +198,18 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     monkeypatch.setattr(router_mod, "pop_agent_session_pending_events", fake_pop_pending_events)
 
     decision = asyncio.run(
-        router.route_message(_event(user_id=OPEN_ID_ZGL, union_id=USER_ZGL, app_id=BOT_ID_LXE_FBA_AGENT))
+        router.route_message(
+            _event(
+                user_id=OPEN_ID_ZGL,
+                union_id=USER_ZGL,
+                app_id=BOT_ID_LXE_FBA_AGENT,
+                source_extra={
+                    "bot_app_id": BOT_ID_LXE_FBA_AGENT,
+                    "bot_id": "ou_bot",
+                    "bot_name": "FBA业务助手",
+                },
+            )
+        )
     )
 
     assert decision.route_kind == "agent_message"
@@ -207,4 +225,6 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     assert job.raw_data["union_id"] == USER_ZGL
     assert job.raw_data["session_key"] == "agent:main:feishu:dm:chat-1"
     assert job.source["user_id_alt"] == USER_ZGL
+    assert job.source["extra"]["bot_app_id"] == BOT_ID_LXE_FBA_AGENT
+    assert job.source["extra"]["bot_name"] == "FBA业务助手"
     assert adapter.outbound_requests == []

@@ -23,7 +23,6 @@ from .card_sender import FeishuCardSender
 from .config import (
     FEISHU_APP_ID,
     FEISHU_APP_SECRET,
-    FEISHU_BOT_OPEN_ID,
     FEISHU_RAW_EVENT_DUMP_DIR,
     FEISHU_RAW_EVENT_DUMP_ENABLED,
     feishu_runtime_status,
@@ -246,9 +245,9 @@ class FeishuStreamAdapter:
         self._stream_state: dict[str, _StreamWriterState] = {}
         self._stream_locks: dict[str, asyncio.Lock] = {}
         self._seen_message_ids: dict[str, float] = {}
-        self._bot_open_id = str(FEISHU_BOT_OPEN_ID or "").strip()
+        self._bot_open_id = ""
         self._bot_name = ""
-        self._bot_open_id_source = "env" if self._bot_open_id else ""
+        self._bot_open_id_source = ""
         self._last_probe_ok = False
         self._last_probe_at = 0.0
         self._ready = threading.Event()
@@ -279,6 +278,7 @@ class FeishuStreamAdapter:
             "thread": self._thread.name if self._thread else "",
             "loop": self._loop.__class__.__name__ if self._loop else "",
             "bot_open_id_configured": bool(self._bot_open_id),
+            "bot_open_id_available": bool(self._bot_open_id),
             "bot_open_id_source": self._bot_open_id_source,
             "bot_name": self._bot_name,
             "last_probe_ok": self._last_probe_ok,
@@ -296,7 +296,7 @@ class FeishuStreamAdapter:
             clear_host_loop=True,
         )
         self._host_loop = asyncio.get_running_loop()
-        await self._refresh_bot_identity_if_needed()
+        await self._refresh_bot_identity()
         self._ready.clear()
         self._start_error = None
         self._stopping = False
@@ -935,9 +935,7 @@ class FeishuStreamAdapter:
         if event is not None:
             self.emit(event)
 
-    async def _refresh_bot_identity_if_needed(self) -> None:
-        if self._bot_open_id:
-            return
+    async def _refresh_bot_identity(self) -> None:
         result = await probe_feishu_bot_identity()
         self._last_probe_at = time.time()
         self._last_probe_ok = bool(result.ok)
@@ -951,8 +949,11 @@ class FeishuStreamAdapter:
                 "set" if self._bot_open_id else "missing",
             )
             return
+        self._bot_open_id = ""
+        self._bot_name = ""
+        self._bot_open_id_source = ""
         logger.warning(
-            "[Feishu] bot identity probe failed: app_id=%s error=%s",
+            "[Feishu] bot identity probe failed: app_id=%s error=%s; group @ mention filtering is unavailable, direct messages are unaffected",
             result.app_id or "<empty>",
             result.error or "<empty>",
         )
@@ -1055,6 +1056,20 @@ class FeishuStreamAdapter:
             return None
 
         response_route_id = uuid.uuid4().hex
+        bot_app_id = str(data.get("app_id") or FEISHU_APP_ID).strip()
+        sender_type = str(data.get("sender_type") or "").strip()
+        source_extra = {
+            key: value
+            for key, value in {
+                "bot_app_id": bot_app_id,
+                "bot_id": self._bot_open_id,
+                "bot_name": self._bot_name,
+                "bot_id_source": self._bot_open_id_source,
+                "message_type": message_type,
+                "sender_type": sender_type,
+            }.items()
+            if str(value or "").strip()
+        }
         source = {
             "platform": self.platform,
             "chat_id": chat_id,
@@ -1066,10 +1081,11 @@ class FeishuStreamAdapter:
             "message_id": message_id,
             "root_id": root_id,
             "parent_id": parent_id,
+            "extra": source_extra,
         }
         raw_data = {
             "platform": self.platform,
-            "app_id": str(data.get("app_id") or FEISHU_APP_ID).strip(),
+            "app_id": bot_app_id,
             "chat_id": chat_id,
             "chat_type": chat_type,
             "thread_id": thread_id,
@@ -1079,7 +1095,7 @@ class FeishuStreamAdapter:
             "update_time": update_time,
             "message_id": message_id,
             "message_type": message_type,
-            "sender_type": str(data.get("sender_type") or "").strip(),
+            "sender_type": sender_type,
             "open_id": open_id,
             "sender_open_id": sender_open_id,
             "sender_user_id": sender_user_id,

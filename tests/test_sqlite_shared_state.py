@@ -87,6 +87,7 @@ def _source(
     user_id_alt: str = "on_union",
     user_name: str = "测试用户",
     thread_id: str = "",
+    extra: dict | None = None,
 ) -> dict:
     return {
         "platform": "feishu",
@@ -96,6 +97,7 @@ def _source(
         "user_id_alt": user_id_alt,
         "user_name": user_name,
         **({"thread_id": thread_id} if thread_id else {}),
+        **({"extra": dict(extra)} if extra else {}),
     }
 
 
@@ -400,6 +402,40 @@ def test_session_source_key_rules() -> None:
     ).session_key == "agent:main:feishu:group:oc_group:omt_thread"
 
 
+def test_session_source_preserves_extra_without_changing_session_key() -> None:
+    base = {
+        "platform": "feishu",
+        "chat_id": "oc_group",
+        "chat_type": "group",
+        "user_id": "ou_user",
+        "user_id_alt": "on_union",
+    }
+    first = SessionSource.from_dict(
+        {
+            **base,
+            "extra": {
+                "bot_app_id": "cli_app",
+                "bot_id": "ou_bot",
+                "bot_name": "FBA业务助手",
+            },
+        }
+    )
+    second = SessionSource.from_dict(
+        {
+            **base,
+            "extra": {
+                "bot_app_id": "cli_other",
+                "bot_id": "ou_other",
+                "bot_name": "改名后的助手",
+            },
+        }
+    )
+
+    assert first.to_dict()["extra"]["bot_name"] == "FBA业务助手"
+    assert first.session_key == second.session_key
+    assert "extra" not in SessionSource.from_dict(base).to_dict()
+
+
 def test_session_binding_store_reuse_rotate_and_restore(sqlite_db, tmp_path):
     store_path = tmp_path / "bindings.json"
     store = SessionBindingStore(store_path)
@@ -503,9 +539,14 @@ def test_session_message_jsonl_create_load_and_update(sqlite_db):
 
 
 def test_agent_session_create_update_and_source(sqlite_db):
+    source_extra = {
+        "bot_app_id": "cli_app",
+        "bot_id": "ou_bot",
+        "bot_name": "FBA业务助手",
+    }
     created = _create_session(
         "session-1",
-        source=_source(chat_id="chat-1", chat_type="group"),
+        source=_source(chat_id="chat-1", chat_type="group", extra=source_extra),
         state_data=_state(
             [{"role": "user", "content": "hello"}],
             runtime={"session_activity_at": 1},
@@ -514,6 +555,7 @@ def test_agent_session_create_update_and_source(sqlite_db):
     assert created.session_id == "session-1"
     assert created.source["platform"] == "feishu"
     assert created.source["chat_id"] == "chat-1"
+    assert created.source["extra"] == source_extra
     assert created.created_at > 0
     assert created.last_active_at >= created.created_at
     assert created.message_count == 1
@@ -552,7 +594,9 @@ def test_agent_session_create_update_and_source(sqlite_db):
     assert "api_call_count" in session_columns
     assert session_row is not None
     assert agent_contexts_exists is None
-    assert json.loads(session_row["source"])["chat_id"] == "chat-1"
+    stored_source = json.loads(session_row["source"])
+    assert stored_source["chat_id"] == "chat-1"
+    assert stored_source["extra"] == source_extra
     assert json.loads(session_row["model_config"])["model"] == session_row["model"]
     assert session_row["message_count"] == 1
     assert load_session_messages("session-1")[0]["content"] == "hello"

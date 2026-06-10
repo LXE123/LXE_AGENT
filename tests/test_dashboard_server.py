@@ -138,7 +138,6 @@ def test_gateway_start_continues_when_dashboard_start_fails(monkeypatch) -> None
             "missing_required": [],
             "app_id_masked": "cli_xxx",
             "api_host": "https://open.feishu.cn",
-            "bot_open_id_configured": True,
         },
     )
 
