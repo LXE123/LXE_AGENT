@@ -28,6 +28,14 @@ function Resolve-Git {
     return $command.Source
 }
 
+function Resolve-PowerShell {
+    $command = Get-Command powershell -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        throw "powershell is not available on PATH."
+    }
+    return $command.Source
+}
+
 function Invoke-Checked {
     param(
         [Parameter(Mandatory = $true)][string]$Label,
@@ -40,8 +48,22 @@ function Invoke-Checked {
     }
 }
 
+function Invoke-NativeChecked {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @()
+    )
+    Write-Host "Running: $Label"
+    $exitCode = Invoke-LxeNativeCommand -FilePath $FilePath -Arguments $Arguments
+    if ($exitCode -ne 0) {
+        throw "$Label failed with exit code $exitCode."
+    }
+}
+
 $git = Resolve-Git
 $uv = Resolve-Uv
+$powershell = Resolve-PowerShell
 
 Invoke-Checked "git repository check" { & $git rev-parse --is-inside-work-tree | Out-Null }
 $topLevel = (& $git rev-parse --show-toplevel).Trim()
@@ -72,11 +94,31 @@ if ($untrackedFiles.Count -gt 0) {
     }
 }
 
-Invoke-Checked "git pull" { & $git pull --ff-only }
-Invoke-Checked "launcher setup" { powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\launcher.ps1") -ProjectRoot $ProjectRoot -UvPath $uv }
-Invoke-Checked "uv sync" { & $uv sync --frozen --all-groups --python $PythonVersion }
-Invoke-Checked "Playwright Chromium install" { & $uv run --frozen python -m playwright install chromium }
-Invoke-Checked "Dashboard UI build" { powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\webui.ps1") -Build }
-Invoke-Checked "doctor" { powershell -ExecutionPolicy Bypass -File (Join-Path $ProjectRoot "scripts\doctor.ps1") }
+Invoke-NativeChecked "git pull" $git @("pull", "--ff-only")
+Invoke-NativeChecked "launcher setup" $powershell @(
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    (Join-Path $ProjectRoot "scripts\launcher.ps1"),
+    "-ProjectRoot",
+    $ProjectRoot,
+    "-UvPath",
+    $uv
+)
+Invoke-NativeChecked "uv sync" $uv @("sync", "--frozen", "--all-groups", "--python", $PythonVersion)
+Invoke-NativeChecked "Playwright Chromium install" $uv @("run", "--frozen", "python", "-m", "playwright", "install", "chromium")
+Invoke-NativeChecked "Dashboard UI build" $powershell @(
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    (Join-Path $ProjectRoot "scripts\webui.ps1"),
+    "-Build"
+)
+Invoke-NativeChecked "doctor" $powershell @(
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    (Join-Path $ProjectRoot "scripts\doctor.ps1")
+)
 
 Write-Host "Update completed."

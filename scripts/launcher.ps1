@@ -102,7 +102,6 @@ powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1
 exit /b %ERRORLEVEL%
 "@
     Set-Content -LiteralPath $NewLauncherPath -Value $content -Encoding ASCII
-    Write-Host "LXE launcher ready: $NewLauncherPath"
 }
 
 function Update-UserPath {
@@ -132,13 +131,19 @@ function Update-UserPath {
     if (-not $hasNew) {
         $filtered += $NewLauncherDir
     }
-    [Environment]::SetEnvironmentVariable("Path", ($filtered -join ";"), "User")
+    $updatedUserPath = $filtered -join ";"
+    if (-not [string]::Equals($updatedUserPath, $currentUserPath, [StringComparison]::Ordinal)) {
+        [Environment]::SetEnvironmentVariable("Path", $updatedUserPath, "User")
+    }
 
     $processParts = @($env:Path.Split(";") | Where-Object { -not (Test-SamePath $_ $OldLauncherDir) })
     if (-not ($processParts | Where-Object { Test-SamePath $_ $NewLauncherDir })) {
         $processParts = @($NewLauncherDir) + $processParts
     }
-    $env:Path = $processParts -join ";"
+    $updatedProcessPath = $processParts -join ";"
+    if (-not [string]::Equals($updatedProcessPath, $env:Path, [StringComparison]::Ordinal)) {
+        $env:Path = $updatedProcessPath
+    }
 }
 
 function Remove-OldLauncher {
@@ -207,3 +212,4 @@ Write-LxeLauncher -ResolvedProjectRoot $resolvedProjectRoot -ResolvedUvPath $res
 Update-UserPath
 Remove-OldLauncher
 Repair-OriginRemote -ResolvedProjectRoot $resolvedProjectRoot
+Write-Host "LXE launcher ready: $NewLauncherPath"

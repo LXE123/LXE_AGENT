@@ -13,16 +13,14 @@ $ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $DashboardDir = Join-Path $ProjectRoot "web\agent-dashboard"
 $DistIndexPath = Join-Path $DashboardDir "dist\index.html"
 
-function Invoke-Checked {
+function Invoke-NativeChecked {
     param(
         [Parameter(Mandatory = $true)][string]$Label,
-        [Parameter(Mandatory = $true)][scriptblock]$Command
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [string[]]$Arguments = @()
     )
     Write-Host "Running: $Label"
-    & $Command 2>&1 | ForEach-Object {
-        Write-Host ([string]$_)
-    }
-    $exitCode = $LASTEXITCODE
+    $exitCode = Invoke-LxeNativeCommand -FilePath $FilePath -Arguments $Arguments
     if ($exitCode -ne 0) {
         throw "$Label failed with exit code $exitCode."
     }
@@ -103,9 +101,16 @@ function Install-NodeLts {
         throw "Node.js is missing or too old, and winget is not available. Install Node.js LTS from https://nodejs.org/ and rerun this script."
     }
 
-    Invoke-Checked "Node.js LTS install" {
-        & $winget install --id OpenJS.NodeJS.LTS --exact --source winget --accept-package-agreements --accept-source-agreements
-    }
+    Invoke-NativeChecked "Node.js LTS install" $winget @(
+        "install",
+        "--id",
+        "OpenJS.NodeJS.LTS",
+        "--exact",
+        "--source",
+        "winget",
+        "--accept-package-agreements",
+        "--accept-source-agreements"
+    )
 
     Add-PathEntry (Join-Path $env:ProgramFiles "nodejs")
 }
@@ -208,8 +213,8 @@ function Build-Dashboard {
     $previousLocation = Get-Location
     try {
         Set-Location $DashboardDir
-        Invoke-Checked "Dashboard npm ci" { & $npm ci }
-        Invoke-Checked "Dashboard npm run build" { & $npm run build }
+        Invoke-NativeChecked "Dashboard npm ci" $npm @("ci")
+        Invoke-NativeChecked "Dashboard npm run build" $npm @("run", "build")
     }
     finally {
         Set-Location $previousLocation

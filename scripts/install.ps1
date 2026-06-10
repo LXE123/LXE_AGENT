@@ -62,11 +62,27 @@ function Invoke-PowerShellFile {
         throw "powershell is not available."
     }
 
-    & $powershell.Source -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments 2>&1 | ForEach-Object {
-        Write-Host ([string]$_)
+    $stdoutPath = [System.IO.Path]::GetTempFileName()
+    $stderrPath = [System.IO.Path]::GetTempFileName()
+    try {
+        & $powershell.Source -NoProfile -ExecutionPolicy Bypass -File $ScriptPath @Arguments 1> $stdoutPath 2> $stderrPath
+        $exitCode = $LASTEXITCODE
+        foreach ($line in Get-Content -LiteralPath $stdoutPath -Encoding UTF8) {
+            Write-Host $line
+        }
+        foreach ($line in Get-Content -LiteralPath $stderrPath -Encoding UTF8) {
+            Write-Host $line
+        }
+        return $exitCode
     }
-    $exitCode = $LASTEXITCODE
-    return $exitCode
+    finally {
+        if (Test-Path -LiteralPath $stdoutPath) {
+            Remove-Item -LiteralPath $stdoutPath -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $stderrPath) {
+            Remove-Item -LiteralPath $stderrPath -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Test-LxeProjectRoot {
