@@ -25,10 +25,13 @@ FBA_JUMP_WMS_URL = "https://private.mabangerp.com/index.php?mod=main.jumpToWms"
 FBA_LOGISTICS_TOKEN_TARGET_URL = "https://private.mabangerp.com/index.php?mod=main.fbaCargo&platform=amazon&version=1"
 FBA_LOGISTICS_TOKEN_ORIGIN = "https://amz1-private.mabangerp.com"
 FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY = "freeToken"
+FBA_LOGISTICS_TOKEN_WAIT_SECONDS = 10
+FBA_LOGISTICS_TOKEN_POLL_INTERVAL_MS = 250
 FBA_LOGISTICS_WMS_HOST = "wms.private.mabangerp.com"
 FBA_LOGISTICS_WMS_ENTRY_TEXT = "马帮WMS系统"
 PRIVATE_AMZ_HOST = "private-amz.mabangerp.com"
 PRIVATE_AMZ_COOKIE_REFRESH_URL = "https://private.mabangerp.com/index.php?mod=stock.list&searchStatus=3"
+DINGTALK_STATE_DOMAIN = "dingtalk.com"
 PRIVATE_AMZ_REQUIRED_COOKIE_NAMES = (
     "PHPSESSID",
     "MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE",
@@ -127,11 +130,53 @@ def _load_storage_state_payload(state_file: Path) -> dict[str, Any]:
         return {}
 
 
+def _is_domain_or_subdomain(value: str, domain: str) -> bool:
+    text = str(value or "").strip().lower().lstrip(".")
+    target = str(domain or "").strip().lower().lstrip(".")
+    if not text or not target:
+        return False
+    return text == target or text.endswith(f".{target}")
+
+
+def _remove_dingtalk_storage_state(payload: dict[str, Any]) -> tuple[int, int]:
+    removed_cookies = 0
+    cookies = payload.get("cookies")
+    if isinstance(cookies, list):
+        kept_cookies = []
+        for cookie in cookies:
+            cookie_domain = str(cookie.get("domain") or "") if isinstance(cookie, dict) else ""
+            if _is_domain_or_subdomain(cookie_domain, DINGTALK_STATE_DOMAIN):
+                removed_cookies += 1
+                continue
+            kept_cookies.append(cookie)
+        payload["cookies"] = kept_cookies
+
+    removed_origins = 0
+    origins = payload.get("origins")
+    if isinstance(origins, list):
+        kept_origins = []
+        for origin in origins:
+            origin_url = str(origin.get("origin") or "") if isinstance(origin, dict) else ""
+            origin_host = str(urlparse(origin_url).hostname or "")
+            if _is_domain_or_subdomain(origin_host, DINGTALK_STATE_DOMAIN):
+                removed_origins += 1
+                continue
+            kept_origins.append(origin)
+        payload["origins"] = kept_origins
+
+    return removed_cookies, removed_origins
+
+
 def _save_storage_state(context, state_file: Path, extra_fields: dict[str, Any] | None = None) -> dict[str, Any]:
     context.storage_state(path=str(state_file))
     payload = _load_storage_state_payload(state_file)
     if extra_fields:
         payload.update(dict(extra_fields))
+    removed_cookies, removed_origins = _remove_dingtalk_storage_state(payload)
+    if removed_cookies or removed_origins:
+        logger.info(
+            f"[BrowserAuth] 剔除 Dingtalk storage_state: cookies={removed_cookies} origins={removed_origins}"
+        )
     _write_storage_state_payload(state_file, payload)
     return payload
 
@@ -666,7 +711,6 @@ def _ensure_fba_auth(
                 used_relogin = True
 
             page.goto(target_url, wait_until="domcontentloaded")
-            page.wait_for_timeout(1200)
             token = _extract_token(page, token_origin, token_key)
 
             wms_cookie_header = ""
@@ -705,24 +749,79 @@ def _ensure_fba_auth(
     }
 
 
-def _extract_token(page, token_origin: str, token_key: str) -> str:
-    origin_url = f"{token_origin.rstrip('/')}/"
-    if origin_url != "/":
-        try:
-            page.goto(origin_url, wait_until="domcontentloaded")
-            page.wait_for_timeout(800)
-        except Exception as exc:
-            logger.warning(f"[BrowserAuth] 访问 token origin 失败: error={exc}")
-
+def _frame_url(frame) -> str:
     try:
-        token = page.evaluate("(key) => window.localStorage.getItem(key)", token_key)
-    except Exception as exc:
-        logger.warning(f"[BrowserAuth] 页面读取 localStorage 失败: error={exc}")
+        return str(getattr(frame, "url", "") or "")
+    except Exception:
         return ""
 
-    if not isinstance(token, str):
+
+def _page_frame_urls(page) -> list[str]:
+    frames = [getattr(page, "main_frame", None), *(getattr(page, "frames", []) or [])]
+    urls: list[str] = []
+    seen: set[int] = set()
+    for frame in frames:
+        if frame is None:
+            continue
+        marker = id(frame)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        url = _frame_url(frame)
+        if url:
+            urls.append(url)
+    return urls
+
+
+def _token_candidate_frames(page, token_host: str) -> list[Any]:
+    frames = [getattr(page, "main_frame", None), *(getattr(page, "frames", []) or [])]
+    result: list[Any] = []
+    seen: set[int] = set()
+    for frame in frames:
+        if frame is None:
+            continue
+        marker = id(frame)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        frame_host = str(urlparse(_frame_url(frame)).hostname or "")
+        if _is_domain_or_subdomain(frame_host, token_host):
+            result.append(frame)
+    return result
+
+
+def _extract_token(
+    page,
+    token_origin: str,
+    token_key: str,
+    *,
+    wait_seconds: float = FBA_LOGISTICS_TOKEN_WAIT_SECONDS,
+    poll_interval_ms: int = FBA_LOGISTICS_TOKEN_POLL_INTERVAL_MS,
+) -> str:
+    token_host = str(urlparse(str(token_origin or "").strip()).hostname or "").strip().lower()
+    if not token_host:
         return ""
-    return token.strip()
+
+    deadline = time.monotonic() + max(0.0, float(wait_seconds or 0))
+    while True:
+        for frame in _token_candidate_frames(page, token_host):
+            try:
+                token = frame.evaluate("(key) => window.localStorage.getItem(key)", token_key)
+            except Exception:
+                continue
+            if isinstance(token, str) and token.strip():
+                return token.strip()
+
+        remaining_ms = int((deadline - time.monotonic()) * 1000)
+        if remaining_ms <= 0:
+            break
+        page.wait_for_timeout(max(1, min(int(poll_interval_ms or 0), remaining_ms)))
+
+    logger.warning(
+        "[BrowserAuth] 未在 FBA token 页面读取到 localStorage: "
+        f"token_host={token_host} page_url={str(getattr(page, 'url', '') or '')} frames={_page_frame_urls(page)}"
+    )
+    return ""
 
 
 def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str) -> str:
