@@ -472,6 +472,25 @@ def load_agent_session(session_id: str) -> Optional[AgentSessionState]:
         return _to_state(record, conn=conn)
 
 
+def list_agent_sessions(*, limit: int = 1000) -> list[AgentSessionState]:
+    safe_limit = max(1, min(int(limit or 1000), 10000))
+    with connection_scope() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM agent_sessions
+            ORDER BY last_active_at DESC, created_at DESC
+            LIMIT ?
+            """,
+            (safe_limit,),
+        ).fetchall()
+        return [
+            _to_state(record, conn=conn)
+            for row in rows
+            if (record := _record_from_row(row)) is not None
+        ]
+
+
 def create_agent_session(
     *,
     source: dict[str, Any] | None = None,
@@ -787,6 +806,7 @@ __all__ = [
     "create_agent_session",
     "discard_agent_session_pending_event",
     "has_agent_session_pending_events",
+    "list_agent_sessions",
     "load_agent_session",
     "pop_agent_session_pending_events",
     "reset_agent_session_context",

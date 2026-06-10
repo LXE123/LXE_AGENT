@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 from concurrent.futures import CancelledError as FutureCancelledError
+from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -27,6 +28,8 @@ from shared.db.client import (
 from shared.gateway_identity import gateway_identity_text
 from shared.infra.net import close_all_network_clients
 from shared.logging import logger
+from shared.telemetry.config import telemetry_enabled, telemetry_sync_interval_seconds
+from shared.telemetry.sync import sync_once as telemetry_sync_once
 
 
 def _adapter_label(adapter) -> str:
@@ -299,7 +302,36 @@ class GatewayApp:
                 max_instances=1,
             )
             logger.info("👀 [Gateway] adapter watchdog enabled: interval=1m")
+        if telemetry_enabled():
+            interval_s = telemetry_sync_interval_seconds()
+            scheduler.add_job(
+                self._schedule_telemetry_sync,
+                "interval",
+                seconds=interval_s,
+                id="telemetry_snapshot_sync",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                next_run_time=datetime.now(),
+            )
+            logger.info("📡 [Telemetry] snapshot sync enabled: interval=%ss", interval_s)
         return scheduler
+
+    def _schedule_telemetry_sync(self) -> None:
+        try:
+            result = telemetry_sync_once(gateway_id=self._gateway_id)
+        except Exception as exc:
+            logger.warning("[Telemetry] snapshot upload failed: %s", exc, exc_info=True)
+            return
+
+        if result.uploaded:
+            logger.info(
+                "[Telemetry] snapshot uploaded: sessions=%d messages=%d",
+                result.sessions_received,
+                result.messages_received,
+            )
+        elif result.skipped_reason and result.skipped_reason != "disabled":
+            logger.info("[Telemetry] snapshot skipped: reason=%s", result.skipped_reason)
 
     def _schedule_adapter_recycle(self) -> None:
         loop = self._loop
