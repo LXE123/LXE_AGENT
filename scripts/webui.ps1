@@ -92,6 +92,20 @@ function Test-SupportedNodeVersion {
     return $major -gt 22
 }
 
+function Get-NodeVersion {
+    param([Parameter(Mandatory = $true)][string]$NodePath)
+
+    $versionResult = Invoke-LxeNativeCapture -FilePath $NodePath -Arguments @("--version")
+    if ($versionResult.ExitCode -ne 0) {
+        Write-LxeNativeResultOutput -Result $versionResult
+        return ""
+    }
+    foreach ($line in @($versionResult.Stderr)) {
+        Write-Host $line
+    }
+    return ($versionResult.Stdout -join "`n").Trim()
+}
+
 function Install-NodeLts {
     if ($env:OS -ne "Windows_NT") {
         throw "Automatic Node.js installation from webui.ps1 is only supported on Windows."
@@ -123,7 +137,7 @@ function Resolve-Node {
     $npmPath = [string]$pair["Npm"]
 
     if ($nodePath -and $npmPath) {
-        $version = (& $nodePath --version).Trim()
+        $version = Get-NodeVersion -NodePath $nodePath
         if ((Test-SupportedNodeVersion -VersionText $version)) {
             Write-Host "Using Node.js $version"
             Write-Host "Using npm: $npmPath"
@@ -151,7 +165,7 @@ function Resolve-Node {
     if (-not $nodePath -or -not $npmPath) {
         throw "Node.js installation finished, but node/npm is still unavailable."
     }
-    $version = (& $nodePath --version).Trim()
+    $version = Get-NodeVersion -NodePath $nodePath
     if (-not (Test-SupportedNodeVersion -VersionText $version)) {
         throw "Installed Node.js version is not supported: $version"
     }

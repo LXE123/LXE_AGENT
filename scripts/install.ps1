@@ -84,15 +84,22 @@ function Ensure-Python {
         [Parameter(Mandatory = $true)][string]$Version
     )
 
-    & $UvPath python install $Version
-    if ($LASTEXITCODE -eq 0) {
+    $installExit = Invoke-LxeNativeCommand -FilePath $UvPath -Arguments @("python", "install", $Version)
+    if ($installExit -eq 0) {
         return
     }
 
-    $installExit = $LASTEXITCODE
     Write-Host "uv python install failed with exit code $installExit. Checking whether Python $Version is already usable..."
-    & $UvPath run --python $Version --no-sync python -c "import sys; assert sys.version.startswith('$Version'), sys.version; print(sys.version)"
-    if ($LASTEXITCODE -ne 0) {
+    $probeExit = Invoke-LxeNativeCommand -FilePath $UvPath -Arguments @(
+        "run",
+        "--python",
+        $Version,
+        "--no-sync",
+        "python",
+        "-c",
+        "import sys; assert sys.version.startswith('$Version'), sys.version; print(sys.version)"
+    )
+    if ($probeExit -ne 0) {
         throw "uv python install failed with exit code $installExit, and Python $Version is not usable."
     }
 }
@@ -153,9 +160,15 @@ function Get-ProjectRoot {
 
     if (-not [string]::IsNullOrWhiteSpace($GitPath)) {
         Write-Host "Cloning $RepoUrl ($Ref) to $target..."
-        & $GitPath clone --branch $Ref --single-branch $RepoUrl $target
-        if ($LASTEXITCODE -ne 0) {
-            $cloneExit = $LASTEXITCODE
+        $cloneExit = Invoke-LxeNativeCommand -FilePath $GitPath -Arguments @(
+            "clone",
+            "--branch",
+            $Ref,
+            "--single-branch",
+            $RepoUrl,
+            $target
+        )
+        if ($cloneExit -ne 0) {
             if (-not $AllowZipFallback) {
                 throw "git clone failed with exit code $cloneExit."
             }

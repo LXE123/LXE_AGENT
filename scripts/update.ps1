@@ -12,18 +12,28 @@ $uv = Resolve-Uv
 $powershell = Resolve-PowerShell
 
 Invoke-NativeChecked -Label "git repository check" -FilePath $git -Arguments @("rev-parse", "--is-inside-work-tree")
-$topLevel = (& $git rev-parse --show-toplevel).Trim()
-if ($LASTEXITCODE -ne 0) {
-    throw "git rev-parse --show-toplevel failed with exit code $LASTEXITCODE."
+$topLevelResult = Invoke-LxeNativeCapture -FilePath $git -Arguments @("rev-parse", "--show-toplevel")
+if ($topLevelResult.ExitCode -ne 0) {
+    Write-LxeNativeResultOutput -Result $topLevelResult
+    throw "git rev-parse --show-toplevel failed with exit code $($topLevelResult.ExitCode)."
 }
+foreach ($line in @($topLevelResult.Stderr)) {
+    Write-Host $line
+}
+$topLevel = ($topLevelResult.Stdout -join "`n").Trim()
 if (-not [string]::Equals([System.IO.Path]::GetFullPath($topLevel).TrimEnd("\"), $ProjectRoot.TrimEnd("\"), [StringComparison]::OrdinalIgnoreCase)) {
     throw "update.ps1 must be run from the project repository root. Git root: $topLevel"
 }
 
-$trackedStatus = @(& $git status --porcelain --untracked-files=no)
-if ($LASTEXITCODE -ne 0) {
-    throw "git status failed with exit code $LASTEXITCODE."
+$trackedStatusResult = Invoke-LxeNativeCapture -FilePath $git -Arguments @("status", "--porcelain", "--untracked-files=no")
+if ($trackedStatusResult.ExitCode -ne 0) {
+    Write-LxeNativeResultOutput -Result $trackedStatusResult
+    throw "git status failed with exit code $($trackedStatusResult.ExitCode)."
 }
+foreach ($line in @($trackedStatusResult.Stderr)) {
+    Write-Host $line
+}
+$trackedStatus = @($trackedStatusResult.Stdout)
 if (-not [string]::IsNullOrWhiteSpace(($trackedStatus -join ""))) {
     Write-Host "Tracked local changes detected:"
     foreach ($line in $trackedStatus) {
@@ -32,10 +42,15 @@ if (-not [string]::IsNullOrWhiteSpace(($trackedStatus -join ""))) {
     throw "Tracked local changes detected. Commit or stash them before running LXE update."
 }
 
-$untrackedFiles = @(& $git ls-files --others --exclude-standard)
-if ($LASTEXITCODE -ne 0) {
-    throw "git ls-files failed with exit code $LASTEXITCODE."
+$untrackedFilesResult = Invoke-LxeNativeCapture -FilePath $git -Arguments @("ls-files", "--others", "--exclude-standard")
+if ($untrackedFilesResult.ExitCode -ne 0) {
+    Write-LxeNativeResultOutput -Result $untrackedFilesResult
+    throw "git ls-files failed with exit code $($untrackedFilesResult.ExitCode)."
 }
+foreach ($line in @($untrackedFilesResult.Stderr)) {
+    Write-Host $line
+}
+$untrackedFiles = @($untrackedFilesResult.Stdout)
 if ($untrackedFiles.Count -gt 0) {
     Write-Host "Untracked files detected and ignored for update:"
     foreach ($path in $untrackedFiles) {

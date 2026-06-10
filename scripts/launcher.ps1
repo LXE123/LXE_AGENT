@@ -178,15 +178,15 @@ function Repair-OriginRemote {
     }
     Push-Location $ResolvedProjectRoot
     try {
-        & $git.Source rev-parse --is-inside-work-tree *> $null
-        if ($LASTEXITCODE -ne 0) {
+        $workTreeResult = Invoke-LxeNativeCapture -FilePath $git.Source -Arguments @("rev-parse", "--is-inside-work-tree")
+        if ($workTreeResult.ExitCode -ne 0) {
             return
         }
-        $originOutput = & $git.Source remote get-url origin 2>$null
-        if ($LASTEXITCODE -ne 0) {
+        $originResult = Invoke-LxeNativeCapture -FilePath $git.Source -Arguments @("remote", "get-url", "origin")
+        if ($originResult.ExitCode -ne 0) {
             return
         }
-        $originUrl = ([string]$originOutput).Trim()
+        $originUrl = ($originResult.Stdout -join "`n").Trim()
         if ([string]::IsNullOrWhiteSpace($originUrl)) {
             return
         }
@@ -194,9 +194,9 @@ function Repair-OriginRemote {
             return
         }
         $newUrl = $originUrl -replace "LXE_AGENT_LOCAL_FBA", "LXE_AGENT"
-        & $git.Source remote set-url origin $newUrl
-        if ($LASTEXITCODE -ne 0) {
-            throw "git remote set-url failed with exit code $LASTEXITCODE."
+        $setUrlExit = Invoke-LxeNativeCommand -FilePath $git.Source -Arguments @("remote", "set-url", "origin", $newUrl)
+        if ($setUrlExit -ne 0) {
+            throw "git remote set-url failed with exit code $setUrlExit."
         }
         Write-Host "Updated origin remote: $newUrl"
     }

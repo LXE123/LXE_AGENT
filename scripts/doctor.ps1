@@ -148,8 +148,14 @@ except Exception as exc:
     $runtimeCheckPath = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-runtime-warning-check-" + [Guid]::NewGuid().ToString("N") + ".py")
     try {
         Set-Content -LiteralPath $runtimeCheckPath -Value $runtimeCheck -Encoding UTF8
-        $probeLines = @(& $UvPath run --frozen python $runtimeCheckPath 2>&1)
-        $probeExit = $LASTEXITCODE
+        $probeResult = Invoke-LxeNativeCapture -FilePath $UvPath -Arguments @(
+            "run",
+            "--frozen",
+            "python",
+            $runtimeCheckPath
+        )
+        $probeLines = @($probeResult.Stdout) + @($probeResult.Stderr)
+        $probeExit = $probeResult.ExitCode
         Write-ProbeLines -Lines $probeLines
         if ($probeExit -ne 0) {
             Write-Warning "Runtime configuration warning probe failed with exit code $probeExit."
