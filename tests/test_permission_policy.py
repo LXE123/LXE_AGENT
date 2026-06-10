@@ -14,7 +14,9 @@ from shared.permission_policy import (
     SKILL_TYPE_AMAZON_FBA,
     SKILL_TYPE_AMAZON_REPLENISH,
     SKILL_TYPE_DEFAULT,
+    USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
     USER_AMAZON_REPLENISH_GROUP_3_MEMBER,
+    USER_DEV_GROUP_MEMBER,
     USER_LYX,
     USER_ZQY,
     USER_ZGL,
@@ -46,6 +48,18 @@ def test_policy_user_access_matrix() -> None:
         assert can_user_access_bot(USER_ZQY, bot_id)
         assert not can_user_access_bot(USER_ZGL, bot_id)
 
+    assert can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_1_MEMBER, BOT_ID_AMAZON_REPLENISH)
+    assert not can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
+        BOT_ID_AMAZON_REPLENISH_GROUP_2,
+    )
+    assert not can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
+        BOT_ID_AMAZON_REPLENISH_GROUP_3,
+    )
+    assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_1_MEMBER, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_1_MEMBER, BOT_ID_LXE_FBA_AGENT)
+
     assert can_user_access_bot(
         USER_AMAZON_REPLENISH_GROUP_3_MEMBER,
         BOT_ID_AMAZON_REPLENISH_GROUP_3,
@@ -58,7 +72,25 @@ def test_policy_user_access_matrix() -> None:
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_3_MEMBER, BOT_ID_LXE_CLAW)
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_3_MEMBER, BOT_ID_LXE_FBA_AGENT)
 
-    assert len({USER_LYX, USER_ZGL, USER_ZQY, USER_AMAZON_REPLENISH_GROUP_3_MEMBER}) == 4
+    for bot_id in {
+        BOT_ID_LXE_CLAW,
+        BOT_ID_LXE_FBA_AGENT,
+        BOT_ID_AMAZON_REPLENISH,
+        BOT_ID_AMAZON_REPLENISH_GROUP_2,
+        BOT_ID_AMAZON_REPLENISH_GROUP_3,
+    }:
+        assert can_user_access_bot(USER_DEV_GROUP_MEMBER, bot_id)
+
+    assert len(
+        {
+            USER_LYX,
+            USER_ZGL,
+            USER_ZQY,
+            USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
+            USER_AMAZON_REPLENISH_GROUP_3_MEMBER,
+            USER_DEV_GROUP_MEMBER,
+        }
+    ) == 6
     assert not can_user_access_bot("unknown_union_id", BOT_ID_LXE_FBA_AGENT)
     assert not can_user_access_bot(USER_LYX, "cli_unknown")
     assert not is_known_bot_id("cli_unknown")

@@ -7,17 +7,22 @@ import gateway.session_router as router_mod
 from gateway.models import InboundEvent
 from gateway.session_router import SessionRouter
 from shared.permission_policy import (
+    BOT_ID_AMAZON_REPLENISH,
     BOT_ID_AMAZON_REPLENISH_GROUP_3,
     BOT_ID_LXE_CLAW,
     BOT_ID_LXE_FBA_AGENT,
+    USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
     USER_AMAZON_REPLENISH_GROUP_3_MEMBER,
+    USER_DEV_GROUP_MEMBER,
     USER_LYX,
     USER_ZGL,
 )
 
 OPEN_ID_LYX = "ou_lyx_open_id"
 OPEN_ID_ZGL = "ou_zgl_open_id"
+OPEN_ID_AMAZON_REPLENISH_GROUP_1_MEMBER = "ou_amazon_replenish_group_1_member_open_id"
 OPEN_ID_AMAZON_REPLENISH_GROUP_3_MEMBER = "ou_amazon_replenish_group_3_member_open_id"
+OPEN_ID_DEV_GROUP_MEMBER = "ou_dev_group_member_open_id"
 
 
 class _FakeAdapter:
@@ -237,6 +242,127 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     assert job.source["user_id_alt"] == USER_ZGL
     assert job.source["extra"]["bot_app_id"] == BOT_ID_LXE_FBA_AGENT
     assert job.source["extra"]["bot_name"] == "FBA业务助手"
+    assert adapter.outbound_requests == []
+
+
+def test_router_allows_group_1_member_on_group_1_bot(monkeypatch) -> None:
+    adapter = _FakeAdapter()
+    scheduler = _FakeScheduler()
+    router = _router(adapter, scheduler)
+    calls = {"created": 0}
+
+    async def fake_create_response_route_context(_ctx) -> None:
+        return None
+
+    async def fake_load_session(*_args, **_kwargs):
+        return None
+
+    async def fake_create_agent_session(**kwargs):
+        calls["created"] += 1
+        return SimpleNamespace(
+            session_id="session-1",
+            source=kwargs["source"],
+            state_data=kwargs["state_data"],
+        )
+
+    async def fake_pop_pending_events(_session_id: str):
+        return []
+
+    monkeypatch.setattr(router_mod, "create_response_route_context", fake_create_response_route_context)
+    monkeypatch.setattr(router_mod, "load_agent_session", fake_load_session)
+    monkeypatch.setattr(router_mod, "create_agent_session", fake_create_agent_session)
+    monkeypatch.setattr(router_mod, "pop_agent_session_pending_events", fake_pop_pending_events)
+
+    decision = asyncio.run(
+        router.route_message(
+            _event(
+                user_id=OPEN_ID_AMAZON_REPLENISH_GROUP_1_MEMBER,
+                union_id=USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
+                app_id=BOT_ID_AMAZON_REPLENISH,
+                chat_type="group",
+                source_extra={
+                    "bot_app_id": BOT_ID_AMAZON_REPLENISH,
+                    "bot_id": "ou_bot_group_1",
+                    "bot_name": "AMAZON-备货一组",
+                },
+            )
+        )
+    )
+
+    assert decision.route_kind == "agent_message"
+    assert calls["created"] == 1
+    assert len(scheduler.jobs) == 1
+    job, front = scheduler.jobs[0]
+    assert not front
+    assert job.session_id == "session-1"
+    assert job.session_key == f"agent:main:feishu:group:chat-1:{USER_AMAZON_REPLENISH_GROUP_1_MEMBER}"
+    assert job.response_route_id == "route-1"
+    assert job.user_id == USER_AMAZON_REPLENISH_GROUP_1_MEMBER
+    assert job.raw_data["app_id"] == BOT_ID_AMAZON_REPLENISH
+    assert job.raw_data["union_id"] == USER_AMAZON_REPLENISH_GROUP_1_MEMBER
+    assert job.source["user_id_alt"] == USER_AMAZON_REPLENISH_GROUP_1_MEMBER
+    assert job.source["extra"]["bot_app_id"] == BOT_ID_AMAZON_REPLENISH
+    assert job.source["extra"]["bot_name"] == "AMAZON-备货一组"
+    assert adapter.outbound_requests == []
+
+
+def test_router_allows_dev_member_on_claw_bot(monkeypatch) -> None:
+    adapter = _FakeAdapter()
+    scheduler = _FakeScheduler()
+    router = _router(adapter, scheduler)
+    calls = {"created": 0}
+
+    async def fake_create_response_route_context(_ctx) -> None:
+        return None
+
+    async def fake_load_session(*_args, **_kwargs):
+        return None
+
+    async def fake_create_agent_session(**kwargs):
+        calls["created"] += 1
+        return SimpleNamespace(
+            session_id="session-1",
+            source=kwargs["source"],
+            state_data=kwargs["state_data"],
+        )
+
+    async def fake_pop_pending_events(_session_id: str):
+        return []
+
+    monkeypatch.setattr(router_mod, "create_response_route_context", fake_create_response_route_context)
+    monkeypatch.setattr(router_mod, "load_agent_session", fake_load_session)
+    monkeypatch.setattr(router_mod, "create_agent_session", fake_create_agent_session)
+    monkeypatch.setattr(router_mod, "pop_agent_session_pending_events", fake_pop_pending_events)
+
+    decision = asyncio.run(
+        router.route_message(
+            _event(
+                user_id=OPEN_ID_DEV_GROUP_MEMBER,
+                union_id=USER_DEV_GROUP_MEMBER,
+                app_id=BOT_ID_LXE_CLAW,
+                source_extra={
+                    "bot_app_id": BOT_ID_LXE_CLAW,
+                    "bot_id": "ou_bot_dev",
+                    "bot_name": "LXE_CLAW",
+                },
+            )
+        )
+    )
+
+    assert decision.route_kind == "agent_message"
+    assert calls["created"] == 1
+    assert len(scheduler.jobs) == 1
+    job, front = scheduler.jobs[0]
+    assert not front
+    assert job.session_id == "session-1"
+    assert job.session_key == "agent:main:feishu:dm:chat-1"
+    assert job.response_route_id == "route-1"
+    assert job.user_id == USER_DEV_GROUP_MEMBER
+    assert job.raw_data["app_id"] == BOT_ID_LXE_CLAW
+    assert job.raw_data["union_id"] == USER_DEV_GROUP_MEMBER
+    assert job.source["user_id_alt"] == USER_DEV_GROUP_MEMBER
+    assert job.source["extra"]["bot_app_id"] == BOT_ID_LXE_CLAW
+    assert job.source["extra"]["bot_name"] == "LXE_CLAW"
     assert adapter.outbound_requests == []
 
 
