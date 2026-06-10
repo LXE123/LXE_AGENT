@@ -5,7 +5,39 @@ param(
     [switch]$NoPath
 )
 
-. (Join-Path $PSScriptRoot "_console_encoding.ps1")
+$consoleEncodingHelper = ""
+if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+    $candidate = Join-Path $PSScriptRoot "_console_encoding.ps1"
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        $consoleEncodingHelper = $candidate
+    }
+}
+if ($consoleEncodingHelper) {
+    . $consoleEncodingHelper
+}
+else {
+    $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+    try {
+        [Console]::OutputEncoding = $utf8NoBom
+    }
+    catch {
+    }
+    try {
+        [Console]::InputEncoding = $utf8NoBom
+    }
+    catch {
+    }
+    $OutputEncoding = $utf8NoBom
+    if ($env:OS -eq "Windows_NT") {
+        try {
+            & chcp.com 65001 > $null 2> $null
+        }
+        catch {
+        }
+    }
+    $env:PYTHONUTF8 = "1"
+    $env:PYTHONIOENCODING = "utf-8"
+}
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
