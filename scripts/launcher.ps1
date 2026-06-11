@@ -11,6 +11,7 @@ Set-StrictMode -Version Latest
 
 $NewLauncherDir = Join-Path $env:USERPROFILE ".lxe\bin"
 $NewLauncherPath = Join-Path $NewLauncherDir "LXE.cmd"
+$NewPowerShellLauncherPath = Join-Path $NewLauncherDir "LXE.ps1"
 $OldLauncherDir = Join-Path $env:USERPROFILE ".lxefba\bin"
 $OldLauncherPath = Join-Path $OldLauncherDir "LXEFBA.cmd"
 
@@ -68,40 +69,83 @@ function Test-SamePath {
     )
 }
 
+function ConvertTo-PowerShellSingleQuotedLiteral {
+    param([AllowNull()][string]$Value)
+    return "'" + ([string]$Value).Replace("'", "''") + "'"
+}
+
+function Write-Utf8BomFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Value
+    )
+    $utf8Bom = New-Object System.Text.UTF8Encoding -ArgumentList $true
+    [System.IO.File]::WriteAllText($Path, $Value, $utf8Bom)
+}
+
 function Write-LxeLauncher {
     param(
         [Parameter(Mandatory = $true)][string]$ResolvedProjectRoot,
         [Parameter(Mandatory = $true)][string]$ResolvedUvPath
     )
     New-Item -ItemType Directory -Path $NewLauncherDir -Force | Out-Null
-    $content = @"
+    $cmdContent = @"
 @echo off
 setlocal
-set "LXE_ROOT=$ResolvedProjectRoot"
-
-if /I "%~1"=="start" goto start
-if /I "%~1"=="doctor" goto doctor
-if /I "%~1"=="update" goto update
-
-echo Usage: LXE ^<start^|doctor^|update^>
-exit /b 2
-
-:start
-cd /d "%LXE_ROOT%" || exit /b 1
-"$ResolvedUvPath" run --frozen python .\main.py
-exit /b %ERRORLEVEL%
-
-:doctor
-cd /d "%LXE_ROOT%" || exit /b 1
-powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1
-exit /b %ERRORLEVEL%
-
-:update
-cd /d "%LXE_ROOT%" || exit /b 1
-powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0LXE.ps1" %*
 exit /b %ERRORLEVEL%
 "@
-    Set-Content -LiteralPath $NewLauncherPath -Value $content -Encoding ASCII
+    $projectRootLiteral = ConvertTo-PowerShellSingleQuotedLiteral $ResolvedProjectRoot
+    $uvPathLiteral = ConvertTo-PowerShellSingleQuotedLiteral $ResolvedUvPath
+    $psContent = @"
+`$ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
+
+`$LxeRoot = $projectRootLiteral
+`$UvPath = $uvPathLiteral
+
+function Exit-LxeNativeCommand {
+    if (`$LASTEXITCODE -is [int]) {
+        exit `$LASTEXITCODE
+    }
+    exit 1
+}
+
+function Invoke-LxeStart {
+    Set-Location -LiteralPath `$LxeRoot
+    & `$UvPath run --frozen python .\main.py
+    Exit-LxeNativeCommand
+}
+
+function Invoke-LxeDoctor {
+    Set-Location -LiteralPath `$LxeRoot
+    & powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1
+    Exit-LxeNativeCommand
+}
+
+function Invoke-LxeUpdate {
+    Set-Location -LiteralPath `$LxeRoot
+    & powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1
+    Exit-LxeNativeCommand
+}
+
+`$Command = ""
+if (`$args.Count -gt 0) {
+    `$Command = [string]`$args[0]
+}
+
+switch (`$Command.ToLowerInvariant()) {
+    "start" { Invoke-LxeStart }
+    "doctor" { Invoke-LxeDoctor }
+    "update" { Invoke-LxeUpdate }
+    default {
+        Write-Host "Usage: LXE <start|doctor|update>"
+        exit 2
+    }
+}
+"@
+    Set-Content -LiteralPath $NewLauncherPath -Value $cmdContent -Encoding ASCII
+    Write-Utf8BomFile -Path $NewPowerShellLauncherPath -Value $psContent
 }
 
 function Update-UserPath {

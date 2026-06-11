@@ -54,9 +54,22 @@ function Warn-LauncherStatus {
     }
     $launcherDir = Join-Path $userHome ".lxe\bin"
     $launcherPath = Join-Path $launcherDir "LXE.cmd"
+    $powerShellLauncherPath = Join-Path $launcherDir "LXE.ps1"
     if (-not (Test-Path -LiteralPath $launcherPath -PathType Leaf)) {
         Write-Warning "LXE launcher is not installed: $launcherPath. Run scripts\launcher.ps1 from the project root to repair it."
         return
+    }
+    try {
+        $launcherContent = Get-Content -LiteralPath $launcherPath -Raw
+        if ($launcherContent.Contains("???")) {
+            Write-Warning "LXE launcher appears to contain corrupted non-ASCII paths: $launcherPath. Run scripts\launcher.ps1 from the project root to repair it."
+        }
+    }
+    catch {
+        Write-Warning "Could not inspect LXE launcher content: $launcherPath. $($_.Exception.Message)"
+    }
+    if (-not (Test-Path -LiteralPath $powerShellLauncherPath -PathType Leaf)) {
+        Write-Warning "LXE PowerShell launcher is missing: $powerShellLauncherPath. Run scripts\launcher.ps1 from the project root to repair it."
     }
     if (-not (Test-PathListContains -Path $launcherDir)) {
         Write-Warning "LXE launcher directory is not on the current PATH: $launcherDir. Run scripts\launcher.ps1 or open a new terminal after installation."
