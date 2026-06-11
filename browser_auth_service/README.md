@@ -21,6 +21,17 @@ BROWSER_AUTH_HEADLESS=0 FBA_LOGISTICS_TOKEN_HEADLESS=0 .venv/bin/python -m brows
 BROWSER_AUTH_HEADLESS=0 FBA_LOGISTICS_TOKEN_HEADLESS=0 .venv/bin/python -m browser_auth_service.main ensure --scope fba --require-wms-cookie-header
 ```
 
+Windows PowerShell 不支持上面的 Unix 环境变量写法，用这个：
+
+```powershell
+$env:BROWSER_AUTH_HEADLESS="0"
+$env:FBA_LOGISTICS_TOKEN_HEADLESS="0"
+.\.venv\Scripts\python.exe -m browser_auth_service.main ensure --scope erp
+.\.venv\Scripts\python.exe -m browser_auth_service.main ensure --scope private_amz
+.\.venv\Scripts\python.exe -m browser_auth_service.main ensure --scope fba
+.\.venv\Scripts\python.exe -m browser_auth_service.main ensure --scope fba --require-wms-cookie-header
+```
+
 重点看输出 JSON：
 
 - `success`
