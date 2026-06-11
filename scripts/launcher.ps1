@@ -11,7 +11,8 @@ Set-StrictMode -Version Latest
 
 $NewLauncherDir = Join-Path $env:USERPROFILE ".lxe\bin"
 $NewLauncherPath = Join-Path $NewLauncherDir "LXE.cmd"
-$NewPowerShellLauncherPath = Join-Path $NewLauncherDir "LXE.ps1"
+$NewPowerShellLauncherPath = Join-Path $NewLauncherDir "LXE.launcher.ps1"
+$LegacyPowerShellLauncherPath = Join-Path $NewLauncherDir "LXE.ps1"
 $OldLauncherDir = Join-Path $env:USERPROFILE ".lxefba\bin"
 $OldLauncherPath = Join-Path $OldLauncherDir "LXEFBA.cmd"
 
@@ -92,7 +93,7 @@ function Write-LxeLauncher {
     $cmdContent = @"
 @echo off
 setlocal
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0LXE.ps1" %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0LXE.launcher.ps1" %*
 exit /b %ERRORLEVEL%
 "@
     $projectRootLiteral = ConvertTo-PowerShellSingleQuotedLiteral $ResolvedProjectRoot
@@ -146,6 +147,9 @@ switch (`$Command.ToLowerInvariant()) {
 "@
     Set-Content -LiteralPath $NewLauncherPath -Value $cmdContent -Encoding ASCII
     Write-Utf8BomFile -Path $NewPowerShellLauncherPath -Value $psContent
+    if (Test-Path -LiteralPath $LegacyPowerShellLauncherPath -PathType Leaf) {
+        Remove-Item -LiteralPath $LegacyPowerShellLauncherPath -Force
+    }
 }
 
 function Update-UserPath {
