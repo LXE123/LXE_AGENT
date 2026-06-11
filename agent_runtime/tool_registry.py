@@ -53,8 +53,15 @@ ALWAYS_AVAILABLE_NAMES: set[str] = set()
 def register_browser_tools(registry: UnifiedToolRegistry | None = None) -> None:
     from agent_runtime.packs.browser.tools import browser_planner_tool_schemas
     from agent_runtime.tool_executor import make_browser_tool_handler
+    from services.browser.store.ziniao_config import ziniao_tool_config_status
 
     reg = registry or _registry
+    configured, reason = ziniao_tool_config_status()
+    if not configured:
+        logger.info("[ToolRegistry] skip Ziniao browser tools: %s", reason)
+        return
+
+    registered_count = 0
     for schema in browser_planner_tool_schemas():
         name = str(schema.get("name") or "").strip()
         if not name or reg.has(name):
@@ -68,7 +75,8 @@ def register_browser_tools(registry: UnifiedToolRegistry | None = None) -> None:
                 requires_resource="browser",
             )
         )
-    logger.info("[ToolRegistry] registered %s tools", len(reg.all_names()))
+        registered_count += 1
+    logger.info("[ToolRegistry] registered browser tools=%s total_tools=%s", registered_count, len(reg.all_names()))
 
 
 def ensure_all_tools_registered(registry: UnifiedToolRegistry | None = None) -> UnifiedToolRegistry:
