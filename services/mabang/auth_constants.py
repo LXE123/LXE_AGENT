@@ -1,0 +1,21 @@
+from __future__ import annotations
+
+PRIVATE_HOST = "private.mabangerp.com"
+PRIVATE_AMZ_HOST = "private-amz.mabangerp.com"
+MABANG_MEMCACHE_COOKIE_NAME = "MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE"
+
+PRIVATE_AMZ_REQUIRED_COOKIE_NAMES = (
+    "PHPSESSID",
+    MABANG_MEMCACHE_COOKIE_NAME,
+    "MABANG_ERP_PRO_MEMBERINFO_LOGIN_PLUS",
+    "signed",
+    "route",
+)
+
+
+__all__ = [
+    "MABANG_MEMCACHE_COOKIE_NAME",
+    "PRIVATE_AMZ_HOST",
+    "PRIVATE_AMZ_REQUIRED_COOKIE_NAMES",
+    "PRIVATE_HOST",
+]

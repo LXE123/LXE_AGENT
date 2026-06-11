@@ -13,6 +13,11 @@ from typing import Any
 
 from shared.infra.net import erp_http_session, external_http_session
 from services.mabang import config as mabang_settings
+from services.mabang.auth_constants import (
+    MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
+    PRIVATE_AMZ_HOST,
+    PRIVATE_HOST,
+)
 
 from ...auth import get_auth_context
 from ...cookies import build_cookie_header, extract_named_cookies
@@ -31,9 +36,6 @@ DEFAULT_PRIVATE_ORIGIN = "https://private.mabangerp.com"
 DEFAULT_PRIVATE_REFERER = "https://private.mabangerp.com/"
 DEFAULT_PRIVATE_AMZ_ORIGIN = "https://private-amz.mabangerp.com"
 DEFAULT_PRIVATE_AMZ_REFERER = "https://private-amz.mabangerp.com/"
-PRIVATE_HOST = "private.mabangerp.com"
-PRIVATE_AMZ_HOST = "private-amz.mabangerp.com"
-MEMCACHE_COOKIE_NAME = "MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE"
 SOURCE = "mabang_store_msku_actual_inventory"
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15

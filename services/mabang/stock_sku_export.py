@@ -10,6 +10,7 @@ from typing import Any
 
 from shared.infra.net import erp_http_session, external_http_session
 from services.mabang import config as mabang_settings
+from services.mabang.auth_constants import MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME, PRIVATE_HOST
 
 from .auth import get_auth_context
 from .cookies import build_cookie_header, extract_named_cookies
@@ -19,8 +20,6 @@ DEFAULT_STOCK_EXPORT_URL = "https://private.mabangerp.com/index.php?mod=export.d
 DEFAULT_STOCK_EXPORT_ORIGIN = "https://private.mabangerp.com"
 DEFAULT_STOCK_EXPORT_REFERER = "https://private.mabangerp.com/"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_stock_sku"
-PRIVATE_HOST = "private.mabangerp.com"
-MEMCACHE_COOKIE_NAME = "MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE"
 MAX_SKUS_PER_BATCH = 3000
 STOCK_SKU_COLUMN = "库存SKU"
 STOCK_SKU_NAME_COLUMN = "库存SKU中文名称"

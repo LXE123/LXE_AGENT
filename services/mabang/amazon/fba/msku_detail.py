@@ -12,6 +12,12 @@ from urllib.parse import urlsplit
 
 from shared.infra.net import erp_http_session, external_http_session
 from services.mabang import config as mabang_settings
+from services.mabang.auth_constants import (
+    MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
+    PRIVATE_AMZ_HOST,
+    PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
+    PRIVATE_HOST,
+)
 
 from ...auth import get_auth_context
 from ...cookies import build_cookie_header, extract_named_cookies, list_cookie_names
@@ -26,16 +32,6 @@ DEFAULT_PRIVATE_ORIGIN = "https://private.mabangerp.com"
 DEFAULT_PRIVATE_REFERER = "https://private.mabangerp.com/"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_msku_detail"
 DEFAULT_DELIVERY_FILE_DIR = Path("artifacts") / "mabang_fba_delivery"
-PRIVATE_AMZ_HOST = "private-amz.mabangerp.com"
-PRIVATE_HOST = "private.mabangerp.com"
-MEMCACHE_COOKIE_NAME = "MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE"
-PRIVATE_AMZ_REQUIRED_COOKIE_NAMES = (
-    "PHPSESSID",
-    "MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE",
-    "MABANG_ERP_PRO_MEMBERINFO_LOGIN_PLUS",
-    "signed",
-    "route",
-)
 AUTH_FAIL_STATUS = {401, 403}
 SOURCE = "mabang_msku_detail"
 MSKU_COLUMN = "MSKU"

@@ -10,6 +10,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from shared.logging import logger
+from services.mabang.auth_constants import PRIVATE_AMZ_HOST, PRIVATE_AMZ_REQUIRED_COOKIE_NAMES
 from services.mabang import config as mabang_settings
 
 from . import config as auth_settings
@@ -28,16 +29,8 @@ FBA_LOGISTICS_TOKEN_WAIT_SECONDS = 10
 FBA_LOGISTICS_TOKEN_POLL_INTERVAL_MS = 250
 FBA_LOGISTICS_WMS_HOST = "wms.private.mabangerp.com"
 FBA_LOGISTICS_WMS_ENTRY_TEXT = "马帮WMS系统"
-PRIVATE_AMZ_HOST = "private-amz.mabangerp.com"
 PRIVATE_AMZ_COOKIE_REFRESH_URL = "https://private.mabangerp.com/index.php?mod=stock.list&searchStatus=3"
 DINGTALK_STATE_DOMAIN = "dingtalk.com"
-PRIVATE_AMZ_REQUIRED_COOKIE_NAMES = (
-    "PHPSESSID",
-    "MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE",
-    "MABANG_ERP_PRO_MEMBERINFO_LOGIN_PLUS",
-    "signed",
-    "route",
-)
 KNOWN_LOGIN_HOSTS: set[str] = set()
 
 
