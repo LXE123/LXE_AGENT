@@ -25,7 +25,7 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ensure_parser = subparsers.add_parser("ensure")
-    ensure_parser.add_argument("--scope", required=True, choices=["temu", "fba", "erp", "private_amz"])
+    ensure_parser.add_argument("--scope", required=True, choices=["fba", "erp", "private_amz"])
     ensure_parser.add_argument("--account", default="")
     ensure_parser.add_argument("--require-wms-cookie-header", action="store_true")
 

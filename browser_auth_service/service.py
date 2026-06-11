@@ -19,7 +19,6 @@ PHPSESSID_HOST = "private.mabangerp.com"
 PHPSESSID_EXPIRY_SKEW_SECONDS = 300
 FBA_AUTH_TTL_SECONDS = 3600
 LOGIN_URL = "https://private.mabangerp.com/index.htm"
-TEMU_TARGET_URL = "https://private.mabangerp.com/index.php?mod=order.exportOrderByTemplate"
 FBA_HOME_URL = "https://private.mabangerp.com/"
 FBA_JUMP_WMS_URL = "https://private.mabangerp.com/index.php?mod=main.jumpToWms"
 FBA_LOGISTICS_TOKEN_TARGET_URL = "https://private.mabangerp.com/index.php?mod=main.fbaCargo&platform=amazon&version=1"
@@ -48,22 +47,13 @@ def ensure_auth(
     require_wms_cookie_header: bool = False,
 ) -> dict[str, Any]:
     normalized_scope = str(scope or "").strip().lower()
-    if normalized_scope not in {"temu", "fba", "erp", "private_amz"}:
-        raise ValueError("scope 仅支持 temu、fba、erp 或 private_amz")
+    if normalized_scope not in {"fba", "erp", "private_amz"}:
+        raise ValueError("scope 仅支持 fba、erp 或 private_amz")
 
     resolved_account, password = _resolve_credentials(normalized_scope, account)
     state_file = _state_file(resolved_account)
     payload = _load_storage_state_payload(state_file)
     phpsessid_status = _get_phpsessid_status(payload)
-
-    if normalized_scope == "temu":
-        return _ensure_temu_auth(
-            account=resolved_account,
-            password=password,
-            state_file=state_file,
-            payload=payload,
-            phpsessid_status=phpsessid_status,
-        )
 
     if normalized_scope == "erp":
         return _ensure_erp_auth(
@@ -94,12 +84,8 @@ def ensure_auth(
 
 
 def _resolve_credentials(scope: str, account: str) -> tuple[str, str]:
-    if scope == "temu":
-        resolved_account = str(account or mabang_settings.MABANG_ACCOUNT_TEMU or "").strip()
-        password = str(mabang_settings.MABANG_PASSWORD_TEMU or "").strip()
-    else:
-        resolved_account = str(account or mabang_settings.MABANG_ACCOUNT or "").strip()
-        password = str(mabang_settings.MABANG_PASSWORD or "").strip()
+    resolved_account = str(account or mabang_settings.MABANG_ACCOUNT or "").strip()
+    password = str(mabang_settings.MABANG_PASSWORD or "").strip()
 
     if not resolved_account:
         raise ValueError(f"{scope} 账号为空")
@@ -212,6 +198,17 @@ def _is_cookie_domain_match(cookie_domain: str, host: str) -> bool:
     if not cookie_text or not host_text:
         return False
     return cookie_text == host_text or host_text.endswith(f".{cookie_text}")
+
+
+def _cookie_domain_specificity_score(cookie_domain: str, host: str) -> tuple[int, int] | None:
+    cookie_text = str(cookie_domain or "").strip().lower().lstrip(".")
+    host_text = str(host or "").strip().lower().lstrip(".")
+    if not _is_cookie_domain_match(cookie_text, host_text):
+        return None
+    return (
+        1 if cookie_text == host_text else 0,
+        len(cookie_text),
+    )
 
 
 def _coerce_cookie_expiry(expires: Any) -> float | None:
@@ -353,25 +350,136 @@ def _storage_lookup_domain_cookies(payload: dict[str, Any], host: str) -> list[d
     return matched
 
 
-def _storage_lookup_domain_cookie_names(payload: dict[str, Any], host: str) -> set[str]:
+def _select_cookie_for_host(
+    payload: dict[str, Any],
+    host: str,
+    name: str,
+) -> dict[str, Any] | None:
+    cookies = payload.get("cookies")
+    if not isinstance(cookies, list):
+        return None
+
+    target_name = str(name or "").strip()
+    if not target_name:
+        return None
+
+    selected: dict[str, Any] | None = None
+    selected_score: tuple[int, int] | None = None
+    for item in cookies:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("name") or "").strip() != target_name:
+            continue
+        score = _cookie_domain_specificity_score(str(item.get("domain") or ""), host)
+        if score is None:
+            continue
+        if selected is None or selected_score is None or score > selected_score:
+            selected = item
+            selected_score = score
+    return selected
+
+
+def _get_cookie_validity_status(
+    cookie: dict[str, Any] | None,
+    skew_seconds: int = PHPSESSID_EXPIRY_SKEW_SECONDS,
+) -> dict[str, Any]:
+    if not isinstance(cookie, dict):
+        return {
+            "valid": False,
+            "reason": "missing",
+            "expires_at": None,
+            "seconds_left": None,
+        }
+
+    name = str(cookie.get("name") or "").strip()
+    if not name:
+        return {
+            "valid": False,
+            "reason": "name_missing",
+            "expires_at": None,
+            "seconds_left": None,
+        }
+
+    value = cookie.get("value")
+    if value is None or not str(value).strip():
+        return {
+            "valid": False,
+            "reason": "value_missing",
+            "expires_at": cookie.get("expires"),
+            "seconds_left": None,
+        }
+
+    raw_expires = cookie.get("expires")
+    try:
+        expires_at = float(raw_expires)
+    except (TypeError, ValueError):
+        reason = "expires_missing" if raw_expires is None else "expires_invalid"
+        return {
+            "valid": False,
+            "reason": reason,
+            "expires_at": raw_expires,
+            "seconds_left": None,
+        }
+
+    if expires_at == -1:
+        return {
+            "valid": True,
+            "reason": "session_cookie",
+            "expires_at": expires_at,
+            "seconds_left": None,
+        }
+
+    if expires_at <= 0:
+        return {
+            "valid": False,
+            "reason": "expires_invalid",
+            "expires_at": expires_at,
+            "seconds_left": None,
+        }
+
+    now_ts = time.time()
+    seconds_left = int(expires_at - now_ts)
+    if expires_at <= now_ts:
+        return {
+            "valid": False,
+            "reason": "expired",
+            "expires_at": expires_at,
+            "seconds_left": seconds_left,
+        }
+
+    if expires_at <= now_ts + max(0, int(skew_seconds or 0)):
+        return {
+            "valid": False,
+            "reason": "expires_soon",
+            "expires_at": expires_at,
+            "seconds_left": seconds_left,
+        }
+
     return {
-        str(item.get("name") or "").strip()
-        for item in _storage_lookup_domain_cookies(payload, host)
-        if str(item.get("name") or "").strip()
+        "valid": True,
+        "reason": "valid",
+        "expires_at": expires_at,
+        "seconds_left": seconds_left,
     }
 
 
-def _missing_cookie_names_for_host(
+def _invalid_cookie_status_labels_for_host(
     payload: dict[str, Any],
     host: str,
     required_names: tuple[str, ...],
+    skew_seconds: int = PHPSESSID_EXPIRY_SKEW_SECONDS,
 ) -> list[str]:
-    names = _storage_lookup_domain_cookie_names(payload, host)
-    return [name for name in required_names if name not in names]
+    labels: list[str] = []
+    for name in required_names:
+        cookie = _select_cookie_for_host(payload, host, name)
+        status = _get_cookie_validity_status(cookie, skew_seconds=skew_seconds)
+        if not status.get("valid"):
+            labels.append(f"{name}({status.get('reason') or 'invalid'})")
+    return labels
 
 
 def _has_private_amz_cookie_bundle(payload: dict[str, Any]) -> bool:
-    return not _missing_cookie_names_for_host(
+    return not _invalid_cookie_status_labels_for_host(
         payload,
         PRIVATE_AMZ_HOST,
         PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
@@ -515,46 +623,6 @@ def _open_context(browser, state_file: Path, can_reuse_state: bool):
         return browser.new_context(accept_downloads=True, viewport={"width": 1920, "height": 1080})
 
 
-def _ensure_temu_auth(
-    account: str,
-    password: str,
-    state_file: Path,
-    payload: dict[str, Any],
-    phpsessid_status: dict[str, Any],
-) -> dict[str, Any]:
-    if phpsessid_status.get("valid"):
-        return {
-            "success": True,
-            "scope": "temu",
-            "account": account,
-            "source": "cache",
-            "cookies_by_domain": _parse_cookies_by_domain(payload),
-        }
-
-    _clear_state_file(state_file)
-
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=_browser_auth_headless())
-        context = _open_context(browser, state_file, can_reuse_state=False)
-        try:
-            page = context.new_page()
-            _perform_login(page, account, password)
-            page.goto(TEMU_TARGET_URL, wait_until="domcontentloaded")
-            page.wait_for_timeout(1250)
-            saved_payload = _save_storage_state(context, state_file)
-        finally:
-            context.close()
-            browser.close()
-
-    return {
-        "success": True,
-        "scope": "temu",
-        "account": account,
-        "source": "relogin",
-        "cookies_by_domain": _parse_cookies_by_domain(saved_payload),
-    }
-
-
 def _ensure_erp_auth(
     account: str,
     password: str,
@@ -635,13 +703,13 @@ def _ensure_private_amz_auth(
             context.close()
             browser.close()
 
-    missing = _missing_cookie_names_for_host(
+    invalid = _invalid_cookie_status_labels_for_host(
         saved_payload,
         PRIVATE_AMZ_HOST,
         PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
     )
-    if missing:
-        raise RuntimeError(f"未获取到 private-amz 关键 Cookie: {', '.join(missing)}")
+    if invalid:
+        raise RuntimeError(f"private-amz 关键 Cookie 无效或过期: {', '.join(invalid)}")
 
     return {
         "success": True,

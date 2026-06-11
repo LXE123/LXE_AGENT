@@ -128,7 +128,6 @@ def send_selected_result_files(
         and str(dict(item or {}).get("value") or "").strip()
     ]
 
-    safe_payload["file_path"] = []
     if not file_paths:
         return safe_payload
 
