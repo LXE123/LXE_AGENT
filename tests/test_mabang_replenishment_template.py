@@ -36,9 +36,38 @@ def test_default_template_loads_current_algorithm() -> None:
         "14d_weight": 0.3,
         "30d_weight": 0.1,
     }
+    assert template.params["sea"]["enabled"] is True
     assert tmpl.replenishment_days_from_template(6, "平稳", template.params) == 75
     assert tmpl.sea_day_candidates_from_template(55, template.params) == [100, 110]
     assert tmpl.validate_template(template).warnings == ()
+
+
+def test_builtin_templates_include_us_uk_de_group_1_rules() -> None:
+    templates = {template.name: template for template in tmpl.load_builtin_templates()}
+
+    assert list(templates) == ["默认模板", "US模板-一组", "UK模板-一组", "DE模板-一组"]
+
+    us_params = templates["US模板-一组"].params
+    assert tmpl.sea_enabled_from_template(us_params) is True
+    assert tmpl.replenishment_days_from_template(11, "增长", us_params) == 80
+    assert tmpl.replenishment_days_from_template(6, "平稳", us_params) == 75
+    assert tmpl.replenishment_days_from_template(2, "下降", us_params) == 70
+    assert tmpl.replenishment_days_from_template(0.5, "增长", us_params) == 60
+    assert tmpl.sea_day_candidates_from_template(6, us_params) == [110]
+
+    uk_params = templates["UK模板-一组"].params
+    assert tmpl.sea_enabled_from_template(uk_params) is False
+    assert tmpl.replenishment_days_from_template(6, "增长", uk_params) == 85
+    assert tmpl.replenishment_days_from_template(2, "平稳", uk_params) == 75
+    assert tmpl.replenishment_days_from_template(0.5, "下降", uk_params) == 65
+    assert tmpl.sea_day_candidates_from_template(6, uk_params) == []
+
+    de_params = templates["DE模板-一组"].params
+    assert tmpl.sea_enabled_from_template(de_params) is False
+    assert tmpl.replenishment_days_from_template(11, "增长", de_params) == 90
+    assert tmpl.replenishment_days_from_template(6, "平稳", de_params) == 85
+    assert tmpl.replenishment_days_from_template(2, "下降", de_params) == 75
+    assert tmpl.replenishment_days_from_template(0.5, "增长", de_params) == 65
 
 
 def test_export_validate_and_import_template_xlsx(tmp_path) -> None:
@@ -47,10 +76,12 @@ def test_export_validate_and_import_template_xlsx(tmp_path) -> None:
     assert exported_path.is_file()
     assert _cell_value(exported_path, "模板信息", 2, 2) == "默认模板"
     assert _cell_value(exported_path, "加权日销", 2, 2) == 0.6
+    assert _cell_value(exported_path, "海运规则", 2, 5) == "是"
 
     result = tmpl.validate_template_xlsx(exported_path)
     assert result.template.name == "默认模板"
     assert result.template.params["shipping"]["air_urgent_sales_days_lte"] == 40
+    assert result.template.params["sea"]["enabled"] is True
 
     imported = tmpl.import_template_xlsx(exported_path, store_path=tmp_path / "templates.json")
     assert imported.template.name == "自定义模板1"
@@ -59,7 +90,14 @@ def test_export_validate_and_import_template_xlsx(tmp_path) -> None:
     assert second_imported.template.name == "自定义模板2"
 
     templates = tmpl.list_templates(store_path=tmp_path / "templates.json")
-    assert [template.name for template in templates] == ["默认模板", "自定义模板1", "自定义模板2"]
+    assert [template.name for template in templates] == [
+        "默认模板",
+        "US模板-一组",
+        "UK模板-一组",
+        "DE模板-一组",
+        "自定义模板1",
+        "自定义模板2",
+    ]
 
 
 def test_import_rejects_duplicate_and_default_names(tmp_path) -> None:
@@ -71,6 +109,9 @@ def test_import_rejects_duplicate_and_default_names(tmp_path) -> None:
 
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="不允许导入覆盖"):
         tmpl.import_template_xlsx(exported_path, name="默认模板", store_path=tmp_path / "templates.json")
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="系统模板不允许导入覆盖"):
+        tmpl.import_template_xlsx(exported_path, name="UK模板-一组", store_path=tmp_path / "templates.json")
 
 
 def test_replace_template_updates_existing_custom_template(tmp_path) -> None:
@@ -108,6 +149,9 @@ def test_replace_rejects_default_and_missing_template(tmp_path) -> None:
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="不允许替换"):
         tmpl.replace_template_xlsx(exported_path, template_name="默认模板", store_path=tmp_path / "templates.json")
 
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="系统模板不允许替换"):
+        tmpl.replace_template_xlsx(exported_path, template_name="US模板-一组", store_path=tmp_path / "templates.json")
+
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="只能替换已存在"):
         tmpl.replace_template_xlsx(exported_path, template_name="不存在", store_path=tmp_path / "templates.json")
 
@@ -121,7 +165,13 @@ def test_rename_template_updates_name_without_version_change(tmp_path) -> None:
     assert renamed.name == "夏季备货模板"
     assert renamed.version == 1
     templates = tmpl.list_templates(store_path=tmp_path / "templates.json")
-    assert [template.name for template in templates] == ["默认模板", "夏季备货模板"]
+    assert [template.name for template in templates] == [
+        "默认模板",
+        "US模板-一组",
+        "UK模板-一组",
+        "DE模板-一组",
+        "夏季备货模板",
+    ]
 
 
 def test_rename_rejects_default_duplicate_and_missing_template(tmp_path) -> None:
@@ -132,8 +182,14 @@ def test_rename_rejects_default_duplicate_and_missing_template(tmp_path) -> None
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="不允许重命名"):
         tmpl.rename_template("默认模板", new_name="新默认", store_path=tmp_path / "templates.json")
 
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="系统模板不允许重命名"):
+        tmpl.rename_template("DE模板-一组", new_name="新DE", store_path=tmp_path / "templates.json")
+
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="模板名已存在"):
         tmpl.rename_template("模板A", new_name="模板B", store_path=tmp_path / "templates.json")
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="新模板名不能是系统模板"):
+        tmpl.rename_template("模板A", new_name="US模板-一组", store_path=tmp_path / "templates.json")
 
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="只能重命名已存在"):
         tmpl.rename_template("不存在", new_name="模板C", store_path=tmp_path / "templates.json")
@@ -156,6 +212,38 @@ def test_validate_template_detects_invalid_threshold() -> None:
 
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="空运急发阈值"):
         tmpl.validate_template(broken)
+
+
+def test_validate_template_requires_sea_enabled() -> None:
+    template = tmpl.load_default_template()
+    params = json.loads(json.dumps(template.params, ensure_ascii=False))
+    params["sea"].pop("enabled")
+    broken = tmpl.ReplenishmentTemplate(
+        name="旧模板",
+        version=1,
+        description="",
+        params=params,
+    )
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="sea.enabled必须是布尔值"):
+        tmpl.validate_template(broken)
+
+
+def test_template_xlsx_parses_disabled_sea_switch(tmp_path) -> None:
+    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(exported_path)
+    try:
+        workbook["海运规则"].cell(row=2, column=5).value = "否"
+        workbook.save(exported_path)
+    finally:
+        workbook.close()
+
+    result = tmpl.validate_template_xlsx(exported_path)
+
+    assert result.template.params["sea"]["enabled"] is False
 
 
 def test_special_rule_applies_msku_overrides() -> None:
@@ -193,10 +281,17 @@ def test_cli_list_and_list_params(capsys) -> None:
     assert cli.main(["list"]) == 0
     payload = _read_payload(capsys)
     assert payload["templates"][0]["name"] == "默认模板"
+    assert [item["name"] for item in payload["templates"][:4]] == [
+        "默认模板",
+        "US模板-一组",
+        "UK模板-一组",
+        "DE模板-一组",
+    ]
 
     assert cli.main(["list-params"]) == 0
     payload = _read_payload(capsys)
     assert payload["groups"][0]["group"] == "加权日销"
+    assert any(param["key"] == "sea.enabled" for group in payload["groups"] for param in group["params"])
 
 
 def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> None:

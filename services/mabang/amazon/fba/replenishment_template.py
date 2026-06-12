@@ -10,9 +10,24 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_TEMPLATE_NAME = "默认模板"
+US_GROUP_1_TEMPLATE_NAME = "US模板-一组"
+UK_GROUP_1_TEMPLATE_NAME = "UK模板-一组"
+DE_GROUP_1_TEMPLATE_NAME = "DE模板-一组"
 DEFAULT_TEMPLATE_VERSION = 1
 DEFAULT_TEMPLATE_DIR = Path(__file__).resolve().parent / "replenishment_templates"
 DEFAULT_TEMPLATE_PATH = DEFAULT_TEMPLATE_DIR / "default_template.json"
+BUILTIN_TEMPLATE_PATHS = (
+    DEFAULT_TEMPLATE_PATH,
+    DEFAULT_TEMPLATE_DIR / "us_group_1_template.json",
+    DEFAULT_TEMPLATE_DIR / "uk_group_1_template.json",
+    DEFAULT_TEMPLATE_DIR / "de_group_1_template.json",
+)
+BUILTIN_TEMPLATE_NAMES = (
+    DEFAULT_TEMPLATE_NAME,
+    US_GROUP_1_TEMPLATE_NAME,
+    UK_GROUP_1_TEMPLATE_NAME,
+    DE_GROUP_1_TEMPLATE_NAME,
+)
 DEFAULT_CUSTOM_TEMPLATE_STORE = Path("artifacts") / "mabang_replenishment_templates" / "templates.json"
 DEFAULT_EDITABLE_OUTPUT_DIR = Path("artifacts") / "mabang_replenishment_templates" / "editable"
 
@@ -40,6 +55,8 @@ EXCEL_COLUMN_WIDTH = 15
 
 TREND_KEYS = ("growth", "stable", "decline")
 MSKU_SPLIT_RE = re.compile(r"[\s,，;；、]+")
+TRUE_TEXTS = {"1", "true", "yes", "y", "on", "是", "启用", "开启", "开"}
+FALSE_TEXTS = {"0", "false", "no", "n", "off", "否", "禁用", "关闭", "关"}
 
 
 class ReplenishmentTemplateError(ValueError):
@@ -117,6 +134,26 @@ def _int_value(value: Any, *, default: int | None = None) -> int | None:
     return int(number)
 
 
+def _bool_value(value: Any, *, field_name: str) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        number = float(value)
+        if math.isnan(number):
+            raise ReplenishmentTemplateError(f"{field_name}必须是布尔值: {value}")
+        if number == 1:
+            return True
+        if number == 0:
+            return False
+        raise ReplenishmentTemplateError(f"{field_name}必须是布尔值: {value}")
+    text = _clean_text(value).casefold()
+    if text in TRUE_TEXTS:
+        return True
+    if text in FALSE_TEXTS:
+        return False
+    raise ReplenishmentTemplateError(f"{field_name}必须是布尔值: {value}")
+
+
 def _timestamp_text() -> str:
     return datetime.now().strftime("%Y%m%d%H%M")
 
@@ -150,6 +187,10 @@ def _default_template_path(path: str | Path | None = None) -> Path:
     return Path(path) if path is not None else DEFAULT_TEMPLATE_PATH
 
 
+def is_builtin_template_name(value: Any) -> bool:
+    return _clean_text(value) in set(BUILTIN_TEMPLATE_NAMES)
+
+
 def _normalize_template(raw: dict[str, Any], *, source: str) -> ReplenishmentTemplate:
     if not isinstance(raw, dict):
         raise ReplenishmentTemplateError("模板内容必须是JSON对象")
@@ -181,6 +222,22 @@ def load_default_template(*, path: str | Path | None = None) -> ReplenishmentTem
     return template
 
 
+def load_builtin_templates() -> list[ReplenishmentTemplate]:
+    templates: list[ReplenishmentTemplate] = []
+    seen_names: set[str] = set()
+    for template_path, expected_name in zip(BUILTIN_TEMPLATE_PATHS, BUILTIN_TEMPLATE_NAMES, strict=True):
+        if not template_path.is_file():
+            raise FileNotFoundError(f"内置模板文件不存在: {template_path}")
+        template = _normalize_template(_read_json(template_path), source=SOURCE_DEFAULT)
+        if template.name != expected_name:
+            raise ReplenishmentTemplateError(f"内置模板名必须是{expected_name}: {template.name}")
+        if template.name in seen_names:
+            raise ReplenishmentTemplateError(f"内置模板名重复: {template.name}")
+        seen_names.add(template.name)
+        templates.append(template)
+    return templates
+
+
 def _load_custom_store(path: str | Path | None = None) -> list[dict[str, Any]]:
     store_path = _custom_store_path(path)
     if not store_path.is_file():
@@ -197,12 +254,13 @@ def load_custom_templates(*, store_path: str | Path | None = None) -> list[Reple
 
 
 def list_templates(*, store_path: str | Path | None = None) -> list[ReplenishmentTemplate]:
-    templates = [load_default_template()]
+    templates = load_builtin_templates()
     custom_templates = load_custom_templates(store_path=store_path)
+    builtin_names = {template.name for template in templates}
     for template in custom_templates:
-        if template.name == DEFAULT_TEMPLATE_NAME:
-            raise ReplenishmentTemplateError(f"自定义模板不允许覆盖{DEFAULT_TEMPLATE_NAME}")
-    names = {templates[0].name}
+        if template.name in builtin_names:
+            raise ReplenishmentTemplateError(f"自定义模板不允许覆盖系统模板: {template.name}")
+    names = set(builtin_names)
     for template in custom_templates:
         if template.name in names:
             raise ReplenishmentTemplateError(f"模板名重复: {template.name}")
@@ -254,6 +312,7 @@ def list_parameter_groups() -> list[dict[str, Any]]:
         {
             "group": "海运规则",
             "params": [
+                {"key": "sea.enabled", "name": "是否启用海运", "value_type": "boolean"},
                 {"key": "sea.min_daily_sales", "name": "海运最低加权日销", "value_type": "number"},
                 {"key": "sea.min_weight_kg", "name": "海运最低总重量kg", "value_type": "number"},
                 {"key": "sea.tiers", "name": "海运日销分档和天数候选", "value_type": "matrix"},
@@ -335,6 +394,7 @@ def validate_template(template: ReplenishmentTemplate) -> TemplateValidationResu
         raise ReplenishmentTemplateError("空运急发阈值必须小于等于空运阈值")
 
     sea = _require_mapping(params.get("sea"), "sea")
+    _bool_value(sea.get("enabled"), field_name="sea.enabled")
     min_daily_sales = _number(sea.get("min_daily_sales"), default=None)
     min_weight_kg = _number(sea.get("min_weight_kg"), default=None)
     if min_daily_sales is None or min_daily_sales < 0:
@@ -429,6 +489,8 @@ def replenishment_days_from_template(weighted_daily_sales: float, mapped_trend: 
 
 
 def sea_day_candidates_from_template(weighted_daily_sales: float, params: dict[str, Any]) -> list[int]:
+    if not sea_enabled_from_template(params):
+        return []
     if weighted_daily_sales <= float(params["sea"]["min_daily_sales"]):
         return []
     for item in params["sea"]["tiers"]:
@@ -440,6 +502,11 @@ def sea_day_candidates_from_template(weighted_daily_sales: float, params: dict[s
             continue
         return [int(day) for day in item["days"]]
     return []
+
+
+def sea_enabled_from_template(params: dict[str, Any]) -> bool:
+    sea = _require_mapping(params.get("sea") if isinstance(params, dict) else None, "sea")
+    return _bool_value(sea.get("enabled"), field_name="sea.enabled")
 
 
 def apply_overrides(base_params: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
@@ -524,6 +591,7 @@ def export_template_xlsx(
 
         sea = workbook.create_sheet(SEA_SHEET)
         sea.append(["项目", "日销大于", "日销小于等于", "候选天数", "值", "说明"])
+        sea.append(["是否启用海运", "", "", "", "是" if sea_enabled_from_template(params) else "否", "否表示超过空运阈值后不计算海运"])
         sea.append(["海运最低日销", "", "", "", params["sea"]["min_daily_sales"], "加权日销小于等于该值不建议海运"])
         sea.append(["海运最低重量kg", "", "", "", params["sea"]["min_weight_kg"], "预计总重量大于该值才建议海运"])
         for item in params["sea"]["tiers"]:
@@ -695,6 +763,7 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
             "air_sales_days_lte": _number(_param_value(shipping_records, "空运可销售天数<="), default=None),
         },
         "sea": {
+            "enabled": None,
             "min_daily_sales": None,
             "min_weight_kg": None,
             "tiers": [],
@@ -716,7 +785,9 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
 
     for record in sea_records:
         item_name = _clean_text(record.get("项目"))
-        if item_name == "海运最低日销":
+        if item_name == "是否启用海运":
+            params["sea"]["enabled"] = _bool_value(record.get("值"), field_name="是否启用海运")
+        elif item_name == "海运最低日销":
             params["sea"]["min_daily_sales"] = _number(record.get("值"), default=None)
         elif item_name == "海运最低重量kg":
             params["sea"]["min_weight_kg"] = _number(record.get("值"), default=None)
@@ -768,8 +839,8 @@ def import_template_xlsx(
     import_name = _clean_text(name)
     if not import_name:
         import_name = _next_custom_template_name(existing_names)
-    if import_name == DEFAULT_TEMPLATE_NAME:
-        raise ReplenishmentTemplateError(f"{DEFAULT_TEMPLATE_NAME}不允许导入覆盖")
+    if is_builtin_template_name(import_name):
+        raise ReplenishmentTemplateError(f"系统模板不允许导入覆盖: {import_name}")
     if import_name in existing_names:
         raise ReplenishmentTemplateError(f"模板名已存在: {import_name}")
 
@@ -798,8 +869,8 @@ def replace_template_xlsx(
     clean_name = _clean_text(template_name)
     if not clean_name:
         raise ReplenishmentTemplateError("template_name 不能为空")
-    if clean_name == DEFAULT_TEMPLATE_NAME:
-        raise ReplenishmentTemplateError(f"{DEFAULT_TEMPLATE_NAME}不允许替换")
+    if is_builtin_template_name(clean_name):
+        raise ReplenishmentTemplateError(f"系统模板不允许替换: {clean_name}")
 
     custom_templates = load_custom_templates(store_path=store_path)
     index = next((idx for idx, item in enumerate(custom_templates) if item.name == clean_name), None)
@@ -834,10 +905,10 @@ def rename_template(
         raise ReplenishmentTemplateError("template_name 不能为空")
     if not clean_new_name:
         raise ReplenishmentTemplateError("新模板名不能为空")
-    if clean_old_name == DEFAULT_TEMPLATE_NAME:
-        raise ReplenishmentTemplateError(f"{DEFAULT_TEMPLATE_NAME}不允许重命名")
-    if clean_new_name == DEFAULT_TEMPLATE_NAME:
-        raise ReplenishmentTemplateError(f"新模板名不能是{DEFAULT_TEMPLATE_NAME}")
+    if is_builtin_template_name(clean_old_name):
+        raise ReplenishmentTemplateError(f"系统模板不允许重命名: {clean_old_name}")
+    if is_builtin_template_name(clean_new_name):
+        raise ReplenishmentTemplateError(f"新模板名不能是系统模板: {clean_new_name}")
 
     custom_templates = load_custom_templates(store_path=store_path)
     if any(template.name == clean_new_name for template in custom_templates):
@@ -881,22 +952,28 @@ def templates_payload(*, store_path: str | Path | None = None) -> dict[str, Any]
 
 __all__ = [
     "DEFAULT_TEMPLATE_NAME",
+    "DE_GROUP_1_TEMPLATE_NAME",
     "ReplenishmentTemplate",
     "ReplenishmentTemplateError",
     "TemplateValidationResult",
+    "UK_GROUP_1_TEMPLATE_NAME",
+    "US_GROUP_1_TEMPLATE_NAME",
     "apply_overrides",
     "calculate_weighted_daily_sales",
     "effective_params_for_msku",
     "export_template_xlsx",
     "get_template",
     "import_template_xlsx",
+    "is_builtin_template_name",
     "list_parameter_groups",
     "list_templates",
+    "load_builtin_templates",
     "parse_template_xlsx",
     "replenishment_days_from_template",
     "rename_template",
     "replace_template_xlsx",
     "sea_day_candidates_from_template",
+    "sea_enabled_from_template",
     "templates_payload",
     "trend_group_from_template",
     "validate_template",

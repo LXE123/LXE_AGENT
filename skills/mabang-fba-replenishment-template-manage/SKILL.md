@@ -10,6 +10,8 @@ type: amazon_replenish
 - 不要手改正式模板库 JSON；必须通过 CLI 导入。
 - xlsx 只是人工编辑介质，正式计算读取模板库。
 - `默认模板` 是系统模板，不允许覆盖、删除或替换。
+- `US模板-一组`、`UK模板-一组`、`DE模板-一组` 也是系统模板，不允许覆盖、删除、替换或重命名。
+- 海运开关是必填参数；旧模板缺少 `sea.enabled` 时需要重新导出模板并导入。
 - 自定义模板保存在 `artifacts/mabang_replenishment_templates/templates.json`，不进入 git。
 - 用户编辑 xlsx 保存在 `artifacts/mabang_replenishment_templates/editable/`，不进入 git。
 
@@ -71,6 +73,8 @@ uv run --frozen python -m services.agent_cli.mabang.replenishment_template show 
 - 用户要改模板名：运行 `rename`，不要用“导入新名”模拟改名。
 - 用户没有提供模板名：导入时不传 `--name`，系统自动生成 `自定义模板1`、`自定义模板2`。
 - 用户要用某模板计算备货：切换到 `mabang-fba-store-replenishment-calculate`，运行备货计算 CLI 并传 `--template "<模板名>"`。
+- 内置模板可直接用于计算：`默认模板`、`US模板-一组`、`UK模板-一组`、`DE模板-一组`。
+- `海运规则` sheet 中 `是否启用海运=否` 时，超过空运阈值的 MSKU 不计算海运，进入 `暂不建议发货`。
 
 ## Result Handling
 

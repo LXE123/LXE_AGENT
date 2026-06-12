@@ -1,0 +1,65 @@
+{
+  "name": "DE模板-一组",
+  "version": 1,
+  "description": "DE一组备货算法参数",
+  "params": {
+    "weighted_sales": {
+      "7d_weight": 0.6,
+      "14d_weight": 0.3,
+      "30d_weight": 0.1
+    },
+    "trend_groups": {
+      "growth": ["快速增长", "增长", "新增出单/恢复出单"],
+      "decline": ["快速下降", "下降"],
+      "stable": ["平稳", "无销量"],
+      "skip": ["样本不足"]
+    },
+    "replenishment_days": [
+      {
+        "label": "DE日销大于10",
+        "daily_sales_gt": 10,
+        "growth": 90,
+        "stable": 90,
+        "decline": 90
+      },
+      {
+        "label": "DE日销大于5",
+        "daily_sales_gt": 5,
+        "growth": 85,
+        "stable": 85,
+        "decline": 85
+      },
+      {
+        "label": "DE日销大于1",
+        "daily_sales_gt": 1,
+        "growth": 75,
+        "stable": 75,
+        "decline": 75
+      },
+      {
+        "label": "DE低销量",
+        "daily_sales_gt": null,
+        "growth": 65,
+        "stable": 65,
+        "decline": 65
+      }
+    ],
+    "shipping": {
+      "air_urgent_sales_days_lte": 40,
+      "air_sales_days_lte": 70
+    },
+    "sea": {
+      "enabled": false,
+      "min_daily_sales": 0,
+      "min_weight_kg": 0,
+      "tiers": [
+        {
+          "daily_sales_gt": 0,
+          "daily_sales_lte": null,
+          "days": [110]
+        }
+      ]
+    },
+    "special_rules": []
+  }
+}

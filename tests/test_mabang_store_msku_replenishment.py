@@ -337,3 +337,57 @@ def test_custom_template_changes_replenishment_result(tmp_path, monkeypatch) -> 
     no_ship_rows = _load_records(report_path, "暂不建议发货")
     assert sea_rows == []
     assert any(row["MSKU"] == "SEA-1" and "未超过100kg" in row["决策原因"] for row in no_ship_rows)
+
+
+def test_us_group_1_builtin_template_uses_110_day_sea(tmp_path) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    output_dir = tmp_path / "output"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_sales_analysis.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_actual_inventory.xlsx")
+
+    result = repl.calculate_store_msku_replenishment(
+        "Amazon-Test",
+        template_name="US模板-一组",
+        sales_analysis_dir=sales_dir,
+        actual_inventory_dir=inventory_dir,
+        output_dir=output_dir,
+    )
+
+    assert result.template_name == "US模板-一组"
+    assert result.sea_count == 2
+    report_path = Path(result.report_xlsx_path)
+    sea_rows = _load_records(report_path, "海运")
+    sea_row = next(row for row in sea_rows if row["MSKU"] == "SEA-1")
+    assert sea_row["补货天数"] == 75
+    assert sea_row["补货量"] == 450
+    assert sea_row["海运天数"] == 110
+    assert sea_row["海运建议量"] == 660
+    assert sea_row["预计总重量kg"] == 79.2
+
+
+def test_uk_group_1_builtin_template_disables_sea(tmp_path) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    output_dir = tmp_path / "output"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_sales_analysis.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_actual_inventory.xlsx")
+
+    result = repl.calculate_store_msku_replenishment(
+        "Amazon-Test",
+        template_name="UK模板-一组",
+        sales_analysis_dir=sales_dir,
+        actual_inventory_dir=inventory_dir,
+        output_dir=output_dir,
+    )
+
+    assert result.template_name == "UK模板-一组"
+    assert result.sea_count == 0
+    assert result.no_ship_count == 2
+    report_path = Path(result.report_xlsx_path)
+    assert _load_records(report_path, "海运") == []
+    no_ship_rows = _load_records(report_path, "暂不建议发货")
+    sea_candidate = next(row for row in no_ship_rows if row["MSKU"] == "SEA-1")
+    assert sea_candidate["补货天数"] == 85
+    assert sea_candidate["补货量"] == 510
+    assert "模板已关闭海运" in sea_candidate["决策原因"]

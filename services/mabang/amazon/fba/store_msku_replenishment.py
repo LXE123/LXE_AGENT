@@ -16,6 +16,7 @@ from services.mabang.amazon.fba.replenishment_template import (
     get_template,
     replenishment_days_from_template,
     sea_day_candidates_from_template,
+    sea_enabled_from_template,
     trend_group_from_template,
     validate_template,
 )
@@ -634,6 +635,16 @@ def calculate_replenishment_row(
             estimated_weight_kg=None,
             decision_reason=f"{air_urgent_days:g} < 可销售天数={sales_days:.2f} <= {air_days:g}，建议空运",
             sheet_name=AIR_SHEET,
+        )
+
+    if not sea_enabled_from_template(params):
+        return ReplenishmentRow(
+            **base_kwargs,
+            sea_days=None,
+            sea_quantity=None,
+            estimated_weight_kg=None,
+            decision_reason=f"可销售天数={sales_days:.2f} > {air_days:g}，但模板已关闭海运，暂不建议发货",
+            sheet_name=NO_SHIP_SHEET,
         )
 
     min_daily_sales = float(params["sea"]["min_daily_sales"])
