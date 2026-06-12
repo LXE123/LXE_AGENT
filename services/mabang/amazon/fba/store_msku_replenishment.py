@@ -674,12 +674,17 @@ def calculate_replenishment_row(
         estimated_weight_kg = sea_quantity * sales_detail.weight_grams / 1000
         tried.append(f"{sea_days}天: ceil({weighted_daily_sales:.2f}*{sea_days})={sea_quantity}, 重量={estimated_weight_kg:.2f}kg")
         if estimated_weight_kg > min_weight_kg:
-            return ReplenishmentRow(
+            sea_kwargs = {
                 **base_kwargs,
+                "replenish_days": sea_days,
+                "replenish_quantity": sea_quantity,
+            }
+            return ReplenishmentRow(
+                **sea_kwargs,
                 sea_days=sea_days,
                 sea_quantity=sea_quantity,
                 estimated_weight_kg=estimated_weight_kg,
-                decision_reason="可销售天数 > 70，满足海运条件；计算方法：" + "；".join(tried),
+                decision_reason=f"可销售天数 > {air_days:g}，满足海运条件；按海运备货天数{sea_days}天计算补货量；计算方法：" + "；".join(tried),
                 sheet_name=SEA_SHEET,
             )
 

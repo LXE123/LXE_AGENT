@@ -50,11 +50,11 @@
     },
     "sea": {
       "enabled": true,
-      "min_daily_sales": 0,
-      "min_weight_kg": 0,
+      "min_daily_sales": 5,
+      "min_weight_kg": 60,
       "tiers": [
         {
-          "daily_sales_gt": 0,
+          "daily_sales_gt": 5,
           "daily_sales_lte": null,
           "days": [110]
         }

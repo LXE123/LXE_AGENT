@@ -355,15 +355,23 @@ def test_us_group_1_builtin_template_uses_110_day_sea(tmp_path) -> None:
     )
 
     assert result.template_name == "US模板-一组"
-    assert result.sea_count == 2
+    assert result.sea_count == 1
     report_path = Path(result.report_xlsx_path)
     sea_rows = _load_records(report_path, "海运")
     sea_row = next(row for row in sea_rows if row["MSKU"] == "SEA-1")
-    assert sea_row["补货天数"] == 75
-    assert sea_row["补货量"] == 450
+    assert sea_row["补货天数"] == 110
+    assert sea_row["补货量"] == 660
     assert sea_row["海运天数"] == 110
     assert sea_row["海运建议量"] == 660
     assert sea_row["预计总重量kg"] == 79.2
+    assert "按海运备货天数110天计算补货量" in sea_row["决策原因"]
+    no_ship_rows = _load_records(report_path, "暂不建议发货")
+    no_ship_row = next(row for row in no_ship_rows if row["MSKU"] == "NO-1")
+    assert "加权日销=4.00 <= 5" in no_ship_row["决策原因"]
+    summary_rows = _load_records(report_path, "链接备货汇总")
+    sea_summary = next(row for row in summary_rows if row["父ASIN"] == "PARENT-SEA")
+    assert sea_summary["总补货量"] == 660
+    assert sea_summary["海运建议量"] == 660
 
 
 def test_uk_group_1_builtin_template_disables_sea(tmp_path) -> None:

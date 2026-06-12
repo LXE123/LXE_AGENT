@@ -53,7 +53,10 @@ def test_builtin_templates_include_us_uk_de_group_1_rules() -> None:
     assert tmpl.replenishment_days_from_template(6, "平稳", us_params) == 75
     assert tmpl.replenishment_days_from_template(2, "下降", us_params) == 70
     assert tmpl.replenishment_days_from_template(0.5, "增长", us_params) == 60
+    assert us_params["sea"]["min_daily_sales"] == 5
+    assert us_params["sea"]["min_weight_kg"] == 60
     assert tmpl.sea_day_candidates_from_template(6, us_params) == [110]
+    assert tmpl.sea_day_candidates_from_template(4, us_params) == []
 
     uk_params = templates["UK模板-一组"].params
     assert tmpl.sea_enabled_from_template(uk_params) is False
