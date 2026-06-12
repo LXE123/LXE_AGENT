@@ -1,0 +1,60 @@
+version: 1
+bots:
+  AMAZON_FBA:
+    key: AMAZON_FBA
+    app_id: cli_a97ac28237781bd8
+    skill_types:
+      - amazon_fba
+      - default
+  AMAZON_REPLENISH:
+    key: Amazon_备货一组
+    app_id: cli_aa9d657db5385cdd
+    skill_types:
+      - amazon_replenish
+      - default
+  AMAZON_REPLENISH_GROUP_2:
+    key: Amazon_备货二组
+    app_id: cli_aaad7fee66b8dbda
+    skill_types:
+      - amazon_replenish
+      - default
+  AMAZON_REPLENISH_GROUP_3:
+    key: Amazon_备货三组
+    app_id: cli_a979a369743a1bd3
+    skill_types:
+      - amazon_replenish
+      - default
+  LXE_CLAW:
+    key: LXE_CLAW
+    app_id: cli_a93d57dc47385cc0
+    skill_types:
+      - "*"
+users:
+  AMAZON_REPLENISH_GROUP_1_MEMBER:
+    union_id: on_feb0916744e536011cfffb06ad1506c8
+    allow:
+      - AMAZON_REPLENISH
+  AMAZON_REPLENISH_GROUP_2_MEMBER:
+    union_id: on_83a449091b58ce155969be6c2684e251
+    allow:
+      - AMAZON_REPLENISH_GROUP_2
+  AMAZON_REPLENISH_GROUP_3_MEMBER:
+    union_id: on_4ba4a68cc1a525cfd981a6ee45622c89
+    allow:
+      - AMAZON_REPLENISH_GROUP_3
+  DEV_GROUP_MEMBER:
+    union_id: on_160186f5c1c082c5e578dca361d2543d
+    allow:
+      - "*"
+  LYX:
+    union_id: on_ceda19124b8eef9e07c9e7aaec989043
+    allow:
+      - "*"
+  ZGL:
+    union_id: on_09af343a868258c25a3e53ad0464caa4
+    allow:
+      - AMAZON_FBA
+  ZQY:
+    union_id: on_a71a8f244e06602e0f37b3abe68d6ac3
+    allow:
+      - "*"

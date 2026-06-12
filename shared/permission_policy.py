@@ -3,63 +3,47 @@ from __future__ import annotations
 from typing import Any
 
 from platforms.feishu.config import FEISHU_APP_ID
+from shared.permission_policy_loader import ALL, PermissionPolicyError, clean_text, load_permission_policy
 
 
-ALL = "*"
+_POLICY = load_permission_policy()
 
-USER_LYX = "on_ceda19124b8eef9e07c9e7aaec989043"
-USER_ZQY = "on_a71a8f244e06602e0f37b3abe68d6ac3"
-USER_ZGL = "on_09af343a868258c25a3e53ad0464caa4"
-USER_AMAZON_REPLENISH_GROUP_1_MEMBER = "on_feb0916744e536011cfffb06ad1506c8"
-USER_AMAZON_REPLENISH_GROUP_2_MEMBER = "on_83a449091b58ce155969be6c2684e251"
-USER_AMAZON_REPLENISH_GROUP_3_MEMBER = "on_4ba4a68cc1a525cfd981a6ee45622c89"
-USER_DEV_GROUP_MEMBER = "on_160186f5c1c082c5e578dca361d2543d"
+USER_LYX = _POLICY.user_name_to_union_id.get("LYX", "")
+USER_ZQY = _POLICY.user_name_to_union_id.get("ZQY", "")
+USER_ZGL = _POLICY.user_name_to_union_id.get("ZGL", "")
+USER_AMAZON_REPLENISH_GROUP_1_MEMBER = _POLICY.user_name_to_union_id.get(
+    "AMAZON_REPLENISH_GROUP_1_MEMBER",
+    "",
+)
+USER_AMAZON_REPLENISH_GROUP_2_MEMBER = _POLICY.user_name_to_union_id.get(
+    "AMAZON_REPLENISH_GROUP_2_MEMBER",
+    "",
+)
+USER_AMAZON_REPLENISH_GROUP_3_MEMBER = _POLICY.user_name_to_union_id.get(
+    "AMAZON_REPLENISH_GROUP_3_MEMBER",
+    "",
+)
+USER_DEV_GROUP_MEMBER = _POLICY.user_name_to_union_id.get("DEV_GROUP_MEMBER", "")
 
-BOT_LXE_CLAW = "LXE_CLAW"
-BOT_LXE_FBA_AGENT = "AMAZON_FBA"
-BOT_AMAZON_REPLENISH = "Amazon_备货一组"
-BOT_AMAZON_REPLENISH_GROUP_2 = "Amazon_备货二组"
-BOT_AMAZON_REPLENISH_GROUP_3 = "Amazon_备货三组"
+BOT_LXE_CLAW = _POLICY.bot_alias_to_key.get("LXE_CLAW", "")
+BOT_LXE_FBA_AGENT = _POLICY.bot_alias_to_key.get("AMAZON_FBA", "")
+BOT_AMAZON_REPLENISH = _POLICY.bot_alias_to_key.get("AMAZON_REPLENISH", "")
+BOT_AMAZON_REPLENISH_GROUP_2 = _POLICY.bot_alias_to_key.get("AMAZON_REPLENISH_GROUP_2", "")
+BOT_AMAZON_REPLENISH_GROUP_3 = _POLICY.bot_alias_to_key.get("AMAZON_REPLENISH_GROUP_3", "")
 
-BOT_ID_LXE_CLAW = "cli_a93d57dc47385cc0"
-BOT_ID_LXE_FBA_AGENT = "cli_a97ac28237781bd8"
-BOT_ID_AMAZON_REPLENISH = "cli_aa9d657db5385cdd"
-BOT_ID_AMAZON_REPLENISH_GROUP_3 = "cli_a979a369743a1bd3"
-BOT_ID_AMAZON_REPLENISH_GROUP_2 = "cli_aaad7fee66b8dbda"
+BOT_ID_LXE_CLAW = _POLICY.bot_alias_to_app_id.get("LXE_CLAW", "")
+BOT_ID_LXE_FBA_AGENT = _POLICY.bot_alias_to_app_id.get("AMAZON_FBA", "")
+BOT_ID_AMAZON_REPLENISH = _POLICY.bot_alias_to_app_id.get("AMAZON_REPLENISH", "")
+BOT_ID_AMAZON_REPLENISH_GROUP_2 = _POLICY.bot_alias_to_app_id.get("AMAZON_REPLENISH_GROUP_2", "")
+BOT_ID_AMAZON_REPLENISH_GROUP_3 = _POLICY.bot_alias_to_app_id.get("AMAZON_REPLENISH_GROUP_3", "")
 
 SKILL_TYPE_AMAZON_FBA = "amazon_fba"
 SKILL_TYPE_AMAZON_REPLENISH = "amazon_replenish"
 SKILL_TYPE_DEFAULT = "default"
 
-BOT_ID_TO_KEY = {
-    BOT_ID_LXE_CLAW: BOT_LXE_CLAW,
-    BOT_ID_LXE_FBA_AGENT: BOT_LXE_FBA_AGENT,
-    BOT_ID_AMAZON_REPLENISH: BOT_AMAZON_REPLENISH,
-    BOT_ID_AMAZON_REPLENISH_GROUP_3: BOT_AMAZON_REPLENISH_GROUP_3,
-    BOT_ID_AMAZON_REPLENISH_GROUP_2: BOT_AMAZON_REPLENISH_GROUP_2,
-}
-
-USER_AGENT_POLICY = {
-    USER_LYX: {ALL},
-    USER_ZQY: {ALL},
-    USER_ZGL: {BOT_LXE_FBA_AGENT},
-    USER_AMAZON_REPLENISH_GROUP_1_MEMBER: {BOT_AMAZON_REPLENISH},
-    USER_AMAZON_REPLENISH_GROUP_2_MEMBER: {BOT_AMAZON_REPLENISH_GROUP_2},
-    USER_AMAZON_REPLENISH_GROUP_3_MEMBER: {BOT_AMAZON_REPLENISH_GROUP_3},
-    USER_DEV_GROUP_MEMBER: {ALL},
-}
-
-BOT_SKILL_POLICY = {
-    BOT_LXE_CLAW: {ALL},
-    BOT_LXE_FBA_AGENT: {SKILL_TYPE_AMAZON_FBA, SKILL_TYPE_DEFAULT},
-    BOT_AMAZON_REPLENISH: {SKILL_TYPE_AMAZON_REPLENISH, SKILL_TYPE_DEFAULT},
-    BOT_AMAZON_REPLENISH_GROUP_2: {SKILL_TYPE_AMAZON_REPLENISH, SKILL_TYPE_DEFAULT},
-    BOT_AMAZON_REPLENISH_GROUP_3: {SKILL_TYPE_AMAZON_REPLENISH, SKILL_TYPE_DEFAULT},
-}
-
-
-def _clean_text(value: Any) -> str:
-    return str(value or "").strip()
+BOT_ID_TO_KEY = dict(_POLICY.bot_id_to_key)
+USER_AGENT_POLICY = {user_id: set(allowed) for user_id, allowed in _POLICY.user_agent_policy.items()}
+BOT_SKILL_POLICY = {bot_key: set(skill_types) for bot_key, skill_types in _POLICY.bot_skill_policy.items()}
 
 
 def _raw_data(source: Any) -> dict[str, Any]:
@@ -80,13 +64,13 @@ def _extra_data(source: Any) -> dict[str, Any]:
 
 def _source_text(source: Any, name: str) -> str:
     try:
-        return _clean_text(getattr(source, name))
+        return clean_text(getattr(source, name))
     except Exception:
         return ""
 
 
 def bot_key_for_bot_id(bot_id: str) -> str:
-    return BOT_ID_TO_KEY.get(_clean_text(bot_id), "")
+    return BOT_ID_TO_KEY.get(clean_text(bot_id), "")
 
 
 def is_known_bot_id(bot_id: str) -> bool:
@@ -97,8 +81,8 @@ def resolve_permission_user_id(source: Any) -> str:
     raw = _raw_data(source)
     return (
         _source_text(source, "union_id")
-        or _clean_text(raw.get("union_id"))
-        or _clean_text(raw.get("sender_union_id"))
+        or clean_text(raw.get("union_id"))
+        or clean_text(raw.get("sender_union_id"))
     )
 
 
@@ -106,7 +90,7 @@ def can_user_access_bot(user_id: str, bot_id: str) -> bool:
     bot_key = bot_key_for_bot_id(bot_id)
     if not bot_key:
         return False
-    allowed = set(USER_AGENT_POLICY.get(_clean_text(user_id), set()))
+    allowed = set(USER_AGENT_POLICY.get(clean_text(user_id), set()))
     return ALL in allowed or bot_key in allowed
 
 
@@ -121,15 +105,15 @@ def resolve_bot_id(source: Any) -> str:
     raw = _raw_data(source)
     extra = _extra_data(source)
     direct_bot_id = (
-        _clean_text(raw.get("bot_id"))
-        or _clean_text(raw.get("app_id"))
-        or _clean_text(raw.get("bot_app_id"))
-        or _clean_text(extra.get("bot_app_id"))
-        or _clean_text(extra.get("bot_id"))
+        clean_text(raw.get("bot_id"))
+        or clean_text(raw.get("app_id"))
+        or clean_text(raw.get("bot_app_id"))
+        or clean_text(extra.get("bot_app_id"))
+        or clean_text(extra.get("bot_id"))
     )
-    platform = (_source_text(source, "platform") or _clean_text(raw.get("platform"))).lower()
+    platform = (_source_text(source, "platform") or clean_text(raw.get("platform"))).lower()
     if platform == "feishu":
-        return direct_bot_id or _clean_text(FEISHU_APP_ID)
+        return direct_bot_id or clean_text(FEISHU_APP_ID)
 
     return direct_bot_id
 
@@ -147,6 +131,7 @@ __all__ = [
     "BOT_LXE_CLAW",
     "BOT_LXE_FBA_AGENT",
     "BOT_SKILL_POLICY",
+    "PermissionPolicyError",
     "SKILL_TYPE_AMAZON_FBA",
     "SKILL_TYPE_AMAZON_REPLENISH",
     "SKILL_TYPE_DEFAULT",
