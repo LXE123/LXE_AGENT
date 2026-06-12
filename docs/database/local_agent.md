@@ -18,12 +18,12 @@ LXE_SQLITE_DB_PATH
 
 当前 SQLite 表：
 
-- `card_owners`：平台卡片上下文、回调定位、发送结果句柄。
+- `response_routes`：平台响应路由、回调定位、发送结果句柄。
 - `agent_sessions`：agent 会话元数据，包括 `source`、模型信息、创建/活跃时间、消息计数、工具/API/token 计数和标题。
 - `agent_session_pending_events`：后台任务完成事件队列，每个 session 最多 10 条，append/pop 使用显式写事务。
 - `ziniao_store_sessions`：紫鸟店铺浏览器 session 复用状态。
 
-历史表 `agent_contexts` 已在 schema 初始化时删除。`agent_sessions` 不再包含 `status`、`state_data` 或 `pending_events` 列；消息内容存储在每个 session 的 JSONL message 文件中，pending events 存储在 `agent_session_pending_events` 表中。
+旧版本地 SQLite schema 不再自动迁移。`agent_sessions` 不再包含 `status`、`state_data` 或 `pending_events` 列；消息内容存储在每个 session 的 JSONL message 文件中，pending events 存储在 `agent_session_pending_events` 表中。如旧安装启动后出现 SQLite schema 错误，先备份再删除 `user_session_db/local_agent.sqlite3` 重建。
 
 ## PostgreSQL
 
