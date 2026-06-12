@@ -12,7 +12,8 @@ from shared.llm.provider_catalog import (
 def test_provider_catalog_loads_all_provider_json() -> None:
     specs = load_provider_specs()
 
-    assert {"deepseek", "kimi", "kimi_coding", "glm"}.issubset(specs)
+    assert {"deepseek", "kimi_coding", "glm"}.issubset(specs)
+    assert "kimi" not in specs
     for spec in specs.values():
         assert spec.default_model in spec.models
         for model_spec in spec.models.values():
@@ -22,7 +23,6 @@ def test_provider_catalog_loads_all_provider_json() -> None:
 
 def test_provider_aliases_are_normalized_from_catalog() -> None:
     assert normalize_provider_name("deep-seek") == "deepseek"
-    assert normalize_provider_name("moonshot") == "kimi"
     assert normalize_provider_name("kimi-code") == "kimi_coding"
     assert normalize_provider_name("big-model") == "glm"
 
@@ -47,7 +47,8 @@ def test_auth_profile_reads_api_key_from_env_aliases(monkeypatch) -> None:
 
     profiles = load_auth_profiles()
 
-    assert {"deepseek", "kimi", "kimi_coding", "glm"}.issubset(profiles)
+    assert {"deepseek", "kimi_coding", "glm"}.issubset(profiles)
+    assert "kimi" not in profiles
     assert profiles["glm"].env_names == ("GLM_API_KEY", "ZHIPU_API_KEY", "ZHIPUAI_API_KEY")
     assert api_key_for_provider("glm") == "zhipu-key"
 
