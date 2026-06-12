@@ -85,6 +85,40 @@ def _sales_headers() -> list[str]:
     return ["MSKU", "父ASIN", "ASIN", "本地SKU", "7天销量", "14天销量", "30天销量", "销量趋势", "单品重量(g)(cm)"]
 
 
+def _replenishment_row(
+    msku: str,
+    sheet_name: str,
+    *,
+    replenish_quantity: int | None,
+    actual_inventory: float | None,
+) -> repl.ReplenishmentRow:
+    return repl.ReplenishmentRow(
+        msku=msku,
+        parent_asin=f"PARENT-{msku}",
+        asin=f"ASIN-{msku}",
+        local_sku=f"SKU-{msku}",
+        product_link=f"https://example.test/{msku}",
+        sku_type="库存sku",
+        template_name="默认模板",
+        matched_rule="默认规则",
+        sales_trend="平稳",
+        trend_group="平稳",
+        weighted_daily_sales=1,
+        sales_days=10,
+        fba_total_inventory=10,
+        actual_inventory=actual_inventory,
+        weight_grams=100,
+        replenish_days=10 if replenish_quantity is not None else None,
+        replenish_quantity=replenish_quantity,
+        sea_days=None,
+        sea_quantity=None,
+        estimated_weight_kg=None,
+        decision_reason="测试",
+        child_skus="",
+        sheet_name=sheet_name,
+    )
+
+
 def _write_inventory_report(path: Path) -> Path:
     headers = _inventory_headers()
     return _write_workbook(
@@ -234,9 +268,10 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         "source": "mabang_store_msku_replenishment",
     }
     assert report_path.is_file()
-    assert _sheet_names(report_path) == ["链接备货汇总", "空运（急发）", "空运", "海运", "暂不建议发货", "样本不足"]
+    assert _sheet_names(report_path) == ["链接备货汇总", "真实库存不足", "空运（急发）", "空运", "海运", "暂不建议发货", "样本不足"]
     _assert_standard_dimensions(report_path, _sheet_names(report_path))
     assert _headers(report_path, "链接备货汇总")[-1] == "链接真实本地库存汇总"
+    assert _headers(report_path, "真实库存不足") == [*repl.DETAIL_COLUMNS, "运输渠道", "库存缺口"]
     for sheet_name in ["空运（急发）", "空运", "海运", "暂不建议发货", "样本不足"]:
         headers = _headers(report_path, sheet_name)
         assert "真实库存数量" in headers
@@ -278,6 +313,17 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert sample_rows[0]["补货量"] in (None, "")
     assert sample_rows[0]["决策原因"] == "销量趋势为样本不足，不计算备货量"
 
+    shortage_rows = _load_records(report_path, "真实库存不足")
+    assert [row["MSKU"] for row in shortage_rows] == ["SEA-1", "AIR-1", "URGENT-1"]
+    assert [row["运输渠道"] for row in shortage_rows] == ["海运", "空运", "空运（急发）"]
+    assert shortage_rows[0]["库存缺口"] == 520
+    assert shortage_rows[1]["库存缺口"] == 330
+    assert shortage_rows[2]["库存缺口"] == 170
+    assert all(row["MSKU"] not in {"NO-1", "SAMPLE-1"} for row in shortage_rows)
+    assert any(row["MSKU"] == "SEA-1" for row in sea_rows)
+    assert any(row["MSKU"] == "AIR-1" for row in air_rows)
+    assert any(row["MSKU"] == "URGENT-1" for row in urgent_rows)
+
     summary_rows = _load_records(report_path, "链接备货汇总")
     assert summary_rows[0]["父ASIN"] == "PARENT-SEA"
     assert summary_rows[0]["商品链接"] == "http://www.amazon.com/gp/product/PARENT-SEA"
@@ -295,6 +341,26 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert summary_rows[-1]["父ASIN"] == "PARENT-SAMPLE"
     assert summary_rows[-1]["总补货量"] == 0
     assert summary_rows[-1]["涉及运输方式"] == "样本不足"
+
+
+def test_inventory_shortage_rows_only_include_suggested_rows_with_known_shortage() -> None:
+    rows = [
+        _replenishment_row("URGENT", repl.AIR_URGENT_SHEET, replenish_quantity=100, actual_inventory=20),
+        _replenishment_row("AIR", repl.AIR_SHEET, replenish_quantity=100, actual_inventory=99.5),
+        _replenishment_row("SEA", repl.SEA_SHEET, replenish_quantity=100, actual_inventory=80),
+        _replenishment_row("ENOUGH", repl.AIR_SHEET, replenish_quantity=100, actual_inventory=100),
+        _replenishment_row("UNKNOWN", repl.AIR_SHEET, replenish_quantity=100, actual_inventory=None),
+        _replenishment_row("NO-SHIP", repl.NO_SHIP_SHEET, replenish_quantity=100, actual_inventory=0),
+        _replenishment_row("SAMPLE", repl.SAMPLE_INSUFFICIENT_SHEET, replenish_quantity=None, actual_inventory=0),
+    ]
+
+    shortage_rows = repl.inventory_shortage_rows(rows)
+
+    assert [row["MSKU"] for row in shortage_rows] == ["URGENT", "AIR", "SEA"]
+    assert [row["运输渠道"] for row in shortage_rows] == ["空运（急发）", "空运", "海运"]
+    assert shortage_rows[0]["库存缺口"] == 80
+    assert shortage_rows[1]["库存缺口"] == 0.5
+    assert shortage_rows[2]["库存缺口"] == 20
 
 
 def test_parse_weight_grams_uses_first_number() -> None:

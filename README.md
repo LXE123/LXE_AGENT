@@ -1,6 +1,6 @@
-# LXE Agent Local FBA
+# LXE Agent
 
-本项目是 LXE 内部使用的本地 FBA agent。它通过飞书机器人接收业务请求，
+本项目是 LXE 内部使用的本地 agent。它通过飞书机器人接收业务请求，
 调用本机浏览器、ERP、物流和表格处理能力，并提供本地 Dashboard 查看会话状态。
 
 ## 核心能力

@@ -31,6 +31,7 @@ SALES_REPORT_RE = re.compile(r"^(?P<source_time>\d{12})-(?P<store>.+)_sales_anal
 INVENTORY_REPORT_RE = re.compile(r"^(?P<source_time>\d{12})-(?P<store>.+)_actual_inventory\.xlsx$", re.IGNORECASE)
 DETAIL_SHEET = "MSKU明细"
 SUMMARY_SHEET = "链接备货汇总"
+INVENTORY_SHORTAGE_SHEET = "真实库存不足"
 AIR_URGENT_SHEET = "空运（急发）"
 AIR_SHEET = "空运"
 SEA_SHEET = "海运"
@@ -39,6 +40,7 @@ SAMPLE_INSUFFICIENT_SHEET = "样本不足"
 INVENTORY_SHEETS = ("真实库存-组合sku", "真实库存-库存sku")
 REPORT_SHEETS = (
     SUMMARY_SHEET,
+    INVENTORY_SHORTAGE_SHEET,
     AIR_URGENT_SHEET,
     AIR_SHEET,
     SEA_SHEET,
@@ -69,6 +71,7 @@ DETAIL_COLUMNS = (
     "决策原因",
     "子SKU",
 )
+INVENTORY_SHORTAGE_COLUMNS = (*DETAIL_COLUMNS, "运输渠道", "库存缺口")
 SUMMARY_COLUMNS = (
     "父ASIN",
     "商品链接",
@@ -108,8 +111,29 @@ SALES_REQUIRED_COLUMNS = (
     "单品重量(g)(cm)",
 )
 TRANSPORT_ORDER = (AIR_URGENT_SHEET, AIR_SHEET, SEA_SHEET, NO_SHIP_SHEET, SAMPLE_INSUFFICIENT_SHEET)
-TWO_DECIMAL_COLUMNS = {"加权日销", "可销售天数", "FBA总库存", "真实库存数量", "单品重量(g)", "预计总重量kg", "最大加权日销", "合计加权日销", "最小可销售天数", "链接真实本地库存汇总"}
-INTEGER_COLUMNS = {"MSKU数", "总补货量", "空运（急发）补货量", "空运补货量", "海运建议量", "补货天数", "补货量", "海运天数"}
+TWO_DECIMAL_COLUMNS = {
+    "加权日销",
+    "可销售天数",
+    "FBA总库存",
+    "真实库存数量",
+    "单品重量(g)",
+    "预计总重量kg",
+    "最大加权日销",
+    "合计加权日销",
+    "最小可销售天数",
+    "链接真实本地库存汇总",
+    "库存缺口",
+}
+INTEGER_COLUMNS = {
+    "MSKU数",
+    "总补货量",
+    "空运（急发）补货量",
+    "空运补货量",
+    "海运建议量",
+    "补货天数",
+    "补货量",
+    "海运天数",
+}
 WEIGHT_RE = re.compile(r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?|[-+]?\d+(?:\.\d+)?")
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -789,6 +813,26 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
     return sorted(summaries, key=lambda item: (-int(item["总补货量"]), groups[item["父ASIN"]]["_order"]))
 
 
+def _inventory_shortage_payload(row: ReplenishmentRow) -> dict[str, Any] | None:
+    if row.sheet_name not in {AIR_URGENT_SHEET, AIR_SHEET, SEA_SHEET}:
+        return None
+    if row.actual_inventory is None or row.replenish_quantity is None:
+        return None
+    shortage_quantity = row.replenish_quantity - row.actual_inventory
+    if shortage_quantity <= 0:
+        return None
+    return {
+        **row.to_detail_payload(),
+        "运输渠道": row.sheet_name,
+        "库存缺口": _display_float(shortage_quantity),
+    }
+
+
+def inventory_shortage_rows(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
+    shortages = [_inventory_shortage_payload(row) for row in rows]
+    return [row for row in shortages if row is not None]
+
+
 def _write_table(worksheet: Any, headers: tuple[str, ...], rows: list[dict[str, Any]]) -> None:
     worksheet.append(list(headers))
     for row in rows:
@@ -829,6 +873,11 @@ def write_replenishment_report(rows: list[ReplenishmentRow], report_path: str | 
     try:
         specs: list[tuple[str, tuple[str, ...], list[dict[str, Any]]]] = [
             (SUMMARY_SHEET, SUMMARY_COLUMNS, summarize_links(rows)),
+            (
+                INVENTORY_SHORTAGE_SHEET,
+                INVENTORY_SHORTAGE_COLUMNS,
+                sorted(inventory_shortage_rows(rows), key=_shortage_sort_key),
+            ),
             *[
                 (
                     sheet_name,
@@ -857,6 +906,10 @@ def write_replenishment_report(rows: list[ReplenishmentRow], report_path: str | 
 def _detail_sort_key(row: ReplenishmentRow) -> tuple[int, str, str]:
     quantity = row.replenish_quantity or row.sea_quantity or 0
     return (-quantity, row.parent_asin, row.msku)
+
+
+def _shortage_sort_key(row: dict[str, Any]) -> tuple[float, str, str]:
+    return (-float(row.get("库存缺口") or 0), _clean_text(row.get("父ASIN")), _clean_text(row.get("MSKU")))
 
 
 def calculate_store_msku_replenishment(
@@ -903,6 +956,8 @@ __all__ = [
     "AIR_SHEET",
     "AIR_URGENT_SHEET",
     "DETAIL_COLUMNS",
+    "INVENTORY_SHORTAGE_COLUMNS",
+    "INVENTORY_SHORTAGE_SHEET",
     "NO_SHIP_SHEET",
     "REPORT_SHEETS",
     "SAMPLE_INSUFFICIENT_SHEET",
@@ -919,6 +974,7 @@ __all__ = [
     "calculate_replenishment_rows",
     "calculate_store_msku_replenishment",
     "find_matching_report_files",
+    "inventory_shortage_rows",
     "load_inventory_rows",
     "load_sales_details",
     "normalize_store_name",
