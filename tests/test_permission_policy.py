@@ -15,6 +15,7 @@ from shared.permission_policy import (
     SKILL_TYPE_AMAZON_REPLENISH,
     SKILL_TYPE_DEFAULT,
     USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
+    USER_AMAZON_REPLENISH_GROUP_2_MEMBER,
     USER_AMAZON_REPLENISH_GROUP_3_MEMBER,
     USER_DEV_GROUP_MEMBER,
     USER_LYX,
@@ -61,6 +62,18 @@ def test_policy_user_access_matrix() -> None:
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_1_MEMBER, BOT_ID_LXE_FBA_AGENT)
 
     assert can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_2_MEMBER,
+        BOT_ID_AMAZON_REPLENISH_GROUP_2,
+    )
+    assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_2_MEMBER, BOT_ID_AMAZON_REPLENISH)
+    assert not can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_2_MEMBER,
+        BOT_ID_AMAZON_REPLENISH_GROUP_3,
+    )
+    assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_2_MEMBER, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_2_MEMBER, BOT_ID_LXE_FBA_AGENT)
+
+    assert can_user_access_bot(
         USER_AMAZON_REPLENISH_GROUP_3_MEMBER,
         BOT_ID_AMAZON_REPLENISH_GROUP_3,
     )
@@ -87,10 +100,11 @@ def test_policy_user_access_matrix() -> None:
             USER_ZGL,
             USER_ZQY,
             USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
+            USER_AMAZON_REPLENISH_GROUP_2_MEMBER,
             USER_AMAZON_REPLENISH_GROUP_3_MEMBER,
             USER_DEV_GROUP_MEMBER,
         }
-    ) == 6
+    ) == 7
     assert not can_user_access_bot("unknown_union_id", BOT_ID_LXE_FBA_AGENT)
     assert not can_user_access_bot(USER_LYX, "cli_unknown")
     assert not is_known_bot_id("cli_unknown")
