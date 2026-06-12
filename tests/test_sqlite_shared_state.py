@@ -121,8 +121,47 @@ def _create_session(
     )
 
 
-def test_route_payloads_accept_legacy_card_id_but_emit_response_route_id() -> None:
+def test_route_payloads_use_response_route_id_without_card_id_alias() -> None:
     job = AgentJob.from_dict(
+        {
+            "job_id": "job-1",
+            "session_id": "session-1",
+            "session_key": "key-1",
+            "response_route_id": "route-1",
+            "user_id": "user-1",
+            "conversation_id": "chat-1",
+            "is_group": True,
+            "message_id": "msg-1",
+            "user_input": "hello",
+        }
+    )
+    emit = EmitRequest.from_dict(
+        {
+            "session_id": "session-1",
+            "response_route_id": "route-1",
+            "files": ["artifact.csv"],
+            "emit_kind": "tool",
+        }
+    )
+    heartbeat = HeartbeatWakeRequest.from_dict(
+        {
+            "session_id": "session-1",
+            "reason": "exec-event",
+            "response_route_id": "route-1",
+        }
+    )
+
+    assert job.response_route_id == "route-1"
+    assert emit.response_route_id == "route-1"
+    assert heartbeat.response_route_id == "route-1"
+    assert "card_id" not in job.to_dict()
+    assert "card_id" not in emit.to_dict()
+    assert "card_id" not in heartbeat.to_dict()
+    assert job.to_dict()["response_route_id"] == "route-1"
+    assert emit.to_dict()["response_route_id"] == "route-1"
+    assert heartbeat.to_dict()["response_route_id"] == "route-1"
+
+    legacy_job = AgentJob.from_dict(
         {
             "job_id": "job-1",
             "session_id": "session-1",
@@ -135,31 +174,16 @@ def test_route_payloads_accept_legacy_card_id_but_emit_response_route_id() -> No
             "user_input": "hello",
         }
     )
-    emit = EmitRequest.from_dict(
-        {
-            "session_id": "session-1",
-            "card_id": "legacy-route",
-            "files": ["artifact.csv"],
-            "emit_kind": "tool",
-        }
+    legacy_emit = EmitRequest.from_dict(
+        {"session_id": "session-1", "card_id": "legacy-route"}
     )
-    heartbeat = HeartbeatWakeRequest.from_dict(
-        {
-            "session_id": "session-1",
-            "reason": "exec-event",
-            "card_id": "legacy-route",
-        }
+    legacy_heartbeat = HeartbeatWakeRequest.from_dict(
+        {"session_id": "session-1", "reason": "exec-event", "card_id": "legacy-route"}
     )
 
-    assert job.response_route_id == "legacy-route"
-    assert emit.response_route_id == "legacy-route"
-    assert heartbeat.response_route_id == "legacy-route"
-    assert "card_id" not in job.to_dict()
-    assert "card_id" not in emit.to_dict()
-    assert "card_id" not in heartbeat.to_dict()
-    assert job.to_dict()["response_route_id"] == "legacy-route"
-    assert emit.to_dict()["response_route_id"] == "legacy-route"
-    assert heartbeat.to_dict()["response_route_id"] == "legacy-route"
+    assert legacy_job.response_route_id == ""
+    assert legacy_emit.response_route_id == ""
+    assert legacy_heartbeat.response_route_id == ""
 
 
 def test_send_file_to_current_session_passes_response_route_id(tmp_path):

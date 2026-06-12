@@ -151,9 +151,7 @@ def _payload_from_job(job: Any) -> dict[str, Any]:
         return dict(payload or {})
     return {
         "session_id": str(getattr(job, "session_id", "") or "").strip(),
-        "response_route_id": str(
-            getattr(job, "response_route_id", "") or getattr(job, "card_id", "") or ""
-        ).strip(),
+        "response_route_id": str(getattr(job, "response_route_id", "") or "").strip(),
         "session_key": str(getattr(job, "session_key", "") or "").strip(),
         "source": dict(getattr(job, "source", {}) or {}),
         "user_text": str(getattr(job, "user_input", "") or "").strip(),
@@ -173,7 +171,7 @@ async def handle_unified_turn_job(
 ) -> Any:
     payload = _payload_from_job(job)
     session_id = str(payload.get("session_id") or "").strip()
-    response_route_id = str(payload.get("response_route_id") or payload.get("card_id") or "").strip()
+    response_route_id = str(payload.get("response_route_id") or "").strip()
     user_text = str(payload.get("user_text") or "").strip()
     original_user_text = user_text
     job_id = str(getattr(job, "job_id", "") or payload.get("job_id") or "").strip()

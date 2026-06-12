@@ -66,9 +66,9 @@ def _to_session_context(
         platform=str(source.platform or event.platform or "").strip(),
         user_input=str(event.user_input or "").strip(),
         user_id=str(source.user_key or event.user_id or "").strip(),
-        response_route_id=str(
-            getattr(event, "response_route_id", "") or getattr(event, "card_id", "") or ""
-        ).strip() or uuid.uuid4().hex,
+        response_route_id=(
+            str(getattr(event, "response_route_id", "") or "").strip() or uuid.uuid4().hex
+        ),
         conversation_id=str(source.chat_id or event.conversation_id or "").strip(),
         is_group=str(source.chat_type or "").strip().lower() == "group",
         message_id=str(event.message_id or source.message_id or "").strip(),

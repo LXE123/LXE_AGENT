@@ -100,9 +100,7 @@ def _to_context(row: Row) -> ResponseRouteContext:
 
 
 def create_context(ctx: Any) -> None:
-    response_route_id = str(
-        getattr(ctx, "response_route_id", "") or getattr(ctx, "card_id", "") or ""
-    ).strip()
+    response_route_id = str(getattr(ctx, "response_route_id", "") or "").strip()
     if not response_route_id or not getattr(ctx, "user_id", None):
         return
 
