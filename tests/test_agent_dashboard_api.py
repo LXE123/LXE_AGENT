@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 
 import pytest
@@ -12,11 +13,14 @@ from agent_runtime.tools.process_sessions import (
     clear_exec_sessions_for_tests,
     get_exec_session_registry,
 )
+from gateway.dashboard import api as dashboard_api
 from gateway.dashboard.api import create_dashboard_app
 from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY
 from shared.db.sqlite.agent_sessions import create_agent_session, update_agent_session
 from shared.db.sqlite.bootstrap import init_schema
 from shared.db.sqlite.session_messages import session_messages_path
+from shared.env import upsert_project_env_values
+from shared.llm import runtime_config as runtime_settings
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +36,24 @@ def dashboard_client(monkeypatch, tmp_path):
     monkeypatch.setenv("AGENT_SESSION_BINDINGS_PATH", str(tmp_path / "sessions.json"))
     init_schema()
     return TestClient(create_dashboard_app())
+
+
+def _configure_kimi_current_model(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_LLM_PROVIDER", "kimi_coding")
+    monkeypatch.setenv("AGENT_LLM_MODEL", "kimi-for-coding")
+    monkeypatch.setenv("AGENT_LLM_THINKING_ENABLED", "0")
+    monkeypatch.setenv("AGENT_LLM_THINKING_EFFORT", "low")
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_PROVIDER", "kimi_coding")
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_MODEL", "kimi-for-coding")
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_ENABLED", False)
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", "low")
+
+
+def _redirect_dashboard_env_writes(monkeypatch, env_path):
+    def write_env(values):
+        upsert_project_env_values(values, path=env_path)
+
+    monkeypatch.setattr(dashboard_api, "upsert_project_env_values", write_env)
 
 
 def _state(messages: list[dict] | None = None) -> dict:
@@ -296,9 +318,16 @@ def test_models_endpoint_does_not_expose_api_keys(dashboard_client):
     assert "api_key" not in serialized
     assert "api-key" not in serialized.lower()
     assert all("configured" in item for item in payload["items"])
+    kimi = next(item for item in payload["items"] if item["provider"] == "kimi_coding")
+    assert kimi["thinking_request_style"] == "anthropic-budget"
+    assert kimi["thinking_levels"] == ["off", "low"]
+    assert kimi["thinking_level_labels"]["low"] == "on"
+    assert kimi["thinking_default"] == "off"
 
 
-def test_current_model_endpoint_returns_capabilities(dashboard_client):
+def test_current_model_endpoint_returns_capabilities(dashboard_client, monkeypatch):
+    _configure_kimi_current_model(monkeypatch)
+
     response = dashboard_client.get("/api/models/current")
 
     assert response.status_code == 200
@@ -308,6 +337,98 @@ def test_current_model_endpoint_returns_capabilities(dashboard_client):
     assert payload["capabilities"]["context_window_tokens"] > 0
     assert payload["capabilities"]["max_tokens"] > 0
     assert payload["capabilities"]["max_output_tokens"] == payload["capabilities"]["max_tokens"]
+    assert payload["thinking_state"] == {
+        "enabled": False,
+        "level": "off",
+        "label": "off",
+        "editable": True,
+    }
+
+
+def test_current_model_thinking_patch_updates_runtime_and_env(dashboard_client, monkeypatch, tmp_path):
+    _configure_kimi_current_model(monkeypatch)
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "SECRET_TOKEN=keep-me\n"
+        "# keep this comment\n"
+        "AGENT_LLM_THINKING_ENABLED=0\n",
+        encoding="utf-8",
+    )
+    _redirect_dashboard_env_writes(monkeypatch, env_path)
+
+    response = dashboard_client.patch("/api/models/current/thinking", json={"level": "low"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["thinking_state"] == {
+        "enabled": True,
+        "level": "low",
+        "label": "on",
+        "editable": True,
+    }
+    assert runtime_settings.AGENT_LLM_THINKING_ENABLED is True
+    assert runtime_settings.AGENT_LLM_THINKING_EFFORT == "low"
+    assert os.environ["AGENT_LLM_THINKING_ENABLED"] == "1"
+    assert os.environ["AGENT_LLM_THINKING_EFFORT"] == "low"
+    env_text = env_path.read_text(encoding="utf-8")
+    assert "SECRET_TOKEN=keep-me\n" in env_text
+    assert "# keep this comment\n" in env_text
+    assert "AGENT_LLM_THINKING_ENABLED=1\n" in env_text
+    assert "AGENT_LLM_THINKING_EFFORT=low\n" in env_text
+
+    response = dashboard_client.patch("/api/models/current/thinking", json={"level": "off"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["thinking_state"]["level"] == "off"
+    assert payload["thinking_state"]["enabled"] is False
+    assert runtime_settings.AGENT_LLM_THINKING_ENABLED is False
+    assert os.environ["AGENT_LLM_THINKING_ENABLED"] == "0"
+    assert "AGENT_LLM_THINKING_ENABLED=0\n" in env_path.read_text(encoding="utf-8")
+
+
+def test_current_model_thinking_patch_rejects_invalid_level_without_env_write(
+    dashboard_client,
+    monkeypatch,
+    tmp_path,
+):
+    _configure_kimi_current_model(monkeypatch)
+    env_path = tmp_path / ".env"
+    env_path.write_text("AGENT_LLM_THINKING_ENABLED=0\n", encoding="utf-8")
+    before = env_path.read_text(encoding="utf-8")
+    _redirect_dashboard_env_writes(monkeypatch, env_path)
+
+    response = dashboard_client.patch("/api/models/current/thinking", json={"level": "high"})
+
+    assert response.status_code == 400
+    assert env_path.read_text(encoding="utf-8") == before
+    assert runtime_settings.AGENT_LLM_THINKING_ENABLED is False
+    assert os.environ["AGENT_LLM_THINKING_ENABLED"] == "0"
+
+
+def test_project_env_upsert_preserves_existing_content(tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "# local env\n"
+        "SECRET_TOKEN=keep-me\n"
+        "export AGENT_LLM_THINKING_ENABLED=0\n",
+        encoding="utf-8",
+    )
+
+    upsert_project_env_values(
+        {
+            "AGENT_LLM_THINKING_ENABLED": "1",
+            "AGENT_LLM_THINKING_EFFORT": "low",
+        },
+        path=env_path,
+    )
+
+    assert env_path.read_text(encoding="utf-8") == (
+        "# local env\n"
+        "SECRET_TOKEN=keep-me\n"
+        "export AGENT_LLM_THINKING_ENABLED=1\n"
+        "AGENT_LLM_THINKING_EFFORT=low\n"
+    )
 
 
 def test_toolsets_endpoint_lists_registered_tools_without_handlers(dashboard_client):

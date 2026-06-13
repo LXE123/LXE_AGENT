@@ -5,11 +5,6 @@
       "env_names": ["DEEPSEEK_API"],
       "required": true
     },
-    "kimi": {
-      "type": "api_key",
-      "env_names": ["KIMI_API_KEY", "MOONSHOT_API_KEY"],
-      "required": true
-    },
     "kimi_coding": {
       "type": "api_key",
       "env_names": ["KIMI_CODE_API_KEY"],

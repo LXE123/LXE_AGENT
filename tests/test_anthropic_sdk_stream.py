@@ -90,6 +90,10 @@ def _descriptor() -> ProviderDescriptor:
         api_key="kimi-key",
         base_url="https://api.kimi.test/coding/",
         default_model="kimi-for-coding",
+        thinking_request_style="anthropic-budget",
+        thinking_levels=("off", "low"),
+        thinking_level_labels={"low": "on"},
+        thinking_default="off",
         default_headers={"User-Agent": "claude-code/0.1.0"},
     )
 
@@ -104,6 +108,31 @@ def _non_kimi_descriptor() -> ProviderDescriptor:
         default_model="glm-5v-turbo",
         default_headers={"anthropic-version": "2023-06-01"},
     )
+
+
+def _thinking_descriptor(style: str, *, max_tokens: int = 32768) -> ProviderDescriptor:
+    return ProviderDescriptor(
+        name=f"fake_{style}",
+        label="Fake Anthropic",
+        api_style="anthropic-messages",
+        api_key="anthropic-key",
+        base_url="https://api.anthropic.test",
+        default_model="claude-test",
+        max_tokens=max_tokens,
+        thinking_request_style=style,
+    )
+
+
+def _set_thinking_config(
+    monkeypatch,
+    *,
+    enabled: bool,
+    effort: str = "medium",
+    display: str = "omitted",
+) -> None:
+    monkeypatch.setattr(anthropic_sdk_stream.runtime_settings, "AGENT_LLM_THINKING_ENABLED", enabled)
+    monkeypatch.setattr(anthropic_sdk_stream.runtime_settings, "AGENT_LLM_THINKING_EFFORT", effort)
+    monkeypatch.setattr(anthropic_sdk_stream.runtime_settings, "AGENT_LLM_THINKING_DISPLAY", display)
 
 
 def _install_fake_sdk(monkeypatch, events: list[Any]) -> None:
@@ -150,6 +179,7 @@ def test_sdk_stream_request_shape_and_direct_events(monkeypatch) -> None:
         _obj(type="message_delta", delta=_obj(stop_reason="tool_use"), usage=_obj(output_tokens=7)),
         _obj(type="message_stop"),
     ]
+    _set_thinking_config(monkeypatch, enabled=False, effort="low")
     _install_fake_sdk(monkeypatch, events)
 
     parsed = list(
@@ -177,7 +207,8 @@ def test_sdk_stream_request_shape_and_direct_events(monkeypatch) -> None:
     assert create_kwargs["stream"] is True
     assert create_kwargs["tool_choice"] == {"type": "auto"}
     assert create_kwargs["timeout"] == 11.0
-    assert "thinking" not in create_kwargs
+    assert create_kwargs["thinking"] == {"type": "disabled"}
+    assert "output_config" not in create_kwargs
     assert all(isinstance(event, LLMStreamEvent) for event in parsed)
     assert [event.event_type for event in parsed] == [
         "message_start",
@@ -324,6 +355,236 @@ def test_sdk_stream_omits_tools_when_none(monkeypatch) -> None:
     assert create_kwargs["max_tokens"] == 4096
     assert "tools" not in create_kwargs
     assert create_kwargs["tool_choice"] == {"type": "none"}
+
+
+@pytest.mark.parametrize(
+    ("enabled", "effort"),
+    [
+        (False, "low"),
+        (True, "off"),
+    ],
+)
+def test_sdk_stream_kimi_thinking_disabled_sends_disabled_payload(
+    monkeypatch,
+    enabled: bool,
+    effort: str,
+) -> None:
+    _set_thinking_config(monkeypatch, enabled=enabled, effort=effort, display="summarized")
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_descriptor(),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=4096,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    create_kwargs = _RECORDER["create_kwargs"]
+    assert create_kwargs["thinking"] == {"type": "disabled"}
+    assert "output_config" not in create_kwargs
+
+
+def test_sdk_stream_kimi_thinking_enabled_uses_low_budget(monkeypatch) -> None:
+    _set_thinking_config(monkeypatch, enabled=True, effort="low")
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_descriptor(),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=4096,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    create_kwargs = _RECORDER["create_kwargs"]
+    assert create_kwargs["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 4000,
+    }
+    assert "output_config" not in create_kwargs
+
+
+@pytest.mark.parametrize("effort", ["medium", "high", "xhigh"])
+def test_sdk_stream_kimi_thinking_non_binary_efforts_fall_back_to_low(
+    monkeypatch,
+    effort: str,
+) -> None:
+    _set_thinking_config(monkeypatch, enabled=True, effort=effort)
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_descriptor(),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=64000,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    create_kwargs = _RECORDER["create_kwargs"]
+    assert create_kwargs["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 4000,
+    }
+    assert "output_config" not in create_kwargs
+
+
+def test_sdk_stream_provider_managed_thinking_omits_request_payload(monkeypatch) -> None:
+    _set_thinking_config(monkeypatch, enabled=True, effort="xhigh", display="summarized")
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_thinking_descriptor("provider-managed"),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=4096,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    create_kwargs = _RECORDER["create_kwargs"]
+    assert "thinking" not in create_kwargs
+    assert "output_config" not in create_kwargs
+
+
+def test_sdk_stream_adaptive_thinking_payload(monkeypatch) -> None:
+    _set_thinking_config(monkeypatch, enabled=True, effort="high", display="summarized")
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_thinking_descriptor("anthropic-adaptive"),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=4096,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    create_kwargs = _RECORDER["create_kwargs"]
+    assert create_kwargs["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert create_kwargs["output_config"] == {"effort": "high"}
+
+
+@pytest.mark.parametrize(
+    ("effort", "budget_tokens"),
+    [
+        ("low", 4000),
+        ("medium", 8000),
+        ("high", 16000),
+        ("xhigh", 32000),
+    ],
+)
+def test_sdk_stream_budget_thinking_maps_effort_to_tokens(
+    monkeypatch,
+    effort: str,
+    budget_tokens: int,
+) -> None:
+    _set_thinking_config(monkeypatch, enabled=True, effort=effort)
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_thinking_descriptor("anthropic-budget", max_tokens=64000),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=64000,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    assert _RECORDER["create_kwargs"]["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": budget_tokens,
+    }
+    assert "output_config" not in _RECORDER["create_kwargs"]
+
+
+def test_sdk_stream_budget_thinking_invalid_effort_falls_back_to_medium(monkeypatch) -> None:
+    _set_thinking_config(monkeypatch, enabled=True, effort="wild")
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_thinking_descriptor("anthropic-budget"),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=64000,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    assert _RECORDER["create_kwargs"]["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 8000,
+    }
+
+
+def test_sdk_stream_budget_thinking_clamps_or_skips_for_low_max_tokens(monkeypatch) -> None:
+    _set_thinking_config(monkeypatch, enabled=True, effort="medium")
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_thinking_descriptor("anthropic-budget"),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=5000,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    assert _RECORDER["create_kwargs"]["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 3976,
+    }
+
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_thinking_descriptor("anthropic-budget"),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=1024,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    assert "thinking" not in _RECORDER["create_kwargs"]
 
 
 @pytest.mark.parametrize(

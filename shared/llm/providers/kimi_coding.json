@@ -18,7 +18,13 @@
       "max_tokens": 32768,
       "supports_vision": true,
       "supports_thinking": true,
-      "supports_temperature": false
+      "supports_temperature": false,
+      "thinking_request_style": "anthropic-budget",
+      "thinking_levels": ["off", "low"],
+      "thinking_level_labels": {
+        "low": "on"
+      },
+      "thinking_default": "off"
     }
   }
 }

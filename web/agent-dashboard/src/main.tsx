@@ -36,12 +36,24 @@ type CapabilityPayload = {
   supports_temperature: boolean;
 };
 
+type ThinkingStatePayload = {
+  enabled: boolean;
+  level: string;
+  label: string;
+  editable: boolean;
+};
+
 type ModelPayload = {
   provider: string;
   label: string;
   api_style: string;
   model: string;
   configured: boolean;
+  thinking_request_style: string;
+  thinking_levels: string[];
+  thinking_level_labels: Record<string, string>;
+  thinking_default: string;
+  thinking_state: ThinkingStatePayload;
   capabilities: CapabilityPayload;
 };
 
@@ -174,6 +186,57 @@ async function fetchJson<T>(path: string): Promise<T> {
     throw new Error(`${response.status} ${response.statusText}`);
   }
   return (await response.json()) as T;
+}
+
+async function patchJson<T>(path: string, payload: Record<string, unknown>): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const body = (await response.json()) as { detail?: unknown };
+      if (body.detail) {
+        detail = String(body.detail);
+      }
+    } catch {
+      // Keep the HTTP status fallback.
+    }
+    throw new Error(detail);
+  }
+  return (await response.json()) as T;
+}
+
+function modelWithThinkingLevel(model: ModelPayload, level: "off" | "low"): ModelPayload {
+  const enabled = level === "low";
+  const label = enabled ? model.thinking_level_labels.low || "on" : "off";
+  return {
+    ...model,
+    thinking_state: {
+      enabled,
+      level,
+      label,
+      editable: Boolean(model.thinking_state?.editable)
+    }
+  };
+}
+
+function dataWithCurrentModel(current: DashboardData, model: ModelPayload): DashboardData {
+  return {
+    ...current,
+    currentModel: model,
+    models: {
+      ...current.models,
+      items: current.models.items.map((item) =>
+        item.provider === model.provider && item.model === model.model ? { ...item, ...model } : item
+      )
+    }
+  };
 }
 
 function formatDate(value: number): string {
@@ -1250,6 +1313,7 @@ function App() {
   const [sessionDetailPageLoading, setSessionDetailPageLoading] = useState(false);
   const [sessionDetailError, setSessionDetailError] = useState("");
   const [sessionDetailPageError, setSessionDetailPageError] = useState("");
+  const [thinkingSaving, setThinkingSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1348,6 +1412,25 @@ function App() {
     setSessionDetailPageLoading(false);
   }
 
+  async function setCurrentThinkingLevel(level: "off" | "low") {
+    if (!data?.currentModel || thinkingSaving || !data.currentModel.thinking_state?.editable) {
+      return;
+    }
+    const previousData = data;
+    setThinkingSaving(true);
+    setError("");
+    setData(dataWithCurrentModel(data, modelWithThinkingLevel(data.currentModel, level)));
+    try {
+      const currentModel = await patchJson<ModelPayload>("/api/models/current/thinking", { level });
+      setData((current) => (current ? dataWithCurrentModel(current, currentModel) : current));
+    } catch (err) {
+      setData(previousData);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setThinkingSaving(false);
+    }
+  }
+
   const totalTokens = (data?.sessions.items || []).reduce(
     (sum, session) => sum + session.input_tokens + session.output_tokens,
     0
@@ -1420,11 +1503,31 @@ function App() {
             ))}
           </nav>
           <div className="current-model-card">
-            <Clock3 size={16} />
-            <div>
-              <strong>{data?.currentModel?.label || "Model"}</strong>
-              <span>{data?.currentModel?.provider || "-"}</span>
+            <div className="current-model-summary">
+              <Clock3 size={16} />
+              <div className="current-model-copy">
+                <strong>{data?.currentModel?.label || "Model"}</strong>
+                <span>{data?.currentModel?.provider || "-"}</span>
+              </div>
             </div>
+            {data?.currentModel?.thinking_state?.editable ? (
+              <div className="thinking-toggle-row">
+                <span className="thinking-label">Thinking</span>
+                <button
+                  aria-label="Toggle Kimi Coding thinking"
+                  aria-pressed={data.currentModel.thinking_state.enabled}
+                  className={data.currentModel.thinking_state.enabled ? "thinking-switch active" : "thinking-switch"}
+                  disabled={thinkingSaving}
+                  onClick={() => setCurrentThinkingLevel(data.currentModel?.thinking_state.enabled ? "off" : "low")}
+                  type="button"
+                >
+                  <span className="thinking-switch-knob" />
+                </button>
+                <span className="thinking-status">
+                  {data.currentModel.thinking_state.enabled ? "On" : "Off"}
+                </span>
+              </div>
+            ) : null}
           </div>
         </aside>
 

@@ -12,7 +12,8 @@
       "max_tokens": 32768,
       "supports_vision": false,
       "supports_thinking": false,
-      "supports_temperature": true
+      "supports_temperature": true,
+      "thinking_request_style": "none"
     }
   }
 }
