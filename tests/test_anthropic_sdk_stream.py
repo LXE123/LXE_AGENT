@@ -415,6 +415,32 @@ def test_sdk_stream_kimi_thinking_enabled_uses_low_budget(monkeypatch) -> None:
     assert "output_config" not in create_kwargs
 
 
+def test_sdk_stream_kimi_thinking_defaults_enabled_to_low_budget(monkeypatch) -> None:
+    monkeypatch.delattr(anthropic_sdk_stream.runtime_settings, "AGENT_LLM_THINKING_ENABLED", raising=False)
+    monkeypatch.delattr(anthropic_sdk_stream.runtime_settings, "AGENT_LLM_THINKING_EFFORT", raising=False)
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_descriptor(),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=4096,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    create_kwargs = _RECORDER["create_kwargs"]
+    assert create_kwargs["thinking"] == {
+        "type": "enabled",
+        "budget_tokens": 4000,
+    }
+    assert "output_config" not in create_kwargs
+
+
 @pytest.mark.parametrize("effort", ["medium", "high", "xhigh"])
 def test_sdk_stream_kimi_thinking_non_binary_efforts_fall_back_to_low(
     monkeypatch,

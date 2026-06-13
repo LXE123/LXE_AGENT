@@ -101,7 +101,7 @@ def _is_editable_binary_thinking_descriptor(descriptor) -> bool:
 
 def _thinking_state_payload(descriptor) -> dict[str, Any]:
     editable = _is_editable_binary_thinking_descriptor(descriptor)
-    enabled = bool(getattr(runtime_settings, _THINKING_ENABLED_ENV, False))
+    enabled = bool(getattr(runtime_settings, _THINKING_ENABLED_ENV, True))
     effort = str(getattr(runtime_settings, _THINKING_EFFORT_ENV, "low") or "low").strip().lower()
     labels = dict(getattr(descriptor, "thinking_level_labels", {}) or {})
     if editable:

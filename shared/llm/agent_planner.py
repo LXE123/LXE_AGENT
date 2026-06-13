@@ -38,7 +38,7 @@ def _set_active_agent_planner(provider_name: str, model_name: str) -> None:
 
 
 def _current_agent_thinking_enabled() -> bool:
-    return bool(getattr(runtime_settings, _THINKING_ENABLED_ENV, False))
+    return bool(getattr(runtime_settings, _THINKING_ENABLED_ENV, True))
 
 
 def _set_agent_thinking_enabled(enabled: bool) -> None:

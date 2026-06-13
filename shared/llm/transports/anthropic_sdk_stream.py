@@ -80,7 +80,7 @@ def _int_value(value: Any, default: int = 0) -> int:
 
 
 def _thinking_enabled() -> bool:
-    return bool(getattr(runtime_settings, "AGENT_LLM_THINKING_ENABLED", False))
+    return bool(getattr(runtime_settings, "AGENT_LLM_THINKING_ENABLED", True))
 
 
 def _normalized_thinking_effort() -> str:

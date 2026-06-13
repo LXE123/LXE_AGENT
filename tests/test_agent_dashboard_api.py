@@ -50,6 +50,17 @@ def _configure_kimi_current_model(monkeypatch) -> None:
     monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", "low")
 
 
+def _configure_kimi_current_model_default_thinking(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_LLM_PROVIDER", "kimi_coding")
+    monkeypatch.setenv("AGENT_LLM_MODEL", "kimi-for-coding")
+    monkeypatch.delenv("AGENT_LLM_THINKING_ENABLED", raising=False)
+    monkeypatch.delenv("AGENT_LLM_THINKING_EFFORT", raising=False)
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_PROVIDER", "kimi_coding")
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_MODEL", "kimi-for-coding")
+    monkeypatch.delattr(runtime_settings, "AGENT_LLM_THINKING_ENABLED", raising=False)
+    monkeypatch.delattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", raising=False)
+
+
 def _redirect_dashboard_env_writes(monkeypatch, env_path):
     def write_env(values):
         upsert_project_env_values(values, path=env_path)
@@ -450,6 +461,21 @@ def test_current_model_endpoint_returns_capabilities(dashboard_client, monkeypat
         "enabled": False,
         "level": "off",
         "label": "off",
+        "editable": True,
+    }
+
+
+def test_current_model_endpoint_defaults_thinking_enabled(dashboard_client, monkeypatch):
+    _configure_kimi_current_model_default_thinking(monkeypatch)
+
+    response = dashboard_client.get("/api/models/current")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["thinking_state"] == {
+        "enabled": True,
+        "level": "low",
+        "label": "on",
         "editable": True,
     }
 
