@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import csv
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -26,7 +27,34 @@ from .batch_delivery import (
 
 DEFAULT_SHOP_COUNTRY_URL = "https://api-private.mabangerp.com/fba/api/v1/shop/shopCountry"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_fba_unlinked_shipments"
+DEFAULT_SNAPSHOT_DIR = Path("artifacts") / "mabang_fba_unlinked_shipments_snapshots"
 SOURCE = "mabang_fba_unlinked_shipments"
+SNAPSHOT_SOURCE = "mabang_fba_unlinked_shipments_snapshot"
+SNAPSHOT_SUMMARY_SHEET = "未关联货件汇总"
+SNAPSHOT_DETAIL_SHEET = "未关联货件明细"
+SNAPSHOT_SUMMARY_COLUMNS = (
+    "店铺",
+    "MSKU",
+    "未关联数量",
+    "明细行数",
+    "涉及状态",
+    "涉及运输方式",
+    "涉及发货单号",
+    "source_files",
+)
+SNAPSHOT_DETAIL_COLUMNS = (
+    "店铺",
+    "MSKU",
+    "未关联数量",
+    "状态",
+    "发货单号",
+    "货件单号",
+    "物流方式",
+    "物流渠道",
+    "创建时间",
+    "source_file",
+)
+SNAPSHOT_REQUIRED_COLUMNS = ("店铺", "MSKU", "未关联数量")
 
 
 class UnlinkedShipmentError(MabangBusinessError):
@@ -85,6 +113,31 @@ class StoreUnlinkedShipmentDownloadResult:
         }
 
 
+@dataclass(frozen=True)
+class UnlinkedShipmentSnapshotResult:
+    store_name: str
+    snapshot_time: str
+    snapshot_xlsx_path: str
+    raw_file_count: int
+    detail_count: int
+    msku_count: int
+    total_unlinked_quantity: float
+    source: str = SNAPSHOT_SOURCE
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "success": True,
+            "store_name": self.store_name,
+            "snapshot_time": self.snapshot_time,
+            "snapshot_xlsx_path": self.snapshot_xlsx_path,
+            "raw_file_count": self.raw_file_count,
+            "detail_count": self.detail_count,
+            "msku_count": self.msku_count,
+            "total_unlinked_quantity": _display_quantity(self.total_unlinked_quantity),
+            "source": self.source,
+        }
+
+
 UNLINKED_SHIPMENT_STATUS_SPECS = (
     UnlinkedShipmentStatusSpec(
         status_name="WMS待配货",
@@ -132,6 +185,15 @@ def _output_dir(output_dir: str | Path | None = None) -> Path:
     return path
 
 
+def _snapshot_dir(output_dir: str | Path | None = None) -> Path:
+    path = Path(output_dir) if output_dir is not None else _configured_path(
+        "MABANG_FBA_UNLINKED_SHIPMENTS_SNAPSHOT_DIR",
+        DEFAULT_SNAPSHOT_DIR,
+    )
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _today_text(report_date: str | date | None = None) -> str:
     if isinstance(report_date, date):
         return report_date.isoformat()
@@ -166,6 +228,321 @@ def safe_timeout_sec(value: float | int | str | None) -> float:
     if math.isnan(number):
         return 180.0
     return max(0.0, number)
+
+
+def _number(value: Any) -> float:
+    if value is None:
+        return 0.0
+    if isinstance(value, bool):
+        return float(int(value))
+    if isinstance(value, (int, float)):
+        number = float(value)
+        return 0.0 if math.isnan(number) else number
+    text = _clean_text(value).replace(",", "")
+    if not text or text.lower() == "nan":
+        return 0.0
+    try:
+        number = float(text)
+    except (TypeError, ValueError):
+        return 0.0
+    return 0.0 if math.isnan(number) else number
+
+
+def _display_quantity(value: float) -> int | float:
+    number = float(value or 0)
+    if math.isnan(number):
+        return 0
+    rounded = round(number, 2)
+    return int(rounded) if rounded.is_integer() else rounded
+
+
+def _decode_csv_bytes(raw: bytes, path: Path) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "gb18030", "gbk"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise UnlinkedShipmentError(f"未关联货件CSV无法识别编码: {path}")
+
+
+def _csv_records(path: Path) -> list[dict[str, Any]]:
+    text = _decode_csv_bytes(path.read_bytes(), path)
+    return [dict(row) for row in csv.DictReader(text.splitlines())]
+
+
+def _xlsx_records(path: Path) -> list[dict[str, Any]]:
+    try:
+        from openpyxl import load_workbook
+    except Exception as exc:
+        raise RuntimeError("缺少 openpyxl 依赖，无法读取未关联货件xlsx") from exc
+
+    workbook = None
+    records: list[dict[str, Any]] = []
+    try:
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        for worksheet in workbook.worksheets:
+            rows = worksheet.iter_rows(values_only=True)
+            headers = [_clean_text(cell) for cell in list(next(rows, None) or [])]
+            if not any(headers):
+                continue
+            for values in rows:
+                row = dict(zip(headers, list(values or []), strict=False))
+                if any(_clean_text(value) for value in row.values()):
+                    records.append(row)
+    except UnlinkedShipmentError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"读取未关联货件xlsx失败: {path}, error={exc}") from exc
+    finally:
+        try:
+            if workbook is not None:
+                workbook.close()
+        except Exception:
+            pass
+    return records
+
+
+def _table_records(path: str | Path) -> list[dict[str, Any]]:
+    source_path = Path(path)
+    if not source_path.is_file():
+        raise FileNotFoundError(f"未关联货件文件不存在: {source_path}")
+    suffix = source_path.suffix.lower()
+    if suffix == ".csv":
+        return _csv_records(source_path)
+    if suffix in {".xlsx", ".xlsm"}:
+        return _xlsx_records(source_path)
+    raise UnlinkedShipmentError(f"未关联货件文件只支持csv/xlsx: {source_path}")
+
+
+def _infer_status_from_path(path: Path) -> str:
+    name = path.name
+    for spec in UNLINKED_SHIPMENT_STATUS_SPECS:
+        if spec.status_name in name:
+            return spec.status_name
+    return ""
+
+
+def _raw_detail_rows(raw_file_paths: list[str | Path], *, store_name: str | None = None) -> list[dict[str, Any]]:
+    clean_store_name = _clean_text(store_name)
+    detail_rows: list[dict[str, Any]] = []
+    for raw_file_path in raw_file_paths:
+        source_path = Path(raw_file_path)
+        inferred_status = _infer_status_from_path(source_path)
+        records = _table_records(source_path)
+        for record in records:
+            if not any(_clean_text(value) for value in record.values()):
+                continue
+            store = _clean_text(record.get("店铺")) or clean_store_name
+            msku = _clean_text(record.get("MSKU"))
+            quantity_text = _clean_text(record.get("MSKU发货量"))
+            if not store or not msku:
+                continue
+            if clean_store_name and store != clean_store_name:
+                raise UnlinkedShipmentError(f"原生文件店铺不匹配: expected={clean_store_name}, actual={store}, file={source_path}")
+            if not quantity_text:
+                raise UnlinkedShipmentError(f"原生文件缺少MSKU发货量: MSKU={msku}, file={source_path}")
+            quantity = _number(quantity_text)
+            if quantity < 0:
+                raise UnlinkedShipmentError(f"原生文件MSKU发货量不能为负数: MSKU={msku}, quantity={quantity_text}, file={source_path}")
+            if quantity <= 0:
+                continue
+            detail_rows.append(
+                {
+                    "店铺": store,
+                    "MSKU": msku,
+                    "未关联数量": quantity,
+                    "状态": _clean_text(record.get("发货单状态")) or inferred_status,
+                    "发货单号": _clean_text(record.get("发货单号")),
+                    "货件单号": _clean_text(record.get("货件单号")),
+                    "物流方式": _clean_text(record.get("物流方式")),
+                    "物流渠道": _clean_text(record.get("物流渠道")),
+                    "创建时间": _clean_text(record.get("创建时间")),
+                    "source_file": str(source_path),
+                }
+            )
+    return detail_rows
+
+
+def _join_unique(values: list[str]) -> str:
+    seen: dict[str, None] = {}
+    for value in values:
+        text = _clean_text(value)
+        if text:
+            seen.setdefault(text, None)
+    return "、".join(seen)
+
+
+def summarize_unlinked_shipment_details(detail_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in detail_rows:
+        key = (_clean_text(row.get("店铺")), _clean_text(row.get("MSKU")))
+        if not key[0] or not key[1]:
+            continue
+        group = groups.setdefault(
+            key,
+            {
+                "店铺": key[0],
+                "MSKU": key[1],
+                "未关联数量": 0.0,
+                "明细行数": 0,
+                "_statuses": [],
+                "_routes": [],
+                "_delivery_nos": [],
+                "_source_files": [],
+            },
+        )
+        group["未关联数量"] += _number(row.get("未关联数量"))
+        group["明细行数"] += 1
+        group["_statuses"].append(_clean_text(row.get("状态")))
+        route = _clean_text(row.get("物流渠道")) or _clean_text(row.get("物流方式"))
+        group["_routes"].append(route)
+        group["_delivery_nos"].append(_clean_text(row.get("发货单号")))
+        group["_source_files"].append(_clean_text(row.get("source_file")))
+
+    summaries: list[dict[str, Any]] = []
+    for group in groups.values():
+        summaries.append(
+            {
+                "店铺": group["店铺"],
+                "MSKU": group["MSKU"],
+                "未关联数量": _display_quantity(group["未关联数量"]),
+                "明细行数": group["明细行数"],
+                "涉及状态": _join_unique(group["_statuses"]),
+                "涉及运输方式": _join_unique(group["_routes"]),
+                "涉及发货单号": _join_unique(group["_delivery_nos"]),
+                "source_files": _join_unique(group["_source_files"]),
+            }
+        )
+    return sorted(summaries, key=lambda item: (item["店铺"], item["MSKU"]))
+
+
+def write_unlinked_shipments_snapshot(
+    summary_rows: list[dict[str, Any]],
+    detail_rows: list[dict[str, Any]],
+    target_path: str | Path,
+) -> Path:
+    try:
+        from openpyxl import Workbook
+    except Exception as exc:
+        raise RuntimeError("缺少 openpyxl 依赖，无法写入未关联货件快照") from exc
+
+    path = Path(target_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    workbook = Workbook()
+    try:
+        for index, (sheet_name, headers, rows) in enumerate(
+            (
+                (SNAPSHOT_SUMMARY_SHEET, SNAPSHOT_SUMMARY_COLUMNS, summary_rows),
+                (SNAPSHOT_DETAIL_SHEET, SNAPSHOT_DETAIL_COLUMNS, detail_rows),
+            )
+        ):
+            worksheet = workbook.active if index == 0 else workbook.create_sheet()
+            worksheet.title = sheet_name
+            worksheet.append(list(headers))
+            for row in rows:
+                worksheet.append([row.get(header, "") for header in headers])
+            worksheet.freeze_panes = "A2"
+            if rows:
+                worksheet.auto_filter.ref = worksheet.dimensions
+        workbook.save(path)
+    finally:
+        workbook.close()
+    return path
+
+
+def build_store_unlinked_shipments_snapshot(
+    raw_file_paths: list[str | Path] | tuple[str | Path, ...],
+    *,
+    store_name: str | None = None,
+    output_dir: str | Path | None = None,
+    snapshot_time: str | None = None,
+) -> UnlinkedShipmentSnapshotResult:
+    paths = [Path(path) for path in raw_file_paths]
+    if not paths:
+        raise ValueError("raw_file_paths 不能为空")
+    detail_rows = _raw_detail_rows(paths, store_name=store_name)
+    summary_rows = summarize_unlinked_shipment_details(detail_rows)
+    stores = sorted({_clean_text(row.get("店铺")) for row in summary_rows if _clean_text(row.get("店铺"))})
+    clean_store_name = _clean_text(store_name) or (stores[0] if len(stores) == 1 else "")
+    if not clean_store_name:
+        raise UnlinkedShipmentError(f"未关联货件快照必须限定单个店铺: stores={', '.join(stores) or '无'}")
+    if any(store != clean_store_name for store in stores):
+        raise UnlinkedShipmentError(f"未关联货件快照包含多个店铺: expected={clean_store_name}, stores={', '.join(stores)}")
+
+    timestamp = _timestamp_text(snapshot_time)
+    target_path = _snapshot_dir(output_dir) / f"{timestamp}-{_safe_path_part(clean_store_name, fallback='store')}_unlinked_shipments_snapshot.xlsx"
+    write_unlinked_shipments_snapshot(summary_rows, detail_rows, target_path)
+    return UnlinkedShipmentSnapshotResult(
+        store_name=clean_store_name,
+        snapshot_time=timestamp,
+        snapshot_xlsx_path=str(target_path),
+        raw_file_count=len(paths),
+        detail_count=len(detail_rows),
+        msku_count=len(summary_rows),
+        total_unlinked_quantity=sum(_number(row.get("未关联数量")) for row in summary_rows),
+    )
+
+
+def _snapshot_records(path: str | Path) -> list[dict[str, Any]]:
+    source_path = Path(path)
+    if not source_path.is_file():
+        raise FileNotFoundError(f"未关联货件快照不存在: {source_path}")
+    if source_path.suffix.lower() == ".csv":
+        records = _csv_records(source_path)
+    else:
+        try:
+            from openpyxl import load_workbook
+        except Exception as exc:
+            raise RuntimeError("缺少 openpyxl 依赖，无法读取未关联货件快照") from exc
+
+        workbook = None
+        try:
+            workbook = load_workbook(source_path, read_only=True, data_only=True)
+            sheet_name = SNAPSHOT_SUMMARY_SHEET if SNAPSHOT_SUMMARY_SHEET in workbook.sheetnames else workbook.sheetnames[0]
+            worksheet = workbook[sheet_name]
+            rows = worksheet.iter_rows(values_only=True)
+            headers = [_clean_text(cell) for cell in list(next(rows, None) or [])]
+            records = []
+            for values in rows:
+                row = dict(zip(headers, list(values or []), strict=False))
+                if any(_clean_text(value) for value in row.values()):
+                    records.append(row)
+        except Exception as exc:
+            raise RuntimeError(f"读取未关联货件快照失败: {source_path}, error={exc}") from exc
+        finally:
+            try:
+                if workbook is not None:
+                    workbook.close()
+            except Exception:
+                pass
+
+    headers = set(records[0].keys()) if records else set(SNAPSHOT_REQUIRED_COLUMNS)
+    missing = [column for column in SNAPSHOT_REQUIRED_COLUMNS if column not in headers]
+    if missing:
+        raise UnlinkedShipmentError(f"未关联货件快照缺少列: {', '.join(missing)}, path={source_path}")
+    return records
+
+
+def load_unlinked_shipment_quantities(path: str | Path, *, store_name: str | None = None) -> dict[str, float]:
+    clean_store_name = _clean_text(store_name)
+    records = _snapshot_records(path)
+    stores = {_clean_text(row.get("店铺")) for row in records if _clean_text(row.get("店铺"))}
+    if clean_store_name and stores and clean_store_name not in stores:
+        raise UnlinkedShipmentError(f"未关联货件快照中未找到店铺: {clean_store_name}")
+
+    quantities: dict[str, float] = {}
+    for record in records:
+        store = _clean_text(record.get("店铺"))
+        if clean_store_name and store != clean_store_name:
+            continue
+        msku = _clean_text(record.get("MSKU"))
+        if not msku:
+            continue
+        quantity = _number(record.get("未关联数量"))
+        if quantity < 0:
+            raise UnlinkedShipmentError(f"未关联货件快照数量不能为负数: MSKU={msku}")
+        quantities[msku] = quantities.get(msku, 0.0) + quantity
+    return quantities
 
 
 def _status_payload(
@@ -432,21 +809,33 @@ async def download_store_unlinked_shipments(
 
 __all__ = [
     "DEFAULT_OUTPUT_DIR",
+    "DEFAULT_SNAPSHOT_DIR",
+    "SNAPSHOT_DETAIL_COLUMNS",
+    "SNAPSHOT_DETAIL_SHEET",
+    "SNAPSHOT_REQUIRED_COLUMNS",
+    "SNAPSHOT_SOURCE",
+    "SNAPSHOT_SUMMARY_COLUMNS",
+    "SNAPSHOT_SUMMARY_SHEET",
     "SOURCE",
     "UNLINKED_SHIPMENT_STATUS_SPECS",
     "ShopOption",
     "StoreUnlinkedShipmentDownloadResult",
     "UnlinkedShipmentError",
+    "UnlinkedShipmentSnapshotResult",
     "UnlinkedShipmentStatusResult",
     "UnlinkedShipmentStatusSpec",
+    "build_store_unlinked_shipments_snapshot",
     "create_unlinked_export_task",
     "download_raw_file_from_url",
     "download_store_unlinked_shipments",
     "fetch_shop_options",
     "fetch_status_total",
+    "load_unlinked_shipment_quantities",
     "normalize_store_name",
     "pick_shop_option",
     "resolve_shop_option",
     "safe_poll_interval_sec",
     "safe_timeout_sec",
+    "summarize_unlinked_shipment_details",
+    "write_unlinked_shipments_snapshot",
 ]

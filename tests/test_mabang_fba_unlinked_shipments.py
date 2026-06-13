@@ -51,6 +51,115 @@ class _FakeSession:
         return _FakeRequest(self.responses.pop(0))
 
 
+def _write_raw_csv(path: Path, rows: list[dict]) -> Path:
+    headers = [
+        "发货单号",
+        "发货单状态",
+        "物流方式",
+        "物流渠道",
+        "创建时间",
+        "店铺",
+        "MSKU",
+        "MSKU发货量",
+        "货件单号",
+    ]
+    lines = [",".join(headers)]
+    for row in rows:
+        lines.append(",".join(str(row.get(header, "")) for header in headers))
+    path.write_text("\n".join(lines), encoding="utf-8-sig")
+    return path
+
+
+def _load_snapshot_records(path: Path, sheet_name: str) -> list[dict]:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, data_only=True)
+    try:
+        worksheet = workbook[sheet_name]
+        headers = [cell.value for cell in worksheet[1]]
+        return [dict(zip(headers, values, strict=False)) for values in worksheet.iter_rows(min_row=2, values_only=True)]
+    finally:
+        workbook.close()
+
+
+def test_build_store_unlinked_shipments_snapshot_aggregates_raw_csv(tmp_path) -> None:
+    wms_path = _write_raw_csv(
+        tmp_path / "202606130900-Amazon-Test-US-WMS待配货-1.csv",
+        [
+            {
+                "发货单号": "SP1",
+                "物流方式": "空运",
+                "物流渠道": "出口退税空运",
+                "创建时间": "2026-06-13 09:00:00",
+                "店铺": "Amazon-Test-US",
+                "MSKU": "MSKU-A",
+                "MSKU发货量": "10",
+                "货件单号": "m1",
+            },
+            {
+                "发货单号": "SP1",
+                "物流方式": "空运",
+                "物流渠道": "出口退税空运",
+                "创建时间": "2026-06-13 09:00:00",
+                "店铺": "Amazon-Test-US",
+                "MSKU": "MSKU-B",
+                "MSKU发货量": "3",
+                "货件单号": "m1",
+            },
+        ],
+    )
+    linked_path = _write_raw_csv(
+        tmp_path / "202606130901-Amazon-Test-US-待关联货件-2.csv",
+        [
+            {
+                "发货单号": "SP2",
+                "发货单状态": "待关联货件",
+                "物流方式": "海运",
+                "物流渠道": "",
+                "创建时间": "2026-06-13 09:01:00",
+                "店铺": "Amazon-Test-US",
+                "MSKU": "MSKU-A",
+                "MSKU发货量": "5",
+                "货件单号": "m2",
+            }
+        ],
+    )
+
+    result = ship.build_store_unlinked_shipments_snapshot(
+        [wms_path, linked_path],
+        store_name="Amazon-Test-US",
+        output_dir=tmp_path,
+        snapshot_time="202606130902",
+    )
+
+    assert result.to_payload() == {
+        "success": True,
+        "store_name": "Amazon-Test-US",
+        "snapshot_time": "202606130902",
+        "snapshot_xlsx_path": str(tmp_path / "202606130902-Amazon-Test-US_unlinked_shipments_snapshot.xlsx"),
+        "raw_file_count": 2,
+        "detail_count": 3,
+        "msku_count": 2,
+        "total_unlinked_quantity": 18,
+        "source": "mabang_fba_unlinked_shipments_snapshot",
+    }
+    snapshot_path = Path(result.snapshot_xlsx_path)
+    assert snapshot_path.is_file()
+    summary_rows = _load_snapshot_records(snapshot_path, ship.SNAPSHOT_SUMMARY_SHEET)
+    assert [(row["MSKU"], row["未关联数量"], row["明细行数"]) for row in summary_rows] == [
+        ("MSKU-A", 15, 2),
+        ("MSKU-B", 3, 1),
+    ]
+    assert summary_rows[0]["涉及状态"] == "WMS待配货、待关联货件"
+    assert summary_rows[0]["涉及运输方式"] == "出口退税空运、海运"
+    detail_rows = _load_snapshot_records(snapshot_path, ship.SNAPSHOT_DETAIL_SHEET)
+    assert detail_rows[0]["状态"] == "WMS待配货"
+    assert ship.load_unlinked_shipment_quantities(snapshot_path, store_name="Amazon-Test-US") == {
+        "MSKU-A": 15,
+        "MSKU-B": 3,
+    }
+
+
 def test_pick_shop_option_requires_exact_unique_match() -> None:
     shops = [
         ship.ShopOption(store_id=1, name="Amazon-Test-US", raw={}),

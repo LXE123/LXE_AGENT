@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from services.mabang import config as mabang_settings
+from services.mabang.amazon.fba.unlinked_shipments import load_unlinked_shipment_quantities
 from services.mabang.amazon.fba.replenishment_template import (
     DEFAULT_TEMPLATE_NAME,
     ReplenishmentTemplate,
@@ -61,10 +62,12 @@ DETAIL_COLUMNS = (
     "加权日销",
     "可销售天数",
     "FBA总库存",
+    "未关联数量",
     "真实库存数量",
     "单品重量(g)",
     "补货天数",
     "补货量",
+    "抵扣前补货量",
     "海运天数",
     "海运建议量",
     "预计总重量kg",
@@ -86,6 +89,7 @@ SUMMARY_COLUMNS = (
     "最小可销售天数",
     "决策备注",
     "链接真实本地库存汇总",
+    "链接未关联数量汇总",
 )
 INVENTORY_REQUIRED_COLUMNS = (
     "MSKU",
@@ -132,7 +136,10 @@ INTEGER_COLUMNS = {
     "海运建议量",
     "补货天数",
     "补货量",
+    "抵扣前补货量",
     "海运天数",
+    "未关联数量",
+    "链接未关联数量汇总",
 }
 WEIGHT_RE = re.compile(r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?|[-+]?\d+(?:\.\d+)?")
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
@@ -195,10 +202,12 @@ class ReplenishmentRow:
     weighted_daily_sales: float
     sales_days: float | None
     fba_total_inventory: float
+    unlinked_quantity: float
     actual_inventory: float | None
     weight_grams: float | None
     replenish_days: int | None
     replenish_quantity: int | None
+    original_replenish_quantity: int | None
     sea_days: int | None
     sea_quantity: int | None
     estimated_weight_kg: float | None
@@ -221,10 +230,12 @@ class ReplenishmentRow:
             "加权日销": _display_float(self.weighted_daily_sales),
             "可销售天数": _display_optional_float(self.sales_days),
             "FBA总库存": _display_float(self.fba_total_inventory),
+            "未关联数量": _display_quantity(self.unlinked_quantity),
             "真实库存数量": _display_optional_float(self.actual_inventory),
             "单品重量(g)": _display_optional_float(self.weight_grams),
             "补货天数": _display_optional_int(self.replenish_days),
             "补货量": _display_optional_int(self.replenish_quantity),
+            "抵扣前补货量": _display_optional_int(self.original_replenish_quantity),
             "海运天数": _display_optional_int(self.sea_days),
             "海运建议量": _display_optional_int(self.sea_quantity),
             "预计总重量kg": _display_optional_float(self.estimated_weight_kg),
@@ -249,10 +260,11 @@ class StoreMskuReplenishmentResult:
     no_ship_count: int
     sample_insufficient_count: int
     report_xlsx_path: str
+    unlinked_shipments_snapshot_path: str = ""
     source: str = SOURCE
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        payload = {
             "success": True,
             "store_name": self.store_name,
             "source_data_time": self.source_data_time,
@@ -270,6 +282,9 @@ class StoreMskuReplenishmentResult:
             "report_xlsx_path": self.report_xlsx_path,
             "source": self.source,
         }
+        if self.unlinked_shipments_snapshot_path:
+            payload["unlinked_shipments_snapshot_path"] = self.unlinked_shipments_snapshot_path
+        return payload
 
 
 def _clean_text(value: Any) -> str:
@@ -343,6 +358,14 @@ def _optional_number(value: Any) -> float | None:
 
 def _display_float(value: float) -> float:
     return round(float(value), 2)
+
+
+def _display_quantity(value: float) -> int | float:
+    number = float(value or 0)
+    if math.isnan(number):
+        return 0
+    rounded = round(number, 2)
+    return int(rounded) if rounded.is_integer() else rounded
 
 
 def _display_optional_float(value: float | None) -> float | str:
@@ -565,12 +588,69 @@ def _sea_day_candidates(weighted_daily_sales: float) -> list[int]:
     return sea_day_candidates_from_template(weighted_daily_sales, get_template(DEFAULT_TEMPLATE_NAME).params)
 
 
+def _safe_unlinked_quantity(value: float | int | None) -> float:
+    try:
+        quantity = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if math.isnan(quantity) or quantity < 0:
+        return 0.0
+    return quantity
+
+
+def _with_unlinked_deduction(row: ReplenishmentRow, *, min_weight_kg: float | None = None) -> ReplenishmentRow:
+    if row.sheet_name not in {AIR_URGENT_SHEET, AIR_SHEET, SEA_SHEET}:
+        return row
+    if row.replenish_quantity is None or row.unlinked_quantity <= 0:
+        return row
+
+    original_quantity = int(row.original_replenish_quantity or row.replenish_quantity)
+    remaining = original_quantity - row.unlinked_quantity
+    final_quantity = 0 if remaining <= 0 else math.ceil(remaining)
+    reason_suffix = (
+        f"；未关联数量={_display_quantity(row.unlinked_quantity)}，"
+        f"抵扣前补货量={original_quantity}，抵扣后补货量={final_quantity}"
+    )
+    if final_quantity <= 0:
+        return replace(
+            row,
+            replenish_quantity=0,
+            estimated_weight_kg=0 if row.sheet_name == SEA_SHEET else row.estimated_weight_kg,
+            decision_reason=f"{row.decision_reason}{reason_suffix}，未关联数量已覆盖本次建议量",
+            sheet_name=NO_SHIP_SHEET,
+        )
+
+    estimated_weight_kg = row.estimated_weight_kg
+    if row.sheet_name == SEA_SHEET and row.weight_grams is not None:
+        estimated_weight_kg = final_quantity * row.weight_grams / 1000
+        if min_weight_kg is not None and estimated_weight_kg <= min_weight_kg:
+            return replace(
+                row,
+                replenish_quantity=final_quantity,
+                estimated_weight_kg=estimated_weight_kg,
+                decision_reason=(
+                    f"{row.decision_reason}{reason_suffix}，"
+                    f"未关联抵扣后海运重量不足{min_weight_kg:g}kg"
+                ),
+                sheet_name=NO_SHIP_SHEET,
+            )
+
+    return replace(
+        row,
+        replenish_quantity=final_quantity,
+        estimated_weight_kg=estimated_weight_kg,
+        decision_reason=f"{row.decision_reason}{reason_suffix}",
+    )
+
+
 def calculate_replenishment_row(
     row: InventoryInputRow,
     sales_detail: SalesDetail,
     template: ReplenishmentTemplate | None = None,
+    unlinked_quantity: float = 0.0,
 ) -> ReplenishmentRow:
     active_template = template or get_template(DEFAULT_TEMPLATE_NAME)
+    unlinked_qty = _safe_unlinked_quantity(unlinked_quantity)
     params, matched_rule = effective_params_for_msku(active_template, row.msku)
     weighted_daily_sales = calculate_weighted_daily_sales(
         sales_7d=sales_detail.sales_7d,
@@ -596,10 +676,12 @@ def calculate_replenishment_row(
             weighted_daily_sales=weighted_daily_sales,
             sales_days=sales_days,
             fba_total_inventory=row.fba_total_inventory,
+            unlinked_quantity=unlinked_qty,
             actual_inventory=row.actual_inventory,
             weight_grams=sales_detail.weight_grams,
             replenish_days=None,
             replenish_quantity=None,
+            original_replenish_quantity=None,
             sea_days=None,
             sea_quantity=None,
             estimated_weight_kg=None,
@@ -624,10 +706,12 @@ def calculate_replenishment_row(
         "weighted_daily_sales": weighted_daily_sales,
         "sales_days": sales_days,
         "fba_total_inventory": row.fba_total_inventory,
+        "unlinked_quantity": unlinked_qty,
         "actual_inventory": row.actual_inventory,
         "weight_grams": sales_detail.weight_grams,
         "replenish_days": replenish_day_count,
         "replenish_quantity": replenish_quantity,
+        "original_replenish_quantity": replenish_quantity,
         "child_skus": row.child_skus,
     }
 
@@ -643,22 +727,26 @@ def calculate_replenishment_row(
     air_urgent_days = float(params["shipping"]["air_urgent_sales_days_lte"])
     air_days = float(params["shipping"]["air_sales_days_lte"])
     if sales_days <= air_urgent_days:
-        return ReplenishmentRow(
-            **base_kwargs,
-            sea_days=None,
-            sea_quantity=None,
-            estimated_weight_kg=None,
-            decision_reason=f"可销售天数={sales_days:.2f} <= {air_urgent_days:g}，建议空运（急发）",
-            sheet_name=AIR_URGENT_SHEET,
+        return _with_unlinked_deduction(
+            ReplenishmentRow(
+                **base_kwargs,
+                sea_days=None,
+                sea_quantity=None,
+                estimated_weight_kg=None,
+                decision_reason=f"可销售天数={sales_days:.2f} <= {air_urgent_days:g}，建议空运（急发）",
+                sheet_name=AIR_URGENT_SHEET,
+            )
         )
     if sales_days <= air_days:
-        return ReplenishmentRow(
-            **base_kwargs,
-            sea_days=None,
-            sea_quantity=None,
-            estimated_weight_kg=None,
-            decision_reason=f"{air_urgent_days:g} < 可销售天数={sales_days:.2f} <= {air_days:g}，建议空运",
-            sheet_name=AIR_SHEET,
+        return _with_unlinked_deduction(
+            ReplenishmentRow(
+                **base_kwargs,
+                sea_days=None,
+                sea_quantity=None,
+                estimated_weight_kg=None,
+                decision_reason=f"{air_urgent_days:g} < 可销售天数={sales_days:.2f} <= {air_days:g}，建议空运",
+                sheet_name=AIR_SHEET,
+            )
         )
 
     if not sea_enabled_from_template(params):
@@ -702,14 +790,18 @@ def calculate_replenishment_row(
                 **base_kwargs,
                 "replenish_days": sea_days,
                 "replenish_quantity": sea_quantity,
+                "original_replenish_quantity": sea_quantity,
             }
-            return ReplenishmentRow(
-                **sea_kwargs,
-                sea_days=sea_days,
-                sea_quantity=sea_quantity,
-                estimated_weight_kg=estimated_weight_kg,
-                decision_reason=f"可销售天数 > {air_days:g}，满足海运条件；按海运备货天数{sea_days}天计算补货量；计算方法：" + "；".join(tried),
-                sheet_name=SEA_SHEET,
+            return _with_unlinked_deduction(
+                ReplenishmentRow(
+                    **sea_kwargs,
+                    sea_days=sea_days,
+                    sea_quantity=sea_quantity,
+                    estimated_weight_kg=estimated_weight_kg,
+                    decision_reason=f"可销售天数 > {air_days:g}，满足海运条件；按海运备货天数{sea_days}天计算补货量；计算方法：" + "；".join(tried),
+                    sheet_name=SEA_SHEET,
+                ),
+                min_weight_kg=min_weight_kg,
             )
 
     return ReplenishmentRow(
@@ -726,9 +818,11 @@ def calculate_replenishment_rows(
     inventory_rows: list[InventoryInputRow],
     sales_details: dict[tuple[str, str, str, str], SalesDetail],
     template: ReplenishmentTemplate | None = None,
+    unlinked_quantities: dict[str, float] | None = None,
 ) -> list[ReplenishmentRow]:
     result: list[ReplenishmentRow] = []
     active_template = template or get_template(DEFAULT_TEMPLATE_NAME)
+    quantity_by_msku = dict(unlinked_quantities or {})
     for row in inventory_rows:
         key = _row_key(row)
         sales_detail = sales_details.get(key)
@@ -736,7 +830,14 @@ def calculate_replenishment_rows(
             raise StoreMskuReplenishmentError(
                 f"销量分析MSKU明细缺少匹配行: MSKU={key[0]}, 父ASIN={key[1]}, ASIN={key[2]}, 本地SKU={key[3]}"
             )
-        result.append(calculate_replenishment_row(row, sales_detail, active_template))
+        result.append(
+            calculate_replenishment_row(
+                row,
+                sales_detail,
+                active_template,
+                quantity_by_msku.get(row.msku, 0.0),
+            )
+        )
     return result
 
 
@@ -759,6 +860,7 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
                 "最小可销售天数": None,
                 "决策备注": [],
                 "链接真实本地库存汇总": 0.0,
+                "链接未关联数量汇总": 0.0,
                 "商品链接前缀": "",
                 "_order": len(groups),
             },
@@ -779,7 +881,7 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
         elif row.sheet_name == AIR_SHEET:
             group["空运补货量"] += row.replenish_quantity or 0
         elif row.sheet_name == SEA_SHEET:
-            group["海运建议量"] += row.sea_quantity or 0
+            group["海运建议量"] += row.replenish_quantity or 0
         group["最大加权日销"] = max(group["最大加权日销"], row.weighted_daily_sales)
         group["合计加权日销"] += row.weighted_daily_sales
         if row.sales_days is not None:
@@ -787,6 +889,7 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
             group["最小可销售天数"] = row.sales_days if current_min is None else min(current_min, row.sales_days)
         if row.actual_inventory is not None:
             group["链接真实本地库存汇总"] += row.actual_inventory
+        group["链接未关联数量汇总"] += row.unlinked_quantity
         if row.sheet_name in {SEA_SHEET, NO_SHIP_SHEET, SAMPLE_INSUFFICIENT_SHEET}:
             group["决策备注"].append(f"{row.msku}: {row.decision_reason}")
 
@@ -808,6 +911,7 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
                 "最小可销售天数": _display_optional_float(group["最小可销售天数"]),
                 "决策备注": "；".join(group["决策备注"]),
                 "链接真实本地库存汇总": _display_float(group["链接真实本地库存汇总"]),
+                "链接未关联数量汇总": _display_quantity(group["链接未关联数量汇总"]),
             }
         )
     return sorted(summaries, key=lambda item: (-int(item["总补货量"]), groups[item["父ASIN"]]["_order"]))
@@ -919,6 +1023,7 @@ def calculate_store_msku_replenishment(
     sales_analysis_dir: str | Path | None = None,
     actual_inventory_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
+    unlinked_shipments_snapshot_path: str | Path | None = None,
 ) -> StoreMskuReplenishmentResult:
     clean_store_name = normalize_store_name(store_name)
     template = validate_template(get_template(template_name or DEFAULT_TEMPLATE_NAME)).template
@@ -929,7 +1034,17 @@ def calculate_store_msku_replenishment(
     )
     inventory_rows = load_inventory_rows(reports.actual_inventory_path)
     sales_details = load_sales_details(reports.sales_analysis_path)
-    replenishment_rows = calculate_replenishment_rows(inventory_rows, sales_details, template)
+    unlinked_quantities = (
+        load_unlinked_shipment_quantities(unlinked_shipments_snapshot_path, store_name=clean_store_name)
+        if unlinked_shipments_snapshot_path
+        else {}
+    )
+    replenishment_rows = calculate_replenishment_rows(
+        inventory_rows,
+        sales_details,
+        template,
+        unlinked_quantities,
+    )
     report_path = _output_dir(output_dir) / f"{reports.source_data_time}-{_safe_file_part(clean_store_name)}_replenishment.xlsx"
     write_replenishment_report(replenishment_rows, report_path)
     summary_rows = summarize_links(replenishment_rows)
@@ -949,6 +1064,7 @@ def calculate_store_msku_replenishment(
         no_ship_count=sum(1 for row in replenishment_rows if row.sheet_name == NO_SHIP_SHEET),
         sample_insufficient_count=sum(1 for row in replenishment_rows if row.sheet_name == SAMPLE_INSUFFICIENT_SHEET),
         report_xlsx_path=str(report_path),
+        unlinked_shipments_snapshot_path=str(unlinked_shipments_snapshot_path or ""),
     )
 
 

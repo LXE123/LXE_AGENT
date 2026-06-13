@@ -106,10 +106,12 @@ def _replenishment_row(
         weighted_daily_sales=1,
         sales_days=10,
         fba_total_inventory=10,
+        unlinked_quantity=0,
         actual_inventory=actual_inventory,
         weight_grams=100,
         replenish_days=10 if replenish_quantity is not None else None,
         replenish_quantity=replenish_quantity,
+        original_replenish_quantity=replenish_quantity,
         sea_days=None,
         sea_quantity=None,
         estimated_weight_kg=None,
@@ -270,7 +272,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert report_path.is_file()
     assert _sheet_names(report_path) == ["链接备货汇总", "真实库存不足", "空运（急发）", "空运", "海运", "暂不建议发货", "样本不足"]
     _assert_standard_dimensions(report_path, _sheet_names(report_path))
-    assert _headers(report_path, "链接备货汇总")[-1] == "链接真实本地库存汇总"
+    assert _headers(report_path, "链接备货汇总")[-2:] == ["链接真实本地库存汇总", "链接未关联数量汇总"]
     assert _headers(report_path, "真实库存不足") == [*repl.DETAIL_COLUMNS, "运输渠道", "库存缺口"]
     for sheet_name in ["空运（急发）", "空运", "海运", "暂不建议发货", "样本不足"]:
         headers = _headers(report_path, sheet_name)
@@ -341,6 +343,82 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert summary_rows[-1]["父ASIN"] == "PARENT-SAMPLE"
     assert summary_rows[-1]["总补货量"] == 0
     assert summary_rows[-1]["涉及运输方式"] == "样本不足"
+
+
+def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_path) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    output_dir = tmp_path / "output"
+    snapshot_path = tmp_path / "unlinked_snapshot.xlsx"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_sales_analysis.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_actual_inventory.xlsx")
+    _write_workbook(
+        snapshot_path,
+        {
+            "未关联货件汇总": (
+                ["店铺", "MSKU", "未关联数量"],
+                [
+                    {"店铺": "Amazon-Test", "MSKU": "AIR-1", "未关联数量": 100},
+                    {"店铺": "Amazon-Test", "MSKU": "URGENT-1", "未关联数量": 250},
+                    {"店铺": "Amazon-Test", "MSKU": "SEA-1", "未关联数量": 40},
+                    {"店铺": "Amazon-Test", "MSKU": "UNMATCHED-1", "未关联数量": 999},
+                ],
+            )
+        },
+    )
+
+    result = repl.calculate_store_msku_replenishment(
+        "Amazon-Test",
+        sales_analysis_dir=sales_dir,
+        actual_inventory_dir=inventory_dir,
+        output_dir=output_dir,
+        unlinked_shipments_snapshot_path=snapshot_path,
+    )
+
+    assert result.air_urgent_count == 0
+    assert result.air_count == 1
+    assert result.sea_count == 0
+    assert result.no_ship_count == 3
+    assert result.to_payload()["unlinked_shipments_snapshot_path"] == str(snapshot_path)
+    report_path = Path(result.report_xlsx_path)
+
+    air_rows = _load_records(report_path, "空运")
+    assert air_rows[0]["MSKU"] == "AIR-1"
+    assert air_rows[0]["FBA总库存"] == 300
+    assert air_rows[0]["可销售天数"] == 50
+    assert air_rows[0]["未关联数量"] == 100
+    assert air_rows[0]["抵扣前补货量"] == 360
+    assert air_rows[0]["补货量"] == 260
+    assert "抵扣后补货量=260" in air_rows[0]["决策原因"]
+
+    no_ship_rows = _load_records(report_path, "暂不建议发货")
+    urgent_row = next(row for row in no_ship_rows if row["MSKU"] == "URGENT-1")
+    assert urgent_row["补货量"] == 0
+    assert urgent_row["未关联数量"] == 250
+    assert urgent_row["抵扣前补货量"] == 180
+    assert "未关联数量已覆盖本次建议量" in urgent_row["决策原因"]
+
+    sea_row = next(row for row in no_ship_rows if row["MSKU"] == "SEA-1")
+    assert sea_row["补货量"] == 500
+    assert sea_row["抵扣前补货量"] == 540
+    assert sea_row["海运建议量"] == 540
+    assert sea_row["预计总重量kg"] == 60
+    assert "未关联抵扣后海运重量不足60kg" in sea_row["决策原因"]
+    assert _load_records(report_path, "海运") == []
+
+    shortage_rows = _load_records(report_path, "真实库存不足")
+    assert [row["MSKU"] for row in shortage_rows] == ["AIR-1"]
+    assert shortage_rows[0]["库存缺口"] == 230
+
+    summary_rows = _load_records(report_path, "链接备货汇总")
+    air_summary = next(row for row in summary_rows if row["父ASIN"] == "PARENT-AIR")
+    assert air_summary["总补货量"] == 260
+    assert air_summary["空运补货量"] == 260
+    assert air_summary["链接未关联数量汇总"] == 350
+    sea_summary = next(row for row in summary_rows if row["父ASIN"] == "PARENT-SEA")
+    assert sea_summary["总补货量"] == 500
+    assert sea_summary["海运建议量"] == 0
+    assert sea_summary["链接未关联数量汇总"] == 40
 
 
 def test_inventory_shortage_rows_only_include_suggested_rows_with_known_shortage() -> None:

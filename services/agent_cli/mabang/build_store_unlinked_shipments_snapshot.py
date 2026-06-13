@@ -6,7 +6,10 @@ import sys
 from typing import Any
 
 from services.agent_cli._shared.json_output import configure_utf8_stdio
-from services.mabang.amazon.fba.store_msku_replenishment import calculate_store_msku_replenishment
+from services.mabang.amazon.fba.unlinked_shipments import (
+    build_store_unlinked_shipments_snapshot,
+    normalize_store_name,
+)
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -26,11 +29,11 @@ def _exception_text(exc: Exception) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.calculate_store_msku_replenishment"
+        prog="python -m services.agent_cli.mabang.build_store_unlinked_shipments_snapshot"
     )
     parser.add_argument("--store-name", default="")
-    parser.add_argument("--template", default="")
-    parser.add_argument("--unlinked-shipments-snapshot", default="")
+    parser.add_argument("--raw-file", action="append", default=[])
+    parser.add_argument("--output-dir", default="")
     return parser
 
 
@@ -39,13 +42,14 @@ def main(argv: list[str] | None = None) -> int:
     store_name = ""
     try:
         args = build_parser().parse_args(argv)
-        store_name = str(getattr(args, "store_name", "") or "").strip()
-        template_name = str(getattr(args, "template", "") or "").strip()
-        unlinked_snapshot = str(getattr(args, "unlinked_shipments_snapshot", "") or "").strip()
-        result = calculate_store_msku_replenishment(
-            store_name,
-            template_name=template_name or None,
-            unlinked_shipments_snapshot_path=unlinked_snapshot or None,
+        store_name = normalize_store_name(getattr(args, "store_name", ""))
+        raw_files = [str(value or "").strip() for value in getattr(args, "raw_file", [])]
+        raw_files = [value for value in raw_files if value]
+        output_dir = str(getattr(args, "output_dir", "") or "").strip() or None
+        result = build_store_unlinked_shipments_snapshot(
+            raw_files,
+            store_name=store_name,
+            output_dir=output_dir,
         )
         payload = result.to_payload()
     except Exception as exc:
