@@ -18,6 +18,7 @@ from gateway.dashboard.api import create_dashboard_app
 from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY
 from shared.db.sqlite.agent_sessions import create_agent_session, update_agent_session
 from shared.db.sqlite.bootstrap import init_schema
+from shared.db.sqlite.engine import connection_scope
 from shared.db.sqlite.session_messages import session_messages_path
 from shared.env import upsert_project_env_values
 from shared.llm import runtime_config as runtime_settings
@@ -74,6 +75,19 @@ def _source(chat_id: str) -> dict:
     }
 
 
+def _set_session_timestamp(session_id: str, timestamp: float) -> None:
+    with connection_scope() as conn:
+        conn.execute(
+            """
+            UPDATE agent_sessions
+            SET created_at = ?,
+                last_active_at = ?
+            WHERE session_id = ?
+            """,
+            (float(timestamp), float(timestamp), session_id),
+        )
+
+
 def test_sessions_endpoint_orders_by_last_active_and_returns_metadata(dashboard_client):
     older = create_agent_session(
         session_id="older-session",
@@ -101,6 +115,11 @@ def test_sessions_endpoint_orders_by_last_active_and_returns_metadata(dashboard_
     assert response.status_code == 200
     payload = response.json()
     assert payload["total"] == 2
+    assert payload["summary"] == {
+        "total_sessions": 2,
+        "tool_call_count": 6,
+        "token_count": 41,
+    }
     assert [item["session_id"] for item in payload["items"]] == ["newer-session", "older-session"]
     first = payload["items"][0]
     assert first["title"] == "Newer"
@@ -111,6 +130,96 @@ def test_sessions_endpoint_orders_by_last_active_and_returns_metadata(dashboard_
     assert first["tool_call_count"] == 4
     assert first["input_tokens"] == 20
     assert first["output_tokens"] == 6
+
+
+def test_sessions_endpoint_paginates_with_total_and_summary(dashboard_client):
+    for index in range(15):
+        created = create_agent_session(
+            session_id=f"page-session-{index:02d}",
+            source=_source(f"chat-page-{index:02d}"),
+            state_data=_state(),
+            title=f"Page {index:02d}",
+        )
+        update_agent_session(
+            created.session_id,
+            metrics_delta={
+                "tool_call_count": index,
+                "input_tokens": index * 10,
+                "output_tokens": index,
+            },
+        )
+        _set_session_timestamp(created.session_id, 1_700_000_000 + index)
+
+    response = dashboard_client.get("/api/sessions?limit=10&offset=10")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 15
+    assert payload["limit"] == 10
+    assert payload["offset"] == 10
+    assert [item["session_id"] for item in payload["items"]] == [
+        "page-session-04",
+        "page-session-03",
+        "page-session-02",
+        "page-session-01",
+        "page-session-00",
+    ]
+    assert payload["summary"] == {
+        "total_sessions": 15,
+        "tool_call_count": 105,
+        "token_count": 1155,
+    }
+
+
+def test_sessions_endpoint_searches_all_sessions_case_insensitively(dashboard_client):
+    create_agent_session(
+        session_id="alpha-session",
+        source=_source("chat-alpha"),
+        state_data=_state(),
+        title="Alpha Shipment",
+    )
+    create_agent_session(
+        session_id="source-session",
+        source=_source("CHAT-SOURCE-NEEDLE"),
+        state_data=_state(),
+        title="Source Match",
+    )
+    create_agent_session(
+        session_id="plain-session",
+        source=_source("chat-plain"),
+        state_data=_state(),
+        title="Plain",
+    )
+
+    response = dashboard_client.get("/api/sessions?q=alpha&limit=10&offset=0")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert [item["session_id"] for item in payload["items"]] == ["alpha-session"]
+    assert payload["summary"]["total_sessions"] == 3
+
+    response = dashboard_client.get("/api/sessions?q=source-needle&limit=10&offset=0")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert [item["session_id"] for item in payload["items"]] == ["source-session"]
+
+
+def test_sessions_endpoint_blank_search_matches_unfiltered(dashboard_client):
+    create_agent_session(session_id="blank-a", source=_source("chat-blank-a"), state_data=_state(), title="Blank A")
+    create_agent_session(session_id="blank-b", source=_source("chat-blank-b"), state_data=_state(), title="Blank B")
+
+    unfiltered = dashboard_client.get("/api/sessions?limit=10&offset=0")
+    blank = dashboard_client.get("/api/sessions?q=%20%20%20&limit=10&offset=0")
+
+    assert unfiltered.status_code == 200
+    assert blank.status_code == 200
+    assert blank.json()["total"] == unfiltered.json()["total"] == 2
+    assert [item["session_id"] for item in blank.json()["items"]] == [
+        item["session_id"] for item in unfiltered.json()["items"]
+    ]
 
 
 def test_session_detail_endpoint_returns_metadata_and_messages(dashboard_client):

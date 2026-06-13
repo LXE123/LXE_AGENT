@@ -189,13 +189,53 @@ def _select_session_row(conn, *, session_id: str):
     ).fetchone()
 
 
-def _list_sessions(*, limit: int, offset: int) -> dict[str, Any]:
+def _session_summary_payload() -> dict[str, int]:
+    with connection_scope() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total_sessions,
+                COALESCE(SUM(tool_call_count), 0) AS tool_call_count,
+                COALESCE(SUM(input_tokens + output_tokens), 0) AS token_count
+            FROM agent_sessions
+            """
+        ).fetchone()
+    if row is None:
+        return {"total_sessions": 0, "tool_call_count": 0, "token_count": 0}
+    return {
+        "total_sessions": int(row["total_sessions"] or 0),
+        "tool_call_count": int(row["tool_call_count"] or 0),
+        "token_count": int(row["token_count"] or 0),
+    }
+
+
+def _session_search_sql(query: str) -> tuple[str, tuple[str, ...]]:
+    needle = str(query or "").strip().lower()
+    if not needle:
+        return "", ()
+    like = f"%{needle}%"
+    return (
+        """
+        WHERE lower(coalesce(session_id, '')) LIKE ?
+           OR lower(coalesce(title, '')) LIKE ?
+           OR lower(coalesce(model, '')) LIKE ?
+           OR lower(coalesce(source, '')) LIKE ?
+        """,
+        (like, like, like, like),
+    )
+
+
+def _list_sessions(*, limit: int, offset: int, query: str = "") -> dict[str, Any]:
     safe_limit = max(1, min(int(limit), 200))
     safe_offset = max(0, int(offset))
+    where_sql, where_args = _session_search_sql(query)
     with connection_scope() as conn:
-        total_row = conn.execute("SELECT COUNT(*) AS count FROM agent_sessions").fetchone()
+        total_row = conn.execute(
+            f"SELECT COUNT(*) AS count FROM agent_sessions {where_sql}",
+            where_args,
+        ).fetchone()
         rows = conn.execute(
-            """
+            f"""
             SELECT
                 session_id,
                 source,
@@ -210,16 +250,18 @@ def _list_sessions(*, limit: int, offset: int) -> dict[str, Any]:
                 title,
                 api_call_count
             FROM agent_sessions
+            {where_sql}
             ORDER BY last_active_at DESC, created_at DESC, session_id ASC
             LIMIT ? OFFSET ?
             """,
-            (safe_limit, safe_offset),
+            (*where_args, safe_limit, safe_offset),
         ).fetchall()
     return {
         "items": [_session_row_payload(row) for row in rows],
         "limit": safe_limit,
         "offset": safe_offset,
         "total": int(total_row["count"] if total_row is not None else 0),
+        "summary": _session_summary_payload(),
     }
 
 
@@ -358,8 +400,9 @@ def create_dashboard_app() -> FastAPI:
     async def sessions(
         limit: int = Query(default=50, ge=1, le=200),
         offset: int = Query(default=0, ge=0),
+        q: str = Query(default=""),
     ) -> dict[str, Any]:
-        return _list_sessions(limit=limit, offset=offset)
+        return _list_sessions(limit=limit, offset=offset, query=q)
 
     @app.get("/api/sessions/{session_id}")
     async def session_detail(

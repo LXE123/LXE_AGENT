@@ -159,10 +159,34 @@ type ApiList<T> = {
   offset?: number;
 };
 
+type SessionSummaryPayload = {
+  total_sessions: number;
+  tool_call_count: number;
+  token_count: number;
+};
+
+type SessionListPayload = ApiList<SessionPayload> & {
+  summary: SessionSummaryPayload;
+};
+
 const SESSION_MESSAGE_PAGE_LIMIT = 25;
+const SESSION_LIST_PAGE_SIZE = 10;
+
+const EMPTY_SESSION_SUMMARY: SessionSummaryPayload = {
+  total_sessions: 0,
+  tool_call_count: 0,
+  token_count: 0
+};
+
+const EMPTY_SESSION_LIST: SessionListPayload = {
+  items: [],
+  total: 0,
+  limit: SESSION_LIST_PAGE_SIZE,
+  offset: 0,
+  summary: EMPTY_SESSION_SUMMARY
+};
 
 type DashboardData = {
-  sessions: ApiList<SessionPayload>;
   skills: ApiList<SkillPayload>;
   toolsets: ApiList<ToolsetPayload>;
   backgroundTasks: ApiList<BackgroundTaskPayload>;
@@ -235,6 +259,22 @@ function dataWithCurrentModel(current: DashboardData, model: ModelPayload): Dash
       items: current.models.items.map((item) =>
         item.provider === model.provider && item.model === model.model ? { ...item, ...model } : item
       )
+    }
+  };
+}
+
+function normalizeSessionList(payload: SessionListPayload): SessionListPayload {
+  const summary = payload.summary || EMPTY_SESSION_SUMMARY;
+  return {
+    ...payload,
+    items: Array.isArray(payload.items) ? payload.items : [],
+    total: Math.max(0, Number(payload.total) || 0),
+    limit: Math.max(1, Number(payload.limit) || SESSION_LIST_PAGE_SIZE),
+    offset: Math.max(0, Number(payload.offset) || 0),
+    summary: {
+      total_sessions: Math.max(0, Number(summary.total_sessions) || 0),
+      tool_call_count: Math.max(0, Number(summary.tool_call_count) || 0),
+      token_count: Math.max(0, Number(summary.token_count) || 0)
     }
   };
 }
@@ -800,65 +840,128 @@ function SessionDetailView({
 
 function SessionsView({
   sessions,
+  total,
+  limit,
+  offset,
+  query,
+  loading,
+  error,
+  onPageChange,
   onOpen
 }: {
   sessions: SessionPayload[];
+  total: number;
+  limit: number;
+  offset: number;
+  query: string;
+  loading: boolean;
+  error: string;
+  onPageChange: (page: number) => void;
   onOpen: (session: SessionPayload) => void;
 }) {
-  if (!sessions.length) {
-    return <EmptyState label="暂无 session 记录。" />;
-  }
+  const safeLimit = Math.max(1, Number(limit) || SESSION_LIST_PAGE_SIZE);
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const safeTotal = Math.max(0, Number(total) || 0);
+  const currentPage = Math.floor(safeOffset / safeLimit) + 1;
+  const totalPages = Math.max(1, Math.ceil(safeTotal / safeLimit));
+  const trimmedQuery = query.trim();
+  const countLabel = trimmedQuery ? `搜索结果 ${formatNumber(safeTotal)} 条` : `共 ${formatNumber(safeTotal)} 条`;
+  const emptyLabel = trimmedQuery ? "没有匹配的 session。" : "暂无 session 记录。";
+  const hasPrevious = currentPage > 1;
+  const hasNext = currentPage < totalPages;
+  const showTable = sessions.length > 0;
+
   return (
-    <div className="table-shell">
-      <table className="session-table">
-        <thead>
-          <tr>
-            <th>会话</th>
-            <th>来源</th>
-            <th>模型</th>
-            <th>消息</th>
-            <th>工具</th>
-            <th>Token</th>
-            <th>最后活跃</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sessions.map((session) => (
-            <tr
-              className="clickable-row"
-              key={session.session_id}
-              role="button"
-              tabIndex={0}
-              onClick={() => onOpen(session)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onOpen(session);
-                }
-              }}
-            >
-              <td>
-                <div className="primary-cell">{session.title || "未命名会话"}</div>
-                <div className="muted mono">{shortId(session.session_id)}</div>
-              </td>
-              <td className="source-cell">{sourceLabel(session.source_summary || session.source)}</td>
-              <td>
-                <div>{session.model || "-"}</div>
-                <div className="muted">{String(session.model_config.provider || "")}</div>
-              </td>
-              <td>{formatNumber(session.message_count)}</td>
-              <td>{formatNumber(session.tool_call_count)}</td>
-              <td>{formatNumber(session.input_tokens + session.output_tokens)}</td>
-              <td>
-                <div className="row-action-cell">
-                  <span>{formatDate(session.last_active_at)}</span>
-                  <ChevronRight size={16} />
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="sessions-panel">
+      <div className="sessions-list-toolbar">
+        <div>
+          <div className="sessions-list-title">Sessions</div>
+          <div className="sessions-list-meta">{countLabel}</div>
+        </div>
+        {loading ? <span className="pill">loading</span> : null}
+      </div>
+      {error ? <EmptyState label={`Sessions error: ${error}`} /> : null}
+      {!showTable && loading && !error ? <EmptyState label="Loading sessions..." /> : null}
+      {!showTable && !loading && !error ? <EmptyState label={emptyLabel} /> : null}
+      {showTable ? (
+        <div className="table-shell">
+          <table className="session-table">
+            <thead>
+              <tr>
+                <th>会话</th>
+                <th>来源</th>
+                <th>模型</th>
+                <th>消息</th>
+                <th>工具</th>
+                <th>Token</th>
+                <th>最后活跃</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sessions.map((session) => (
+                <tr
+                  className="clickable-row"
+                  key={session.session_id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => onOpen(session)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      onOpen(session);
+                    }
+                  }}
+                >
+                  <td>
+                    <div className="primary-cell">{session.title || "未命名会话"}</div>
+                    <div className="muted mono">{shortId(session.session_id)}</div>
+                  </td>
+                  <td className="source-cell">{sourceLabel(session.source_summary || session.source)}</td>
+                  <td>
+                    <div>{session.model || "-"}</div>
+                    <div className="muted">{String(session.model_config.provider || "")}</div>
+                  </td>
+                  <td>{formatNumber(session.message_count)}</td>
+                  <td>{formatNumber(session.tool_call_count)}</td>
+                  <td>{formatNumber(session.input_tokens + session.output_tokens)}</td>
+                  <td>
+                    <div className="row-action-cell">
+                      <span>{formatDate(session.last_active_at)}</span>
+                      <ChevronRight size={16} />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {showTable || safeTotal > 0 ? (
+        <div className="session-page-toolbar">
+          <button
+            className="page-nav-button"
+            type="button"
+            disabled={loading || !hasPrevious}
+            onClick={() => onPageChange(currentPage - 1)}
+          >
+            上一页
+          </button>
+          <div className="session-page-center">
+            <div className="message-page-index">
+              第 {formatNumber(currentPage)} / {formatNumber(totalPages)} 页
+            </div>
+            <div className="message-page-count">{countLabel}</div>
+          </div>
+          <button
+            className="page-nav-button"
+            type="button"
+            disabled={loading || !hasNext}
+            onClick={() => onPageChange(currentPage + 1)}
+          >
+            下一页
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1303,10 +1406,15 @@ function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () =>
 function App() {
   const [activeTab, setActiveTab] = useState("sessions");
   const [data, setData] = useState<DashboardData | null>(null);
+  const [sessionsData, setSessionsData] = useState<SessionListPayload>(EMPTY_SESSION_LIST);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState("");
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
   const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [sessionPage, setSessionPage] = useState(1);
   const [selectedSession, setSelectedSession] = useState<SessionPayload | null>(null);
   const [sessionDetail, setSessionDetail] = useState<SessionDetailPayload | null>(null);
   const [sessionDetailLoading, setSessionDetailLoading] = useState(false);
@@ -1319,8 +1427,7 @@ function App() {
     let cancelled = false;
     async function load() {
       try {
-        const [sessions, skills, toolsets, backgroundTasks, models, currentModel] = await Promise.all([
-          fetchJson<ApiList<SessionPayload>>("/api/sessions?limit=100&offset=0"),
+        const [skills, toolsets, backgroundTasks, models, currentModel] = await Promise.all([
           fetchJson<ApiList<SkillPayload>>("/api/skills"),
           fetchJson<ApiList<ToolsetPayload>>("/api/tools/toolsets"),
           fetchJson<ApiList<BackgroundTaskPayload>>("/api/background-tasks"),
@@ -1328,7 +1435,7 @@ function App() {
           fetchJson<ModelPayload>("/api/models/current")
         ]);
         if (!cancelled) {
-          setData({ sessions, skills, toolsets, backgroundTasks, models, currentModel });
+          setData({ skills, toolsets, backgroundTasks, models, currentModel });
           setError("");
         }
       } catch (err) {
@@ -1347,19 +1454,60 @@ function App() {
     };
   }, []);
 
-  const filteredSessions = useMemo(() => {
-    const sessions = data?.sessions.items || [];
-    const needle = query.trim().toLowerCase();
-    if (!needle) {
-      return sessions;
+  useEffect(() => {
+    const debounce = window.setTimeout(() => setDebouncedQuery(query.trim()), 250);
+    return () => window.clearTimeout(debounce);
+  }, [query]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSessions() {
+      const safePage = Math.max(1, sessionPage);
+      const params = new URLSearchParams({
+        limit: String(SESSION_LIST_PAGE_SIZE),
+        offset: String((safePage - 1) * SESSION_LIST_PAGE_SIZE)
+      });
+      if (debouncedQuery) {
+        params.set("q", debouncedQuery);
+      }
+
+      setSessionsLoading(true);
+      setSessionsError("");
+      try {
+        const payload = normalizeSessionList(
+          await fetchJson<SessionListPayload>(`/api/sessions?${params.toString()}`)
+        );
+        if (cancelled) {
+          return;
+        }
+        const totalPages = Math.max(1, Math.ceil(payload.total / Math.max(1, payload.limit || SESSION_LIST_PAGE_SIZE)));
+        if (safePage > totalPages) {
+          setSessionPage(totalPages);
+          return;
+        }
+        setSessionsData(payload);
+      } catch (err) {
+        if (!cancelled) {
+          setSessionsError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setSessionsLoading(false);
+        }
+      }
     }
-    return sessions.filter((session) => {
-      return [session.session_id, session.title, session.model, sourceLabel(session.source_summary || session.source)]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle);
-    });
-  }, [data, query]);
+
+    loadSessions();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionPage, debouncedQuery]);
+
+  function handleSessionQueryChange(value: string) {
+    setQuery(value);
+    setSessionPage(1);
+  }
 
   async function openSession(session: SessionPayload) {
     setSelectedSession(session);
@@ -1431,11 +1579,9 @@ function App() {
     }
   }
 
-  const totalTokens = (data?.sessions.items || []).reduce(
-    (sum, session) => sum + session.input_tokens + session.output_tokens,
-    0
-  );
-  const totalTools = (data?.sessions.items || []).reduce((sum, session) => sum + session.tool_call_count, 0);
+  const sessionSummary = sessionsData.summary || EMPTY_SESSION_SUMMARY;
+  const totalTokens = sessionSummary.token_count;
+  const totalTools = sessionSummary.tool_call_count;
 
   const tabs = [
     { id: "sessions", label: "Sessions", icon: <MessageSquareText size={16} /> },
@@ -1467,7 +1613,7 @@ function App() {
       </section>
 
       <section className="stats-row">
-        <StatTile icon={<Database size={18} />} label="Sessions" value={formatNumber(data?.sessions.total || 0)} tone="blue" />
+        <StatTile icon={<Database size={18} />} label="Sessions" value={formatNumber(sessionSummary.total_sessions)} tone="blue" />
         <StatTile icon={<Activity size={18} />} label="Tool Calls" value={formatNumber(totalTools)} tone="green" />
         <StatTile icon={<Box size={18} />} label="Tokens" value={formatNumber(totalTokens)} tone="amber" />
         <StatTile icon={<Server size={18} />} label="Current Model" value={data?.currentModel?.model || "-"} />
@@ -1479,7 +1625,7 @@ function App() {
             <Search size={16} />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => handleSessionQueryChange(event.target.value)}
               placeholder="Search sessions"
               aria-label="Search sessions"
             />
@@ -1549,7 +1695,17 @@ function App() {
                 />
               ) : null}
               {activeTab === "sessions" && !selectedSession ? (
-                <SessionsView sessions={filteredSessions} onOpen={openSession} />
+                <SessionsView
+                  sessions={sessionsData.items}
+                  total={sessionsData.total}
+                  limit={sessionsData.limit || SESSION_LIST_PAGE_SIZE}
+                  offset={sessionsData.offset || 0}
+                  query={debouncedQuery}
+                  loading={sessionsLoading}
+                  error={sessionsError}
+                  onPageChange={setSessionPage}
+                  onOpen={openSession}
+                />
               ) : null}
               {activeTab === "models" ? <ModelsView models={data.models.items} current={data.currentModel} /> : null}
               {activeTab === "tools" ? <ToolsView toolsets={data.toolsets.items} onOpen={setDetailTarget} /> : null}

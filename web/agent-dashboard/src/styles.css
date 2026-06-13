@@ -376,6 +376,33 @@ h1 {
   background: #ffffff;
 }
 
+.sessions-panel {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+}
+
+.sessions-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 34px;
+  gap: 12px;
+}
+
+.sessions-list-title {
+  color: #263832;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.sessions-list-meta {
+  margin-top: 2px;
+  color: #72837b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .table-shell {
   width: 100%;
   overflow: auto;
@@ -728,7 +755,26 @@ h1 {
   background: #fbfdfc;
 }
 
+.session-page-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #dfe7e3;
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
 .message-page-center {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+  gap: 3px;
+  text-align: center;
+}
+
+.session-page-center {
   display: grid;
   justify-items: center;
   min-width: 0;
