@@ -18,6 +18,7 @@ from agent_runtime.tools.feishu_im_tools import FEISHU_IM_TOOLS
 from agent_runtime.tools.process_sessions import list_exec_session_snapshots
 from shared.db.sqlite.engine import connection_scope
 from shared.db.sqlite.session_messages import load_session_messages_page
+from shared.env import upsert_project_env_values
 from shared.llm.agent_planner import agent_planner_selection_options
 from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import resolve_model_capabilities
@@ -33,6 +34,10 @@ def _repo_root() -> Path:
 
 def _dashboard_dist_dir() -> Path:
     return _repo_root() / "web" / "agent-dashboard" / "dist"
+
+
+_THINKING_ENABLED_ENV = "AGENT_LLM_THINKING_ENABLED"
+_THINKING_EFFORT_ENV = "AGENT_LLM_THINKING_EFFORT"
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -66,6 +71,11 @@ def _descriptor_payload(descriptor) -> dict[str, Any]:
         "api_style": descriptor.api_style,
         "model": descriptor.default_model,
         "configured": bool(str(descriptor.api_key or "").strip()),
+        "thinking_request_style": descriptor.thinking_request_style,
+        "thinking_levels": list(descriptor.thinking_levels),
+        "thinking_level_labels": dict(descriptor.thinking_level_labels),
+        "thinking_default": descriptor.thinking_default,
+        "thinking_state": _thinking_state_payload(descriptor),
         "capabilities": _capabilities_payload(descriptor.name, descriptor.default_model),
     }
 
@@ -79,6 +89,55 @@ def _current_planner_descriptor():
     ).strip()
     provider_name = normalize_provider_name(provider_name or kimi_coding_client.PROVIDER_NAME)
     return descriptor_for_provider(provider_name, model_override=model_name)
+
+
+def _is_editable_binary_thinking_descriptor(descriptor) -> bool:
+    return (
+        descriptor.name == kimi_coding_client.PROVIDER_NAME
+        and descriptor.thinking_request_style == "anthropic-budget"
+        and tuple(descriptor.thinking_levels) == ("off", "low")
+    )
+
+
+def _thinking_state_payload(descriptor) -> dict[str, Any]:
+    editable = _is_editable_binary_thinking_descriptor(descriptor)
+    enabled = bool(getattr(runtime_settings, _THINKING_ENABLED_ENV, False))
+    effort = str(getattr(runtime_settings, _THINKING_EFFORT_ENV, "low") or "low").strip().lower()
+    labels = dict(getattr(descriptor, "thinking_level_labels", {}) or {})
+    if editable:
+        level = "low" if enabled and effort != "off" else "off"
+    elif enabled:
+        level = effort
+    else:
+        level = "off"
+    return {
+        "enabled": bool(level != "off"),
+        "level": level,
+        "label": str(labels.get(level) or level),
+        "editable": editable,
+    }
+
+
+def _set_current_thinking_level(level: str) -> dict[str, Any]:
+    descriptor = _current_planner_descriptor()
+    if not _is_editable_binary_thinking_descriptor(descriptor):
+        raise HTTPException(status_code=400, detail="Current model does not support editable binary thinking")
+
+    normalized_level = str(level or "").strip().lower()
+    if normalized_level not in {"off", "low"}:
+        raise HTTPException(status_code=400, detail="Kimi Coding thinking level must be off or low")
+
+    enabled_value = "1" if normalized_level == "low" else "0"
+    env_values = {
+        _THINKING_ENABLED_ENV: enabled_value,
+        _THINKING_EFFORT_ENV: "low",
+    }
+    upsert_project_env_values(env_values)
+
+    os.environ.update(env_values)
+    setattr(runtime_settings, _THINKING_ENABLED_ENV, normalized_level == "low")
+    setattr(runtime_settings, _THINKING_EFFORT_ENV, "low")
+    return _descriptor_payload(descriptor)
 
 
 def _source_summary(source: dict[str, Any]) -> dict[str, str]:
@@ -333,6 +392,10 @@ def create_dashboard_app() -> FastAPI:
     @app.get("/api/models/current")
     async def current_model() -> dict[str, Any]:
         return _descriptor_payload(_current_planner_descriptor())
+
+    @app.patch("/api/models/current/thinking")
+    async def update_current_model_thinking(payload: dict[str, Any]) -> dict[str, Any]:
+        return _set_current_thinking_level(str(dict(payload or {}).get("level") or ""))
 
     dist_dir = _dashboard_dist_dir()
     if dist_dir.is_dir():

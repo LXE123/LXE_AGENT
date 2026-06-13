@@ -269,6 +269,7 @@ h1 {
 
 .current-model-card {
   display: flex;
+  flex-direction: column;
   gap: 9px;
   margin-top: auto;
   padding: 12px;
@@ -278,26 +279,95 @@ h1 {
   color: #456159;
 }
 
-.current-model-card div {
+.current-model-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
   min-width: 0;
 }
 
-.current-model-card strong,
-.current-model-card span {
+.current-model-copy {
+  min-width: 0;
+}
+
+.current-model-copy strong,
+.current-model-copy span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.current-model-card strong {
+.current-model-copy strong {
   color: #1e2a26;
   font-size: 13px;
 }
 
-.current-model-card span {
+.current-model-copy span {
   margin-top: 2px;
   font-size: 12px;
+}
+
+.thinking-toggle-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding-top: 9px;
+  border-top: 1px solid #edf2ef;
+}
+
+.thinking-label,
+.thinking-status {
+  overflow: hidden;
+  color: #53655d;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thinking-status {
+  min-width: 20px;
+  color: #1e342c;
+  font-weight: 700;
+  text-align: right;
+}
+
+.thinking-switch {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border: 1px solid #cbd8d2;
+  border-radius: 999px;
+  background: #eef3f0;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, opacity 0.16s ease;
+}
+
+.thinking-switch.active {
+  border-color: #6b8f7e;
+  background: #d9ece3;
+}
+
+.thinking-switch:disabled {
+  cursor: progress;
+  opacity: 0.65;
+}
+
+.thinking-switch-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(30, 42, 38, 0.22);
+  transition: transform 0.16s ease;
+}
+
+.thinking-switch.active .thinking-switch-knob {
+  transform: translateX(16px);
 }
 
 .content-panel {

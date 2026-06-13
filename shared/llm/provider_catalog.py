@@ -10,6 +10,12 @@ from shared.llm.auth_profiles import api_key_for_provider
 
 
 _PROVIDER_DIR = Path(__file__).resolve().parent / "providers"
+_THINKING_REQUEST_STYLES = {
+    "none",
+    "provider-managed",
+    "anthropic-adaptive",
+    "anthropic-budget",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +27,10 @@ class ProviderModelSpec:
     supports_vision: bool
     supports_thinking: bool
     supports_temperature: bool
+    thinking_request_style: str = "none"
+    thinking_levels: tuple[str, ...] = ()
+    thinking_level_labels: dict[str, str] = field(default_factory=dict)
+    thinking_default: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +55,10 @@ class ProviderDescriptor:
     base_url: str
     default_model: str
     max_tokens: int = 0
+    thinking_request_style: str = "none"
+    thinking_levels: tuple[str, ...] = ()
+    thinking_level_labels: dict[str, str] = field(default_factory=dict)
+    thinking_default: str = ""
     default_headers: dict[str, str] = field(default_factory=dict)
 
 
@@ -93,6 +107,46 @@ def _parse_model_spec(
     safe_model = _clean_text(model_name)
     if not safe_model:
         raise RuntimeError(f"LLM model name cannot be empty: {path}")
+    thinking_request_style = _clean_text(payload.get("thinking_request_style")) or "none"
+    if thinking_request_style not in _THINKING_REQUEST_STYLES:
+        raise RuntimeError(
+            f"Unsupported LLM model thinking_request_style: {path} {safe_model}.{thinking_request_style}"
+        )
+    thinking_levels = tuple(
+        level.lower()
+        for level in _string_list(
+            payload.get("thinking_levels"),
+            field_name=f"{safe_model}.thinking_levels",
+            path=path,
+        )
+    )
+    if len(set(thinking_levels)) != len(thinking_levels):
+        raise RuntimeError(f"LLM model thinking_levels contains duplicates: {path} {safe_model}")
+    thinking_level_labels = {
+        key.lower(): label
+        for key, label in _string_dict(
+            payload.get("thinking_level_labels"),
+            field_name=f"{safe_model}.thinking_level_labels",
+            path=path,
+        ).items()
+    }
+    thinking_default = _clean_text(payload.get("thinking_default")).lower()
+    if thinking_levels:
+        if not thinking_default:
+            thinking_default = thinking_levels[0]
+        if thinking_default not in thinking_levels:
+            raise RuntimeError(
+                f"LLM model thinking_default must be listed in thinking_levels: {path} {safe_model}"
+            )
+        unknown_labels = sorted(set(thinking_level_labels) - set(thinking_levels))
+        if unknown_labels:
+            raise RuntimeError(
+                f"LLM model thinking_level_labels keys must be listed in thinking_levels: "
+                f"{path} {safe_model} {unknown_labels}"
+            )
+    else:
+        thinking_level_labels = {}
+        thinking_default = ""
     return ProviderModelSpec(
         provider=provider_name,
         model=safe_model,
@@ -106,6 +160,10 @@ def _parse_model_spec(
         supports_vision=bool(payload.get("supports_vision", False)),
         supports_thinking=bool(payload.get("supports_thinking", False)),
         supports_temperature=bool(payload.get("supports_temperature", True)),
+        thinking_request_style=thinking_request_style,
+        thinking_levels=thinking_levels,
+        thinking_level_labels=thinking_level_labels,
+        thinking_default=thinking_default,
     )
 
 
@@ -253,6 +311,10 @@ def descriptor_for_provider(provider_name: str, *, model_override: str = "") -> 
         base_url=spec.base_url,
         default_model=descriptor_model,
         max_tokens=int(model_spec.max_tokens),
+        thinking_request_style=model_spec.thinking_request_style,
+        thinking_levels=tuple(model_spec.thinking_levels),
+        thinking_level_labels=dict(model_spec.thinking_level_labels),
+        thinking_default=model_spec.thinking_default,
         default_headers=dict(spec.default_headers),
     )
 

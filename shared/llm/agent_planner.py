@@ -13,7 +13,8 @@ from shared.llm import runtime_config as runtime_settings
 _ACTIVE_PROVIDER_ENV = "AGENT_LLM_PROVIDER"
 _ACTIVE_MODEL_ENV = "AGENT_LLM_MODEL"
 _MAX_TOKENS_CONFIG = "AGENT_LLM_MAX_TOKENS"
-_KIMI_THINKING_ENV = "KIMI_CODE_THINKING_ENABLED"
+_THINKING_ENABLED_ENV = "AGENT_LLM_THINKING_ENABLED"
+_THINKING_EFFORT_ENV = "AGENT_LLM_THINKING_EFFORT"
 
 
 def _config_text(name: str, default: str = "") -> str:
@@ -36,14 +37,14 @@ def _set_active_agent_planner(provider_name: str, model_name: str) -> None:
     setattr(runtime_settings, _ACTIVE_MODEL_ENV, chosen_model)
 
 
-def _current_kimi_thinking_enabled() -> bool:
-    return bool(getattr(runtime_settings, _KIMI_THINKING_ENV, True))
+def _current_agent_thinking_enabled() -> bool:
+    return bool(getattr(runtime_settings, _THINKING_ENABLED_ENV, False))
 
 
-def _set_kimi_thinking_enabled(enabled: bool) -> None:
+def _set_agent_thinking_enabled(enabled: bool) -> None:
     normalized = bool(enabled)
-    os.environ[_KIMI_THINKING_ENV] = "1" if normalized else "0"
-    setattr(runtime_settings, _KIMI_THINKING_ENV, normalized)
+    os.environ[_THINKING_ENABLED_ENV] = "1" if normalized else "0"
+    setattr(runtime_settings, _THINKING_ENABLED_ENV, normalized)
 
 
 def _prompt_bool(prompt: str, *, default: bool) -> bool:
@@ -105,12 +106,43 @@ def effective_agent_planner_max_tokens(requested: int | None = None) -> int:
     return max(1, min(int(requested), int(effective_upper_bound)))
 
 
+def _thinking_mode_label(descriptor: ProviderDescriptor) -> str:
+    style = str(getattr(descriptor, "thinking_request_style", "none") or "none").strip()
+    if style == "provider-managed":
+        return "provider-managed"
+    if style in {"anthropic-adaptive", "anthropic-budget"}:
+        if _current_agent_thinking_enabled():
+            level = _thinking_level_for_descriptor(descriptor)
+            if level == "off":
+                return f"disabled:{style}:off"
+            label = _thinking_level_display(descriptor, level)
+            suffix = level if label == level else f"{level}({label})"
+            return f"enabled:{style}:{suffix}"
+        if descriptor.thinking_levels:
+            return f"disabled:{style}:{descriptor.thinking_default or 'off'}"
+        return f"disabled:{style}"
+    return "none"
+
+
+def _thinking_level_for_descriptor(descriptor: ProviderDescriptor) -> str:
+    default_level = str(descriptor.thinking_default or "low").strip().lower()
+    configured_level = _config_text(_THINKING_EFFORT_ENV, default_level) or default_level
+    configured_level = configured_level.lower()
+    levels = tuple(str(level or "").strip().lower() for level in descriptor.thinking_levels)
+    if levels and configured_level not in levels:
+        return next((level for level in levels if level != "off"), default_level)
+    return configured_level
+
+
+def _thinking_level_display(descriptor: ProviderDescriptor, level: str) -> str:
+    labels = dict(getattr(descriptor, "thinking_level_labels", {}) or {})
+    return str(labels.get(level) or level).strip() or level
+
+
 def log_active_agent_planner_summary() -> None:
     descriptor = active_agent_planner_descriptor()
     capabilities, match_kind = _active_capabilities_with_match()
-    thinking_mode = "default"
-    if descriptor.name == kimi_coding_client.PROVIDER_NAME:
-        thinking_mode = "enabled" if bool(runtime_settings.KIMI_CODE_THINKING_ENABLED) else "disabled"
+    thinking_mode = _thinking_mode_label(descriptor)
     logger.info(
         "[AgentLLM] active provider=%s model=%s context_window=%s max_tokens=%s vision=%s thinking=%s thinking_mode=%s",
         descriptor.name,
@@ -171,13 +203,19 @@ def bootstrap_agent_planner_selection() -> None:
     custom_model = input(f"Model name [{default_model}]: ").strip()
     chosen_model = custom_model or default_model
     _set_active_agent_planner(selected_option.name, chosen_model)
-    if selected_option.name == kimi_coding_client.PROVIDER_NAME:
-        default_thinking = _current_kimi_thinking_enabled()
+    if selected_option.thinking_request_style in {"anthropic-adaptive", "anthropic-budget"}:
+        default_thinking = _current_agent_thinking_enabled()
         thinking_hint = "Y/n" if default_thinking else "y/N"
-        thinking_enabled = _prompt_bool(f"Enable thinking? [{thinking_hint}]: ", default=default_thinking)
-        _set_kimi_thinking_enabled(thinking_enabled)
-        thinking_label = "enabled" if thinking_enabled else "disabled"
-        print(f"Using agent LLM: {selected_option.label} / {chosen_model} / thinking={thinking_label}\n")
+        thinking_enabled = _prompt_bool(f"Enable thinking request? [{thinking_hint}]: ", default=default_thinking)
+        _set_agent_thinking_enabled(thinking_enabled)
+        level = _thinking_level_for_descriptor(selected_option) if thinking_enabled else "off"
+        thinking_label = "enabled" if thinking_enabled and level != "off" else "disabled"
+        display_level = _thinking_level_display(selected_option, level)
+        effort = level if display_level == level else f"{level}({display_level})"
+        print(
+            f"Using agent LLM: {selected_option.label} / {chosen_model} / "
+            f"thinking={thinking_label} / effort={effort}\n"
+        )
         return
     print(f"Using agent LLM: {selected_option.label} / {chosen_model}\n")
 

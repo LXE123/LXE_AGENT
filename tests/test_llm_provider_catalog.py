@@ -19,6 +19,15 @@ def test_provider_catalog_loads_all_provider_json() -> None:
         for model_spec in spec.models.values():
             assert model_spec.context_window_tokens > 0
             assert model_spec.max_tokens > 0
+            assert model_spec.thinking_request_style in {
+                "none",
+                "provider-managed",
+                "anthropic-adaptive",
+                "anthropic-budget",
+            }
+            if model_spec.thinking_levels:
+                assert model_spec.thinking_default in model_spec.thinking_levels
+                assert set(model_spec.thinking_level_labels).issubset(model_spec.thinking_levels)
 
 
 def test_provider_aliases_are_normalized_from_catalog() -> None:
@@ -37,6 +46,18 @@ def test_model_alias_and_unknown_model_capability_fallback() -> None:
     assert fallback_match == "provider"
     assert fallback_model == "custom-model"
     assert fallback_spec.model == "kimi-for-coding"
+
+
+def test_thinking_request_style_is_loaded_from_model_spec() -> None:
+    kimi_descriptor = descriptor_for_provider("kimi_coding")
+    deepseek_descriptor = descriptor_for_provider("deepseek")
+
+    assert kimi_descriptor.thinking_request_style == "anthropic-budget"
+    assert list(kimi_descriptor.thinking_levels) == ["off", "low"]
+    assert kimi_descriptor.thinking_level_labels["low"] == "on"
+    assert kimi_descriptor.thinking_default == "off"
+    assert deepseek_descriptor.thinking_request_style == "none"
+    assert deepseek_descriptor.thinking_levels == ()
 
 
 def test_auth_profile_reads_api_key_from_env_aliases(monkeypatch) -> None:

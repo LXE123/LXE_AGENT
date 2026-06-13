@@ -7,15 +7,24 @@ from anthropic import APIStatusError, Anthropic
 
 from shared.llm.errors import AnthropicStreamError, LLMProviderError
 from shared.llm.events import LLMStreamEvent, LLMToolCall
+from shared.llm import runtime_config as runtime_settings
 from shared.llm.kimi_coding.errors import classify_kimi_coding_error
 from shared.llm.provider_catalog import ProviderDescriptor
 from shared.llm.transports.wire_trace import WireTraceContext, WireTraceWriter
+from shared.logging import logger
 
 ToolChoiceMode = Literal["auto", "none"]
 _ANTHROPIC_DEFAULT_OUTPUT_LIMIT = 128_000
 _KIMI_CODING_PROVIDER_NAME = "kimi_coding"
 _KIMI_CODE_USER_AGENT = "claude-code/0.1.0"
 _REDACTED_THINKING_PLACEHOLDER = "[部分思考已加密]"
+_THINKING_EFFORT_BUDGETS = {
+    "low": 4000,
+    "medium": 8000,
+    "high": 16000,
+    "xhigh": 32000,
+}
+_THINKING_DISPLAYS = {"omitted", "summarized"}
 
 
 def _is_kimi_coding_provider(provider_name: str) -> bool:
@@ -68,6 +77,92 @@ def _int_value(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return int(default)
+
+
+def _thinking_enabled() -> bool:
+    return bool(getattr(runtime_settings, "AGENT_LLM_THINKING_ENABLED", False))
+
+
+def _normalized_thinking_effort() -> str:
+    effort = str(getattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", "low") or "low").strip().lower()
+    if effort in _THINKING_EFFORT_BUDGETS:
+        return effort
+    logger.warning("[AnthropicSDK] unsupported thinking effort=%s, falling back to medium", effort)
+    return "medium"
+
+
+def _normalized_thinking_display() -> str:
+    display = str(getattr(runtime_settings, "AGENT_LLM_THINKING_DISPLAY", "omitted") or "omitted").strip().lower()
+    if display in _THINKING_DISPLAYS:
+        return display
+    logger.warning("[AnthropicSDK] unsupported thinking display=%s, falling back to omitted", display)
+    return "omitted"
+
+
+def _safe_budget_tokens(effort: str, requested_limit: int) -> int | None:
+    if requested_limit <= 1024:
+        return None
+    budget = int(_THINKING_EFFORT_BUDGETS.get(effort, _THINKING_EFFORT_BUDGETS["medium"]))
+    if budget < requested_limit:
+        return budget
+    return max(1024, int(requested_limit) - 1024)
+
+
+def _normalized_kimi_coding_thinking_effort() -> str:
+    effort = str(getattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", "low") or "low").strip().lower()
+    if effort in {"off", "low"}:
+        return effort
+    logger.warning("[AnthropicSDK] Kimi Coding only supports thinking off/low; got %s, using low", effort)
+    return "low"
+
+
+def _apply_kimi_coding_thinking_payload(payload: dict[str, Any], *, max_tokens: int) -> None:
+    if not _thinking_enabled() or _normalized_kimi_coding_thinking_effort() == "off":
+        payload["thinking"] = {"type": "disabled"}
+        return
+
+    budget_tokens = _safe_budget_tokens("low", int(max_tokens))
+    if budget_tokens is None:
+        logger.warning(
+            "[AnthropicSDK] disabling Kimi Coding thinking because max_tokens=%s is too small",
+            max_tokens,
+        )
+        payload["thinking"] = {"type": "disabled"}
+        return
+    payload["thinking"] = {
+        "type": "enabled",
+        "budget_tokens": budget_tokens,
+    }
+
+
+def _apply_thinking_payload(payload: dict[str, Any], descriptor: ProviderDescriptor, *, max_tokens: int) -> None:
+    style = str(getattr(descriptor, "thinking_request_style", "none") or "none").strip()
+    if _is_kimi_coding_provider(descriptor.name) and style == "anthropic-budget":
+        _apply_kimi_coding_thinking_payload(payload, max_tokens=max_tokens)
+        return
+    if not _thinking_enabled():
+        return
+    if style == "anthropic-adaptive":
+        payload["thinking"] = {
+            "type": "adaptive",
+            "display": _normalized_thinking_display(),
+        }
+        payload["output_config"] = {
+            "effort": _normalized_thinking_effort(),
+        }
+        return
+    if style == "anthropic-budget":
+        budget_tokens = _safe_budget_tokens(_normalized_thinking_effort(), int(max_tokens))
+        if budget_tokens is None:
+            logger.warning(
+                "[AnthropicSDK] skipping budget thinking because max_tokens=%s is too small",
+                max_tokens,
+            )
+            return
+        payload["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": budget_tokens,
+        }
 
 
 def _write_sdk_wire_event(
@@ -358,6 +453,7 @@ def _request_payload(
         "messages": list(messages),
         "stream": True,
     }
+    _apply_thinking_payload(payload, descriptor, max_tokens=requested_limit)
     if tool_schemas is not None:
         payload["tools"] = list(tool_schemas)
     if tool_choice_mode == "none":
