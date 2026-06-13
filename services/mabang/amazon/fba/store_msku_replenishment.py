@@ -17,7 +17,9 @@ from services.mabang.amazon.fba.replenishment_template import (
     get_template,
     replenishment_days_from_template,
     sea_day_candidates_from_template,
+    sea_daily_sales_meets_min_from_template,
     sea_enabled_from_template,
+    sea_min_daily_sales_inclusive_from_template,
     trend_group_from_template,
     validate_template,
 )
@@ -115,6 +117,7 @@ SALES_REQUIRED_COLUMNS = (
     "单品重量(g)(cm)",
 )
 TRANSPORT_ORDER = (AIR_URGENT_SHEET, AIR_SHEET, SEA_SHEET, NO_SHIP_SHEET, SAMPLE_INSUFFICIENT_SHEET)
+FLOAT_TOLERANCE = 1e-9
 TWO_DECIMAL_COLUMNS = {
     "加权日销",
     "可销售天数",
@@ -726,7 +729,7 @@ def calculate_replenishment_row(
         )
     air_urgent_days = float(params["shipping"]["air_urgent_sales_days_lte"])
     air_days = float(params["shipping"]["air_sales_days_lte"])
-    if sales_days <= air_urgent_days:
+    if sales_days <= air_urgent_days + FLOAT_TOLERANCE:
         return _with_unlinked_deduction(
             ReplenishmentRow(
                 **base_kwargs,
@@ -737,7 +740,7 @@ def calculate_replenishment_row(
                 sheet_name=AIR_URGENT_SHEET,
             )
         )
-    if sales_days <= air_days:
+    if sales_days <= air_days + FLOAT_TOLERANCE:
         return _with_unlinked_deduction(
             ReplenishmentRow(
                 **base_kwargs,
@@ -760,13 +763,14 @@ def calculate_replenishment_row(
         )
 
     min_daily_sales = float(params["sea"]["min_daily_sales"])
-    if weighted_daily_sales <= min_daily_sales:
+    if not sea_daily_sales_meets_min_from_template(weighted_daily_sales, params):
+        operator_text = "<" if sea_min_daily_sales_inclusive_from_template(params) else "<="
         return ReplenishmentRow(
             **base_kwargs,
             sea_days=None,
             sea_quantity=None,
             estimated_weight_kg=None,
-            decision_reason=f"可销售天数={sales_days:.2f} > {air_days:g}，但加权日销={weighted_daily_sales:.2f} <= {min_daily_sales:g}，不建议海运",
+            decision_reason=f"可销售天数={sales_days:.2f} > {air_days:g}，但加权日销={weighted_daily_sales:.2f} {operator_text} {min_daily_sales:g}，不建议海运",
             sheet_name=NO_SHIP_SHEET,
         )
     if sales_detail.weight_grams is None:

@@ -42,10 +42,10 @@ def test_default_template_loads_current_algorithm() -> None:
     assert tmpl.validate_template(template).warnings == ()
 
 
-def test_builtin_templates_include_us_uk_de_group_1_rules() -> None:
+def test_builtin_templates_include_us_uk_de_and_lin_meiqi_rules() -> None:
     templates = {template.name: template for template in tmpl.load_builtin_templates()}
 
-    assert list(templates) == ["默认模板", "US模板-一组", "UK模板-一组", "DE模板-一组"]
+    assert list(templates) == ["默认模板", "US模板-一组", "UK模板-一组", "DE模板-一组", "2组-US站点-林美淇"]
 
     us_params = templates["US模板-一组"].params
     assert tmpl.sea_enabled_from_template(us_params) is True
@@ -71,6 +71,24 @@ def test_builtin_templates_include_us_uk_de_group_1_rules() -> None:
     assert tmpl.replenishment_days_from_template(6, "平稳", de_params) == 85
     assert tmpl.replenishment_days_from_template(2, "下降", de_params) == 75
     assert tmpl.replenishment_days_from_template(0.5, "增长", de_params) == 65
+
+    lin_params = templates["2组-US站点-林美淇"].params
+    assert lin_params["weighted_sales"] == {"7d_weight": 0.7, "14d_weight": 0.2, "30d_weight": 0.1}
+    assert tmpl.validate_template(templates["2组-US站点-林美淇"]).warnings == ()
+    assert tmpl.replenishment_days_from_template(51, "增长", lin_params) == 90
+    assert tmpl.replenishment_days_from_template(11, "平稳", lin_params) == 80
+    assert tmpl.replenishment_days_from_template(2, "下降", lin_params) == 75
+    assert tmpl.replenishment_days_from_template(1, "增长", lin_params) == 70
+    assert tmpl.sea_enabled_from_template(lin_params) is True
+    assert tmpl.sea_min_daily_sales_inclusive_from_template(lin_params) is True
+    assert lin_params["sea"]["min_daily_sales"] == 1
+    assert lin_params["sea"]["min_weight_kg"] == 60
+    assert tmpl.sea_day_candidates_from_template(0.99, lin_params) == []
+    assert tmpl.sea_day_candidates_from_template(1, lin_params) == [100]
+    assert tmpl.sea_day_candidates_from_template(5, lin_params) == [100]
+    assert tmpl.sea_day_candidates_from_template(6, lin_params) == [110]
+    assert tmpl.sea_day_candidates_from_template(21, lin_params) == [120]
+    assert tmpl.sea_day_candidates_from_template(301, lin_params) == [120]
 
 
 def test_export_validate_and_import_template_xlsx(tmp_path) -> None:
@@ -98,6 +116,7 @@ def test_export_validate_and_import_template_xlsx(tmp_path) -> None:
         "US模板-一组",
         "UK模板-一组",
         "DE模板-一组",
+        "2组-US站点-林美淇",
         "自定义模板1",
         "自定义模板2",
     ]
@@ -173,6 +192,7 @@ def test_rename_template_updates_name_without_version_change(tmp_path) -> None:
         "US模板-一组",
         "UK模板-一组",
         "DE模板-一组",
+        "2组-US站点-林美淇",
         "夏季备货模板",
     ]
 
@@ -249,6 +269,18 @@ def test_template_xlsx_parses_disabled_sea_switch(tmp_path) -> None:
     assert result.template.params["sea"]["enabled"] is False
 
 
+def test_template_xlsx_round_trips_inclusive_sea_min_daily_sales(tmp_path) -> None:
+    exported_path = tmpl.export_template_xlsx("2组-US站点-林美淇", output_dir=tmp_path / "editable")
+
+    assert _cell_value(exported_path, "海运规则", 4, 5) == "是"
+
+    result = tmpl.validate_template_xlsx(exported_path)
+
+    assert result.template.name == "2组-US站点-林美淇"
+    assert result.template.params["sea"]["min_daily_sales_inclusive"] is True
+    assert tmpl.sea_day_candidates_from_template(1, result.template.params) == [100]
+
+
 def test_special_rule_applies_msku_overrides() -> None:
     template = tmpl.load_default_template()
     custom = tmpl.ReplenishmentTemplate(
@@ -295,6 +327,7 @@ def test_cli_list_and_list_params(capsys) -> None:
     payload = _read_payload(capsys)
     assert payload["groups"][0]["group"] == "加权日销"
     assert any(param["key"] == "sea.enabled" for group in payload["groups"] for param in group["params"])
+    assert any(param["key"] == "sea.min_daily_sales_inclusive" for group in payload["groups"] for param in group["params"])
 
 
 def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> None:

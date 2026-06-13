@@ -121,6 +121,32 @@ def _replenishment_row(
     )
 
 
+def _inventory_input_row(msku: str, *, fba_total_inventory: float) -> repl.InventoryInputRow:
+    return repl.InventoryInputRow(
+        msku=msku,
+        parent_asin=f"PARENT-{msku}",
+        asin=f"ASIN-{msku}",
+        local_sku=f"SKU-{msku}",
+        product_link=f"https://example.test/{msku}",
+        sku_type="库存sku",
+        weighted_daily_sales=0,
+        sales_days=None,
+        fba_total_inventory=fba_total_inventory,
+        actual_inventory=999,
+        child_skus="",
+    )
+
+
+def _sales_detail_for_daily_sales(daily_sales: float, *, weight_grams: float) -> repl.SalesDetail:
+    return repl.SalesDetail(
+        trend="平稳",
+        weight_grams=weight_grams,
+        sales_7d=daily_sales * 7,
+        sales_14d=daily_sales * 14,
+        sales_30d=daily_sales * 30,
+    )
+
+
 def _write_inventory_report(path: Path) -> Path:
     headers = _inventory_headers()
     return _write_workbook(
@@ -516,6 +542,73 @@ def test_us_group_1_builtin_template_uses_110_day_sea(tmp_path) -> None:
     sea_summary = next(row for row in summary_rows if row["父ASIN"] == "PARENT-SEA")
     assert sea_summary["总补货量"] == 660
     assert sea_summary["海运建议量"] == 660
+
+
+def test_lin_meiqi_group_2_template_uses_inclusive_one_day_sea_threshold() -> None:
+    template = tmpl.get_template("2组-US站点-林美淇")
+
+    row = repl.calculate_replenishment_row(
+        _inventory_input_row("DAILY-1", fba_total_inventory=100),
+        _sales_detail_for_daily_sales(1, weight_grams=610),
+        template,
+    )
+
+    assert row.sheet_name == repl.SEA_SHEET
+    assert row.weighted_daily_sales == pytest.approx(1)
+    assert row.sales_days == pytest.approx(100)
+    assert row.replenish_days == 100
+    assert row.replenish_quantity == 100
+    assert row.sea_days == 100
+    assert row.sea_quantity == 100
+    assert row.estimated_weight_kg == 61
+
+
+def test_lin_meiqi_group_2_template_keeps_eighty_sales_days_in_air() -> None:
+    template = tmpl.get_template("2组-US站点-林美淇")
+
+    row = repl.calculate_replenishment_row(
+        _inventory_input_row("DAILY-1-AIR", fba_total_inventory=80),
+        _sales_detail_for_daily_sales(1, weight_grams=610),
+        template,
+    )
+
+    assert row.sheet_name == repl.AIR_SHEET
+    assert row.sales_days == pytest.approx(80)
+    assert row.replenish_days == 55
+    assert row.replenish_quantity == 55
+
+
+def test_lin_meiqi_group_2_template_rejects_below_one_day_sea() -> None:
+    template = tmpl.get_template("2组-US站点-林美淇")
+
+    row = repl.calculate_replenishment_row(
+        _inventory_input_row("DAILY-BELOW-1", fba_total_inventory=100),
+        _sales_detail_for_daily_sales(0.99, weight_grams=1000),
+        template,
+    )
+
+    assert row.sheet_name == repl.NO_SHIP_SHEET
+    assert row.weighted_daily_sales == pytest.approx(0.99)
+    assert "加权日销=0.99 < 1" in row.decision_reason
+
+
+def test_lin_meiqi_group_2_template_uses_120_day_sea_above_twenty_daily_sales() -> None:
+    template = tmpl.get_template("2组-US站点-林美淇")
+
+    row = repl.calculate_replenishment_row(
+        _inventory_input_row("DAILY-21", fba_total_inventory=2000),
+        _sales_detail_for_daily_sales(21, weight_grams=30),
+        template,
+    )
+
+    assert row.sheet_name == repl.SEA_SHEET
+    assert row.weighted_daily_sales == pytest.approx(21)
+    assert row.sales_days == pytest.approx(2000 / 21)
+    assert row.replenish_days == 120
+    assert row.replenish_quantity == 2520
+    assert row.sea_days == 120
+    assert row.sea_quantity == 2520
+    assert row.estimated_weight_kg == pytest.approx(75.6)
 
 
 def test_uk_group_1_builtin_template_disables_sea(tmp_path) -> None:

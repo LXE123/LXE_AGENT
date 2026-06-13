@@ -1,0 +1,76 @@
+{
+  "name": "2组-US站点-林美淇",
+  "version": 1,
+  "description": "US站点林美淇二组备货算法参数",
+  "params": {
+    "weighted_sales": {
+      "7d_weight": 0.7,
+      "14d_weight": 0.2,
+      "30d_weight": 0.1
+    },
+    "trend_groups": {
+      "growth": ["快速增长", "增长", "新增出单/恢复出单"],
+      "decline": ["快速下降", "下降"],
+      "stable": ["平稳", "无销量"],
+      "skip": ["样本不足"]
+    },
+    "replenishment_days": [
+      {
+        "label": "极高销量",
+        "daily_sales_gt": 50,
+        "growth": 90,
+        "stable": 85,
+        "decline": 85
+      },
+      {
+        "label": "高销量",
+        "daily_sales_gt": 10,
+        "growth": 85,
+        "stable": 80,
+        "decline": 80
+      },
+      {
+        "label": "普通销量",
+        "daily_sales_gt": 1,
+        "growth": 80,
+        "stable": 80,
+        "decline": 75
+      },
+      {
+        "label": "低销量",
+        "daily_sales_gt": null,
+        "growth": 70,
+        "stable": 55,
+        "decline": 45
+      }
+    ],
+    "shipping": {
+      "air_urgent_sales_days_lte": 40,
+      "air_sales_days_lte": 80
+    },
+    "sea": {
+      "enabled": true,
+      "min_daily_sales": 1,
+      "min_daily_sales_inclusive": true,
+      "min_weight_kg": 60,
+      "tiers": [
+        {
+          "daily_sales_gt": 1,
+          "daily_sales_lte": 5,
+          "days": [100]
+        },
+        {
+          "daily_sales_gt": 5,
+          "daily_sales_lte": 20,
+          "days": [110]
+        },
+        {
+          "daily_sales_gt": 20,
+          "daily_sales_lte": null,
+          "days": [120]
+        }
+      ]
+    },
+    "special_rules": []
+  }
+}

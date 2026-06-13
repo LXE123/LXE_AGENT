@@ -13,6 +13,7 @@ DEFAULT_TEMPLATE_NAME = "默认模板"
 US_GROUP_1_TEMPLATE_NAME = "US模板-一组"
 UK_GROUP_1_TEMPLATE_NAME = "UK模板-一组"
 DE_GROUP_1_TEMPLATE_NAME = "DE模板-一组"
+US_LIN_MEIQI_GROUP_2_TEMPLATE_NAME = "2组-US站点-林美淇"
 DEFAULT_TEMPLATE_VERSION = 1
 DEFAULT_TEMPLATE_DIR = Path(__file__).resolve().parent / "replenishment_templates"
 DEFAULT_TEMPLATE_PATH = DEFAULT_TEMPLATE_DIR / "default_template.json"
@@ -21,12 +22,14 @@ BUILTIN_TEMPLATE_PATHS = (
     DEFAULT_TEMPLATE_DIR / "us_group_1_template.json",
     DEFAULT_TEMPLATE_DIR / "uk_group_1_template.json",
     DEFAULT_TEMPLATE_DIR / "de_group_1_template.json",
+    DEFAULT_TEMPLATE_DIR / "us_lin_meiqi_group_2_template.json",
 )
 BUILTIN_TEMPLATE_NAMES = (
     DEFAULT_TEMPLATE_NAME,
     US_GROUP_1_TEMPLATE_NAME,
     UK_GROUP_1_TEMPLATE_NAME,
     DE_GROUP_1_TEMPLATE_NAME,
+    US_LIN_MEIQI_GROUP_2_TEMPLATE_NAME,
 )
 DEFAULT_CUSTOM_TEMPLATE_STORE = Path("artifacts") / "mabang_replenishment_templates" / "templates.json"
 DEFAULT_EDITABLE_OUTPUT_DIR = Path("artifacts") / "mabang_replenishment_templates" / "editable"
@@ -52,6 +55,7 @@ SHEET_NAMES = (
 
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
+FLOAT_TOLERANCE = 1e-9
 
 TREND_KEYS = ("growth", "stable", "decline")
 MSKU_SPLIT_RE = re.compile(r"[\s,，;；、]+")
@@ -314,6 +318,7 @@ def list_parameter_groups() -> list[dict[str, Any]]:
             "params": [
                 {"key": "sea.enabled", "name": "是否启用海运", "value_type": "boolean"},
                 {"key": "sea.min_daily_sales", "name": "海运最低加权日销", "value_type": "number"},
+                {"key": "sea.min_daily_sales_inclusive", "name": "海运最低加权日销是否包含等于", "value_type": "boolean"},
                 {"key": "sea.min_weight_kg", "name": "海运最低总重量kg", "value_type": "number"},
                 {"key": "sea.tiers", "name": "海运日销分档和天数候选", "value_type": "matrix"},
             ],
@@ -395,6 +400,8 @@ def validate_template(template: ReplenishmentTemplate) -> TemplateValidationResu
 
     sea = _require_mapping(params.get("sea"), "sea")
     _bool_value(sea.get("enabled"), field_name="sea.enabled")
+    if "min_daily_sales_inclusive" in sea:
+        _bool_value(sea.get("min_daily_sales_inclusive"), field_name="sea.min_daily_sales_inclusive")
     min_daily_sales = _number(sea.get("min_daily_sales"), default=None)
     min_weight_kg = _number(sea.get("min_weight_kg"), default=None)
     if min_daily_sales is None or min_daily_sales < 0:
@@ -491,17 +498,40 @@ def replenishment_days_from_template(weighted_daily_sales: float, mapped_trend: 
 def sea_day_candidates_from_template(weighted_daily_sales: float, params: dict[str, Any]) -> list[int]:
     if not sea_enabled_from_template(params):
         return []
-    if weighted_daily_sales <= float(params["sea"]["min_daily_sales"]):
+    if not sea_daily_sales_meets_min_from_template(weighted_daily_sales, params):
         return []
     for item in params["sea"]["tiers"]:
         gt = _number(item.get("daily_sales_gt"), default=None)
         lte = _number(item.get("daily_sales_lte"), default=None)
-        if gt is not None and weighted_daily_sales <= gt:
+        if not _sea_tier_lower_bound_matches(weighted_daily_sales, gt, params):
             continue
-        if lte is not None and weighted_daily_sales > lte:
+        if lte is not None and weighted_daily_sales > float(lte) + FLOAT_TOLERANCE:
             continue
         return [int(day) for day in item["days"]]
     return []
+
+
+def sea_min_daily_sales_inclusive_from_template(params: dict[str, Any]) -> bool:
+    sea = _require_mapping(params.get("sea") if isinstance(params, dict) else None, "sea")
+    if "min_daily_sales_inclusive" not in sea:
+        return False
+    return _bool_value(sea.get("min_daily_sales_inclusive"), field_name="sea.min_daily_sales_inclusive")
+
+
+def sea_daily_sales_meets_min_from_template(weighted_daily_sales: float, params: dict[str, Any]) -> bool:
+    min_daily_sales = float(params["sea"]["min_daily_sales"])
+    if sea_min_daily_sales_inclusive_from_template(params):
+        return weighted_daily_sales + FLOAT_TOLERANCE >= min_daily_sales
+    return weighted_daily_sales > min_daily_sales + FLOAT_TOLERANCE
+
+
+def _sea_tier_lower_bound_matches(weighted_daily_sales: float, gt: float | None, params: dict[str, Any]) -> bool:
+    if gt is None:
+        return True
+    min_daily_sales = float(params["sea"]["min_daily_sales"])
+    if sea_min_daily_sales_inclusive_from_template(params) and abs(float(gt) - min_daily_sales) <= 0.0000001:
+        return weighted_daily_sales + FLOAT_TOLERANCE >= float(gt)
+    return weighted_daily_sales > float(gt) + FLOAT_TOLERANCE
 
 
 def sea_enabled_from_template(params: dict[str, Any]) -> bool:
@@ -593,6 +623,14 @@ def export_template_xlsx(
         sea.append(["项目", "日销大于", "日销小于等于", "候选天数", "值", "说明"])
         sea.append(["是否启用海运", "", "", "", "是" if sea_enabled_from_template(params) else "否", "否表示超过空运阈值后不计算海运"])
         sea.append(["海运最低日销", "", "", "", params["sea"]["min_daily_sales"], "加权日销小于等于该值不建议海运"])
+        sea.append([
+            "海运最低日销是否包含等于",
+            "",
+            "",
+            "",
+            "是" if sea_min_daily_sales_inclusive_from_template(params) else "否",
+            "是表示加权日销等于最低日销时也可进入海运判断",
+        ])
         sea.append(["海运最低重量kg", "", "", "", params["sea"]["min_weight_kg"], "预计总重量大于该值才建议海运"])
         for item in params["sea"]["tiers"]:
             sea.append([
@@ -765,6 +803,7 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
         "sea": {
             "enabled": None,
             "min_daily_sales": None,
+            "min_daily_sales_inclusive": False,
             "min_weight_kg": None,
             "tiers": [],
         },
@@ -789,6 +828,11 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
             params["sea"]["enabled"] = _bool_value(record.get("值"), field_name="是否启用海运")
         elif item_name == "海运最低日销":
             params["sea"]["min_daily_sales"] = _number(record.get("值"), default=None)
+        elif item_name == "海运最低日销是否包含等于":
+            params["sea"]["min_daily_sales_inclusive"] = _bool_value(
+                record.get("值"),
+                field_name="海运最低日销是否包含等于",
+            )
         elif item_name == "海运最低重量kg":
             params["sea"]["min_weight_kg"] = _number(record.get("值"), default=None)
         elif item_name == "海运分档":
@@ -958,6 +1002,7 @@ __all__ = [
     "TemplateValidationResult",
     "UK_GROUP_1_TEMPLATE_NAME",
     "US_GROUP_1_TEMPLATE_NAME",
+    "US_LIN_MEIQI_GROUP_2_TEMPLATE_NAME",
     "apply_overrides",
     "calculate_weighted_daily_sales",
     "effective_params_for_msku",
@@ -972,8 +1017,10 @@ __all__ = [
     "replenishment_days_from_template",
     "rename_template",
     "replace_template_xlsx",
+    "sea_daily_sales_meets_min_from_template",
     "sea_day_candidates_from_template",
     "sea_enabled_from_template",
+    "sea_min_daily_sales_inclusive_from_template",
     "templates_payload",
     "trend_group_from_template",
     "validate_template",
