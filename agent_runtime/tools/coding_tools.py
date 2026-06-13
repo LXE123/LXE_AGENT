@@ -782,6 +782,18 @@ _PROJECT_PYTHON_LAUNCHERS = {"py", "python", "python.exe", "python3", "python3.e
 _PROJECT_PIP_LAUNCHERS = {"pip", "pip.exe", "pip3", "pip3.exe"}
 _PROJECT_PYTHON_VERSIONS = {"-3", "-3.12", "-3.12.10"}
 _PROJECT_VENV_DIR = ".venv"
+_WINDOWS_POWERSHELL_LAUNCHERS = {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}
+_WINDOWS_POWERSHELL_COMMAND_FLAGS = {
+    "-command",
+    "/command",
+    "-c",
+    "/c",
+    "-encodedcommand",
+    "/encodedcommand",
+    "-enc",
+    "/enc",
+}
+_WINDOWS_POWERSHELL_FILE_FLAGS = {"-file", "/file", "-f", "/f"}
 
 
 def _project_python_executable() -> Path:
@@ -798,6 +810,101 @@ def _quote_command_path(path: Path) -> str:
     if os.name == "nt":
         return f'& "{path}"'
     return f'"{path}"'
+
+
+def _split_leading_command_tokens(command: str, *, max_tokens: int = 32) -> list[str]:
+    text = str(command or "").lstrip()
+    tokens: list[str] = []
+    current: list[str] = []
+    quote = ""
+    index = 0
+
+    def _flush() -> None:
+        if current:
+            tokens.append("".join(current))
+            current.clear()
+
+    while index < len(text) and len(tokens) < max_tokens:
+        ch = text[index]
+        if quote:
+            if ch == "`" and index + 1 < len(text):
+                index += 1
+                current.append(text[index])
+            elif ch == quote:
+                quote = ""
+            else:
+                current.append(ch)
+            index += 1
+            continue
+
+        if ch in {"'", '"'}:
+            quote = ch
+        elif ch.isspace():
+            _flush()
+        elif ch in {";", "|"}:
+            _flush()
+            break
+        elif ch == "&" and not current and not tokens:
+            tokens.append(ch)
+        else:
+            current.append(ch)
+        index += 1
+
+    _flush()
+    return tokens
+
+
+def _windows_executable_name(token: str) -> str:
+    cleaned = str(token or "").strip().strip("\"'")
+    if not cleaned:
+        return ""
+    return re.split(r"[\\/]+", cleaned)[-1].lower()
+
+
+def _powershell_switch_name(token: str) -> str:
+    text = str(token or "").strip().lower()
+    if ":" in text:
+        text = text.split(":", 1)[0]
+    return text
+
+
+def _powershell_fix_example(tokens: list[str], *, flag_index: int) -> str:
+    flag = _powershell_switch_name(tokens[flag_index] if flag_index < len(tokens) else "")
+    if flag in {"-encodedcommand", "/encodedcommand", "-enc", "/enc"}:
+        return "Get-Date"
+    if flag_index + 1 < len(tokens):
+        example = str(tokens[flag_index + 1] or "").strip()
+        if example:
+            return example
+    return "Get-Date"
+
+
+def _reject_redundant_windows_powershell_command(command: str) -> None:
+    if os.name != "nt":
+        return
+
+    tokens = _split_leading_command_tokens(command)
+    if not tokens:
+        return
+
+    launcher_index = 1 if tokens[0] == "&" and len(tokens) > 1 else 0
+    launcher = _windows_executable_name(tokens[launcher_index])
+    if launcher not in _WINDOWS_POWERSHELL_LAUNCHERS:
+        return
+
+    for index in range(launcher_index + 1, len(tokens)):
+        switch = _powershell_switch_name(tokens[index])
+        if switch in _WINDOWS_POWERSHELL_FILE_FLAGS:
+            return
+        if switch not in _WINDOWS_POWERSHELL_COMMAND_FLAGS:
+            continue
+        example = _powershell_fix_example(tokens, flag_index=index)
+        _tool_error(
+            "当前 Windows exec 已经在 PowerShell 中运行 command。"
+            "不要再使用 powershell/pwsh -Command、-c 或 -EncodedCommand 包裹命令；"
+            "请去掉外层 powershell/pwsh，只传 PowerShell 脚本体。"
+            f"\n修复示例: {example}"
+        )
 
 
 def _normalize_project_python_command(command: str) -> str:
@@ -837,6 +944,8 @@ async def _handle_exec(
     cmd = str(command or "").strip()
     if not cmd:
         _tool_error("command 不能为空")
+
+    _reject_redundant_windows_powershell_command(cmd)
 
     try:
         normalized_cmd = _normalize_project_python_command(cmd)
@@ -998,7 +1107,10 @@ CODING_EXEC = ToolDefinition(
         "Execute shell commands. Returns result if command finishes within yield_ms "
         "(default 10s), otherwise backgrounds the command and returns a session ID. "
         "Use the process tool to check progress of backgrounded commands. "
-        "On Windows commands run in PowerShell by default; use cmd /c for cmd.exe syntax. "
+        "On Windows, exec.command already runs inside PowerShell. Do not prefix commands "
+        "with powershell/pwsh -Command; pass the PowerShell script body directly. "
+        "Wrong: powershell -Command \"Get-Date\". Correct: Get-Date. "
+        "Use cmd /c for cmd.exe syntax. "
         "Python and pip commands in this workspace are forced to use .venv."
     ),
     parameters={

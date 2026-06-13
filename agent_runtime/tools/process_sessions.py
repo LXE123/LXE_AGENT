@@ -29,6 +29,23 @@ DEFAULT_LOG_LIMIT = 2_000
 _COMMAND_LOG_PREVIEW = 160
 _TAIL_LOG_PREVIEW = 200
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+_POWERSHELL_UTF8_OUTPUT_PREFIX = "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}"
+_POWERSHELL_FAILURE_TRAILER = (
+    "$__lxe_success = $?; "
+    "$__lxe_last_exit_code = $global:LASTEXITCODE; "
+    "if (-not $__lxe_success) { "
+    "if ($__lxe_last_exit_code -is [int] -and $__lxe_last_exit_code -ne 0) { exit $__lxe_last_exit_code }; "
+    "exit 1 "
+    "}"
+)
+_DECODE_FALLBACK_ENCODINGS = (
+    "gbk",
+    "cp936",
+    "cp437",
+    "cp850",
+    "windows-1252",
+    "latin-1",
+)
 
 
 def _is_pwsh_7_or_newer(executable: str) -> bool:
@@ -106,10 +123,7 @@ def _windows_powershell_exec_args(command: str) -> list[str]:
     powershell = _resolve_windows_powershell()
     if not powershell:
         raise FileNotFoundError("No PowerShell executable found on this Windows host.")
-    body = str(command or "").strip()
-    body = f"{body}; if ($null -ne $LASTEXITCODE) {{ exit $LASTEXITCODE }}"
-    if Path(powershell).name.lower() in {"pwsh", "pwsh.exe"}:
-        body = "$PSStyle.OutputRendering = 'PlainText'; " + body
+    body = _windows_powershell_command_body(command, powershell=powershell)
     return [
         powershell,
         "-NoProfile",
@@ -117,6 +131,37 @@ def _windows_powershell_exec_args(command: str) -> list[str]:
         "-Command",
         body,
     ]
+
+
+def _windows_powershell_command_body(command: str, *, powershell: str) -> str:
+    body = str(command or "").strip()
+    parts: list[str] = [_POWERSHELL_UTF8_OUTPUT_PREFIX]
+    if Path(powershell).name.lower() in {"pwsh", "pwsh.exe"}:
+        parts.append("$PSStyle.OutputRendering = 'PlainText'")
+    if body:
+        parts.append(body)
+    parts.append(_POWERSHELL_FAILURE_TRAILER)
+    return "\n".join(parts)
+
+
+def decode_process_output(data: bytes | str) -> str:
+    if isinstance(data, str):
+        return data
+    raw = bytes(data or b"")
+    if not raw:
+        return ""
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    for encoding in _DECODE_FALLBACK_ENCODINGS:
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+        except LookupError:
+            continue
+    return raw.decode("utf-8", errors="replace")
 
 
 def _project_venv_scripts_dir() -> Path:
@@ -166,12 +211,12 @@ class ExecSession:
     process: asyncio.subprocess.Process | None = None
     status: SessionStatus = SessionStatus.RUNNING
     exit_code: int | None = None
-    stdout: str = ""
-    stderr: str = ""
-    pending_stdout: str = ""
-    pending_stderr: str = ""
-    stdout_tail: str = ""
-    stderr_tail: str = ""
+    stdout: bytes = b""
+    stderr: bytes = b""
+    pending_stdout: bytes = b""
+    pending_stderr: bytes = b""
+    stdout_tail: bytes = b""
+    stderr_tail: bytes = b""
     max_output: int = DEFAULT_OUTPUT_LIMIT
     max_pending: int = DEFAULT_PENDING_LIMIT
     truncated: bool = False
@@ -259,7 +304,7 @@ def get_exec_session_registry() -> SessionRegistry:
     return _REGISTRY
 
 
-def _append_limited(existing: str, addition: str, limit: int) -> tuple[str, bool]:
+def _append_limited(existing: bytes, addition: bytes, limit: int) -> tuple[bytes, bool]:
     if not addition:
         return existing, False
     if len(existing) >= limit:
@@ -279,37 +324,46 @@ def _combine_stream_text(stdout: str, stderr: str) -> str:
 
 
 def _session_output(session: ExecSession) -> str:
-    return _combine_stream_text(session.stdout, session.stderr)
+    return _combine_stream_text(
+        decode_process_output(session.stdout),
+        decode_process_output(session.stderr),
+    )
 
 
 def _session_pending_output(session: ExecSession) -> str:
-    return _combine_stream_text(session.pending_stdout, session.pending_stderr)
+    return _combine_stream_text(
+        decode_process_output(session.pending_stdout),
+        decode_process_output(session.pending_stderr),
+    )
 
 
 def _session_tail(session: ExecSession) -> str:
-    return _combine_stream_text(session.stdout_tail, session.stderr_tail)
+    return _combine_stream_text(
+        decode_process_output(session.stdout_tail),
+        decode_process_output(session.stderr_tail),
+    )
 
 
-def _append_stream_output(session: ExecSession, *, stream: str, text: str) -> None:
-    safe_text = str(text or "")
-    if not safe_text:
+def _append_stream_output(session: ExecSession, *, stream: str, chunk: bytes) -> None:
+    safe_chunk = bytes(chunk or b"")
+    if not safe_chunk:
         return
     if stream == "stderr":
-        session.stderr, output_truncated = _append_limited(session.stderr, safe_text, session.max_output)
+        session.stderr, output_truncated = _append_limited(session.stderr, safe_chunk, session.max_output)
         session.pending_stderr, pending_truncated = _append_limited(
             session.pending_stderr,
-            safe_text,
+            safe_chunk,
             session.max_pending,
         )
-        session.stderr_tail = (session.stderr_tail + safe_text)[-DEFAULT_TAIL_LIMIT:]
+        session.stderr_tail = (session.stderr_tail + safe_chunk)[-DEFAULT_TAIL_LIMIT:]
     else:
-        session.stdout, output_truncated = _append_limited(session.stdout, safe_text, session.max_output)
+        session.stdout, output_truncated = _append_limited(session.stdout, safe_chunk, session.max_output)
         session.pending_stdout, pending_truncated = _append_limited(
             session.pending_stdout,
-            safe_text,
+            safe_chunk,
             session.max_pending,
         )
-        session.stdout_tail = (session.stdout_tail + safe_text)[-DEFAULT_TAIL_LIMIT:]
+        session.stdout_tail = (session.stdout_tail + safe_chunk)[-DEFAULT_TAIL_LIMIT:]
     if output_truncated or pending_truncated:
         session.truncated = True
     session.pending_event.set()
@@ -324,7 +378,7 @@ async def _pump_stream_output(session: ExecSession, *, stream: str) -> None:
         chunk = await reader.read(4096)
         if not chunk:
             return
-        _append_stream_output(session, stream=stream, text=chunk.decode("utf-8", errors="replace"))
+        _append_stream_output(session, stream=stream, chunk=chunk)
 
 
 async def _run_taskkill(pid: int) -> bool:
@@ -833,8 +887,8 @@ async def process_exec_session(
             "status": session.status.value,
             "new_output": _session_pending_output(session) or "(no new output)",
         }
-        session.pending_stdout = ""
-        session.pending_stderr = ""
+        session.pending_stdout = b""
+        session.pending_stderr = b""
         session.pending_event.clear()
         if session.status != SessionStatus.RUNNING:
             payload["exit_code"] = session.exit_code
@@ -846,8 +900,8 @@ async def process_exec_session(
         return payload
 
     if safe_action == "log":
-        stdout_lines = session.stdout.splitlines()
-        stderr_lines = session.stderr.splitlines()
+        stdout_lines = decode_process_output(session.stdout).splitlines()
+        stderr_lines = decode_process_output(session.stderr).splitlines()
         start = max(0, int(offset or 1) - 1)
         safe_limit = max(1, int(limit or DEFAULT_LOG_LIMIT))
         stdout_end = min(len(stdout_lines), start + safe_limit)
