@@ -30,6 +30,13 @@ services/test_file/
 .claude/
 .codex/
 
+# Sidecar PoC
+sidecars/
+docs/sidecar_soak.md
+scripts/soak_prepare_fixtures.py
+scripts/soak_runner.py
+tests/test_sidecar_soak.py
+
 # Lint/Format cache
 .ruff_cache/
 .mypy_cache/
@@ -39,6 +46,9 @@ services/test_file/
 # Frontend
 node_modules/
 *.tsbuildinfo
+
+# Rust
+target/
 
 # Project specific
 user_session_db
