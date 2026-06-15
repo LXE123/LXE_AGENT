@@ -392,3 +392,113 @@ def test_download_store_unlinked_shipments_skips_zero_totals_and_polls_with_min_
         {"task_id": 370501, "token": "token", "timeout_sec": 30.0, "poll_interval_sec": 10.0},
         {"task_id": 370502, "token": "token", "timeout_sec": 30.0, "poll_interval_sec": 10.0},
     ]
+
+
+def test_download_store_unlinked_shipments_force_refreshes_once_after_shop_auth_failure(monkeypatch, tmp_path) -> None:
+    token_calls: list[bool] = []
+    run_calls: list[str] = []
+
+    async def fake_get_token(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "retry-token" if force_refresh else "cached-token"
+
+    async def fake_run(clean_store_name: str, token: str, **kwargs) -> ship.StoreUnlinkedShipmentDownloadResult:
+        run_calls.append(token)
+        if token == "cached-token":
+            raise ship.BatchDeliveryApiAuthError("查询FBA店铺列表鉴权失败(status=401)")
+        return ship.StoreUnlinkedShipmentDownloadResult(
+            store_name=clean_store_name,
+            store_id=697476809,
+            download_time="202606121730",
+            status_results=[],
+        )
+
+    monkeypatch.setattr(ship, "get_fba_free_token", fake_get_token)
+    monkeypatch.setattr(ship, "_download_store_unlinked_shipments_with_token", fake_run)
+
+    result = asyncio.run(
+        ship.download_store_unlinked_shipments(
+            "Amazon-Test-US",
+            output_dir=tmp_path,
+            download_time="202606121730",
+        )
+    )
+
+    assert result.store_id == 697476809
+    assert token_calls == [False, True]
+    assert run_calls == ["cached-token", "retry-token"]
+
+
+def test_download_store_unlinked_shipments_force_refreshes_once_after_mid_flow_auth_failure(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    token_calls: list[bool] = []
+    run_calls: list[str] = []
+
+    async def fake_get_token(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "retry-token" if force_refresh else "cached-token"
+
+    async def fake_run(clean_store_name: str, token: str, **kwargs) -> ship.StoreUnlinkedShipmentDownloadResult:
+        run_calls.append(token)
+        if token == "cached-token":
+            raise ship.BatchDeliveryApiAuthError("查询WMS待装箱发货单鉴权失败(status=403)")
+        return ship.StoreUnlinkedShipmentDownloadResult(
+            store_name=clean_store_name,
+            store_id=697476809,
+            download_time="202606121730",
+            status_results=[
+                ship.UnlinkedShipmentStatusResult(
+                    status_name="WMS待装箱",
+                    total=1,
+                    task_id=370501,
+                    file_hash="hash",
+                    file_name="file.csv",
+                    raw_file_path=str(tmp_path / "file.csv"),
+                )
+            ],
+        )
+
+    monkeypatch.setattr(ship, "get_fba_free_token", fake_get_token)
+    monkeypatch.setattr(ship, "_download_store_unlinked_shipments_with_token", fake_run)
+
+    result = asyncio.run(
+        ship.download_store_unlinked_shipments(
+            "Amazon-Test-US",
+            output_dir=tmp_path,
+            download_time="202606121730",
+        )
+    )
+
+    assert result.status_results[0].task_id == 370501
+    assert token_calls == [False, True]
+    assert run_calls == ["cached-token", "retry-token"]
+
+
+def test_download_store_unlinked_shipments_does_not_retry_more_than_once(monkeypatch, tmp_path) -> None:
+    token_calls: list[bool] = []
+    run_calls: list[str] = []
+
+    async def fake_get_token(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "retry-token" if force_refresh else "cached-token"
+
+    async def fake_run(clean_store_name: str, token: str, **kwargs) -> ship.StoreUnlinkedShipmentDownloadResult:
+        run_calls.append(token)
+        raise ship.BatchDeliveryApiAuthError("查询FBA店铺列表鉴权失败(status=401)")
+
+    monkeypatch.setattr(ship, "get_fba_free_token", fake_get_token)
+    monkeypatch.setattr(ship, "_download_store_unlinked_shipments_with_token", fake_run)
+
+    with pytest.raises(ship.BatchDeliveryApiAuthError, match="已强制刷新后重试仍失败"):
+        asyncio.run(
+            ship.download_store_unlinked_shipments(
+                "Amazon-Test-US",
+                output_dir=tmp_path,
+                download_time="202606121730",
+            )
+        )
+
+    assert token_calls == [False, True]
+    assert run_calls == ["cached-token", "retry-token"]

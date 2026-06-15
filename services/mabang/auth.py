@@ -52,6 +52,7 @@ async def ensure_mabang_auth_payload(
     scope: str,
     account: str = "",
     require_wms_cookie_header: bool = False,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
     scope_text = str(scope or "").strip().lower()
     if not scope_text:
@@ -62,6 +63,7 @@ async def ensure_mabang_auth_payload(
             scope=scope_text,
             account=resolved_account,
             require_wms_cookie_header=require_wms_cookie_header,
+            force_refresh=force_refresh,
         )
     except Exception as exc:
         raise MabangAuthError(f"获取 Mabang 登录态失败: {exc}") from exc
@@ -74,11 +76,13 @@ async def get_auth_context(
     scope: str,
     account: str = "",
     require_wms_cookie_header: bool = False,
+    force_refresh: bool = False,
 ) -> MabangAuthContext:
     payload = await ensure_mabang_auth_payload(
         scope=scope,
         account=account,
         require_wms_cookie_header=require_wms_cookie_header,
+        force_refresh=force_refresh,
     )
     return MabangAuthContext(
         scope=str(scope or "").strip().lower(),
@@ -100,8 +104,12 @@ async def get_erp_cookie_bundle(account: str = "") -> dict[str, str]:
     )
 
 
-async def get_fba_free_token() -> str:
-    context = await get_auth_context(scope="fba", require_wms_cookie_header=False)
+async def get_fba_free_token(force_refresh: bool = False) -> str:
+    context = await get_auth_context(
+        scope="fba",
+        require_wms_cookie_header=False,
+        force_refresh=force_refresh,
+    )
     token = str(context.free_token or "").strip()
     if not token:
         raise MabangAuthError("未获取到 freeToken")

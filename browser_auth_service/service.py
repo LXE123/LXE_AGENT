@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -38,6 +39,7 @@ def ensure_auth(
     scope: str,
     account: str = "",
     require_wms_cookie_header: bool = False,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
     normalized_scope = str(scope or "").strip().lower()
     if normalized_scope not in {"fba", "erp", "private_amz"}:
@@ -73,6 +75,7 @@ def ensure_auth(
         payload=payload,
         phpsessid_status=phpsessid_status,
         require_wms_cookie_header=require_wms_cookie_header,
+        force_refresh=force_refresh,
     )
 
 
@@ -322,6 +325,37 @@ def _storage_lookup_token(payload: dict[str, Any], origin: str, key: str) -> str
             if token:
                 return token
     return ""
+
+
+def _remove_storage_local_storage_key(payload: dict[str, Any], origin: str, key: str) -> int:
+    origins = payload.get("origins")
+    if not isinstance(origins, list):
+        return 0
+
+    target_origin = str(origin or "").strip().rstrip("/")
+    target_key = str(key or "").strip()
+    if not target_origin or not target_key:
+        return 0
+
+    removed = 0
+    for item in origins:
+        if not isinstance(item, dict):
+            continue
+        current_origin = str(item.get("origin") or "").strip().rstrip("/")
+        if current_origin != target_origin:
+            continue
+        local_storage = item.get("localStorage")
+        if not isinstance(local_storage, list):
+            continue
+
+        kept_items = []
+        for kv in local_storage:
+            if isinstance(kv, dict) and str(kv.get("name") or "").strip() == target_key:
+                removed += 1
+                continue
+            kept_items.append(kv)
+        item["localStorage"] = kept_items
+    return removed
 
 
 def _storage_lookup_domain_cookies(payload: dict[str, Any], host: str) -> list[dict[str, Any]]:
@@ -597,13 +631,18 @@ def _perform_login(page, account: str, password: str) -> None:
         raise RuntimeError("登录失败")
 
 
-def _open_context(browser, state_file: Path, can_reuse_state: bool):
+def _open_context(
+    browser,
+    state_file: Path,
+    can_reuse_state: bool,
+    storage_state_payload: dict[str, Any] | None = None,
+):
     context_options: dict[str, Any] = {
         "accept_downloads": True,
         "viewport": {"width": 1920, "height": 1080},
     }
     if can_reuse_state and state_file.exists():
-        payload = _load_storage_state_payload(state_file)
+        payload = storage_state_payload if storage_state_payload is not None else _load_storage_state_payload(state_file)
         storage_state = _playwright_storage_state_payload(payload)
         if storage_state:
             context_options["storage_state"] = storage_state
@@ -729,6 +768,7 @@ def _ensure_fba_auth(
     payload: dict[str, Any],
     phpsessid_status: dict[str, Any],
     require_wms_cookie_header: bool,
+    force_refresh: bool,
 ) -> dict[str, Any]:
     token_origin = FBA_LOGISTICS_TOKEN_ORIGIN
     token_key = FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY
@@ -740,7 +780,12 @@ def _ensure_fba_auth(
     cached_token = _storage_lookup_token(payload, token_origin, token_key)
     cached_wms_cookies = _storage_lookup_domain_cookies(payload, wms_host)
     last_refreshed_at = _storage_lookup_last_refreshed_at(payload)
-    if _is_fba_refresh_fresh(last_refreshed_at) and cached_token and (not require_wms_cookie_header or cached_wms_cookies):
+    if (
+        not force_refresh
+        and _is_fba_refresh_fresh(last_refreshed_at)
+        and cached_token
+        and (not require_wms_cookie_header or cached_wms_cookies)
+    ):
         return {
             "success": True,
             "scope": "fba",
@@ -752,11 +797,22 @@ def _ensure_fba_auth(
         }
 
     can_reuse_state = bool(payload) and state_file.exists()
+    seed_payload = None
+    if can_reuse_state and force_refresh:
+        seed_payload = deepcopy(payload)
+        removed_tokens = _remove_storage_local_storage_key(seed_payload, token_origin, token_key)
+        if removed_tokens:
+            logger.info(f"[BrowserAuth] force_refresh 剔除旧 FBA token seed: count={removed_tokens}")
     used_relogin = False
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=headless)
-        context = _open_context(browser, state_file, can_reuse_state=can_reuse_state)
+        context = _open_context(
+            browser,
+            state_file,
+            can_reuse_state=can_reuse_state,
+            storage_state_payload=seed_payload,
+        )
         try:
             page = context.new_page()
             if can_reuse_state:

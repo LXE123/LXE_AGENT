@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from shared.infra.net import erp_http_session, external_http_session
+from shared.logging import logger
 from services.mabang import config as mabang_settings
 
 from ...auth import get_fba_free_token
@@ -484,17 +485,15 @@ async def download_csv_from_url(
     return target_path
 
 
-async def download_fba_delivery_csv(
-    delivery_no: str,
+async def _download_fba_delivery_csv_with_token(
+    target: str,
+    token: str,
     *,
-    timeout_sec: float = 180,
-    poll_interval_sec: float = 10,
-    report_date: str | date | None = None,
-    output_dir: str | Path | None = None,
+    timeout_sec: float,
+    poll_interval_sec: float,
+    report_date: str | date | None,
+    output_dir: str | Path | None,
 ) -> BatchDeliveryCsvResult:
-    target = _require_delivery_no(delivery_no)
-    token = await get_fba_free_token()
-
     list_payload = await fetch_batch_delivery_list(target, token=token)
     delivery_id = extract_delivery_id(list_payload, target)
     task_id = await create_delivery_export_task(delivery_id, token=token, report_date=report_date)
@@ -519,6 +518,46 @@ async def download_fba_delivery_csv(
         file_name=download_info.file_name,
         csv_path=str(csv_path),
     )
+
+
+async def download_fba_delivery_csv(
+    delivery_no: str,
+    *,
+    timeout_sec: float = 180,
+    poll_interval_sec: float = 10,
+    report_date: str | date | None = None,
+    output_dir: str | Path | None = None,
+) -> BatchDeliveryCsvResult:
+    target = _require_delivery_no(delivery_no)
+    token = await get_fba_free_token()
+
+    try:
+        return await _download_fba_delivery_csv_with_token(
+            target,
+            token,
+            timeout_sec=timeout_sec,
+            poll_interval_sec=poll_interval_sec,
+            report_date=report_date,
+            output_dir=output_dir,
+        )
+    except BatchDeliveryApiAuthError:
+        logger.warning("[FBAAuthRetry] FBA发货单鉴权失败，准备强制刷新 freeToken: delivery_no=%s", target)
+
+    retry_token = await get_fba_free_token(force_refresh=True)
+    try:
+        result = await _download_fba_delivery_csv_with_token(
+            target,
+            retry_token,
+            timeout_sec=timeout_sec,
+            poll_interval_sec=poll_interval_sec,
+            report_date=report_date,
+            output_dir=output_dir,
+        )
+    except BatchDeliveryApiAuthError as exc:
+        raise BatchDeliveryApiAuthError(f"{exc}，已强制刷新后重试仍失败") from exc
+
+    logger.info("[FBAAuthRetry] FBA发货单强制刷新后重试成功: delivery_no=%s", target)
+    return result
 
 
 __all__ = [

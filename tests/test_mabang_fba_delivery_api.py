@@ -228,3 +228,75 @@ def test_download_csv_from_url_does_not_send_authorization(monkeypatch, tmp_path
 
     assert path.read_bytes() == b"sku,qty\nA,1\n"
     assert "Authorization" not in fake_session.calls[0].get("headers", {})
+
+
+def test_download_fba_delivery_csv_force_refreshes_once_after_auth_failure(monkeypatch, tmp_path):
+    token_calls: list[bool] = []
+    run_calls: list[str] = []
+
+    async def fake_get_token(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "retry-token" if force_refresh else "cached-token"
+
+    async def fake_run(target: str, token: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
+        run_calls.append(token)
+        if token == "cached-token":
+            raise batch_delivery.BatchDeliveryApiAuthError("查询FBA发货单鉴权失败(status=401)")
+        return batch_delivery.BatchDeliveryCsvResult(
+            delivery_no=target,
+            delivery_id=148028,
+            task_id=379014,
+            file_hash="hash",
+            file_name="delivery.csv",
+            csv_path=str(tmp_path / "delivery.csv"),
+        )
+
+    monkeypatch.setattr(batch_delivery, "get_fba_free_token", fake_get_token)
+    monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_with_token", fake_run)
+
+    result = asyncio.run(batch_delivery.download_fba_delivery_csv("SP260529005", output_dir=tmp_path))
+
+    assert result.delivery_no == "SP260529005"
+    assert token_calls == [False, True]
+    assert run_calls == ["cached-token", "retry-token"]
+
+
+def test_download_fba_delivery_csv_does_not_retry_more_than_once(monkeypatch, tmp_path):
+    token_calls: list[bool] = []
+    run_calls: list[str] = []
+
+    async def fake_get_token(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "retry-token" if force_refresh else "cached-token"
+
+    async def fake_run(target: str, token: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
+        run_calls.append(token)
+        raise batch_delivery.BatchDeliveryApiAuthError("查询FBA发货单鉴权失败(status=403)")
+
+    monkeypatch.setattr(batch_delivery, "get_fba_free_token", fake_get_token)
+    monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_with_token", fake_run)
+
+    with pytest.raises(batch_delivery.BatchDeliveryApiAuthError, match="已强制刷新后重试仍失败"):
+        asyncio.run(batch_delivery.download_fba_delivery_csv("SP260529005", output_dir=tmp_path))
+
+    assert token_calls == [False, True]
+    assert run_calls == ["cached-token", "retry-token"]
+
+
+def test_download_fba_delivery_csv_does_not_force_refresh_non_auth_errors(monkeypatch, tmp_path):
+    token_calls: list[bool] = []
+
+    async def fake_get_token(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "cached-token"
+
+    async def fake_run(target: str, token: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
+        raise batch_delivery.BatchDeliveryApiError("业务异常")
+
+    monkeypatch.setattr(batch_delivery, "get_fba_free_token", fake_get_token)
+    monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_with_token", fake_run)
+
+    with pytest.raises(batch_delivery.BatchDeliveryApiError, match="业务异常"):
+        asyncio.run(batch_delivery.download_fba_delivery_csv("SP260529005", output_dir=tmp_path))
+
+    assert token_calls == [False]

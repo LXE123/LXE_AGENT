@@ -70,13 +70,14 @@ def ensure_auth_sync(
     scope: str,
     account: str = "",
     require_wms_cookie_header: bool = False,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
     masked_account = _mask_account(account)
     reason_label = _reason_label(scope, require_wms_cookie_header)
     logger.info(
         f"[BrowserAuthClient][{reason_label}] 调用 browser_auth_service: "
         f"scope={str(scope or '').strip()} account={masked_account} "
-        f"require_wms_cookie_header={require_wms_cookie_header}"
+        f"require_wms_cookie_header={require_wms_cookie_header} force_refresh={force_refresh}"
     )
     command = [
         sys.executable,
@@ -90,6 +91,8 @@ def ensure_auth_sync(
         command.extend(["--account", str(account).strip()])
     if require_wms_cookie_header:
         command.append("--require-wms-cookie-header")
+    if force_refresh:
+        command.append("--force-refresh")
 
     completed = subprocess.run(
         command,
@@ -127,10 +130,12 @@ async def ensure_auth(
     scope: str,
     account: str = "",
     require_wms_cookie_header: bool = False,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
     return await asyncio.to_thread(
         ensure_auth_sync,
         scope,
         account,
         require_wms_cookie_header,
+        force_refresh,
     )

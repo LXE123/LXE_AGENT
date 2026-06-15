@@ -28,6 +28,7 @@ def main() -> int:
     ensure_parser.add_argument("--scope", required=True, choices=["fba", "erp", "private_amz"])
     ensure_parser.add_argument("--account", default="")
     ensure_parser.add_argument("--require-wms-cookie-header", action="store_true")
+    ensure_parser.add_argument("--force-refresh", action="store_true")
 
     args = parser.parse_args()
 
@@ -39,6 +40,7 @@ def main() -> int:
             scope=args.scope,
             account=args.account,
             require_wms_cookie_header=bool(args.require_wms_cookie_header),
+            force_refresh=bool(args.force_refresh),
         )
         json.dump(result, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")

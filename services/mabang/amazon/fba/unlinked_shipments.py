@@ -9,11 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from shared.infra.net import erp_http_session, external_http_session
+from shared.logging import logger
 from services.mabang import config as mabang_settings
 
 from ...auth import get_fba_free_token
 from ...errors import MabangBusinessError, MabangRequestError
 from .batch_delivery import (
+    BatchDeliveryApiAuthError,
     DEFAULT_BATCH_DELIVERY_LIST_URL,
     DEFAULT_TASK_PUSH_URL,
     SIMPLE_TASK_CONFIG_ID,
@@ -767,17 +769,16 @@ async def _download_status_file(
     )
 
 
-async def download_store_unlinked_shipments(
-    store_name: str,
+async def _download_store_unlinked_shipments_with_token(
+    clean_store_name: str,
+    token: str,
     *,
-    timeout_sec: float = 180,
-    poll_interval_sec: float = 10,
-    output_dir: str | Path | None = None,
-    report_date: str | date | None = None,
-    download_time: str | None = None,
+    timeout_sec: float,
+    poll_interval_sec: float,
+    output_dir: str | Path | None,
+    report_date: str | date | None,
+    download_time: str | None,
 ) -> StoreUnlinkedShipmentDownloadResult:
-    clean_store_name = normalize_store_name(store_name)
-    token = await get_fba_free_token()
     shop = await resolve_shop_option(clean_store_name, token=token)
     safe_timeout = safe_timeout_sec(timeout_sec)
     safe_poll_interval = safe_poll_interval_sec(poll_interval_sec)
@@ -805,6 +806,49 @@ async def download_store_unlinked_shipments(
         download_time=timestamp,
         status_results=status_results,
     )
+
+
+async def download_store_unlinked_shipments(
+    store_name: str,
+    *,
+    timeout_sec: float = 180,
+    poll_interval_sec: float = 10,
+    output_dir: str | Path | None = None,
+    report_date: str | date | None = None,
+    download_time: str | None = None,
+) -> StoreUnlinkedShipmentDownloadResult:
+    clean_store_name = normalize_store_name(store_name)
+    token = await get_fba_free_token()
+
+    try:
+        return await _download_store_unlinked_shipments_with_token(
+            clean_store_name,
+            token,
+            timeout_sec=timeout_sec,
+            poll_interval_sec=poll_interval_sec,
+            output_dir=output_dir,
+            report_date=report_date,
+            download_time=download_time,
+        )
+    except BatchDeliveryApiAuthError:
+        logger.warning("[FBAAuthRetry] 未关联货件鉴权失败，准备强制刷新 freeToken: store_name=%s", clean_store_name)
+
+    retry_token = await get_fba_free_token(force_refresh=True)
+    try:
+        result = await _download_store_unlinked_shipments_with_token(
+            clean_store_name,
+            retry_token,
+            timeout_sec=timeout_sec,
+            poll_interval_sec=poll_interval_sec,
+            output_dir=output_dir,
+            report_date=report_date,
+            download_time=download_time,
+        )
+    except BatchDeliveryApiAuthError as exc:
+        raise BatchDeliveryApiAuthError(f"{exc}，已强制刷新后重试仍失败") from exc
+
+    logger.info("[FBAAuthRetry] 未关联货件强制刷新后重试成功: store_name=%s", clean_store_name)
+    return result
 
 
 __all__ = [
