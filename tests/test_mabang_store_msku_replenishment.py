@@ -262,10 +262,31 @@ def test_find_matching_report_files_fails_without_common_time(tmp_path) -> None:
         repl.find_matching_report_files("Amazon-Test", sales_analysis_dir=sales_dir, actual_inventory_dir=inventory_dir)
 
 
+def test_find_same_day_unlinked_shipments_snapshot_picks_latest_same_day(tmp_path) -> None:
+    snapshot_dir = tmp_path / "snapshots"
+    snapshot_dir.mkdir()
+    old_same_day = snapshot_dir / "202605250900-Amazon-Test_unlinked_shipments_snapshot.xlsx"
+    latest_same_day = snapshot_dir / "202605251700-Amazon-Test_unlinked_shipments_snapshot.xlsx"
+    other_day = snapshot_dir / "202605261700-Amazon-Test_unlinked_shipments_snapshot.xlsx"
+    other_store = snapshot_dir / "202605251900-Amazon-Other_unlinked_shipments_snapshot.xlsx"
+    for path in [old_same_day, latest_same_day, other_day, other_store]:
+        path.touch()
+
+    path, warning = repl.find_same_day_unlinked_shipments_snapshot(
+        "Amazon-Test",
+        "202605251530",
+        snapshot_dir=snapshot_dir,
+    )
+
+    assert path == latest_same_day
+    assert warning == ""
+
+
 def test_replenishment_rules_and_report_output(tmp_path) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
+    snapshot_dir = tmp_path / "snapshots"
     sales_path = _write_sales_report(sales_dir / "202605251530-Amazon-Test_sales_analysis.xlsx")
     inventory_path = _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_actual_inventory.xlsx")
 
@@ -274,6 +295,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         sales_analysis_dir=sales_dir,
         actual_inventory_dir=inventory_dir,
         output_dir=output_dir,
+        unlinked_shipments_snapshot_dir=snapshot_dir,
     )
 
     report_path = Path(result.report_xlsx_path)
@@ -294,6 +316,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         "sample_insufficient_count": 1,
         "report_xlsx_path": str(output_dir / "202605251530-Amazon-Test_replenishment.xlsx"),
         "source": "mabang_store_msku_replenishment",
+        "unlinked_shipments_snapshot_warning": repl.UNLINKED_SNAPSHOT_MISSING_WARNING,
     }
     assert report_path.is_file()
     assert _sheet_names(report_path) == ["链接备货汇总", "真实库存不足", "空运（急发）", "空运", "海运", "暂不建议发货", "样本不足"]
@@ -375,7 +398,7 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
-    snapshot_path = tmp_path / "unlinked_snapshot.xlsx"
+    snapshot_path = tmp_path / "202605251600-Amazon-Test_unlinked_shipments_snapshot.xlsx"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_sales_analysis.xlsx")
     _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_actual_inventory.xlsx")
     _write_workbook(
@@ -445,6 +468,112 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     assert sea_summary["总补货量"] == 500
     assert sea_summary["海运建议量"] == 0
     assert sea_summary["链接未关联数量汇总"] == 40
+
+
+def test_same_day_unlinked_shipments_snapshot_auto_deducts_latest_snapshot(tmp_path) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    output_dir = tmp_path / "output"
+    snapshot_dir = tmp_path / "snapshots"
+    old_snapshot = snapshot_dir / "202605251200-Amazon-Test_unlinked_shipments_snapshot.xlsx"
+    latest_snapshot = snapshot_dir / "202605251800-Amazon-Test_unlinked_shipments_snapshot.xlsx"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_sales_analysis.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_actual_inventory.xlsx")
+    _write_workbook(
+        old_snapshot,
+        {
+            "未关联货件汇总": (
+                ["店铺", "MSKU", "未关联数量"],
+                [{"店铺": "Amazon-Test", "MSKU": "AIR-1", "未关联数量": 1}],
+            )
+        },
+    )
+    _write_workbook(
+        latest_snapshot,
+        {
+            "未关联货件汇总": (
+                ["店铺", "MSKU", "未关联数量"],
+                [{"店铺": "Amazon-Test", "MSKU": "AIR-1", "未关联数量": 100}],
+            )
+        },
+    )
+
+    result = repl.calculate_store_msku_replenishment(
+        "Amazon-Test",
+        sales_analysis_dir=sales_dir,
+        actual_inventory_dir=inventory_dir,
+        output_dir=output_dir,
+        unlinked_shipments_snapshot_dir=snapshot_dir,
+    )
+
+    payload = result.to_payload()
+    assert payload["unlinked_shipments_snapshot_path"] == str(latest_snapshot)
+    assert "unlinked_shipments_snapshot_warning" not in payload
+    air_rows = _load_records(Path(result.report_xlsx_path), "空运")
+    assert air_rows[0]["MSKU"] == "AIR-1"
+    assert air_rows[0]["未关联数量"] == 100
+    assert air_rows[0]["补货量"] == 260
+
+
+def test_non_same_day_unlinked_shipments_snapshot_warns_without_deduction(tmp_path) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    output_dir = tmp_path / "output"
+    snapshot_dir = tmp_path / "snapshots"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_sales_analysis.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_actual_inventory.xlsx")
+    _write_workbook(
+        snapshot_dir / "202605261200-Amazon-Test_unlinked_shipments_snapshot.xlsx",
+        {
+            "未关联货件汇总": (
+                ["店铺", "MSKU", "未关联数量"],
+                [{"店铺": "Amazon-Test", "MSKU": "AIR-1", "未关联数量": 100}],
+            )
+        },
+    )
+
+    result = repl.calculate_store_msku_replenishment(
+        "Amazon-Test",
+        sales_analysis_dir=sales_dir,
+        actual_inventory_dir=inventory_dir,
+        output_dir=output_dir,
+        unlinked_shipments_snapshot_dir=snapshot_dir,
+    )
+
+    payload = result.to_payload()
+    assert "unlinked_shipments_snapshot_path" not in payload
+    assert payload["unlinked_shipments_snapshot_warning"] == repl.UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING
+    air_rows = _load_records(Path(result.report_xlsx_path), "空运")
+    assert air_rows[0]["MSKU"] == "AIR-1"
+    assert air_rows[0]["未关联数量"] == 0
+    assert air_rows[0]["补货量"] == 360
+
+
+def test_manual_unlinked_shipments_snapshot_must_be_same_day(tmp_path) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    output_dir = tmp_path / "output"
+    snapshot_path = tmp_path / "202605261200-Amazon-Test_unlinked_shipments_snapshot.xlsx"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_sales_analysis.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_actual_inventory.xlsx")
+    _write_workbook(
+        snapshot_path,
+        {
+            "未关联货件汇总": (
+                ["店铺", "MSKU", "未关联数量"],
+                [{"店铺": "Amazon-Test", "MSKU": "AIR-1", "未关联数量": 100}],
+            )
+        },
+    )
+
+    with pytest.raises(repl.StoreMskuReplenishmentError, match="日期与备货数据日期不一致"):
+        repl.calculate_store_msku_replenishment(
+            "Amazon-Test",
+            sales_analysis_dir=sales_dir,
+            actual_inventory_dir=inventory_dir,
+            output_dir=output_dir,
+            unlinked_shipments_snapshot_path=snapshot_path,
+        )
 
 
 def test_inventory_shortage_rows_only_include_suggested_rows_with_known_shortage() -> None:

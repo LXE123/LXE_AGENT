@@ -8,6 +8,8 @@ from typing import Any
 
 from services.agent_cli._shared.json_output import configure_utf8_stdio
 from services.mabang.amazon.fba.unlinked_shipments import (
+    StoreUnlinkedShipmentDownloadResult,
+    build_store_unlinked_shipments_snapshot,
     download_store_unlinked_shipments,
     normalize_store_name,
 )
@@ -40,6 +42,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _raw_file_paths_from_download_result(result: StoreUnlinkedShipmentDownloadResult) -> list[str]:
+    return [
+        str(row.raw_file_path or "").strip()
+        for row in result.status_results
+        if int(row.total or 0) > 0 and str(row.raw_file_path or "").strip()
+    ]
+
+
 async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
     store_name = normalize_store_name(getattr(args, "store_name", ""))
     timeout_sec = getattr(args, "timeout_sec", 180)
@@ -51,7 +61,24 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
         poll_interval_sec=float(10 if poll_interval_sec is None else poll_interval_sec),
         output_dir=output_dir,
     )
-    return result.to_payload()
+    payload = result.to_payload()
+    raw_file_paths = _raw_file_paths_from_download_result(result)
+    if not raw_file_paths:
+        payload["snapshot"] = None
+        payload["snapshot_skipped_reason"] = "本次没有可生成快照的未关联货件原生文件"
+        return payload
+
+    try:
+        snapshot = build_store_unlinked_shipments_snapshot(raw_file_paths, store_name=result.store_name)
+    except Exception as exc:
+        return {
+            "success": False,
+            "store_name": result.store_name,
+            "exception": _exception_text(exc),
+            "download_result": payload,
+        }
+    payload["snapshot"] = snapshot.to_payload()
+    return payload
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -8,7 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from services.mabang import config as mabang_settings
-from services.mabang.amazon.fba.unlinked_shipments import load_unlinked_shipment_quantities
+from services.mabang.amazon.fba.unlinked_shipments import (
+    DEFAULT_SNAPSHOT_DIR as DEFAULT_UNLINKED_SHIPMENTS_SNAPSHOT_DIR,
+    load_unlinked_shipment_quantities,
+)
 from services.mabang.amazon.fba.replenishment_template import (
     DEFAULT_TEMPLATE_NAME,
     ReplenishmentTemplate,
@@ -32,6 +35,9 @@ EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
 SALES_REPORT_RE = re.compile(r"^(?P<source_time>\d{12})-(?P<store>.+)_sales_analysis\.xlsx$", re.IGNORECASE)
 INVENTORY_REPORT_RE = re.compile(r"^(?P<source_time>\d{12})-(?P<store>.+)_actual_inventory\.xlsx$", re.IGNORECASE)
+UNLINKED_SNAPSHOT_RE = re.compile(r"^(?P<snapshot_time>\d{12})-(?P<store>.+)_unlinked_shipments_snapshot\.xlsx$", re.IGNORECASE)
+UNLINKED_SNAPSHOT_MISSING_WARNING = "未找到与备货数据同日的未关联货件快照，本次未扣减未关联货件"
+UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING = "未找到与备货数据同日的未关联货件快照，已忽略非同日未关联货件快照，本次未扣减未关联货件"
 DETAIL_SHEET = "MSKU明细"
 SUMMARY_SHEET = "链接备货汇总"
 INVENTORY_SHORTAGE_SHEET = "真实库存不足"
@@ -167,6 +173,14 @@ class MatchedReports:
 
 
 @dataclass(frozen=True)
+class UnlinkedSnapshotFile:
+    path: Path
+    snapshot_time: str
+    snapshot_datetime: datetime
+    store_part: str
+
+
+@dataclass(frozen=True)
 class SalesDetail:
     trend: str
     weight_grams: float | None
@@ -264,6 +278,7 @@ class StoreMskuReplenishmentResult:
     sample_insufficient_count: int
     report_xlsx_path: str
     unlinked_shipments_snapshot_path: str = ""
+    unlinked_shipments_snapshot_warning: str = ""
     source: str = SOURCE
 
     def to_payload(self) -> dict[str, Any]:
@@ -287,6 +302,8 @@ class StoreMskuReplenishmentResult:
         }
         if self.unlinked_shipments_snapshot_path:
             payload["unlinked_shipments_snapshot_path"] = self.unlinked_shipments_snapshot_path
+        if self.unlinked_shipments_snapshot_warning:
+            payload["unlinked_shipments_snapshot_warning"] = self.unlinked_shipments_snapshot_warning
         return payload
 
 
@@ -298,6 +315,13 @@ def _safe_file_part(value: Any) -> str:
     text = _clean_text(value)
     text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
     return text.strip("._-") or "store_msku"
+
+
+def _safe_unlinked_snapshot_store_part(value: Any) -> str:
+    text = _clean_text(value)
+    text = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", text)
+    text = re.sub(r"\s+", "_", text)
+    return text.strip(" ._-") or "store"
 
 
 def normalize_store_name(value: Any) -> str:
@@ -332,6 +356,13 @@ def _output_dir(output_dir: str | Path | None = None) -> Path:
     )
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _unlinked_shipments_snapshot_dir(input_dir: str | Path | None = None) -> Path:
+    return Path(input_dir) if input_dir is not None else _configured_path(
+        "MABANG_FBA_UNLINKED_SHIPMENTS_SNAPSHOT_DIR",
+        DEFAULT_UNLINKED_SHIPMENTS_SNAPSHOT_DIR,
+    )
 
 
 def _number(value: Any) -> float:
@@ -428,6 +459,23 @@ def _parse_report_file(path: Path, pattern: re.Pattern[str]) -> ReportFile | Non
     return ReportFile(path=path, source_data_time=source_data_time, source_datetime=source_datetime)
 
 
+def _parse_unlinked_snapshot_file(path: Path) -> UnlinkedSnapshotFile | None:
+    match = UNLINKED_SNAPSHOT_RE.match(path.name)
+    if not match:
+        return None
+    snapshot_time = match.group("snapshot_time")
+    try:
+        snapshot_datetime = datetime.strptime(snapshot_time, "%Y%m%d%H%M")
+    except ValueError:
+        return None
+    return UnlinkedSnapshotFile(
+        path=path,
+        snapshot_time=snapshot_time,
+        snapshot_datetime=snapshot_datetime,
+        store_part=match.group("store"),
+    )
+
+
 def _find_report_files(directory: Path, pattern: re.Pattern[str], safe_store_name: str) -> list[ReportFile]:
     if not directory.is_dir():
         return []
@@ -437,6 +485,53 @@ def _find_report_files(directory: Path, pattern: re.Pattern[str], safe_store_nam
         if parsed is not None:
             reports.append(parsed)
     return reports
+
+
+def find_same_day_unlinked_shipments_snapshot(
+    store_name: str,
+    source_data_time: str,
+    *,
+    snapshot_dir: str | Path | None = None,
+) -> tuple[Path | None, str]:
+    source_date = _clean_text(source_data_time)[:8]
+    clean_store_name = normalize_store_name(store_name)
+    expected_store_part = _safe_unlinked_snapshot_store_part(clean_store_name)
+    directory = _unlinked_shipments_snapshot_dir(snapshot_dir)
+    if not directory.is_dir():
+        return None, UNLINKED_SNAPSHOT_MISSING_WARNING
+
+    candidates: list[UnlinkedSnapshotFile] = []
+    ignored_dates: list[UnlinkedSnapshotFile] = []
+    for path in directory.glob("*_unlinked_shipments_snapshot.xlsx"):
+        parsed = _parse_unlinked_snapshot_file(path)
+        if parsed is None or parsed.store_part != expected_store_part:
+            continue
+        if parsed.snapshot_time[:8] == source_date:
+            candidates.append(parsed)
+        else:
+            ignored_dates.append(parsed)
+
+    if candidates:
+        selected = sorted(candidates, key=lambda item: item.snapshot_time, reverse=True)[0]
+        return selected.path, ""
+    if ignored_dates:
+        return None, UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING
+    return None, UNLINKED_SNAPSHOT_MISSING_WARNING
+
+
+def validate_unlinked_shipments_snapshot_same_day(path: str | Path, source_data_time: str) -> Path:
+    source_date = _clean_text(source_data_time)[:8]
+    snapshot_path = Path(path)
+    parsed = _parse_unlinked_snapshot_file(snapshot_path)
+    if parsed is None:
+        raise StoreMskuReplenishmentError(f"未关联货件快照文件名无法识别日期: {snapshot_path}")
+    snapshot_date = parsed.snapshot_time[:8]
+    if snapshot_date != source_date:
+        raise StoreMskuReplenishmentError(
+            f"未关联货件快照日期与备货数据日期不一致: source_date={source_date}, "
+            f"snapshot_date={snapshot_date}, path={snapshot_path}"
+        )
+    return snapshot_path
 
 
 def find_matching_report_files(
@@ -1028,6 +1123,7 @@ def calculate_store_msku_replenishment(
     actual_inventory_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
     unlinked_shipments_snapshot_path: str | Path | None = None,
+    unlinked_shipments_snapshot_dir: str | Path | None = None,
 ) -> StoreMskuReplenishmentResult:
     clean_store_name = normalize_store_name(store_name)
     template = validate_template(get_template(template_name or DEFAULT_TEMPLATE_NAME)).template
@@ -1038,9 +1134,22 @@ def calculate_store_msku_replenishment(
     )
     inventory_rows = load_inventory_rows(reports.actual_inventory_path)
     sales_details = load_sales_details(reports.sales_analysis_path)
+    requested_snapshot_path = _clean_text(unlinked_shipments_snapshot_path)
+    unlinked_snapshot_warning = ""
+    if requested_snapshot_path:
+        selected_snapshot_path: Path | None = validate_unlinked_shipments_snapshot_same_day(
+            requested_snapshot_path,
+            reports.source_data_time,
+        )
+    else:
+        selected_snapshot_path, unlinked_snapshot_warning = find_same_day_unlinked_shipments_snapshot(
+            clean_store_name,
+            reports.source_data_time,
+            snapshot_dir=unlinked_shipments_snapshot_dir,
+        )
     unlinked_quantities = (
-        load_unlinked_shipment_quantities(unlinked_shipments_snapshot_path, store_name=clean_store_name)
-        if unlinked_shipments_snapshot_path
+        load_unlinked_shipment_quantities(selected_snapshot_path, store_name=clean_store_name)
+        if selected_snapshot_path
         else {}
     )
     replenishment_rows = calculate_replenishment_rows(
@@ -1068,7 +1177,8 @@ def calculate_store_msku_replenishment(
         no_ship_count=sum(1 for row in replenishment_rows if row.sheet_name == NO_SHIP_SHEET),
         sample_insufficient_count=sum(1 for row in replenishment_rows if row.sheet_name == SAMPLE_INSUFFICIENT_SHEET),
         report_xlsx_path=str(report_path),
-        unlinked_shipments_snapshot_path=str(unlinked_shipments_snapshot_path or ""),
+        unlinked_shipments_snapshot_path=str(selected_snapshot_path or ""),
+        unlinked_shipments_snapshot_warning=unlinked_snapshot_warning,
     )
 
 
@@ -1085,6 +1195,8 @@ __all__ = [
     "SOURCE",
     "SUMMARY_COLUMNS",
     "SUMMARY_SHEET",
+    "UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING",
+    "UNLINKED_SNAPSHOT_MISSING_WARNING",
     "InventoryInputRow",
     "ReplenishmentRow",
     "SalesDetail",
@@ -1094,6 +1206,7 @@ __all__ = [
     "calculate_replenishment_rows",
     "calculate_store_msku_replenishment",
     "find_matching_report_files",
+    "find_same_day_unlinked_shipments_snapshot",
     "inventory_shortage_rows",
     "load_inventory_rows",
     "load_sales_details",
@@ -1102,5 +1215,6 @@ __all__ = [
     "replenishment_days",
     "summarize_links",
     "trend_group",
+    "validate_unlinked_shipments_snapshot_same_day",
     "write_replenishment_report",
 ]

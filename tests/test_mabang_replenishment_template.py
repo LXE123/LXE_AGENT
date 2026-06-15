@@ -364,8 +364,8 @@ def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> N
 
 
 def test_skill_index_loads_replenishment_template_manage() -> None:
-    manifest = load_skill_index(force_reload=True).get("mabang-fba-replenishment-template-manage")
+    manifest = load_skill_index(force_reload=True).get("replenishment-template-manage")
 
     assert manifest is not None
-    assert manifest.name == "mabang-fba-replenishment-template-manage"
+    assert manifest.name == "replenishment-template-manage"
     assert manifest.type == "amazon_replenish"
