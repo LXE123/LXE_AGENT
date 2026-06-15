@@ -311,6 +311,81 @@ def _skills_payload() -> list[dict[str, Any]]:
     return items
 
 
+def _skill_reference_payload(reference) -> dict[str, str]:
+    return {
+        "path": str(reference.path or ""),
+        "description": str(reference.description or ""),
+    }
+
+
+def _skill_metadata_payload(manifest) -> dict[str, Any]:
+    return {
+        "name": manifest.name,
+        "type": manifest.type,
+        "description": manifest.description,
+        "location": str(manifest.body_path.resolve()),
+        "references": [_skill_reference_payload(reference) for reference in manifest.references],
+    }
+
+
+def _skill_manifest_or_404(skill_name: str):
+    manifest = load_skill_index().get(skill_name)
+    if manifest is None:
+        raise HTTPException(status_code=404, detail="skill not found")
+    return manifest
+
+
+def _read_utf8_file_or_http_error(path: Path, *, not_found_detail: str) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=not_found_detail) from exc
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=500, detail="file is not valid utf-8 text") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="failed to read file") from exc
+
+
+def _skill_content_payload(skill_name: str) -> dict[str, Any]:
+    manifest = _skill_manifest_or_404(skill_name)
+    return {
+        **_skill_metadata_payload(manifest),
+        "content": _read_utf8_file_or_http_error(manifest.body_path, not_found_detail="skill content not found"),
+    }
+
+
+def _normalize_reference_request_path(reference_path: str) -> str:
+    return str(reference_path or "").strip().replace("\\", "/").lstrip("/")
+
+
+def _skill_reference_content_payload(skill_name: str, reference_path: str) -> dict[str, Any]:
+    manifest = _skill_manifest_or_404(skill_name)
+    safe_reference_path = _normalize_reference_request_path(reference_path)
+    reference = next(
+        (
+            item
+            for item in manifest.references
+            if _normalize_reference_request_path(item.path) == safe_reference_path
+        ),
+        None,
+    )
+    if reference is None:
+        raise HTTPException(status_code=404, detail="skill reference not found")
+
+    root_dir = manifest.root_dir.resolve()
+    content_path = (manifest.root_dir / reference.path).resolve()
+    if root_dir not in content_path.parents and content_path != root_dir:
+        raise HTTPException(status_code=404, detail="skill reference not found")
+
+    return {
+        "skill_name": manifest.name,
+        "path": reference.path,
+        "description": reference.description,
+        "location": str(content_path),
+        "content": _read_utf8_file_or_http_error(content_path, not_found_detail="skill reference not found"),
+    }
+
+
 def _tool_payload(name: str) -> dict[str, Any] | None:
     registry = ensure_all_tools_registered(get_registry())
     tool = registry.get(name)
@@ -416,6 +491,14 @@ def create_dashboard_app() -> FastAPI:
     async def skills() -> dict[str, Any]:
         items = _skills_payload()
         return {"items": items, "total": len(items)}
+
+    @app.get("/api/skills/{skill_name}/content")
+    async def skill_content(skill_name: str) -> dict[str, Any]:
+        return _skill_content_payload(skill_name)
+
+    @app.get("/api/skills/{skill_name}/references/{reference_path:path}")
+    async def skill_reference_content(skill_name: str, reference_path: str) -> dict[str, Any]:
+        return _skill_reference_content_payload(skill_name, reference_path)
 
     @app.get("/api/tools/toolsets")
     async def toolsets() -> dict[str, Any]:

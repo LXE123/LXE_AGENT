@@ -8,6 +8,7 @@ import time
 import pytest
 from fastapi.testclient import TestClient
 
+from agent_runtime import skill_index as skill_index_module
 from agent_runtime.tools.process_sessions import (
     SessionStatus,
     clear_exec_sessions_for_tests,
@@ -97,6 +98,38 @@ def _set_session_timestamp(session_id: str, timestamp: float) -> None:
             """,
             (float(timestamp), float(timestamp), session_id),
         )
+
+
+def _install_dashboard_test_skill_root(monkeypatch, tmp_path) -> dict[str, str]:
+    skills_root = tmp_path / "skills"
+    skill_dir = skills_root / "dashboard-test-skill"
+    references_dir = skill_dir / "references"
+    references_dir.mkdir(parents=True)
+    skill_text = """---
+name: dashboard-test-skill
+description: Dashboard skill body fixture.
+type: dashboard_test
+references:
+  - path: references/example.md
+    description: Example reference
+---
+
+## Body
+
+This is the full SKILL.md body.
+"""
+    reference_text = "# Example Reference\n\nThis is a declared reference."
+    secret_text = "# Secret\n\nThis file exists but is not declared."
+    (skill_dir / "SKILL.md").write_text(skill_text, encoding="utf-8")
+    (references_dir / "example.md").write_text(reference_text, encoding="utf-8")
+    (references_dir / "secret.md").write_text(secret_text, encoding="utf-8")
+    monkeypatch.setattr(skill_index_module, "SKILLS_ROOT", skills_root)
+    monkeypatch.setattr(skill_index_module, "_SKILL_INDEX", None)
+    return {
+        "name": "dashboard-test-skill",
+        "skill_text": skill_text,
+        "reference_text": reference_text,
+    }
 
 
 def test_sessions_endpoint_orders_by_last_active_and_returns_metadata(dashboard_client):
@@ -663,3 +696,53 @@ def test_skills_endpoint_reads_skill_manifests(dashboard_client):
     assert payload["total"] >= 1
     first = payload["items"][0]
     assert {"name", "type", "description", "enabled", "location", "references"}.issubset(first)
+
+
+def test_skill_content_endpoint_returns_skill_body(dashboard_client, monkeypatch, tmp_path):
+    skill = _install_dashboard_test_skill_root(monkeypatch, tmp_path)
+
+    response = dashboard_client.get(f"/api/skills/{skill['name']}/content")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["name"] == skill["name"]
+    assert payload["type"] == "dashboard_test"
+    assert payload["description"] == "Dashboard skill body fixture."
+    assert payload["content"] == skill["skill_text"]
+    assert payload["references"] == [
+        {"path": "references/example.md", "description": "Example reference"},
+    ]
+    assert payload["location"].endswith("dashboard-test-skill/SKILL.md")
+
+
+def test_skill_content_endpoint_returns_404_for_missing_skill(dashboard_client):
+    response = dashboard_client.get("/api/skills/not-a-real-skill/content")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "skill not found"
+
+
+def test_skill_reference_endpoint_returns_declared_reference(dashboard_client, monkeypatch, tmp_path):
+    skill = _install_dashboard_test_skill_root(monkeypatch, tmp_path)
+
+    response = dashboard_client.get(f"/api/skills/{skill['name']}/references/references/example.md")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["skill_name"] == skill["name"]
+    assert payload["path"] == "references/example.md"
+    assert payload["description"] == "Example reference"
+    assert payload["content"] == skill["reference_text"]
+    assert payload["location"].endswith("dashboard-test-skill/references/example.md")
+
+
+def test_skill_reference_endpoint_rejects_undeclared_or_escaped_paths(dashboard_client, monkeypatch, tmp_path):
+    skill = _install_dashboard_test_skill_root(monkeypatch, tmp_path)
+
+    undeclared = dashboard_client.get(f"/api/skills/{skill['name']}/references/references/secret.md")
+    escaped = dashboard_client.get(f"/api/skills/{skill['name']}/references/%2E%2E/SKILL.md")
+
+    assert undeclared.status_code == 404
+    assert undeclared.json()["detail"] == "skill reference not found"
+    assert escaped.status_code == 404
+    assert escaped.json()["detail"] == "skill reference not found"

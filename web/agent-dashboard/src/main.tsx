@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Activity,
   ArrowLeft,
@@ -109,14 +111,45 @@ type ConversationRenderItem =
   | { type: "message"; message: SessionMessage; index: number }
   | { type: "tool_group"; messages: SessionMessage[]; startIndex: number; key: string };
 
+type SkillReferencePayload = {
+  path: string;
+  description: string;
+};
+
 type SkillPayload = {
   name: string;
   type: string;
   description: string;
   enabled: boolean;
   location: string;
-  references: Array<{ path: string; description: string }>;
+  references: SkillReferencePayload[];
 };
+
+type SkillContentPayload = {
+  name: string;
+  type: string;
+  description: string;
+  location: string;
+  references: SkillReferencePayload[];
+  content: string;
+};
+
+type SkillReferenceContentPayload = {
+  skill_name: string;
+  path: string;
+  description: string;
+  location: string;
+  content: string;
+};
+
+type SkillContentView = {
+  title: string;
+  subtitle: string;
+  location: string;
+  content: string;
+};
+
+type SkillContentMode = "preview" | "source";
 
 type ToolPayload = {
   name: string;
@@ -201,6 +234,22 @@ type DetailTarget =
   | null;
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+
+const markdownComponents: Components = {
+  a({ href, children, ...props }) {
+    const isExternal = Boolean(href && /^(https?:)?\/\//i.test(href));
+    return (
+      <a
+        {...props}
+        href={href}
+        rel={isExternal ? "noreferrer noopener" : undefined}
+        target={isExternal ? "_blank" : undefined}
+      >
+        {children}
+      </a>
+    );
+  }
+};
 
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -311,6 +360,13 @@ function sourceLabel(source: SourceSummary | Record<string, unknown>): string {
 
 function shortId(value: string): string {
   return value.length > 12 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value;
+}
+
+function encodePathSegments(value: string): string {
+  return String(value || "")
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1284,6 +1340,211 @@ function SkillsView({
   );
 }
 
+function SkillDetailContent({ skill }: { skill: SkillPayload }) {
+  const [payload, setPayload] = useState<SkillContentPayload | null>(null);
+  const [contentView, setContentView] = useState<SkillContentView | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [referenceLoading, setReferenceLoading] = useState("");
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [contentMode, setContentMode] = useState<SkillContentMode>("preview");
+  const references = payload?.references || skill.references;
+  const copyDisabled = !contentView?.content || loading || Boolean(referenceLoading);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSkillContent() {
+      setPayload(null);
+      setContentView(null);
+      setLoading(true);
+      setReferenceLoading("");
+      setError("");
+      setCopied(false);
+      setContentMode("preview");
+      try {
+        const nextPayload = await fetchJson<SkillContentPayload>(
+          `/api/skills/${encodeURIComponent(skill.name)}/content`
+        );
+        if (cancelled) {
+          return;
+        }
+        setPayload(nextPayload);
+        setContentView({
+          title: "SKILL.md",
+          subtitle: nextPayload.description || skill.description,
+          location: nextPayload.location || skill.location,
+          content: nextPayload.content || ""
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadSkillContent();
+    return () => {
+      cancelled = true;
+    };
+  }, [skill.name, skill.description, skill.location]);
+
+  async function openReference(reference: SkillReferencePayload) {
+    if (referenceLoading === reference.path) {
+      return;
+    }
+    setReferenceLoading(reference.path);
+    setError("");
+    setCopied(false);
+    try {
+      const nextPayload = await fetchJson<SkillReferenceContentPayload>(
+        `/api/skills/${encodeURIComponent(skill.name)}/references/${encodePathSegments(reference.path)}`
+      );
+      setContentView({
+        title: nextPayload.path,
+        subtitle: nextPayload.description || reference.description,
+        location: nextPayload.location,
+        content: nextPayload.content || ""
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setReferenceLoading("");
+    }
+  }
+
+  function showSkillBody() {
+    if (!payload) {
+      return;
+    }
+    setContentView({
+      title: "SKILL.md",
+      subtitle: payload.description || skill.description,
+      location: payload.location || skill.location,
+      content: payload.content || ""
+    });
+    setError("");
+    setCopied(false);
+  }
+
+  async function copyCurrentContent() {
+    if (!contentView?.content) {
+      return;
+    }
+    try {
+      await copyTextToClipboard(contentView.content);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="modal-content">
+      <p>{skill.description}</p>
+      <dl className="detail-list">
+        <div>
+          <dt>Type</dt>
+          <dd>{skill.type}</dd>
+        </div>
+        <div>
+          <dt>Location</dt>
+          <dd className="mono">{payload?.location || skill.location}</dd>
+        </div>
+      </dl>
+      <div className="schema-block">
+        <div className="schema-title">References</div>
+        {references.length ? (
+          <div className="reference-list">
+            {payload ? (
+              <button
+                className={contentView?.title === "SKILL.md" ? "reference-button active" : "reference-button"}
+                disabled={Boolean(referenceLoading)}
+                onClick={showSkillBody}
+                type="button"
+              >
+                <span className="mono">SKILL.md</span>
+                <small>{payload.description || skill.description}</small>
+              </button>
+            ) : null}
+            {references.map((reference) => {
+              const active = contentView?.title === reference.path;
+              const loadingReference = referenceLoading === reference.path;
+              return (
+                <button
+                  className={active ? "reference-button active" : "reference-button"}
+                  disabled={Boolean(referenceLoading)}
+                  key={reference.path}
+                  onClick={() => openReference(reference)}
+                  type="button"
+                >
+                  <span className="mono">{reference.path}</span>
+                  <small>{loadingReference ? "loading..." : reference.description}</small>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="muted reference-empty">No references.</p>
+        )}
+      </div>
+      <div className="schema-block skill-content-block">
+        <div className="schema-title skill-content-title">
+          <div>
+            <span>{contentView?.title || "SKILL.md"}</span>
+            {contentView?.location ? <small className="mono">{contentView.location}</small> : null}
+          </div>
+          <button
+            className="skill-copy-button"
+            disabled={copyDisabled}
+            onClick={copyCurrentContent}
+            type="button"
+          >
+            {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
+            <span>{copied ? "已复制" : "复制原文"}</span>
+          </button>
+        </div>
+        {error ? <div className="skill-content-status error">{error}</div> : null}
+        {loading ? <div className="skill-content-status">Loading skill content...</div> : null}
+        {!loading && contentView ? (
+          <>
+            <div className="skill-content-mode-row" role="group" aria-label="Skill content display mode">
+              <button
+                className={contentMode === "preview" ? "skill-mode-button active" : "skill-mode-button"}
+                onClick={() => setContentMode("preview")}
+                type="button"
+              >
+                预览
+              </button>
+              <button
+                className={contentMode === "source" ? "skill-mode-button active" : "skill-mode-button"}
+                onClick={() => setContentMode("source")}
+                type="button"
+              >
+                原文
+              </button>
+            </div>
+            {contentMode === "preview" ? (
+              <div className="skill-markdown">
+                <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+                  {contentView.content}
+                </ReactMarkdown>
+              </div>
+            ) : (
+              <pre className="skill-content-pre">{contentView.content}</pre>
+            )}
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () => void }) {
   if (!target) {
     return null;
@@ -1310,34 +1571,7 @@ function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () =>
             </div>
           </div>
         ) : target.type === "skill" ? (
-          <div className="modal-content">
-            <p>{target.item.description}</p>
-            <dl className="detail-list">
-              <div>
-                <dt>Type</dt>
-                <dd>{target.item.type}</dd>
-              </div>
-              <div>
-                <dt>Location</dt>
-                <dd className="mono">{target.item.location}</dd>
-              </div>
-            </dl>
-            <div className="schema-block">
-              <div className="schema-title">References</div>
-              {target.item.references.length ? (
-                <ul className="reference-list">
-                  {target.item.references.map((reference) => (
-                    <li key={reference.path}>
-                      <span className="mono">{reference.path}</span>
-                      <small>{reference.description}</small>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="muted">No references.</p>
-              )}
-            </div>
-          </div>
+          <SkillDetailContent skill={target.item} />
         ) : (
           <div className="modal-content">
             <dl className="detail-list">
