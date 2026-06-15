@@ -50,6 +50,22 @@ def _headers(path: Path, sheet_name: str) -> list[str]:
         workbook.close()
 
 
+def _column_number_formats(path: Path, sheet_name: str, header: str) -> list[str]:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path)
+    try:
+        worksheet = workbook[sheet_name]
+        headers = [cell.value for cell in worksheet[1]]
+        column_index = headers.index(header) + 1
+        return [
+            worksheet.cell(row=row_index, column=column_index).number_format
+            for row_index in range(2, worksheet.max_row + 1)
+        ]
+    finally:
+        workbook.close()
+
+
 def _assert_standard_dimensions(path: Path, sheet_names: list[str]) -> None:
     from openpyxl import load_workbook
     from openpyxl.utils import get_column_letter
@@ -382,9 +398,27 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     _assert_standard_dimensions(report_path, _sheet_names(report_path))
     assert _headers(report_path, "链接备货汇总") == list(repl.SUMMARY_COLUMNS)
     assert _headers(report_path, "真实库存不足") == list(repl.INVENTORY_SHORTAGE_COLUMNS)
-    for sheet_name in ["空运（急发）", "空运", "海运", "暂不建议发货", "样本不足"]:
+    assert _headers(report_path, "空运（急发）") == list(repl.AIR_DETAIL_COLUMNS)
+    assert _headers(report_path, "空运") == list(repl.AIR_DETAIL_COLUMNS)
+    for sheet_name in _sheet_names(report_path):
+        headers = _headers(report_path, sheet_name)
+        for header in ("FBA总库存", "真实库存数量"):
+            if header in headers:
+                assert set(_column_number_formats(report_path, sheet_name, header)) == {"0"}
+    assert set(_column_number_formats(report_path, "真实库存不足", "库存缺口")) == {"0"}
+    assert set(_column_number_formats(report_path, "链接备货汇总", "链接真实本地库存汇总")) == {"0"}
+    assert set(_column_number_formats(report_path, "海运", "加权日销")) == {"0.00"}
+    assert set(_column_number_formats(report_path, "海运", "预计总重量kg")) == {"0.00"}
+    for header in ["海运天数", "海运建议量", "同时空运天数", "同时空运建议量"]:
+        assert header not in _headers(report_path, "空运（急发）")
+        assert header not in _headers(report_path, "空运")
+        assert header in _headers(report_path, "海运")
+        assert header in _headers(report_path, "真实库存不足")
+    for sheet_name in ["海运", "暂不建议发货", "样本不足"]:
         headers = _headers(report_path, sheet_name)
         assert headers == list(repl.DETAIL_COLUMNS)
+        assert "未关联抵扣前建议量" not in headers
+        assert "海运实际补货量" not in headers
 
     sea_rows = _load_records(report_path, "海运")
     assert sea_rows[0]["MSKU"] == "SEA-1"
@@ -406,6 +440,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert urgent_rows[0]["产品名称"] == "Urgent Product"
     assert urgent_rows[0]["补货天数"] == 60
     assert urgent_rows[0]["补货量"] == 180
+    assert urgent_rows[0]["预计总重量kg"] == 1.8
     assert urgent_rows[0]["真实库存数量"] == 10
 
     air_rows = _load_records(report_path, "空运")
@@ -414,6 +449,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert air_rows[0]["产品名称"] == "Air Product"
     assert air_rows[0]["补货天数"] == 60
     assert air_rows[0]["补货量"] == 360
+    assert air_rows[0]["预计总重量kg"] == 7.2
     assert air_rows[0]["真实库存数量"] == 30
 
     no_ship_rows = _load_records(report_path, "暂不建议发货")
@@ -421,6 +457,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert no_ship_rows[0]["本地SKU名称"] == "暂不发货本地名"
     assert no_ship_rows[0]["产品名称"] == "No Ship Product"
     assert no_ship_rows[0]["补货量"] == 240
+    assert no_ship_rows[0]["预计总重量kg"] in (None, "")
     assert "加权日销=4.00 <= 5" in no_ship_rows[0]["决策原因"]
 
     sample_rows = _load_records(report_path, "样本不足")
@@ -428,6 +465,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert sample_rows[0]["本地SKU名称"] == "样本不足本地名"
     assert sample_rows[0]["产品名称"] == "Sample Product"
     assert sample_rows[0]["补货量"] in (None, "")
+    assert sample_rows[0]["预计总重量kg"] in (None, "")
     assert sample_rows[0]["决策原因"] == "销量趋势为样本不足，不计算备货量"
 
     shortage_rows = _load_records(report_path, "真实库存不足")
@@ -438,6 +476,9 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert shortage_rows[0]["库存缺口"] == 520
     assert shortage_rows[1]["库存缺口"] == 330
     assert shortage_rows[2]["库存缺口"] == 170
+    assert shortage_rows[0]["预计总重量kg"] == 64.8
+    assert shortage_rows[1]["预计总重量kg"] == 7.2
+    assert shortage_rows[2]["预计总重量kg"] == 1.8
     assert all(row["MSKU"] not in {"NO-1", "SAMPLE-1"} for row in shortage_rows)
     assert any(row["MSKU"] == "SEA-1" for row in sea_rows)
     assert any(row["MSKU"] == "AIR-1" for row in air_rows)
@@ -504,23 +545,24 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     assert air_rows[0]["FBA总库存"] == 300
     assert air_rows[0]["可销售天数"] == 50
     assert air_rows[0]["未关联数量"] == 100
-    assert air_rows[0]["未关联抵扣前建议量"] == 360
-    assert air_rows[0]["补货量"] == 260
-    assert "抵扣后补货量=260" in air_rows[0]["决策原因"]
+    assert air_rows[0]["补货量"] == 360
+    assert air_rows[0]["补货量（减去未关联货件）"] == 260
+    assert air_rows[0]["预计总重量kg"] == 5.2
+    assert "补货量（减去未关联货件）=260" in air_rows[0]["决策原因"]
 
     no_ship_rows = _load_records(report_path, "暂不建议发货")
     urgent_row = next(row for row in no_ship_rows if row["MSKU"] == "URGENT-1")
-    assert urgent_row["补货量"] == 0
+    assert urgent_row["补货量"] == 180
+    assert urgent_row["补货量（减去未关联货件）"] == 0
     assert urgent_row["未关联数量"] == 250
-    assert urgent_row["未关联抵扣前建议量"] == 180
     assert "未关联数量已覆盖本次建议量" in urgent_row["决策原因"]
 
     sea_row = next(row for row in no_ship_rows if row["MSKU"] == "SEA-1")
-    assert sea_row["补货量"] == 500
-    assert sea_row["未关联抵扣前建议量"] == 540
+    assert sea_row["补货量"] == 540
+    assert sea_row["补货量（减去未关联货件）"] == 500
     assert sea_row["海运建议量"] == 540
-    assert sea_row["预计总重量kg"] == 60
-    assert "未关联抵扣后海运重量不足60kg" in sea_row["决策原因"]
+    assert sea_row["预计总重量kg"] in (None, "")
+    assert "未关联优先抵扣同时空运后，海运重量不足60kg" in sea_row["决策原因"]
     assert _load_records(report_path, "海运") == []
 
     shortage_rows = _load_records(report_path, "真实库存不足")
@@ -580,7 +622,8 @@ def test_same_day_unlinked_shipments_snapshot_auto_deducts_latest_snapshot(tmp_p
     air_rows = _load_records(Path(result.report_xlsx_path), "空运")
     assert air_rows[0]["MSKU"] == "AIR-1"
     assert air_rows[0]["未关联数量"] == 100
-    assert air_rows[0]["补货量"] == 260
+    assert air_rows[0]["补货量"] == 360
+    assert air_rows[0]["补货量（减去未关联货件）"] == 260
 
 
 def test_non_same_day_unlinked_shipments_snapshot_warns_without_deduction(tmp_path) -> None:
@@ -615,6 +658,7 @@ def test_non_same_day_unlinked_shipments_snapshot_warns_without_deduction(tmp_pa
     assert air_rows[0]["MSKU"] == "AIR-1"
     assert air_rows[0]["未关联数量"] == 0
     assert air_rows[0]["补货量"] == 360
+    assert air_rows[0]["补货量（减去未关联货件）"] == 360
 
 
 def test_manual_unlinked_shipments_snapshot_must_be_same_day(tmp_path) -> None:
@@ -668,6 +712,14 @@ def test_parse_weight_grams_uses_first_number() -> None:
     assert repl.parse_weight_grams("120g 10*20*30") == 120
     assert repl.parse_weight_grams("1,200.5g") == 1200.5
     assert repl.parse_weight_grams("") is None
+
+
+def test_detail_payload_estimated_weight_uses_final_replenishment_quantity() -> None:
+    air_row = _replenishment_row("AIR-WEIGHT", repl.AIR_SHEET, replenish_quantity=80, actual_inventory=10)
+    no_ship_row = _replenishment_row("NO-SHIP-WEIGHT", repl.NO_SHIP_SHEET, replenish_quantity=80, actual_inventory=10)
+
+    assert air_row.to_detail_payload()["预计总重量kg"] == 8
+    assert no_ship_row.to_detail_payload()["预计总重量kg"] == ""
 
 
 def test_custom_template_changes_replenishment_result(tmp_path, monkeypatch) -> None:
@@ -746,7 +798,7 @@ def test_lin_meiqi_group_2_template_uses_inclusive_one_day_sea_threshold() -> No
 
     row = repl.calculate_replenishment_row(
         _inventory_input_row("DAILY-1", fba_total_inventory=100),
-        _sales_detail_for_daily_sales(1, weight_grams=610),
+        _sales_detail_for_daily_sales(1, weight_grams=2100),
         template,
     )
 
@@ -755,9 +807,13 @@ def test_lin_meiqi_group_2_template_uses_inclusive_one_day_sea_threshold() -> No
     assert row.sales_days == pytest.approx(100)
     assert row.replenish_days == 100
     assert row.replenish_quantity == 100
+    assert row.original_replenish_quantity == 100
     assert row.sea_days == 100
-    assert row.sea_quantity == 100
-    assert row.estimated_weight_kg == 61
+    assert row.sea_quantity == 30
+    assert row.companion_air_days == 70
+    assert row.companion_air_quantity == 70
+    assert row.sea_net_quantity == 30
+    assert row.estimated_weight_kg == 63
 
 
 def test_lin_meiqi_group_2_template_keeps_eighty_sales_days_in_air() -> None:
@@ -794,7 +850,7 @@ def test_lin_meiqi_group_2_template_uses_120_day_sea_above_twenty_daily_sales() 
 
     row = repl.calculate_replenishment_row(
         _inventory_input_row("DAILY-21", fba_total_inventory=2000),
-        _sales_detail_for_daily_sales(21, weight_grams=30),
+        _sales_detail_for_daily_sales(21, weight_grams=80),
         template,
     )
 
@@ -803,9 +859,139 @@ def test_lin_meiqi_group_2_template_uses_120_day_sea_above_twenty_daily_sales() 
     assert row.sales_days == pytest.approx(2000 / 21)
     assert row.replenish_days == 120
     assert row.replenish_quantity == 2520
+    assert row.original_replenish_quantity == 2520
     assert row.sea_days == 120
-    assert row.sea_quantity == 2520
-    assert row.estimated_weight_kg == pytest.approx(75.6)
+    assert row.sea_quantity == 840
+    assert row.companion_air_days == 80
+    assert row.companion_air_quantity == 1680
+    assert row.sea_net_quantity == 840
+    assert row.estimated_weight_kg == pytest.approx(67.2)
+
+
+def test_lin_meiqi_group_2_template_treats_above_three_hundred_as_above_twenty() -> None:
+    template = tmpl.get_template("2组-US站点-林美淇")
+
+    row = repl.calculate_replenishment_row(
+        _inventory_input_row("DAILY-301", fba_total_inventory=30000),
+        _sales_detail_for_daily_sales(301, weight_grams=10),
+        template,
+    )
+
+    assert row.sheet_name == repl.SEA_SHEET
+    assert row.replenish_days == 120
+    assert row.replenish_quantity == 36120
+    assert row.original_replenish_quantity == 36120
+    assert row.sea_days == 120
+    assert row.sea_quantity == 12040
+    assert row.companion_air_days == 80
+    assert row.companion_air_quantity == 24080
+    assert row.sea_net_quantity == 12040
+    assert row.estimated_weight_kg == pytest.approx(120.4)
+
+
+def test_lin_meiqi_group_2_template_deducts_unlinked_after_companion_air() -> None:
+    template = tmpl.get_template("2组-US站点-林美淇")
+
+    row = repl.calculate_replenishment_row(
+        _inventory_input_row("DAILY-6-UNLINKED", fba_total_inventory=600),
+        _sales_detail_for_daily_sales(6, weight_grams=400),
+        template,
+        unlinked_quantity=10,
+    )
+
+    assert row.sheet_name == repl.SEA_SHEET
+    assert row.sea_quantity == 210
+    assert row.companion_air_quantity == 450
+    assert row.original_replenish_quantity == 660
+    assert row.replenish_quantity == 650
+    assert row.sea_net_quantity == 210
+    assert row.estimated_weight_kg == pytest.approx(84)
+    assert "补货量=660，未关联数量=10，补货量（减去未关联货件）=650" in row.decision_reason
+
+
+def test_lin_meiqi_group_2_template_deducts_unlinked_from_sea_after_companion_air() -> None:
+    template = tmpl.get_template("2组-US站点-林美淇")
+
+    row = repl.calculate_replenishment_row(
+        _inventory_input_row("DAILY-6-UNLINKED-SEA", fba_total_inventory=600),
+        _sales_detail_for_daily_sales(6, weight_grams=400),
+        template,
+        unlinked_quantity=500,
+    )
+
+    assert row.sheet_name == repl.SEA_SHEET
+    assert row.sea_quantity == 210
+    assert row.companion_air_quantity == 450
+    assert row.original_replenish_quantity == 660
+    assert row.replenish_quantity == 160
+    assert row.sea_net_quantity == 160
+    assert row.estimated_weight_kg == pytest.approx(64)
+    assert "补货量（减去未关联货件）=160" in row.decision_reason
+
+
+def test_lin_meiqi_group_2_template_rejects_small_net_sea_quantity() -> None:
+    template = tmpl.get_template("2组-US站点-林美淇")
+    params = json.loads(json.dumps(template.params, ensure_ascii=False))
+    params["sea"]["min_net_quantity"] = 31
+    custom_template = tmpl.ReplenishmentTemplate(
+        name="小净量测试模板",
+        version=1,
+        description="",
+        params=params,
+    )
+
+    row = repl.calculate_replenishment_row(
+        _inventory_input_row("DAILY-1-SMALL-NET", fba_total_inventory=100),
+        _sales_detail_for_daily_sales(1, weight_grams=2100),
+        custom_template,
+    )
+
+    assert row.sheet_name == repl.NO_SHIP_SHEET
+    assert row.replenish_quantity == 100
+    assert row.sea_quantity == 30
+    assert row.companion_air_quantity == 70
+    assert row.sea_net_quantity == 30
+    assert "海运数量小于31件" in row.decision_reason
+
+
+def test_lin_meiqi_group_2_template_rejects_small_net_sea_weight() -> None:
+    template = tmpl.get_template("2组-US站点-林美淇")
+
+    row = repl.calculate_replenishment_row(
+        _inventory_input_row("DAILY-6-LIGHT-NET", fba_total_inventory=600),
+        _sales_detail_for_daily_sales(6, weight_grams=100),
+        template,
+    )
+
+    assert row.sheet_name == repl.NO_SHIP_SHEET
+    assert row.replenish_days == 110
+    assert row.replenish_quantity == 660
+    assert row.sea_quantity == 210
+    assert row.companion_air_days == 75
+    assert row.companion_air_quantity == 450
+    assert row.sea_net_quantity == 210
+    assert row.estimated_weight_kg == pytest.approx(21)
+    assert "海运实际重量未超过60kg" in row.decision_reason
+
+
+def test_lin_meiqi_group_2_template_rejects_unlinked_deduction_below_min_sea_quantity() -> None:
+    template = tmpl.get_template("2组-US站点-林美淇")
+
+    row = repl.calculate_replenishment_row(
+        _inventory_input_row("DAILY-6-UNLINKED-SMALL-SEA", fba_total_inventory=600),
+        _sales_detail_for_daily_sales(6, weight_grams=400),
+        template,
+        unlinked_quantity=631,
+    )
+
+    assert row.sheet_name == repl.NO_SHIP_SHEET
+    assert row.original_replenish_quantity == 660
+    assert row.replenish_quantity == 29
+    assert row.sea_quantity == 210
+    assert row.companion_air_quantity == 450
+    assert row.sea_net_quantity == 29
+    assert row.estimated_weight_kg is None
+    assert "未关联优先抵扣同时空运后，海运数量不足30件" in row.decision_reason
 
 
 def test_uk_group_1_builtin_template_disables_sea(tmp_path) -> None:

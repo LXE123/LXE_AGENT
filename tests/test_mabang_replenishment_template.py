@@ -37,6 +37,7 @@ def test_default_template_loads_current_algorithm() -> None:
         "30d_weight": 0.1,
     }
     assert template.params["sea"]["enabled"] is True
+    assert tmpl.sea_companion_air_enabled_from_template(template.params) is False
     assert tmpl.replenishment_days_from_template(6, "平稳", template.params) == 75
     assert tmpl.sea_day_candidates_from_template(55, template.params) == [100, 110]
     assert tmpl.validate_template(template).warnings == ()
@@ -81,14 +82,22 @@ def test_builtin_templates_include_us_uk_de_and_lin_meiqi_rules() -> None:
     assert tmpl.replenishment_days_from_template(1, "增长", lin_params) == 70
     assert tmpl.sea_enabled_from_template(lin_params) is True
     assert tmpl.sea_min_daily_sales_inclusive_from_template(lin_params) is True
+    assert tmpl.sea_companion_air_enabled_from_template(lin_params) is True
     assert lin_params["sea"]["min_daily_sales"] == 1
     assert lin_params["sea"]["min_weight_kg"] == 60
+    assert lin_params["sea"]["min_net_quantity"] == 30
     assert tmpl.sea_day_candidates_from_template(0.99, lin_params) == []
     assert tmpl.sea_day_candidates_from_template(1, lin_params) == [100]
     assert tmpl.sea_day_candidates_from_template(5, lin_params) == [100]
     assert tmpl.sea_day_candidates_from_template(6, lin_params) == [110]
     assert tmpl.sea_day_candidates_from_template(21, lin_params) == [120]
     assert tmpl.sea_day_candidates_from_template(301, lin_params) == [120]
+    assert tmpl.sea_companion_air_day_candidates_from_template(0.99, lin_params) == []
+    assert tmpl.sea_companion_air_day_candidates_from_template(1, lin_params) == [70]
+    assert tmpl.sea_companion_air_day_candidates_from_template(5, lin_params) == [70]
+    assert tmpl.sea_companion_air_day_candidates_from_template(6, lin_params) == [75]
+    assert tmpl.sea_companion_air_day_candidates_from_template(21, lin_params) == [80]
+    assert tmpl.sea_companion_air_day_candidates_from_template(301, lin_params) == [80]
 
 
 def test_export_validate_and_import_template_xlsx(tmp_path) -> None:
@@ -278,7 +287,13 @@ def test_template_xlsx_round_trips_inclusive_sea_min_daily_sales(tmp_path) -> No
 
     assert result.template.name == "2组-US站点-林美淇"
     assert result.template.params["sea"]["min_daily_sales_inclusive"] is True
+    assert _cell_value(exported_path, "海运规则", 6, 5) == "是"
+    assert _cell_value(exported_path, "海运规则", 7, 5) == 30
+    assert _cell_value(exported_path, "海运规则", 11, 4) == "70"
+    assert result.template.params["sea"]["companion_air_enabled"] is True
+    assert result.template.params["sea"]["min_net_quantity"] == 30
     assert tmpl.sea_day_candidates_from_template(1, result.template.params) == [100]
+    assert tmpl.sea_companion_air_day_candidates_from_template(1, result.template.params) == [70]
 
 
 def test_special_rule_applies_msku_overrides() -> None:
@@ -328,6 +343,9 @@ def test_cli_list_and_list_params(capsys) -> None:
     assert payload["groups"][0]["group"] == "加权日销"
     assert any(param["key"] == "sea.enabled" for group in payload["groups"] for param in group["params"])
     assert any(param["key"] == "sea.min_daily_sales_inclusive" for group in payload["groups"] for param in group["params"])
+    assert any(param["key"] == "sea.companion_air_enabled" for group in payload["groups"] for param in group["params"])
+    assert any(param["key"] == "sea.companion_air_tiers" for group in payload["groups"] for param in group["params"])
+    assert any(param["key"] == "sea.min_net_quantity" for group in payload["groups"] for param in group["params"])
 
 
 def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> None:

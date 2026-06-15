@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -283,7 +284,11 @@ def test_download_raw_file_from_url_saves_original_binary(monkeypatch, tmp_path)
     assert "Authorization" not in fake_session.calls[0].get("headers", {})
 
 
-def test_download_store_unlinked_shipments_skips_zero_totals_and_polls_with_min_interval(monkeypatch, tmp_path) -> None:
+def test_download_store_unlinked_shipments_skips_zero_totals_and_logs_progress(
+    monkeypatch, tmp_path, caplog
+) -> None:
+    caplog.set_level(logging.INFO, logger="bot_logger")
+
     async def fake_get_token() -> str:
         return "token"
 
@@ -311,13 +316,21 @@ def test_download_store_unlinked_shipments_skips_zero_totals_and_polls_with_min_
         created.append(spec.status_name)
         return 370500 + len(created)
 
-    async def fake_wait_task(task_id: int, *, token: str | None = None, timeout_sec: float, poll_interval_sec: float):
+    async def fake_wait_task(
+        task_id: int,
+        *,
+        token: str | None = None,
+        timeout_sec: float,
+        poll_interval_sec: float,
+        progress_label: str = "",
+    ):
         wait_calls.append(
             {
                 "task_id": task_id,
                 "token": token,
                 "timeout_sec": timeout_sec,
                 "poll_interval_sec": poll_interval_sec,
+                "progress_label": progress_label,
             }
         )
         return BatchDeliveryTask(
@@ -362,6 +375,10 @@ def test_download_store_unlinked_shipments_skips_zero_totals_and_polls_with_min_
     assert result.store_id == 697476809
     assert result.download_time == "202606121730"
     assert created == ["WMS待装箱", "待关联货件"]
+    assert [call["progress_label"] for call in wait_calls] == [
+        "[UnlinkedShipments] WMS待装箱",
+        "[UnlinkedShipments] 待关联货件",
+    ]
     assert [row.to_payload() for row in result.status_results] == [
         {
             "status_name": "WMS待配货",
@@ -388,9 +405,27 @@ def test_download_store_unlinked_shipments_skips_zero_totals_and_polls_with_min_
             "raw_file_path": str(tmp_path / "待关联货件-370502.csv"),
         },
     ]
+    assert "[UnlinkedShipments] 开始下载: store_name=Amazon-Test-US" in caplog.text
+    assert "[UnlinkedShipments] 店铺匹配成功: store_name=Amazon-Test-US store_id=697476809" in caplog.text
+    assert "[UnlinkedShipments] WMS待配货 total=0，跳过导出" in caplog.text
+    assert "[UnlinkedShipments] WMS待装箱 创建导出任务: taskId=370501" in caplog.text
+    assert "[UnlinkedShipments] 待关联货件 下载完成:" in caplog.text
+    assert "[UnlinkedShipments] 三个状态处理完成: raw_file_count=2" in caplog.text
     assert wait_calls == [
-        {"task_id": 370501, "token": "token", "timeout_sec": 30.0, "poll_interval_sec": 10.0},
-        {"task_id": 370502, "token": "token", "timeout_sec": 30.0, "poll_interval_sec": 10.0},
+        {
+            "task_id": 370501,
+            "token": "token",
+            "timeout_sec": 30.0,
+            "poll_interval_sec": 10.0,
+            "progress_label": "[UnlinkedShipments] WMS待装箱",
+        },
+        {
+            "task_id": 370502,
+            "token": "token",
+            "timeout_sec": 30.0,
+            "poll_interval_sec": 10.0,
+            "progress_label": "[UnlinkedShipments] 待关联货件",
+        },
     ]
 
 

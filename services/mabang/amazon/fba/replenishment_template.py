@@ -321,6 +321,9 @@ def list_parameter_groups() -> list[dict[str, Any]]:
                 {"key": "sea.min_daily_sales_inclusive", "name": "海运最低加权日销是否包含等于", "value_type": "boolean"},
                 {"key": "sea.min_weight_kg", "name": "海运最低总重量kg", "value_type": "number"},
                 {"key": "sea.tiers", "name": "海运日销分档和天数候选", "value_type": "matrix"},
+                {"key": "sea.companion_air_enabled", "name": "是否启用海运同时备空运", "value_type": "boolean"},
+                {"key": "sea.companion_air_tiers", "name": "海运同时空运日销分档和天数", "value_type": "matrix"},
+                {"key": "sea.min_net_quantity", "name": "海运建议量最小件数", "value_type": "number"},
             ],
         },
         {
@@ -408,29 +411,25 @@ def validate_template(template: ReplenishmentTemplate) -> TemplateValidationResu
         raise ReplenishmentTemplateError("海运最低日销必须大于等于0")
     if min_weight_kg is None or min_weight_kg < 0:
         raise ReplenishmentTemplateError("海运最低重量kg必须大于等于0")
-    previous_lte: float | None = None
-    for item in _require_list(sea.get("tiers"), "sea.tiers"):
-        if not isinstance(item, dict):
-            raise ReplenishmentTemplateError("海运分档必须是对象")
-        gt = _number(item.get("daily_sales_gt"), default=None)
-        lte = _number(item.get("daily_sales_lte"), default=None)
-        if gt is not None and gt < 0:
-            raise ReplenishmentTemplateError("海运分档下限不能为负数")
-        if lte is not None and lte < 0:
-            raise ReplenishmentTemplateError("海运分档上限不能为负数")
-        if gt is not None and lte is not None and gt >= lte:
-            raise ReplenishmentTemplateError("海运分档下限必须小于上限")
-        if previous_lte is not None and gt is not None and gt < previous_lte:
-            raise ReplenishmentTemplateError("海运分档不能重叠")
-        if lte is not None:
-            previous_lte = lte
-        days_values = item.get("days")
-        if not isinstance(days_values, list) or not days_values:
-            raise ReplenishmentTemplateError("海运候选天数不能为空")
-        for day in days_values:
-            parsed_day = _int_value(day, default=None)
-            if parsed_day is None or parsed_day <= 0:
-                raise ReplenishmentTemplateError(f"海运候选天数必须是正整数: {day}")
+    _validate_sea_tiers(_require_list(sea.get("tiers"), "sea.tiers"), name="sea.tiers")
+    companion_enabled = sea_companion_air_enabled_from_template(params)
+    if companion_enabled:
+        companion_tiers = _require_list(sea.get("companion_air_tiers"), "sea.companion_air_tiers")
+        if not companion_tiers:
+            raise ReplenishmentTemplateError("海运同时空运分档不能为空")
+        _validate_sea_tiers(companion_tiers, name="sea.companion_air_tiers")
+        min_net_quantity = _number(sea.get("min_net_quantity"), default=None)
+        if min_net_quantity is None or min_net_quantity < 0:
+            raise ReplenishmentTemplateError("海运建议量最小件数必须大于等于0")
+    elif "companion_air_tiers" in sea and sea.get("companion_air_tiers") not in (None, ""):
+        _validate_sea_tiers(
+            _require_list(sea.get("companion_air_tiers"), "sea.companion_air_tiers"),
+            name="sea.companion_air_tiers",
+        )
+    if "min_net_quantity" in sea and sea.get("min_net_quantity") not in (None, ""):
+        min_net_quantity = _number(sea.get("min_net_quantity"), default=None)
+        if min_net_quantity is None or min_net_quantity < 0:
+            raise ReplenishmentTemplateError("海运建议量最小件数必须大于等于0")
 
     for index, rule in enumerate(_require_list(params.get("special_rules", []), "special_rules"), start=1):
         if not isinstance(rule, dict):
@@ -448,6 +447,32 @@ def validate_template(template: ReplenishmentTemplate) -> TemplateValidationResu
         validate_template(ReplenishmentTemplate(template.name, template.version, template.description, merged_params, template.source))
 
     return TemplateValidationResult(template=template, warnings=tuple(warnings))
+
+
+def _validate_sea_tiers(tiers: list[Any], *, name: str) -> None:
+    previous_lte: float | None = None
+    for item in tiers:
+        if not isinstance(item, dict):
+            raise ReplenishmentTemplateError(f"{name}分档必须是对象")
+        gt = _number(item.get("daily_sales_gt"), default=None)
+        lte = _number(item.get("daily_sales_lte"), default=None)
+        if gt is not None and gt < 0:
+            raise ReplenishmentTemplateError(f"{name}分档下限不能为负数")
+        if lte is not None and lte < 0:
+            raise ReplenishmentTemplateError(f"{name}分档上限不能为负数")
+        if gt is not None and lte is not None and gt >= lte:
+            raise ReplenishmentTemplateError(f"{name}分档下限必须小于上限")
+        if previous_lte is not None and gt is not None and gt < previous_lte:
+            raise ReplenishmentTemplateError(f"{name}分档不能重叠")
+        if lte is not None:
+            previous_lte = lte
+        days_values = item.get("days")
+        if not isinstance(days_values, list) or not days_values:
+            raise ReplenishmentTemplateError(f"{name}候选天数不能为空")
+        for day in days_values:
+            parsed_day = _int_value(day, default=None)
+            if parsed_day is None or parsed_day <= 0:
+                raise ReplenishmentTemplateError(f"{name}候选天数必须是正整数: {day}")
 
 
 def _days_for_trend(item: dict[str, Any], trend: str) -> int:
@@ -500,7 +525,19 @@ def sea_day_candidates_from_template(weighted_daily_sales: float, params: dict[s
         return []
     if not sea_daily_sales_meets_min_from_template(weighted_daily_sales, params):
         return []
-    for item in params["sea"]["tiers"]:
+    return _sea_days_from_tiers(weighted_daily_sales, params, params["sea"]["tiers"])
+
+
+def sea_companion_air_day_candidates_from_template(weighted_daily_sales: float, params: dict[str, Any]) -> list[int]:
+    if not sea_companion_air_enabled_from_template(params):
+        return []
+    if not sea_daily_sales_meets_min_from_template(weighted_daily_sales, params):
+        return []
+    return _sea_days_from_tiers(weighted_daily_sales, params, params["sea"].get("companion_air_tiers", []))
+
+
+def _sea_days_from_tiers(weighted_daily_sales: float, params: dict[str, Any], tiers: list[dict[str, Any]]) -> list[int]:
+    for item in tiers:
         gt = _number(item.get("daily_sales_gt"), default=None)
         lte = _number(item.get("daily_sales_lte"), default=None)
         if not _sea_tier_lower_bound_matches(weighted_daily_sales, gt, params):
@@ -516,6 +553,18 @@ def sea_min_daily_sales_inclusive_from_template(params: dict[str, Any]) -> bool:
     if "min_daily_sales_inclusive" not in sea:
         return False
     return _bool_value(sea.get("min_daily_sales_inclusive"), field_name="sea.min_daily_sales_inclusive")
+
+
+def sea_companion_air_enabled_from_template(params: dict[str, Any]) -> bool:
+    sea = _require_mapping(params.get("sea") if isinstance(params, dict) else None, "sea")
+    if "companion_air_enabled" not in sea:
+        return False
+    return _bool_value(sea.get("companion_air_enabled"), field_name="sea.companion_air_enabled")
+
+
+def sea_min_net_quantity_from_template(params: dict[str, Any]) -> float:
+    sea = _require_mapping(params.get("sea") if isinstance(params, dict) else None, "sea")
+    return float(_number(sea.get("min_net_quantity"), default=0) or 0)
 
 
 def sea_daily_sales_meets_min_from_template(weighted_daily_sales: float, params: dict[str, Any]) -> bool:
@@ -632,9 +681,34 @@ def export_template_xlsx(
             "是表示加权日销等于最低日销时也可进入海运判断",
         ])
         sea.append(["海运最低重量kg", "", "", "", params["sea"]["min_weight_kg"], "预计总重量大于该值才建议海运"])
+        sea.append([
+            "是否启用海运同时备空运",
+            "",
+            "",
+            "",
+            "是" if sea_companion_air_enabled_from_template(params) else "否",
+            "是表示命中海运后先扣除一段同时空运建议量",
+        ])
+        sea.append([
+            "海运建议量最小件数",
+            "",
+            "",
+            "",
+            params["sea"].get("min_net_quantity", ""),
+            "海运目标量扣除同时空运建议量后，小于该值时不建议海运",
+        ])
         for item in params["sea"]["tiers"]:
             sea.append([
                 "海运分档",
+                "" if item.get("daily_sales_gt") is None else item.get("daily_sales_gt"),
+                "" if item.get("daily_sales_lte") is None else item.get("daily_sales_lte"),
+                ",".join(str(day) for day in item.get("days", [])),
+                "",
+                "",
+            ])
+        for item in params["sea"].get("companion_air_tiers", []):
+            sea.append([
+                "海运同时空运分档",
                 "" if item.get("daily_sales_gt") is None else item.get("daily_sales_gt"),
                 "" if item.get("daily_sales_lte") is None else item.get("daily_sales_lte"),
                 ",".join(str(day) for day in item.get("days", [])),
@@ -805,6 +879,9 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
             "min_daily_sales": None,
             "min_daily_sales_inclusive": False,
             "min_weight_kg": None,
+            "companion_air_enabled": False,
+            "companion_air_tiers": [],
+            "min_net_quantity": 0,
             "tiers": [],
         },
         "special_rules": [],
@@ -835,8 +912,23 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
             )
         elif item_name == "海运最低重量kg":
             params["sea"]["min_weight_kg"] = _number(record.get("值"), default=None)
+        elif item_name == "是否启用海运同时备空运":
+            params["sea"]["companion_air_enabled"] = _bool_value(
+                record.get("值"),
+                field_name="是否启用海运同时备空运",
+            )
+        elif item_name in {"海运建议量最小件数", "海运实际补货量最小件数"}:
+            params["sea"]["min_net_quantity"] = _number(record.get("值"), default=None)
         elif item_name == "海运分档":
             params["sea"]["tiers"].append(
+                {
+                    "daily_sales_gt": _number(record.get("日销大于"), default=None),
+                    "daily_sales_lte": _number(record.get("日销小于等于"), default=None),
+                    "days": _parse_days_list(record.get("候选天数")),
+                }
+            )
+        elif item_name == "海运同时空运分档":
+            params["sea"]["companion_air_tiers"].append(
                 {
                     "daily_sales_gt": _number(record.get("日销大于"), default=None),
                     "daily_sales_lte": _number(record.get("日销小于等于"), default=None),
@@ -1017,10 +1109,13 @@ __all__ = [
     "replenishment_days_from_template",
     "rename_template",
     "replace_template_xlsx",
+    "sea_companion_air_day_candidates_from_template",
+    "sea_companion_air_enabled_from_template",
     "sea_daily_sales_meets_min_from_template",
     "sea_day_candidates_from_template",
     "sea_enabled_from_template",
     "sea_min_daily_sales_inclusive_from_template",
+    "sea_min_net_quantity_from_template",
     "templates_payload",
     "trend_group_from_template",
     "validate_template",

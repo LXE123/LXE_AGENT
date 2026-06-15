@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import pytest
 
@@ -66,7 +67,8 @@ def test_wait_for_delivery_task_times_out(monkeypatch):
         )
 
 
-def test_wait_for_delivery_task_uses_ten_second_min_poll_interval(monkeypatch):
+def test_wait_for_delivery_task_uses_ten_second_min_poll_interval_and_logs_progress(monkeypatch, caplog):
+    caplog.set_level(logging.INFO, logger="bot_logger")
     calls = {"count": 0}
     sleeps: list[float] = []
 
@@ -101,11 +103,14 @@ def test_wait_for_delivery_task_uses_ten_second_min_poll_interval(monkeypatch):
             token="token",
             timeout_sec=30,
             poll_interval_sec=0.1,
+            progress_label="[UnlinkedShipments] WMS待装箱",
         )
     )
 
     assert task.task_id == 370502
     assert sleeps == [10.0]
+    assert "[UnlinkedShipments] WMS待装箱 轮询 1: taskStatus=0, taskStatusText=待处理" in caplog.text
+    assert "[UnlinkedShipments] WMS待装箱 轮询 2: taskStatus=2, taskStatusText=处理完成" in caplog.text
 
 
 def test_wait_for_delivery_task_returns_completed(monkeypatch):

@@ -348,6 +348,7 @@ async def wait_for_delivery_task(
     token: str | None = None,
     timeout_sec: float = 180,
     poll_interval_sec: float = 10,
+    progress_label: str = "",
 ) -> BatchDeliveryTask:
     normalized_task_id = int(task_id or 0)
     if normalized_task_id <= 0:
@@ -357,17 +358,24 @@ async def wait_for_delivery_task(
     safe_interval = max(10.0, float(poll_interval_sec))
     deadline = asyncio.get_running_loop().time() + safe_timeout
     last_summary = "not_found"
+    poll_count = 0
+    clean_progress_label = str(progress_label or "").strip()
 
     while True:
+        poll_count += 1
         row = await fetch_task_report_row(normalized_task_id, token=token)
         if row is not None:
             last_summary = _task_status_summary(row)
+            if clean_progress_label:
+                logger.info("%s 轮询 %d: %s", clean_progress_label, poll_count, last_summary)
             if _is_task_done(row):
                 return _normalize_completed_task(row, expected_task_id=normalized_task_id)
             if _is_task_failed(row):
                 raise BatchDeliveryApiError(
                     f"FBA发货单导出任务失败(taskId={normalized_task_id}): {last_summary}"
                 )
+        elif clean_progress_label:
+            logger.info("%s 轮询 %d: not_found", clean_progress_label, poll_count)
 
         now = asyncio.get_running_loop().time()
         if now >= deadline:

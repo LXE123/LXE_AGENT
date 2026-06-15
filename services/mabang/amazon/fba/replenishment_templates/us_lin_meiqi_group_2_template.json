@@ -53,6 +53,8 @@
       "min_daily_sales": 1,
       "min_daily_sales_inclusive": true,
       "min_weight_kg": 60,
+      "companion_air_enabled": true,
+      "min_net_quantity": 30,
       "tiers": [
         {
           "daily_sales_gt": 1,
@@ -68,6 +70,23 @@
           "daily_sales_gt": 20,
           "daily_sales_lte": null,
           "days": [120]
+        }
+      ],
+      "companion_air_tiers": [
+        {
+          "daily_sales_gt": 1,
+          "daily_sales_lte": 5,
+          "days": [70]
+        },
+        {
+          "daily_sales_gt": 5,
+          "daily_sales_lte": 20,
+          "days": [75]
+        },
+        {
+          "daily_sales_gt": 20,
+          "daily_sales_lte": null,
+          "days": [80]
         }
       ]
     },

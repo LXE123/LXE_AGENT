@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from services.agent_cli.mabang import download_store_unlinked_shipments as cli
 from services.mabang.amazon.fba.unlinked_shipments import (
@@ -34,7 +35,8 @@ def test_missing_store_name_returns_failure_json(monkeypatch, capsys) -> None:
     }
 
 
-def test_success_returns_status_results_and_snapshot(monkeypatch, capsys) -> None:
+def test_success_returns_status_results_and_snapshot(monkeypatch, capsys, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="bot_logger")
     monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
     async def fake_download(
@@ -87,6 +89,8 @@ def test_success_returns_status_results_and_snapshot(monkeypatch, capsys) -> Non
 
     payload = _read_payload(capsys)
     assert exit_code == 0
+    assert "[UnlinkedShipments] 开始生成 snapshot: raw_file_count=1" in caplog.text
+    assert "[UnlinkedShipments] 生成 snapshot 完成: artifacts/mabang_fba_unlinked_shipments_snapshots/snapshot.xlsx" in caplog.text
     assert payload == {
         "success": True,
         "store_name": "Amazon-Test-US",
@@ -125,7 +129,8 @@ def test_success_returns_status_results_and_snapshot(monkeypatch, capsys) -> Non
     }
 
 
-def test_success_preserves_explicit_cli_options(monkeypatch, capsys, tmp_path) -> None:
+def test_success_preserves_explicit_cli_options(monkeypatch, capsys, tmp_path, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="bot_logger")
     monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
     async def fake_download(
@@ -166,6 +171,7 @@ def test_success_preserves_explicit_cli_options(monkeypatch, capsys, tmp_path) -
     assert payload["success"] is True
     assert payload["snapshot"] is None
     assert payload["snapshot_skipped_reason"] == "本次没有可生成快照的未关联货件原生文件"
+    assert "[UnlinkedShipments] 本次没有可生成快照的原生文件，跳过 snapshot" in caplog.text
 
 
 def test_success_builds_snapshot_from_multiple_current_raw_files(monkeypatch, capsys) -> None:
@@ -228,7 +234,8 @@ def test_success_builds_snapshot_from_multiple_current_raw_files(monkeypatch, ca
     assert payload["snapshot"]["raw_file_count"] == 2
 
 
-def test_snapshot_error_returns_failure_json_with_download_result(monkeypatch, capsys) -> None:
+def test_snapshot_error_returns_failure_json_with_download_result(monkeypatch, capsys, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="bot_logger")
     monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
     async def fake_download(
@@ -262,6 +269,8 @@ def test_snapshot_error_returns_failure_json_with_download_result(monkeypatch, c
 
     payload = _read_payload(capsys)
     assert exit_code == 1
+    assert "[UnlinkedShipments] 开始生成 snapshot: raw_file_count=1" in caplog.text
+    assert "[UnlinkedShipments] 生成 snapshot 失败: snapshot failed" in caplog.text
     assert payload == {
         "success": False,
         "store_name": "Amazon-Test-US",
