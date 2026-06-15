@@ -1,5 +1,5 @@
 ---
-name: amazon-fba-shipment-create
+name: fba-shipment-create
 description: 用固定 CLI 完成 Amazon FBA 货件创建：第一段 prepare_upload；第二段 prepare_multi_box_excel；第三段 confirm_own_carrier；第四段 enter_tracking_codes。
 type: amazon_fba
 ---
@@ -128,6 +128,5 @@ uv run --frozen python -m services.agent_cli.browser.amazon_fba.enter_tracking_c
 - 后续步骤需要这些业务字段时，优先读最新 CLI 结果里的 `context`，不要靠长对话记忆。
 
 ---
-
 
 

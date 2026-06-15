@@ -1,5 +1,5 @@
 ---
-name: mabang-download
+name: fba-shipment-wms-box-download
 description: 下载马帮 WMS 托运单装箱数据 Excel。用户明确要求装箱数据、托运单 Excel、WMS 下载，或为 Amazon FBA 创建货件准备装箱 Excel 时使用；不要用于 FBA 发货单、发货单 SKU 数据、发货单表格下载。
 type: amazon_fba
 ---
@@ -9,7 +9,7 @@ type: amazon_fba
 - 用户要下载或刷新马帮 WMS 托运单 Excel。
 - 用户要先准备 `artifacts/mabang_wms_consignment/<ship_no>.xls|xlsx`，再执行 Amazon FBA 创建货件流程。
 - 用户明确提到“装箱数据”“托运单 Excel”“WMS 下载”等需求。
-- 如果用户说“发货单”“FBA 发货单”“发货单 SKU 数据”“发货单表格”，不要使用本 skill，应使用 `mabang-fba-delivery-download`。
+- 如果用户说“发货单”“FBA 发货单”“发货单 SKU 数据”“发货单表格”，使用 `fba-shipment-delivery-csv-download`。
 
 ## Hard Rules
 
@@ -65,4 +65,4 @@ uv run --frozen python -m services.agent_cli.mabang.download_wms_consignment_exc
 - 有 `split_excel_paths` 时，后续创建 Amazon FBA 货件应分别使用拆分文件名对应的 `consignment_no`，例如 `SP2000202021-1`、`SP2000202021-2`。
 - `split_required=false`：继续使用原始 `ship_no` 作为后续 `consignment_no`。
 - `success=false`：只转述 `exception` 原文。
-- 成功后，如果用户要继续创建 Amazon FBA 货件，执行 `amazon-fba-shipment-create` 的第一段 `prepare_upload`。
+- 成功后，如果用户要继续创建 Amazon FBA 货件，执行 `fba-shipment-create` 的第一段 `prepare_upload`。

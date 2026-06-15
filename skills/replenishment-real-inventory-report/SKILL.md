@@ -1,6 +1,6 @@
 ---
-name: mabang-fba-store-actual-inventory
-description: 基于本地已下载的马帮 Amazon 店铺 MSKU 数据查询并生成真实库存报告。用户要求查看某个店铺 MSKU、本地SKU、组合SKU 或备货分析所需的真实库存数量时使用；如果用户只给模糊店铺名，先使用 mabang-fba-store-resolve 获取规范 store_name。
+name: replenishment-real-inventory-report
+description: 基于本地已下载的马帮 Amazon 店铺 MSKU 数据查询并生成真实库存报告。用户要求查看某个店铺 MSKU、本地SKU、组合SKU 或备货分析所需的真实库存数量时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
 ---
 
@@ -16,8 +16,8 @@ type: amazon_replenish
 - 不要手动拼接马帮请求。
 - 不要手写、复用或转述样例 Cookie/token。
 - 不要自动下载店铺 MSKU 数据；本 skill 只分析本地已下载的店铺 MSKU 文件。
-- 如果本地没有店铺 MSKU 数据文件，提示用户先运行 `mabang-fba-store-msku-download`。
-- 如果用户给的是模糊店铺名，先运行 `mabang-fba-store-resolve`，用解析成功返回的规范 `store_name` 再查询库存。
+- 如果本地没有店铺 MSKU 数据文件，提示用户先运行 `replenishment-msku-download`。
+- 如果用户给的是模糊店铺名，先运行 `replenishment-store-resolve`，用解析成功返回的规范 `store_name` 再查询库存。
 - 只读取 CLI 输出的最后一行 JSON。
 - CLI 失败时只转述最后一行 JSON 里的 `exception` 原文。
 

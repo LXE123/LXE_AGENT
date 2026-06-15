@@ -1,5 +1,5 @@
 ---
-name: mabang-fba-replenishment-template-manage
+name: replenishment-template-manage
 description: 管理马帮 Amazon 备货参数模板。用户要求查看备货公式参数、导出模板给业务人员修改、校验模板xlsx、导入/保存自定义备货模板、查看已有模板或准备用某套算法参数计算备货时使用。
 type: amazon_replenish
 ---
@@ -70,9 +70,9 @@ uv run --frozen python -m services.agent_cli.mabang.replenishment_template show 
 - 用户问“能改哪些参数”：运行 `list-params`。
 - 用户要新建模板：先 `export`，把 `xlsx_path` 给用户修改；用户发回后先 `validate-file`，通过后 `import`。
 - 用户要修改已有模板：先 `export`，把 `xlsx_path` 给用户修改；用户发回后先 `validate-file`，通过后 `replace`。
-- 用户要改模板名：运行 `rename`，不要用“导入新名”模拟改名。
+- 用户要改模板名：运行 `rename`。
 - 用户没有提供模板名：导入时不传 `--name`，系统自动生成 `自定义模板1`、`自定义模板2`。
-- 用户要用某模板计算备货：切换到 `mabang-fba-store-replenishment-calculate`，运行备货计算 CLI 并传 `--template "<模板名>"`。
+- 用户要用某模板计算备货：切换到 `replenishment-calculate`，运行备货计算 CLI 并传 `--template "<模板名>"`。
 - 内置模板可直接用于计算：`默认模板`、`US模板-一组`、`UK模板-一组`、`DE模板-一组`。
 - `海运规则` sheet 中 `是否启用海运=否` 时，超过空运阈值的 MSKU 不计算海运，进入 `暂不建议发货`。
 

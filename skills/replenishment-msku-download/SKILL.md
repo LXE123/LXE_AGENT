@@ -1,6 +1,6 @@
 ---
-name: mabang-fba-store-msku-download
-description: 按已解析的马帮 Amazon FBA 店铺 ID 下载该店铺 MSKU 数据 Excel。用户要求获取某个店铺、欧洲区整组或欧洲子站点的 MSKU 数据、店铺 MSKU 表、补货用 MSKU 数据时使用；如果用户只给店铺名，先使用 mabang-fba-store-resolve 解析 store_name、store_id 和 id_type。
+name: replenishment-msku-download
+description: 按已解析的马帮 Amazon FBA 店铺 ID 下载该店铺 MSKU 数据 Excel。用户要求获取某个店铺、欧洲区整组或欧洲子站点的 MSKU 数据、店铺 MSKU 表、补货用 MSKU 数据时使用；如果用户只给店铺名，先使用 replenishment-store-resolve 解析 store_name、store_id 和 id_type。
 type: amazon_replenish
 ---
 
@@ -8,14 +8,14 @@ type: amazon_replenish
 
 - 用户要下载某个马帮 Amazon 店铺的 MSKU 数据 Excel。
 - 用户已提供 `store_name`、`store_id` 和 `id_type`，需要按店铺导出 MSKU 数据。
-- 用户只提供店铺名时，先用 `mabang-fba-store-resolve` 获取 `store_id`、`id_type`、`store_name`。
+- 用户只提供店铺名时，先用 `replenishment-store-resolve` 获取 `store_id`、`id_type`、`store_name`。
 
 ## Hard Rules
 
 - 只使用固定 CLI：`uv run --frozen python -m services.agent_cli.mabang.download_store_msku_excel`
 - 不要手动拼接马帮请求。
 - 不要手写、复用或转述样例 Cookie/token。
-- 不要猜测店铺 ID；如果缺少 `store_name`、`store_id` 或 `id_type`，先运行 `mabang-fba-store-resolve`。
+- 不要猜测店铺 ID；如果缺少 `store_name`、`store_id` 或 `id_type`，先运行 `replenishment-store-resolve`。
 - `id_type` 本身就是马帮请求字段名，值只允许是 `fbaWarehouseIds[]` 或 `shopId`。
 - 不要把 `shopId` 当作 `fbaWarehouseIds[]` 使用，也不要反过来使用。
 - 后续流程只使用 `xlsx_path`；CLI 已把 `.xls` 转成 `.xlsx` 并删除原始 `.xls`。

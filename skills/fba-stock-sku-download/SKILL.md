@@ -1,5 +1,5 @@
 ---
-name: mabang-stock-sku-download
+name: fba-stock-sku-download
 description: 根据本地 FBA 发货单的 SKU发货量 列下载马帮库存 SKU Excel。用户要求按 SP 单号获取库存 SKU 表、库存 SKU Excel、库存数据表时使用。
 type: amazon_fba
 ---
@@ -17,7 +17,7 @@ type: amazon_fba
 - 不要手写或复用 Cookie/token。
 - SKU 来源是本地 FBA 发货单 CSV 中的 `SKU发货量` 列；不要使用 `SKU` 列或 `MSKU` 列。
 - `SKU发货量` 的单项格式是 `库存SKU × 数量`，CLI 只使用库存 SKU，数量不参与导出。
-- 本 CLI 只查找本地发货单文件；本地没有发货单时，不要自动改用发货单下载脚本。
+- 本 CLI 只查找本地发货单文件；本地没有发货单时，直接转述 CLI 失败原因，让用户先准备发货单数据。
 - CLI 可能运行几十秒；如果命令仍在运行，不要频繁轮询，也不要重复启动。
 - CLI 失败时只转述最后一行 JSON 里的 `exception` 原文，不要猜测原因。
 

@@ -1,5 +1,5 @@
 ---
-name: mabang-msku-detail-download
+name: fba-msku-detail-download
 description: 根据 SP 单号从 FBA 发货单提取 MSKU，并下载马帮 MSKU 明细 Excel。用户要求获取 MSKU 详细数据、MSKU 明细、为发票填写准备 MSKU 数据文件时使用。
 type: amazon_fba
 ---
@@ -20,7 +20,7 @@ type: amazon_fba
 - CLI 会用发货单文件中的 `店铺 + MSKU` 校验下载后的 MSKU 明细。
 - 本地没有发货单文件时，CLI 会调用固定发货单下载流程准备发货单。
 - 后续自动化读取只使用 `xlsx_path`；`xlsx_path` 已按发货单店铺过滤。
-- 如果马帮返回 `.xls`，CLI 转换成功后会删除原始 `.xls`，不要发送 `excel_path`。
+- 如果马帮返回 `.xls`，CLI 转换成功后只对外提供 `xlsx_path`；原始 `.xls` 会由 CLI 清理。
 - CLI 失败时只转述最后一行 JSON 里的 `exception` 原文，不要猜测原因。
 
 ## Required Input

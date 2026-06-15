@@ -77,8 +77,8 @@ def test_analysis_error_returns_failure_json(monkeypatch, capsys) -> None:
 
 
 def test_skill_index_loads_mabang_fba_store_msku_sales_analyze() -> None:
-    manifest = load_skill_index(force_reload=True).get("mabang-fba-store-msku-sales-analyze")
+    manifest = load_skill_index(force_reload=True).get("replenishment-sales-analyze")
 
     assert manifest is not None
-    assert manifest.name == "mabang-fba-store-msku-sales-analyze"
+    assert manifest.name == "replenishment-sales-analyze"
     assert manifest.type == "amazon_replenish"

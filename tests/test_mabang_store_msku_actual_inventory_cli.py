@@ -106,8 +106,8 @@ def test_failure_returns_last_line_json(monkeypatch, capsys) -> None:
 
 
 def test_skill_index_loads_mabang_fba_store_actual_inventory() -> None:
-    manifest = load_skill_index(force_reload=True).get("mabang-fba-store-actual-inventory")
+    manifest = load_skill_index(force_reload=True).get("replenishment-real-inventory-report")
 
     assert manifest is not None
-    assert manifest.name == "mabang-fba-store-actual-inventory"
+    assert manifest.name == "replenishment-real-inventory-report"
     assert manifest.type == "amazon_replenish"

@@ -1,5 +1,5 @@
 ---
-name: invoice-template-fill
+name: fba-invoice-template-fill
 description: 填写发票导入模板。用户上传备货 xlsx 并要求填写发票模板、生成发票导入表、把备货单写入 invoice_Template 时使用。
 type: amazon_fba
 ---
@@ -19,7 +19,7 @@ type: amazon_fba
 - 只使用本地已有 FBA 发货单 CSV 和本地 WMS 装箱数据；缺文件时不要自动下载，直接转述 CLI 失败原因。
 - 发票明细按 `箱号 + 财务合并后的库存SKU` 写入；财务合并规则来自备货单中表头为 `SKU、产品名称、发货量、规则型号、单价` 的财务合并明细表，保留 SKU 以 `汇总表` 为准。
 - 财务合并明细表中相同 `SKU + 规则型号 + 单价` 的重复行会自动累加；同一 SKU 出现不同 `规则型号` 或 `单价` 时视为异常。
-- 产品图片来自库存 SKU Excel 的 `库存sku图片`，不要改用 MSKU 明细的 `图片链接`。
+- 产品图片固定来自库存 SKU Excel 的 `库存sku图片`。
 - `产品材质*` 使用 `中文/英文` 格式，例如 `硅胶/silicone`、`纸质+塑料/paper+plastic`。
 - `产品申报单价*` 写入单件规则价，不乘以发货量。
 - CLI 失败时只转述最后一行 JSON 里的 `exception` 原文，不要猜测原因。
