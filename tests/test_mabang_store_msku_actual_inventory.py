@@ -361,7 +361,7 @@ def test_load_store_msku_rows_requires_sales_and_fba_stock_columns(tmp_path) -> 
         inv.load_store_msku_rows(source_path)
 
 
-def test_load_store_msku_rows_parses_invalid_sales_and_fba_stock_as_zero(tmp_path) -> None:
+def test_load_store_msku_rows_allows_missing_optional_name_columns(tmp_path) -> None:
     source_path = tmp_path / "202605251530-Amazon-Test_msku_data.xlsx"
     _write_xlsx(
         source_path,
@@ -372,15 +372,15 @@ def test_load_store_msku_rows_parses_invalid_sales_and_fba_stock_as_zero(tmp_pat
                 "ASIN": "ASIN-A",
                 "本地SKU": "SKU-A",
                 "商品链接": "https://example.test/a",
-                "7天销量": "nan",
-                "14天销量": "1,400",
-                "30天销量": "not-a-number",
-                "可售": "1,000",
-                "待入库": "",
-                "预留": "nan",
-                "在途": "not-a-number",
-                "待调仓": "2",
-                "调仓中": "bad",
+                "7天销量": 7,
+                "14天销量": 14,
+                "30天销量": 30,
+                "可售": 4,
+                "待入库": 3,
+                "预留": 2,
+                "在途": 1,
+                "待调仓": 6,
+                "调仓中": 7,
             }
         ],
         columns=[
@@ -404,6 +404,59 @@ def test_load_store_msku_rows_parses_invalid_sales_and_fba_stock_as_zero(tmp_pat
     rows = inv.load_store_msku_rows(source_path)
 
     assert len(rows) == 1
+    assert rows[0].local_sku_name == ""
+    assert rows[0].product_name == ""
+
+
+def test_load_store_msku_rows_parses_invalid_sales_and_fba_stock_as_zero(tmp_path) -> None:
+    source_path = tmp_path / "202605251530-Amazon-Test_msku_data.xlsx"
+    _write_xlsx(
+        source_path,
+        [
+            {
+                "MSKU": "MSKU-A",
+                "父ASIN": "PARENT-A",
+                "ASIN": "ASIN-A",
+                "本地SKU": "SKU-A",
+                "商品链接": "https://example.test/a",
+                "本地SKU名称": "本地产品A",
+                "产品名称": "Product A",
+                "7天销量": "nan",
+                "14天销量": "1,400",
+                "30天销量": "not-a-number",
+                "可售": "1,000",
+                "待入库": "",
+                "预留": "nan",
+                "在途": "not-a-number",
+                "待调仓": "2",
+                "调仓中": "bad",
+            }
+        ],
+        columns=[
+            "MSKU",
+            "父ASIN",
+            "ASIN",
+            "本地SKU",
+            "商品链接",
+            "本地SKU名称",
+            "产品名称",
+            "7天销量",
+            "14天销量",
+            "30天销量",
+            "可售",
+            "待入库",
+            "预留",
+            "在途",
+            "待调仓",
+            "调仓中",
+        ],
+    )
+
+    rows = inv.load_store_msku_rows(source_path)
+
+    assert len(rows) == 1
+    assert rows[0].local_sku_name == "本地产品A"
+    assert rows[0].product_name == "Product A"
     assert rows[0].sales_7d == Decimal("0")
     assert rows[0].sales_14d == Decimal("1400")
     assert rows[0].sales_30d == Decimal("0")
@@ -423,6 +476,8 @@ def test_calculate_inventory_rows_handles_normal_combo_and_missing_stock() -> No
             "ASIN-A",
             "SKU-A",
             "https://example.test/a",
+            local_sku_name="单品本地名",
+            product_name="Single Product",
             sales_7d=Decimal("7"),
             sales_14d=Decimal("14"),
             sales_30d=Decimal("30"),
@@ -439,6 +494,8 @@ def test_calculate_inventory_rows_handles_normal_combo_and_missing_stock() -> No
             "ASIN-C",
             "COMBO-A",
             "https://example.test/c",
+            local_sku_name="组合本地名",
+            product_name="Combo Product",
             sales_7d=Decimal("70"),
             sales_14d=Decimal("140"),
             sales_30d=Decimal("300"),
@@ -477,6 +534,8 @@ def test_calculate_inventory_rows_handles_normal_combo_and_missing_stock() -> No
     )
 
     assert [row.actual_inventory for row in result_rows] == [Decimal("9"), Decimal("6"), None, None]
+    assert [row.local_sku_name for row in result_rows] == ["单品本地名", "组合本地名", "", ""]
+    assert [row.product_name for row in result_rows] == ["Single Product", "Combo Product", "", ""]
     assert [row.product_link for row in result_rows] == [
         "https://example.test/a",
         "https://example.test/c",
@@ -508,6 +567,8 @@ def test_write_actual_inventory_xlsx_splits_rows_by_inventory_state(tmp_path) ->
             fba_total_inventory=Decimal("30"),
             weighted_daily_sales=Decimal("3.456"),
             sales_days=Decimal("8.666"),
+            local_sku_name="单品本地1",
+            product_name="Stock Product 1",
         ),
         inv.ActualInventoryRow(
             "MSKU-S0",
@@ -533,6 +594,8 @@ def test_write_actual_inventory_xlsx_splits_rows_by_inventory_state(tmp_path) ->
             fba_total_inventory=Decimal("20"),
             weighted_daily_sales=Decimal("5"),
             sales_days=Decimal("4"),
+            local_sku_name="组合本地商品",
+            product_name="Combo Product",
         ),
         inv.ActualInventoryRow("MSKU-N", "PARENT-N", "ASIN-N", "", "https://example.test/no-local", None, ""),
         inv.ActualInventoryRow(
@@ -582,12 +645,16 @@ def test_write_actual_inventory_xlsx_splits_rows_by_inventory_state(tmp_path) ->
 
     assert [record["MSKU"] for record in combo_records] == ["MSKU-C"]
     assert list(combo_records[0]) == list(inv.INVENTORY_OUTPUT_COLUMNS)
+    assert combo_records[0]["本地SKU名称"] == "组合本地商品"
+    assert combo_records[0]["产品名称"] == "Combo Product"
     assert combo_records[0]["商品链接"] == "https://example.test/combo"
     assert combo_records[0]["FBA总库存"] == 20
     assert combo_records[0]["加权日销"] == 5
     assert combo_records[0]["可销售天数"] == 4
     assert combo_records[0]["真实库存数量"] == 6
     assert [record["MSKU"] for record in stock_records] == ["MSKU-S1", "MSKU-S0"]
+    assert stock_records[0]["本地SKU名称"] == "单品本地1"
+    assert stock_records[0]["产品名称"] == "Stock Product 1"
     assert stock_records[0]["商品链接"] == "https://example.test/stock-1"
     assert stock_records[0]["FBA总库存"] == 30
     assert stock_records[0]["加权日销"] == 3.46

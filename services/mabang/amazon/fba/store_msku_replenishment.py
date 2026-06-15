@@ -48,12 +48,12 @@ NO_SHIP_SHEET = "暂不建议发货"
 SAMPLE_INSUFFICIENT_SHEET = "样本不足"
 INVENTORY_SHEETS = ("真实库存-组合sku", "真实库存-库存sku")
 REPORT_SHEETS = (
-    SUMMARY_SHEET,
-    INVENTORY_SHORTAGE_SHEET,
     AIR_URGENT_SHEET,
     AIR_SHEET,
     SEA_SHEET,
+    INVENTORY_SHORTAGE_SHEET,
     NO_SHIP_SHEET,
+    SUMMARY_SHEET,
     SAMPLE_INSUFFICIENT_SHEET,
 )
 DETAIL_COLUMNS = (
@@ -61,6 +61,9 @@ DETAIL_COLUMNS = (
     "父ASIN",
     "ASIN",
     "本地SKU",
+    "本地SKU名称",
+    "产品名称",
+    "子SKU",
     "商品链接",
     "SKU类型",
     "模板名称",
@@ -75,29 +78,57 @@ DETAIL_COLUMNS = (
     "单品重量(g)",
     "补货天数",
     "补货量",
-    "抵扣前补货量",
+    "未关联抵扣前建议量",
     "海运天数",
     "海运建议量",
     "预计总重量kg",
     "决策原因",
-    "子SKU",
 )
-INVENTORY_SHORTAGE_COLUMNS = (*DETAIL_COLUMNS, "运输渠道", "库存缺口")
+INVENTORY_SHORTAGE_COLUMNS = (
+    "MSKU",
+    "父ASIN",
+    "ASIN",
+    "本地SKU",
+    "本地SKU名称",
+    "产品名称",
+    "子SKU",
+    "商品链接",
+    "SKU类型",
+    "运输渠道",
+    "模板名称",
+    "命中规则",
+    "销量趋势",
+    "趋势分组",
+    "加权日销",
+    "可销售天数",
+    "FBA总库存",
+    "未关联数量",
+    "真实库存数量",
+    "单品重量(g)",
+    "补货天数",
+    "补货量",
+    "库存缺口",
+    "未关联抵扣前建议量",
+    "海运天数",
+    "海运建议量",
+    "预计总重量kg",
+    "决策原因",
+)
 SUMMARY_COLUMNS = (
     "父ASIN",
     "商品链接",
     "MSKU数",
+    "最大加权日销",
+    "合计加权日销",
+    "最小可销售天数",
+    "链接未关联数量汇总",
+    "链接真实本地库存汇总",
     "总补货量",
     "空运（急发）补货量",
     "空运补货量",
     "海运建议量",
     "涉及运输方式",
-    "最大加权日销",
-    "合计加权日销",
-    "最小可销售天数",
     "决策备注",
-    "链接真实本地库存汇总",
-    "链接未关联数量汇总",
 )
 INVENTORY_REQUIRED_COLUMNS = (
     "MSKU",
@@ -145,7 +176,7 @@ INTEGER_COLUMNS = {
     "海运建议量",
     "补货天数",
     "补货量",
-    "抵扣前补货量",
+    "未关联抵扣前建议量",
     "海运天数",
     "未关联数量",
     "链接未关联数量汇总",
@@ -195,6 +226,8 @@ class InventoryInputRow:
     parent_asin: str
     asin: str
     local_sku: str
+    local_sku_name: str
+    product_name: str
     product_link: str
     sku_type: str
     weighted_daily_sales: float
@@ -210,6 +243,8 @@ class ReplenishmentRow:
     parent_asin: str
     asin: str
     local_sku: str
+    local_sku_name: str
+    product_name: str
     product_link: str
     sku_type: str
     template_name: str
@@ -238,6 +273,9 @@ class ReplenishmentRow:
             "父ASIN": self.parent_asin,
             "ASIN": self.asin,
             "本地SKU": self.local_sku,
+            "本地SKU名称": self.local_sku_name,
+            "产品名称": self.product_name,
+            "子SKU": self.child_skus,
             "商品链接": self.product_link,
             "SKU类型": self.sku_type,
             "模板名称": self.template_name,
@@ -252,12 +290,11 @@ class ReplenishmentRow:
             "单品重量(g)": _display_optional_float(self.weight_grams),
             "补货天数": _display_optional_int(self.replenish_days),
             "补货量": _display_optional_int(self.replenish_quantity),
-            "抵扣前补货量": _display_optional_int(self.original_replenish_quantity),
+            "未关联抵扣前建议量": _display_optional_int(self.original_replenish_quantity),
             "海运天数": _display_optional_int(self.sea_days),
             "海运建议量": _display_optional_int(self.sea_quantity),
             "预计总重量kg": _display_optional_float(self.estimated_weight_kg),
             "决策原因": self.decision_reason,
-            "子SKU": self.child_skus,
         }
 
 
@@ -622,6 +659,8 @@ def load_inventory_rows(xlsx_path: str | Path) -> list[InventoryInputRow]:
                     parent_asin=_clean_text(record.get("父ASIN")) or "未填写父ASIN",
                     asin=_clean_text(record.get("ASIN")),
                     local_sku=_clean_text(record.get("本地SKU")),
+                    local_sku_name=_clean_text(record.get("本地SKU名称")),
+                    product_name=_clean_text(record.get("产品名称")),
                     product_link=_clean_text(record.get("商品链接")),
                     sku_type=sku_type,
                     weighted_daily_sales=_number(record.get("加权日销")),
@@ -707,7 +746,7 @@ def _with_unlinked_deduction(row: ReplenishmentRow, *, min_weight_kg: float | No
     final_quantity = 0 if remaining <= 0 else math.ceil(remaining)
     reason_suffix = (
         f"；未关联数量={_display_quantity(row.unlinked_quantity)}，"
-        f"抵扣前补货量={original_quantity}，抵扣后补货量={final_quantity}"
+        f"未关联抵扣前建议量={original_quantity}，抵扣后补货量={final_quantity}"
     )
     if final_quantity <= 0:
         return replace(
@@ -765,6 +804,8 @@ def calculate_replenishment_row(
             parent_asin=row.parent_asin,
             asin=row.asin,
             local_sku=row.local_sku,
+            local_sku_name=row.local_sku_name,
+            product_name=row.product_name,
             product_link=row.product_link,
             sku_type=row.sku_type,
             template_name=active_template.name,
@@ -795,6 +836,8 @@ def calculate_replenishment_row(
         "parent_asin": row.parent_asin,
         "asin": row.asin,
         "local_sku": row.local_sku,
+        "local_sku_name": row.local_sku_name,
+        "product_name": row.product_name,
         "product_link": row.product_link,
         "sku_type": row.sku_type,
         "template_name": active_template.name,
@@ -949,17 +992,17 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
                 "父ASIN": row.parent_asin,
                 "商品链接": "",
                 "MSKU数": 0,
+                "最大加权日销": 0.0,
+                "合计加权日销": 0.0,
+                "最小可销售天数": None,
+                "链接未关联数量汇总": 0.0,
+                "链接真实本地库存汇总": 0.0,
                 "总补货量": 0,
                 "空运（急发）补货量": 0,
                 "空运补货量": 0,
                 "海运建议量": 0,
                 "涉及运输方式": set(),
-                "最大加权日销": 0.0,
-                "合计加权日销": 0.0,
-                "最小可销售天数": None,
                 "决策备注": [],
-                "链接真实本地库存汇总": 0.0,
-                "链接未关联数量汇总": 0.0,
                 "商品链接前缀": "",
                 "_order": len(groups),
             },
@@ -1000,17 +1043,17 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
                 "父ASIN": group["父ASIN"],
                 "商品链接": group["商品链接"],
                 "MSKU数": group["MSKU数"],
+                "最大加权日销": _display_float(group["最大加权日销"]),
+                "合计加权日销": _display_float(group["合计加权日销"]),
+                "最小可销售天数": _display_optional_float(group["最小可销售天数"]),
+                "链接未关联数量汇总": _display_quantity(group["链接未关联数量汇总"]),
+                "链接真实本地库存汇总": _display_float(group["链接真实本地库存汇总"]),
                 "总补货量": group["总补货量"],
                 "空运（急发）补货量": group["空运（急发）补货量"],
                 "空运补货量": group["空运补货量"],
                 "海运建议量": group["海运建议量"],
                 "涉及运输方式": "、".join(transport_values),
-                "最大加权日销": _display_float(group["最大加权日销"]),
-                "合计加权日销": _display_float(group["合计加权日销"]),
-                "最小可销售天数": _display_optional_float(group["最小可销售天数"]),
                 "决策备注": "；".join(group["决策备注"]),
-                "链接真实本地库存汇总": _display_float(group["链接真实本地库存汇总"]),
-                "链接未关联数量汇总": _display_quantity(group["链接未关联数量汇总"]),
             }
         )
     return sorted(summaries, key=lambda item: (-int(item["总补货量"]), groups[item["父ASIN"]]["_order"]))
@@ -1024,11 +1067,12 @@ def _inventory_shortage_payload(row: ReplenishmentRow) -> dict[str, Any] | None:
     shortage_quantity = row.replenish_quantity - row.actual_inventory
     if shortage_quantity <= 0:
         return None
-    return {
+    payload = {
         **row.to_detail_payload(),
         "运输渠道": row.sheet_name,
         "库存缺口": _display_float(shortage_quantity),
     }
+    return {column: payload.get(column, "") for column in INVENTORY_SHORTAGE_COLUMNS}
 
 
 def inventory_shortage_rows(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
@@ -1075,12 +1119,6 @@ def write_replenishment_report(rows: list[ReplenishmentRow], report_path: str | 
     workbook = Workbook()
     try:
         specs: list[tuple[str, tuple[str, ...], list[dict[str, Any]]]] = [
-            (SUMMARY_SHEET, SUMMARY_COLUMNS, summarize_links(rows)),
-            (
-                INVENTORY_SHORTAGE_SHEET,
-                INVENTORY_SHORTAGE_COLUMNS,
-                sorted(inventory_shortage_rows(rows), key=_shortage_sort_key),
-            ),
             *[
                 (
                     sheet_name,
@@ -1091,10 +1129,27 @@ def write_replenishment_report(rows: list[ReplenishmentRow], report_path: str | 
                     AIR_URGENT_SHEET,
                     AIR_SHEET,
                     SEA_SHEET,
-                    NO_SHIP_SHEET,
-                    SAMPLE_INSUFFICIENT_SHEET,
                 )
             ],
+            (
+                INVENTORY_SHORTAGE_SHEET,
+                INVENTORY_SHORTAGE_COLUMNS,
+                sorted(inventory_shortage_rows(rows), key=_shortage_sort_key),
+            ),
+            (
+                NO_SHIP_SHEET,
+                DETAIL_COLUMNS,
+                [row.to_detail_payload() for row in sorted(sheet_rows[NO_SHIP_SHEET], key=_detail_sort_key)],
+            ),
+            (SUMMARY_SHEET, SUMMARY_COLUMNS, summarize_links(rows)),
+            (
+                SAMPLE_INSUFFICIENT_SHEET,
+                DETAIL_COLUMNS,
+                [
+                    row.to_detail_payload()
+                    for row in sorted(sheet_rows[SAMPLE_INSUFFICIENT_SHEET], key=_detail_sort_key)
+                ],
+            ),
         ]
         for index, (sheet_name, headers, payload_rows) in enumerate(specs):
             worksheet = workbook.active if index == 0 else workbook.create_sheet()

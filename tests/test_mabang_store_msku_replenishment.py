@@ -78,7 +78,7 @@ def _sheet_names(path: Path) -> list[str]:
 
 
 def _inventory_headers() -> list[str]:
-    return ["MSKU", "父ASIN", "ASIN", "本地SKU", "商品链接", "FBA总库存", "加权日销", "可销售天数", "真实库存数量", "子SKU"]
+    return ["MSKU", "父ASIN", "ASIN", "本地SKU", "本地SKU名称", "产品名称", "商品链接", "FBA总库存", "加权日销", "可销售天数", "真实库存数量", "子SKU"]
 
 
 def _sales_headers() -> list[str]:
@@ -97,6 +97,8 @@ def _replenishment_row(
         parent_asin=f"PARENT-{msku}",
         asin=f"ASIN-{msku}",
         local_sku=f"SKU-{msku}",
+        local_sku_name=f"本地名-{msku}",
+        product_name=f"产品名-{msku}",
         product_link=f"https://example.test/{msku}",
         sku_type="库存sku",
         template_name="默认模板",
@@ -127,6 +129,8 @@ def _inventory_input_row(msku: str, *, fba_total_inventory: float) -> repl.Inven
         parent_asin=f"PARENT-{msku}",
         asin=f"ASIN-{msku}",
         local_sku=f"SKU-{msku}",
+        local_sku_name=f"本地名-{msku}",
+        product_name=f"产品名-{msku}",
         product_link=f"https://example.test/{msku}",
         sku_type="库存sku",
         weighted_daily_sales=0,
@@ -160,6 +164,8 @@ def _write_inventory_report(path: Path) -> Path:
                         "父ASIN": "PARENT-SEA",
                         "ASIN": "ASIN-SEA",
                         "本地SKU": "COMBO-SEA",
+                        "本地SKU名称": "海运组合本地名",
+                        "产品名称": "Sea Combo Product",
                         "商品链接": "美国 http://www.amazon.com/gp/product/ASIN-SEA",
                         "FBA总库存": 480,
                         "加权日销": 6,
@@ -177,6 +183,8 @@ def _write_inventory_report(path: Path) -> Path:
                         "父ASIN": "PARENT-AIR",
                         "ASIN": "ASIN-U",
                         "本地SKU": "SKU-U",
+                        "本地SKU名称": "急发本地名",
+                        "产品名称": "Urgent Product",
                         "商品链接": "美国 http://www.amazon.com/gp/product/ASIN-U",
                         "FBA总库存": 90,
                         "加权日销": 3,
@@ -188,6 +196,8 @@ def _write_inventory_report(path: Path) -> Path:
                         "父ASIN": "PARENT-AIR",
                         "ASIN": "ASIN-A",
                         "本地SKU": "SKU-A",
+                        "本地SKU名称": "空运本地名",
+                        "产品名称": "Air Product",
                         "商品链接": "德国 https://www.amazon.de/dp/ASIN-A",
                         "FBA总库存": 300,
                         "加权日销": 6,
@@ -199,6 +209,8 @@ def _write_inventory_report(path: Path) -> Path:
                         "父ASIN": "PARENT-NO",
                         "ASIN": "ASIN-N",
                         "本地SKU": "SKU-N",
+                        "本地SKU名称": "暂不发货本地名",
+                        "产品名称": "No Ship Product",
                         "商品链接": "https://example.test/no",
                         "FBA总库存": 360,
                         "加权日销": 4,
@@ -210,6 +222,8 @@ def _write_inventory_report(path: Path) -> Path:
                         "父ASIN": "PARENT-SAMPLE",
                         "ASIN": "ASIN-S",
                         "本地SKU": "SKU-S",
+                        "本地SKU名称": "样本不足本地名",
+                        "产品名称": "Sample Product",
                         "商品链接": "https://example.test/sample",
                         "FBA总库存": 80,
                         "加权日销": 8,
@@ -282,6 +296,51 @@ def test_find_same_day_unlinked_shipments_snapshot_picks_latest_same_day(tmp_pat
     assert warning == ""
 
 
+def test_load_inventory_rows_allows_missing_optional_name_columns(tmp_path) -> None:
+    path = tmp_path / "actual_inventory.xlsx"
+    old_headers = [
+        "MSKU",
+        "父ASIN",
+        "ASIN",
+        "本地SKU",
+        "商品链接",
+        "FBA总库存",
+        "加权日销",
+        "可销售天数",
+        "真实库存数量",
+        "子SKU",
+    ]
+    _write_workbook(
+        path,
+        {
+            "真实库存-组合sku": (
+                old_headers,
+                [
+                    {
+                        "MSKU": "MSKU-C",
+                        "父ASIN": "PARENT-C",
+                        "ASIN": "ASIN-C",
+                        "本地SKU": "COMBO-C",
+                        "商品链接": "https://example.test/c",
+                        "FBA总库存": 10,
+                        "加权日销": 1,
+                        "可销售天数": 10,
+                        "真实库存数量": 5,
+                        "子SKU": "SKU-A * 1",
+                    }
+                ],
+            ),
+            "真实库存-库存sku": (old_headers, []),
+        },
+    )
+
+    rows = repl.load_inventory_rows(path)
+
+    assert len(rows) == 1
+    assert rows[0].local_sku_name == ""
+    assert rows[0].product_name == ""
+
+
 def test_replenishment_rules_and_report_output(tmp_path) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
@@ -319,19 +378,18 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         "unlinked_shipments_snapshot_warning": repl.UNLINKED_SNAPSHOT_MISSING_WARNING,
     }
     assert report_path.is_file()
-    assert _sheet_names(report_path) == ["链接备货汇总", "真实库存不足", "空运（急发）", "空运", "海运", "暂不建议发货", "样本不足"]
+    assert _sheet_names(report_path) == ["空运（急发）", "空运", "海运", "真实库存不足", "暂不建议发货", "链接备货汇总", "样本不足"]
     _assert_standard_dimensions(report_path, _sheet_names(report_path))
-    assert _headers(report_path, "链接备货汇总")[-2:] == ["链接真实本地库存汇总", "链接未关联数量汇总"]
-    assert _headers(report_path, "真实库存不足") == [*repl.DETAIL_COLUMNS, "运输渠道", "库存缺口"]
+    assert _headers(report_path, "链接备货汇总") == list(repl.SUMMARY_COLUMNS)
+    assert _headers(report_path, "真实库存不足") == list(repl.INVENTORY_SHORTAGE_COLUMNS)
     for sheet_name in ["空运（急发）", "空运", "海运", "暂不建议发货", "样本不足"]:
         headers = _headers(report_path, sheet_name)
-        assert "真实库存数量" in headers
-        assert "真实库存" not in headers
-        assert "模板名称" in headers
-        assert "命中规则" in headers
+        assert headers == list(repl.DETAIL_COLUMNS)
 
     sea_rows = _load_records(report_path, "海运")
     assert sea_rows[0]["MSKU"] == "SEA-1"
+    assert sea_rows[0]["本地SKU名称"] == "海运组合本地名"
+    assert sea_rows[0]["产品名称"] == "Sea Combo Product"
     assert sea_rows[0]["补货天数"] == 90
     assert sea_rows[0]["补货量"] == 540
     assert sea_rows[0]["海运天数"] == 90
@@ -344,29 +402,39 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
 
     urgent_rows = _load_records(report_path, "空运（急发）")
     assert urgent_rows[0]["MSKU"] == "URGENT-1"
+    assert urgent_rows[0]["本地SKU名称"] == "急发本地名"
+    assert urgent_rows[0]["产品名称"] == "Urgent Product"
     assert urgent_rows[0]["补货天数"] == 60
     assert urgent_rows[0]["补货量"] == 180
     assert urgent_rows[0]["真实库存数量"] == 10
 
     air_rows = _load_records(report_path, "空运")
     assert air_rows[0]["MSKU"] == "AIR-1"
+    assert air_rows[0]["本地SKU名称"] == "空运本地名"
+    assert air_rows[0]["产品名称"] == "Air Product"
     assert air_rows[0]["补货天数"] == 60
     assert air_rows[0]["补货量"] == 360
     assert air_rows[0]["真实库存数量"] == 30
 
     no_ship_rows = _load_records(report_path, "暂不建议发货")
     assert no_ship_rows[0]["MSKU"] == "NO-1"
+    assert no_ship_rows[0]["本地SKU名称"] == "暂不发货本地名"
+    assert no_ship_rows[0]["产品名称"] == "No Ship Product"
     assert no_ship_rows[0]["补货量"] == 240
     assert "加权日销=4.00 <= 5" in no_ship_rows[0]["决策原因"]
 
     sample_rows = _load_records(report_path, "样本不足")
     assert sample_rows[0]["MSKU"] == "SAMPLE-1"
+    assert sample_rows[0]["本地SKU名称"] == "样本不足本地名"
+    assert sample_rows[0]["产品名称"] == "Sample Product"
     assert sample_rows[0]["补货量"] in (None, "")
     assert sample_rows[0]["决策原因"] == "销量趋势为样本不足，不计算备货量"
 
     shortage_rows = _load_records(report_path, "真实库存不足")
     assert [row["MSKU"] for row in shortage_rows] == ["SEA-1", "AIR-1", "URGENT-1"]
     assert [row["运输渠道"] for row in shortage_rows] == ["海运", "空运", "空运（急发）"]
+    assert shortage_rows[0]["本地SKU名称"] == "海运组合本地名"
+    assert shortage_rows[0]["产品名称"] == "Sea Combo Product"
     assert shortage_rows[0]["库存缺口"] == 520
     assert shortage_rows[1]["库存缺口"] == 330
     assert shortage_rows[2]["库存缺口"] == 170
@@ -436,7 +504,7 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     assert air_rows[0]["FBA总库存"] == 300
     assert air_rows[0]["可销售天数"] == 50
     assert air_rows[0]["未关联数量"] == 100
-    assert air_rows[0]["抵扣前补货量"] == 360
+    assert air_rows[0]["未关联抵扣前建议量"] == 360
     assert air_rows[0]["补货量"] == 260
     assert "抵扣后补货量=260" in air_rows[0]["决策原因"]
 
@@ -444,12 +512,12 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     urgent_row = next(row for row in no_ship_rows if row["MSKU"] == "URGENT-1")
     assert urgent_row["补货量"] == 0
     assert urgent_row["未关联数量"] == 250
-    assert urgent_row["抵扣前补货量"] == 180
+    assert urgent_row["未关联抵扣前建议量"] == 180
     assert "未关联数量已覆盖本次建议量" in urgent_row["决策原因"]
 
     sea_row = next(row for row in no_ship_rows if row["MSKU"] == "SEA-1")
     assert sea_row["补货量"] == 500
-    assert sea_row["抵扣前补货量"] == 540
+    assert sea_row["未关联抵扣前建议量"] == 540
     assert sea_row["海运建议量"] == 540
     assert sea_row["预计总重量kg"] == 60
     assert "未关联抵扣后海运重量不足60kg" in sea_row["决策原因"]

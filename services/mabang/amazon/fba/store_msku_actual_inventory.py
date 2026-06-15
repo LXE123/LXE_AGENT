@@ -47,16 +47,30 @@ AUTH_FAIL_STATUS = {401, 403}
 SALES_COLUMNS = ("7天销量", "14天销量", "30天销量")
 FBA_STOCK_COLUMNS = ("可售", "待入库", "预留", "在途", "待调仓", "调仓中")
 SOURCE_COLUMNS = ("MSKU", "父ASIN", "ASIN", "本地SKU", "商品链接", *SALES_COLUMNS, *FBA_STOCK_COLUMNS)
+SOURCE_LOCAL_SKU_NAME_COLUMN = "本地SKU名称"
+SOURCE_PRODUCT_NAME_COLUMN = "产品名称"
 COMBO_SKU_COLUMN = "组合sku编码"
 COMBO_COMPONENT_COUNT_COLUMN = "关联sku个数"
 STOCK_SKU_COLUMN = "库存SKU编号"
 AVAILABLE_STOCK_COLUMN = "可用库存量"
-BASE_OUTPUT_COLUMNS = ("MSKU", "父ASIN", "ASIN", "本地SKU", "商品链接", "真实库存数量", "子SKU")
+BASE_OUTPUT_COLUMNS = (
+    "MSKU",
+    "父ASIN",
+    "ASIN",
+    "本地SKU",
+    SOURCE_LOCAL_SKU_NAME_COLUMN,
+    SOURCE_PRODUCT_NAME_COLUMN,
+    "商品链接",
+    "真实库存数量",
+    "子SKU",
+)
 INVENTORY_OUTPUT_COLUMNS = (
     "MSKU",
     "父ASIN",
     "ASIN",
     "本地SKU",
+    SOURCE_LOCAL_SKU_NAME_COLUMN,
+    SOURCE_PRODUCT_NAME_COLUMN,
     "商品链接",
     "FBA总库存",
     "加权日销",
@@ -101,6 +115,8 @@ class StoreMskuRow:
     asin: str
     local_sku: str
     product_link: str
+    local_sku_name: str = ""
+    product_name: str = ""
     sales_7d: Decimal = Decimal("0")
     sales_14d: Decimal = Decimal("0")
     sales_30d: Decimal = Decimal("0")
@@ -137,6 +153,8 @@ class ActualInventoryRow:
     fba_total_inventory: Decimal = Decimal("0")
     weighted_daily_sales: Decimal = Decimal("0")
     sales_days: Decimal | None = None
+    local_sku_name: str = ""
+    product_name: str = ""
 
 
 @dataclass(frozen=True)
@@ -333,6 +351,8 @@ def load_store_msku_rows(xlsx_path: str | Path) -> list[StoreMskuRow]:
                     asin=_clean_text(row.get("ASIN")),
                     local_sku=_clean_text(row.get("本地SKU")),
                     product_link=_clean_text(row.get("商品链接")),
+                    local_sku_name=_clean_text(row.get(SOURCE_LOCAL_SKU_NAME_COLUMN)),
+                    product_name=_clean_text(row.get(SOURCE_PRODUCT_NAME_COLUMN)),
                     sales_7d=_decimal_value(row.get("7天销量")),
                     sales_14d=_decimal_value(row.get("14天销量")),
                     sales_30d=_decimal_value(row.get("30天销量")),
@@ -1060,6 +1080,8 @@ def calculate_inventory_rows(
                 fba_total_inventory=fba_total_inventory,
                 weighted_daily_sales=weighted_daily_sales,
                 sales_days=_sales_days(fba_total_inventory, weighted_daily_sales),
+                local_sku_name=row.local_sku_name,
+                product_name=row.product_name,
             )
         )
     return result_rows, list(missing.values())
@@ -1093,6 +1115,8 @@ def _base_row_values(row: ActualInventoryRow) -> list[Any]:
         row.parent_asin,
         row.asin,
         row.local_sku,
+        row.local_sku_name,
+        row.product_name,
         row.product_link,
         _display_decimal(row.actual_inventory),
         row.child_skus,
@@ -1105,6 +1129,8 @@ def _inventory_row_values(row: ActualInventoryRow) -> list[Any]:
         row.parent_asin,
         row.asin,
         row.local_sku,
+        row.local_sku_name,
+        row.product_name,
         row.product_link,
         _display_decimal(row.fba_total_inventory),
         _display_two_decimal(row.weighted_daily_sales),
