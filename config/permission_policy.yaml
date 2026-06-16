@@ -12,6 +12,12 @@ bots:
     skill_types:
       - amazon_replenish
       - default
+  AMAZON_REPLENISH_GROUP_1_MACHINE_2:
+    key: AMAZON-备货一组-二号机
+    app_id: cli_aaa5e06b1bb81bcb
+    skill_types:
+      - amazon_replenish
+      - default
   AMAZON_REPLENISH_GROUP_2:
     key: Amazon_备货二组
     app_id: cli_aaad7fee66b8dbda
@@ -34,6 +40,10 @@ users:
     union_id: on_feb0916744e536011cfffb06ad1506c8
     allow:
       - AMAZON_REPLENISH
+  AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER:
+    union_id: on_5b073ea5ba8e6e5bae65c81cdfc849f4
+    allow:
+      - AMAZON_REPLENISH_GROUP_1_MACHINE_2
   AMAZON_REPLENISH_GROUP_2_MEMBER:
     union_id: on_83a449091b58ce155969be6c2684e251
     allow:

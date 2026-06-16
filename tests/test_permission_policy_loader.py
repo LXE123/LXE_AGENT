@@ -35,6 +35,19 @@ users:
 def test_load_default_permission_policy() -> None:
     policy = load_permission_policy()
 
+    assert policy.bot_alias_to_app_id["AMAZON_REPLENISH_GROUP_1_MACHINE_2"] == "cli_aaa5e06b1bb81bcb"
+    assert policy.bot_alias_to_key["AMAZON_REPLENISH_GROUP_1_MACHINE_2"] == "AMAZON-备货一组-二号机"
+    assert policy.user_name_to_union_id["AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER"] == (
+        "on_5b073ea5ba8e6e5bae65c81cdfc849f4"
+    )
+    assert policy.user_name_to_allow_aliases["AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER"] == {
+        "AMAZON_REPLENISH_GROUP_1_MACHINE_2",
+    }
+    assert policy.user_agent_policy["on_5b073ea5ba8e6e5bae65c81cdfc849f4"] == {
+        "AMAZON-备货一组-二号机",
+    }
+    assert policy.bot_skill_policy["AMAZON-备货一组-二号机"] == {"amazon_replenish", "default"}
+
     assert policy.bot_alias_to_app_id["AMAZON_REPLENISH_GROUP_2"] == "cli_aaad7fee66b8dbda"
     assert policy.bot_alias_to_key["AMAZON_REPLENISH_GROUP_2"] == "Amazon_备货二组"
     assert policy.user_name_to_union_id["AMAZON_REPLENISH_GROUP_2_MEMBER"] == (
