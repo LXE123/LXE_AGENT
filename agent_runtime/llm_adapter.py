@@ -29,7 +29,6 @@ from .tool_schema_adapter import adapt_tool_schemas
 from .types import ToolSchema
 
 ToolChoiceMode = Literal["auto", "none"]
-_REDACTED_THINKING_PLACEHOLDER = "[部分思考已加密]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,12 +67,8 @@ def _collect_anthropic_public_text(content_blocks: list[dict[str, Any]] | None) 
     for raw_block in list(content_blocks or []):
         block = dict(raw_block or {})
         block_type = str(block.get("type") or "").strip()
-        if block_type == "thinking":
-            text = str(block.get("thinking") or "")
-        elif block_type == "text":
+        if block_type == "text":
             text = str(block.get("text") or "")
-        elif block_type == "redacted_thinking":
-            text = _REDACTED_THINKING_PLACEHOLDER
         else:
             continue
         if text:

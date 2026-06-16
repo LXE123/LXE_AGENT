@@ -59,6 +59,9 @@ class GatewayEmitter:
         state: str,
         seq: int,
         content: str,
+        thinking: str = "",
+        redacted_thinking_count: int = 0,
+        thinking_elapsed_ms: int = 0,
         emit_id: str = "",
     ) -> None:
         await self.emit(
@@ -66,6 +69,9 @@ class GatewayEmitter:
                 session_id=str(session_id or "").strip(),
                 response_route_id=str(response_route_id or "").strip(),
                 content=str(content or "").strip(),
+                thinking=str(thinking or "").strip(),
+                redacted_thinking_count=max(0, int(redacted_thinking_count or 0)),
+                thinking_elapsed_ms=max(0, int(thinking_elapsed_ms or 0)),
                 emit_kind="stream",
                 emit_id=str(emit_id or "").strip(),
                 stream_type=str(stream_type or "").strip(),
@@ -103,16 +109,22 @@ class GatewayEmitter:
         response_route_id: str,
     ) -> None:
         safe_content = str(emit.content or "").strip()
-        if not safe_content:
+        safe_thinking = str(getattr(emit, "thinking", "") or "").strip()
+        redacted_thinking_count = max(0, int(getattr(emit, "redacted_thinking_count", 0) or 0))
+        thinking_elapsed_ms = max(0, int(getattr(emit, "thinking_elapsed_ms", 0) or 0))
+        if not safe_content and not safe_thinking and redacted_thinking_count <= 0:
             return
         logger.info(
-            "[GatewayEmitter] stream_message: session_id=%s response_route_id=%s stream_type=%s state=%s seq=%d content_len=%d",
+            "[GatewayEmitter] stream_message: session_id=%s response_route_id=%s stream_type=%s state=%s seq=%d content_len=%d thinking_len=%d redacted_thinking_count=%d thinking_elapsed_ms=%d",
             emit.session_id,
             response_route_id,
             str(emit.stream_type or "").strip(),
             str(emit.state or "").strip(),
             int(emit.seq or 0),
             len(safe_content),
+            len(safe_thinking),
+            redacted_thinking_count,
+            thinking_elapsed_ms,
         )
         request = OutboundRequest(
             action="stream_message",
@@ -122,6 +134,9 @@ class GatewayEmitter:
                 "state": str(emit.state or "").strip(),
                 "seq": int(emit.seq or 0),
                 "content": safe_content,
+                "thinking": safe_thinking,
+                "redacted_thinking_count": redacted_thinking_count,
+                "thinking_elapsed_ms": thinking_elapsed_ms,
             },
             session_id=emit.session_id,
             response_route_id=response_route_id,

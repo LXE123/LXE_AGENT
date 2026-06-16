@@ -4,7 +4,9 @@ import asyncio
 import time
 from dataclasses import dataclass
 
+import agent_runtime.final_answer_streamer as streamer_mod
 from agent_runtime.final_answer_streamer import FinalAnswerStreamer
+from shared.llm.events import LLMStreamEvent
 
 
 @dataclass(frozen=True)
@@ -16,6 +18,9 @@ class EmitCall:
     seq: int
     content: str
     emit_id: str
+    thinking: str = ""
+    redacted_thinking_count: int = 0
+    thinking_elapsed_ms: int = 0
 
 
 def _run(coro):
@@ -45,8 +50,25 @@ def test_push_delta_does_not_wait_for_slow_emit() -> None:
             seq: int,
             content: str,
             emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
         ) -> None:
-            calls.append(EmitCall(session_id, response_route_id, channel, state, seq, content, emit_id))
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                )
+            )
             first_emit_started.set()
             if seq == 1:
                 await release_first_emit.wait()
@@ -90,8 +112,25 @@ def test_deltas_merge_to_latest_buffer_while_emit_is_in_flight() -> None:
             seq: int,
             content: str,
             emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
         ) -> None:
-            calls.append(EmitCall(session_id, response_route_id, channel, state, seq, content, emit_id))
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                )
+            )
             if seq == 1:
                 first_emit_started.set()
                 await release_first_emit.wait()
@@ -135,7 +174,12 @@ def test_only_one_emit_is_in_flight_at_a_time() -> None:
             seq: int,
             _content: str,
             _emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
         ) -> None:
+            _ = thinking, redacted_thinking_count, thinking_elapsed_ms
             nonlocal active_emit_count, max_active_emit_count
             active_emit_count += 1
             max_active_emit_count = max(max_active_emit_count, active_emit_count)
@@ -179,8 +223,25 @@ def test_finish_waits_for_final_full_content_emit() -> None:
             seq: int,
             content: str,
             emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
         ) -> None:
-            calls.append(EmitCall(session_id, response_route_id, channel, state, seq, content, emit_id))
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                )
+            )
             if seq == 1:
                 first_emit_started.set()
                 await release_first_emit.wait()
@@ -220,8 +281,25 @@ def test_fail_emits_error_state() -> None:
             seq: int,
             content: str,
             emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
         ) -> None:
-            calls.append(EmitCall(session_id, response_route_id, channel, state, seq, content, emit_id))
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                )
+            )
 
         streamer = FinalAnswerStreamer(
             session_id="session-1",
@@ -252,8 +330,25 @@ def test_cancel_preserves_already_sent_content() -> None:
             seq: int,
             content: str,
             emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
         ) -> None:
-            calls.append(EmitCall(session_id, response_route_id, channel, state, seq, content, emit_id))
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                )
+            )
 
         streamer = FinalAnswerStreamer(
             session_id="session-1",
@@ -273,3 +368,224 @@ def test_cancel_preserves_already_sent_content() -> None:
         EmitCall("session-1", "route-1", "final_answer", "delta", 1, "hello", "emit-1"),
         EmitCall("session-1", "route-1", "final_answer", "final", 2, "hello", "emit-1"),
     ]
+
+
+def test_push_event_separates_answer_thinking_and_redacted_count() -> None:
+    async def scenario() -> list[EmitCall]:
+        calls: list[EmitCall] = []
+
+        async def emit_stream(
+            session_id: str,
+            response_route_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
+        ) -> None:
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                )
+            )
+
+        streamer = FinalAnswerStreamer(
+            session_id="session-1",
+            response_route_id="route-1",
+            emit_stream=emit_stream,
+            min_interval_ms=0,
+            emit_id="emit-1",
+        )
+
+        await streamer.push_event(LLMStreamEvent(event_type="thinking_delta", thinking_text="plan"))
+        await streamer.push_event(LLMStreamEvent(event_type="redacted_thinking", redacted_data="encrypted"))
+        await streamer.push_event(LLMStreamEvent(event_type="text_delta", text="answer"))
+        await streamer.finish("answer")
+        return calls
+
+    calls = _run(scenario())
+    assert calls[-1].state == "final"
+    assert calls[-1].content == "answer"
+    assert calls[-1].thinking == "plan"
+    assert calls[-1].redacted_thinking_count == 1
+    assert all("plan" not in call.content for call in calls)
+    assert all("encrypted" not in call.thinking for call in calls)
+
+
+def test_push_event_tracks_thinking_elapsed_until_first_answer(monkeypatch) -> None:
+    current_time = {"value": 10.0}
+
+    def fake_monotonic() -> float:
+        return current_time["value"]
+
+    monkeypatch.setattr(streamer_mod.time, "monotonic", fake_monotonic)
+
+    async def scenario() -> list[EmitCall]:
+        calls: list[EmitCall] = []
+
+        async def emit_stream(
+            session_id: str,
+            response_route_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
+        ) -> None:
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                )
+            )
+
+        streamer = FinalAnswerStreamer(
+            session_id="session-1",
+            response_route_id="route-1",
+            emit_stream=emit_stream,
+            min_interval_ms=0,
+            emit_id="emit-1",
+        )
+
+        await streamer.push_event(LLMStreamEvent(event_type="thinking_delta", thinking_text="plan"))
+        current_time["value"] = 13.2
+        await streamer.push_event(LLMStreamEvent(event_type="text_delta", text="answer"))
+        await streamer.finish("answer")
+        return calls
+
+    calls = _run(scenario())
+    assert calls[-1].state == "final"
+    assert calls[-1].thinking_elapsed_ms == 3200
+
+
+def test_redacted_only_thinking_elapsed_is_locked_on_finish(monkeypatch) -> None:
+    current_time = {"value": 20.0}
+
+    def fake_monotonic() -> float:
+        return current_time["value"]
+
+    monkeypatch.setattr(streamer_mod.time, "monotonic", fake_monotonic)
+
+    async def scenario() -> list[EmitCall]:
+        calls: list[EmitCall] = []
+
+        async def emit_stream(
+            session_id: str,
+            response_route_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
+        ) -> None:
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                )
+            )
+
+        streamer = FinalAnswerStreamer(
+            session_id="session-1",
+            response_route_id="route-1",
+            emit_stream=emit_stream,
+            min_interval_ms=0,
+            emit_id="emit-1",
+        )
+
+        await streamer.push_event(LLMStreamEvent(event_type="redacted_thinking", redacted_data="encrypted"))
+        current_time["value"] = 24.25
+        await streamer.finish("")
+        return calls
+
+    calls = _run(scenario())
+    assert calls[-1].state == "final"
+    assert calls[-1].redacted_thinking_count == 1
+    assert calls[-1].thinking_elapsed_ms == 4250
+    assert all("encrypted" not in call.thinking for call in calls)
+
+
+def test_legacy_push_delta_keeps_thinking_elapsed_zero() -> None:
+    async def scenario() -> list[EmitCall]:
+        calls: list[EmitCall] = []
+
+        async def emit_stream(
+            session_id: str,
+            response_route_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
+        ) -> None:
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                )
+            )
+
+        streamer = FinalAnswerStreamer(
+            session_id="session-1",
+            response_route_id="route-1",
+            emit_stream=emit_stream,
+            min_interval_ms=0,
+            emit_id="emit-1",
+        )
+
+        await streamer.push_delta("answer")
+        await streamer.finish("answer")
+        return calls
+
+    calls = _run(scenario())
+    assert calls[-1].state == "final"
+    assert calls[-1].thinking_elapsed_ms == 0

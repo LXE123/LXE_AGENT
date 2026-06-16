@@ -36,6 +36,58 @@ def _clean_inline_content_blocks(value: Any) -> list[dict[str, Any]]:
     return blocks
 
 
+def _clean_assistant_content_blocks(
+    value: Any,
+    *,
+    allow_tool_use_alias: bool = False,
+) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for raw_block in list(value or []):
+        block = dict(raw_block or {})
+        block_type = str(block.get("type") or "").strip()
+        if block_type == "thinking":
+            thinking = str(block.get("thinking") or "")
+            signature = str(block.get("signature") or "").strip()
+            if thinking or signature:
+                blocks.append(
+                    {
+                        "type": "thinking",
+                        "thinking": thinking,
+                        "signature": signature,
+                    }
+                )
+            continue
+        if block_type == "redacted_thinking":
+            blocks.append(
+                {
+                    "type": "redacted_thinking",
+                    "data": str(block.get("data") or ""),
+                }
+            )
+            continue
+        if block_type == "text":
+            blocks.append({"type": "text", "text": str(block.get("text") or "")})
+            continue
+        if block_type == "tool_call":
+            arguments = dict(block.get("arguments") or {})
+        elif block_type == "tool_use" and allow_tool_use_alias:
+            arguments = dict(block.get("input") or {})
+        else:
+            continue
+        name = str(block.get("name") or "").strip()
+        if not name:
+            continue
+        blocks.append(
+            {
+                "type": "tool_call",
+                "id": str(block.get("id") or uuid4().hex).strip(),
+                "name": name,
+                "arguments": arguments,
+            }
+        )
+    return blocks
+
+
 def _clean_canonical_message(value: dict[str, Any] | None) -> dict[str, Any] | None:
     message = dict(value or {})
     role = str(message.get("role") or "").strip()
@@ -55,27 +107,7 @@ def _clean_canonical_message(value: dict[str, Any] | None) -> dict[str, Any] | N
         content = message.get("content")
         if isinstance(content, str):
             content = [{"type": "text", "text": str(content or "")}]
-        blocks: list[dict[str, Any]] = []
-        for raw_block in list(content or []):
-            block = dict(raw_block or {})
-            block_type = str(block.get("type") or "").strip()
-            if block_type == "text":
-                blocks.append({"type": "text", "text": str(block.get("text") or "")})
-                continue
-            if block_type != "tool_call":
-                continue
-            name = str(block.get("name") or "").strip()
-            if not name:
-                continue
-            blocks.append(
-                {
-                    "type": "tool_call",
-                    "id": str(block.get("id") or uuid4().hex).strip(),
-                    "name": name,
-                    "arguments": dict(block.get("arguments") or {}),
-                }
-            )
-        return {"role": "assistant", "content": blocks}
+        return {"role": "assistant", "content": _clean_assistant_content_blocks(content)}
 
     blocks = []
     for raw_block in list(message.get("content") or []):
@@ -120,27 +152,10 @@ def _legacy_history_message_to_canonical(value: dict[str, Any] | None) -> dict[s
 
     if role == "assistant":
         if isinstance(content, list):
-            blocks: list[dict[str, Any]] = []
-            for raw_block in list(content or []):
-                block = dict(raw_block or {})
-                block_type = str(block.get("type") or "").strip()
-                if block_type == "text":
-                    blocks.append({"type": "text", "text": str(block.get("text") or "")})
-                    continue
-                if block_type != "tool_use":
-                    continue
-                name = str(block.get("name") or "").strip()
-                if not name:
-                    continue
-                blocks.append(
-                    {
-                        "type": "tool_call",
-                        "id": str(block.get("id") or uuid4().hex).strip(),
-                        "name": name,
-                        "arguments": dict(block.get("input") or {}),
-                    }
-                )
-            return {"role": "assistant", "content": blocks}
+            return {
+                "role": "assistant",
+                "content": _clean_assistant_content_blocks(content, allow_tool_use_alias=True),
+            }
         return {"role": "assistant", "content": [{"type": "text", "text": str(content or "")}]}
 
     if role == "toolResult":

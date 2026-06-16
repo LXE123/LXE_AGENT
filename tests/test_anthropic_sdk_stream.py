@@ -837,3 +837,36 @@ def test_chat_with_tools_anthropic_route_uses_sdk_streaming(monkeypatch) -> None
     assert response.public_text == "hello"
     assert response.usage == {"input_tokens": 2, "output_tokens": 1}
     assert response.raw["id"] == "msg_2"
+
+
+def test_chat_with_tools_streaming_public_text_excludes_thinking(monkeypatch) -> None:
+    def fake_sdk_stream_message_events(**kwargs: Any):
+        yield LLMStreamEvent(event_type="message_start", message_id="msg_3", model="kimi-for-coding")
+        yield LLMStreamEvent(event_type="thinking_delta", index=0, thinking_text="plan", text="plan")
+        yield LLMStreamEvent(event_type="redacted_thinking", index=1, redacted_data="encrypted")
+        yield LLMStreamEvent(event_type="text_delta", index=2, text="answer")
+        yield LLMStreamEvent(event_type="message_delta", stop_reason="end_turn", usage={"output_tokens": 1})
+        yield LLMStreamEvent(event_type="message_stop")
+
+    monkeypatch.setattr(llm_adapter, "sdk_stream_message_events", fake_sdk_stream_message_events)
+
+    response = asyncio.run(
+        llm_adapter.chat_with_tools_streaming(
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=None,
+            temperature=0.1,
+            timeout_s=30,
+            descriptor=_descriptor(),
+        )
+    )
+
+    assert response.text == "answer"
+    assert response.public_text == "answer"
+    assert response.assistant_content == [
+        {"type": "thinking", "thinking": "plan", "signature": ""},
+        {"type": "redacted_thinking", "data": "encrypted"},
+        {"type": "text", "text": "answer"},
+    ]

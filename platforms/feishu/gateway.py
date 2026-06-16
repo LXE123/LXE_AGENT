@@ -39,6 +39,7 @@ _RECOVERABLE_CARDKIT_ERROR_CODE = 200850
 _RAW_EVENT_DUMP_MAX_DEPTH = 8
 _FEISHU_INBOUND_DEDUP_TTL_SECONDS = 12 * 60 * 60
 _FEISHU_INBOUND_MAX_AGE_SECONDS = 5 * 60
+_REDACTED_THINKING_NOTICE = "部分思考已加密，无法展示"
 _StreamStatus = Literal["streaming", "reopening", "dead", "finalized"]
 
 
@@ -220,6 +221,9 @@ class _StreamWriterState:
     card_seq: int = 0
     status: _StreamStatus = "streaming"
     last_content: str = ""
+    last_thinking: str = ""
+    redacted_thinking_count: int = 0
+    thinking_elapsed_ms: int = 0
     last_sent_content: str = ""
     reopen_count: int = 0
     final_requested: bool = False
@@ -227,6 +231,22 @@ class _StreamWriterState:
     opened: bool = False
     finished: bool = False
     reopen_task: asyncio.Task[None] | None = field(default=None, repr=False)
+
+
+def _stream_display_content(writer: _StreamWriterState) -> str:
+    answer = str(writer.last_content or "").strip()
+    if answer:
+        return answer
+    thinking = str(writer.last_thinking or "").strip()
+    parts: list[str] = []
+    if thinking:
+        parts.append(thinking)
+    if int(writer.redacted_thinking_count or 0) > 0:
+        parts.append(_REDACTED_THINKING_NOTICE)
+    body = "\n\n".join(parts).strip()
+    if not body:
+        return ""
+    return f"💭 **思考中...**\n\n{body}"
 
 
 class FeishuStreamAdapter:
@@ -401,6 +421,9 @@ class FeishuStreamAdapter:
         state = str(payload.get("state") or "").strip()
         source_seq = int(payload.get("seq") or 0)
         content = str(payload.get("content") or "").strip()
+        thinking = str(payload.get("thinking") or "").strip()
+        redacted_thinking_count = max(0, int(payload.get("redacted_thinking_count") or 0))
+        thinking_elapsed_ms = max(0, int(payload.get("thinking_elapsed_ms") or 0))
         emit_id = str(request.event_id or "").strip()
         if stream_type != "final_answer":
             raise RuntimeError(f"unsupported feishu stream_type: {stream_type or '<empty>'}")
@@ -408,7 +431,7 @@ class FeishuStreamAdapter:
             raise RuntimeError(f"unsupported feishu stream state: {state or '<empty>'}")
         if source_seq <= 0:
             raise RuntimeError(f"invalid feishu stream seq: {source_seq}")
-        if not content:
+        if not content and not thinking and redacted_thinking_count <= 0:
             return
 
         async with self._get_stream_lock(session_id):
@@ -425,6 +448,9 @@ class FeishuStreamAdapter:
 
             writer.source_seq = source_seq
             writer.last_content = content
+            writer.last_thinking = thinking
+            writer.redacted_thinking_count = redacted_thinking_count
+            writer.thinking_elapsed_ms = thinking_elapsed_ms
             if state in {"final", "error"}:
                 writer.final_requested = True
                 writer.final_error = state == "error"
@@ -440,7 +466,7 @@ class FeishuStreamAdapter:
                 return
 
             if state == "delta":
-                if content == writer.last_sent_content:
+                if _stream_display_content(writer) == writer.last_sent_content:
                     return
                 await self._send_delta_locked(
                     session_id=session_id,
@@ -487,11 +513,12 @@ class FeishuStreamAdapter:
         emit_id: str,
     ) -> None:
         sequence = self._next_card_sequence(writer)
+        display_content = _stream_display_content(writer)
         try:
             await self._cardkit_sender.stream_text(
                 route_ctx,
                 request.response_route_id,
-                content=writer.last_content,
+                content=display_content,
                 sequence=sequence,
                 emit_id=emit_id,
             )
@@ -506,7 +533,7 @@ class FeishuStreamAdapter:
                 terminal=False,
             )
             return
-        writer.last_sent_content = writer.last_content
+        writer.last_sent_content = display_content
         writer.opened = True
 
     async def _finalize_locked(
@@ -524,6 +551,9 @@ class FeishuStreamAdapter:
                 route_ctx,
                 request.response_route_id,
                 content=writer.last_content,
+                thinking=writer.last_thinking,
+                redacted_thinking_count=writer.redacted_thinking_count,
+                thinking_elapsed_ms=writer.thinking_elapsed_ms,
                 sequence=sequence,
                 error=writer.final_error,
                 emit_id=emit_id,
@@ -539,7 +569,7 @@ class FeishuStreamAdapter:
                 terminal=True,
             )
             return
-        writer.last_sent_content = writer.last_content
+        writer.last_sent_content = _stream_display_content(writer)
         writer.opened = True
         writer.status = "finalized"
         writer.finished = True
@@ -645,27 +675,31 @@ class FeishuStreamAdapter:
                         route_ctx,
                         response_route_id,
                         content=writer.last_content,
+                        thinking=writer.last_thinking,
+                        redacted_thinking_count=writer.redacted_thinking_count,
+                        thinking_elapsed_ms=writer.thinking_elapsed_ms,
                         sequence=sequence,
                         error=writer.final_error,
                         emit_id=emit_id,
                     )
-                    writer.last_sent_content = writer.last_content
+                    writer.last_sent_content = _stream_display_content(writer)
                     writer.opened = True
                     writer.status = "finalized"
                     writer.finished = True
                     self._cleanup_stream_state(session_id)
                     return
 
-                if writer.last_content != writer.last_sent_content:
+                display_content = _stream_display_content(writer)
+                if display_content != writer.last_sent_content:
                     sequence = self._next_card_sequence(writer)
                     await self._cardkit_sender.stream_text(
                         route_ctx,
                         response_route_id,
-                        content=writer.last_content,
+                        content=display_content,
                         sequence=sequence,
                         emit_id=emit_id,
                     )
-                    writer.last_sent_content = writer.last_content
+                    writer.last_sent_content = display_content
                     writer.opened = True
                 writer.status = "streaming"
             except FeishuCardKitError as error:

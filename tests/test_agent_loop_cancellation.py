@@ -11,7 +11,7 @@ from agent_runtime.loop import AgentLoop
 from agent_runtime.tool_registry import UnifiedToolRegistry
 from agent_runtime.types import ToolDefinition, TurnInput, text_tool_result
 from shared.llm.errors import LLMProviderError
-from shared.llm.events import LLMToolCall
+from shared.llm.events import LLMStreamEvent, LLMToolCall
 
 
 def _session() -> SimpleNamespace:
@@ -33,10 +33,12 @@ def _turn_input() -> TurnInput:
     )
 
 
-def _agent(*, cancellation_check=None) -> AgentLoop:
+def _agent(*, cancellation_check=None, on_final_text_delta=None, on_final_stream_event=None) -> AgentLoop:
     agent = AgentLoop(
         session=_session(),
         state_data={},
+        on_final_text_delta=on_final_text_delta,
+        on_final_stream_event=on_final_stream_event,
         cancellation_check=cancellation_check,
     )
     agent.tool_registry = UnifiedToolRegistry()
@@ -79,6 +81,70 @@ def test_cancel_after_complete_text_response_persists_assistant_text(monkeypatch
     assert messages == [
         {"role": "user", "content": "请处理"},
         {"role": "assistant", "content": [{"type": "text", "text": "完成"}]},
+    ]
+
+
+def test_legacy_final_text_delta_receives_answer_text_only(monkeypatch) -> None:
+    async def fake_chat_with_tools_streaming(**kwargs: Any) -> LLMResponse:
+        on_stream_event = kwargs["on_stream_event"]
+        await on_stream_event(LLMStreamEvent(event_type="thinking_delta", thinking_text="plan", text="plan"))
+        await on_stream_event(LLMStreamEvent(event_type="redacted_thinking", redacted_data="encrypted"))
+        await on_stream_event(LLMStreamEvent(event_type="text_delta", text="answer"))
+        return LLMResponse(
+            text="answer",
+            public_text="answer",
+            assistant_content=[
+                {"type": "thinking", "thinking": "plan", "signature": ""},
+                {"type": "redacted_thinking", "data": "encrypted"},
+                {"type": "text", "text": "answer"},
+            ],
+        )
+
+    text_deltas: list[str] = []
+
+    async def on_final_text_delta(delta: str) -> None:
+        text_deltas.append(delta)
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(_agent(on_final_text_delta=on_final_text_delta).run(_turn_input()))
+
+    assert outcome.status == "done"
+    assert outcome.reply == "answer"
+    assert text_deltas == ["answer"]
+
+
+def test_structured_final_stream_event_receives_thinking_and_answer(monkeypatch) -> None:
+    async def fake_chat_with_tools_streaming(**kwargs: Any) -> LLMResponse:
+        on_stream_event = kwargs["on_stream_event"]
+        await on_stream_event(LLMStreamEvent(event_type="thinking_delta", thinking_text="plan", text="plan"))
+        await on_stream_event(LLMStreamEvent(event_type="redacted_thinking", redacted_data="encrypted"))
+        await on_stream_event(LLMStreamEvent(event_type="text_delta", text="answer"))
+        return LLMResponse(
+            text="answer",
+            public_text="answer",
+            assistant_content=[
+                {"type": "thinking", "thinking": "plan", "signature": ""},
+                {"type": "redacted_thinking", "data": "encrypted"},
+                {"type": "text", "text": "answer"},
+            ],
+        )
+
+    stream_events: list[LLMStreamEvent] = []
+
+    async def on_final_stream_event(event: LLMStreamEvent) -> None:
+        stream_events.append(event)
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(_agent(on_final_stream_event=on_final_stream_event).run(_turn_input()))
+
+    assert outcome.status == "done"
+    assert outcome.reply == "answer"
+    assert [event.event_type for event in stream_events] == [
+        "thinking_delta",
+        "redacted_thinking",
+        "text_delta",
     ]
 
 

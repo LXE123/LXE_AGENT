@@ -1017,6 +1017,15 @@ h1 {
   background: #f7faf8;
 }
 
+.message-block.thinking-block {
+  border-color: #d8e2de;
+  background: #f8fbfa;
+}
+
+.message-block.thinking-block.redacted {
+  background: #fbfaf8;
+}
+
 .block-title {
   display: flex;
   align-items: center;
@@ -1039,6 +1048,36 @@ h1 {
   min-width: 0;
   flex-wrap: wrap;
   gap: 7px;
+}
+
+.thinking-block-toggle {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.thinking-block-toggle:disabled {
+  cursor: default;
+}
+
+.thinking-block-toggle:focus {
+  outline: 2px solid #92b7a8;
+  outline-offset: -2px;
+}
+
+.thinking-chevron {
+  flex: 0 0 auto;
+  transition: transform 0.16s ease;
+}
+
+.thinking-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.thinking-block-body {
+  padding: 10px;
 }
 
 .tool-result-actions {
@@ -1460,6 +1499,50 @@ pre {
   background: #f7faf8;
   color: #536960;
   font-size: 12px;
+}
+
+.mermaid-block {
+  margin: 0 0 12px;
+  padding: 12px;
+  overflow-x: auto;
+  border: 1px solid #dfe7e3;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.mermaid-block svg {
+  display: block;
+  min-width: 620px;
+  max-width: none;
+  height: auto;
+}
+
+.mermaid-block.error {
+  background: #fffafa;
+}
+
+.mermaid-block-status {
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid #dfe7e3;
+  border-radius: 8px;
+  background: #fbfdfc;
+  color: #64766e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mermaid-block-status.error {
+  margin-bottom: 0;
+  border-color: #ead2d2;
+  background: #fff6f6;
+  color: #a24d4d;
+}
+
+.mermaid-source-fallback {
+  max-height: min(360px, 42vh);
+  border-top: 1px solid #ead2d2;
+  background: #fffafa;
 }
 
 .skill-content-status {

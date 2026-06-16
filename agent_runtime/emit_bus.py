@@ -53,6 +53,9 @@ async def emit(
     session_id: str,
     response_route_id: str = "",
     content: str = "",
+    thinking: str = "",
+    redacted_thinking_count: int = 0,
+    thinking_elapsed_ms: int = 0,
     files: list[str] | None = None,
     emit_kind: str,
     emit_id: str = "",
@@ -62,6 +65,9 @@ async def emit(
 ) -> None:
     normalized_session_id = str(session_id or "").strip()
     normalized_content = str(content or "").strip()
+    normalized_thinking = str(thinking or "").strip()
+    normalized_redacted_thinking_count = max(0, int(redacted_thinking_count or 0))
+    normalized_thinking_elapsed_ms = max(0, int(thinking_elapsed_ms or 0))
     normalized_files = [
         os.path.abspath(str(path or "").strip())
         for path in list(files or [])
@@ -82,13 +88,21 @@ async def emit(
             raise RuntimeError(f"unsupported stream state: {normalized_state or '<empty>'}")
         if normalized_seq <= 0:
             raise RuntimeError(f"invalid stream seq: {normalized_seq}")
-    if not normalized_content and not normalized_files:
+    if (
+        not normalized_content
+        and not normalized_files
+        and not normalized_thinking
+        and normalized_redacted_thinking_count <= 0
+    ):
         return
     await send_emit_request(
         EmitRequest(
             session_id=normalized_session_id,
             response_route_id=str(response_route_id or "").strip(),
             content=normalized_content,
+            thinking=normalized_thinking,
+            redacted_thinking_count=normalized_redacted_thinking_count,
+            thinking_elapsed_ms=normalized_thinking_elapsed_ms,
             files=normalized_files,
             emit_kind=normalized_emit_kind,
             emit_id=str(emit_id or "").strip() or uuid4().hex,
@@ -143,12 +157,18 @@ async def emit_stream(
     state: str,
     seq: int,
     content: str,
+    thinking: str = "",
+    redacted_thinking_count: int = 0,
+    thinking_elapsed_ms: int = 0,
     emit_id: str = "",
 ) -> None:
     await emit(
         session_id=session_id,
         response_route_id=response_route_id,
         content=content,
+        thinking=thinking,
+        redacted_thinking_count=redacted_thinking_count,
+        thinking_elapsed_ms=thinking_elapsed_ms,
         emit_kind="stream",
         emit_id=emit_id,
         stream_type=stream_type,

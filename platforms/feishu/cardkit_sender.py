@@ -13,6 +13,7 @@ from .config import FEISHU_API_HOST
 
 _STREAM_ELEMENT_ID = "streaming_content"
 _STREAM_CARD_TYPE = "card_json"
+_REDACTED_THINKING_NOTICE = "部分思考已加密，无法展示"
 
 
 class FeishuCardKitError(RuntimeError):
@@ -69,6 +70,20 @@ def _optimize_markdown(text: str) -> str:
     return safe_text.strip()
 
 
+def _format_elapsed(ms: int) -> str:
+    seconds = max(0, int(ms or 0)) / 1000
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    return f"{int(seconds // 60)}m {int((seconds % 60) + 0.5)}s"
+
+
+def _thinking_panel_title(thinking_elapsed_ms: int) -> str:
+    safe_elapsed_ms = max(0, int(thinking_elapsed_ms or 0))
+    if safe_elapsed_ms <= 0:
+        return "💭 思考"
+    return f"💭 思考了 {_format_elapsed(safe_elapsed_ms)}"
+
+
 def _build_streaming_card(content: str) -> dict[str, Any]:
     return {
         "schema": "2.0",
@@ -90,6 +105,101 @@ def _build_streaming_card(content: str) -> dict[str, Any]:
                 }
             ]
         },
+    }
+
+
+def _thinking_panel_content(*, thinking: str, redacted_thinking_count: int) -> str:
+    parts: list[str] = []
+    safe_thinking = str(thinking or "").strip()
+    if safe_thinking:
+        parts.append(safe_thinking)
+    if int(redacted_thinking_count or 0) > 0:
+        parts.append(_REDACTED_THINKING_NOTICE)
+    return "\n\n".join(parts).strip()
+
+
+def _build_thinking_panel(
+    *,
+    thinking: str,
+    redacted_thinking_count: int,
+    thinking_elapsed_ms: int = 0,
+) -> dict[str, Any] | None:
+    panel_content = _thinking_panel_content(
+        thinking=thinking,
+        redacted_thinking_count=redacted_thinking_count,
+    )
+    if not panel_content:
+        return None
+    return {
+        "tag": "collapsible_panel",
+        "expanded": False,
+        "header": {
+            "title": {
+                "tag": "markdown",
+                "content": _thinking_panel_title(thinking_elapsed_ms),
+            },
+            "vertical_align": "center",
+            "icon": {
+                "tag": "standard_icon",
+                "token": "down-small-ccm_outlined",
+                "size": "16px 16px",
+            },
+            "icon_position": "follow_text",
+            "icon_expanded_angle": -180,
+        },
+        "border": {"color": "grey", "corner_radius": "5px"},
+        "vertical_spacing": "8px",
+        "padding": "8px 8px 8px 8px",
+        "elements": [
+            {
+                "tag": "markdown",
+                "content": _optimize_markdown(panel_content),
+                "text_size": "notation",
+            }
+        ],
+    }
+
+
+def _build_final_card(
+    *,
+    content: str,
+    thinking: str,
+    redacted_thinking_count: int,
+    thinking_elapsed_ms: int = 0,
+    error: bool = False,
+) -> dict[str, Any]:
+    safe_content = _optimize_markdown(content)
+    thinking_panel = _build_thinking_panel(
+        thinking=thinking,
+        redacted_thinking_count=redacted_thinking_count,
+        thinking_elapsed_ms=thinking_elapsed_ms,
+    )
+    elements: list[dict[str, Any]] = []
+    if thinking_panel is not None:
+        elements.append(thinking_panel)
+    if safe_content:
+        elements.append(
+            {
+                "tag": "markdown",
+                "content": safe_content,
+                "element_id": "content",
+            }
+        )
+    if not elements:
+        elements.append({"tag": "markdown", "content": " ", "element_id": "content"})
+
+    summary_source = safe_content or _thinking_panel_content(
+        thinking=thinking,
+        redacted_thinking_count=redacted_thinking_count,
+    )
+    summary = ("生成失败: " + _truncate_summary(summary_source, max_length=40)) if error else _truncate_summary(summary_source)
+    return {
+        "schema": "2.0",
+        "config": {
+            "wide_screen_mode": True,
+            "summary": {"content": summary},
+        },
+        "body": {"elements": elements},
     }
 
 
@@ -121,6 +231,9 @@ class FeishuCardKitSender:
         response_route_id: str,
         *,
         content: str,
+        thinking: str = "",
+        redacted_thinking_count: int = 0,
+        thinking_elapsed_ms: int = 0,
         sequence: int,
         error: bool = False,
         emit_id: str,
@@ -131,20 +244,26 @@ class FeishuCardKitSender:
             initial_content=content,
             emit_id=emit_id,
         )
-        safe_content = _optimize_markdown(content)
+        safe_redacted_count = max(0, int(redacted_thinking_count or 0))
+        final_card = _build_final_card(
+            content=content,
+            thinking=thinking,
+            redacted_thinking_count=safe_redacted_count,
+            thinking_elapsed_ms=max(0, int(thinking_elapsed_ms or 0)),
+            error=error,
+        )
         close_sequence = int(sequence)
-        if safe_content:
-            await self._update_stream_content(
-                cardkit_card_id,
-                content=safe_content,
-                sequence=sequence,
-            )
-            close_sequence += 1
-        summary = ("生成失败: " + _truncate_summary(content, max_length=40)) if error else _truncate_summary(content)
+        final_config = dict(final_card.get("config") or {})
+        summary = str(dict(final_config.get("summary") or {}).get("content") or "").strip()
         await self._close_streaming_mode(
             cardkit_card_id,
             sequence=close_sequence,
             summary=summary,
+        )
+        await self._update_card(
+            cardkit_card_id,
+            card=final_card,
+            sequence=close_sequence + 1,
         )
         await save_response_route_patch(response_route_id, {"cardkit_card_id": "", "cardkit_emit_id": ""})
 
@@ -310,6 +429,29 @@ class FeishuCardKitSender:
         if code != 0:
             raise FeishuCardKitError(
                 operation="close_streaming_mode",
+                code=code,
+                payload=payload,
+                cardkit_card_id=cardkit_card_id,
+            )
+
+    async def _update_card(self, cardkit_card_id: str, *, card: dict[str, Any], sequence: int) -> None:
+        payload = await self._request_json(
+            "PUT",
+            f"{FEISHU_API_HOST}/cardkit/v1/cards/{cardkit_card_id}",
+            body={
+                "card": {
+                    "type": _STREAM_CARD_TYPE,
+                    "data": json.dumps(dict(card or {}), ensure_ascii=False),
+                },
+                "sequence": int(sequence),
+                "uuid": f"update_{cardkit_card_id}_{int(sequence)}",
+            },
+            operation="update_card",
+        )
+        code = int(payload.get("code", -1))
+        if code != 0:
+            raise FeishuCardKitError(
+                operation="update_card",
                 code=code,
                 payload=payload,
                 cardkit_card_id=cardkit_card_id,

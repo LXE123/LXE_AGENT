@@ -15,10 +15,10 @@ from agent_runtime.tools.process_sessions import (
     process_exec_session,
 )
 from agent_runtime.turn_handler import handle_unified_turn_job
-from agent_runtime.emit_bus import configure_emit_handler, reset_emit_handlers
+from agent_runtime.emit_bus import configure_emit_handler, emit_stream, reset_emit_handlers
 from gateway.heartbeat_wake import HeartbeatWakeManager
 from shared.agent_io import AgentJob, EmitRequest, HeartbeatWakeRequest
-from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY
+from shared.agent_state import CONTEXT_KEY, MESSAGES_KEY, RUNTIME_KEY, context_state, update_context_state
 from shared.db import client as shared_db_client
 from shared.db.sqlite.agent_sessions import (
     append_agent_session_pending_event,
@@ -139,6 +139,9 @@ def test_route_payloads_use_response_route_id_without_card_id_alias() -> None:
         {
             "session_id": "session-1",
             "response_route_id": "route-1",
+            "content": "answer",
+            "thinking": "plan",
+            "redacted_thinking_count": 1,
             "files": ["artifact.csv"],
             "emit_kind": "tool",
         }
@@ -153,12 +156,17 @@ def test_route_payloads_use_response_route_id_without_card_id_alias() -> None:
 
     assert job.response_route_id == "route-1"
     assert emit.response_route_id == "route-1"
+    assert emit.content == "answer"
+    assert emit.thinking == "plan"
+    assert emit.redacted_thinking_count == 1
     assert heartbeat.response_route_id == "route-1"
     assert "card_id" not in job.to_dict()
     assert "card_id" not in emit.to_dict()
     assert "card_id" not in heartbeat.to_dict()
     assert job.to_dict()["response_route_id"] == "route-1"
     assert emit.to_dict()["response_route_id"] == "route-1"
+    assert emit.to_dict()["thinking"] == "plan"
+    assert emit.to_dict()["redacted_thinking_count"] == 1
     assert heartbeat.to_dict()["response_route_id"] == "route-1"
 
     legacy_job = AgentJob.from_dict(
@@ -234,6 +242,39 @@ def test_send_file_to_current_session_preserves_emit_error(tmp_path):
 
     with pytest.raises(RuntimeError, match="missing response route: route-1"):
         asyncio.run(_run())
+
+
+def test_emit_stream_allows_thinking_without_answer_content() -> None:
+    requests: list[EmitRequest] = []
+
+    async def handler(request: EmitRequest) -> None:
+        requests.append(request)
+
+    async def _run() -> None:
+        configure_emit_handler(handler)
+        try:
+            await emit_stream(
+                session_id="session-1",
+                response_route_id="route-1",
+                stream_type="final_answer",
+                state="delta",
+                seq=1,
+                content="",
+                thinking="plan",
+                redacted_thinking_count=1,
+                thinking_elapsed_ms=3200,
+                emit_id="emit-1",
+            )
+        finally:
+            reset_emit_handlers()
+
+    asyncio.run(_run())
+
+    assert len(requests) == 1
+    assert requests[0].content == ""
+    assert requests[0].thinking == "plan"
+    assert requests[0].redacted_thinking_count == 1
+    assert requests[0].thinking_elapsed_ms == 3200
 
 
 def test_response_route_context_create_patch_delivery_and_touch(sqlite_db):
@@ -483,6 +524,48 @@ def test_session_message_jsonl_create_load_and_update(sqlite_db):
 
     save_session_messages(created.session_id, [{"role": "not-a-role", "content": "ignored"}])
     assert load_session_messages(created.session_id) == []
+
+
+def test_context_state_preserves_assistant_thinking_blocks():
+    assistant_message = {
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": "THINKING_TEXT", "signature": "sig-1"},
+            {"type": "redacted_thinking", "data": "encrypted-data"},
+            {"type": "text", "text": "ANSWER_TEXT"},
+            {
+                "type": "tool_call",
+                "id": "tool-1",
+                "name": "exec",
+                "arguments": {"command": "echo ok"},
+            },
+        ],
+    }
+
+    state = update_context_state({}, {MESSAGES_KEY: [assistant_message]})
+
+    assert context_state(state)[MESSAGES_KEY] == [assistant_message]
+
+
+def test_session_messages_roundtrip_preserves_assistant_thinking_blocks(sqlite_db):
+    created = _create_session("session-thinking", state_data=_state())
+    assistant_message = {
+        "role": "assistant",
+        "content": [
+            {"type": "thinking", "thinking": "分析用户请求", "signature": "sig-1"},
+            {"type": "redacted_thinking", "data": "encrypted-data"},
+            {"type": "text", "text": "已完成。"},
+        ],
+    }
+
+    updated = update_agent_session(
+        created.session_id,
+        state_data_patch={CONTEXT_KEY: {MESSAGES_KEY: [assistant_message]}},
+    )
+
+    assert updated is not None
+    assert updated.state_data[CONTEXT_KEY][MESSAGES_KEY] == [assistant_message]
+    assert load_session_messages(created.session_id) == [assistant_message]
 
 
 def test_agent_session_create_update_and_source(sqlite_db):
