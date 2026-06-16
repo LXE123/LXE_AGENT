@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -234,6 +234,26 @@ type DetailTarget =
   | null;
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
+const MERMAID_LANGUAGE_PATTERN = /\blanguage-mermaid\b/;
+
+type MermaidApi = typeof import("mermaid").default;
+
+let mermaidLoader: Promise<MermaidApi> | null = null;
+
+function loadMermaid(): Promise<MermaidApi> {
+  if (!mermaidLoader) {
+    mermaidLoader = import("mermaid").then((module) => {
+      const mermaid = module.default;
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        theme: "base"
+      });
+      return mermaid;
+    });
+  }
+  return mermaidLoader;
+}
 
 const markdownComponents: Components = {
   a({ href, children, ...props }) {
@@ -247,6 +267,23 @@ const markdownComponents: Components = {
       >
         {children}
       </a>
+    );
+  },
+  pre({ children, ...props }) {
+    const child = React.Children.count(children) === 1 ? React.Children.only(children) : null;
+    if (React.isValidElement<{ className?: string; children?: React.ReactNode }>(child)) {
+      const className = String(child.props.className || "");
+      if (MERMAID_LANGUAGE_PATTERN.test(className)) {
+        return <MermaidBlock chart={String(child.props.children || "").replace(/\n$/, "")} />;
+      }
+    }
+    return <pre {...props}>{children}</pre>;
+  },
+  code({ className, children, ...props }) {
+    return (
+      <code {...props} className={className}>
+        {children}
+      </code>
     );
   }
 };
@@ -476,6 +513,12 @@ function MessageBlock({ block }: { block: unknown }) {
   if (type === "text") {
     return <div className="message-text">{String(block.text || "")}</div>;
   }
+  if (type === "thinking") {
+    return <ThinkingBlock block={block} />;
+  }
+  if (type === "redacted_thinking") {
+    return <RedactedThinkingBlock />;
+  }
   if (type === "tool_use" || type === "tool_call") {
     const input = block.input ?? block.arguments ?? {};
     return (
@@ -510,6 +553,52 @@ function MessageBlock({ block }: { block: unknown }) {
         <span>{type}</span>
       </div>
       <pre className="message-json">{shortText(sanitizeForDisplay(block))}</pre>
+    </div>
+  );
+}
+
+function ThinkingBlock({ block }: { block: Record<string, unknown> }) {
+  const [expanded, setExpanded] = useState(false);
+  const thinking = String(block.thinking || "").trim();
+  const canExpand = Boolean(thinking);
+
+  return (
+    <div className="message-block thinking-block">
+      <button
+        aria-expanded={expanded}
+        className="block-title block-title-split thinking-block-toggle"
+        disabled={!canExpand}
+        onClick={() => setExpanded((value) => !value)}
+        type="button"
+      >
+        <div className="block-title-main">
+          {canExpand ? (
+            <ChevronRight className={expanded ? "thinking-chevron expanded" : "thinking-chevron"} size={14} />
+          ) : null}
+          <Brain size={14} />
+          <span>思考</span>
+        </div>
+        {canExpand ? <span className="muted">{expanded ? "收起" : "展开"}</span> : null}
+      </button>
+      {expanded && canExpand ? (
+        <div className="thinking-block-body">
+          <div className="message-text">{thinking}</div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function RedactedThinkingBlock() {
+  return (
+    <div className="message-block thinking-block redacted">
+      <div className="block-title">
+        <Brain size={14} />
+        <span>思考</span>
+      </div>
+      <div className="thinking-block-body">
+        <div className="muted">部分思考已加密，无法展示</div>
+      </div>
     </div>
   );
 }
@@ -1337,6 +1426,65 @@ function SkillsView({
         );
       })}
     </div>
+  );
+}
+
+function MermaidBlock({ chart }: { chart: string }) {
+  const reactId = useId();
+  const mermaidId = useMemo(
+    () => `skill-mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+    [reactId]
+  );
+  const [svg, setSvg] = useState("");
+  const [error, setError] = useState("");
+  const chartText = chart.trim();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function renderMermaid() {
+      setSvg("");
+      setError("");
+      if (!chartText) {
+        return;
+      }
+      try {
+        const mermaid = await loadMermaid();
+        const result = await mermaid.render(mermaidId, chartText);
+        if (!cancelled) {
+          setSvg(result.svg);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      }
+    }
+
+    renderMermaid();
+    return () => {
+      cancelled = true;
+    };
+  }, [chartText, mermaidId]);
+
+  if (error) {
+    return (
+      <div className="mermaid-block error">
+        <div className="mermaid-block-status error">Mermaid render error: {error}</div>
+        <pre className="mermaid-source-fallback">{chart}</pre>
+      </div>
+    );
+  }
+
+  if (!svg) {
+    return <div className="mermaid-block-status">Rendering Mermaid diagram...</div>;
+  }
+
+  return (
+    <div
+      className="mermaid-block"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
   );
 }
 

@@ -92,6 +92,10 @@ async def _emit_final_answer_stream_frame(
     seq: int,
     content: str,
     emit_id: str,
+    *,
+    thinking: str = "",
+    redacted_thinking_count: int = 0,
+    thinking_elapsed_ms: int = 0,
 ) -> None:
     await default_emit_stream(
         session_id=session_id,
@@ -100,6 +104,9 @@ async def _emit_final_answer_stream_frame(
         state=state,
         seq=seq,
         content=content,
+        thinking=thinking,
+        redacted_thinking_count=redacted_thinking_count,
+        thinking_elapsed_ms=thinking_elapsed_ms,
         emit_id=emit_id,
     )
 
@@ -199,6 +206,10 @@ async def handle_unified_turn_job(
         seq: int,
         content: str,
         emit_id: str,
+        *,
+        thinking: str = "",
+        redacted_thinking_count: int = 0,
+        thinking_elapsed_ms: int = 0,
     ) -> None:
         await emit_stream_fn(
             session_id=session_id,
@@ -207,6 +218,9 @@ async def handle_unified_turn_job(
             state=state,
             seq=seq,
             content=content,
+            thinking=thinking,
+            redacted_thinking_count=redacted_thinking_count,
+            thinking_elapsed_ms=thinking_elapsed_ms,
             emit_id=emit_id,
         )
 
@@ -282,7 +296,7 @@ async def handle_unified_turn_job(
                 user_text=user_text,
                 user_content_blocks=user_content_blocks,
                 on_progress=None,
-                on_final_text_delta=final_answer_streamer.push_delta if final_answer_streamer is not None else None,
+                on_final_stream_event=final_answer_streamer.push_event if final_answer_streamer is not None else None,
                 on_stream_cancel=final_answer_streamer.cancel if final_answer_streamer is not None else None,
                 cancellation_check=cancellation_check,
                 cancel_event=getattr(run_handle, "cancel_event", None),

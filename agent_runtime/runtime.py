@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 
 from shared.permission_policy import allowed_skill_types_for_bot, resolve_bot_id
+from shared.llm.events import LLMStreamEvent
 
 from .loop import run_agent_turn
 from .skill_index import load_skill_index
@@ -14,6 +15,7 @@ from .types import TurnOutcome
 
 ProgressCallback = Callable[[str], Awaitable[None]]
 FinalTextCallback = Callable[[str], Awaitable[None]]
+FinalStreamCallback = Callable[[LLMStreamEvent], Awaitable[None]]
 StreamCancelCallback = Callable[[], Awaitable[None]]
 CancellationCallback = Callable[[], Awaitable[bool]]
 
@@ -34,6 +36,7 @@ async def run_turn(
     response_route_id: str = "",
     on_progress: ProgressCallback | None = None,
     on_final_text_delta: FinalTextCallback | None = None,
+    on_final_stream_event: FinalStreamCallback | None = None,
     on_stream_cancel: StreamCancelCallback | None = None,
     cancellation_check: CancellationCallback | None = None,
     cancel_event: Any = None,
@@ -56,6 +59,7 @@ async def run_turn(
         available_skills=available_skills,
         on_progress=on_progress,
         on_final_text_delta=on_final_text_delta,
+        on_final_stream_event=on_final_stream_event,
         on_stream_cancel=on_stream_cancel,
         cancellation_check=cancellation_check,
         cancel_event=cancel_event,

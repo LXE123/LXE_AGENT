@@ -53,6 +53,7 @@ from .types import (
 
 ProgressCallback = Callable[[str], Awaitable[None]]
 FinalTextCallback = Callable[[str], Awaitable[None]]
+FinalStreamCallback = Callable[[LLMStreamEvent], Awaitable[None]]
 StreamCancelCallback = Callable[[], Awaitable[None]]
 
 MAX_STEPS = 50
@@ -316,6 +317,7 @@ class AgentLoop:
         state_data: dict[str, Any],
         on_progress: ProgressCallback | None = None,
         on_final_text_delta: FinalTextCallback | None = None,
+        on_final_stream_event: FinalStreamCallback | None = None,
         on_stream_cancel: StreamCancelCallback | None = None,
         cancellation_check: Callable[[], Awaitable[bool]] | None = None,
         cancel_event: Any = None,
@@ -328,6 +330,7 @@ class AgentLoop:
         self.state_data = dict(state_data or {})
         self.on_progress = on_progress
         self.on_final_text_delta = on_final_text_delta
+        self.on_final_stream_event = on_final_stream_event
         self.on_stream_cancel = on_stream_cancel
         self.cancellation_check = cancellation_check
         self.cancel_event = cancel_event
@@ -406,7 +409,12 @@ class AgentLoop:
                 result = on_stream_event(event)
                 if hasattr(result, "__await__"):
                     await result
-            if event.event_type not in {"text_delta", "thinking_delta", "redacted_thinking"} or self.on_final_text_delta is None:
+            if event.event_type not in {"text_delta", "thinking_delta", "redacted_thinking"}:
+                return
+            if self.on_final_stream_event is not None:
+                await self.on_final_stream_event(event)
+                return
+            if event.event_type != "text_delta" or self.on_final_text_delta is None:
                 return
             text = str(event.text or "")
             if text:
@@ -951,6 +959,7 @@ async def run_agent_turn(
     available_skills: list[Any] | None = None,
     on_progress: ProgressCallback | None = None,
     on_final_text_delta: FinalTextCallback | None = None,
+    on_final_stream_event: FinalStreamCallback | None = None,
     on_stream_cancel: StreamCancelCallback | None = None,
     cancellation_check: Callable[[], Awaitable[bool]] | None = None,
     cancel_event: Any = None,
@@ -964,6 +973,7 @@ async def run_agent_turn(
         state_data=state_data,
         on_progress=on_progress,
         on_final_text_delta=on_final_text_delta,
+        on_final_stream_event=on_final_stream_event,
         on_stream_cancel=on_stream_cancel,
         cancellation_check=cancellation_check,
         cancel_event=cancel_event,

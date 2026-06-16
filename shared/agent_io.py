@@ -50,6 +50,9 @@ class EmitRequest:
     session_id: str
     response_route_id: str = ""
     content: str = ""
+    thinking: str = ""
+    redacted_thinking_count: int = 0
+    thinking_elapsed_ms: int = 0
     files: list[str] = field(default_factory=list)
     emit_kind: str = ""
     emit_id: str = ""
@@ -68,6 +71,9 @@ class EmitRequest:
             session_id=str(raw.get("session_id") or "").strip(),
             response_route_id=str(raw.get("response_route_id") or "").strip(),
             content=str(raw.get("content") or "").strip(),
+            thinking=str(raw.get("thinking") or "").strip(),
+            redacted_thinking_count=max(0, int(raw.get("redacted_thinking_count") or 0)),
+            thinking_elapsed_ms=max(0, int(raw.get("thinking_elapsed_ms") or 0)),
             files=files,
             emit_kind=str(raw.get("emit_kind") or "").strip(),
             emit_id=str(raw.get("emit_id") or "").strip(),
