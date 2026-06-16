@@ -27,6 +27,7 @@ from services.agent_cli.mabang.restock_workbook import (
     SUMMARY_HEADERS,
     find_merge_detail_sheet,
     find_summary_sheet,
+    summary_column_indexes,
 )
 from services.amazon.amazon_logistic.sources.consignment_excel import (
     find_consignment_excel,
@@ -185,16 +186,6 @@ def _load_workbook(path: str | Path, *, data_only: bool = False):
         raise RuntimeError(f"读取 xlsx 文件失败: {source_path}, error={exc}") from exc
 
 
-def _validate_input_headers(actual_headers: list[str], *, input_path: str | Path, sheet_name: str) -> None:
-    expected = list(INPUT_HEADERS)
-    actual = actual_headers[: len(expected)]
-    if actual != expected:
-        raise ValueError(
-            f"文件 {Path(input_path).name} 的 sheet {sheet_name} 第 1 行表头不匹配，"
-            f"expected={expected}, actual={actual}"
-        )
-
-
 def read_invoice_source_rows(input_xlsx: str | Path) -> list[InvoiceSourceRow]:
     path = Path(input_xlsx).expanduser()
     if not path.is_file():
@@ -203,12 +194,7 @@ def read_invoice_source_rows(input_xlsx: str | Path) -> list[InvoiceSourceRow]:
     workbook = _load_workbook(path, data_only=True)
     try:
         worksheet = find_summary_sheet(workbook, path)
-        headers = [
-            _clean_cell(worksheet.cell(row=1, column=index).value)
-            for index in range(1, len(INPUT_HEADERS) + 1)
-        ]
-        _validate_input_headers(headers, input_path=path, sheet_name=worksheet.title)
-        column_indexes = {header: index + 1 for index, header in enumerate(INPUT_HEADERS)}
+        column_indexes = summary_column_indexes(worksheet, input_path=path, sheet_name=worksheet.title)
 
         rows: list[InvoiceSourceRow] = []
         for row_number in range(2, worksheet.max_row + 1):

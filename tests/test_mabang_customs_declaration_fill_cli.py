@@ -371,6 +371,56 @@ def test_read_source_rows_prefers_named_summary_sheet_over_third_sheet(tmp_path)
     assert rows[0].source_name == "米兰尼斯表带"
 
 
+def test_read_source_rows_does_not_require_supplier_or_purchase_order(tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-备货.xlsx"
+    assert "供货商" not in cli.INPUT_HEADERS
+    assert "采购订单号" not in cli.INPUT_HEADERS
+    _write_input_workbook(
+        input_path,
+        [_valid_source_row(SKU="SKU-SUMMARY")],
+        sheet_count=1,
+        source_sheet_title=cli.SOURCE_WORKSHEET_NAME,
+    )
+
+    rows = cli.read_source_rows(input_path)
+
+    assert len(rows) == 1
+    assert rows[0].source_name == "米兰尼斯表带"
+
+
+def test_read_source_rows_accepts_unordered_summary_headers(tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-备货.xlsx"
+    headers = (
+        "单位",
+        "总价",
+        "售价",
+        "商品名称",
+        "采购总价",
+        "单价",
+        "发货量",
+        "规格型号",
+        "品名",
+        "SKU",
+        "日期",
+    )
+    _write_input_workbook(
+        input_path,
+        [_valid_source_row(SKU="SKU-SUMMARY", 品名="硅胶表带", 规格型号="42MM", 发货量=7, 单价=2.5)],
+        headers=headers,
+        sheet_count=1,
+        source_sheet_title=cli.SOURCE_WORKSHEET_NAME,
+    )
+
+    rows = cli.read_source_rows(input_path)
+
+    assert len(rows) == 1
+    assert rows[0].source_name == "硅胶表带"
+    assert rows[0].model == "42MM"
+    assert rows[0].quantity == 7
+    assert rows[0].sale_price == 5
+    assert rows[0].total_price == 10
+
+
 def test_input_header_mismatch_fails(tmp_path):
     input_path = tmp_path / "4.26-SP260414001-备货.xlsx"
     headers = ("日期", "SKU", "错误列") + cli.INPUT_HEADERS[3:]
@@ -381,7 +431,24 @@ def test_input_header_mismatch_fails(tmp_path):
         source_sheet_title=cli.SOURCE_WORKSHEET_NAME,
     )
 
-    with pytest.raises(ValueError, match="4.26-SP260414001-备货.xlsx.*汇总表.*表头不匹配"):
+    with pytest.raises(ValueError, match="4.26-SP260414001-备货.xlsx.*汇总表.*缺少必需表头: 品名"):
+        cli.read_source_rows(input_path)
+
+
+def test_read_source_rows_rejects_duplicate_required_summary_header(tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-备货.xlsx"
+    headers = ("日期", "SKU", "SKU") + tuple(
+        header for header in cli.INPUT_HEADERS if header not in {"日期", "SKU"}
+    )
+    _write_input_workbook(
+        input_path,
+        [_valid_source_row()],
+        headers=headers,
+        sheet_count=1,
+        source_sheet_title=cli.SOURCE_WORKSHEET_NAME,
+    )
+
+    with pytest.raises(ValueError, match="表头重复: SKU"):
         cli.read_source_rows(input_path)
 
 

@@ -11,8 +11,6 @@ SUMMARY_HEADERS = (
     "规格型号",
     "发货量",
     "单价",
-    "供货商",
-    "采购订单号",
     "采购总价",
     "商品名称",
     "售价",
@@ -36,13 +34,64 @@ def worksheet_headers(worksheet: Any, count: int) -> list[str]:
 def _format_sheet_summaries(workbook: Any, *, header_count: int) -> str:
     summaries: list[str] = []
     for worksheet in workbook.worksheets:
-        headers = worksheet_headers(worksheet, header_count)
+        count = max(header_count, int(getattr(worksheet, "max_column", 0) or 0))
+        headers = worksheet_headers(worksheet, count)
         summaries.append(f"{worksheet.title}: {headers}")
     return "; ".join(summaries)
 
 
 def _workbook_sheet_names(workbook: Any) -> str:
     return ", ".join(str(name) for name in workbook.sheetnames)
+
+
+def _summary_header_set(worksheet: Any) -> set[str]:
+    headers: set[str] = set()
+    max_column = int(getattr(worksheet, "max_column", 0) or 0)
+    for column_index in range(1, max_column + 1):
+        header = clean_cell(worksheet.cell(row=1, column=column_index).value)
+        if header:
+            headers.add(header)
+    return headers
+
+
+def _has_required_summary_headers(worksheet: Any) -> bool:
+    return set(SUMMARY_HEADERS).issubset(_summary_header_set(worksheet))
+
+
+def summary_column_indexes(
+    worksheet: Any,
+    *,
+    input_path: str | Path,
+    sheet_name: str = "",
+) -> dict[str, int]:
+    path = Path(input_path)
+    title = str(sheet_name or getattr(worksheet, "title", "") or "")
+    indexes: dict[str, int] = {}
+    duplicate_headers: list[str] = []
+    max_column = int(getattr(worksheet, "max_column", 0) or 0)
+
+    for column_index in range(1, max_column + 1):
+        header = clean_cell(worksheet.cell(row=1, column=column_index).value)
+        if header not in SUMMARY_HEADERS:
+            continue
+        if header in indexes:
+            duplicate_headers.append(header)
+            continue
+        indexes[header] = column_index
+
+    if duplicate_headers:
+        duplicate_text = ", ".join(dict.fromkeys(duplicate_headers))
+        raise ValueError(
+            f"文件 {path.name} 的 sheet {title} 第 1 行汇总表表头重复: {duplicate_text}"
+        )
+
+    missing = [header for header in SUMMARY_HEADERS if header not in indexes]
+    if missing:
+        raise ValueError(
+            f"文件 {path.name} 的 sheet {title} 汇总表缺少必需表头: {', '.join(missing)}"
+        )
+
+    return indexes
 
 
 def find_summary_sheet(workbook: Any, input_path: str | Path):
@@ -53,7 +102,7 @@ def find_summary_sheet(workbook: Any, input_path: str | Path):
     candidates = [
         worksheet
         for worksheet in workbook.worksheets
-        if worksheet_headers(worksheet, len(SUMMARY_HEADERS)) == list(SUMMARY_HEADERS)
+        if _has_required_summary_headers(worksheet)
     ]
     if len(candidates) == 1:
         return candidates[0]
