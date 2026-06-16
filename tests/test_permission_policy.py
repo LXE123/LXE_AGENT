@@ -28,10 +28,14 @@ from shared.permission_policy import (
     resolve_permission_user_id,
 )
 
+BOT_ID_AMAZON_REPLENISH_GROUP_1_MACHINE_2 = "cli_aaa5e06b1bb81bcb"
+USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER = "on_5b073ea5ba8e6e5bae65c81cdfc849f4"
+
 
 def test_policy_user_access_matrix() -> None:
     replenish_bot_ids = {
         BOT_ID_AMAZON_REPLENISH,
+        BOT_ID_AMAZON_REPLENISH_GROUP_1_MACHINE_2,
         BOT_ID_AMAZON_REPLENISH_GROUP_2,
         BOT_ID_AMAZON_REPLENISH_GROUP_3,
     }
@@ -58,8 +62,37 @@ def test_policy_user_access_matrix() -> None:
         USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
         BOT_ID_AMAZON_REPLENISH_GROUP_3,
     )
+    assert not can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
+        BOT_ID_AMAZON_REPLENISH_GROUP_1_MACHINE_2,
+    )
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_1_MEMBER, BOT_ID_LXE_CLAW)
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_1_MEMBER, BOT_ID_LXE_FBA_AGENT)
+
+    assert can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER,
+        BOT_ID_AMAZON_REPLENISH_GROUP_1_MACHINE_2,
+    )
+    assert not can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER,
+        BOT_ID_AMAZON_REPLENISH,
+    )
+    assert not can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER,
+        BOT_ID_AMAZON_REPLENISH_GROUP_2,
+    )
+    assert not can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER,
+        BOT_ID_AMAZON_REPLENISH_GROUP_3,
+    )
+    assert not can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER,
+        BOT_ID_LXE_CLAW,
+    )
+    assert not can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER,
+        BOT_ID_LXE_FBA_AGENT,
+    )
 
     assert can_user_access_bot(
         USER_AMAZON_REPLENISH_GROUP_2_MEMBER,
@@ -89,6 +122,7 @@ def test_policy_user_access_matrix() -> None:
         BOT_ID_LXE_CLAW,
         BOT_ID_LXE_FBA_AGENT,
         BOT_ID_AMAZON_REPLENISH,
+        BOT_ID_AMAZON_REPLENISH_GROUP_1_MACHINE_2,
         BOT_ID_AMAZON_REPLENISH_GROUP_2,
         BOT_ID_AMAZON_REPLENISH_GROUP_3,
     }:
@@ -100,11 +134,12 @@ def test_policy_user_access_matrix() -> None:
             USER_ZGL,
             USER_ZQY,
             USER_AMAZON_REPLENISH_GROUP_1_MEMBER,
+            USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER,
             USER_AMAZON_REPLENISH_GROUP_2_MEMBER,
             USER_AMAZON_REPLENISH_GROUP_3_MEMBER,
             USER_DEV_GROUP_MEMBER,
         }
-    ) == 7
+    ) == 8
     assert not can_user_access_bot("unknown_union_id", BOT_ID_LXE_FBA_AGENT)
     assert not can_user_access_bot(USER_LYX, "cli_unknown")
     assert not is_known_bot_id("cli_unknown")
@@ -113,6 +148,7 @@ def test_policy_user_access_matrix() -> None:
 def test_policy_skill_type_matrix() -> None:
     replenish_bot_ids = {
         BOT_ID_AMAZON_REPLENISH,
+        BOT_ID_AMAZON_REPLENISH_GROUP_1_MACHINE_2,
         BOT_ID_AMAZON_REPLENISH_GROUP_2,
         BOT_ID_AMAZON_REPLENISH_GROUP_3,
     }
@@ -183,6 +219,7 @@ def test_runtime_filters_available_skills_by_bot() -> None:
 
     for bot_id in {
         BOT_ID_AMAZON_REPLENISH,
+        BOT_ID_AMAZON_REPLENISH_GROUP_1_MACHINE_2,
         BOT_ID_AMAZON_REPLENISH_GROUP_2,
         BOT_ID_AMAZON_REPLENISH_GROUP_3,
     }:
