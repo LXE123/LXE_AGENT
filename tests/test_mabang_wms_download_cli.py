@@ -154,6 +154,7 @@ def test_success_returns_downloaded_excel_path(monkeypatch, tmp_path, capsys):
         "ship_no": "SP260226004",
         "excel_path": str(excel_path),
         "source": "wms",
+        "split_mode": "auto",
         "box_count": 4,
         "split_required": False,
         "split_excel_paths": [],
@@ -248,12 +249,81 @@ def test_cli_success_returns_split_payload(monkeypatch, tmp_path, capsys):
 
     payload = _read_payload(capsys)
     assert exit_code == 0
+    assert payload["split_mode"] == "auto"
     assert payload["box_count"] == 6
     assert payload["split_required"] is True
     assert [Path(path).name for path in payload["split_excel_paths"]] == [
         "SP260226004-1.xlsx",
         "SP260226004-2.xlsx",
     ]
+
+
+def test_cli_auto_split_mode_returns_split_payload(monkeypatch, tmp_path, capsys):
+    excel_path = tmp_path / "SP260226004.xlsx"
+    _write_consignment_excel(excel_path, 6)
+
+    async def fake_download(ship_no: str) -> Path:
+        assert ship_no == "SP260226004"
+        return excel_path
+
+    monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
+
+    exit_code = cli.main(["--ship-no", "SP260226004", "--split-mode", "auto"])
+
+    payload = _read_payload(capsys)
+    assert exit_code == 0
+    assert payload["split_mode"] == "auto"
+    assert payload["box_count"] == 6
+    assert payload["split_required"] is True
+    assert [Path(path).name for path in payload["split_excel_paths"]] == [
+        "SP260226004-1.xlsx",
+        "SP260226004-2.xlsx",
+    ]
+
+
+def test_cli_original_split_mode_skips_split_over_five_boxes(monkeypatch, tmp_path, capsys):
+    excel_path = tmp_path / "SP260226004.xlsx"
+    _write_consignment_excel(excel_path, 6)
+
+    async def fake_download(ship_no: str) -> Path:
+        assert ship_no == "SP260226004"
+        return excel_path
+
+    monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
+
+    exit_code = cli.main(["--ship-no", "SP260226004", "--split-mode", "original"])
+
+    payload = _read_payload(capsys)
+    assert exit_code == 0
+    assert payload["split_mode"] == "original"
+    assert payload["box_count"] == 6
+    assert payload["split_required"] is False
+    assert payload["split_excel_paths"] == []
+    assert payload["split_skipped_reason"] == "用户选择使用原始装箱数据，已跳过超过 5 箱自动拆分。"
+    assert not (tmp_path / "SP260226004-1.xlsx").exists()
+    assert not (tmp_path / "SP260226004-2.xlsx").exists()
+
+
+def test_cli_original_split_mode_without_over_limit_has_no_skip_reason(monkeypatch, tmp_path, capsys):
+    excel_path = tmp_path / "SP260226004.xlsx"
+    _write_consignment_excel(excel_path, 4)
+
+    async def fake_download(ship_no: str) -> Path:
+        assert ship_no == "SP260226004"
+        return excel_path
+
+    monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
+
+    exit_code = cli.main(["--ship-no", "SP260226004", "--split-mode", "original"])
+
+    payload = _read_payload(capsys)
+    assert exit_code == 0
+    assert payload["split_mode"] == "original"
+    assert payload["box_count"] == 4
+    assert payload["split_required"] is False
+    assert payload["split_excel_paths"] == []
+    assert "split_skipped_reason" not in payload
+    assert not (tmp_path / "SP260226004-1.xlsx").exists()
 
 
 def _assert_split_file(path: Path, *, expected_box_count: int) -> None:
