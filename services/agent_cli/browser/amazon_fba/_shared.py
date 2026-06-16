@@ -3,6 +3,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
+import shutil
+from pathlib import Path
 from typing import Any, Callable
 
 from services.agent_cli._shared.browser_session import browser_session
@@ -16,11 +19,11 @@ from services.browser.workflows.amazon_fba_common import selected_store as _sele
 from services.browser.workflows.amazon_fba_common import workflow_output_dir as _workflow_output_dir
 from shared.infra.net import close_all_network_clients
 from shared.logging import logger
-from shared.runtime_core.utils import send_file_to_current_session
 
 
 FixedFlowRunner = Callable[..., dict[str, Any]]
-_FBA_CLI_EMIT_CONFIGURED = False
+_PROJECT_ROOT = Path(__file__).resolve().parents[4]
+_ATTACHMENTS_ROOT = _PROJECT_ROOT / "artifacts" / "amazon_fba" / "attachments"
 
 
 def build_parser(prog: str) -> argparse.ArgumentParser:
@@ -99,13 +102,6 @@ def normalize_result(
     )
 
 
-def ensure_emit_configured_for_fba_cli() -> None:
-    global _FBA_CLI_EMIT_CONFIGURED
-    if _FBA_CLI_EMIT_CONFIGURED:
-        return
-    _FBA_CLI_EMIT_CONFIGURED = True
-
-
 def finalize_fba_cli_process() -> None:
     try:
         asyncio.run(close_all_network_clients())
@@ -113,51 +109,84 @@ def finalize_fba_cli_process() -> None:
         logger.warning("[FBA CLI] close_all_network_clients failed: %s", exc, exc_info=True)
 
 
-def send_selected_result_files(
+def _safe_path_segment(value: object, fallback: str) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "_", text)
+    text = re.sub(r"\s+", "_", text).strip("._ ")
+    return text or str(fallback or "unknown").strip() or "unknown"
+
+
+def _resolve_attachment_source(path: str) -> Path:
+    source = Path(str(path or "").strip()).expanduser()
+    if not source.is_absolute():
+        source = _PROJECT_ROOT / source
+    return source.resolve()
+
+
+def _relative_workspace_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(_PROJECT_ROOT).as_posix()
+    except Exception:
+        return str(path.resolve())
+
+
+def archive_selected_result_files(
     payload: dict[str, Any] | None,
     *,
     allowed_keys: tuple[str, ...],
+    stage: str,
 ) -> dict[str, Any]:
     safe_payload = dict(payload or {})
     file_entries = list(safe_payload.get("file_path") or [])
     allowed = {str(key or "").strip() for key in allowed_keys if str(key or "").strip()}
-    file_paths = [
-        str(dict(item or {}).get("value") or "").strip()
+    selected_entries = [
+        dict(item or {})
         for item in file_entries
         if str(dict(item or {}).get("key") or "").strip() in allowed
         and str(dict(item or {}).get("value") or "").strip()
     ]
-
-    if not file_paths:
+    if not selected_entries:
+        safe_payload["file_path"] = []
         return safe_payload
 
-    ensure_emit_configured_for_fba_cli()
-    session_id = resolve_agent_session_id()
-    if not session_id:
-        return safe_payload
-    response_route_id = resolve_response_route_id()
+    context = dict(safe_payload.get("context") or {})
+    consignment_no = _safe_path_segment(context.get("consignment_no"), "unknown")
+    stage_name = _safe_path_segment(stage, "unknown")
+    target_dir = _ATTACHMENTS_ROOT / consignment_no / stage_name
+    archived_entries: list[dict[str, str]] = []
+    failed_files: list[str] = []
 
-    async def _send_all() -> list[str]:
-        failed: list[str] = []
-        for path in file_paths:
-            try:
-                await send_file_to_current_session(
-                    session_id,
-                    path,
-                    response_route_id=response_route_id,
-                )
-            except Exception as exc:
-                failed.append(f"{path} ({exception_text(exc)})")
-        return failed
+    for entry in selected_entries:
+        key = str(entry.get("key") or "").strip()
+        raw_path = str(entry.get("value") or "").strip()
+        try:
+            source_path = _resolve_attachment_source(raw_path)
+            if not source_path.is_file():
+                raise FileNotFoundError(f"file path missing: {source_path}")
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target_name = _safe_path_segment(f"{key}_{source_path.name}", f"{key}_attachment")
+            target_path = target_dir / target_name
+            if source_path != target_path.resolve():
+                shutil.copy2(source_path, target_path)
+            archived_entries.append({"key": key, "value": _relative_workspace_path(target_path)})
+        except Exception as exc:
+            failed_files.append(f"{raw_path} ({exception_text(exc)})")
 
-    failed_files = asyncio.run(_send_all())
-    if not failed_files:
-        return safe_payload
-
-    notice = str(safe_payload.get("notice") or "").strip()
-    failure_notice = f"文件已生成，但发送到群里失败：{'; '.join(failed_files)}"
-    safe_payload["notice"] = f"{notice}；{failure_notice}" if notice else failure_notice
+    safe_payload["file_path"] = archived_entries
+    if failed_files:
+        notice = str(safe_payload.get("notice") or "").strip()
+        failure_notice = f"文件已生成记录存在，但归档附件失败：{'; '.join(failed_files)}"
+        safe_payload["notice"] = f"{notice}；{failure_notice}" if notice else failure_notice
     return safe_payload
+
+
+def send_selected_result_files(
+    payload: dict[str, Any] | None,
+    *,
+    allowed_keys: tuple[str, ...],
+    stage: str = "unknown",
+) -> dict[str, Any]:
+    return archive_selected_result_files(payload, allowed_keys=allowed_keys, stage=stage)
 
 
 def run_direct_fba_workflow(
@@ -226,7 +255,7 @@ __all__ = [
     "not_ready_result",
     "result_with_details",
     "run_direct_fba_workflow",
-    "ensure_emit_configured_for_fba_cli",
+    "archive_selected_result_files",
     "send_selected_result_files",
     "validate_args",
 ]

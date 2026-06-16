@@ -118,7 +118,9 @@ uv run --frozen python -m services.agent_cli.browser.amazon_fba.enter_tracking_c
 | `params_ready=true` + `finished=true` + `notice=""` | 固定流程已完成，页面无上传失败提示 |
 | `params_ready=true` + `finished=true` + `notice!=""` | 脚本已跑完，`notice` 是阶段提示或页面返回文本；只读原文，不要自行解释 |
 
-- `file_path` 是 CLI 返回的真实本地路径数组，每项只有 `key` 和 `value`，不要猜路径。除非用户要求，否则不要输出这个。
+- `file_path` 是 CLI 返回的可发送附件路径数组，每项只有 `key` 和 `value`；`value` 已经位于 workspace `artifacts/` 下，不要猜路径、不要改路径。
+- CLI 成功后，如果 `file_path` 非空，必须逐个调用 `send_file(path="<file_path.value>")` 工具发送这些附件。
+- 如果 `send_file` 失败，只汇报对应路径和工具错误，不重跑 CLI，不重跑当前阶段，不进入其它补救流程。
 - `context` 是 CLI 固定回传的业务上下文，始终包含(只用来保证长任务中不会丢失业务字段，除非用户要求，否则不要输出这个)：
   - `store_id`
   - `store_name`
@@ -128,5 +130,4 @@ uv run --frozen python -m services.agent_cli.browser.amazon_fba.enter_tracking_c
 - 后续步骤需要这些业务字段时，优先读最新 CLI 结果里的 `context`，不要靠长对话记忆。
 
 ---
-
 

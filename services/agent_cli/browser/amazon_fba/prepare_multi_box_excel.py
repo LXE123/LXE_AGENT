@@ -5,12 +5,12 @@ from typing import Any, Callable
 from services.agent_cli._shared.context_json import context_payload, merge_context_payloads
 from services.agent_cli._shared.json_output import configure_utf8_stdio, write_result_event
 from services.agent_cli.browser.amazon_fba._shared import (
+    archive_selected_result_files,
     build_parser,
     exception_text,
     finalize_fba_cli_process,
     not_ready_result,
     run_direct_fba_workflow,
-    send_selected_result_files,
     validate_args,
 )
 from services.browser.workflows.amazon_fba_prepare_multi_box_excel import run_prepare_multi_box_excel_workflow
@@ -51,9 +51,10 @@ def main(argv: list[str] | None = None) -> int:
             context=context,
             timeout_sec=timeout_sec,
         )
-        payload = send_selected_result_files(
+        payload = archive_selected_result_files(
             payload,
             allowed_keys=("step2_filled",),
+            stage="prepare_multi_box_excel",
         )
         write_result_event(payload)
         return 0 if bool(payload.get("finished")) else 1
