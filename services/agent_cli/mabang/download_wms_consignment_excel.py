@@ -15,6 +15,9 @@ from shared.infra.net import close_all_network_clients
 PREFERRED_SHEET_NAME = "FBA装箱任务"
 BOX_SPLIT_SIZE = 5
 BOX_COLUMN_ALIASES = ("箱子编号", "箱序号", "箱号", "Box No", "Box Number")
+SPLIT_MODE_AUTO = "auto"
+SPLIT_MODE_ORIGINAL = "original"
+SPLIT_MODES = (SPLIT_MODE_AUTO, SPLIT_MODE_ORIGINAL)
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -84,11 +87,16 @@ def _select_sheet_name(sheet_names: list[str]) -> str:
     return str(sheet_names[0])
 
 
-def split_consignment_excel_by_box(excel_path: str | Path, *, box_limit: int = BOX_SPLIT_SIZE) -> dict[str, Any]:
+def split_consignment_excel_by_box(
+    excel_path: str | Path,
+    *,
+    box_limit: int = BOX_SPLIT_SIZE,
+    split_enabled: bool = True,
+) -> dict[str, Any]:
     try:
         import pandas as pd
     except Exception as exc:
-        raise RuntimeError("缺少 pandas 依赖，无法拆分 WMS 装箱 Excel") from exc
+        raise RuntimeError("缺少 pandas 依赖，无法处理 WMS 装箱 Excel") from exc
 
     source_path = Path(excel_path).expanduser()
     if not source_path.is_absolute():
@@ -126,7 +134,7 @@ def split_consignment_excel_by_box(excel_path: str | Path, *, box_limit: int = B
     box_count = len(ordered_boxes)
     if box_count <= 0:
         raise RuntimeError(f"WMS 装箱 Excel 未解析到有效箱号: {source_path.name}")
-    if box_count <= int(box_limit):
+    if not bool(split_enabled) or box_count <= int(box_limit):
         return {
             "box_count": box_count,
             "split_required": False,
@@ -161,6 +169,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="python -m services.agent_cli.mabang.download_wms_consignment_excel"
     )
     parser.add_argument("--ship-no", default="")
+    parser.add_argument("--split-mode", choices=SPLIT_MODES, default=SPLIT_MODE_AUTO)
     return parser
 
 
@@ -170,14 +179,23 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("ship_no 不能为空")
     if not ship_no.startswith("SP"):
         raise ValueError(f"ship_no 格式无效: {ship_no}")
+    split_mode = str(getattr(args, "split_mode", SPLIT_MODE_AUTO) or SPLIT_MODE_AUTO).strip().lower()
+    if split_mode not in SPLIT_MODES:
+        raise ValueError(f"split_mode 格式无效: {split_mode}")
 
     excel_path = await download_consignment_excel_from_wms(ship_no)
-    split_payload = split_consignment_excel_by_box(excel_path)
+    split_payload = split_consignment_excel_by_box(
+        excel_path,
+        split_enabled=split_mode != SPLIT_MODE_ORIGINAL,
+    )
+    if split_mode == SPLIT_MODE_ORIGINAL and int(split_payload.get("box_count") or 0) > BOX_SPLIT_SIZE:
+        split_payload["split_skipped_reason"] = "用户选择使用原始装箱数据，已跳过超过 5 箱自动拆分。"
     return {
         "success": True,
         "ship_no": ship_no,
         "excel_path": str(Path(excel_path)),
         "source": "wms",
+        "split_mode": split_mode,
         **split_payload,
     }
 
