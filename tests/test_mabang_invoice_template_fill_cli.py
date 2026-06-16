@@ -29,6 +29,7 @@ def _write_input_workbook(
     *,
     sheet_count: int = 3,
     merge_rows: list[dict[str, object]] | None = None,
+    summary_headers: tuple[str, ...] = cli.INPUT_HEADERS,
 ) -> None:
     from openpyxl import Workbook
 
@@ -53,9 +54,9 @@ def _write_input_workbook(
     if sheet_count >= 3:
         worksheet = workbook.worksheets[2]
         worksheet.title = "汇总表"
-        worksheet.append(list(cli.INPUT_HEADERS))
+        worksheet.append(list(summary_headers))
         for row in rows:
-            worksheet.append([row.get(header, "") for header in cli.INPUT_HEADERS])
+            worksheet.append([row.get(header, "") for header in summary_headers])
     workbook.save(path)
 
 
@@ -220,6 +221,69 @@ def test_read_invoice_source_rows_accepts_summary_sheet_in_any_position(tmp_path
 
     assert len(rows) == 1
     assert rows[0].sku == "SKU-A"
+
+
+def test_read_invoice_source_rows_does_not_require_supplier_or_purchase_order(tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国.xlsx"
+    assert "供货商" not in cli.INPUT_HEADERS
+    assert "采购订单号" not in cli.INPUT_HEADERS
+    _write_input_workbook(input_path, [_valid_source_row(SKU="SKU-A")])
+
+    rows = cli.read_invoice_source_rows(input_path)
+
+    assert len(rows) == 1
+    assert rows[0].sku == "SKU-A"
+
+
+def test_read_invoice_source_rows_accepts_unordered_summary_headers(tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国.xlsx"
+    headers = (
+        "总价",
+        "单位",
+        "日期",
+        "SKU",
+        "商品名称",
+        "售价",
+        "采购总价",
+        "单价",
+        "品名",
+        "发货量",
+        "规格型号",
+    )
+    _write_input_workbook(
+        input_path,
+        [_valid_source_row(SKU="SKU-A", 品名="硅胶表带", 规格型号="42MM", 发货量=7, 单价=2.5)],
+        summary_headers=headers,
+    )
+
+    rows = cli.read_invoice_source_rows(input_path)
+
+    assert len(rows) == 1
+    assert rows[0].sku == "SKU-A"
+    assert rows[0].source_name == "硅胶表带"
+    assert rows[0].model == "42MM"
+    assert rows[0].quantity == 7
+    assert rows[0].purchase_price == 2.5
+
+
+def test_read_invoice_source_rows_requires_non_ignored_summary_headers(tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国.xlsx"
+    headers = tuple(header for header in cli.INPUT_HEADERS if header != "SKU")
+    _write_input_workbook(input_path, [_valid_source_row()], summary_headers=headers)
+
+    with pytest.raises(ValueError, match="缺少必需表头: SKU"):
+        cli.read_invoice_source_rows(input_path)
+
+
+def test_read_invoice_source_rows_rejects_duplicate_required_summary_header(tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国.xlsx"
+    headers = ("日期", "SKU", "SKU") + tuple(
+        header for header in cli.INPUT_HEADERS if header not in {"日期", "SKU"}
+    )
+    _write_input_workbook(input_path, [_valid_source_row()], summary_headers=headers)
+
+    with pytest.raises(ValueError, match="表头重复: SKU"):
+        cli.read_invoice_source_rows(input_path)
 
 
 def test_read_stock_sku_merge_infos_accepts_merge_detail_sheet_in_any_position(tmp_path):
