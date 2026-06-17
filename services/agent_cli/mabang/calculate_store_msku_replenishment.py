@@ -31,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--store-name", default="")
     parser.add_argument("--template", default="")
     parser.add_argument("--unlinked-shipments-snapshot", default="")
+    parser.add_argument("--amazon-inventory-snapshot", default="")
     return parser
 
 
@@ -42,10 +43,12 @@ def main(argv: list[str] | None = None) -> int:
         store_name = str(getattr(args, "store_name", "") or "").strip()
         template_name = str(getattr(args, "template", "") or "").strip()
         unlinked_snapshot = str(getattr(args, "unlinked_shipments_snapshot", "") or "").strip()
+        amazon_inventory_snapshot = str(getattr(args, "amazon_inventory_snapshot", "") or "").strip()
         result = calculate_store_msku_replenishment(
             store_name,
             template_name=template_name or None,
             unlinked_shipments_snapshot_path=unlinked_snapshot or None,
+            amazon_inventory_snapshot_path=amazon_inventory_snapshot or None,
         )
         payload = result.to_payload()
     except Exception as exc:

@@ -16,9 +16,11 @@ flowchart TD
   B --> C["replenishment-sales-analyze<br/>生成销量分析"]
   B --> D["replenishment-real-inventory-report<br/>生成真实库存"]
   A --> E["replenishment-unlinked-shipment-download<br/>下载未关联货件并生成快照"]
+  B --> H["replenishment-amazon-inventory-snapshot<br/>解析 Amazon 后台库存快照"]
   C --> F["replenishment-calculate<br/>计算备货建议"]
   D --> F
   E --> F
+  H --> F
   G["replenishment-template-manage<br/>管理算法模板"] --> F
 ```
 
@@ -31,7 +33,8 @@ flowchart TD
 | 3 | `replenishment-sales-analyze` | Provides sales analysis report for calculation |
 | 4 | `replenishment-real-inventory-report` | Provides real inventory report for calculation |
 | 5 | `replenishment-unlinked-shipment-download` | Provides same-day unlinked shipment snapshot for optional deduction |
-| 6 | `replenishment-calculate` | Generates final replenishment recommendation workbook |
+| 6 | `replenishment-amazon-inventory-snapshot` | Optional: provides Amazon backend FBA inventory comparison snapshot |
+| 7 | `replenishment-calculate` | Generates final replenishment recommendation workbook |
 
 `replenishment-template-manage` is the parameter-side workflow. Use it when the user wants to view, export, validate, import, replace, rename, or choose replenishment algorithm templates.
 
@@ -44,6 +47,7 @@ flowchart TD
 | "生成销量分析 / 看链接或 ASIN 销量趋势" | `replenishment-sales-analyze` |
 | "查真实库存 / 备货前补库存数据" | `replenishment-real-inventory-report` |
 | "下载未关联货件 / 生成未关联货件快照" | `replenishment-unlinked-shipment-download` |
+| "解析 Amazon 后台库存 CSV / 使用亚马逊后台 FBA 库存" | `replenishment-amazon-inventory-snapshot` |
 | "看算法参数 / 新建或修改模板 / 用哪个模板" | `replenishment-template-manage` |
 | "计算备货量 / 生成备货建议 / 链接备货汇总" | `replenishment-calculate` |
 
@@ -56,6 +60,7 @@ flowchart TD
 | Missing sales analysis report | `replenishment-sales-analyze` |
 | Missing real inventory report | `replenishment-real-inventory-report` |
 | Calculation warns that same-day unlinked shipment snapshot is missing | `replenishment-unlinked-shipment-download`, then rerun `replenishment-calculate` |
+| User wants Amazon backend inventory comparison fields | `replenishment-amazon-inventory-snapshot`, then rerun `replenishment-calculate` with the snapshot path |
 | User wants a non-default algorithm | `replenishment-template-manage`, then rerun `replenishment-calculate` with that template |
 
 ## Answering Rules
