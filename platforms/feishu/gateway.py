@@ -33,6 +33,7 @@ from .media_sender import FeishuMediaSender
 from .api_client import api_client
 from .history_formatter import format_message_list
 from .message_parser import is_bot_mentioned, parse_message_payload_async, strip_bot_mention
+from .typing_indicator import FeishuTypingIndicator
 
 
 _RECOVERABLE_CARDKIT_ERROR_CODE = 200850
@@ -301,6 +302,7 @@ class FeishuStreamAdapter:
         self._card_sender = FeishuCardSender()
         self._cardkit_sender = FeishuCardKitSender()
         self._media_sender = FeishuMediaSender()
+        self._typing_indicator = FeishuTypingIndicator()
         self._stream_state: dict[str, _StreamWriterState] = {}
         self._stream_locks: dict[str, asyncio.Lock] = {}
         self._seen_message_ids: dict[str, float] = {}
@@ -424,6 +426,13 @@ class FeishuStreamAdapter:
         )
         if request.action == "stream_message":
             await self._handle_stream_message(request, route_ctx)
+            return
+        if request.action == "typing_indicator":
+            await self._typing_indicator.handle(
+                route_ctx,
+                request.response_route_id,
+                operation=str(request.payload.get("operation") or "").strip(),
+            )
             return
         if request.action == "send_message":
             card_params = dict(request.payload.get("card_params") or {})

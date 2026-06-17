@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import uuid4
+
 from shared.agent_io import EmitRequest
 from shared.db.client import load_agent_session, load_response_route_context
 from shared.logging import logger
@@ -105,6 +107,60 @@ class GatewayEmitter:
                 emit_id=str(emit_id or "").strip(),
             )
         )
+
+    async def emit_typing_indicator(
+        self,
+        *,
+        session_id: str,
+        response_route_id: str,
+        operation: str,
+        emit_id: str = "",
+    ) -> None:
+        safe_session_id = str(session_id or "").strip()
+        safe_response_route_id = str(response_route_id or "").strip()
+        safe_operation = str(operation or "").strip()
+        if safe_operation not in {"start", "stop"}:
+            raise RuntimeError(f"unsupported typing indicator operation: {safe_operation or '<empty>'}")
+        if not safe_session_id or not safe_response_route_id:
+            return
+
+        session = await load_agent_session(safe_session_id)
+        if session is None:
+            raise RuntimeError(f"agent session not found: {safe_session_id}")
+        route_ctx = await load_response_route_context(safe_response_route_id)
+        if route_ctx is None:
+            logger.warning(
+                "[GatewayEmitter] skip typing indicator without response route: session_id=%s response_route_id=%s",
+                safe_session_id,
+                safe_response_route_id,
+            )
+            return
+        source = dict(getattr(session, "source", {}) or {})
+        platform = str(route_ctx.platform or "").strip() or str(source.get("platform") or "").strip()
+        if platform != "feishu":
+            logger.info(
+                "[GatewayEmitter] skip typing indicator for non-feishu platform: session_id=%s response_route_id=%s platform=%s",
+                safe_session_id,
+                safe_response_route_id,
+                platform or "<empty>",
+            )
+            return
+
+        logger.info(
+            "[GatewayEmitter] typing_indicator: session_id=%s response_route_id=%s operation=%s",
+            safe_session_id,
+            safe_response_route_id,
+            safe_operation,
+        )
+        request = OutboundRequest(
+            action="typing_indicator",
+            platform=platform,
+            payload={"operation": safe_operation},
+            session_id=safe_session_id,
+            response_route_id=safe_response_route_id,
+            event_id=str(emit_id or "").strip() or uuid4().hex,
+        )
+        await self._registry.get(platform).handle_outbound(request)
 
     async def _send_stream_message(
         self,

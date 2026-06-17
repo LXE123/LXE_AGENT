@@ -99,6 +99,7 @@ class GatewayApp:
             run_handle=run_handle,
             emit_final=self._emitter.emit_final,
             emit_stream=self._emitter.emit_stream,
+            emit_typing_indicator=self._emitter.emit_typing_indicator,
         )
 
     @classmethod
