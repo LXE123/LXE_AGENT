@@ -42,6 +42,7 @@ from agent_runtime.types import (
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS_ROOT = WORKSPACE_ROOT / "artifacts"
+SKILLS_ROOT = WORKSPACE_ROOT / "skills"
 
 _SKIP_DIRS = frozenset({
     ".git", "node_modules", "__pycache__", ".venv", "venv",
@@ -114,6 +115,29 @@ def _safe_resolve_artifact(raw: str) -> Path:
     if not resolved.is_relative_to(ARTIFACTS_ROOT):
         raise PermissionError(f"路径越界: {resolved} 不在 {ARTIFACTS_ROOT} 内")
     return resolved
+
+
+def _is_skill_asset_path(resolved: Path) -> bool:
+    try:
+        relative = resolved.relative_to(SKILLS_ROOT)
+    except ValueError:
+        return False
+
+    parts = relative.parts
+    if len(parts) < 3 or parts[1] != "assets":
+        return False
+
+    asset_root = (SKILLS_ROOT / parts[0] / "assets").resolve()
+    return resolved.is_relative_to(asset_root)
+
+
+def _safe_resolve_sendable_file(raw: str) -> Path:
+    resolved = _safe_resolve(raw)
+    if resolved.is_relative_to(ARTIFACTS_ROOT):
+        return resolved
+    if _is_skill_asset_path(resolved):
+        return resolved
+    raise PermissionError(f"路径越界: {resolved} 不在 {ARTIFACTS_ROOT} 或 {SKILLS_ROOT}/*/assets 内")
 
 
 def _truncate(text: str, limit: int = _MAX_OUTPUT) -> str:
@@ -735,7 +759,7 @@ async def _handle_ls(path: str = "", **_: Any) -> ToolResult:
 
 async def _handle_send_file(path: str = "", **_: Any) -> ToolResult:
     try:
-        resolved = _safe_resolve_artifact(path)
+        resolved = _safe_resolve_sendable_file(path)
     except (ValueError, PermissionError) as e:
         _tool_error(str(e))
 
@@ -1083,16 +1107,17 @@ CODING_LS = ToolDefinition(
 CODING_SEND_FILE = ToolDefinition(
     name="send_file",
     description=(
-        "Send an existing local file from the artifacts directory under the project root (workspace) "
-        "to the current user in the current session. Supports images and regular files. Use this only "
-        "after the file already exists; it does not read or modify the file."
+        "Send an existing local file from the artifacts directory or a skill assets directory under "
+        "the project root (workspace) to the current user in the current session. Supports images "
+        "and regular files. Use this only after the file already exists; it does not read or modify "
+        "the file."
     ),
     parameters={
         "type": "object",
         "properties": {
             "path": {
                 "type": "string",
-                "description": "File path to send, relative to the project root (workspace) or absolute inside its artifacts directory only",
+                "description": "File path to send, relative to the project root (workspace) or absolute inside artifacts/ or skills/<skill-name>/assets/",
             },
         },
         "required": ["path"],
