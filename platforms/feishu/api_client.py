@@ -132,6 +132,35 @@ class FeishuApiClient:
         )
         return list(data.get("items") or [])
 
+    async def add_message_reaction(self, message_id: str, emoji_type: str) -> str:
+        safe_message_id = str(message_id or "").strip()
+        safe_emoji_type = str(emoji_type or "").strip()
+        if not safe_message_id:
+            raise RuntimeError("message_id is required")
+        if not safe_emoji_type:
+            raise RuntimeError("emoji_type is required")
+        data = await self._request(
+            "POST",
+            f"/im/v1/messages/{safe_message_id}/reactions",
+            json_data={"reaction_type": {"emoji_type": safe_emoji_type}},
+        )
+        reaction_id = str(data.get("reaction_id") or "").strip()
+        if not reaction_id:
+            raise RuntimeError("Feishu add_message_reaction missing reaction_id")
+        return reaction_id
+
+    async def delete_message_reaction(self, message_id: str, reaction_id: str) -> None:
+        safe_message_id = str(message_id or "").strip()
+        safe_reaction_id = str(reaction_id or "").strip()
+        if not safe_message_id:
+            raise RuntimeError("message_id is required")
+        if not safe_reaction_id:
+            raise RuntimeError("reaction_id is required")
+        await self._request(
+            "DELETE",
+            f"/im/v1/messages/{safe_message_id}/reactions/{safe_reaction_id}",
+        )
+
     async def list_chat_members(self, chat_id: str) -> list[dict[str, Any]]:
         safe_chat_id = str(chat_id or "").strip()
         page_token = ""

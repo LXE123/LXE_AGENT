@@ -22,6 +22,7 @@ from .types import TurnOutcome
 
 FinalEmitter = Callable[..., Awaitable[None]]
 StreamEmitter = Callable[..., Awaitable[None]]
+TypingIndicatorEmitter = Callable[..., Awaitable[None]]
 
 
 def _sanitize_system_prefixed_text(text: str) -> str:
@@ -69,6 +70,43 @@ def _prepend_system_events_to_blocks(
 def _should_stream_final_answer(session: Any) -> bool:
     source = dict(getattr(session, "source", {}) or {})
     return str(source.get("platform") or "").strip() == "feishu"
+
+
+def _should_emit_typing_indicator(
+    session: Any,
+    *,
+    job_kind: str,
+    raw_data: dict[str, Any],
+    response_route_id: str,
+) -> bool:
+    if str(job_kind or "").strip() != "turn":
+        return False
+    if not str(response_route_id or "").strip():
+        return False
+    if bool(raw_data.get("skip_typing")):
+        return False
+    source = dict(getattr(session, "source", {}) or {})
+    return str(source.get("platform") or "").strip() == "feishu"
+
+
+async def _emit_typing_indicator_best_effort(
+    emit_typing_indicator_fn: TypingIndicatorEmitter | None,
+    *,
+    session_id: str,
+    response_route_id: str,
+    operation: str,
+) -> None:
+    if emit_typing_indicator_fn is None:
+        return
+    try:
+        await emit_typing_indicator_fn(
+            session_id=session_id,
+            response_route_id=response_route_id,
+            operation=operation,
+            emit_id=uuid4().hex,
+        )
+    except Exception as exc:
+        logger.warning("[TurnHandler] typing indicator %s failed: %s", operation, exc)
 
 
 async def _turn_cancel_requested(session_id: str, job_id: str) -> bool:
@@ -181,6 +219,7 @@ async def handle_unified_turn_job(
     run_handle: Any = None,
     emit_final: FinalEmitter | None = None,
     emit_stream: StreamEmitter | None = None,
+    emit_typing_indicator: TypingIndicatorEmitter | None = None,
 ) -> Any:
     payload = _payload_from_job(job)
     session_id = str(payload.get("session_id") or "").strip()
@@ -203,6 +242,12 @@ async def handle_unified_turn_job(
 
     emit_final_fn = emit_final or default_emit_final
     emit_stream_fn = emit_stream or default_emit_stream
+    should_emit_typing_indicator = _should_emit_typing_indicator(
+        session,
+        job_kind=job_kind,
+        raw_data=raw_data,
+        response_route_id=response_route_id,
+    )
 
     async def _emit_stream_frame(
         session_id: str,
@@ -272,144 +317,163 @@ async def handle_unified_turn_job(
             return True
         return await _turn_cancel_requested(session_id, job_id)
 
-    if job_kind == "heartbeat":
-        heartbeat_reason = str(raw_data.get("heartbeat_reason") or "").strip() or "exec-event"
-        logger.info(
-            "[ExecNotify] heartbeat start: owner_session_id=%s job_id=%s heartbeat_reason=%s",
-            session_id,
-            job_id,
-            heartbeat_reason,
+    typing_indicator_started = False
+    if should_emit_typing_indicator and emit_typing_indicator is not None:
+        await _emit_typing_indicator_best_effort(
+            emit_typing_indicator,
+            session_id=session_id,
+            response_route_id=response_route_id,
+            operation="start",
         )
-        pending_events = _normalize_system_events(await pop_agent_session_pending_events(session_id))
-        logger.info(
-            "[ExecNotify] heartbeat popped events: owner_session_id=%s job_id=%s count=%s",
-            session_id,
-            job_id,
-            len(pending_events),
-        )
-        if not pending_events:
-            logger.info("[ExecNotify] heartbeat noop: owner_session_id=%s job_id=%s", session_id, job_id)
-            await update_agent_session(session_id)
+        typing_indicator_started = True
+
+    try:
+        if job_kind == "heartbeat":
+            heartbeat_reason = str(raw_data.get("heartbeat_reason") or "").strip() or "exec-event"
+            logger.info(
+                "[ExecNotify] heartbeat start: owner_session_id=%s job_id=%s heartbeat_reason=%s",
+                session_id,
+                job_id,
+                heartbeat_reason,
+            )
+            pending_events = _normalize_system_events(await pop_agent_session_pending_events(session_id))
+            logger.info(
+                "[ExecNotify] heartbeat popped events: owner_session_id=%s job_id=%s count=%s",
+                session_id,
+                job_id,
+                len(pending_events),
+            )
+            if not pending_events:
+                logger.info("[ExecNotify] heartbeat noop: owner_session_id=%s job_id=%s", session_id, job_id)
+                await update_agent_session(session_id)
+                return job_handled()
+            formatted_events = _format_system_events(pending_events)
+            heartbeat_prompt = (
+                f"{formatted_events}\n\n"
+                "System: 以上是后台任务完成事件。请只处理这些事件的结果，将执行状态简洁告知用户。"
+                "不要主动读取聊天记录、群消息或调用与上述事件无关的工具。"
+            ).strip()
+            logger.info(
+                "[ExecNotify] heartbeat prompt ready: owner_session_id=%s job_id=%s event_count=%s prompt_chars=%s",
+                session_id,
+                job_id,
+                len(pending_events),
+                len(heartbeat_prompt),
+            )
+            user_text = heartbeat_prompt
+            user_content_blocks = []
+            outcome = None
+        else:
+            system_events = _normalize_system_events(raw_data.get("system_events"))
+            formatted_events = _format_system_events(system_events)
+            if formatted_events:
+                if user_content_blocks:
+                    user_content_blocks = _prepend_system_events_to_blocks(
+                        user_content_blocks,
+                        system_events_text=formatted_events,
+                    )
+                else:
+                    safe_user_text = _sanitize_system_prefixed_text(user_text)
+                    user_text = f"{formatted_events}\n\n{safe_user_text}".strip() if safe_user_text else formatted_events
+            outcome = None
+
+        if outcome is None:
+            try:
+                if final_answer_streamer is not None:
+                    await final_answer_streamer.start_tool_pending()
+                outcome = await run_turn(
+                    session=session,
+                    user_text=user_text,
+                    user_content_blocks=user_content_blocks,
+                    on_progress=None,
+                    on_final_stream_event=final_answer_streamer.push_event if final_answer_streamer is not None else None,
+                    on_stream_cancel=final_answer_streamer.cancel if final_answer_streamer is not None else None,
+                    on_tool_start=_push_tool_start if final_answer_streamer is not None else None,
+                    on_tool_finish=_push_tool_finish if final_answer_streamer is not None else None,
+                    cancellation_check=cancellation_check,
+                    cancel_event=getattr(run_handle, "cancel_event", None),
+                    thread_cancel_event=getattr(run_handle, "thread_cancel_event", None),
+                    provider_cancel_registrar=getattr(run_handle, "set_provider_cancel_handle", None),
+                    tool_run_registrar=getattr(run_handle, "register_tool_run", None),
+                    tool_run_finisher=getattr(run_handle, "finish_tool_run", None),
+                    run_id=job_id,
+                    response_route_id=response_route_id,
+                )
+                if job_kind == "heartbeat":
+                    logger.info(
+                        "[ExecNotify] heartbeat turn done: owner_session_id=%s job_id=%s status=%s reply_chars=%s",
+                        session_id,
+                        job_id,
+                        outcome.status,
+                        len(str(outcome.reply or "")),
+                    )
+            except Exception as exc:
+                logger.error("[TurnHandler] turn failed: %s", exc, exc_info=True)
+                if job_kind == "heartbeat":
+                    logger.error(
+                        "[ExecNotify] heartbeat turn failed: owner_session_id=%s job_id=%s error=%s",
+                        session_id,
+                        job_id,
+                        exc,
+                        exc_info=True,
+                    )
+                outcome = TurnOutcome(
+                    status="error",
+                    reply=f"执行失败: {exc}",
+                    state_data_patch=dict(getattr(session, "state_data", {}) or {}),
+                )
+
+        stream_final_delivered = False
+        if final_answer_streamer is not None:
+            try:
+                if outcome.status == "cancelled":
+                    await final_answer_streamer.cancel()
+                elif outcome.status == "error":
+                    await final_answer_streamer.fail(outcome.reply or "执行失败。")
+                else:
+                    await final_answer_streamer.finish(outcome.reply or "Done.")
+                stream_final_delivered = final_answer_streamer.delivered_any
+            except Exception as exc:
+                logger.warning("[TurnHandler] final answer stream emit failed: %s", exc, exc_info=True)
+
+        latest_session = await load_agent_session(session_id)
+        if latest_session is None:
+            logger.info("[TurnHandler] session disappeared before persist: session_id=%s", session_id)
             return job_handled()
-        formatted_events = _format_system_events(pending_events)
-        heartbeat_prompt = (
-            f"{formatted_events}\n\n"
-            "System: 以上是后台任务完成事件。请只处理这些事件的结果，将执行状态简洁告知用户。"
-            "不要主动读取聊天记录、群消息或调用与上述事件无关的工具。"
-        ).strip()
-        logger.info(
-            "[ExecNotify] heartbeat prompt ready: owner_session_id=%s job_id=%s event_count=%s prompt_chars=%s",
-            session_id,
-            job_id,
-            len(pending_events),
-            len(heartbeat_prompt),
-        )
-        user_text = heartbeat_prompt
-        user_content_blocks = []
-        outcome = None
-    else:
-        system_events = _normalize_system_events(raw_data.get("system_events"))
-        formatted_events = _format_system_events(system_events)
-        if formatted_events:
-            if user_content_blocks:
-                user_content_blocks = _prepend_system_events_to_blocks(
-                    user_content_blocks,
-                    system_events_text=formatted_events,
-                )
-            else:
-                safe_user_text = _sanitize_system_prefixed_text(user_text)
-                user_text = f"{formatted_events}\n\n{safe_user_text}".strip() if safe_user_text else formatted_events
-        outcome = None
 
-    if outcome is None:
-        try:
-            if final_answer_streamer is not None:
-                await final_answer_streamer.start_tool_pending()
-            outcome = await run_turn(
-                session=session,
-                user_text=user_text,
-                user_content_blocks=user_content_blocks,
-                on_progress=None,
-                on_final_stream_event=final_answer_streamer.push_event if final_answer_streamer is not None else None,
-                on_stream_cancel=final_answer_streamer.cancel if final_answer_streamer is not None else None,
-                on_tool_start=_push_tool_start if final_answer_streamer is not None else None,
-                on_tool_finish=_push_tool_finish if final_answer_streamer is not None else None,
-                cancellation_check=cancellation_check,
-                cancel_event=getattr(run_handle, "cancel_event", None),
-                thread_cancel_event=getattr(run_handle, "thread_cancel_event", None),
-                provider_cancel_registrar=getattr(run_handle, "set_provider_cancel_handle", None),
-                tool_run_registrar=getattr(run_handle, "register_tool_run", None),
-                tool_run_finisher=getattr(run_handle, "finish_tool_run", None),
-                run_id=job_id,
-                response_route_id=response_route_id,
-            )
-            if job_kind == "heartbeat":
-                logger.info(
-                    "[ExecNotify] heartbeat turn done: owner_session_id=%s job_id=%s status=%s reply_chars=%s",
-                    session_id,
-                    job_id,
-                    outcome.status,
-                    len(str(outcome.reply or "")),
-                )
-        except Exception as exc:
-            logger.error("[TurnHandler] turn failed: %s", exc, exc_info=True)
-            if job_kind == "heartbeat":
-                logger.error(
-                    "[ExecNotify] heartbeat turn failed: owner_session_id=%s job_id=%s error=%s",
-                    session_id,
-                    job_id,
-                    exc,
-                    exc_info=True,
-                )
-            outcome = TurnOutcome(
-                status="error",
-                reply=f"执行失败: {exc}",
-                state_data_patch=dict(getattr(session, "state_data", {}) or {}),
-            )
-
-    stream_final_delivered = False
-    if final_answer_streamer is not None:
-        try:
-            if outcome.status == "cancelled":
-                await final_answer_streamer.cancel()
-            elif outcome.status == "error":
-                await final_answer_streamer.fail(outcome.reply or "执行失败。")
-            else:
-                await final_answer_streamer.finish(outcome.reply or "Done.")
-            stream_final_delivered = final_answer_streamer.delivered_any
-        except Exception as exc:
-            logger.warning("[TurnHandler] final answer stream emit failed: %s", exc, exc_info=True)
-
-    latest_session = await load_agent_session(session_id)
-    if latest_session is None:
-        logger.info("[TurnHandler] session disappeared before persist: session_id=%s", session_id)
-        return job_handled()
-
-    if job_kind == "heartbeat":
-        logger.info(
-            "[ExecNotify] heartbeat deliver: owner_session_id=%s job_id=%s status=%s skip_emit_final=%s",
-            session_id,
-            job_id,
-            outcome.status,
-            bool(stream_final_delivered or outcome.status == "cancelled"),
-        )
-        if not str(outcome.reply or "").strip():
-            logger.warning(
-                "[ExecNotify] heartbeat produced no user-visible reply: owner_session_id=%s job_id=%s status=%s",
+        if job_kind == "heartbeat":
+            logger.info(
+                "[ExecNotify] heartbeat deliver: owner_session_id=%s job_id=%s status=%s skip_emit_final=%s",
                 session_id,
                 job_id,
                 outcome.status,
+                bool(stream_final_delivered or outcome.status == "cancelled"),
             )
+            if not str(outcome.reply or "").strip():
+                logger.warning(
+                    "[ExecNotify] heartbeat produced no user-visible reply: owner_session_id=%s job_id=%s status=%s",
+                    session_id,
+                    job_id,
+                    outcome.status,
+                )
 
-    await _persist_and_deliver(
-        latest_session,
-        outcome,
-        response_route_id=response_route_id,
-        emit_final_fn=emit_final_fn,
-        skip_emit_final=stream_final_delivered or outcome.status == "cancelled",
-        title_candidate=original_user_text if job_kind != "heartbeat" else "",
-    )
-    return job_handled()
+        await _persist_and_deliver(
+            latest_session,
+            outcome,
+            response_route_id=response_route_id,
+            emit_final_fn=emit_final_fn,
+            skip_emit_final=stream_final_delivered or outcome.status == "cancelled",
+            title_candidate=original_user_text if job_kind != "heartbeat" else "",
+        )
+        return job_handled()
+    finally:
+        if typing_indicator_started:
+            await _emit_typing_indicator_best_effort(
+                emit_typing_indicator,
+                session_id=session_id,
+                response_route_id=response_route_id,
+                operation="stop",
+            )
 
 
 __all__ = ["handle_unified_turn_job"]

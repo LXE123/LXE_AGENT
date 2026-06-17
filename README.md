@@ -49,6 +49,7 @@ LXE update
 ## 本地配置
 
 - 从 `.env.example` 准备本机 `.env`，填入飞书、LLM、马帮、紫鸟等真实配置。
+- 飞书应用需开通 `im:message.reactions:write_only`，用于 best-effort 的 `Typing` 回复中状态；权限缺失只会影响该状态提示，不阻塞正常回复。
 - 如需 FBA 模板文件，按 `data/README.md` 准备本机业务数据。
 - 启动时默认自动打开 Dashboard；如需关闭，设置 `AGENT_DASHBOARD_OPEN_BROWSER=0`。
 - 如需上传使用统计，配置 `TELEMETRY_ENABLED`、`TELEMETRY_SERVER_URL` 和 `TELEMETRY_API_KEY`。
