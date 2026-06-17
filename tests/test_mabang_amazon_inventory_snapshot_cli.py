@@ -127,3 +127,9 @@ def test_skill_index_loads_replenishment_amazon_inventory_snapshot() -> None:
     assert manifest is not None
     assert manifest.name == "replenishment-amazon-inventory-snapshot"
     assert manifest.type == "amazon_replenish"
+    text = manifest.body_path.read_text(encoding="utf-8")
+    assert "send_file" in text
+    assert "不要读取、不要解析、不要复述截图内容" in text
+    assert "skills/replenishment-amazon-inventory-snapshot/assets/amazon_inventory_download_step_1_menu.jpg" in text
+    assert "skills/replenishment-amazon-inventory-snapshot/assets/amazon_inventory_download_step_2_report_menu.jpg" in text
+    assert "skills/replenishment-amazon-inventory-snapshot/assets/amazon_inventory_download_step_3_request_csv.jpg" in text
