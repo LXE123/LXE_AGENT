@@ -33,12 +33,21 @@ def _turn_input() -> TurnInput:
     )
 
 
-def _agent(*, cancellation_check=None, on_final_text_delta=None, on_final_stream_event=None) -> AgentLoop:
+def _agent(
+    *,
+    cancellation_check=None,
+    on_final_text_delta=None,
+    on_final_stream_event=None,
+    on_tool_start=None,
+    on_tool_finish=None,
+) -> AgentLoop:
     agent = AgentLoop(
         session=_session(),
         state_data={},
         on_final_text_delta=on_final_text_delta,
         on_final_stream_event=on_final_stream_event,
+        on_tool_start=on_tool_start,
+        on_tool_finish=on_tool_finish,
         cancellation_check=cancellation_check,
     )
     agent.tool_registry = UnifiedToolRegistry()
@@ -191,6 +200,83 @@ def test_cancel_after_complete_tool_use_persists_synthetic_tool_result(monkeypat
     assert messages[2]["content"][0]["tool_call_id"] == "toolu-1"
     assert messages[2]["content"][0]["is_error"] is True
     validate_tool_call_closure(messages)
+
+
+def test_tool_stream_callbacks_receive_start_and_finish_without_result(monkeypatch) -> None:
+    tool_call = LLMToolCall(id="toolu-1", name="read", arguments={"path": "a.txt"})
+    responses = [
+        LLMResponse(
+            text="",
+            assistant_content=[
+                {
+                    "type": "tool_call",
+                    "id": tool_call.id,
+                    "name": tool_call.name,
+                    "arguments": dict(tool_call.arguments),
+                }
+            ],
+            tool_calls=[tool_call],
+        ),
+        LLMResponse(
+            text="完成",
+            public_text="完成",
+            assistant_content=[{"type": "text", "text": "完成"}],
+        ),
+    ]
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        return responses.pop(0)
+
+    async def read_tool(**_: Any) -> Any:
+        return text_tool_result("secret result")
+
+    tool_events: list[dict[str, Any]] = []
+
+    async def on_tool_start(call: Any) -> None:
+        tool_events.append(
+            {
+                "event": "start",
+                "id": call.id,
+                "name": call.name,
+                "arguments": dict(call.arguments),
+            }
+        )
+
+    async def on_tool_finish(call: Any, status: str, duration_ms: int) -> None:
+        tool_events.append(
+            {
+                "event": "finish",
+                "id": call.id,
+                "name": call.name,
+                "status": status,
+                "duration_ms": duration_ms,
+            }
+        )
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+    agent = _agent(on_tool_start=on_tool_start, on_tool_finish=on_tool_finish)
+    agent.tool_registry.register(
+        ToolDefinition(
+            name="read",
+            description="read",
+            parameters={"type": "object", "properties": {}},
+            handler=read_tool,
+        )
+    )
+
+    outcome = asyncio.run(agent.run(_turn_input()))
+
+    assert outcome.status == "done"
+    assert [event["event"] for event in tool_events] == ["start", "finish"]
+    assert tool_events[0] == {
+        "event": "start",
+        "id": "toolu-1",
+        "name": "read",
+        "arguments": {"path": "a.txt"},
+    }
+    assert tool_events[1]["status"] == "success"
+    assert tool_events[1]["duration_ms"] >= 0
+    assert "secret result" not in repr(tool_events)
 
 
 def test_cancel_after_partial_tool_completion_closes_remaining_tool_calls(monkeypatch) -> None:

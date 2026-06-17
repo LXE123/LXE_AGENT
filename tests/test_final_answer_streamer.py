@@ -21,6 +21,9 @@ class EmitCall:
     thinking: str = ""
     redacted_thinking_count: int = 0
     thinking_elapsed_ms: int = 0
+    tool_pending: bool = False
+    tool_elapsed_ms: int = 0
+    tool_steps: list[dict] | None = None
 
 
 def _run(coro):
@@ -589,3 +592,157 @@ def test_legacy_push_delta_keeps_thinking_elapsed_zero() -> None:
     calls = _run(scenario())
     assert calls[-1].state == "final"
     assert calls[-1].thinking_elapsed_ms == 0
+
+
+def test_tool_pending_can_emit_without_answer_content() -> None:
+    async def scenario() -> list[EmitCall]:
+        calls: list[EmitCall] = []
+
+        async def emit_stream(
+            session_id: str,
+            response_route_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
+            tool_pending: bool = False,
+            tool_elapsed_ms: int = 0,
+            tool_steps: list[dict] | None = None,
+        ) -> None:
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                    tool_pending,
+                    tool_elapsed_ms,
+                    tool_steps,
+                )
+            )
+
+        streamer = FinalAnswerStreamer(
+            session_id="session-1",
+            response_route_id="route-1",
+            emit_stream=emit_stream,
+            min_interval_ms=0,
+            emit_id="emit-1",
+        )
+
+        await streamer.start_tool_pending()
+        await _wait_until(lambda: bool(calls))
+        await streamer.finish("answer")
+        return calls
+
+    calls = _run(scenario())
+    assert calls[0].state == "delta"
+    assert calls[0].content == ""
+    assert calls[0].tool_pending is True
+    assert calls[0].tool_steps == []
+    assert calls[-1].state == "final"
+    assert calls[-1].tool_pending is False
+    assert calls[-1].tool_steps in (None, [])
+
+
+def test_tool_start_and_finish_emit_safe_steps_without_result_or_error(monkeypatch) -> None:
+    current_time = {"value": 30.0}
+
+    def fake_monotonic() -> float:
+        return current_time["value"]
+
+    monkeypatch.setattr(streamer_mod.time, "monotonic", fake_monotonic)
+
+    async def scenario() -> list[EmitCall]:
+        calls: list[EmitCall] = []
+
+        async def emit_stream(
+            session_id: str,
+            response_route_id: str,
+            channel: str,
+            state: str,
+            seq: int,
+            content: str,
+            emit_id: str,
+            *,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
+            tool_pending: bool = False,
+            tool_elapsed_ms: int = 0,
+            tool_steps: list[dict] | None = None,
+        ) -> None:
+            calls.append(
+                EmitCall(
+                    session_id,
+                    response_route_id,
+                    channel,
+                    state,
+                    seq,
+                    content,
+                    emit_id,
+                    thinking,
+                    redacted_thinking_count,
+                    thinking_elapsed_ms,
+                    tool_pending,
+                    tool_elapsed_ms,
+                    tool_steps,
+                )
+            )
+
+        streamer = FinalAnswerStreamer(
+            session_id="session-1",
+            response_route_id="route-1",
+            emit_stream=emit_stream,
+            min_interval_ms=0,
+            emit_id="emit-1",
+        )
+
+        await streamer.push_tool_start(
+            tool_call_id="toolu-1",
+            tool_name="exec",
+            arguments={
+                "command": "TOKEN=abc uv run pytest /Users/me/project/tests/test_secret.py",
+                "result": "must not leak",
+            },
+        )
+        current_time["value"] = 31.5
+        await streamer.push_tool_finish(
+            tool_call_id="toolu-1",
+            tool_name="exec",
+            arguments={"command": "TOKEN=abc uv run pytest /Users/me/project/tests/test_secret.py"},
+            status="error",
+            duration_ms=1500,
+        )
+        await streamer.finish("answer")
+        return calls
+
+    calls = _run(scenario())
+    final = calls[-1]
+    assert final.state == "final"
+    assert final.tool_pending is False
+    assert final.tool_elapsed_ms == 1500
+    assert final.tool_steps == [
+        {
+            "id": "toolu-1",
+            "name": "exec",
+            "title": "Run command",
+            "detail": "TOKEN=[redacted] uv run pytest .../test_secret.py",
+            "status": "error",
+            "duration_ms": 1500,
+        }
+    ]
+    payload = repr(final.tool_steps)
+    assert "must not leak" not in payload
+    assert "abc" not in payload
+    assert "/Users/me/project" not in payload

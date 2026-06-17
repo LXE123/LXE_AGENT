@@ -4,6 +4,29 @@ from dataclasses import asdict, dataclass, field
 from typing import Any
 
 
+def _clean_tool_steps(raw_steps: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_steps, list):
+        return []
+    steps: list[dict[str, Any]] = []
+    for raw_step in raw_steps:
+        if not isinstance(raw_step, dict):
+            continue
+        status = str(raw_step.get("status") or "running").strip()
+        if status not in {"running", "success", "error"}:
+            status = "running"
+        steps.append(
+            {
+                "id": str(raw_step.get("id") or "").strip(),
+                "name": str(raw_step.get("name") or "tool").strip() or "tool",
+                "title": str(raw_step.get("title") or "Tool").strip() or "Tool",
+                "detail": str(raw_step.get("detail") or "").strip(),
+                "status": status,
+                "duration_ms": max(0, int(raw_step.get("duration_ms") or 0)),
+            }
+        )
+    return steps
+
+
 @dataclass(slots=True)
 class AgentJob:
     job_id: str
@@ -53,6 +76,9 @@ class EmitRequest:
     thinking: str = ""
     redacted_thinking_count: int = 0
     thinking_elapsed_ms: int = 0
+    tool_pending: bool = False
+    tool_elapsed_ms: int = 0
+    tool_steps: list[dict[str, Any]] = field(default_factory=list)
     files: list[str] = field(default_factory=list)
     emit_kind: str = ""
     emit_id: str = ""
@@ -74,6 +100,9 @@ class EmitRequest:
             thinking=str(raw.get("thinking") or "").strip(),
             redacted_thinking_count=max(0, int(raw.get("redacted_thinking_count") or 0)),
             thinking_elapsed_ms=max(0, int(raw.get("thinking_elapsed_ms") or 0)),
+            tool_pending=bool(raw.get("tool_pending")),
+            tool_elapsed_ms=max(0, int(raw.get("tool_elapsed_ms") or 0)),
+            tool_steps=_clean_tool_steps(raw.get("tool_steps")),
             files=files,
             emit_kind=str(raw.get("emit_kind") or "").strip(),
             emit_id=str(raw.get("emit_id") or "").strip(),

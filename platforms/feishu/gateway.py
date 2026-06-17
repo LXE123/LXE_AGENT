@@ -224,7 +224,11 @@ class _StreamWriterState:
     last_thinking: str = ""
     redacted_thinking_count: int = 0
     thinking_elapsed_ms: int = 0
+    tool_pending: bool = False
+    tool_elapsed_ms: int = 0
+    tool_steps: list[dict[str, Any]] = field(default_factory=list)
     last_sent_content: str = ""
+    last_sent_tool_key: str = ""
     reopen_count: int = 0
     final_requested: bool = False
     final_error: bool = False
@@ -247,6 +251,41 @@ def _stream_display_content(writer: _StreamWriterState) -> str:
     if not body:
         return ""
     return f"💭 **思考中...**\n\n{body}"
+
+
+def _clean_tool_steps(raw_steps: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_steps, list):
+        return []
+    steps: list[dict[str, Any]] = []
+    for raw_step in raw_steps:
+        if not isinstance(raw_step, dict):
+            continue
+        status = str(raw_step.get("status") or "running").strip()
+        if status not in {"running", "success", "error"}:
+            status = "running"
+        steps.append(
+            {
+                "id": str(raw_step.get("id") or "").strip(),
+                "name": str(raw_step.get("name") or "tool").strip() or "tool",
+                "title": str(raw_step.get("title") or "Tool").strip() or "Tool",
+                "detail": str(raw_step.get("detail") or "").strip(),
+                "status": status,
+                "duration_ms": max(0, int(raw_step.get("duration_ms") or 0)),
+            }
+        )
+    return steps
+
+
+def _stream_tool_key(writer: _StreamWriterState) -> str:
+    return json.dumps(
+        {
+            "pending": bool(writer.tool_pending and not writer.tool_steps),
+            "elapsed_ms": max(0, int(writer.tool_elapsed_ms or 0)),
+            "steps": _clean_tool_steps(writer.tool_steps),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
 
 
 class FeishuStreamAdapter:
@@ -424,6 +463,9 @@ class FeishuStreamAdapter:
         thinking = str(payload.get("thinking") or "").strip()
         redacted_thinking_count = max(0, int(payload.get("redacted_thinking_count") or 0))
         thinking_elapsed_ms = max(0, int(payload.get("thinking_elapsed_ms") or 0))
+        tool_pending = bool(payload.get("tool_pending"))
+        tool_elapsed_ms = max(0, int(payload.get("tool_elapsed_ms") or 0))
+        tool_steps = _clean_tool_steps(payload.get("tool_steps"))
         emit_id = str(request.event_id or "").strip()
         if stream_type != "final_answer":
             raise RuntimeError(f"unsupported feishu stream_type: {stream_type or '<empty>'}")
@@ -431,7 +473,7 @@ class FeishuStreamAdapter:
             raise RuntimeError(f"unsupported feishu stream state: {state or '<empty>'}")
         if source_seq <= 0:
             raise RuntimeError(f"invalid feishu stream seq: {source_seq}")
-        if not content and not thinking and redacted_thinking_count <= 0:
+        if not content and not thinking and redacted_thinking_count <= 0 and not tool_pending and not tool_steps:
             return
 
         async with self._get_stream_lock(session_id):
@@ -451,6 +493,9 @@ class FeishuStreamAdapter:
             writer.last_thinking = thinking
             writer.redacted_thinking_count = redacted_thinking_count
             writer.thinking_elapsed_ms = thinking_elapsed_ms
+            writer.tool_pending = bool(tool_pending and not tool_steps)
+            writer.tool_elapsed_ms = tool_elapsed_ms
+            writer.tool_steps = list(tool_steps)
             if state in {"final", "error"}:
                 writer.final_requested = True
                 writer.final_error = state == "error"
@@ -466,7 +511,7 @@ class FeishuStreamAdapter:
                 return
 
             if state == "delta":
-                if _stream_display_content(writer) == writer.last_sent_content:
+                if _stream_display_content(writer) == writer.last_sent_content and _stream_tool_key(writer) == writer.last_sent_tool_key:
                     return
                 await self._send_delta_locked(
                     session_id=session_id,
@@ -514,11 +559,17 @@ class FeishuStreamAdapter:
     ) -> None:
         sequence = self._next_card_sequence(writer)
         display_content = _stream_display_content(writer)
+        tool_key = _stream_tool_key(writer)
+        replace_card = tool_key != writer.last_sent_tool_key
         try:
             await self._cardkit_sender.stream_text(
                 route_ctx,
                 request.response_route_id,
                 content=display_content,
+                tool_pending=writer.tool_pending,
+                tool_steps=writer.tool_steps,
+                tool_elapsed_ms=writer.tool_elapsed_ms,
+                replace_card=replace_card,
                 sequence=sequence,
                 emit_id=emit_id,
             )
@@ -534,6 +585,7 @@ class FeishuStreamAdapter:
             )
             return
         writer.last_sent_content = display_content
+        writer.last_sent_tool_key = tool_key
         writer.opened = True
 
     async def _finalize_locked(
@@ -554,6 +606,8 @@ class FeishuStreamAdapter:
                 thinking=writer.last_thinking,
                 redacted_thinking_count=writer.redacted_thinking_count,
                 thinking_elapsed_ms=writer.thinking_elapsed_ms,
+                tool_steps=writer.tool_steps,
+                tool_elapsed_ms=writer.tool_elapsed_ms,
                 sequence=sequence,
                 error=writer.final_error,
                 emit_id=emit_id,
@@ -570,6 +624,7 @@ class FeishuStreamAdapter:
             )
             return
         writer.last_sent_content = _stream_display_content(writer)
+        writer.last_sent_tool_key = _stream_tool_key(writer)
         writer.opened = True
         writer.status = "finalized"
         writer.finished = True
@@ -678,11 +733,14 @@ class FeishuStreamAdapter:
                         thinking=writer.last_thinking,
                         redacted_thinking_count=writer.redacted_thinking_count,
                         thinking_elapsed_ms=writer.thinking_elapsed_ms,
+                        tool_steps=writer.tool_steps,
+                        tool_elapsed_ms=writer.tool_elapsed_ms,
                         sequence=sequence,
                         error=writer.final_error,
                         emit_id=emit_id,
                     )
                     writer.last_sent_content = _stream_display_content(writer)
+                    writer.last_sent_tool_key = _stream_tool_key(writer)
                     writer.opened = True
                     writer.status = "finalized"
                     writer.finished = True
@@ -690,16 +748,22 @@ class FeishuStreamAdapter:
                     return
 
                 display_content = _stream_display_content(writer)
-                if display_content != writer.last_sent_content:
+                tool_key = _stream_tool_key(writer)
+                if display_content != writer.last_sent_content or tool_key != writer.last_sent_tool_key:
                     sequence = self._next_card_sequence(writer)
                     await self._cardkit_sender.stream_text(
                         route_ctx,
                         response_route_id,
                         content=display_content,
+                        tool_pending=writer.tool_pending,
+                        tool_steps=writer.tool_steps,
+                        tool_elapsed_ms=writer.tool_elapsed_ms,
+                        replace_card=tool_key != writer.last_sent_tool_key,
                         sequence=sequence,
                         emit_id=emit_id,
                     )
                     writer.last_sent_content = display_content
+                    writer.last_sent_tool_key = tool_key
                     writer.opened = True
                 writer.status = "streaming"
             except FeishuCardKitError as error:

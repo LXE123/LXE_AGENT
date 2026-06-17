@@ -17,6 +17,8 @@ ProgressCallback = Callable[[str], Awaitable[None]]
 FinalTextCallback = Callable[[str], Awaitable[None]]
 FinalStreamCallback = Callable[[LLMStreamEvent], Awaitable[None]]
 StreamCancelCallback = Callable[[], Awaitable[None]]
+ToolStartCallback = Callable[[Any], Awaitable[None]]
+ToolFinishCallback = Callable[[Any, str, int], Awaitable[None]]
 CancellationCallback = Callable[[], Awaitable[bool]]
 
 
@@ -38,6 +40,8 @@ async def run_turn(
     on_final_text_delta: FinalTextCallback | None = None,
     on_final_stream_event: FinalStreamCallback | None = None,
     on_stream_cancel: StreamCancelCallback | None = None,
+    on_tool_start: ToolStartCallback | None = None,
+    on_tool_finish: ToolFinishCallback | None = None,
     cancellation_check: CancellationCallback | None = None,
     cancel_event: Any = None,
     thread_cancel_event: Any = None,
@@ -61,6 +65,8 @@ async def run_turn(
         on_final_text_delta=on_final_text_delta,
         on_final_stream_event=on_final_stream_event,
         on_stream_cancel=on_stream_cancel,
+        on_tool_start=on_tool_start,
+        on_tool_finish=on_tool_finish,
         cancellation_check=cancellation_check,
         cancel_event=cancel_event,
         thread_cancel_event=thread_cancel_event,

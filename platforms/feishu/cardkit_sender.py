@@ -14,6 +14,7 @@ from .config import FEISHU_API_HOST
 _STREAM_ELEMENT_ID = "streaming_content"
 _STREAM_CARD_TYPE = "card_json"
 _REDACTED_THINKING_NOTICE = "部分思考已加密，无法展示"
+_TOOL_PENDING_TITLE = "🛠️ 等待工具执行"
 
 
 class FeishuCardKitError(RuntimeError):
@@ -84,7 +85,156 @@ def _thinking_panel_title(thinking_elapsed_ms: int) -> str:
     return f"💭 思考了 {_format_elapsed(safe_elapsed_ms)}"
 
 
-def _build_streaming_card(content: str) -> dict[str, Any]:
+def _clean_tool_steps(tool_steps: Any) -> list[dict[str, Any]]:
+    if not isinstance(tool_steps, list):
+        return []
+    steps: list[dict[str, Any]] = []
+    for raw_step in tool_steps:
+        if not isinstance(raw_step, dict):
+            continue
+        status = str(raw_step.get("status") or "running").strip()
+        if status not in {"running", "success", "error"}:
+            status = "running"
+        steps.append(
+            {
+                "id": str(raw_step.get("id") or "").strip(),
+                "name": str(raw_step.get("name") or "tool").strip() or "tool",
+                "title": str(raw_step.get("title") or "Tool").strip() or "Tool",
+                "detail": str(raw_step.get("detail") or "").strip(),
+                "status": status,
+                "duration_ms": max(0, int(raw_step.get("duration_ms") or 0)),
+            }
+        )
+    return steps
+
+
+def _escape_lark_md(text: str) -> str:
+    return str(text or "").replace("\\", "\\\\").replace("*", "\\*").replace("`", "\\`").strip()
+
+
+def _tool_status_label(status: str) -> tuple[str, str]:
+    if status == "running":
+        return "Running", "turquoise"
+    if status == "error":
+        return "Failed", "red"
+    return "Succeeded", "green"
+
+
+def _tool_step_title(step: dict[str, Any]) -> str:
+    title = _escape_lark_md(str(step.get("title") or "Tool").strip() or "Tool")
+    duration_ms = max(0, int(step.get("duration_ms") or 0))
+    if duration_ms > 0:
+        title = f"{title} ({_format_elapsed(duration_ms)})"
+    label, color = _tool_status_label(str(step.get("status") or "running").strip())
+    return f"**{title}** · <font color='{color}'>{label}</font>"
+
+
+def _build_tool_step_elements(step: dict[str, Any]) -> list[dict[str, Any]]:
+    elements: list[dict[str, Any]] = [
+        {
+            "tag": "div",
+            "icon": {"tag": "standard_icon", "token": "setting_outlined", "color": "grey"},
+            "text": {
+                "tag": "lark_md",
+                "content": _tool_step_title(step),
+                "text_size": "notation",
+            },
+        }
+    ]
+    detail = str(step.get("detail") or "").strip()
+    if detail:
+        elements.append(
+            {
+                "tag": "div",
+                "margin": "0px 0px 0px 24px",
+                "text": {
+                    "tag": "plain_text",
+                    "content": detail,
+                    "text_color": "grey",
+                    "text_size": "notation",
+                },
+            }
+        )
+    return elements
+
+
+def _tool_panel_title(*, mode: str, steps: list[dict[str, Any]], elapsed_ms: int) -> str:
+    step_count = len(steps)
+    elapsed = _format_elapsed(elapsed_ms) if int(elapsed_ms or 0) > 0 else ""
+    if mode == "pending":
+        return _TOOL_PENDING_TITLE
+    if mode == "final":
+        base = f"执行耗时 {elapsed}" if elapsed else "工具执行"
+        return f"🛠️ {base} · 查看 {step_count} 个步骤"
+    parts = [f"工具执行 · {step_count} 步"]
+    if elapsed:
+        parts.append(f"({elapsed})")
+    return f"🛠️ {' · '.join(parts)}"
+
+
+def _build_tool_panel(
+    *,
+    tool_pending: bool = False,
+    tool_steps: list[dict[str, Any]] | None = None,
+    tool_elapsed_ms: int = 0,
+    final: bool = False,
+) -> dict[str, Any] | None:
+    steps = _clean_tool_steps(tool_steps)
+    if not steps and not tool_pending:
+        return None
+    mode = "final" if final and steps else "active" if steps else "pending"
+    title = _tool_panel_title(mode=mode, steps=steps, elapsed_ms=max(0, int(tool_elapsed_ms or 0)))
+    elements = [element for step in steps for element in _build_tool_step_elements(step)]
+    return {
+        "tag": "collapsible_panel",
+        "expanded": bool(mode == "active"),
+        "header": {
+            "title": {
+                "tag": "plain_text",
+                "content": title,
+                "text_color": "grey",
+                "text_size": "notation",
+            },
+            "vertical_align": "center",
+            "icon": {
+                "tag": "standard_icon",
+                "token": "down-small-ccm_outlined",
+                "color": "grey",
+                "size": "16px 16px",
+            },
+            "icon_position": "right",
+            "icon_expanded_angle": -180,
+        },
+        "border": {"color": "grey", "corner_radius": "5px"},
+        "vertical_spacing": "4px",
+        "padding": "8px 8px 8px 8px",
+        "elements": elements,
+    }
+
+
+def _build_streaming_card(
+    content: str,
+    *,
+    tool_pending: bool = False,
+    tool_steps: list[dict[str, Any]] | None = None,
+    tool_elapsed_ms: int = 0,
+) -> dict[str, Any]:
+    elements: list[dict[str, Any]] = []
+    tool_panel = _build_tool_panel(
+        tool_pending=tool_pending,
+        tool_steps=tool_steps,
+        tool_elapsed_ms=tool_elapsed_ms,
+        final=False,
+    )
+    if tool_panel is not None:
+        elements.append(tool_panel)
+    elements.append(
+        {
+            "tag": "markdown",
+            "element_id": _STREAM_ELEMENT_ID,
+            "content": _optimize_markdown(content),
+        }
+    )
     return {
         "schema": "2.0",
         "config": {
@@ -96,15 +246,7 @@ def _build_streaming_card(content: str) -> dict[str, Any]:
                 "print_strategy": "fast",
             },
         },
-        "body": {
-            "elements": [
-                {
-                    "tag": "markdown",
-                    "element_id": _STREAM_ELEMENT_ID,
-                    "content": _optimize_markdown(content),
-                }
-            ]
-        },
+        "body": {"elements": elements},
     }
 
 
@@ -166,6 +308,8 @@ def _build_final_card(
     thinking: str,
     redacted_thinking_count: int,
     thinking_elapsed_ms: int = 0,
+    tool_steps: list[dict[str, Any]] | None = None,
+    tool_elapsed_ms: int = 0,
     error: bool = False,
 ) -> dict[str, Any]:
     safe_content = _optimize_markdown(content)
@@ -177,6 +321,13 @@ def _build_final_card(
     elements: list[dict[str, Any]] = []
     if thinking_panel is not None:
         elements.append(thinking_panel)
+    tool_panel = _build_tool_panel(
+        tool_steps=tool_steps,
+        tool_elapsed_ms=tool_elapsed_ms,
+        final=True,
+    )
+    if tool_panel is not None:
+        elements.append(tool_panel)
     if safe_content:
         elements.append(
             {
@@ -210,6 +361,10 @@ class FeishuCardKitSender:
         response_route_id: str,
         *,
         content: str,
+        tool_pending: bool = False,
+        tool_steps: list[dict[str, Any]] | None = None,
+        tool_elapsed_ms: int = 0,
+        replace_card: bool = False,
         sequence: int,
         emit_id: str,
     ) -> None:
@@ -217,8 +372,23 @@ class FeishuCardKitSender:
             ctx,
             response_route_id,
             initial_content=content,
+            tool_pending=tool_pending,
+            tool_steps=tool_steps,
+            tool_elapsed_ms=tool_elapsed_ms,
             emit_id=emit_id,
         )
+        if replace_card:
+            await self._update_card(
+                cardkit_card_id,
+                card=_build_streaming_card(
+                    content,
+                    tool_pending=tool_pending,
+                    tool_steps=tool_steps,
+                    tool_elapsed_ms=tool_elapsed_ms,
+                ),
+                sequence=sequence,
+            )
+            return
         await self._update_stream_content(
             cardkit_card_id,
             content=_optimize_markdown(content),
@@ -234,6 +404,8 @@ class FeishuCardKitSender:
         thinking: str = "",
         redacted_thinking_count: int = 0,
         thinking_elapsed_ms: int = 0,
+        tool_steps: list[dict[str, Any]] | None = None,
+        tool_elapsed_ms: int = 0,
         sequence: int,
         error: bool = False,
         emit_id: str,
@@ -242,6 +414,8 @@ class FeishuCardKitSender:
             ctx,
             response_route_id,
             initial_content=content,
+            tool_steps=tool_steps,
+            tool_elapsed_ms=tool_elapsed_ms,
             emit_id=emit_id,
         )
         safe_redacted_count = max(0, int(redacted_thinking_count or 0))
@@ -250,6 +424,8 @@ class FeishuCardKitSender:
             thinking=thinking,
             redacted_thinking_count=safe_redacted_count,
             thinking_elapsed_ms=max(0, int(thinking_elapsed_ms or 0)),
+            tool_steps=tool_steps,
+            tool_elapsed_ms=max(0, int(tool_elapsed_ms or 0)),
             error=error,
         )
         close_sequence = int(sequence)
@@ -305,6 +481,9 @@ class FeishuCardKitSender:
         response_route_id: str,
         *,
         initial_content: str,
+        tool_pending: bool = False,
+        tool_steps: list[dict[str, Any]] | None = None,
+        tool_elapsed_ms: int = 0,
         emit_id: str,
     ) -> str:
         extra_data = dict(getattr(ctx, "extra_data", {}) or {})
@@ -312,7 +491,12 @@ class FeishuCardKitSender:
         current_emit_id = str(extra_data.get("cardkit_emit_id") or "").strip()
         reuse_current_stream = bool(cardkit_card_id) and current_emit_id == str(emit_id or "").strip()
         if not reuse_current_stream:
-            cardkit_card_id = await self._create_card_entity(initial_content="")
+            cardkit_card_id = await self._create_card_entity(
+                initial_content=initial_content,
+                tool_pending=tool_pending,
+                tool_steps=tool_steps,
+                tool_elapsed_ms=tool_elapsed_ms,
+            )
             await save_response_route_patch(
                 response_route_id,
                 {
@@ -332,10 +516,25 @@ class FeishuCardKitSender:
                 )
         return cardkit_card_id
 
-    async def _create_card_entity(self, *, initial_content: str) -> str:
+    async def _create_card_entity(
+        self,
+        *,
+        initial_content: str,
+        tool_pending: bool = False,
+        tool_steps: list[dict[str, Any]] | None = None,
+        tool_elapsed_ms: int = 0,
+    ) -> str:
         data = {
             "type": _STREAM_CARD_TYPE,
-            "data": json.dumps(_build_streaming_card(initial_content), ensure_ascii=False),
+            "data": json.dumps(
+                _build_streaming_card(
+                    initial_content,
+                    tool_pending=tool_pending,
+                    tool_steps=tool_steps,
+                    tool_elapsed_ms=tool_elapsed_ms,
+                ),
+                ensure_ascii=False,
+            ),
         }
         payload = await self._request_json(
             "POST",

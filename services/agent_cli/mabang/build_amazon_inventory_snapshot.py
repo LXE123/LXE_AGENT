@@ -6,7 +6,10 @@ import sys
 from typing import Any
 
 from services.agent_cli._shared.json_output import configure_utf8_stdio
-from services.mabang.amazon.fba.store_msku_replenishment import calculate_store_msku_replenishment
+from services.mabang.amazon.fba.amazon_inventory import (
+    build_amazon_inventory_snapshot,
+    normalize_store_name,
+)
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -26,12 +29,13 @@ def _exception_text(exc: Exception) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.calculate_store_msku_replenishment"
+        prog="python -m services.agent_cli.mabang.build_amazon_inventory_snapshot"
     )
     parser.add_argument("--store-name", default="")
-    parser.add_argument("--template", default="")
-    parser.add_argument("--unlinked-shipments-snapshot", default="")
-    parser.add_argument("--amazon-inventory-snapshot", default="")
+    parser.add_argument("--csv", default="")
+    parser.add_argument("--output-dir", default="")
+    parser.add_argument("--msku-xlsx", default="")
+    parser.add_argument("--msku-dir", default="")
     return parser
 
 
@@ -40,15 +44,19 @@ def main(argv: list[str] | None = None) -> int:
     store_name = ""
     try:
         args = build_parser().parse_args(argv)
-        store_name = str(getattr(args, "store_name", "") or "").strip()
-        template_name = str(getattr(args, "template", "") or "").strip()
-        unlinked_snapshot = str(getattr(args, "unlinked_shipments_snapshot", "") or "").strip()
-        amazon_inventory_snapshot = str(getattr(args, "amazon_inventory_snapshot", "") or "").strip()
-        result = calculate_store_msku_replenishment(
-            store_name,
-            template_name=template_name or None,
-            unlinked_shipments_snapshot_path=unlinked_snapshot or None,
-            amazon_inventory_snapshot_path=amazon_inventory_snapshot or None,
+        store_name = normalize_store_name(getattr(args, "store_name", ""))
+        csv_path = str(getattr(args, "csv", "") or "").strip()
+        if not csv_path:
+            raise ValueError("csv 不能为空")
+        output_dir = str(getattr(args, "output_dir", "") or "").strip() or None
+        msku_xlsx = str(getattr(args, "msku_xlsx", "") or "").strip() or None
+        msku_dir = str(getattr(args, "msku_dir", "") or "").strip() or None
+        result = build_amazon_inventory_snapshot(
+            csv_path,
+            store_name=store_name,
+            output_dir=output_dir,
+            msku_xlsx_path=msku_xlsx,
+            msku_dir=msku_dir,
         )
         payload = result.to_payload()
     except Exception as exc:

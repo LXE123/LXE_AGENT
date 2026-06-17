@@ -7,7 +7,7 @@ from typing import Any
 
 from gateway.models import OutboundRequest
 import platforms.feishu.cardkit_sender as cardkit_mod
-from platforms.feishu.cardkit_sender import FeishuCardKitSender, _build_final_card
+from platforms.feishu.cardkit_sender import FeishuCardKitSender, _build_final_card, _build_streaming_card
 from platforms.feishu.gateway import FeishuStreamAdapter, _StreamWriterState, _stream_display_content
 
 
@@ -71,11 +71,88 @@ def test_final_card_thinking_panel_title_omits_zero_elapsed_duration() -> None:
     assert panel["header"]["title"]["content"] == "💭 思考"
 
 
+def test_streaming_card_shows_pending_tool_panel() -> None:
+    card = _build_streaming_card("", tool_pending=True)
+
+    panel = card["body"]["elements"][0]
+    assert panel["tag"] == "collapsible_panel"
+    assert panel["expanded"] is False
+    assert panel["header"]["title"]["content"] == "🛠️ 等待工具执行"
+    assert card["body"]["elements"][1]["element_id"] == "streaming_content"
+
+
+def test_streaming_card_shows_active_tool_steps_with_elapsed_without_result() -> None:
+    card = _build_streaming_card(
+        "answer",
+        tool_steps=[
+            {
+                "id": "toolu-1",
+                "name": "exec",
+                "title": "Run command",
+                "detail": "uv run pytest",
+                "status": "running",
+                "duration_ms": 0,
+                "result": "must not render",
+            }
+        ],
+        tool_elapsed_ms=3200,
+    )
+
+    panel = card["body"]["elements"][0]
+    assert panel["expanded"] is True
+    assert panel["header"]["title"]["content"] == "🛠️ 工具执行 · 1 步 · (3.2s)"
+    assert "Run command" in panel["elements"][0]["text"]["content"]
+    assert "Running" in panel["elements"][0]["text"]["content"]
+    assert panel["elements"][1]["text"]["content"] == "uv run pytest"
+    assert "must not render" not in json.dumps(card, ensure_ascii=False)
+
+
+def test_final_card_contains_collapsed_tool_panel_without_result_or_error_body() -> None:
+    card = _build_final_card(
+        content="answer",
+        thinking="",
+        redacted_thinking_count=0,
+        tool_steps=[
+            {
+                "id": "toolu-1",
+                "name": "exec",
+                "title": "Run command",
+                "detail": "uv run pytest",
+                "status": "error",
+                "duration_ms": 3200,
+                "result": "secret result",
+                "error": "traceback body",
+            }
+        ],
+        tool_elapsed_ms=3200,
+    )
+
+    panel = card["body"]["elements"][0]
+    assert panel["tag"] == "collapsible_panel"
+    assert panel["expanded"] is False
+    assert panel["header"]["title"]["content"] == "🛠️ 执行耗时 3.2s · 查看 1 个步骤"
+    assert "Failed" in panel["elements"][0]["text"]["content"]
+    payload = json.dumps(card, ensure_ascii=False)
+    assert "secret result" not in payload
+    assert "traceback body" not in payload
+    assert card["body"]["elements"][1]["content"] == "answer"
+
+
 def test_finalize_text_closes_stream_then_updates_final_card(monkeypatch) -> None:
     calls: list[dict[str, Any]] = []
 
-    async def fake_ensure_stream_message(self, ctx, response_route_id, *, initial_content: str, emit_id: str) -> str:
-        _ = self, ctx, response_route_id, initial_content, emit_id
+    async def fake_ensure_stream_message(
+        self,
+        ctx,
+        response_route_id,
+        *,
+        initial_content: str,
+        tool_pending: bool = False,
+        tool_steps: list[dict[str, Any]] | None = None,
+        tool_elapsed_ms: int = 0,
+        emit_id: str,
+    ) -> str:
+        _ = self, ctx, response_route_id, initial_content, tool_pending, tool_steps, tool_elapsed_ms, emit_id
         return "card_1"
 
     async def fake_request_json(self, method: str, url: str, *, body: dict[str, Any], operation: str) -> dict[str, Any]:
@@ -145,6 +222,8 @@ def test_feishu_stream_adapter_passes_thinking_elapsed_to_final_card_sender() ->
             thinking: str = "",
             redacted_thinking_count: int = 0,
             thinking_elapsed_ms: int = 0,
+            tool_steps: list[dict[str, Any]] | None = None,
+            tool_elapsed_ms: int = 0,
             sequence: int,
             error: bool = False,
             emit_id: str,
@@ -157,6 +236,8 @@ def test_feishu_stream_adapter_passes_thinking_elapsed_to_final_card_sender() ->
                     "thinking": thinking,
                     "redacted_thinking_count": redacted_thinking_count,
                     "thinking_elapsed_ms": thinking_elapsed_ms,
+                    "tool_steps": tool_steps,
+                    "tool_elapsed_ms": tool_elapsed_ms,
                     "sequence": sequence,
                     "error": error,
                     "emit_id": emit_id,
@@ -196,9 +277,91 @@ def test_feishu_stream_adapter_passes_thinking_elapsed_to_final_card_sender() ->
             "thinking": "plan",
             "redacted_thinking_count": 1,
             "thinking_elapsed_ms": 3200,
+            "tool_steps": [],
+            "tool_elapsed_ms": 0,
             "sequence": 1,
             "error": False,
             "emit_id": "emit-1",
         }
     ]
     assert adapter._stream_state == {}
+
+
+def test_feishu_stream_adapter_passes_tool_steps_to_final_card_sender() -> None:
+    calls: list[dict[str, Any]] = []
+
+    class FakeCardKitSender:
+        async def finalize_text(
+            self,
+            ctx: Any,
+            response_route_id: str,
+            *,
+            content: str,
+            thinking: str = "",
+            redacted_thinking_count: int = 0,
+            thinking_elapsed_ms: int = 0,
+            tool_steps: list[dict[str, Any]] | None = None,
+            tool_elapsed_ms: int = 0,
+            sequence: int,
+            error: bool = False,
+            emit_id: str,
+        ) -> None:
+            calls.append(
+                {
+                    "tool_steps": tool_steps,
+                    "tool_elapsed_ms": tool_elapsed_ms,
+                    "sequence": sequence,
+                    "error": error,
+                }
+            )
+
+    adapter = object.__new__(FeishuStreamAdapter)
+    adapter._stream_state = {}
+    adapter._stream_locks = {}
+    adapter._cardkit_sender = FakeCardKitSender()
+
+    request = OutboundRequest(
+        action="stream_message",
+        platform="feishu",
+        payload={
+            "stream_type": "final_answer",
+            "state": "final",
+            "seq": 1,
+            "content": "answer",
+            "tool_elapsed_ms": 3200,
+            "tool_steps": [
+                {
+                    "id": "toolu-1",
+                    "name": "exec",
+                    "title": "Run command",
+                    "detail": "uv run pytest",
+                    "status": "success",
+                    "duration_ms": 3200,
+                    "result": "must not pass",
+                }
+            ],
+        },
+        session_id="session-1",
+        response_route_id="route-1",
+        event_id="emit-1",
+    )
+
+    asyncio.run(adapter._handle_stream_message(request, SimpleNamespace()))
+
+    assert calls == [
+        {
+            "tool_steps": [
+                {
+                    "id": "toolu-1",
+                    "name": "exec",
+                    "title": "Run command",
+                    "detail": "uv run pytest",
+                    "status": "success",
+                    "duration_ms": 3200,
+                }
+            ],
+            "tool_elapsed_ms": 3200,
+            "sequence": 1,
+            "error": False,
+        }
+    ]
