@@ -1,12 +1,13 @@
 ---
 name: replenishment-amazon-inventory-snapshot
-description: 将用户从 Amazon 后台手动下载的库存 CSV 解析为备货可用的 Amazon 后台库存 snapshot。用户要求使用亚马逊后台 FBA 库存、解析 Amazon 库存 CSV、校验后台库存文件是否对应店铺/站点、或在备货建议中增加 Amazon 后台库存对比字段时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
+description: 将用户从 Amazon 后台手动下载的库存 CSV 解析为备货可用的 Amazon 后台库存 snapshot。用户要求使用亚马逊后台 FBA 库存、解析 Amazon 库存 CSV、校验后台库存文件是否对应店铺/站点、询问 Amazon 库存文件怎么下载/哪里下载/下载路径/截图指引，或在备货建议中增加 Amazon 后台库存对比字段时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
 ---
 
 ## When to Use
 
 - 用户已经从 Amazon 后台下载库存 CSV，需要转成备货可用 snapshot。
+- 用户不知道 Amazon 后台库存 CSV 去哪里下载，需要下载路径或截图指引。
 - 用户要用 Amazon 后台的 `Inventory Supply at FBA` 作为对比库存字段。
 - 用户要检查 Amazon 后台库存文件是否传错店铺或站点。
 
@@ -17,6 +18,27 @@ type: amazon_replenish
 - CLI 会基于本地最新马帮原生 MSKU 数据做校验；如果本地没有店铺 MSKU 文件，先运行 `replenishment-msku-download`。
 - 只读取 CLI 输出的最后一行 JSON。
 - CLI 失败时只转述最后一行 JSON 里的 `exception` 原文。
+
+## Download Guide
+
+如果用户还没有 Amazon 后台库存 CSV，先引导用户手动下载 Amazon 后台库存报告（以美国站为例）：
+
+1. 打开美国站入口：`https://sellercentral.amazon.com/reportcentral/MANAGE_INVENTORY_HEALTH/1`
+2. 或从 Seller Central 菜单进入：`库存 -> 亚马逊物流库存`。
+3. 在亚马逊物流库存页面右上角点击 `报告 -> 库存报告`。
+4. 在亚马逊配送报告页面点击 `请求下载 .csv 文件`。
+5. 报告生成后，在列表中点击对应行的 `下载`。
+6. 拿到 CSV 文件路径后，再运行本 skill 的 snapshot CLI。
+
+如果用户问“怎么点”、“发我截图”或“路径图”，不要读取、不要解析、不要复述截图内容，直接按顺序调用 `send_file` 发送以下三张截图：
+
+```text
+skills/replenishment-amazon-inventory-snapshot/assets/amazon_inventory_download_step_1_menu.jpg
+skills/replenishment-amazon-inventory-snapshot/assets/amazon_inventory_download_step_2_report_menu.jpg
+skills/replenishment-amazon-inventory-snapshot/assets/amazon_inventory_download_step_3_request_csv.jpg
+```
+
+只有用户明确要求解释截图时，才补充简短文字说明；否则只说明已按顺序发送菜单入口、报告菜单、请求 CSV 三张图。
 
 ## How to Execute
 
