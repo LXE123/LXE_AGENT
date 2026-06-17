@@ -9,6 +9,8 @@ from uuid import uuid4
 from shared.llm.events import LLMStreamEvent
 from shared.logging import logger
 
+from .tool_display import build_tool_display_step, sanitize_tool_steps
+
 
 StreamEmitter = Callable[..., Awaitable[None]]
 
@@ -19,6 +21,9 @@ class _StreamSnapshot:
     thinking: str
     redacted_thinking_count: int
     thinking_elapsed_ms: int
+    tool_pending: bool
+    tool_elapsed_ms: int
+    tool_steps: list[dict[str, object]]
 
 
 class FinalAnswerStreamer:
@@ -44,10 +49,17 @@ class FinalAnswerStreamer:
         self._redacted_thinking_count = 0
         self._thinking_started_at: float | None = None
         self._thinking_elapsed_ms = 0
+        self._tool_pending = False
+        self._tool_started_at: float | None = None
+        self._tool_elapsed_ms = 0
+        self._tool_steps: list[dict[str, object]] = []
         self._last_sent_content = ""
         self._last_sent_thinking = ""
         self._last_sent_redacted_thinking_count = 0
         self._last_sent_thinking_elapsed_ms = 0
+        self._last_sent_tool_pending = False
+        self._last_sent_tool_elapsed_ms = 0
+        self._last_sent_tool_steps: list[dict[str, object]] = []
         self._last_emit_at = 0.0
         # This is the upstream event order for gateway dedupe, not the Feishu CardKit sequence.
         self._seq = 0
@@ -64,6 +76,10 @@ class FinalAnswerStreamer:
             or self._last_sent_thinking
             or self._redacted_thinking_count
             or self._last_sent_redacted_thinking_count
+            or self._tool_pending
+            or self._last_sent_tool_pending
+            or self._tool_steps
+            or self._last_sent_tool_steps
         )
 
     @property
@@ -109,6 +125,70 @@ class FinalAnswerStreamer:
             self._ensure_sender_locked()
             self._sender_wakeup.set()
 
+    async def start_tool_pending(self) -> None:
+        async with self._lock:
+            if self._closed or self._terminal_state or self._tool_steps:
+                return
+            if self._tool_pending:
+                return
+            self._tool_pending = True
+            self._ensure_sender_locked()
+            self._sender_wakeup.set()
+
+    async def push_tool_start(
+        self,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: dict[str, object] | None = None,
+    ) -> None:
+        async with self._lock:
+            if self._closed or self._terminal_state:
+                return
+            self._start_tool_timer_locked()
+            self._tool_pending = False
+            self._upsert_tool_step_locked(
+                build_tool_display_step(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    arguments=dict(arguments or {}),
+                    status="running",
+                    duration_ms=0,
+                )
+            )
+            self._ensure_sender_locked()
+            self._sender_wakeup.set()
+
+    async def push_tool_finish(
+        self,
+        *,
+        tool_call_id: str,
+        tool_name: str,
+        arguments: dict[str, object] | None = None,
+        status: str,
+        duration_ms: int = 0,
+    ) -> None:
+        safe_status = str(status or "").strip()
+        if safe_status not in {"success", "error"}:
+            safe_status = "error"
+        safe_duration_ms = max(0, int(duration_ms or 0))
+        async with self._lock:
+            if self._closed or self._terminal_state:
+                return
+            self._finish_tool_timer_locked()
+            self._tool_pending = False
+            self._upsert_tool_step_locked(
+                build_tool_display_step(
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    arguments=dict(arguments or {}),
+                    status=safe_status,
+                    duration_ms=safe_duration_ms,
+                )
+            )
+            self._ensure_sender_locked()
+            self._sender_wakeup.set()
+
     async def finish(self, final_text: str) -> None:
         safe_text = str(final_text or "").strip()
         async with self._lock:
@@ -120,6 +200,9 @@ class FinalAnswerStreamer:
             else:
                 self._buffer = accumulated or safe_text
             self._finish_thinking_timer_locked()
+            self._finish_tool_timer_locked()
+            self._tool_pending = False
+            self._finalize_running_tools_locked()
             self._terminal_state = "final"
             self._ensure_sender_locked()
             self._sender_wakeup.set()
@@ -135,6 +218,9 @@ class FinalAnswerStreamer:
             content = self._buffer or self._last_sent_content or safe_message
             self._buffer = content
             self._finish_thinking_timer_locked()
+            self._finish_tool_timer_locked()
+            self._tool_pending = False
+            self._finalize_running_tools_locked()
             self._terminal_state = "error"
             self._ensure_sender_locked()
             self._sender_wakeup.set()
@@ -147,11 +233,18 @@ class FinalAnswerStreamer:
             if self._closed:
                 return
             self._finish_thinking_timer_locked()
+            self._finish_tool_timer_locked()
+            self._tool_pending = False
+            self._finalize_running_tools_locked()
             self._buffer = self._last_sent_content
             if self._delivered_any:
                 self._last_sent_thinking_elapsed_ms = max(
                     self._last_sent_thinking_elapsed_ms,
                     self._thinking_elapsed_ms,
+                )
+                self._last_sent_tool_elapsed_ms = max(
+                    self._last_sent_tool_elapsed_ms,
+                    self._tool_elapsed_ms,
                 )
             self._terminal_state = "cancel"
             self._ensure_sender_locked()
@@ -175,6 +268,39 @@ class FinalAnswerStreamer:
             return
         elapsed_s = max(0.0, time.monotonic() - self._thinking_started_at)
         self._thinking_elapsed_ms = max(0, int(round(elapsed_s * 1000)))
+
+    def _start_tool_timer_locked(self) -> None:
+        if self._tool_started_at is None and self._tool_elapsed_ms <= 0:
+            self._tool_started_at = time.monotonic()
+        self._update_tool_elapsed_locked()
+
+    def _update_tool_elapsed_locked(self) -> None:
+        if self._tool_started_at is None:
+            return
+        elapsed_s = max(0.0, time.monotonic() - self._tool_started_at)
+        self._tool_elapsed_ms = max(self._tool_elapsed_ms, int(round(elapsed_s * 1000)))
+
+    def _finish_tool_timer_locked(self) -> None:
+        self._update_tool_elapsed_locked()
+
+    def _upsert_tool_step_locked(self, step: dict[str, object]) -> None:
+        safe_step = sanitize_tool_steps([step])[0]
+        step_id = str(safe_step.get("id") or "").strip()
+        for index, current in enumerate(self._tool_steps):
+            if step_id and str(current.get("id") or "").strip() == step_id:
+                self._tool_steps[index] = safe_step
+                return
+        self._tool_steps.append(safe_step)
+
+    def _finalize_running_tools_locked(self) -> None:
+        finalized: list[dict[str, object]] = []
+        for raw_step in self._tool_steps:
+            step = dict(raw_step)
+            if str(step.get("status") or "").strip() == "running":
+                step["status"] = "error"
+                step["duration_ms"] = max(0, int(step.get("duration_ms") or 0), int(self._tool_elapsed_ms or 0))
+            finalized.append(step)
+        self._tool_steps = sanitize_tool_steps(finalized)
 
     async def _sender_loop(self) -> None:
         while True:
@@ -201,9 +327,8 @@ class FinalAnswerStreamer:
             terminal_state = self._terminal_state
             snapshot = self._current_snapshot_locked()
             if terminal_state == "cancel":
-                last_snapshot = self._last_sent_snapshot_locked()
-                if self._delivered_any and self._has_snapshot(last_snapshot):
-                    return ("final", last_snapshot, True, 0.0)
+                if self._delivered_any and self._has_snapshot(snapshot):
+                    return ("final", snapshot, True, 0.0)
                 self._closed = True
                 return None
             if terminal_state in {"final", "error"}:
@@ -224,19 +349,20 @@ class FinalAnswerStreamer:
             thinking=str(self._thinking_buffer or ""),
             redacted_thinking_count=max(0, int(self._redacted_thinking_count or 0)),
             thinking_elapsed_ms=max(0, int(self._thinking_elapsed_ms or 0)),
-        )
-
-    def _last_sent_snapshot_locked(self) -> _StreamSnapshot:
-        return _StreamSnapshot(
-            content=str(self._last_sent_content or ""),
-            thinking=str(self._last_sent_thinking or ""),
-            redacted_thinking_count=max(0, int(self._last_sent_redacted_thinking_count or 0)),
-            thinking_elapsed_ms=max(0, int(self._last_sent_thinking_elapsed_ms or 0)),
+            tool_pending=bool(self._tool_pending and not self._tool_steps),
+            tool_elapsed_ms=max(0, int(self._tool_elapsed_ms or 0)),
+            tool_steps=sanitize_tool_steps(self._tool_steps),
         )
 
     @staticmethod
     def _has_snapshot(snapshot: _StreamSnapshot) -> bool:
-        return bool(snapshot.content or snapshot.thinking or snapshot.redacted_thinking_count > 0)
+        return bool(
+            snapshot.content
+            or snapshot.thinking
+            or snapshot.redacted_thinking_count > 0
+            or snapshot.tool_pending
+            or snapshot.tool_steps
+        )
 
     def _snapshot_changed_locked(self, snapshot: _StreamSnapshot) -> bool:
         return (
@@ -244,6 +370,9 @@ class FinalAnswerStreamer:
             or snapshot.thinking != self._last_sent_thinking
             or snapshot.redacted_thinking_count != self._last_sent_redacted_thinking_count
             or snapshot.thinking_elapsed_ms != self._last_sent_thinking_elapsed_ms
+            or snapshot.tool_pending != self._last_sent_tool_pending
+            or snapshot.tool_elapsed_ms != self._last_sent_tool_elapsed_ms
+            or sanitize_tool_steps(snapshot.tool_steps) != sanitize_tool_steps(self._last_sent_tool_steps)
         )
 
     async def _emit_snapshot(self, state: str, snapshot: _StreamSnapshot) -> None:
@@ -251,6 +380,9 @@ class FinalAnswerStreamer:
         safe_thinking = str(snapshot.thinking or "")
         safe_redacted_thinking_count = max(0, int(snapshot.redacted_thinking_count or 0))
         safe_thinking_elapsed_ms = max(0, int(snapshot.thinking_elapsed_ms or 0))
+        safe_tool_pending = bool(snapshot.tool_pending and not snapshot.tool_steps)
+        safe_tool_elapsed_ms = max(0, int(snapshot.tool_elapsed_ms or 0))
+        safe_tool_steps = sanitize_tool_steps(snapshot.tool_steps)
         async with self._lock:
             self._seq += 1
             seq = self._seq
@@ -261,9 +393,12 @@ class FinalAnswerStreamer:
             self._last_sent_thinking = safe_thinking
             self._last_sent_redacted_thinking_count = safe_redacted_thinking_count
             self._last_sent_thinking_elapsed_ms = safe_thinking_elapsed_ms
+            self._last_sent_tool_pending = safe_tool_pending
+            self._last_sent_tool_elapsed_ms = safe_tool_elapsed_ms
+            self._last_sent_tool_steps = list(safe_tool_steps)
             self._last_emit_at = now
         logger.info(
-            "[FinalAnswerStreamer] emit: session_id=%s state=%s seq=%d content_len=%d thinking_len=%d redacted_thinking_count=%d thinking_elapsed_ms=%d interval_ms=%d",
+            "[FinalAnswerStreamer] emit: session_id=%s state=%s seq=%d content_len=%d thinking_len=%d redacted_thinking_count=%d thinking_elapsed_ms=%d tool_pending=%s tool_steps=%d tool_elapsed_ms=%d interval_ms=%d",
             self.session_id,
             state,
             seq,
@@ -271,9 +406,19 @@ class FinalAnswerStreamer:
             len(safe_thinking),
             safe_redacted_thinking_count,
             safe_thinking_elapsed_ms,
+            safe_tool_pending,
+            len(safe_tool_steps),
+            safe_tool_elapsed_ms,
             interval_ms,
         )
         try:
+            tool_kwargs = {}
+            if safe_tool_pending or safe_tool_steps or safe_tool_elapsed_ms > 0:
+                tool_kwargs = {
+                    "tool_pending": safe_tool_pending,
+                    "tool_elapsed_ms": safe_tool_elapsed_ms,
+                    "tool_steps": safe_tool_steps,
+                }
             await self._emit_stream(
                 self.session_id,
                 self.response_route_id,
@@ -285,6 +430,7 @@ class FinalAnswerStreamer:
                 thinking=safe_thinking,
                 redacted_thinking_count=safe_redacted_thinking_count,
                 thinking_elapsed_ms=safe_thinking_elapsed_ms,
+                **tool_kwargs,
             )
         except Exception as error:
             logger.warning(

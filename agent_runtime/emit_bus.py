@@ -56,6 +56,9 @@ async def emit(
     thinking: str = "",
     redacted_thinking_count: int = 0,
     thinking_elapsed_ms: int = 0,
+    tool_pending: bool = False,
+    tool_elapsed_ms: int = 0,
+    tool_steps: list[dict] | None = None,
     files: list[str] | None = None,
     emit_kind: str,
     emit_id: str = "",
@@ -68,6 +71,9 @@ async def emit(
     normalized_thinking = str(thinking or "").strip()
     normalized_redacted_thinking_count = max(0, int(redacted_thinking_count or 0))
     normalized_thinking_elapsed_ms = max(0, int(thinking_elapsed_ms or 0))
+    normalized_tool_pending = bool(tool_pending)
+    normalized_tool_elapsed_ms = max(0, int(tool_elapsed_ms or 0))
+    normalized_tool_steps = [dict(step or {}) for step in list(tool_steps or []) if isinstance(step, dict)]
     normalized_files = [
         os.path.abspath(str(path or "").strip())
         for path in list(files or [])
@@ -93,6 +99,8 @@ async def emit(
         and not normalized_files
         and not normalized_thinking
         and normalized_redacted_thinking_count <= 0
+        and not normalized_tool_pending
+        and not normalized_tool_steps
     ):
         return
     await send_emit_request(
@@ -103,6 +111,9 @@ async def emit(
             thinking=normalized_thinking,
             redacted_thinking_count=normalized_redacted_thinking_count,
             thinking_elapsed_ms=normalized_thinking_elapsed_ms,
+            tool_pending=normalized_tool_pending,
+            tool_elapsed_ms=normalized_tool_elapsed_ms,
+            tool_steps=normalized_tool_steps,
             files=normalized_files,
             emit_kind=normalized_emit_kind,
             emit_id=str(emit_id or "").strip() or uuid4().hex,
@@ -160,6 +171,9 @@ async def emit_stream(
     thinking: str = "",
     redacted_thinking_count: int = 0,
     thinking_elapsed_ms: int = 0,
+    tool_pending: bool = False,
+    tool_elapsed_ms: int = 0,
+    tool_steps: list[dict] | None = None,
     emit_id: str = "",
 ) -> None:
     await emit(
@@ -169,6 +183,9 @@ async def emit_stream(
         thinking=thinking,
         redacted_thinking_count=redacted_thinking_count,
         thinking_elapsed_ms=thinking_elapsed_ms,
+        tool_pending=tool_pending,
+        tool_elapsed_ms=tool_elapsed_ms,
+        tool_steps=tool_steps,
         emit_kind="stream",
         emit_id=emit_id,
         stream_type=stream_type,

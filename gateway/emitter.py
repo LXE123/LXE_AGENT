@@ -62,6 +62,9 @@ class GatewayEmitter:
         thinking: str = "",
         redacted_thinking_count: int = 0,
         thinking_elapsed_ms: int = 0,
+        tool_pending: bool = False,
+        tool_elapsed_ms: int = 0,
+        tool_steps: list[dict] | None = None,
         emit_id: str = "",
     ) -> None:
         await self.emit(
@@ -72,6 +75,9 @@ class GatewayEmitter:
                 thinking=str(thinking or "").strip(),
                 redacted_thinking_count=max(0, int(redacted_thinking_count or 0)),
                 thinking_elapsed_ms=max(0, int(thinking_elapsed_ms or 0)),
+                tool_pending=bool(tool_pending),
+                tool_elapsed_ms=max(0, int(tool_elapsed_ms or 0)),
+                tool_steps=[dict(step or {}) for step in list(tool_steps or []) if isinstance(step, dict)],
                 emit_kind="stream",
                 emit_id=str(emit_id or "").strip(),
                 stream_type=str(stream_type or "").strip(),
@@ -112,10 +118,13 @@ class GatewayEmitter:
         safe_thinking = str(getattr(emit, "thinking", "") or "").strip()
         redacted_thinking_count = max(0, int(getattr(emit, "redacted_thinking_count", 0) or 0))
         thinking_elapsed_ms = max(0, int(getattr(emit, "thinking_elapsed_ms", 0) or 0))
-        if not safe_content and not safe_thinking and redacted_thinking_count <= 0:
+        tool_pending = bool(getattr(emit, "tool_pending", False))
+        tool_elapsed_ms = max(0, int(getattr(emit, "tool_elapsed_ms", 0) or 0))
+        tool_steps = [dict(step or {}) for step in list(getattr(emit, "tool_steps", []) or []) if isinstance(step, dict)]
+        if not safe_content and not safe_thinking and redacted_thinking_count <= 0 and not tool_pending and not tool_steps:
             return
         logger.info(
-            "[GatewayEmitter] stream_message: session_id=%s response_route_id=%s stream_type=%s state=%s seq=%d content_len=%d thinking_len=%d redacted_thinking_count=%d thinking_elapsed_ms=%d",
+            "[GatewayEmitter] stream_message: session_id=%s response_route_id=%s stream_type=%s state=%s seq=%d content_len=%d thinking_len=%d redacted_thinking_count=%d thinking_elapsed_ms=%d tool_pending=%s tool_steps=%d tool_elapsed_ms=%d",
             emit.session_id,
             response_route_id,
             str(emit.stream_type or "").strip(),
@@ -125,6 +134,9 @@ class GatewayEmitter:
             len(safe_thinking),
             redacted_thinking_count,
             thinking_elapsed_ms,
+            tool_pending,
+            len(tool_steps),
+            tool_elapsed_ms,
         )
         request = OutboundRequest(
             action="stream_message",
@@ -137,6 +149,9 @@ class GatewayEmitter:
                 "thinking": safe_thinking,
                 "redacted_thinking_count": redacted_thinking_count,
                 "thinking_elapsed_ms": thinking_elapsed_ms,
+                "tool_pending": tool_pending,
+                "tool_elapsed_ms": tool_elapsed_ms,
+                "tool_steps": tool_steps,
             },
             session_id=emit.session_id,
             response_route_id=response_route_id,

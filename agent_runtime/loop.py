@@ -55,6 +55,8 @@ ProgressCallback = Callable[[str], Awaitable[None]]
 FinalTextCallback = Callable[[str], Awaitable[None]]
 FinalStreamCallback = Callable[[LLMStreamEvent], Awaitable[None]]
 StreamCancelCallback = Callable[[], Awaitable[None]]
+ToolStartCallback = Callable[[Any], Awaitable[None]]
+ToolFinishCallback = Callable[[Any, str, int], Awaitable[None]]
 
 MAX_STEPS = 50
 _LLM_STEP_TIMEOUT_S = 25
@@ -319,6 +321,8 @@ class AgentLoop:
         on_final_text_delta: FinalTextCallback | None = None,
         on_final_stream_event: FinalStreamCallback | None = None,
         on_stream_cancel: StreamCancelCallback | None = None,
+        on_tool_start: ToolStartCallback | None = None,
+        on_tool_finish: ToolFinishCallback | None = None,
         cancellation_check: Callable[[], Awaitable[bool]] | None = None,
         cancel_event: Any = None,
         thread_cancel_event: Any = None,
@@ -332,6 +336,8 @@ class AgentLoop:
         self.on_final_text_delta = on_final_text_delta
         self.on_final_stream_event = on_final_stream_event
         self.on_stream_cancel = on_stream_cancel
+        self.on_tool_start = on_tool_start
+        self.on_tool_finish = on_tool_finish
         self.cancellation_check = cancellation_check
         self.cancel_event = cancel_event
         self.thread_cancel_event = thread_cancel_event
@@ -387,6 +393,27 @@ class AgentLoop:
                 self.tool_run_finisher(tool_call_id)
 
         return _finish
+
+    async def _notify_tool_start(self, tool_call: Any) -> None:
+        if self.on_tool_start is None:
+            return
+        try:
+            await self.on_tool_start(tool_call)
+        except Exception as exc:
+            logger.warning("[Turn:TOOL_STREAM] start callback failed: tool=%s error=%s", getattr(tool_call, "name", ""), exc)
+
+    async def _notify_tool_finish(self, tool_call: Any, status: str, duration_ms: int) -> None:
+        if self.on_tool_finish is None:
+            return
+        try:
+            await self.on_tool_finish(tool_call, status, max(0, int(duration_ms or 0)))
+        except Exception as exc:
+            logger.warning(
+                "[Turn:TOOL_STREAM] finish callback failed: tool=%s status=%s error=%s",
+                getattr(tool_call, "name", ""),
+                status,
+                exc,
+            )
 
     async def _request_llm_step(
         self,
@@ -836,9 +863,12 @@ class AgentLoop:
                 if self.on_progress is not None:
                     await self.on_progress(f"🔧 {tool_call.name}")
 
+                started_at = time.time()
+                await self._notify_tool_start(tool_call)
                 tool_def = self.tool_registry.get(tool_call.name)
                 if tool_def is None:
                     observation = f"Unknown tool: {tool_call.name}"
+                    duration_ms = int((time.time() - started_at) * 1000)
                     tool_result_blocks.append(
                         {
                             "type": "tool_result",
@@ -855,9 +885,11 @@ class AgentLoop:
                         tool_args=dict(tool_call.arguments or {}),
                         tool_result_preview=observation,
                         success=False,
+                        duration_ms=duration_ms,
                     )
                     turn_log.steps.append(_unk_step)
                     _log_step(_unk_step)
+                    await self._notify_tool_finish(tool_call, "error", duration_ms)
                     if await self._cancel_requested():
                         _append_synthetic_cancel_results(
                             tool_calls=tool_calls,
@@ -868,13 +900,13 @@ class AgentLoop:
                         return await self._cancel_outcome(messages_to_persist=current_turn_messages)
                     continue
 
-                started_at = time.time()
                 finish_tool_run = self._register_tool_run(tool_call)
                 try:
                     result: ToolResult = await tool_def.handler(**tool_call.arguments)
                 except Exception as error:
                     logger.error("[Turn:TOOL] failure: tool=%s error=%s", tool_call.name, error, exc_info=True)
                     observation = _tool_exception_observation(tool_call.name, error)
+                    duration_ms = int((time.time() - started_at) * 1000)
                     tool_result_blocks.append(
                         {
                             "type": "tool_result",
@@ -891,10 +923,11 @@ class AgentLoop:
                         tool_args=dict(tool_call.arguments or {}),
                         tool_result_preview=observation[:200],
                         success=False,
-                        duration_ms=int((time.time() - started_at) * 1000),
+                        duration_ms=duration_ms,
                     )
                     turn_log.steps.append(_te_step)
                     _log_step(_te_step)
+                    await self._notify_tool_finish(tool_call, "error", duration_ms)
                     if await self._cancel_requested():
                         _append_synthetic_cancel_results(
                             tool_calls=tool_calls,
@@ -907,6 +940,7 @@ class AgentLoop:
                 finally:
                     finish_tool_run()
 
+                duration_ms = int((time.time() - started_at) * 1000)
                 tool_result_blocks.append(
                     {
                         "type": "tool_result",
@@ -923,10 +957,11 @@ class AgentLoop:
                     tool_name=tool_call.name,
                     tool_result_preview=observation[:200],
                     success=True,
-                    duration_ms=int((time.time() - started_at) * 1000),
+                    duration_ms=duration_ms,
                 )
                 turn_log.steps.append(_tr_step)
                 _log_step(_tr_step)
+                await self._notify_tool_finish(tool_call, "success", duration_ms)
                 if await self._cancel_requested():
                     _append_synthetic_cancel_results(
                         tool_calls=tool_calls,
@@ -961,6 +996,8 @@ async def run_agent_turn(
     on_final_text_delta: FinalTextCallback | None = None,
     on_final_stream_event: FinalStreamCallback | None = None,
     on_stream_cancel: StreamCancelCallback | None = None,
+    on_tool_start: ToolStartCallback | None = None,
+    on_tool_finish: ToolFinishCallback | None = None,
     cancellation_check: Callable[[], Awaitable[bool]] | None = None,
     cancel_event: Any = None,
     thread_cancel_event: Any = None,
@@ -975,6 +1012,8 @@ async def run_agent_turn(
         on_final_text_delta=on_final_text_delta,
         on_final_stream_event=on_final_stream_event,
         on_stream_cancel=on_stream_cancel,
+        on_tool_start=on_tool_start,
+        on_tool_finish=on_tool_finish,
         cancellation_check=cancellation_check,
         cancel_event=cancel_event,
         thread_cancel_event=thread_cancel_event,

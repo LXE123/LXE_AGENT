@@ -96,6 +96,9 @@ async def _emit_final_answer_stream_frame(
     thinking: str = "",
     redacted_thinking_count: int = 0,
     thinking_elapsed_ms: int = 0,
+    tool_pending: bool = False,
+    tool_elapsed_ms: int = 0,
+    tool_steps: list[dict[str, Any]] | None = None,
 ) -> None:
     await default_emit_stream(
         session_id=session_id,
@@ -107,6 +110,9 @@ async def _emit_final_answer_stream_frame(
         thinking=thinking,
         redacted_thinking_count=redacted_thinking_count,
         thinking_elapsed_ms=thinking_elapsed_ms,
+        tool_pending=tool_pending,
+        tool_elapsed_ms=tool_elapsed_ms,
+        tool_steps=tool_steps,
         emit_id=emit_id,
     )
 
@@ -210,6 +216,9 @@ async def handle_unified_turn_job(
         thinking: str = "",
         redacted_thinking_count: int = 0,
         thinking_elapsed_ms: int = 0,
+        tool_pending: bool = False,
+        tool_elapsed_ms: int = 0,
+        tool_steps: list[dict[str, Any]] | None = None,
     ) -> None:
         await emit_stream_fn(
             session_id=session_id,
@@ -221,6 +230,9 @@ async def handle_unified_turn_job(
             thinking=thinking,
             redacted_thinking_count=redacted_thinking_count,
             thinking_elapsed_ms=thinking_elapsed_ms,
+            tool_pending=tool_pending,
+            tool_elapsed_ms=tool_elapsed_ms,
+            tool_steps=tool_steps,
             emit_id=emit_id,
         )
 
@@ -234,6 +246,26 @@ async def handle_unified_turn_job(
         if _should_stream_final_answer(session) and response_route_id
         else None
     )
+
+    async def _push_tool_start(tool_call: Any) -> None:
+        if final_answer_streamer is None:
+            return
+        await final_answer_streamer.push_tool_start(
+            tool_call_id=str(getattr(tool_call, "id", "") or "").strip(),
+            tool_name=str(getattr(tool_call, "name", "") or "").strip(),
+            arguments=dict(getattr(tool_call, "arguments", None) or {}),
+        )
+
+    async def _push_tool_finish(tool_call: Any, status: str, duration_ms: int) -> None:
+        if final_answer_streamer is None:
+            return
+        await final_answer_streamer.push_tool_finish(
+            tool_call_id=str(getattr(tool_call, "id", "") or "").strip(),
+            tool_name=str(getattr(tool_call, "name", "") or "").strip(),
+            arguments=dict(getattr(tool_call, "arguments", None) or {}),
+            status=status,
+            duration_ms=duration_ms,
+        )
 
     async def cancellation_check() -> bool:
         if run_handle is not None and bool(getattr(run_handle, "cancelled", False)):
@@ -291,6 +323,8 @@ async def handle_unified_turn_job(
 
     if outcome is None:
         try:
+            if final_answer_streamer is not None:
+                await final_answer_streamer.start_tool_pending()
             outcome = await run_turn(
                 session=session,
                 user_text=user_text,
@@ -298,6 +332,8 @@ async def handle_unified_turn_job(
                 on_progress=None,
                 on_final_stream_event=final_answer_streamer.push_event if final_answer_streamer is not None else None,
                 on_stream_cancel=final_answer_streamer.cancel if final_answer_streamer is not None else None,
+                on_tool_start=_push_tool_start if final_answer_streamer is not None else None,
+                on_tool_finish=_push_tool_finish if final_answer_streamer is not None else None,
                 cancellation_check=cancellation_check,
                 cancel_event=getattr(run_handle, "cancel_event", None),
                 thread_cancel_event=getattr(run_handle, "thread_cancel_event", None),

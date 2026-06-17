@@ -159,6 +159,8 @@ def test_route_payloads_use_response_route_id_without_card_id_alias() -> None:
     assert emit.content == "answer"
     assert emit.thinking == "plan"
     assert emit.redacted_thinking_count == 1
+    assert emit.tool_pending is False
+    assert emit.tool_steps == []
     assert heartbeat.response_route_id == "route-1"
     assert "card_id" not in job.to_dict()
     assert "card_id" not in emit.to_dict()
@@ -167,6 +169,7 @@ def test_route_payloads_use_response_route_id_without_card_id_alias() -> None:
     assert emit.to_dict()["response_route_id"] == "route-1"
     assert emit.to_dict()["thinking"] == "plan"
     assert emit.to_dict()["redacted_thinking_count"] == 1
+    assert emit.to_dict()["tool_steps"] == []
     assert heartbeat.to_dict()["response_route_id"] == "route-1"
 
     legacy_job = AgentJob.from_dict(
@@ -275,6 +278,77 @@ def test_emit_stream_allows_thinking_without_answer_content() -> None:
     assert requests[0].thinking == "plan"
     assert requests[0].redacted_thinking_count == 1
     assert requests[0].thinking_elapsed_ms == 3200
+
+
+def test_emit_stream_allows_tool_pending_without_answer_content() -> None:
+    requests: list[EmitRequest] = []
+
+    async def handler(request: EmitRequest) -> None:
+        requests.append(request)
+
+    async def _run() -> None:
+        configure_emit_handler(handler)
+        try:
+            await emit_stream(
+                session_id="session-1",
+                response_route_id="route-1",
+                stream_type="final_answer",
+                state="delta",
+                seq=1,
+                content="",
+                tool_pending=True,
+                tool_elapsed_ms=0,
+                tool_steps=[],
+                emit_id="emit-1",
+            )
+        finally:
+            reset_emit_handlers()
+
+    asyncio.run(_run())
+
+    assert len(requests) == 1
+    assert requests[0].content == ""
+    assert requests[0].tool_pending is True
+    assert requests[0].tool_elapsed_ms == 0
+    assert requests[0].tool_steps == []
+
+
+def test_emit_request_roundtrip_preserves_tool_steps() -> None:
+    emit = EmitRequest.from_dict(
+        {
+            "session_id": "session-1",
+            "response_route_id": "route-1",
+            "emit_kind": "stream",
+            "stream_type": "final_answer",
+            "state": "delta",
+            "seq": 1,
+            "tool_elapsed_ms": 1200,
+            "tool_steps": [
+                {
+                    "id": "toolu-1",
+                    "name": "exec",
+                    "title": "Run command",
+                    "detail": "uv run pytest",
+                    "status": "success",
+                    "duration_ms": 1200,
+                    "result": "must not roundtrip",
+                }
+            ],
+        }
+    )
+
+    assert emit.tool_elapsed_ms == 1200
+    assert emit.tool_steps == [
+        {
+            "id": "toolu-1",
+            "name": "exec",
+            "title": "Run command",
+            "detail": "uv run pytest",
+            "status": "success",
+            "duration_ms": 1200,
+        }
+    ]
+    assert "result" not in emit.to_dict()["tool_steps"][0]
 
 
 def test_response_route_context_create_patch_delivery_and_touch(sqlite_db):
