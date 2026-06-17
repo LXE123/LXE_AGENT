@@ -41,7 +41,7 @@ uv run --frozen python -m services.agent_cli.mabang.export_store_msku_actual_inv
 {
   "success": true,
   "store_name": "Amazon-Lerxiuer-FR",
-  "source_xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+  "source_xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
   "source_data_time": "202605251530",
   "local_sku_count": 120,
   "combo_sku_count": 8,
@@ -51,7 +51,7 @@ uv run --frozen python -m services.agent_cli.mabang.export_store_msku_actual_inv
   "no_inventory_row_count": 2,
   "missing_stock_sku_count": 2,
   "missing_stock_skus": ["SKU-A", "SKU-B"],
-  "xlsx_path": "artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_actual_inventory.xlsx",
+  "xlsx_path": "artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_真实库存.xlsx",
   "source": "mabang_store_msku_actual_inventory"
 }
 ```

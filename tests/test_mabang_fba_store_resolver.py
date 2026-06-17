@@ -232,7 +232,7 @@ def _worksheet_rows(path: Path) -> list[list[object]]:
 
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
-        worksheet = workbook["stores"]
+        worksheet = workbook[stores.STORE_LIST_SHEET]
         return [list(row) for row in worksheet.iter_rows(values_only=True)]
     finally:
         workbook.close()
@@ -252,9 +252,9 @@ def test_write_fba_stores_xlsx_writes_expected_columns_and_rows(tmp_path) -> Non
             ),
         ],
         output_dir=tmp_path,
-        filename_prefix="fba_stores",
     )
 
+    assert path.name.startswith("FBA店铺列表_")
     rows = _worksheet_rows(path)
     assert rows[0] == list(stores.STORE_XLSX_HEADERS)
     assert rows[1] == [

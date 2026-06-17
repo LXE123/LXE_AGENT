@@ -80,7 +80,7 @@ uv run --frozen python -m services.agent_cli.mabang.download_store_unlinked_ship
     "success": true,
     "store_name": "Amazon-xxx-US",
     "snapshot_time": "202606121735",
-    "snapshot_xlsx_path": "artifacts/mabang_fba_unlinked_shipments_snapshots/202606121735-Amazon-xxx-US_unlinked_shipments_snapshot.xlsx",
+    "snapshot_xlsx_path": "artifacts/mabang_fba_unlinked_shipments_snapshots/202606121735-Amazon-xxx-US_未关联货件快照.xlsx",
     "raw_file_count": 1,
     "detail_count": 100,
     "msku_count": 80,

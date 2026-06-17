@@ -43,13 +43,13 @@ def test_success_returns_actual_inventory_path(monkeypatch, capsys) -> None:
         assert store_name == "Amazon-Lerxiuer-FR"
         return ActualInventoryResult(
             store_name="Amazon-Lerxiuer-FR",
-            source_xlsx_path="artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+            source_xlsx_path="artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
             source_data_time="202605251530",
             local_sku_count=120,
             combo_sku_count=8,
             stock_sku_count=135,
             missing_stock_skus=["SKU-A", "SKU-B"],
-            xlsx_path="artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_actual_inventory.xlsx",
+            xlsx_path="artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_真实库存.xlsx",
             inventory_row_count=118,
             no_local_sku_count=3,
             no_inventory_row_count=2,
@@ -65,7 +65,7 @@ def test_success_returns_actual_inventory_path(monkeypatch, capsys) -> None:
     assert payload == {
         "success": True,
         "store_name": "Amazon-Lerxiuer-FR",
-        "source_xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+        "source_xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
         "source_data_time": "202605251530",
         "local_sku_count": 120,
         "combo_sku_count": 8,
@@ -75,7 +75,7 @@ def test_success_returns_actual_inventory_path(monkeypatch, capsys) -> None:
         "no_inventory_row_count": 2,
         "missing_stock_sku_count": 2,
         "missing_stock_skus": ["SKU-A", "SKU-B"],
-        "xlsx_path": "artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_actual_inventory.xlsx",
+        "xlsx_path": "artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_真实库存.xlsx",
         "source": "mabang_store_msku_actual_inventory",
     }
     assert close_calls == ["close"]

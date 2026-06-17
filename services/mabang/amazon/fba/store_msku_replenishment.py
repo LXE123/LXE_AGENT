@@ -34,15 +34,31 @@ from services.mabang.amazon.fba.replenishment_template import (
     validate_template,
 )
 
+AMAZON_INVENTORY_SNAPSHOT_DATE_TOLERANCE_DAYS = 1
 DEFAULT_SALES_ANALYSIS_DIR = Path("artifacts") / "mabang_store_msku_analysis"
 DEFAULT_ACTUAL_INVENTORY_DIR = Path("artifacts") / "mabang_store_msku_inventory"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_store_msku_replenishment"
 SOURCE = "mabang_store_msku_replenishment"
+SOURCE_FBA_TOTAL_COLUMN = "FBA总库存"
+MABANG_FBA_TOTAL_COLUMN = "FBA 总库存（马帮数据）"
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
-SALES_REPORT_RE = re.compile(r"^(?P<source_time>\d{12})-(?P<store>.+)_sales_analysis\.xlsx$", re.IGNORECASE)
-INVENTORY_REPORT_RE = re.compile(r"^(?P<source_time>\d{12})-(?P<store>.+)_actual_inventory\.xlsx$", re.IGNORECASE)
-UNLINKED_SNAPSHOT_RE = re.compile(r"^(?P<snapshot_time>\d{12})-(?P<store>.+)_unlinked_shipments_snapshot\.xlsx$", re.IGNORECASE)
+SALES_REPORT_SUFFIXES = ("销量分析", "sales_analysis")
+INVENTORY_REPORT_SUFFIXES = ("真实库存", "actual_inventory")
+UNLINKED_SNAPSHOT_SUFFIXES = ("未关联货件快照", "unlinked_shipments_snapshot")
+REPLENISHMENT_REPORT_SUFFIX = "备货建议"
+SALES_REPORT_RE = re.compile(
+    rf"^(?P<source_time>\d{{12}})-(?P<store>.+)_(?:{'|'.join(re.escape(suffix) for suffix in SALES_REPORT_SUFFIXES)})\.xlsx$",
+    re.IGNORECASE,
+)
+INVENTORY_REPORT_RE = re.compile(
+    rf"^(?P<source_time>\d{{12}})-(?P<store>.+)_(?:{'|'.join(re.escape(suffix) for suffix in INVENTORY_REPORT_SUFFIXES)})\.xlsx$",
+    re.IGNORECASE,
+)
+UNLINKED_SNAPSHOT_RE = re.compile(
+    rf"^(?P<snapshot_time>\d{{12}})-(?P<store>.+)_(?:{'|'.join(re.escape(suffix) for suffix in UNLINKED_SNAPSHOT_SUFFIXES)})\.xlsx$",
+    re.IGNORECASE,
+)
 UNLINKED_SNAPSHOT_MISSING_WARNING = "未找到与备货数据同日的未关联货件快照，本次未扣减未关联货件"
 UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING = "未找到与备货数据同日的未关联货件快照，已忽略非同日未关联货件快照，本次未扣减未关联货件"
 AMAZON_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊后台数据]和未关联货件）"
@@ -80,24 +96,23 @@ DETAIL_COLUMNS = (
     "SKU类型",
     "模板名称",
     "命中规则",
-    "销量趋势",
+    "销量趋势速率",
     "趋势分组",
     "加权日销",
     "可销售天数",
-    "FBA总库存",
+    MABANG_FBA_TOTAL_COLUMN,
+    AMAZON_FBA_TOTAL_COLUMN,
     "未关联数量",
     "真实库存数量",
-    "单品重量(g)",
     "补货天数",
     "补货量",
-    "补货量（减去 FBA 总库存）",
     "补货量（减去 FBA 总库存和未关联货件）",
-    AMAZON_FBA_TOTAL_COLUMN,
     AMAZON_DEDUCTED_REPLENISH_COLUMN,
     "海运天数",
     "海运建议量",
     "同时空运天数",
     "同时空运建议量",
+    "单品重量(g)",
     "预计总重量kg",
     "决策原因",
 )
@@ -120,25 +135,24 @@ INVENTORY_SHORTAGE_COLUMNS = (
     "运输渠道",
     "模板名称",
     "命中规则",
-    "销量趋势",
+    "销量趋势速率",
     "趋势分组",
     "加权日销",
     "可销售天数",
-    "FBA总库存",
+    MABANG_FBA_TOTAL_COLUMN,
+    AMAZON_FBA_TOTAL_COLUMN,
     "未关联数量",
     "真实库存数量",
-    "单品重量(g)",
     "补货天数",
     "补货量",
-    "补货量（减去 FBA 总库存）",
     "补货量（减去 FBA 总库存和未关联货件）",
-    AMAZON_FBA_TOTAL_COLUMN,
     AMAZON_DEDUCTED_REPLENISH_COLUMN,
     "库存缺口",
     "海运天数",
     "海运建议量",
     "同时空运天数",
     "同时空运建议量",
+    "单品重量(g)",
     "预计总重量kg",
     "决策原因",
 )
@@ -156,24 +170,23 @@ CLEARANCE_COLUMNS = (
     "运输渠道",
     "模板名称",
     "命中规则",
-    "销量趋势",
+    "销量趋势速率",
     "趋势分组",
     "加权日销",
     "可销售天数",
-    "FBA总库存",
+    MABANG_FBA_TOTAL_COLUMN,
+    AMAZON_FBA_TOTAL_COLUMN,
     "未关联数量",
     "真实库存数量",
-    "单品重量(g)",
     "补货天数",
     "补货量",
-    "补货量（减去 FBA 总库存）",
     "补货量（减去 FBA 总库存和未关联货件）",
-    AMAZON_FBA_TOTAL_COLUMN,
     AMAZON_DEDUCTED_REPLENISH_COLUMN,
     "海运天数",
     "海运建议量",
     "同时空运天数",
     "同时空运建议量",
+    "单品重量(g)",
     "预计总重量kg",
     "决策原因",
 )
@@ -199,7 +212,7 @@ INVENTORY_REQUIRED_COLUMNS = (
     "ASIN",
     "本地SKU",
     "商品链接",
-    "FBA总库存",
+    SOURCE_FBA_TOTAL_COLUMN,
     "加权日销",
     "可销售天数",
     "真实库存数量",
@@ -221,6 +234,7 @@ FLOAT_TOLERANCE = 1e-9
 TWO_DECIMAL_COLUMNS = {
     "加权日销",
     "可销售天数",
+    "销量趋势速率",
     "单品重量(g)",
     "预计总重量kg",
     "最大加权日销",
@@ -229,7 +243,7 @@ TWO_DECIMAL_COLUMNS = {
 }
 INTEGER_COLUMNS = {
     "MSKU数",
-    "FBA总库存",
+    MABANG_FBA_TOTAL_COLUMN,
     "真实库存数量",
     "总补货量",
     "空运（急发）补货量",
@@ -237,7 +251,6 @@ INTEGER_COLUMNS = {
     "海运建议量",
     "补货天数",
     "补货量",
-    "补货量（减去 FBA 总库存）",
     "补货量（减去 FBA 总库存和未关联货件）",
     AMAZON_FBA_TOTAL_COLUMN,
     AMAZON_DEDUCTED_REPLENISH_COLUMN,
@@ -286,6 +299,7 @@ class SalesDetail:
     sales_7d: float
     sales_14d: float
     sales_30d: float
+    trend_rate: float | None = None
 
 
 @dataclass(frozen=True)
@@ -343,12 +357,10 @@ class ReplenishmentRow:
     amazon_fba_total_inventory: float | None = None
     amazon_deducted_replenish_quantity: int | None = None
     transport_channel: str = ""
+    sales_trend_rate: float | None = None
 
     def to_detail_payload(self) -> dict[str, Any]:
         display_weight_kg = _report_estimated_weight_kg(self)
-        fba_deducted_quantity = self.fba_deducted_replenish_quantity
-        if fba_deducted_quantity is None:
-            fba_deducted_quantity = self.replenish_quantity
         return {
             "MSKU": self.msku,
             "父ASIN": self.parent_asin,
@@ -363,17 +375,16 @@ class ReplenishmentRow:
             "运输渠道": self.transport_channel,
             "模板名称": self.template_name,
             "命中规则": self.matched_rule,
-            "销量趋势": self.sales_trend,
+            "销量趋势速率": _display_optional_float(self.sales_trend_rate),
             "趋势分组": self.trend_group,
             "加权日销": _display_float(self.weighted_daily_sales),
             "可销售天数": _display_optional_float(self.sales_days),
-            "FBA总库存": _display_quantity(self.fba_total_inventory),
+            MABANG_FBA_TOTAL_COLUMN: _display_quantity(self.fba_total_inventory),
             "未关联数量": _display_quantity(self.unlinked_quantity),
             "真实库存数量": _display_optional_quantity(self.actual_inventory),
             "单品重量(g)": _display_optional_float(self.weight_grams),
             "补货天数": _display_optional_int(self.replenish_days),
             "补货量": _display_optional_int(self.original_replenish_quantity),
-            "补货量（减去 FBA 总库存）": _display_optional_int(fba_deducted_quantity),
             "补货量（减去 FBA 总库存和未关联货件）": _display_optional_int(self.replenish_quantity),
             AMAZON_FBA_TOTAL_COLUMN: _display_optional_quantity(self.amazon_fba_total_inventory),
             AMAZON_DEDUCTED_REPLENISH_COLUMN: _display_optional_int(self.amazon_deducted_replenish_quantity),
@@ -641,7 +652,7 @@ def find_same_day_unlinked_shipments_snapshot(
 
     candidates: list[UnlinkedSnapshotFile] = []
     ignored_dates: list[UnlinkedSnapshotFile] = []
-    for path in directory.glob("*_unlinked_shipments_snapshot.xlsx"):
+    for path in directory.glob(f"*-{expected_store_part}_*.xlsx"):
         parsed = _parse_unlinked_snapshot_file(path)
         if parsed is None or parsed.store_part != expected_store_part:
             continue
@@ -671,6 +682,26 @@ def validate_unlinked_shipments_snapshot_same_day(path: str | Path, source_data_
             f"snapshot_date={snapshot_date}, path={snapshot_path}"
         )
     return snapshot_path
+
+
+def validate_amazon_inventory_snapshot_date(snapshot_date: str, source_data_time: str) -> None:
+    clean_snapshot_date = _clean_text(snapshot_date)
+    source_date = _clean_text(source_data_time)[:8]
+    try:
+        snapshot_day = datetime.strptime(clean_snapshot_date, "%Y%m%d").date()
+        source_day = datetime.strptime(source_date, "%Y%m%d").date()
+    except ValueError as exc:
+        raise StoreMskuReplenishmentError(
+            "Amazon 后台库存快照日期格式无效: "
+            f"snapshot_date={clean_snapshot_date}, source_data_date={source_date}"
+        ) from exc
+
+    day_delta = abs((snapshot_day - source_day).days)
+    if day_delta > AMAZON_INVENTORY_SNAPSHOT_DATE_TOLERANCE_DAYS:
+        raise StoreMskuReplenishmentError(
+            "Amazon 后台库存快照日期与备货数据日期相差超过1天: "
+            f"snapshot_date={clean_snapshot_date}, source_data_date={source_date}"
+        )
 
 
 def find_matching_report_files(
@@ -768,7 +799,7 @@ def load_inventory_rows(xlsx_path: str | Path) -> list[InventoryInputRow]:
                     sku_type=sku_type,
                     weighted_daily_sales=_number(record.get("加权日销")),
                     sales_days=_optional_number(record.get("可销售天数")),
-                    fba_total_inventory=_number(record.get("FBA总库存")),
+                    fba_total_inventory=_number(record.get(SOURCE_FBA_TOTAL_COLUMN) or record.get(MABANG_FBA_TOTAL_COLUMN)),
                     actual_inventory=_optional_number(record.get("真实库存数量")),
                     child_skus=_clean_text(record.get("子SKU")),
                 )
@@ -804,6 +835,7 @@ def load_sales_details(xlsx_path: str | Path) -> dict[tuple[str, str, str, str],
             )
         details[key] = SalesDetail(
             trend=_clean_text(record.get("销量趋势")),
+            trend_rate=_optional_number(record.get("销量趋势速率")),
             weight_grams=parse_weight_grams(record.get("单品重量(g)(cm)")),
             sales_7d=_number(record.get("7天销量")),
             sales_14d=_number(record.get("14天销量")),
@@ -923,7 +955,7 @@ def _with_inventory_deductions(
         final_sea_quantity = 0
         final_companion_air_quantity = 0
 
-    reason_suffix = f"；补货量={original_quantity}，FBA总库存={_display_quantity(row.fba_total_inventory)}，补货量（减去 FBA 总库存）={fba_deducted_quantity}"
+    reason_suffix = f"；补货量={original_quantity}，{MABANG_FBA_TOTAL_COLUMN}={_display_quantity(row.fba_total_inventory)}，扣FBA后={fba_deducted_quantity}"
     if row.unlinked_quantity > 0:
         reason_suffix += (
             f"，未关联数量={_display_quantity(row.unlinked_quantity)}，"
@@ -941,7 +973,7 @@ def _with_inventory_deductions(
             companion_air_quantity=0 if row.companion_air_quantity is not None else row.companion_air_quantity,
             sea_net_quantity=0 if row.sea_net_quantity is not None else row.sea_net_quantity,
             estimated_weight_kg=None,
-            decision_reason=f"{row.decision_reason}{reason_suffix}，FBA总库存已覆盖本次建议量",
+            decision_reason=f"{row.decision_reason}{reason_suffix}，{MABANG_FBA_TOTAL_COLUMN}已覆盖本次建议量",
             sheet_name=NO_SHIP_SHEET,
         )
     if final_quantity <= 0:
@@ -953,7 +985,7 @@ def _with_inventory_deductions(
             companion_air_quantity=0 if row.companion_air_quantity is not None else row.companion_air_quantity,
             sea_net_quantity=0 if row.sea_net_quantity is not None else row.sea_net_quantity,
             estimated_weight_kg=None,
-            decision_reason=f"{row.decision_reason}{reason_suffix}，FBA总库存和未关联数量已覆盖本次建议量",
+            decision_reason=f"{row.decision_reason}{reason_suffix}，{MABANG_FBA_TOTAL_COLUMN}和未关联数量已覆盖本次建议量",
             sheet_name=NO_SHIP_SHEET,
         )
 
@@ -975,7 +1007,7 @@ def _with_inventory_deductions(
                 estimated_weight_kg=None,
                 decision_reason=(
                     f"{row.decision_reason}{reason_suffix}，"
-                    f"扣减FBA总库存和未关联货件后，海运数量不足{min_sea_quantity:g}件"
+                    f"扣减{MABANG_FBA_TOTAL_COLUMN}和未关联货件后，海运数量不足{min_sea_quantity:g}件"
                 ),
                 sheet_name=NO_SHIP_SHEET,
             )
@@ -994,7 +1026,7 @@ def _with_inventory_deductions(
                 estimated_weight_kg=None,
                 decision_reason=(
                     f"{row.decision_reason}{reason_suffix}，"
-                    f"扣减FBA总库存和未关联货件后，海运重量不足{min_weight_kg:g}kg"
+                    f"扣减{MABANG_FBA_TOTAL_COLUMN}和未关联货件后，海运重量不足{min_weight_kg:g}kg"
                 ),
                 sheet_name=NO_SHIP_SHEET,
             )
@@ -1063,6 +1095,7 @@ def calculate_replenishment_row(
             template_name=active_template.name,
             matched_rule=rule_name,
             sales_trend=sales_detail.trend,
+            sales_trend_rate=sales_detail.trend_rate,
             trend_group="样本不足",
             weighted_daily_sales=weighted_daily_sales,
             sales_days=sales_days,
@@ -1096,6 +1129,7 @@ def calculate_replenishment_row(
         "template_name": active_template.name,
         "matched_rule": rule_name,
         "sales_trend": sales_detail.trend,
+        "sales_trend_rate": sales_detail.trend_rate,
         "trend_group": mapped_trend,
         "weighted_daily_sales": weighted_daily_sales,
         "sales_days": sales_days,
@@ -1540,10 +1574,10 @@ def calculate_store_msku_replenishment(
         if requested_amazon_snapshot_path
         else None
     )
-    if amazon_snapshot_data is not None and amazon_snapshot_data.snapshot_date != reports.source_data_time[:8]:
-        raise StoreMskuReplenishmentError(
-            "Amazon 后台库存快照日期与备货数据日期不一致: "
-            f"snapshot_date={amazon_snapshot_data.snapshot_date}, source_data_date={reports.source_data_time[:8]}"
+    if amazon_snapshot_data is not None:
+        validate_amazon_inventory_snapshot_date(
+            amazon_snapshot_data.snapshot_date,
+            reports.source_data_time,
         )
     replenishment_rows = calculate_replenishment_rows(
         inventory_rows,
@@ -1552,7 +1586,7 @@ def calculate_store_msku_replenishment(
         unlinked_quantities,
         amazon_snapshot_data.quantities_by_msku if amazon_snapshot_data is not None else None,
     )
-    report_path = _output_dir(output_dir) / f"{reports.source_data_time}-{_safe_file_part(clean_store_name)}_replenishment.xlsx"
+    report_path = _output_dir(output_dir) / f"{reports.source_data_time}-{_safe_file_part(clean_store_name)}_{REPLENISHMENT_REPORT_SUFFIX}.xlsx"
     write_replenishment_report(replenishment_rows, report_path)
     summary_rows = summarize_links(replenishment_rows)
 
@@ -1587,6 +1621,7 @@ __all__ = [
     "AIR_DETAIL_COLUMNS",
     "AIR_SHEET",
     "AIR_URGENT_SHEET",
+    "AMAZON_INVENTORY_SNAPSHOT_DATE_TOLERANCE_DAYS",
     "CLEARANCE_COLUMNS",
     "CLEARANCE_SHEET",
     "DETAIL_COLUMNS",
@@ -1595,10 +1630,16 @@ __all__ = [
     "NO_SHIP_SHEET",
     "REPORT_SHEETS",
     "SAMPLE_INSUFFICIENT_SHEET",
+    "SALES_REPORT_SUFFIXES",
     "SEA_SHEET",
+    "INVENTORY_REPORT_SUFFIXES",
+    "REPLENISHMENT_REPORT_SUFFIX",
     "SOURCE",
+    "SOURCE_FBA_TOTAL_COLUMN",
+    "MABANG_FBA_TOTAL_COLUMN",
     "SUMMARY_COLUMNS",
     "SUMMARY_SHEET",
+    "UNLINKED_SNAPSHOT_SUFFIXES",
     "UNLINKED_SNAPSHOT_IGNORED_NON_SAME_DAY_WARNING",
     "UNLINKED_SNAPSHOT_MISSING_WARNING",
     "InventoryInputRow",
@@ -1619,6 +1660,7 @@ __all__ = [
     "replenishment_days",
     "summarize_links",
     "trend_group",
+    "validate_amazon_inventory_snapshot_date",
     "validate_unlinked_shipments_snapshot_same_day",
     "write_replenishment_report",
 ]

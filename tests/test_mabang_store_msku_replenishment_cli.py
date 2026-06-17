@@ -40,8 +40,8 @@ def test_success_returns_replenishment_report_path(monkeypatch, capsys) -> None:
         return StoreMskuReplenishmentResult(
             store_name="Amazon-Lerxiuer-FR",
             source_data_time="202605251530",
-            sales_analysis_xlsx_path="artifacts/mabang_store_msku_analysis/202605251530-Amazon-Lerxiuer-FR_sales_analysis.xlsx",
-            actual_inventory_xlsx_path="artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_actual_inventory.xlsx",
+            sales_analysis_xlsx_path="artifacts/mabang_store_msku_analysis/202605251530-Amazon-Lerxiuer-FR_销量分析.xlsx",
+            actual_inventory_xlsx_path="artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_真实库存.xlsx",
             template_name="默认模板",
             template_version=1,
             row_count=120,
@@ -52,7 +52,7 @@ def test_success_returns_replenishment_report_path(monkeypatch, capsys) -> None:
             clearance_count=0,
             no_ship_count=42,
             sample_insufficient_count=15,
-            report_xlsx_path="artifacts/mabang_store_msku_replenishment/202605251530-Amazon-Lerxiuer-FR_replenishment.xlsx",
+            report_xlsx_path="artifacts/mabang_store_msku_replenishment/202605251530-Amazon-Lerxiuer-FR_备货建议.xlsx",
         )
 
     monkeypatch.setattr(cli, "calculate_store_msku_replenishment", fake_calculate_store_msku_replenishment)
@@ -65,8 +65,8 @@ def test_success_returns_replenishment_report_path(monkeypatch, capsys) -> None:
         "success": True,
         "store_name": "Amazon-Lerxiuer-FR",
         "source_data_time": "202605251530",
-        "sales_analysis_xlsx_path": "artifacts/mabang_store_msku_analysis/202605251530-Amazon-Lerxiuer-FR_sales_analysis.xlsx",
-        "actual_inventory_xlsx_path": "artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_actual_inventory.xlsx",
+        "sales_analysis_xlsx_path": "artifacts/mabang_store_msku_analysis/202605251530-Amazon-Lerxiuer-FR_销量分析.xlsx",
+        "actual_inventory_xlsx_path": "artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_真实库存.xlsx",
         "template_name": "默认模板",
         "template_version": 1,
         "row_count": 120,
@@ -77,7 +77,7 @@ def test_success_returns_replenishment_report_path(monkeypatch, capsys) -> None:
         "clearance_count": 0,
         "no_ship_count": 42,
         "sample_insufficient_count": 15,
-        "report_xlsx_path": "artifacts/mabang_store_msku_replenishment/202605251530-Amazon-Lerxiuer-FR_replenishment.xlsx",
+        "report_xlsx_path": "artifacts/mabang_store_msku_replenishment/202605251530-Amazon-Lerxiuer-FR_备货建议.xlsx",
         "source": "mabang_store_msku_replenishment",
     }
 

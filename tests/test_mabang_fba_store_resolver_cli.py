@@ -32,7 +32,7 @@ def test_list_stores_returns_json(monkeypatch, capsys) -> None:
                 FbaStore(store_name="JP Store", store_id="101"),
                 FbaStore(store_name="UK Store", store_id="102"),
             ],
-            xlsx_path="artifacts/mabang_fba_store_resolver/fba_stores_20260521_153000.xlsx",
+            xlsx_path="artifacts/mabang_fba_store_resolver/FBA店铺列表_20260521_153000.xlsx",
         )
 
     monkeypatch.setattr(cli, "list_fba_stores", fake_list_fba_stores)
@@ -46,7 +46,7 @@ def test_list_stores_returns_json(monkeypatch, capsys) -> None:
         "store_count": 2,
         "fba_warehouse_count": 2,
         "shop_count": 0,
-        "xlsx_path": "artifacts/mabang_fba_store_resolver/fba_stores_20260521_153000.xlsx",
+        "xlsx_path": "artifacts/mabang_fba_store_resolver/FBA店铺列表_20260521_153000.xlsx",
         "source": "mabang_fba_store_resolver",
     }
     assert "stores" not in payload
@@ -137,7 +137,7 @@ def test_large_ambiguous_error_returns_candidates_xlsx(monkeypatch, tmp_path, ca
 
     def fake_write_fba_stores_xlsx(stores, *, filename_prefix="", **kwargs):
         captured_stores.extend(stores)
-        assert filename_prefix == "fba_store_candidates_Amazon"
+        assert filename_prefix == "FBA店铺候选_Amazon"
         path = tmp_path / "candidates.xlsx"
         path.write_bytes(b"xlsx")
         return path

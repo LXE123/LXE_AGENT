@@ -82,11 +82,11 @@ def _assert_standard_dimensions(path: Path, sheet_names: tuple[str, ...]) -> Non
 def test_find_latest_store_msku_file_uses_timestamp_prefix_and_ignores_malformed(tmp_path) -> None:
     store_name = "Amazon-Lerxiuer-FR"
     older = _write_source_xlsx(
-        tmp_path / "202605241200-Amazon-Lerxiuer-FR_msku_data.xlsx",
+        tmp_path / "202605241200-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
         [{"父ASIN": "P1", "ASIN": "A1", "MSKU": "M1"}],
     )
     latest = _write_source_xlsx(
-        tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+        tmp_path / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
         [{"父ASIN": "P2", "ASIN": "A2", "MSKU": "M2"}],
     )
     _write_source_xlsx(
@@ -106,6 +106,18 @@ def test_find_latest_store_msku_file_errors_when_missing(tmp_path) -> None:
         analysis.find_latest_store_msku_file("Amazon-Lerxiuer-FR", input_dir=tmp_path)
 
 
+def test_find_latest_store_msku_file_accepts_legacy_english_file_name(tmp_path) -> None:
+    legacy = _write_source_xlsx(
+        tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+        [{"父ASIN": "P1", "ASIN": "A1", "MSKU": "M1"}],
+    )
+
+    result = analysis.find_latest_store_msku_file("Amazon-Lerxiuer-FR", input_dir=tmp_path)
+
+    assert result.path == legacy
+    assert result.source_data_time == "202605251530"
+
+
 def test_compute_sales_metrics_handles_weighted_speed_and_trend_branches() -> None:
     metrics = analysis.compute_sales_metrics("70", "112", "240")
 
@@ -122,7 +134,7 @@ def test_analyze_generates_report_with_aggregations_detail_columns_and_stale_fla
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
     source_path = _write_source_xlsx(
-        input_dir / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+        input_dir / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
         [
             {
                 "父ASIN": "PARENT-1",
@@ -176,7 +188,7 @@ def test_analyze_generates_report_with_aggregations_detail_columns_and_stale_fla
     assert payload["link_count"] == 2
     assert payload["asin_count"] == 3
     assert payload["msku_count"] == 3
-    assert payload["report_xlsx_path"] == str(output_dir / "202605251530-Amazon-Lerxiuer-FR_sales_analysis.xlsx")
+    assert payload["report_xlsx_path"] == str(output_dir / "202605251530-Amazon-Lerxiuer-FR_销量分析.xlsx")
 
     report_path = Path(result.report_xlsx_path)
     assert report_path.is_file()
@@ -230,7 +242,7 @@ def test_report_splits_top_links_and_asins_by_30_day_sales(tmp_path) -> None:
         }
         for index in range(1, 52)
     ]
-    _write_source_xlsx(tmp_path / "input" / "202605261010-Amazon-Lerxiuer-FR_msku_data.xlsx", rows)
+    _write_source_xlsx(tmp_path / "input" / "202605261010-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx", rows)
 
     result = analysis.analyze_store_msku_sales(
         "Amazon-Lerxiuer-FR",
@@ -252,7 +264,7 @@ def test_report_splits_top_links_and_asins_by_30_day_sales(tmp_path) -> None:
 
 def test_missing_required_columns_error(tmp_path) -> None:
     _write_source_xlsx(
-        tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+        tmp_path / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
         [{"父ASIN": "P1", "ASIN": "A1", "MSKU": "M1"}],
         columns=["父ASIN", "ASIN", "MSKU", "7天销量", "14天销量", "30天销量", "90天销量"],
     )
@@ -263,7 +275,7 @@ def test_missing_required_columns_error(tmp_path) -> None:
 
 def test_duplicate_asin_parent_msku_errors(tmp_path) -> None:
     _write_source_xlsx(
-        tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+        tmp_path / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
         [
             {
                 "父ASIN": "PARENT-1",

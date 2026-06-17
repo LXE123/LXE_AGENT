@@ -137,7 +137,7 @@ def test_build_store_unlinked_shipments_snapshot_aggregates_raw_csv(tmp_path) ->
         "success": True,
         "store_name": "Amazon-Test-US",
         "snapshot_time": "202606130902",
-        "snapshot_xlsx_path": str(tmp_path / "202606130902-Amazon-Test-US_unlinked_shipments_snapshot.xlsx"),
+        "snapshot_xlsx_path": str(tmp_path / "202606130902-Amazon-Test-US_未关联货件快照.xlsx"),
         "raw_file_count": 2,
         "detail_count": 3,
         "msku_count": 2,

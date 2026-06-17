@@ -49,7 +49,7 @@ def _amazon_row(sku: str, supply: int, *, marketplace: str = "US") -> dict:
     }
 
 
-def _write_mabang_msku(path: Path, mskus: list[str], *, site: str = "美国站") -> Path:
+def _write_mabang_msku(path: Path, mskus: list[str], *, site: str = "美国站", include_site: bool = True) -> Path:
     from openpyxl import Workbook
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -57,9 +57,13 @@ def _write_mabang_msku(path: Path, mskus: list[str], *, site: str = "美国站")
     try:
         worksheet = workbook.active
         worksheet.title = "mskulist"
-        worksheet.append(["店铺名称", "站点", "MSKU"])
+        headers = ["店铺名称", "MSKU"]
+        if include_site:
+            headers.insert(1, "站点")
+        worksheet.append(headers)
         for msku in mskus:
-            worksheet.append(["Amazon-Test-US", site, msku])
+            row = {"店铺名称": "Amazon-Test-US", "站点": site, "MSKU": msku}
+            worksheet.append([row.get(header, "") for header in headers])
         workbook.save(path)
     finally:
         workbook.close()
@@ -82,6 +86,7 @@ def test_build_amazon_inventory_snapshot_validates_and_writes_snapshot(tmp_path)
     )
 
     payload = result.to_payload()
+    assert payload["snapshot_xlsx_path"] == str(tmp_path / "202606161530-Amazon-Test-US_亚马逊后台库存快照.xlsx")
     assert payload["snapshot_date"] == "20260616"
     assert payload["msku_count"] == 10
     assert payload["total_amazon_fba_inventory"] == 945
@@ -102,17 +107,55 @@ def test_build_amazon_inventory_snapshot_validates_and_writes_snapshot(tmp_path)
     assert snapshot.validation.top_inventory_matched_count == 8
 
 
-def test_marketplace_mismatch_fails_before_writing_snapshot(tmp_path) -> None:
+def test_marketplace_mismatch_passes_when_msku_match_is_strong(tmp_path) -> None:
     csv_path = _write_csv(tmp_path / "amazon.csv", [_amazon_row(f"MSKU-{index}", 10, marketplace="UK") for index in range(1, 11)])
     msku_path = _write_mabang_msku(tmp_path / "msku.xlsx", [f"MSKU-{index}" for index in range(1, 11)])
 
-    with pytest.raises(inv.AmazonInventorySnapshotError, match="站点不匹配"):
-        inv.build_amazon_inventory_snapshot(
-            csv_path,
-            store_name="Amazon-Test-US",
-            output_dir=tmp_path,
-            msku_xlsx_path=msku_path,
-        )
+    result = inv.build_amazon_inventory_snapshot(
+        csv_path,
+        store_name="Amazon-Test-US",
+        output_dir=tmp_path,
+        msku_xlsx_path=msku_path,
+    )
+
+    assert result.validation.marketplace == "UK"
+    assert result.validation.amazon_sku_match_ratio == 1
+    assert Path(result.snapshot_xlsx_path).is_file()
+
+
+def test_europe_mabang_site_passes_with_specific_amazon_marketplace(tmp_path) -> None:
+    csv_path = _write_csv(tmp_path / "amazon.csv", [_amazon_row(f"MSKU-{index}", 10, marketplace="DE") for index in range(1, 11)])
+    msku_path = _write_mabang_msku(tmp_path / "msku.xlsx", [f"MSKU-{index}" for index in range(1, 11)], site="欧洲站")
+
+    result = inv.build_amazon_inventory_snapshot(
+        csv_path,
+        store_name="Amazon-Test-DE",
+        output_dir=tmp_path,
+        msku_xlsx_path=msku_path,
+    )
+
+    assert result.validation.marketplace == "DE"
+    assert result.validation.mabang_site == "欧洲站"
+    assert result.validation.top_inventory_matched_count == 10
+
+
+def test_mabang_msku_site_column_is_optional(tmp_path) -> None:
+    csv_path = _write_csv(tmp_path / "amazon.csv", [_amazon_row(f"MSKU-{index}", 10, marketplace="DE") for index in range(1, 11)])
+    msku_path = _write_mabang_msku(
+        tmp_path / "msku.xlsx",
+        [f"MSKU-{index}" for index in range(1, 11)],
+        include_site=False,
+    )
+
+    result = inv.build_amazon_inventory_snapshot(
+        csv_path,
+        store_name="Amazon-Test-DE",
+        output_dir=tmp_path,
+        msku_xlsx_path=msku_path,
+    )
+
+    assert result.validation.mabang_site == ""
+    assert result.validation.amazon_sku_match_ratio == 1
 
 
 def test_low_amazon_sku_match_ratio_fails(tmp_path) -> None:

@@ -65,9 +65,9 @@ uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_repleni
   "sea_count": 35,
   "no_ship_count": 42,
   "sample_insufficient_count": 15,
-  "report_xlsx_path": "artifacts/mabang_store_msku_replenishment/202605251530-Amazon-Lerxiuer-FR_replenishment.xlsx",
-  "unlinked_shipments_snapshot_path": "artifacts/mabang_fba_unlinked_shipments_snapshots/202605251735-Amazon-Lerxiuer-FR_unlinked_shipments_snapshot.xlsx",
-  "amazon_inventory_snapshot_path": "artifacts/amazon_fba_inventory_snapshots/202605251735-Amazon-Lerxiuer-FR_amazon_inventory_snapshot.xlsx",
+  "report_xlsx_path": "artifacts/mabang_store_msku_replenishment/202605251530-Amazon-Lerxiuer-FR_备货建议.xlsx",
+  "unlinked_shipments_snapshot_path": "artifacts/mabang_fba_unlinked_shipments_snapshots/202605251735-Amazon-Lerxiuer-FR_未关联货件快照.xlsx",
+  "amazon_inventory_snapshot_path": "artifacts/amazon_fba_inventory_snapshots/202605251735-Amazon-Lerxiuer-FR_亚马逊后台库存快照.xlsx",
   "source": "mabang_store_msku_replenishment"
 }
 ```
@@ -84,12 +84,12 @@ uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_repleni
 
 ## Input Requirements
 
-- 销量分析报告来自 `artifacts/mabang_store_msku_analysis/`，文件名形如 `<source_data_time>-<store_name>_sales_analysis.xlsx`。
-- 真实库存报告来自 `artifacts/mabang_store_msku_inventory/`，文件名形如 `<source_data_time>-<store_name>_actual_inventory.xlsx`。
+- 销量分析报告来自 `artifacts/mabang_store_msku_analysis/`，文件名形如 `<source_data_time>-<store_name>_销量分析.xlsx`。
+- 真实库存报告来自 `artifacts/mabang_store_msku_inventory/`，文件名形如 `<source_data_time>-<store_name>_真实库存.xlsx`。
 - 两个输入报表必须有相同的 `source_data_time`，避免混用不同时间的数据。
-- 未关联货件快照来自 `artifacts/mabang_fba_unlinked_shipments_snapshots/`，文件名形如 `<snapshot_time>-<store_name>_unlinked_shipments_snapshot.xlsx`。
+- 未关联货件快照来自 `artifacts/mabang_fba_unlinked_shipments_snapshots/`，文件名形如 `<snapshot_time>-<store_name>_未关联货件快照.xlsx`。
 - CLI 只会使用 `snapshot_time[:8] == source_data_time[:8]` 的同日快照；同日多个快照时自动使用时间最新的一个。
-- Amazon 后台库存 snapshot 来自 `artifacts/amazon_fba_inventory_snapshots/`，必须手动通过参数传入，且 `快照日期` 必须和 `source_data_time[:8]` 同一天。
+- Amazon 后台库存 snapshot 来自 `artifacts/amazon_fba_inventory_snapshots/`，必须手动通过参数传入；`快照日期` 允许和 `source_data_time[:8]` 同日或相邻 `1` 个自然日，用于兼容美国站和本地日期跨时区。
 - 销量分析读取 `MSKU明细` 中的 `销量趋势` 和 `单品重量(g)(cm)`。
 - 真实库存读取 `真实库存-组合sku` 和 `真实库存-库存sku`。
 

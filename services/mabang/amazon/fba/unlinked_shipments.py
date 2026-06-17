@@ -32,6 +32,7 @@ DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_fba_unlinked_shipments"
 DEFAULT_SNAPSHOT_DIR = Path("artifacts") / "mabang_fba_unlinked_shipments_snapshots"
 SOURCE = "mabang_fba_unlinked_shipments"
 SNAPSHOT_SOURCE = "mabang_fba_unlinked_shipments_snapshot"
+UNLINKED_SHIPMENTS_SNAPSHOT_FILE_SUFFIX = "未关联货件快照"
 SNAPSHOT_SUMMARY_SHEET = "未关联货件汇总"
 SNAPSHOT_DETAIL_SHEET = "未关联货件明细"
 SNAPSHOT_SUMMARY_COLUMNS = (
@@ -472,7 +473,7 @@ def build_store_unlinked_shipments_snapshot(
         raise UnlinkedShipmentError(f"未关联货件快照包含多个店铺: expected={clean_store_name}, stores={', '.join(stores)}")
 
     timestamp = _timestamp_text(snapshot_time)
-    target_path = _snapshot_dir(output_dir) / f"{timestamp}-{_safe_path_part(clean_store_name, fallback='store')}_unlinked_shipments_snapshot.xlsx"
+    target_path = _snapshot_dir(output_dir) / f"{timestamp}-{_safe_path_part(clean_store_name, fallback='store')}_{UNLINKED_SHIPMENTS_SNAPSHOT_FILE_SUFFIX}.xlsx"
     write_unlinked_shipments_snapshot(summary_rows, detail_rows, target_path)
     return UnlinkedShipmentSnapshotResult(
         store_name=clean_store_name,
@@ -892,6 +893,7 @@ __all__ = [
     "SNAPSHOT_SUMMARY_COLUMNS",
     "SNAPSHOT_SUMMARY_SHEET",
     "SOURCE",
+    "UNLINKED_SHIPMENTS_SNAPSHOT_FILE_SUFFIX",
     "UNLINKED_SHIPMENT_STATUS_SPECS",
     "ShopOption",
     "StoreUnlinkedShipmentDownloadResult",
