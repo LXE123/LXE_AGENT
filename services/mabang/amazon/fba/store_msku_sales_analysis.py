@@ -14,7 +14,12 @@ DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_store_msku_analysis"
 SOURCE = "mabang_store_msku_sales_analysis"
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
-SOURCE_FILE_RE = re.compile(r"^(?P<source_time>\d{12})-(?P<store>.+)_msku_data\.xlsx$", re.IGNORECASE)
+STORE_MSKU_FILE_SUFFIXES = ("店铺MSKU数据", "msku_data")
+SALES_ANALYSIS_FILE_SUFFIX = "销量分析"
+SOURCE_FILE_RE = re.compile(
+    rf"^(?P<source_time>\d{{12}})-(?P<store>.+)_(?:{'|'.join(re.escape(suffix) for suffix in STORE_MSKU_FILE_SUFFIXES)})\.xlsx$",
+    re.IGNORECASE,
+)
 PRODUCT_LINK_COLUMN = "商品链接"
 URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 REQUIRED_COLUMNS = ("父ASIN", "ASIN", "MSKU", PRODUCT_LINK_COLUMN, "7天销量", "14天销量", "30天销量", "90天销量")
@@ -127,7 +132,7 @@ def find_latest_store_msku_file(store_name: str, *, input_dir: str | Path | None
         raise StoreMskuSalesAnalysisError(f"未找到本地店铺MSKU数据文件: {clean_store_name}")
 
     candidates: list[SourceMskuFile] = []
-    for path in directory.glob(f"*-{safe_store_name}_msku_data.xlsx"):
+    for path in directory.glob(f"*-{safe_store_name}_*.xlsx"):
         parsed = _parse_source_file(path)
         if parsed is not None:
             candidates.append(parsed)
@@ -440,7 +445,7 @@ def analyze_store_msku_sales(
     asin_rows = _summarize_asins(records)
 
     report_dir = _output_dir(output_dir)
-    report_path = report_dir / f"{source.source_data_time}-{_safe_file_part(clean_store_name)}_sales_analysis.xlsx"
+    report_path = report_dir / f"{source.source_data_time}-{_safe_file_part(clean_store_name)}_{SALES_ANALYSIS_FILE_SUFFIX}.xlsx"
     _write_report(
         report_path=report_path,
         original_headers=original_headers,
@@ -470,8 +475,10 @@ __all__ = [
     "REPORT_SHEETS",
     "PRODUCT_LINK_COLUMN",
     "REQUIRED_COLUMNS",
+    "SALES_ANALYSIS_FILE_SUFFIX",
     "SOURCE",
     "SALES_COLUMNS",
+    "STORE_MSKU_FILE_SUFFIXES",
     "StoreMskuSalesAnalysisError",
     "StoreMskuSalesAnalysisResult",
     "compute_sales_metrics",

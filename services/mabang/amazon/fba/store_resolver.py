@@ -36,6 +36,9 @@ STORE_XLSX_HEADERS = (
     "ID类型",
     "父级店铺名称",
 )
+STORE_LIST_FILE_PREFIX = "FBA店铺列表"
+STORE_CANDIDATES_FILE_PREFIX = "FBA店铺候选"
+STORE_LIST_SHEET = "店铺列表"
 
 
 class FbaStoreResolverError(MabangBusinessError):
@@ -164,7 +167,7 @@ def _clean_text(value: Any) -> str:
 
 def _safe_file_part(value: Any) -> str:
     text = _clean_text(value)
-    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
+    text = re.sub(r"[^\w_.-]+", "_", text, flags=re.UNICODE)
     return text.strip("._-") or "stores"
 
 
@@ -271,7 +274,7 @@ def write_fba_stores_xlsx(
     stores: list[FbaStore],
     *,
     output_dir: str | Path | None = None,
-    filename_prefix: str = "fba_stores",
+    filename_prefix: str = STORE_LIST_FILE_PREFIX,
     timestamp: datetime | None = None,
 ) -> Path:
     try:
@@ -284,7 +287,7 @@ def write_fba_stores_xlsx(
     workbook = Workbook()
     try:
         worksheet = workbook.active
-        worksheet.title = "stores"
+        worksheet.title = STORE_LIST_SHEET
         worksheet.append(list(STORE_XLSX_HEADERS))
         for store in stores:
             worksheet.append(store_xlsx_row(store))
@@ -436,6 +439,9 @@ __all__ = [
     "ID_TYPE_SHOP",
     "QUERY_FIELD_FBA_WAREHOUSE",
     "QUERY_FIELD_SHOP",
+    "STORE_CANDIDATES_FILE_PREFIX",
+    "STORE_LIST_FILE_PREFIX",
+    "STORE_LIST_SHEET",
     "STORE_XLSX_HEADERS",
     "count_fba_stores",
     "fetch_fba_stores",

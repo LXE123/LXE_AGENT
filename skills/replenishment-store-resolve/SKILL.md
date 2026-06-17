@@ -45,7 +45,7 @@ uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store --store-na
   "store_count": 149,
   "fba_warehouse_count": 80,
   "shop_count": 69,
-  "xlsx_path": "artifacts/mabang_fba_store_resolver/fba_stores_20260521_153000.xlsx",
+  "xlsx_path": "artifacts/mabang_fba_store_resolver/FBA店铺列表_20260521_153000.xlsx",
   "source": "mabang_fba_store_resolver"
 }
 ```
@@ -97,7 +97,7 @@ uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store --store-na
   "query": "Amazon",
   "exception": "店铺名不唯一: query=Amazon, count=149",
   "candidate_count": 149,
-  "candidates_xlsx_path": "artifacts/mabang_fba_store_resolver/fba_store_candidates_Amazon_20260521_153000.xlsx"
+  "candidates_xlsx_path": "artifacts/mabang_fba_store_resolver/FBA店铺候选_Amazon_20260521_153000.xlsx"
 }
 ```
 

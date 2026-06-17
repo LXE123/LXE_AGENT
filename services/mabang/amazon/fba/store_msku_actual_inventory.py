@@ -41,7 +41,12 @@ EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
 SENTINEL_COMBO_SKU = "HSP022"
 WAREHOUSE_ID = "1014318"
-SOURCE_FILE_RE = re.compile(r"^(?P<source_time>\d{12})-(?P<store>.+)_msku_data\.xlsx$", re.IGNORECASE)
+STORE_MSKU_FILE_SUFFIXES = ("店铺MSKU数据", "msku_data")
+ACTUAL_INVENTORY_FILE_SUFFIX = "真实库存"
+SOURCE_FILE_RE = re.compile(
+    rf"^(?P<source_time>\d{{12}})-(?P<store>.+)_(?:{'|'.join(re.escape(suffix) for suffix in STORE_MSKU_FILE_SUFFIXES)})\.xlsx$",
+    re.IGNORECASE,
+)
 WHITESPACE_PATTERN = re.compile(r"\s+")
 AUTH_FAIL_STATUS = {401, 403}
 SALES_COLUMNS = ("7天销量", "14天销量", "30天销量")
@@ -308,7 +313,7 @@ def find_latest_store_msku_file(store_name: str, *, input_dir: str | Path | None
         raise StoreMskuActualInventoryError(f"未找到本地店铺MSKU数据文件: {clean_store_name}")
 
     candidates: list[SourceMskuFile] = []
-    for path in directory.glob(f"*-{safe_store_name}_msku_data.xlsx"):
+    for path in directory.glob(f"*-{safe_store_name}_*.xlsx"):
         match = SOURCE_FILE_RE.match(path.name)
         if not match:
             continue
@@ -1275,7 +1280,7 @@ async def export_store_msku_actual_inventory(
     )
     inventory_groups = split_inventory_rows(inventory_rows)
 
-    final_xlsx_path = output_directory / f"{source.source_data_time}-{_safe_file_part(clean_store_name)}_actual_inventory.xlsx"
+    final_xlsx_path = output_directory / f"{source.source_data_time}-{_safe_file_part(clean_store_name)}_{ACTUAL_INVENTORY_FILE_SUFFIX}.xlsx"
     write_actual_inventory_xlsx(inventory_rows, final_xlsx_path)
     return ActualInventoryResult(
         store_name=clean_store_name,
@@ -1294,6 +1299,7 @@ async def export_store_msku_actual_inventory(
 
 __all__ = [
     "AVAILABLE_STOCK_COLUMN",
+    "ACTUAL_INVENTORY_FILE_SUFFIX",
     "BASE_OUTPUT_COLUMNS",
     "COMBO_EXPORT_FIELDS",
     "COMBO_SKU_COLUMN",
@@ -1304,6 +1310,7 @@ __all__ = [
     "SENTINEL_COMBO_SKU",
     "SOURCE",
     "STOCK_SKU_COLUMN",
+    "STORE_MSKU_FILE_SUFFIXES",
     "WAREHOUSE_ID",
     "ActualInventoryResult",
     "ActualInventoryRow",

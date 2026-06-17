@@ -14,12 +14,13 @@ from .store_msku_actual_inventory import find_latest_store_msku_file
 
 DEFAULT_SNAPSHOT_DIR = Path("artifacts") / "amazon_fba_inventory_snapshots"
 SOURCE = "amazon_fba_inventory_snapshot"
+AMAZON_INVENTORY_SNAPSHOT_FILE_SUFFIX = "亚马逊后台库存快照"
 SUMMARY_SHEET = "Amazon库存汇总"
 DETAIL_SHEET = "Amazon库存明细"
 VALIDATION_SHEET = "校验摘要"
 AMAZON_FBA_TOTAL_COLUMN = "FBA 总库存（亚马逊后台数据）"
 REQUIRED_CSV_COLUMNS = ("snapshot-date", "sku", "marketplace", "Inventory Supply at FBA")
-REQUIRED_MABANG_COLUMNS = ("MSKU", "站点")
+REQUIRED_MABANG_COLUMNS = ("MSKU",)
 SNAPSHOT_REQUIRED_COLUMNS = ("店铺", "MSKU", "快照日期", AMAZON_FBA_TOTAL_COLUMN)
 SKU_MATCH_RATIO_THRESHOLD = 0.7
 TOP_INVENTORY_MATCH_RATIO_THRESHOLD = 0.7
@@ -274,20 +275,6 @@ def _marketplace_code(value: Any) -> str:
     return SITE_TO_MARKETPLACE.get(text, text)
 
 
-def _marketplace_from_store_name(store_name: str) -> str:
-    suffix = _marketplace_code(store_name.rsplit("-", 1)[-1])
-    if suffix not in set(SITE_TO_MARKETPLACE.values()):
-        raise AmazonInventorySnapshotError(f"无法从店铺名推断 Amazon 站点: {store_name}")
-    return suffix
-
-
-def _marketplace_from_mabang_site(site: str) -> str:
-    code = SITE_TO_MARKETPLACE.get(_clean_text(site), "")
-    if not code:
-        raise AmazonInventorySnapshotError(f"无法识别马帮站点: {site}")
-    return code
-
-
 def _mabang_msku_snapshot(
     store_name: str,
     *,
@@ -314,11 +301,12 @@ def _mabang_msku_snapshot(
         indexes = {header: index for index, header in enumerate(headers)}
         msku_values: set[str] = set()
         site_values: set[str] = set()
+        site_index = indexes.get("站点")
         for row_values in values:
             if not any(_clean_text(value) for value in row_values or []):
                 continue
             msku = _clean_text(row_values[indexes["MSKU"]] if indexes["MSKU"] < len(row_values) else "")
-            site = _clean_text(row_values[indexes["站点"]] if indexes["站点"] < len(row_values) else "")
+            site = _clean_text(row_values[site_index] if site_index is not None and site_index < len(row_values) else "")
             if msku:
                 msku_values.add(msku)
             if site:
@@ -336,9 +324,7 @@ def _mabang_msku_snapshot(
 
     if not msku_values:
         raise AmazonInventorySnapshotError(f"店铺MSKU数据没有可用于校验的 MSKU: {source_path}")
-    if len(site_values) != 1:
-        raise AmazonInventorySnapshotError(f"店铺MSKU数据站点不唯一: {', '.join(sorted(site_values)) or '空'}")
-    return source_path, msku_values, next(iter(site_values))
+    return source_path, msku_values, ", ".join(sorted(site_values))
 
 
 def _aggregate_amazon_rows(records: list[dict[str, Any]], *, store_name: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str, str]:
@@ -422,15 +408,6 @@ def _validate_snapshot(
     mabang_mskus: set[str],
     summary_rows: list[dict[str, Any]],
 ) -> AmazonInventoryValidationSummary:
-    expected_store_marketplace = _marketplace_from_store_name(store_name)
-    expected_mabang_marketplace = _marketplace_from_mabang_site(mabang_site)
-    if marketplace != expected_store_marketplace or marketplace != expected_mabang_marketplace:
-        raise AmazonInventorySnapshotError(
-            "Amazon 后台库存站点不匹配: "
-            f"store={store_name}, expected_marketplace={expected_store_marketplace}, "
-            f"mabang_site={mabang_site}, mabang_marketplace={expected_mabang_marketplace}, actual_marketplace={marketplace}"
-        )
-
     amazon_skus = {_clean_text(row.get("MSKU")) for row in summary_rows if _clean_text(row.get("MSKU"))}
     matched_skus = amazon_skus & mabang_mskus
     match_ratio = len(matched_skus) / len(amazon_skus) if amazon_skus else 0.0
@@ -543,7 +520,7 @@ def build_amazon_inventory_snapshot(
         summary_rows=summary_rows,
     )
     timestamp = _snapshot_time_text(snapshot_date, snapshot_time)
-    target_path = _snapshot_dir(output_dir) / f"{timestamp}-{_safe_path_part(clean_store_name)}_amazon_inventory_snapshot.xlsx"
+    target_path = _snapshot_dir(output_dir) / f"{timestamp}-{_safe_path_part(clean_store_name)}_{AMAZON_INVENTORY_SNAPSHOT_FILE_SUFFIX}.xlsx"
     write_amazon_inventory_snapshot(summary_rows, detail_rows, validation, target_path)
     return AmazonInventorySnapshotResult(
         store_name=clean_store_name,
@@ -654,6 +631,7 @@ def load_amazon_inventory_snapshot(path: str | Path, *, store_name: str | None =
 
 __all__ = [
     "AMAZON_FBA_TOTAL_COLUMN",
+    "AMAZON_INVENTORY_SNAPSHOT_FILE_SUFFIX",
     "AmazonInventorySnapshotData",
     "AmazonInventorySnapshotError",
     "AmazonInventorySnapshotResult",

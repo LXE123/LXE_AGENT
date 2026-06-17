@@ -10,6 +10,7 @@ from typing import Any
 from services.agent_cli._shared.json_output import configure_utf8_stdio
 from services.mabang.amazon.fba.store_resolver import (
     FbaStore,
+    STORE_CANDIDATES_FILE_PREFIX,
     list_fba_stores,
     resolve_fba_store,
     write_fba_stores_xlsx,
@@ -93,7 +94,7 @@ def _augment_error_payload(payload: dict[str, Any], exc: Exception) -> dict[str,
             candidate_stores = _candidate_stores_from_payloads(candidate_items)
             xlsx_path = write_fba_stores_xlsx(
                 candidate_stores,
-                filename_prefix=f"fba_store_candidates_{_safe_file_part(query)}",
+                filename_prefix=f"{STORE_CANDIDATES_FILE_PREFIX}_{_safe_file_part(query)}",
             )
             payload["candidates_xlsx_path"] = str(xlsx_path)
     query = str(getattr(exc, "query", "") or "").strip()

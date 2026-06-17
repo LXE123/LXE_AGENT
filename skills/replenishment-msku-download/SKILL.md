@@ -51,7 +51,7 @@ uv run --frozen python -m services.agent_cli.mabang.download_store_msku_excel --
   "store_id": "697456821",
   "id_type": "shopId",
   "id_count": 123,
-  "xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+  "xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
   "converted": true,
   "raw_excel_deleted": true,
   "source": "mabang_store_msku_download"

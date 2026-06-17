@@ -330,7 +330,7 @@ def test_parse_stock_inventory_sums_duplicate_stock_sku_rows(tmp_path) -> None:
 
 
 def test_load_store_msku_rows_requires_product_link_column(tmp_path) -> None:
-    source_path = tmp_path / "202605251530-Amazon-Test_msku_data.xlsx"
+    source_path = tmp_path / "202605251530-Amazon-Test_店铺MSKU数据.xlsx"
     _write_xlsx(
         source_path,
         [{"MSKU": "MSKU-A", "父ASIN": "PARENT-A", "ASIN": "ASIN-A", "本地SKU": "SKU-A"}],
@@ -341,8 +341,22 @@ def test_load_store_msku_rows_requires_product_link_column(tmp_path) -> None:
         inv.load_store_msku_rows(source_path)
 
 
-def test_load_store_msku_rows_requires_sales_and_fba_stock_columns(tmp_path) -> None:
+def test_find_latest_store_msku_file_accepts_legacy_english_file_name(tmp_path) -> None:
     source_path = tmp_path / "202605251530-Amazon-Test_msku_data.xlsx"
+    _write_xlsx(
+        source_path,
+        [{"MSKU": "MSKU-A", "父ASIN": "PARENT-A", "ASIN": "ASIN-A", "本地SKU": "SKU-A", "商品链接": "https://example.test/a"}],
+        columns=["MSKU", "父ASIN", "ASIN", "本地SKU", "商品链接"],
+    )
+
+    result = inv.find_latest_store_msku_file("Amazon-Test", input_dir=tmp_path)
+
+    assert result.path == source_path
+    assert result.source_data_time == "202605251530"
+
+
+def test_load_store_msku_rows_requires_sales_and_fba_stock_columns(tmp_path) -> None:
+    source_path = tmp_path / "202605251530-Amazon-Test_店铺MSKU数据.xlsx"
     _write_xlsx(
         source_path,
         [
@@ -362,7 +376,7 @@ def test_load_store_msku_rows_requires_sales_and_fba_stock_columns(tmp_path) -> 
 
 
 def test_load_store_msku_rows_allows_missing_optional_name_columns(tmp_path) -> None:
-    source_path = tmp_path / "202605251530-Amazon-Test_msku_data.xlsx"
+    source_path = tmp_path / "202605251530-Amazon-Test_店铺MSKU数据.xlsx"
     _write_xlsx(
         source_path,
         [
@@ -410,7 +424,7 @@ def test_load_store_msku_rows_allows_missing_optional_name_columns(tmp_path) -> 
 
 
 def test_load_store_msku_rows_parses_invalid_sales_and_fba_stock_as_zero(tmp_path) -> None:
-    source_path = tmp_path / "202605251530-Amazon-Test_msku_data.xlsx"
+    source_path = tmp_path / "202605251530-Amazon-Test_店铺MSKU数据.xlsx"
     _write_xlsx(
         source_path,
         [
@@ -704,7 +718,7 @@ def test_write_actual_inventory_xlsx_splits_rows_by_inventory_state(tmp_path) ->
 
 
 def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatch, tmp_path) -> None:
-    source_path = tmp_path / "input" / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx"
+    source_path = tmp_path / "input" / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx"
     _write_xlsx(
         source_path,
         [
@@ -849,7 +863,7 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
         "no_inventory_row_count": 0,
         "missing_stock_sku_count": 0,
         "missing_stock_skus": [],
-        "xlsx_path": str(tmp_path / "output" / "202605251530-Amazon-Lerxiuer-FR_actual_inventory.xlsx"),
+        "xlsx_path": str(tmp_path / "output" / "202605251530-Amazon-Lerxiuer-FR_真实库存.xlsx"),
         "source": "mabang_store_msku_actual_inventory",
     }
     assert _sheet_names(Path(result.xlsx_path)) == ["真实库存-组合sku", "真实库存-库存sku", "无本地SKU", "无库存数据"]

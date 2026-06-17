@@ -116,7 +116,7 @@ def test_success_returns_downloaded_store_msku_path(monkeypatch, capsys) -> None
             store_id="697456821",
             id_type="shopId",
             id_count=123,
-            xlsx_path="artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+            xlsx_path="artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
             converted=True,
             raw_excel_deleted=True,
         )
@@ -143,7 +143,7 @@ def test_success_returns_downloaded_store_msku_path(monkeypatch, capsys) -> None
         "store_id": "697456821",
         "id_type": "shopId",
         "id_count": 123,
-        "xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx",
+        "xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
         "converted": True,
         "raw_excel_deleted": True,
         "source": "mabang_store_msku_download",

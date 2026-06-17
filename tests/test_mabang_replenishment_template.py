@@ -104,6 +104,7 @@ def test_export_validate_and_import_template_xlsx(tmp_path) -> None:
     exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
 
     assert exported_path.is_file()
+    assert exported_path.name.endswith("_备货模板.xlsx")
     assert _cell_value(exported_path, "模板信息", 2, 2) == "默认模板"
     assert _cell_value(exported_path, "加权日销", 2, 2) == 0.6
     assert _cell_value(exported_path, "海运规则", 2, 5) == "是"

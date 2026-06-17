@@ -251,7 +251,7 @@ def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None
         "store_id": "697456821",
         "id_type": "shopId",
         "id_count": 3,
-        "xlsx_path": str(tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx"),
+        "xlsx_path": str(tmp_path / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx"),
         "converted": False,
         "raw_excel_deleted": False,
         "source": "mabang_store_msku_download",
@@ -267,7 +267,7 @@ def test_download_store_msku_excel_requires_store_name() -> None:
 
 
 def test_download_store_msku_excel_overwrites_same_minute_file(monkeypatch, tmp_path) -> None:
-    target_path = tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx"
+    target_path = tmp_path / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx"
     target_path.write_bytes(b"old-file")
     new_body = _xlsx_bytes([{"店铺名称": "Amazon-Lerxiuer-FR", "MSKU": "MSKU-NEW"}])
     fake_session = _FakeSession(
@@ -296,7 +296,7 @@ def test_download_store_msku_excel_overwrites_same_minute_file(monkeypatch, tmp_
 
 
 def test_normalize_store_msku_excel_converts_xls_and_deletes_raw(monkeypatch, tmp_path) -> None:
-    xls_path = tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xls"
+    xls_path = tmp_path / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xls"
     xls_path.write_bytes(b"legacy-xls")
     calls: list[dict] = []
 
@@ -323,7 +323,7 @@ def test_normalize_store_msku_excel_converts_xls_and_deletes_raw(monkeypatch, tm
 
     xlsx_path, converted, raw_deleted = msku.normalize_store_msku_excel(xls_path)
 
-    assert xlsx_path == tmp_path / "202605251530-Amazon-Lerxiuer-FR_msku_data.xlsx"
+    assert xlsx_path == tmp_path / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx"
     assert converted is True
     assert raw_deleted is True
     assert not xls_path.exists()

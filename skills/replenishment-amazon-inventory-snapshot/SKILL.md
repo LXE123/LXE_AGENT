@@ -62,11 +62,12 @@ uv run --frozen python -m services.agent_cli.mabang.build_amazon_inventory_snaps
 
 ## Validation Rules
 
-CLI 会执行三条硬校验，任一失败都不会生成 snapshot：
+CLI 会执行两条硬校验，任一失败都不会生成 snapshot：
 
-- Amazon CSV 的 `marketplace` 必须和店铺后缀、马帮 `站点` 一致，例如 `Amazon-YRZ-US`、`美国站`、`US`。
 - Amazon CSV 的 `sku` 至少 `70%` 能在马帮原生 MSKU 表中找到。
 - Amazon `Inventory Supply at FBA` 前 10 的 sku 中，至少 `70%` 能在马帮原生 MSKU 表中找到。
+
+`marketplace` 和马帮 `站点` 只作为成功摘要里的参考信息，不作为硬校验；马帮欧洲店铺可能统一显示 `欧洲站`。
 
 ## Result Handling
 
@@ -78,7 +79,7 @@ CLI 会执行三条硬校验，任一失败都不会生成 snapshot：
   "store_name": "Amazon-YRZ-US",
   "snapshot_time": "202606161530",
   "snapshot_date": "20260616",
-  "snapshot_xlsx_path": "artifacts/amazon_fba_inventory_snapshots/202606161530-Amazon-YRZ-US_amazon_inventory_snapshot.xlsx",
+  "snapshot_xlsx_path": "artifacts/amazon_fba_inventory_snapshots/202606161530-Amazon-YRZ-US_亚马逊后台库存快照.xlsx",
   "amazon_inventory_validation": {
     "marketplace": "US",
     "mabang_site": "美国站",
@@ -93,5 +94,5 @@ CLI 会执行三条硬校验，任一失败都不会生成 snapshot：
 ```
 
 - 告诉用户 snapshot 已生成，并列出 `snapshot_xlsx_path`。
-- 简要说明 `marketplace`、`mabang_site`、Amazon SKU 匹配率和 Top 库存 SKU 匹配数。
+- 简要说明 Amazon SKU 匹配率和 Top 库存 SKU 匹配数；`marketplace`、`mabang_site` 只作为参考信息。
 - 如果用户要把这个 snapshot 用进备货建议，切换到 `replenishment-calculate`，并在计算命令中传 `--amazon-inventory-snapshot "<snapshot_xlsx_path>"`。

@@ -31,6 +31,7 @@ DEFAULT_PRIVATE_REFERER = "https://private.mabangerp.com/"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_store_msku"
 AUTH_FAIL_STATUS = {401, 403}
 SOURCE = "mabang_store_msku_download"
+STORE_MSKU_FILE_SUFFIX = "店铺MSKU数据"
 CORE_STORE_MSKU_HEADERS = ("店铺名称", "MSKU", "ASIN", "本地SKU")
 STORE_MSKU_FIELDLABELS = (
     "uq101",
@@ -449,7 +450,7 @@ async def download_store_msku_excel_from_url(
 
     directory = _resolve_output_dir(output_dir)
     prefix = _safe_file_part(normalize_store_name(store_name))
-    target_path = directory / f"{_timestamp_text()}-{prefix}_msku_data{_excel_suffix_from_url(url)}"
+    target_path = directory / f"{_timestamp_text()}-{prefix}_{STORE_MSKU_FILE_SUFFIX}{_excel_suffix_from_url(url)}"
     headers = {
         "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/octet-stream,*/*"
     }
@@ -602,6 +603,7 @@ __all__ = [
     "DEFAULT_FBA_EXPORT_URL",
     "DEFAULT_LISTSEARCH_URL",
     "SOURCE",
+    "STORE_MSKU_FILE_SUFFIX",
     "STORE_MSKU_EXPORT_FIELDS",
     "STORE_MSKU_EXPORT_FIELD_DEFS",
     "STORE_MSKU_FIELDLABELS",

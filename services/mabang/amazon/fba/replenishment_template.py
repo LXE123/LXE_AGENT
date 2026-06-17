@@ -37,6 +37,7 @@ DEFAULT_EDITABLE_OUTPUT_DIR = Path("artifacts") / "mabang_replenishment_template
 SOURCE_DEFAULT = "default"
 SOURCE_CUSTOM = "custom"
 SOURCE = "mabang_replenishment_template"
+REPLENISHMENT_TEMPLATE_FILE_SUFFIX = "备货模板"
 
 TEMPLATE_INFO_SHEET = "模板信息"
 WEIGHTED_SALES_SHEET = "加权日销"
@@ -635,7 +636,7 @@ def export_template_xlsx(
 
     template = get_template(template_name, store_path=store_path)
     params = template.params
-    target_path = _editable_output_dir(output_dir) / f"{_timestamp_text()}-{_safe_file_part(template.name)}_replenishment_template.xlsx"
+    target_path = _editable_output_dir(output_dir) / f"{_timestamp_text()}-{_safe_file_part(template.name)}_{REPLENISHMENT_TEMPLATE_FILE_SUFFIX}.xlsx"
 
     workbook = Workbook()
     try:
@@ -1089,6 +1090,7 @@ def templates_payload(*, store_path: str | Path | None = None) -> dict[str, Any]
 __all__ = [
     "DEFAULT_TEMPLATE_NAME",
     "DE_GROUP_1_TEMPLATE_NAME",
+    "REPLENISHMENT_TEMPLATE_FILE_SUFFIX",
     "ReplenishmentTemplate",
     "ReplenishmentTemplateError",
     "TemplateValidationResult",
