@@ -8,6 +8,7 @@ from anthropic import APIStatusError, Anthropic
 from shared.llm.errors import AnthropicStreamError, LLMProviderError
 from shared.llm.events import LLMStreamEvent, LLMToolCall
 from shared.llm import runtime_config as runtime_settings
+from shared.llm.deepseek_errors import classify_deepseek_error
 from shared.llm.kimi_coding.errors import classify_kimi_coding_error
 from shared.llm.provider_catalog import ProviderDescriptor
 from shared.llm.transports.wire_trace import WireTraceContext, WireTraceWriter
@@ -16,6 +17,7 @@ from shared.logging import logger
 ToolChoiceMode = Literal["auto", "none"]
 _ANTHROPIC_DEFAULT_OUTPUT_LIMIT = 128_000
 _KIMI_CODING_PROVIDER_NAME = "kimi_coding"
+_DEEPSEEK_PROVIDER_NAME = "deepseek"
 _KIMI_CODE_USER_AGENT = "claude-code/0.1.0"
 _REDACTED_THINKING_PLACEHOLDER = "[部分思考已加密]"
 _THINKING_EFFORT_BUDGETS = {
@@ -25,10 +27,21 @@ _THINKING_EFFORT_BUDGETS = {
     "xhigh": 32000,
 }
 _THINKING_DISPLAYS = {"omitted", "summarized"}
+_DEEPSEEK_EFFORT_BY_CONFIG = {
+    "low": "high",
+    "medium": "high",
+    "high": "high",
+    "xhigh": "max",
+    "max": "max",
+}
 
 
 def _is_kimi_coding_provider(provider_name: str) -> bool:
     return str(provider_name or "").strip() == _KIMI_CODING_PROVIDER_NAME
+
+
+def _is_deepseek_provider(provider_name: str) -> bool:
+    return str(provider_name or "").strip() == _DEEPSEEK_PROVIDER_NAME
 
 
 def _message_endpoint(base_url: str) -> str:
@@ -99,6 +112,15 @@ def _normalized_thinking_display() -> str:
     return "omitted"
 
 
+def _normalized_deepseek_effort() -> str:
+    effort = str(getattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", "high") or "high").strip().lower()
+    mapped = _DEEPSEEK_EFFORT_BY_CONFIG.get(effort)
+    if mapped is not None:
+        return mapped
+    logger.warning("[AnthropicSDK] unsupported DeepSeek thinking effort=%s, falling back to high", effort)
+    return "high"
+
+
 def _safe_budget_tokens(effort: str, requested_limit: int) -> int | None:
     if requested_limit <= 1024:
         return None
@@ -139,6 +161,15 @@ def _apply_thinking_payload(payload: dict[str, Any], descriptor: ProviderDescrip
     style = str(getattr(descriptor, "thinking_request_style", "none") or "none").strip()
     if _is_kimi_coding_provider(descriptor.name) and style == "anthropic-budget":
         _apply_kimi_coding_thinking_payload(payload, max_tokens=max_tokens)
+        return
+    if style == "anthropic-effort":
+        if not _thinking_enabled():
+            payload["thinking"] = {"type": "disabled"}
+            return
+        payload["thinking"] = {"type": "enabled"}
+        payload["output_config"] = {
+            "effort": _normalized_deepseek_effort(),
+        }
         return
     if not _thinking_enabled():
         return
@@ -262,6 +293,12 @@ def _iter_sdk_stream_events(
             message = _error_message(payload)
             if _is_kimi_coding_provider(provider_name):
                 raise classify_kimi_coding_error(
+                    status_code=_payload_status_code(payload),
+                    message=message,
+                    body=payload,
+                )
+            if _is_deepseek_provider(provider_name):
+                raise classify_deepseek_error(
                     status_code=_payload_status_code(payload),
                     message=message,
                     body=payload,
@@ -544,6 +581,14 @@ def stream_message_events(
     except APIStatusError as error:
         if _is_kimi_coding_provider(descriptor.name):
             provider_error = classify_kimi_coding_error(
+                status_code=_sdk_error_status_code(error),
+                message=str(error or "").strip(),
+                body=_sdk_error_body(error),
+            )
+            error_text = provider_error.summary()
+            raise provider_error from error
+        if _is_deepseek_provider(descriptor.name):
+            provider_error = classify_deepseek_error(
                 status_code=_sdk_error_status_code(error),
                 message=str(error or "").strip(),
                 body=_sdk_error_body(error),

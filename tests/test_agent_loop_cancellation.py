@@ -392,6 +392,59 @@ def test_retryable_provider_error_uses_step_retry_budget(monkeypatch) -> None:
     assert outcome.reply == user_message
 
 
+def test_deepseek_non_retryable_provider_error_stops_after_one_attempt(monkeypatch) -> None:
+    calls = {"count": 0}
+    user_message = "DeepSeek 认证失败，请检查 API Key 是否正确。"
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        calls["count"] += 1
+        raise LLMProviderError(
+            "Authentication Fails",
+            provider="deepseek",
+            status_code=401,
+            category="认证失败",
+            user_message=user_message,
+            retryable=False,
+        )
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(_agent().run(_turn_input()))
+    messages = load_context_messages(outcome.state_data_patch)
+
+    assert calls["count"] == 1
+    assert outcome.status == "error"
+    assert outcome.reply == user_message
+    assert messages[-1] == {
+        "role": "assistant",
+        "content": [{"type": "text", "text": user_message}],
+    }
+
+
+def test_deepseek_retryable_provider_error_uses_step_retry_budget(monkeypatch) -> None:
+    calls = {"count": 0}
+    user_message = "DeepSeek 服务器繁忙，请稍后重试。"
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        calls["count"] += 1
+        raise LLMProviderError(
+            "Server overloaded",
+            provider="deepseek",
+            status_code=503,
+            category="服务器繁忙",
+            user_message=user_message,
+            retryable=True,
+        )
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(_agent().run(_turn_input()))
+
+    assert calls["count"] == loop_mod._LLM_STEP_MAX_ATTEMPTS
+    assert outcome.status == "error"
+    assert outcome.reply == user_message
+
+
 def test_context_overflow_provider_error_triggers_compaction_retry(monkeypatch) -> None:
     calls = {"count": 0}
     triggers: list[str] = []

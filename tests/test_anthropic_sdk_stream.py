@@ -110,6 +110,21 @@ def _non_kimi_descriptor() -> ProviderDescriptor:
     )
 
 
+def _deepseek_descriptor() -> ProviderDescriptor:
+    return ProviderDescriptor(
+        name="deepseek",
+        label="DeepSeek",
+        api_style="anthropic-messages",
+        api_key="deepseek-key",
+        base_url="https://api.deepseek.test/anthropic",
+        default_model="deepseek-v4-pro",
+        max_tokens=384000,
+        thinking_request_style="anthropic-effort",
+        thinking_levels=("off", "high", "max"),
+        thinking_default="high",
+    )
+
+
 def _thinking_descriptor(style: str, *, max_tokens: int = 32768) -> ProviderDescriptor:
     return ProviderDescriptor(
         name=f"fake_{style}",
@@ -614,6 +629,65 @@ def test_sdk_stream_budget_thinking_clamps_or_skips_for_low_max_tokens(monkeypat
 
 
 @pytest.mark.parametrize(
+    ("effort", "expected_effort"),
+    [
+        ("low", "high"),
+        ("medium", "high"),
+        ("high", "high"),
+        ("xhigh", "max"),
+        ("max", "max"),
+        ("wild", "high"),
+    ],
+)
+def test_sdk_stream_deepseek_effort_thinking_maps_configured_effort(
+    monkeypatch,
+    effort: str,
+    expected_effort: str,
+) -> None:
+    _set_thinking_config(monkeypatch, enabled=True, effort=effort)
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_deepseek_descriptor(),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=4096,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    create_kwargs = _RECORDER["create_kwargs"]
+    assert create_kwargs["thinking"] == {"type": "enabled"}
+    assert create_kwargs["output_config"] == {"effort": expected_effort}
+
+
+def test_sdk_stream_deepseek_effort_thinking_disabled_sends_disabled_payload(monkeypatch) -> None:
+    _set_thinking_config(monkeypatch, enabled=False, effort="max")
+    _install_fake_sdk(monkeypatch, [_obj(type="message_stop")])
+
+    list(
+        anthropic_sdk_stream.stream_message_events(
+            descriptor=_deepseek_descriptor(),
+            system_prompt="system",
+            messages=[{"role": "user", "content": "hi"}],
+            tool_schemas=None,
+            tool_choice_mode="auto",
+            max_tokens=4096,
+            temperature=0.1,
+            timeout_s=30,
+        )
+    )
+
+    create_kwargs = _RECORDER["create_kwargs"]
+    assert create_kwargs["thinking"] == {"type": "disabled"}
+    assert "output_config" not in create_kwargs
+
+
+@pytest.mark.parametrize(
     ("status_code", "message", "category", "retryable"),
     [
         (401, "The API Key appears to be invalid or may have expired", "认证错误", False),
@@ -653,6 +727,50 @@ def test_sdk_status_errors_are_classified_for_kimi(
     assert error.category == category
     assert error.retryable is retryable
     assert error.user_message.startswith("Kimi Coding")
+
+
+@pytest.mark.parametrize(
+    ("status_code", "message", "category", "retryable"),
+    [
+        (400, "request body format error", "格式错误", False),
+        (401, "Authentication Fails", "认证失败", False),
+        (402, "Insufficient Balance", "余额不足", False),
+        (422, "Invalid Parameters", "参数错误", False),
+        (429, "Rate limit reached", "请求速率达到上限", True),
+        (500, "Internal Server Error", "服务器故障", True),
+        (503, "Server overloaded", "服务器繁忙", True),
+    ],
+)
+def test_sdk_status_errors_are_classified_for_deepseek(
+    monkeypatch,
+    status_code: int,
+    message: str,
+    category: str,
+    retryable: bool,
+) -> None:
+    _install_fake_sdk(monkeypatch, [])
+    _RECORDER["create_error"] = _api_status_error(status_code, {"error": {"message": message}})
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        list(
+            anthropic_sdk_stream.stream_message_events(
+                descriptor=_deepseek_descriptor(),
+                system_prompt="system",
+                messages=[{"role": "user", "content": "hi"}],
+                tool_schemas=None,
+                tool_choice_mode="auto",
+                max_tokens=None,
+                temperature=0.1,
+                timeout_s=30,
+            )
+        )
+
+    error = exc_info.value
+    assert error.provider == "deepseek"
+    assert error.status_code == status_code
+    assert error.category == category
+    assert error.retryable is retryable
+    assert error.user_message.startswith("DeepSeek")
 
 
 def test_sdk_status_errors_for_non_kimi_preserve_sdk_error(monkeypatch) -> None:
@@ -704,6 +822,38 @@ def test_sdk_stream_error_event_is_classified_for_kimi(monkeypatch) -> None:
 
     assert exc_info.value.category == "限流与配额"
     assert exc_info.value.retryable is True
+
+
+def test_sdk_stream_error_event_is_classified_for_deepseek(monkeypatch) -> None:
+    _install_fake_sdk(
+        monkeypatch,
+        [
+            _obj(
+                type="error",
+                error={"message": "Rate limit reached", "status_code": 429},
+            )
+        ],
+    )
+
+    with pytest.raises(LLMProviderError) as exc_info:
+        list(
+            anthropic_sdk_stream.stream_message_events(
+                descriptor=_deepseek_descriptor(),
+                system_prompt="system",
+                messages=[{"role": "user", "content": "hi"}],
+                tool_schemas=None,
+                tool_choice_mode="auto",
+                max_tokens=None,
+                temperature=0.1,
+                timeout_s=30,
+            )
+        )
+
+    error = exc_info.value
+    assert error.provider == "deepseek"
+    assert error.status_code == 429
+    assert error.category == "请求速率达到上限"
+    assert error.retryable is True
 
 
 def test_sdk_stream_error_event_for_non_kimi_uses_stream_error(monkeypatch) -> None:
@@ -779,11 +929,7 @@ def test_chat_with_tools_streaming_sdk_preserves_unspecified_max_tokens(monkeypa
         yield LLMStreamEvent(event_type="message_start", message_id="msg_1", model="kimi-for-coding")
         yield LLMStreamEvent(event_type="message_stop")
 
-    def fail_effective_max_tokens(max_tokens: int | None = None) -> int:
-        raise AssertionError("SDK anthropic route should preserve raw max_tokens")
-
     monkeypatch.setattr(llm_adapter, "sdk_stream_message_events", fake_sdk_stream_message_events)
-    monkeypatch.setattr(llm_adapter, "effective_agent_planner_max_tokens", fail_effective_max_tokens)
 
     response = asyncio.run(
         llm_adapter.chat_with_tools_streaming(
@@ -814,11 +960,7 @@ def test_chat_with_tools_anthropic_route_uses_sdk_streaming(monkeypatch) -> None
         yield LLMStreamEvent(event_type="message_delta", stop_reason="end_turn", usage={"output_tokens": 1})
         yield LLMStreamEvent(event_type="message_stop")
 
-    def fail_effective_max_tokens(max_tokens: int | None = None) -> int:
-        raise AssertionError("chat_with_tools anthropic route should aggregate SDK streaming")
-
     monkeypatch.setattr(llm_adapter, "sdk_stream_message_events", fake_sdk_stream_message_events)
-    monkeypatch.setattr(llm_adapter, "effective_agent_planner_max_tokens", fail_effective_max_tokens)
 
     response = asyncio.run(
         llm_adapter.chat_with_tools(
@@ -870,3 +1012,54 @@ def test_chat_with_tools_streaming_public_text_excludes_thinking(monkeypatch) ->
         {"type": "redacted_thinking", "data": "encrypted"},
         {"type": "text", "text": "answer"},
     ]
+
+
+def test_adapt_messages_for_deepseek_omits_unsupported_content_blocks() -> None:
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "see attached"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "abc"}},
+            ],
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "thinking", "thinking": "plan", "signature": "sig"},
+                {"type": "redacted_thinking", "data": "encrypted"},
+                {"type": "text", "text": "answer"},
+            ],
+        },
+        {
+            "role": "tool",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_call_id": "tool_1",
+                    "content": [
+                        {"type": "text", "text": "ok"},
+                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "xyz"}},
+                    ],
+                }
+            ],
+        },
+    ]
+
+    adapted = llm_adapter.adapt_messages_for_anthropic(messages, provider_name="deepseek")
+
+    assert adapted[0]["content"] == [
+        {"type": "text", "text": "see attached"},
+        {"type": "text", "text": "[image omitted: DeepSeek Anthropic API does not support image content]"},
+    ]
+    assert adapted[1]["content"] == [
+        {"type": "thinking", "thinking": "plan"},
+        {
+            "type": "text",
+            "text": "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]",
+        },
+        {"type": "text", "text": "answer"},
+    ]
+    assert adapted[2]["content"][0]["content"] == (
+        "ok\n[image omitted: DeepSeek Anthropic API does not support image content]"
+    )

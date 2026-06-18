@@ -24,6 +24,7 @@ def test_provider_catalog_loads_all_provider_json() -> None:
                 "provider-managed",
                 "anthropic-adaptive",
                 "anthropic-budget",
+                "anthropic-effort",
             }
             if model_spec.thinking_levels:
                 assert model_spec.thinking_default in model_spec.thinking_levels
@@ -56,8 +57,28 @@ def test_thinking_request_style_is_loaded_from_model_spec() -> None:
     assert list(kimi_descriptor.thinking_levels) == ["off", "low"]
     assert kimi_descriptor.thinking_level_labels["low"] == "on"
     assert kimi_descriptor.thinking_default == "off"
-    assert deepseek_descriptor.thinking_request_style == "none"
-    assert deepseek_descriptor.thinking_levels == ()
+    assert deepseek_descriptor.api_style == "anthropic-messages"
+    assert deepseek_descriptor.base_url == "https://api.deepseek.com/anthropic"
+    assert deepseek_descriptor.default_model == "deepseek-v4-pro"
+    assert deepseek_descriptor.max_tokens == 384000
+    assert deepseek_descriptor.thinking_request_style == "anthropic-effort"
+    assert deepseek_descriptor.thinking_levels == ("off", "high", "max")
+    assert deepseek_descriptor.thinking_default == "high"
+
+
+def test_deepseek_anthropic_models_are_loaded_from_catalog() -> None:
+    pro_spec, pro_match, pro_model = resolve_provider_model("deepseek", "deepseek-v4-pro")
+    flash_spec, flash_match, flash_model = resolve_provider_model("deepseek", "deepseek-v4-flash")
+
+    assert pro_match == flash_match == "exact"
+    assert pro_model == "deepseek-v4-pro"
+    assert flash_model == "deepseek-v4-flash"
+    for model_spec in (pro_spec, flash_spec):
+        assert model_spec.context_window_tokens == 1000000
+        assert model_spec.max_tokens == 384000
+        assert model_spec.supports_thinking is True
+        assert model_spec.supports_vision is False
+        assert model_spec.thinking_request_style == "anthropic-effort"
 
 
 def test_auth_profile_reads_api_key_from_env_aliases(monkeypatch) -> None:

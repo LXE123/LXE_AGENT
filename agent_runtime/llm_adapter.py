@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -15,20 +14,24 @@ from typing import Any, Awaitable, Callable, Literal
 
 from requests import exceptions as requests_exceptions
 
-from shared.llm.agent_planner import active_agent_planner_descriptor, effective_agent_planner_max_tokens
+from shared.llm.agent_planner import active_agent_planner_descriptor
 from shared.llm.errors import AnthropicStreamError
 from shared.llm.events import LLMStreamEvent, LLMToolCall
 from shared.llm.provider_catalog import ProviderDescriptor
 from shared.llm import runtime_config as runtime_settings
 from shared.llm.transports.anthropic_sdk_stream import stream_message_events as sdk_stream_message_events
 from shared.llm.transports.wire_trace import WireTraceContext
-from shared.llm.transports.openai_chat import OpenAIChatCompletion, chat_with_tools as openai_chat_with_tools
 from shared.logging import logger
 
 from .tool_schema_adapter import adapt_tool_schemas
 from .types import ToolSchema
 
 ToolChoiceMode = Literal["auto", "none"]
+_DEEPSEEK_PROVIDER_NAME = "deepseek"
+_DEEPSEEK_IMAGE_PLACEHOLDER = "[image omitted: DeepSeek Anthropic API does not support image content]"
+_DEEPSEEK_REDACTED_THINKING_PLACEHOLDER = (
+    "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,39 +118,6 @@ def _canonicalize_anthropic_content_blocks(content_blocks: list[dict[str, Any]] 
             }
         )
     return canonical_blocks
-
-
-def _parse_openai_response(completion: OpenAIChatCompletion, latency_ms: int) -> LLMResponse:
-    tool_calls = [
-        LLMToolCall(
-            id=tool.id,
-            name=tool.name,
-            arguments=dict(tool.arguments or {}),
-        )
-        for tool in list(completion.tool_calls or [])
-    ]
-    assistant_content: list[dict[str, Any]] = []
-    text = str(completion.text or "").strip()
-    if text:
-        assistant_content.append({"type": "text", "text": text})
-    for tool in tool_calls:
-        assistant_content.append(
-            {
-                "type": "tool_call",
-                "id": tool.id,
-                "name": tool.name,
-                "arguments": dict(tool.arguments or {}),
-            }
-        )
-    return LLMResponse(
-        text=text,
-        public_text=text,
-        assistant_content=assistant_content,
-        tool_calls=tool_calls,
-        raw=dict(completion.raw or {}),
-        usage=dict(completion.usage or {}),
-        latency_ms=latency_ms,
-    )
 
 
 async def _maybe_emit_stream_event(
@@ -238,46 +208,10 @@ async def chat_with_tools_streaming(
     started_at = time.perf_counter()
 
     if desc.api_style != "anthropic-messages":
-        effective_max_tokens = effective_agent_planner_max_tokens(max_tokens)
-        response = await chat_with_tools(
-            system_prompt=system_prompt,
-            messages=messages,
-            tool_schemas=tool_schemas,
-            tool_choice_mode=tool_choice_mode,
-            max_tokens=effective_max_tokens,
-            temperature=temperature,
-            timeout_s=effective_timeout,
-            descriptor=desc,
-        )
-        if on_stream_event is not None:
-            await _maybe_emit_stream_event(
-                on_stream_event,
-                LLMStreamEvent(
-                    event_type="message_start",
-                    usage=dict(response.usage or {}),
-                    raw=dict(response.raw or {}),
-                ),
-            )
-            visible_text = str(response.public_text or response.text or "")
-            if visible_text:
-                await _maybe_emit_stream_event(
-                    on_stream_event,
-                    LLMStreamEvent(event_type="text_delta", text=visible_text),
-                )
-            for index, tool_call in enumerate(list(response.tool_calls or [])):
-                await _maybe_emit_stream_event(
-                    on_stream_event,
-                    LLMStreamEvent(event_type="tool_use", tool_call=tool_call, index=index),
-                )
-            await _maybe_emit_stream_event(
-                on_stream_event,
-                LLMStreamEvent(event_type="message_delta", usage=dict(response.usage or {})),
-            )
-            await _maybe_emit_stream_event(on_stream_event, LLMStreamEvent(event_type="message_stop"))
-        return response
+        raise RuntimeError(f"Unsupported agent LLM api_style: {desc.api_style}")
 
     adapted_tool_schemas = adapt_tool_schemas(tool_schemas, desc.api_style)
-    adapted_messages = adapt_messages_for_anthropic(messages)
+    adapted_messages = adapt_messages_for_anthropic(messages, provider_name=desc.name)
     text_parts_by_index: dict[int, list[str]] = {}
     thinking_parts_by_index: dict[int, list[str]] = {}
     thinking_signatures_by_index: dict[int, str] = {}
@@ -435,7 +369,6 @@ async def chat_with_tools(
     desc = descriptor or agent_provider_descriptor()
     effective_timeout = timeout_s or max(10, _config_int("LLM_REQUEST_TIMEOUT_S", 30))
 
-    started_at = time.perf_counter()
     try:
         if desc.api_style == "anthropic-messages":
             return await chat_with_tools_streaming(
@@ -450,21 +383,6 @@ async def chat_with_tools(
                 wire_trace_context=wire_trace_context,
             )
 
-        if desc.api_style == "openai-chat":
-            effective_max_tokens = effective_agent_planner_max_tokens(max_tokens)
-            completion = await openai_chat_with_tools(
-                descriptor=desc,
-                system_prompt=system_prompt,
-                messages=adapt_messages_for_openai(messages),
-                tool_schemas=adapt_tool_schemas(tool_schemas, desc.api_style),
-                tool_choice_mode=tool_choice_mode,
-                max_tokens=effective_max_tokens,
-                temperature=temperature,
-                timeout_s=effective_timeout,
-            )
-            latency_ms = int((time.perf_counter() - started_at) * 1000)
-            return _parse_openai_response(completion, latency_ms)
-
         raise RuntimeError(f"Unsupported agent LLM api_style: {desc.api_style}")
     except requests_exceptions.Timeout:
         logger.warning(f"[LLMAdapter] request timed out after {effective_timeout}s")
@@ -474,9 +392,27 @@ async def chat_with_tools(
         raise
 
 
-def _wire_tool_result_content(content: Any) -> str | list[dict[str, Any]]:
+def _is_deepseek_provider(provider_name: str) -> bool:
+    return str(provider_name or "").strip() == _DEEPSEEK_PROVIDER_NAME
+
+
+def _wire_tool_result_content(content: Any, *, provider_name: str = "") -> str | list[dict[str, Any]]:
     if isinstance(content, str):
         return str(content or "").strip()
+
+    if _is_deepseek_provider(provider_name):
+        parts: list[str] = []
+        for raw_block in list(content or []):
+            block = dict(raw_block or {})
+            block_type = str(block.get("type") or "").strip()
+            if block_type == "text":
+                text = str(block.get("text") or "").strip()
+                if text:
+                    parts.append(text)
+                continue
+            if block_type == "image":
+                parts.append(_DEEPSEEK_IMAGE_PLACEHOLDER)
+        return "\n".join(parts).strip()
 
     blocks: list[dict[str, Any]] = []
     for raw_block in list(content or []):
@@ -508,29 +444,7 @@ def _wire_tool_result_content(content: Any) -> str | list[dict[str, Any]]:
     return blocks
 
 
-def _openai_tool_result_content(content: Any) -> str:
-    if isinstance(content, str):
-        return str(content or "")
-    if isinstance(content, list):
-        text_parts: list[str] = []
-        all_text = True
-        for raw_block in list(content or []):
-            block = dict(raw_block or {})
-            if str(block.get("type") or "").strip() != "text":
-                all_text = False
-                break
-            text = str(block.get("text") or "").strip()
-            if text:
-                text_parts.append(text)
-        if all_text:
-            return "\n".join(text_parts).strip()
-    try:
-        return json.dumps(content, ensure_ascii=False)
-    except Exception:
-        return str(content or "")
-
-
-def _anthropic_user_content(content: Any) -> str | list[dict[str, Any]]:
+def _anthropic_user_content(content: Any, *, provider_name: str = "") -> str | list[dict[str, Any]]:
     if isinstance(content, str):
         return str(content or "")
 
@@ -546,6 +460,11 @@ def _anthropic_user_content(content: Any) -> str | list[dict[str, Any]]:
             blocks.append({"type": "text", "text": text})
             continue
         if block_type != "image":
+            continue
+        if _is_deepseek_provider(provider_name):
+            text_parts.append(_DEEPSEEK_IMAGE_PLACEHOLDER)
+            blocks.append({"type": "text", "text": _DEEPSEEK_IMAGE_PLACEHOLDER})
+            has_image = True
             continue
         source = dict(block.get("source") or {})
         if not source:
@@ -573,14 +492,20 @@ def _anthropic_user_content(content: Any) -> str | list[dict[str, Any]]:
     return str(content or "")
 
 
-def adapt_messages_for_anthropic(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def adapt_messages_for_anthropic(messages: list[dict[str, Any]], *, provider_name: str = "") -> list[dict[str, Any]]:
     adapted: list[dict[str, Any]] = []
+    is_deepseek = _is_deepseek_provider(provider_name)
     for raw_message in list(messages or []):
         message = dict(raw_message or {})
         role = str(message.get("role") or "").strip()
         content = message.get("content")
         if role == "user":
-            adapted.append({"role": "user", "content": _anthropic_user_content(content)})
+            adapted.append(
+                {
+                    "role": "user",
+                    "content": _anthropic_user_content(content, provider_name=provider_name),
+                }
+            )
             continue
         if role == "system":
             adapted.append({"role": "user", "content": f"[System Message]\n{str(content or '')}"})
@@ -591,15 +516,18 @@ def adapt_messages_for_anthropic(messages: list[dict[str, Any]]) -> list[dict[st
                 block = dict(raw_block or {})
                 block_type = str(block.get("type") or "").strip()
                 if block_type == "thinking":
-                    blocks.append(
-                        {
-                            "type": "thinking",
-                            "thinking": str(block.get("thinking") or ""),
-                            "signature": str(block.get("signature") or "").strip(),
-                        }
-                    )
+                    thinking_block = {
+                        "type": "thinking",
+                        "thinking": str(block.get("thinking") or ""),
+                    }
+                    if not is_deepseek:
+                        thinking_block["signature"] = str(block.get("signature") or "").strip()
+                    blocks.append(thinking_block)
                     continue
                 if block_type == "redacted_thinking":
+                    if is_deepseek:
+                        blocks.append({"type": "text", "text": _DEEPSEEK_REDACTED_THINKING_PLACEHOLDER})
+                        continue
                     blocks.append(
                         {
                             "type": "redacted_thinking",
@@ -632,7 +560,10 @@ def adapt_messages_for_anthropic(messages: list[dict[str, Any]]) -> list[dict[st
                     {
                         "type": "tool_result",
                         "tool_use_id": str(block.get("tool_call_id") or "").strip(),
-                        "content": _wire_tool_result_content(block.get("content")),
+                        "content": _wire_tool_result_content(
+                            block.get("content"),
+                            provider_name=provider_name,
+                        ),
                         "is_error": bool(block.get("is_error")),
                     }
                 )
@@ -641,67 +572,11 @@ def adapt_messages_for_anthropic(messages: list[dict[str, Any]]) -> list[dict[st
     return adapted
 
 
-def adapt_messages_for_openai(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    adapted: list[dict[str, Any]] = []
-    for raw_message in list(messages or []):
-        message = dict(raw_message or {})
-        role = str(message.get("role") or "").strip()
-        content = message.get("content")
-        if role in {"user", "system"}:
-            adapted.append({"role": role, "content": str(content or "")})
-            continue
-        if role == "assistant":
-            text_parts: list[str] = []
-            tool_calls: list[dict[str, Any]] = []
-            for raw_block in list(content or []):
-                block = dict(raw_block or {})
-                block_type = str(block.get("type") or "").strip()
-                if block_type == "text":
-                    text = str(block.get("text") or "").strip()
-                    if text:
-                        text_parts.append(text)
-                    continue
-                if block_type != "tool_call":
-                    continue
-                tool_calls.append(
-                    {
-                        "id": str(block.get("id") or "").strip(),
-                        "type": "function",
-                        "function": {
-                            "name": str(block.get("name") or "").strip(),
-                            "arguments": json.dumps(dict(block.get("arguments") or {}), ensure_ascii=False),
-                        },
-                    }
-                )
-            payload: dict[str, Any] = {
-                "role": "assistant",
-                "content": "\n".join(text_parts).strip(),
-            }
-            if tool_calls:
-                payload["tool_calls"] = tool_calls
-            adapted.append(payload)
-            continue
-        if role == "tool":
-            for raw_block in list(content or []):
-                block = dict(raw_block or {})
-                if str(block.get("type") or "").strip() != "tool_result":
-                    continue
-                adapted.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": str(block.get("tool_call_id") or "").strip(),
-                        "content": _openai_tool_result_content(block.get("content")),
-                    }
-                )
-    return adapted
-
-
 __all__ = [
     "LLMStreamEvent",
     "LLMResponse",
     "LLMToolCall",
     "adapt_messages_for_anthropic",
-    "adapt_messages_for_openai",
     "agent_provider_descriptor",
     "chat_with_tools",
     "chat_with_tools_streaming",

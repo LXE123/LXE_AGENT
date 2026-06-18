@@ -11,7 +11,6 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "fastapi>=0.136.3",
     "lark-oapi>=1.4.0",
-    "openai==2.15.0",
     "openpyxl>=3.1.0",
     "pandas==3.0.0",
     "pillow>=10.0.0",
