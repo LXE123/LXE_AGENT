@@ -10,7 +10,6 @@ import {
   Brain,
   CheckCircle2,
   ChevronRight,
-  Clock3,
   Copy,
   Database,
   FileText,
@@ -41,8 +40,16 @@ type CapabilityPayload = {
 type ThinkingStatePayload = {
   enabled: boolean;
   level: string;
-  label: string;
   editable: boolean;
+};
+
+type ModelOptionPayload = {
+  model: string;
+  thinking_request_style: string;
+  thinking_levels: string[];
+  thinking_level_labels: Record<string, string>;
+  thinking_default: string;
+  capabilities: CapabilityPayload;
 };
 
 type ModelPayload = {
@@ -51,6 +58,9 @@ type ModelPayload = {
   api_style: string;
   model: string;
   configured: boolean;
+  selectable: boolean;
+  disabled_reason: string;
+  model_options: ModelOptionPayload[];
   thinking_request_style: string;
   thinking_levels: string[];
   thinking_level_labels: Record<string, string>;
@@ -322,17 +332,65 @@ async function patchJson<T>(path: string, payload: Record<string, unknown>): Pro
   return (await response.json()) as T;
 }
 
-function modelWithThinkingLevel(model: ModelPayload, level: "off" | "low"): ModelPayload {
-  const enabled = level === "low";
-  const label = enabled ? model.thinking_level_labels.low || "on" : "off";
+function modelThinkingLevelLabel(model: ModelPayload, level: string): string {
+  const normalized = String(level || "").trim().toLowerCase();
+  return model.thinking_level_labels[normalized] || normalized || "-";
+}
+
+function modelWithThinkingLevel(model: ModelPayload, level: string): ModelPayload {
+  const normalized = String(level || "").trim().toLowerCase();
   return {
     ...model,
     thinking_state: {
-      enabled,
-      level,
-      label,
+      enabled: normalized !== "off",
+      level: normalized,
       editable: Boolean(model.thinking_state?.editable)
     }
+  };
+}
+
+function defaultEnabledThinkingLevel(model: Pick<ModelPayload, "thinking_levels" | "thinking_default">): string {
+  const levels = model.thinking_levels || [];
+  const defaultLevel = String(model.thinking_default || "").trim().toLowerCase();
+  if (defaultLevel && defaultLevel !== "off" && levels.includes(defaultLevel)) {
+    return defaultLevel;
+  }
+  return levels.find((level) => level !== "off") || "off";
+}
+
+function thinkingStateForModelOption(option: ModelOptionPayload, previous?: ThinkingStatePayload): ThinkingStatePayload {
+  const levels = option.thinking_levels || [];
+  const editable = levels.includes("off");
+  if (!previous?.enabled) {
+    return {
+      enabled: false,
+      level: "off",
+      editable
+    };
+  }
+  const previousLevel = String(previous.level || "").trim().toLowerCase();
+  const nextLevel = levels.includes(previousLevel) ? previousLevel : defaultEnabledThinkingLevel(option);
+  return {
+    enabled: nextLevel !== "off",
+    level: nextLevel,
+    editable
+  };
+}
+
+function modelWithOption(
+  model: ModelPayload,
+  option: ModelOptionPayload,
+  previousThinking?: ThinkingStatePayload
+): ModelPayload {
+  return {
+    ...model,
+    model: option.model,
+    thinking_request_style: option.thinking_request_style,
+    thinking_levels: option.thinking_levels,
+    thinking_level_labels: option.thinking_level_labels,
+    thinking_default: option.thinking_default,
+    thinking_state: thinkingStateForModelOption(option, previousThinking ?? model.thinking_state),
+    capabilities: option.capabilities
   };
 }
 
@@ -343,7 +401,7 @@ function dataWithCurrentModel(current: DashboardData, model: ModelPayload): Dash
     models: {
       ...current.models,
       items: current.models.items.map((item) =>
-        item.provider === model.provider && item.model === model.model ? { ...item, ...model } : item
+        item.provider === model.provider ? { ...item, ...model } : item
       )
     }
   };
@@ -1034,12 +1092,6 @@ function SessionsView({
             <thead>
               <tr>
                 <th>会话</th>
-                <th>来源</th>
-                <th>模型</th>
-                <th>消息</th>
-                <th>工具</th>
-                <th>Token</th>
-                <th>最后活跃</th>
               </tr>
             </thead>
             <tbody>
@@ -1058,20 +1110,17 @@ function SessionsView({
                   }}
                 >
                   <td>
-                    <div className="primary-cell">{session.title || "未命名会话"}</div>
-                    <div className="muted mono">{shortId(session.session_id)}</div>
-                  </td>
-                  <td className="source-cell">{sourceLabel(session.source_summary || session.source)}</td>
-                  <td>
-                    <div>{session.model || "-"}</div>
-                    <div className="muted">{String(session.model_config.provider || "")}</div>
-                  </td>
-                  <td>{formatNumber(session.message_count)}</td>
-                  <td>{formatNumber(session.tool_call_count)}</td>
-                  <td>{formatNumber(session.input_tokens + session.output_tokens)}</td>
-                  <td>
-                    <div className="row-action-cell">
-                      <span>{formatDate(session.last_active_at)}</span>
+                    <div className="session-row-content">
+                      <div className="session-row-copy">
+                        <div className="primary-cell">{session.title || "未命名会话"}</div>
+                        <div className="session-meta-line">
+                          <span>{formatDate(session.last_active_at)}</span>
+                          <span aria-hidden="true" className="session-meta-separator">
+                            ·
+                          </span>
+                          <span>{formatNumber(session.input_tokens + session.output_tokens)} Token</span>
+                        </div>
+                      </div>
                       <ChevronRight size={16} />
                     </div>
                   </td>
@@ -1111,44 +1160,166 @@ function SessionsView({
   );
 }
 
-function ModelsView({ models, current }: { models: ModelPayload[]; current: ModelPayload | null }) {
+function ModelsView({
+  models,
+  current,
+  modelSaving,
+  thinkingSaving,
+  onCurrentModelChange,
+  onThinkingLevelChange
+}: {
+  models: ModelPayload[];
+  current: ModelPayload | null;
+  modelSaving: boolean;
+  thinkingSaving: boolean;
+  onCurrentModelChange: (provider: string, model: string) => void;
+  onThinkingLevelChange: (level: string) => void;
+}) {
+  const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setSelectedModels((existing) => {
+      const next: Record<string, string> = {};
+      models.forEach((model) => {
+        const optionModels = model.model_options.map((option) => option.model);
+        const existingSelection = existing[model.provider];
+        if (existingSelection && optionModels.includes(existingSelection) && current?.provider !== model.provider) {
+          next[model.provider] = existingSelection;
+          return;
+        }
+        next[model.provider] = optionModels.includes(model.model) ? model.model : optionModels[0] || model.model;
+      });
+      return next;
+    });
+  }, [models, current?.provider]);
+
   return (
     <div className="grid-list models-grid">
       {models.map((model) => {
-        const active = current?.provider === model.provider && current?.model === model.model;
+        const providerActive = current?.provider === model.provider;
+        const selectedModel = selectedModels[model.provider] || model.model;
+        const selectedOption =
+          model.model_options.find((option) => option.model === selectedModel) ||
+          model.model_options.find((option) => option.model === model.model) ||
+          model.model_options[0];
+        const displayedModel = selectedOption
+          ? modelWithOption(model, selectedOption, providerActive ? model.thinking_state : undefined)
+          : model;
+        const selectedIsCurrent = providerActive && current?.model === displayedModel.model;
+        const thinkingLevels = displayedModel.thinking_levels || [];
+        const showThinkingControl =
+          selectedIsCurrent && Boolean(displayedModel.thinking_state?.editable) && thinkingLevels.length > 0;
+        const switchDisabled = modelSaving || !model.selectable || !selectedOption || selectedIsCurrent;
         return (
-          <article className={`item-card ${active ? "item-active" : ""}`} key={`${model.provider}:${model.model}`}>
+          <article className={`item-card ${providerActive ? "item-active" : ""}`} key={model.provider}>
             <div className="item-heading">
               <div className="item-icon">
                 <Brain size={18} />
               </div>
-              <div>
+              <div className="model-heading-copy">
                 <h3>{model.label}</h3>
-                <p>{model.provider}</p>
+                <div className="model-heading-model">{displayedModel.model}</div>
               </div>
             </div>
-            <div className="model-name">{model.model}</div>
             <div className="pill-row">
               <span className={model.configured ? "pill ok" : "pill warn"}>
                 {model.configured ? "configured" : "missing key"}
               </span>
               <span className="pill">{model.api_style}</span>
-              {active ? <span className="pill active">current</span> : null}
+              {providerActive ? <span className="pill active">current</span> : null}
+              {!model.selectable ? <span className="pill warn">read only</span> : null}
+            </div>
+            <div className="model-select-panel">
+              <label className="model-select-label" htmlFor={`model-select-${model.provider}`}>
+                Model
+              </label>
+              <div className="model-select-row">
+                <select
+                  aria-label={`${model.label} model`}
+                  className="model-select"
+                  disabled={!model.selectable || model.model_options.length <= 1 || modelSaving}
+                  id={`model-select-${model.provider}`}
+                  onChange={(event) =>
+                    setSelectedModels((currentSelections) => ({
+                      ...currentSelections,
+                      [model.provider]: event.target.value
+                    }))
+                  }
+                  value={displayedModel.model}
+                >
+                  {model.model_options.map((option) => (
+                    <option key={option.model} value={option.model}>
+                      {option.model}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  className="model-switch-button"
+                  disabled={switchDisabled}
+                  onClick={() => onCurrentModelChange(model.provider, displayedModel.model)}
+                  type="button"
+                >
+                  <Settings2 size={14} />
+                  <span>{selectedIsCurrent ? "Current" : modelSaving ? "Switching" : "Set current"}</span>
+                </button>
+              </div>
+              {!model.selectable && model.disabled_reason ? (
+                <div className="model-disabled-reason">{model.disabled_reason}</div>
+              ) : null}
             </div>
             <dl className="compact-metrics">
               <div>
                 <dt>Context</dt>
-                <dd>{formatNumber(model.capabilities.context_window_tokens)}</dd>
+                <dd>{formatNumber(displayedModel.capabilities.context_window_tokens)}</dd>
               </div>
               <div>
                 <dt>Output</dt>
-                <dd>{formatNumber(model.capabilities.max_tokens ?? model.capabilities.max_output_tokens ?? 0)}</dd>
+                <dd>
+                  {formatNumber(
+                    displayedModel.capabilities.max_tokens ?? displayedModel.capabilities.max_output_tokens ?? 0
+                  )}
+                </dd>
               </div>
               <div>
                 <dt>Vision</dt>
-                <dd>{model.capabilities.supports_vision ? "yes" : "no"}</dd>
+                <dd>{displayedModel.capabilities.supports_vision ? "yes" : "no"}</dd>
               </div>
             </dl>
+            <div className="model-thinking-panel">
+              <div className="model-thinking-title">
+                <span>Thinking</span>
+                <strong>
+                  {displayedModel.capabilities.supports_thinking ? displayedModel.thinking_request_style : "none"}
+                </strong>
+              </div>
+              {showThinkingControl ? (
+                <div className="thinking-level-control" role="group" aria-label={`${model.label} thinking level`}>
+                  {thinkingLevels.map((level) => {
+                    const selected = displayedModel.thinking_state?.level === level;
+                    return (
+                      <button
+                        aria-pressed={selected}
+                        className={selected ? "thinking-level-button active" : "thinking-level-button"}
+                        disabled={thinkingSaving}
+                        key={level}
+                        onClick={() => onThinkingLevelChange(level)}
+                        type="button"
+                      >
+                        {modelThinkingLevelLabel(displayedModel, level)}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : thinkingLevels.length ? (
+                <div className="thinking-level-readout">
+                  {thinkingLevels.map((level) => modelThinkingLevelLabel(displayedModel, level)).join(" / ")}
+                </div>
+              ) : !displayedModel.capabilities.supports_thinking ? (
+                <div className="thinking-level-readout">not supported</div>
+              ) : (
+                <div className="thinking-level-readout">provider managed</div>
+              )}
+            </div>
           </article>
         );
       })}
@@ -1799,6 +1970,7 @@ function App() {
   const [sessionDetailPageLoading, setSessionDetailPageLoading] = useState(false);
   const [sessionDetailError, setSessionDetailError] = useState("");
   const [sessionDetailPageError, setSessionDetailPageError] = useState("");
+  const [modelSaving, setModelSaving] = useState(false);
   const [thinkingSaving, setThinkingSaving] = useState(false);
 
   useEffect(() => {
@@ -1938,7 +2110,7 @@ function App() {
     setSessionDetailPageLoading(false);
   }
 
-  async function setCurrentThinkingLevel(level: "off" | "low") {
+  async function setCurrentThinkingLevel(level: string) {
     if (!data?.currentModel || thinkingSaving || !data.currentModel.thinking_state?.editable) {
       return;
     }
@@ -1954,6 +2126,37 @@ function App() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setThinkingSaving(false);
+    }
+  }
+
+  async function setCurrentModel(provider: string, modelName: string) {
+    if (!data || modelSaving) {
+      return;
+    }
+    const providerModel = data.models.items.find((item) => item.provider === provider);
+    const selectedOption = providerModel?.model_options.find((option) => option.model === modelName);
+    if (!providerModel || !selectedOption) {
+      setError("Model option is not available");
+      return;
+    }
+    if (!providerModel.selectable) {
+      setError(providerModel.disabled_reason || "Model provider is not selectable");
+      return;
+    }
+
+    const previousData = data;
+    const optimisticModel = modelWithOption(providerModel, selectedOption, data.currentModel?.thinking_state);
+    setModelSaving(true);
+    setError("");
+    setData(dataWithCurrentModel(data, optimisticModel));
+    try {
+      const currentModel = await patchJson<ModelPayload>("/api/models/current", { provider, model: modelName });
+      setData((current) => (current ? dataWithCurrentModel(current, currentModel) : current));
+    } catch (err) {
+      setData(previousData);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setModelSaving(false);
     }
   }
 
@@ -2026,33 +2229,6 @@ function App() {
               </button>
             ))}
           </nav>
-          <div className="current-model-card">
-            <div className="current-model-summary">
-              <Clock3 size={16} />
-              <div className="current-model-copy">
-                <strong>{data?.currentModel?.label || "Model"}</strong>
-                <span>{data?.currentModel?.provider || "-"}</span>
-              </div>
-            </div>
-            {data?.currentModel?.thinking_state?.editable ? (
-              <div className="thinking-toggle-row">
-                <span className="thinking-label">Thinking</span>
-                <button
-                  aria-label="Toggle Kimi Coding thinking"
-                  aria-pressed={data.currentModel.thinking_state.enabled}
-                  className={data.currentModel.thinking_state.enabled ? "thinking-switch active" : "thinking-switch"}
-                  disabled={thinkingSaving}
-                  onClick={() => setCurrentThinkingLevel(data.currentModel?.thinking_state.enabled ? "off" : "low")}
-                  type="button"
-                >
-                  <span className="thinking-switch-knob" />
-                </button>
-                <span className="thinking-status">
-                  {data.currentModel.thinking_state.enabled ? "On" : "Off"}
-                </span>
-              </div>
-            ) : null}
-          </div>
         </aside>
 
         <section className="content-panel">
@@ -2085,7 +2261,16 @@ function App() {
                   onOpen={openSession}
                 />
               ) : null}
-              {activeTab === "models" ? <ModelsView models={data.models.items} current={data.currentModel} /> : null}
+              {activeTab === "models" ? (
+                <ModelsView
+                  models={data.models.items}
+                  current={data.currentModel}
+                  modelSaving={modelSaving}
+                  thinkingSaving={thinkingSaving}
+                  onCurrentModelChange={setCurrentModel}
+                  onThinkingLevelChange={setCurrentThinkingLevel}
+                />
+              ) : null}
               {activeTab === "tools" ? <ToolsView toolsets={data.toolsets.items} onOpen={setDetailTarget} /> : null}
               {activeTab === "skills" ? <SkillsView skills={data.skills.items} onOpen={setDetailTarget} /> : null}
               {activeTab === "background-tasks" ? (

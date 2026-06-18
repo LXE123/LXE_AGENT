@@ -15,6 +15,7 @@ _ACTIVE_MODEL_ENV = "AGENT_LLM_MODEL"
 _MAX_TOKENS_CONFIG = "AGENT_LLM_MAX_TOKENS"
 _THINKING_ENABLED_ENV = "AGENT_LLM_THINKING_ENABLED"
 _THINKING_EFFORT_ENV = "AGENT_LLM_THINKING_EFFORT"
+_DEEPSEEK_PROVIDER_NAME = "deepseek"
 
 
 def _config_text(name: str, default: str = "") -> str:
@@ -72,6 +73,7 @@ def _current_model_name() -> str:
 def agent_planner_selection_options() -> list[ProviderDescriptor]:
     return [
         descriptor_for_provider(kimi_coding_client.PROVIDER_NAME),
+        descriptor_for_provider(_DEEPSEEK_PROVIDER_NAME),
         descriptor_for_provider(glm_client.PROVIDER_NAME),
     ]
 
@@ -110,7 +112,7 @@ def _thinking_mode_label(descriptor: ProviderDescriptor) -> str:
     style = str(getattr(descriptor, "thinking_request_style", "none") or "none").strip()
     if style == "provider-managed":
         return "provider-managed"
-    if style in {"anthropic-adaptive", "anthropic-budget"}:
+    if style in {"anthropic-adaptive", "anthropic-budget", "anthropic-effort"}:
         if _current_agent_thinking_enabled():
             level = _thinking_level_for_descriptor(descriptor)
             if level == "off":

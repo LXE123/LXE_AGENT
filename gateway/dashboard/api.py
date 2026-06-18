@@ -22,7 +22,12 @@ from shared.env import upsert_project_env_values
 from shared.llm.agent_planner import agent_planner_selection_options
 from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import resolve_model_capabilities
-from shared.llm.provider_catalog import descriptor_for_provider, normalize_provider_name
+from shared.llm.provider_catalog import (
+    descriptor_for_provider,
+    normalize_model_name,
+    normalize_provider_name,
+    provider_spec_for_name,
+)
 from shared.llm import runtime_config as runtime_settings
 from shared.permission_policy import ALL, allowed_skill_types_for_bot
 from platforms.feishu.config import FEISHU_APP_ID
@@ -38,6 +43,9 @@ def _dashboard_dist_dir() -> Path:
 
 _THINKING_ENABLED_ENV = "AGENT_LLM_THINKING_ENABLED"
 _THINKING_EFFORT_ENV = "AGENT_LLM_THINKING_EFFORT"
+_LLM_PROVIDER_ENV = "AGENT_LLM_PROVIDER"
+_LLM_MODEL_ENV = "AGENT_LLM_MODEL"
+_SELECTABLE_MODEL_PROVIDERS = {"kimi_coding", "deepseek"}
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -64,13 +72,42 @@ def _capabilities_payload(provider_name: str, model_name: str) -> dict[str, Any]
     }
 
 
+def _model_option_payload(provider_name: str, model_name: str) -> dict[str, Any]:
+    descriptor = descriptor_for_provider(provider_name, model_override=model_name)
+    return {
+        "model": descriptor.default_model,
+        "thinking_request_style": descriptor.thinking_request_style,
+        "thinking_levels": list(descriptor.thinking_levels),
+        "thinking_level_labels": dict(descriptor.thinking_level_labels),
+        "thinking_default": descriptor.thinking_default,
+        "capabilities": _capabilities_payload(descriptor.name, descriptor.default_model),
+    }
+
+
+def _model_options_payload(provider_name: str) -> list[dict[str, Any]]:
+    spec = provider_spec_for_name(provider_name)
+    return [_model_option_payload(spec.name, model_name) for model_name in spec.models]
+
+
+def _provider_selectability(descriptor) -> tuple[bool, str]:
+    if descriptor.name not in _SELECTABLE_MODEL_PROVIDERS:
+        return False, "not selectable in WebUI"
+    if not str(descriptor.api_key or "").strip():
+        return False, "missing API key"
+    return True, ""
+
+
 def _descriptor_payload(descriptor) -> dict[str, Any]:
+    selectable, disabled_reason = _provider_selectability(descriptor)
     return {
         "provider": descriptor.name,
         "label": descriptor.label,
         "api_style": descriptor.api_style,
         "model": descriptor.default_model,
         "configured": bool(str(descriptor.api_key or "").strip()),
+        "selectable": selectable,
+        "disabled_reason": disabled_reason,
+        "model_options": _model_options_payload(descriptor.name),
         "thinking_request_style": descriptor.thinking_request_style,
         "thinking_levels": list(descriptor.thinking_levels),
         "thinking_level_labels": dict(descriptor.thinking_level_labels),
@@ -91,52 +128,126 @@ def _current_planner_descriptor():
     return descriptor_for_provider(provider_name, model_override=model_name)
 
 
-def _is_editable_binary_thinking_descriptor(descriptor) -> bool:
-    return (
-        descriptor.name == kimi_coding_client.PROVIDER_NAME
-        and descriptor.thinking_request_style == "anthropic-budget"
-        and tuple(descriptor.thinking_levels) == ("off", "low")
+def _planner_descriptors_payload() -> list[dict[str, Any]]:
+    current_descriptor = _current_planner_descriptor()
+    items: list[dict[str, Any]] = []
+    for descriptor in agent_planner_selection_options():
+        if descriptor.name == current_descriptor.name:
+            items.append(_descriptor_payload(current_descriptor))
+        else:
+            items.append(_descriptor_payload(descriptor))
+    return items
+
+
+def _thinking_levels_for_descriptor(descriptor) -> tuple[str, ...]:
+    return tuple(
+        str(level or "").strip().lower()
+        for level in tuple(getattr(descriptor, "thinking_levels", ()) or ())
+        if str(level or "").strip()
     )
 
 
-def _thinking_state_payload(descriptor) -> dict[str, Any]:
-    editable = _is_editable_binary_thinking_descriptor(descriptor)
+def _is_editable_thinking_descriptor(descriptor) -> bool:
+    levels = _thinking_levels_for_descriptor(descriptor)
+    return bool(levels and "off" in levels)
+
+
+def _default_enabled_thinking_level(descriptor) -> str:
+    levels = _thinking_levels_for_descriptor(descriptor)
+    default_level = str(getattr(descriptor, "thinking_default", "") or "").strip().lower()
+    if default_level and default_level != "off" and default_level in levels:
+        return default_level
+    return next((level for level in levels if level != "off"), "off")
+
+
+def _selected_thinking_level(descriptor) -> str:
     enabled = bool(getattr(runtime_settings, _THINKING_ENABLED_ENV, True))
     effort = str(getattr(runtime_settings, _THINKING_EFFORT_ENV, "low") or "low").strip().lower()
-    labels = dict(getattr(descriptor, "thinking_level_labels", {}) or {})
-    if editable:
-        level = "low" if enabled and effort != "off" else "off"
-    elif enabled:
-        level = effort
-    else:
-        level = "off"
+    levels = _thinking_levels_for_descriptor(descriptor)
+    if not enabled or effort == "off":
+        return "off"
+    if levels:
+        if effort in levels:
+            return effort
+        if effort == "xhigh" and "max" in levels:
+            return "max"
+        return _default_enabled_thinking_level(descriptor)
+    return effort or "on"
+
+
+def _thinking_state_payload(descriptor) -> dict[str, Any]:
+    level = _selected_thinking_level(descriptor)
     return {
         "enabled": bool(level != "off"),
         "level": level,
-        "label": str(labels.get(level) or level),
-        "editable": editable,
+        "editable": _is_editable_thinking_descriptor(descriptor),
     }
 
 
 def _set_current_thinking_level(level: str) -> dict[str, Any]:
     descriptor = _current_planner_descriptor()
-    if not _is_editable_binary_thinking_descriptor(descriptor):
-        raise HTTPException(status_code=400, detail="Current model does not support editable binary thinking")
-
     normalized_level = str(level or "").strip().lower()
-    if normalized_level not in {"off", "low"}:
-        raise HTTPException(status_code=400, detail="Kimi Coding thinking level must be off or low")
+    levels = _thinking_levels_for_descriptor(descriptor)
+    if not _is_editable_thinking_descriptor(descriptor):
+        raise HTTPException(status_code=400, detail="Current model does not support editable thinking levels")
+    if normalized_level not in levels:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Current model thinking level must be one of: {', '.join(levels)}",
+        )
 
-    enabled_value = "1" if normalized_level == "low" else "0"
+    enabled_level = _default_enabled_thinking_level(descriptor)
     env_values = {
-        _THINKING_ENABLED_ENV: enabled_value,
-        _THINKING_EFFORT_ENV: "low",
+        _THINKING_ENABLED_ENV: "0" if normalized_level == "off" else "1",
+        _THINKING_EFFORT_ENV: enabled_level if normalized_level == "off" else normalized_level,
     }
     upsert_project_env_values(env_values)
 
     os.environ.update(env_values)
-    setattr(runtime_settings, _THINKING_ENABLED_ENV, normalized_level == "low")
-    setattr(runtime_settings, _THINKING_EFFORT_ENV, "low")
+    setattr(runtime_settings, _THINKING_ENABLED_ENV, normalized_level != "off")
+    setattr(runtime_settings, _THINKING_EFFORT_ENV, env_values[_THINKING_EFFORT_ENV])
+    return _descriptor_payload(descriptor)
+
+
+def _normalize_model_switch_thinking(descriptor) -> tuple[bool, str]:
+    selected_level = _selected_thinking_level(descriptor)
+    if selected_level == "off":
+        return False, _default_enabled_thinking_level(descriptor)
+    return True, selected_level
+
+
+def _set_current_model(provider: str, model: str = "") -> dict[str, Any]:
+    try:
+        provider_name = normalize_provider_name(provider)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Unsupported model provider") from exc
+
+    descriptor = descriptor_for_provider(provider_name)
+    selectable, disabled_reason = _provider_selectability(descriptor)
+    if not selectable:
+        raise HTTPException(status_code=400, detail=disabled_reason or "Model provider is not selectable")
+
+    spec = provider_spec_for_name(provider_name)
+    requested_model = str(model or "").strip() or spec.default_model
+    normalized_model = normalize_model_name(provider_name, requested_model)
+    if normalized_model not in spec.models:
+        raise HTTPException(status_code=400, detail="Unsupported model for provider")
+
+    descriptor = descriptor_for_provider(provider_name, model_override=normalized_model)
+    thinking_enabled, thinking_effort = _normalize_model_switch_thinking(descriptor)
+    env_values = {
+        _LLM_PROVIDER_ENV: provider_name,
+        _LLM_MODEL_ENV: descriptor.default_model,
+        _THINKING_ENABLED_ENV: "1" if thinking_enabled else "0",
+        _THINKING_EFFORT_ENV: thinking_effort,
+    }
+    upsert_project_env_values(env_values)
+
+    os.environ.update(env_values)
+    setattr(runtime_settings, _LLM_PROVIDER_ENV, provider_name)
+    setattr(runtime_settings, _LLM_MODEL_ENV, descriptor.default_model)
+    setattr(runtime_settings, _THINKING_ENABLED_ENV, thinking_enabled)
+    setattr(runtime_settings, _THINKING_EFFORT_ENV, thinking_effort)
     return _descriptor_payload(descriptor)
 
 
@@ -523,12 +634,20 @@ def create_dashboard_app() -> FastAPI:
 
     @app.get("/api/models")
     async def models() -> dict[str, Any]:
-        items = [_descriptor_payload(descriptor) for descriptor in agent_planner_selection_options()]
+        items = _planner_descriptors_payload()
         return {"items": items, "total": len(items)}
 
     @app.get("/api/models/current")
     async def current_model() -> dict[str, Any]:
         return _descriptor_payload(_current_planner_descriptor())
+
+    @app.patch("/api/models/current")
+    async def update_current_model(payload: dict[str, Any]) -> dict[str, Any]:
+        safe_payload = dict(payload or {})
+        return _set_current_model(
+            str(safe_payload.get("provider") or ""),
+            str(safe_payload.get("model") or ""),
+        )
 
     @app.patch("/api/models/current/thinking")
     async def update_current_model_thinking(payload: dict[str, Any]) -> dict[str, Any]:

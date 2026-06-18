@@ -71,11 +71,39 @@ def _configure_kimi_current_model_default_thinking(monkeypatch) -> None:
     monkeypatch.delattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", raising=False)
 
 
+def _configure_deepseek_current_model(monkeypatch, *, effort: str = "low", model: str = "deepseek-v4-pro") -> None:
+    monkeypatch.setenv("AGENT_LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("AGENT_LLM_MODEL", model)
+    monkeypatch.setenv("AGENT_LLM_THINKING_ENABLED", "1")
+    monkeypatch.setenv("AGENT_LLM_THINKING_EFFORT", effort)
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_PROVIDER", "deepseek")
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_MODEL", model)
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_ENABLED", True)
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", effort)
+
+
+def _configure_glm_current_model(monkeypatch) -> None:
+    monkeypatch.setenv("AGENT_LLM_PROVIDER", "glm")
+    monkeypatch.setenv("AGENT_LLM_MODEL", "glm-5v-turbo")
+    monkeypatch.setenv("AGENT_LLM_THINKING_ENABLED", "1")
+    monkeypatch.setenv("AGENT_LLM_THINKING_EFFORT", "high")
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_PROVIDER", "glm")
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_MODEL", "glm-5v-turbo")
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_ENABLED", True)
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", "high")
+
+
 def _redirect_dashboard_env_writes(monkeypatch, env_path):
     def write_env(values):
         upsert_project_env_values(values, path=env_path)
 
     monkeypatch.setattr(dashboard_api, "upsert_project_env_values", write_env)
+
+
+def _configure_model_api_keys(monkeypatch) -> None:
+    monkeypatch.setenv("KIMI_CODE_API_KEY", "kimi-key")
+    monkeypatch.setenv("DEEPSEEK_API", "deepseek-key")
+    monkeypatch.setenv("GLM_API_KEY", "glm-key")
 
 
 def _state(messages: list[dict] | None = None) -> dict:
@@ -500,7 +528,9 @@ def test_session_detail_endpoint_returns_404_for_missing_session(dashboard_clien
     assert response.status_code == 404
 
 
-def test_models_endpoint_does_not_expose_api_keys(dashboard_client):
+def test_models_endpoint_does_not_expose_api_keys(dashboard_client, monkeypatch):
+    _configure_model_api_keys(monkeypatch)
+
     response = dashboard_client.get("/api/models")
 
     assert response.status_code == 200
@@ -511,10 +541,34 @@ def test_models_endpoint_does_not_expose_api_keys(dashboard_client):
     assert "api-key" not in serialized.lower()
     assert all("configured" in item for item in payload["items"])
     kimi = next(item for item in payload["items"] if item["provider"] == "kimi_coding")
+    assert kimi["configured"] is True
+    assert kimi["selectable"] is True
+    assert kimi["disabled_reason"] == ""
+    assert [item["model"] for item in kimi["model_options"]] == ["kimi-for-coding"]
     assert kimi["thinking_request_style"] == "anthropic-budget"
     assert kimi["thinking_levels"] == ["off", "low"]
     assert kimi["thinking_level_labels"]["low"] == "on"
     assert kimi["thinking_default"] == "off"
+    deepseek = next(item for item in payload["items"] if item["provider"] == "deepseek")
+    assert deepseek["configured"] is True
+    assert deepseek["selectable"] is True
+    assert deepseek["disabled_reason"] == ""
+    assert [item["model"] for item in deepseek["model_options"]] == ["deepseek-v4-pro", "deepseek-v4-flash"]
+    assert deepseek["api_style"] == "anthropic-messages"
+    assert deepseek["model"] == "deepseek-v4-pro"
+    assert deepseek["thinking_request_style"] == "anthropic-effort"
+    assert deepseek["thinking_levels"] == ["off", "high", "max"]
+    assert deepseek["capabilities"]["context_window_tokens"] == 1000000
+    assert deepseek["capabilities"]["max_tokens"] == 384000
+    flash_option = next(item for item in deepseek["model_options"] if item["model"] == "deepseek-v4-flash")
+    assert flash_option["thinking_levels"] == ["off", "high", "max"]
+    assert flash_option["capabilities"]["context_window_tokens"] == 1000000
+
+    glm = next(item for item in payload["items"] if item["provider"] == "glm")
+    assert glm["configured"] is True
+    assert glm["selectable"] is False
+    assert glm["disabled_reason"] == "not selectable in WebUI"
+    assert [item["model"] for item in glm["model_options"]] == ["glm-5v-turbo"]
 
 
 def test_current_model_endpoint_returns_capabilities(dashboard_client, monkeypatch):
@@ -532,7 +586,6 @@ def test_current_model_endpoint_returns_capabilities(dashboard_client, monkeypat
     assert payload["thinking_state"] == {
         "enabled": False,
         "level": "off",
-        "label": "off",
         "editable": True,
     }
 
@@ -547,9 +600,175 @@ def test_current_model_endpoint_defaults_thinking_enabled(dashboard_client, monk
     assert payload["thinking_state"] == {
         "enabled": True,
         "level": "low",
-        "label": "on",
         "editable": True,
     }
+
+
+def test_current_model_endpoint_returns_deepseek_anthropic_descriptor(dashboard_client, monkeypatch):
+    _configure_deepseek_current_model(monkeypatch, effort="xhigh")
+
+    response = dashboard_client.get("/api/models/current")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "deepseek"
+    assert payload["api_style"] == "anthropic-messages"
+    assert payload["model"] == "deepseek-v4-pro"
+    assert payload["thinking_state"] == {
+        "enabled": True,
+        "level": "max",
+        "editable": True,
+    }
+    assert payload["capabilities"]["context_window_tokens"] == 1000000
+    assert payload["capabilities"]["max_tokens"] == 384000
+
+
+def test_current_model_patch_switches_to_kimi_and_normalizes_thinking(dashboard_client, monkeypatch, tmp_path):
+    _configure_model_api_keys(monkeypatch)
+    _configure_deepseek_current_model(monkeypatch, effort="max")
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "AGENT_LLM_PROVIDER=deepseek\n"
+        "AGENT_LLM_MODEL=deepseek-v4-pro\n"
+        "AGENT_LLM_THINKING_ENABLED=1\n"
+        "AGENT_LLM_THINKING_EFFORT=max\n",
+        encoding="utf-8",
+    )
+    _redirect_dashboard_env_writes(monkeypatch, env_path)
+
+    response = dashboard_client.patch(
+        "/api/models/current",
+        json={"provider": "kimi_coding", "model": "kimi-for-coding"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "kimi_coding"
+    assert payload["model"] == "kimi-for-coding"
+    assert payload["thinking_state"] == {
+        "enabled": True,
+        "level": "low",
+        "editable": True,
+    }
+    assert runtime_settings.AGENT_LLM_PROVIDER == "kimi_coding"
+    assert runtime_settings.AGENT_LLM_MODEL == "kimi-for-coding"
+    assert runtime_settings.AGENT_LLM_THINKING_ENABLED is True
+    assert runtime_settings.AGENT_LLM_THINKING_EFFORT == "low"
+    assert os.environ["AGENT_LLM_PROVIDER"] == "kimi_coding"
+    assert os.environ["AGENT_LLM_MODEL"] == "kimi-for-coding"
+    env_text = env_path.read_text(encoding="utf-8")
+    assert "AGENT_LLM_PROVIDER=kimi_coding\n" in env_text
+    assert "AGENT_LLM_MODEL=kimi-for-coding\n" in env_text
+    assert "AGENT_LLM_THINKING_ENABLED=1\n" in env_text
+    assert "AGENT_LLM_THINKING_EFFORT=low\n" in env_text
+
+
+def test_current_model_patch_switches_between_deepseek_models(dashboard_client, monkeypatch, tmp_path):
+    _configure_model_api_keys(monkeypatch)
+    _configure_kimi_current_model(monkeypatch)
+    monkeypatch.setenv("AGENT_LLM_THINKING_ENABLED", "1")
+    monkeypatch.setenv("AGENT_LLM_THINKING_EFFORT", "low")
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_ENABLED", True)
+    monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", "low")
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "AGENT_LLM_PROVIDER=kimi_coding\n"
+        "AGENT_LLM_MODEL=kimi-for-coding\n"
+        "AGENT_LLM_THINKING_ENABLED=1\n"
+        "AGENT_LLM_THINKING_EFFORT=low\n",
+        encoding="utf-8",
+    )
+    _redirect_dashboard_env_writes(monkeypatch, env_path)
+
+    response = dashboard_client.patch(
+        "/api/models/current",
+        json={"provider": "deepseek", "model": "deepseek-v4-pro"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "deepseek"
+    assert payload["model"] == "deepseek-v4-pro"
+    assert payload["thinking_state"] == {
+        "enabled": True,
+        "level": "high",
+        "editable": True,
+    }
+    assert runtime_settings.AGENT_LLM_PROVIDER == "deepseek"
+    assert runtime_settings.AGENT_LLM_MODEL == "deepseek-v4-pro"
+    assert runtime_settings.AGENT_LLM_THINKING_ENABLED is True
+    assert runtime_settings.AGENT_LLM_THINKING_EFFORT == "high"
+
+    response = dashboard_client.patch(
+        "/api/models/current",
+        json={"provider": "deepseek", "model": "deepseek-v4-flash"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "deepseek"
+    assert payload["model"] == "deepseek-v4-flash"
+    assert runtime_settings.AGENT_LLM_MODEL == "deepseek-v4-flash"
+    assert os.environ["AGENT_LLM_MODEL"] == "deepseek-v4-flash"
+    env_text = env_path.read_text(encoding="utf-8")
+    assert "AGENT_LLM_PROVIDER=deepseek\n" in env_text
+    assert "AGENT_LLM_MODEL=deepseek-v4-flash\n" in env_text
+    assert "AGENT_LLM_THINKING_ENABLED=1\n" in env_text
+    assert "AGENT_LLM_THINKING_EFFORT=high\n" in env_text
+
+
+def test_current_model_patch_rejects_invalid_choices_without_env_write(dashboard_client, monkeypatch, tmp_path):
+    _configure_model_api_keys(monkeypatch)
+    _configure_kimi_current_model(monkeypatch)
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "AGENT_LLM_PROVIDER=kimi_coding\n"
+        "AGENT_LLM_MODEL=kimi-for-coding\n"
+        "AGENT_LLM_THINKING_ENABLED=0\n"
+        "AGENT_LLM_THINKING_EFFORT=low\n",
+        encoding="utf-8",
+    )
+    before = env_path.read_text(encoding="utf-8")
+    _redirect_dashboard_env_writes(monkeypatch, env_path)
+
+    response = dashboard_client.patch(
+        "/api/models/current",
+        json={"provider": "glm", "model": "glm-5v-turbo"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "not selectable in WebUI"
+    assert env_path.read_text(encoding="utf-8") == before
+    assert runtime_settings.AGENT_LLM_PROVIDER == "kimi_coding"
+    assert runtime_settings.AGENT_LLM_MODEL == "kimi-for-coding"
+
+    response = dashboard_client.patch(
+        "/api/models/current",
+        json={"provider": "deepseek", "model": "deepseek-not-real"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported model for provider"
+    assert env_path.read_text(encoding="utf-8") == before
+
+    response = dashboard_client.patch(
+        "/api/models/current",
+        json={"provider": "not-a-provider", "model": "whatever"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported model provider"
+    assert env_path.read_text(encoding="utf-8") == before
+
+    monkeypatch.delenv("DEEPSEEK_API", raising=False)
+    response = dashboard_client.patch(
+        "/api/models/current",
+        json={"provider": "deepseek", "model": "deepseek-v4-pro"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "missing API key"
+    assert env_path.read_text(encoding="utf-8") == before
 
 
 def test_current_model_thinking_patch_updates_runtime_and_env(dashboard_client, monkeypatch, tmp_path):
@@ -570,7 +789,6 @@ def test_current_model_thinking_patch_updates_runtime_and_env(dashboard_client, 
     assert payload["thinking_state"] == {
         "enabled": True,
         "level": "low",
-        "label": "on",
         "editable": True,
     }
     assert runtime_settings.AGENT_LLM_THINKING_ENABLED is True
@@ -594,6 +812,61 @@ def test_current_model_thinking_patch_updates_runtime_and_env(dashboard_client, 
     assert "AGENT_LLM_THINKING_ENABLED=0\n" in env_path.read_text(encoding="utf-8")
 
 
+def test_current_model_thinking_patch_updates_deepseek_runtime_and_env(dashboard_client, monkeypatch, tmp_path):
+    _configure_deepseek_current_model(monkeypatch, effort="high")
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "AGENT_LLM_THINKING_ENABLED=1\n"
+        "AGENT_LLM_THINKING_EFFORT=high\n",
+        encoding="utf-8",
+    )
+    _redirect_dashboard_env_writes(monkeypatch, env_path)
+
+    response = dashboard_client.patch("/api/models/current/thinking", json={"level": "max"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["thinking_state"] == {
+        "enabled": True,
+        "level": "max",
+        "editable": True,
+    }
+    assert runtime_settings.AGENT_LLM_THINKING_ENABLED is True
+    assert runtime_settings.AGENT_LLM_THINKING_EFFORT == "max"
+    assert os.environ["AGENT_LLM_THINKING_ENABLED"] == "1"
+    assert os.environ["AGENT_LLM_THINKING_EFFORT"] == "max"
+    assert "AGENT_LLM_THINKING_EFFORT=max\n" in env_path.read_text(encoding="utf-8")
+
+    response = dashboard_client.patch("/api/models/current/thinking", json={"level": "off"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["thinking_state"]["level"] == "off"
+    assert payload["thinking_state"]["enabled"] is False
+    assert payload["thinking_state"]["editable"] is True
+    assert runtime_settings.AGENT_LLM_THINKING_ENABLED is False
+    assert runtime_settings.AGENT_LLM_THINKING_EFFORT == "high"
+    assert os.environ["AGENT_LLM_THINKING_ENABLED"] == "0"
+    assert os.environ["AGENT_LLM_THINKING_EFFORT"] == "high"
+    env_text = env_path.read_text(encoding="utf-8")
+    assert "AGENT_LLM_THINKING_ENABLED=0\n" in env_text
+    assert "AGENT_LLM_THINKING_EFFORT=high\n" in env_text
+
+    response = dashboard_client.patch("/api/models/current/thinking", json={"level": "high"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["thinking_state"] == {
+        "enabled": True,
+        "level": "high",
+        "editable": True,
+    }
+    assert runtime_settings.AGENT_LLM_THINKING_ENABLED is True
+    assert runtime_settings.AGENT_LLM_THINKING_EFFORT == "high"
+    assert os.environ["AGENT_LLM_THINKING_ENABLED"] == "1"
+    assert os.environ["AGENT_LLM_THINKING_EFFORT"] == "high"
+
+
 def test_current_model_thinking_patch_rejects_invalid_level_without_env_write(
     dashboard_client,
     monkeypatch,
@@ -611,6 +884,55 @@ def test_current_model_thinking_patch_rejects_invalid_level_without_env_write(
     assert env_path.read_text(encoding="utf-8") == before
     assert runtime_settings.AGENT_LLM_THINKING_ENABLED is False
     assert os.environ["AGENT_LLM_THINKING_ENABLED"] == "0"
+
+
+def test_current_model_thinking_patch_rejects_deepseek_invalid_level_without_env_write(
+    dashboard_client,
+    monkeypatch,
+    tmp_path,
+):
+    _configure_deepseek_current_model(monkeypatch, effort="high")
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "AGENT_LLM_THINKING_ENABLED=1\n"
+        "AGENT_LLM_THINKING_EFFORT=high\n",
+        encoding="utf-8",
+    )
+    before = env_path.read_text(encoding="utf-8")
+    _redirect_dashboard_env_writes(monkeypatch, env_path)
+
+    response = dashboard_client.patch("/api/models/current/thinking", json={"level": "low"})
+
+    assert response.status_code == 400
+    assert env_path.read_text(encoding="utf-8") == before
+    assert runtime_settings.AGENT_LLM_THINKING_ENABLED is True
+    assert runtime_settings.AGENT_LLM_THINKING_EFFORT == "high"
+    assert os.environ["AGENT_LLM_THINKING_ENABLED"] == "1"
+    assert os.environ["AGENT_LLM_THINKING_EFFORT"] == "high"
+
+
+def test_current_model_thinking_patch_rejects_provider_managed_without_env_write(
+    dashboard_client,
+    monkeypatch,
+    tmp_path,
+):
+    _configure_glm_current_model(monkeypatch)
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "AGENT_LLM_THINKING_ENABLED=1\n"
+        "AGENT_LLM_THINKING_EFFORT=high\n",
+        encoding="utf-8",
+    )
+    before = env_path.read_text(encoding="utf-8")
+    _redirect_dashboard_env_writes(monkeypatch, env_path)
+
+    response = dashboard_client.patch("/api/models/current/thinking", json={"level": "high"})
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Current model does not support editable thinking levels"
+    assert env_path.read_text(encoding="utf-8") == before
+    assert runtime_settings.AGENT_LLM_THINKING_ENABLED is True
+    assert runtime_settings.AGENT_LLM_THINKING_EFFORT == "high"
 
 
 def test_project_env_upsert_preserves_existing_content(tmp_path):

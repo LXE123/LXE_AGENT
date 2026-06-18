@@ -15,6 +15,7 @@ _THINKING_REQUEST_STYLES = {
     "provider-managed",
     "anthropic-adaptive",
     "anthropic-budget",
+    "anthropic-effort",
 }
 
 
@@ -201,7 +202,7 @@ def _parse_provider_spec(path: Path) -> ProviderSpec:
         raise RuntimeError(f"LLM provider missing name: {path}")
     if not label:
         raise RuntimeError(f"LLM provider missing label: {path}")
-    if api_style not in {"openai-chat", "anthropic-messages"}:
+    if api_style != "anthropic-messages":
         raise RuntimeError(f"Unsupported LLM provider api_style: {path} {api_style}")
     if not base_url:
         raise RuntimeError(f"LLM provider missing base_url: {path}")

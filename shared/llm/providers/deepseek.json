@@ -1,19 +1,31 @@
 {
   "name": "deepseek",
   "label": "DeepSeek",
-  "api_style": "openai-chat",
-  "base_url": "https://api.deepseek.com",
-  "default_model": "deepseek-chat",
+  "api_style": "anthropic-messages",
+  "base_url": "https://api.deepseek.com/anthropic",
+  "default_model": "deepseek-v4-pro",
   "default_headers": {},
   "aliases": ["deep_seek", "deep-seek"],
   "models": {
-    "deepseek-chat": {
-      "context_window_tokens": 128000,
-      "max_tokens": 32768,
+    "deepseek-v4-pro": {
+      "context_window_tokens": 1000000,
+      "max_tokens": 384000,
       "supports_vision": false,
-      "supports_thinking": false,
+      "supports_thinking": true,
       "supports_temperature": true,
-      "thinking_request_style": "none"
+      "thinking_request_style": "anthropic-effort",
+      "thinking_levels": ["off", "high", "max"],
+      "thinking_default": "high"
+    },
+    "deepseek-v4-flash": {
+      "context_window_tokens": 1000000,
+      "max_tokens": 384000,
+      "supports_vision": false,
+      "supports_thinking": true,
+      "supports_temperature": true,
+      "thinking_request_style": "anthropic-effort",
+      "thinking_levels": ["off", "high", "max"],
+      "thinking_default": "high"
     }
   }
 }
