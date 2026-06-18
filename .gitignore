@@ -30,12 +30,17 @@ services/test_file/
 .claude/
 .codex/
 
-# Sidecar PoC
+# Sidecar/soak PoC local artifacts
 sidecars/
 docs/sidecar_soak.md
 scripts/soak_prepare_fixtures.py
 scripts/soak_runner.py
 tests/test_sidecar_soak.py
+/sidecars/**/target/
+/sidecars/**/.runtime/
+/sidecars/**/node_modules/
+/sidecars/**/*.log
+/artifacts/soak/
 
 # Lint/Format cache
 .ruff_cache/

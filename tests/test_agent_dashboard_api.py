@@ -23,6 +23,14 @@ from shared.db.sqlite.engine import connection_scope
 from shared.db.sqlite.session_messages import session_messages_path
 from shared.env import upsert_project_env_values
 from shared.llm import runtime_config as runtime_settings
+from shared.permission_policy import (
+    BOT_ID_AMAZON_REPLENISH,
+    BOT_ID_LXE_CLAW,
+    BOT_ID_LXE_FBA_AGENT,
+    SKILL_TYPE_AMAZON_FBA,
+    SKILL_TYPE_AMAZON_REPLENISH,
+    SKILL_TYPE_DEFAULT,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +44,7 @@ def _clear_exec_sessions():
 def dashboard_client(monkeypatch, tmp_path):
     monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "local_agent.sqlite3"))
     monkeypatch.setenv("AGENT_SESSION_BINDINGS_PATH", str(tmp_path / "sessions.json"))
+    monkeypatch.setattr(dashboard_api, "FEISHU_APP_ID", BOT_ID_LXE_CLAW)
     init_schema()
     return TestClient(create_dashboard_app())
 
@@ -130,6 +139,36 @@ This is the full SKILL.md body.
         "skill_text": skill_text,
         "reference_text": reference_text,
     }
+
+
+def _install_dashboard_filter_skill_root(monkeypatch, tmp_path) -> None:
+    skills_root = tmp_path / "skills"
+    definitions = [
+        ("dashboard-default-skill", SKILL_TYPE_DEFAULT),
+        ("dashboard-fba-skill", SKILL_TYPE_AMAZON_FBA),
+        ("dashboard-replenish-skill", SKILL_TYPE_AMAZON_REPLENISH),
+    ]
+    for name, skill_type in definitions:
+        skill_dir = skills_root / name
+        references_dir = skill_dir / "references"
+        references_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"""---
+name: {name}
+description: {name} fixture.
+type: {skill_type}
+references:
+  - path: references/example.md
+    description: Example reference
+---
+
+## {name}
+""",
+            encoding="utf-8",
+        )
+        (references_dir / "example.md").write_text(f"# {name} Reference\n", encoding="utf-8")
+    monkeypatch.setattr(skill_index_module, "SKILLS_ROOT", skills_root)
+    monkeypatch.setattr(skill_index_module, "_SKILL_INDEX", None)
 
 
 def test_sessions_endpoint_orders_by_last_active_and_returns_metadata(dashboard_client):
@@ -698,6 +737,73 @@ def test_skills_endpoint_reads_skill_manifests(dashboard_client):
     assert {"name", "type", "description", "enabled", "location", "references"}.issubset(first)
 
 
+def test_skills_endpoint_filters_to_fba_agent_skill_types(dashboard_client, monkeypatch, tmp_path):
+    _install_dashboard_filter_skill_root(monkeypatch, tmp_path)
+    monkeypatch.setattr(dashboard_api, "FEISHU_APP_ID", BOT_ID_LXE_FBA_AGENT)
+
+    response = dashboard_client.get("/api/skills")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert {item["name"] for item in payload["items"]} == {
+        "dashboard-default-skill",
+        "dashboard-fba-skill",
+    }
+    assert {item["type"] for item in payload["items"]} == {
+        SKILL_TYPE_DEFAULT,
+        SKILL_TYPE_AMAZON_FBA,
+    }
+    assert all(item["enabled"] is True for item in payload["items"])
+
+
+def test_skills_endpoint_filters_to_replenish_agent_skill_types(dashboard_client, monkeypatch, tmp_path):
+    _install_dashboard_filter_skill_root(monkeypatch, tmp_path)
+    monkeypatch.setattr(dashboard_api, "FEISHU_APP_ID", BOT_ID_AMAZON_REPLENISH)
+
+    response = dashboard_client.get("/api/skills")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    assert {item["name"] for item in payload["items"]} == {
+        "dashboard-default-skill",
+        "dashboard-replenish-skill",
+    }
+    assert {item["type"] for item in payload["items"]} == {
+        SKILL_TYPE_DEFAULT,
+        SKILL_TYPE_AMAZON_REPLENISH,
+    }
+    assert all(item["enabled"] is True for item in payload["items"])
+
+
+def test_skills_endpoint_allows_all_for_claw_agent(dashboard_client, monkeypatch, tmp_path):
+    _install_dashboard_filter_skill_root(monkeypatch, tmp_path)
+    monkeypatch.setattr(dashboard_api, "FEISHU_APP_ID", BOT_ID_LXE_CLAW)
+
+    response = dashboard_client.get("/api/skills")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 3
+    assert {item["name"] for item in payload["items"]} == {
+        "dashboard-default-skill",
+        "dashboard-fba-skill",
+        "dashboard-replenish-skill",
+    }
+    assert all(item["enabled"] is True for item in payload["items"])
+
+
+def test_skills_endpoint_returns_empty_for_unknown_agent(dashboard_client, monkeypatch, tmp_path):
+    _install_dashboard_filter_skill_root(monkeypatch, tmp_path)
+    monkeypatch.setattr(dashboard_api, "FEISHU_APP_ID", "cli_unknown")
+
+    response = dashboard_client.get("/api/skills")
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "total": 0}
+
+
 def test_skill_content_endpoint_returns_skill_body(dashboard_client, monkeypatch, tmp_path):
     skill = _install_dashboard_test_skill_root(monkeypatch, tmp_path)
 
@@ -734,6 +840,29 @@ def test_skill_reference_endpoint_returns_declared_reference(dashboard_client, m
     assert payload["description"] == "Example reference"
     assert payload["content"] == skill["reference_text"]
     assert payload["location"].endswith("dashboard-test-skill/references/example.md")
+
+
+def test_skill_detail_endpoints_filter_unsupported_skills(dashboard_client, monkeypatch, tmp_path):
+    _install_dashboard_filter_skill_root(monkeypatch, tmp_path)
+    monkeypatch.setattr(dashboard_api, "FEISHU_APP_ID", BOT_ID_LXE_FBA_AGENT)
+
+    supported_content = dashboard_client.get("/api/skills/dashboard-fba-skill/content")
+    supported_reference = dashboard_client.get(
+        "/api/skills/dashboard-fba-skill/references/references/example.md"
+    )
+    unsupported_content = dashboard_client.get("/api/skills/dashboard-replenish-skill/content")
+    unsupported_reference = dashboard_client.get(
+        "/api/skills/dashboard-replenish-skill/references/references/example.md"
+    )
+
+    assert supported_content.status_code == 200
+    assert supported_content.json()["name"] == "dashboard-fba-skill"
+    assert supported_reference.status_code == 200
+    assert supported_reference.json()["skill_name"] == "dashboard-fba-skill"
+    assert unsupported_content.status_code == 404
+    assert unsupported_content.json()["detail"] == "skill not found"
+    assert unsupported_reference.status_code == 404
+    assert unsupported_reference.json()["detail"] == "skill not found"
 
 
 def test_skill_reference_endpoint_rejects_undeclared_or_escaped_paths(dashboard_client, monkeypatch, tmp_path):

@@ -6,8 +6,8 @@ import sys
 from typing import Any
 
 from services.agent_cli._shared.json_output import configure_utf8_stdio
-from services.mabang.amazon.fba.amazon_inventory import (
-    build_amazon_inventory_snapshot,
+from services.mabang.amazon.fba.amazon_fba_inventory import (
+    build_amazon_fba_inventory_snapshot,
     normalize_store_name,
 )
 
@@ -29,7 +29,7 @@ def _exception_text(exc: Exception) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.build_amazon_inventory_snapshot"
+        prog="python -m services.agent_cli.mabang.build_amazon_fba_inventory_snapshot"
     )
     parser.add_argument("--store-name", default="")
     parser.add_argument("--csv", default="")
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         output_dir = str(getattr(args, "output_dir", "") or "").strip() or None
         msku_xlsx = str(getattr(args, "msku_xlsx", "") or "").strip() or None
         msku_dir = str(getattr(args, "msku_dir", "") or "").strip() or None
-        result = build_amazon_inventory_snapshot(
+        result = build_amazon_fba_inventory_snapshot(
             csv_path,
             store_name=store_name,
             output_dir=output_dir,

@@ -12,13 +12,12 @@ type: amazon_replenish
 
 ## Hard Rules
 
-- 只使用固定 CLI：`uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" [--template "<模板名>"]`
-- 不要手动读取、合并或改写报表生成逻辑；报表匹配、计算和写出都由 CLI 完成。
-- 不要自动下载店铺 MSKU 数据。
-- 不要自动生成销量分析报告或真实库存报告；如果 CLI 提示缺少同源报表，告诉用户先运行对应 skill。
+- 默认计算命令：`uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" [--template "<模板名>"]`
+- 本 skill 只负责调用计算 CLI；报表匹配、计算和写出都由 CLI 完成。
+- 销量分析报告和真实库存报告是必需输入；如果 CLI 提示缺少同源报表，路由到对应 skill。
 - CLI 会自动查找与备货数据同日的未关联货件快照。
-- 用户明确要求使用 Amazon 后台库存对比时，先用 `replenishment-amazon-inventory-snapshot` 生成 snapshot，再把路径传给计算 CLI。
-- 不要自动下载未关联货件；如果 CLI 返回未关联快照提醒，提示用户先运行 `replenishment-unlinked-shipment-download` 后重算。
+- 亚马逊补充库存 snapshot 是可选增强；只有用户明确要求使用亚马逊侧 FBA 库存扣减时，先用 `replenishment-amazon-restock-inventory-snapshot` 生成 snapshot，再把路径传给计算 CLI。
+- 如果 CLI 返回未关联快照提醒，路由到 `replenishment-unlinked-shipment-download` 后重算。
 - 如果用户给的是模糊店铺名，先运行 `replenishment-store-resolve`，用解析成功返回的规范 `store_name` 再计算。
 - 只读取 CLI 输出的最后一行 JSON。
 - CLI 失败时只转述最后一行 JSON 里的 `exception` 原文。
@@ -43,10 +42,10 @@ uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_repleni
 uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" --template "<模板名>"
 ```
 
-如果用户明确要求使用 Amazon 后台库存对比字段：
+如果用户明确要求使用亚马逊补充库存扣减字段：
 
 ```powershell
-uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" --amazon-inventory-snapshot "<Amazon后台库存snapshot.xlsx>"
+uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" --amazon-restock-inventory-snapshot "<亚马逊补充库存snapshot.xlsx>"
 ```
 
 成功时：
@@ -67,7 +66,7 @@ uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_repleni
   "sample_insufficient_count": 15,
   "report_xlsx_path": "artifacts/mabang_store_msku_replenishment/202605251530-Amazon-Lerxiuer-FR_备货建议.xlsx",
   "unlinked_shipments_snapshot_path": "artifacts/mabang_fba_unlinked_shipments_snapshots/202605251735-Amazon-Lerxiuer-FR_未关联货件快照.xlsx",
-  "amazon_inventory_snapshot_path": "artifacts/amazon_fba_inventory_snapshots/202605251735-Amazon-Lerxiuer-FR_亚马逊后台库存快照.xlsx",
+  "amazon_restock_inventory_snapshot_path": "artifacts/amazon_restock_inventory_snapshots/202605251735-Amazon-Lerxiuer-FR_亚马逊补充库存快照.xlsx",
   "source": "mabang_store_msku_replenishment"
 }
 ```
@@ -84,14 +83,10 @@ uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_repleni
 
 ## Input Requirements
 
-- 销量分析报告来自 `artifacts/mabang_store_msku_analysis/`，文件名形如 `<source_data_time>-<store_name>_销量分析.xlsx`。
-- 真实库存报告来自 `artifacts/mabang_store_msku_inventory/`，文件名形如 `<source_data_time>-<store_name>_真实库存.xlsx`。
-- 两个输入报表必须有相同的 `source_data_time`，避免混用不同时间的数据。
-- 未关联货件快照来自 `artifacts/mabang_fba_unlinked_shipments_snapshots/`，文件名形如 `<snapshot_time>-<store_name>_未关联货件快照.xlsx`。
-- CLI 只会使用 `snapshot_time[:8] == source_data_time[:8]` 的同日快照；同日多个快照时自动使用时间最新的一个。
-- Amazon 后台库存 snapshot 来自 `artifacts/amazon_fba_inventory_snapshots/`，必须手动通过参数传入；`快照日期` 允许和 `source_data_time[:8]` 同日或相邻 `1` 个自然日，用于兼容美国站和本地日期跨时区。
-- 销量分析读取 `MSKU明细` 中的 `销量趋势` 和 `单品重量(g)(cm)`。
-- 真实库存读取 `真实库存-组合sku` 和 `真实库存-库存sku`。
+- 必需：同一 `source_data_time` 的销量分析报告和真实库存报告。
+- 自动增强：同日未关联货件快照；找不到时 CLI 仍会生成备货建议，但结果里会返回提醒。
+- 手动增强：亚马逊补充库存 snapshot；需要用户明确提供路径，日期允许和备货数据同日或相邻 `1` 个自然日。
+- 模板可选：不传 `--template` 时使用 `默认模板`。
 
 ## Result Handling
 
@@ -100,13 +95,7 @@ uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_repleni
 - 同时说明使用的 `template_name` 和 `template_version`。
 - 如果返回 `unlinked_shipments_snapshot_path`，说明本次已自动扣减同日未关联货件，并列出该路径。
 - 如果返回 `unlinked_shipments_snapshot_warning`，必须转述提醒，并建议先运行未关联货件下载 skill 后重算。
-- 如果返回 `amazon_inventory_snapshot_path`，说明本次已加入 Amazon 后台库存对比字段，并列出该路径和 `amazon_inventory_validation` 摘要。
+- 如果返回 `amazon_restock_inventory_snapshot_path`，说明本次已加入亚马逊补充库存扣减字段，并列出该路径和 `amazon_restock_inventory_validation` 摘要。
 - 结果文件固定包含 8 个 sheet：`空运（急发）`、`空运`、`海运`、`真实库存不足`、`清货`、`暂不建议发货`、`链接备货汇总`、`样本不足`。
-- `链接备货汇总` 按 `父ASIN` 聚合，并按 `总补货量` 降序；样本不足行也会进入汇总展示，但不计入总补货量。
-- `链接备货汇总` 的 `商品链接` 会从组内首个可解析原始链接提取 URL 前缀，再拼接 `父ASIN`，例如 `http://www.amazon.com/gp/product/` + `B0PARENTXX`。
-- `链接备货汇总` 最后一列是 `链接真实本地库存汇总`，按 `父ASIN` 汇总各 MSKU 的真实本地库存数量。
-- 明细 sheet 使用已有的 `真实库存数量`，不重复追加同义库存列。
-- 传入 Amazon 后台库存 snapshot 时，明细 sheet 增加 `FBA 总库存（亚马逊后台数据）` 和 `补货量（减去 FBA 总库存[亚马逊后台数据]和未关联货件）`。
-- 明细 sheet 包含 `补货天数`、`补货量`、`海运天数`、`海运建议量`、`预计总重量kg` 和 `决策原因`。
-- 明细 sheet 还包含 `模板名称` 和 `命中规则`，用于追溯每个 MSKU 使用的参数规则。
+- 传入亚马逊补充库存 snapshot 时，提醒用户结果里会额外展示亚马逊补充库存扣减字段。
 - `success=false`：只转述 `exception`，不要猜测本地文件路径或自动补跑前置 skill。

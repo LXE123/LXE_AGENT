@@ -284,20 +284,31 @@ def _session_detail(session_id: str, *, message_limit: int = 25, message_page: i
     }
 
 
+def _current_allowed_skill_types() -> set[str]:
+    current_bot_id = str(FEISHU_APP_ID or "").strip()
+    return allowed_skill_types_for_bot(current_bot_id)
+
+
+def _is_skill_allowed_for_current_agent(manifest) -> bool:
+    allowed_types = _current_allowed_skill_types()
+    if not allowed_types:
+        return False
+    allow_all = ALL in allowed_types
+    return allow_all or str(manifest.type or "").strip() in allowed_types
+
+
 def _skills_payload() -> list[dict[str, Any]]:
     index = load_skill_index()
-    current_bot_id = str(FEISHU_APP_ID or "").strip()
-    allowed_types = allowed_skill_types_for_bot(current_bot_id)
-    allow_all = ALL in allowed_types
     items = []
     for manifest in sorted(index.all(), key=lambda item: item.name.casefold()):
-        enabled = allow_all or str(manifest.type or "").strip() in allowed_types
+        if not _is_skill_allowed_for_current_agent(manifest):
+            continue
         items.append(
             {
                 "name": manifest.name,
                 "type": manifest.type,
                 "description": manifest.description,
-                "enabled": bool(enabled),
+                "enabled": True,
                 "location": str(manifest.body_path.resolve()),
                 "references": [
                     {
@@ -330,7 +341,7 @@ def _skill_metadata_payload(manifest) -> dict[str, Any]:
 
 def _skill_manifest_or_404(skill_name: str):
     manifest = load_skill_index().get(skill_name)
-    if manifest is None:
+    if manifest is None or not _is_skill_allowed_for_current_agent(manifest):
         raise HTTPException(status_code=404, detail="skill not found")
     return manifest
 
