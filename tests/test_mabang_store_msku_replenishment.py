@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from services.mabang.amazon.fba import amazon_inventory as amazon_inv
+from services.mabang.amazon.fba import amazon_fba_inventory as amazon_inv
+from services.mabang.amazon.fba import amazon_restock_inventory as restock_inv
 from services.mabang.amazon.fba import store_msku_replenishment as repl
 from services.mabang.amazon.fba import replenishment_template as tmpl
 
@@ -273,7 +274,7 @@ def _write_sales_report(path: Path) -> Path:
     return _write_workbook(path, {"MSKU明细": (headers, rows)})
 
 
-def _write_amazon_inventory_snapshot(
+def _write_amazon_fba_inventory_snapshot(
     path: Path,
     *,
     snapshot_date: str = "20260525",
@@ -294,6 +295,39 @@ def _write_amazon_inventory_snapshot(
                 ["字段", "值"],
                 [
                     {"字段": "marketplace", "值": "US"},
+                    {"字段": "mabang_site", "值": "美国站"},
+                    {"字段": "amazon_sku_count", "值": 10},
+                    {"字段": "matched_amazon_sku_count", "值": 8},
+                    {"字段": "amazon_sku_match_ratio", "值": 0.8},
+                    {"字段": "top_inventory_sku_count", "值": 10},
+                    {"字段": "top_inventory_matched_count", "值": 8},
+                ],
+            ),
+        },
+    )
+
+
+def _write_amazon_restock_inventory_snapshot(
+    path: Path,
+    *,
+    snapshot_date: str = "20260525",
+    rows: list[dict] | None = None,
+) -> Path:
+    summary_rows = rows or [
+        {"店铺": "Amazon-Test", "MSKU": "AIR-1", "快照日期": snapshot_date, restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN: 330},
+        {"店铺": "Amazon-Test", "MSKU": "SEA-1", "快照日期": snapshot_date, restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN: 510},
+    ]
+    return _write_workbook(
+        path,
+        {
+            restock_inv.SUMMARY_SHEET: (
+                ["店铺", "MSKU", "快照日期", restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN],
+                summary_rows,
+            ),
+            restock_inv.VALIDATION_SHEET: (
+                ["字段", "值"],
+                [
+                    {"字段": "country", "值": "US"},
                     {"字段": "mabang_site", "值": "美国站"},
                     {"字段": "amazon_sku_count", "值": 10},
                     {"字段": "matched_amazon_sku_count", "值": 8},
@@ -479,7 +513,8 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert _headers(report_path, "空运") == list(repl.AIR_DETAIL_COLUMNS)
     for sheet_name in ["空运（急发）", "空运", "海运", "真实库存不足", "清货", "暂不建议发货", "样本不足"]:
         headers = _headers(report_path, sheet_name)
-        assert headers.index(amazon_inv.AMAZON_FBA_TOTAL_COLUMN) == headers.index(repl.MABANG_FBA_TOTAL_COLUMN) + 1
+        assert headers.index(restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN) == headers.index(repl.MABANG_FBA_TOTAL_COLUMN) + 1
+        assert headers.index(amazon_inv.AMAZON_FBA_TOTAL_COLUMN) == headers.index(restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN) + 1
         assert "销量趋势速率" in headers
         assert "销量趋势" not in headers
     for sheet_name in _sheet_names(report_path):
@@ -594,14 +629,14 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert summary_rows[-1]["涉及运输方式"] == "样本不足"
 
 
-def test_amazon_inventory_snapshot_adds_comparison_fields_without_changing_execution(tmp_path) -> None:
+def test_amazon_fba_inventory_snapshot_adds_comparison_fields_without_changing_execution(tmp_path) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     snapshot_dir = tmp_path / "unlinked"
     sales_path = _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
     inventory_path = _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
-    amazon_snapshot_path = _write_amazon_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx")
+    amazon_snapshot_path = _write_amazon_fba_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx")
 
     result = repl.calculate_store_msku_replenishment(
         "Amazon-Test",
@@ -609,14 +644,14 @@ def test_amazon_inventory_snapshot_adds_comparison_fields_without_changing_execu
         actual_inventory_dir=inventory_dir,
         output_dir=output_dir,
         unlinked_shipments_snapshot_dir=snapshot_dir,
-        amazon_inventory_snapshot_path=amazon_snapshot_path,
+        amazon_fba_inventory_snapshot_path=amazon_snapshot_path,
     )
 
     payload = result.to_payload()
     assert payload["sales_analysis_xlsx_path"] == str(sales_path)
     assert payload["actual_inventory_xlsx_path"] == str(inventory_path)
-    assert payload["amazon_inventory_snapshot_path"] == str(amazon_snapshot_path)
-    assert payload["amazon_inventory_validation"] == {
+    assert payload["amazon_fba_inventory_snapshot_path"] == str(amazon_snapshot_path)
+    assert payload["amazon_fba_inventory_validation"] == {
         "marketplace": "US",
         "mabang_site": "美国站",
         "amazon_sku_count": 10,
@@ -644,62 +679,153 @@ def test_amazon_inventory_snapshot_adds_comparison_fields_without_changing_execu
     assert urgent_rows[0]["MSKU"] == "URGENT-1"
     assert urgent_rows[0][amazon_inv.AMAZON_FBA_TOTAL_COLUMN] in (None, "")
     assert urgent_rows[0][repl.AMAZON_DEDUCTED_REPLENISH_COLUMN] in (None, "")
-    assert "未匹配 Amazon 后台库存" in urgent_rows[0]["决策原因"]
+    assert "未匹配亚马逊物流库存" in urgent_rows[0]["决策原因"]
 
 
-@pytest.mark.parametrize("snapshot_date", ["20260524", "20260525", "20260526"])
-def test_amazon_inventory_snapshot_allows_same_or_adjacent_day(tmp_path, snapshot_date: str) -> None:
+def test_amazon_restock_inventory_snapshot_adds_comparison_fields_without_changing_execution(tmp_path) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
-    _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
-    amazon_snapshot_path = _write_amazon_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx", snapshot_date=snapshot_date)
+    snapshot_dir = tmp_path / "unlinked"
+    sales_path = _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
+    inventory_path = _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    amazon_snapshot_path = _write_amazon_restock_inventory_snapshot(tmp_path / "restock_snapshot.xlsx")
 
     result = repl.calculate_store_msku_replenishment(
         "Amazon-Test",
         sales_analysis_dir=sales_dir,
         actual_inventory_dir=inventory_dir,
         output_dir=output_dir,
-        amazon_inventory_snapshot_path=amazon_snapshot_path,
+        unlinked_shipments_snapshot_dir=snapshot_dir,
+        amazon_restock_inventory_snapshot_path=amazon_snapshot_path,
     )
 
-    assert result.amazon_inventory_snapshot_path == str(amazon_snapshot_path)
+    payload = result.to_payload()
+    assert payload["sales_analysis_xlsx_path"] == str(sales_path)
+    assert payload["actual_inventory_xlsx_path"] == str(inventory_path)
+    assert payload["amazon_restock_inventory_snapshot_path"] == str(amazon_snapshot_path)
+    assert payload["amazon_restock_inventory_validation"] == {
+        "country": "US",
+        "mabang_site": "美国站",
+        "amazon_sku_count": 10,
+        "matched_amazon_sku_count": 8,
+        "amazon_sku_match_ratio": 0.8,
+        "top_inventory_sku_count": 10,
+        "top_inventory_matched_count": 8,
+    }
+
+    report_path = Path(result.report_xlsx_path)
+    air_rows = _load_records(report_path, "空运")
+    assert air_rows[0]["MSKU"] == "AIR-1"
+    assert air_rows[0]["补货量"] == 360
+    assert air_rows[0]["补货量（减去 FBA 总库存和未关联货件）"] == 60
+    assert air_rows[0][restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN] == 330
+    assert air_rows[0][repl.AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN] == 30
+
+    sea_rows = _load_records(report_path, "海运")
+    assert sea_rows[0]["MSKU"] == "SEA-1"
+    assert sea_rows[0]["补货量（减去 FBA 总库存和未关联货件）"] == 60
+    assert sea_rows[0][restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN] == 510
+    assert sea_rows[0][repl.AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN] == 30
+
+    urgent_rows = _load_records(report_path, "空运（急发）")
+    assert urgent_rows[0]["MSKU"] == "URGENT-1"
+    assert urgent_rows[0][restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN] in (None, "")
+    assert urgent_rows[0][repl.AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN] in (None, "")
+    assert "未匹配亚马逊补充库存" in urgent_rows[0]["决策原因"]
 
 
-def test_amazon_inventory_snapshot_rejects_date_more_than_one_day_apart(tmp_path) -> None:
+@pytest.mark.parametrize("snapshot_date", ["20260524", "20260525", "20260526"])
+def test_amazon_restock_inventory_snapshot_allows_same_or_adjacent_day(tmp_path, snapshot_date: str) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
     _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
-    amazon_snapshot_path = _write_amazon_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx", snapshot_date="20260527")
+    amazon_snapshot_path = _write_amazon_restock_inventory_snapshot(tmp_path / "restock_snapshot.xlsx", snapshot_date=snapshot_date)
 
-    with pytest.raises(repl.StoreMskuReplenishmentError, match="Amazon 后台库存快照日期与备货数据日期相差超过1天"):
+    result = repl.calculate_store_msku_replenishment(
+        "Amazon-Test",
+        sales_analysis_dir=sales_dir,
+        actual_inventory_dir=inventory_dir,
+        output_dir=output_dir,
+        amazon_restock_inventory_snapshot_path=amazon_snapshot_path,
+    )
+
+    assert result.amazon_restock_inventory_snapshot_path == str(amazon_snapshot_path)
+
+
+def test_amazon_restock_inventory_snapshot_rejects_date_more_than_one_day_apart(tmp_path) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    output_dir = tmp_path / "output"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    amazon_snapshot_path = _write_amazon_restock_inventory_snapshot(tmp_path / "restock_snapshot.xlsx", snapshot_date="20260527")
+
+    with pytest.raises(repl.StoreMskuReplenishmentError, match="相差超过1天"):
         repl.calculate_store_msku_replenishment(
             "Amazon-Test",
             sales_analysis_dir=sales_dir,
             actual_inventory_dir=inventory_dir,
             output_dir=output_dir,
-            amazon_inventory_snapshot_path=amazon_snapshot_path,
+            amazon_restock_inventory_snapshot_path=amazon_snapshot_path,
         )
 
 
-def test_amazon_inventory_snapshot_rejects_invalid_date_format(tmp_path) -> None:
+@pytest.mark.parametrize("snapshot_date", ["20260524", "20260525", "20260526"])
+def test_amazon_fba_inventory_snapshot_allows_same_or_adjacent_day(tmp_path, snapshot_date: str) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
     _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
-    amazon_snapshot_path = _write_amazon_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx", snapshot_date="2026-05-25")
+    amazon_snapshot_path = _write_amazon_fba_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx", snapshot_date=snapshot_date)
 
-    with pytest.raises(repl.StoreMskuReplenishmentError, match="Amazon 后台库存快照日期格式无效"):
+    result = repl.calculate_store_msku_replenishment(
+        "Amazon-Test",
+        sales_analysis_dir=sales_dir,
+        actual_inventory_dir=inventory_dir,
+        output_dir=output_dir,
+        amazon_fba_inventory_snapshot_path=amazon_snapshot_path,
+    )
+
+    assert result.amazon_fba_inventory_snapshot_path == str(amazon_snapshot_path)
+
+
+def test_amazon_fba_inventory_snapshot_rejects_date_more_than_one_day_apart(tmp_path) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    output_dir = tmp_path / "output"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    amazon_snapshot_path = _write_amazon_fba_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx", snapshot_date="20260527")
+
+    with pytest.raises(repl.StoreMskuReplenishmentError, match="亚马逊物流库存快照日期与备货数据日期相差超过1天"):
         repl.calculate_store_msku_replenishment(
             "Amazon-Test",
             sales_analysis_dir=sales_dir,
             actual_inventory_dir=inventory_dir,
             output_dir=output_dir,
-            amazon_inventory_snapshot_path=amazon_snapshot_path,
+            amazon_fba_inventory_snapshot_path=amazon_snapshot_path,
+        )
+
+
+def test_amazon_fba_inventory_snapshot_rejects_invalid_date_format(tmp_path) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    output_dir = tmp_path / "output"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    amazon_snapshot_path = _write_amazon_fba_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx", snapshot_date="2026-05-25")
+
+    with pytest.raises(repl.StoreMskuReplenishmentError, match="亚马逊物流库存快照日期格式无效"):
+        repl.calculate_store_msku_replenishment(
+            "Amazon-Test",
+            sales_analysis_dir=sales_dir,
+            actual_inventory_dir=inventory_dir,
+            output_dir=output_dir,
+            amazon_fba_inventory_snapshot_path=amazon_snapshot_path,
         )
 
 

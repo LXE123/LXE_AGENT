@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 
 from agent_runtime.skill_index import load_skill_index
-from services.agent_cli.mabang import build_amazon_inventory_snapshot as cli
-from services.mabang.amazon.fba.amazon_inventory import (
-    AmazonInventorySnapshotResult,
-    AmazonInventoryValidationSummary,
+from services.agent_cli.mabang import build_amazon_restock_inventory_snapshot as cli
+from services.mabang.amazon.fba.amazon_restock_inventory import (
+    AmazonRestockInventorySnapshotResult,
+    AmazonRestockInventoryValidationSummary,
 )
 
 
@@ -16,19 +16,19 @@ def _read_payload(capsys) -> dict:
     return json.loads(output[-1])
 
 
-def _result(snapshot_path: str) -> AmazonInventorySnapshotResult:
-    return AmazonInventorySnapshotResult(
+def _result(snapshot_path: str) -> AmazonRestockInventorySnapshotResult:
+    return AmazonRestockInventorySnapshotResult(
         store_name="Amazon-Test-US",
-        snapshot_time="202606161530",
-        snapshot_date="20260616",
+        snapshot_time="202606211530",
+        snapshot_date="20260621",
         snapshot_xlsx_path=snapshot_path,
-        source_csv_path="amazon.csv",
+        source_csv_path="restock.csv",
         source_msku_xlsx_path="msku.xlsx",
         row_count=10,
         msku_count=10,
-        total_amazon_fba_inventory=100,
-        validation=AmazonInventoryValidationSummary(
-            marketplace="US",
+        total_amazon_restock_inventory=100,
+        validation=AmazonRestockInventoryValidationSummary(
+            country="US",
             mabang_site="美国站",
             amazon_sku_count=10,
             matched_amazon_sku_count=8,
@@ -64,10 +64,10 @@ def test_missing_csv_returns_failure_json(capsys) -> None:
 
 
 def test_success_returns_snapshot_payload(monkeypatch, capsys, tmp_path) -> None:
-    csv_path = tmp_path / "amazon.csv"
+    csv_path = tmp_path / "restock.csv"
     msku_path = tmp_path / "msku.xlsx"
 
-    def fake_build_amazon_inventory_snapshot(
+    def fake_build_amazon_restock_inventory_snapshot(
         csv_path_arg,
         *,
         store_name,
@@ -82,7 +82,7 @@ def test_success_returns_snapshot_payload(monkeypatch, capsys, tmp_path) -> None
         assert msku_dir is None
         return _result(str(tmp_path / "snapshot.xlsx"))
 
-    monkeypatch.setattr(cli, "build_amazon_inventory_snapshot", fake_build_amazon_inventory_snapshot)
+    monkeypatch.setattr(cli, "build_amazon_restock_inventory_snapshot", fake_build_amazon_restock_inventory_snapshot)
 
     exit_code = cli.main(
         [
@@ -100,17 +100,17 @@ def test_success_returns_snapshot_payload(monkeypatch, capsys, tmp_path) -> None
     payload = _read_payload(capsys)
     assert exit_code == 0
     assert payload["snapshot_xlsx_path"] == str(tmp_path / "snapshot.xlsx")
-    assert payload["amazon_inventory_validation"]["top_inventory_matched_count"] == 8
-    assert payload["source"] == "amazon_fba_inventory_snapshot"
+    assert payload["amazon_restock_inventory_validation"]["top_inventory_matched_count"] == 8
+    assert payload["source"] == "amazon_restock_inventory_snapshot"
 
 
 def test_build_error_returns_failure_json(monkeypatch, capsys) -> None:
-    def fake_build_amazon_inventory_snapshot(*args, **kwargs):
+    def fake_build_amazon_restock_inventory_snapshot(*args, **kwargs):
         raise RuntimeError("build failed")
 
-    monkeypatch.setattr(cli, "build_amazon_inventory_snapshot", fake_build_amazon_inventory_snapshot)
+    monkeypatch.setattr(cli, "build_amazon_restock_inventory_snapshot", fake_build_amazon_restock_inventory_snapshot)
 
-    exit_code = cli.main(["--store-name", "Amazon-Test-US", "--csv", "amazon.csv"])
+    exit_code = cli.main(["--store-name", "Amazon-Test-US", "--csv", "restock.csv"])
 
     payload = _read_payload(capsys)
     assert exit_code == 1
@@ -121,15 +121,23 @@ def test_build_error_returns_failure_json(monkeypatch, capsys) -> None:
     }
 
 
-def test_skill_index_loads_replenishment_amazon_inventory_snapshot() -> None:
-    manifest = load_skill_index(force_reload=True).get("replenishment-amazon-inventory-snapshot")
+def test_skill_index_loads_replenishment_amazon_restock_inventory_snapshot() -> None:
+    index = load_skill_index(force_reload=True)
+    manifest = index.get("replenishment-amazon-restock-inventory-snapshot")
 
     assert manifest is not None
-    assert manifest.name == "replenishment-amazon-inventory-snapshot"
+    assert manifest.name == "replenishment-amazon-restock-inventory-snapshot"
     assert manifest.type == "amazon_replenish"
     text = manifest.body_path.read_text(encoding="utf-8")
     assert "send_file" in text
     assert "不要读取、不要解析、不要复述截图内容" in text
-    assert "skills/replenishment-amazon-inventory-snapshot/assets/amazon_inventory_download_step_1_menu.jpg" in text
-    assert "skills/replenishment-amazon-inventory-snapshot/assets/amazon_inventory_download_step_2_report_menu.jpg" in text
-    assert "skills/replenishment-amazon-inventory-snapshot/assets/amazon_inventory_download_step_3_request_csv.jpg" in text
+    assert "services.agent_cli.mabang.build_amazon_restock_inventory_snapshot" in text
+    assert "skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg" in text
+    assert "skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_2_report_menu.jpg" in text
+    assert "skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_3_request_csv.jpg" in text
+
+
+def test_old_replenishment_amazon_fba_inventory_snapshot_skill_is_hidden() -> None:
+    manifest = load_skill_index(force_reload=True).get("replenishment-amazon-fba-inventory-snapshot")
+
+    assert manifest is None

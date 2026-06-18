@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from services.mabang.amazon.fba import amazon_inventory as inv
+from services.mabang.amazon.fba import amazon_fba_inventory as inv
 
 
 def _write_csv(path: Path, rows: list[dict]) -> Path:
@@ -70,14 +70,14 @@ def _write_mabang_msku(path: Path, mskus: list[str], *, site: str = "美国站",
     return path
 
 
-def test_build_amazon_inventory_snapshot_validates_and_writes_snapshot(tmp_path) -> None:
+def test_build_amazon_fba_inventory_snapshot_validates_and_writes_snapshot(tmp_path) -> None:
     csv_path = _write_csv(
         tmp_path / "amazon.csv",
         [_amazon_row(f"MSKU-{index}", 100 - index) for index in range(1, 11)],
     )
     msku_path = _write_mabang_msku(tmp_path / "msku.xlsx", [f"MSKU-{index}" for index in range(1, 9)])
 
-    result = inv.build_amazon_inventory_snapshot(
+    result = inv.build_amazon_fba_inventory_snapshot(
         csv_path,
         store_name="Amazon-Test-US",
         output_dir=tmp_path,
@@ -86,11 +86,11 @@ def test_build_amazon_inventory_snapshot_validates_and_writes_snapshot(tmp_path)
     )
 
     payload = result.to_payload()
-    assert payload["snapshot_xlsx_path"] == str(tmp_path / "202606161530-Amazon-Test-US_亚马逊后台库存快照.xlsx")
+    assert payload["snapshot_xlsx_path"] == str(tmp_path / "202606161530-Amazon-Test-US_亚马逊物流库存快照.xlsx")
     assert payload["snapshot_date"] == "20260616"
     assert payload["msku_count"] == 10
     assert payload["total_amazon_fba_inventory"] == 945
-    assert payload["amazon_inventory_validation"] == {
+    assert payload["amazon_fba_inventory_validation"] == {
         "marketplace": "US",
         "mabang_site": "美国站",
         "amazon_sku_count": 10,
@@ -100,7 +100,7 @@ def test_build_amazon_inventory_snapshot_validates_and_writes_snapshot(tmp_path)
         "top_inventory_matched_count": 8,
     }
 
-    snapshot = inv.load_amazon_inventory_snapshot(result.snapshot_xlsx_path, store_name="Amazon-Test-US")
+    snapshot = inv.load_amazon_fba_inventory_snapshot(result.snapshot_xlsx_path, store_name="Amazon-Test-US")
     assert snapshot.snapshot_date == "20260616"
     assert snapshot.quantities_by_msku["MSKU-1"] == 99
     assert snapshot.validation is not None
@@ -111,7 +111,7 @@ def test_marketplace_mismatch_passes_when_msku_match_is_strong(tmp_path) -> None
     csv_path = _write_csv(tmp_path / "amazon.csv", [_amazon_row(f"MSKU-{index}", 10, marketplace="UK") for index in range(1, 11)])
     msku_path = _write_mabang_msku(tmp_path / "msku.xlsx", [f"MSKU-{index}" for index in range(1, 11)])
 
-    result = inv.build_amazon_inventory_snapshot(
+    result = inv.build_amazon_fba_inventory_snapshot(
         csv_path,
         store_name="Amazon-Test-US",
         output_dir=tmp_path,
@@ -127,7 +127,7 @@ def test_europe_mabang_site_passes_with_specific_amazon_marketplace(tmp_path) ->
     csv_path = _write_csv(tmp_path / "amazon.csv", [_amazon_row(f"MSKU-{index}", 10, marketplace="DE") for index in range(1, 11)])
     msku_path = _write_mabang_msku(tmp_path / "msku.xlsx", [f"MSKU-{index}" for index in range(1, 11)], site="欧洲站")
 
-    result = inv.build_amazon_inventory_snapshot(
+    result = inv.build_amazon_fba_inventory_snapshot(
         csv_path,
         store_name="Amazon-Test-DE",
         output_dir=tmp_path,
@@ -147,7 +147,7 @@ def test_mabang_msku_site_column_is_optional(tmp_path) -> None:
         include_site=False,
     )
 
-    result = inv.build_amazon_inventory_snapshot(
+    result = inv.build_amazon_fba_inventory_snapshot(
         csv_path,
         store_name="Amazon-Test-DE",
         output_dir=tmp_path,
@@ -165,8 +165,8 @@ def test_low_amazon_sku_match_ratio_fails(tmp_path) -> None:
     )
     msku_path = _write_mabang_msku(tmp_path / "msku.xlsx", [f"MSKU-{index}" for index in range(1, 7)])
 
-    with pytest.raises(inv.AmazonInventorySnapshotError, match="sku_match_ratio=0.6000"):
-        inv.build_amazon_inventory_snapshot(
+    with pytest.raises(inv.AmazonFbaInventorySnapshotError, match="sku_match_ratio=0.6000"):
+        inv.build_amazon_fba_inventory_snapshot(
             csv_path,
             store_name="Amazon-Test-US",
             output_dir=tmp_path,
@@ -181,8 +181,8 @@ def test_low_top_inventory_sku_match_count_fails(tmp_path) -> None:
     matched_mskus = [f"HIGH-{index}" for index in range(1, 7)] + [f"LOW-{index}" for index in range(1, 9)]
     msku_path = _write_mabang_msku(tmp_path / "msku.xlsx", matched_mskus)
 
-    with pytest.raises(inv.AmazonInventorySnapshotError, match="top_inventory_matched_count=6"):
-        inv.build_amazon_inventory_snapshot(
+    with pytest.raises(inv.AmazonFbaInventorySnapshotError, match="top_inventory_matched_count=6"):
+        inv.build_amazon_fba_inventory_snapshot(
             csv_path,
             store_name="Amazon-Test-US",
             output_dir=tmp_path,
