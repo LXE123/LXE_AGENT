@@ -40,26 +40,39 @@ SOURCE = "mabang_replenishment_template"
 REPLENISHMENT_TEMPLATE_FILE_SUFFIX = "备货模板"
 
 TEMPLATE_INFO_SHEET = "模板信息"
-WEIGHTED_SALES_SHEET = "加权日销"
+WEIGHTED_SALES_SHEET = "日销计算"
 REPLENISHMENT_DAYS_SHEET = "补货天数"
-SHIPPING_SHEET = "运输方式"
-SEA_SHEET = "海运规则"
+SHIPPING_SHEET = "空运判断"
+SEA_ENTRY_SHEET = "海运进入条件"
+SEA_DAYS_SHEET = "海运补货天数"
+SEA_COMPANION_AIR_SHEET = "海运同时空运"
 SPECIAL_RULES_SHEET = "特殊MSKU规则"
 SHEET_NAMES = (
     TEMPLATE_INFO_SHEET,
     WEIGHTED_SALES_SHEET,
     REPLENISHMENT_DAYS_SHEET,
     SHIPPING_SHEET,
-    SEA_SHEET,
+    SEA_ENTRY_SHEET,
+    SEA_DAYS_SHEET,
+    SEA_COMPANION_AIR_SHEET,
     SPECIAL_RULES_SHEET,
 )
+OLD_TEMPLATE_SHEET_NAMES = ("加权日销", "运输方式", "海运规则", "海运备货天数")
+OLD_TEMPLATE_ERROR = "旧版模板xlsx不再支持，请重新导出新版模板后修改"
 
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
 FLOAT_TOLERANCE = 1e-9
+HEADER_FILL_COLOR = "FF1F4E78"
+EDITABLE_FILL_COLOR = "FFFFF2CC"
+READONLY_FILL_COLOR = "FFE7E6E6"
+WHITE_FONT_COLOR = "FFFFFFFF"
 
 TREND_KEYS = ("growth", "stable", "decline")
 MSKU_SPLIT_RE = re.compile(r"[\s,，;；、]+")
+RANGE_INTERVAL_RE = re.compile(r"^([\(\[])(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)([\]\)])$")
+RANGE_LOWER_RE = re.compile(r"^(>=|>)(-?\d+(?:\.\d+)?)$")
+RANGE_UPPER_RE = re.compile(r"^(<=|<)(-?\d+(?:\.\d+)?)$")
 TRUE_TEXTS = {"1", "true", "yes", "y", "on", "是", "启用", "开启", "开"}
 FALSE_TEXTS = {"0", "false", "no", "n", "off", "否", "禁用", "关闭", "关"}
 
@@ -92,6 +105,14 @@ class ReplenishmentTemplate:
             "description": self.description,
             "params": copy.deepcopy(self.params),
         }
+
+
+@dataclass(frozen=True)
+class DailySalesRange:
+    lower: float | None
+    upper: float | None
+    lower_inclusive: bool = False
+    is_fallback: bool = False
 
 
 @dataclass(frozen=True)
@@ -167,6 +188,102 @@ def _safe_file_part(value: Any) -> str:
     text = _clean_text(value)
     text = re.sub(r"[^A-Za-z0-9_.\-\u4e00-\u9fff]+", "_", text)
     return text.strip("._-") or "template"
+
+
+def _display_number_text(value: float | int | None) -> str:
+    if value is None:
+        return ""
+    number = float(value)
+    return str(int(number)) if number.is_integer() else f"{number:g}"
+
+
+def _normalize_range_text(value: Any) -> str:
+    return (
+        _clean_text(value)
+        .replace(" ", "")
+        .replace("，", ",")
+        .replace("（", "(")
+        .replace("）", ")")
+        .replace("【", "[")
+        .replace("】", "]")
+        .replace("＞", ">")
+        .replace("＜", "<")
+        .replace("≥", ">=")
+        .replace("≤", "<=")
+    )
+
+
+def _range_error(sheet_name: str, row_number: int, value: Any) -> ReplenishmentTemplateError:
+    return ReplenishmentTemplateError(
+        f"{sheet_name}第{row_number}行日销范围格式无效: {value}；"
+        "支持 >10、>=1、(5,10]、[1,5]、≤2、<=2、低销量兜底"
+    )
+
+
+def _parse_daily_sales_range(value: Any, *, sheet_name: str, row_number: int) -> DailySalesRange:
+    text = _normalize_range_text(value)
+    if text in {"低销量兜底", "兜底", "低销量"}:
+        return DailySalesRange(lower=None, upper=None, is_fallback=True)
+    if not text:
+        raise _range_error(sheet_name, row_number, value)
+
+    lower_match = RANGE_LOWER_RE.match(text)
+    if lower_match:
+        lower = _number(lower_match.group(2), default=None)
+        if lower is None:
+            raise _range_error(sheet_name, row_number, value)
+        return DailySalesRange(lower=lower, upper=None, lower_inclusive=lower_match.group(1) == ">=")
+
+    upper_match = RANGE_UPPER_RE.match(text)
+    if upper_match:
+        upper = _number(upper_match.group(2), default=None)
+        if upper is None:
+            raise _range_error(sheet_name, row_number, value)
+        return DailySalesRange(lower=None, upper=upper, is_fallback=True)
+
+    interval_match = RANGE_INTERVAL_RE.match(text)
+    if interval_match:
+        lower = _number(interval_match.group(2), default=None)
+        upper = _number(interval_match.group(3), default=None)
+        if lower is None or upper is None or lower >= upper:
+            raise _range_error(sheet_name, row_number, value)
+        return DailySalesRange(
+            lower=lower,
+            upper=upper,
+            lower_inclusive=interval_match.group(1) == "[",
+        )
+
+    raise _range_error(sheet_name, row_number, value)
+
+
+def _replenishment_range_label(current_gt: Any, previous_gt: float | None) -> str:
+    gt = _number(current_gt, default=None)
+    if gt is None:
+        return "低销量兜底"
+    if previous_gt is None:
+        return f">{_display_number_text(gt)}"
+    return f"({_display_number_text(gt)},{_display_number_text(previous_gt)}]"
+
+
+def _sea_range_label(item: dict[str, Any], params: dict[str, Any]) -> str:
+    gt = _number(item.get("daily_sales_gt"), default=None)
+    lte = _number(item.get("daily_sales_lte"), default=None)
+    inclusive_min = False
+    if gt is not None:
+        min_daily_sales = _number(params.get("sea", {}).get("min_daily_sales"), default=None)
+        inclusive_min = (
+            min_daily_sales is not None
+            and sea_min_daily_sales_inclusive_from_template(params)
+            and abs(float(gt) - float(min_daily_sales)) <= 0.0000001
+        )
+    if gt is None and lte is None:
+        return "全部"
+    if gt is None:
+        return f"≤{_display_number_text(lte)}"
+    if lte is None:
+        return f">={_display_number_text(gt)}" if inclusive_min else f">{_display_number_text(gt)}"
+    left = "[" if inclusive_min else "("
+    return f"{left}{_display_number_text(gt)},{_display_number_text(lte)}]"
 
 
 def _read_json(path: Path) -> Any:
@@ -294,7 +411,7 @@ def _next_custom_template_name(existing_names: set[str]) -> str:
 def list_parameter_groups() -> list[dict[str, Any]]:
     return [
         {
-            "group": "加权日销",
+            "group": "日销计算",
             "params": [
                 {"key": "weighted_sales.7d_weight", "name": "7天销量权重", "value_type": "number"},
                 {"key": "weighted_sales.14d_weight", "name": "14天销量权重", "value_type": "number"},
@@ -308,23 +425,33 @@ def list_parameter_groups() -> list[dict[str, Any]]:
             ],
         },
         {
-            "group": "运输方式",
+            "group": "空运判断",
             "params": [
                 {"key": "shipping.air_urgent_sales_days_lte", "name": "空运急发可销售天数阈值", "value_type": "number"},
                 {"key": "shipping.air_sales_days_lte", "name": "空运可销售天数阈值", "value_type": "number"},
             ],
         },
         {
-            "group": "海运规则",
+            "group": "海运进入条件",
             "params": [
                 {"key": "sea.enabled", "name": "是否启用海运", "value_type": "boolean"},
                 {"key": "sea.min_daily_sales", "name": "海运最低加权日销", "value_type": "number"},
                 {"key": "sea.min_daily_sales_inclusive", "name": "海运最低加权日销是否包含等于", "value_type": "boolean"},
                 {"key": "sea.min_weight_kg", "name": "海运最低总重量kg", "value_type": "number"},
-                {"key": "sea.tiers", "name": "海运日销分档和天数候选", "value_type": "matrix"},
+                {"key": "sea.min_net_quantity", "name": "海运建议量最小件数", "value_type": "number"},
+            ],
+        },
+        {
+            "group": "海运补货天数",
+            "params": [
+                {"key": "sea.tiers", "name": "海运日销分档和补货天数", "value_type": "matrix"},
+            ],
+        },
+        {
+            "group": "海运同时空运",
+            "params": [
                 {"key": "sea.companion_air_enabled", "name": "是否启用海运同时备空运", "value_type": "boolean"},
                 {"key": "sea.companion_air_tiers", "name": "海运同时空运日销分档和天数", "value_type": "matrix"},
-                {"key": "sea.min_net_quantity", "name": "海运建议量最小件数", "value_type": "number"},
             ],
         },
         {
@@ -469,11 +596,13 @@ def _validate_sea_tiers(tiers: list[Any], *, name: str) -> None:
             previous_lte = lte
         days_values = item.get("days")
         if not isinstance(days_values, list) or not days_values:
-            raise ReplenishmentTemplateError(f"{name}候选天数不能为空")
+            raise ReplenishmentTemplateError(f"{name}补货天数不能为空")
+        if len(days_values) != 1:
+            raise ReplenishmentTemplateError(f"{name}补货天数只能配置一个正整数")
         for day in days_values:
             parsed_day = _int_value(day, default=None)
             if parsed_day is None or parsed_day <= 0:
-                raise ReplenishmentTemplateError(f"{name}候选天数必须是正整数: {day}")
+                raise ReplenishmentTemplateError(f"{name}补货天数必须是正整数: {day}")
 
 
 def _days_for_trend(item: dict[str, Any], trend: str) -> int:
@@ -617,10 +746,103 @@ def _set_standard_dimensions(workbook: Any) -> None:
 
     for worksheet in workbook.worksheets:
         worksheet.sheet_format.defaultRowHeight = EXCEL_ROW_HEIGHT
+        worksheet.freeze_panes = "A2"
         for row_index in range(1, worksheet.max_row + 1):
             worksheet.row_dimensions[row_index].height = EXCEL_ROW_HEIGHT
         for column_index in range(1, worksheet.max_column + 1):
             worksheet.column_dimensions[get_column_letter(column_index)].width = EXCEL_COLUMN_WIDTH
+
+
+def _append_note_block(worksheet: Any, notes: list[str]) -> None:
+    if not notes:
+        return
+    worksheet.append([])
+    worksheet.append(["修改说明"])
+    for note in notes:
+        worksheet.append([note])
+
+
+def _style_template_workbook(workbook: Any) -> None:
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    header_fill = PatternFill("solid", fgColor=HEADER_FILL_COLOR)
+    editable_fill = PatternFill("solid", fgColor=EDITABLE_FILL_COLOR)
+    readonly_fill = PatternFill("solid", fgColor=READONLY_FILL_COLOR)
+    header_font = Font(color=WHITE_FONT_COLOR, bold=True)
+    center = Alignment(vertical="center")
+
+    def style_header(worksheet: Any, row_index: int = 1) -> None:
+        for cell in worksheet[row_index]:
+            if _clean_text(cell.value):
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = center
+
+    def style_columns(worksheet: Any, columns: tuple[int, ...], fill: Any, *, start_row: int = 2) -> None:
+        for row in worksheet.iter_rows(min_row=start_row, max_row=worksheet.max_row):
+            for column_index in columns:
+                if column_index <= len(row):
+                    row[column_index - 1].fill = fill
+                    row[column_index - 1].alignment = center
+
+    def style_note_blocks(worksheet: Any) -> None:
+        in_note_block = False
+        for row in worksheet.iter_rows(min_row=1, max_row=worksheet.max_row):
+            if _clean_text(row[0].value) == "修改说明":
+                in_note_block = True
+                row[0].font = Font(bold=True)
+            if in_note_block:
+                for cell in row[: worksheet.max_column]:
+                    cell.fill = readonly_fill
+                    cell.alignment = center
+
+    for worksheet in workbook.worksheets:
+        style_header(worksheet)
+
+    style_columns(workbook[TEMPLATE_INFO_SHEET], (1,), readonly_fill)
+    style_columns(workbook[TEMPLATE_INFO_SHEET], (2,), editable_fill)
+
+    style_columns(workbook[WEIGHTED_SALES_SHEET], (1, 3), readonly_fill)
+    style_columns(workbook[WEIGHTED_SALES_SHEET], (2,), editable_fill)
+
+    style_columns(workbook[REPLENISHMENT_DAYS_SHEET], (1,), readonly_fill)
+    style_columns(workbook[REPLENISHMENT_DAYS_SHEET], (2, 3, 4, 5), editable_fill)
+
+    style_columns(workbook[SHIPPING_SHEET], (1, 3), readonly_fill)
+    style_columns(workbook[SHIPPING_SHEET], (2,), editable_fill)
+
+    style_columns(workbook[SEA_ENTRY_SHEET], (1, 3), readonly_fill)
+    style_columns(workbook[SEA_ENTRY_SHEET], (2,), editable_fill)
+
+    style_columns(workbook[SEA_DAYS_SHEET], (1, 2), editable_fill)
+
+    companion = workbook[SEA_COMPANION_AIR_SHEET]
+    companion.freeze_panes = "A2"
+    style_columns(companion, (1,), readonly_fill, start_row=2)
+    style_columns(companion, (2,), editable_fill, start_row=2)
+    style_header(companion, row_index=4)
+    style_columns(companion, (1, 2), editable_fill, start_row=5)
+
+    style_columns(workbook[SPECIAL_RULES_SHEET], tuple(range(1, workbook[SPECIAL_RULES_SHEET].max_column + 1)), editable_fill)
+
+    column_widths = {
+        TEMPLATE_INFO_SHEET: {1: 18, 2: 34},
+        WEIGHTED_SALES_SHEET: {1: 22, 2: 14, 3: 34},
+        REPLENISHMENT_DAYS_SHEET: {1: 16, 2: 18, 3: 12, 4: 12, 5: 12},
+        SHIPPING_SHEET: {1: 24, 2: 14, 3: 38},
+        SEA_ENTRY_SHEET: {1: 28, 2: 14, 3: 46},
+        SEA_DAYS_SHEET: {1: 18, 2: 18},
+        SEA_COMPANION_AIR_SHEET: {1: 28, 2: 18},
+        SPECIAL_RULES_SHEET: {1: 18, 2: 28, 3: 14, 4: 14, 5: 14, 6: 16, 7: 14, 8: 16, 9: 18, 10: 24},
+    }
+    for sheet_name, widths in column_widths.items():
+        worksheet = workbook[sheet_name]
+        for column_index, width in widths.items():
+            worksheet.column_dimensions[get_column_letter(column_index)].width = width
+
+    for worksheet in workbook.worksheets:
+        style_note_blocks(worksheet)
 
 
 def export_template_xlsx(
@@ -646,76 +868,123 @@ def export_template_xlsx(
         info.append(["模板名称", template.name])
         info.append(["版本", template.version])
         info.append(["模板说明", template.description])
+        _append_note_block(
+            info,
+            [
+                "1. 模板名称和模板说明用于识别模板；导入时也可以通过 --name 指定正式模板名。",
+                "2. 版本用于系统记录模板替换次数，通常不需要手动修改。",
+            ],
+        )
 
         weighted = workbook.create_sheet(WEIGHTED_SALES_SHEET)
         weighted.append(["参数", "值", "说明"])
         weighted.append(["7天销量权重", params["weighted_sales"]["7d_weight"], "7天销量 / 7 的权重"])
         weighted.append(["14天销量权重", params["weighted_sales"]["14d_weight"], "14天销量 / 14 的权重"])
         weighted.append(["30天销量权重", params["weighted_sales"]["30d_weight"], "30天销量 / 30 的权重"])
+        _append_note_block(
+            weighted,
+            [
+                "1. 只修改“值”列；参数名和说明不作为算法输入。",
+                "2. 三个权重建议合计为 1，用于计算加权日销。",
+            ],
+        )
 
         replenishment = workbook.create_sheet(REPLENISHMENT_DAYS_SHEET)
-        replenishment.append(["日销层级", "日销大于", "增长", "平稳", "下降"])
+        replenishment.append(["日销层级", "日销范围", "增长", "平稳", "下降"])
+        previous_threshold: float | None = None
         for item in params["replenishment_days"]:
+            threshold = _number(item.get("daily_sales_gt"), default=None)
             replenishment.append([
                 item.get("label", ""),
-                "" if item.get("daily_sales_gt") is None else item.get("daily_sales_gt"),
+                _replenishment_range_label(threshold, previous_threshold),
                 item.get("growth", ""),
                 item.get("stable", ""),
                 item.get("decline", ""),
             ])
+            if threshold is not None:
+                previous_threshold = threshold
+        _append_note_block(
+            replenishment,
+            [
+                "1. 日销层级仅用于阅读，不影响计算。",
+                "2. 日销范围是权威输入，决定该行命中的日销分档；建议按从高到低填写。",
+                "3. 增长/平稳/下降是命中该分档后的理论补货天数。",
+                "4. 最后一行建议保留“低销量兜底”。",
+            ],
+        )
 
         shipping = workbook.create_sheet(SHIPPING_SHEET)
         shipping.append(["参数", "值", "说明"])
         shipping.append(["空运急发可销售天数<=", params["shipping"]["air_urgent_sales_days_lte"], "小于等于该值时进入空运（急发）"])
         shipping.append(["空运可销售天数<=", params["shipping"]["air_sales_days_lte"], "小于等于该值时进入空运"])
+        _append_note_block(
+            shipping,
+            [
+                "1. 只修改“值”列。",
+                "2. 可销售天数小于等于急发阈值进入空运（急发）。",
+                "3. 可销售天数大于急发阈值且小于等于空运阈值进入普通空运。",
+            ],
+        )
 
-        sea = workbook.create_sheet(SEA_SHEET)
-        sea.append(["项目", "日销大于", "日销小于等于", "候选天数", "值", "说明"])
-        sea.append(["是否启用海运", "", "", "", "是" if sea_enabled_from_template(params) else "否", "否表示超过空运阈值后不计算海运"])
-        sea.append(["海运最低日销", "", "", "", params["sea"]["min_daily_sales"], "加权日销小于等于该值不建议海运"])
-        sea.append([
+        sea_entry = workbook.create_sheet(SEA_ENTRY_SHEET)
+        sea_entry.append(["参数", "值", "说明"])
+        sea_entry.append(["是否启用海运", "是" if sea_enabled_from_template(params) else "否", "否表示超过空运阈值后不计算海运"])
+        sea_entry.append(["海运最低日销", params["sea"]["min_daily_sales"], "加权日销不满足该门槛时不建议海运"])
+        sea_entry.append([
             "海运最低日销是否包含等于",
-            "",
-            "",
-            "",
             "是" if sea_min_daily_sales_inclusive_from_template(params) else "否",
             "是表示加权日销等于最低日销时也可进入海运判断",
         ])
-        sea.append(["海运最低重量kg", "", "", "", params["sea"]["min_weight_kg"], "预计总重量大于该值才建议海运"])
-        sea.append([
-            "是否启用海运同时备空运",
-            "",
-            "",
-            "",
-            "是" if sea_companion_air_enabled_from_template(params) else "否",
-            "是表示命中海运后先扣除一段同时空运建议量",
-        ])
-        sea.append([
+        sea_entry.append(["海运最低重量kg", params["sea"]["min_weight_kg"], "扣减库存后的海运部分重量大于该值才建议海运"])
+        sea_entry.append([
             "海运建议量最小件数",
-            "",
-            "",
-            "",
             params["sea"].get("min_net_quantity", ""),
-            "海运目标量扣除同时空运建议量后，小于该值时不建议海运",
+            "扣减库存后的海运建议量小于该值时不建议海运",
         ])
+        _append_note_block(
+            sea_entry,
+            [
+                "1. 只修改“值”列。",
+                "2. 是否启用海运支持 是/否、true/false、1/0、启用/关闭。",
+                "3. 最低日销、最低重量和最小件数是进入海运的前置门槛。",
+            ],
+        )
+
+        sea_days = workbook.create_sheet(SEA_DAYS_SHEET)
+        sea_days.append(["日销范围", "海运补货天数"])
         for item in params["sea"]["tiers"]:
-            sea.append([
-                "海运分档",
-                "" if item.get("daily_sales_gt") is None else item.get("daily_sales_gt"),
-                "" if item.get("daily_sales_lte") is None else item.get("daily_sales_lte"),
+            sea_days.append([
+                _sea_range_label(item, params),
                 ",".join(str(day) for day in item.get("days", [])),
-                "",
-                "",
             ])
+        _append_note_block(
+            sea_days,
+            [
+                "1. 日销范围决定命中哪一档海运补货天数。",
+                "2. 海运补货天数是命中海运后的理论目标天数。",
+                "3. 海运补货天数只能填写一个正整数，不支持 100,110 这种多值写法。",
+                "4. 支持 >20、>=1、(5,20]、[1,5]、≤2、低销量兜底 等范围写法。",
+            ],
+        )
+
+        companion = workbook.create_sheet(SEA_COMPANION_AIR_SHEET)
+        companion.append(["项目", "值"])
+        companion.append(["是否启用海运同时备空运", "是" if sea_companion_air_enabled_from_template(params) else "否"])
+        companion.append([])
+        companion.append(["日销范围", "同时空运天数"])
         for item in params["sea"].get("companion_air_tiers", []):
-            sea.append([
-                "海运同时空运分档",
-                "" if item.get("daily_sales_gt") is None else item.get("daily_sales_gt"),
-                "" if item.get("daily_sales_lte") is None else item.get("daily_sales_lte"),
+            companion.append([
+                _sea_range_label(item, params),
                 ",".join(str(day) for day in item.get("days", [])),
-                "",
-                "",
             ])
+        _append_note_block(
+            companion,
+            [
+                "1. 开关值支持 是/否、true/false、1/0、启用/关闭。",
+                "2. 开启后，命中海运的 MSKU 会同时预留一段空运建议量。",
+                "3. 日销范围和同时空运天数共同决定同时空运部分的理论天数。",
+            ],
+        )
 
         special = workbook.create_sheet(SPECIAL_RULES_SHEET)
         special.append([
@@ -747,8 +1016,17 @@ def export_template_xlsx(
                 sea_overrides.get("min_weight_kg", ""),
                 rule.get("remark", ""),
             ])
+        _append_note_block(
+            special,
+            [
+                "1. 特殊MSKU规则用于给指定 MSKU 覆盖部分模板参数。",
+                "2. MSKU列表可用逗号、空格、顿号、分号分隔。",
+                "3. 留空的覆盖字段不会覆盖默认模板参数。",
+            ],
+        )
 
         _set_standard_dimensions(workbook)
+        _style_template_workbook(workbook)
         workbook.save(target_path)
     finally:
         workbook.close()
@@ -768,11 +1046,83 @@ def _sheet_records(xlsx_path: Path, sheet_name: str) -> list[dict[str, Any]]:
         worksheet = workbook[sheet_name]
         rows = worksheet.iter_rows(values_only=True)
         headers = [_clean_text(cell) for cell in list(next(rows, None) or [])]
-        return [
-            dict(zip(headers, list(values or []), strict=False))
-            for values in rows
-            if any(_clean_text(value) for value in values or [])
+        records: list[dict[str, Any]] = []
+        for values in rows:
+            row_values = list(values or [])
+            if _clean_text(row_values[0] if row_values else "") == "修改说明":
+                break
+            if any(_clean_text(value) for value in row_values):
+                records.append(dict(zip(headers, row_values, strict=False)))
+        return records
+    finally:
+        workbook.close()
+
+
+def _sea_companion_air_sheet_data(xlsx_path: Path) -> tuple[Any, list[dict[str, Any]]]:
+    try:
+        from openpyxl import load_workbook
+    except Exception as exc:
+        raise RuntimeError("缺少 openpyxl 依赖，无法读取模板xlsx") from exc
+
+    workbook = load_workbook(xlsx_path, read_only=True, data_only=True)
+    try:
+        if SEA_COMPANION_AIR_SHEET not in workbook.sheetnames:
+            raise ReplenishmentTemplateError(f"模板xlsx缺少sheet: {SEA_COMPANION_AIR_SHEET}")
+        worksheet = workbook[SEA_COMPANION_AIR_SHEET]
+        enabled_value = worksheet.cell(row=2, column=2).value
+        records: list[dict[str, Any]] = []
+        for row_index in range(5, worksheet.max_row + 1):
+            range_value = worksheet.cell(row=row_index, column=1).value
+            days_value = worksheet.cell(row=row_index, column=2).value
+            if _clean_text(range_value) == "修改说明":
+                break
+            if not _clean_text(range_value) and not _clean_text(days_value):
+                continue
+            records.append(
+                {
+                    "日销范围": range_value,
+                    "同时空运天数": days_value,
+                    "_row_number": row_index,
+                }
+            )
+        return enabled_value, records
+    finally:
+        workbook.close()
+
+
+def _ensure_new_template_xlsx(xlsx_path: Path) -> None:
+    try:
+        from openpyxl import load_workbook
+    except Exception as exc:
+        raise RuntimeError("缺少 openpyxl 依赖，无法读取模板xlsx") from exc
+
+    workbook = load_workbook(xlsx_path, read_only=True, data_only=True)
+    try:
+        sheet_names = set(workbook.sheetnames)
+        missing = [sheet_name for sheet_name in SHEET_NAMES if sheet_name not in sheet_names]
+        if missing:
+            if any(sheet_name in sheet_names for sheet_name in OLD_TEMPLATE_SHEET_NAMES):
+                raise ReplenishmentTemplateError(OLD_TEMPLATE_ERROR)
+            raise ReplenishmentTemplateError(f"模板xlsx缺少sheet: {missing[0]}")
+
+        expected_headers = {
+            REPLENISHMENT_DAYS_SHEET: ["日销层级", "日销范围", "增长", "平稳", "下降"],
+            SEA_DAYS_SHEET: ["日销范围", "海运补货天数"],
+            SEA_COMPANION_AIR_SHEET: ["项目", "值"],
+        }
+        for sheet_name, headers in expected_headers.items():
+            worksheet = workbook[sheet_name]
+            actual = [_clean_text(worksheet.cell(row=1, column=index).value) for index in range(1, len(headers) + 1)]
+            if actual != headers:
+                raise ReplenishmentTemplateError(OLD_TEMPLATE_ERROR)
+
+        companion = workbook[SEA_COMPANION_AIR_SHEET]
+        companion_tier_headers = [
+            _clean_text(companion.cell(row=4, column=1).value),
+            _clean_text(companion.cell(row=4, column=2).value),
         ]
+        if companion_tier_headers != ["日销范围", "同时空运天数"]:
+            raise ReplenishmentTemplateError(OLD_TEMPLATE_ERROR)
     finally:
         workbook.close()
 
@@ -791,10 +1141,10 @@ def _param_value(records: list[dict[str, Any]], label: str) -> Any:
     return ""
 
 
-def _parse_days_list(value: Any) -> list[int]:
+def _parse_single_day_list(value: Any, *, sheet_name: str, row_number: int, field_name: str) -> list[int]:
     text = _clean_text(value)
     if not text:
-        raise ReplenishmentTemplateError("海运候选天数不能为空")
+        raise ReplenishmentTemplateError(f"{sheet_name}第{row_number}行{field_name}不能为空")
     days: list[int] = []
     for part in re.split(r"[,，;；、\s]+", text):
         clean = _clean_text(part)
@@ -802,9 +1152,36 @@ def _parse_days_list(value: Any) -> list[int]:
             continue
         day = _int_value(clean, default=None)
         if day is None:
-            raise ReplenishmentTemplateError(f"海运候选天数无效: {clean}")
+            raise ReplenishmentTemplateError(f"{sheet_name}第{row_number}行{field_name}无效: {clean}")
         days.append(day)
+    if len(days) != 1:
+        raise ReplenishmentTemplateError(f"{sheet_name}第{row_number}行{field_name}只能填写一个正整数: {value}")
+    if days[0] <= 0:
+        raise ReplenishmentTemplateError(f"{sheet_name}第{row_number}行{field_name}必须是正整数: {value}")
     return days
+
+
+def _ensure_supported_sea_range(
+    range_spec: DailySalesRange,
+    *,
+    params: dict[str, Any],
+    sheet_name: str,
+    row_number: int,
+    value: Any,
+) -> None:
+    if not range_spec.lower_inclusive or range_spec.lower is None:
+        return
+    min_daily_sales = _number(params.get("sea", {}).get("min_daily_sales"), default=None)
+    if (
+        min_daily_sales is not None
+        and sea_min_daily_sales_inclusive_from_template(params)
+        and abs(float(range_spec.lower) - float(min_daily_sales)) <= 0.0000001
+    ):
+        return
+    raise ReplenishmentTemplateError(
+        f"{sheet_name}第{row_number}行日销范围暂不支持这个包含等于下限: {value}；"
+        "海运分档只有最低日销这一档可以写成包含等于"
+    )
 
 
 def _split_msku_list(value: Any) -> list[str]:
@@ -853,11 +1230,14 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
     if not source_path.is_file():
         raise FileNotFoundError(f"模板xlsx不存在: {source_path}")
 
+    _ensure_new_template_xlsx(source_path)
     info_records = _sheet_records(source_path, TEMPLATE_INFO_SHEET)
     weighted_records = _sheet_records(source_path, WEIGHTED_SALES_SHEET)
     replenishment_records = _sheet_records(source_path, REPLENISHMENT_DAYS_SHEET)
     shipping_records = _sheet_records(source_path, SHIPPING_SHEET)
-    sea_records = _sheet_records(source_path, SEA_SHEET)
+    sea_entry_records = _sheet_records(source_path, SEA_ENTRY_SHEET)
+    sea_day_records = _sheet_records(source_path, SEA_DAYS_SHEET)
+    companion_air_enabled_value, sea_companion_records = _sea_companion_air_sheet_data(source_path)
     special_records = _sheet_records(source_path, SPECIAL_RULES_SHEET)
 
     name = _clean_text(import_name) or _clean_text(_first_record_value(info_records, "模板名称"))
@@ -876,20 +1256,28 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
             "air_sales_days_lte": _number(_param_value(shipping_records, "空运可销售天数<="), default=None),
         },
         "sea": {
-            "enabled": None,
-            "min_daily_sales": None,
-            "min_daily_sales_inclusive": False,
-            "min_weight_kg": None,
-            "companion_air_enabled": False,
+            "enabled": _bool_value(_param_value(sea_entry_records, "是否启用海运"), field_name="是否启用海运"),
+            "min_daily_sales": _number(_param_value(sea_entry_records, "海运最低日销"), default=None),
+            "min_daily_sales_inclusive": _bool_value(
+                _param_value(sea_entry_records, "海运最低日销是否包含等于"),
+                field_name="海运最低日销是否包含等于",
+            ),
+            "min_weight_kg": _number(_param_value(sea_entry_records, "海运最低重量kg"), default=None),
+            "companion_air_enabled": _bool_value(companion_air_enabled_value, field_name="是否启用海运同时备空运"),
             "companion_air_tiers": [],
-            "min_net_quantity": 0,
+            "min_net_quantity": _number(_param_value(sea_entry_records, "海运建议量最小件数"), default=0),
             "tiers": [],
         },
         "special_rules": [],
     }
 
-    for record in replenishment_records:
-        threshold = _number(record.get("日销大于"), default=None)
+    for row_number, record in enumerate(replenishment_records, start=2):
+        range_spec = _parse_daily_sales_range(
+            record.get("日销范围"),
+            sheet_name=REPLENISHMENT_DAYS_SHEET,
+            row_number=row_number,
+        )
+        threshold = None if range_spec.is_fallback else range_spec.lower
         params["replenishment_days"].append(
             {
                 "label": _clean_text(record.get("日销层级")),
@@ -900,42 +1288,60 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
             }
         )
 
-    for record in sea_records:
-        item_name = _clean_text(record.get("项目"))
-        if item_name == "是否启用海运":
-            params["sea"]["enabled"] = _bool_value(record.get("值"), field_name="是否启用海运")
-        elif item_name == "海运最低日销":
-            params["sea"]["min_daily_sales"] = _number(record.get("值"), default=None)
-        elif item_name == "海运最低日销是否包含等于":
-            params["sea"]["min_daily_sales_inclusive"] = _bool_value(
-                record.get("值"),
-                field_name="海运最低日销是否包含等于",
-            )
-        elif item_name == "海运最低重量kg":
-            params["sea"]["min_weight_kg"] = _number(record.get("值"), default=None)
-        elif item_name == "是否启用海运同时备空运":
-            params["sea"]["companion_air_enabled"] = _bool_value(
-                record.get("值"),
-                field_name="是否启用海运同时备空运",
-            )
-        elif item_name in {"海运建议量最小件数", "海运实际补货量最小件数"}:
-            params["sea"]["min_net_quantity"] = _number(record.get("值"), default=None)
-        elif item_name == "海运分档":
-            params["sea"]["tiers"].append(
-                {
-                    "daily_sales_gt": _number(record.get("日销大于"), default=None),
-                    "daily_sales_lte": _number(record.get("日销小于等于"), default=None),
-                    "days": _parse_days_list(record.get("候选天数")),
-                }
-            )
-        elif item_name == "海运同时空运分档":
-            params["sea"]["companion_air_tiers"].append(
-                {
-                    "daily_sales_gt": _number(record.get("日销大于"), default=None),
-                    "daily_sales_lte": _number(record.get("日销小于等于"), default=None),
-                    "days": _parse_days_list(record.get("候选天数")),
-                }
-            )
+    for row_number, record in enumerate(sea_day_records, start=2):
+        if not _clean_text(record.get("海运补货天数")) and not _clean_text(record.get("日销范围")):
+            continue
+        range_spec = _parse_daily_sales_range(
+            record.get("日销范围"),
+            sheet_name=SEA_DAYS_SHEET,
+            row_number=row_number,
+        )
+        _ensure_supported_sea_range(
+            range_spec,
+            params=params,
+            sheet_name=SEA_DAYS_SHEET,
+            row_number=row_number,
+            value=record.get("日销范围"),
+        )
+        params["sea"]["tiers"].append(
+            {
+                "daily_sales_gt": range_spec.lower,
+                "daily_sales_lte": range_spec.upper,
+                "days": _parse_single_day_list(
+                    record.get("海运补货天数"),
+                    sheet_name=SEA_DAYS_SHEET,
+                    row_number=row_number,
+                    field_name="海运补货天数",
+                ),
+            }
+        )
+
+    for record in sea_companion_records:
+        row_number = int(record.get("_row_number") or 0)
+        range_spec = _parse_daily_sales_range(
+            record.get("日销范围"),
+            sheet_name=SEA_COMPANION_AIR_SHEET,
+            row_number=row_number,
+        )
+        _ensure_supported_sea_range(
+            range_spec,
+            params=params,
+            sheet_name=SEA_COMPANION_AIR_SHEET,
+            row_number=row_number,
+            value=record.get("日销范围"),
+        )
+        params["sea"]["companion_air_tiers"].append(
+            {
+                "daily_sales_gt": range_spec.lower,
+                "daily_sales_lte": range_spec.upper,
+                "days": _parse_single_day_list(
+                    record.get("同时空运天数"),
+                    sheet_name=SEA_COMPANION_AIR_SHEET,
+                    row_number=row_number,
+                    field_name="同时空运天数",
+                ),
+            }
+        )
 
     for index, record in enumerate(special_records, start=1):
         msku_list = _split_msku_list(record.get("MSKU列表"))

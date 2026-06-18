@@ -26,6 +26,51 @@ def _cell_value(path: Path, sheet_name: str, row: int, column: int):
         workbook.close()
 
 
+def _cell_fill(path: Path, sheet_name: str, row: int, column: int) -> str:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, data_only=True)
+    try:
+        return workbook[sheet_name].cell(row=row, column=column).fill.fgColor.rgb
+    finally:
+        workbook.close()
+
+
+def _row_values(path: Path, sheet_name: str, row: int) -> list:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, data_only=True)
+    try:
+        worksheet = workbook[sheet_name]
+        return [worksheet.cell(row=row, column=column).value for column in range(1, worksheet.max_column + 1)]
+    finally:
+        workbook.close()
+
+
+def _find_row_by_first_cell(path: Path, sheet_name: str, value: str) -> int:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, data_only=True)
+    try:
+        worksheet = workbook[sheet_name]
+        for row in range(1, worksheet.max_row + 1):
+            if worksheet.cell(row=row, column=1).value == value:
+                return row
+    finally:
+        workbook.close()
+    raise AssertionError(f"row not found: {sheet_name} {value}")
+
+
+def _sheet_names(path: Path) -> list[str]:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        return list(workbook.sheetnames)
+    finally:
+        workbook.close()
+
+
 def test_default_template_loads_current_algorithm() -> None:
     template = tmpl.load_default_template()
 
@@ -39,7 +84,7 @@ def test_default_template_loads_current_algorithm() -> None:
     assert template.params["sea"]["enabled"] is True
     assert tmpl.sea_companion_air_enabled_from_template(template.params) is False
     assert tmpl.replenishment_days_from_template(6, "平稳", template.params) == 75
-    assert tmpl.sea_day_candidates_from_template(55, template.params) == [100, 110]
+    assert tmpl.sea_day_candidates_from_template(55, template.params) == [100]
     assert tmpl.validate_template(template).warnings == ()
 
 
@@ -105,9 +150,40 @@ def test_export_validate_and_import_template_xlsx(tmp_path) -> None:
 
     assert exported_path.is_file()
     assert exported_path.name.endswith("_备货模板.xlsx")
+    assert _sheet_names(exported_path) == [
+        "模板信息",
+        "日销计算",
+        "补货天数",
+        "空运判断",
+        "海运进入条件",
+        "海运补货天数",
+        "海运同时空运",
+        "特殊MSKU规则",
+    ]
     assert _cell_value(exported_path, "模板信息", 2, 2) == "默认模板"
-    assert _cell_value(exported_path, "加权日销", 2, 2) == 0.6
-    assert _cell_value(exported_path, "海运规则", 2, 5) == "是"
+    assert _cell_value(exported_path, "日销计算", 2, 2) == 0.6
+    assert _row_values(exported_path, "补货天数", 1) == ["日销层级", "日销范围", "增长", "平稳", "下降"]
+    assert _cell_value(exported_path, "补货天数", 2, 2) == ">10"
+    assert _cell_value(exported_path, "补货天数", 3, 2) == "(5,10]"
+    assert "日销大于" not in _row_values(exported_path, "补货天数", 1)
+    assert _cell_value(exported_path, "海运进入条件", 2, 2) == "是"
+    assert _row_values(exported_path, "海运补货天数", 1) == ["日销范围", "海运补货天数"]
+    assert "候选天数" not in _row_values(exported_path, "海运补货天数", 1)
+    assert _cell_value(exported_path, "海运补货天数", 5, 1) == ">50"
+    assert _cell_value(exported_path, "海运补货天数", 5, 2) == "100"
+    assert _row_values(exported_path, "海运同时空运", 1) == ["项目", "值"]
+    assert _row_values(exported_path, "海运同时空运", 4) == ["日销范围", "同时空运天数"]
+    replenishment_note_row = _find_row_by_first_cell(exported_path, "补货天数", "修改说明")
+    assert replenishment_note_row == 7
+    assert _cell_value(exported_path, "补货天数", replenishment_note_row + 1, 1) == "1. 日销层级仅用于阅读，不影响计算。"
+    assert _cell_fill(exported_path, "补货天数", 2, 1) == tmpl.READONLY_FILL_COLOR
+    assert _cell_fill(exported_path, "补货天数", 2, 2) == tmpl.EDITABLE_FILL_COLOR
+    assert _cell_fill(exported_path, "补货天数", 2, 3) == tmpl.EDITABLE_FILL_COLOR
+    assert _cell_fill(exported_path, "补货天数", replenishment_note_row, 1) == tmpl.READONLY_FILL_COLOR
+    assert _cell_fill(exported_path, "日销计算", 2, 1) == tmpl.READONLY_FILL_COLOR
+    assert _cell_fill(exported_path, "日销计算", 2, 2) == tmpl.EDITABLE_FILL_COLOR
+    assert _cell_fill(exported_path, "日销计算", 2, 3) == tmpl.READONLY_FILL_COLOR
+    assert _cell_fill(exported_path, "补货天数", 1, 1) == tmpl.HEADER_FILL_COLOR
 
     result = tmpl.validate_template_xlsx(exported_path)
     assert result.template.name == "默认模板"
@@ -157,7 +233,7 @@ def test_replace_template_updates_existing_custom_template(tmp_path) -> None:
     try:
         workbook["模板信息"].cell(row=2, column=2).value = "xlsx里的新名字"
         workbook["模板信息"].cell(row=4, column=2).value = "替换后的说明"
-        workbook["运输方式"].cell(row=2, column=2).value = 35
+        workbook["空运判断"].cell(row=2, column=2).value = 35
         workbook.save(exported_path)
     finally:
         workbook.close()
@@ -269,7 +345,7 @@ def test_template_xlsx_parses_disabled_sea_switch(tmp_path) -> None:
 
     workbook = load_workbook(exported_path)
     try:
-        workbook["海运规则"].cell(row=2, column=5).value = "否"
+        workbook["海运进入条件"].cell(row=2, column=2).value = "否"
         workbook.save(exported_path)
     finally:
         workbook.close()
@@ -282,19 +358,150 @@ def test_template_xlsx_parses_disabled_sea_switch(tmp_path) -> None:
 def test_template_xlsx_round_trips_inclusive_sea_min_daily_sales(tmp_path) -> None:
     exported_path = tmpl.export_template_xlsx("2组-US站点-林美淇", output_dir=tmp_path / "editable")
 
-    assert _cell_value(exported_path, "海运规则", 4, 5) == "是"
+    assert _cell_value(exported_path, "海运进入条件", 4, 2) == "是"
+    assert _cell_value(exported_path, "海运进入条件", 6, 2) == 30
+    assert _cell_value(exported_path, "海运补货天数", 2, 1) == "[1,5]"
+    assert _cell_value(exported_path, "海运补货天数", 2, 2) == "100"
+    assert _cell_value(exported_path, "海运同时空运", 2, 2) == "是"
+    assert _cell_value(exported_path, "海运同时空运", 5, 1) == "[1,5]"
+    assert _cell_value(exported_path, "海运同时空运", 5, 2) == "70"
 
     result = tmpl.validate_template_xlsx(exported_path)
 
     assert result.template.name == "2组-US站点-林美淇"
     assert result.template.params["sea"]["min_daily_sales_inclusive"] is True
-    assert _cell_value(exported_path, "海运规则", 6, 5) == "是"
-    assert _cell_value(exported_path, "海运规则", 7, 5) == 30
-    assert _cell_value(exported_path, "海运规则", 11, 4) == "70"
     assert result.template.params["sea"]["companion_air_enabled"] is True
     assert result.template.params["sea"]["min_net_quantity"] == 30
     assert tmpl.sea_day_candidates_from_template(1, result.template.params) == [100]
     assert tmpl.sea_companion_air_day_candidates_from_template(1, result.template.params) == [70]
+
+
+def test_template_xlsx_uses_daily_sales_range_as_authoritative_input(tmp_path) -> None:
+    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(exported_path)
+    try:
+        workbook["补货天数"].cell(row=2, column=2).value = ">12"
+        workbook["补货天数"].cell(row=5, column=2).value = "≤2"
+        workbook["海运补货天数"].cell(row=2, column=1).value = ">45"
+        workbook["海运补货天数"].cell(row=2, column=2).value = "88"
+        workbook.save(exported_path)
+    finally:
+        workbook.close()
+
+    result = tmpl.validate_template_xlsx(exported_path)
+
+    assert result.template.params["replenishment_days"][0]["daily_sales_gt"] == 12
+    assert result.template.params["replenishment_days"][-1]["daily_sales_gt"] is None
+    assert result.template.params["sea"]["tiers"][0] == {
+        "daily_sales_gt": 45,
+        "daily_sales_lte": None,
+        "days": [88],
+    }
+
+
+def test_template_xlsx_rejects_invalid_daily_sales_range(tmp_path) -> None:
+    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(exported_path)
+    try:
+        workbook["补货天数"].cell(row=2, column=2).value = "1~5"
+        workbook.save(exported_path)
+    finally:
+        workbook.close()
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="补货天数第2行日销范围格式无效"):
+        tmpl.validate_template_xlsx(exported_path)
+
+
+def test_template_xlsx_rejects_multiple_sea_replenishment_days(tmp_path) -> None:
+    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(exported_path)
+    try:
+        workbook["海运补货天数"].cell(row=2, column=2).value = "100,110"
+        workbook.save(exported_path)
+    finally:
+        workbook.close()
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="海运补货天数第2行海运补货天数只能填写一个正整数"):
+        tmpl.validate_template_xlsx(exported_path)
+
+
+def test_template_xlsx_rejects_multiple_companion_air_days(tmp_path) -> None:
+    exported_path = tmpl.export_template_xlsx("2组-US站点-林美淇", output_dir=tmp_path / "editable")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(exported_path)
+    try:
+        workbook["海运同时空运"].cell(row=5, column=2).value = "70,75"
+        workbook.save(exported_path)
+    finally:
+        workbook.close()
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="海运同时空运第5行同时空运天数只能填写一个正整数"):
+        tmpl.validate_template_xlsx(exported_path)
+
+
+def test_old_template_xlsx_is_rejected(tmp_path) -> None:
+    from openpyxl import Workbook
+
+    path = tmp_path / "old_template.xlsx"
+    workbook = Workbook()
+    try:
+        workbook.active.title = "模板信息"
+        for sheet_name in ["加权日销", "补货天数", "运输方式", "海运规则", "特殊MSKU规则"]:
+            workbook.create_sheet(sheet_name)
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match=tmpl.OLD_TEMPLATE_ERROR):
+        tmpl.validate_template_xlsx(path)
+
+
+def test_old_sea_days_sheet_name_is_rejected(tmp_path) -> None:
+    path = tmp_path / "old_sea_days_name.xlsx"
+    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(exported_path)
+    try:
+        workbook["海运补货天数"].title = "海运备货天数"
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match=tmpl.OLD_TEMPLATE_ERROR):
+        tmpl.validate_template_xlsx(path)
+
+
+def test_previous_business_step_template_xlsx_is_rejected(tmp_path) -> None:
+    path = tmp_path / "previous_template.xlsx"
+    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(exported_path)
+    try:
+        workbook["补货天数"].delete_rows(1)
+        workbook["补货天数"].insert_rows(1)
+        for column, value in enumerate(["日销层级", "日销范围", "日销大于", "增长", "平稳", "下降", "说明"], start=1):
+            workbook["补货天数"].cell(row=1, column=column).value = value
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match=tmpl.OLD_TEMPLATE_ERROR):
+        tmpl.validate_template_xlsx(path)
 
 
 def test_special_rule_applies_msku_overrides() -> None:
@@ -341,7 +548,15 @@ def test_cli_list_and_list_params(capsys) -> None:
 
     assert cli.main(["list-params"]) == 0
     payload = _read_payload(capsys)
-    assert payload["groups"][0]["group"] == "加权日销"
+    assert payload["groups"][0]["group"] == "日销计算"
+    assert [group["group"] for group in payload["groups"][:6]] == [
+        "日销计算",
+        "补货天数",
+        "空运判断",
+        "海运进入条件",
+        "海运补货天数",
+        "海运同时空运",
+    ]
     assert any(param["key"] == "sea.enabled" for group in payload["groups"] for param in group["params"])
     assert any(param["key"] == "sea.min_daily_sales_inclusive" for group in payload["groups"] for param in group["params"])
     assert any(param["key"] == "sea.companion_air_enabled" for group in payload["groups"] for param in group["params"])
@@ -388,3 +603,15 @@ def test_skill_index_loads_replenishment_template_manage() -> None:
     assert manifest is not None
     assert manifest.name == "replenishment-template-manage"
     assert manifest.type == "amazon_replenish"
+
+    template_skill = Path("skills/replenishment-template-manage/SKILL.md").read_text(encoding="utf-8")
+    calculate_skill = Path("skills/replenishment-calculate/SKILL.md").read_text(encoding="utf-8")
+    workflow_skill = Path("skills/replenishment-workflow-map/SKILL.md").read_text(encoding="utf-8")
+    assert "模板只管理论算法" in template_skill
+    assert "浅黄色单元格表示业务可修改" in template_skill
+    assert "浅灰色单元格是参数名或说明信息" in template_skill
+    assert "表格下方有 `修改说明` 区" in template_skill
+    assert "旧版模板 xlsx 不兼容" in template_skill
+    assert "固定扣减 `FBA 总库存（马帮数据）` 和同日未关联货件" in calculate_skill
+    assert "算法参数侧流程" in workflow_skill
+    assert "扣减数据流程" in workflow_skill

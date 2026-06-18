@@ -22,9 +22,15 @@ type: amazon_replenish
 
 ## Download Guide
 
-本 skill 的主路径是解析用户已经下载好的亚马逊补充库存 CSV。当前项目还没有补充库存报告的专用截图；如果用户问“怎么点”、“发我截图”或“路径图”，先说明截图只是 Seller Central 报告入口的临时参考，不是补充库存报告的最终专用教程。
+本 skill 的主路径是解析用户已经下载好的亚马逊补充库存 CSV。用户需要下载指引时，按美国站示例引导：
 
-用户仍要求看截图时，不要读取、不要解析、不要复述截图内容，直接按顺序调用 `send_file` 发送以下三张临时参考图：
+1. 打开美国站补充库存报告入口：`https://sellercentral.amazon.com/reportcentral/RestockReport/1`
+2. 或从 Seller Central 进入：`库存 -> 亚马逊物流库存 -> 报告 -> 补货报告`
+3. 在 `亚马逊配送报告 / 补充库存` 页面点击 `请求下载 .csv 文件`
+4. 报告生成后，在对应 `.csv` 行点击 `下载`
+5. 将下载得到的 CSV 路径传给 snapshot CLI
+
+用户问“怎么点”、“发我截图”或“路径图”时，不要读取、不要解析、不要复述截图内容，直接按顺序调用 `send_file` 发送以下三张截图：
 
 ```text
 skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg
@@ -32,7 +38,7 @@ skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inv
 skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_3_request_csv.jpg
 ```
 
-只有用户明确要求解释截图时，才补充简短文字说明；否则只说明已发送临时参考图，并提醒最终应上传包含 `Merchant SKU` 和 `Total Units` 的补充库存 CSV。
+只有用户明确要求解释截图时，才补充简短文字说明；否则只说明已发送截图，并提醒最终应上传包含 `Merchant SKU` 和 `Total Units` 的补充库存 CSV。
 
 ## How to Execute
 

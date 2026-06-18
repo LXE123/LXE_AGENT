@@ -1293,7 +1293,7 @@ def calculate_replenishment_row(
                     estimated_weight_kg=estimated_weight_kg,
                     decision_reason=(
                         f"可销售天数 > {air_days:g}，满足海运条件；"
-                        f"按海运备货天数{sea_days}天计算海运目标量，"
+                        f"按海运补货天数{sea_days}天计算海运目标量，"
                         f"拆分为海运建议量和同时空运建议量；计算方法："
                         + "；".join(tried)
                     ),
@@ -1317,7 +1317,7 @@ def calculate_replenishment_row(
                     sea_days=sea_days,
                     sea_quantity=sea_quantity,
                     estimated_weight_kg=estimated_weight_kg,
-                    decision_reason=f"可销售天数 > {air_days:g}，满足海运条件；按海运备货天数{sea_days}天计算补货量；计算方法：" + "；".join(tried),
+                    decision_reason=f"可销售天数 > {air_days:g}，满足海运条件；按海运补货天数{sea_days}天计算补货量；计算方法：" + "；".join(tried),
                     sheet_name=SEA_SHEET,
                 ),
                 min_weight_kg=min_weight_kg,
