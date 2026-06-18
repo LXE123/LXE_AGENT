@@ -1378,23 +1378,20 @@ function SkillsView({
   onOpen: (target: DetailTarget) => void;
 }) {
   if (!skills.length) {
-    return <EmptyState label="暂无 skill。" />;
+    return <EmptyState label="当前 agent 暂无可用 skill。" />;
   }
   const groups = groupSkillsByType(skills);
   return (
     <div className="toolset-stack">
       {groups.map((group) => {
-        const enabledCount = group.skills.filter((skill) => skill.enabled).length;
         return (
           <section className="toolset-section" key={group.type}>
             <div className="section-title-row">
               <div>
                 <h2>{group.label}</h2>
-                <p>
-                  {group.skills.length} skills · {enabledCount} enabled
-                </p>
+                <p>{group.skills.length} skills</p>
               </div>
-              <span className={enabledCount ? "status-dot on" : "status-dot"} />
+              <span className="status-dot on" />
             </div>
             <div className="grid-list">
               {group.skills.map((skill) => (
@@ -1416,7 +1413,6 @@ function SkillsView({
                   </div>
                   <p className="description">{skill.description}</p>
                   <div className="pill-row">
-                    <span className={skill.enabled ? "pill ok" : "pill warn"}>{skill.enabled ? "enabled" : "filtered"}</span>
                     <span className="pill">{skill.references.length} refs</span>
                   </div>
                 </button>
