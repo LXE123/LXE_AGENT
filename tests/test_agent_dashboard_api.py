@@ -364,7 +364,7 @@ def test_session_detail_endpoint_returns_metadata_and_messages(dashboard_client)
         "raw_message_total": 2,
         "start": 0,
         "end": 2,
-        "limit": 25,
+        "limit": 10,
         "current_page": 1,
         "total_pages": 1,
         "has_previous": False,
@@ -372,7 +372,7 @@ def test_session_detail_endpoint_returns_metadata_and_messages(dashboard_client)
     }
 
 
-def test_session_detail_endpoint_defaults_to_latest_25_display_items(dashboard_client):
+def test_session_detail_endpoint_defaults_to_latest_10_display_items(dashboard_client):
     messages = [{"role": "user", "content": f"message {index}"} for index in range(100)]
     created = create_agent_session(
         session_id="long-detail-session",
@@ -385,16 +385,16 @@ def test_session_detail_endpoint_defaults_to_latest_25_display_items(dashboard_c
 
     assert response.status_code == 200
     payload = response.json()
-    assert [item["content"] for item in payload["messages"]] == [f"message {index}" for index in range(75, 100)]
+    assert [item["content"] for item in payload["messages"]] == [f"message {index}" for index in range(90, 100)]
     assert payload["session"]["message_count"] == 100
     assert payload["messages_page"] == {
         "total": 100,
         "raw_message_total": 100,
-        "start": 75,
+        "start": 90,
         "end": 100,
-        "limit": 25,
-        "current_page": 4,
-        "total_pages": 4,
+        "limit": 10,
+        "current_page": 10,
+        "total_pages": 10,
         "has_previous": True,
         "has_next": False,
     }
@@ -454,7 +454,7 @@ def test_session_detail_endpoint_clamps_message_page(dashboard_client):
     }
 
 
-def test_session_detail_endpoint_counts_contiguous_tools_as_one_display_item(dashboard_client):
+def test_session_detail_endpoint_keeps_assistant_tool_turn_on_one_display_page(dashboard_client):
     messages = [
         {"role": "user", "content": "start"},
         {
@@ -480,11 +480,44 @@ def test_session_detail_endpoint_counts_contiguous_tools_as_one_display_item(das
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["messages"] == messages[1:5]
+    assert payload["messages"] == messages[1:6]
     assert payload["session"]["message_count"] == 6
     assert payload["messages_page"] == {
-        "total": 3,
+        "total": 2,
         "raw_message_total": 6,
+        "start": 1,
+        "end": 2,
+        "limit": 1,
+        "current_page": 2,
+        "total_pages": 2,
+        "has_previous": True,
+        "has_next": False,
+    }
+
+
+def test_session_detail_endpoint_keeps_contiguous_assistant_messages_on_one_display_page(dashboard_client):
+    messages = [
+        {"role": "user", "content": "start"},
+        {"role": "assistant", "content": [{"type": "text", "text": "part 1"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "part 2"}]},
+        {"role": "user", "content": "next"},
+    ]
+    created = create_agent_session(
+        session_id="assistant-turn-page-session",
+        source=_source("chat-assistant-turn-page"),
+        state_data=_state(messages),
+        title="Assistant Turn Page",
+    )
+
+    response = dashboard_client.get(f"/api/sessions/{created.session_id}?message_limit=1&message_page=2")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["messages"] == messages[1:3]
+    assert payload["session"]["message_count"] == 4
+    assert payload["messages_page"] == {
+        "total": 3,
+        "raw_message_total": 4,
         "start": 1,
         "end": 2,
         "limit": 1,
@@ -514,7 +547,7 @@ def test_session_detail_endpoint_returns_empty_messages_when_jsonl_missing(dashb
         "raw_message_total": 0,
         "start": 0,
         "end": 0,
-        "limit": 25,
+        "limit": 10,
         "current_page": 1,
         "total_pages": 1,
         "has_previous": False,

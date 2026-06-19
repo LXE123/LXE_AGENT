@@ -18,9 +18,9 @@ import {
   MessageSquareText,
   PackageCheck,
   Search,
-  Server,
   Settings2,
   Sparkles,
+  UserRound,
   Wrench,
   X
 } from "lucide-react";
@@ -117,9 +117,15 @@ type SessionDetailPayload = {
   messages_page: MessagesPagePayload;
 };
 
+type ConversationToolGroup = {
+  messages: SessionMessage[];
+  startIndex: number;
+  key: string;
+};
+
 type ConversationRenderItem =
-  | { type: "message"; message: SessionMessage; index: number }
-  | { type: "tool_group"; messages: SessionMessage[]; startIndex: number; key: string };
+  | { type: "message"; message: SessionMessage; index: number; toolGroups: ConversationToolGroup[] }
+  | { type: "tool_group"; group: ConversationToolGroup };
 
 type SkillReferencePayload = {
   path: string;
@@ -212,8 +218,9 @@ type SessionListPayload = ApiList<SessionPayload> & {
   summary: SessionSummaryPayload;
 };
 
-const SESSION_MESSAGE_PAGE_LIMIT = 25;
+const SESSION_MESSAGE_PAGE_LIMIT = 10;
 const SESSION_LIST_PAGE_SIZE = 10;
+const LANGUAGE_STORAGE_KEY = "agent-dashboard-language";
 
 const EMPTY_SESSION_SUMMARY: SessionSummaryPayload = {
   total_sessions: 0,
@@ -228,6 +235,374 @@ const EMPTY_SESSION_LIST: SessionListPayload = {
   offset: 0,
   summary: EMPTY_SESSION_SUMMARY
 };
+
+type Language = "zh" | "en";
+
+const ZH_TEXT = {
+  language: {
+    label: "语言",
+    zh: "中文",
+    en: "EN"
+  },
+  app: {
+    eyebrow: "本地 Agent",
+    title: "Agent Dashboard",
+    subtitle: "查看当前 gateway 的会话、模型、工具和技能。",
+    apiOnline: "API 在线",
+    apiOffline: "API 离线"
+  },
+  nav: {
+    sessions: "会话",
+    models: "模型",
+    tools: "工具",
+    skills: "技能",
+    tasks: "任务",
+    aria: "Dashboard 区域"
+  },
+  stats: {
+    sessions: "会话",
+    toolCalls: "工具调用",
+    tokens: "Token",
+    messages: "消息",
+    apiCalls: "API 调用"
+  },
+  common: {
+    loading: "加载中",
+    copied: "已复制",
+    unknown: "unknown",
+    unnamedSession: "未命名会话",
+    previous: "上一页",
+    next: "下一页",
+    pageIndex: (current: string, total: string) => `第 ${current} / ${total} 页`,
+    errorPrefix: (label: string, message: string) => `${label}：${message}`,
+    countItems: (count: string, unit: string) => `${count} ${unit}`,
+    yes: "是",
+    no: "否",
+    none: "无",
+    notSupported: "不支持",
+    fallbackTool: "工具",
+    block: "块"
+  },
+  role: {
+    user: "user",
+    assistant: "assistant",
+    tool: "tool",
+    system: "system",
+    unknown: "unknown"
+  },
+  sessions: {
+    title: "会话",
+    searchPlaceholder: "搜索 sessions",
+    searchAria: "搜索 sessions",
+    searchResults: (count: string) => `搜索结果 ${count} 条`,
+    total: (count: string) => `共 ${count} 条`,
+    empty: "暂无 session 记录。",
+    emptySearch: "没有匹配的 session。",
+    loading: "正在加载 sessions...",
+    errorLabel: "Sessions 错误",
+    columnSession: "会话",
+    tokenSuffix: "Token"
+  },
+  sessionDetail: {
+    back: "会话",
+    eyebrow: "Session 详情",
+    loading: "正在加载对话...",
+    errorLabel: "Session 错误",
+    empty: "该 session 暂无对话记录。",
+    pageBlocks: (visible: string, total: string) => `当前页 ${visible} / 总 ${total} 对话块`,
+    rawMessages: (count: string) => `原始消息 ${count} 条`
+  },
+  message: {
+    thinking: "思考",
+    redactedThinking: "部分思考已加密，无法展示",
+    toolCalls: "工具调用",
+    toolResult: "工具结果",
+    toolResultError: "工具结果错误",
+    copyResult: "复制结果",
+    toolActivity: "工具活动",
+    toolOperation: "工具操作",
+    toolContinuation: "工具操作续段",
+    calls: "调用",
+    results: "结果",
+    error: "错误"
+  },
+  models: {
+    model: "模型",
+    current: "当前",
+    switching: "切换中",
+    setCurrent: "设为当前",
+    context: "上下文",
+    output: "输出",
+    vision: "视觉",
+    thinking: "思考",
+    modelOptionUnavailable: "模型选项不可用",
+    providerNotSelectable: "WebUI 暂不支持切换",
+    missingApiKey: "缺少 API Key"
+  },
+  tools: {
+    itemUnit: "个工具",
+    emptyToolset: "该 toolset 暂无可展示工具。"
+  },
+  tasks: {
+    empty: "暂无后台任务。",
+    itemUnit: "个任务",
+    task: "任务",
+    status: "状态",
+    session: "Session",
+    command: "命令",
+    duration: "耗时",
+    startedAt: "开始时间"
+  },
+  skills: {
+    itemUnit: "个技能",
+    empty: "当前 agent 暂无可用 skill。",
+    refs: (count: string) => `${count} 个引用`,
+    defaultGroup: "默认",
+    uncategorized: "未分类"
+  },
+  skillModal: {
+    type: "类型",
+    location: "位置",
+    references: "引用文件",
+    loadingReference: "加载中...",
+    noReferences: "无引用文件。",
+    copySource: "复制原文",
+    loadingContent: "正在加载 skill 内容...",
+    modeAria: "Skill 内容展示模式",
+    preview: "预览",
+    source: "原文"
+  },
+  detailModal: {
+    tool: "工具",
+    skill: "技能",
+    task: "后台任务",
+    close: "关闭",
+    inputSchema: "输入结构",
+    status: "状态",
+    sessionTitle: "会话标题",
+    session: "Session",
+    turn: "Turn",
+    card: "Card",
+    pid: "PID",
+    started: "开始时间",
+    ended: "结束时间",
+    duration: "耗时",
+    exitCode: "退出码",
+    cwd: "CWD",
+    command: "命令",
+    outputTail: "输出尾部",
+    noOutput: "无输出"
+  },
+  skillTypes: {
+    default: "默认",
+    amazon_fba: "Amazon FBA",
+    amazon_replenish: "Amazon Replenish",
+    uncategorized: "未分类"
+  },
+  mermaid: {
+    renderError: (message: string) => `Mermaid 渲染错误：${message}`,
+    rendering: "正在渲染 Mermaid 图..."
+  },
+  errors: {
+    dashboardLoad: "Dashboard 数据加载中...",
+    api: "API 错误"
+  }
+};
+
+type UiText = typeof ZH_TEXT;
+
+const UI_TEXT: Record<Language, UiText> = {
+  zh: ZH_TEXT,
+  en: {
+    language: {
+      label: "Language",
+      zh: "中文",
+      en: "EN"
+    },
+    app: {
+      eyebrow: "Local Harness Agent",
+      title: "Agent Dashboard",
+      subtitle: "Sessions, models, tools and skills from the running gateway.",
+      apiOnline: "API online",
+      apiOffline: "API offline"
+    },
+    nav: {
+      sessions: "Sessions",
+      models: "Models",
+      tools: "Tools",
+      skills: "Skills",
+      tasks: "Tasks",
+      aria: "Dashboard sections"
+    },
+    stats: {
+      sessions: "Sessions",
+      toolCalls: "Tool Calls",
+      tokens: "Tokens",
+      messages: "Messages",
+      apiCalls: "API Calls"
+    },
+    common: {
+      loading: "loading",
+      copied: "Copied",
+      unknown: "unknown",
+      unnamedSession: "Untitled session",
+      previous: "Previous",
+      next: "Next",
+      pageIndex: (current: string, total: string) => `Page ${current} / ${total}`,
+      errorPrefix: (label: string, message: string) => `${label}: ${message}`,
+      countItems: (count: string, unit: string) => `${count} ${unit}`,
+      yes: "yes",
+      no: "no",
+      none: "none",
+      notSupported: "not supported",
+      fallbackTool: "tool",
+      block: "block"
+    },
+    role: {
+      user: "user",
+      assistant: "assistant",
+      tool: "tool",
+      system: "system",
+      unknown: "unknown"
+    },
+    sessions: {
+      title: "Sessions",
+      searchPlaceholder: "Search sessions",
+      searchAria: "Search sessions",
+      searchResults: (count: string) => `${count} search results`,
+      total: (count: string) => `${count} total`,
+      empty: "No sessions yet.",
+      emptySearch: "No matching sessions.",
+      loading: "Loading sessions...",
+      errorLabel: "Sessions error",
+      columnSession: "Session",
+      tokenSuffix: "Token"
+    },
+    sessionDetail: {
+      back: "Sessions",
+      eyebrow: "Session Detail",
+      loading: "Loading conversation...",
+      errorLabel: "Session error",
+      empty: "This session has no conversation records.",
+      pageBlocks: (visible: string, total: string) => `${visible} / ${total} conversation blocks on this page`,
+      rawMessages: (count: string) => `${count} raw messages`
+    },
+    message: {
+      thinking: "Thinking",
+      redactedThinking: "Some thinking is encrypted and cannot be displayed",
+      toolCalls: "tool calls",
+      toolResult: "tool result",
+      toolResultError: "tool result error",
+      copyResult: "Copy result",
+      toolActivity: "tool activity",
+      toolOperation: "Tool activity",
+      toolContinuation: "Tool activity continuation",
+      calls: "calls",
+      results: "results",
+      error: "error"
+    },
+    models: {
+      model: "Model",
+      current: "Current",
+      switching: "Switching",
+      setCurrent: "Set current",
+      context: "Context",
+      output: "Output",
+      vision: "Vision",
+      thinking: "Thinking",
+      modelOptionUnavailable: "Model option is not available",
+      providerNotSelectable: "Not selectable in WebUI",
+      missingApiKey: "Missing API key"
+    },
+    tools: {
+      itemUnit: "tools",
+      emptyToolset: "This toolset has no tools to show."
+    },
+    tasks: {
+      empty: "No background tasks.",
+      itemUnit: "tasks",
+      task: "Task",
+      status: "Status",
+      session: "Session",
+      command: "Command",
+      duration: "Duration",
+      startedAt: "Started"
+    },
+    skills: {
+      itemUnit: "skills",
+      empty: "No skills are available for the current agent.",
+      refs: (count: string) => `${count} refs`,
+      defaultGroup: "Default",
+      uncategorized: "Uncategorized"
+    },
+    skillModal: {
+      type: "Type",
+      location: "Location",
+      references: "References",
+      loadingReference: "loading...",
+      noReferences: "No references.",
+      copySource: "Copy source",
+      loadingContent: "Loading skill content...",
+      modeAria: "Skill content display mode",
+      preview: "Preview",
+      source: "Source"
+    },
+    detailModal: {
+      tool: "Tool",
+      skill: "Skill",
+      task: "Background Task",
+      close: "Close",
+      inputSchema: "Input schema",
+      status: "Status",
+      sessionTitle: "Session title",
+      session: "Session",
+      turn: "Turn",
+      card: "Card",
+      pid: "PID",
+      started: "Started",
+      ended: "Ended",
+      duration: "Duration",
+      exitCode: "Exit code",
+      cwd: "CWD",
+      command: "Command",
+      outputTail: "Output tail",
+      noOutput: "no output"
+    },
+    skillTypes: {
+      default: "Default",
+      amazon_fba: "Amazon FBA",
+      amazon_replenish: "Amazon Replenish",
+      uncategorized: "Uncategorized"
+    },
+    mermaid: {
+      renderError: (message: string) => `Mermaid render error: ${message}`,
+      rendering: "Rendering Mermaid diagram..."
+    },
+    errors: {
+      dashboardLoad: "Loading dashboard data...",
+      api: "API error"
+    }
+  }
+};
+
+const I18nContext = React.createContext<UiText>(ZH_TEXT);
+
+function useUiText(): UiText {
+  return React.useContext(I18nContext);
+}
+
+function isLanguage(value: string | null): value is Language {
+  return value === "zh" || value === "en";
+}
+
+function initialLanguage(): Language {
+  try {
+    const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+    return isLanguage(stored) ? stored : "zh";
+  } catch {
+    return "zh";
+  }
+}
 
 type DashboardData = {
   skills: ApiList<SkillPayload>;
@@ -394,6 +769,16 @@ function modelWithOption(
   };
 }
 
+function modelDisabledReasonLabel(t: UiText, reason: string): string {
+  if (reason === "not selectable in WebUI") {
+    return t.models.providerNotSelectable;
+  }
+  if (reason === "missing API key") {
+    return t.models.missingApiKey;
+  }
+  return reason;
+}
+
 function dataWithCurrentModel(current: DashboardData, model: ModelPayload): DashboardData {
   return {
     ...current,
@@ -530,6 +915,31 @@ function roleLabel(role: string): string {
   return "unknown";
 }
 
+function RoleBadge({ role }: { role: string }) {
+  const t = useUiText();
+  const normalized = roleLabel(role);
+  const label = t.role[normalized as keyof typeof t.role] || normalized;
+  const icon =
+    normalized === "user" ? (
+      <UserRound aria-hidden="true" size={13} />
+    ) : normalized === "assistant" ? (
+      <Brain aria-hidden="true" size={13} />
+    ) : normalized === "tool" ? (
+      <Wrench aria-hidden="true" size={13} />
+    ) : normalized === "system" ? (
+      <Settings2 aria-hidden="true" size={13} />
+    ) : (
+      <Info aria-hidden="true" size={13} />
+    );
+
+  return (
+    <span className={`role-badge role-${normalized}`}>
+      {icon}
+      <span>{label}</span>
+    </span>
+  );
+}
+
 function StatTile({
   icon,
   label,
@@ -561,7 +971,18 @@ function EmptyState({ label }: { label: string }) {
   );
 }
 
+function MessageMarkdown({ text }: { text: string }) {
+  return (
+    <div className="message-markdown">
+      <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function MessageBlock({ block }: { block: unknown }) {
+  const t = useUiText();
   if (!isRecord(block)) {
     return (
       <pre className="message-json">{shortText(sanitizeForDisplay(block))}</pre>
@@ -569,7 +990,7 @@ function MessageBlock({ block }: { block: unknown }) {
   }
   const type = String(block.type || "unknown");
   if (type === "text") {
-    return <div className="message-text">{String(block.text || "")}</div>;
+    return <MessageMarkdown text={String(block.text || "")} />;
   }
   if (type === "thinking") {
     return <ThinkingBlock block={block} />;
@@ -579,11 +1000,12 @@ function MessageBlock({ block }: { block: unknown }) {
   }
   if (type === "tool_use" || type === "tool_call") {
     const input = block.input ?? block.arguments ?? {};
+    const blockName = String(block.name || "");
     return (
       <div className="message-block tool-block">
         <div className="block-title">
           <Wrench size={14} />
-          <span>{String(block.name || "tool")}</span>
+          <span>{blockName === "__tool_calls__" ? t.message.toolCalls : blockName || t.common.fallbackTool}</span>
           {block.id ? <code>{String(block.id)}</code> : null}
         </div>
         <pre className="message-json">{shortText(sanitizeForDisplay(input))}</pre>
@@ -598,7 +1020,7 @@ function MessageBlock({ block }: { block: unknown }) {
       <div className="message-block media-block">
         <div className="block-title">
           <FileText size={14} />
-          <span>{type} block</span>
+          <span>{type} {t.common.block}</span>
         </div>
         <pre className="message-json">{shortText(sanitizeForDisplay(block))}</pre>
       </div>
@@ -616,6 +1038,7 @@ function MessageBlock({ block }: { block: unknown }) {
 }
 
 function ThinkingBlock({ block }: { block: Record<string, unknown> }) {
+  const t = useUiText();
   const [expanded, setExpanded] = useState(false);
   const thinking = String(block.thinking || "").trim();
   const canExpand = Boolean(thinking);
@@ -630,13 +1053,9 @@ function ThinkingBlock({ block }: { block: Record<string, unknown> }) {
         type="button"
       >
         <div className="block-title-main">
-          {canExpand ? (
-            <ChevronRight className={expanded ? "thinking-chevron expanded" : "thinking-chevron"} size={14} />
-          ) : null}
           <Brain size={14} />
-          <span>思考</span>
+          <span>{t.message.thinking}</span>
         </div>
-        {canExpand ? <span className="muted">{expanded ? "收起" : "展开"}</span> : null}
       </button>
       {expanded && canExpand ? (
         <div className="thinking-block-body">
@@ -648,31 +1067,29 @@ function ThinkingBlock({ block }: { block: Record<string, unknown> }) {
 }
 
 function RedactedThinkingBlock() {
+  const t = useUiText();
   return (
     <div className="message-block thinking-block redacted">
       <div className="block-title">
         <Brain size={14} />
-        <span>思考</span>
+        <span>{t.message.thinking}</span>
       </div>
       <div className="thinking-block-body">
-        <div className="muted">部分思考已加密，无法展示</div>
+        <div className="muted">{t.message.redactedThinking}</div>
       </div>
     </div>
   );
 }
 
 function ToolResultBlock({ block }: { block: Record<string, unknown> }) {
-  const [expanded, setExpanded] = useState(false);
+  const t = useUiText();
   const [copied, setCopied] = useState(false);
-  const previewText = shortText(sanitizeForDisplay(block.content ?? ""));
-  const fullText = displayText(sanitizeForDisplay(block.content ?? "", { truncateStrings: false }));
-  const canExpand = fullText !== previewText;
-  const renderedText = expanded ? fullText : previewText;
-  const copyLabel = copied ? "已复制" : "复制结果";
+  const resultText = displayText(sanitizeForDisplay(block.content ?? "", { truncateStrings: false }));
+  const copyLabel = copied ? t.common.copied : t.message.copyResult;
 
   const handleCopy = async () => {
     try {
-      await copyTextToClipboard(fullText);
+      await copyTextToClipboard(resultText);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -685,35 +1102,27 @@ function ToolResultBlock({ block }: { block: Record<string, unknown> }) {
       <div className="block-title block-title-split">
         <div className="block-title-main">
           <PackageCheck size={14} />
-          <span>{block.is_error ? "tool result error" : "tool result"}</span>
+          <span>{block.is_error ? t.message.toolResultError : t.message.toolResult}</span>
           {block.tool_call_id ? <code>{String(block.tool_call_id)}</code> : null}
         </div>
-        {canExpand ? (
-          <div className="tool-result-actions">
-            <button
-              className="tool-result-button"
-              type="button"
-              onClick={() => setExpanded((value) => !value)}
-            >
-              {expanded ? "收起" : "查看完整结果"}
-            </button>
-            <button className="tool-result-button" type="button" onClick={handleCopy}>
-              {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
-              <span>{copyLabel}</span>
-            </button>
-          </div>
-        ) : null}
+        <div className="tool-result-actions">
+          <button className="tool-result-button" type="button" onClick={handleCopy}>
+            {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
+            <span>{copyLabel}</span>
+          </button>
+        </div>
       </div>
-      <pre className={expanded ? "message-json tool-result-full" : "message-json"}>{renderedText}</pre>
+      <pre className="message-json tool-result-full">{resultText}</pre>
     </div>
   );
 }
 
 function MessageContent({ content, message }: { content: unknown; message: SessionMessage }) {
+  const t = useUiText();
   const toolCalls = message.tool_calls;
   return (
     <div className="message-content">
-      {typeof content === "string" ? <div className="message-text">{content}</div> : null}
+      {typeof content === "string" ? <MessageMarkdown text={content} /> : null}
       {Array.isArray(content) ? (
         <div className="message-block-list">
           {content.map((block, index) => (
@@ -728,7 +1137,7 @@ function MessageContent({ content, message }: { content: unknown; message: Sessi
         <div className="message-block tool-block">
           <div className="block-title">
             <Wrench size={14} />
-            <span>tool calls</span>
+            <span>{t.message.toolCalls}</span>
           </div>
           <pre className="message-json">{shortText(sanitizeForDisplay(toolCalls))}</pre>
         </div>
@@ -765,6 +1174,51 @@ function isToolGroupMessage(message: SessionMessage): boolean {
   return isPureToolAssistantMessage(message) || roleLabel(message.role) === "tool";
 }
 
+function splitAssistantInlineToolCalls(message: SessionMessage): {
+  message: SessionMessage;
+  toolCallMessage: SessionMessage | null;
+} {
+  if (roleLabel(message.role) !== "assistant") {
+    return { message, toolCallMessage: null };
+  }
+
+  const content = message.content;
+  const contentToolCalls = Array.isArray(content) ? content.filter(isToolCallBlock) : [];
+  const nonToolContent = Array.isArray(content) ? content.filter((block) => !isToolCallBlock(block)) : null;
+  const hasFallbackToolCalls = message.tool_calls !== undefined && message.tool_calls !== null;
+
+  if (!contentToolCalls.length && !hasFallbackToolCalls) {
+    return { message, toolCallMessage: null };
+  }
+
+  const visibleMessage: SessionMessage = { ...message };
+  if (nonToolContent) {
+    if (nonToolContent.length) {
+      visibleMessage.content = nonToolContent;
+    } else {
+      delete visibleMessage.content;
+    }
+  }
+  delete visibleMessage.tool_calls;
+
+  const toolContent = [...contentToolCalls];
+  if (!contentToolCalls.length && hasFallbackToolCalls) {
+    toolContent.push({
+      type: "tool_call",
+      name: "__tool_calls__",
+      input: message.tool_calls
+    });
+  }
+
+  const toolCallMessage: SessionMessage = {
+    ...message,
+    content: toolContent
+  };
+  delete toolCallMessage.tool_calls;
+
+  return { message: visibleMessage, toolCallMessage };
+}
+
 function buildConversationItems(messages: SessionMessage[]): ConversationRenderItem[] {
   const items: ConversationRenderItem[] = [];
   let pending: SessionMessage[] = [];
@@ -774,12 +1228,22 @@ function buildConversationItems(messages: SessionMessage[]): ConversationRenderI
     if (!pending.length) {
       return;
     }
-    items.push({
-      type: "tool_group",
+    const group: ConversationToolGroup = {
       messages: pending,
       startIndex: pendingStart,
       key: `tools-${pendingStart}-${pending.length}`,
-    });
+    };
+    const previous = items[items.length - 1];
+    if (previous?.type === "message" && roleLabel(previous.message.role) === "assistant") {
+      const existingGroup = previous.toolGroups[previous.toolGroups.length - 1];
+      if (existingGroup) {
+        existingGroup.messages.push(...pending);
+      } else {
+        previous.toolGroups.push(group);
+      }
+    } else {
+      items.push({ type: "tool_group", group });
+    }
     pending = [];
   };
 
@@ -792,7 +1256,21 @@ function buildConversationItems(messages: SessionMessage[]): ConversationRenderI
       return;
     }
     flushPending();
-    items.push({ type: "message", message, index });
+    const splitMessage = splitAssistantInlineToolCalls(message);
+    const item: Extract<ConversationRenderItem, { type: "message" }> = {
+      type: "message",
+      message: splitMessage.message,
+      index,
+      toolGroups: []
+    };
+    if (splitMessage.toolCallMessage) {
+      item.toolGroups.push({
+        messages: [splitMessage.toolCallMessage],
+        startIndex: index,
+        key: `tools-${index}-inline`
+      });
+    }
+    items.push(item);
   });
   flushPending();
   return items;
@@ -831,7 +1309,7 @@ function messageToolNames(message: SessionMessage): string[] {
   return names;
 }
 
-function toolGroupStats(messages: SessionMessage[]) {
+function toolGroupStats(messages: SessionMessage[], t: UiText) {
   let callCount = 0;
   let resultCount = 0;
   let hasError = false;
@@ -859,45 +1337,55 @@ function toolGroupStats(messages: SessionMessage[]) {
     callCount,
     resultCount,
     hasError,
-    summary: uniqueNames.length ? uniqueNames.join(", ") : "tool activity",
+    summary: uniqueNames.length ? uniqueNames.join(", ") : t.message.toolActivity,
   };
 }
 
 function ToolTurnGroup({
-  item,
+  group,
   expanded,
+  embedded = false,
   onToggle
 }: {
-  item: Extract<ConversationRenderItem, { type: "tool_group" }>;
+  group: ConversationToolGroup;
   expanded: boolean;
+  embedded?: boolean;
   onToggle: () => void;
 }) {
-  const stats = toolGroupStats(item.messages);
+  const t = useUiText();
+  const stats = toolGroupStats(group.messages, t);
+  const className = [
+    "tool-turn-group",
+    embedded ? "embedded" : "standalone",
+    stats.hasError ? "has-error" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <section className={stats.hasError ? "tool-turn-group has-error" : "tool-turn-group"}>
+    <section className={className}>
       <button
         className="tool-turn-summary"
         type="button"
         aria-expanded={expanded}
         onClick={onToggle}
       >
-        <ChevronRight className={expanded ? "tool-turn-chevron expanded" : "tool-turn-chevron"} size={16} />
         <div>
           <div className="tool-turn-title">
-            工具操作 · {formatNumber(stats.callCount)} calls · {formatNumber(stats.resultCount)} results
+            {embedded ? t.message.toolOperation : t.message.toolContinuation} · {formatNumber(stats.callCount)}{" "}
+            {t.message.calls} · {formatNumber(stats.resultCount)} {t.message.results}
           </div>
           <div className="tool-turn-subtitle">{stats.summary}</div>
         </div>
-        {stats.hasError ? <span className="pill warn">error</span> : null}
+        {stats.hasError ? <span className="pill warn">{t.message.error}</span> : null}
       </button>
       {expanded ? (
         <div className="tool-turn-body">
-          {item.messages.map((message, index) => {
+          {group.messages.map((message, index) => {
             const role = roleLabel(message.role);
             return (
-              <div className="tool-turn-message" key={`${item.key}-${index}`}>
+              <div className="tool-turn-message" key={`${group.key}-${index}`}>
                 <div className="message-header">
-                  <span className={`role-badge role-${role}`}>{role}</span>
+                  <RoleBadge role={role} />
                   {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
                   {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
                 </div>
@@ -930,6 +1418,7 @@ function SessionDetailView({
   onPageChange: (page: number) => void;
   onBack: () => void;
 }) {
+  const t = useUiText();
   const session = detail?.session || fallbackSession;
   const messages = detail?.messages || [];
   const page = detail?.messages_page;
@@ -952,13 +1441,13 @@ function SessionDetailView({
       <div className="detail-toolbar">
         <button className="back-button" type="button" onClick={onBack}>
           <ArrowLeft size={16} />
-          <span>Sessions</span>
+          <span>{t.sessionDetail.back}</span>
         </button>
       </div>
       <section className="session-detail-header">
         <div>
-          <div className="eyebrow">Session Detail</div>
-          <h2>{session.title || "未命名会话"}</h2>
+          <div className="eyebrow">{t.sessionDetail.eyebrow}</div>
+          <h2>{session.title || t.common.unnamedSession}</h2>
           <p className="muted mono">{session.session_id}</p>
         </div>
         <div className="detail-meta-grid">
@@ -968,38 +1457,70 @@ function SessionDetailView({
         </div>
       </section>
       <div className="detail-stats">
-        <StatTile icon={<MessageSquareText size={18} />} label="Messages" value={formatNumber(session.message_count)} />
-        <StatTile icon={<Wrench size={18} />} label="Tool Calls" value={formatNumber(session.tool_call_count)} />
-        <StatTile icon={<Box size={18} />} label="Tokens" value={formatNumber(session.input_tokens + session.output_tokens)} />
-        <StatTile icon={<Activity size={18} />} label="API Calls" value={formatNumber(session.api_call_count)} />
+        <StatTile icon={<MessageSquareText size={18} />} label={t.stats.messages} value={formatNumber(session.message_count)} />
+        <StatTile icon={<Wrench size={18} />} label={t.stats.toolCalls} value={formatNumber(session.tool_call_count)} />
+        <StatTile icon={<Box size={18} />} label={t.stats.tokens} value={formatNumber(session.input_tokens + session.output_tokens)} />
+        <StatTile icon={<Activity size={18} />} label={t.stats.apiCalls} value={formatNumber(session.api_call_count)} />
       </div>
-      {loading ? <EmptyState label="Loading conversation..." /> : null}
-      {error ? <EmptyState label={`Session error: ${error}`} /> : null}
+      {loading ? <EmptyState label={t.sessionDetail.loading} /> : null}
+      {error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, error)} /> : null}
       {!loading && !error ? (
         messages.length ? (
           <>
             <div className="message-list">
-              {renderItems.map((item) => {
+              {renderItems.map((item, itemIndex) => {
                 if (item.type === "tool_group") {
                   return (
                     <ToolTurnGroup
-                      expanded={expandedToolGroups.has(item.key)}
-                      item={item}
-                      key={item.key}
-                      onToggle={() => toggleToolGroup(item.key)}
+                      expanded={expandedToolGroups.has(item.group.key)}
+                      group={item.group}
+                      key={item.group.key}
+                      onToggle={() => toggleToolGroup(item.group.key)}
                     />
                   );
                 }
-                const { message, index } = item;
+                const { message, index, toolGroups } = item;
                 const role = roleLabel(message.role);
+                const previousItem = renderItems[itemIndex - 1];
+                const nextItem = renderItems[itemIndex + 1];
+                const previousIsAssistant =
+                  previousItem?.type === "message" && roleLabel(previousItem.message.role) === "assistant";
+                const nextIsAssistant =
+                  nextItem?.type === "message" && roleLabel(nextItem.message.role) === "assistant";
+                const showRoleBadge = !(role === "assistant" && previousIsAssistant);
+                const hasMessageHeader = showRoleBadge || Boolean(message.tool_name || message.tool_call_id);
+                const chainClass =
+                  role === "assistant"
+                    ? [
+                        previousIsAssistant ? "assistant-chain-from-previous" : "",
+                        nextIsAssistant ? "assistant-chain-to-next" : ""
+                      ]
+                        .filter(Boolean)
+                        .join(" ")
+                    : "";
                 return (
-                  <article className={`message-card role-${role}`} key={`${role}-${index}`}>
-                    <div className="message-header">
-                      <span className={`role-badge role-${role}`}>{role}</span>
-                      {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
-                      {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
-                    </div>
+                  <article className={`message-card role-${role} ${chainClass}`} key={`${role}-${index}`}>
+                    {hasMessageHeader ? (
+                      <div className="message-header">
+                        {showRoleBadge ? <RoleBadge role={role} /> : null}
+                        {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
+                        {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
+                      </div>
+                    ) : null}
                     <MessageContent content={message.content} message={message} />
+                    {toolGroups.length ? (
+                      <div className="assistant-tool-stack">
+                        {toolGroups.map((group) => (
+                          <ToolTurnGroup
+                            embedded
+                            expanded={expandedToolGroups.has(group.key)}
+                            group={group}
+                            key={group.key}
+                            onToggle={() => toggleToolGroup(group.key)}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
                   </article>
                 );
               })}
@@ -1011,15 +1532,15 @@ function SessionDetailView({
                 disabled={pageLoading || !page?.has_previous}
                 onClick={() => page && onPageChange(page.current_page - 1)}
               >
-                上一页
+                {t.common.previous}
               </button>
               <div className="message-page-center">
                 <div className="message-page-count">
-                  当前页 {formatNumber(visibleItemCount)} / 总 {formatNumber(page?.total || renderItems.length)} conversation items
-                  {page ? <span> · {formatNumber(page.raw_message_total)} raw messages</span> : null}
+                  {t.sessionDetail.pageBlocks(formatNumber(visibleItemCount), formatNumber(page?.total || renderItems.length))}
+                  {page ? <span> · {t.sessionDetail.rawMessages(formatNumber(page.raw_message_total))}</span> : null}
                 </div>
                 <div className="message-page-index">
-                  第 {formatNumber(page?.current_page || 1)} / {formatNumber(page?.total_pages || 1)} 页
+                  {t.common.pageIndex(formatNumber(page?.current_page || 1), formatNumber(page?.total_pages || 1))}
                 </div>
                 {pageError ? <div className="message-page-error">{pageError}</div> : null}
               </div>
@@ -1029,12 +1550,12 @@ function SessionDetailView({
                 disabled={pageLoading || !page?.has_next}
                 onClick={() => page && onPageChange(page.current_page + 1)}
               >
-                下一页
+                {t.common.next}
               </button>
             </div>
           </>
         ) : (
-          <EmptyState label="该 session 暂无对话记录。" />
+          <EmptyState label={t.sessionDetail.empty} />
         )
       ) : null}
     </div>
@@ -1043,6 +1564,7 @@ function SessionDetailView({
 
 function SessionsView({
   sessions,
+  summary,
   total,
   limit,
   offset,
@@ -1053,6 +1575,7 @@ function SessionsView({
   onOpen
 }: {
   sessions: SessionPayload[];
+  summary: SessionSummaryPayload;
   total: number;
   limit: number;
   offset: number;
@@ -1062,38 +1585,35 @@ function SessionsView({
   onPageChange: (page: number) => void;
   onOpen: (session: SessionPayload) => void;
 }) {
+  const t = useUiText();
   const safeLimit = Math.max(1, Number(limit) || SESSION_LIST_PAGE_SIZE);
   const safeOffset = Math.max(0, Number(offset) || 0);
   const safeTotal = Math.max(0, Number(total) || 0);
   const currentPage = Math.floor(safeOffset / safeLimit) + 1;
   const totalPages = Math.max(1, Math.ceil(safeTotal / safeLimit));
   const trimmedQuery = query.trim();
-  const countLabel = trimmedQuery ? `搜索结果 ${formatNumber(safeTotal)} 条` : `共 ${formatNumber(safeTotal)} 条`;
-  const emptyLabel = trimmedQuery ? "没有匹配的 session。" : "暂无 session 记录。";
+  const countLabel = trimmedQuery ? t.sessions.searchResults(formatNumber(safeTotal)) : t.sessions.total(formatNumber(safeTotal));
+  const emptyLabel = trimmedQuery ? t.sessions.emptySearch : t.sessions.empty;
   const hasPrevious = currentPage > 1;
   const hasNext = currentPage < totalPages;
   const showTable = sessions.length > 0;
+  const totalTokens = summary.token_count;
+  const totalTools = summary.tool_call_count;
 
   return (
     <div className="sessions-panel">
-      <div className="sessions-list-toolbar">
-        <div>
-          <div className="sessions-list-title">Sessions</div>
-          <div className="sessions-list-meta">{countLabel}</div>
-        </div>
-        {loading ? <span className="pill">loading</span> : null}
-      </div>
-      {error ? <EmptyState label={`Sessions error: ${error}`} /> : null}
-      {!showTable && loading && !error ? <EmptyState label="Loading sessions..." /> : null}
+      <section className="stats-row session-stats-row">
+        <StatTile icon={<Database size={18} />} label={t.stats.sessions} value={formatNumber(summary.total_sessions)} tone="blue" />
+        <StatTile icon={<Activity size={18} />} label={t.stats.toolCalls} value={formatNumber(totalTools)} tone="green" />
+        <StatTile icon={<Box size={18} />} label={t.stats.tokens} value={formatNumber(totalTokens)} tone="amber" />
+      </section>
+      {loading && showTable ? <span className="pill sessions-loading-pill">{t.common.loading}</span> : null}
+      {error ? <EmptyState label={t.common.errorPrefix(t.sessions.errorLabel, error)} /> : null}
+      {!showTable && loading && !error ? <EmptyState label={t.sessions.loading} /> : null}
       {!showTable && !loading && !error ? <EmptyState label={emptyLabel} /> : null}
       {showTable ? (
         <div className="table-shell">
           <table className="session-table">
-            <thead>
-              <tr>
-                <th>会话</th>
-              </tr>
-            </thead>
             <tbody>
               {sessions.map((session) => (
                 <tr
@@ -1112,16 +1632,15 @@ function SessionsView({
                   <td>
                     <div className="session-row-content">
                       <div className="session-row-copy">
-                        <div className="primary-cell">{session.title || "未命名会话"}</div>
+                        <div className="primary-cell">{session.title || t.common.unnamedSession}</div>
                         <div className="session-meta-line">
                           <span>{formatDate(session.last_active_at)}</span>
                           <span aria-hidden="true" className="session-meta-separator">
                             ·
                           </span>
-                          <span>{formatNumber(session.input_tokens + session.output_tokens)} Token</span>
+                          <span>{formatNumber(session.input_tokens + session.output_tokens)} {t.sessions.tokenSuffix}</span>
                         </div>
                       </div>
-                      <ChevronRight size={16} />
                     </div>
                   </td>
                 </tr>
@@ -1138,11 +1657,11 @@ function SessionsView({
             disabled={loading || !hasPrevious}
             onClick={() => onPageChange(currentPage - 1)}
           >
-            上一页
+            {t.common.previous}
           </button>
           <div className="session-page-center">
             <div className="message-page-index">
-              第 {formatNumber(currentPage)} / {formatNumber(totalPages)} 页
+              {t.common.pageIndex(formatNumber(currentPage), formatNumber(totalPages))}
             </div>
             <div className="message-page-count">{countLabel}</div>
           </div>
@@ -1152,7 +1671,7 @@ function SessionsView({
             disabled={loading || !hasNext}
             onClick={() => onPageChange(currentPage + 1)}
           >
-            下一页
+            {t.common.next}
           </button>
         </div>
       ) : null}
@@ -1175,6 +1694,7 @@ function ModelsView({
   onCurrentModelChange: (provider: string, model: string) => void;
   onThinkingLevelChange: (level: string) => void;
 }) {
+  const t = useUiText();
   const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -1209,6 +1729,9 @@ function ModelsView({
         const thinkingLevels = displayedModel.thinking_levels || [];
         const showThinkingControl =
           selectedIsCurrent && Boolean(displayedModel.thinking_state?.editable) && thinkingLevels.length > 0;
+        const showThinkingReadout = !showThinkingControl && thinkingLevels.length > 0;
+        const showThinkingUnsupported = !displayedModel.capabilities.supports_thinking;
+        const showThinkingPanel = showThinkingControl || showThinkingReadout || showThinkingUnsupported;
         const switchDisabled = modelSaving || !model.selectable || !selectedOption || selectedIsCurrent;
         return (
           <article className={`item-card ${providerActive ? "item-active" : ""}`} key={model.provider}>
@@ -1221,17 +1744,9 @@ function ModelsView({
                 <div className="model-heading-model">{displayedModel.model}</div>
               </div>
             </div>
-            <div className="pill-row">
-              <span className={model.configured ? "pill ok" : "pill warn"}>
-                {model.configured ? "configured" : "missing key"}
-              </span>
-              <span className="pill">{model.api_style}</span>
-              {providerActive ? <span className="pill active">current</span> : null}
-              {!model.selectable ? <span className="pill warn">read only</span> : null}
-            </div>
             <div className="model-select-panel">
               <label className="model-select-label" htmlFor={`model-select-${model.provider}`}>
-                Model
+                {t.models.model}
               </label>
               <div className="model-select-row">
                 <select
@@ -1260,20 +1775,20 @@ function ModelsView({
                   type="button"
                 >
                   <Settings2 size={14} />
-                  <span>{selectedIsCurrent ? "Current" : modelSaving ? "Switching" : "Set current"}</span>
+                  <span>{selectedIsCurrent ? t.models.current : modelSaving ? t.models.switching : t.models.setCurrent}</span>
                 </button>
               </div>
               {!model.selectable && model.disabled_reason ? (
-                <div className="model-disabled-reason">{model.disabled_reason}</div>
+                <div className="model-disabled-reason">{modelDisabledReasonLabel(t, model.disabled_reason)}</div>
               ) : null}
             </div>
             <dl className="compact-metrics">
               <div>
-                <dt>Context</dt>
+                <dt>{t.models.context}</dt>
                 <dd>{formatNumber(displayedModel.capabilities.context_window_tokens)}</dd>
               </div>
               <div>
-                <dt>Output</dt>
+                <dt>{t.models.output}</dt>
                 <dd>
                   {formatNumber(
                     displayedModel.capabilities.max_tokens ?? displayedModel.capabilities.max_output_tokens ?? 0
@@ -1281,45 +1796,42 @@ function ModelsView({
                 </dd>
               </div>
               <div>
-                <dt>Vision</dt>
-                <dd>{displayedModel.capabilities.supports_vision ? "yes" : "no"}</dd>
+                <dt>{t.models.vision}</dt>
+                <dd>{displayedModel.capabilities.supports_vision ? t.common.yes : t.common.no}</dd>
               </div>
             </dl>
-            <div className="model-thinking-panel">
-              <div className="model-thinking-title">
-                <span>Thinking</span>
-                <strong>
-                  {displayedModel.capabilities.supports_thinking ? displayedModel.thinking_request_style : "none"}
-                </strong>
+            {showThinkingPanel ? (
+              <div className="model-thinking-panel">
+                <div className="model-thinking-title">
+                  <span>{t.models.thinking}</span>
+                </div>
+                {showThinkingControl ? (
+                  <div className="thinking-level-control" role="group" aria-label={`${model.label} thinking level`}>
+                    {thinkingLevels.map((level) => {
+                      const selected = displayedModel.thinking_state?.level === level;
+                      return (
+                        <button
+                          aria-pressed={selected}
+                          className={selected ? "thinking-level-button active" : "thinking-level-button"}
+                          disabled={thinkingSaving}
+                          key={level}
+                          onClick={() => onThinkingLevelChange(level)}
+                          type="button"
+                        >
+                          {modelThinkingLevelLabel(displayedModel, level)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : showThinkingReadout ? (
+                  <div className="thinking-level-readout">
+                    {thinkingLevels.map((level) => modelThinkingLevelLabel(displayedModel, level)).join(" / ")}
+                  </div>
+                ) : (
+                  <div className="thinking-level-readout">{t.common.notSupported}</div>
+                )}
               </div>
-              {showThinkingControl ? (
-                <div className="thinking-level-control" role="group" aria-label={`${model.label} thinking level`}>
-                  {thinkingLevels.map((level) => {
-                    const selected = displayedModel.thinking_state?.level === level;
-                    return (
-                      <button
-                        aria-pressed={selected}
-                        className={selected ? "thinking-level-button active" : "thinking-level-button"}
-                        disabled={thinkingSaving}
-                        key={level}
-                        onClick={() => onThinkingLevelChange(level)}
-                        type="button"
-                      >
-                        {modelThinkingLevelLabel(displayedModel, level)}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : thinkingLevels.length ? (
-                <div className="thinking-level-readout">
-                  {thinkingLevels.map((level) => modelThinkingLevelLabel(displayedModel, level)).join(" / ")}
-                </div>
-              ) : !displayedModel.capabilities.supports_thinking ? (
-                <div className="thinking-level-readout">not supported</div>
-              ) : (
-                <div className="thinking-level-readout">provider managed</div>
-              )}
-            </div>
+            ) : null}
           </article>
         );
       })}
@@ -1334,45 +1846,58 @@ function ToolsView({
   toolsets: ToolsetPayload[];
   onOpen: (target: DetailTarget) => void;
 }) {
+  const t = useUiText();
+  const [expandedToolsets, setExpandedToolsets] = useState<Record<string, boolean>>({});
+
   return (
     <div className="toolset-stack">
-      {toolsets.map((toolset) => (
-        <section className="toolset-section" key={toolset.name}>
-          <div className="section-title-row">
-            <div>
-              <h2>{toolset.label}</h2>
-              <p>{toolset.tools.length} tools</p>
-            </div>
-            <span className={toolset.enabled ? "status-dot on" : "status-dot"} />
-          </div>
-          {toolset.tools.length ? (
-            <div className="grid-list">
-              {toolset.tools.map((tool) => (
-                <button
-                  className="item-card item-button"
-                  key={tool.name}
-                  type="button"
-                  onClick={() => onOpen({ type: "tool", item: tool, title: tool.name })}
-                >
-                  <div className="item-heading">
-                    <div className="item-icon">
-                      <Wrench size={18} />
-                    </div>
-                    <div>
-                      <h3>{tool.name}</h3>
-                      <p>{tool.requires_resource || "runtime"}</p>
-                    </div>
-                    <ChevronRight className="chevron" size={18} />
-                  </div>
-                  <p className="description">{tool.description}</p>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <EmptyState label="该 toolset 暂无可展示工具。" />
-          )}
-        </section>
-      ))}
+      {toolsets.map((toolset) => {
+        const expanded = expandedToolsets[toolset.name] ?? false;
+        return (
+          <section className="toolset-section" key={toolset.name}>
+            <button
+              className="section-title-button"
+              type="button"
+              aria-expanded={expanded}
+              onClick={() => setExpandedToolsets((current) => ({ ...current, [toolset.name]: !expanded }))}
+            >
+              <ChevronRight className={expanded ? "section-chevron expanded" : "section-chevron"} size={16} />
+              <div>
+                <h2>{toolset.label}</h2>
+                <p>{t.common.countItems(formatNumber(toolset.tools.length), t.tools.itemUnit)}</p>
+              </div>
+              <span className={toolset.enabled ? "status-dot on" : "status-dot"} />
+            </button>
+            {expanded ? (
+              toolset.tools.length ? (
+                <div className="grid-list">
+                  {toolset.tools.map((tool) => (
+                    <button
+                      className="item-card item-button"
+                      key={tool.name}
+                      type="button"
+                      onClick={() => onOpen({ type: "tool", item: tool, title: tool.name })}
+                    >
+                      <div className="item-heading">
+                        <div className="item-icon">
+                          <Wrench size={18} />
+                        </div>
+                        <div>
+                          <h3>{tool.name}</h3>
+                        </div>
+                        <ChevronRight className="chevron" size={18} />
+                      </div>
+                      <p className="description">{tool.description}</p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState label={t.tools.emptyToolset} />
+              )
+            ) : null}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -1423,8 +1948,9 @@ function BackgroundTasksView({
   tasks: BackgroundTaskPayload[];
   onOpen: (target: DetailTarget) => void;
 }) {
+  const t = useUiText();
   if (!tasks.length) {
-    return <EmptyState label="暂无后台任务。" />;
+    return <EmptyState label={t.tasks.empty} />;
   }
   const groups = groupTasksByStatus(tasks);
   return (
@@ -1434,7 +1960,7 @@ function BackgroundTasksView({
           <div className="section-title-row">
             <div>
               <h2>{group.status}</h2>
-              <p>{group.tasks.length} tasks</p>
+              <p>{t.common.countItems(formatNumber(group.tasks.length), t.tasks.itemUnit)}</p>
             </div>
             <span className={group.status === "running" ? "status-dot on" : "status-dot"} />
           </div>
@@ -1442,12 +1968,12 @@ function BackgroundTasksView({
             <table className="session-table task-table">
               <thead>
                 <tr>
-                  <th>任务</th>
-                  <th>状态</th>
-                  <th>Session</th>
-                  <th>命令</th>
-                  <th>耗时</th>
-                  <th>开始时间</th>
+                  <th>{t.tasks.task}</th>
+                  <th>{t.tasks.status}</th>
+                  <th>{t.tasks.session}</th>
+                  <th>{t.tasks.command}</th>
+                  <th>{t.tasks.duration}</th>
+                  <th>{t.tasks.startedAt}</th>
                 </tr>
               </thead>
               <tbody>
@@ -1473,8 +1999,8 @@ function BackgroundTasksView({
                       <span className={statusPillClass(task.status)}>{task.status || "unknown"}</span>
                     </td>
                     <td>
-                      <div className="primary-cell" title={task.session_title || "未命名会话"}>
-                        {task.session_title || "未命名会话"}
+                      <div className="primary-cell" title={task.session_title || t.common.unnamedSession}>
+                        {task.session_title || t.common.unnamedSession}
                       </div>
                       <div className="muted mono" title={task.session_id || ""}>
                         {task.session_id ? shortId(task.session_id) : "-"}
@@ -1504,14 +2030,14 @@ function BackgroundTasksView({
 
 const SKILL_TYPE_ORDER = ["default", "amazon_fba", "amazon_replenish"];
 
-function skillTypeLabel(type: string): string {
+function skillTypeLabel(type: string, t: UiText): string {
   const normalized = String(type || "").trim();
   const labels: Record<string, string> = {
-    default: "Default",
-    amazon_fba: "Amazon FBA",
-    amazon_replenish: "Amazon Replenish"
+    default: t.skillTypes.default,
+    amazon_fba: t.skillTypes.amazon_fba,
+    amazon_replenish: t.skillTypes.amazon_replenish
   };
-  return labels[normalized] || normalized || "Uncategorized";
+  return labels[normalized] || normalized || t.skillTypes.uncategorized;
 }
 
 function skillTypeRank(type: string): number {
@@ -1519,7 +2045,7 @@ function skillTypeRank(type: string): number {
   return index >= 0 ? index : SKILL_TYPE_ORDER.length;
 }
 
-function groupSkillsByType(skills: SkillPayload[]): Array<{ type: string; label: string; skills: SkillPayload[] }> {
+function groupSkillsByType(skills: SkillPayload[], t: UiText): Array<{ type: string; label: string; skills: SkillPayload[] }> {
   const groups = new Map<string, SkillPayload[]>();
   for (const skill of skills) {
     const type = String(skill.type || "").trim() || "uncategorized";
@@ -1528,7 +2054,7 @@ function groupSkillsByType(skills: SkillPayload[]): Array<{ type: string; label:
   return Array.from(groups.entries())
     .map(([type, items]) => ({
       type,
-      label: skillTypeLabel(type),
+      label: skillTypeLabel(type, t),
       skills: items.slice().sort((left, right) => left.name.localeCompare(right.name))
     }))
     .sort((left, right) => {
@@ -1548,47 +2074,60 @@ function SkillsView({
   skills: SkillPayload[];
   onOpen: (target: DetailTarget) => void;
 }) {
+  const t = useUiText();
+  const [expandedSkillGroups, setExpandedSkillGroups] = useState<Record<string, boolean>>({});
+
   if (!skills.length) {
-    return <EmptyState label="当前 agent 暂无可用 skill。" />;
+    return <EmptyState label={t.skills.empty} />;
   }
-  const groups = groupSkillsByType(skills);
+  const groups = groupSkillsByType(skills, t);
   return (
     <div className="toolset-stack">
       {groups.map((group) => {
+        const expanded = expandedSkillGroups[group.type] ?? false;
         return (
           <section className="toolset-section" key={group.type}>
-            <div className="section-title-row">
+            <button
+              className="section-title-button"
+              type="button"
+              aria-expanded={expanded}
+              onClick={() => setExpandedSkillGroups((current) => ({ ...current, [group.type]: !expanded }))}
+            >
+              <ChevronRight className={expanded ? "section-chevron expanded" : "section-chevron"} size={16} />
               <div>
                 <h2>{group.label}</h2>
-                <p>{group.skills.length} skills</p>
+                <p>{t.common.countItems(formatNumber(group.skills.length), t.skills.itemUnit)}</p>
               </div>
               <span className="status-dot on" />
-            </div>
-            <div className="grid-list">
-              {group.skills.map((skill) => (
-                <button
-                  className="item-card item-button"
-                  key={skill.name}
-                  type="button"
-                  onClick={() => onOpen({ type: "skill", item: skill, title: skill.name })}
-                >
-                  <div className="item-heading">
-                    <div className="item-icon skill-icon">
-                      <Sparkles size={18} />
+            </button>
+            {expanded ? (
+              <div className="grid-list">
+                {group.skills.map((skill) => (
+                  <button
+                    className="item-card item-button"
+                    key={skill.name}
+                    type="button"
+                    onClick={() => onOpen({ type: "skill", item: skill, title: skill.name })}
+                  >
+                    <div className="item-heading">
+                      <div className="item-icon skill-icon">
+                        <Sparkles size={18} />
+                      </div>
+                      <div>
+                        <h3>{skill.name}</h3>
+                      </div>
+                      <ChevronRight className="chevron" size={18} />
                     </div>
-                    <div>
-                      <h3>{skill.name}</h3>
-                      <p>{skill.type}</p>
-                    </div>
-                    <ChevronRight className="chevron" size={18} />
-                  </div>
-                  <p className="description">{skill.description}</p>
-                  <div className="pill-row">
-                    <span className="pill">{skill.references.length} refs</span>
-                  </div>
-                </button>
-              ))}
-            </div>
+                    <p className="description">{skill.description}</p>
+                    {skill.references.length ? (
+                      <div className="pill-row">
+                        <span className="pill">{t.skills.refs(formatNumber(skill.references.length))}</span>
+                      </div>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </section>
         );
       })}
@@ -1597,6 +2136,7 @@ function SkillsView({
 }
 
 function MermaidBlock({ chart }: { chart: string }) {
+  const t = useUiText();
   const reactId = useId();
   const mermaidId = useMemo(
     () => `skill-mermaid-${reactId.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
@@ -1637,14 +2177,14 @@ function MermaidBlock({ chart }: { chart: string }) {
   if (error) {
     return (
       <div className="mermaid-block error">
-        <div className="mermaid-block-status error">Mermaid render error: {error}</div>
+        <div className="mermaid-block-status error">{t.mermaid.renderError(error)}</div>
         <pre className="mermaid-source-fallback">{chart}</pre>
       </div>
     );
   }
 
   if (!svg) {
-    return <div className="mermaid-block-status">Rendering Mermaid diagram...</div>;
+    return <div className="mermaid-block-status">{t.mermaid.rendering}</div>;
   }
 
   return (
@@ -1656,6 +2196,7 @@ function MermaidBlock({ chart }: { chart: string }) {
 }
 
 function SkillDetailContent({ skill }: { skill: SkillPayload }) {
+  const t = useUiText();
   const [payload, setPayload] = useState<SkillContentPayload | null>(null);
   const [contentView, setContentView] = useState<SkillContentView | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1764,16 +2305,16 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
       <p>{skill.description}</p>
       <dl className="detail-list">
         <div>
-          <dt>Type</dt>
+          <dt>{t.skillModal.type}</dt>
           <dd>{skill.type}</dd>
         </div>
         <div>
-          <dt>Location</dt>
+          <dt>{t.skillModal.location}</dt>
           <dd className="mono">{payload?.location || skill.location}</dd>
         </div>
       </dl>
       <div className="schema-block">
-        <div className="schema-title">References</div>
+        <div className="schema-title">{t.skillModal.references}</div>
         {references.length ? (
           <div className="reference-list">
             {payload ? (
@@ -1799,13 +2340,13 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
                   type="button"
                 >
                   <span className="mono">{reference.path}</span>
-                  <small>{loadingReference ? "loading..." : reference.description}</small>
+                  <small>{loadingReference ? t.skillModal.loadingReference : reference.description}</small>
                 </button>
               );
             })}
           </div>
         ) : (
-          <p className="muted reference-empty">No references.</p>
+          <p className="muted reference-empty">{t.skillModal.noReferences}</p>
         )}
       </div>
       <div className="schema-block skill-content-block">
@@ -1821,27 +2362,27 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
             type="button"
           >
             {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
-            <span>{copied ? "已复制" : "复制原文"}</span>
+            <span>{copied ? t.common.copied : t.skillModal.copySource}</span>
           </button>
         </div>
         {error ? <div className="skill-content-status error">{error}</div> : null}
-        {loading ? <div className="skill-content-status">Loading skill content...</div> : null}
+        {loading ? <div className="skill-content-status">{t.skillModal.loadingContent}</div> : null}
         {!loading && contentView ? (
           <>
-            <div className="skill-content-mode-row" role="group" aria-label="Skill content display mode">
+            <div className="skill-content-mode-row" role="group" aria-label={t.skillModal.modeAria}>
               <button
                 className={contentMode === "preview" ? "skill-mode-button active" : "skill-mode-button"}
                 onClick={() => setContentMode("preview")}
                 type="button"
               >
-                预览
+                {t.skillModal.preview}
               </button>
               <button
                 className={contentMode === "source" ? "skill-mode-button active" : "skill-mode-button"}
                 onClick={() => setContentMode("source")}
                 type="button"
               >
-                原文
+                {t.skillModal.source}
               </button>
             </div>
             {contentMode === "preview" ? (
@@ -1861,10 +2402,11 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
 }
 
 function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () => void }) {
+  const t = useUiText();
   if (!target) {
     return null;
   }
-  const modalType = target.type === "tool" ? "Tool" : target.type === "skill" ? "Skill" : "Background Task";
+  const modalType = target.type === "tool" ? t.detailModal.tool : target.type === "skill" ? t.detailModal.skill : t.detailModal.task;
   return (
     <div className="modal-backdrop" role="presentation" onClick={onClose}>
       <section className="modal" role="dialog" aria-modal="true" aria-label={target.title} onClick={(event) => event.stopPropagation()}>
@@ -1873,7 +2415,7 @@ function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () =>
             <div className="modal-kicker">{modalType}</div>
             <h2>{target.title}</h2>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close">
+          <button className="icon-button" type="button" onClick={onClose} aria-label={t.detailModal.close}>
             <X size={18} />
           </button>
         </div>
@@ -1881,7 +2423,7 @@ function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () =>
           <div className="modal-content">
             <p>{target.item.description}</p>
             <div className="schema-block">
-              <div className="schema-title">Input schema</div>
+              <div className="schema-title">{t.detailModal.inputSchema}</div>
               <pre>{JSON.stringify(target.item.parameters, null, 2)}</pre>
             </div>
           </div>
@@ -1891,59 +2433,59 @@ function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () =>
           <div className="modal-content">
             <dl className="detail-list">
               <div>
-                <dt>Status</dt>
+                <dt>{t.detailModal.status}</dt>
                 <dd>
-                  <span className={statusPillClass(target.item.status)}>{target.item.status || "unknown"}</span>
+                  <span className={statusPillClass(target.item.status)}>{target.item.status || t.common.unknown}</span>
                 </dd>
               </div>
               <div>
-                <dt>Session title</dt>
-                <dd>{target.item.session_title || "未命名会话"}</dd>
+                <dt>{t.detailModal.sessionTitle}</dt>
+                <dd>{target.item.session_title || t.common.unnamedSession}</dd>
               </div>
               <div>
-                <dt>Session</dt>
+                <dt>{t.detailModal.session}</dt>
                 <dd className="mono">{target.item.session_id || "-"}</dd>
               </div>
               <div>
-                <dt>Turn</dt>
+                <dt>{t.detailModal.turn}</dt>
                 <dd className="mono">{target.item.origin_turn_id || "-"}</dd>
               </div>
               <div>
-                <dt>Card</dt>
+                <dt>{t.detailModal.card}</dt>
                 <dd className="mono">{target.item.card_id || "-"}</dd>
               </div>
               <div>
-                <dt>PID</dt>
+                <dt>{t.detailModal.pid}</dt>
                 <dd>{target.item.pid ?? "-"}</dd>
               </div>
               <div>
-                <dt>Started</dt>
+                <dt>{t.detailModal.started}</dt>
                 <dd>{formatDate(target.item.started_at)}</dd>
               </div>
               <div>
-                <dt>Ended</dt>
+                <dt>{t.detailModal.ended}</dt>
                 <dd>{target.item.ended_at ? formatDate(target.item.ended_at) : "-"}</dd>
               </div>
               <div>
-                <dt>Duration</dt>
+                <dt>{t.detailModal.duration}</dt>
                 <dd>{formatDuration(target.item.duration_sec)}</dd>
               </div>
               <div>
-                <dt>Exit code</dt>
+                <dt>{t.detailModal.exitCode}</dt>
                 <dd>{target.item.exit_code ?? "-"}</dd>
               </div>
               <div>
-                <dt>CWD</dt>
+                <dt>{t.detailModal.cwd}</dt>
                 <dd className="mono">{target.item.cwd || "-"}</dd>
               </div>
             </dl>
             <div className="schema-block">
-              <div className="schema-title">Command</div>
+              <div className="schema-title">{t.detailModal.command}</div>
               <pre>{target.item.command || "-"}</pre>
             </div>
             <div className="schema-block">
-              <div className="schema-title">Output tail</div>
-              <pre>{target.item.output_tail || "(no output)"}</pre>
+              <div className="schema-title">{t.detailModal.outputTail}</div>
+              <pre>{target.item.output_tail || `(${t.detailModal.noOutput})`}</pre>
             </div>
           </div>
         )}
@@ -1953,6 +2495,8 @@ function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () =>
 }
 
 function App() {
+  const [language, setLanguage] = useState<Language>(() => initialLanguage());
+  const t = UI_TEXT[language];
   const [activeTab, setActiveTab] = useState("sessions");
   const [data, setData] = useState<DashboardData | null>(null);
   const [sessionsData, setSessionsData] = useState<SessionListPayload>(EMPTY_SESSION_LIST);
@@ -1972,6 +2516,15 @@ function App() {
   const [sessionDetailPageError, setSessionDetailPageError] = useState("");
   const [modelSaving, setModelSaving] = useState(false);
   const [thinkingSaving, setThinkingSaving] = useState(false);
+
+  useEffect(() => {
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    try {
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    } catch {
+      // Ignore storage failures; the in-memory language still updates.
+    }
+  }, [language]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2136,11 +2689,13 @@ function App() {
     const providerModel = data.models.items.find((item) => item.provider === provider);
     const selectedOption = providerModel?.model_options.find((option) => option.model === modelName);
     if (!providerModel || !selectedOption) {
-      setError("Model option is not available");
+      setError(t.models.modelOptionUnavailable);
       return;
     }
     if (!providerModel.selectable) {
-      setError(providerModel.disabled_reason || "Model provider is not selectable");
+      setError(
+        providerModel.disabled_reason ? modelDisabledReasonLabel(t, providerModel.disabled_reason) : t.models.providerNotSelectable
+      );
       return;
     }
 
@@ -2154,25 +2709,25 @@ function App() {
       setData((current) => (current ? dataWithCurrentModel(current, currentModel) : current));
     } catch (err) {
       setData(previousData);
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(modelDisabledReasonLabel(t, message));
     } finally {
       setModelSaving(false);
     }
   }
 
   const sessionSummary = sessionsData.summary || EMPTY_SESSION_SUMMARY;
-  const totalTokens = sessionSummary.token_count;
-  const totalTools = sessionSummary.tool_call_count;
 
   const tabs = [
-    { id: "sessions", label: "Sessions", icon: <MessageSquareText size={16} /> },
-    { id: "models", label: "Models", icon: <Brain size={16} /> },
-    { id: "tools", label: "Tools", icon: <Wrench size={16} /> },
-    { id: "skills", label: "Skills", icon: <Sparkles size={16} /> },
-    { id: "background-tasks", label: "Tasks", icon: <Layers3 size={16} /> }
+    { id: "sessions", label: t.nav.sessions, icon: <MessageSquareText size={16} /> },
+    { id: "models", label: t.nav.models, icon: <Brain size={16} /> },
+    { id: "tools", label: t.nav.tools, icon: <Wrench size={16} /> },
+    { id: "skills", label: t.nav.skills, icon: <Sparkles size={16} /> },
+    { id: "background-tasks", label: t.nav.tasks, icon: <Layers3 size={16} /> }
   ];
 
   return (
+    <I18nContext.Provider value={t}>
     <main className="app-shell">
       <section className="top-panel">
         <div className="agent-title">
@@ -2180,24 +2735,30 @@ function App() {
             <Bot size={26} />
           </div>
           <div>
-            <div className="eyebrow">Local Harness Agent</div>
-            <h1>Agent Dashboard</h1>
-            <p>Sessions, models, tools and skills from the running gateway.</p>
+            <div className="eyebrow">{t.app.eyebrow}</div>
+            <h1>{t.app.title}</h1>
+            <p>{t.app.subtitle}</p>
           </div>
         </div>
         <div className="top-actions">
+          <div className="language-switch" role="group" aria-label={t.language.label}>
+            {(["zh", "en"] as const).map((option) => (
+              <button
+                aria-pressed={language === option}
+                className={language === option ? "language-option active" : "language-option"}
+                key={option}
+                onClick={() => setLanguage(option)}
+                type="button"
+              >
+                {option === "zh" ? t.language.zh : t.language.en}
+              </button>
+            ))}
+          </div>
           <div className="health-pill">
             <CheckCircle2 size={16} />
-            API {error ? "offline" : "online"}
+            {error ? t.app.apiOffline : t.app.apiOnline}
           </div>
         </div>
-      </section>
-
-      <section className="stats-row">
-        <StatTile icon={<Database size={18} />} label="Sessions" value={formatNumber(sessionSummary.total_sessions)} tone="blue" />
-        <StatTile icon={<Activity size={18} />} label="Tool Calls" value={formatNumber(totalTools)} tone="green" />
-        <StatTile icon={<Box size={18} />} label="Tokens" value={formatNumber(totalTokens)} tone="amber" />
-        <StatTile icon={<Server size={18} />} label="Current Model" value={data?.currentModel?.model || "-"} />
       </section>
 
       <section className="workspace">
@@ -2207,11 +2768,11 @@ function App() {
             <input
               value={query}
               onChange={(event) => handleSessionQueryChange(event.target.value)}
-              placeholder="Search sessions"
-              aria-label="Search sessions"
+              placeholder={t.sessions.searchPlaceholder}
+              aria-label={t.sessions.searchAria}
             />
           </div>
-          <nav className="tab-list" aria-label="Dashboard sections">
+          <nav className="tab-list" aria-label={t.nav.aria}>
             {tabs.map((tab) => (
               <button
                 className={activeTab === tab.id ? "tab active" : "tab"}
@@ -2232,8 +2793,8 @@ function App() {
         </aside>
 
         <section className="content-panel">
-          {loading ? <EmptyState label="Loading dashboard data..." /> : null}
-          {error ? <EmptyState label={`API error: ${error}`} /> : null}
+          {loading ? <EmptyState label={t.errors.dashboardLoad} /> : null}
+          {error ? <EmptyState label={t.common.errorPrefix(t.errors.api, error)} /> : null}
           {!loading && !error && data ? (
             <>
               {activeTab === "sessions" && selectedSession ? (
@@ -2251,6 +2812,7 @@ function App() {
               {activeTab === "sessions" && !selectedSession ? (
                 <SessionsView
                   sessions={sessionsData.items}
+                  summary={sessionSummary}
                   total={sessionsData.total}
                   limit={sessionsData.limit || SESSION_LIST_PAGE_SIZE}
                   offset={sessionsData.offset || 0}
@@ -2283,6 +2845,7 @@ function App() {
 
       <DetailModal target={detailTarget} onClose={() => setDetailTarget(null)} />
     </main>
+    </I18nContext.Provider>
   );
 }
 
