@@ -1177,7 +1177,7 @@ def test_us_group_1_builtin_template_uses_110_day_sea(tmp_path) -> None:
     assert sea_row["海运天数"] == 110
     assert sea_row["海运建议量"] == 180
     assert sea_row["预计总重量kg"] == 216
-    assert "按海运备货天数110天计算补货量" in sea_row["决策原因"]
+    assert "按海运补货天数110天计算补货量" in sea_row["决策原因"]
     no_ship_rows = _load_records(report_path, "暂不建议发货")
     no_ship_row = next(row for row in no_ship_rows if row["MSKU"] == "NO-1")
     assert "加权日销=4.00 <= 5" in no_ship_row["决策原因"]

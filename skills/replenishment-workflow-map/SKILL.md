@@ -23,9 +23,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  E["replenishment-unlinked-shipment-download<br/>下载未关联货件并生成快照"] -. "同日快照自动扣减" .-> F["replenishment-calculate<br/>计算备货建议"]
-  H["replenishment-amazon-restock-inventory-snapshot<br/>解析亚马逊补充库存快照"] -. "用户明确传入时增强扣减对比" .-> F
-  G["replenishment-template-manage<br/>管理算法模板"] -. "指定模板参数" .-> F
+  G["replenishment-template-manage<br/>算法参数侧流程"] -. "指定理论算法模板" .-> F["replenishment-calculate<br/>计算备货建议"]
+  E["replenishment-unlinked-shipment-download<br/>扣减数据流程"] -. "同日快照自动扣减" .-> F
+  H["replenishment-amazon-restock-inventory-snapshot<br/>库存口径对照流程"] -. "用户明确传入时输出对照扣减字段" .-> F
 ```
 
 ## Main Flow
@@ -38,15 +38,17 @@ flowchart TD
 | 4 | `replenishment-real-inventory-report` | Provides real inventory report for calculation |
 | 5 | `replenishment-calculate` | Generates final replenishment recommendation workbook |
 
-`replenishment-template-manage` is the parameter-side workflow. Use it when the user wants to view, export, validate, import, replace, rename, or choose replenishment algorithm templates.
+`replenishment-template-manage` is the algorithm-parameter workflow. It only manages theoretical rules such as daily-sales weights, replenishment days, air thresholds, sea entry conditions, sea days, and companion-air days.
+
+Inventory deductions are calculation-side logic: `replenishment-calculate` deducts Mabang FBA inventory and same-day unlinked shipments from the template result. Amazon restock inventory is an optional comparison input, not a template parameter.
 
 Optional enhancements:
 
 | Enhancement | Use this skill | How it affects calculation |
 |---|---|---|
-| Same-day unlinked shipment deduction | `replenishment-unlinked-shipment-download` | Calculation auto-detects same-day snapshot |
-| Amazon restock inventory fields | `replenishment-amazon-restock-inventory-snapshot` | User passes snapshot path to calculation |
-| Non-default algorithm template | `replenishment-template-manage` | User passes `--template "<模板名>"` |
+| Non-default algorithm template | `replenishment-template-manage` | User passes `--template "<模板名>"`; this changes theoretical algorithm rules |
+| Same-day unlinked shipment deduction | `replenishment-unlinked-shipment-download` | Calculation auto-detects same-day snapshot and deducts it |
+| Amazon restock inventory comparison fields | `replenishment-amazon-restock-inventory-snapshot` | User passes snapshot path to calculation for optional comparison columns |
 
 ## Entry Decision Table
 

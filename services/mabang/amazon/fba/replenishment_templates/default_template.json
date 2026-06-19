@@ -71,7 +71,7 @@
         {
           "daily_sales_gt": 50,
           "daily_sales_lte": null,
-          "days": [100, 110]
+          "days": [100]
         }
       ]
     },
