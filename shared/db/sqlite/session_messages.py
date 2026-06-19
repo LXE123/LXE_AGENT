@@ -64,25 +64,8 @@ def _message_role(message: dict[str, Any]) -> str:
     return str((message or {}).get("role") or "").strip().lower()
 
 
-def _block_type(block: Any) -> str:
-    return str(dict(block or {}).get("type") or "").strip() if isinstance(block, dict) else ""
-
-
-def _is_tool_call_block(block: Any) -> bool:
-    return _block_type(block) in {"tool_use", "tool_call"}
-
-
-def _is_pure_tool_assistant_message(message: dict[str, Any]) -> bool:
-    if _message_role(message) != "assistant":
-        return False
-    content = message.get("content")
-    if not isinstance(content, list) or not content:
-        return False
-    return all(_is_tool_call_block(block) for block in content)
-
-
-def _is_tool_group_message(message: dict[str, Any]) -> bool:
-    return _message_role(message) == "tool" or _is_pure_tool_assistant_message(message)
+def _is_assistant_turn_message(message: dict[str, Any]) -> bool:
+    return _message_role(message) in {"assistant", "tool"}
 
 
 def _display_item_ranges(messages: list[dict[str, Any]]) -> list[tuple[int, int]]:
@@ -98,7 +81,7 @@ def _display_item_ranges(messages: list[dict[str, Any]]) -> list[tuple[int, int]
             pending_end = 0
 
     for index, message in enumerate(messages):
-        if _is_tool_group_message(message):
+        if _is_assistant_turn_message(message):
             if pending_start is None:
                 pending_start = index
             pending_end = index + 1
@@ -112,7 +95,7 @@ def _display_item_ranges(messages: list[dict[str, Any]]) -> list[tuple[int, int]
 def load_session_messages_page(
     session_id: str,
     *,
-    limit: int = 25,
+    limit: int = 10,
     page: int | None = None,
 ) -> dict[str, Any]:
     safe_limit = max(1, min(int(limit), 200))

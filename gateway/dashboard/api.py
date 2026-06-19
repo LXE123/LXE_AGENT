@@ -376,7 +376,7 @@ def _list_sessions(*, limit: int, offset: int, query: str = "") -> dict[str, Any
     }
 
 
-def _session_detail(session_id: str, *, message_limit: int = 25, message_page: int | None = None) -> dict[str, Any]:
+def _session_detail(session_id: str, *, message_limit: int = 10, message_page: int | None = None) -> dict[str, Any]:
     safe_session_id = str(session_id or "").strip()
     with connection_scope() as conn:
         row = _select_session_row(conn, session_id=safe_session_id)
@@ -604,7 +604,7 @@ def create_dashboard_app() -> FastAPI:
     @app.get("/api/sessions/{session_id}")
     async def session_detail(
         session_id: str,
-        message_limit: int = Query(default=25, ge=1, le=200),
+        message_limit: int = Query(default=10, ge=1, le=200),
         message_page: int | None = Query(default=None, ge=1),
     ) -> dict[str, Any]:
         return _session_detail(session_id, message_limit=message_limit, message_page=message_page)
