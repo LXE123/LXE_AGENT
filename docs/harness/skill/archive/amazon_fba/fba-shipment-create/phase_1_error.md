@@ -1,0 +1,11 @@
+# Shipment Creation Phase 1 Error
+
+状态：Archive
+
+本文是历史记录，不是当前运行时 skill 文档。当前 truth source 是 `/skills/*/SKILL.md`。
+
+---
+
+```html
+<kat-alert variant="danger" data-testid="all-sku-footer-error-results" persistent="true" size="large"><div class="alert-error-list"><span data-testid="inbound-problem-message">此商品超出了仓储的容量限制。 点击仓储容量监视器，查看仓储的货件容量上限。</span><span>&nbsp;<kat-link data-testid="athena-help-link" variant="link" label="了解更多信息" href="https://sellercentral-japan.amazon.com/gp/help/GAFNWEYTJUV2GBFC"></kat-link></span></div><span slot="header">1 错误</span></kat-alert>
+```
