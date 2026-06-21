@@ -1,7 +1,7 @@
 {
   "name": "2组-US站点-林美淇",
   "version": 1,
-  "description": "US站点林美淇二组备货算法参数",
+  "description": "US站点林美淇二组备货算法参数方案",
   "params": {
     "weighted_sales": {
       "7d_weight": 0.7,

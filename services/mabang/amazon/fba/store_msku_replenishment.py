@@ -1222,7 +1222,7 @@ def calculate_replenishment_row(
             sea_days=None,
             sea_quantity=None,
             estimated_weight_kg=None,
-            decision_reason=f"可销售天数={sales_days:.2f} > {air_days:g}，但模板已关闭海运，暂不建议发货",
+            decision_reason=f"可销售天数={sales_days:.2f} > {air_days:g}，但参数方案已关闭海运，暂不建议发货",
             sheet_name=NO_SHIP_SHEET,
         )
 

@@ -9,10 +9,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-DEFAULT_TEMPLATE_NAME = "默认模板"
-US_GROUP_1_TEMPLATE_NAME = "US模板-一组"
-UK_GROUP_1_TEMPLATE_NAME = "UK模板-一组"
-DE_GROUP_1_TEMPLATE_NAME = "DE模板-一组"
+DEFAULT_TEMPLATE_NAME = "默认"
+US_GROUP_1_TEMPLATE_NAME = "US-一组"
+UK_GROUP_1_TEMPLATE_NAME = "UK-一组"
+DE_GROUP_1_TEMPLATE_NAME = "DE-一组"
 US_LIN_MEIQI_GROUP_2_TEMPLATE_NAME = "2组-US站点-林美淇"
 DEFAULT_TEMPLATE_VERSION = 1
 DEFAULT_TEMPLATE_DIR = Path(__file__).resolve().parent / "replenishment_templates"
@@ -37,11 +37,11 @@ DEFAULT_EDITABLE_OUTPUT_DIR = Path("artifacts") / "mabang_replenishment_template
 SOURCE_DEFAULT = "default"
 SOURCE_CUSTOM = "custom"
 SOURCE = "mabang_replenishment_template"
-REPLENISHMENT_TEMPLATE_FILE_SUFFIX = "备货模板"
+REPLENISHMENT_TEMPLATE_FILE_SUFFIX = "备货算法配置表"
 
-TEMPLATE_INFO_SHEET = "模板信息"
+TEMPLATE_INFO_SHEET = "参数方案信息"
 WEIGHTED_SALES_SHEET = "日销计算"
-REPLENISHMENT_DAYS_SHEET = "补货天数"
+REPLENISHMENT_DAYS_SHEET = "空运补货天数"
 SHIPPING_SHEET = "空运判断"
 SEA_ENTRY_SHEET = "海运进入条件"
 SEA_DAYS_SHEET = "海运补货天数"
@@ -57,8 +57,8 @@ SHEET_NAMES = (
     SEA_COMPANION_AIR_SHEET,
     SPECIAL_RULES_SHEET,
 )
-OLD_TEMPLATE_SHEET_NAMES = ("加权日销", "运输方式", "海运规则", "海运备货天数")
-OLD_TEMPLATE_ERROR = "旧版模板xlsx不再支持，请重新导出新版模板后修改"
+OLD_TEMPLATE_SHEET_NAMES = ("模板信息", "加权日销", "运输方式", "海运规则", "补货天数", "海运备货天数")
+OLD_TEMPLATE_ERROR = "旧版备货算法配置表不再支持，请重新导出新版备货算法配置表后修改"
 
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
@@ -315,16 +315,16 @@ def is_builtin_template_name(value: Any) -> bool:
 
 def _normalize_template(raw: dict[str, Any], *, source: str) -> ReplenishmentTemplate:
     if not isinstance(raw, dict):
-        raise ReplenishmentTemplateError("模板内容必须是JSON对象")
+        raise ReplenishmentTemplateError("参数方案内容必须是JSON对象")
     name = _clean_text(raw.get("name"))
     if not name:
-        raise ReplenishmentTemplateError("模板名不能为空")
+        raise ReplenishmentTemplateError("参数方案名不能为空")
     version = _int_value(raw.get("version"), default=DEFAULT_TEMPLATE_VERSION)
     if version is None or version <= 0:
-        raise ReplenishmentTemplateError("模板版本必须是正整数")
+        raise ReplenishmentTemplateError("参数方案版本必须是正整数")
     params = raw.get("params")
     if not isinstance(params, dict):
-        raise ReplenishmentTemplateError(f"模板缺少params: {name}")
+        raise ReplenishmentTemplateError(f"参数方案缺少params: {name}")
     return ReplenishmentTemplate(
         name=name,
         version=version,
@@ -337,10 +337,10 @@ def _normalize_template(raw: dict[str, Any], *, source: str) -> ReplenishmentTem
 def load_default_template(*, path: str | Path | None = None) -> ReplenishmentTemplate:
     default_path = _default_template_path(path)
     if not default_path.is_file():
-        raise FileNotFoundError(f"默认模板文件不存在: {default_path}")
+        raise FileNotFoundError(f"内置参数方案文件不存在: {default_path}")
     template = _normalize_template(_read_json(default_path), source=SOURCE_DEFAULT)
     if template.name != DEFAULT_TEMPLATE_NAME:
-        raise ReplenishmentTemplateError(f"默认模板名必须是{DEFAULT_TEMPLATE_NAME}: {template.name}")
+        raise ReplenishmentTemplateError(f"内置参数方案名必须是{DEFAULT_TEMPLATE_NAME}: {template.name}")
     return template
 
 
@@ -349,12 +349,12 @@ def load_builtin_templates() -> list[ReplenishmentTemplate]:
     seen_names: set[str] = set()
     for template_path, expected_name in zip(BUILTIN_TEMPLATE_PATHS, BUILTIN_TEMPLATE_NAMES, strict=True):
         if not template_path.is_file():
-            raise FileNotFoundError(f"内置模板文件不存在: {template_path}")
+            raise FileNotFoundError(f"内置参数方案文件不存在: {template_path}")
         template = _normalize_template(_read_json(template_path), source=SOURCE_DEFAULT)
         if template.name != expected_name:
-            raise ReplenishmentTemplateError(f"内置模板名必须是{expected_name}: {template.name}")
+            raise ReplenishmentTemplateError(f"内置参数方案名必须是{expected_name}: {template.name}")
         if template.name in seen_names:
-            raise ReplenishmentTemplateError(f"内置模板名重复: {template.name}")
+            raise ReplenishmentTemplateError(f"内置参数方案名重复: {template.name}")
         seen_names.add(template.name)
         templates.append(template)
     return templates
@@ -367,7 +367,7 @@ def _load_custom_store(path: str | Path | None = None) -> list[dict[str, Any]]:
     data = _read_json(store_path)
     templates = data.get("templates") if isinstance(data, dict) else None
     if not isinstance(templates, list):
-        raise ReplenishmentTemplateError(f"自定义模板库格式错误: {store_path}")
+        raise ReplenishmentTemplateError(f"自定义参数方案库格式错误: {store_path}")
     return [item for item in templates if isinstance(item, dict)]
 
 
@@ -381,11 +381,11 @@ def list_templates(*, store_path: str | Path | None = None) -> list[Replenishmen
     builtin_names = {template.name for template in templates}
     for template in custom_templates:
         if template.name in builtin_names:
-            raise ReplenishmentTemplateError(f"自定义模板不允许覆盖系统模板: {template.name}")
+            raise ReplenishmentTemplateError(f"自定义参数方案不允许覆盖系统参数方案: {template.name}")
     names = set(builtin_names)
     for template in custom_templates:
         if template.name in names:
-            raise ReplenishmentTemplateError(f"模板名重复: {template.name}")
+            raise ReplenishmentTemplateError(f"参数方案名重复: {template.name}")
         names.add(template.name)
         templates.append(template)
     return templates
@@ -396,13 +396,13 @@ def get_template(template_name: str | None = None, *, store_path: str | Path | N
     for template in list_templates(store_path=store_path):
         if template.name == clean_name:
             return template
-    raise ReplenishmentTemplateError(f"未知备货参数模板: {clean_name}")
+    raise ReplenishmentTemplateError(f"未知备货算法参数方案: {clean_name}")
 
 
 def _next_custom_template_name(existing_names: set[str]) -> str:
     index = 1
     while True:
-        name = f"自定义模板{index}"
+        name = f"自定义参数方案{index}"
         if name not in existing_names:
             return name
         index += 1
@@ -419,9 +419,9 @@ def list_parameter_groups() -> list[dict[str, Any]]:
             ],
         },
         {
-            "group": "补货天数",
+            "group": "空运补货天数",
             "params": [
-                {"key": "replenishment_days", "name": "日销分档下增长/平稳/下降补货天数", "value_type": "matrix"},
+                {"key": "replenishment_days", "name": "日销分档下增长/平稳/下降空运补货天数", "value_type": "matrix"},
             ],
         },
         {
@@ -465,13 +465,13 @@ def list_parameter_groups() -> list[dict[str, Any]]:
 
 def _require_mapping(value: Any, name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
-        raise ReplenishmentTemplateError(f"模板参数缺少{name}")
+        raise ReplenishmentTemplateError(f"参数方案参数缺少{name}")
     return value
 
 
 def _require_list(value: Any, name: str) -> list[Any]:
     if not isinstance(value, list):
-        raise ReplenishmentTemplateError(f"模板参数{name}必须是列表")
+        raise ReplenishmentTemplateError(f"参数方案参数{name}必须是列表")
     return value
 
 
@@ -497,27 +497,27 @@ def validate_template(template: ReplenishmentTemplate) -> TemplateValidationResu
 
     replenishment_days = _require_list(params.get("replenishment_days"), "replenishment_days")
     if not replenishment_days:
-        raise ReplenishmentTemplateError("补货天数分档不能为空")
+        raise ReplenishmentTemplateError("空运补货天数分档不能为空")
     previous_threshold: float | None = None
     has_fallback = False
     for item in replenishment_days:
         if not isinstance(item, dict):
-            raise ReplenishmentTemplateError("补货天数分档必须是对象")
+            raise ReplenishmentTemplateError("空运补货天数分档必须是对象")
         threshold = _number(item.get("daily_sales_gt"), default=None)
         if threshold is None:
             has_fallback = True
         elif threshold < 0:
-            raise ReplenishmentTemplateError("补货天数日销分档不能为负数")
+            raise ReplenishmentTemplateError("空运补货天数日销分档不能为负数")
         if previous_threshold is not None and threshold is not None and threshold >= previous_threshold:
-            raise ReplenishmentTemplateError("补货天数日销分档必须按从高到低排列")
+            raise ReplenishmentTemplateError("空运补货天数日销分档必须按从高到低排列")
         if threshold is not None:
             previous_threshold = threshold
         for key in TREND_KEYS:
             days = _int_value(item.get(key), default=None)
             if days is None or days < 0:
-                raise ReplenishmentTemplateError(f"补货天数必须是非负整数: {item.get('label') or threshold}, {key}")
+                raise ReplenishmentTemplateError(f"空运补货天数必须是非负整数: {item.get('label') or threshold}, {key}")
     if not has_fallback:
-        raise ReplenishmentTemplateError("补货天数必须包含低销量兜底分档")
+        raise ReplenishmentTemplateError("空运补货天数必须包含低销量兜底分档")
 
     shipping = _require_mapping(params.get("shipping"), "shipping")
     urgent_days = _number(shipping.get("air_urgent_sales_days_lte"), default=None)
@@ -609,7 +609,7 @@ def _days_for_trend(item: dict[str, Any], trend: str) -> int:
     key = {"增长": "growth", "平稳": "stable", "下降": "decline"}[trend]
     days = _int_value(item.get(key), default=None)
     if days is None:
-        raise ReplenishmentTemplateError(f"补货天数缺少趋势: {trend}")
+        raise ReplenishmentTemplateError(f"空运补货天数缺少趋势: {trend}")
     return days
 
 
@@ -647,7 +647,7 @@ def replenishment_days_from_template(weighted_daily_sales: float, mapped_trend: 
         threshold = _number(item.get("daily_sales_gt"), default=None)
         if threshold is None or weighted_daily_sales > threshold:
             return _days_for_trend(item, mapped_trend)
-    raise ReplenishmentTemplateError("补货天数缺少兜底分档")
+    raise ReplenishmentTemplateError("空运补货天数缺少兜底分档")
 
 
 def sea_day_candidates_from_template(weighted_daily_sales: float, params: dict[str, Any]) -> list[int]:
@@ -854,7 +854,7 @@ def export_template_xlsx(
     try:
         from openpyxl import Workbook
     except Exception as exc:
-        raise RuntimeError("缺少 openpyxl 依赖，无法写入模板xlsx") from exc
+        raise RuntimeError("缺少 openpyxl 依赖，无法写入备货算法配置表") from exc
 
     template = get_template(template_name, store_path=store_path)
     params = template.params
@@ -865,14 +865,14 @@ def export_template_xlsx(
         info = workbook.active
         info.title = TEMPLATE_INFO_SHEET
         info.append(["字段", "值"])
-        info.append(["模板名称", template.name])
+        info.append(["方案名称", template.name])
         info.append(["版本", template.version])
-        info.append(["模板说明", template.description])
+        info.append(["方案说明", template.description])
         _append_note_block(
             info,
             [
-                "1. 模板名称和模板说明用于识别模板；导入时也可以通过 --name 指定正式模板名。",
-                "2. 版本用于系统记录模板替换次数，通常不需要手动修改。",
+                "1. 方案名称和方案说明用于识别参数方案；导入时也可以通过 --name 指定正式方案名。",
+                "2. 版本用于系统记录参数方案替换次数，通常不需要手动修改。",
             ],
         )
 
@@ -908,8 +908,9 @@ def export_template_xlsx(
             [
                 "1. 日销层级仅用于阅读，不影响计算。",
                 "2. 日销范围是权威输入，决定该行命中的日销分档；建议按从高到低填写。",
-                "3. 增长/平稳/下降是命中该分档后的理论补货天数。",
-                "4. 最后一行建议保留“低销量兜底”。",
+                "3. 增长/平稳/下降是命中该分档后的理论空运补货天数。",
+                "4. 该 sheet 不影响海运补货天数；海运请修改“海运补货天数”sheet。",
+                "5. 最后一行建议保留“低销量兜底”。",
             ],
         )
 
@@ -1019,9 +1020,9 @@ def export_template_xlsx(
         _append_note_block(
             special,
             [
-                "1. 特殊MSKU规则用于给指定 MSKU 覆盖部分模板参数。",
+                "1. 特殊MSKU规则用于给指定 MSKU 覆盖部分算法参数。",
                 "2. MSKU列表可用逗号、空格、顿号、分号分隔。",
-                "3. 留空的覆盖字段不会覆盖默认模板参数。",
+                "3. 留空的覆盖字段不会覆盖默认参数。",
             ],
         )
 
@@ -1037,12 +1038,12 @@ def _sheet_records(xlsx_path: Path, sheet_name: str) -> list[dict[str, Any]]:
     try:
         from openpyxl import load_workbook
     except Exception as exc:
-        raise RuntimeError("缺少 openpyxl 依赖，无法读取模板xlsx") from exc
+        raise RuntimeError("缺少 openpyxl 依赖，无法读取备货算法配置表") from exc
 
     workbook = load_workbook(xlsx_path, read_only=True, data_only=True)
     try:
         if sheet_name not in workbook.sheetnames:
-            raise ReplenishmentTemplateError(f"模板xlsx缺少sheet: {sheet_name}")
+            raise ReplenishmentTemplateError(f"备货算法配置表缺少sheet: {sheet_name}")
         worksheet = workbook[sheet_name]
         rows = worksheet.iter_rows(values_only=True)
         headers = [_clean_text(cell) for cell in list(next(rows, None) or [])]
@@ -1062,12 +1063,12 @@ def _sea_companion_air_sheet_data(xlsx_path: Path) -> tuple[Any, list[dict[str, 
     try:
         from openpyxl import load_workbook
     except Exception as exc:
-        raise RuntimeError("缺少 openpyxl 依赖，无法读取模板xlsx") from exc
+        raise RuntimeError("缺少 openpyxl 依赖，无法读取备货算法配置表") from exc
 
     workbook = load_workbook(xlsx_path, read_only=True, data_only=True)
     try:
         if SEA_COMPANION_AIR_SHEET not in workbook.sheetnames:
-            raise ReplenishmentTemplateError(f"模板xlsx缺少sheet: {SEA_COMPANION_AIR_SHEET}")
+            raise ReplenishmentTemplateError(f"备货算法配置表缺少sheet: {SEA_COMPANION_AIR_SHEET}")
         worksheet = workbook[SEA_COMPANION_AIR_SHEET]
         enabled_value = worksheet.cell(row=2, column=2).value
         records: list[dict[str, Any]] = []
@@ -1094,7 +1095,7 @@ def _ensure_new_template_xlsx(xlsx_path: Path) -> None:
     try:
         from openpyxl import load_workbook
     except Exception as exc:
-        raise RuntimeError("缺少 openpyxl 依赖，无法读取模板xlsx") from exc
+        raise RuntimeError("缺少 openpyxl 依赖，无法读取备货算法配置表") from exc
 
     workbook = load_workbook(xlsx_path, read_only=True, data_only=True)
     try:
@@ -1103,9 +1104,10 @@ def _ensure_new_template_xlsx(xlsx_path: Path) -> None:
         if missing:
             if any(sheet_name in sheet_names for sheet_name in OLD_TEMPLATE_SHEET_NAMES):
                 raise ReplenishmentTemplateError(OLD_TEMPLATE_ERROR)
-            raise ReplenishmentTemplateError(f"模板xlsx缺少sheet: {missing[0]}")
+            raise ReplenishmentTemplateError(f"备货算法配置表缺少sheet: {missing[0]}")
 
         expected_headers = {
+            TEMPLATE_INFO_SHEET: ["字段", "值"],
             REPLENISHMENT_DAYS_SHEET: ["日销层级", "日销范围", "增长", "平稳", "下降"],
             SEA_DAYS_SHEET: ["日销范围", "海运补货天数"],
             SEA_COMPANION_AIR_SHEET: ["项目", "值"],
@@ -1115,6 +1117,15 @@ def _ensure_new_template_xlsx(xlsx_path: Path) -> None:
             actual = [_clean_text(worksheet.cell(row=1, column=index).value) for index in range(1, len(headers) + 1)]
             if actual != headers:
                 raise ReplenishmentTemplateError(OLD_TEMPLATE_ERROR)
+
+        info = workbook[TEMPLATE_INFO_SHEET]
+        info_labels = [
+            _clean_text(info.cell(row=2, column=1).value),
+            _clean_text(info.cell(row=3, column=1).value),
+            _clean_text(info.cell(row=4, column=1).value),
+        ]
+        if info_labels != ["方案名称", "版本", "方案说明"]:
+            raise ReplenishmentTemplateError(OLD_TEMPLATE_ERROR)
 
         companion = workbook[SEA_COMPANION_AIR_SHEET]
         companion_tier_headers = [
@@ -1228,7 +1239,7 @@ def _special_rule_overrides(record: dict[str, Any]) -> dict[str, Any]:
 def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None) -> ReplenishmentTemplate:
     source_path = Path(xlsx_path)
     if not source_path.is_file():
-        raise FileNotFoundError(f"模板xlsx不存在: {source_path}")
+        raise FileNotFoundError(f"备货算法配置表不存在: {source_path}")
 
     _ensure_new_template_xlsx(source_path)
     info_records = _sheet_records(source_path, TEMPLATE_INFO_SHEET)
@@ -1240,9 +1251,9 @@ def parse_template_xlsx(xlsx_path: str | Path, *, import_name: str | None = None
     companion_air_enabled_value, sea_companion_records = _sea_companion_air_sheet_data(source_path)
     special_records = _sheet_records(source_path, SPECIAL_RULES_SHEET)
 
-    name = _clean_text(import_name) or _clean_text(_first_record_value(info_records, "模板名称"))
+    name = _clean_text(import_name) or _clean_text(_first_record_value(info_records, "方案名称"))
     version = _int_value(_first_record_value(info_records, "版本"), default=DEFAULT_TEMPLATE_VERSION)
-    description = _clean_text(_first_record_value(info_records, "模板说明"))
+    description = _clean_text(_first_record_value(info_records, "方案说明"))
     params: dict[str, Any] = {
         "weighted_sales": {
             "7d_weight": _number(_param_value(weighted_records, "7天销量权重"), default=None),
@@ -1383,9 +1394,9 @@ def import_template_xlsx(
     if not import_name:
         import_name = _next_custom_template_name(existing_names)
     if is_builtin_template_name(import_name):
-        raise ReplenishmentTemplateError(f"系统模板不允许导入覆盖: {import_name}")
+        raise ReplenishmentTemplateError(f"系统参数方案不允许导入覆盖: {import_name}")
     if import_name in existing_names:
-        raise ReplenishmentTemplateError(f"模板名已存在: {import_name}")
+        raise ReplenishmentTemplateError(f"参数方案名已存在: {import_name}")
 
     template = parse_template_xlsx(xlsx_path, import_name=import_name)
     template = ReplenishmentTemplate(
@@ -1411,14 +1422,14 @@ def replace_template_xlsx(
 ) -> tuple[TemplateValidationResult, int]:
     clean_name = _clean_text(template_name)
     if not clean_name:
-        raise ReplenishmentTemplateError("template_name 不能为空")
+        raise ReplenishmentTemplateError("参数方案名不能为空")
     if is_builtin_template_name(clean_name):
-        raise ReplenishmentTemplateError(f"系统模板不允许替换: {clean_name}")
+        raise ReplenishmentTemplateError(f"系统参数方案不允许替换: {clean_name}")
 
     custom_templates = load_custom_templates(store_path=store_path)
     index = next((idx for idx, item in enumerate(custom_templates) if item.name == clean_name), None)
     if index is None:
-        raise ReplenishmentTemplateError(f"只能替换已存在的自定义模板: {clean_name}")
+        raise ReplenishmentTemplateError(f"只能替换已存在的自定义参数方案: {clean_name}")
 
     existing_template = custom_templates[index]
     parsed_template = parse_template_xlsx(xlsx_path, import_name=clean_name)
@@ -1445,21 +1456,21 @@ def rename_template(
     clean_old_name = _clean_text(template_name)
     clean_new_name = _clean_text(new_name)
     if not clean_old_name:
-        raise ReplenishmentTemplateError("template_name 不能为空")
+        raise ReplenishmentTemplateError("参数方案名不能为空")
     if not clean_new_name:
-        raise ReplenishmentTemplateError("新模板名不能为空")
+        raise ReplenishmentTemplateError("新参数方案名不能为空")
     if is_builtin_template_name(clean_old_name):
-        raise ReplenishmentTemplateError(f"系统模板不允许重命名: {clean_old_name}")
+        raise ReplenishmentTemplateError(f"系统参数方案不允许重命名: {clean_old_name}")
     if is_builtin_template_name(clean_new_name):
-        raise ReplenishmentTemplateError(f"新模板名不能是系统模板: {clean_new_name}")
+        raise ReplenishmentTemplateError(f"新参数方案名不能是系统参数方案: {clean_new_name}")
 
     custom_templates = load_custom_templates(store_path=store_path)
     if any(template.name == clean_new_name for template in custom_templates):
-        raise ReplenishmentTemplateError(f"模板名已存在: {clean_new_name}")
+        raise ReplenishmentTemplateError(f"参数方案名已存在: {clean_new_name}")
 
     index = next((idx for idx, item in enumerate(custom_templates) if item.name == clean_old_name), None)
     if index is None:
-        raise ReplenishmentTemplateError(f"只能重命名已存在的自定义模板: {clean_old_name}")
+        raise ReplenishmentTemplateError(f"只能重命名已存在的自定义参数方案: {clean_old_name}")
 
     old_template = custom_templates[index]
     renamed = ReplenishmentTemplate(

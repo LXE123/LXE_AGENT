@@ -1,7 +1,7 @@
 {
-  "name": "UK模板-一组",
+  "name": "UK-一组",
   "version": 1,
-  "description": "UK一组备货算法参数",
+  "description": "UK一组备货算法参数方案",
   "params": {
     "weighted_sales": {
       "7d_weight": 0.6,

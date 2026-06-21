@@ -44,7 +44,7 @@ def test_success_returns_replenishment_report_path(monkeypatch, capsys) -> None:
             source_data_time="202605251530",
             sales_analysis_xlsx_path="artifacts/mabang_store_msku_analysis/202605251530-Amazon-Lerxiuer-FR_销量分析.xlsx",
             actual_inventory_xlsx_path="artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_真实库存.xlsx",
-            template_name="默认模板",
+            template_name="默认",
             template_version=1,
             row_count=120,
             link_count=18,
@@ -69,7 +69,7 @@ def test_success_returns_replenishment_report_path(monkeypatch, capsys) -> None:
         "source_data_time": "202605251530",
         "sales_analysis_xlsx_path": "artifacts/mabang_store_msku_analysis/202605251530-Amazon-Lerxiuer-FR_销量分析.xlsx",
         "actual_inventory_xlsx_path": "artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_真实库存.xlsx",
-        "template_name": "默认模板",
+        "template_name": "默认",
         "template_version": 1,
         "row_count": 120,
         "link_count": 18,
@@ -94,7 +94,7 @@ def test_template_argument_passes_to_service(monkeypatch, capsys) -> None:
         amazon_fba_inventory_snapshot_path=None,
     ):
         assert store_name == "Amazon-Lerxiuer-FR"
-        assert template_name == "老王大件模板"
+        assert template_name == "老王大件方案"
         assert unlinked_shipments_snapshot_path is None
         assert amazon_restock_inventory_snapshot_path is None
         assert amazon_fba_inventory_snapshot_path is None
@@ -103,7 +103,7 @@ def test_template_argument_passes_to_service(monkeypatch, capsys) -> None:
             source_data_time="202605251530",
             sales_analysis_xlsx_path="sales.xlsx",
             actual_inventory_xlsx_path="inventory.xlsx",
-            template_name="老王大件模板",
+            template_name="老王大件方案",
             template_version=2,
             row_count=1,
             link_count=1,
@@ -118,11 +118,11 @@ def test_template_argument_passes_to_service(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(cli, "calculate_store_msku_replenishment", fake_calculate_store_msku_replenishment)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR", "--template", "老王大件模板"])
+    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR", "--template", "老王大件方案"])
 
     payload = _read_payload(capsys)
     assert exit_code == 0
-    assert payload["template_name"] == "老王大件模板"
+    assert payload["template_name"] == "老王大件方案"
     assert payload["template_version"] == 2
 
 
@@ -145,7 +145,7 @@ def test_unlinked_shipments_snapshot_warning_is_returned(monkeypatch, capsys) ->
             source_data_time="202605251530",
             sales_analysis_xlsx_path="sales.xlsx",
             actual_inventory_xlsx_path="inventory.xlsx",
-            template_name="默认模板",
+            template_name="默认",
             template_version=1,
             row_count=1,
             link_count=1,
@@ -187,7 +187,7 @@ def test_unlinked_shipments_snapshot_argument_passes_to_service(monkeypatch, cap
             source_data_time="202605251530",
             sales_analysis_xlsx_path="sales.xlsx",
             actual_inventory_xlsx_path="inventory.xlsx",
-            template_name="默认模板",
+            template_name="默认",
             template_version=1,
             row_count=1,
             link_count=1,
@@ -229,7 +229,7 @@ def test_amazon_restock_inventory_snapshot_argument_passes_to_service(monkeypatc
             source_data_time="202605251530",
             sales_analysis_xlsx_path="sales.xlsx",
             actual_inventory_xlsx_path="inventory.xlsx",
-            template_name="默认模板",
+            template_name="默认",
             template_version=1,
             row_count=1,
             link_count=1,
@@ -281,7 +281,7 @@ def test_amazon_fba_inventory_snapshot_argument_passes_to_service(monkeypatch, c
             source_data_time="202605251530",
             sales_analysis_xlsx_path="sales.xlsx",
             actual_inventory_xlsx_path="inventory.xlsx",
-            template_name="默认模板",
+            template_name="默认",
             template_version=1,
             row_count=1,
             link_count=1,

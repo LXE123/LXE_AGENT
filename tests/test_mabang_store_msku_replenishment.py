@@ -120,7 +120,7 @@ def _replenishment_row(
         remark="",
         product_link=f"https://example.test/{msku}",
         sku_type="库存sku",
-        template_name="默认模板",
+        template_name="默认",
         matched_rule="默认规则",
         sales_trend="平稳",
         trend_group="平稳",
@@ -489,7 +489,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         "source_data_time": "202605251530",
         "sales_analysis_xlsx_path": str(sales_path),
         "actual_inventory_xlsx_path": str(inventory_path),
-        "template_name": "默认模板",
+        "template_name": "默认",
         "template_version": 1,
         "row_count": 5,
         "link_count": 4,
@@ -555,7 +555,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert "ceil(6.00*90)=540" in sea_rows[0]["决策原因"]
     assert "扣FBA后=60" in sea_rows[0]["决策原因"]
     assert sea_rows[0]["真实库存数量"] == 20
-    assert sea_rows[0]["模板名称"] == "默认模板"
+    assert sea_rows[0]["模板名称"] == "默认"
     assert sea_rows[0]["命中规则"] == "默认规则"
 
     urgent_rows = _load_records(report_path, "空运（急发）")
@@ -1123,7 +1123,7 @@ def test_custom_template_changes_replenishment_result(tmp_path, monkeypatch) -> 
     _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
 
     custom_params = tmpl.load_default_template().to_store_payload()
-    custom_params["name"] = "保守海运模板"
+    custom_params["name"] = "保守海运方案"
     custom_params["version"] = 2
     custom_params["params"]["sea"]["min_weight_kg"] = 100
     store_path = tmp_path / "artifacts" / "mabang_replenishment_templates" / "templates.json"
@@ -1136,13 +1136,13 @@ def test_custom_template_changes_replenishment_result(tmp_path, monkeypatch) -> 
 
     result = repl.calculate_store_msku_replenishment(
         "Amazon-Test",
-        template_name="保守海运模板",
+        template_name="保守海运方案",
         sales_analysis_dir=sales_dir,
         actual_inventory_dir=inventory_dir,
         output_dir=output_dir,
     )
 
-    assert result.template_name == "保守海运模板"
+    assert result.template_name == "保守海运方案"
     assert result.template_version == 2
     report_path = Path(result.report_xlsx_path)
     sea_rows = _load_records(report_path, "海运")
@@ -1160,13 +1160,13 @@ def test_us_group_1_builtin_template_uses_110_day_sea(tmp_path) -> None:
 
     result = repl.calculate_store_msku_replenishment(
         "Amazon-Test",
-        template_name="US模板-一组",
+        template_name="US-一组",
         sales_analysis_dir=sales_dir,
         actual_inventory_dir=inventory_dir,
         output_dir=output_dir,
     )
 
-    assert result.template_name == "US模板-一组"
+    assert result.template_name == "US-一组"
     assert result.sea_count == 1
     report_path = Path(result.report_xlsx_path)
     sea_rows = _load_records(report_path, "海运")
@@ -1338,7 +1338,7 @@ def test_lin_meiqi_group_2_template_rejects_small_net_sea_quantity() -> None:
     params = json.loads(json.dumps(template.params, ensure_ascii=False))
     params["sea"]["min_net_quantity"] = 61
     custom_template = tmpl.ReplenishmentTemplate(
-        name="小净量测试模板",
+        name="小净量测试方案",
         version=1,
         description="",
         params=params,
@@ -1412,13 +1412,13 @@ def test_uk_group_1_builtin_template_disables_sea(tmp_path) -> None:
 
     result = repl.calculate_store_msku_replenishment(
         "Amazon-Test",
-        template_name="UK模板-一组",
+        template_name="UK-一组",
         sales_analysis_dir=sales_dir,
         actual_inventory_dir=inventory_dir,
         output_dir=output_dir,
     )
 
-    assert result.template_name == "UK模板-一组"
+    assert result.template_name == "UK-一组"
     assert result.sea_count == 0
     assert result.no_ship_count == 2
     report_path = Path(result.report_xlsx_path)
@@ -1427,4 +1427,4 @@ def test_uk_group_1_builtin_template_disables_sea(tmp_path) -> None:
     sea_candidate = next(row for row in no_ship_rows if row["MSKU"] == "SEA-1")
     assert sea_candidate["补货天数"] == 85
     assert sea_candidate["补货量"] == 510
-    assert "模板已关闭海运" in sea_candidate["决策原因"]
+    assert "参数方案已关闭海运" in sea_candidate["决策原因"]

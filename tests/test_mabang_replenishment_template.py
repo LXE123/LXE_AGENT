@@ -74,7 +74,7 @@ def _sheet_names(path: Path) -> list[str]:
 def test_default_template_loads_current_algorithm() -> None:
     template = tmpl.load_default_template()
 
-    assert template.name == "默认模板"
+    assert template.name == "默认"
     assert template.version == 1
     assert template.params["weighted_sales"] == {
         "7d_weight": 0.6,
@@ -88,12 +88,21 @@ def test_default_template_loads_current_algorithm() -> None:
     assert tmpl.validate_template(template).warnings == ()
 
 
+@pytest.mark.parametrize(
+    "old_name",
+    ["LXE_默认模版", "LXE_默认参数", "US模板-一组", "UK模板-一组", "DE模板-一组"],
+)
+def test_old_default_template_name_is_not_an_alias(tmp_path, old_name: str) -> None:
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match=f"未知备货算法参数方案: {old_name}"):
+        tmpl.get_template(old_name, store_path=tmp_path / "templates.json")
+
+
 def test_builtin_templates_include_us_uk_de_and_lin_meiqi_rules() -> None:
     templates = {template.name: template for template in tmpl.load_builtin_templates()}
 
-    assert list(templates) == ["默认模板", "US模板-一组", "UK模板-一组", "DE模板-一组", "2组-US站点-林美淇"]
+    assert list(templates) == ["默认", "US-一组", "UK-一组", "DE-一组", "2组-US站点-林美淇"]
 
-    us_params = templates["US模板-一组"].params
+    us_params = templates["US-一组"].params
     assert tmpl.sea_enabled_from_template(us_params) is True
     assert tmpl.replenishment_days_from_template(11, "增长", us_params) == 80
     assert tmpl.replenishment_days_from_template(6, "平稳", us_params) == 75
@@ -104,14 +113,14 @@ def test_builtin_templates_include_us_uk_de_and_lin_meiqi_rules() -> None:
     assert tmpl.sea_day_candidates_from_template(6, us_params) == [110]
     assert tmpl.sea_day_candidates_from_template(4, us_params) == []
 
-    uk_params = templates["UK模板-一组"].params
+    uk_params = templates["UK-一组"].params
     assert tmpl.sea_enabled_from_template(uk_params) is False
     assert tmpl.replenishment_days_from_template(6, "增长", uk_params) == 85
     assert tmpl.replenishment_days_from_template(2, "平稳", uk_params) == 75
     assert tmpl.replenishment_days_from_template(0.5, "下降", uk_params) == 65
     assert tmpl.sea_day_candidates_from_template(6, uk_params) == []
 
-    de_params = templates["DE模板-一组"].params
+    de_params = templates["DE-一组"].params
     assert tmpl.sea_enabled_from_template(de_params) is False
     assert tmpl.replenishment_days_from_template(11, "增长", de_params) == 90
     assert tmpl.replenishment_days_from_template(6, "平稳", de_params) == 85
@@ -146,26 +155,29 @@ def test_builtin_templates_include_us_uk_de_and_lin_meiqi_rules() -> None:
 
 
 def test_export_validate_and_import_template_xlsx(tmp_path) -> None:
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
 
     assert exported_path.is_file()
-    assert exported_path.name.endswith("_备货模板.xlsx")
+    assert exported_path.name.endswith("_备货算法配置表.xlsx")
+    assert "默认_备货算法配置表" in exported_path.name
     assert _sheet_names(exported_path) == [
-        "模板信息",
+        "参数方案信息",
         "日销计算",
-        "补货天数",
+        "空运补货天数",
         "空运判断",
         "海运进入条件",
         "海运补货天数",
         "海运同时空运",
         "特殊MSKU规则",
     ]
-    assert _cell_value(exported_path, "模板信息", 2, 2) == "默认模板"
+    assert _cell_value(exported_path, "参数方案信息", 2, 1) == "方案名称"
+    assert _cell_value(exported_path, "参数方案信息", 2, 2) == "默认"
+    assert _cell_value(exported_path, "参数方案信息", 4, 1) == "方案说明"
     assert _cell_value(exported_path, "日销计算", 2, 2) == 0.6
-    assert _row_values(exported_path, "补货天数", 1) == ["日销层级", "日销范围", "增长", "平稳", "下降"]
-    assert _cell_value(exported_path, "补货天数", 2, 2) == ">10"
-    assert _cell_value(exported_path, "补货天数", 3, 2) == "(5,10]"
-    assert "日销大于" not in _row_values(exported_path, "补货天数", 1)
+    assert _row_values(exported_path, "空运补货天数", 1) == ["日销层级", "日销范围", "增长", "平稳", "下降"]
+    assert _cell_value(exported_path, "空运补货天数", 2, 2) == ">10"
+    assert _cell_value(exported_path, "空运补货天数", 3, 2) == "(5,10]"
+    assert "日销大于" not in _row_values(exported_path, "空运补货天数", 1)
     assert _cell_value(exported_path, "海运进入条件", 2, 2) == "是"
     assert _row_values(exported_path, "海运补货天数", 1) == ["日销范围", "海运补货天数"]
     assert "候选天数" not in _row_values(exported_path, "海运补货天数", 1)
@@ -173,66 +185,66 @@ def test_export_validate_and_import_template_xlsx(tmp_path) -> None:
     assert _cell_value(exported_path, "海运补货天数", 5, 2) == "100"
     assert _row_values(exported_path, "海运同时空运", 1) == ["项目", "值"]
     assert _row_values(exported_path, "海运同时空运", 4) == ["日销范围", "同时空运天数"]
-    replenishment_note_row = _find_row_by_first_cell(exported_path, "补货天数", "修改说明")
+    replenishment_note_row = _find_row_by_first_cell(exported_path, "空运补货天数", "修改说明")
     assert replenishment_note_row == 7
-    assert _cell_value(exported_path, "补货天数", replenishment_note_row + 1, 1) == "1. 日销层级仅用于阅读，不影响计算。"
-    assert _cell_fill(exported_path, "补货天数", 2, 1) == tmpl.READONLY_FILL_COLOR
-    assert _cell_fill(exported_path, "补货天数", 2, 2) == tmpl.EDITABLE_FILL_COLOR
-    assert _cell_fill(exported_path, "补货天数", 2, 3) == tmpl.EDITABLE_FILL_COLOR
-    assert _cell_fill(exported_path, "补货天数", replenishment_note_row, 1) == tmpl.READONLY_FILL_COLOR
+    assert _cell_value(exported_path, "空运补货天数", replenishment_note_row + 1, 1) == "1. 日销层级仅用于阅读，不影响计算。"
+    assert _cell_fill(exported_path, "空运补货天数", 2, 1) == tmpl.READONLY_FILL_COLOR
+    assert _cell_fill(exported_path, "空运补货天数", 2, 2) == tmpl.EDITABLE_FILL_COLOR
+    assert _cell_fill(exported_path, "空运补货天数", 2, 3) == tmpl.EDITABLE_FILL_COLOR
+    assert _cell_fill(exported_path, "空运补货天数", replenishment_note_row, 1) == tmpl.READONLY_FILL_COLOR
     assert _cell_fill(exported_path, "日销计算", 2, 1) == tmpl.READONLY_FILL_COLOR
     assert _cell_fill(exported_path, "日销计算", 2, 2) == tmpl.EDITABLE_FILL_COLOR
     assert _cell_fill(exported_path, "日销计算", 2, 3) == tmpl.READONLY_FILL_COLOR
-    assert _cell_fill(exported_path, "补货天数", 1, 1) == tmpl.HEADER_FILL_COLOR
+    assert _cell_fill(exported_path, "空运补货天数", 1, 1) == tmpl.HEADER_FILL_COLOR
 
     result = tmpl.validate_template_xlsx(exported_path)
-    assert result.template.name == "默认模板"
+    assert result.template.name == "默认"
     assert result.template.params["shipping"]["air_urgent_sales_days_lte"] == 40
     assert result.template.params["sea"]["enabled"] is True
 
     imported = tmpl.import_template_xlsx(exported_path, store_path=tmp_path / "templates.json")
-    assert imported.template.name == "自定义模板1"
+    assert imported.template.name == "自定义参数方案1"
 
     second_imported = tmpl.import_template_xlsx(exported_path, store_path=tmp_path / "templates.json")
-    assert second_imported.template.name == "自定义模板2"
+    assert second_imported.template.name == "自定义参数方案2"
 
     templates = tmpl.list_templates(store_path=tmp_path / "templates.json")
     assert [template.name for template in templates] == [
-        "默认模板",
-        "US模板-一组",
-        "UK模板-一组",
-        "DE模板-一组",
+        "默认",
+        "US-一组",
+        "UK-一组",
+        "DE-一组",
         "2组-US站点-林美淇",
-        "自定义模板1",
-        "自定义模板2",
+        "自定义参数方案1",
+        "自定义参数方案2",
     ]
 
 
 def test_import_rejects_duplicate_and_default_names(tmp_path) -> None:
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
-    tmpl.import_template_xlsx(exported_path, name="老王模板", store_path=tmp_path / "templates.json")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
+    tmpl.import_template_xlsx(exported_path, name="老王方案", store_path=tmp_path / "templates.json")
 
-    with pytest.raises(tmpl.ReplenishmentTemplateError, match="模板名已存在"):
-        tmpl.import_template_xlsx(exported_path, name="老王模板", store_path=tmp_path / "templates.json")
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="参数方案名已存在"):
+        tmpl.import_template_xlsx(exported_path, name="老王方案", store_path=tmp_path / "templates.json")
 
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="不允许导入覆盖"):
-        tmpl.import_template_xlsx(exported_path, name="默认模板", store_path=tmp_path / "templates.json")
+        tmpl.import_template_xlsx(exported_path, name="默认", store_path=tmp_path / "templates.json")
 
-    with pytest.raises(tmpl.ReplenishmentTemplateError, match="系统模板不允许导入覆盖"):
-        tmpl.import_template_xlsx(exported_path, name="UK模板-一组", store_path=tmp_path / "templates.json")
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="系统参数方案不允许导入覆盖"):
+        tmpl.import_template_xlsx(exported_path, name="UK-一组", store_path=tmp_path / "templates.json")
 
 
 def test_replace_template_updates_existing_custom_template(tmp_path) -> None:
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
-    imported = tmpl.import_template_xlsx(exported_path, name="老王模板", store_path=tmp_path / "templates.json")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
+    imported = tmpl.import_template_xlsx(exported_path, name="老王方案", store_path=tmp_path / "templates.json")
     assert imported.template.version == 1
 
     from openpyxl import load_workbook
 
     workbook = load_workbook(exported_path)
     try:
-        workbook["模板信息"].cell(row=2, column=2).value = "xlsx里的新名字"
-        workbook["模板信息"].cell(row=4, column=2).value = "替换后的说明"
+        workbook["参数方案信息"].cell(row=2, column=2).value = "xlsx里的新名字"
+        workbook["参数方案信息"].cell(row=4, column=2).value = "替换后的说明"
         workbook["空运判断"].cell(row=2, column=2).value = 35
         workbook.save(exported_path)
     finally:
@@ -240,74 +252,74 @@ def test_replace_template_updates_existing_custom_template(tmp_path) -> None:
 
     replaced, old_version = tmpl.replace_template_xlsx(
         exported_path,
-        template_name="老王模板",
+        template_name="老王方案",
         store_path=tmp_path / "templates.json",
     )
 
     assert old_version == 1
-    assert replaced.template.name == "老王模板"
+    assert replaced.template.name == "老王方案"
     assert replaced.template.version == 2
     assert replaced.template.description == "替换后的说明"
     assert replaced.template.params["shipping"]["air_urgent_sales_days_lte"] == 35
 
 
 def test_replace_rejects_default_and_missing_template(tmp_path) -> None:
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
 
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="不允许替换"):
-        tmpl.replace_template_xlsx(exported_path, template_name="默认模板", store_path=tmp_path / "templates.json")
+        tmpl.replace_template_xlsx(exported_path, template_name="默认", store_path=tmp_path / "templates.json")
 
-    with pytest.raises(tmpl.ReplenishmentTemplateError, match="系统模板不允许替换"):
-        tmpl.replace_template_xlsx(exported_path, template_name="US模板-一组", store_path=tmp_path / "templates.json")
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="系统参数方案不允许替换"):
+        tmpl.replace_template_xlsx(exported_path, template_name="US-一组", store_path=tmp_path / "templates.json")
 
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="只能替换已存在"):
         tmpl.replace_template_xlsx(exported_path, template_name="不存在", store_path=tmp_path / "templates.json")
 
 
 def test_rename_template_updates_name_without_version_change(tmp_path) -> None:
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
-    tmpl.import_template_xlsx(exported_path, name="自定义模板A", store_path=tmp_path / "templates.json")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
+    tmpl.import_template_xlsx(exported_path, name="自定义方案A", store_path=tmp_path / "templates.json")
 
-    renamed = tmpl.rename_template("自定义模板A", new_name="夏季备货模板", store_path=tmp_path / "templates.json")
+    renamed = tmpl.rename_template("自定义方案A", new_name="夏季备货方案", store_path=tmp_path / "templates.json")
 
-    assert renamed.name == "夏季备货模板"
+    assert renamed.name == "夏季备货方案"
     assert renamed.version == 1
     templates = tmpl.list_templates(store_path=tmp_path / "templates.json")
     assert [template.name for template in templates] == [
-        "默认模板",
-        "US模板-一组",
-        "UK模板-一组",
-        "DE模板-一组",
+        "默认",
+        "US-一组",
+        "UK-一组",
+        "DE-一组",
         "2组-US站点-林美淇",
-        "夏季备货模板",
+        "夏季备货方案",
     ]
 
 
 def test_rename_rejects_default_duplicate_and_missing_template(tmp_path) -> None:
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
-    tmpl.import_template_xlsx(exported_path, name="模板A", store_path=tmp_path / "templates.json")
-    tmpl.import_template_xlsx(exported_path, name="模板B", store_path=tmp_path / "templates.json")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
+    tmpl.import_template_xlsx(exported_path, name="方案A", store_path=tmp_path / "templates.json")
+    tmpl.import_template_xlsx(exported_path, name="方案B", store_path=tmp_path / "templates.json")
 
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="不允许重命名"):
-        tmpl.rename_template("默认模板", new_name="新默认", store_path=tmp_path / "templates.json")
+        tmpl.rename_template("默认", new_name="新默认", store_path=tmp_path / "templates.json")
 
-    with pytest.raises(tmpl.ReplenishmentTemplateError, match="系统模板不允许重命名"):
-        tmpl.rename_template("DE模板-一组", new_name="新DE", store_path=tmp_path / "templates.json")
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="系统参数方案不允许重命名"):
+        tmpl.rename_template("DE-一组", new_name="新DE", store_path=tmp_path / "templates.json")
 
-    with pytest.raises(tmpl.ReplenishmentTemplateError, match="模板名已存在"):
-        tmpl.rename_template("模板A", new_name="模板B", store_path=tmp_path / "templates.json")
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="参数方案名已存在"):
+        tmpl.rename_template("方案A", new_name="方案B", store_path=tmp_path / "templates.json")
 
-    with pytest.raises(tmpl.ReplenishmentTemplateError, match="新模板名不能是系统模板"):
-        tmpl.rename_template("模板A", new_name="US模板-一组", store_path=tmp_path / "templates.json")
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="新参数方案名不能是系统参数方案"):
+        tmpl.rename_template("方案A", new_name="US-一组", store_path=tmp_path / "templates.json")
 
     with pytest.raises(tmpl.ReplenishmentTemplateError, match="只能重命名已存在"):
-        tmpl.rename_template("不存在", new_name="模板C", store_path=tmp_path / "templates.json")
+        tmpl.rename_template("不存在", new_name="方案C", store_path=tmp_path / "templates.json")
 
 
 def test_validate_template_detects_invalid_threshold() -> None:
     template = tmpl.load_default_template()
     broken = tmpl.ReplenishmentTemplate(
-        name="坏模板",
+        name="坏方案",
         version=1,
         description="",
         params={
@@ -328,7 +340,7 @@ def test_validate_template_requires_sea_enabled() -> None:
     params = json.loads(json.dumps(template.params, ensure_ascii=False))
     params["sea"].pop("enabled")
     broken = tmpl.ReplenishmentTemplate(
-        name="旧模板",
+        name="旧方案",
         version=1,
         description="",
         params=params,
@@ -339,7 +351,7 @@ def test_validate_template_requires_sea_enabled() -> None:
 
 
 def test_template_xlsx_parses_disabled_sea_switch(tmp_path) -> None:
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
 
     from openpyxl import load_workbook
 
@@ -377,14 +389,14 @@ def test_template_xlsx_round_trips_inclusive_sea_min_daily_sales(tmp_path) -> No
 
 
 def test_template_xlsx_uses_daily_sales_range_as_authoritative_input(tmp_path) -> None:
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
 
     from openpyxl import load_workbook
 
     workbook = load_workbook(exported_path)
     try:
-        workbook["补货天数"].cell(row=2, column=2).value = ">12"
-        workbook["补货天数"].cell(row=5, column=2).value = "≤2"
+        workbook["空运补货天数"].cell(row=2, column=2).value = ">12"
+        workbook["空运补货天数"].cell(row=5, column=2).value = "≤2"
         workbook["海运补货天数"].cell(row=2, column=1).value = ">45"
         workbook["海运补货天数"].cell(row=2, column=2).value = "88"
         workbook.save(exported_path)
@@ -403,23 +415,23 @@ def test_template_xlsx_uses_daily_sales_range_as_authoritative_input(tmp_path) -
 
 
 def test_template_xlsx_rejects_invalid_daily_sales_range(tmp_path) -> None:
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
 
     from openpyxl import load_workbook
 
     workbook = load_workbook(exported_path)
     try:
-        workbook["补货天数"].cell(row=2, column=2).value = "1~5"
+        workbook["空运补货天数"].cell(row=2, column=2).value = "1~5"
         workbook.save(exported_path)
     finally:
         workbook.close()
 
-    with pytest.raises(tmpl.ReplenishmentTemplateError, match="补货天数第2行日销范围格式无效"):
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match="空运补货天数第2行日销范围格式无效"):
         tmpl.validate_template_xlsx(exported_path)
 
 
 def test_template_xlsx_rejects_multiple_sea_replenishment_days(tmp_path) -> None:
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
 
     from openpyxl import load_workbook
 
@@ -469,7 +481,7 @@ def test_old_template_xlsx_is_rejected(tmp_path) -> None:
 
 def test_old_sea_days_sheet_name_is_rejected(tmp_path) -> None:
     path = tmp_path / "old_sea_days_name.xlsx"
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
 
     from openpyxl import load_workbook
 
@@ -484,18 +496,53 @@ def test_old_sea_days_sheet_name_is_rejected(tmp_path) -> None:
         tmpl.validate_template_xlsx(path)
 
 
-def test_previous_business_step_template_xlsx_is_rejected(tmp_path) -> None:
-    path = tmp_path / "previous_template.xlsx"
-    exported_path = tmpl.export_template_xlsx("默认模板", output_dir=tmp_path / "editable")
+def test_old_replenishment_days_sheet_name_is_rejected(tmp_path) -> None:
+    path = tmp_path / "old_replenishment_days_name.xlsx"
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
 
     from openpyxl import load_workbook
 
     workbook = load_workbook(exported_path)
     try:
-        workbook["补货天数"].delete_rows(1)
-        workbook["补货天数"].insert_rows(1)
+        workbook["空运补货天数"].title = "补货天数"
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match=tmpl.OLD_TEMPLATE_ERROR):
+        tmpl.validate_template_xlsx(path)
+
+
+def test_old_template_info_field_names_are_rejected(tmp_path) -> None:
+    path = tmp_path / "old_template_info_fields.xlsx"
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(exported_path)
+    try:
+        workbook["参数方案信息"].cell(row=2, column=1).value = "模板名称"
+        workbook["参数方案信息"].cell(row=4, column=1).value = "模板说明"
+        workbook.save(path)
+    finally:
+        workbook.close()
+
+    with pytest.raises(tmpl.ReplenishmentTemplateError, match=tmpl.OLD_TEMPLATE_ERROR):
+        tmpl.validate_template_xlsx(path)
+
+
+def test_previous_business_step_template_xlsx_is_rejected(tmp_path) -> None:
+    path = tmp_path / "previous_template.xlsx"
+    exported_path = tmpl.export_template_xlsx("默认", output_dir=tmp_path / "editable")
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(exported_path)
+    try:
+        workbook["空运补货天数"].delete_rows(1)
+        workbook["空运补货天数"].insert_rows(1)
         for column, value in enumerate(["日销层级", "日销范围", "日销大于", "增长", "平稳", "下降", "说明"], start=1):
-            workbook["补货天数"].cell(row=1, column=column).value = value
+            workbook["空运补货天数"].cell(row=1, column=column).value = value
         workbook.save(path)
     finally:
         workbook.close()
@@ -507,7 +554,7 @@ def test_previous_business_step_template_xlsx_is_rejected(tmp_path) -> None:
 def test_special_rule_applies_msku_overrides() -> None:
     template = tmpl.load_default_template()
     custom = tmpl.ReplenishmentTemplate(
-        name="特殊模板",
+        name="特殊方案",
         version=1,
         description="",
         params={
@@ -538,12 +585,12 @@ def test_special_rule_applies_msku_overrides() -> None:
 def test_cli_list_and_list_params(capsys) -> None:
     assert cli.main(["list"]) == 0
     payload = _read_payload(capsys)
-    assert payload["templates"][0]["name"] == "默认模板"
+    assert payload["templates"][0]["name"] == "默认"
     assert [item["name"] for item in payload["templates"][:4]] == [
-        "默认模板",
-        "US模板-一组",
-        "UK模板-一组",
-        "DE模板-一组",
+        "默认",
+        "US-一组",
+        "UK-一组",
+        "DE-一组",
     ]
 
     assert cli.main(["list-params"]) == 0
@@ -551,7 +598,7 @@ def test_cli_list_and_list_params(capsys) -> None:
     assert payload["groups"][0]["group"] == "日销计算"
     assert [group["group"] for group in payload["groups"][:6]] == [
         "日销计算",
-        "补货天数",
+        "空运补货天数",
         "空运判断",
         "海运进入条件",
         "海运补货天数",
@@ -567,51 +614,53 @@ def test_cli_list_and_list_params(capsys) -> None:
 def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.chdir(tmp_path)
 
-    assert cli.main(["show", "--template", "默认模板"]) == 0
+    assert cli.main(["show", "--template", "默认"]) == 0
     payload = _read_payload(capsys)
-    assert payload["template"]["name"] == "默认模板"
+    assert payload["template"]["name"] == "默认"
 
-    assert cli.main(["export", "--template", "默认模板"]) == 0
+    assert cli.main(["export", "--template", "默认"]) == 0
     payload = _read_payload(capsys)
     exported_path = Path(payload["xlsx_path"])
     assert exported_path.is_file()
 
     assert cli.main(["validate-file", "--xlsx", str(exported_path)]) == 0
     payload = _read_payload(capsys)
-    assert payload["template_name"] == "默认模板"
+    assert payload["template_name"] == "默认"
 
-    assert cli.main(["import", "--xlsx", str(exported_path), "--name", "CLI模板"]) == 0
+    assert cli.main(["import", "--xlsx", str(exported_path), "--name", "CLI方案"]) == 0
     payload = _read_payload(capsys)
-    assert payload["template_name"] == "CLI模板"
+    assert payload["template_name"] == "CLI方案"
 
-    assert cli.main(["replace", "--template", "CLI模板", "--xlsx", str(exported_path)]) == 0
+    assert cli.main(["replace", "--template", "CLI方案", "--xlsx", str(exported_path)]) == 0
     payload = _read_payload(capsys)
-    assert payload["template_name"] == "CLI模板"
+    assert payload["template_name"] == "CLI方案"
     assert payload["old_version"] == 1
     assert payload["new_version"] == 2
 
-    assert cli.main(["rename", "--template", "CLI模板", "--name", "CLI重命名模板"]) == 0
+    assert cli.main(["rename", "--template", "CLI方案", "--name", "CLI重命名方案"]) == 0
     payload = _read_payload(capsys)
-    assert payload["old_name"] == "CLI模板"
-    assert payload["new_name"] == "CLI重命名模板"
+    assert payload["old_name"] == "CLI方案"
+    assert payload["new_name"] == "CLI重命名方案"
     assert payload["template_version"] == 2
 
 
-def test_skill_index_loads_replenishment_template_manage() -> None:
-    manifest = load_skill_index(force_reload=True).get("replenishment-template-manage")
+def test_skill_index_loads_replenishment_algorithm_config_manage() -> None:
+    skill_index = load_skill_index(force_reload=True)
+    manifest = skill_index.get("replenishment-algorithm-config-manage")
 
     assert manifest is not None
-    assert manifest.name == "replenishment-template-manage"
+    assert manifest.name == "replenishment-algorithm-config-manage"
     assert manifest.type == "amazon_replenish"
+    assert skill_index.get("replenishment-template-manage") is None
 
-    template_skill = Path("skills/replenishment-template-manage/SKILL.md").read_text(encoding="utf-8")
+    template_skill = Path("skills/replenishment-algorithm-config-manage/SKILL.md").read_text(encoding="utf-8")
     calculate_skill = Path("skills/replenishment-calculate/SKILL.md").read_text(encoding="utf-8")
     workflow_skill = Path("skills/replenishment-workflow-map/SKILL.md").read_text(encoding="utf-8")
-    assert "模板只管理论算法" in template_skill
+    assert "参数方案只管理论算法" in template_skill
     assert "浅黄色单元格表示业务可修改" in template_skill
     assert "浅灰色单元格是参数名或说明信息" in template_skill
     assert "表格下方有 `修改说明` 区" in template_skill
-    assert "旧版模板 xlsx 不兼容" in template_skill
+    assert "旧版备货算法配置表不兼容" in template_skill
     assert "固定扣减 `FBA 总库存（马帮数据）` 和同日未关联货件" in calculate_skill
-    assert "算法参数侧流程" in workflow_skill
+    assert "算法参数方案" in workflow_skill
     assert "扣减数据流程" in workflow_skill
