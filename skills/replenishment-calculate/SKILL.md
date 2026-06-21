@@ -12,11 +12,11 @@ type: amazon_replenish
 
 ## Hard Rules
 
-- 默认计算命令：`uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" [--template "<模板名>"]`
+- 默认计算命令：`uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" [--template "<参数方案名>"]`
 - 本 skill 只负责调用计算 CLI；报表匹配、计算和写出都由 CLI 完成。
 - 销量分析报告和真实库存报告是必需输入；如果 CLI 提示缺少同源报表，路由到对应 skill。
-- 模板只决定理论算法结果：补货天数、理论补货量、运输方式、海运/同时空运拆分。
-- 计算 CLI 会在模板理论量基础上固定扣减 `FBA 总库存（马帮数据）` 和同日未关联货件，生成最终执行建议量。
+- 参数方案只决定理论算法结果：补货天数、理论补货量、运输方式、海运/同时空运拆分。
+- 计算 CLI 会在参数方案理论量基础上固定扣减 `FBA 总库存（马帮数据）` 和同日未关联货件，生成最终执行建议量。
 - CLI 会自动查找与备货数据同日的未关联货件快照。
 - 亚马逊补充库存 snapshot 是可选对照增强；只有用户明确要求使用亚马逊侧 FBA 库存扣减时，先用 `replenishment-amazon-restock-inventory-snapshot` 生成 snapshot，再把路径传给计算 CLI。
 - 如果 CLI 返回未关联快照提醒，路由到 `replenishment-unlinked-shipment-download` 后重算。
@@ -32,16 +32,16 @@ type: amazon_replenish
 uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store --store-name "<店铺名>"
 ```
 
-解析成功后，用规范 `store_name` 生成备货建议。不指定模板时使用 `默认模板`：
+解析成功后，用规范 `store_name` 生成备货建议。不指定参数方案时使用 `默认`：
 
 ```powershell
 uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>"
 ```
 
-如果用户指定模板：
+如果用户指定参数方案：
 
 ```powershell
-uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" --template "<模板名>"
+uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" --template "<参数方案名>"
 ```
 
 如果用户明确要求使用亚马逊补充库存扣减字段：
@@ -57,7 +57,7 @@ uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_repleni
   "success": true,
   "store_name": "Amazon-Lerxiuer-FR",
   "source_data_time": "202605251530",
-  "template_name": "默认模板",
+  "template_name": "默认",
   "template_version": 1,
   "row_count": 120,
   "link_count": 18,
@@ -86,11 +86,11 @@ uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_repleni
 ## Input Requirements
 
 - 必需：同一 `source_data_time` 的销量分析报告和真实库存报告。
-- 模板阶段：先按指定模板算出理论 `补货量` 和运输建议。
+- 参数方案阶段：先按指定参数方案算出理论 `补货量` 和运输建议。
 - 固定扣减阶段：再扣 `FBA 总库存（马帮数据）` 和同日未关联货件，得到主执行建议量。
 - 自动增强：同日未关联货件快照；找不到时 CLI 仍会生成备货建议，但结果里会返回提醒。
 - 手动对照增强：亚马逊补充库存 snapshot；需要用户明确提供路径，日期允许和备货数据同日或相邻 `1` 个自然日。
-- 模板可选：不传 `--template` 时使用 `默认模板`。
+- 参数方案可选：不传 `--template` 时使用 `默认`。
 
 ## Result Handling
 

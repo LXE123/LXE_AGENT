@@ -29,7 +29,7 @@ Replenishment 主线：
 
 - `replenishment-workflow-map` 负责解释备货 skill 关系和缺数据时的路由。
 - 店铺名先由 `replenishment-store-resolve` 解析，再下载 MSKU、销量、真实库存和未关联货件数据。
-- `replenishment-template-manage` 管理公式参数，`replenishment-calculate` 汇总销量、库存和未关联货件生成备货建议。
+- `replenishment-algorithm-config-manage` 管理备货算法参数方案，`replenishment-calculate` 汇总销量、库存和未关联货件生成备货建议。
 - `replenishment-amazon-restock-inventory-snapshot` 只解析用户手动下载的 Seller Central 补充库存 CSV。
 
 ## Archive Mapping
@@ -44,7 +44,7 @@ Replenishment 主线：
 - [fba-stock-sku-download](archive/amazon_fba/fba-stock-sku-download/sanitized_download_step.md)
 - [fba-shipment-delivery-csv-download](archive/amazon_fba/fba-shipment-delivery-csv-download/sanitized_api_note.md)
 - [fba-export-tax-delivery-summary](archive/amazon_fba/fba-export-tax-delivery-summary/process_draft.md)
-- [replenishment-template-manage](archive/amazon_replenish/replenishment-template-manage/customizable_formula_parameter_draft.md)
+- [replenishment-algorithm-config-manage](archive/amazon_replenish/replenishment-template-manage/customizable_formula_parameter_draft.md)：旧 `replenishment-template-manage` 草稿，对应当前算法参数方案 skill。
 - [replenishment-sales-analyze](archive/amazon_replenish/replenishment-sales-analyze/draft.md)
 - [replenishment-calculate](archive/amazon_replenish/replenishment-calculate/draft.md)
 - [replenishment-unlinked-shipment-download](archive/amazon_replenish/replenishment-unlinked-shipment-download/draft.md)
@@ -78,7 +78,7 @@ Replenishment 主线：
 | `replenishment-sales-analyze` | 基于本地 MSKU 数据生成销量分析报告。 | 用户要求店铺链接销量、ASIN 销量、MSKU 趋势或补货前销量报告。 | 输入规范店铺名和本地 MSKU 数据；输出销量分析报告。 | [SKILL.md](../../../skills/replenishment-sales-analyze/SKILL.md) |
 | `replenishment-real-inventory-report` | 生成真实库存报告。 | 用户要求查看店铺 MSKU、本地 SKU、组合 SKU 或备货所需真实库存。 | 输入规范店铺名和本地 MSKU 数据；输出真实库存报告。 | [SKILL.md](../../../skills/replenishment-real-inventory-report/SKILL.md) |
 | `replenishment-unlinked-shipment-download` | 下载未关联货件原生导出并生成快照。 | 用户测试下载未关联货件、检查备货缺失货件数据。 | 输入店铺名；输出未关联货件原始文件和快照。 | [SKILL.md](../../../skills/replenishment-unlinked-shipment-download/SKILL.md) |
-| `replenishment-template-manage` | 管理备货参数模板。 | 用户查看、导出、校验、导入或保存自定义备货模板。 | 输入模板操作和 xlsx；输出模板文件、校验结果或保存结果。 | [SKILL.md](../../../skills/replenishment-template-manage/SKILL.md) |
+| `replenishment-algorithm-config-manage` | 管理备货算法参数方案。 | 用户查看、导出、校验、导入或保存自定义参数方案或配置表。 | 输入参数方案操作和 xlsx；输出配置表文件、校验结果或保存结果。 | [SKILL.md](../../../skills/replenishment-algorithm-config-manage/SKILL.md) |
 | `replenishment-calculate` | 生成店铺 MSKU 备货建议。 | 用户要求计算备货量、补货量、运输方式或链接备货汇总。 | 输入销量分析、真实库存、未关联货件和模板参数；输出备货建议。 | [SKILL.md](../../../skills/replenishment-calculate/SKILL.md) |
 | `replenishment-amazon-restock-inventory-snapshot` | 解析 Seller Central 补充库存 CSV。 | 用户使用亚马逊补充库存、需要下载路径指引，或要增加补充库存扣减字段。 | 输入用户手动下载的补充库存 CSV；输出备货可用 snapshot。 | [SKILL.md](../../../skills/replenishment-amazon-restock-inventory-snapshot/SKILL.md) |
 

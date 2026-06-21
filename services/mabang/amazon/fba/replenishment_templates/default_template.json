@@ -1,7 +1,7 @@
 {
-  "name": "默认模板",
+  "name": "默认",
   "version": 1,
-  "description": "当前默认备货算法参数",
+  "description": "当前默认备货算法参数方案",
   "params": {
     "weighted_sales": {
       "7d_weight": 0.6,

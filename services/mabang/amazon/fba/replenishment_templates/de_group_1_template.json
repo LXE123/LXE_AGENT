@@ -1,7 +1,7 @@
 {
-  "name": "DE模板-一组",
+  "name": "DE-一组",
   "version": 1,
-  "description": "DE一组备货算法参数",
+  "description": "DE一组备货算法参数方案",
   "params": {
     "weighted_sales": {
       "7d_weight": 0.6,
