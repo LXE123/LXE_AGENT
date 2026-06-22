@@ -199,6 +199,21 @@ references:
     monkeypatch.setattr(skill_index_module, "_SKILL_INDEX", None)
 
 
+def _install_dashboard_project_docs(monkeypatch, tmp_path):
+    docs_root = tmp_path / "docs"
+    docs_root.mkdir()
+    (docs_root / "README.md").write_text("# Docs Home\n\n状态：Current\n\nWelcome.", encoding="utf-8")
+    nested_dir = docs_root / "harness" / "runtime"
+    nested_dir.mkdir(parents=True)
+    (nested_dir / "runtime_flow.md").write_text(
+        "# Runtime Flow\n\nStatus: Draft\n\nRuntime content.",
+        encoding="utf-8",
+    )
+    (docs_root / "notes.txt").write_text("not markdown", encoding="utf-8")
+    monkeypatch.setattr(dashboard_api, "_repo_root", lambda: tmp_path)
+    return docs_root
+
+
 def test_sessions_endpoint_orders_by_last_active_and_returns_metadata(dashboard_client):
     older = create_agent_session(
         session_id="older-session",
@@ -1230,3 +1245,68 @@ def test_skill_reference_endpoint_rejects_undeclared_or_escaped_paths(dashboard_
     assert undeclared.json()["detail"] == "skill reference not found"
     assert escaped.status_code == 404
     assert escaped.json()["detail"] == "skill reference not found"
+
+
+def test_project_docs_endpoint_returns_markdown_index(dashboard_client, monkeypatch, tmp_path):
+    _install_dashboard_project_docs(monkeypatch, tmp_path)
+
+    response = dashboard_client.get("/api/project-docs")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    docs_by_path = {item["path"]: item for item in payload["items"]}
+    assert docs_by_path["README.md"] == {
+        "path": "README.md",
+        "title": "Docs Home",
+        "section": "",
+        "status": "Current",
+        "size": len("# Docs Home\n\n状态：Current\n\nWelcome.".encode("utf-8")),
+    }
+    assert docs_by_path["harness/runtime/runtime_flow.md"]["title"] == "Runtime Flow"
+    assert docs_by_path["harness/runtime/runtime_flow.md"]["section"] == "harness/runtime"
+    assert docs_by_path["harness/runtime/runtime_flow.md"]["status"] == "Draft"
+
+
+def test_project_doc_content_endpoint_returns_markdown_body(dashboard_client, monkeypatch, tmp_path):
+    _install_dashboard_project_docs(monkeypatch, tmp_path)
+
+    response = dashboard_client.get("/api/project-docs/README.md")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["path"] == "README.md"
+    assert payload["title"] == "Docs Home"
+    assert payload["content"] == "# Docs Home\n\n状态：Current\n\nWelcome."
+
+
+def test_project_doc_content_endpoint_rejects_invalid_paths(dashboard_client, monkeypatch, tmp_path):
+    _install_dashboard_project_docs(monkeypatch, tmp_path)
+
+    missing = dashboard_client.get("/api/project-docs/missing.md")
+    escaped = dashboard_client.get("/api/project-docs/%2E%2E/README.md")
+    non_markdown = dashboard_client.get("/api/project-docs/notes.txt")
+
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "project doc not found"
+    assert escaped.status_code == 404
+    assert escaped.json()["detail"] == "project doc not found"
+    assert non_markdown.status_code == 404
+    assert non_markdown.json()["detail"] == "project doc not found"
+
+
+def test_docs_frontend_routes_return_dashboard_html(monkeypatch, tmp_path):
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text("<!doctype html><title>Dashboard</title>", encoding="utf-8")
+    monkeypatch.setattr(dashboard_api, "_dashboard_dist_dir", lambda: dist_dir)
+
+    client = TestClient(create_dashboard_app())
+
+    docs_home = client.get("/docs")
+    docs_path = client.get("/docs/harness/runtime/README.md")
+
+    assert docs_home.status_code == 200
+    assert "Dashboard" in docs_home.text
+    assert docs_path.status_code == 200
+    assert "Dashboard" in docs_path.text

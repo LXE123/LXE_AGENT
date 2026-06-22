@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from agent_runtime.packs.browser.tools import browser_tool_names
@@ -39,6 +39,10 @@ def _repo_root() -> Path:
 
 def _dashboard_dist_dir() -> Path:
     return _repo_root() / "web" / "agent-dashboard" / "dist"
+
+
+def _project_docs_root() -> Path:
+    return _repo_root() / "docs"
 
 
 _THINKING_ENABLED_ENV = "AGENT_LLM_THINKING_ENABLED"
@@ -468,6 +472,107 @@ def _read_utf8_file_or_http_error(path: Path, *, not_found_detail: str) -> str:
         raise HTTPException(status_code=500, detail="failed to read file") from exc
 
 
+def _extract_markdown_title(content: str, fallback: str) -> str:
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# "):
+            return stripped[2:].strip() or fallback
+    return fallback
+
+
+def _extract_markdown_status(content: str) -> str:
+    lines = content.splitlines()
+    if lines and lines[0].strip() == "---":
+        for line in lines[1:]:
+            stripped = line.strip()
+            if stripped == "---":
+                break
+            key, separator, value = stripped.partition(":")
+            if separator and key.strip().lower() == "status":
+                return value.strip().strip('"\'')
+    for line in lines[:20]:
+        stripped = line.strip()
+        if stripped.startswith("状态："):
+            return stripped.removeprefix("状态：").strip()
+        key, separator, value = stripped.partition(":")
+        if separator and key.strip().lower() == "status":
+            return value.strip()
+    return ""
+
+
+def _doc_title_from_path(relative_path: str) -> str:
+    stem = Path(relative_path).stem.replace("_", " ").replace("-", " ").strip()
+    return stem or relative_path
+
+
+def _project_doc_metadata_payload(path: Path, root: Path) -> dict[str, Any]:
+    relative_path = path.relative_to(root).as_posix()
+    content = _read_utf8_file_or_http_error(path, not_found_detail="project doc not found")
+    parent = Path(relative_path).parent.as_posix()
+    return {
+        "path": relative_path,
+        "title": _extract_markdown_title(content, _doc_title_from_path(relative_path)),
+        "section": "" if parent == "." else parent,
+        "status": _extract_markdown_status(content),
+        "size": path.stat().st_size,
+    }
+
+
+def _project_docs_payload() -> list[dict[str, Any]]:
+    root = _project_docs_root().resolve()
+    if not root.is_dir():
+        return []
+    items: list[dict[str, Any]] = []
+    for path in sorted(root.rglob("*.md"), key=lambda item: item.relative_to(root).as_posix().casefold()):
+        resolved = path.resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            continue
+        if not resolved.is_file():
+            continue
+        items.append(_project_doc_metadata_payload(resolved, root))
+    return items
+
+
+def _normalize_project_doc_request_path(doc_path: str) -> str:
+    raw_path = str(doc_path or "").strip().replace("\\", "/")
+    if not raw_path:
+        raise HTTPException(status_code=404, detail="project doc not found")
+    if raw_path.startswith("/") or raw_path.startswith("~") or ":" in raw_path:
+        raise HTTPException(status_code=404, detail="project doc not found")
+    parts = [part for part in raw_path.split("/") if part]
+    if any(part in {".", ".."} for part in parts):
+        raise HTTPException(status_code=404, detail="project doc not found")
+    safe_path = "/".join(parts)
+    if not safe_path.lower().endswith(".md"):
+        raise HTTPException(status_code=404, detail="project doc not found")
+    return safe_path
+
+
+def _project_doc_path_or_404(doc_path: str) -> Path:
+    root = _project_docs_root().resolve()
+    safe_path = _normalize_project_doc_request_path(doc_path)
+    path = (root / safe_path).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="project doc not found") from exc
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="project doc not found")
+    return path
+
+
+def _project_doc_content_payload(doc_path: str) -> dict[str, Any]:
+    root = _project_docs_root().resolve()
+    path = _project_doc_path_or_404(doc_path)
+    metadata = _project_doc_metadata_payload(path, root)
+    return {
+        **metadata,
+        "content": _read_utf8_file_or_http_error(path, not_found_detail="project doc not found"),
+    }
+
+
 def _skill_content_payload(skill_name: str) -> dict[str, Any]:
     manifest = _skill_manifest_or_404(skill_name)
     return {
@@ -632,6 +737,15 @@ def create_dashboard_app() -> FastAPI:
         items = _background_tasks_payload()
         return {"items": items, "total": len(items)}
 
+    @app.get("/api/project-docs")
+    async def project_docs() -> dict[str, Any]:
+        items = _project_docs_payload()
+        return {"items": items, "total": len(items)}
+
+    @app.get("/api/project-docs/{doc_path:path}")
+    async def project_doc_content(doc_path: str) -> dict[str, Any]:
+        return _project_doc_content_payload(doc_path)
+
     @app.get("/api/models")
     async def models() -> dict[str, Any]:
         items = _planner_descriptors_payload()
@@ -655,6 +769,13 @@ def create_dashboard_app() -> FastAPI:
 
     dist_dir = _dashboard_dist_dir()
     if dist_dir.is_dir():
+        index_file = dist_dir / "index.html"
+
+        @app.get("/docs")
+        @app.get("/docs/{path:path}")
+        async def docs_frontend(path: str = "") -> FileResponse:
+            return FileResponse(index_file)
+
         app.mount("/", StaticFiles(directory=str(dist_dir), html=True), name="dashboard")
     else:
         @app.get("/")
@@ -668,6 +789,11 @@ def create_dashboard_app() -> FastAPI:
                 "<p>API docs: <a href='/api/docs'>/api/docs</a></p>"
                 "</body>",
             )
+
+        @app.get("/docs")
+        @app.get("/docs/{path:path}")
+        async def docs_not_built(path: str = "") -> HTMLResponse:
+            return await dashboard_not_built()
 
     return app
 

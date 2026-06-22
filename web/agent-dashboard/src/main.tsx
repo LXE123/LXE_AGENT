@@ -1,22 +1,20 @@
-import React, { useEffect, useId, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  Activity,
   ArrowLeft,
   Bot,
-  Box,
   Brain,
   CheckCircle2,
   ChevronRight,
   Copy,
-  Database,
   FileText,
   Info,
   Layers3,
-  MessageSquareText,
   PackageCheck,
+  PanelLeftClose,
+  PanelLeftOpen,
   Search,
   Settings2,
   Sparkles,
@@ -167,6 +165,42 @@ type SkillContentView = {
 
 type SkillContentMode = "preview" | "source";
 
+type ProjectDocPayload = {
+  path: string;
+  title: string;
+  section: string;
+  status: string;
+  size: number;
+};
+
+type ProjectDocContentPayload = ProjectDocPayload & {
+  content: string;
+};
+
+type DocsContentMode = "preview" | "source";
+
+type DocsTreeFileNode = {
+  kind: "file";
+  name: string;
+  path: string;
+  doc: ProjectDocPayload;
+};
+
+type DocsTreeFolderNode = {
+  kind: "folder";
+  name: string;
+  path: string;
+  children: DocsTreeNode[];
+};
+
+type DocsTreeNode = DocsTreeFileNode | DocsTreeFolderNode;
+
+type DashboardShortcut = {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+};
+
 type ToolPayload = {
   name: string;
   description: string;
@@ -221,6 +255,9 @@ type SessionListPayload = ApiList<SessionPayload> & {
 const SESSION_MESSAGE_PAGE_LIMIT = 10;
 const SESSION_LIST_PAGE_SIZE = 10;
 const LANGUAGE_STORAGE_KEY = "agent-dashboard-language";
+const DOCS_HOME_PATH = "README.md";
+const DOCS_ROUTE_PREFIX = "/docs";
+const DASHBOARD_TAB_IDS = new Set(["sessions", "models", "tools", "skills", "background-tasks"]);
 
 const EMPTY_SESSION_SUMMARY: SessionSummaryPayload = {
   total_sessions: 0,
@@ -234,6 +271,11 @@ const EMPTY_SESSION_LIST: SessionListPayload = {
   limit: SESSION_LIST_PAGE_SIZE,
   offset: 0,
   summary: EMPTY_SESSION_SUMMARY
+};
+
+const EMPTY_PROJECT_DOCS: ApiList<ProjectDocPayload> = {
+  items: [],
+  total: 0
 };
 
 type Language = "zh" | "en";
@@ -253,11 +295,22 @@ const ZH_TEXT = {
   },
   nav: {
     sessions: "会话",
+    docs: "文档",
     models: "模型",
     tools: "工具",
     skills: "技能",
     tasks: "任务",
     aria: "Dashboard 区域"
+  },
+  sidebar: {
+    brand: "Agent",
+    collapse: "收起侧边栏",
+    expand: "展开侧边栏"
+  },
+  home: {
+    title: "欢迎使用 Agent Dashboard",
+    subtitle: "从左侧选择会话，或进入模型、工具、技能、任务、文档页面。",
+    shortcutAria: (label: string) => `打开${label}`
   },
   stats: {
     sessions: "会话",
@@ -294,6 +347,7 @@ const ZH_TEXT = {
     title: "会话",
     searchPlaceholder: "搜索 sessions",
     searchAria: "搜索 sessions",
+    selectPrompt: "选择一个会话查看详情。",
     searchResults: (count: string) => `搜索结果 ${count} 条`,
     total: (count: string) => `共 ${count} 条`,
     empty: "暂无 session 记录。",
@@ -303,9 +357,35 @@ const ZH_TEXT = {
     columnSession: "会话",
     tokenSuffix: "Token"
   },
+  docs: {
+    title: "文档",
+    searchPlaceholder: "搜索文档",
+    searchAria: "搜索文档",
+    backToDashboard: "返回控制台",
+    loading: "正在加载文档...",
+    loadingContent: "正在加载文档内容...",
+    empty: "暂无文档。",
+    emptySearch: "没有匹配的文档。",
+    errorLabel: "文档错误",
+    selectPrompt: "选择一篇文档阅读。",
+    preview: "预览",
+    source: "原文",
+    copySource: "复制原文",
+    path: "路径",
+    status: "状态",
+    size: "大小",
+    rootGroup: "根目录",
+    untitled: "未命名文档"
+  },
   sessionDetail: {
     back: "会话",
     eyebrow: "Session 详情",
+    details: "详情",
+    hideDetails: "收起详情",
+    sessionId: "Session ID",
+    source: "来源",
+    model: "历史模型",
+    lastActive: "最后活跃",
     loading: "正在加载对话...",
     errorLabel: "Session 错误",
     empty: "该 session 暂无对话记录。",
@@ -428,11 +508,22 @@ const UI_TEXT: Record<Language, UiText> = {
     },
     nav: {
       sessions: "Sessions",
+      docs: "Docs",
       models: "Models",
       tools: "Tools",
       skills: "Skills",
       tasks: "Tasks",
       aria: "Dashboard sections"
+    },
+    sidebar: {
+      brand: "Agent",
+      collapse: "Collapse sidebar",
+      expand: "Expand sidebar"
+    },
+    home: {
+      title: "Welcome to Agent Dashboard",
+      subtitle: "Choose a session from the sidebar, or open Models, Tools, Skills, Tasks, or Docs.",
+      shortcutAria: (label: string) => `Open ${label}`
     },
     stats: {
       sessions: "Sessions",
@@ -469,6 +560,7 @@ const UI_TEXT: Record<Language, UiText> = {
       title: "Sessions",
       searchPlaceholder: "Search sessions",
       searchAria: "Search sessions",
+      selectPrompt: "Select a session to view details.",
       searchResults: (count: string) => `${count} search results`,
       total: (count: string) => `${count} total`,
       empty: "No sessions yet.",
@@ -478,9 +570,35 @@ const UI_TEXT: Record<Language, UiText> = {
       columnSession: "Session",
       tokenSuffix: "Token"
     },
+    docs: {
+      title: "Docs",
+      searchPlaceholder: "Search docs",
+      searchAria: "Search docs",
+      backToDashboard: "Back to dashboard",
+      loading: "Loading docs...",
+      loadingContent: "Loading document...",
+      empty: "No docs found.",
+      emptySearch: "No matching docs.",
+      errorLabel: "Docs error",
+      selectPrompt: "Select a document to read.",
+      preview: "Preview",
+      source: "Source",
+      copySource: "Copy source",
+      path: "Path",
+      status: "Status",
+      size: "Size",
+      rootGroup: "Root",
+      untitled: "Untitled doc"
+    },
     sessionDetail: {
       back: "Sessions",
       eyebrow: "Session Detail",
+      details: "Details",
+      hideDetails: "Hide details",
+      sessionId: "Session ID",
+      source: "Source",
+      model: "Historical model",
+      lastActive: "Last active",
       loading: "Loading conversation...",
       errorLabel: "Session error",
       empty: "This session has no conversation records.",
@@ -673,6 +791,40 @@ const markdownComponents: Components = {
   }
 };
 
+function docsMarkdownComponents(currentPath: string, onNavigate: (path: string) => void): Components {
+  return {
+    ...markdownComponents,
+    a({ href, children, ...props }) {
+      const docPath = resolveDocsMarkdownHref(currentPath, href);
+      if (docPath) {
+        return (
+          <a
+            {...props}
+            href={docsHrefForPath(docPath)}
+            onClick={(event) => {
+              event.preventDefault();
+              onNavigate(docPath);
+            }}
+          >
+            {children}
+          </a>
+        );
+      }
+      const isExternal = Boolean(href && /^(https?:)?\/\//i.test(href));
+      return (
+        <a
+          {...props}
+          href={href}
+          rel={isExternal ? "noreferrer noopener" : undefined}
+          target={isExternal ? "_blank" : undefined}
+        >
+          {children}
+        </a>
+      );
+    }
+  };
+}
+
 async function fetchJson<T>(path: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: { Accept: "application/json" }
@@ -808,6 +960,115 @@ function normalizeSessionList(payload: SessionListPayload): SessionListPayload {
   };
 }
 
+function mergeSessionLists(current: SessionListPayload, next: SessionListPayload): SessionListPayload {
+  const seen = new Set<string>();
+  const items: SessionPayload[] = [];
+  [...current.items, ...next.items].forEach((session) => {
+    if (seen.has(session.session_id)) {
+      return;
+    }
+    seen.add(session.session_id);
+    items.push(session);
+  });
+  return {
+    ...next,
+    items
+  };
+}
+
+function normalizeProjectDocs(payload: ApiList<ProjectDocPayload>): ApiList<ProjectDocPayload> {
+  return {
+    ...payload,
+    items: Array.isArray(payload.items) ? payload.items : [],
+    total: Math.max(0, Number(payload.total) || 0)
+  };
+}
+
+function compareDocsTreeNode(a: DocsTreeNode, b: DocsTreeNode): number {
+  if (a.kind !== b.kind) {
+    return a.kind === "folder" ? -1 : 1;
+  }
+  return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function sortDocsTreeNodes(nodes: DocsTreeNode[]): DocsTreeNode[] {
+  nodes.sort(compareDocsTreeNode);
+  nodes.forEach((node) => {
+    if (node.kind === "folder") {
+      sortDocsTreeNodes(node.children);
+    }
+  });
+  return nodes;
+}
+
+function findOrCreateDocsFolder(parent: DocsTreeFolderNode, name: string): DocsTreeFolderNode {
+  const existing = parent.children.find((node): node is DocsTreeFolderNode => node.kind === "folder" && node.name === name);
+  if (existing) {
+    return existing;
+  }
+  const path = parent.path ? `${parent.path}/${name}` : name;
+  const folder: DocsTreeFolderNode = {
+    kind: "folder",
+    name,
+    path,
+    children: []
+  };
+  parent.children.push(folder);
+  return folder;
+}
+
+function buildDocsTree(docs: ProjectDocPayload[]): DocsTreeNode[] {
+  const root: DocsTreeFolderNode = {
+    kind: "folder",
+    name: "",
+    path: "",
+    children: []
+  };
+  const rootFiles: DocsTreeFileNode[] = [];
+
+  docs.forEach((doc) => {
+    const safePath = normalizeDocPath(doc.path);
+    if (!safePath) {
+      return;
+    }
+    const parts = safePath.split("/").filter(Boolean);
+    const fileName = parts.pop() || doc.title || safePath;
+    const fileNode: DocsTreeFileNode = {
+      kind: "file",
+      name: fileName,
+      path: safePath,
+      doc
+    };
+    if (!parts.length) {
+      rootFiles.push(fileNode);
+      return;
+    }
+    let folder = root;
+    parts.forEach((part) => {
+      folder = findOrCreateDocsFolder(folder, part);
+    });
+    folder.children.push(fileNode);
+  });
+
+  const nodes = sortDocsTreeNodes(root.children);
+  if (rootFiles.length) {
+    nodes.push(...sortDocsTreeNodes(rootFiles));
+  }
+  return nodes;
+}
+
+function docsAncestorFolders(path: string): string[] {
+  const parts = normalizeDocPath(path).split("/").filter(Boolean);
+  parts.pop();
+  const ancestors: string[] = [];
+  let current = "";
+  parts.forEach((part) => {
+    current = current ? `${current}/${part}` : part;
+    ancestors.push(current);
+  });
+  return ancestors;
+}
+
 function formatDate(value: number): string {
   if (!value) {
     return "-";
@@ -847,6 +1108,68 @@ function encodePathSegments(value: string): string {
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/");
+}
+
+function decodePathSegments(value: string): string {
+  return String(value || "")
+    .split("/")
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .join("/");
+}
+
+function normalizeDocPath(value: string): string {
+  return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "").trim();
+}
+
+function routeStateFromLocation(): { tab: string; docPath: string } {
+  const pathname = window.location.pathname;
+  if (pathname === DOCS_ROUTE_PREFIX || pathname.startsWith(`${DOCS_ROUTE_PREFIX}/`)) {
+    const docPath = pathname.startsWith(`${DOCS_ROUTE_PREFIX}/`)
+      ? normalizeDocPath(decodePathSegments(pathname.slice(DOCS_ROUTE_PREFIX.length + 1)))
+      : "";
+    return { tab: "docs", docPath };
+  }
+  const tab = typeof window.history.state?.tab === "string" ? window.history.state.tab : "sessions";
+  return { tab: DASHBOARD_TAB_IDS.has(tab) ? tab : "sessions", docPath: "" };
+}
+
+function docsHrefForPath(path: string): string {
+  const safePath = normalizeDocPath(path);
+  return safePath ? `${DOCS_ROUTE_PREFIX}/${encodePathSegments(safePath)}` : DOCS_ROUTE_PREFIX;
+}
+
+function resolveDocsMarkdownHref(currentPath: string, href: string | undefined): string {
+  const rawHref = String(href || "").trim();
+  if (!rawHref || rawHref.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(rawHref) || rawHref.startsWith("//")) {
+    return "";
+  }
+  const withoutHash = rawHref.split("#", 1)[0].split("?", 1)[0];
+  if (!withoutHash.toLowerCase().endsWith(".md")) {
+    return "";
+  }
+  const baseParts = normalizeDocPath(currentPath).split("/").filter(Boolean).slice(0, -1);
+  const parts = [...baseParts, ...withoutHash.split("/")];
+  const resolved: string[] = [];
+  for (const part of parts) {
+    if (!part || part === ".") {
+      continue;
+    }
+    if (part === "..") {
+      if (!resolved.length) {
+        return "";
+      }
+      resolved.pop();
+      continue;
+    }
+    resolved.push(part);
+  }
+  return normalizeDocPath(resolved.join("/"));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -968,6 +1291,41 @@ function EmptyState({ label }: { label: string }) {
       <Info size={18} />
       <span>{label}</span>
     </div>
+  );
+}
+
+function DashboardHome({
+  shortcuts,
+  onOpenShortcut
+}: {
+  shortcuts: DashboardShortcut[];
+  onOpenShortcut: (id: string) => void;
+}) {
+  const t = useUiText();
+  return (
+    <section className="dashboard-home" aria-labelledby="dashboard-home-title">
+      <div className="dashboard-home-mark">
+        <Sparkles size={24} />
+      </div>
+      <div className="dashboard-home-copy">
+        <h2 id="dashboard-home-title">{t.home.title}</h2>
+        <p>{t.home.subtitle}</p>
+      </div>
+      <div className="dashboard-home-shortcuts">
+        {shortcuts.map((shortcut) => (
+          <button
+            aria-label={t.home.shortcutAria(shortcut.label)}
+            className="dashboard-home-shortcut"
+            key={shortcut.id}
+            onClick={() => onOpenShortcut(shortcut.id)}
+            type="button"
+          >
+            {shortcut.icon}
+            <span>{shortcut.label}</span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1406,8 +1764,7 @@ function SessionDetailView({
   error,
   pageLoading,
   pageError,
-  onPageChange,
-  onBack
+  onPageChange
 }: {
   fallbackSession: SessionPayload;
   detail: SessionDetailPayload | null;
@@ -1416,7 +1773,6 @@ function SessionDetailView({
   pageLoading: boolean;
   pageError: string;
   onPageChange: (page: number) => void;
-  onBack: () => void;
 }) {
   const t = useUiText();
   const session = detail?.session || fallbackSession;
@@ -1424,7 +1780,21 @@ function SessionDetailView({
   const page = detail?.messages_page;
   const visibleItemCount = page ? Math.max(0, page.end - page.start) : 0;
   const renderItems = useMemo(() => buildConversationItems(messages), [messages]);
+  const [sessionInfoOpen, setSessionInfoOpen] = useState(false);
   const [expandedToolGroups, setExpandedToolGroups] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    setSessionInfoOpen(false);
+  }, [session.session_id]);
+  const detailItems = [
+    { label: t.sessionDetail.sessionId, value: session.session_id, mono: true },
+    { label: t.sessionDetail.source, value: sourceLabel(session.source_summary || session.source) },
+    { label: t.sessionDetail.model, value: session.model || "-" },
+    { label: t.sessionDetail.lastActive, value: formatDate(session.last_active_at) },
+    { label: t.stats.messages, value: formatNumber(session.message_count) },
+    { label: t.stats.toolCalls, value: formatNumber(session.tool_call_count) },
+    { label: t.stats.tokens, value: formatNumber(session.input_tokens + session.output_tokens) },
+    { label: t.stats.apiCalls, value: formatNumber(session.api_call_count) }
+  ];
   const toggleToolGroup = (key: string) => {
     setExpandedToolGroups((current) => {
       const next = new Set(current);
@@ -1438,30 +1808,30 @@ function SessionDetailView({
   };
   return (
     <div className="session-detail">
-      <div className="detail-toolbar">
-        <button className="back-button" type="button" onClick={onBack}>
-          <ArrowLeft size={16} />
-          <span>{t.sessionDetail.back}</span>
+      <div className="session-detail-toolbar">
+        <button
+          className="session-detail-toggle"
+          type="button"
+          aria-expanded={sessionInfoOpen}
+          onClick={() => setSessionInfoOpen((current) => !current)}
+        >
+          <Info size={15} />
+          <span>{sessionInfoOpen ? t.sessionDetail.hideDetails : t.sessionDetail.details}</span>
+          <ChevronRight size={15} className={sessionInfoOpen ? "expanded" : ""} />
         </button>
       </div>
-      <section className="session-detail-header">
-        <div>
-          <div className="eyebrow">{t.sessionDetail.eyebrow}</div>
-          <h2>{session.title || t.common.unnamedSession}</h2>
-          <p className="muted mono">{session.session_id}</p>
-        </div>
-        <div className="detail-meta-grid">
-          <span>{sourceLabel(session.source_summary || session.source)}</span>
-          <span>{session.model || "-"}</span>
-          <span>{formatDate(session.last_active_at)}</span>
-        </div>
-      </section>
-      <div className="detail-stats">
-        <StatTile icon={<MessageSquareText size={18} />} label={t.stats.messages} value={formatNumber(session.message_count)} />
-        <StatTile icon={<Wrench size={18} />} label={t.stats.toolCalls} value={formatNumber(session.tool_call_count)} />
-        <StatTile icon={<Box size={18} />} label={t.stats.tokens} value={formatNumber(session.input_tokens + session.output_tokens)} />
-        <StatTile icon={<Activity size={18} />} label={t.stats.apiCalls} value={formatNumber(session.api_call_count)} />
-      </div>
+      {sessionInfoOpen ? (
+        <section className="session-detail-panel">
+          <div className="session-detail-grid">
+            {detailItems.map((item) => (
+              <div className="session-detail-field" key={item.label}>
+                <span>{item.label}</span>
+                <strong className={item.mono ? "mono" : ""}>{item.value}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {loading ? <EmptyState label={t.sessionDetail.loading} /> : null}
       {error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, error)} /> : null}
       {!loading && !error ? (
@@ -1562,120 +1932,424 @@ function SessionDetailView({
   );
 }
 
-function SessionsView({
+function SessionsIndex({
   sessions,
-  summary,
-  total,
-  limit,
-  offset,
   query,
+  searchOpen,
   loading,
   error,
-  onPageChange,
+  hasMore,
+  loadMoreError,
+  selectedSessionId,
+  onQueryChange,
+  onLoadMore,
   onOpen
 }: {
   sessions: SessionPayload[];
-  summary: SessionSummaryPayload;
-  total: number;
-  limit: number;
-  offset: number;
   query: string;
+  searchOpen: boolean;
   loading: boolean;
   error: string;
-  onPageChange: (page: number) => void;
+  hasMore: boolean;
+  loadMoreError: string;
+  selectedSessionId: string;
+  onQueryChange: (value: string) => void;
+  onLoadMore: () => void;
   onOpen: (session: SessionPayload) => void;
 }) {
   const t = useUiText();
-  const safeLimit = Math.max(1, Number(limit) || SESSION_LIST_PAGE_SIZE);
-  const safeOffset = Math.max(0, Number(offset) || 0);
-  const safeTotal = Math.max(0, Number(total) || 0);
-  const currentPage = Math.floor(safeOffset / safeLimit) + 1;
-  const totalPages = Math.max(1, Math.ceil(safeTotal / safeLimit));
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const sessionListRef = useRef<HTMLDivElement>(null);
   const trimmedQuery = query.trim();
-  const countLabel = trimmedQuery ? t.sessions.searchResults(formatNumber(safeTotal)) : t.sessions.total(formatNumber(safeTotal));
   const emptyLabel = trimmedQuery ? t.sessions.emptySearch : t.sessions.empty;
-  const hasPrevious = currentPage > 1;
-  const hasNext = currentPage < totalPages;
   const showTable = sessions.length > 0;
-  const totalTokens = summary.token_count;
-  const totalTools = summary.tool_call_count;
+
+  useEffect(() => {
+    if (searchOpen) {
+      searchInputRef.current?.focus();
+    }
+  }, [searchOpen]);
+
+  function maybeLoadMore() {
+    const list = sessionListRef.current;
+    if (!list || loading || !hasMore || loadMoreError) {
+      return;
+    }
+    const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
+    if (distanceToBottom <= 80) {
+      onLoadMore();
+    }
+  }
+
+  useEffect(() => {
+    maybeLoadMore();
+  }, [sessions.length, loading, hasMore, loadMoreError]);
 
   return (
-    <div className="sessions-panel">
-      <section className="stats-row session-stats-row">
-        <StatTile icon={<Database size={18} />} label={t.stats.sessions} value={formatNumber(summary.total_sessions)} tone="blue" />
-        <StatTile icon={<Activity size={18} />} label={t.stats.toolCalls} value={formatNumber(totalTools)} tone="green" />
-        <StatTile icon={<Box size={18} />} label={t.stats.tokens} value={formatNumber(totalTokens)} tone="amber" />
-      </section>
-      {loading && showTable ? <span className="pill sessions-loading-pill">{t.common.loading}</span> : null}
+    <div className="session-index-panel">
+      {searchOpen ? (
+        <div className="search-box">
+          <Search size={16} />
+          <input
+            ref={searchInputRef}
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            placeholder={t.sessions.searchPlaceholder}
+            aria-label={t.sessions.searchAria}
+          />
+        </div>
+      ) : null}
       {error ? <EmptyState label={t.common.errorPrefix(t.sessions.errorLabel, error)} /> : null}
       {!showTable && loading && !error ? <EmptyState label={t.sessions.loading} /> : null}
       {!showTable && !loading && !error ? <EmptyState label={emptyLabel} /> : null}
       {showTable ? (
-        <div className="table-shell">
-          <table className="session-table">
-            <tbody>
-              {sessions.map((session) => (
-                <tr
-                  className="clickable-row"
-                  key={session.session_id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onOpen(session)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      onOpen(session);
-                    }
-                  }}
-                >
-                  <td>
-                    <div className="session-row-content">
-                      <div className="session-row-copy">
-                        <div className="primary-cell">{session.title || t.common.unnamedSession}</div>
-                        <div className="session-meta-line">
-                          <span>{formatDate(session.last_active_at)}</span>
-                          <span aria-hidden="true" className="session-meta-separator">
-                            ·
-                          </span>
-                          <span>{formatNumber(session.input_tokens + session.output_tokens)} {t.sessions.tokenSuffix}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-      {showTable || safeTotal > 0 ? (
-        <div className="session-page-toolbar">
-          <button
-            className="page-nav-button"
-            type="button"
-            disabled={loading || !hasPrevious}
-            onClick={() => onPageChange(currentPage - 1)}
-          >
-            {t.common.previous}
-          </button>
-          <div className="session-page-center">
-            <div className="message-page-index">
-              {t.common.pageIndex(formatNumber(currentPage), formatNumber(totalPages))}
-            </div>
-            <div className="message-page-count">{countLabel}</div>
-          </div>
-          <button
-            className="page-nav-button"
-            type="button"
-            disabled={loading || !hasNext}
-            onClick={() => onPageChange(currentPage + 1)}
-          >
-            {t.common.next}
-          </button>
+        <div className="session-index-list" onScroll={maybeLoadMore} ref={sessionListRef}>
+          {sessions.map((session) => {
+            const selected = selectedSessionId === session.session_id;
+            return (
+              <button
+                aria-current={selected ? "page" : undefined}
+                className={selected ? "session-index-item active" : "session-index-item"}
+                key={session.session_id}
+                type="button"
+                onClick={() => onOpen(session)}
+              >
+                <span className="primary-cell">{session.title || t.common.unnamedSession}</span>
+                <span className="session-meta-line">
+                  <span>{formatDate(session.last_active_at)}</span>
+                  <span aria-hidden="true" className="session-meta-separator">
+                    ·
+                  </span>
+                  <span>{formatNumber(session.input_tokens + session.output_tokens)} {t.sessions.tokenSuffix}</span>
+                </span>
+              </button>
+            );
+          })}
+          {loading ? <span className="pill sessions-loading-pill">{t.common.loading}</span> : null}
+          {loadMoreError ? (
+            <div className="session-load-more-error">{t.common.errorPrefix(t.sessions.errorLabel, loadMoreError)}</div>
+          ) : null}
         </div>
       ) : null}
     </div>
+  );
+}
+
+function DocsIndex({
+  docs,
+  query,
+  loading,
+  error,
+  selectedPath,
+  onQueryChange,
+  onOpen
+}: {
+  docs: ProjectDocPayload[];
+  query: string;
+  loading: boolean;
+  error: string;
+  selectedPath: string;
+  onQueryChange: (value: string) => void;
+  onOpen: (path: string) => void;
+}) {
+  const t = useUiText();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set());
+  const trimmedQuery = query.trim().toLowerCase();
+  const treeNodes = useMemo(() => buildDocsTree(docs), [docs]);
+  const filteredDocs = useMemo(() => {
+    if (!trimmedQuery) {
+      return docs;
+    }
+    return docs.filter((doc) =>
+      [doc.title, doc.path, doc.section, doc.status]
+        .join(" ")
+        .toLowerCase()
+        .includes(trimmedQuery)
+    );
+  }, [docs, trimmedQuery]);
+  const showSearchResults = Boolean(trimmedQuery) && filteredDocs.length > 0;
+  const showTree = !trimmedQuery && treeNodes.length > 0;
+  const emptyLabel = trimmedQuery ? t.docs.emptySearch : t.docs.empty;
+
+  useEffect(() => {
+    searchInputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    const ancestors = docsAncestorFolders(selectedPath);
+    if (!ancestors.length) {
+      return;
+    }
+    setExpandedFolders((current) => {
+      let changed = false;
+      const next = new Set(current);
+      ancestors.forEach((path) => {
+        if (!next.has(path)) {
+          next.add(path);
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [selectedPath]);
+
+  function toggleFolder(path: string) {
+    setExpandedFolders((current) => {
+      const next = new Set(current);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }
+
+  function renderTreeNode(node: DocsTreeNode, level: number): React.ReactNode {
+    const depth = Math.min(level, 6);
+    const depthStyle = { paddingLeft: `${8 + depth * 12}px` } as React.CSSProperties;
+    if (node.kind === "folder") {
+      const expanded = expandedFolders.has(node.path);
+      return (
+        <div className="docs-tree-folder" key={`folder:${node.path}`}>
+          <button
+            aria-expanded={expanded}
+            className={expanded ? "docs-tree-folder-button expanded" : "docs-tree-folder-button"}
+            onClick={() => toggleFolder(node.path)}
+            style={depthStyle}
+            type="button"
+          >
+            <ChevronRight size={14} />
+            <span>{node.name}</span>
+          </button>
+          {expanded ? <div className="docs-tree-children">{node.children.map((child) => renderTreeNode(child, level + 1))}</div> : null}
+        </div>
+      );
+    }
+    const selected = selectedPath === node.path;
+    return (
+      <button
+        aria-current={selected ? "page" : undefined}
+        className={selected ? "docs-tree-file active" : "docs-tree-file"}
+        key={`file:${node.path}`}
+        onClick={() => onOpen(node.path)}
+        style={depthStyle}
+        title={node.path}
+        type="button"
+      >
+        <FileText size={13} />
+        <span className="docs-tree-file-copy">
+          <span className="primary-cell">{node.doc.title || t.docs.untitled}</span>
+        </span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="docs-index-panel">
+      <div className="search-box">
+        <Search size={16} />
+        <input
+          ref={searchInputRef}
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder={t.docs.searchPlaceholder}
+          aria-label={t.docs.searchAria}
+        />
+      </div>
+      {error ? <EmptyState label={t.common.errorPrefix(t.docs.errorLabel, error)} /> : null}
+      {!showSearchResults && !showTree && loading && !error ? <EmptyState label={t.docs.loading} /> : null}
+      {!showSearchResults && !showTree && !loading && !error ? <EmptyState label={emptyLabel} /> : null}
+      {showSearchResults ? (
+        <div className="docs-index-list">
+          {filteredDocs.map((doc) => {
+            const selected = selectedPath === doc.path;
+            return (
+              <button
+                aria-current={selected ? "page" : undefined}
+                className={selected ? "docs-index-item active" : "docs-index-item"}
+                key={doc.path}
+                type="button"
+                onClick={() => onOpen(doc.path)}
+                title={doc.path}
+              >
+                <span className="primary-cell">{doc.title || t.docs.untitled}</span>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+      {showTree ? <div className="docs-tree-list">{treeNodes.map((node) => renderTreeNode(node, 0))}</div> : null}
+    </div>
+  );
+}
+
+function DocsView({
+  doc,
+  loading,
+  error,
+  mode,
+  copied,
+  onModeChange,
+  onCopy,
+  onNavigateDoc
+}: {
+  doc: ProjectDocContentPayload | null;
+  loading: boolean;
+  error: string;
+  mode: DocsContentMode;
+  copied: boolean;
+  onModeChange: (mode: DocsContentMode) => void;
+  onCopy: () => void;
+  onNavigateDoc: (path: string) => void;
+}) {
+  const t = useUiText();
+  const components = useMemo(
+    () => docsMarkdownComponents(doc?.path || "", onNavigateDoc),
+    [doc?.path, onNavigateDoc]
+  );
+
+  if (loading && !doc) {
+    return <EmptyState label={t.docs.loadingContent} />;
+  }
+  if (error && !doc) {
+    return <EmptyState label={t.common.errorPrefix(t.docs.errorLabel, error)} />;
+  }
+  if (!doc) {
+    return <EmptyState label={t.docs.selectPrompt} />;
+  }
+
+  return (
+    <div className="docs-view">
+      <div className="docs-toolbar">
+        <div className="docs-actions">
+          <div className="skill-content-mode-row" role="group" aria-label={t.docs.title}>
+            <button
+              className={mode === "preview" ? "skill-mode-button active" : "skill-mode-button"}
+              onClick={() => onModeChange("preview")}
+              type="button"
+            >
+              {t.docs.preview}
+            </button>
+            <button
+              className={mode === "source" ? "skill-mode-button active" : "skill-mode-button"}
+              onClick={() => onModeChange("source")}
+              type="button"
+            >
+              {t.docs.source}
+            </button>
+          </div>
+          <button className="skill-copy-button" onClick={onCopy} type="button">
+            {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
+            <span>{copied ? t.common.copied : t.docs.copySource}</span>
+          </button>
+        </div>
+      </div>
+      {error ? <div className="skill-content-status error">{t.common.errorPrefix(t.docs.errorLabel, error)}</div> : null}
+      {loading ? <div className="skill-content-status">{t.docs.loadingContent}</div> : null}
+      {mode === "preview" ? (
+        <div className="docs-markdown">
+          <ReactMarkdown components={components} remarkPlugins={[remarkGfm]}>
+            {doc.content}
+          </ReactMarkdown>
+        </div>
+      ) : (
+        <pre className="docs-content-pre">{doc.content}</pre>
+      )}
+    </div>
+  );
+}
+
+function DocsShell({
+  docs,
+  docsLoading,
+  docsError,
+  docQuery,
+  selectedPath,
+  doc,
+  docLoading,
+  docError,
+  mode,
+  copied,
+  language,
+  onLanguageChange,
+  onDocQueryChange,
+  onOpenDoc,
+  onBackToDashboard,
+  onModeChange,
+  onCopy
+}: {
+  docs: ProjectDocPayload[];
+  docsLoading: boolean;
+  docsError: string;
+  docQuery: string;
+  selectedPath: string;
+  doc: ProjectDocContentPayload | null;
+  docLoading: boolean;
+  docError: string;
+  mode: DocsContentMode;
+  copied: boolean;
+  language: Language;
+  onLanguageChange: (language: Language) => void;
+  onDocQueryChange: (value: string) => void;
+  onOpenDoc: (path: string) => void;
+  onBackToDashboard: () => void;
+  onModeChange: (mode: DocsContentMode) => void;
+  onCopy: () => void;
+}) {
+  const t = useUiText();
+  const docsContent = (() => {
+    if (!selectedPath) {
+      if (docsError) {
+        return <EmptyState label={t.common.errorPrefix(t.docs.errorLabel, docsError)} />;
+      }
+      return <EmptyState label={docsLoading || docs.length ? t.docs.selectPrompt : t.docs.empty} />;
+    }
+    return (
+      <DocsView
+        doc={doc}
+        loading={docLoading}
+        error={docError}
+        mode={mode}
+        copied={copied}
+        onModeChange={onModeChange}
+        onCopy={onCopy}
+        onNavigateDoc={onOpenDoc}
+      />
+    );
+  })();
+
+  return (
+    <main className="docs-shell">
+      <aside className="docs-shell-sidebar">
+        <div className="docs-shell-sidebar-header">
+          <div className="docs-shell-brand">
+            <FileText size={18} />
+            <span>{t.docs.title}</span>
+          </div>
+          <div className="docs-shell-sidebar-actions">
+            <LanguageSwitch language={language} onLanguageChange={onLanguageChange} />
+            <button className="docs-back-button" onClick={onBackToDashboard} type="button">
+              <ArrowLeft size={15} />
+              <span>{t.docs.backToDashboard}</span>
+            </button>
+          </div>
+        </div>
+        <DocsIndex
+          docs={docs}
+          query={docQuery}
+          loading={docsLoading}
+          error={docsError}
+          selectedPath={selectedPath}
+          onQueryChange={onDocQueryChange}
+          onOpen={onOpenDoc}
+        />
+      </aside>
+      <section className="docs-shell-main">
+        <section className="docs-shell-content">{docsContent}</section>
+      </section>
+    </main>
   );
 }
 
@@ -2494,28 +3168,149 @@ function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () =>
   );
 }
 
+function LanguageSwitch({
+  language,
+  onLanguageChange
+}: {
+  language: Language;
+  onLanguageChange: (language: Language) => void;
+}) {
+  const t = useUiText();
+  return (
+    <div className="language-switch" role="group" aria-label={t.language.label}>
+      {(["zh", "en"] as const).map((option) => (
+        <button
+          aria-pressed={language === option}
+          className={language === option ? "language-option active" : "language-option"}
+          key={option}
+          onClick={() => onLanguageChange(option)}
+          type="button"
+        >
+          {option === "zh" ? t.language.zh : t.language.en}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function DashboardStatusModal({
+  open,
+  onClose,
+  summary,
+  currentModel,
+  apiOnline,
+  language,
+  onLanguageChange
+}: {
+  open: boolean;
+  onClose: () => void;
+  summary: SessionSummaryPayload;
+  currentModel: ModelPayload | null;
+  apiOnline: boolean;
+  language: Language;
+  onLanguageChange: (language: Language) => void;
+}) {
+  const t = useUiText();
+
+  if (!open) {
+    return null;
+  }
+
+  const statusLabel = apiOnline ? t.app.apiOnline : t.app.apiOffline;
+  const currentModelLabel = currentModel?.model || "-";
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onClose}>
+      <section
+        aria-label={t.app.title}
+        aria-modal="true"
+        className="modal dashboard-status-modal"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="modal-header">
+          <div>
+            <div className="modal-kicker">{t.app.eyebrow}</div>
+            <h2>{t.app.title}</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} aria-label={t.detailModal.close}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="modal-content dashboard-status-content">
+          <div className="dashboard-status-grid">
+            <div className="dashboard-status-item">
+              <span>{t.stats.sessions}</span>
+              <strong>{formatNumber(summary.total_sessions)}</strong>
+            </div>
+            <div className="dashboard-status-item">
+              <span>{t.stats.toolCalls}</span>
+              <strong>{formatNumber(summary.tool_call_count)}</strong>
+            </div>
+            <div className="dashboard-status-item">
+              <span>{t.stats.tokens}</span>
+              <strong>{formatNumber(summary.token_count)}</strong>
+            </div>
+            <div className="dashboard-status-item">
+              <span>{t.detailModal.status}</span>
+              <strong>{statusLabel}</strong>
+            </div>
+          </div>
+          <div className="dashboard-status-row">
+            <span>{t.models.current}</span>
+            <strong>{currentModelLabel}</strong>
+          </div>
+          <div className="dashboard-status-row">
+            <span>{t.language.label}</span>
+            <LanguageSwitch language={language} onLanguageChange={onLanguageChange} />
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function App() {
+  const [initialRoute] = useState(() => routeStateFromLocation());
   const [language, setLanguage] = useState<Language>(() => initialLanguage());
   const t = UI_TEXT[language];
-  const [activeTab, setActiveTab] = useState("sessions");
+  const [activeTab, setActiveTab] = useState(initialRoute.tab);
+  const [lastDashboardTab, setLastDashboardTab] = useState(
+    initialRoute.tab === "docs" ? "sessions" : initialRoute.tab
+  );
   const [data, setData] = useState<DashboardData | null>(null);
   const [sessionsData, setSessionsData] = useState<SessionListPayload>(EMPTY_SESSION_LIST);
+  const [docsData, setDocsData] = useState<ApiList<ProjectDocPayload>>(EMPTY_PROJECT_DOCS);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState("");
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [docsLoaded, setDocsLoaded] = useState(false);
+  const [docsError, setDocsError] = useState("");
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [sessionPage, setSessionPage] = useState(1);
+  const [docQuery, setDocQuery] = useState("");
+  const [sessionRequest, setSessionRequest] = useState({ query: "", offset: 0 });
   const [selectedSession, setSelectedSession] = useState<SessionPayload | null>(null);
   const [sessionDetail, setSessionDetail] = useState<SessionDetailPayload | null>(null);
+  const [selectedDocPath, setSelectedDocPath] = useState(initialRoute.docPath);
+  const [docContent, setDocContent] = useState<ProjectDocContentPayload | null>(null);
+  const [docContentLoading, setDocContentLoading] = useState(false);
+  const [docContentError, setDocContentError] = useState("");
+  const [docContentMode, setDocContentMode] = useState<DocsContentMode>("preview");
+  const [docCopied, setDocCopied] = useState(false);
   const [sessionDetailLoading, setSessionDetailLoading] = useState(false);
   const [sessionDetailPageLoading, setSessionDetailPageLoading] = useState(false);
   const [sessionDetailError, setSessionDetailError] = useState("");
   const [sessionDetailPageError, setSessionDetailPageError] = useState("");
+  const [sessionLoadMoreError, setSessionLoadMoreError] = useState("");
   const [modelSaving, setModelSaving] = useState(false);
   const [thinkingSaving, setThinkingSaving] = useState(false);
+  const [dashboardStatusOpen, setDashboardStatusOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
@@ -2525,6 +3320,19 @@ function App() {
       // Ignore storage failures; the in-memory language still updates.
     }
   }, [language]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextRoute = routeStateFromLocation();
+      setActiveTab(nextRoute.tab);
+      setSelectedDocPath(nextRoute.docPath);
+      if (nextRoute.tab !== "docs") {
+        setLastDashboardTab(nextRoute.tab);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2563,20 +3371,38 @@ function App() {
   }, [query]);
 
   useEffect(() => {
+    setSessionRequest((current) =>
+      current.query === debouncedQuery && current.offset === 0 ? current : { query: debouncedQuery, offset: 0 }
+    );
+  }, [debouncedQuery]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadSessions() {
-      const safePage = Math.max(1, sessionPage);
+      const replacing = sessionRequest.offset === 0;
       const params = new URLSearchParams({
         limit: String(SESSION_LIST_PAGE_SIZE),
-        offset: String((safePage - 1) * SESSION_LIST_PAGE_SIZE)
+        offset: String(sessionRequest.offset)
       });
-      if (debouncedQuery) {
-        params.set("q", debouncedQuery);
+      if (sessionRequest.query) {
+        params.set("q", sessionRequest.query);
       }
 
       setSessionsLoading(true);
-      setSessionsError("");
+      if (replacing) {
+        setSessionsError("");
+        setSessionLoadMoreError("");
+        setSessionsData((current) => ({
+          ...current,
+          items: [],
+          total: 0,
+          limit: SESSION_LIST_PAGE_SIZE,
+          offset: 0
+        }));
+      } else {
+        setSessionLoadMoreError("");
+      }
       try {
         const payload = normalizeSessionList(
           await fetchJson<SessionListPayload>(`/api/sessions?${params.toString()}`)
@@ -2584,15 +3410,15 @@ function App() {
         if (cancelled) {
           return;
         }
-        const totalPages = Math.max(1, Math.ceil(payload.total / Math.max(1, payload.limit || SESSION_LIST_PAGE_SIZE)));
-        if (safePage > totalPages) {
-          setSessionPage(totalPages);
-          return;
-        }
-        setSessionsData(payload);
+        setSessionsData((current) => (replacing ? payload : mergeSessionLists(current, payload)));
       } catch (err) {
         if (!cancelled) {
-          setSessionsError(err instanceof Error ? err.message : String(err));
+          const message = err instanceof Error ? err.message : String(err);
+          if (replacing) {
+            setSessionsError(message);
+          } else {
+            setSessionLoadMoreError(message);
+          }
         }
       } finally {
         if (!cancelled) {
@@ -2605,14 +3431,185 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [sessionPage, debouncedQuery]);
+  }, [sessionRequest]);
+
+  useEffect(() => {
+    if (activeTab !== "docs" || docsLoaded || docsError) {
+      return;
+    }
+    let cancelled = false;
+
+    async function loadDocs() {
+      setDocsLoading(true);
+      setDocsError("");
+      try {
+        const payload = normalizeProjectDocs(await fetchJson<ApiList<ProjectDocPayload>>("/api/project-docs"));
+        if (!cancelled) {
+          setDocsData(payload);
+          setDocsLoaded(true);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDocsError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setDocsLoading(false);
+        }
+      }
+    }
+
+    void loadDocs();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, docsLoaded, docsError]);
+
+  const defaultDocPath = useMemo(() => {
+    if (!docsData.items.length) {
+      return "";
+    }
+    return docsData.items.find((doc) => doc.path === DOCS_HOME_PATH)?.path || docsData.items[0].path;
+  }, [docsData.items]);
+
+  const effectiveDocPath = activeTab === "docs" ? selectedDocPath || defaultDocPath : "";
+
+  useEffect(() => {
+    if (activeTab !== "docs" || !effectiveDocPath) {
+      return;
+    }
+    let cancelled = false;
+
+    async function loadDocContent() {
+      setDocContentLoading(true);
+      setDocContentError("");
+      setDocCopied(false);
+      try {
+        const payload = await fetchJson<ProjectDocContentPayload>(
+          `/api/project-docs/${encodePathSegments(effectiveDocPath)}`
+        );
+        if (!cancelled) {
+          setDocContent(payload);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDocContent(null);
+          setDocContentError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setDocContentLoading(false);
+        }
+      }
+    }
+
+    void loadDocContent();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, effectiveDocPath]);
 
   function handleSessionQueryChange(value: string) {
     setQuery(value);
-    setSessionPage(1);
+  }
+
+  function loadMoreSessions() {
+    if (sessionsLoading || sessionsData.items.length >= sessionsData.total) {
+      return;
+    }
+    setSessionRequest((current) => {
+      const nextOffset = sessionsData.items.length;
+      if (current.query === debouncedQuery && current.offset === nextOffset) {
+        return current;
+      }
+      return { query: debouncedQuery, offset: nextOffset };
+    });
+  }
+
+  function handleSessionSearchToggle() {
+    if (sidebarCollapsed) {
+      setSidebarCollapsed(false);
+      setSessionSearchOpen(true);
+      return;
+    }
+    setSessionSearchOpen((current) => (query.trim() ? true : !current));
+  }
+
+  function handleSidebarToggle() {
+    setSidebarCollapsed((current) => {
+      const nextCollapsed = !current;
+      if (nextCollapsed && !query.trim()) {
+        setSessionSearchOpen(false);
+      }
+      return nextCollapsed;
+    });
+  }
+
+  function pushDashboardRoute(tab: string) {
+    const nextTab = DASHBOARD_TAB_IDS.has(tab) && tab !== "docs" ? tab : "sessions";
+    if (window.location.pathname !== "/" || window.history.state?.tab !== nextTab) {
+      window.history.pushState({ tab: nextTab }, "", "/");
+    }
+  }
+
+  function openDashboardTab(tab: string) {
+    if (tab === "docs") {
+      openDocRoute("");
+      return;
+    }
+    pushDashboardRoute(tab);
+    setActiveTab(tab);
+    setLastDashboardTab(tab);
+  }
+
+  function openDashboardHome() {
+    pushDashboardRoute("sessions");
+    setActiveTab("sessions");
+    setLastDashboardTab("sessions");
+    setSelectedSession(null);
+    setSessionDetail(null);
+    setSessionDetailError("");
+    setSessionDetailPageError("");
+    setSessionDetailLoading(false);
+    setSessionDetailPageLoading(false);
+  }
+
+  function openDocRoute(path: string) {
+    const safePath = normalizeDocPath(path);
+    const nextUrl = docsHrefForPath(safePath);
+    if (window.location.pathname !== nextUrl) {
+      window.history.pushState({ tab: "docs", docPath: safePath }, "", nextUrl);
+    }
+    setActiveTab("docs");
+    setSelectedDocPath(safePath);
+    setDocContentMode("preview");
+  }
+
+  function backToDashboard() {
+    const nextTab = DASHBOARD_TAB_IDS.has(lastDashboardTab) ? lastDashboardTab : "sessions";
+    pushDashboardRoute(nextTab);
+    setActiveTab(nextTab);
+    setLastDashboardTab(nextTab);
+    setSelectedDocPath("");
+  }
+
+  async function copyCurrentDoc() {
+    if (!docContent?.content) {
+      return;
+    }
+    try {
+      await copyTextToClipboard(docContent.content);
+      setDocCopied(true);
+      window.setTimeout(() => setDocCopied(false), 1600);
+    } catch {
+      setDocCopied(false);
+    }
   }
 
   async function openSession(session: SessionPayload) {
+    pushDashboardRoute("sessions");
+    setActiveTab("sessions");
+    setLastDashboardTab("sessions");
     setSelectedSession(session);
     setSessionDetail(null);
     setSessionDetailError("");
@@ -2652,15 +3649,6 @@ function App() {
     } finally {
       setSessionDetailPageLoading(false);
     }
-  }
-
-  function closeSessionDetail() {
-    setSelectedSession(null);
-    setSessionDetail(null);
-    setSessionDetailError("");
-    setSessionDetailPageError("");
-    setSessionDetailLoading(false);
-    setSessionDetailPageLoading(false);
   }
 
   async function setCurrentThinkingLevel(level: string) {
@@ -2717,134 +3705,211 @@ function App() {
   }
 
   const sessionSummary = sessionsData.summary || EMPTY_SESSION_SUMMARY;
+  const hasMoreSessions = sessionsData.items.length < sessionsData.total;
+  const dashboardApiOnline = Boolean(data) && !loading;
+  const showSessionSearch = sessionSearchOpen || Boolean(query.trim());
+  const showDashboardHome = activeTab === "sessions" && !selectedSession;
 
-  const tabs = [
-    { id: "sessions", label: t.nav.sessions, icon: <MessageSquareText size={16} /> },
+  const tabs: DashboardShortcut[] = [
     { id: "models", label: t.nav.models, icon: <Brain size={16} /> },
     { id: "tools", label: t.nav.tools, icon: <Wrench size={16} /> },
     { id: "skills", label: t.nav.skills, icon: <Sparkles size={16} /> },
-    { id: "background-tasks", label: t.nav.tasks, icon: <Layers3 size={16} /> }
+    { id: "background-tasks", label: t.nav.tasks, icon: <Layers3 size={16} /> },
+    { id: "docs", label: t.nav.docs, icon: <FileText size={16} /> }
   ];
+  const activeTabItem = tabs.find((tab) => tab.id === activeTab);
+  const pageTitle = activeTab === "sessions"
+    ? selectedSession?.title || t.sessions.title
+    : activeTab === "docs"
+      ? docContent?.title || t.docs.title
+      : activeTabItem?.label || t.app.title;
+  const pageSubtitle = activeTab === "sessions"
+    ? selectedSession
+      ? `${formatDate(selectedSession.last_active_at)} · ${formatNumber(selectedSession.input_tokens + selectedSession.output_tokens)} ${t.sessions.tokenSuffix}`
+      : t.sessions.selectPrompt
+    : activeTab === "docs"
+      ? docContent?.path || effectiveDocPath || t.docs.selectPrompt
+      : "";
+
+  if (activeTab === "docs") {
+    return (
+      <I18nContext.Provider value={t}>
+        <DocsShell
+          docs={docsData.items}
+          docsLoading={docsLoading}
+          docsError={docsError}
+          docQuery={docQuery}
+          selectedPath={effectiveDocPath}
+          doc={docContent}
+          docLoading={Boolean(effectiveDocPath) && docContentLoading}
+          docError={docContentError}
+          mode={docContentMode}
+          copied={docCopied}
+          language={language}
+          onLanguageChange={setLanguage}
+          onDocQueryChange={setDocQuery}
+          onOpenDoc={openDocRoute}
+          onBackToDashboard={backToDashboard}
+          onModeChange={setDocContentMode}
+          onCopy={copyCurrentDoc}
+        />
+      </I18nContext.Provider>
+    );
+  }
 
   return (
     <I18nContext.Provider value={t}>
-    <main className="app-shell">
-      <section className="top-panel">
-        <div className="agent-title">
-          <div className="agent-avatar">
-            <Bot size={26} />
-          </div>
-          <div>
-            <div className="eyebrow">{t.app.eyebrow}</div>
-            <h1>{t.app.title}</h1>
-            <p>{t.app.subtitle}</p>
-          </div>
-        </div>
-        <div className="top-actions">
-          <div className="language-switch" role="group" aria-label={t.language.label}>
-            {(["zh", "en"] as const).map((option) => (
+      <main className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
+        <aside className={sidebarCollapsed ? "app-sidebar collapsed" : "app-sidebar"}>
+          <div className="sidebar-topbar">
+            {!sidebarCollapsed ? (
               <button
-                aria-pressed={language === option}
-                className={language === option ? "language-option active" : "language-option"}
-                key={option}
-                onClick={() => setLanguage(option)}
+                aria-label={t.home.title}
+                className="sidebar-brand"
+                onClick={openDashboardHome}
+                title={t.home.title}
                 type="button"
               >
-                {option === "zh" ? t.language.zh : t.language.en}
+                <span className="sidebar-brand-text">{t.sidebar.brand}</span>
               </button>
-            ))}
-          </div>
-          <div className="health-pill">
-            <CheckCircle2 size={16} />
-            {error ? t.app.apiOffline : t.app.apiOnline}
-          </div>
-        </div>
-      </section>
-
-      <section className="workspace">
-        <aside className="sidebar">
-          <div className="search-box">
-            <Search size={16} />
-            <input
-              value={query}
-              onChange={(event) => handleSessionQueryChange(event.target.value)}
-              placeholder={t.sessions.searchPlaceholder}
-              aria-label={t.sessions.searchAria}
-            />
+            ) : null}
+            <div className="sidebar-topbar-actions">
+              {!sidebarCollapsed && activeTab !== "docs" ? (
+                <button
+                  aria-label={t.sessions.searchAria}
+                  className={showSessionSearch ? "sidebar-icon-button active" : "sidebar-icon-button"}
+                  onClick={handleSessionSearchToggle}
+                  title={t.sessions.searchAria}
+                  type="button"
+                >
+                  <Search size={17} />
+                </button>
+              ) : null}
+              <button
+                aria-label={sidebarCollapsed ? t.sidebar.expand : t.sidebar.collapse}
+                className="sidebar-icon-button"
+                onClick={handleSidebarToggle}
+                title={sidebarCollapsed ? t.sidebar.expand : t.sidebar.collapse}
+                type="button"
+              >
+                {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+              </button>
+            </div>
           </div>
           <nav className="tab-list" aria-label={t.nav.aria}>
             {tabs.map((tab) => (
               <button
                 className={activeTab === tab.id ? "tab active" : "tab"}
                 key={tab.id}
+                title={tab.label}
                 type="button"
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  if (tab.id !== "sessions") {
-                    closeSessionDetail();
-                  }
-                }}
+                onClick={() => openDashboardTab(tab.id)}
               >
                 {tab.icon}
                 <span>{tab.label}</span>
               </button>
             ))}
           </nav>
+          {!sidebarCollapsed ? (
+            <div className="sidebar-dynamic">
+              <div className="sidebar-section-label">{t.sessions.title}</div>
+              <SessionsIndex
+                sessions={sessionsData.items}
+                query={query}
+                searchOpen={showSessionSearch}
+                loading={sessionsLoading}
+                error={sessionsError}
+                hasMore={hasMoreSessions}
+                loadMoreError={sessionLoadMoreError}
+                selectedSessionId={selectedSession?.session_id || ""}
+                onQueryChange={handleSessionQueryChange}
+                onLoadMore={loadMoreSessions}
+                onOpen={openSession}
+              />
+            </div>
+          ) : null}
+          <button
+            aria-label={t.app.title}
+            className="sidebar-status-card"
+            title={t.app.title}
+            type="button"
+            onClick={() => setDashboardStatusOpen(true)}
+          >
+            <span className="sidebar-status-icon">
+              <Bot size={16} />
+            </span>
+            <span className="sidebar-status-copy">
+              <span className="sidebar-status-title">{t.app.title}</span>
+              <span className="sidebar-status-meta">
+                {data?.currentModel?.model || (loading ? t.common.loading : t.app.apiOffline)}
+              </span>
+            </span>
+          </button>
         </aside>
 
-        <section className="content-panel">
-          {loading ? <EmptyState label={t.errors.dashboardLoad} /> : null}
-          {error ? <EmptyState label={t.common.errorPrefix(t.errors.api, error)} /> : null}
-          {!loading && !error && data ? (
-            <>
-              {activeTab === "sessions" && selectedSession ? (
-                <SessionDetailView
-                  fallbackSession={selectedSession}
-                  detail={sessionDetail}
-                  loading={sessionDetailLoading}
-                  error={sessionDetailError}
-                  pageLoading={sessionDetailPageLoading}
-                  pageError={sessionDetailPageError}
-                  onPageChange={loadSessionMessagesPage}
-                  onBack={closeSessionDetail}
-                />
-              ) : null}
-              {activeTab === "sessions" && !selectedSession ? (
-                <SessionsView
-                  sessions={sessionsData.items}
-                  summary={sessionSummary}
-                  total={sessionsData.total}
-                  limit={sessionsData.limit || SESSION_LIST_PAGE_SIZE}
-                  offset={sessionsData.offset || 0}
-                  query={debouncedQuery}
-                  loading={sessionsLoading}
-                  error={sessionsError}
-                  onPageChange={setSessionPage}
-                  onOpen={openSession}
-                />
-              ) : null}
-              {activeTab === "models" ? (
-                <ModelsView
-                  models={data.models.items}
-                  current={data.currentModel}
-                  modelSaving={modelSaving}
-                  thinkingSaving={thinkingSaving}
-                  onCurrentModelChange={setCurrentModel}
-                  onThinkingLevelChange={setCurrentThinkingLevel}
-                />
-              ) : null}
-              {activeTab === "tools" ? <ToolsView toolsets={data.toolsets.items} onOpen={setDetailTarget} /> : null}
-              {activeTab === "skills" ? <SkillsView skills={data.skills.items} onOpen={setDetailTarget} /> : null}
-              {activeTab === "background-tasks" ? (
-                <BackgroundTasksView tasks={data.backgroundTasks.items} onOpen={setDetailTarget} />
-              ) : null}
-            </>
+        <section className={showDashboardHome ? "main-panel dashboard-home-panel" : "main-panel"}>
+          {!showDashboardHome ? (
+            <header className="main-header">
+              <div className="main-title">
+                <h2>{pageTitle}</h2>
+                {pageSubtitle ? <p>{pageSubtitle}</p> : null}
+              </div>
+            </header>
           ) : null}
+          <section className="content-panel">
+            {loading ? <EmptyState label={t.errors.dashboardLoad} /> : null}
+            {error ? <EmptyState label={t.common.errorPrefix(t.errors.api, error)} /> : null}
+            {!loading && !error && data ? (
+              <>
+                {activeTab === "sessions" && selectedSession ? (
+                  <SessionDetailView
+                    fallbackSession={selectedSession}
+                    detail={sessionDetail}
+                    loading={sessionDetailLoading}
+                    error={sessionDetailError}
+                    pageLoading={sessionDetailPageLoading}
+                    pageError={sessionDetailPageError}
+                    onPageChange={loadSessionMessagesPage}
+                  />
+                ) : null}
+                {activeTab === "sessions" && !selectedSession ? (
+                  sessionsLoading && !sessionsData.items.length ? (
+                    <EmptyState label={t.sessions.loading} />
+                  ) : (
+                    <DashboardHome shortcuts={tabs} onOpenShortcut={openDashboardTab} />
+                  )
+                ) : null}
+                {activeTab === "models" ? (
+                  <ModelsView
+                    models={data.models.items}
+                    current={data.currentModel}
+                    modelSaving={modelSaving}
+                    thinkingSaving={thinkingSaving}
+                    onCurrentModelChange={setCurrentModel}
+                    onThinkingLevelChange={setCurrentThinkingLevel}
+                  />
+                ) : null}
+                {activeTab === "tools" ? <ToolsView toolsets={data.toolsets.items} onOpen={setDetailTarget} /> : null}
+                {activeTab === "skills" ? <SkillsView skills={data.skills.items} onOpen={setDetailTarget} /> : null}
+                {activeTab === "background-tasks" ? (
+                  <BackgroundTasksView tasks={data.backgroundTasks.items} onOpen={setDetailTarget} />
+                ) : null}
+              </>
+            ) : null}
+          </section>
         </section>
-      </section>
 
-      <DetailModal target={detailTarget} onClose={() => setDetailTarget(null)} />
-    </main>
+        <DetailModal target={detailTarget} onClose={() => setDetailTarget(null)} />
+        <DashboardStatusModal
+          apiOnline={dashboardApiOnline}
+          currentModel={data?.currentModel || null}
+          language={language}
+          onClose={() => setDashboardStatusOpen(false)}
+          onLanguageChange={setLanguage}
+          open={dashboardStatusOpen}
+          summary={sessionSummary}
+        />
+      </main>
     </I18nContext.Provider>
   );
 }
