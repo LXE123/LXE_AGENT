@@ -555,7 +555,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert "ceil(6.00*90)=540" in sea_rows[0]["决策原因"]
     assert "扣FBA后=60" in sea_rows[0]["决策原因"]
     assert sea_rows[0]["真实库存数量"] == 20
-    assert sea_rows[0]["模板名称"] == "默认"
+    assert sea_rows[0]["参数方案名称"] == "默认"
     assert sea_rows[0]["命中规则"] == "默认规则"
 
     urgent_rows = _load_records(report_path, "空运（急发）")

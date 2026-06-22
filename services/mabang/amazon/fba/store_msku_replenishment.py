@@ -45,6 +45,7 @@ DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_store_msku_replenishment"
 SOURCE = "mabang_store_msku_replenishment"
 SOURCE_FBA_TOTAL_COLUMN = "FBA总库存"
 MABANG_FBA_TOTAL_COLUMN = "FBA 总库存（马帮数据）"
+PARAMETER_SCHEME_NAME_COLUMN = "参数方案名称"
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
 SALES_REPORT_SUFFIXES = ("销量分析", "sales_analysis")
@@ -99,7 +100,7 @@ DETAIL_COLUMNS = (
     "子SKU",
     "商品链接",
     "SKU类型",
-    "模板名称",
+    PARAMETER_SCHEME_NAME_COLUMN,
     "命中规则",
     "销量趋势速率",
     "趋势分组",
@@ -140,7 +141,7 @@ INVENTORY_SHORTAGE_COLUMNS = (
     "商品链接",
     "SKU类型",
     "运输渠道",
-    "模板名称",
+    PARAMETER_SCHEME_NAME_COLUMN,
     "命中规则",
     "销量趋势速率",
     "趋势分组",
@@ -177,7 +178,7 @@ CLEARANCE_COLUMNS = (
     "商品链接",
     "SKU类型",
     "运输渠道",
-    "模板名称",
+    PARAMETER_SCHEME_NAME_COLUMN,
     "命中规则",
     "销量趋势速率",
     "趋势分组",
@@ -388,7 +389,7 @@ class ReplenishmentRow:
             "商品链接": self.product_link,
             "SKU类型": self.sku_type,
             "运输渠道": self.transport_channel,
-            "模板名称": self.template_name,
+            PARAMETER_SCHEME_NAME_COLUMN: self.template_name,
             "命中规则": self.matched_rule,
             "销量趋势速率": _display_optional_float(self.sales_trend_rate),
             "趋势分组": self.trend_group,
