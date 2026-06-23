@@ -42,6 +42,8 @@ def test_fba_shipment_create_keeps_stage_contracts() -> None:
     assert "prepare_multi_box_excel" in text
     assert "confirm_own_carrier" in text
     assert "enter_tracking_codes" in text
+    assert "第三段完成且已准备追踪号" not in text
+    assert "| 4 `enter_tracking_codes` | 第三段完成 |" in text
     assert text.count("亚马逊店铺页面店铺出现bug，已返回第二步开头，请执行第二阶段CLI") == 1
     assert "如果 `file_path` 非空" in text
     assert "send_file" in text
