@@ -159,7 +159,6 @@ type SkillReferenceContentPayload = {
 type SkillContentView = {
   title: string;
   subtitle: string;
-  location: string;
   content: string;
 };
 
@@ -194,12 +193,6 @@ type DocsTreeFolderNode = {
 };
 
 type DocsTreeNode = DocsTreeFileNode | DocsTreeFolderNode;
-
-type DashboardShortcut = {
-  id: string;
-  label: string;
-  icon: React.ReactNode;
-};
 
 type ToolPayload = {
   name: string;
@@ -309,8 +302,7 @@ const ZH_TEXT = {
   },
   home: {
     title: "欢迎使用 Agent Dashboard",
-    subtitle: "从左侧选择会话，或进入模型、工具、技能、任务、文档页面。",
-    shortcutAria: (label: string) => `打开${label}`
+    subtitle: "从左侧选择会话，或进入模型、工具、技能、任务、文档页面。"
   },
   stats: {
     sessions: "会话",
@@ -441,7 +433,6 @@ const ZH_TEXT = {
     uncategorized: "未分类"
   },
   skillModal: {
-    type: "类型",
     location: "位置",
     references: "引用文件",
     loadingReference: "加载中...",
@@ -522,8 +513,7 @@ const UI_TEXT: Record<Language, UiText> = {
     },
     home: {
       title: "Welcome to Agent Dashboard",
-      subtitle: "Choose a session from the sidebar, or open Models, Tools, Skills, Tasks, or Docs.",
-      shortcutAria: (label: string) => `Open ${label}`
+      subtitle: "Choose a session from the sidebar, or open Models, Tools, Skills, Tasks, or Docs."
     },
     stats: {
       sessions: "Sessions",
@@ -654,7 +644,6 @@ const UI_TEXT: Record<Language, UiText> = {
       uncategorized: "Uncategorized"
     },
     skillModal: {
-      type: "Type",
       location: "Location",
       references: "References",
       loadingReference: "loading...",
@@ -1144,6 +1133,10 @@ function docsHrefForPath(path: string): string {
   return safePath ? `${DOCS_ROUTE_PREFIX}/${encodePathSegments(safePath)}` : DOCS_ROUTE_PREFIX;
 }
 
+function markdownWithoutFrontMatter(markdown: string): string {
+  return String(markdown || "").replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+}
+
 function resolveDocsMarkdownHref(currentPath: string, href: string | undefined): string {
   const rawHref = String(href || "").trim();
   if (!rawHref || rawHref.startsWith("#") || /^[a-z][a-z0-9+.-]*:/i.test(rawHref) || rawHref.startsWith("//")) {
@@ -1294,36 +1287,13 @@ function EmptyState({ label }: { label: string }) {
   );
 }
 
-function DashboardHome({
-  shortcuts,
-  onOpenShortcut
-}: {
-  shortcuts: DashboardShortcut[];
-  onOpenShortcut: (id: string) => void;
-}) {
+function DashboardHome() {
   const t = useUiText();
   return (
     <section className="dashboard-home" aria-labelledby="dashboard-home-title">
-      <div className="dashboard-home-mark">
-        <Sparkles size={24} />
-      </div>
       <div className="dashboard-home-copy">
         <h2 id="dashboard-home-title">{t.home.title}</h2>
         <p>{t.home.subtitle}</p>
-      </div>
-      <div className="dashboard-home-shortcuts">
-        {shortcuts.map((shortcut) => (
-          <button
-            aria-label={t.home.shortcutAria(shortcut.label)}
-            className="dashboard-home-shortcut"
-            key={shortcut.id}
-            onClick={() => onOpenShortcut(shortcut.id)}
-            type="button"
-          >
-            {shortcut.icon}
-            <span>{shortcut.label}</span>
-          </button>
-        ))}
       </div>
     </section>
   );
@@ -2880,6 +2850,9 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
   const [contentMode, setContentMode] = useState<SkillContentMode>("preview");
   const references = payload?.references || skill.references;
   const copyDisabled = !contentView?.content || loading || Boolean(referenceLoading);
+  const previewContent = contentView?.title === "SKILL.md"
+    ? markdownWithoutFrontMatter(contentView.content)
+    : contentView?.content || "";
 
   useEffect(() => {
     let cancelled = false;
@@ -2903,7 +2876,6 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
         setContentView({
           title: "SKILL.md",
           subtitle: nextPayload.description || skill.description,
-          location: nextPayload.location || skill.location,
           content: nextPayload.content || ""
         });
       } catch (err) {
@@ -2921,7 +2893,7 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
     return () => {
       cancelled = true;
     };
-  }, [skill.name, skill.description, skill.location]);
+  }, [skill.name, skill.description]);
 
   async function openReference(reference: SkillReferencePayload) {
     if (referenceLoading === reference.path) {
@@ -2937,7 +2909,6 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
       setContentView({
         title: nextPayload.path,
         subtitle: nextPayload.description || reference.description,
-        location: nextPayload.location,
         content: nextPayload.content || ""
       });
     } catch (err) {
@@ -2954,7 +2925,6 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
     setContentView({
       title: "SKILL.md",
       subtitle: payload.description || skill.description,
-      location: payload.location || skill.location,
       content: payload.content || ""
     });
     setError("");
@@ -2977,16 +2947,6 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
   return (
     <div className="modal-content">
       <p>{skill.description}</p>
-      <dl className="detail-list">
-        <div>
-          <dt>{t.skillModal.type}</dt>
-          <dd>{skill.type}</dd>
-        </div>
-        <div>
-          <dt>{t.skillModal.location}</dt>
-          <dd className="mono">{payload?.location || skill.location}</dd>
-        </div>
-      </dl>
       <div className="schema-block">
         <div className="schema-title">{t.skillModal.references}</div>
         {references.length ? (
@@ -3027,7 +2987,6 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
         <div className="schema-title skill-content-title">
           <div>
             <span>{contentView?.title || "SKILL.md"}</span>
-            {contentView?.location ? <small className="mono">{contentView.location}</small> : null}
           </div>
           <button
             className="skill-copy-button"
@@ -3062,7 +3021,7 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
             {contentMode === "preview" ? (
               <div className="skill-markdown">
                 <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
-                  {contentView.content}
+                  {previewContent}
                 </ReactMarkdown>
               </div>
             ) : (
@@ -3710,7 +3669,7 @@ function App() {
   const showSessionSearch = sessionSearchOpen || Boolean(query.trim());
   const showDashboardHome = activeTab === "sessions" && !selectedSession;
 
-  const tabs: DashboardShortcut[] = [
+  const tabs = [
     { id: "models", label: t.nav.models, icon: <Brain size={16} /> },
     { id: "tools", label: t.nav.tools, icon: <Wrench size={16} /> },
     { id: "skills", label: t.nav.skills, icon: <Sparkles size={16} /> },
@@ -3876,7 +3835,7 @@ function App() {
                   sessionsLoading && !sessionsData.items.length ? (
                     <EmptyState label={t.sessions.loading} />
                   ) : (
-                    <DashboardHome shortcuts={tabs} onOpenShortcut={openDashboardTab} />
+                    <DashboardHome />
                   )
                 ) : null}
                 {activeTab === "models" ? (

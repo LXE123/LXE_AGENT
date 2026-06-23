@@ -654,20 +654,10 @@ h1 {
   display: grid;
   width: min(760px, 100%);
   justify-items: center;
-  gap: 20px;
-  padding: 24px;
+  gap: 12px;
+  padding: 18px 24px;
   color: var(--text);
   text-align: center;
-}
-
-.dashboard-home-mark {
-  display: grid;
-  width: 48px;
-  height: 48px;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
 }
 
 .dashboard-home-copy {
@@ -687,47 +677,6 @@ h1 {
   color: var(--muted);
   font-size: 14px;
   line-height: 1.55;
-}
-
-.dashboard-home-shortcuts {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  padding-top: 4px;
-}
-
-.dashboard-home-shortcut {
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  gap: 7px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text-soft);
-  font-size: 13px;
-  font-weight: 550;
-  cursor: pointer;
-  box-shadow: 0 1px 3px var(--shadow-soft);
-  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
-}
-
-.dashboard-home-shortcut svg {
-  color: var(--muted);
-}
-
-.dashboard-home-shortcut:hover,
-.dashboard-home-shortcut:focus {
-  border-color: var(--accent-muted);
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-}
-
-.dashboard-home-shortcut:focus {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
 }
 
 .sidebar-dynamic {
@@ -2638,14 +2587,6 @@ code {
   display: grid;
   min-width: 0;
   gap: 2px;
-}
-
-.skill-content-title small {
-  overflow: hidden;
-  color: var(--muted);
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .skill-content-mode-row {

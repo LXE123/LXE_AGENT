@@ -51,7 +51,7 @@ type: amazon_fba
 | 1 `prepare_upload` | context 已写好 | `uv run --frozen python -m services.agent_cli.browser.amazon_fba.prepare_upload --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `finished=true` 且 notice 提示第一阶段完成 | 发送 `file_path` 中的附件 | 第二段 |
 | 2 `prepare_multi_box_excel` | 第一段成功 | `uv run --frozen python -m services.agent_cli.browser.amazon_fba.prepare_multi_box_excel --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "第二阶段完成，已可选择自己的承运人，请执行第三阶段CLI。"` | 发送 `file_path` 中的附件 | 第三段 |
 | 3 `confirm_own_carrier` | 已到自己的承运人页面 | `uv run --frozen python -m services.agent_cli.browser.amazon_fba.confirm_own_carrier --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "恭喜第三步完成，现在需要输入追踪编码，请运行第四阶段脚本"` | 发送 `file_path` 中的附件 | 第四段 |
-| 4 `enter_tracking_codes` | 第三段完成且已准备追踪号 | `uv run --frozen python -m services.agent_cli.browser.amazon_fba.enter_tracking_codes --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "恭喜！创建货件流程完整结束！"` | 无附件要求 | 结束 |
+| 4 `enter_tracking_codes` | 第三段完成 | `uv run --frozen python -m services.agent_cli.browser.amazon_fba.enter_tracking_codes --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "恭喜！创建货件流程完整结束！"` | 无附件要求 | 结束 |
 
 ## Result Handling
 

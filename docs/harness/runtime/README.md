@@ -20,8 +20,9 @@ Runtime 位于 `SessionScheduler -> TurnHandler -> run_turn -> AgentLoop -> Turn
 
 - [Runtime Flow](runtime_flow.md)：端到端运行链路，从平台入站到 runtime 执行再到平台出站。
 - [Turn Execution](turn_execution.md)：runtime 内部核心执行链路，覆盖 `TurnHandler`、`run_turn()`、`AgentLoop.run()`、`TurnOutcome`、持久化和 final emit。
+- [Turn Step Lifecycle](turn_step_lifecycle.md)：一次 `AgentLoop._loop()` step 的固定时段，覆盖 LLM 请求、结果判定、tool call、tool result 回写和异常出口。
 - [Runtime Context](context/README.md)：context state、canonical messages、context assembly 和上下文裁剪/压缩。
-- [Runtime Tools](tools/README.md)：runtime tool schema 入口；后续 tool execution 文档也放在这里。
+- [Runtime Tools](tools/README.md)：runtime tool schema 和 tool execution 生命周期。
 
 ## Runtime 范围
 
@@ -29,9 +30,9 @@ Runtime 位于 `SessionScheduler -> TurnHandler -> run_turn -> AgentLoop -> Turn
 
 - turn handler 如何接住 `AgentJob`。
 - runtime entry 如何加载 visible skills 和 tool registry。
-- agent loop 如何执行 LLM/tool step。
+- agent loop 如何执行 turn 和单次 LLM/tool step。
 - context 子系统如何决定本轮 LLM 看到的输入。
-- tools 子系统如何把工具 schema 暴露给模型。
+- tools 子系统如何把工具 schema 暴露给模型，并执行模型返回的 tool calls。
 - outcome 如何写回 session，并经 emit bus 发回 gateway。
 
 LLM provider integration 见 [LLM Integration](../llm/README.md)；runtime 只通过 `agent_runtime/llm_adapter.py` 调用它。Gateway 生命周期、平台 adapter、session routing、scheduler 和 heartbeat wake 见 [Gateway 文档入口](../gateway/README.md)。运行时 skill 列表和旧 skill 归档见 [Skill docs](../skill/README.md)。

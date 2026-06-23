@@ -108,17 +108,9 @@ Context 细节见 [Runtime Context](context/README.md)，tool schema 和 tool ex
 
 ## Step Loop
 
-`AgentLoop._loop()` 每个 step 会：
+`AgentLoop._loop()` 是 turn 内部的重复执行节拍。它每个 step 先检查取消和最大步数边界，再调用 LLM streaming；如果 LLM 返回 text reply，本 turn 结束；如果返回 tool calls，runtime 先写 assistant tool call message，再执行工具、写回 tool result message，并进入下一 step。
 
-- 检查是否取消。
-- 调用 LLM streaming 接口。
-- 如果返回 text reply，生成最终 assistant message 并结束。
-- 如果返回 tool calls，先记录 assistant tool call message。
-- 按顺序执行每个 tool call，并收集 tool result blocks；完整生命周期见 [Tool Execution](tools/tool_execution.md)。
-- 将 tool result message 追加回当前 turn messages。
-- 继续下一 step，直到文本回复、错误、取消或达到最大步数。
-
-LLM streaming 每个 step 最多尝试 3 次。context overflow 不走普通重试，而是触发 compaction recovery 并重建 messages 后继续。
+这层细节见 [Turn Step Lifecycle](turn_step_lifecycle.md)。工具调用本身的 handler lifecycle 见 [Tool Execution](tools/tool_execution.md)；LLM streaming 每个 step 最多尝试 3 次，context overflow 不走普通重试，而是触发 compaction recovery 并重建 messages 后继续。
 
 ## TurnOutcome
 
