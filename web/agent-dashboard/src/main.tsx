@@ -12,6 +12,7 @@ import {
   FileText,
   Info,
   Layers3,
+  MessageSquareText,
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
@@ -250,7 +251,7 @@ const SESSION_LIST_PAGE_SIZE = 10;
 const LANGUAGE_STORAGE_KEY = "agent-dashboard-language";
 const DOCS_HOME_PATH = "README.md";
 const DOCS_ROUTE_PREFIX = "/docs";
-const DASHBOARD_TAB_IDS = new Set(["sessions", "models", "tools", "skills", "background-tasks"]);
+const DASHBOARD_TAB_IDS = new Set(["home", "sessions", "models", "tools", "skills", "background-tasks"]);
 
 const EMPTY_SESSION_SUMMARY: SessionSummaryPayload = {
   total_sessions: 0,
@@ -302,7 +303,7 @@ const ZH_TEXT = {
   },
   home: {
     title: "欢迎使用 Agent Dashboard",
-    subtitle: "从左侧选择会话，或进入模型、工具、技能、任务、文档页面。"
+    subtitle: "进入会话页面查看历史记录，或使用左侧导航查看模型、工具、技能、任务和文档。"
   },
   stats: {
     sessions: "会话",
@@ -513,7 +514,7 @@ const UI_TEXT: Record<Language, UiText> = {
     },
     home: {
       title: "Welcome to Agent Dashboard",
-      subtitle: "Choose a session from the sidebar, or open Models, Tools, Skills, Tasks, or Docs."
+      subtitle: "Open Sessions to review history, or use the sidebar to view Models, Tools, Skills, Tasks, and Docs."
     },
     stats: {
       sessions: "Sessions",
@@ -1116,7 +1117,7 @@ function normalizeDocPath(value: string): string {
   return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "").trim();
 }
 
-function routeStateFromLocation(): { tab: string; docPath: string } {
+function routeStateFromLocation(useHistoryState = true): { tab: string; docPath: string } {
   const pathname = window.location.pathname;
   if (pathname === DOCS_ROUTE_PREFIX || pathname.startsWith(`${DOCS_ROUTE_PREFIX}/`)) {
     const docPath = pathname.startsWith(`${DOCS_ROUTE_PREFIX}/`)
@@ -1124,8 +1125,8 @@ function routeStateFromLocation(): { tab: string; docPath: string } {
       : "";
     return { tab: "docs", docPath };
   }
-  const tab = typeof window.history.state?.tab === "string" ? window.history.state.tab : "sessions";
-  return { tab: DASHBOARD_TAB_IDS.has(tab) ? tab : "sessions", docPath: "" };
+  const tab = useHistoryState && typeof window.history.state?.tab === "string" ? window.history.state.tab : "home";
+  return { tab: DASHBOARD_TAB_IDS.has(tab) ? tab : "home", docPath: "" };
 }
 
 function docsHrefForPath(path: string): string {
@@ -1906,6 +1907,7 @@ function SessionsIndex({
   sessions,
   query,
   searchOpen,
+  searchFocusKey = 0,
   loading,
   error,
   hasMore,
@@ -1918,6 +1920,7 @@ function SessionsIndex({
   sessions: SessionPayload[];
   query: string;
   searchOpen: boolean;
+  searchFocusKey?: number;
   loading: boolean;
   error: string;
   hasMore: boolean;
@@ -1938,7 +1941,7 @@ function SessionsIndex({
     if (searchOpen) {
       searchInputRef.current?.focus();
     }
-  }, [searchOpen]);
+  }, [searchOpen, searchFocusKey]);
 
   function maybeLoadMore() {
     const list = sessionListRef.current;
@@ -3230,12 +3233,12 @@ function DashboardStatusModal({
 }
 
 function App() {
-  const [initialRoute] = useState(() => routeStateFromLocation());
+  const [initialRoute] = useState(() => routeStateFromLocation(false));
   const [language, setLanguage] = useState<Language>(() => initialLanguage());
   const t = UI_TEXT[language];
   const [activeTab, setActiveTab] = useState(initialRoute.tab);
   const [lastDashboardTab, setLastDashboardTab] = useState(
-    initialRoute.tab === "docs" ? "sessions" : initialRoute.tab
+    initialRoute.tab === "docs" ? "home" : initialRoute.tab
   );
   const [data, setData] = useState<DashboardData | null>(null);
   const [sessionsData, setSessionsData] = useState<SessionListPayload>(EMPTY_SESSION_LIST);
@@ -3269,7 +3272,7 @@ function App() {
   const [thinkingSaving, setThinkingSaving] = useState(false);
   const [dashboardStatusOpen, setDashboardStatusOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
+  const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
 
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
@@ -3287,6 +3290,14 @@ function App() {
       setSelectedDocPath(nextRoute.docPath);
       if (nextRoute.tab !== "docs") {
         setLastDashboardTab(nextRoute.tab);
+      }
+      if (nextRoute.tab === "home") {
+        setSelectedSession(null);
+        setSessionDetail(null);
+        setSessionDetailError("");
+        setSessionDetailPageError("");
+        setSessionDetailLoading(false);
+        setSessionDetailPageLoading(false);
       }
     };
     window.addEventListener("popstate", handlePopState);
@@ -3488,24 +3499,25 @@ function App() {
   function handleSessionSearchToggle() {
     if (sidebarCollapsed) {
       setSidebarCollapsed(false);
-      setSessionSearchOpen(true);
-      return;
     }
-    setSessionSearchOpen((current) => (query.trim() ? true : !current));
+    pushDashboardRoute("sessions");
+    setActiveTab("sessions");
+    setLastDashboardTab("sessions");
+    setSelectedSession(null);
+    setSessionDetail(null);
+    setSessionDetailError("");
+    setSessionDetailPageError("");
+    setSessionDetailLoading(false);
+    setSessionDetailPageLoading(false);
+    setSessionSearchFocusKey((current) => current + 1);
   }
 
   function handleSidebarToggle() {
-    setSidebarCollapsed((current) => {
-      const nextCollapsed = !current;
-      if (nextCollapsed && !query.trim()) {
-        setSessionSearchOpen(false);
-      }
-      return nextCollapsed;
-    });
+    setSidebarCollapsed((current) => !current);
   }
 
   function pushDashboardRoute(tab: string) {
-    const nextTab = DASHBOARD_TAB_IDS.has(tab) && tab !== "docs" ? tab : "sessions";
+    const nextTab = DASHBOARD_TAB_IDS.has(tab) && tab !== "docs" ? tab : "home";
     if (window.location.pathname !== "/" || window.history.state?.tab !== nextTab) {
       window.history.pushState({ tab: nextTab }, "", "/");
     }
@@ -3519,12 +3531,20 @@ function App() {
     pushDashboardRoute(tab);
     setActiveTab(tab);
     setLastDashboardTab(tab);
+    if (tab === "sessions") {
+      setSelectedSession(null);
+      setSessionDetail(null);
+      setSessionDetailError("");
+      setSessionDetailPageError("");
+      setSessionDetailLoading(false);
+      setSessionDetailPageLoading(false);
+    }
   }
 
   function openDashboardHome() {
-    pushDashboardRoute("sessions");
-    setActiveTab("sessions");
-    setLastDashboardTab("sessions");
+    pushDashboardRoute("home");
+    setActiveTab("home");
+    setLastDashboardTab("home");
     setSelectedSession(null);
     setSessionDetail(null);
     setSessionDetailError("");
@@ -3545,7 +3565,7 @@ function App() {
   }
 
   function backToDashboard() {
-    const nextTab = DASHBOARD_TAB_IDS.has(lastDashboardTab) ? lastDashboardTab : "sessions";
+    const nextTab = DASHBOARD_TAB_IDS.has(lastDashboardTab) ? lastDashboardTab : "home";
     pushDashboardRoute(nextTab);
     setActiveTab(nextTab);
     setLastDashboardTab(nextTab);
@@ -3666,10 +3686,11 @@ function App() {
   const sessionSummary = sessionsData.summary || EMPTY_SESSION_SUMMARY;
   const hasMoreSessions = sessionsData.items.length < sessionsData.total;
   const dashboardApiOnline = Boolean(data) && !loading;
-  const showSessionSearch = sessionSearchOpen || Boolean(query.trim());
-  const showDashboardHome = activeTab === "sessions" && !selectedSession;
+  const showSessionSearch = activeTab === "sessions" || Boolean(query.trim());
+  const showDashboardHome = activeTab === "home";
 
   const tabs = [
+    { id: "sessions", label: t.nav.sessions, icon: <MessageSquareText size={16} /> },
     { id: "models", label: t.nav.models, icon: <Brain size={16} /> },
     { id: "tools", label: t.nav.tools, icon: <Wrench size={16} /> },
     { id: "skills", label: t.nav.skills, icon: <Sparkles size={16} /> },
@@ -3677,15 +3698,19 @@ function App() {
     { id: "docs", label: t.nav.docs, icon: <FileText size={16} /> }
   ];
   const activeTabItem = tabs.find((tab) => tab.id === activeTab);
-  const pageTitle = activeTab === "sessions"
-    ? selectedSession?.title || t.sessions.title
+  const pageTitle = activeTab === "home"
+    ? t.home.title
+    : activeTab === "sessions"
+      ? selectedSession?.title || t.sessions.title
     : activeTab === "docs"
       ? docContent?.title || t.docs.title
       : activeTabItem?.label || t.app.title;
-  const pageSubtitle = activeTab === "sessions"
-    ? selectedSession
-      ? `${formatDate(selectedSession.last_active_at)} · ${formatNumber(selectedSession.input_tokens + selectedSession.output_tokens)} ${t.sessions.tokenSuffix}`
-      : t.sessions.selectPrompt
+  const pageSubtitle = activeTab === "home"
+    ? ""
+    : activeTab === "sessions"
+      ? selectedSession
+        ? `${formatDate(selectedSession.last_active_at)} · ${formatNumber(selectedSession.input_tokens + selectedSession.output_tokens)} ${t.sessions.tokenSuffix}`
+        : ""
     : activeTab === "docs"
       ? docContent?.path || effectiveDocPath || t.docs.selectPrompt
       : "";
@@ -3769,24 +3794,6 @@ function App() {
               </button>
             ))}
           </nav>
-          {!sidebarCollapsed ? (
-            <div className="sidebar-dynamic">
-              <div className="sidebar-section-label">{t.sessions.title}</div>
-              <SessionsIndex
-                sessions={sessionsData.items}
-                query={query}
-                searchOpen={showSessionSearch}
-                loading={sessionsLoading}
-                error={sessionsError}
-                hasMore={hasMoreSessions}
-                loadMoreError={sessionLoadMoreError}
-                selectedSessionId={selectedSession?.session_id || ""}
-                onQueryChange={handleSessionQueryChange}
-                onLoadMore={loadMoreSessions}
-                onOpen={openSession}
-              />
-            </div>
-          ) : null}
           <button
             aria-label={t.app.title}
             className="sidebar-status-card"
@@ -3832,12 +3839,24 @@ function App() {
                   />
                 ) : null}
                 {activeTab === "sessions" && !selectedSession ? (
-                  sessionsLoading && !sessionsData.items.length ? (
-                    <EmptyState label={t.sessions.loading} />
-                  ) : (
-                    <DashboardHome />
-                  )
+                  <section className="sessions-page">
+                    <SessionsIndex
+                      sessions={sessionsData.items}
+                      query={query}
+                      searchOpen={showSessionSearch}
+                      searchFocusKey={sessionSearchFocusKey}
+                      loading={sessionsLoading}
+                      error={sessionsError}
+                      hasMore={hasMoreSessions}
+                      loadMoreError={sessionLoadMoreError}
+                      selectedSessionId=""
+                      onQueryChange={handleSessionQueryChange}
+                      onLoadMore={loadMoreSessions}
+                      onOpen={openSession}
+                    />
+                  </section>
                 ) : null}
+                {activeTab === "home" ? <DashboardHome /> : null}
                 {activeTab === "models" ? (
                   <ModelsView
                     models={data.models.items}

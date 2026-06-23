@@ -1,13 +1,13 @@
 :root {
   color-scheme: light;
-  --bg: #fffefd;
+  --bg: #fffefe;
   --bg-soft: #ffffff;
   --surface: #ffffff;
-  --surface-muted: #fbfaf7;
-  --surface-subtle: #fffdfb;
-  --row-hover: #f2f1ef;
-  --border: #eee7dd;
-  --border-strong: #ded3c5;
+  --surface-muted: #fcfbf9;
+  --surface-subtle: #fffefd;
+  --row-hover: #f5f4f2;
+  --border: #f0ebe4;
+  --border-strong: #e4dbd0;
   --text: #2f2a24;
   --text-strong: #221f1b;
   --text-soft: #5d544a;
@@ -15,41 +15,41 @@
   --muted-light: #9b9083;
   --accent: #b46a4d;
   --accent-strong: #89513c;
-  --accent-soft: #f7eee9;
-  --accent-muted: #e7d5ca;
-  --active-dot: #c4876b;
+  --accent-soft: #faf4f1;
+  --accent-muted: #ecddd5;
+  --active-dot: #cf9a83;
   --success: #746b5e;
-  --success-soft: #f8f2ea;
-  --success-border: #e2d4c2;
+  --success-soft: #fbf7f1;
+  --success-border: #e7dccd;
   --warning: #8c642b;
-  --warning-soft: #fff8ec;
-  --warning-border: #eadbc2;
+  --warning-soft: #fffbf4;
+  --warning-border: #eee3d1;
   --warning-border-strong: #c79a49;
   --warning-strong-soft: #fff0cf;
   --tool: #856943;
-  --tool-soft: #fffaf2;
-  --tool-muted: #fbf3e7;
-  --tool-border: #eadfce;
-  --tool-border-strong: #dac7aa;
-  --message-border: #e3d8cc;
+  --tool-soft: #fffdf8;
+  --tool-muted: #fdf8f0;
+  --tool-border: #eee6d9;
+  --tool-border-strong: #e1d1b8;
+  --message-border: #e8ded3;
   --message-border-user: #6f9fc0;
   --message-border-assistant: #d59478;
   --message-border-tool: #d9b56f;
   --message-border-system: #c9c1b8;
   --message-user-soft: #ebf6fc;
   --message-user-text: #3f6f8e;
-  --message-assistant-soft: #fbefe9;
+  --message-assistant-soft: #fcf5f1;
   --message-assistant-text: #985f48;
-  --message-tool-soft: #fff6e4;
+  --message-tool-soft: #fffaf0;
   --message-tool-text: #826238;
-  --message-system-soft: #f4f2ef;
+  --message-system-soft: #f7f6f4;
   --message-system-text: #6c635a;
   --assistant-content-width: 760px;
   --danger: #a34d3d;
-  --danger-soft: #fff0ec;
-  --danger-border: #e6b5aa;
+  --danger-soft: #fff5f2;
+  --danger-border: #ecc7bf;
   --info: #756a5d;
-  --info-soft: #f8f2eb;
+  --info-soft: #fbf7f2;
   --focus-ring: rgba(180, 106, 77, 0.2);
   --scrim: rgba(47, 42, 36, 0.42);
   --shadow-soft: rgba(82, 62, 42, 0.045);
@@ -679,22 +679,6 @@ h1 {
   line-height: 1.55;
 }
 
-.sidebar-dynamic {
-  display: flex;
-  min-height: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 9px;
-  margin-top: 18px;
-}
-
-.sidebar-section-label {
-  padding: 0 4px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-}
-
 .session-index-panel,
 .docs-index-panel {
   display: flex;
@@ -873,6 +857,55 @@ h1 {
   text-align: center;
 }
 
+.sessions-page {
+  display: flex;
+  width: min(980px, 100%);
+  height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+}
+
+.sessions-page .session-index-panel {
+  width: 100%;
+  gap: 16px;
+}
+
+.sessions-page .search-box {
+  height: 44px;
+}
+
+.sessions-page .session-index-list {
+  flex: 1;
+  gap: 0;
+  overflow: auto;
+  padding: 2px 0;
+}
+
+.sessions-page .session-index-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  min-height: 54px;
+  padding: 13px 10px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.sessions-page .session-index-item:hover,
+.sessions-page .session-index-item:focus,
+.sessions-page .session-index-item.active {
+  border-radius: 8px;
+}
+
+.sessions-page .session-index-item .primary-cell {
+  font-size: 14px;
+}
+
+.sessions-page .session-index-item .session-meta-line {
+  justify-self: end;
+  font-size: 12px;
+}
+
 .session-load-more-error {
   padding: 8px 10px;
   color: var(--danger);
@@ -887,7 +920,7 @@ h1 {
   width: 100%;
   min-width: 0;
   gap: 10px;
-  margin-top: 14px;
+  margin-top: auto;
   padding: 9px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -2935,13 +2968,8 @@ pre {
     padding: 7px 10px;
   }
 
-  .sidebar-dynamic {
-    max-height: 38vh;
-    overflow: hidden;
-  }
-
   .tab-list {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 
   .tab {
@@ -2965,6 +2993,14 @@ pre {
 
   .session-detail-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sessions-page {
+    height: auto;
+  }
+
+  .sessions-page .session-index-list {
+    max-height: 60vh;
   }
 
   .docs-toolbar {

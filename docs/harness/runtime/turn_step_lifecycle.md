@@ -167,4 +167,4 @@ UTF-8 会按字符边界调整，不会切坏 emoji/中文字符。
 它不是按行截，也不是按真实 tokenizer 截；token 是 ceil(bytes / 4) 的近似。
 ```
 
-第二步：
+第二步：在给供应商发送请求前，检查目前 system 和 messages 和 tool schema 加起来的 token 数量，如果超过 90 % 进入压缩处理。
