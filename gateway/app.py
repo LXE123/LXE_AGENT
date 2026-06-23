@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import webbrowser
-from concurrent.futures import CancelledError as FutureCancelledError
 from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -31,12 +30,6 @@ from shared.infra.net import close_all_network_clients
 from shared.logging import logger
 from shared.telemetry.config import telemetry_enabled, telemetry_sync_interval_seconds
 from shared.telemetry.sync import sync_once as telemetry_sync_once
-
-
-def _adapter_label(adapter) -> str:
-    platform = str(getattr(adapter, "platform", "") or "").strip() or "unknown"
-    return platform
-
 
 class GatewayApp:
     _WAIT_FOREVER_POLL_S = 0.5
@@ -70,7 +63,6 @@ class GatewayApp:
         self._heartbeat_wake = HeartbeatWakeManager(scheduler=self._session_scheduler)
         self._session_router = session_router
         self._session_router.bind_scheduler(self._session_scheduler)
-        self._adapter_recycle_lock = asyncio.Lock()
         self._dashboard_server: DashboardServer | None = (
             DashboardServer(
                 host=dashboard_host(),
@@ -310,28 +302,6 @@ class GatewayApp:
             coalesce=True,
             max_instances=1,
         )
-        if bool(gateway_settings.GATEWAY_ADAPTER_RECYCLE_ENABLED):
-            scheduler.add_job(
-                self._schedule_adapter_recycle,
-                "interval",
-                hours=1,
-                id="gateway_adapter_recycle",
-                replace_existing=True,
-                coalesce=True,
-                max_instances=1,
-            )
-            logger.info("♻️ [Gateway] adapter recycle enabled: interval=60m")
-        if bool(gateway_settings.GATEWAY_ADAPTER_WATCHDOG_ENABLED):
-            scheduler.add_job(
-                self._schedule_adapter_watchdog,
-                "interval",
-                minutes=1,
-                id="gateway_adapter_watchdog",
-                replace_existing=True,
-                coalesce=True,
-                max_instances=1,
-            )
-            logger.info("👀 [Gateway] adapter watchdog enabled: interval=1m")
         if telemetry_enabled():
             interval_s = telemetry_sync_interval_seconds()
             scheduler.add_job(
@@ -362,136 +332,6 @@ class GatewayApp:
             )
         elif result.skipped_reason and result.skipped_reason != "disabled":
             logger.info("[Telemetry] snapshot skipped: reason=%s", result.skipped_reason)
-
-    def _schedule_adapter_recycle(self) -> None:
-        loop = self._loop
-        if loop is None or loop.is_closed():
-            logger.info("[Gateway] adapter recycle skipped: gateway loop unavailable")
-            return
-        future = asyncio.run_coroutine_threadsafe(self._run_adapter_recycle(), loop)
-        future.add_done_callback(self._log_adapter_recycle_failure)
-
-    def _schedule_adapter_watchdog(self) -> None:
-        loop = self._loop
-        if loop is None or loop.is_closed():
-            logger.info("[Gateway] adapter watchdog skipped: gateway loop unavailable")
-            return
-        future = asyncio.run_coroutine_threadsafe(self._run_adapter_watchdog(), loop)
-        future.add_done_callback(self._log_adapter_watchdog_failure)
-
-    @staticmethod
-    def _log_adapter_recycle_failure(future) -> None:
-        try:
-            future.result()
-        except FutureCancelledError:
-            return
-        except Exception as exc:
-            logger.error("[Gateway] adapter recycle task failed: %s", exc, exc_info=True)
-
-    @staticmethod
-    def _log_adapter_watchdog_failure(future) -> None:
-        try:
-            future.result()
-        except FutureCancelledError:
-            return
-        except Exception as exc:
-            logger.error("[Gateway] adapter watchdog task failed: %s", exc, exc_info=True)
-
-    def _get_adapter_recycle_lock(self) -> asyncio.Lock:
-        lock = getattr(self, "_adapter_recycle_lock", None)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._adapter_recycle_lock = lock
-        return lock
-
-    async def _run_adapter_recycle(self) -> None:
-        lock = self._get_adapter_recycle_lock()
-        if lock.locked():
-            logger.info("[Gateway] adapter recycle skipped: previous recycle still running")
-            return
-
-        async with lock:
-            if not self._started or self._stop_event.is_set():
-                logger.info("[Gateway] adapter recycle skipped: gateway is stopping or not started")
-                return
-            if self._session_scheduler.has_inflight_jobs():
-                logger.info("[Gateway] adapter recycle skipped: inflight agent jobs detected")
-                return
-
-            adapters = list(self._registry.list())
-            labels = [_adapter_label(adapter) for adapter in adapters]
-            failed: list[str] = []
-            logger.info("[Gateway] adapter recycle start: adapters=%s", labels)
-            for adapter in adapters:
-                label = _adapter_label(adapter)
-                try:
-                    await adapter.stop()
-                    await adapter.start()
-                except Exception as exc:
-                    failed.append(label)
-                    logger.warning(
-                        "[Gateway] adapter recycle failed: adapter=%s error=%s",
-                        label,
-                        exc,
-                        exc_info=True,
-                    )
-            if failed:
-                logger.warning(
-                    "[Gateway] adapter recycle finished with failures: adapters=%s failed=%s",
-                    labels,
-                    failed,
-                )
-                return
-            logger.info("[Gateway] adapter recycle complete: adapters=%s", labels)
-
-    async def _run_adapter_watchdog(self) -> None:
-        lock = self._get_adapter_recycle_lock()
-        if lock.locked():
-            logger.info("[Gateway] adapter watchdog skipped: previous recycle still running")
-            return
-
-        async with lock:
-            if not self._started or self._stop_event.is_set():
-                logger.info("[Gateway] adapter watchdog skipped: gateway is stopping or not started")
-                return
-
-            for adapter in list(self._registry.list()):
-                label = _adapter_label(adapter)
-                health = dict(adapter.health() or {})
-                thread_alive = bool(health.get("thread_alive", health.get("running")))
-                connection_alive = bool(health.get("connection_alive"))
-                connection_state = str(health.get("connection_state") or "").strip() or (
-                    "connected" if connection_alive else "disconnected"
-                )
-                if thread_alive:
-                    if not connection_alive:
-                        logger.info(
-                            "[Gateway] adapter watchdog: connection not alive but thread running, "
-                            "trusting SDK auto-reconnect: adapter=%s connection_state=%s",
-                            label,
-                            connection_state,
-                        )
-                    continue
-                logger.warning(
-                    "[Gateway] adapter watchdog detected dead thread: adapter=%s thread_alive=%s connection_alive=%s connection_state=%s",
-                    label,
-                    thread_alive,
-                    connection_alive,
-                    connection_state,
-                )
-                try:
-                    logger.info("[Gateway] adapter watchdog restarting: adapter=%s", label)
-                    await adapter.stop()
-                    await adapter.start()
-                except Exception as exc:
-                    logger.warning(
-                        "[Gateway] adapter watchdog restart failed: adapter=%s error=%s",
-                        label,
-                        exc,
-                        exc_info=True,
-                    )
-                    continue
-                logger.info("[Gateway] adapter watchdog restart succeeded: adapter=%s", label)
 
     @staticmethod
     def _refresh_mabang_erp_cookie() -> None:

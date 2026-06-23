@@ -8,7 +8,7 @@
 
 ## 设计理念
 
-生命周期层只做 bootstrap 和组件编排，不把平台消息解析、权限判断、agent 执行或出站发送写进入口。`main.py` 保持很薄，`GatewayApp` 集中管理 start/stop 顺序，让关闭、重启 adapter、Dashboard 和 shared-state 连接释放有一个清晰的归口。
+生命周期层只做 bootstrap 和组件编排，不把平台消息解析、权限判断、agent 执行或出站发送写进入口。`main.py` 保持很薄，`GatewayApp` 集中管理 start/stop 顺序，让 adapter、Dashboard 和 shared-state 连接释放有一个清晰的归口。
 
 ## 链路位置
 
@@ -66,11 +66,9 @@
 `_build_scheduler()` 当前注册这些 APScheduler job：
 
 - `mabang_erp_cookie_refresh`：每 2 小时刷新 Mabang ERP cookie。
-- `gateway_adapter_recycle`：当 `GATEWAY_ADAPTER_RECYCLE_ENABLED` 开启时，每 1 小时重启 adapter。
-- `gateway_adapter_watchdog`：当 `GATEWAY_ADAPTER_WATCHDOG_ENABLED` 开启时，每 1 分钟检查 adapter thread 状态。
 - `telemetry_snapshot_sync`：当 telemetry 开启时按配置同步 snapshot。
 
-adapter recycle 会避开 gateway stopping 状态和 inflight agent jobs。watchdog 只在 adapter thread 不存活时尝试重启；如果 thread 仍在但连接断开，会信任 SDK 自动重连。
+这些 job 不负责平台连接生命周期；adapter 只在 gateway start/stop 时由 `ChannelRegistry` 统一启动和关闭。Feishu SDK 自己的连接恢复能力仍由 adapter 内部配置保留。
 
 ## 入站 dispatch loop
 

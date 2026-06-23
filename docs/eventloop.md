@@ -32,7 +32,7 @@ flowchart TD
 
     C --> M["APScheduler thread"]
     M --> N["ERP cookie refresh"]
-    M --> O["adapter recycle / watchdog"]
+    M --> O["telemetry snapshot sync"]
 
     H --> P["shared.db.client"]
     P --> Q["shared_state_db thread pool"]
@@ -65,7 +65,7 @@ Long-running tool or process notifications write completed events into `agent_se
 
 ## Shutdown Policy
 
-Gateway shutdown stops heartbeat wake, session scheduler, dispatcher task, channel adapters, APScheduler, network clients, and the SQLite client wrapper in order. Adapter recycle and watchdog jobs use `asyncio.run_coroutine_threadsafe(...)` to schedule loop-bound work from the APScheduler thread.
+Gateway shutdown stops heartbeat wake, session scheduler, dispatcher task, channel adapters, APScheduler, network clients, and the SQLite client wrapper in order. APScheduler jobs are limited to independent background maintenance, so adapter startup and shutdown stay owned by the gateway event loop.
 
 ## Event Loop Policy
 
