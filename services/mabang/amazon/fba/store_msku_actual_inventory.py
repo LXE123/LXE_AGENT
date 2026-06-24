@@ -36,13 +36,19 @@ DEFAULT_PRIVATE_ORIGIN = "https://private.mabangerp.com"
 DEFAULT_PRIVATE_REFERER = "https://private.mabangerp.com/"
 DEFAULT_PRIVATE_AMZ_ORIGIN = "https://private-amz.mabangerp.com"
 DEFAULT_PRIVATE_AMZ_REFERER = "https://private-amz.mabangerp.com/"
-SOURCE = "mabang_store_msku_actual_inventory"
+SOURCE = "mabang_store_msku_shenzhen_warehouse_inventory"
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
 SENTINEL_COMBO_SKU = "HSP022"
 WAREHOUSE_ID = "1014318"
+WAREHOUSE_NAME = "深圳仓库"
 STORE_MSKU_FILE_SUFFIXES = ("店铺MSKU数据", "msku_data")
-ACTUAL_INVENTORY_FILE_SUFFIX = "真实库存"
+ACTUAL_INVENTORY_FILE_SUFFIX = "真实库存（深圳仓库）"
+ACTUAL_INVENTORY_QUANTITY_COLUMN = "真实库存（深圳仓库）数量"
+COMBO_ACTUAL_INVENTORY_SHEET = "真实库存（深圳仓库）-组合sku"
+STOCK_ACTUAL_INVENTORY_SHEET = "真实库存（深圳仓库）-库存sku"
+NO_LOCAL_SKU_SHEET = "无本地SKU"
+NO_INVENTORY_DATA_SHEET = "无库存数据"
 SOURCE_FILE_RE = re.compile(
     rf"^(?P<source_time>\d{{12}})-(?P<store>.+)_(?:{'|'.join(re.escape(suffix) for suffix in STORE_MSKU_FILE_SUFFIXES)})\.xlsx$",
     re.IGNORECASE,
@@ -68,7 +74,7 @@ BASE_OUTPUT_COLUMNS = (
     SOURCE_PRODUCT_NAME_COLUMN,
     SOURCE_REMARK_COLUMN,
     "商品链接",
-    "真实库存数量",
+    ACTUAL_INVENTORY_QUANTITY_COLUMN,
     "子SKU",
 )
 INVENTORY_OUTPUT_COLUMNS = (
@@ -83,13 +89,13 @@ INVENTORY_OUTPUT_COLUMNS = (
     "FBA总库存",
     "加权日销",
     "可销售天数",
-    "真实库存数量",
+    ACTUAL_INVENTORY_QUANTITY_COLUMN,
     "子SKU",
 )
 OUTPUT_COLUMNS = BASE_OUTPUT_COLUMNS
 TWO_DECIMAL_COLUMNS = {"加权日销", "可销售天数"}
 ACTUAL_INVENTORY_HIGHLIGHT_COLOR = "FFF2CC"
-INVENTORY_HIGHLIGHT_COLUMNS = {"MSKU", "真实库存数量"}
+INVENTORY_HIGHLIGHT_COLUMNS = {"MSKU", ACTUAL_INVENTORY_QUANTITY_COLUMN}
 COMBO_EXPORT_FIELDS: tuple[tuple[str, str], ...] = (
     (COMBO_SKU_COLUMN, "uq101"),
     (COMBO_COMPONENT_COUNT_COLUMN, "uq136"),
@@ -182,34 +188,38 @@ class ActualInventoryRowGroups:
 @dataclass(frozen=True)
 class ActualInventoryResult:
     store_name: str
-    source_xlsx_path: str
-    source_data_time: str
-    local_sku_count: int
-    combo_sku_count: int
-    stock_sku_count: int
-    missing_stock_skus: list[str]
-    xlsx_path: str
-    inventory_row_count: int = 0
-    no_local_sku_count: int = 0
-    no_inventory_row_count: int = 0
-    source: str = SOURCE
+    source_msku_xlsx_path: str
+    source_msku_data_time: str
+    unique_local_sku_count: int
+    detected_combo_sku_count: int
+    queried_warehouse_stock_sku_count: int
+    missing_warehouse_stock_skus: list[str]
+    shenzhen_warehouse_inventory_report_xlsx_path: str
+    matched_warehouse_inventory_msku_row_count: int = 0
+    missing_local_sku_msku_row_count: int = 0
+    missing_warehouse_inventory_msku_row_count: int = 0
+    warehouse_id: str = WAREHOUSE_ID
+    warehouse_name: str = WAREHOUSE_NAME
+    result_source: str = SOURCE
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "success": True,
             "store_name": self.store_name,
-            "source_xlsx_path": self.source_xlsx_path,
-            "source_data_time": self.source_data_time,
-            "local_sku_count": self.local_sku_count,
-            "combo_sku_count": self.combo_sku_count,
-            "stock_sku_count": self.stock_sku_count,
-            "inventory_row_count": self.inventory_row_count,
-            "no_local_sku_count": self.no_local_sku_count,
-            "no_inventory_row_count": self.no_inventory_row_count,
-            "missing_stock_sku_count": len(self.missing_stock_skus),
-            "missing_stock_skus": list(self.missing_stock_skus),
-            "xlsx_path": self.xlsx_path,
-            "source": self.source,
+            "warehouse_id": self.warehouse_id,
+            "warehouse_name": self.warehouse_name,
+            "source_msku_xlsx_path": self.source_msku_xlsx_path,
+            "source_msku_data_time": self.source_msku_data_time,
+            "unique_local_sku_count": self.unique_local_sku_count,
+            "detected_combo_sku_count": self.detected_combo_sku_count,
+            "queried_warehouse_stock_sku_count": self.queried_warehouse_stock_sku_count,
+            "matched_warehouse_inventory_msku_row_count": self.matched_warehouse_inventory_msku_row_count,
+            "missing_local_sku_msku_row_count": self.missing_local_sku_msku_row_count,
+            "missing_warehouse_inventory_msku_row_count": self.missing_warehouse_inventory_msku_row_count,
+            "missing_warehouse_stock_sku_count": len(self.missing_warehouse_stock_skus),
+            "missing_warehouse_stock_skus": list(self.missing_warehouse_stock_skus),
+            "shenzhen_warehouse_inventory_report_xlsx_path": self.shenzhen_warehouse_inventory_report_xlsx_path,
+            "result_source": self.result_source,
         }
 
 
@@ -1201,7 +1211,7 @@ def write_actual_inventory_xlsx(rows: list[ActualInventoryRow], output_path: str
     try:
         from openpyxl import Workbook
     except Exception as exc:
-        raise RuntimeError("缺少 openpyxl 依赖，无法写入真实库存xlsx") from exc
+        raise RuntimeError("缺少 openpyxl 依赖，无法写入真实库存（深圳仓库）xlsx") from exc
 
     target_path = Path(output_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1210,7 +1220,7 @@ def write_actual_inventory_xlsx(rows: list[ActualInventoryRow], output_path: str
         groups = split_inventory_rows(rows)
         _append_inventory_sheet(
             workbook,
-            "真实库存-组合sku",
+            COMBO_ACTUAL_INVENTORY_SHEET,
             INVENTORY_OUTPUT_COLUMNS,
             _sorted_inventory_rows(groups.combo_inventory_rows),
             _inventory_row_values,
@@ -1219,14 +1229,14 @@ def write_actual_inventory_xlsx(rows: list[ActualInventoryRow], output_path: str
         )
         _append_inventory_sheet(
             workbook,
-            "真实库存-库存sku",
+            STOCK_ACTUAL_INVENTORY_SHEET,
             INVENTORY_OUTPUT_COLUMNS,
             _sorted_inventory_rows(groups.stock_inventory_rows),
             _inventory_row_values,
             highlight_actual_inventory=True,
         )
-        _append_inventory_sheet(workbook, "无本地SKU", BASE_OUTPUT_COLUMNS, groups.no_local_sku_rows, _base_row_values)
-        _append_inventory_sheet(workbook, "无库存数据", BASE_OUTPUT_COLUMNS, groups.no_inventory_rows, _base_row_values)
+        _append_inventory_sheet(workbook, NO_LOCAL_SKU_SHEET, BASE_OUTPUT_COLUMNS, groups.no_local_sku_rows, _base_row_values)
+        _append_inventory_sheet(workbook, NO_INVENTORY_DATA_SHEET, BASE_OUTPUT_COLUMNS, groups.no_inventory_rows, _base_row_values)
         workbook.save(target_path)
     finally:
         workbook.close()
@@ -1284,16 +1294,16 @@ async def export_store_msku_actual_inventory(
     write_actual_inventory_xlsx(inventory_rows, final_xlsx_path)
     return ActualInventoryResult(
         store_name=clean_store_name,
-        source_xlsx_path=str(source.path),
-        source_data_time=source.source_data_time,
-        local_sku_count=len(local_skus),
-        combo_sku_count=len(combo_map),
-        stock_sku_count=len(stock_skus),
-        missing_stock_skus=missing_stock_skus,
-        xlsx_path=str(final_xlsx_path),
-        inventory_row_count=len(inventory_groups.inventory_rows),
-        no_local_sku_count=len(inventory_groups.no_local_sku_rows),
-        no_inventory_row_count=len(inventory_groups.no_inventory_rows),
+        source_msku_xlsx_path=str(source.path),
+        source_msku_data_time=source.source_data_time,
+        unique_local_sku_count=len(local_skus),
+        detected_combo_sku_count=len(combo_map),
+        queried_warehouse_stock_sku_count=len(stock_skus),
+        missing_warehouse_stock_skus=missing_stock_skus,
+        shenzhen_warehouse_inventory_report_xlsx_path=str(final_xlsx_path),
+        matched_warehouse_inventory_msku_row_count=len(inventory_groups.inventory_rows),
+        missing_local_sku_msku_row_count=len(inventory_groups.no_local_sku_rows),
+        missing_warehouse_inventory_msku_row_count=len(inventory_groups.no_inventory_rows),
     )
 
 
@@ -1312,6 +1322,7 @@ __all__ = [
     "STOCK_SKU_COLUMN",
     "STORE_MSKU_FILE_SUFFIXES",
     "WAREHOUSE_ID",
+    "WAREHOUSE_NAME",
     "ActualInventoryResult",
     "ActualInventoryRow",
     "ActualInventoryRowGroups",
