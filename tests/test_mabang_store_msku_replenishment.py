@@ -96,7 +96,7 @@ def _sheet_names(path: Path) -> list[str]:
 
 
 def _inventory_headers() -> list[str]:
-    return ["MSKU", "父ASIN", "ASIN", "本地SKU", "本地SKU名称", "产品名称", "备注", "商品链接", "FBA总库存", "加权日销", "可销售天数", "真实库存数量", "子SKU"]
+    return ["MSKU", "父ASIN", "ASIN", "本地SKU", "本地SKU名称", "产品名称", "备注", "商品链接", "FBA总库存", "加权日销", "可销售天数", "真实库存（深圳仓库）数量", "子SKU"]
 
 
 def _sales_headers() -> list[str]:
@@ -177,7 +177,7 @@ def _write_inventory_report(path: Path, *, remarks: dict[str, str] | None = None
     return _write_workbook(
         path,
         {
-            "真实库存-组合sku": (
+            "真实库存（深圳仓库）-组合sku": (
                 headers,
                 [
                     {
@@ -192,12 +192,12 @@ def _write_inventory_report(path: Path, *, remarks: dict[str, str] | None = None
                         "FBA总库存": 480,
                         "加权日销": 6,
                         "可销售天数": 80,
-                        "真实库存数量": 20,
+                        "真实库存（深圳仓库）数量": 20,
                         "子SKU": "STOCK-A * 1",
                     }
                 ],
             ),
-            "真实库存-库存sku": (
+            "真实库存（深圳仓库）-库存sku": (
                 headers,
                 [
                     {
@@ -212,7 +212,7 @@ def _write_inventory_report(path: Path, *, remarks: dict[str, str] | None = None
                         "FBA总库存": 90,
                         "加权日销": 3,
                         "可销售天数": 30,
-                        "真实库存数量": 10,
+                        "真实库存（深圳仓库）数量": 10,
                     },
                     {
                         "MSKU": "AIR-1",
@@ -226,7 +226,7 @@ def _write_inventory_report(path: Path, *, remarks: dict[str, str] | None = None
                         "FBA总库存": 300,
                         "加权日销": 6,
                         "可销售天数": 50,
-                        "真实库存数量": 30,
+                        "真实库存（深圳仓库）数量": 30,
                     },
                     {
                         "MSKU": "NO-1",
@@ -240,7 +240,7 @@ def _write_inventory_report(path: Path, *, remarks: dict[str, str] | None = None
                         "FBA总库存": 360,
                         "加权日销": 4,
                         "可销售天数": 90,
-                        "真实库存数量": 40,
+                        "真实库存（深圳仓库）数量": 40,
                     },
                     {
                         "MSKU": "SAMPLE-1",
@@ -254,7 +254,7 @@ def _write_inventory_report(path: Path, *, remarks: dict[str, str] | None = None
                         "FBA总库存": 80,
                         "加权日销": 8,
                         "可销售天数": 10,
-                        "真实库存数量": 8,
+                        "真实库存（深圳仓库）数量": 8,
                     },
                 ],
             ),
@@ -344,7 +344,7 @@ def test_find_matching_report_files_requires_common_source_time(tmp_path) -> Non
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     _write_sales_report(sales_dir / "202605261530-Amazon-Test_销量分析.xlsx")
 
     result = repl.find_matching_report_files(
@@ -355,7 +355,7 @@ def test_find_matching_report_files_requires_common_source_time(tmp_path) -> Non
 
     assert result.source_data_time == "202605251530"
     assert result.sales_analysis_path.name == "202605251530-Amazon-Test_销量分析.xlsx"
-    assert result.actual_inventory_path.name == "202605251530-Amazon-Test_真实库存.xlsx"
+    assert result.actual_inventory_path.name == "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx"
 
 
 def test_find_matching_report_files_accepts_legacy_english_file_names(tmp_path) -> None:
@@ -375,11 +375,27 @@ def test_find_matching_report_files_accepts_legacy_english_file_names(tmp_path) 
     assert result.actual_inventory_path.name == "202605251530-Amazon-Test_actual_inventory.xlsx"
 
 
+def test_find_matching_report_files_prefers_new_actual_inventory_name(tmp_path) -> None:
+    sales_dir = tmp_path / "sales"
+    inventory_dir = tmp_path / "inventory"
+    _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
+
+    result = repl.find_matching_report_files(
+        "Amazon-Test",
+        sales_analysis_dir=sales_dir,
+        actual_inventory_dir=inventory_dir,
+    )
+
+    assert result.actual_inventory_path.name == "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx"
+
+
 def test_find_matching_report_files_fails_without_common_time(tmp_path) -> None:
     sales_dir = tmp_path / "sales"
     inventory_dir = tmp_path / "inventory"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605261530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605261530-Amazon-Test_真实库存（深圳仓库）.xlsx")
 
     with pytest.raises(repl.StoreMskuReplenishmentError, match="未找到同源时间"):
         repl.find_matching_report_files("Amazon-Test", sales_analysis_dir=sales_dir, actual_inventory_dir=inventory_dir)
@@ -432,6 +448,51 @@ def test_load_inventory_rows_allows_missing_optional_name_columns(tmp_path) -> N
         "FBA总库存",
         "加权日销",
         "可销售天数",
+        "真实库存（深圳仓库）数量",
+        "子SKU",
+    ]
+    _write_workbook(
+        path,
+        {
+            "真实库存（深圳仓库）-组合sku": (
+                old_headers,
+                [
+                    {
+                        "MSKU": "MSKU-C",
+                        "父ASIN": "PARENT-C",
+                        "ASIN": "ASIN-C",
+                        "本地SKU": "COMBO-C",
+                        "商品链接": "https://example.test/c",
+                        "FBA总库存": 10,
+                        "加权日销": 1,
+                        "可销售天数": 10,
+                        "真实库存（深圳仓库）数量": 5,
+                        "子SKU": "SKU-A * 1",
+                    }
+                ],
+            ),
+            "真实库存（深圳仓库）-库存sku": (old_headers, []),
+        },
+    )
+
+    rows = repl.load_inventory_rows(path)
+
+    assert len(rows) == 1
+    assert rows[0].local_sku_name == ""
+    assert rows[0].product_name == ""
+
+
+def test_load_inventory_rows_accepts_legacy_actual_inventory_sheet_and_column(tmp_path) -> None:
+    path = tmp_path / "202605251530-Amazon-Test_真实库存.xlsx"
+    headers = [
+        "MSKU",
+        "父ASIN",
+        "ASIN",
+        "本地SKU",
+        "商品链接",
+        "FBA总库存",
+        "加权日销",
+        "可销售天数",
         "真实库存数量",
         "子SKU",
     ]
@@ -439,7 +500,7 @@ def test_load_inventory_rows_allows_missing_optional_name_columns(tmp_path) -> N
         path,
         {
             "真实库存-组合sku": (
-                old_headers,
+                headers,
                 [
                     {
                         "MSKU": "MSKU-C",
@@ -455,15 +516,15 @@ def test_load_inventory_rows_allows_missing_optional_name_columns(tmp_path) -> N
                     }
                 ],
             ),
-            "真实库存-库存sku": (old_headers, []),
+            "真实库存-库存sku": (headers, []),
         },
     )
 
     rows = repl.load_inventory_rows(path)
 
     assert len(rows) == 1
-    assert rows[0].local_sku_name == ""
-    assert rows[0].product_name == ""
+    assert rows[0].sku_type == "组合sku"
+    assert rows[0].actual_inventory == 5
 
 
 def test_replenishment_rules_and_report_output(tmp_path) -> None:
@@ -472,7 +533,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     output_dir = tmp_path / "output"
     snapshot_dir = tmp_path / "snapshots"
     sales_path = _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    inventory_path = _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    inventory_path = _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
 
     result = repl.calculate_store_msku_replenishment(
         "Amazon-Test",
@@ -504,14 +565,14 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         "unlinked_shipments_snapshot_warning": repl.UNLINKED_SNAPSHOT_MISSING_WARNING,
     }
     assert report_path.is_file()
-    assert _sheet_names(report_path) == ["空运（急发）", "空运", "海运", "真实库存不足", "清货", "暂不建议发货", "链接备货汇总", "样本不足"]
+    assert _sheet_names(report_path) == ["空运（急发）", "空运", "海运", "真实库存（深圳仓库）不足", "清货", "暂不建议发货", "链接备货汇总", "样本不足"]
     _assert_standard_dimensions(report_path, _sheet_names(report_path))
     assert _headers(report_path, "链接备货汇总") == list(repl.SUMMARY_COLUMNS)
-    assert _headers(report_path, "真实库存不足") == list(repl.INVENTORY_SHORTAGE_COLUMNS)
+    assert _headers(report_path, "真实库存（深圳仓库）不足") == list(repl.INVENTORY_SHORTAGE_COLUMNS)
     assert _headers(report_path, "清货") == list(repl.CLEARANCE_COLUMNS)
     assert _headers(report_path, "空运（急发）") == list(repl.AIR_DETAIL_COLUMNS)
     assert _headers(report_path, "空运") == list(repl.AIR_DETAIL_COLUMNS)
-    for sheet_name in ["空运（急发）", "空运", "海运", "真实库存不足", "清货", "暂不建议发货", "样本不足"]:
+    for sheet_name in ["空运（急发）", "空运", "海运", "真实库存（深圳仓库）不足", "清货", "暂不建议发货", "样本不足"]:
         headers = _headers(report_path, sheet_name)
         assert headers.index(restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN) == headers.index(repl.MABANG_FBA_TOTAL_COLUMN) + 1
         assert headers.index(amazon_inv.AMAZON_FBA_TOTAL_COLUMN) == headers.index(restock_inv.AMAZON_RESTOCK_TOTAL_COLUMN) + 1
@@ -519,20 +580,20 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
         assert "销量趋势" not in headers
     for sheet_name in _sheet_names(report_path):
         headers = _headers(report_path, sheet_name)
-        for header in (repl.MABANG_FBA_TOTAL_COLUMN, "真实库存数量"):
+        for header in (repl.MABANG_FBA_TOTAL_COLUMN, "真实库存（深圳仓库）数量"):
             if header in headers:
                 formats = _column_number_formats(report_path, sheet_name, header)
                 if formats:
                     assert set(formats) == {"0"}
-    assert set(_column_number_formats(report_path, "真实库存不足", "库存缺口")) == {"0"}
-    assert set(_column_number_formats(report_path, "链接备货汇总", "链接真实本地库存汇总")) == {"0"}
+    assert set(_column_number_formats(report_path, "真实库存（深圳仓库）不足", "库存缺口")) == {"0"}
+    assert set(_column_number_formats(report_path, "链接备货汇总", "链接真实库存（深圳仓库）汇总")) == {"0"}
     assert set(_column_number_formats(report_path, "海运", "加权日销")) == {"0.00"}
     assert set(_column_number_formats(report_path, "海运", "预计总重量kg")) == {"0.00"}
     for header in ["海运天数", "海运建议量", "同时空运天数", "同时空运建议量"]:
         assert header not in _headers(report_path, "空运（急发）")
         assert header not in _headers(report_path, "空运")
         assert header in _headers(report_path, "海运")
-        assert header in _headers(report_path, "真实库存不足")
+        assert header in _headers(report_path, "真实库存（深圳仓库）不足")
     for sheet_name in ["海运", "暂不建议发货", "样本不足"]:
         headers = _headers(report_path, sheet_name)
         assert headers == list(repl.DETAIL_COLUMNS)
@@ -554,7 +615,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert sea_rows[0]["预计总重量kg"] == 72
     assert "ceil(6.00*90)=540" in sea_rows[0]["决策原因"]
     assert "扣FBA后=60" in sea_rows[0]["决策原因"]
-    assert sea_rows[0]["真实库存数量"] == 20
+    assert sea_rows[0]["真实库存（深圳仓库）数量"] == 20
     assert sea_rows[0]["参数方案名称"] == "默认"
     assert sea_rows[0]["命中规则"] == "默认规则"
 
@@ -566,7 +627,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert urgent_rows[0]["补货量"] == 180
     assert urgent_rows[0]["补货量（减去 FBA 总库存和未关联货件）"] == 90
     assert urgent_rows[0]["预计总重量kg"] == 0.9
-    assert urgent_rows[0]["真实库存数量"] == 10
+    assert urgent_rows[0]["真实库存（深圳仓库）数量"] == 10
 
     air_rows = _load_records(report_path, "空运")
     assert air_rows[0]["MSKU"] == "AIR-1"
@@ -576,7 +637,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert air_rows[0]["补货量"] == 360
     assert air_rows[0]["补货量（减去 FBA 总库存和未关联货件）"] == 60
     assert air_rows[0]["预计总重量kg"] == 1.2
-    assert air_rows[0]["真实库存数量"] == 30
+    assert air_rows[0]["真实库存（深圳仓库）数量"] == 30
 
     no_ship_rows = _load_records(report_path, "暂不建议发货")
     assert no_ship_rows[0]["MSKU"] == "NO-1"
@@ -594,7 +655,7 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert sample_rows[0]["预计总重量kg"] in (None, "")
     assert sample_rows[0]["决策原因"] == "销量趋势为样本不足，不计算备货量"
 
-    shortage_rows = _load_records(report_path, "真实库存不足")
+    shortage_rows = _load_records(report_path, "真实库存（深圳仓库）不足")
     assert {row["MSKU"] for row in shortage_rows} == {"SEA-1", "AIR-1", "URGENT-1"}
     assert {row["运输渠道"] for row in shortage_rows} == {"海运", "空运", "空运（急发）"}
     shortage_by_msku = {row["MSKU"]: row for row in shortage_rows}
@@ -617,13 +678,13 @@ def test_replenishment_rules_and_report_output(tmp_path) -> None:
     assert summary_by_parent["PARENT-SEA"]["总补货量"] == 60
     assert summary_by_parent["PARENT-SEA"]["海运建议量"] == 60
     assert summary_by_parent["PARENT-SEA"]["涉及运输方式"] == "海运"
-    assert summary_by_parent["PARENT-SEA"]["链接真实本地库存汇总"] == 20
+    assert summary_by_parent["PARENT-SEA"]["链接真实库存（深圳仓库）汇总"] == 20
     assert summary_by_parent["PARENT-AIR"]["商品链接"] == "http://www.amazon.com/gp/product/PARENT-AIR"
     assert summary_by_parent["PARENT-AIR"]["总补货量"] == 150
     assert summary_by_parent["PARENT-AIR"]["空运（急发）补货量"] == 90
     assert summary_by_parent["PARENT-AIR"]["空运补货量"] == 60
     assert summary_by_parent["PARENT-AIR"]["涉及运输方式"] == "空运（急发）、空运"
-    assert summary_by_parent["PARENT-AIR"]["链接真实本地库存汇总"] == 40
+    assert summary_by_parent["PARENT-AIR"]["链接真实库存（深圳仓库）汇总"] == 40
     assert summary_rows[-1]["父ASIN"] == "PARENT-SAMPLE"
     assert summary_rows[-1]["总补货量"] == 0
     assert summary_rows[-1]["涉及运输方式"] == "样本不足"
@@ -635,7 +696,7 @@ def test_amazon_fba_inventory_snapshot_adds_comparison_fields_without_changing_e
     output_dir = tmp_path / "output"
     snapshot_dir = tmp_path / "unlinked"
     sales_path = _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    inventory_path = _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    inventory_path = _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     amazon_snapshot_path = _write_amazon_fba_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx")
 
     result = repl.calculate_store_msku_replenishment(
@@ -688,7 +749,7 @@ def test_amazon_restock_inventory_snapshot_adds_comparison_fields_without_changi
     output_dir = tmp_path / "output"
     snapshot_dir = tmp_path / "unlinked"
     sales_path = _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    inventory_path = _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    inventory_path = _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     amazon_snapshot_path = _write_amazon_restock_inventory_snapshot(tmp_path / "restock_snapshot.xlsx")
 
     result = repl.calculate_store_msku_replenishment(
@@ -741,7 +802,7 @@ def test_amazon_restock_inventory_snapshot_allows_same_or_adjacent_day(tmp_path,
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     amazon_snapshot_path = _write_amazon_restock_inventory_snapshot(tmp_path / "restock_snapshot.xlsx", snapshot_date=snapshot_date)
 
     result = repl.calculate_store_msku_replenishment(
@@ -760,7 +821,7 @@ def test_amazon_restock_inventory_snapshot_rejects_date_more_than_one_day_apart(
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     amazon_snapshot_path = _write_amazon_restock_inventory_snapshot(tmp_path / "restock_snapshot.xlsx", snapshot_date="20260527")
 
     with pytest.raises(repl.StoreMskuReplenishmentError, match="相差超过1天"):
@@ -779,7 +840,7 @@ def test_amazon_fba_inventory_snapshot_allows_same_or_adjacent_day(tmp_path, sna
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     amazon_snapshot_path = _write_amazon_fba_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx", snapshot_date=snapshot_date)
 
     result = repl.calculate_store_msku_replenishment(
@@ -798,7 +859,7 @@ def test_amazon_fba_inventory_snapshot_rejects_date_more_than_one_day_apart(tmp_
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     amazon_snapshot_path = _write_amazon_fba_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx", snapshot_date="20260527")
 
     with pytest.raises(repl.StoreMskuReplenishmentError, match="亚马逊物流库存快照日期与备货数据日期相差超过1天"):
@@ -816,7 +877,7 @@ def test_amazon_fba_inventory_snapshot_rejects_invalid_date_format(tmp_path) -> 
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     amazon_snapshot_path = _write_amazon_fba_inventory_snapshot(tmp_path / "amazon_snapshot.xlsx", snapshot_date="2026-05-25")
 
     with pytest.raises(repl.StoreMskuReplenishmentError, match="亚马逊物流库存快照日期格式无效"):
@@ -836,7 +897,7 @@ def test_clearance_rows_move_out_of_transport_and_summary_sheets(tmp_path) -> No
     snapshot_dir = tmp_path / "snapshots"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
     _write_inventory_report(
-        inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx",
+        inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx",
         remarks={
             "SEA-1": "清货-海运",
             "URGENT-1": "清货急发",
@@ -865,7 +926,7 @@ def test_clearance_rows_move_out_of_transport_and_summary_sheets(tmp_path) -> No
     assert _load_records(report_path, "空运（急发）") == []
     assert _load_records(report_path, "空运") == []
     assert _load_records(report_path, "海运") == []
-    assert _load_records(report_path, "真实库存不足") == []
+    assert _load_records(report_path, "真实库存（深圳仓库）不足") == []
 
     clearance_rows = _load_records(report_path, "清货")
     assert {row["MSKU"] for row in clearance_rows} == {"SEA-1", "URGENT-1", "AIR-1"}
@@ -902,7 +963,7 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     output_dir = tmp_path / "output"
     snapshot_path = tmp_path / "202605251600-Amazon-Test_未关联货件快照.xlsx"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     _write_workbook(
         snapshot_path,
         {
@@ -958,7 +1019,7 @@ def test_unlinked_shipments_snapshot_deducts_final_replenishment_quantity(tmp_pa
     assert "扣减FBA 总库存（马帮数据）和未关联货件后，海运重量不足60kg" in sea_row["决策原因"]
     assert _load_records(report_path, "海运") == []
 
-    shortage_rows = _load_records(report_path, "真实库存不足")
+    shortage_rows = _load_records(report_path, "真实库存（深圳仓库）不足")
     assert [row["MSKU"] for row in shortage_rows] == ["AIR-1"]
     assert shortage_rows[0]["库存缺口"] == 10
 
@@ -981,7 +1042,7 @@ def test_same_day_unlinked_shipments_snapshot_auto_deducts_latest_snapshot(tmp_p
     old_snapshot = snapshot_dir / "202605251200-Amazon-Test_未关联货件快照.xlsx"
     latest_snapshot = snapshot_dir / "202605251800-Amazon-Test_未关联货件快照.xlsx"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     _write_workbook(
         old_snapshot,
         {
@@ -1025,7 +1086,7 @@ def test_non_same_day_unlinked_shipments_snapshot_warns_without_deduction(tmp_pa
     output_dir = tmp_path / "output"
     snapshot_dir = tmp_path / "snapshots"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     _write_workbook(
         snapshot_dir / "202605261200-Amazon-Test_未关联货件快照.xlsx",
         {
@@ -1060,7 +1121,7 @@ def test_manual_unlinked_shipments_snapshot_must_be_same_day(tmp_path) -> None:
     output_dir = tmp_path / "output"
     snapshot_path = tmp_path / "202605261200-Amazon-Test_未关联货件快照.xlsx"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
     _write_workbook(
         snapshot_path,
         {
@@ -1120,7 +1181,7 @@ def test_custom_template_changes_replenishment_result(tmp_path, monkeypatch) -> 
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
 
     custom_params = tmpl.load_default_template().to_store_payload()
     custom_params["name"] = "保守海运方案"
@@ -1156,7 +1217,7 @@ def test_us_group_1_builtin_template_uses_110_day_sea(tmp_path) -> None:
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
 
     result = repl.calculate_store_msku_replenishment(
         "Amazon-Test",
@@ -1408,7 +1469,7 @@ def test_uk_group_1_builtin_template_disables_sea(tmp_path) -> None:
     inventory_dir = tmp_path / "inventory"
     output_dir = tmp_path / "output"
     _write_sales_report(sales_dir / "202605251530-Amazon-Test_销量分析.xlsx")
-    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存.xlsx")
+    _write_inventory_report(inventory_dir / "202605251530-Amazon-Test_真实库存（深圳仓库）.xlsx")
 
     result = repl.calculate_store_msku_replenishment(
         "Amazon-Test",
