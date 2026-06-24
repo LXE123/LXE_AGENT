@@ -37,6 +37,12 @@ from services.mabang.amazon.fba.replenishment_template import (
     trend_group_from_template,
     validate_template,
 )
+from services.mabang.amazon.fba.store_msku_actual_inventory import (
+    ACTUAL_INVENTORY_FILE_SUFFIX,
+    ACTUAL_INVENTORY_QUANTITY_COLUMN,
+    COMBO_ACTUAL_INVENTORY_SHEET,
+    STOCK_ACTUAL_INVENTORY_SHEET,
+)
 
 AMAZON_FBA_INVENTORY_SNAPSHOT_DATE_TOLERANCE_DAYS = 1
 DEFAULT_SALES_ANALYSIS_DIR = Path("artifacts") / "mabang_store_msku_analysis"
@@ -46,10 +52,15 @@ SOURCE = "mabang_store_msku_replenishment"
 SOURCE_FBA_TOTAL_COLUMN = "FBA总库存"
 MABANG_FBA_TOTAL_COLUMN = "FBA 总库存（马帮数据）"
 PARAMETER_SCHEME_NAME_COLUMN = "参数方案名称"
+LEGACY_ACTUAL_INVENTORY_FILE_SUFFIX = "真实库存"
+LEGACY_ACTUAL_INVENTORY_QUANTITY_COLUMN = "真实库存数量"
+LEGACY_COMBO_ACTUAL_INVENTORY_SHEET = "真实库存-组合sku"
+LEGACY_STOCK_ACTUAL_INVENTORY_SHEET = "真实库存-库存sku"
+LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN = "链接真实库存（深圳仓库）汇总"
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15
 SALES_REPORT_SUFFIXES = ("销量分析", "sales_analysis")
-INVENTORY_REPORT_SUFFIXES = ("真实库存", "actual_inventory")
+INVENTORY_REPORT_SUFFIXES = (ACTUAL_INVENTORY_FILE_SUFFIX, LEGACY_ACTUAL_INVENTORY_FILE_SUFFIX, "actual_inventory")
 UNLINKED_SNAPSHOT_SUFFIXES = ("未关联货件快照", "unlinked_shipments_snapshot")
 REPLENISHMENT_REPORT_SUFFIX = "备货建议"
 SALES_REPORT_RE = re.compile(
@@ -70,7 +81,7 @@ AMAZON_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊�
 AMAZON_RESTOCK_DEDUCTED_REPLENISH_COLUMN = "补货量（减去 FBA 总库存[亚马逊补充库存]和未关联货件）"
 DETAIL_SHEET = "MSKU明细"
 SUMMARY_SHEET = "链接备货汇总"
-INVENTORY_SHORTAGE_SHEET = "真实库存不足"
+INVENTORY_SHORTAGE_SHEET = "真实库存（深圳仓库）不足"
 CLEARANCE_SHEET = "清货"
 AIR_URGENT_SHEET = "空运（急发）"
 AIR_SHEET = "空运"
@@ -78,7 +89,11 @@ SEA_SHEET = "海运"
 NO_SHIP_SHEET = "暂不建议发货"
 SAMPLE_INSUFFICIENT_SHEET = "样本不足"
 CLEARANCE_KEYWORD = "清货"
-INVENTORY_SHEETS = ("真实库存-组合sku", "真实库存-库存sku")
+INVENTORY_SHEETS = (COMBO_ACTUAL_INVENTORY_SHEET, STOCK_ACTUAL_INVENTORY_SHEET)
+INVENTORY_SHEET_GROUPS = (
+    ((COMBO_ACTUAL_INVENTORY_SHEET, LEGACY_COMBO_ACTUAL_INVENTORY_SHEET), "组合sku"),
+    ((STOCK_ACTUAL_INVENTORY_SHEET, LEGACY_STOCK_ACTUAL_INVENTORY_SHEET), "库存sku"),
+)
 REPORT_SHEETS = (
     AIR_URGENT_SHEET,
     AIR_SHEET,
@@ -110,7 +125,7 @@ DETAIL_COLUMNS = (
     AMAZON_RESTOCK_TOTAL_COLUMN,
     AMAZON_FBA_TOTAL_COLUMN,
     "未关联数量",
-    "真实库存数量",
+    ACTUAL_INVENTORY_QUANTITY_COLUMN,
     "补货天数",
     "补货量",
     "补货量（减去 FBA 总库存和未关联货件）",
@@ -151,7 +166,7 @@ INVENTORY_SHORTAGE_COLUMNS = (
     AMAZON_RESTOCK_TOTAL_COLUMN,
     AMAZON_FBA_TOTAL_COLUMN,
     "未关联数量",
-    "真实库存数量",
+    ACTUAL_INVENTORY_QUANTITY_COLUMN,
     "补货天数",
     "补货量",
     "补货量（减去 FBA 总库存和未关联货件）",
@@ -188,7 +203,7 @@ CLEARANCE_COLUMNS = (
     AMAZON_RESTOCK_TOTAL_COLUMN,
     AMAZON_FBA_TOTAL_COLUMN,
     "未关联数量",
-    "真实库存数量",
+    ACTUAL_INVENTORY_QUANTITY_COLUMN,
     "补货天数",
     "补货量",
     "补货量（减去 FBA 总库存和未关联货件）",
@@ -210,7 +225,7 @@ SUMMARY_COLUMNS = (
     "合计加权日销",
     "最小可销售天数",
     "链接未关联数量汇总",
-    "链接真实本地库存汇总",
+    LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN,
     "总补货量",
     "空运（急发）补货量",
     "空运补货量",
@@ -227,9 +242,9 @@ INVENTORY_REQUIRED_COLUMNS = (
     SOURCE_FBA_TOTAL_COLUMN,
     "加权日销",
     "可销售天数",
-    "真实库存数量",
     "子SKU",
 )
+INVENTORY_QUANTITY_COLUMNS = (ACTUAL_INVENTORY_QUANTITY_COLUMN, LEGACY_ACTUAL_INVENTORY_QUANTITY_COLUMN)
 SALES_REQUIRED_COLUMNS = (
     "MSKU",
     "父ASIN",
@@ -256,7 +271,7 @@ TWO_DECIMAL_COLUMNS = {
 INTEGER_COLUMNS = {
     "MSKU数",
     MABANG_FBA_TOTAL_COLUMN,
-    "真实库存数量",
+    ACTUAL_INVENTORY_QUANTITY_COLUMN,
     "总补货量",
     "空运（急发）补货量",
     "空运补货量",
@@ -273,7 +288,7 @@ INTEGER_COLUMNS = {
     "同时空运建议量",
     "未关联数量",
     "链接未关联数量汇总",
-    "链接真实本地库存汇总",
+    LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN,
     "库存缺口",
 }
 WEIGHT_RE = re.compile(r"[-+]?\d+(?:,\d{3})*(?:\.\d+)?|[-+]?\d+(?:\.\d+)?")
@@ -289,6 +304,7 @@ class ReportFile:
     path: Path
     source_data_time: str
     source_datetime: datetime
+    suffix: str = ""
 
 
 @dataclass(frozen=True)
@@ -401,7 +417,7 @@ class ReplenishmentRow:
             AMAZON_FBA_TOTAL_COLUMN: _display_optional_quantity(self.amazon_fba_total_inventory),
             AMAZON_DEDUCTED_REPLENISH_COLUMN: _display_optional_int(self.amazon_deducted_replenish_quantity),
             "未关联数量": _display_quantity(self.unlinked_quantity),
-            "真实库存数量": _display_optional_quantity(self.actual_inventory),
+            ACTUAL_INVENTORY_QUANTITY_COLUMN: _display_optional_quantity(self.actual_inventory),
             "单品重量(g)": _display_optional_float(self.weight_grams),
             "补货天数": _display_optional_int(self.replenish_days),
             "补货量": _display_optional_int(self.original_replenish_quantity),
@@ -630,7 +646,9 @@ def _parse_report_file(path: Path, pattern: re.Pattern[str]) -> ReportFile | Non
         source_datetime = datetime.strptime(source_data_time, "%Y%m%d%H%M")
     except ValueError:
         return None
-    return ReportFile(path=path, source_data_time=source_data_time, source_datetime=source_datetime)
+    suffix_match = re.match(r"^\d{12}-.+_(?P<suffix>.+)\.xlsx$", path.name, re.IGNORECASE)
+    suffix = suffix_match.group("suffix") if suffix_match else ""
+    return ReportFile(path=path, source_data_time=source_data_time, source_datetime=source_datetime, suffix=suffix)
 
 
 def _parse_unlinked_snapshot_file(path: Path) -> UnlinkedSnapshotFile | None:
@@ -659,6 +677,29 @@ def _find_report_files(directory: Path, pattern: re.Pattern[str], safe_store_nam
         if parsed is not None:
             reports.append(parsed)
     return reports
+
+
+def _report_suffix_priority(report: ReportFile, suffixes: tuple[str, ...]) -> int:
+    try:
+        return suffixes.index(report.suffix)
+    except ValueError:
+        return len(suffixes)
+
+
+def _best_reports_by_time(reports: list[ReportFile], suffixes: tuple[str, ...]) -> dict[str, ReportFile]:
+    result: dict[str, ReportFile] = {}
+    for report in sorted(
+        reports,
+        key=lambda item: (
+            item.source_data_time,
+            -_report_suffix_priority(item, suffixes),
+            item.path.name,
+        ),
+    ):
+        current = result.get(report.source_data_time)
+        if current is None or _report_suffix_priority(report, suffixes) < _report_suffix_priority(current, suffixes):
+            result[report.source_data_time] = report
+    return result
 
 
 def find_same_day_unlinked_shipments_snapshot(
@@ -738,14 +779,14 @@ def find_matching_report_files(
     safe_store_name = _safe_file_part(clean_store_name)
     sales_reports = _find_report_files(_sales_analysis_dir(sales_analysis_dir), SALES_REPORT_RE, safe_store_name)
     inventory_reports = _find_report_files(_actual_inventory_dir(actual_inventory_dir), INVENTORY_REPORT_RE, safe_store_name)
-    sales_by_time = {item.source_data_time: item for item in sales_reports}
-    inventory_by_time = {item.source_data_time: item for item in inventory_reports}
+    sales_by_time = _best_reports_by_time(sales_reports, SALES_REPORT_SUFFIXES)
+    inventory_by_time = _best_reports_by_time(inventory_reports, INVENTORY_REPORT_SUFFIXES)
     common_times = sorted(set(sales_by_time) & set(inventory_by_time), reverse=True)
     if not common_times:
         sales_times = ", ".join(sorted(sales_by_time, reverse=True)[:5]) or "无"
         inventory_times = ", ".join(sorted(inventory_by_time, reverse=True)[:5]) or "无"
         raise StoreMskuReplenishmentError(
-            f"未找到同源时间的销量分析和真实库存报表: store={clean_store_name}, "
+            f"未找到同源时间的销量分析和真实库存（深圳仓库）报表: store={clean_store_name}, "
             f"sales_times={sales_times}, inventory_times={inventory_times}"
         )
     source_data_time = common_times[0]
@@ -794,6 +835,26 @@ def _headers_and_rows(xlsx_path: str | Path, sheet_name: str) -> tuple[list[str]
     return headers, records
 
 
+def _headers_and_rows_any(
+    xlsx_path: str | Path,
+    sheet_names: tuple[str, ...],
+) -> tuple[str, list[str], list[dict[str, Any]]]:
+    last_error: StoreMskuReplenishmentError | None = None
+    for sheet_name in sheet_names:
+        try:
+            headers, records = _headers_and_rows(xlsx_path, sheet_name)
+        except StoreMskuReplenishmentError as exc:
+            last_error = exc
+            continue
+        return sheet_name, headers, records
+    if last_error is not None:
+        source_path = Path(xlsx_path)
+        raise StoreMskuReplenishmentError(
+            f"xlsx缺少sheet: {' 或 '.join(sheet_names)}, path={source_path}"
+        ) from last_error
+    raise StoreMskuReplenishmentError(f"xlsx缺少sheet: {' 或 '.join(sheet_names)}, path={Path(xlsx_path)}")
+
+
 def _require_columns(headers: list[str], required_columns: tuple[str, ...], *, path: Path, sheet_name: str) -> None:
     missing = [column for column in required_columns if column not in headers]
     if missing:
@@ -802,13 +863,27 @@ def _require_columns(headers: list[str], required_columns: tuple[str, ...], *, p
         )
 
 
+def _require_any_column(headers: list[str], columns: tuple[str, ...], *, path: Path, sheet_name: str) -> None:
+    if not any(column in headers for column in columns):
+        raise StoreMskuReplenishmentError(
+            f"xlsx缺少列: {' 或 '.join(columns)}, sheet={sheet_name}, path={path}"
+        )
+
+
+def _first_record_value(record: dict[str, Any], columns: tuple[str, ...]) -> Any:
+    for column in columns:
+        if column in record:
+            return record.get(column)
+    return None
+
+
 def load_inventory_rows(xlsx_path: str | Path) -> list[InventoryInputRow]:
     source_path = Path(xlsx_path)
     rows: list[InventoryInputRow] = []
-    for sheet_name in INVENTORY_SHEETS:
-        headers, records = _headers_and_rows(source_path, sheet_name)
+    for sheet_names, sku_type in INVENTORY_SHEET_GROUPS:
+        sheet_name, headers, records = _headers_and_rows_any(source_path, sheet_names)
         _require_columns(headers, INVENTORY_REQUIRED_COLUMNS, path=source_path, sheet_name=sheet_name)
-        sku_type = "组合sku" if sheet_name == "真实库存-组合sku" else "库存sku"
+        _require_any_column(headers, INVENTORY_QUANTITY_COLUMNS, path=source_path, sheet_name=sheet_name)
         for record in records:
             rows.append(
                 InventoryInputRow(
@@ -824,7 +899,7 @@ def load_inventory_rows(xlsx_path: str | Path) -> list[InventoryInputRow]:
                     weighted_daily_sales=_number(record.get("加权日销")),
                     sales_days=_optional_number(record.get("可销售天数")),
                     fba_total_inventory=_number(record.get(SOURCE_FBA_TOTAL_COLUMN) or record.get(MABANG_FBA_TOTAL_COLUMN)),
-                    actual_inventory=_optional_number(record.get("真实库存数量")),
+                    actual_inventory=_optional_number(_first_record_value(record, INVENTORY_QUANTITY_COLUMNS)),
                     child_skus=_clean_text(record.get("子SKU")),
                 )
             )
@@ -1391,7 +1466,7 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
                 "合计加权日销": 0.0,
                 "最小可销售天数": None,
                 "链接未关联数量汇总": 0.0,
-                "链接真实本地库存汇总": 0.0,
+                LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN: 0.0,
                 "总补货量": 0,
                 "空运（急发）补货量": 0,
                 "空运补货量": 0,
@@ -1425,7 +1500,7 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
             current_min = group["最小可销售天数"]
             group["最小可销售天数"] = row.sales_days if current_min is None else min(current_min, row.sales_days)
         if row.actual_inventory is not None:
-            group["链接真实本地库存汇总"] += row.actual_inventory
+            group[LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN] += row.actual_inventory
         group["链接未关联数量汇总"] += row.unlinked_quantity
         if row.sheet_name in {SEA_SHEET, NO_SHIP_SHEET, SAMPLE_INSUFFICIENT_SHEET}:
             group["决策备注"].append(f"{row.msku}: {row.decision_reason}")
@@ -1442,7 +1517,7 @@ def summarize_links(rows: list[ReplenishmentRow]) -> list[dict[str, Any]]:
                 "合计加权日销": _display_float(group["合计加权日销"]),
                 "最小可销售天数": _display_optional_float(group["最小可销售天数"]),
                 "链接未关联数量汇总": _display_quantity(group["链接未关联数量汇总"]),
-                "链接真实本地库存汇总": _display_quantity(group["链接真实本地库存汇总"]),
+                LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN: _display_quantity(group[LINK_ACTUAL_INVENTORY_SUMMARY_COLUMN]),
                 "总补货量": group["总补货量"],
                 "空运（急发）补货量": group["空运（急发）补货量"],
                 "空运补货量": group["空运补货量"],

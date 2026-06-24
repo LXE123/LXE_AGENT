@@ -14,7 +14,7 @@ type: amazon_replenish
 flowchart TD
   A["replenishment-store-resolve<br/>解析店铺名"] --> B["replenishment-msku-download<br/>下载店铺 MSKU"]
   B --> C["replenishment-sales-analyze<br/>生成销量分析"]
-  B --> D["replenishment-real-inventory-report<br/>生成真实库存"]
+  B --> D["replenishment-real-inventory-report<br/>生成真实库存（深圳仓库）"]
   C --> F["replenishment-calculate<br/>计算备货建议"]
   D --> F
 ```
@@ -35,7 +35,7 @@ flowchart TD
 | 1 | `replenishment-store-resolve` | 规范 `store_name`、`store_id`、`id_type` |
 | 2 | `replenishment-msku-download` | 店铺 MSKU 原始数据 |
 | 3 | `replenishment-sales-analyze` | 销量分析报告 |
-| 4 | `replenishment-real-inventory-report` | 真实库存报告 |
+| 4 | `replenishment-real-inventory-report` | 真实库存（深圳仓库）报告 |
 | 5 | `replenishment-calculate` | 最终备货建议 workbook |
 
 `replenishment-algorithm-config-manage` 是算法参数方案流程，只管理理论规则，例如日销权重、空运补货天数、空运阈值、海运进入条件、海运补货天数和海运同时空运天数。
@@ -57,7 +57,7 @@ flowchart TD
 | "这个店铺名对吗 / 店铺 ID 是什么 / 店铺名不完整" | `replenishment-store-resolve` |
 | "下载店铺 MSKU / 准备备货用 MSKU 数据" | `replenishment-msku-download` |
 | "生成销量分析 / 看链接或 ASIN 销量趋势" | `replenishment-sales-analyze` |
-| "查真实库存 / 备货前补库存数据" | `replenishment-real-inventory-report` |
+| "查真实库存（深圳仓库） / 备货前补库存数据" | `replenishment-real-inventory-report` |
 | "下载未关联货件 / 生成未关联货件快照" | `replenishment-unlinked-shipment-download` |
 | "解析亚马逊补充库存 CSV / 使用亚马逊补充库存" | `replenishment-amazon-restock-inventory-snapshot` |
 | "看算法参数 / 新建或修改参数方案 / 用哪个参数方案" | `replenishment-algorithm-config-manage` |
@@ -70,7 +70,7 @@ flowchart TD
 | 模糊店铺名 | 运行 `replenishment-store-resolve` |
 | 规范 `store_name` | 运行 `replenishment-msku-download` |
 | 店铺 MSKU 数据 workbook | 运行 `replenishment-sales-analyze` 和 `replenishment-real-inventory-report` |
-| 销量分析 + 真实库存报告 | 运行 `replenishment-calculate` |
+| 销量分析 + 真实库存（深圳仓库）报告 | 运行 `replenishment-calculate` |
 | 未关联货件 raw/snapshot 问题 | 先运行 `replenishment-unlinked-shipment-download`，再重新计算 |
 | 亚马逊补充库存 CSV | 运行 `replenishment-amazon-restock-inventory-snapshot`，再把返回的 snapshot 路径传给计算 |
 | 备货算法配置表 or 参数调整需求 | 运行 `replenishment-algorithm-config-manage` |
@@ -82,7 +82,7 @@ flowchart TD
 | 店铺名不完整或不规范 | `replenishment-store-resolve` |
 | 没有店铺 MSKU 数据 | `replenishment-msku-download` |
 | 缺少销量分析报告 | `replenishment-sales-analyze` |
-| 缺少真实库存报告 | `replenishment-real-inventory-report` |
+| 缺少真实库存（深圳仓库）报告 | `replenishment-real-inventory-report` |
 | 计算提醒缺少同日未关联货件快照 | `replenishment-unlinked-shipment-download`，然后重新运行 `replenishment-calculate` |
 | 用户要亚马逊补充库存扣减字段 | `replenishment-amazon-restock-inventory-snapshot`，然后带 snapshot 路径重新运行 `replenishment-calculate` |
 | 用户要非默认算法 | `replenishment-algorithm-config-manage`，然后带参数方案重新运行 `replenishment-calculate` |

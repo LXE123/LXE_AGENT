@@ -1,12 +1,12 @@
 ---
 name: replenishment-calculate
-description: 基于本地销量分析报告、真实库存报告和同日未关联货件快照生成马帮 Amazon 店铺 MSKU 备货建议。用户要求计算某个店铺的备货量、补货量、运输方式、链接备货汇总或“xxx店铺备货建议/补货建议”时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
+description: 基于本地销量分析报告、真实库存（深圳仓库）报告和同日未关联货件快照生成马帮 Amazon 店铺 MSKU 备货建议。用户要求计算某个店铺的备货量、补货量、运输方式、链接备货汇总或“xxx店铺备货建议/补货建议”时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
 ---
 
 ## When to Use
 
-- 用户要基于已经生成的销量分析报告和真实库存报告，计算店铺 MSKU 备货建议。
+- 用户要基于已经生成的销量分析报告和真实库存（深圳仓库）报告，计算店铺 MSKU 备货建议。
 - 用户要把 MSKU 分到 `空运（急发）`、`空运`、`海运`、`暂不建议发货`、`样本不足`。
 - 用户要查看每个父 ASIN 链接的总备货量和涉及运输方式。
 
@@ -14,7 +14,7 @@ type: amazon_replenish
 
 - 默认计算命令：`uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" [--template "<参数方案名>"]`
 - 本 skill 只负责调用计算 CLI；报表匹配、计算和写出都由 CLI 完成。
-- 销量分析报告和真实库存报告是必需输入；如果 CLI 提示缺少同源报表，路由到对应 skill。
+- 销量分析报告和真实库存（深圳仓库）报告是必需输入；如果 CLI 提示缺少同源报表，路由到对应 skill。
 - 参数方案只决定理论算法结果：补货天数、理论补货量、运输方式、海运/同时空运拆分。
 - 计算 CLI 会在参数方案理论量基础上固定扣减 `FBA 总库存（马帮数据）` 和同日未关联货件，生成最终执行建议量。
 - CLI 会自动查找与备货数据同日的未关联货件快照。
@@ -79,13 +79,13 @@ uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_repleni
 {
   "success": false,
   "store_name": "Amazon-Lerxiuer-FR",
-  "exception": "未找到同源时间的销量分析和真实库存报表: store=Amazon-Lerxiuer-FR, sales_times=..., inventory_times=..."
+  "exception": "未找到同源时间的销量分析和真实库存（深圳仓库）报表: store=Amazon-Lerxiuer-FR, sales_times=..., inventory_times=..."
 }
 ```
 
 ## Input Requirements
 
-- 必需：同一 `source_data_time` 的销量分析报告和真实库存报告。
+- 必需：同一 `source_data_time` 的销量分析报告和真实库存（深圳仓库）报告。
 - 参数方案阶段：先按指定参数方案算出理论 `补货量` 和运输建议。
 - 固定扣减阶段：再扣 `FBA 总库存（马帮数据）` 和同日未关联货件，得到主执行建议量。
 - 自动增强：同日未关联货件快照；找不到时 CLI 仍会生成备货建议，但结果里会返回提醒。
@@ -100,6 +100,6 @@ uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_repleni
 - 如果返回 `unlinked_shipments_snapshot_path`，说明本次已自动扣减同日未关联货件，并列出该路径。
 - 如果返回 `unlinked_shipments_snapshot_warning`，必须转述提醒，并建议先运行未关联货件下载 skill 后重算。
 - 如果返回 `amazon_restock_inventory_snapshot_path`，说明本次已加入亚马逊补充库存扣减字段，并列出该路径和 `amazon_restock_inventory_validation` 摘要。
-- 结果文件固定包含 8 个 sheet：`空运（急发）`、`空运`、`海运`、`真实库存不足`、`清货`、`暂不建议发货`、`链接备货汇总`、`样本不足`。
+- 结果文件固定包含 8 个 sheet：`空运（急发）`、`空运`、`海运`、`真实库存（深圳仓库）不足`、`清货`、`暂不建议发货`、`链接备货汇总`、`样本不足`。
 - 传入亚马逊补充库存 snapshot 时，提醒用户结果里会额外展示亚马逊补充库存扣减字段。
 - `success=false`：只转述 `exception`，不要猜测本地文件路径或自动补跑前置 skill。

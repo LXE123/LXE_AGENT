@@ -135,7 +135,7 @@ def _form_values(call: dict, name: str) -> list[str]:
     return [value for key, value in call.get("data", []) if key == name]
 
 
-def _load_records(path: Path, sheet_name: str = "真实库存-库存sku") -> list[dict]:
+def _load_records(path: Path, sheet_name: str = "真实库存（深圳仓库）-库存sku") -> list[dict]:
     from openpyxl import load_workbook
 
     workbook = load_workbook(path, data_only=True)
@@ -648,20 +648,20 @@ def test_write_actual_inventory_xlsx_splits_rows_by_inventory_state(tmp_path) ->
     assert len(groups.inventory_rows) == 3
     assert len(groups.no_local_sku_rows) == 1
     assert len(groups.no_inventory_rows) == 2
-    assert _sheet_names(output_path) == ["真实库存-组合sku", "真实库存-库存sku", "无本地SKU", "无库存数据"]
+    assert _sheet_names(output_path) == ["真实库存（深圳仓库）-组合sku", "真实库存（深圳仓库）-库存sku", "无本地SKU", "无库存数据"]
     _assert_standard_dimensions(output_path, _sheet_names(output_path))
     for sheet_name in _sheet_names(output_path):
         records = _load_records(output_path, sheet_name)
         if records:
             expected_columns = (
                 list(inv.INVENTORY_OUTPUT_COLUMNS)
-                if sheet_name in {"真实库存-组合sku", "真实库存-库存sku"}
+                if sheet_name in {"真实库存（深圳仓库）-组合sku", "真实库存（深圳仓库）-库存sku"}
                 else list(inv.OUTPUT_COLUMNS)
             )
             assert list(records[0]) == expected_columns
 
-    combo_records = _load_records(output_path, "真实库存-组合sku")
-    stock_records = _load_records(output_path, "真实库存-库存sku")
+    combo_records = _load_records(output_path, "真实库存（深圳仓库）-组合sku")
+    stock_records = _load_records(output_path, "真实库存（深圳仓库）-库存sku")
     no_local_records = _load_records(output_path, "无本地SKU")
     no_inventory_records = _load_records(output_path, "无库存数据")
 
@@ -674,7 +674,7 @@ def test_write_actual_inventory_xlsx_splits_rows_by_inventory_state(tmp_path) ->
     assert combo_records[0]["FBA总库存"] == 20
     assert combo_records[0]["加权日销"] == 5
     assert combo_records[0]["可销售天数"] == 4
-    assert combo_records[0]["真实库存数量"] == 6
+    assert combo_records[0]["真实库存（深圳仓库）数量"] == 6
     assert [record["MSKU"] for record in stock_records] == ["MSKU-S1", "MSKU-S0"]
     assert stock_records[0]["本地SKU名称"] == "单品本地1"
     assert stock_records[0]["产品名称"] == "Stock Product 1"
@@ -686,7 +686,7 @@ def test_write_actual_inventory_xlsx_splits_rows_by_inventory_state(tmp_path) ->
     assert stock_records[1]["商品链接"] == "https://example.test/zero"
     assert stock_records[1]["加权日销"] == 0
     assert stock_records[1]["可销售天数"] in (None, "")
-    assert stock_records[1]["真实库存数量"] == 0
+    assert stock_records[1]["真实库存（深圳仓库）数量"] == 0
     assert [record["MSKU"] for record in no_local_records] == ["MSKU-N"]
     assert list(no_local_records[0]) == list(inv.OUTPUT_COLUMNS)
     assert no_local_records[0]["商品链接"] == "https://example.test/no-local"
@@ -695,26 +695,26 @@ def test_write_actual_inventory_xlsx_splits_rows_by_inventory_state(tmp_path) ->
     assert no_inventory_records[0]["商品链接"] == "https://example.test/missing"
     assert no_inventory_records[1]["商品链接"] == "https://example.test/combo-missing"
     assert no_inventory_records[1]["子SKU"] == "STOCK-MISSING * 1"
-    assert _column_number_formats(output_path, "真实库存-组合sku", "加权日销") == ["0.00"]
-    assert _column_number_formats(output_path, "真实库存-组合sku", "可销售天数") == ["0.00"]
-    assert _column_number_formats(output_path, "真实库存-库存sku", "加权日销") == ["0.00", "0.00"]
-    assert _column_number_formats(output_path, "真实库存-库存sku", "可销售天数") == ["0.00", "0.00"]
-    assert _column_fill_colors(output_path, "真实库存-组合sku", "MSKU") == ["00FFF2CC", "00FFF2CC"]
-    assert _column_fill_colors(output_path, "真实库存-组合sku", "真实库存数量") == ["00FFF2CC", "00FFF2CC"]
-    assert _column_fill_colors(output_path, "真实库存-库存sku", "MSKU") == [
+    assert _column_number_formats(output_path, "真实库存（深圳仓库）-组合sku", "加权日销") == ["0.00"]
+    assert _column_number_formats(output_path, "真实库存（深圳仓库）-组合sku", "可销售天数") == ["0.00"]
+    assert _column_number_formats(output_path, "真实库存（深圳仓库）-库存sku", "加权日销") == ["0.00", "0.00"]
+    assert _column_number_formats(output_path, "真实库存（深圳仓库）-库存sku", "可销售天数") == ["0.00", "0.00"]
+    assert _column_fill_colors(output_path, "真实库存（深圳仓库）-组合sku", "MSKU") == ["00FFF2CC", "00FFF2CC"]
+    assert _column_fill_colors(output_path, "真实库存（深圳仓库）-组合sku", "真实库存（深圳仓库）数量") == ["00FFF2CC", "00FFF2CC"]
+    assert _column_fill_colors(output_path, "真实库存（深圳仓库）-库存sku", "MSKU") == [
         "00FFF2CC",
         "00FFF2CC",
         "00FFF2CC",
     ]
-    assert _column_fill_colors(output_path, "真实库存-库存sku", "真实库存数量") == [
+    assert _column_fill_colors(output_path, "真实库存（深圳仓库）-库存sku", "真实库存（深圳仓库）数量") == [
         "00FFF2CC",
         "00FFF2CC",
         "00FFF2CC",
     ]
     assert _column_fill_colors(output_path, "无本地SKU", "MSKU") == ["00000000", "00000000"]
-    assert _column_fill_colors(output_path, "无本地SKU", "真实库存数量") == ["00000000", "00000000"]
+    assert _column_fill_colors(output_path, "无本地SKU", "真实库存（深圳仓库）数量") == ["00000000", "00000000"]
     assert _column_fill_colors(output_path, "无库存数据", "MSKU") == ["00000000", "00000000", "00000000"]
-    assert _column_fill_colors(output_path, "无库存数据", "真实库存数量") == ["00000000", "00000000", "00000000"]
+    assert _column_fill_colors(output_path, "无库存数据", "真实库存（深圳仓库）数量") == ["00000000", "00000000", "00000000"]
 
 
 def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatch, tmp_path) -> None:
@@ -853,37 +853,40 @@ def test_export_store_msku_actual_inventory_success_with_fake_network(monkeypatc
     assert payload == {
         "success": True,
         "store_name": "Amazon-Lerxiuer-FR",
-        "source_xlsx_path": str(source_path),
-        "source_data_time": "202605251530",
-        "local_sku_count": 2,
-        "combo_sku_count": 1,
-        "stock_sku_count": 3,
-        "inventory_row_count": 2,
-        "no_local_sku_count": 1,
-        "no_inventory_row_count": 0,
-        "missing_stock_sku_count": 0,
-        "missing_stock_skus": [],
-        "xlsx_path": str(tmp_path / "output" / "202605251530-Amazon-Lerxiuer-FR_真实库存.xlsx"),
-        "source": "mabang_store_msku_actual_inventory",
+        "warehouse_id": "1014318",
+        "warehouse_name": "深圳仓库",
+        "source_msku_xlsx_path": str(source_path),
+        "source_msku_data_time": "202605251530",
+        "unique_local_sku_count": 2,
+        "detected_combo_sku_count": 1,
+        "queried_warehouse_stock_sku_count": 3,
+        "matched_warehouse_inventory_msku_row_count": 2,
+        "missing_local_sku_msku_row_count": 1,
+        "missing_warehouse_inventory_msku_row_count": 0,
+        "missing_warehouse_stock_sku_count": 0,
+        "missing_warehouse_stock_skus": [],
+        "shenzhen_warehouse_inventory_report_xlsx_path": str(tmp_path / "output" / "202605251530-Amazon-Lerxiuer-FR_真实库存（深圳仓库）.xlsx"),
+        "result_source": "mabang_store_msku_shenzhen_warehouse_inventory",
     }
-    assert _sheet_names(Path(result.xlsx_path)) == ["真实库存-组合sku", "真实库存-库存sku", "无本地SKU", "无库存数据"]
-    combo_records = _load_records(Path(result.xlsx_path), "真实库存-组合sku")
-    stock_records = _load_records(Path(result.xlsx_path), "真实库存-库存sku")
-    assert combo_records[0]["真实库存数量"] == 6
+    report_path = Path(result.shenzhen_warehouse_inventory_report_xlsx_path)
+    assert _sheet_names(report_path) == ["真实库存（深圳仓库）-组合sku", "真实库存（深圳仓库）-库存sku", "无本地SKU", "无库存数据"]
+    combo_records = _load_records(report_path, "真实库存（深圳仓库）-组合sku")
+    stock_records = _load_records(report_path, "真实库存（深圳仓库）-库存sku")
+    assert combo_records[0]["真实库存（深圳仓库）数量"] == 6
     assert combo_records[0]["商品链接"] == "https://example.test/c"
     assert combo_records[0]["FBA总库存"] == 60
     assert combo_records[0]["加权日销"] == 10
     assert combo_records[0]["可销售天数"] == 6
     assert combo_records[0]["子SKU"] == "STOCK-A * 1, STOCK-B * 2"
-    assert stock_records[0]["真实库存数量"] == 9
+    assert stock_records[0]["真实库存（深圳仓库）数量"] == 9
     assert stock_records[0]["商品链接"] == "https://example.test/a"
     assert stock_records[0]["FBA总库存"] == 23
     assert stock_records[0]["加权日销"] == 1
     assert stock_records[0]["可销售天数"] == 23
-    no_local_records = _load_records(Path(result.xlsx_path), "无本地SKU")
+    no_local_records = _load_records(report_path, "无本地SKU")
     assert [record["MSKU"] for record in no_local_records] == ["MSKU-N"]
     assert no_local_records[0]["商品链接"] == "https://example.test/no-local"
-    assert _load_records(Path(result.xlsx_path), "无库存数据") == []
+    assert _load_records(report_path, "无库存数据") == []
 
     post_calls = [call for call in fake_session.calls if call["method"] == "POST"]
     assert [call["url"] for call in post_calls[:6]] == [
