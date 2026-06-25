@@ -26,10 +26,13 @@ MIN_PRUNABLE_TOOL_CHARS = 50000
 RECENT_RAW_TURN_TOKEN_LIMIT = 20000
 DEFAULT_CONTEXT_WINDOW_TOKENS = 256000
 DEFAULT_RESERVE_TOKENS = 20000
+STEP_TOOL_RESULT_MAX_TOKENS = 10000
+PRECALL_COMPACTION_USAGE_THRESHOLD = 0.90
 DEFAULT_CHANNEL_HISTORY_LIMITS = {
     "feishu": {"dmHistoryLimit": 20},
 }
 _TOOL_RESULT_CLEARED_PLACEHOLDER = "[Old tool result content cleared]"
+_MISSING_TOOL_RESULT_STUB = "[Result unavailable — see context summary above]"
 _THINKING_SUMMARY_PLACEHOLDER = "[assistant thinking omitted]"
 _REDACTED_THINKING_SUMMARY_PLACEHOLDER = "[assistant redacted thinking omitted]"
 _PROCESSED_IMAGE_PLACEHOLDER = "[image data removed - already processed by model]"
@@ -168,7 +171,7 @@ def estimate_tokens(value: Any) -> int:
             text = json.dumps(value, ensure_ascii=False)
         except Exception:
             text = str(value)
-    return int(math.ceil(len(text) / 4))
+    return int(math.ceil(len(text.encode("utf-8")) / 4))
 
 
 def _clean_inline_content_blocks(value: Any) -> list[dict[str, Any]]:
@@ -317,6 +320,91 @@ def validate_tool_call_closure(messages: list[dict[str, Any]] | None) -> None:
     if pending_tool_calls:
         pending_ids = ", ".join(sorted(pending_tool_calls))
         raise RuntimeError(f"context has assistant tool_call without tool_result: {pending_ids}")
+
+
+def _assistant_tool_call_blocks(message: dict[str, Any]) -> list[dict[str, Any]]:
+    if str(dict(message or {}).get("role") or "").strip() != "assistant":
+        return []
+    blocks: list[dict[str, Any]] = []
+    for raw_block in list(dict(message or {}).get("content") or []):
+        block = dict(raw_block or {})
+        if str(block.get("type") or "").strip() == "tool_call":
+            blocks.append(block)
+    return blocks
+
+
+def sanitize_messages_for_provider(
+    messages: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Repair canonical messages before sending them to a provider.
+
+    This keeps provider-bound history structurally closed even if a previous
+    process died after persisting assistant tool_call but before persisting the
+    matching tool result.
+    """
+    cleaned = _clean_canonical_messages(messages)
+    changed = len(cleaned) != len(list(messages or []))
+
+    tool_call_names: dict[str, str] = {}
+    tool_call_order: list[str] = []
+    for message in cleaned:
+        for block in _assistant_tool_call_blocks(message):
+            tool_call_id = str(block.get("id") or "").strip()
+            if not tool_call_id:
+                continue
+            if tool_call_id not in tool_call_names:
+                tool_call_order.append(tool_call_id)
+            tool_call_names[tool_call_id] = str(block.get("name") or "").strip()
+
+    valid_result_ids: set[str] = set()
+    filtered_messages: list[dict[str, Any]] = []
+    for message in cleaned:
+        if str(message.get("role") or "").strip() != "tool":
+            filtered_messages.append(message)
+            continue
+
+        next_blocks: list[dict[str, Any]] = []
+        for raw_block in list(message.get("content") or []):
+            block = dict(raw_block or {})
+            tool_call_id = str(block.get("tool_call_id") or "").strip()
+            if tool_call_id and tool_call_id in tool_call_names:
+                valid_result_ids.add(tool_call_id)
+                next_blocks.append(block)
+                continue
+            changed = True
+        if next_blocks:
+            next_message = dict(message)
+            next_message["content"] = next_blocks
+            filtered_messages.append(next_message)
+        else:
+            changed = True
+
+    missing_ids = [tool_call_id for tool_call_id in tool_call_order if tool_call_id not in valid_result_ids]
+    if missing_ids:
+        missing_set = set(missing_ids)
+        patched_messages: list[dict[str, Any]] = []
+        for message in filtered_messages:
+            patched_messages.append(message)
+            missing_blocks: list[dict[str, Any]] = []
+            for block in _assistant_tool_call_blocks(message):
+                tool_call_id = str(block.get("id") or "").strip()
+                if tool_call_id not in missing_set:
+                    continue
+                missing_blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_call_id": tool_call_id,
+                        "content": _MISSING_TOOL_RESULT_STUB,
+                        "is_error": True,
+                    }
+                )
+            if missing_blocks:
+                patched_messages.append({"role": "tool", "content": missing_blocks})
+        filtered_messages = patched_messages
+        changed = True
+
+    validate_tool_call_closure(filtered_messages)
+    return filtered_messages, changed
 
 
 def make_user_message(content: str | list[dict[str, Any]]) -> dict[str, Any]:
@@ -628,6 +716,70 @@ def _tool_result_storage_text(content: Any) -> str:
         return str(content or "")
 
 
+def _utf8_prefix(text: str, max_bytes: int) -> str:
+    if max_bytes <= 0:
+        return ""
+    return str(text or "").encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
+
+
+def _utf8_suffix(text: str, max_bytes: int) -> str:
+    if max_bytes <= 0:
+        return ""
+    return str(text or "").encode("utf-8")[-max_bytes:].decode("utf-8", errors="ignore")
+
+
+def trim_text_to_token_budget(text: str, *, max_tokens: int) -> tuple[str, bool]:
+    safe_text = str(text or "")
+    safe_max_tokens = max(1, int(max_tokens or 0))
+    max_bytes = safe_max_tokens * 4
+    raw_bytes = safe_text.encode("utf-8")
+    if len(raw_bytes) <= max_bytes:
+        return safe_text, False
+
+    removed_tokens = max(1, estimate_tokens(safe_text) - safe_max_tokens)
+    marker = f"\n…{removed_tokens} tokens truncated…\n"
+    marker_bytes = marker.encode("utf-8")
+    budget = max(0, max_bytes - len(marker_bytes))
+    left = budget // 2
+    right = budget - left
+    trimmed = f"{_utf8_prefix(safe_text, left)}{marker}{_utf8_suffix(safe_text, right)}"
+    return trimmed, True
+
+
+def trim_step_tool_result_blocks(
+    tool_results: list[dict[str, Any]] | None,
+    *,
+    max_tokens: int = STEP_TOOL_RESULT_MAX_TOKENS,
+) -> tuple[list[dict[str, Any]], bool]:
+    changed = False
+    trimmed_results: list[dict[str, Any]] = []
+    for raw_result in list(tool_results or []):
+        result = dict(raw_result or {})
+        content_text = _tool_result_storage_text(result.get("content"))
+        trimmed_text, was_trimmed = trim_text_to_token_budget(
+            content_text,
+            max_tokens=max_tokens,
+        )
+        if was_trimmed:
+            result["content"] = trimmed_text
+            changed = True
+        trimmed_results.append(result)
+    return trimmed_results, changed
+
+
+def request_context_token_estimate(
+    *,
+    system_prompt: str,
+    messages: list[dict[str, Any]],
+    tool_schemas: list[dict[str, Any]] | None = None,
+) -> int:
+    return (
+        estimate_tokens(system_prompt)
+        + sum(estimate_tokens(message) for message in list(messages or []))
+        + estimate_tokens(list(tool_schemas or []))
+    )
+
+
 def _context_token_stats(system_prompt: str, messages: list[dict[str, Any]]) -> ContextBuildStats:
     total_tokens = estimate_tokens(system_prompt)
     for message in list(messages or []):
@@ -768,14 +920,33 @@ def append_messages_to_state(
     state_data: dict[str, Any],
     *,
     messages: list[dict[str, Any]] | None,
+    validate_closure: bool = True,
 ) -> dict[str, Any]:
     persisted = load_context_messages(state_data)
     persisted.extend(_clean_canonical_messages(messages))
-    validate_tool_call_closure(persisted)
+    if validate_closure:
+        validate_tool_call_closure(persisted)
     return update_context_state(
         state_data,
         {
             "messages": persisted,
+        },
+    )
+
+
+def replace_context_messages_in_state(
+    state_data: dict[str, Any],
+    *,
+    messages: list[dict[str, Any]] | None,
+    validate_closure: bool = True,
+) -> dict[str, Any]:
+    cleaned = _clean_canonical_messages(messages)
+    if validate_closure:
+        validate_tool_call_closure(cleaned)
+    return update_context_state(
+        state_data,
+        {
+            "messages": cleaned,
         },
     )
 
@@ -1007,6 +1178,8 @@ def is_context_overflow_error(error: BaseException) -> bool:
 
 __all__ = [
     "ContextBuildStats",
+    "PRECALL_COMPACTION_USAGE_THRESHOLD",
+    "STEP_TOOL_RESULT_MAX_TOKENS",
     "append_messages_to_state",
     "apply_message_history_limit",
     "build_llm_messages",
@@ -1025,5 +1198,10 @@ __all__ = [
     "maybe_compact_history",
     "prune_processed_history_images",
     "prune_tool_results",
+    "replace_context_messages_in_state",
+    "request_context_token_estimate",
+    "sanitize_messages_for_provider",
+    "trim_step_tool_result_blocks",
+    "trim_text_to_token_budget",
     "validate_tool_call_closure",
 ]

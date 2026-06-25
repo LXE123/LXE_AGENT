@@ -13,6 +13,9 @@ class ToolSchema(TypedDict):
     parameters: dict[str, Any]
 
 
+ContextCheckpointCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+
 @dataclass
 class ToolDefinition:
     name: str
@@ -94,6 +97,7 @@ class TurnInput:
     user_content_blocks: list[dict[str, Any]] = field(default_factory=list)
     run_id: str = ""
     response_route_id: str = ""
+    context_checkpoint: ContextCheckpointCallback | None = None
     provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None
     tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None
     tool_run_finisher: Callable[[str], None] | None = None
@@ -199,6 +203,7 @@ class TurnOutcome:
 
 __all__ = [
     "ContextBuildStats",
+    "ContextCheckpointCallback",
     "StepLog",
     "StreamStepSummary",
     "ToolDefinition",

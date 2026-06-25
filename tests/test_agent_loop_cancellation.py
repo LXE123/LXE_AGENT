@@ -279,6 +279,118 @@ def test_tool_stream_callbacks_receive_start_and_finish_without_result(monkeypat
     assert "secret result" not in repr(tool_events)
 
 
+def test_context_checkpoint_order_for_user_tool_call_and_tool_result(monkeypatch) -> None:
+    tool_call = LLMToolCall(id="toolu-1", name="read", arguments={"path": "a.txt"})
+    responses = [
+        LLMResponse(
+            text="",
+            assistant_content=[
+                {
+                    "type": "tool_call",
+                    "id": tool_call.id,
+                    "name": tool_call.name,
+                    "arguments": dict(tool_call.arguments),
+                }
+            ],
+            tool_calls=[tool_call],
+        ),
+        LLMResponse(
+            text="完成",
+            public_text="完成",
+            assistant_content=[{"type": "text", "text": "完成"}],
+        ),
+    ]
+    checkpoint_events: list[tuple[str, str, str]] = []
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        return responses.pop(0)
+
+    async def checkpoint(operation: str, payload: dict[str, Any]) -> None:
+        message = dict(payload.get("message") or {})
+        checkpoint_events.append((operation, str(payload.get("reason") or ""), str(message.get("role") or "")))
+
+    async def read_tool(**_: Any) -> Any:
+        assert ("append_message", "assistant_tool_call", "assistant") in checkpoint_events
+        return text_tool_result("secret result")
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+    agent = _agent()
+    agent.tool_registry.register(
+        ToolDefinition(
+            name="read",
+            description="read",
+            parameters={"type": "object", "properties": {}},
+            handler=read_tool,
+        )
+    )
+    turn = _turn_input()
+    turn.context_checkpoint = checkpoint
+
+    outcome = asyncio.run(agent.run(turn))
+    messages = load_context_messages(outcome.state_data_patch)
+
+    assert outcome.status == "done"
+    assert [event[1:] for event in checkpoint_events] == [
+        ("user_message", "user"),
+        ("assistant_tool_call", "assistant"),
+        ("tool_result", "tool"),
+    ]
+    assert messages[-1] == {"role": "assistant", "content": [{"type": "text", "text": "完成"}]}
+
+
+def test_large_tool_result_is_trimmed_before_next_model_request(monkeypatch) -> None:
+    tool_call = LLMToolCall(id="toolu-1", name="read", arguments={"path": "huge.txt"})
+    responses = [
+        LLMResponse(
+            text="",
+            assistant_content=[
+                {
+                    "type": "tool_call",
+                    "id": tool_call.id,
+                    "name": tool_call.name,
+                    "arguments": dict(tool_call.arguments),
+                }
+            ],
+            tool_calls=[tool_call],
+        ),
+        LLMResponse(
+            text="完成",
+            public_text="完成",
+            assistant_content=[{"type": "text", "text": "完成"}],
+        ),
+    ]
+
+    async def fake_chat_with_tools_streaming(**kwargs: Any) -> LLMResponse:
+        if len(responses) == 1:
+            sent_messages = list(kwargs.get("messages") or [])
+            tool_message = next(message for message in sent_messages if message.get("role") == "tool")
+            content = tool_message["content"][0]["content"]
+            assert "tokens truncated" in content
+            assert len(content.encode("utf-8")) <= 10000 * 4
+        return responses.pop(0)
+
+    async def read_tool(**_: Any) -> Any:
+        return text_tool_result("A" * 50000)
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+    agent = _agent()
+    agent.tool_registry.register(
+        ToolDefinition(
+            name="read",
+            description="read",
+            parameters={"type": "object", "properties": {}},
+            handler=read_tool,
+        )
+    )
+
+    outcome = asyncio.run(agent.run(_turn_input()))
+    messages = load_context_messages(outcome.state_data_patch)
+    tool_content = messages[2]["content"][0]["content"]
+
+    assert outcome.status == "done"
+    assert "tokens truncated" in tool_content
+
+
 def test_cancel_after_partial_tool_completion_closes_remaining_tool_calls(monkeypatch) -> None:
     cancel_after_first_tool = {"value": False}
     called_tools: list[str] = []

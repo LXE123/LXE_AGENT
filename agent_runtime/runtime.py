@@ -11,7 +11,7 @@ from .loop import run_agent_turn
 from .skill_index import load_skill_index
 from .skill_manifest import SkillQueueItem
 from .tool_registry import ensure_all_tools_registered, get_registry
-from .types import TurnOutcome
+from .types import ContextCheckpointCallback, TurnOutcome
 
 
 ProgressCallback = Callable[[str], Awaitable[None]]
@@ -53,6 +53,7 @@ async def run_turn(
     provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None,
     tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None,
     tool_run_finisher: Callable[[str], None] | None = None,
+    context_checkpoint: ContextCheckpointCallback | None = None,
 ) -> TurnOutcome:
     tool_registry = ensure_all_tools_registered(get_registry())
     state_data = dict(getattr(session, "state_data", {}) or {})
@@ -78,6 +79,7 @@ async def run_turn(
         provider_cancel_registrar=provider_cancel_registrar,
         tool_run_registrar=tool_run_registrar,
         tool_run_finisher=tool_run_finisher,
+        context_checkpoint=context_checkpoint,
     )
 
 
