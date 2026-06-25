@@ -22,7 +22,7 @@ from shared.db.sqlite.agent_sessions import create_agent_session, update_agent_s
 from shared.db.sqlite.bootstrap import init_schema
 from shared.db.sqlite.engine import connection_scope
 from shared.db.sqlite.session_messages import session_messages_path
-from shared.env import upsert_project_env_values
+from shared.env import upsert_project_env_values, upsert_project_local_config_values
 from shared.llm import runtime_config as runtime_settings
 from shared.permission_policy import (
     BOT_ID_AMAZON_REPLENISH,
@@ -96,9 +96,9 @@ def _configure_glm_current_model(monkeypatch) -> None:
 
 def _redirect_dashboard_env_writes(monkeypatch, env_path):
     def write_env(values):
-        upsert_project_env_values(values, path=env_path)
+        upsert_project_local_config_values(values, path=env_path)
 
-    monkeypatch.setattr(dashboard_api, "upsert_project_env_values", write_env)
+    monkeypatch.setattr(dashboard_api, "upsert_project_local_config_values", write_env)
 
 
 def _configure_model_api_keys(monkeypatch) -> None:
@@ -675,7 +675,7 @@ def test_current_model_endpoint_returns_deepseek_anthropic_descriptor(dashboard_
 def test_current_model_patch_switches_to_kimi_and_normalizes_thinking(dashboard_client, monkeypatch, tmp_path):
     _configure_model_api_keys(monkeypatch)
     _configure_deepseek_current_model(monkeypatch, effort="max")
-    env_path = tmp_path / ".env"
+    env_path = tmp_path / ".env.local"
     env_path.write_text(
         "AGENT_LLM_PROVIDER=deepseek\n"
         "AGENT_LLM_MODEL=deepseek-v4-pro\n"
@@ -719,7 +719,7 @@ def test_current_model_patch_switches_between_deepseek_models(dashboard_client, 
     monkeypatch.setenv("AGENT_LLM_THINKING_EFFORT", "low")
     monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_ENABLED", True)
     monkeypatch.setattr(runtime_settings, "AGENT_LLM_THINKING_EFFORT", "low")
-    env_path = tmp_path / ".env"
+    env_path = tmp_path / ".env.local"
     env_path.write_text(
         "AGENT_LLM_PROVIDER=kimi_coding\n"
         "AGENT_LLM_MODEL=kimi-for-coding\n"
@@ -769,7 +769,7 @@ def test_current_model_patch_switches_between_deepseek_models(dashboard_client, 
 def test_current_model_patch_rejects_invalid_choices_without_env_write(dashboard_client, monkeypatch, tmp_path):
     _configure_model_api_keys(monkeypatch)
     _configure_kimi_current_model(monkeypatch)
-    env_path = tmp_path / ".env"
+    env_path = tmp_path / ".env.local"
     env_path.write_text(
         "AGENT_LLM_PROVIDER=kimi_coding\n"
         "AGENT_LLM_MODEL=kimi-for-coding\n"
@@ -822,9 +822,9 @@ def test_current_model_patch_rejects_invalid_choices_without_env_write(dashboard
 
 def test_current_model_thinking_patch_updates_runtime_and_env(dashboard_client, monkeypatch, tmp_path):
     _configure_kimi_current_model(monkeypatch)
-    env_path = tmp_path / ".env"
+    env_path = tmp_path / ".env.local"
     env_path.write_text(
-        "SECRET_TOKEN=keep-me\n"
+        "LOCAL_NOTE=keep-me\n"
         "# keep this comment\n"
         "AGENT_LLM_THINKING_ENABLED=0\n",
         encoding="utf-8",
@@ -845,7 +845,7 @@ def test_current_model_thinking_patch_updates_runtime_and_env(dashboard_client, 
     assert os.environ["AGENT_LLM_THINKING_ENABLED"] == "1"
     assert os.environ["AGENT_LLM_THINKING_EFFORT"] == "low"
     env_text = env_path.read_text(encoding="utf-8")
-    assert "SECRET_TOKEN=keep-me\n" in env_text
+    assert "LOCAL_NOTE=keep-me\n" in env_text
     assert "# keep this comment\n" in env_text
     assert "AGENT_LLM_THINKING_ENABLED=1\n" in env_text
     assert "AGENT_LLM_THINKING_EFFORT=low\n" in env_text
@@ -863,7 +863,7 @@ def test_current_model_thinking_patch_updates_runtime_and_env(dashboard_client, 
 
 def test_current_model_thinking_patch_updates_deepseek_runtime_and_env(dashboard_client, monkeypatch, tmp_path):
     _configure_deepseek_current_model(monkeypatch, effort="high")
-    env_path = tmp_path / ".env"
+    env_path = tmp_path / ".env.local"
     env_path.write_text(
         "AGENT_LLM_THINKING_ENABLED=1\n"
         "AGENT_LLM_THINKING_EFFORT=high\n",
@@ -922,7 +922,7 @@ def test_current_model_thinking_patch_rejects_invalid_level_without_env_write(
     tmp_path,
 ):
     _configure_kimi_current_model(monkeypatch)
-    env_path = tmp_path / ".env"
+    env_path = tmp_path / ".env.local"
     env_path.write_text("AGENT_LLM_THINKING_ENABLED=0\n", encoding="utf-8")
     before = env_path.read_text(encoding="utf-8")
     _redirect_dashboard_env_writes(monkeypatch, env_path)
@@ -941,7 +941,7 @@ def test_current_model_thinking_patch_rejects_deepseek_invalid_level_without_env
     tmp_path,
 ):
     _configure_deepseek_current_model(monkeypatch, effort="high")
-    env_path = tmp_path / ".env"
+    env_path = tmp_path / ".env.local"
     env_path.write_text(
         "AGENT_LLM_THINKING_ENABLED=1\n"
         "AGENT_LLM_THINKING_EFFORT=high\n",
@@ -966,7 +966,7 @@ def test_current_model_thinking_patch_rejects_provider_managed_without_env_write
     tmp_path,
 ):
     _configure_glm_current_model(monkeypatch)
-    env_path = tmp_path / ".env"
+    env_path = tmp_path / ".env.local"
     env_path.write_text(
         "AGENT_LLM_THINKING_ENABLED=1\n"
         "AGENT_LLM_THINKING_EFFORT=high\n",
