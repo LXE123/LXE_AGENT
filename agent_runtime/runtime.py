@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
+from shared.connector_state import is_skill_enabled_by_connectors
 from shared.permission_policy import allowed_skill_types_for_bot, resolve_bot_id
 from shared.llm.events import LLMStreamEvent
 
@@ -26,7 +27,11 @@ def load_available_skills_for_session(session: Any) -> list[SkillQueueItem]:
     skill_index = load_skill_index()
     bot_id = resolve_bot_id(session)
     allowed_skill_types = allowed_skill_types_for_bot(bot_id)
-    return skill_index.queue(allowed_types=allowed_skill_types)
+    return [
+        item
+        for item in skill_index.queue(allowed_types=allowed_skill_types)
+        if is_skill_enabled_by_connectors(item.name)
+    ]
 
 
 async def run_turn(

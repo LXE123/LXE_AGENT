@@ -16,6 +16,7 @@ import {
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
+  Plug,
   Search,
   Settings2,
   Sparkles,
@@ -140,6 +141,18 @@ type SkillPayload = {
   references: SkillReferencePayload[];
 };
 
+type ConnectorPayload = {
+  id: string;
+  name: string;
+  description: string;
+  kind: string;
+  enabled: boolean;
+  everConnected: boolean;
+  userDisabled: boolean;
+  skill_names: string[];
+  skill_count: number;
+};
+
 type SkillContentPayload = {
   name: string;
   type: string;
@@ -251,7 +264,15 @@ const SESSION_LIST_PAGE_SIZE = 10;
 const LANGUAGE_STORAGE_KEY = "agent-dashboard-language";
 const DOCS_HOME_PATH = "README.md";
 const DOCS_ROUTE_PREFIX = "/docs";
-const DASHBOARD_TAB_IDS = new Set(["home", "sessions", "models", "tools", "skills", "background-tasks"]);
+const DASHBOARD_TAB_IDS = new Set([
+  "home",
+  "sessions",
+  "models",
+  "tools",
+  "skills",
+  "connectors",
+  "background-tasks"
+]);
 
 const EMPTY_SESSION_SUMMARY: SessionSummaryPayload = {
   total_sessions: 0,
@@ -293,6 +314,7 @@ const ZH_TEXT = {
     models: "模型",
     tools: "工具",
     skills: "技能",
+    connectors: "连接器",
     tasks: "任务",
     aria: "Dashboard 区域"
   },
@@ -433,6 +455,18 @@ const ZH_TEXT = {
     defaultGroup: "默认",
     uncategorized: "未分类"
   },
+  connectors: {
+    subtitle: "控制 agent 是否能看到平台 CLI skills。",
+    itemUnit: "个技能",
+    empty: "暂无 connector。",
+    enabled: "已启用",
+    disabled: "已关闭",
+    enable: "启用",
+    disable: "关闭",
+    saving: "保存中",
+    kind: "类型",
+    note: "关闭后 agent 不会看到该 connector 的 CLI skills；不会卸载 CLI，也不会清除认证。"
+  },
   skillModal: {
     location: "位置",
     references: "引用文件",
@@ -504,6 +538,7 @@ const UI_TEXT: Record<Language, UiText> = {
       models: "Models",
       tools: "Tools",
       skills: "Skills",
+      connectors: "Connectors",
       tasks: "Tasks",
       aria: "Dashboard sections"
     },
@@ -644,6 +679,18 @@ const UI_TEXT: Record<Language, UiText> = {
       defaultGroup: "Default",
       uncategorized: "Uncategorized"
     },
+    connectors: {
+      subtitle: "Control whether agents can see platform CLI skills.",
+      itemUnit: "skills",
+      empty: "No connectors.",
+      enabled: "Enabled",
+      disabled: "Disabled",
+      enable: "Enable",
+      disable: "Disable",
+      saving: "Saving",
+      kind: "Kind",
+      note: "Disabling hides this connector's CLI skills from agents; it does not uninstall the CLI or clear auth."
+    },
     skillModal: {
       location: "Location",
       references: "References",
@@ -714,6 +761,7 @@ function initialLanguage(): Language {
 
 type DashboardData = {
   skills: ApiList<SkillPayload>;
+  connectors: ApiList<ConnectorPayload>;
   toolsets: ApiList<ToolsetPayload>;
   backgroundTasks: ApiList<BackgroundTaskPayload>;
   models: ApiList<ModelPayload>;
@@ -2549,6 +2597,66 @@ function ToolsView({
   );
 }
 
+function ConnectorsView({
+  connectors,
+  savingId,
+  onToggle
+}: {
+  connectors: ConnectorPayload[];
+  savingId: string;
+  onToggle: (connector: ConnectorPayload) => void;
+}) {
+  const t = useUiText();
+  if (!connectors.length) {
+    return <EmptyState label={t.connectors.empty} />;
+  }
+  return (
+    <div className="grid-list connectors-grid">
+      {connectors.map((connector) => {
+        const saving = savingId === connector.id;
+        return (
+          <article className="item-card connector-card" key={connector.id}>
+            <div className="connector-card-top">
+              <div className="item-heading">
+                <div className="item-icon connector-icon">
+                  <Plug size={18} />
+                </div>
+                <div>
+                  <h3>{connector.name}</h3>
+                  <div className="model-heading-model">{connector.kind || t.common.unknown}</div>
+                </div>
+              </div>
+              <span className={connector.enabled ? "status-dot on" : "status-dot"} />
+            </div>
+            <p className="description connector-description">{connector.description}</p>
+            <div className="pill-row">
+              <span className={connector.enabled ? "pill ok" : "pill warn"}>
+                {connector.enabled ? t.connectors.enabled : t.connectors.disabled}
+              </span>
+              <span className="pill">
+                {t.common.countItems(formatNumber(connector.skill_count), t.connectors.itemUnit)}
+              </span>
+            </div>
+            <p className="connector-note">{t.connectors.note}</p>
+            <button
+              className={connector.enabled ? "connector-toggle on" : "connector-toggle"}
+              disabled={saving}
+              type="button"
+              onClick={() => onToggle(connector)}
+            >
+              {saving
+                ? t.connectors.saving
+                : connector.enabled
+                  ? t.connectors.disable
+                  : t.connectors.enable}
+            </button>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 const TASK_STATUS_ORDER = ["running", "completed", "failed", "timeout", "killed"];
 
 function taskStatusRank(status: string): number {
@@ -3270,6 +3378,7 @@ function App() {
   const [sessionLoadMoreError, setSessionLoadMoreError] = useState("");
   const [modelSaving, setModelSaving] = useState(false);
   const [thinkingSaving, setThinkingSaving] = useState(false);
+  const [connectorSaving, setConnectorSaving] = useState("");
   const [dashboardStatusOpen, setDashboardStatusOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
@@ -3308,15 +3417,16 @@ function App() {
     let cancelled = false;
     async function load() {
       try {
-        const [skills, toolsets, backgroundTasks, models, currentModel] = await Promise.all([
+        const [skills, connectors, toolsets, backgroundTasks, models, currentModel] = await Promise.all([
           fetchJson<ApiList<SkillPayload>>("/api/skills"),
+          fetchJson<ApiList<ConnectorPayload>>("/api/connectors"),
           fetchJson<ApiList<ToolsetPayload>>("/api/tools/toolsets"),
           fetchJson<ApiList<BackgroundTaskPayload>>("/api/background-tasks"),
           fetchJson<ApiList<ModelPayload>>("/api/models"),
           fetchJson<ModelPayload>("/api/models/current")
         ]);
         if (!cancelled) {
-          setData({ skills, toolsets, backgroundTasks, models, currentModel });
+          setData({ skills, connectors, toolsets, backgroundTasks, models, currentModel });
           setError("");
         }
       } catch (err) {
@@ -3683,6 +3793,47 @@ function App() {
     }
   }
 
+  async function toggleConnector(connector: ConnectorPayload) {
+    if (!data || connectorSaving) {
+      return;
+    }
+    const previousData = data;
+    const nextEnabled = !connector.enabled;
+    setConnectorSaving(connector.id);
+    setError("");
+    setData({
+      ...data,
+      connectors: {
+        ...data.connectors,
+        items: data.connectors.items.map((item) =>
+          item.id === connector.id
+            ? {
+                ...item,
+                enabled: nextEnabled,
+                userDisabled: !nextEnabled,
+                everConnected: item.everConnected || nextEnabled
+              }
+            : item
+        )
+      }
+    });
+    try {
+      await patchJson<ConnectorPayload>(`/api/connectors/${encodeURIComponent(connector.id)}`, {
+        enabled: nextEnabled
+      });
+      const [connectors, skills] = await Promise.all([
+        fetchJson<ApiList<ConnectorPayload>>("/api/connectors"),
+        fetchJson<ApiList<SkillPayload>>("/api/skills")
+      ]);
+      setData((current) => (current ? { ...current, connectors, skills } : current));
+    } catch (err) {
+      setData(previousData);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConnectorSaving("");
+    }
+  }
+
   const sessionSummary = sessionsData.summary || EMPTY_SESSION_SUMMARY;
   const hasMoreSessions = sessionsData.items.length < sessionsData.total;
   const dashboardApiOnline = Boolean(data) && !loading;
@@ -3694,6 +3845,7 @@ function App() {
     { id: "models", label: t.nav.models, icon: <Brain size={16} /> },
     { id: "tools", label: t.nav.tools, icon: <Wrench size={16} /> },
     { id: "skills", label: t.nav.skills, icon: <Sparkles size={16} /> },
+    { id: "connectors", label: t.nav.connectors, icon: <Plug size={16} /> },
     { id: "background-tasks", label: t.nav.tasks, icon: <Layers3 size={16} /> },
     { id: "docs", label: t.nav.docs, icon: <FileText size={16} /> }
   ];
@@ -3713,6 +3865,8 @@ function App() {
         : ""
     : activeTab === "docs"
       ? docContent?.path || effectiveDocPath || t.docs.selectPrompt
+    : activeTab === "connectors"
+      ? t.connectors.subtitle
       : "";
 
   if (activeTab === "docs") {
@@ -3869,6 +4023,13 @@ function App() {
                 ) : null}
                 {activeTab === "tools" ? <ToolsView toolsets={data.toolsets.items} onOpen={setDetailTarget} /> : null}
                 {activeTab === "skills" ? <SkillsView skills={data.skills.items} onOpen={setDetailTarget} /> : null}
+                {activeTab === "connectors" ? (
+                  <ConnectorsView
+                    connectors={data.connectors.items}
+                    savingId={connectorSaving}
+                    onToggle={toggleConnector}
+                  />
+                ) : null}
                 {activeTab === "background-tasks" ? (
                   <BackgroundTasksView tasks={data.backgroundTasks.items} onOpen={setDetailTarget} />
                 ) : null}

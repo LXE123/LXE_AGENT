@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from shared.env_config import env_flag, env_text
+from shared.log_config import local_logs_enabled
 from shared.logging import logger
 
 _TRACE_STRING_LIMIT = 8192
@@ -193,7 +194,7 @@ def load_wire_trace_config() -> WireTraceConfig:
     if not trace_dir.is_absolute():
         trace_dir = (_repo_root() / trace_dir).resolve()
     return WireTraceConfig(
-        enabled=env_flag("AGENT_SSE_WIRE_TRACE_ENABLED", True),
+        enabled=local_logs_enabled() and env_flag("AGENT_SSE_WIRE_TRACE_ENABLED", True),
         trace_dir=trace_dir,
     )
 

@@ -58,6 +58,7 @@ target/
 # Project specific
 user_session_db
 config/config.py
+config/connector-states.local.json
 debug_data/
 /artifacts/
 downloads/

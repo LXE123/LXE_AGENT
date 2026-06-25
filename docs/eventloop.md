@@ -32,7 +32,7 @@ flowchart TD
 
     C --> M["APScheduler thread"]
     M --> N["ERP cookie refresh"]
-    M --> O["telemetry snapshot sync"]
+    M --> O["agent data snapshot sync"]
 
     H --> P["shared.db.client"]
     P --> Q["shared_state_db thread pool"]

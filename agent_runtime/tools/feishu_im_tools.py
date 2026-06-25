@@ -11,6 +11,7 @@ from agent_runtime.tool_executor import get_tool_context
 from agent_runtime.types import ToolDefinition, ToolExecutionError, ToolResult, text_content_block
 from platforms.feishu.api_client import DownloadedResource, api_client
 from platforms.feishu.history_formatter import format_message_list
+from shared.log_config import local_logs_enabled
 from shared.logging import logger
 
 
@@ -269,6 +270,10 @@ def _dump_raw_messages(
     query: dict[str, Any],
     items: list[dict[str, Any]],
 ) -> str:
+    if not local_logs_enabled():
+        logger.info("[FeishuIMTools] raw message dump skipped: local logs disabled")
+        return ""
+
     now = _local_now()
     day_dir = _feishu_msg_debug_root() / now.strftime("%Y%m%d")
     day_dir.mkdir(parents=True, exist_ok=True)
@@ -382,7 +387,7 @@ async def _handle_get_messages(
         "page_token": str(data.get("page_token") or "").strip(),
     }
     if debug_dump_raw:
-        payload["debug_dump_path"] = _dump_raw_messages(
+        debug_dump_path = _dump_raw_messages(
             tool_name="feishu_im_bot_get_messages",
             chat_id=safe_chat_id,
             query={
@@ -395,6 +400,10 @@ async def _handle_get_messages(
             },
             items=list(data.get("items") or []),
         )
+        if debug_dump_path:
+            payload["debug_dump_path"] = debug_dump_path
+        else:
+            payload["debug_dump_skipped"] = "local_logs_disabled"
     return _json_tool_result(payload)
 
 

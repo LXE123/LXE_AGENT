@@ -22,7 +22,7 @@ def _source_extra(source: dict[str, Any]) -> dict[str, Any]:
 
 
 def extract_source_bot_identity(source: Any) -> dict[str, str]:
-    """Return normalized bot identity fields for telemetry payloads."""
+    """Return normalized bot identity fields for agent data payloads."""
     source_data = _source_dict(source)
     platform = _clean_text(source_data.get("platform")).lower()
     bot_app_id = ""

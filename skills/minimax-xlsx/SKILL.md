@@ -1,0 +1,169 @@
+---
+name: minimax-xlsx
+description: "Excel/spreadsheet file handling for generic .xlsx, .xlsm, .csv, and .tsv tasks: create, read, analyze, edit, validate, repair formulas, preserve workbook structure, and apply professional financial formatting. Use when the user's primary deliverable or input is a spreadsheet file and no more specific FBA or replenishment business skill applies. Do not use for FBA shipment, invoice, customs, logistics, export-tax, MSKU, inventory, sales-analysis, replenishment calculation, or replenishment workflow requests that match a dedicated amazon_fba or amazon_replenish skill."
+type: default
+description_zh: "Excel 文件创建与分析"
+description_en: "Create, edit, and analyze Excel spreadsheets"
+version: 1.0.0
+license: MIT
+metadata:
+  version: "1.0"
+  category: productivity
+  sources:
+    - ECMA-376 Office Open XML File Formats
+    - Microsoft Open XML SDK documentation
+display_name: "minimax-xlsx"
+display_name_en: "minimax-xlsx"
+visibility: "public"
+references:
+  - path: references/read-analyze.md
+    description: Reading and analyzing Excel/CSV/TSV files without modifying sources.
+  - path: references/create.md
+    description: Creating new production-quality xlsx files from the XML template.
+  - path: references/edit.md
+    description: Minimal-invasive editing of existing xlsx files through OOXML.
+  - path: references/fix.md
+    description: Repairing broken formulas in existing xlsx files.
+  - path: references/validate.md
+    description: Static and dynamic formula validation workflow.
+  - path: references/format.md
+    description: Financial formatting standards and styles.xml operations.
+  - path: references/ooxml-cheatsheet.md
+    description: OOXML SpreadsheetML quick reference.
+---
+
+# MiniMax XLSX Skill
+
+Handle the request directly. Do NOT spawn sub-agents. Always write the output file the user requests.
+
+## LXE Runtime Rules
+
+- Resolve `SKILL_DIR` as the absolute directory containing this `SKILL.md`; use it in shell commands.
+- Run bundled scripts with `uv run --frozen python "$SKILL_DIR/scripts/<script>.py" ...` from the workspace root.
+- Write final deliverables under `artifacts/xlsx/`.
+- Use `artifacts/xlsx_work/<unique-task-name>/` for unpacked/edit work directories; do not use `/tmp`, because this agent's read/edit tools are workspace-scoped.
+- Never overwrite the user's source workbook; always create a new output file.
+- Treat `libreoffice_recalc.py` as optional Tier 2 validation. If LibreOffice is unavailable, report that dynamic recalculation was skipped and still include the static `formula_check.py` result.
+
+## Task Routing
+
+| Task | Method | Guide |
+|------|--------|-------|
+| **READ** — analyze existing data | `xlsx_reader.py` + pandas | `references/read-analyze.md` |
+| **CREATE** — new xlsx from scratch | XML template | `references/create.md` + `references/format.md` |
+| **EDIT** — modify existing xlsx | XML unpack→edit→pack | `references/edit.md` (+ `format.md` if styling needed) |
+| **FIX** — repair broken formulas in existing xlsx | XML unpack→fix `<f>` nodes→pack | `references/fix.md` |
+| **VALIDATE** — check formulas | `formula_check.py` | `references/validate.md` |
+
+## READ — Analyze data (read `references/read-analyze.md` first)
+
+Start with `xlsx_reader.py` for structure discovery, then pandas for custom analysis. Never modify the source file.
+
+**Formatting rule**: When the user specifies decimal places (e.g. "2 decimal places"), apply that format to ALL numeric values — use `f'{v:.2f}'` on every number. Never output `12875` when `12875.00` is required.
+
+**Aggregation rule**: Always compute sums/means/counts directly from the DataFrame column — e.g. `df['Revenue'].sum()`. Never re-derive column values before aggregation.
+
+## CREATE — XML template (read `references/create.md` + `references/format.md`)
+
+Copy `templates/minimal_xlsx/` → edit XML directly → pack with `xlsx_pack.py`. Every derived value MUST be an Excel formula (`<f>SUM(B2:B9)</f>`), never a hardcoded number. Apply font colors per `format.md`.
+
+## EDIT — XML direct-edit (read `references/edit.md` first)
+
+**CRITICAL — EDIT INTEGRITY RULES:**
+1. **NEVER create a new `Workbook()`** for edit tasks. Always load the original file.
+2. The output MUST contain the **same sheets** as the input (same names, same data).
+3. Only modify the specific cells the task asks for — everything else must be untouched.
+4. **After saving output.xlsx, verify it**: open with `xlsx_reader.py` or `pandas` and confirm the original sheet names and a sample of original data are present. If verification fails, you wrote the wrong file — fix it before delivering.
+
+Never use openpyxl round-trip on existing files (corrupts VBA, pivots, sparklines). Instead: unpack → use helper scripts → repack.
+
+**"Fill cells" / "Add formulas to existing cells" = EDIT task.** If the input file already exists and you are told to fill, update, or add formulas to specific cells, you MUST use the XML edit path. Never create a new `Workbook()`. Example — fill B3 with a cross-sheet SUM formula:
+```bash
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_unpack.py" input.xlsx artifacts/xlsx_work/<task-name>/
+# Find the target sheet's XML via xl/workbook.xml → xl/_rels/workbook.xml.rels
+# Then use the Edit tool to add <f> inside the target <c> element:
+#   <c r="B3"><f>SUM('Sales Data'!D2:D13)</f><v></v></c>
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_pack.py" artifacts/xlsx_work/<task-name>/ artifacts/xlsx/output.xlsx
+```
+
+**Add a column** (formulas, numfmt, styles auto-copied from adjacent column):
+```bash
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_unpack.py" input.xlsx artifacts/xlsx_work/<task-name>/
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_add_column.py" artifacts/xlsx_work/<task-name>/ --col G \
+    --sheet "Sheet1" --header "% of Total" \
+    --formula '=F{row}/$F$10' --formula-rows 2:9 \
+    --total-row 10 --total-formula '=SUM(G2:G9)' --numfmt '0.0%' \
+    --border-row 10 --border-style medium
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_pack.py" artifacts/xlsx_work/<task-name>/ artifacts/xlsx/output.xlsx
+```
+The `--border-row` flag applies a top border to ALL cells in that row (not just the new column). Use it when the task requires accounting-style borders on total rows.
+
+**Insert a row** (shifts existing rows, updates SUM formulas, fixes circular refs):
+```bash
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_unpack.py" input.xlsx artifacts/xlsx_work/<task-name>/
+# IMPORTANT: Find the correct --at row by searching for the label text
+# in the worksheet XML, NOT by using the row number from the prompt.
+# The prompt may say "row 5 (Office Rent)" but Office Rent might actually
+# be at row 4. Always locate the row by its text label first.
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_insert_row.py" artifacts/xlsx_work/<task-name>/ --at 5 \
+    --sheet "Budget FY2025" --text A=Utilities \
+    --values B=3000 C=3000 D=3500 E=3500 \
+    --formula 'F=SUM(B{row}:E{row})' --copy-style-from 4
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_pack.py" artifacts/xlsx_work/<task-name>/ artifacts/xlsx/output.xlsx
+```
+**Row lookup rule**: When the task says "after row N (Label)", always find the row by searching for "Label" in the worksheet XML (`grep -n "Label" artifacts/xlsx_work/<task-name>/xl/worksheets/sheet*.xml` or check sharedStrings.xml). Use the actual row number + 1 for `--at`. Do NOT call `xlsx_shift_rows.py` separately — `xlsx_insert_row.py` calls it internally.
+
+**Apply row-wide borders** (e.g. accounting line on a TOTAL row):
+After running helper scripts, apply borders to ALL cells in the target row, not just newly added cells. In `xl/styles.xml`, append a new `<border>` with the desired style, then append a new `<xf>` in `<cellXfs>` that clones each cell's existing `<xf>` but sets the new `borderId`. Apply the new style index to every `<c>` in the row via the `s` attribute:
+```xml
+<!-- In xl/styles.xml, append to <borders>: -->
+<border>
+  <left/><right/><top style="medium"/><bottom/><diagonal/>
+</border>
+<!-- Then append to <cellXfs> an xf clone with the new borderId for each existing style -->
+```
+**Key rule**: When a task says "add a border to row N", iterate over ALL cells A through the last column, not just newly added cells.
+
+**Manual XML edit** (for anything the helper scripts don't cover):
+```bash
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_unpack.py" input.xlsx artifacts/xlsx_work/<task-name>/
+# ... edit XML with the Edit tool ...
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_pack.py" artifacts/xlsx_work/<task-name>/ artifacts/xlsx/output.xlsx
+```
+
+## FIX — Repair broken formulas (read `references/fix.md` first)
+
+This is an EDIT task. Unpack → fix broken `<f>` nodes → pack. Preserve all original sheets and data.
+
+## VALIDATE — Check formulas (read `references/validate.md` first)
+
+Run `formula_check.py` for static validation. Use `libreoffice_recalc.py` for dynamic recalculation when available.
+
+## Financial Color Standard
+
+| Cell Role | Font Color | Hex Code |
+|-----------|-----------|----------|
+| Hard-coded input / assumption | Blue | `0000FF` |
+| Formula / computed result | Black | `000000` |
+| Cross-sheet reference formula | Green | `00B050` |
+
+## Key Rules
+
+1. **Formula-First**: Every calculated cell MUST use an Excel formula, not a hardcoded number
+2. **CREATE → XML template**: Copy minimal template, edit XML directly, pack with `xlsx_pack.py`
+3. **EDIT → XML**: Never openpyxl round-trip. Use unpack/edit/pack scripts
+4. **Always produce the output file** — this is the #1 priority
+5. **Validate before delivery**: `formula_check.py` exit code 0 = safe
+
+## Utility Scripts
+
+```bash
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_reader.py" input.xlsx                                    # structure discovery
+uv run --frozen python "$SKILL_DIR/scripts/formula_check.py" file.xlsx --json                            # formula validation
+uv run --frozen python "$SKILL_DIR/scripts/formula_check.py" file.xlsx --report                          # standardized report
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_unpack.py" in.xlsx artifacts/xlsx_work/<task-name>/       # unpack for XML editing
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_pack.py" artifacts/xlsx_work/<task-name>/ artifacts/xlsx/out.xlsx
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_shift_rows.py" artifacts/xlsx_work/<task-name>/ insert 5 1
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_add_column.py" artifacts/xlsx_work/<task-name>/ --col G ...
+uv run --frozen python "$SKILL_DIR/scripts/xlsx_insert_row.py" artifacts/xlsx_work/<task-name>/ --at 6 ...
+```

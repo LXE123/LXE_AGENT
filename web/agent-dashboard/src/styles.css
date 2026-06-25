@@ -1241,6 +1241,11 @@ h1 {
   color: var(--warning);
 }
 
+.connector-icon {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
 .chevron {
   margin-left: auto;
   color: var(--muted-light);
@@ -1256,6 +1261,79 @@ h1 {
   line-height: 1.55;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.connectors-grid {
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+}
+
+.connector-card {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  border: 1px solid var(--border);
+}
+
+.connector-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  min-width: 0;
+  gap: 12px;
+}
+
+.connector-description {
+  min-height: 66px;
+  margin-top: 0;
+  -webkit-line-clamp: 3;
+}
+
+.connector-note {
+  min-height: 38px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.connector-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: start;
+  min-width: 96px;
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 1px solid var(--accent-muted);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, opacity 0.16s ease;
+}
+
+.connector-toggle.on {
+  border-color: var(--border);
+  background: var(--surface-muted);
+  color: var(--text-soft);
+}
+
+.connector-toggle:hover:not(:disabled),
+.connector-toggle:focus:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+  color: var(--accent-strong);
+}
+
+.connector-toggle:focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.connector-toggle:disabled {
+  cursor: progress;
+  opacity: 0.64;
 }
 
 .pill-row {

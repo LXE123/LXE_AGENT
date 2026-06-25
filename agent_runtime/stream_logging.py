@@ -9,6 +9,7 @@ from typing import Any, Literal, TypedDict
 
 from shared.env_config import env_flag, env_int, env_text
 from shared.llm.transports.wire_trace import dated_session_trace_dir
+from shared.log_config import local_logs_enabled
 from shared.logging import logger
 
 from .llm_adapter import LLMResponse, LLMStreamEvent
@@ -225,7 +226,7 @@ def load_stream_logging_config() -> StreamLoggingConfig:
 
     return StreamLoggingConfig(
         mode=mode,
-        trace_enabled=env_flag("AGENT_STREAM_TRACE_ENABLED", True),
+        trace_enabled=local_logs_enabled() and env_flag("AGENT_STREAM_TRACE_ENABLED", True),
         heartbeat_ms=env_int("AGENT_STREAM_HEARTBEAT_MS", 1000, minimum=0),
         heartbeat_chars=env_int("AGENT_STREAM_HEARTBEAT_CHARS", 300, minimum=1),
         debug_preview_chars=env_int("AGENT_STREAM_DEBUG_PREVIEW_CHARS", 80, minimum=1),

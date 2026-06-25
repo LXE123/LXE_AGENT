@@ -127,7 +127,7 @@ Draft or archive：
 后续批次优先补这些：
 
 - Dashboard 使用说明：本地 URL、功能 tab、API endpoints、模型切换、thinking 设置和后台任务视图。
-- 环境配置说明：`.env.example` 中 LLM、Feishu、Mabang、Ziniao、Dashboard、Telemetry、trace 的配置含义。
+- 环境配置说明：`.env.example` 中 LLM、Feishu、Mabang、Ziniao、Dashboard、Data Server、trace 的配置含义。
 - Feishu 平台说明：消息进入、CardKit 回复、typing indicator、媒体处理和必要 app scopes。
 
 ## Notes

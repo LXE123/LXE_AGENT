@@ -206,7 +206,8 @@ def test_feishu_handler_allows_same_message_id_after_dedup_ttl(monkeypatch) -> N
     assert len(submitted) == 2
 
 
-def test_feishu_raw_event_dump_disabled_by_default(monkeypatch, tmp_path) -> None:
+def test_feishu_raw_event_dump_disabled_by_feature_switch(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
     monkeypatch.setattr(feishu_gateway, "FEISHU_RAW_EVENT_DUMP_ENABLED", False)
     monkeypatch.setattr(feishu_gateway, "FEISHU_RAW_EVENT_DUMP_DIR", str(tmp_path))
     adapter = _adapter_without_runtime()
@@ -216,7 +217,19 @@ def test_feishu_raw_event_dump_disabled_by_default(monkeypatch, tmp_path) -> Non
     assert list(tmp_path.glob("*.jsonl")) == []
 
 
+def test_feishu_raw_event_dump_disabled_by_global_local_logs_switch(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "0")
+    monkeypatch.setattr(feishu_gateway, "FEISHU_RAW_EVENT_DUMP_ENABLED", True)
+    monkeypatch.setattr(feishu_gateway, "FEISHU_RAW_EVENT_DUMP_DIR", str(tmp_path))
+    adapter = _adapter_without_runtime()
+
+    adapter._build_message_handler(object)(_fake_lark_message_event())
+
+    assert list(tmp_path.glob("*.jsonl")) == []
+
+
 def test_feishu_raw_event_dump_writes_raw_event_and_snapshot(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
     monkeypatch.setattr(feishu_gateway, "FEISHU_RAW_EVENT_DUMP_ENABLED", True)
     monkeypatch.setattr(feishu_gateway, "FEISHU_RAW_EVENT_DUMP_DIR", str(tmp_path))
     adapter = _adapter_without_runtime()
