@@ -21,6 +21,7 @@ from shared.agent_io import AgentJob, EmitRequest, HeartbeatWakeRequest
 from shared.agent_state import CONTEXT_KEY, MESSAGES_KEY, RUNTIME_KEY, context_state, update_context_state
 from shared.db import client as shared_db_client
 from shared.db.sqlite.agent_sessions import (
+    append_agent_session_message,
     append_agent_session_pending_event,
     cancel_agent_session,
     clear_agent_session_memory,
@@ -598,6 +599,25 @@ def test_session_message_jsonl_create_load_and_update(sqlite_db):
 
     save_session_messages(created.session_id, [{"role": "not-a-role", "content": "ignored"}])
     assert load_session_messages(created.session_id) == []
+
+
+def test_append_agent_session_message_appends_jsonl_without_snapshot_rewrite(sqlite_db):
+    created = _create_session(
+        "session-append-context",
+        state_data=_state([{"role": "user", "content": "hello"}]),
+    )
+
+    updated = append_agent_session_message(
+        created.session_id,
+        {"role": "assistant", "content": "ok"},
+    )
+
+    assert updated is not None
+    assert updated.message_count == 2
+    assert load_session_messages(created.session_id) == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+    ]
 
 
 def test_context_state_preserves_assistant_thinking_blocks():

@@ -12,12 +12,15 @@ from shared.llm.errors import LLMProviderError
 from shared.logging import logger
 
 from .context_pipeline import (
+    PRECALL_COMPACTION_USAGE_THRESHOLD,
     append_messages_to_state,
     apply_message_history_limit,
     build_llm_messages,
     build_system_prompt,
+    DEFAULT_RESERVE_TOKENS,
     estimate_tokens,
     is_context_overflow_error,
+    load_context_messages,
     make_assistant_content_message,
     make_assistant_text_message,
     make_tool_results_message,
@@ -25,6 +28,10 @@ from .context_pipeline import (
     maybe_compact_history,
     prune_processed_history_images,
     prune_tool_results,
+    replace_context_messages_in_state,
+    request_context_token_estimate,
+    sanitize_messages_for_provider,
+    trim_step_tool_result_blocks,
 )
 from .llm_adapter import LLMResponse, LLMStreamEvent, agent_provider_descriptor, chat_with_tools_streaming
 from .stream_logging import (
@@ -41,6 +48,7 @@ from .tool_registry import (
 )
 from .types import (
     ContextBuildStats,
+    ContextCheckpointCallback,
     StepLog,
     StreamStepSummary,
     ToolResult,
@@ -61,6 +69,8 @@ ToolFinishCallback = Callable[[Any, str, int], Awaitable[None]]
 MAX_STEPS = 50
 _LLM_STEP_TIMEOUT_S = 25
 _LLM_STEP_MAX_ATTEMPTS = 3
+_CHECKPOINT_APPEND_MESSAGE = "append_message"
+_CHECKPOINT_SNAPSHOT = "snapshot"
 _TOOL_TRACEBACK_HEAD_CHARS = 2000
 _TOOL_TRACEBACK_TAIL_CHARS = 1000
 _LLM_ERROR_REPLY = "LLM 通信连续失败，请稍后重试。"
@@ -329,6 +339,7 @@ class AgentLoop:
         provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None,
         tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None,
         tool_run_finisher: Callable[[str], None] | None = None,
+        context_checkpoint: ContextCheckpointCallback | None = None,
     ) -> None:
         self.session = session
         self.state_data = dict(state_data or {})
@@ -344,6 +355,7 @@ class AgentLoop:
         self.provider_cancel_registrar = provider_cancel_registrar
         self.tool_run_registrar = tool_run_registrar
         self.tool_run_finisher = tool_run_finisher
+        self.context_checkpoint = context_checkpoint
         self.tool_registry = ensure_all_tools_registered(get_registry())
         self.stream_logging_config = load_stream_logging_config()
         self.wire_trace_config = load_wire_trace_config()
@@ -369,6 +381,97 @@ class AgentLoop:
         self._stream_cancel_notified = True
         if self.on_stream_cancel is not None:
             await self.on_stream_cancel()
+
+    async def _checkpoint_context(
+        self,
+        operation: str,
+        *,
+        reason: str,
+        message: dict[str, Any] | None = None,
+        state_data: dict[str, Any] | None = None,
+    ) -> None:
+        if self.context_checkpoint is None:
+            return
+        payload: dict[str, Any] = {
+            "reason": str(reason or "").strip(),
+        }
+        if message is not None:
+            payload["message"] = copy.deepcopy(message)
+        if state_data is not None:
+            payload["state_data"] = copy.deepcopy(state_data)
+        await self.context_checkpoint(operation, payload)
+
+    async def _prepare_provider_messages(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        system_prompt: str,
+        tool_schemas: list[dict[str, Any]],
+        exec_ctx: ToolExecutionContext,
+        session_id: str,
+    ) -> list[dict[str, Any]]:
+        prepared_messages, repaired = sanitize_messages_for_provider(messages)
+        if repaired:
+            exec_ctx.state_data = replace_context_messages_in_state(
+                exec_ctx.state_data,
+                messages=prepared_messages,
+                validate_closure=True,
+            )
+            await self._checkpoint_context(
+                _CHECKPOINT_SNAPSHOT,
+                reason="pre_call_repair",
+                state_data=exec_ctx.state_data,
+            )
+
+        context_window = _model_context_window()
+        estimated_tokens = request_context_token_estimate(
+            system_prompt=system_prompt,
+            messages=prepared_messages,
+            tool_schemas=tool_schemas,
+        )
+        if context_window > 0 and estimated_tokens > int(context_window * PRECALL_COMPACTION_USAGE_THRESHOLD):
+            exec_ctx.state_data, compacted = await maybe_compact_history(
+                state_data=exec_ctx.state_data,
+                session_id=session_id,
+                system_prompt=system_prompt,
+                trigger="pre_call",
+            )
+            if compacted:
+                await self._checkpoint_context(
+                    _CHECKPOINT_SNAPSHOT,
+                    reason="pre_call_compaction",
+                    state_data=exec_ctx.state_data,
+                )
+                prepared_messages = load_context_messages(exec_ctx.state_data)
+                prepared_messages, repaired = sanitize_messages_for_provider(prepared_messages)
+                if repaired:
+                    exec_ctx.state_data = replace_context_messages_in_state(
+                        exec_ctx.state_data,
+                        messages=prepared_messages,
+                        validate_closure=True,
+                    )
+                    await self._checkpoint_context(
+                        _CHECKPOINT_SNAPSHOT,
+                        reason="pre_call_post_compaction_repair",
+                        state_data=exec_ctx.state_data,
+                    )
+            estimated_tokens = request_context_token_estimate(
+                system_prompt=system_prompt,
+                messages=prepared_messages,
+                tool_schemas=tool_schemas,
+            )
+
+        hard_limit = max(1, context_window - DEFAULT_RESERVE_TOKENS) if context_window > 0 else 0
+        if hard_limit > 0 and estimated_tokens > hard_limit:
+            raise LLMProviderError(
+                f"context overflow before provider request: estimated={estimated_tokens} limit={hard_limit}",
+                provider="local_context_manager",
+                category="context_overflow",
+                user_message="当前上下文超过模型窗口，已尝试压缩但仍无法安全发送。请缩短输入或清理较大的工具结果后重试。",
+                retryable=False,
+                context_overflow=True,
+            )
+        return prepared_messages
 
     async def _cancel_outcome(
         self,
@@ -525,12 +628,12 @@ class AgentLoop:
         self._last_stream_summary = _build_summary()
         raise last_error
 
-    def _complete_text_reply(
+    async def _complete_text_reply(
         self,
         *,
         step_idx: int,
         response: LLMResponse,
-        append_message: Callable[[dict[str, Any]], None],
+        append_message: Callable[[dict[str, Any]], Awaitable[None]],
         turn_log: TurnLog,
         fallback_text: str = "",
         stream_summary: StreamStepSummary | None = None,
@@ -547,9 +650,9 @@ class AgentLoop:
         _log_step(final_step)
         assistant_blocks = _assistant_history_blocks(response)
         if assistant_blocks and not fallback_text:
-            append_message(make_assistant_content_message(content=assistant_blocks))
+            await append_message(make_assistant_content_message(content=assistant_blocks))
         else:
-            append_message(make_assistant_text_message(final_text))
+            await append_message(make_assistant_text_message(final_text))
         return TurnOutcome(
             status="done",
             reply=final_text,
@@ -562,6 +665,8 @@ class AgentLoop:
             self.tool_run_registrar = turn.tool_run_registrar
         if turn.tool_run_finisher is not None:
             self.tool_run_finisher = turn.tool_run_finisher
+        if turn.context_checkpoint is not None:
+            self.context_checkpoint = turn.context_checkpoint
 
         user_input = str(turn.user_input or "").strip()
         user_content_blocks = list(turn.user_content_blocks or [])
@@ -599,6 +704,16 @@ class AgentLoop:
 
         self.state_data, _ = prune_processed_history_images(self.state_data)
         request_user_message = make_user_message(user_content_blocks if user_content_blocks else user_input)
+        self.state_data = append_messages_to_state(
+            self.state_data,
+            messages=[request_user_message],
+            validate_closure=False,
+        )
+        await self._checkpoint_context(
+            _CHECKPOINT_APPEND_MESSAGE,
+            reason="user_message",
+            message=request_user_message,
+        )
         current_turn_messages: list[dict[str, Any]] = [request_user_message]
         session_source = dict(getattr(self.session, "source", {}) or {})
         platform = str(session_source.get("platform") or "feishu").strip()
@@ -614,7 +729,7 @@ class AgentLoop:
         # --- prune tool results & record stats ---
         _, pre_prune_stats = build_llm_messages(
             state_data=self.state_data,
-            current_turn_messages=current_turn_messages,
+            current_turn_messages=[],
             system_prompt=system_prompt,
         )
         self.state_data, _prune_final_stats, prune_performed = prune_tool_results(
@@ -625,7 +740,7 @@ class AgentLoop:
 
         messages, context_stats = build_llm_messages(
             state_data=self.state_data,
-            current_turn_messages=current_turn_messages,
+            current_turn_messages=[],
             system_prompt=system_prompt,
         )
 
@@ -674,32 +789,29 @@ class AgentLoop:
             self._trace_turn_started_at = 0.0
             self._wire_trace_turn_dir = ""
 
-        messages_to_append = (
-            list(outcome.messages_to_persist or [])
-            if outcome.status == "cancelled"
-            else current_turn_messages
+        self.state_data, compacted = await maybe_compact_history(
+            state_data=self.state_data,
+            session_id=turn.session_id,
+            system_prompt=system_prompt,
+            trigger="post_turn",
         )
-        if messages_to_append:
-            self.state_data = append_messages_to_state(
-                self.state_data,
-                messages=messages_to_append,
-            )
+        turn_log.compaction_performed = compacted
 
-            self.state_data, compacted = await maybe_compact_history(
-                state_data=self.state_data,
-                session_id=turn.session_id,
-                system_prompt=system_prompt,
-                trigger="post_turn",
-            )
-            turn_log.compaction_performed = compacted
+        is_group = bool(
+            str(getattr(self.session, "conversation_type", "") or "").strip() == "2"
+        )
+        self.state_data = apply_message_history_limit(
+            self.state_data,
+            platform=platform,
+            is_group=is_group,
+        )
 
-            is_group = bool(
-                str(getattr(self.session, "conversation_type", "") or "").strip() == "2"
-            )
-            self.state_data = apply_message_history_limit(
+        repaired_messages, repaired = sanitize_messages_for_provider(load_context_messages(self.state_data))
+        if repaired:
+            self.state_data = replace_context_messages_in_state(
                 self.state_data,
-                platform=platform,
-                is_group=is_group,
+                messages=repaired_messages,
+                validate_closure=True,
             )
 
         state_patch = dict(self.state_data)
@@ -737,9 +849,26 @@ class AgentLoop:
     ) -> TurnOutcome:
         overflow_recovered = False
 
-        def _append_message(message: dict[str, Any]) -> None:
+        async def _append_message(
+            message: dict[str, Any],
+            *,
+            checkpoint_reason: str = "",
+            validate_closure: bool = False,
+        ) -> None:
+            nonlocal messages
             current_turn_messages.append(message)
-            messages.append(message)
+            exec_ctx.state_data = append_messages_to_state(
+                exec_ctx.state_data,
+                messages=[message],
+                validate_closure=validate_closure,
+            )
+            messages = load_context_messages(exec_ctx.state_data)
+            if checkpoint_reason:
+                await self._checkpoint_context(
+                    _CHECKPOINT_APPEND_MESSAGE,
+                    reason=checkpoint_reason,
+                    message=messages[-1] if messages else message,
+                )
 
         for step_idx in range(MAX_STEPS):
             if await self._cancel_requested():
@@ -750,6 +879,13 @@ class AgentLoop:
             tool_choice_mode: Literal["auto", "none"] = "none" if is_last_step else "auto"
 
             try:
+                messages = await self._prepare_provider_messages(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    tool_schemas=request_tool_schemas,
+                    exec_ctx=exec_ctx,
+                    session_id=session_id,
+                )
                 response = await self._request_llm_step(
                     step_idx=step_idx,
                     system_prompt=system_prompt,
@@ -771,8 +907,13 @@ class AgentLoop:
                     if compacted:
                         messages, _ = build_llm_messages(
                             state_data=exec_ctx.state_data,
-                            current_turn_messages=current_turn_messages,
+                            current_turn_messages=[],
                             system_prompt=system_prompt,
+                        )
+                        await self._checkpoint_context(
+                            _CHECKPOINT_SNAPSHOT,
+                            reason="overflow_compaction",
+                            state_data=exec_ctx.state_data,
                         )
                         self._take_last_stream_summary()
                         overflow_recovered = True
@@ -787,7 +928,7 @@ class AgentLoop:
                 turn_log.steps.append(_err_step)
                 _log_step(_err_step)
                 reply = _llm_error_reply(error)
-                _append_message(make_assistant_text_message(reply))
+                await _append_message(make_assistant_text_message(reply))
                 return TurnOutcome(
                     status="error",
                     reply=reply,
@@ -795,7 +936,7 @@ class AgentLoop:
 
             stream_summary = self._take_last_stream_summary()
             if not response.is_tool_call:
-                outcome = self._complete_text_reply(
+                outcome = await self._complete_text_reply(
                     step_idx=step_idx,
                     response=response,
                     append_message=_append_message,
@@ -808,7 +949,7 @@ class AgentLoop:
 
             tool_calls = list(response.tool_calls or [])
             if not tool_calls:
-                outcome = self._complete_text_reply(
+                outcome = await self._complete_text_reply(
                     step_idx=step_idx,
                     response=response,
                     append_message=_append_message,
@@ -825,7 +966,7 @@ class AgentLoop:
                     step_idx,
                     len(tool_calls),
                 )
-                return self._complete_text_reply(
+                return await self._complete_text_reply(
                     step_idx=step_idx,
                     response=response,
                     append_message=_append_message,
@@ -848,7 +989,11 @@ class AgentLoop:
                 turn_log.steps.append(step_log)
                 _log_step(step_log)
 
-            _append_message(make_assistant_content_message(content=_assistant_history_blocks(response)))
+            await _append_message(
+                make_assistant_content_message(content=_assistant_history_blocks(response)),
+                checkpoint_reason="assistant_tool_call",
+                validate_closure=False,
+            )
 
             tool_result_blocks: list[dict[str, Any]] = []
             for tool_call in tool_calls:
@@ -858,7 +1003,12 @@ class AgentLoop:
                         tool_result_blocks=tool_result_blocks,
                     )
                     if tool_result_blocks:
-                        _append_message(make_tool_results_message(tool_results=tool_result_blocks))
+                        tool_result_blocks, _ = trim_step_tool_result_blocks(tool_result_blocks)
+                        await _append_message(
+                            make_tool_results_message(tool_results=tool_result_blocks),
+                            checkpoint_reason="tool_result_cancelled",
+                            validate_closure=True,
+                        )
                     return await self._cancel_outcome(messages_to_persist=current_turn_messages)
                 if self.on_progress is not None:
                     await self.on_progress(f"🔧 {tool_call.name}")
@@ -896,7 +1046,12 @@ class AgentLoop:
                             tool_result_blocks=tool_result_blocks,
                         )
                         if tool_result_blocks:
-                            _append_message(make_tool_results_message(tool_results=tool_result_blocks))
+                            tool_result_blocks, _ = trim_step_tool_result_blocks(tool_result_blocks)
+                            await _append_message(
+                                make_tool_results_message(tool_results=tool_result_blocks),
+                                checkpoint_reason="tool_result_cancelled",
+                                validate_closure=True,
+                            )
                         return await self._cancel_outcome(messages_to_persist=current_turn_messages)
                     continue
 
@@ -934,7 +1089,12 @@ class AgentLoop:
                             tool_result_blocks=tool_result_blocks,
                         )
                         if tool_result_blocks:
-                            _append_message(make_tool_results_message(tool_results=tool_result_blocks))
+                            tool_result_blocks, _ = trim_step_tool_result_blocks(tool_result_blocks)
+                            await _append_message(
+                                make_tool_results_message(tool_results=tool_result_blocks),
+                                checkpoint_reason="tool_result_cancelled",
+                                validate_closure=True,
+                            )
                         return await self._cancel_outcome(messages_to_persist=current_turn_messages)
                     continue
                 finally:
@@ -968,13 +1128,23 @@ class AgentLoop:
                         tool_result_blocks=tool_result_blocks,
                     )
                     if tool_result_blocks:
-                        _append_message(make_tool_results_message(tool_results=tool_result_blocks))
+                        tool_result_blocks, _ = trim_step_tool_result_blocks(tool_result_blocks)
+                        await _append_message(
+                            make_tool_results_message(tool_results=tool_result_blocks),
+                            checkpoint_reason="tool_result_cancelled",
+                            validate_closure=True,
+                        )
                     return await self._cancel_outcome(messages_to_persist=current_turn_messages)
 
             if tool_result_blocks:
-                _append_message(make_tool_results_message(tool_results=tool_result_blocks))
+                tool_result_blocks, _ = trim_step_tool_result_blocks(tool_result_blocks)
+                await _append_message(
+                    make_tool_results_message(tool_results=tool_result_blocks),
+                    checkpoint_reason="tool_result",
+                    validate_closure=True,
+                )
 
-        _append_message(make_assistant_text_message(_MAX_STEPS_TERMINAL_REPLY))
+        await _append_message(make_assistant_text_message(_MAX_STEPS_TERMINAL_REPLY))
         return TurnOutcome(
             status="done",
             reply=_MAX_STEPS_TERMINAL_REPLY,
@@ -1004,6 +1174,7 @@ async def run_agent_turn(
     provider_cancel_registrar: Callable[[Callable[[], None] | None], None] | None = None,
     tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None,
     tool_run_finisher: Callable[[str], None] | None = None,
+    context_checkpoint: ContextCheckpointCallback | None = None,
 ) -> TurnOutcome:
     loop = AgentLoop(
         session=session,
@@ -1020,6 +1191,7 @@ async def run_agent_turn(
         provider_cancel_registrar=provider_cancel_registrar,
         tool_run_registrar=tool_run_registrar,
         tool_run_finisher=tool_run_finisher,
+        context_checkpoint=context_checkpoint,
     )
     turn_input = TurnInput(
         user_input=user_text,
@@ -1029,6 +1201,7 @@ async def run_agent_turn(
         user_content_blocks=list(user_content_blocks or []),
         run_id=str(run_id or "").strip(),
         response_route_id=str(response_route_id or "").strip(),
+        context_checkpoint=context_checkpoint,
         provider_cancel_registrar=provider_cancel_registrar,
         tool_run_registrar=tool_run_registrar,
         tool_run_finisher=tool_run_finisher,

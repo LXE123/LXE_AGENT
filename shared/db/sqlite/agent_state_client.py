@@ -4,6 +4,7 @@ from typing import Any
 
 from . import bootstrap
 from .agent_sessions import (
+    append_agent_session_message,
     append_agent_session_pending_event,
     cancel_agent_session,
     clear_agent_session_memory,
@@ -71,6 +72,13 @@ def update_agent_session_state(
     )
 
 
+def append_agent_session_message_state(
+    session_id: str,
+    message: dict[str, Any] | None,
+):
+    return append_agent_session_message(session_id, message)
+
+
 def cancel_agent_session_state(
     session_id: str,
     *,
@@ -124,6 +132,7 @@ def reset_agent_session_state(
 
 
 __all__ = [
+    "append_agent_session_message_state",
     "append_agent_session_pending_event_state",
     "cancel_agent_session_state",
     "clear_agent_session_memory_state",

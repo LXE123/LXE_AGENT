@@ -9,6 +9,7 @@ from uuid import uuid4
 from agent_runtime.emit_bus import emit_final as default_emit_final
 from agent_runtime.emit_bus import emit_stream as default_emit_stream
 from shared.db.client import (
+    append_agent_session_message,
     load_agent_session,
     pop_agent_session_pending_events,
     update_agent_session,
@@ -23,6 +24,8 @@ from .types import TurnOutcome
 FinalEmitter = Callable[..., Awaitable[None]]
 StreamEmitter = Callable[..., Awaitable[None]]
 TypingIndicatorEmitter = Callable[..., Awaitable[None]]
+_CHECKPOINT_APPEND_MESSAGE = "append_message"
+_CHECKPOINT_SNAPSHOT = "snapshot"
 
 
 def _sanitize_system_prefixed_text(text: str) -> str:
@@ -317,6 +320,22 @@ async def handle_unified_turn_job(
             return True
         return await _turn_cancel_requested(session_id, job_id)
 
+    async def context_checkpoint(operation: str, payload: dict[str, Any]) -> None:
+        op = str(operation or "").strip()
+        checkpoint_payload = dict(payload or {})
+        if op == _CHECKPOINT_APPEND_MESSAGE:
+            await append_agent_session_message(
+                session_id,
+                dict(checkpoint_payload.get("message") or {}),
+            )
+            return
+        if op == _CHECKPOINT_SNAPSHOT:
+            state_data = checkpoint_payload.get("state_data")
+            if isinstance(state_data, dict):
+                await update_agent_session(session_id, state_data_patch=dict(state_data))
+            return
+        logger.warning("[TurnHandler] unknown context checkpoint operation: %s", op or "-")
+
     typing_indicator_started = False
     if should_emit_typing_indicator and emit_typing_indicator is not None:
         await _emit_typing_indicator_best_effort(
@@ -396,6 +415,7 @@ async def handle_unified_turn_job(
                     provider_cancel_registrar=getattr(run_handle, "set_provider_cancel_handle", None),
                     tool_run_registrar=getattr(run_handle, "register_tool_run", None),
                     tool_run_finisher=getattr(run_handle, "finish_tool_run", None),
+                    context_checkpoint=context_checkpoint,
                     run_id=job_id,
                     response_route_id=response_route_id,
                 )

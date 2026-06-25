@@ -103,6 +103,17 @@ async def update_agent_session(
     )
 
 
+async def append_agent_session_message(
+    session_id: str,
+    message: dict[str, Any] | None,
+):
+    return await _run_db_call(
+        _agent_state.append_agent_session_message_state,
+        session_id,
+        message,
+    )
+
+
 async def cancel_agent_session(
     session_id: str,
     *,
@@ -182,6 +193,7 @@ def dispose() -> None:
 
 # Shared response route lifecycle used by the agent gateway.
 __all__ = [
+    "append_agent_session_message",
     "append_agent_session_pending_event",
     "cancel_agent_session",
     "clear_agent_session_memory",

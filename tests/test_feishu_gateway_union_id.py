@@ -251,6 +251,7 @@ def test_feishu_raw_event_dump_failure_does_not_block_handler(monkeypatch, caplo
     def fail_write(_record):
         raise RuntimeError("dump boom")
 
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
     monkeypatch.setattr(feishu_gateway, "FEISHU_RAW_EVENT_DUMP_ENABLED", True)
     monkeypatch.setattr(feishu_gateway, "_write_feishu_raw_event_dump", fail_write)
     adapter = _adapter_without_runtime()
