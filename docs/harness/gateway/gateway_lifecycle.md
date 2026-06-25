@@ -66,7 +66,7 @@
 `_build_scheduler()` 当前注册这些 APScheduler job：
 
 - `mabang_erp_cookie_refresh`：每 2 小时刷新 Mabang ERP cookie。
-- `telemetry_snapshot_sync`：当 telemetry 开启时按配置同步 snapshot。
+- `agent_data_snapshot_sync`：当 LXE Data Server 同步开启时按配置同步 snapshot。
 
 这些 job 不负责平台连接生命周期；adapter 只在 gateway start/stop 时由 `ChannelRegistry` 统一启动和关闭。Feishu SDK 自己的连接恢复能力仍由 adapter 内部配置保留。
 

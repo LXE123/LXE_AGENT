@@ -35,7 +35,7 @@ def _session_payload(state: AgentSessionState) -> dict[str, Any]:
     }
 
 
-def build_telemetry_snapshot(
+def build_agent_snapshot(
     *,
     gateway_id: str = "",
     machine_id: str | None = None,
@@ -52,4 +52,4 @@ def build_telemetry_snapshot(
     }
 
 
-__all__ = ["build_telemetry_snapshot"]
+__all__ = ["build_agent_snapshot"]

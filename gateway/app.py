@@ -20,7 +20,16 @@ from gateway.models import InboundEvent
 from gateway.session_scheduler import RunHandle, SessionScheduler
 from gateway.session_router import SessionRouter
 from gateway import config as gateway_settings
-from platforms.feishu.config import FEISHU_ENABLED, feishu_runtime_status, validate_feishu_runtime_config
+from platforms.feishu.config import (
+    FEISHU_ENABLED,
+    feishu_runtime_status,
+    validate_feishu_runtime_config,
+)
+from shared.data_server.config import (
+    data_server_enabled,
+    data_server_sync_interval_seconds,
+)
+from shared.data_server.sync import sync_once as data_server_sync_once
 from shared.db.client import (
     dispose,
     init_schema,
@@ -28,8 +37,7 @@ from shared.db.client import (
 from shared.gateway_identity import gateway_identity_text
 from shared.infra.net import close_all_network_clients
 from shared.logging import logger
-from shared.telemetry.config import telemetry_enabled, telemetry_sync_interval_seconds
-from shared.telemetry.sync import sync_once as telemetry_sync_once
+
 
 class GatewayApp:
     _WAIT_FOREVER_POLL_S = 0.5
@@ -302,36 +310,36 @@ class GatewayApp:
             coalesce=True,
             max_instances=1,
         )
-        if telemetry_enabled():
-            interval_s = telemetry_sync_interval_seconds()
+        if data_server_enabled():
+            interval_s = data_server_sync_interval_seconds()
             scheduler.add_job(
-                self._schedule_telemetry_sync,
+                self._schedule_data_server_sync,
                 "interval",
                 seconds=interval_s,
-                id="telemetry_snapshot_sync",
+                id="agent_data_snapshot_sync",
                 replace_existing=True,
                 coalesce=True,
                 max_instances=1,
                 next_run_time=datetime.now(),
             )
-            logger.info("📡 [Telemetry] snapshot sync enabled: interval=%ss", interval_s)
+            logger.info("📡 [DataServer] snapshot sync enabled: interval=%ss", interval_s)
         return scheduler
 
-    def _schedule_telemetry_sync(self) -> None:
+    def _schedule_data_server_sync(self) -> None:
         try:
-            result = telemetry_sync_once(gateway_id=self._gateway_id)
+            result = data_server_sync_once(gateway_id=self._gateway_id)
         except Exception as exc:
-            logger.warning("[Telemetry] snapshot upload failed: %s", exc, exc_info=True)
+            logger.warning("[DataServer] snapshot upload failed: %s", exc, exc_info=True)
             return
 
         if result.uploaded:
             logger.info(
-                "[Telemetry] snapshot uploaded: sessions=%d messages=%d",
+                "[DataServer] snapshot uploaded: sessions=%d messages=%d",
                 result.sessions_received,
                 result.messages_received,
             )
         elif result.skipped_reason and result.skipped_reason != "disabled":
-            logger.info("[Telemetry] snapshot skipped: reason=%s", result.skipped_reason)
+            logger.info("[DataServer] snapshot skipped: reason=%s", result.skipped_reason)
 
     @staticmethod
     def _refresh_mabang_erp_cookie() -> None:

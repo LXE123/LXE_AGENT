@@ -6,10 +6,10 @@ from pathlib import Path
 from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY
 from shared.db.sqlite.agent_sessions import create_agent_session, update_agent_session
 from shared.db.sqlite.bootstrap import init_schema
-from shared.telemetry.client import upload_snapshot
-from shared.telemetry.identity import load_or_create_machine_id
-from shared.telemetry.snapshot import build_telemetry_snapshot
-from shared.telemetry.sync import sync_once
+from shared.data_server.client import upload_snapshot
+from shared.data_server.identity import load_or_create_machine_id
+from shared.data_server.snapshot import build_agent_snapshot
+from shared.data_server.sync import sync_once
 
 
 def _state(messages: list[dict] | None = None) -> dict:
@@ -76,7 +76,7 @@ def test_build_snapshot_includes_sessions_messages_and_source_extra(monkeypatch,
         },
     )
 
-    snapshot = build_telemetry_snapshot(
+    snapshot = build_agent_snapshot(
         machine_id="machine-1",
         gateway_id="gateway-1",
     )
@@ -108,7 +108,7 @@ def test_upload_snapshot_uses_bearer_token(monkeypatch):
             calls.append({"url": url, **kwargs})
             return FakeResponse()
 
-    monkeypatch.setattr("shared.telemetry.client.local_service_requests_session", FakeSession())
+    monkeypatch.setattr("shared.data_server.client.local_service_requests_session", FakeSession())
 
     response = upload_snapshot(
         server_url="http://127.0.0.1:8000/",
@@ -118,17 +118,17 @@ def test_upload_snapshot_uses_bearer_token(monkeypatch):
     )
 
     assert response["sessions_received"] == 1
-    assert calls[0]["url"] == "http://127.0.0.1:8000/api/v1/telemetry/snapshot"
+    assert calls[0]["url"] == "http://127.0.0.1:8000/api/v1/agent-data/snapshots"
     assert calls[0]["headers"] == {"Authorization": "Bearer secret-token"}
     assert calls[0]["timeout"] == 5
 
 
 def test_sync_once_builds_and_uploads_snapshot(monkeypatch, tmp_path):
     _init_sqlite(monkeypatch, tmp_path)
-    monkeypatch.setenv("TELEMETRY_ENABLED", "1")
-    monkeypatch.setenv("TELEMETRY_SERVER_URL", "http://127.0.0.1:8000")
-    monkeypatch.setenv("TELEMETRY_API_KEY", "secret-token")
-    monkeypatch.setenv("TELEMETRY_MACHINE_ID_PATH", str(tmp_path / "machine_identity.json"))
+    monkeypatch.setenv("LXE_DATA_SERVER_ENABLED", "1")
+    monkeypatch.setenv("LXE_DATA_SERVER_URL", "http://127.0.0.1:8000")
+    monkeypatch.setenv("LXE_DATA_SERVER_API_KEY", "secret-token")
+    monkeypatch.setenv("LXE_DATA_SERVER_MACHINE_ID_PATH", str(tmp_path / "machine_identity.json"))
     create_agent_session(
         session_id="session-1",
         source=_source(),
@@ -140,7 +140,7 @@ def test_sync_once_builds_and_uploads_snapshot(monkeypatch, tmp_path):
         uploads.append(kwargs)
         return {"sessions_received": 1, "messages_received": 1}
 
-    monkeypatch.setattr("shared.telemetry.sync.upload_snapshot", fake_upload_snapshot)
+    monkeypatch.setattr("shared.data_server.sync.upload_snapshot", fake_upload_snapshot)
 
     result = sync_once(gateway_id="gateway-1")
 
@@ -154,9 +154,9 @@ def test_sync_once_builds_and_uploads_snapshot(monkeypatch, tmp_path):
 
 
 def test_sync_once_skips_when_enabled_but_config_missing(monkeypatch):
-    monkeypatch.setenv("TELEMETRY_ENABLED", "1")
-    monkeypatch.delenv("TELEMETRY_SERVER_URL", raising=False)
-    monkeypatch.delenv("TELEMETRY_API_KEY", raising=False)
+    monkeypatch.setenv("LXE_DATA_SERVER_ENABLED", "1")
+    monkeypatch.delenv("LXE_DATA_SERVER_URL", raising=False)
+    monkeypatch.delenv("LXE_DATA_SERVER_API_KEY", raising=False)
 
     result = sync_once(gateway_id="gateway-1")
 
@@ -166,10 +166,10 @@ def test_sync_once_skips_when_enabled_but_config_missing(monkeypatch):
 
 def test_sync_once_upload_failure_is_non_fatal(monkeypatch, tmp_path):
     _init_sqlite(monkeypatch, tmp_path)
-    monkeypatch.setenv("TELEMETRY_ENABLED", "1")
-    monkeypatch.setenv("TELEMETRY_SERVER_URL", "http://127.0.0.1:1")
-    monkeypatch.setenv("TELEMETRY_API_KEY", "secret-token")
-    monkeypatch.setenv("TELEMETRY_MACHINE_ID_PATH", str(tmp_path / "machine_identity.json"))
+    monkeypatch.setenv("LXE_DATA_SERVER_ENABLED", "1")
+    monkeypatch.setenv("LXE_DATA_SERVER_URL", "http://127.0.0.1:1")
+    monkeypatch.setenv("LXE_DATA_SERVER_API_KEY", "secret-token")
+    monkeypatch.setenv("LXE_DATA_SERVER_MACHINE_ID_PATH", str(tmp_path / "machine_identity.json"))
     create_agent_session(
         session_id="session-1",
         source=_source(),
@@ -179,7 +179,7 @@ def test_sync_once_upload_failure_is_non_fatal(monkeypatch, tmp_path):
     def fake_upload_snapshot(**_kwargs):
         raise RuntimeError("server unavailable")
 
-    monkeypatch.setattr("shared.telemetry.sync.upload_snapshot", fake_upload_snapshot)
+    monkeypatch.setattr("shared.data_server.sync.upload_snapshot", fake_upload_snapshot)
 
     result = sync_once(gateway_id="gateway-1")
 

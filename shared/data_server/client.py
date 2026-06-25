@@ -14,12 +14,12 @@ def upload_snapshot(
 ) -> dict[str, Any]:
     base_url = str(server_url or "").strip().rstrip("/")
     if not base_url:
-        raise RuntimeError("telemetry server URL is required")
+        raise RuntimeError("data server URL is required")
     if not str(api_key or "").strip():
-        raise RuntimeError("telemetry API key is required")
+        raise RuntimeError("data server API key is required")
 
     response = local_service_requests_session.post(
-        f"{base_url}/api/v1/telemetry/snapshot",
+        f"{base_url}/api/v1/agent-data/snapshots",
         headers={"Authorization": f"Bearer {api_key}"},
         json=snapshot,
         timeout=float(timeout_s),

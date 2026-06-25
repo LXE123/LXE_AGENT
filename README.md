@@ -9,7 +9,7 @@
 - FBA 业务 skill：覆盖马帮、紫鸟、物流、报关、发票和退税等本地流程。
 - 本地 Dashboard：默认运行在 `http://127.0.0.1:8765/`。
 - 会话记录：本地保存 session 统计和 JSONL 聊天记录。
-- 可选 telemetry：可上传 session/token/tool 使用量到独立统计服务器。
+- 可选数据服务同步：可上传 session/token/tool 使用量到 LXE Agent Data Server。
 
 ## 运行要求
 
@@ -52,7 +52,7 @@ LXE update
 - 飞书应用需开通 `im:message.reactions:write_only`，用于 best-effort 的 `Typing` 回复中状态；权限缺失只会影响该状态提示，不阻塞正常回复。
 - 如需 FBA 模板文件，按 `data/README.md` 准备本机业务数据。
 - 启动时默认自动打开 Dashboard；如需关闭，设置 `AGENT_DASHBOARD_OPEN_BROWSER=0`。
-- 如需上传使用统计，配置 `TELEMETRY_ENABLED`、`TELEMETRY_SERVER_URL` 和 `TELEMETRY_API_KEY`。
+- 如需上传使用统计，配置 `LXE_DATA_SERVER_ENABLED`、`LXE_DATA_SERVER_URL` 和 `LXE_DATA_SERVER_API_KEY`。
 
 ## 开发检查
 

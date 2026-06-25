@@ -15,7 +15,7 @@ from shared.logging import logger
 
 
 def machine_identity_path() -> Path:
-    configured = env_text("TELEMETRY_MACHINE_ID_PATH", "")
+    configured = env_text("LXE_DATA_SERVER_MACHINE_ID_PATH", "")
     if configured:
         return Path(configured).expanduser()
     return database_path().parent / "machine_identity.json"
@@ -27,7 +27,7 @@ def _read_machine_id(path: Path) -> str:
     try:
         payload = json.loads(path.read_text(encoding="utf-8") or "{}")
     except Exception as exc:
-        logger.warning("[Telemetry] machine identity unreadable: path=%s error=%s", path, exc)
+        logger.warning("[DataServer] machine identity unreadable: path=%s error=%s", path, exc)
         return ""
     if not isinstance(payload, dict):
         return ""
@@ -71,7 +71,7 @@ def load_or_create_machine_id(path: Path | None = None) -> str:
         return existing
     machine_id = uuid4().hex
     _write_identity(target, machine_id=machine_id)
-    logger.info("[Telemetry] created machine identity: path=%s", target)
+    logger.info("[DataServer] created machine identity: path=%s", target)
     return machine_id
 
 
