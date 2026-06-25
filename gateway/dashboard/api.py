@@ -16,6 +16,11 @@ from agent_runtime.tool_registry import ensure_all_tools_registered, get_registr
 from agent_runtime.tools.coding_tools import CODING_TOOL_NAMES
 from agent_runtime.tools.feishu_im_tools import FEISHU_IM_TOOLS
 from agent_runtime.tools.process_sessions import list_exec_session_snapshots
+from shared.connector_state import (
+    connector_payloads,
+    is_skill_enabled_by_connectors,
+    set_connector_enabled,
+)
 from shared.db.sqlite.engine import connection_scope
 from shared.db.sqlite.session_messages import load_session_messages_page
 from shared.env import upsert_project_env_values
@@ -409,7 +414,9 @@ def _is_skill_allowed_for_current_agent(manifest) -> bool:
     if not allowed_types:
         return False
     allow_all = ALL in allowed_types
-    return allow_all or str(manifest.type or "").strip() in allowed_types
+    if not (allow_all or str(manifest.type or "").strip() in allowed_types):
+        return False
+    return is_skill_enabled_by_connectors(manifest.name)
 
 
 def _skills_payload() -> list[dict[str, Any]]:
@@ -690,7 +697,7 @@ def create_dashboard_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
         allow_credentials=False,
-        allow_methods=["GET"],
+        allow_methods=["GET", "PATCH"],
         allow_headers=["*"],
     )
 
@@ -718,6 +725,22 @@ def create_dashboard_app() -> FastAPI:
     async def skills() -> dict[str, Any]:
         items = _skills_payload()
         return {"items": items, "total": len(items)}
+
+    @app.get("/api/connectors")
+    async def connectors() -> dict[str, Any]:
+        items = connector_payloads()
+        return {"items": items, "total": len(items)}
+
+    @app.patch("/api/connectors/{connector_id}")
+    async def update_connector(connector_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        safe_payload = dict(payload or {})
+        enabled = safe_payload.get("enabled")
+        if not isinstance(enabled, bool):
+            raise HTTPException(status_code=400, detail="enabled must be a boolean")
+        try:
+            return set_connector_enabled(connector_id, enabled)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="connector not found") from exc
 
     @app.get("/api/skills/{skill_name}/content")
     async def skill_content(skill_name: str) -> dict[str, Any]:

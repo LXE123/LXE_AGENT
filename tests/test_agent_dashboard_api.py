@@ -17,6 +17,7 @@ from agent_runtime.tools.process_sessions import (
 from gateway.dashboard import api as dashboard_api
 from gateway.dashboard.api import create_dashboard_app
 from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY
+from shared.connector_state import LARK_CLI_SKILL_NAMES, set_connector_enabled
 from shared.db.sqlite.agent_sessions import create_agent_session, update_agent_session
 from shared.db.sqlite.bootstrap import init_schema
 from shared.db.sqlite.engine import connection_scope
@@ -1105,6 +1106,78 @@ def test_skills_endpoint_reads_skill_manifests(dashboard_client):
     assert payload["total"] >= 1
     first = payload["items"][0]
     assert {"name", "type", "description", "enabled", "location", "references"}.issubset(first)
+
+
+def test_connectors_endpoint_defaults_enabled(dashboard_client, monkeypatch, tmp_path):
+    monkeypatch.setenv("LXE_CONNECTOR_STATE_PATH", str(tmp_path / "connector-states.local.json"))
+
+    response = dashboard_client.get("/api/connectors")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 2
+    connectors = {item["id"]: item for item in payload["items"]}
+    assert connectors["feishu"]["enabled"] is True
+    assert connectors["feishu"]["skill_count"] == len(LARK_CLI_SKILL_NAMES)
+    assert connectors["dingtalk"]["enabled"] is True
+    assert connectors["dingtalk"]["skill_names"] == ["dws"]
+
+
+def test_connectors_endpoint_patch_writes_local_state(dashboard_client, monkeypatch, tmp_path):
+    state_path = tmp_path / "connector-states.local.json"
+    monkeypatch.setenv("LXE_CONNECTOR_STATE_PATH", str(state_path))
+
+    disabled = dashboard_client.patch("/api/connectors/feishu", json={"enabled": False})
+    enabled = dashboard_client.patch("/api/connectors/feishu", json={"enabled": True})
+
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] is False
+    assert enabled.status_code == 200
+    assert enabled.json()["enabled"] is True
+    saved = json.loads(state_path.read_text(encoding="utf-8"))
+    assert "feishu" in saved["enabled"]
+    assert "feishu" in saved["everConnected"]
+    assert "feishu" not in saved["userDisabled"]
+
+
+def test_connectors_endpoint_rejects_invalid_id_or_payload(dashboard_client, monkeypatch, tmp_path):
+    monkeypatch.setenv("LXE_CONNECTOR_STATE_PATH", str(tmp_path / "connector-states.local.json"))
+
+    missing = dashboard_client.patch("/api/connectors/not-real", json={"enabled": True})
+    invalid = dashboard_client.patch("/api/connectors/feishu", json={"enabled": "yes"})
+
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "connector not found"
+    assert invalid.status_code == 400
+    assert invalid.json()["detail"] == "enabled must be a boolean"
+
+
+def test_skills_endpoint_hides_disabled_feishu_connector_skills(dashboard_client, monkeypatch, tmp_path):
+    monkeypatch.setenv("LXE_CONNECTOR_STATE_PATH", str(tmp_path / "connector-states.local.json"))
+    monkeypatch.setattr(skill_index_module, "_SKILL_INDEX", None)
+    set_connector_enabled("feishu", False)
+
+    response = dashboard_client.get("/api/skills")
+
+    assert response.status_code == 200
+    names = {item["name"] for item in response.json()["items"]}
+    assert not any(name.startswith("lark-") for name in names)
+    assert "feishu-im-read" in names
+    assert dashboard_client.get("/api/skills/lark-im/content").status_code == 404
+    assert dashboard_client.get("/api/skills/feishu-im-read/content").status_code == 200
+
+
+def test_skills_endpoint_hides_disabled_dingtalk_connector_skill(dashboard_client, monkeypatch, tmp_path):
+    monkeypatch.setenv("LXE_CONNECTOR_STATE_PATH", str(tmp_path / "connector-states.local.json"))
+    monkeypatch.setattr(skill_index_module, "_SKILL_INDEX", None)
+    set_connector_enabled("dingtalk", False)
+
+    response = dashboard_client.get("/api/skills")
+
+    assert response.status_code == 200
+    names = {item["name"] for item in response.json()["items"]}
+    assert "dws" not in names
+    assert dashboard_client.get("/api/skills/dws/content").status_code == 404
 
 
 def test_skills_endpoint_filters_to_fba_agent_skill_types(dashboard_client, monkeypatch, tmp_path):

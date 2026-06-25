@@ -201,7 +201,9 @@ def test_resolve_permission_user_id_is_hard_cut_to_union_id() -> None:
     assert resolve_permission_user_id(SimpleNamespace(user_id=USER_LYX, raw_data={"sender_user_id": USER_LYX})) == ""
 
 
-def test_runtime_filters_available_skills_by_bot() -> None:
+def test_runtime_filters_available_skills_by_bot(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("LXE_CONNECTOR_STATE_PATH", str(tmp_path / "connector-states.local.json"))
+
     index = load_skill_index(force_reload=True)
     manifest_by_name = {manifest.name: manifest for manifest in index.all()}
     all_skill_names = {item.name for item in index.queue(allowed_types={ALL})}
