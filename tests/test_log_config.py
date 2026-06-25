@@ -6,10 +6,10 @@ from shared.llm.transports.wire_trace import load_wire_trace_config
 from shared.log_config import local_logs_enabled
 
 
-def test_local_logs_enabled_defaults_to_true(monkeypatch) -> None:
+def test_local_logs_enabled_defaults_to_false(monkeypatch) -> None:
     monkeypatch.delenv("LOCAL_LOGS_ENABLED", raising=False)
 
-    assert local_logs_enabled() is True
+    assert local_logs_enabled() is False
 
 
 def test_local_logs_enabled_false_values(monkeypatch) -> None:
@@ -33,6 +33,13 @@ def test_stream_trace_disabled_when_local_logs_disabled(monkeypatch) -> None:
     assert load_stream_logging_config().trace_enabled is False
 
 
+def test_stream_trace_disabled_when_local_logs_unset(monkeypatch) -> None:
+    monkeypatch.delenv("LOCAL_LOGS_ENABLED", raising=False)
+    monkeypatch.setenv("AGENT_STREAM_TRACE_ENABLED", "1")
+
+    assert load_stream_logging_config().trace_enabled is False
+
+
 def test_stream_trace_respects_feature_switch_when_local_logs_enabled(monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
     monkeypatch.setenv("AGENT_STREAM_TRACE_ENABLED", "0")
@@ -40,8 +47,22 @@ def test_stream_trace_respects_feature_switch_when_local_logs_enabled(monkeypatc
     assert load_stream_logging_config().trace_enabled is False
 
 
+def test_stream_trace_enabled_when_local_logs_and_feature_switch_enabled(monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
+    monkeypatch.setenv("AGENT_STREAM_TRACE_ENABLED", "1")
+
+    assert load_stream_logging_config().trace_enabled is True
+
+
 def test_wire_trace_disabled_when_local_logs_disabled(monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_LOGS_ENABLED", "0")
+    monkeypatch.setenv("AGENT_SSE_WIRE_TRACE_ENABLED", "1")
+
+    assert load_wire_trace_config().enabled is False
+
+
+def test_wire_trace_disabled_when_local_logs_unset(monkeypatch) -> None:
+    monkeypatch.delenv("LOCAL_LOGS_ENABLED", raising=False)
     monkeypatch.setenv("AGENT_SSE_WIRE_TRACE_ENABLED", "1")
 
     assert load_wire_trace_config().enabled is False
@@ -52,6 +73,13 @@ def test_wire_trace_respects_feature_switch_when_local_logs_enabled(monkeypatch)
     monkeypatch.setenv("AGENT_SSE_WIRE_TRACE_ENABLED", "0")
 
     assert load_wire_trace_config().enabled is False
+
+
+def test_wire_trace_enabled_when_local_logs_and_feature_switch_enabled(monkeypatch) -> None:
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
+    monkeypatch.setenv("AGENT_SSE_WIRE_TRACE_ENABLED", "1")
+
+    assert load_wire_trace_config().enabled is True
 
 
 def test_feishu_im_raw_message_dump_respects_global_local_logs_switch(monkeypatch, tmp_path) -> None:
