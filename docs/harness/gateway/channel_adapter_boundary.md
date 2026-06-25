@@ -83,6 +83,7 @@ Feishu adapter 会根据 `response_route_id` 读取 route context，再决定把
 - 探测 bot identity，用于群聊 at 过滤。
 - 对入站消息做去重、最大年龄过滤、消息解析、资源解析和引用消息注入。
 - 把平台消息转成 `InboundEvent`。
+- 消费 Feishu reaction created/deleted 事件，当前只用于吞掉 typing indicator 产生的 SDK 回调噪音，不转成用户输入。
 - 把 `OutboundRequest` 转成 Feishu CardKit、markdown card、文件发送或 typing indicator。
 - 维护 stream card 状态，处理 stream reopening、finalized 和 stale frame。
 

@@ -43,6 +43,35 @@ def _ctx(extra_data: dict[str, Any] | None = None) -> SimpleNamespace:
     )
 
 
+class _FakeDispatcherBuilder:
+    def __init__(self) -> None:
+        self.registrations: list[tuple[str, Any]] = []
+
+    def register_p2_im_message_receive_v1(self, handler: Any) -> "_FakeDispatcherBuilder":
+        self.registrations.append(("message_receive", handler))
+        return self
+
+    def register_p2_im_message_reaction_created_v1(self, handler: Any) -> "_FakeDispatcherBuilder":
+        self.registrations.append(("reaction_created", handler))
+        return self
+
+    def register_p2_im_message_reaction_deleted_v1(self, handler: Any) -> "_FakeDispatcherBuilder":
+        self.registrations.append(("reaction_deleted", handler))
+        return self
+
+    def build(self) -> SimpleNamespace:
+        return SimpleNamespace(registrations=list(self.registrations))
+
+
+def _reaction_event(emoji_type: str = "Typing") -> SimpleNamespace:
+    return SimpleNamespace(
+        event=SimpleNamespace(
+            message_id="msg-source",
+            reaction_type=SimpleNamespace(emoji_type=emoji_type),
+        )
+    )
+
+
 def test_typing_indicator_start_adds_reaction_and_saves_state(monkeypatch) -> None:
     patches: list[tuple[str, dict[str, str]]] = []
 
@@ -238,3 +267,51 @@ def test_gateway_emitter_sends_typing_indicator_outbound(monkeypatch) -> None:
     assert request.session_id == "session-1"
     assert request.response_route_id == "route-1"
     assert request.event_id == "emit-1"
+
+
+def test_feishu_gateway_registers_reaction_event_processors() -> None:
+    adapter = FeishuStreamAdapter.__new__(FeishuStreamAdapter)
+    builder = _FakeDispatcherBuilder()
+    fake_lark = SimpleNamespace(
+        EventDispatcherHandler=SimpleNamespace(builder=lambda *_args: builder),
+    )
+
+    handler = adapter._build_event_dispatcher_handler(fake_lark)
+
+    assert [name for name, _handler in builder.registrations] == [
+        "message_receive",
+        "reaction_created",
+        "reaction_deleted",
+    ]
+    assert handler.registrations == builder.registrations
+    assert all(callable(registered_handler) for _name, registered_handler in builder.registrations)
+
+
+def test_feishu_gateway_ignores_typing_reaction_created() -> None:
+    adapter = FeishuStreamAdapter.__new__(FeishuStreamAdapter)
+    emitted: list[Any] = []
+    adapter.emit = emitted.append  # type: ignore[method-assign]
+
+    adapter._build_reaction_created_handler(object)(_reaction_event("Typing"))
+
+    assert emitted == []
+
+
+def test_feishu_gateway_ignores_non_typing_reaction_created() -> None:
+    adapter = FeishuStreamAdapter.__new__(FeishuStreamAdapter)
+    emitted: list[Any] = []
+    adapter.emit = emitted.append  # type: ignore[method-assign]
+
+    adapter._build_reaction_created_handler(object)(_reaction_event("THUMBSUP"))
+
+    assert emitted == []
+
+
+def test_feishu_gateway_ignores_reaction_deleted() -> None:
+    adapter = FeishuStreamAdapter.__new__(FeishuStreamAdapter)
+    emitted: list[Any] = []
+    adapter.emit = emitted.append  # type: ignore[method-assign]
+
+    adapter._build_reaction_deleted_handler(object)(_reaction_event("Typing"))
+
+    assert emitted == []
