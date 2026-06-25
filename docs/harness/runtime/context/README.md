@@ -27,6 +27,7 @@ Context management 被拆成几层共同语言：state 和 canonical message 负
 ## 阅读顺序
 
 1. [Canonical Message 与 Context State](canonical_message.md)：当前 `state_data` shape、message roles、content blocks、JSONL storage 和 provider message adaptation。
-2. [Context Assembly](context_assembly.md)：每个 turn 如何组装 system prompt、messages 和 tool schemas。
-3. [Tool Schema](../tools/tool_schema.md)：内部 canonical `ToolSchema`、registry 输出和 Anthropic schema adaptation。
-4. [上下文裁剪与压缩实现细节](context_pruning_compaction.md)：历史图片裁剪、tool result prune、compaction、history limit 和 overflow recovery。
+2. [Context Persistence](context_persistence.md)：本轮临时上下文如何在 turn 边界变成长期 message history。
+3. [Context Assembly](context_assembly.md)：每个 turn 如何组装 system prompt、messages 和 tool schemas。
+4. [Tool Schema](../tools/tool_schema.md)：内部 canonical `ToolSchema`、registry 输出和 Anthropic schema adaptation。
+5. [上下文裁剪与压缩实现细节](context_pruning_compaction.md)：历史图片裁剪、tool result prune、compaction、history limit 和 overflow recovery。

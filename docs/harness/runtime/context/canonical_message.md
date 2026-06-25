@@ -59,6 +59,8 @@ session_messages/<session_id>.jsonl
 
 `save_session_messages()` 写入前会调用 `update_context_state()` 清洗 messages，再逐行写 JSON。`load_session_messages()` 读取 JSONL 后也会重新清洗，非法 role 或非法 block 不会进入最终 context。
 
+上下文如何从本轮临时消息进入长期 history，见 [Context Persistence](context_persistence.md)。
+
 ## Message Roles
 
 canonical message 允许四种 role：

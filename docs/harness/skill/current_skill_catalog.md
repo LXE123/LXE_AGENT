@@ -2,19 +2,21 @@
 
 状态：Current
 
-本文按当前 runtime 实际加载的 [`skills/*/SKILL.md`](../../../skills) 整理，不复制完整 prompt。事实来源是 [`agent_runtime.skill_index`](../../../agent_runtime/skill_index.py)、[`agent_runtime.runtime`](../../../agent_runtime/runtime.py)、[`config/permission_policy.yaml`](../../../config/permission_policy.yaml) 和各 skill front matter。
+本文按当前 runtime 实际加载的 [`skills/**/SKILL.md`](../../../skills) 整理，不复制完整 prompt。事实来源是 [`agent_runtime.skill_index`](../../../agent_runtime/skill_index.py)、[`agent_runtime.runtime`](../../../agent_runtime/runtime.py)、[`config/permission_policy.yaml`](../../../config/permission_policy.yaml) 和各 skill front matter。
 
 ## 加载和可见性
 
-当前 `skill_index` 加载 22 个运行中 skill：
+当前 `skill_index` 加载 51 个运行中 skill：
 
 | Type | 数量 | 可见 bot |
 | --- | ---: | --- |
 | `amazon_fba` | 12 | `AMAZON_FBA`、`LXE_CLAW` |
 | `amazon_replenish` | 9 | 备货 bot、`LXE_CLAW` |
-| `default` | 1 | `AMAZON_FBA`、备货 bot、`LXE_CLAW` |
+| `default` | 30 | `AMAZON_FBA`、备货 bot、`LXE_CLAW` |
 
 `replenishment-amazon-fba-inventory-snapshot` 目前只有 `SKILL.hidden.md`，不会被 `skill_index` 加载，不属于当前运行中 skill。
+
+Feishu/Lark CLI 与 DingTalk Workspace CLI 还有本地 connector switch：静态 `skill_index` 仍加载这些 skill，但 [`agent_runtime.runtime`](../../../agent_runtime/runtime.py) 和 dashboard API 会根据 `config/connector-states.local.json` 动态隐藏 disabled connector 对应 skill。当前 v1 不安装或卸载 CLI，也不写入或清理认证数据。
 
 ## Workflow 摘要
 
@@ -86,4 +88,40 @@ Replenishment 主线：
 
 | Skill | 用途 | 触发场景 | 主要输入/输出 | Runtime source |
 | --- | --- | --- | --- | --- |
-| `feishu-im-read` | 读取飞书 IM 历史消息、话题回复和图片/文件资源。 | 用户需要 bot 可见群聊里的历史消息、线程回复或媒体文件。 | 输入飞书会话/消息上下文；输出读取结果或下载资源。 | [SKILL.md](../../../skills/feishu-im-read/SKILL.md) |
+| `feishu-im-read` | 只读查看 bot 可见飞书群聊历史、话题回复和图片/文件资源。 | 用户需要当前或指定 bot 已加入群聊里的历史消息、线程回复或媒体文件；发送、跨群搜索和群管理交给 `lark-im`。 | 输入飞书会话/消息上下文；输出读取结果或下载资源。 | [SKILL.md](../../../skills/feishu-im-read/SKILL.md) |
+| `minimax-xlsx` | 创建、读取、编辑、修复和验证通用 Excel/CSV/TSV 表格文件。 | 用户的主要输入或交付物是表格文件，且没有更具体的 FBA 或备货业务 skill 适用。 | 输入 Excel/CSV/TSV 或建表需求；输出分析结果、修复结果或新 spreadsheet 文件。 | [SKILL.md](../../../skills/minimax-xlsx/SKILL.md) |
+| `dws` | 通过 DingTalk Workspace CLI 操作钉钉消息、通讯录、日程、待办、审批、文档、云盘、AI 表格、邮箱和知识库等。 | 用户明确要求操作钉钉工作台能力，且不是更具体的 FBA 或备货业务请求。 | 输入钉钉任务上下文、URL、ID 或文件；输出 dws JSON 结果、导出文件或操作状态。 | [SKILL.md](../../../skills/dws/SKILL.md) |
+
+### Feishu/Lark CLI Default Skills
+
+以下 27 个 skill 来自官方 `larksuite/cli` `v1.0.57` skill pack，统一通过外部 `lark-cli` 操作飞书/Lark 工作台能力；当请求属于 FBA 或备货业务时，仍优先使用对应业务 skill。它们受 `feishu` connector switch 控制；关闭后不进入 `/api/skills` 或 agent prompt，但 `feishu-im-read` 不受影响。
+
+| Skill | 用途 | Runtime source |
+| --- | --- | --- |
+| `lark-approval` | 审批相关操作。 | [SKILL.md](../../../skills/larksuite-cli/lark-approval/SKILL.md) |
+| `lark-apps` | 飞书应用开发、云开发和应用资源管理。 | [SKILL.md](../../../skills/larksuite-cli/lark-apps/SKILL.md) |
+| `lark-attendance` | 考勤数据查询与管理。 | [SKILL.md](../../../skills/larksuite-cli/lark-attendance/SKILL.md) |
+| `lark-base` | 多维表格/Base 数据、字段、视图、表单、仪表盘和流程。 | [SKILL.md](../../../skills/larksuite-cli/lark-base/SKILL.md) |
+| `lark-calendar` | 日历、日程、会议室、空闲时间和会议安排。 | [SKILL.md](../../../skills/larksuite-cli/lark-calendar/SKILL.md) |
+| `lark-contact` | 通讯录用户和组织信息查询。 | [SKILL.md](../../../skills/larksuite-cli/lark-contact/SKILL.md) |
+| `lark-doc` | 飞书文档创建、读取、更新、媒体和格式处理。 | [SKILL.md](../../../skills/larksuite-cli/lark-doc/SKILL.md) |
+| `lark-drive` | 云文档/云盘文件、权限、评论、上传下载和知识整理流程。 | [SKILL.md](../../../skills/larksuite-cli/lark-drive/SKILL.md) |
+| `lark-event` | 飞书事件与订阅相关能力。 | [SKILL.md](../../../skills/larksuite-cli/lark-event/SKILL.md) |
+| `lark-im` | 官方 CLI 的 IM 收发消息、搜索、群管理、资源下载、反应、Feed 和身份切换。 | [SKILL.md](../../../skills/larksuite-cli/lark-im/SKILL.md) |
+| `lark-mail` | 飞书邮箱收发、草稿、回复、转发、模板和附件。 | [SKILL.md](../../../skills/larksuite-cli/lark-mail/SKILL.md) |
+| `lark-markdown` | Markdown 与飞书文档互转、创建、覆盖和补丁更新。 | [SKILL.md](../../../skills/larksuite-cli/lark-markdown/SKILL.md) |
+| `lark-minutes` | 妙记/会议纪要搜索、摘要、下载和待办提取。 | [SKILL.md](../../../skills/larksuite-cli/lark-minutes/SKILL.md) |
+| `lark-note` | 飞书笔记相关操作。 | [SKILL.md](../../../skills/larksuite-cli/lark-note/SKILL.md) |
+| `lark-okr` | OKR 查询和管理。 | [SKILL.md](../../../skills/larksuite-cli/lark-okr/SKILL.md) |
+| `lark-openapi-explorer` | 开放平台 API 查询、schema 和调试辅助。 | [SKILL.md](../../../skills/larksuite-cli/lark-openapi-explorer/SKILL.md) |
+| `lark-shared` | `lark-cli` 配置、认证、身份、权限错误和更新规则。 | [SKILL.md](../../../skills/larksuite-cli/lark-shared/SKILL.md) |
+| `lark-sheets` | 在线电子表格读取、写入、格式、公式和数据处理。 | [SKILL.md](../../../skills/larksuite-cli/lark-sheets/SKILL.md) |
+| `lark-skill-maker` | 生成和维护飞书 CLI skill 资料。 | [SKILL.md](../../../skills/larksuite-cli/lark-skill-maker/SKILL.md) |
+| `lark-slides` | 飞书幻灯片创建、模板、图标和 XML 质量检查。 | [SKILL.md](../../../skills/larksuite-cli/lark-slides/SKILL.md) |
+| `lark-task` | 飞书任务/待办查询和管理。 | [SKILL.md](../../../skills/larksuite-cli/lark-task/SKILL.md) |
+| `lark-vc` | 视频会议相关操作。 | [SKILL.md](../../../skills/larksuite-cli/lark-vc/SKILL.md) |
+| `lark-vc-agent` | 视频会议 agent 场景能力。 | [SKILL.md](../../../skills/larksuite-cli/lark-vc-agent/SKILL.md) |
+| `lark-whiteboard` | 飞书白板相关操作。 | [SKILL.md](../../../skills/larksuite-cli/lark-whiteboard/SKILL.md) |
+| `lark-wiki` | 飞书知识库空间、节点和文档路由。 | [SKILL.md](../../../skills/larksuite-cli/lark-wiki/SKILL.md) |
+| `lark-workflow-meeting-summary` | 会议总结工作流。 | [SKILL.md](../../../skills/larksuite-cli/lark-workflow-meeting-summary/SKILL.md) |
+| `lark-workflow-standup-report` | 站会/日报工作流。 | [SKILL.md](../../../skills/larksuite-cli/lark-workflow-standup-report/SKILL.md) |
