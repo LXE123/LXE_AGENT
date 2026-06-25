@@ -165,11 +165,29 @@ def save_session_messages(session_id: str, messages: Any) -> list[dict[str, Any]
     return cleaned
 
 
+def append_session_message(session_id: str, message: Any) -> dict[str, Any] | None:
+    safe_session_id = _clean_session_id(session_id)
+    cleaned = _clean_messages([message])
+    if not cleaned:
+        return None
+
+    target_dir = session_messages_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / f"{safe_session_id}.jsonl"
+    payload = sanitize_json_for_storage(cleaned[0])
+
+    with target_path.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        handle.write("\n")
+    return cleaned[0]
+
+
 def clear_session_messages(session_id: str) -> list[dict[str, Any]]:
     return save_session_messages(session_id, [])
 
 
 __all__ = [
+    "append_session_message",
     "clear_session_messages",
     "load_session_messages",
     "load_session_messages_page",

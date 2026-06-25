@@ -32,7 +32,12 @@ from ._agent_storage import (
     utc_now,
 )
 from .engine import connection_scope
-from .session_messages import clear_session_messages, load_session_messages, save_session_messages
+from .session_messages import (
+    append_session_message,
+    clear_session_messages,
+    load_session_messages,
+    save_session_messages,
+)
 
 
 MAX_PENDING_EVENTS = 10
@@ -582,6 +587,29 @@ def update_agent_session(
         return _to_state(record, conn=conn)
 
 
+def append_agent_session_message(
+    session_id: str,
+    message: dict[str, Any] | None,
+) -> Optional[AgentSessionState]:
+    if not session_id:
+        return None
+
+    with connection_scope() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        record = _load_session_record(conn, session_id)
+        if record is None:
+            return None
+
+        appended = append_session_message(record.session_id, dict(message or {}))
+        if appended is None:
+            return _to_state(record, conn=conn)
+
+        record.message_count = len(load_session_messages(record.session_id))
+        record.last_active_at = _now_ts()
+        _save_session_record(conn, record)
+        return _to_state(record, conn=conn)
+
+
 def clear_agent_session_memory(
     session_id: str,
     *,
@@ -800,6 +828,7 @@ def reset_agent_session_context(
 
 
 __all__ = [
+    "append_agent_session_message",
     "append_agent_session_pending_event",
     "cancel_agent_session",
     "clear_agent_session_memory",
