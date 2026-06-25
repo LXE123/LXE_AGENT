@@ -152,19 +152,18 @@ runtime 会把本 step 中所有工具的观察结果整理成一条工具结果
 
 
 
-我现在要再加一个阶段，step 中的上下文管理。目前 turn 内对上下文的管理还是太粗糙，已经出现了爆掉上下文窗口的情况。（最高一次到达大概 50 万 tokens，是 25 万上限的两倍。）
-我要引入两个新的机制：
-1. 对 tool_result 的裁剪。目前 agent loop 中，只要大模型返回 tool_use 类型的文本，那么当前 step 就一定会执行 tool。而 tool 的 result 的大小是不确定的，那么就正好在这个时间段做好管理准备。
-触发时间段：tool result 回来后、下一次模型请求前。
-第一步：检查 tool_result。制作一个标准，tool result 不能超过 10000 token。如果超过了，就要进行一些特殊处理。具体如下：
-```text
-把预算按 byte 一分为二：left = budget / 2，right = budget - left。
-保留开头最多 left bytes，保留结尾最多 right bytes。
-中间删除，并插入 marker：byte 模式：…N chars truncated…
-token 模式：…N tokens truncated…
+## Step 内上下文管理
 
-UTF-8 会按字符边界调整，不会切坏 emoji/中文字符。
-它不是按行截，也不是按真实 tokenizer 截；token 是 ceil(bytes / 4) 的近似。
-```
+step 内上下文管理负责在每次工具返回后、下一次模型请求前降低上下文爆窗风险。
 
-第二步：在给供应商发送请求前，检查目前 system 和 messages 和 tool schema 加起来的 token 数量，如果超过 90 % 进入压缩处理。
+### Tool Result 裁剪
+
+runtime 会在 tool result 写入上下文前检查结果大小。单个 tool result 的预算上限是 10000 token，估算方式沿用本地预算模型：`ceil(utf8_bytes / 4)`。
+
+超过预算时，runtime 按 byte 预算保留头尾两段：`left = budget / 2`，`right = budget - left`。中间内容会替换为 truncation marker；裁剪会按 UTF-8 字符边界调整，不会切坏中文或 emoji。这个过程不是按行裁剪，也不等同真实 tokenizer，只用于运行时保护。
+
+### Provider 请求前预算
+
+发送给供应商前，runtime 会合并估算 `system + messages + tool schemas`。当预计用量超过上下文窗口 90% 时，runtime 会先触发历史压缩，再重新清理 provider messages。
+
+如果压缩后仍超过硬上限，runtime 不再继续发起模型请求，而是返回 context overflow 错误，让 turn 以可解释的失败状态收束。
