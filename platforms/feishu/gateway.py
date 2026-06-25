@@ -42,6 +42,7 @@ _RAW_EVENT_DUMP_MAX_DEPTH = 8
 _FEISHU_INBOUND_DEDUP_TTL_SECONDS = 12 * 60 * 60
 _FEISHU_INBOUND_MAX_AGE_SECONDS = 5 * 60
 _REDACTED_THINKING_NOTICE = "部分思考已加密，无法展示"
+_TYPING_REACTION_EMOJI_TYPE = "Typing"
 _StreamStatus = Literal["streaming", "reopening", "dead", "finalized"]
 
 
@@ -61,6 +62,12 @@ def _parse_feishu_millis(value: Any) -> int | None:
         return int(text)
     except Exception:
         return None
+
+
+def _get_field(value: Any, key: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
 
 
 def _feishu_raw_event_dump_enabled() -> bool:
@@ -813,13 +820,8 @@ class FeishuStreamAdapter:
         try:
             self._bind_lark_ws_client_loop(loop)
             import lark_oapi as lark
-            from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 
-            handler = (
-                lark.EventDispatcherHandler.builder("", "")
-                .register_p2_im_message_receive_v1(self._build_message_handler(P2ImMessageReceiveV1))
-                .build()
-            )
+            handler = self._build_event_dispatcher_handler(lark)
             self._client = lark.ws.Client(
                 FEISHU_APP_ID,
                 FEISHU_APP_SECRET,
@@ -877,6 +879,25 @@ class FeishuStreamAdapter:
     def _bind_lark_ws_client_loop(loop: asyncio.AbstractEventLoop) -> None:
         client_module = importlib.import_module("lark_oapi.ws.client")
         setattr(client_module, "loop", loop)
+
+    def _build_event_dispatcher_handler(self, lark):
+        from lark_oapi.api.im.v1 import (
+            P2ImMessageReactionCreatedV1,
+            P2ImMessageReactionDeletedV1,
+            P2ImMessageReceiveV1,
+        )
+
+        return (
+            lark.EventDispatcherHandler.builder("", "")
+            .register_p2_im_message_receive_v1(self._build_message_handler(P2ImMessageReceiveV1))
+            .register_p2_im_message_reaction_created_v1(
+                self._build_reaction_created_handler(P2ImMessageReactionCreatedV1)
+            )
+            .register_p2_im_message_reaction_deleted_v1(
+                self._build_reaction_deleted_handler(P2ImMessageReactionDeletedV1)
+            )
+            .build()
+        )
 
     def _clear_runtime_handles(
         self,
@@ -960,6 +981,50 @@ class FeishuStreamAdapter:
             return False
 
         return True
+
+    def _build_reaction_created_handler(self, _event_type):
+        def _handle(data) -> None:
+            try:
+                emoji_type = self._reaction_emoji_type(data)
+                message_id = self._reaction_message_id(data)
+                if emoji_type == _TYPING_REACTION_EMOJI_TYPE:
+                    logger.debug("[Feishu] ignore Typing reaction created: message_id=%s", message_id or "<empty>")
+                    return
+                logger.debug(
+                    "[Feishu] ignore reaction created event: message_id=%s emoji_type=%s",
+                    message_id or "<empty>",
+                    emoji_type or "<empty>",
+                )
+            except Exception as exc:
+                logger.debug("[Feishu] reaction created handler ignored error: %s", exc, exc_info=True)
+
+        return _handle
+
+    def _build_reaction_deleted_handler(self, _event_type):
+        def _handle(data) -> None:
+            try:
+                emoji_type = self._reaction_emoji_type(data)
+                message_id = self._reaction_message_id(data)
+                logger.debug(
+                    "[Feishu] ignore reaction deleted event: message_id=%s emoji_type=%s",
+                    message_id or "<empty>",
+                    emoji_type or "<empty>",
+                )
+            except Exception as exc:
+                logger.debug("[Feishu] reaction deleted handler ignored error: %s", exc, exc_info=True)
+
+        return _handle
+
+    @staticmethod
+    def _reaction_message_id(data: Any) -> str:
+        event = _get_field(data, "event")
+        return str(_get_field(event, "message_id") or "").strip()
+
+    @staticmethod
+    def _reaction_emoji_type(data: Any) -> str:
+        event = _get_field(data, "event")
+        reaction_type = _get_field(event, "reaction_type")
+        return str(_get_field(reaction_type, "emoji_type") or "").strip()
 
     def _build_message_handler(self, _event_type):
         def _handle(data) -> None:

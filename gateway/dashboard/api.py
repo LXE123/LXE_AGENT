@@ -23,7 +23,7 @@ from shared.connector_state import (
 )
 from shared.db.sqlite.engine import connection_scope
 from shared.db.sqlite.session_messages import load_session_messages_page
-from shared.env import upsert_project_env_values
+from shared.env import upsert_project_local_config_values
 from shared.llm.agent_planner import agent_planner_selection_options
 from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import resolve_model_capabilities
@@ -210,7 +210,7 @@ def _set_current_thinking_level(level: str) -> dict[str, Any]:
         _THINKING_ENABLED_ENV: "0" if normalized_level == "off" else "1",
         _THINKING_EFFORT_ENV: enabled_level if normalized_level == "off" else normalized_level,
     }
-    upsert_project_env_values(env_values)
+    upsert_project_local_config_values(env_values)
 
     os.environ.update(env_values)
     setattr(runtime_settings, _THINKING_ENABLED_ENV, normalized_level != "off")
@@ -250,7 +250,7 @@ def _set_current_model(provider: str, model: str = "") -> dict[str, Any]:
         _THINKING_ENABLED_ENV: "1" if thinking_enabled else "0",
         _THINKING_EFFORT_ENV: thinking_effort,
     }
-    upsert_project_env_values(env_values)
+    upsert_project_local_config_values(env_values)
 
     os.environ.update(env_values)
     setattr(runtime_settings, _LLM_PROVIDER_ENV, provider_name)

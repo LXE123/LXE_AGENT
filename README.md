@@ -16,7 +16,7 @@
 - Python 固定使用 `3.12.10`，由 `uv` 管理。
 - Windows 一键安装脚本会准备 uv、Python、依赖、Playwright Chromium 和 WebUI。
 - macOS 可按 `docs/py31210.md` 手工跑通开发环境。
-- 真实 `.env`、业务 Excel 模板和本地数据库不提交 Git。
+- 真实 `.env`、本机 `.env.local`、业务 Excel 模板和本地数据库不提交 Git。
 
 ## 快速安装
 
@@ -48,7 +48,9 @@ LXE update
 
 ## 本地配置
 
-- 从 `.env.example` 准备本机 `.env`，填入飞书、LLM、马帮、紫鸟等真实配置。
+- `config/runtime.env` 保存随 Git 分发的非敏感默认运行配置。
+- 从 `.env.example` 准备本机 `.env`，只填入飞书、LLM、马帮、紫鸟等敏感或 private 配置。
+- 如需覆盖本机非敏感运行配置，写入 `.env.local`；Dashboard 模型/思考模式切换也会写入这个文件。
 - 飞书应用需开通 `im:message.reactions:write_only`，用于 best-effort 的 `Typing` 回复中状态；权限缺失只会影响该状态提示，不阻塞正常回复。
 - 如需 FBA 模板文件，按 `data/README.md` 准备本机业务数据。
 - 启动时默认自动打开 Dashboard；如需关闭，设置 `AGENT_DASHBOARD_OPEN_BROWSER=0`。

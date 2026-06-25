@@ -108,7 +108,7 @@ def warn(message: str) -> None:
 root = Path.cwd()
 
 if not (root / ".env").is_file():
-    warn("Optional .env is missing; runtime will rely on system environment variables. LXE start may fail if required values are not configured.")
+    warn("Optional .env is missing; runtime will rely on system environment variables for secret/private values. LXE start may fail if required values are not configured.")
 
 try:
     from platforms.feishu.config import feishu_missing_required_config
@@ -191,6 +191,7 @@ $powershell = Resolve-PowerShell
 Require-Path (Join-Path $ProjectRoot "pyproject.toml")
 Require-Path (Join-Path $ProjectRoot "uv.lock")
 Require-Path (Join-Path $ProjectRoot ".env.example")
+Require-Path (Join-Path $ProjectRoot "config\runtime.env")
 
 Warn-LocalBusinessDataFile "data\customs_declaration\custom_declaration_documents.xlsx"
 Warn-LocalBusinessDataFile "data\export_tax\export_tax_products.xlsx"

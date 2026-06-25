@@ -15,6 +15,14 @@ def project_env_path(path: str | Path | None = None) -> Path:
     return Path(path) if path is not None else _project_root() / ".env"
 
 
+def project_local_config_path(path: str | Path | None = None) -> Path:
+    return Path(path) if path is not None else _project_root() / ".env.local"
+
+
+def project_runtime_config_path(path: str | Path | None = None) -> Path:
+    return Path(path) if path is not None else _project_root() / "config" / "runtime.env"
+
+
 def _unquote_env_value(value: str) -> str:
     text = str(value or "").strip()
     if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
@@ -24,17 +32,11 @@ def _unquote_env_value(value: str) -> str:
     return text
 
 
-def load_project_env(path: str | Path | None = None) -> None:
-    global _ENV_LOADED
-    if _ENV_LOADED:
-        return
-    _ENV_LOADED = True
-
-    env_path = project_env_path(path)
-    if not env_path.exists():
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
         return
 
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
@@ -44,11 +46,39 @@ def load_project_env(path: str | Path | None = None) -> None:
             continue
         raw_name, raw_value = line.split("=", 1)
         name = raw_name.strip()
-        if not name or not name.replace("_", "").isalnum() or name[0].isdigit():
+        if not _valid_env_name(name):
             continue
         if name in os.environ:
             continue
         os.environ[name] = _unquote_env_value(raw_value)
+
+
+def load_project_env(
+    path: str | Path | None = None,
+    *,
+    local_path: str | Path | None = None,
+    runtime_path: str | Path | None = None,
+) -> None:
+    global _ENV_LOADED
+    if _ENV_LOADED:
+        return
+    _ENV_LOADED = True
+
+    env_path = project_env_path(path)
+    resolved_local_path = (
+        project_local_config_path(local_path)
+        if local_path is not None or path is None
+        else env_path.with_name(".env.local")
+    )
+    resolved_runtime_path = (
+        project_runtime_config_path(runtime_path)
+        if runtime_path is not None or path is None
+        else env_path.parent / "config" / "runtime.env"
+    )
+
+    _load_env_file(env_path)
+    _load_env_file(resolved_local_path)
+    _load_env_file(resolved_runtime_path)
 
 
 def _valid_env_name(name: str) -> bool:
@@ -72,8 +102,7 @@ def _assignment_name(line: str) -> tuple[str, bool] | None:
     return name, export_prefix
 
 
-def upsert_project_env_values(values: dict[str, str], path: str | Path | None = None) -> None:
-    env_path = project_env_path(path)
+def _upsert_env_values(values: dict[str, str], path: Path) -> None:
     pending: dict[str, str] = {}
     for raw_name, raw_value in dict(values or {}).items():
         name = str(raw_name or "").strip()
@@ -84,7 +113,7 @@ def upsert_project_env_values(values: dict[str, str], path: str | Path | None = 
             raise ValueError(f"Invalid env value for {name}: newlines are not supported")
         pending[name] = value
 
-    lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     updated_lines: list[str] = []
     for line in lines:
         assignment = _assignment_name(line)
@@ -101,8 +130,23 @@ def upsert_project_env_values(values: dict[str, str], path: str | Path | None = 
     for name, value in pending.items():
         updated_lines.append(f"{name}={value}")
 
-    env_path.parent.mkdir(parents=True, exist_ok=True)
-    env_path.write_text("\n".join(updated_lines).rstrip("\n") + "\n", encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(updated_lines).rstrip("\n") + "\n", encoding="utf-8")
 
 
-__all__ = ["load_project_env", "project_env_path", "upsert_project_env_values"]
+def upsert_project_env_values(values: dict[str, str], path: str | Path | None = None) -> None:
+    _upsert_env_values(values, project_env_path(path))
+
+
+def upsert_project_local_config_values(values: dict[str, str], path: str | Path | None = None) -> None:
+    _upsert_env_values(values, project_local_config_path(path))
+
+
+__all__ = [
+    "load_project_env",
+    "project_env_path",
+    "project_local_config_path",
+    "project_runtime_config_path",
+    "upsert_project_env_values",
+    "upsert_project_local_config_values",
+]
