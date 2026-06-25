@@ -118,6 +118,12 @@ function Invoke-LxeStart {
     Exit-LxeNativeCommand
 }
 
+function Invoke-LxeStop {
+    Set-Location -LiteralPath `$LxeRoot
+    & `$UvPath run --frozen python .\main.py stop
+    Exit-LxeNativeCommand
+}
+
 function Invoke-LxeDoctor {
     Set-Location -LiteralPath `$LxeRoot
     & powershell -ExecutionPolicy Bypass -File .\scripts\doctor.ps1
@@ -137,10 +143,11 @@ if (`$args.Count -gt 0) {
 
 switch (`$Command.ToLowerInvariant()) {
     "start" { Invoke-LxeStart }
+    "stop" { Invoke-LxeStop }
     "doctor" { Invoke-LxeDoctor }
     "update" { Invoke-LxeUpdate }
     default {
-        Write-Host "Usage: LXE <start|doctor|update>"
+        Write-Host "Usage: LXE <start|stop|doctor|update>"
         exit 2
     }
 }
