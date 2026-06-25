@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from gateway.models import InboundEvent, OutboundRequest
 from shared.db.client import load_response_route_context
+from shared.log_config import local_logs_enabled
 from shared.logging import logger
 from shared.platform.adapter import InboundSink
 
@@ -63,7 +64,7 @@ def _parse_feishu_millis(value: Any) -> int | None:
 
 
 def _feishu_raw_event_dump_enabled() -> bool:
-    return bool(FEISHU_RAW_EVENT_DUMP_ENABLED)
+    return local_logs_enabled() and bool(FEISHU_RAW_EVENT_DUMP_ENABLED)
 
 
 def _feishu_raw_event_dump_dir() -> Path:
