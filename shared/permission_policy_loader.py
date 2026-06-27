@@ -114,7 +114,6 @@ def build_permission_policy(data: dict[str, Any], *, path: str | Path | None = N
     bot_alias_to_key: dict[str, str] = {}
     bot_alias_to_app_id: dict[str, str] = {}
     bot_skill_policy: dict[str, set[str]] = {}
-    seen_bot_keys: set[str] = set()
 
     for raw_alias, raw_bot in bots_raw.items():
         alias = clean_text(raw_alias)
@@ -130,15 +129,18 @@ def build_permission_policy(data: dict[str, Any], *, path: str | Path | None = N
             raise PermissionPolicyError(f"bot {alias}.app_id must not be empty")
         if not skill_types:
             raise PermissionPolicyError(f"bot {alias}.skill_types must not be empty")
-        if key in seen_bot_keys:
-            raise PermissionPolicyError(f"duplicate bot permission key: {key}")
         if app_id in bot_id_to_key:
             raise PermissionPolicyError(f"duplicate bot app_id: {app_id}")
-        seen_bot_keys.add(key)
+        skill_type_set = set(skill_types)
+        existing_skill_types = bot_skill_policy.get(key)
+        if existing_skill_types is not None and existing_skill_types != skill_type_set:
+            raise PermissionPolicyError(
+                f"bot {alias}.skill_types must match shared permission key: {key}"
+            )
         bot_id_to_key[app_id] = key
         bot_alias_to_key[alias] = key
         bot_alias_to_app_id[alias] = app_id
-        bot_skill_policy[key] = set(skill_types)
+        bot_skill_policy[key] = skill_type_set
 
     user_agent_policy: dict[str, set[str]] = {}
     user_name_to_union_id: dict[str, str] = {}

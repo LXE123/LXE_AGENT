@@ -21,6 +21,12 @@ bots:
     skill_types:
       - amazon_fba
       - default
+  AMAZON_FBA_MACHINE_2:
+    key: AMAZON_FBA
+    app_id: cli_fba_machine_2
+    skill_types:
+      - amazon_fba
+      - default
   AMAZON_REPLENISH_GROUP_2:
     key: Amazon_备货二组
     app_id: cli_group_2
@@ -84,6 +90,29 @@ def test_permission_policy_admin_grant_and_show_user(tmp_path: Path) -> None:
     assert "allow: AMAZON_REPLENISH_GROUP_2" in show.stdout
 
 
+def test_permission_policy_admin_grant_skips_duplicate_shared_key(tmp_path: Path) -> None:
+    policy_path = _write_policy(tmp_path / "permission_policy.yaml")
+
+    result = _run_cli(
+        policy_path,
+        "grant",
+        "--union-id",
+        "on_multi",
+        "--name",
+        "MULTI_USER",
+        "--bot",
+        "AMAZON_FBA_MACHINE_2",
+    )
+
+    assert result.returncode == 0, result.stderr
+    policy = load_permission_policy(policy_path)
+    assert policy.user_name_to_allow_aliases["MULTI_USER"] == {
+        "AMAZON_FBA",
+        "AMAZON_REPLENISH_GROUP_2",
+    }
+    assert policy.user_agent_policy["on_multi"] == {"AMAZON_FBA", "Amazon_备货二组"}
+
+
 def test_permission_policy_admin_revoke_single_bot(tmp_path: Path) -> None:
     policy_path = _write_policy(tmp_path / "permission_policy.yaml")
 
@@ -100,6 +129,24 @@ def test_permission_policy_admin_revoke_single_bot(tmp_path: Path) -> None:
     policy = load_permission_policy(policy_path)
     assert policy.user_name_to_allow_aliases["MULTI_USER"] == {"AMAZON_FBA"}
     assert policy.user_agent_policy["on_multi"] == {"AMAZON_FBA"}
+
+
+def test_permission_policy_admin_revoke_shared_key_alias(tmp_path: Path) -> None:
+    policy_path = _write_policy(tmp_path / "permission_policy.yaml")
+
+    result = _run_cli(
+        policy_path,
+        "revoke",
+        "--union-id",
+        "on_multi",
+        "--bot",
+        "AMAZON_FBA_MACHINE_2",
+    )
+
+    assert result.returncode == 0, result.stderr
+    policy = load_permission_policy(policy_path)
+    assert policy.user_name_to_allow_aliases["MULTI_USER"] == {"AMAZON_REPLENISH_GROUP_2"}
+    assert policy.user_agent_policy["on_multi"] == {"Amazon_备货二组"}
 
 
 def test_permission_policy_admin_remove_user(tmp_path: Path) -> None:

@@ -87,6 +87,17 @@ def _find_user_name_by_union_id(data: dict[str, Any], union_id: str) -> str:
     return ""
 
 
+def _bot_permission_key(bots: dict[str, Any], alias: str) -> str:
+    raw_bot = bots.get(alias)
+    if not isinstance(raw_bot, dict):
+        return ""
+    return clean_text(raw_bot.get("key"))
+
+
+def _has_allowed_permission_key(bots: dict[str, Any], allow_aliases: list[str], target_key: str) -> bool:
+    return any(_bot_permission_key(bots, alias) == target_key for alias in allow_aliases)
+
+
 def _command_list_bots(args: argparse.Namespace) -> int:
     policy = load_permission_policy(args.policy)
     for alias in sorted(policy.bot_alias_to_key):
@@ -150,7 +161,9 @@ def _command_grant(args: argparse.Namespace) -> int:
     if bot_alias == ALL:
         user["allow"] = [ALL]
     elif ALL not in allow and bot_alias not in allow:
-        user["allow"] = allow + [bot_alias]
+        target_key = _bot_permission_key(bots, bot_alias)
+        if not _has_allowed_permission_key(bots, allow, target_key):
+            user["allow"] = allow + [bot_alias]
 
     build_permission_policy(data, path=path)
     _atomic_write_yaml(path, data)
@@ -178,11 +191,12 @@ def _command_revoke(args: argparse.Namespace) -> int:
     allow = [clean_text(item) for item in user.get("allow", [])]
     if ALL in allow:
         raise PermissionPolicyError("user has '*' access; revoke cannot remove one concrete bot from '*'")
-    if bot_alias not in allow:
+    target_key = _bot_permission_key(bots, bot_alias)
+    remaining = [item for item in allow if _bot_permission_key(bots, item) != target_key]
+    if len(remaining) == len(allow):
         print(f"{user_name} ({union_id}) does not have {bot_alias}")
         return 0
 
-    remaining = [item for item in allow if item != bot_alias]
     if remaining:
         user["allow"] = remaining
     else:

@@ -6,6 +6,12 @@ bots:
     skill_types:
       - amazon_fba
       - default
+  AMAZON_FBA_MACHINE_2:
+    key: AMAZON_FBA
+    app_id: cli_aaa5e081aa211bee
+    skill_types:
+      - amazon_fba
+      - default
   AMAZON_REPLENISH:
     key: Amazon_备货一组
     app_id: cli_aa9d657db5385cdd
@@ -36,6 +42,10 @@ bots:
     skill_types:
       - "*"
 users:
+  AMAZON_FBA_MACHINE_2_MEMBER:
+    union_id: on_d73c763c561e81ed7e554dd59e286095
+    allow:
+      - AMAZON_FBA_MACHINE_2
   AMAZON_REPLENISH_GROUP_1_MEMBER:
     union_id: on_feb0916744e536011cfffb06ad1506c8
     allow:
