@@ -16,7 +16,7 @@
 
 `replenishment-amazon-fba-inventory-snapshot` 目前只有 `SKILL.hidden.md`，不会被 `skill_index` 加载，不属于当前运行中 skill。
 
-Feishu/Lark CLI 与 DingTalk Workspace CLI 还有本地 connector switch：静态 `skill_index` 仍加载这些 skill，但 [`agent_runtime.runtime`](../../../agent_runtime/runtime.py) 和 dashboard API 会根据 `config/connector-states.local.json` 动态隐藏 disabled connector 对应 skill。当前 v1 不安装或卸载 CLI，也不写入或清理认证数据。
+Feishu/Lark CLI 与 DingTalk Workspace CLI 还有本地 connector switch：静态 `skill_index` 仍加载这些 skill，但 [`agent_runtime.runtime`](../../../agent_runtime/runtime.py) 和 dashboard API 会根据 `config/connector-states.local.json` 动态隐藏 disabled connector 对应 skill。无本地状态文件时两个 connector 默认关闭，第一次使用需要在 WebUI 手动开启。当前 v1 不安装或卸载 CLI，也不写入或清理认证数据。
 
 ## Workflow 摘要
 

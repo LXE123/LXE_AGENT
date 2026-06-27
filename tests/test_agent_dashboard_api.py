@@ -579,6 +579,7 @@ def test_session_detail_endpoint_returns_404_for_missing_session(dashboard_clien
 
 def test_models_endpoint_does_not_expose_api_keys(dashboard_client, monkeypatch):
     _configure_model_api_keys(monkeypatch)
+    _configure_deepseek_current_model(monkeypatch, model="deepseek-v4-pro")
 
     response = dashboard_client.get("/api/models")
 
@@ -1108,7 +1109,7 @@ def test_skills_endpoint_reads_skill_manifests(dashboard_client):
     assert {"name", "type", "description", "enabled", "location", "references"}.issubset(first)
 
 
-def test_connectors_endpoint_defaults_enabled(dashboard_client, monkeypatch, tmp_path):
+def test_connectors_endpoint_defaults_disabled(dashboard_client, monkeypatch, tmp_path):
     monkeypatch.setenv("LXE_CONNECTOR_STATE_PATH", str(tmp_path / "connector-states.local.json"))
 
     response = dashboard_client.get("/api/connectors")
@@ -1117,9 +1118,13 @@ def test_connectors_endpoint_defaults_enabled(dashboard_client, monkeypatch, tmp
     payload = response.json()
     assert payload["total"] == 2
     connectors = {item["id"]: item for item in payload["items"]}
-    assert connectors["feishu"]["enabled"] is True
+    assert connectors["feishu"]["enabled"] is False
+    assert connectors["feishu"]["everConnected"] is False
+    assert connectors["feishu"]["userDisabled"] is False
     assert connectors["feishu"]["skill_count"] == len(LARK_CLI_SKILL_NAMES)
-    assert connectors["dingtalk"]["enabled"] is True
+    assert connectors["dingtalk"]["enabled"] is False
+    assert connectors["dingtalk"]["everConnected"] is False
+    assert connectors["dingtalk"]["userDisabled"] is False
     assert connectors["dingtalk"]["skill_names"] == ["dws"]
 
 
