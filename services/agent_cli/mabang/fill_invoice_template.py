@@ -3,9 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import copy
-import csv
 import json
-import re
 import sys
 from collections import OrderedDict
 from dataclasses import dataclass, replace
@@ -29,9 +27,28 @@ from services.agent_cli.mabang.restock_workbook import (
     find_summary_sheet,
     summary_column_indexes,
 )
+from services.agent_cli.mabang.shipment_quantity_validation import (
+    CONSIGNMENT_BOX_ALIASES,
+    CONSIGNMENT_GROSS_WEIGHT_ALIASES,
+    CONSIGNMENT_HEIGHT_ALIASES,
+    CONSIGNMENT_LENGTH_ALIASES,
+    CONSIGNMENT_MSKU_COLUMN,
+    CONSIGNMENT_QUANTITY_COLUMN,
+    CONSIGNMENT_WIDTH_ALIASES,
+    DELIVERY_CSV_DIR,
+    DELIVERY_MSKU_COLUMN,
+    ITEM_SPLIT_PATTERN,
+    SKU_SHIP_QTY_COLUMN,
+    SKU_QTY_PATTERN,
+    ConsignmentBoxInfo,
+    ConsignmentMskuRow,
+    find_latest_delivery_csv,
+    read_consignment_msku_rows,
+    read_delivery_msku_components,
+    resolve_delivery_csv_path,
+)
 from services.amazon.amazon_logistic.sources.consignment_excel import (
     find_consignment_excel,
-    resolve_column,
 )
 from services.mabang.stock_sku_export import (
     STOCK_SKU_COLUMN,
@@ -44,20 +61,8 @@ SOURCE = "invoice_template_fill"
 DEFAULT_TEMPLATE_PATH = Path("data") / "invoice_Template" / "invoice_Template.xlsx"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "invoice_template"
 STOCK_SKU_OUTPUT_DIR = Path("artifacts") / "mabang_stock_sku"
-DELIVERY_CSV_DIR = Path("artifacts") / "mabang_fba_delivery"
 INVOICE_TEMPLATE_SHEET = "WS-通用发票导入模版"
 STOCK_SKU_IMAGE_COLUMN = "库存sku图片"
-DELIVERY_MSKU_COLUMN = "MSKU"
-SKU_SHIP_QTY_COLUMN = "SKU发货量"
-CONSIGNMENT_MSKU_COLUMN = "MSKU"
-CONSIGNMENT_QUANTITY_COLUMN = "装箱数量"
-CONSIGNMENT_BOX_ALIASES = ("箱序号", "箱子编号", "箱号", "Box No", "Box Number")
-CONSIGNMENT_LENGTH_ALIASES = ("长", "长度", "Length", "length")
-CONSIGNMENT_WIDTH_ALIASES = ("宽", "Width", "width")
-CONSIGNMENT_HEIGHT_ALIASES = ("高", "Height", "height")
-CONSIGNMENT_GROSS_WEIGHT_ALIASES = ("毛重", "Gross Weight", "gross_weight", "weight")
-ITEM_SPLIT_PATTERN = re.compile(r"[，,\r\n;；]+")
-SKU_QTY_PATTERN = re.compile(r"^\s*(?P<sku>.+?)\s*(?:×|x|X|\*)\s*(?P<qty>\d+(?:\.\d+)?)\s*$")
 IMAGE_MAX_WIDTH = 80
 IMAGE_MAX_HEIGHT = 80
 IMAGE_ROW_HEIGHT = 65
@@ -124,23 +129,6 @@ class InvoiceSourceRow:
             total_price=self.total_price,
             unit=self.unit,
         )
-
-
-@dataclass(frozen=True)
-class ConsignmentBoxInfo:
-    box_no: str
-    gross_weight: str
-    length: str
-    width: str
-    height: str
-
-
-@dataclass(frozen=True)
-class ConsignmentMskuRow:
-    row_number: int
-    box_info: ConsignmentBoxInfo
-    msku: str
-    quantity: Decimal
 
 
 @dataclass(frozen=True)
@@ -383,29 +371,6 @@ def _source_rows_by_merge_key(rows: list[InvoiceSourceRow]) -> OrderedDict[tuple
     return by_key
 
 
-def find_latest_delivery_csv(sp_no: str, *, csv_dir: str | Path | None = None) -> Path | None:
-    target = _clean_cell(sp_no).upper()
-    directory = Path(DELIVERY_CSV_DIR if csv_dir is None else csv_dir)
-    if not directory.is_dir():
-        return None
-    candidates = [path for path in directory.glob(f"{target}_*.csv") if path.is_file()]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda path: (path.stat().st_mtime, path.name))
-
-
-def resolve_delivery_csv_path(sp_no: str, delivery_csv: str | Path | None = None) -> Path:
-    if delivery_csv:
-        path = Path(delivery_csv).expanduser()
-        if not path.is_file():
-            raise FileNotFoundError(f"找不到发货单 CSV: {path}")
-        return path.resolve()
-    path = find_latest_delivery_csv(sp_no)
-    if path is None:
-        raise FileNotFoundError(f"本地未找到发货单 CSV: {DELIVERY_CSV_DIR / f'{_clean_cell(sp_no).upper()}_*.csv'}")
-    return path.resolve()
-
-
 def resolve_consignment_excel_path(sp_no: str, consignment_excel: str | Path | None = None) -> Path:
     if consignment_excel:
         path = Path(consignment_excel).expanduser()
@@ -441,153 +406,6 @@ def _box_sort_key(box_no: str) -> tuple[int, str]:
         return 0, f"{int(Decimal(str(box_no))):08d}"
     except Exception:
         return 1, str(box_no)
-
-
-def _parse_sku_quantity_item(raw_item: str, *, row_number: int) -> tuple[str, Decimal]:
-    item = str(raw_item or "").strip()
-    if not item:
-        raise ValueError(f"第{row_number}行 {SKU_SHIP_QTY_COLUMN} 存在空项目")
-    match = SKU_QTY_PATTERN.match(item)
-    if not match:
-        raise ValueError(f"第{row_number}行 {SKU_SHIP_QTY_COLUMN} 格式无法解析: {item}")
-    sku = _clean_cell(match.group("sku"))
-    if not sku:
-        raise ValueError(f"第{row_number}行 {SKU_SHIP_QTY_COLUMN} 缺少 SKU: {item}")
-    quantity = _parse_decimal(match.group("qty"), field_name="数量", row_context=f"第{row_number}行 {SKU_SHIP_QTY_COLUMN}")
-    if quantity < 0:
-        raise ValueError(f"第{row_number}行 {SKU_SHIP_QTY_COLUMN} 数量不能小于 0: {item}")
-    return sku, quantity
-
-
-def _read_delivery_rows(csv_path: str | Path) -> tuple[list[str], list[dict[str, str]]]:
-    source_path = Path(csv_path).expanduser()
-    if not source_path.is_file():
-        raise FileNotFoundError(f"找不到发货单 CSV: {source_path}")
-    last_error: Exception | None = None
-    for encoding in ("utf-8-sig", "gb18030"):
-        try:
-            with source_path.open("r", encoding=encoding, newline="") as handle:
-                reader = csv.DictReader(handle)
-                headers = [_clean_cell(name) for name in list(reader.fieldnames or [])]
-                rows = [{_clean_cell(key): _clean_cell(value) for key, value in row.items()} for row in reader]
-                return headers, rows
-        except UnicodeDecodeError as exc:
-            last_error = exc
-    raise RuntimeError(f"读取发货单 CSV 失败: {source_path}, error={last_error}") from last_error
-
-
-def read_delivery_msku_components(csv_path: str | Path) -> OrderedDict[str, OrderedDict[str, Decimal]]:
-    headers, rows = _read_delivery_rows(csv_path)
-    missing = [column for column in (DELIVERY_MSKU_COLUMN, SKU_SHIP_QTY_COLUMN) if column not in headers]
-    if missing:
-        raise ValueError(f"发货单 CSV 缺少列: {', '.join(missing)}")
-
-    components: OrderedDict[str, OrderedDict[str, Decimal]] = OrderedDict()
-    for index, row in enumerate(rows, start=2):
-        msku = _clean_cell(row.get(DELIVERY_MSKU_COLUMN))
-        cell_value = _clean_cell(row.get(SKU_SHIP_QTY_COLUMN))
-        if not cell_value:
-            continue
-        if not msku:
-            raise ValueError(f"第{index}行 {SKU_SHIP_QTY_COLUMN} 有值但 MSKU 为空")
-        msku_components = components.setdefault(msku, OrderedDict())
-        for raw_item in ITEM_SPLIT_PATTERN.split(cell_value):
-            item = str(raw_item or "").strip()
-            if not item:
-                continue
-            sku, quantity = _parse_sku_quantity_item(item, row_number=index)
-            msku_components[sku] = msku_components.get(sku, Decimal("0")) + quantity
-    if not components:
-        raise ValueError(f"发货单 CSV 未解析到有效 {DELIVERY_MSKU_COLUMN} + {SKU_SHIP_QTY_COLUMN}")
-    return components
-
-
-def _resolve_required_column(columns: list[str], aliases: tuple[str, ...] | str, *, label: str) -> str:
-    alias_tuple = (aliases,) if isinstance(aliases, str) else aliases
-    column = resolve_column(columns, alias_tuple)
-    if not column:
-        raise ValueError(f"装箱数据缺少列: {label}")
-    return column
-
-
-def _consistent_box_info(existing: ConsignmentBoxInfo, current: ConsignmentBoxInfo, *, row_number: int) -> None:
-    if existing == current:
-        return
-    raise ValueError(
-        f"装箱数据同一箱序号存在不同箱规: 箱序号={existing.box_no}, "
-        f"row={row_number}, existing={existing}, current={current}"
-    )
-
-
-def read_consignment_msku_rows(excel_path: str | Path) -> list[ConsignmentMskuRow]:
-    try:
-        import pandas as pd
-    except Exception as exc:
-        raise RuntimeError("缺少 pandas 依赖，无法读取装箱数据 Excel") from exc
-
-    source_path = Path(excel_path).expanduser()
-    if not source_path.is_file():
-        raise FileNotFoundError(f"找不到装箱数据 Excel: {source_path}")
-    try:
-        with pd.ExcelFile(source_path) as workbook:
-            sheet_name = "FBA装箱任务" if "FBA装箱任务" in workbook.sheet_names else workbook.sheet_names[0]
-            df = pd.read_excel(workbook, sheet_name=sheet_name, dtype=str)
-    except Exception as exc:
-        raise RuntimeError(f"读取装箱数据 Excel 失败: {source_path.name}, error={exc}") from exc
-    if df.empty:
-        raise ValueError(f"装箱数据没有有效数据: {source_path.name}")
-
-    columns = [_clean_cell(column) for column in list(df.columns)]
-    df.columns = columns
-    box_col = _resolve_required_column(columns, CONSIGNMENT_BOX_ALIASES, label="箱序号")
-    msku_col = _resolve_required_column(columns, CONSIGNMENT_MSKU_COLUMN, label=CONSIGNMENT_MSKU_COLUMN)
-    quantity_col = _resolve_required_column(columns, CONSIGNMENT_QUANTITY_COLUMN, label=CONSIGNMENT_QUANTITY_COLUMN)
-    length_col = _resolve_required_column(columns, CONSIGNMENT_LENGTH_ALIASES, label="长")
-    width_col = _resolve_required_column(columns, CONSIGNMENT_WIDTH_ALIASES, label="宽")
-    height_col = _resolve_required_column(columns, CONSIGNMENT_HEIGHT_ALIASES, label="高")
-    weight_col = _resolve_required_column(columns, CONSIGNMENT_GROSS_WEIGHT_ALIASES, label="毛重")
-
-    rows: list[ConsignmentMskuRow] = []
-    box_info_by_no: dict[str, ConsignmentBoxInfo] = {}
-    for index, row in df.iterrows():
-        row_number = int(index) + 2
-        box_no = _clean_cell(row.get(box_col))
-        msku = _clean_cell(row.get(msku_col))
-        quantity_text = _clean_cell(row.get(quantity_col))
-        if not any((box_no, msku, quantity_text)):
-            continue
-        row_context = f"装箱数据第{row_number}行"
-        if not box_no:
-            raise ValueError(f"{row_context} 缺少箱序号")
-        if not msku:
-            raise ValueError(f"{row_context} 缺少 MSKU")
-        quantity = _parse_decimal(quantity_text, field_name="装箱数量", row_context=row_context)
-        if quantity <= 0:
-            raise ValueError(f"{row_context} 装箱数量必须大于 0: {quantity_text}")
-        box_info = ConsignmentBoxInfo(
-            box_no=box_no,
-            gross_weight=_clean_cell(row.get(weight_col)),
-            length=_clean_cell(row.get(length_col)),
-            width=_clean_cell(row.get(width_col)),
-            height=_clean_cell(row.get(height_col)),
-        )
-        for field_name, value in (
-            ("毛重", box_info.gross_weight),
-            ("长", box_info.length),
-            ("宽", box_info.width),
-            ("高", box_info.height),
-        ):
-            if not value:
-                raise ValueError(f"{row_context} 缺少 {field_name}")
-        existing = box_info_by_no.get(box_no)
-        if existing is not None:
-            _consistent_box_info(existing, box_info, row_number=row_number)
-        else:
-            box_info_by_no[box_no] = box_info
-        rows.append(ConsignmentMskuRow(row_number=row_number, box_info=box_info, msku=msku, quantity=quantity))
-    if not rows:
-        raise ValueError(f"装箱数据未解析到有效 MSKU 和装箱数量: {source_path.name}")
-    return rows
 
 
 def _decimal_to_quantity(value: Decimal, *, context: str) -> Decimal:
