@@ -52,6 +52,7 @@ LXE update
 - 从 `.env.example` 准备本机 `.env`，只填入飞书、LLM、马帮、紫鸟等敏感或 private 配置。
 - 如需覆盖本机非敏感运行配置，写入 `.env.local`；Dashboard 模型/思考模式切换也会写入这个文件。
 - 飞书应用需开通 `im:message.reactions:write_only`，用于 best-effort 的 `Typing` 回复中状态；权限缺失只会影响该状态提示，不阻塞正常回复。
+- Windows 安装/更新会尝试安装 `dws`；首次使用钉钉能力前需手动运行 `dws auth login`。
 - 如需 FBA 模板文件，按 `data/README.md` 准备本机业务数据。
 - 启动时默认自动打开 Dashboard；如需关闭，设置 `AGENT_DASHBOARD_OPEN_BROWSER=0`。
 - 如需上传使用统计，配置 `LXE_DATA_SERVER_ENABLED`、`LXE_DATA_SERVER_URL` 和 `LXE_DATA_SERVER_API_KEY`。

@@ -80,6 +80,27 @@ function Warn-LauncherStatus {
     }
 }
 
+function Warn-DwsStatus {
+    $pathCommand = Get-Command dws -ErrorAction SilentlyContinue
+    $dwsPath = ""
+    if ($null -ne $pathCommand) {
+        $dwsPath = $pathCommand.Source
+    }
+    else {
+        $dwsPath = Find-LxeDws -NoPathUpdate
+    }
+
+    if ([string]::IsNullOrWhiteSpace($dwsPath)) {
+        Write-Warning "DingTalk CLI dws is not installed. DingTalk CLI skills will be unavailable, but LXE core and the Feishu bot can still run."
+        return
+    }
+
+    if ($null -eq $pathCommand) {
+        Write-Warning "DingTalk CLI dws exists but is not on the current PATH: $dwsPath. Open a new terminal or add its directory to PATH before using DingTalk CLI skills."
+    }
+    Write-LxeDwsStatusWarnings -DwsPath $dwsPath -ProjectRoot $ProjectRoot
+}
+
 function Write-ProbeLines {
     param([object[]]$Lines)
     $warningPrefix = "WARN`t"
@@ -197,6 +218,7 @@ Warn-LocalBusinessDataFile "data\customs_declaration\custom_declaration_document
 Warn-LocalBusinessDataFile "data\export_tax\export_tax_products.xlsx"
 Warn-LocalBusinessDataFile "data\invoice_Template\invoice_Template.xlsx"
 Warn-LauncherStatus
+Warn-DwsStatus
 
 Invoke-NativeChecked -Label "uv lock" -FilePath $uv -Arguments @("lock", "--check") -Verb "Checking"
 Invoke-NativeChecked -Label "uv sync" -FilePath $uv -Arguments @("sync", "--frozen", "--all-groups", "--python", $PythonVersion, "--check") -Verb "Checking"

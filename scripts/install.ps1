@@ -3,7 +3,8 @@ param(
     [string]$Ref = "main",
     [string]$InstallDir = "",
     [switch]$NoPath,
-    [switch]$AllowZipFallback
+    [switch]$AllowZipFallback,
+    [switch]$SkipDws
 )
 
 $ErrorActionPreference = "Stop"
@@ -221,6 +222,25 @@ function Invoke-LauncherSetup {
     }
 }
 
+function Invoke-DwsSetup {
+    param([Parameter(Mandatory = $true)][string]$ProjectRoot)
+
+    if ($SkipDws) {
+        Write-Host "Skipping DingTalk CLI dws setup because -SkipDws was provided."
+        return
+    }
+
+    try {
+        $dws = Resolve-Dws -InstallIfMissing
+        Write-Host "Using dws: $dws"
+        Write-LxeDwsStatusWarnings -DwsPath $dws -ProjectRoot $ProjectRoot
+    }
+    catch {
+        Write-Warning "DingTalk CLI dws setup failed: $($_.Exception.Message)"
+        Write-Warning "DingTalk CLI skills will be unavailable until dws is installed and authenticated with: dws auth login"
+    }
+}
+
 $git = ""
 try {
     $git = Resolve-Git -InstallIfMissing
@@ -242,6 +262,8 @@ if (-not [string]::IsNullOrWhiteSpace($git)) {
     Write-Host "Using git: $git"
 }
 Write-Host "Project root: $ProjectRoot"
+
+Invoke-DwsSetup -ProjectRoot $ProjectRoot
 
 Ensure-Python -UvPath $uv -Version $PythonVersion
 
