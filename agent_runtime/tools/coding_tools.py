@@ -44,6 +44,19 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS_ROOT = WORKSPACE_ROOT / "artifacts"
 SKILLS_ROOT = WORKSPACE_ROOT / "skills"
 
+_WRITE_DENIED_ROOT_FILES = frozenset({
+    ".env",
+    ".env.local",
+    ".envrc",
+    ".env.development",
+    ".env.production",
+    ".env.test",
+    ".env.staging",
+})
+_WRITE_DENIED_ROOT_DIRS = frozenset({
+    "user_session_db",
+})
+
 _SKIP_DIRS = frozenset({
     ".git", "node_modules", "__pycache__", ".venv", "venv",
     ".tox", ".mypy_cache", ".pytest_cache", "dist", "build",
@@ -108,6 +121,22 @@ def _safe_resolve(raw: str) -> Path:
     if not resolved.is_relative_to(WORKSPACE_ROOT):
         raise PermissionError(f"路径越界: {resolved} 不在 {WORKSPACE_ROOT} 内")
     return resolved
+
+
+def _is_write_denied(resolved: Path) -> str | None:
+    """Return a reason when a resolved workspace path is protected from write/edit."""
+    try:
+        relative = resolved.relative_to(WORKSPACE_ROOT)
+    except ValueError:
+        return None
+
+    if relative.parent == Path(".") and relative.name in _WRITE_DENIED_ROOT_FILES:
+        return f"protected workspace-local file: {relative}"
+
+    if relative.parts and relative.parts[0] in _WRITE_DENIED_ROOT_DIRS:
+        return f"protected workspace-local directory: {relative.parts[0]}/"
+
+    return None
 
 
 def _safe_resolve_artifact(raw: str) -> Path:
@@ -581,6 +610,10 @@ async def _handle_write(file_path: str = "", content: str = "", **_: Any) -> Too
     except (ValueError, PermissionError) as e:
         _tool_error(str(e))
 
+    denied_reason = _is_write_denied(resolved)
+    if denied_reason:
+        _tool_error(f"写入被拒绝: {denied_reason}")
+
     try:
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
@@ -601,6 +634,10 @@ async def _handle_edit(
         resolved = _safe_resolve(file_path)
     except (ValueError, PermissionError) as e:
         _tool_error(str(e))
+
+    denied_reason = _is_write_denied(resolved)
+    if denied_reason:
+        _tool_error(f"写入被拒绝: {denied_reason}")
 
     if not resolved.is_file():
         _tool_error(f"文件不存在: {resolved}")
