@@ -375,3 +375,177 @@ function Resolve-Git {
     }
     return $gitPath
 }
+
+function Find-LxeDws {
+    param([switch]$NoPathUpdate)
+
+    $command = Get-Command dws -ErrorAction SilentlyContinue
+    if ($null -ne $command) {
+        return $command.Source
+    }
+
+    $userHome = Get-LxeUserHome
+    $localBin = Join-Path $userHome ".local\bin"
+    foreach ($fileName in @("dws.exe", "dws")) {
+        $candidate = Join-Path $localBin $fileName
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            if (-not $NoPathUpdate) {
+                Add-LxePathEntry -Path $localBin
+            }
+            return $candidate
+        }
+    }
+
+    return ""
+}
+
+function ConvertTo-LxeVersion {
+    param([AllowNull()][string]$Text)
+
+    $match = [regex]::Match([string]$Text, '(?<version>\d+(?:\.\d+){1,3})')
+    if (-not $match.Success) {
+        return $null
+    }
+    try {
+        return [version]$match.Groups["version"].Value
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-LxeVersionAtLeast {
+    param(
+        [AllowNull()][string]$VersionText,
+        [AllowNull()][string]$MinimumVersion
+    )
+
+    if ([string]::IsNullOrWhiteSpace($MinimumVersion)) {
+        return $true
+    }
+
+    $current = ConvertTo-LxeVersion -Text $VersionText
+    $minimum = ConvertTo-LxeVersion -Text $MinimumVersion
+    if ($null -eq $current -or $null -eq $minimum) {
+        return $false
+    }
+    return ($current -ge $minimum)
+}
+
+function Get-LxeDwsMinimumVersion {
+    param([string]$ProjectRoot = "")
+
+    if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
+        $ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+    }
+
+    $skillPath = Join-Path $ProjectRoot "skills\dws\SKILL.md"
+    if (-not (Test-Path -LiteralPath $skillPath -PathType Leaf)) {
+        return ""
+    }
+
+    $content = Get-Content -LiteralPath $skillPath -Raw -Encoding UTF8
+    $match = [regex]::Match($content, '(?m)^\s*cli_version\s*:\s*["'']?\s*>=\s*(?<version>\d+(?:\.\d+){1,3})')
+    if (-not $match.Success) {
+        return ""
+    }
+    return $match.Groups["version"].Value
+}
+
+function Write-LxeDwsStatusWarnings {
+    param(
+        [Parameter(Mandatory = $true)][string]$DwsPath,
+        [string]$ProjectRoot = ""
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DwsPath)) {
+        Write-Warning "DingTalk CLI dws is not installed. DingTalk CLI skills will be unavailable, but LXE core and the Feishu bot can still run."
+        return
+    }
+
+    $versionResult = Invoke-LxeNativeCapture -FilePath $DwsPath -Arguments @("--version")
+    $versionText = ((@($versionResult.Stdout) + @($versionResult.Stderr)) -join " ").Trim()
+    if ($versionResult.ExitCode -ne 0) {
+        Write-Warning "DingTalk CLI dws was found but failed version check with exit code $($versionResult.ExitCode). DingTalk CLI skills may be unavailable."
+    }
+    else {
+        $minimumVersion = Get-LxeDwsMinimumVersion -ProjectRoot $ProjectRoot
+        if (-not [string]::IsNullOrWhiteSpace($minimumVersion) -and -not (Test-LxeVersionAtLeast -VersionText $versionText -MinimumVersion $minimumVersion)) {
+            Write-Warning "DingTalk CLI dws version may be too old: $versionText. LXE skills/dws requires >= $minimumVersion. Run dws upgrade -y if DingTalk CLI operations fail."
+        }
+    }
+
+    $authResult = Invoke-LxeNativeCapture -FilePath $DwsPath -Arguments @("auth", "status")
+    if ($authResult.ExitCode -ne 0) {
+        Write-Warning "DingTalk CLI dws is installed but not authenticated. DingTalk CLI skills will be unavailable until you run: dws auth login"
+    }
+}
+
+function Resolve-Dws {
+    param([switch]$InstallIfMissing)
+
+    $dwsPath = Find-LxeDws
+    if (-not [string]::IsNullOrWhiteSpace($dwsPath)) {
+        return $dwsPath
+    }
+
+    if (-not $InstallIfMissing) {
+        throw "dws is not available on PATH."
+    }
+    if ($env:OS -ne "Windows_NT") {
+        throw "dws is not available. Install DingTalk Workspace CLI manually and rerun this script."
+    }
+
+    $userHome = Get-LxeUserHome
+    $localBin = Join-Path $userHome ".local\bin"
+    if (-not (Test-Path -LiteralPath $localBin)) {
+        New-Item -ItemType Directory -Path $localBin -Force | Out-Null
+    }
+
+    Write-Host "dws not found. Installing DingTalk Workspace CLI without bundled skills..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-dws-installer-" + [Guid]::NewGuid().ToString("N"))
+    $dwsInstaller = Join-Path $tempRoot "install-dws.ps1"
+    $previousNoSkills = [Environment]::GetEnvironmentVariable("DWS_NO_SKILLS", "Process")
+    $previousInstallDir = [Environment]::GetEnvironmentVariable("DWS_INSTALL_DIR", "Process")
+    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+    try {
+        $env:DWS_NO_SKILLS = "1"
+        $env:DWS_INSTALL_DIR = $localBin
+        Invoke-WebRequest -Uri https://raw.githubusercontent.com/DingTalk-Real-AI/dingtalk-workspace-cli/main/scripts/install.ps1 -OutFile $dwsInstaller
+        $dwsInstallExit = Invoke-PowerShellFile -ScriptPath $dwsInstaller
+        if ($dwsInstallExit -ne 0) {
+            throw "dws installer failed with exit code $dwsInstallExit."
+        }
+    }
+    finally {
+        if ($null -eq $previousNoSkills) {
+            Remove-Item Env:DWS_NO_SKILLS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:DWS_NO_SKILLS = $previousNoSkills
+        }
+        if ($null -eq $previousInstallDir) {
+            Remove-Item Env:DWS_INSTALL_DIR -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:DWS_INSTALL_DIR = $previousInstallDir
+        }
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
+
+    Add-LxePathEntry -Path $localBin
+    $dwsPath = Find-LxeDws
+    if ([string]::IsNullOrWhiteSpace($dwsPath)) {
+        throw "dws installation finished, but dws is still not available on PATH."
+    }
+
+    $versionExit = Invoke-LxeNativeCommand -FilePath $dwsPath -Arguments @("--version")
+    if ($versionExit -ne 0) {
+        throw "dws was found but failed verification with exit code $versionExit."
+    }
+    return $dwsPath
+}

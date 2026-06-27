@@ -1,3 +1,5 @@
+param([switch]$SkipDws)
+
 . (Join-Path $PSScriptRoot "_dependencies.ps1")
 
 $ErrorActionPreference = "Stop"
@@ -10,6 +12,23 @@ Set-Location $ProjectRoot
 $git = Resolve-Git
 $uv = Resolve-Uv
 $powershell = Resolve-PowerShell
+
+function Invoke-DwsSetup {
+    if ($SkipDws) {
+        Write-Host "Skipping DingTalk CLI dws setup because -SkipDws was provided."
+        return
+    }
+
+    try {
+        $dws = Resolve-Dws -InstallIfMissing
+        Write-Host "Using dws: $dws"
+        Write-LxeDwsStatusWarnings -DwsPath $dws -ProjectRoot $ProjectRoot
+    }
+    catch {
+        Write-Warning "DingTalk CLI dws setup failed: $($_.Exception.Message)"
+        Write-Warning "DingTalk CLI skills will be unavailable until dws is installed and authenticated with: dws auth login"
+    }
+}
 
 Invoke-NativeChecked -Label "git repository check" -FilePath $git -Arguments @("rev-parse", "--is-inside-work-tree")
 $topLevelResult = Invoke-LxeNativeCapture -FilePath $git -Arguments @("rev-parse", "--show-toplevel")
@@ -59,6 +78,7 @@ if ($untrackedFiles.Count -gt 0) {
 }
 
 Invoke-NativeChecked -Label "git pull" -FilePath $git -Arguments @("pull", "--ff-only")
+Invoke-DwsSetup
 Invoke-NativeChecked -Label "launcher setup" -FilePath $powershell -Arguments @(
     "-ExecutionPolicy",
     "Bypass",
