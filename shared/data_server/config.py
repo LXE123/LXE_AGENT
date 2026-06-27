@@ -16,7 +16,7 @@ def data_server_api_key() -> str:
 
 
 def data_server_sync_interval_seconds() -> int:
-    return env_int("LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS", 300, minimum=30)
+    return env_int("LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS", 10800, minimum=30)
 
 
 def data_server_request_timeout_seconds() -> int:

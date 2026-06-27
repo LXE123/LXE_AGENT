@@ -7,6 +7,7 @@ from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY
 from shared.db.sqlite.agent_sessions import create_agent_session, update_agent_session
 from shared.db.sqlite.bootstrap import init_schema
 from shared.data_server.client import upload_snapshot
+from shared.data_server.config import data_server_sync_interval_seconds
 from shared.data_server.identity import load_or_create_machine_id
 from shared.data_server.snapshot import build_agent_snapshot
 from shared.data_server.sync import sync_once
@@ -54,6 +55,12 @@ def test_machine_id_is_created_and_reused(tmp_path):
     assert second == first
     assert payload["machine_id"] == first
     assert payload["hostname_at_creation"]
+
+
+def test_data_server_sync_interval_defaults_to_three_hours(monkeypatch):
+    monkeypatch.delenv("LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS", raising=False)
+
+    assert data_server_sync_interval_seconds() == 10800
 
 
 def test_build_snapshot_includes_sessions_messages_and_source_extra(monkeypatch, tmp_path):
