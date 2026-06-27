@@ -6,6 +6,7 @@ import json
 import re
 import shutil
 import sys
+from collections import OrderedDict
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
@@ -18,6 +19,7 @@ from services.agent_cli.mabang.restock_workbook import (
     find_summary_sheet,
     summary_column_indexes,
 )
+from services.agent_cli.mabang import shipment_quantity_validation as quantity_validation
 from services.amazon.amazon_logistic.sources.consignment_excel import (
     find_consignment_excel,
     resolve_column,
@@ -1458,6 +1460,118 @@ def _build_output_filename(sp_nos: list[str]) -> str:
     return f"{joined}_custom_declaration_documents.xlsx"
 
 
+def _build_validation_report_filename(sp_nos: list[str]) -> str:
+    if len(sp_nos) == 1:
+        return f"{sp_nos[0]}_quantity_validation_report.xlsx"
+    joined = "_".join(sp_nos)
+    if len(sp_nos) > 3 or len(joined) > 120:
+        joined = "_".join(sp_nos[:3])
+        return f"{joined}_multi_quantity_validation_report.xlsx"
+    return f"{joined}_quantity_validation_report.xlsx"
+
+
+def _unresolved_validation_rows(
+    *,
+    sp_no: str,
+    expected_quantities: OrderedDict[str, Decimal] | None,
+    issue: str,
+) -> list[dict[str, Any]]:
+    if not expected_quantities:
+        return [
+            {
+                "SP单号": sp_no,
+                "SKU": "",
+                "预期发货量": None,
+                "实际发货量": None,
+                "差异": None,
+                "状态": "无法校验",
+                "问题说明": issue,
+            }
+        ]
+    return [
+        {
+            "SP单号": sp_no,
+            "SKU": sku,
+            "预期发货量": quantity,
+            "实际发货量": None,
+            "差异": None,
+            "状态": "无法校验",
+            "问题说明": issue,
+        }
+        for sku, quantity in expected_quantities.items()
+    ]
+
+
+def _build_quantity_validation_report(
+    bundles: list[InputDeclarationBundle],
+    *,
+    output_dir: str | Path,
+) -> dict[str, Any]:
+    all_rows: list[dict[str, Any]] = []
+    source_rows: list[dict[str, Any]] = []
+    for bundle in bundles:
+        source_info: dict[str, Any] = {
+            "SP单号": bundle.sp_no,
+            "备货单": str(bundle.input_path),
+            "发货单CSV": "",
+            "WMS装箱数据": bundle.consignment_weight_info.excel_path,
+            "状态": "passed",
+            "问题": "",
+        }
+        expected_quantities: OrderedDict[str, Decimal] | None = None
+        try:
+            expected_quantities = quantity_validation.read_expected_stock_sku_quantities(bundle.input_path)
+            delivery_csv_path = quantity_validation.resolve_delivery_csv_path(bundle.sp_no)
+            source_info["发货单CSV"] = str(delivery_csv_path)
+            delivery_components = quantity_validation.read_delivery_msku_components(delivery_csv_path)
+            consignment_quantities = quantity_validation.read_consignment_msku_quantities(
+                bundle.consignment_weight_info.excel_path
+            )
+            actual_quantities, issues = quantity_validation.build_actual_stock_sku_quantities(
+                delivery_components,
+                consignment_quantities,
+            )
+            rows = quantity_validation.build_quantity_validation_rows(
+                sp_no=bundle.sp_no,
+                expected_quantities=expected_quantities,
+                actual_quantities=actual_quantities,
+                issues=issues,
+            )
+        except Exception as exc:
+            issue = f"库存 SKU 数量校验无法完成: {_exception_text(exc)}"
+            rows = _unresolved_validation_rows(
+                sp_no=bundle.sp_no,
+                expected_quantities=expected_quantities,
+                issue=issue,
+            )
+            source_info["状态"] = "incomplete"
+            source_info["问题"] = issue
+        else:
+            bundle_summary = quantity_validation.summarize_quantity_validation(rows)
+            source_info["状态"] = quantity_validation.status_from_summary(bundle_summary)
+            source_info["问题"] = "; ".join(
+                str(row.get("问题说明") or "")
+                for row in rows
+                if row.get("状态") in {"差异", "缺少实际", "多出实际", "无法校验"}
+            )
+        all_rows.extend(rows)
+        source_rows.append(source_info)
+
+    summary = quantity_validation.summarize_quantity_validation(all_rows)
+    status = quantity_validation.status_from_summary(summary)
+    output_path = Path(output_dir) / _build_validation_report_filename([bundle.sp_no for bundle in bundles])
+    report_path = quantity_validation.write_quantity_validation_report(
+        output_path=output_path,
+        rows=all_rows,
+        source_rows=source_rows,
+    )
+    return {
+        "validation_report_xlsx": str(report_path),
+        "quantity_validation_status": status,
+        "quantity_validation_summary": summary,
+    }
+
+
 def fill_customs_declaration(
     input_xlsx: str | Path | list[str | Path] | tuple[str | Path, ...],
     *,
@@ -1497,6 +1611,19 @@ def fill_customs_declaration(
 
     directory = Path(DEFAULT_OUTPUT_DIR if output_dir is None else output_dir)
     directory.mkdir(parents=True, exist_ok=True)
+    try:
+        validation_payload = _build_quantity_validation_report(bundles, output_dir=directory)
+    except Exception as exc:
+        validation_payload = {
+            "quantity_validation_status": "error",
+            "quantity_validation_summary": {
+                "total_sku_count": 0,
+                "matched_count": 0,
+                "mismatch_count": 0,
+                "unresolved_count": 0,
+            },
+            "validation_report_error": _exception_text(exc),
+        }
     output_path = directory / _build_output_filename(sp_nos)
     shutil.copy2(template_path, output_path)
 
@@ -1544,6 +1671,7 @@ def fill_customs_declaration(
         "notice": notice,
         "source": SOURCE,
     }
+    payload.update(validation_payload)
     if len(bundles) == 1:
         payload["consignment_excel_path"] = bundles[0].consignment_weight_info.excel_path
     return payload
