@@ -60,6 +60,15 @@ def test_fba_wms_download_keeps_split_mode_contract() -> None:
     assert "split_mode=auto" in text
 
 
+def test_fba_workflow_map_keeps_invoice_and_customs_independent() -> None:
+    text = _skill_text("fba-workflow-map")
+
+    assert 'D --> H["fba-customs-declaration-fill<br/>报关资料"]' not in text
+    assert 'E --> H["fba-customs-declaration-fill<br/>报关资料"]' in text
+    assert 'L["备货单 xlsx"] --> H' in text
+    assert "报关资料 | 备货单 + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill`" in text
+
+
 def test_fba_skill_docs_do_not_contain_old_misleading_phrases() -> None:
     root = Path(__file__).resolve().parents[1] / "skills"
     forbidden = [

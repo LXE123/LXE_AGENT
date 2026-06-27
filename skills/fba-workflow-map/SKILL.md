@@ -29,8 +29,9 @@ flowchart TD
 
   E["fba-shipment-wms-box-download<br/>WMS 装箱数据"] --> F["fba-shipment-create<br/>Amazon FBA 创建货件"]
   E --> G["fba-logistics-select<br/>物流优选"]
+  E --> H["fba-customs-declaration-fill<br/>报关资料"]
+  L["备货单 xlsx"] --> H
 
-  D --> H["fba-customs-declaration-fill<br/>报关资料"]
   A --> I["fba-export-tax-delivery-summary<br/>发货单退税汇总"]
   J["fba-export-tax-products-manage<br/>退税白名单"] --> I
   K["fba-logistics-rate-import<br/>物流报价导入"] --> G

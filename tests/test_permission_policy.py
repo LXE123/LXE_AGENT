@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from agent_runtime.runtime import load_available_skills_for_session
 from agent_runtime.skill_index import load_skill_index
+from shared.connector_state import LARK_CLI_SKILL_NAMES
 from shared.permission_policy import (
     ALL,
     BOT_ID_AMAZON_REPLENISH,
@@ -207,10 +208,13 @@ def test_runtime_filters_available_skills_by_bot(monkeypatch, tmp_path) -> None:
     index = load_skill_index(force_reload=True)
     manifest_by_name = {manifest.name: manifest for manifest in index.all()}
     all_skill_names = {item.name for item in index.queue(allowed_types={ALL})}
+    default_disabled_connector_skills = set(LARK_CLI_SKILL_NAMES) | {"dws"}
 
     claw_session = SimpleNamespace(platform="feishu", raw_data={"app_id": BOT_ID_LXE_CLAW})
     fba_session = SimpleNamespace(platform="feishu", raw_data={"app_id": BOT_ID_LXE_FBA_AGENT})
-    assert {item.name for item in load_available_skills_for_session(claw_session)} == all_skill_names
+    assert {item.name for item in load_available_skills_for_session(claw_session)} == (
+        all_skill_names - default_disabled_connector_skills
+    )
 
     fba_skills = load_available_skills_for_session(fba_session)
     assert fba_skills

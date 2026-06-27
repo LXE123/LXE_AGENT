@@ -120,11 +120,10 @@ def _normalize_id_list(value: Any, *, default: set[str] | None = None) -> set[st
 
 
 def _default_state() -> dict[str, Any]:
-    ids = sorted(_all_connector_ids())
     return {
         "version": CONNECTOR_STATE_VERSION,
-        "enabled": ids,
-        "everConnected": ids,
+        "enabled": [],
+        "everConnected": [],
         "userDisabled": [],
     }
 
