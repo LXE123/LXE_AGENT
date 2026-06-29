@@ -7,7 +7,7 @@ import re
 import shutil
 import sys
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
@@ -93,6 +93,8 @@ class SourceDeclarationRow:
     sale_price: Any
     total_price: Any
     unit: str
+    sku: str = ""
+    purchase_price: Any = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +138,7 @@ class InputDeclarationBundle:
     source_rows: list[SourceDeclarationRow]
     consignment_weight_info: ConsignmentWeightInfo
     weight_allocation: WeightAllocation
+    summary_comparison_rows: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -428,6 +431,8 @@ def read_source_rows(input_xlsx: str | Path) -> list[SourceDeclarationRow]:
                     sale_price=worksheet.cell(row=row_number, column=column_indexes["售价"]).value,
                     total_price=worksheet.cell(row=row_number, column=column_indexes["总价"]).value,
                     unit=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["单位"]).value),
+                    sku=_clean_cell(worksheet.cell(row=row_number, column=column_indexes["SKU"]).value),
+                    purchase_price=worksheet.cell(row=row_number, column=column_indexes["单价"]).value,
                 )
             )
 
@@ -1408,6 +1413,173 @@ def _coerce_input_paths(input_xlsx: str | Path | list[str | Path] | tuple[str | 
     return paths
 
 
+def _normalize_sku_key(value: Any) -> str:
+    return _clean_cell(value).upper()
+
+
+def _model_from_merge_info(merge_info: quantity_validation.StockSkuMergeInfo) -> str:
+    model = _clean_cell(merge_info.merge_key[0])
+    if not model:
+        raise ValueError(f"财务合并明细表第{merge_info.row_number}行 SKU={merge_info.sku} 缺少规则型号")
+    return model
+
+
+def _source_rows_by_model(
+    rows: list[SourceDeclarationRow],
+    stock_sku_merge_infos: OrderedDict[str, quantity_validation.StockSkuMergeInfo],
+) -> tuple[OrderedDict[str, SourceDeclarationRow], dict[int, str]]:
+    by_model: OrderedDict[str, SourceDeclarationRow] = OrderedDict()
+    model_by_summary_row: dict[int, str] = {}
+    duplicates: list[str] = []
+    for row in rows:
+        sku_key = _normalize_sku_key(row.sku)
+        if not sku_key:
+            raise ValueError(f"汇总表第{row.row_number}行 SKU 不能为空")
+        merge_info = stock_sku_merge_infos.get(sku_key)
+        if merge_info is None:
+            raise ValueError(f"汇总表第{row.row_number}行 SKU={row.sku} 不在备货单第一个表格中，无法确定规则型号")
+        model = _model_from_merge_info(merge_info)
+        if model in by_model:
+            existing_row = by_model[model]
+            duplicates.append(
+                f"规则型号={model}: 第{existing_row.row_number}行 SKU={existing_row.sku}, "
+                f"第{row.row_number}行 SKU={row.sku}"
+            )
+            continue
+        by_model[model] = row
+        model_by_summary_row[row.row_number] = model
+    if duplicates:
+        preview = "; ".join(duplicates[:10])
+        suffix = " ..." if len(duplicates) > 10 else ""
+        raise ValueError(f"汇总表同一个规则型号存在多个代表 SKU，无法归并: {preview}{suffix}")
+    return by_model, model_by_summary_row
+
+
+def _nonnegative_decimal(value: Any, *, field_name: str) -> Decimal:
+    numeric = _parse_decimal(value, field_name=field_name)
+    if numeric < 0:
+        raise ValueError(f"{field_name} 不能小于 0: {value}")
+    return numeric
+
+
+def _actual_total(quantity: Decimal, sale_price: Decimal) -> Decimal:
+    return (quantity * sale_price).quantize(THREE_DECIMALS, rounding=ROUND_HALF_UP)
+
+
+def _build_actual_declaration_rows(
+    *,
+    input_path: Path,
+    sp_no: str,
+    summary_rows: list[SourceDeclarationRow],
+    consignment_excel_path: Path,
+) -> tuple[list[SourceDeclarationRow], list[dict[str, Any]]]:
+    stock_sku_merge_infos = quantity_validation.read_stock_sku_merge_infos(input_path)
+    source_by_model, model_by_summary_row = _source_rows_by_model(summary_rows, stock_sku_merge_infos)
+    delivery_csv_path = quantity_validation.resolve_delivery_csv_path(sp_no)
+    delivery_infos = quantity_validation.read_delivery_msku_infos(delivery_csv_path)
+    delivery_components = OrderedDict((msku, info.components) for msku, info in delivery_infos.items())
+    delivery_msku_ship_quantities = {
+        msku: info.msku_ship_quantity
+        for msku, info in delivery_infos.items()
+    }
+    consignment_quantities = quantity_validation.read_consignment_msku_quantities(consignment_excel_path)
+    actual_stock_quantities, issues = quantity_validation.build_actual_stock_sku_quantities(
+        delivery_components,
+        consignment_quantities,
+        delivery_msku_ship_quantities=delivery_msku_ship_quantities,
+    )
+    blocking_issues = [issue.message for issue in issues if issue.status == "无法校验"]
+    if blocking_issues:
+        preview = "; ".join(blocking_issues[:10])
+        suffix = " ..." if len(blocking_issues) > 10 else ""
+        raise ValueError(f"无法按实际发货量生成报关资料: {preview}{suffix}")
+
+    actual_by_model: OrderedDict[str, Decimal] = OrderedDict()
+    for sku, actual_quantity in actual_stock_quantities.items():
+        if actual_quantity == 0:
+            continue
+        sku_key = _normalize_sku_key(sku)
+        merge_info = stock_sku_merge_infos.get(sku_key)
+        if merge_info is None:
+            raise ValueError(f"实际装箱库存 SKU 不在备货单第一个表格中: SKU={sku}")
+        model = _model_from_merge_info(merge_info)
+        if model not in source_by_model:
+            raise ValueError(
+                "实际装箱库存 SKU 型号组在汇总表中没有代表 SKU: "
+                f"SKU={sku}, 规则型号={model}"
+            )
+        actual_by_model[model] = actual_by_model.get(model, Decimal("0")) + actual_quantity
+
+    actual_rows: list[SourceDeclarationRow] = []
+    comparison_rows: list[dict[str, Any]] = []
+    for summary_row in summary_rows:
+        model = model_by_summary_row[summary_row.row_number]
+        expected_quantity = _parse_positive_decimal(
+            summary_row.quantity,
+            field_name=f"汇总表第{summary_row.row_number}行发货量",
+        )
+        actual_quantity = actual_by_model.get(model, Decimal("0"))
+        purchase_price = _parse_decimal(
+            summary_row.purchase_price,
+            field_name=f"汇总表第{summary_row.row_number}行 SKU={summary_row.sku} 单价",
+        ).quantize(TWO_DECIMALS, rounding=ROUND_HALF_UP)
+        sale_price = _parse_decimal(
+            summary_row.sale_price,
+            field_name=f"汇总表第{summary_row.row_number}行售价",
+        )
+        if sale_price < 0:
+            raise ValueError(f"汇总表第{summary_row.row_number}行售价 不能小于 0: {summary_row.sale_price}")
+        original_total = _nonnegative_decimal(
+            summary_row.total_price,
+            field_name=f"汇总表第{summary_row.row_number}行总价",
+        )
+        recalculated_total = _actual_total(actual_quantity, sale_price)
+        diff_quantity = actual_quantity - expected_quantity
+        diff_total = recalculated_total - original_total
+        if actual_quantity == 0:
+            status = "未发货不写入"
+        elif actual_quantity == expected_quantity and diff_total == 0:
+            status = "一致"
+        else:
+            status = "数量变化"
+        issue = "映射来源：汇总表 SKU 命中第一个表格型号组"
+        if status == "未发货不写入":
+            issue += "；实际发货量为 0，正式报关资料不写入该行"
+        comparison_rows.append(
+            {
+                "SP单号": sp_no,
+                "汇总表行号": summary_row.row_number,
+                "汇总表SKU": summary_row.sku,
+                "品名": summary_row.source_name,
+                "规格型号": model,
+                "单价": purchase_price,
+                "售价": sale_price,
+                "原发货量": expected_quantity,
+                "实际发货量": actual_quantity,
+                "数量差异": diff_quantity,
+                "原总价": original_total,
+                "重算总价": recalculated_total,
+                "金额差异": diff_total,
+                "状态": status,
+                "问题说明": issue,
+            }
+        )
+        if actual_quantity <= 0:
+            continue
+        actual_rows.append(
+            replace(
+                summary_row,
+                model=model,
+                quantity=_decimal_to_excel_number(actual_quantity),
+                total_price=_decimal_to_excel_number(recalculated_total),
+            )
+        )
+
+    if not actual_rows:
+        raise ValueError("按实际发货量归并后未生成报关资料商品行")
+    return actual_rows, comparison_rows
+
+
 def read_input_bundle(
     input_xlsx: str | Path,
     *,
@@ -1416,9 +1588,15 @@ def read_input_bundle(
     input_path = Path(input_xlsx)
     sp_no = extract_sp_no_from_filename(input_path)
     destination_country = extract_destination_country_from_filename(input_path)
-    source_rows = read_source_rows(input_path)
+    summary_rows = read_source_rows(input_path)
     consignment_excel_path = _resolve_consignment_excel_path(sp_no, consignment_excel)
     consignment_weight_info = read_consignment_weight_info(consignment_excel_path)
+    source_rows, summary_comparison_rows = _build_actual_declaration_rows(
+        input_path=input_path,
+        sp_no=sp_no,
+        summary_rows=summary_rows,
+        consignment_excel_path=consignment_excel_path,
+    )
     weight_allocation = allocate_weights_by_quantity(
         source_rows,
         total_gross_weight=consignment_weight_info.total_gross_weight,
@@ -1430,6 +1608,7 @@ def read_input_bundle(
         source_rows=source_rows,
         consignment_weight_info=consignment_weight_info,
         weight_allocation=weight_allocation,
+        summary_comparison_rows=summary_comparison_rows,
     )
 
 
@@ -1480,6 +1659,7 @@ def _unresolved_validation_rows(
         return [
             {
                 "SP单号": sp_no,
+                "MSKU": "",
                 "SKU": "",
                 "预期发货量": None,
                 "实际发货量": None,
@@ -1491,6 +1671,7 @@ def _unresolved_validation_rows(
     return [
         {
             "SP单号": sp_no,
+            "MSKU": "",
             "SKU": sku,
             "预期发货量": quantity,
             "实际发货量": None,
@@ -1509,6 +1690,7 @@ def _build_quantity_validation_report(
 ) -> dict[str, Any]:
     all_rows: list[dict[str, Any]] = []
     source_rows: list[dict[str, Any]] = []
+    summary_comparison_rows: list[dict[str, Any]] = []
     for bundle in bundles:
         source_info: dict[str, Any] = {
             "SP单号": bundle.sp_no,
@@ -1523,19 +1705,26 @@ def _build_quantity_validation_report(
             expected_quantities = quantity_validation.read_expected_stock_sku_quantities(bundle.input_path)
             delivery_csv_path = quantity_validation.resolve_delivery_csv_path(bundle.sp_no)
             source_info["发货单CSV"] = str(delivery_csv_path)
-            delivery_components = quantity_validation.read_delivery_msku_components(delivery_csv_path)
+            delivery_infos = quantity_validation.read_delivery_msku_infos(delivery_csv_path)
+            delivery_components = OrderedDict((msku, info.components) for msku, info in delivery_infos.items())
+            delivery_msku_ship_quantities = {
+                msku: info.msku_ship_quantity
+                for msku, info in delivery_infos.items()
+            }
             consignment_quantities = quantity_validation.read_consignment_msku_quantities(
                 bundle.consignment_weight_info.excel_path
             )
             actual_quantities, issues = quantity_validation.build_actual_stock_sku_quantities(
                 delivery_components,
                 consignment_quantities,
+                delivery_msku_ship_quantities=delivery_msku_ship_quantities,
             )
             rows = quantity_validation.build_quantity_validation_rows(
                 sp_no=bundle.sp_no,
                 expected_quantities=expected_quantities,
                 actual_quantities=actual_quantities,
                 issues=issues,
+                stock_sku_msku_sources=quantity_validation.build_stock_sku_msku_sources(delivery_components),
             )
         except Exception as exc:
             issue = f"库存 SKU 数量校验无法完成: {_exception_text(exc)}"
@@ -1556,6 +1745,7 @@ def _build_quantity_validation_report(
             )
         all_rows.extend(rows)
         source_rows.append(source_info)
+        summary_comparison_rows.extend(bundle.summary_comparison_rows)
 
     summary = quantity_validation.summarize_quantity_validation(all_rows)
     status = quantity_validation.status_from_summary(summary)
@@ -1564,6 +1754,7 @@ def _build_quantity_validation_report(
         output_path=output_path,
         rows=all_rows,
         source_rows=source_rows,
+        summary_comparison_rows=summary_comparison_rows,
     )
     return {
         "validation_report_xlsx": str(report_path),
@@ -1582,6 +1773,17 @@ def fill_customs_declaration(
     input_paths = _coerce_input_paths(input_xlsx)
     if len(input_paths) > 1 and consignment_excel:
         raise ValueError("多备货单模式不支持 --consignment-excel；请按 SP 单号准备本地装箱数据")
+    precheck_sp_nos = [extract_sp_no_from_filename(input_path) for input_path in input_paths]
+    precheck_destinations = {
+        extract_destination_country_from_filename(input_path)
+        for input_path in input_paths
+    }
+    if len(precheck_destinations) != 1:
+        detail = ", ".join(
+            f"{sp_no}={extract_destination_country_from_filename(input_path)}"
+            for sp_no, input_path in zip(precheck_sp_nos, input_paths)
+        )
+        raise ValueError(f"多个备货单目的国不一致: {detail}")
     bundles = [
         read_input_bundle(input_path, consignment_excel=consignment_excel if len(input_paths) == 1 else None)
         for input_path in input_paths
@@ -1621,6 +1823,7 @@ def fill_customs_declaration(
                 "matched_count": 0,
                 "mismatch_count": 0,
                 "unresolved_count": 0,
+                "not_shipped_msku_count": 0,
             },
             "validation_report_error": _exception_text(exc),
         }
@@ -1663,6 +1866,7 @@ def fill_customs_declaration(
         "total_gross_weight": _decimal_to_json_number(total_gross_weight),
         "total_amount": _decimal_to_json_number(total_amount),
         "total_amount_upper": total_amount_upper,
+        "quantity_basis": "actual",
         "row_count": len(source_rows),
         "customs_detail_row_count": customs_detail_row_count,
         "formula_sheet_row_count": len(source_rows),

@@ -64,9 +64,22 @@ def test_fba_workflow_map_keeps_invoice_and_customs_independent() -> None:
     text = _skill_text("fba-workflow-map")
 
     assert 'D --> H["fba-customs-declaration-fill<br/>报关资料"]' not in text
+    assert 'A --> H["fba-customs-declaration-fill<br/>报关资料"]' in text
     assert 'E --> H["fba-customs-declaration-fill<br/>报关资料"]' in text
     assert 'L["备货单 xlsx"] --> H' in text
-    assert "报关资料 | 备货单 + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill`" in text
+    assert "报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill`" in text
+
+
+def test_fba_customs_declaration_skill_documents_actual_quantity_contract() -> None:
+    text = _skill_text("fba-customs-declaration-fill")
+
+    assert "缺失时正式报关资料仍会生成" not in text
+    assert "quantity_basis=actual" in text
+    assert "WMS `装箱数量` 是正式报关资料的实际发货量来源" in text
+    assert "解析 `MSKU -> 库存 SKU` 组成关系" in text
+    assert "备货单第一个表格提供 `库存 SKU -> 规则型号` 映射" in text
+    assert "汇总表 `SKU` 作为型号组代表行" in text
+    assert "`汇总表计算前后对比`" in text
 
 
 def test_fba_skill_docs_do_not_contain_old_misleading_phrases() -> None:

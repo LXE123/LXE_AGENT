@@ -128,6 +128,8 @@ class InvoiceSourceRow:
             sale_price=self.sale_price,
             total_price=self.total_price,
             unit=self.unit,
+            sku=self.sku,
+            purchase_price=self.purchase_price,
         )
 
 
