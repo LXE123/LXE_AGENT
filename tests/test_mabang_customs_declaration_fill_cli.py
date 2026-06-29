@@ -10,6 +10,106 @@ import pytest
 from services.agent_cli.mabang import fill_customs_declaration as cli
 
 
+def _default_msku_for_sku(sku: object) -> str:
+    text = str(sku or "").strip()
+    return f"MSKU-{text}" if text else "MSKU-ACTUAL"
+
+
+def _write_merge_detail_sheet(worksheet, rows: list[dict[str, object]]) -> None:
+    worksheet.append(["SKU", "产品名称", "发货量", "规则型号", "单价"])
+    for row in rows:
+        sku = row.get("SKU", "")
+        if not sku:
+            continue
+        worksheet.append(
+            [
+                sku,
+                row.get("产品名称", row.get("品名", "")),
+                row.get("发货量", ""),
+                row.get("规则型号", row.get("规格型号", "")),
+                row.get("单价", ""),
+            ]
+        )
+
+
+def _write_default_delivery_csv_for_rows(path: Path, rows: list[dict[str, object]]) -> None:
+    try:
+        sp_no = cli.extract_sp_no_from_filename(path)
+    except ValueError:
+        return
+    delivery_rows = [
+        {
+            cli.quantity_validation.DELIVERY_MSKU_COLUMN: _default_msku_for_sku(row.get("SKU")),
+            cli.quantity_validation.SKU_SHIP_QTY_COLUMN: f"{row.get('SKU')} × 1",
+        }
+        for row in rows
+        if row.get("SKU") and row.get("发货量") not in (None, "")
+    ]
+    if not delivery_rows:
+        return
+    delivery_path = path.parent / f"{sp_no}_1.csv"
+    if delivery_path.is_file():
+        return
+    _write_delivery_csv(
+        delivery_path,
+        delivery_rows,
+    )
+
+
+def _sync_default_consignment_for_rows(path: Path, rows: list[dict[str, object]]) -> None:
+    try:
+        sp_no = cli.extract_sp_no_from_filename(path)
+    except ValueError:
+        return
+    consignment_path = path.parent / f"{sp_no}.xlsx"
+    if not consignment_path.is_file():
+        return
+
+    import pandas as pd
+
+    existing = pd.read_excel(consignment_path, dtype=str)
+    if "MSKU" in existing.columns and existing["MSKU"].fillna("").astype(str).str.strip().any():
+        return
+    box_rows: list[dict[str, object]] = []
+    for record in existing.to_dict(orient="records"):
+        box_rows.append(
+            {
+                "箱序号": record.get("箱序号", ""),
+                "毛重": record.get("毛重", ""),
+            }
+        )
+    if not box_rows:
+        box_rows = [{"箱序号": 1, "毛重": 1}]
+
+    actual_rows: list[dict[str, object]] = []
+    first_box = box_rows[0]
+    for row in rows:
+        sku = row.get("SKU")
+        quantity = row.get("发货量")
+        if not sku or quantity in (None, ""):
+            continue
+        actual_rows.append(
+            {
+                "箱序号": first_box.get("箱序号", 1),
+                "毛重": first_box.get("毛重", 1),
+                "MSKU": _default_msku_for_sku(sku),
+                "装箱数量": quantity,
+            }
+        )
+    if not actual_rows:
+        return
+    pd.DataFrame(box_rows + actual_rows).to_excel(consignment_path, sheet_name="FBA装箱任务", index=False)
+
+
+@pytest.fixture(autouse=True)
+def _default_delivery_lookup(monkeypatch, tmp_path):
+    def fake_find_latest_delivery_csv(sp_no: str, *, csv_dir=None) -> Path | None:
+        path = tmp_path / f"{str(sp_no).upper()}_1.csv"
+        return path if path.is_file() else None
+
+    monkeypatch.setattr(cli.quantity_validation, "find_latest_delivery_csv", fake_find_latest_delivery_csv)
+
+
 def _write_input_workbook(
     path: Path,
     rows: list[dict[str, object]],
@@ -22,6 +122,9 @@ def _write_input_workbook(
 
     workbook = Workbook()
     workbook.active.title = "Sheet1"
+    if sheet_count >= 3:
+        workbook.active.title = "可出口退税"
+        _write_merge_detail_sheet(workbook.active, rows)
     while len(workbook.worksheets) < sheet_count:
         workbook.create_sheet(f"Sheet{len(workbook.worksheets) + 1}")
     worksheet = workbook.worksheets[2] if sheet_count >= 3 else workbook.worksheets[-1]
@@ -30,13 +133,16 @@ def _write_input_workbook(
     for row in rows:
         worksheet.append([row.get(header, "") for header in headers])
     workbook.save(path)
+    _write_default_delivery_csv_for_rows(path, rows)
+    _sync_default_consignment_for_rows(path, rows)
 
 
 def _write_input_workbook_with_extra_sheet_before_summary(path: Path, rows: list[dict[str, object]]) -> None:
     from openpyxl import Workbook
 
     workbook = Workbook()
-    workbook.active.title = "Sheet2"
+    workbook.active.title = "可出口退税"
+    _write_merge_detail_sheet(workbook.active, rows)
     workbook.create_sheet("Sheet1")
     extra = workbook.create_sheet("Sheet3")
     extra.append(["库存SKU", "库存SKU中文名称", "库存SKU英文名称", "库存SKU"])
@@ -45,6 +151,8 @@ def _write_input_workbook_with_extra_sheet_before_summary(path: Path, rows: list
     for row in rows:
         summary.append([row.get(header, "") for header in cli.INPUT_HEADERS])
     workbook.save(path)
+    _write_default_delivery_csv_for_rows(path, rows)
+    _sync_default_consignment_for_rows(path, rows)
 
 
 def _write_input_workbook_with_expected_stock_sheet(path: Path, rows: list[dict[str, object]]) -> None:
@@ -53,23 +161,15 @@ def _write_input_workbook_with_expected_stock_sheet(path: Path, rows: list[dict[
     workbook = Workbook()
     expected = workbook.active
     expected.title = "可出口退税"
-    expected.append(["SKU", "产品名称", "发货量", "规则型号", "单价"])
-    for row in rows:
-        expected.append(
-            [
-                row.get("SKU", ""),
-                row.get("产品名称", row.get("品名", "")),
-                row.get("发货量", ""),
-                row.get("规则型号", row.get("规格型号", "")),
-                row.get("单价", ""),
-            ]
-        )
+    _write_merge_detail_sheet(expected, rows)
     workbook.create_sheet("Sheet2")
     summary = workbook.create_sheet(cli.SOURCE_WORKSHEET_NAME)
     summary.append(list(cli.INPUT_HEADERS))
     for row in rows:
         summary.append([row.get(header, "") for header in cli.INPUT_HEADERS])
     workbook.save(path)
+    _write_default_delivery_csv_for_rows(path, rows)
+    _sync_default_consignment_for_rows(path, rows)
 
 
 def _write_input_workbook_with_expected_stock_and_summary_rows(
@@ -100,6 +200,8 @@ def _write_input_workbook_with_expected_stock_and_summary_rows(
     for row in summary_rows:
         summary.append([row.get(header, "") for header in cli.INPUT_HEADERS])
     workbook.save(path)
+    _write_default_delivery_csv_for_rows(path, summary_rows)
+    _sync_default_consignment_for_rows(path, summary_rows)
 
 
 def _write_workbook_without_summary(path: Path) -> None:
@@ -315,6 +417,9 @@ def _valid_source_row(**overrides: object) -> dict[str, object]:
         "单位": "个",
     }
     row.update(overrides)
+    if "SKU" in overrides and "规格型号" not in overrides and row.get("SKU") != "SKU-1":
+        row["规格型号"] = str(row.get("SKU") or "")
+        row["规则型号"] = row["规格型号"]
     return row
 
 
@@ -325,17 +430,26 @@ def _write_consignment_excel(path: Path, rows: list[dict[str, object]]) -> Path:
     return path
 
 
-def _write_delivery_csv(path: Path, rows: list[dict[str, object]]) -> Path:
-    headers = [
-        cli.quantity_validation.DELIVERY_MSKU_COLUMN,
-        cli.quantity_validation.SKU_SHIP_QTY_COLUMN,
-    ]
+def _write_delivery_csv(path: Path, rows: list[dict[str, object]], *, headers: list[str] | None = None) -> Path:
+    if headers is None:
+        headers = [
+            cli.quantity_validation.DELIVERY_MSKU_COLUMN,
+            cli.quantity_validation.SKU_SHIP_QTY_COLUMN,
+        ]
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=headers)
         writer.writeheader()
         for row in rows:
             writer.writerow({header: row.get(header, "") for header in headers})
     return path
+
+
+def _delivery_headers_with_msku_ship_quantity() -> list[str]:
+    return [
+        cli.quantity_validation.DELIVERY_MSKU_COLUMN,
+        cli.quantity_validation.MSKU_SHIP_QTY_COLUMN,
+        cli.quantity_validation.SKU_SHIP_QTY_COLUMN,
+    ]
 
 
 def _patch_delivery_lookup(monkeypatch, mapping: dict[str, Path | None]) -> None:
@@ -350,6 +464,21 @@ def _read_validation_report_rows(path: str | Path) -> list[dict[str, object]]:
 
     workbook = load_workbook(path, data_only=True)
     worksheet = workbook["数量校验"]
+    headers = [worksheet.cell(row=1, column=column).value for column in range(1, worksheet.max_column + 1)]
+    rows: list[dict[str, object]] = []
+    for row_index in range(2, worksheet.max_row + 1):
+        values = [worksheet.cell(row=row_index, column=column).value for column in range(1, worksheet.max_column + 1)]
+        if any(value not in (None, "") for value in values):
+            rows.append(dict(zip(headers, values)))
+    workbook.close()
+    return rows
+
+
+def _read_summary_comparison_rows(path: str | Path) -> list[dict[str, object]]:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, data_only=True)
+    worksheet = workbook["汇总表计算前后对比"]
     headers = [worksheet.cell(row=1, column=column).value for column in range(1, worksheet.max_column + 1)]
     rows: list[dict[str, object]] = []
     for row_index in range(2, worksheet.max_row + 1):
@@ -835,6 +964,7 @@ def test_fill_generates_quantity_validation_report_when_quantities_match(monkeyp
         "matched_count": 2,
         "mismatch_count": 0,
         "unresolved_count": 0,
+        "not_shipped_msku_count": 0,
     }
     assert Path(payload["validation_report_xlsx"]).is_file()
     rows = _read_validation_report_rows(payload["validation_report_xlsx"])
@@ -904,12 +1034,13 @@ def test_fill_quantity_validation_still_reports_detail_row_missing_sku(monkeypat
         ],
     )
     _patch_delivery_lookup(monkeypatch, {"SP260414001": delivery_path})
-    _write_input_workbook_with_expected_stock_sheet(
+    _write_input_workbook_with_expected_stock_and_summary_rows(
         input_path,
-        [
+        expected_rows=[
             _valid_source_row(SKU="SKU-A", 发货量=2, 总价=10),
             _valid_source_row(SKU="", 产品名称="漏 SKU 产品", 品名="漏 SKU 产品", 规格型号="MISSING", 规则型号="MISSING", 发货量=1, 单价=1, 总价=1),
         ],
+        summary_rows=[_valid_source_row(SKU="SKU-A", 发货量=2, 总价=10)],
     )
     _write_template(template_path)
 
@@ -971,7 +1102,264 @@ def test_fill_keeps_customs_output_when_quantity_validation_mismatches(monkeypat
     assert rows[0]["状态"] == "差异"
 
 
-def test_fill_keeps_customs_output_when_delivery_csv_is_missing(monkeypatch, tmp_path):
+def test_fill_uses_actual_quantities_and_writes_summary_comparison_sheet(monkeypatch, tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国（4.28）-2.xlsx"
+    template_path = tmp_path / "custom_declaration_documents.xlsx"
+    output_dir = tmp_path / "artifacts"
+    consignment_path = _write_consignment_excel(
+        tmp_path / "SP260414001.xlsx",
+        [
+            {"箱序号": 1, "MSKU": "MSKU-A", "装箱数量": 2, "长": 40, "宽": 30, "高": 20, "毛重": 10},
+            {"箱序号": 1, "MSKU": "MSKU-A2", "装箱数量": 1, "长": 40, "宽": 30, "高": 20, "毛重": 10},
+        ],
+    )
+    delivery_path = _write_delivery_csv(
+        tmp_path / "SP260414001_1.csv",
+        [
+            {
+                cli.quantity_validation.DELIVERY_MSKU_COLUMN: "MSKU-A",
+                cli.quantity_validation.MSKU_SHIP_QTY_COLUMN: 2,
+                cli.quantity_validation.SKU_SHIP_QTY_COLUMN: "SKU-A × 1",
+            },
+            {
+                cli.quantity_validation.DELIVERY_MSKU_COLUMN: "MSKU-A2",
+                cli.quantity_validation.MSKU_SHIP_QTY_COLUMN: 1,
+                cli.quantity_validation.SKU_SHIP_QTY_COLUMN: "SKU-A × 1",
+            },
+            {
+                cli.quantity_validation.DELIVERY_MSKU_COLUMN: "MSKU-B",
+                cli.quantity_validation.MSKU_SHIP_QTY_COLUMN: 0,
+                cli.quantity_validation.SKU_SHIP_QTY_COLUMN: "SKU-B × 0",
+            },
+        ],
+        headers=_delivery_headers_with_msku_ship_quantity(),
+    )
+    _patch_delivery_lookup(monkeypatch, {"SP260414001": delivery_path})
+    _write_input_workbook_with_expected_stock_sheet(
+        input_path,
+        [
+            _valid_source_row(SKU="SKU-A", 发货量=5, 售价=5, 总价=25),
+            _valid_source_row(SKU="SKU-B", 发货量=4, 售价=6, 总价=24),
+        ],
+    )
+    _write_template(template_path, customs_detail_blocks=2)
+
+    payload = cli.fill_customs_declaration(
+        input_path,
+        template_xlsx=template_path,
+        output_dir=output_dir,
+        consignment_excel=consignment_path,
+    )
+
+    from openpyxl import load_workbook
+    from openpyxl.utils import get_column_letter
+
+    assert payload["success"] is True
+    assert payload["quantity_basis"] == "actual"
+    assert payload["row_count"] == 1
+    assert payload["total_amount"] == 15
+    assert payload["total_amount_upper"] == "人民币壹拾伍圆整"
+
+    workbook = load_workbook(payload["output_xlsx"], data_only=False)
+    declaration_sheet = workbook["申报要素"]
+    customs_sheet = workbook["报关单"]
+    assert declaration_sheet.cell(row=10, column=1).value == 1
+    assert declaration_sheet.cell(row=11, column=1).value is None
+    assert customs_sheet.cell(row=22, column=7).value == 3
+    assert customs_sheet.cell(row=23, column=1).value is None
+
+    report_workbook = load_workbook(payload["validation_report_xlsx"], data_only=True)
+    assert report_workbook.sheetnames[:3] == ["数量校验", "汇总表计算前后对比", "数据来源"]
+    for sheet_name in report_workbook.sheetnames[:3]:
+        sheet = report_workbook[sheet_name]
+        for column_index in range(1, sheet.max_column + 1):
+            assert sheet.column_dimensions[get_column_letter(column_index)].width == 15
+        for row_index in range(1, sheet.max_row + 1):
+            assert sheet.row_dimensions[row_index].height == 15
+    assert report_workbook["数量校验"].cell(row=2, column=2).alignment.wrap_text is True
+    assert report_workbook["汇总表计算前后对比"].cell(row=4, column=15).alignment.wrap_text is True
+    report_workbook.close()
+
+    validation_rows = _read_validation_report_rows(payload["validation_report_xlsx"])
+    validation_by_sku = {row["SKU"]: row for row in validation_rows if row["SKU"]}
+    assert validation_by_sku["SKU-A"]["MSKU"] == "MSKU-A\nMSKU-A2"
+    assert validation_by_sku["SKU-B"]["MSKU"] == "MSKU-B"
+
+    comparison_rows = _read_summary_comparison_rows(payload["validation_report_xlsx"])
+    detail_rows = [row for row in comparison_rows if row["状态"] != "合计"]
+    total_row = next(row for row in comparison_rows if row["状态"] == "合计")
+    by_sku = {row["汇总表SKU"]: row for row in detail_rows}
+    assert by_sku["SKU-A"]["原发货量"] == 5
+    assert by_sku["SKU-A"]["实际发货量"] == 3
+    assert by_sku["SKU-A"]["数量差异"] == -2
+    assert by_sku["SKU-A"]["原总价"] == 25
+    assert by_sku["SKU-A"]["重算总价"] == 15
+    assert by_sku["SKU-A"]["金额差异"] == -10
+    assert by_sku["SKU-A"]["状态"] == "数量变化"
+    assert by_sku["SKU-B"]["实际发货量"] == 0
+    assert by_sku["SKU-B"]["状态"] == "未发货不写入"
+    assert total_row["数量差异"] == -6
+    assert total_row["金额差异"] == -34
+    assert total_row["问题说明"] == "\n".join(
+        [
+            "SKU-A SKU-A 2",
+            "SKU-B SKU-B 4",
+            "留下来6条当库存",
+            "期望发货数量9 实际发货数量3",
+        ]
+    )
+
+
+def test_fill_maps_actual_quantities_by_summary_sku_representative_model(monkeypatch, tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国（4.28）-2.xlsx"
+    template_path = tmp_path / "custom_declaration_documents.xlsx"
+    output_dir = tmp_path / "artifacts"
+    consignment_path = _write_consignment_excel(
+        tmp_path / "SP260414001.xlsx",
+        [
+            {"箱序号": 1, "MSKU": "MSKU-COMBO", "装箱数量": 2, "长": 40, "宽": 30, "高": 20, "毛重": 10},
+        ],
+    )
+    delivery_path = _write_delivery_csv(
+        tmp_path / "SP260414001_1.csv",
+        [
+            {
+                cli.quantity_validation.DELIVERY_MSKU_COLUMN: "MSKU-COMBO",
+                cli.quantity_validation.SKU_SHIP_QTY_COLUMN: "SKU-A1 × 1, SKU-A2 × 2",
+            },
+        ],
+    )
+    _patch_delivery_lookup(monkeypatch, {"SP260414001": delivery_path})
+    _write_input_workbook_with_expected_stock_and_summary_rows(
+        input_path,
+        expected_rows=[
+            _valid_source_row(SKU="SKU-A1", 规格型号="MODEL-FIRST", 规则型号="MODEL-FIRST", 发货量=2, 单价=1.5, 总价=3),
+            _valid_source_row(SKU="SKU-A2", 规格型号="MODEL-FIRST", 规则型号="MODEL-FIRST", 发货量=4, 单价=2, 总价=8),
+        ],
+        summary_rows=[
+            _valid_source_row(SKU="SKU-A1", 规格型号="汇总表乱填型号", 发货量=6, 售价=4, 总价=24),
+        ],
+    )
+    _write_template(template_path)
+
+    payload = cli.fill_customs_declaration(
+        input_path,
+        template_xlsx=template_path,
+        output_dir=output_dir,
+        consignment_excel=consignment_path,
+    )
+
+    from openpyxl import load_workbook
+
+    assert payload["success"] is True
+    assert payload["row_count"] == 1
+    assert payload["total_amount"] == 24
+    workbook = load_workbook(payload["output_xlsx"], data_only=False)
+    declaration_sheet = workbook["申报要素"]
+    customs_sheet = workbook["报关单"]
+    assert declaration_sheet.cell(row=10, column=6).value == "MODEL-FIRST"
+    assert customs_sheet.cell(row=22, column=7).value == 6
+
+    comparison_rows = _read_summary_comparison_rows(payload["validation_report_xlsx"])
+    detail_rows = [row for row in comparison_rows if row["状态"] != "合计"]
+    total_row = next(row for row in comparison_rows if row["状态"] == "合计")
+    assert len(detail_rows) == 1
+    assert detail_rows[0]["汇总表SKU"] == "SKU-A1"
+    assert detail_rows[0]["规格型号"] == "MODEL-FIRST"
+    assert detail_rows[0]["实际发货量"] == 6
+    assert "汇总表 SKU 命中第一个表格型号组" in detail_rows[0]["问题说明"]
+    assert total_row["数量差异"] == 0
+    assert total_row["金额差异"] == 0
+
+
+def test_fill_rejects_when_summary_sku_is_not_in_expected_stock_sheet(tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国（4.28）-2.xlsx"
+    template_path = tmp_path / "custom_declaration_documents.xlsx"
+    output_dir = tmp_path / "artifacts"
+    consignment_path = _write_default_consignment_excel(tmp_path)
+    _write_input_workbook_with_expected_stock_and_summary_rows(
+        input_path,
+        expected_rows=[_valid_source_row(SKU="SKU-A", 发货量=2, 总价=10)],
+        summary_rows=[_valid_source_row(SKU="SKU-MISSING", 发货量=2, 总价=10)],
+    )
+    _write_template(template_path)
+
+    with pytest.raises(ValueError, match="汇总表第2行 SKU=SKU-MISSING 不在备货单第一个表格"):
+        cli.fill_customs_declaration(
+            input_path,
+            template_xlsx=template_path,
+            output_dir=output_dir,
+            consignment_excel=consignment_path,
+        )
+
+
+def test_fill_rejects_duplicate_summary_representatives_for_same_model(tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国（4.28）-2.xlsx"
+    template_path = tmp_path / "custom_declaration_documents.xlsx"
+    output_dir = tmp_path / "artifacts"
+    consignment_path = _write_default_consignment_excel(tmp_path)
+    _write_input_workbook_with_expected_stock_and_summary_rows(
+        input_path,
+        expected_rows=[
+            _valid_source_row(SKU="SKU-A", 规格型号="MODEL-DUP", 规则型号="MODEL-DUP", 发货量=2, 总价=10),
+            _valid_source_row(SKU="SKU-B", 规格型号="MODEL-DUP", 规则型号="MODEL-DUP", 发货量=3, 总价=15),
+        ],
+        summary_rows=[
+            _valid_source_row(SKU="SKU-A", 发货量=2, 总价=10),
+            _valid_source_row(SKU="SKU-B", 发货量=3, 总价=15),
+        ],
+    )
+    _write_template(template_path)
+
+    with pytest.raises(ValueError, match="汇总表同一个规则型号存在多个代表 SKU"):
+        cli.fill_customs_declaration(
+            input_path,
+            template_xlsx=template_path,
+            output_dir=output_dir,
+            consignment_excel=consignment_path,
+        )
+
+
+def test_fill_rejects_actual_model_without_summary_representative(monkeypatch, tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国（4.28）-2.xlsx"
+    template_path = tmp_path / "custom_declaration_documents.xlsx"
+    output_dir = tmp_path / "artifacts"
+    consignment_path = _write_consignment_excel(
+        tmp_path / "SP260414001.xlsx",
+        [
+            {"箱序号": 1, "MSKU": "MSKU-B", "装箱数量": 3, "长": 40, "宽": 30, "高": 20, "毛重": 10},
+        ],
+    )
+    delivery_path = _write_delivery_csv(
+        tmp_path / "SP260414001_1.csv",
+        [
+            {
+                cli.quantity_validation.DELIVERY_MSKU_COLUMN: "MSKU-B",
+                cli.quantity_validation.SKU_SHIP_QTY_COLUMN: "SKU-B × 1",
+            },
+        ],
+    )
+    _patch_delivery_lookup(monkeypatch, {"SP260414001": delivery_path})
+    _write_input_workbook_with_expected_stock_and_summary_rows(
+        input_path,
+        expected_rows=[
+            _valid_source_row(SKU="SKU-A", 规格型号="MODEL-A", 规则型号="MODEL-A", 发货量=2, 总价=10),
+            _valid_source_row(SKU="SKU-B", 规格型号="MODEL-B", 规则型号="MODEL-B", 发货量=3, 总价=15),
+        ],
+        summary_rows=[_valid_source_row(SKU="SKU-A", 发货量=2, 总价=10)],
+    )
+    _write_template(template_path)
+
+    with pytest.raises(ValueError, match="型号组在汇总表中没有代表 SKU.*SKU=SKU-B.*规则型号=MODEL-B"):
+        cli.fill_customs_declaration(
+            input_path,
+            template_xlsx=template_path,
+            output_dir=output_dir,
+            consignment_excel=consignment_path,
+        )
+
+
+def test_fill_rejects_when_delivery_csv_is_missing(monkeypatch, tmp_path):
     input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国（4.28）-2.xlsx"
     template_path = tmp_path / "custom_declaration_documents.xlsx"
     output_dir = tmp_path / "artifacts"
@@ -988,20 +1376,13 @@ def test_fill_keeps_customs_output_when_delivery_csv_is_missing(monkeypatch, tmp
     )
     _write_template(template_path)
 
-    payload = cli.fill_customs_declaration(
-        input_path,
-        template_xlsx=template_path,
-        output_dir=output_dir,
-        consignment_excel=consignment_path,
-    )
-
-    assert payload["success"] is True
-    assert Path(payload["output_xlsx"]).is_file()
-    assert payload["quantity_validation_status"] == "incomplete"
-    rows = _read_validation_report_rows(payload["validation_report_xlsx"])
-    assert rows[0]["SKU"] == "SKU-A"
-    assert rows[0]["状态"] == "无法校验"
-    assert "本地未找到发货单 CSV" in rows[0]["问题说明"]
+    with pytest.raises(FileNotFoundError, match="本地未找到发货单 CSV"):
+        cli.fill_customs_declaration(
+            input_path,
+            template_xlsx=template_path,
+            output_dir=output_dir,
+            consignment_excel=consignment_path,
+        )
 
 
 def test_fill_quantity_validation_reports_unknown_wms_msku(monkeypatch, tmp_path):
@@ -1030,6 +1411,48 @@ def test_fill_quantity_validation_reports_unknown_wms_msku(monkeypatch, tmp_path
     )
     _write_template(template_path)
 
+    with pytest.raises(ValueError, match="无法按实际发货量生成报关资料.*MSKU-WMS"):
+        cli.fill_customs_declaration(
+            input_path,
+            template_xlsx=template_path,
+            output_dir=output_dir,
+            consignment_excel=consignment_path,
+        )
+
+
+def test_fill_quantity_validation_marks_zero_delivery_msku_as_not_shipped(monkeypatch, tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国（4.28）-2.xlsx"
+    template_path = tmp_path / "custom_declaration_documents.xlsx"
+    output_dir = tmp_path / "artifacts"
+    consignment_path = _write_consignment_excel(
+        tmp_path / "SP260414001.xlsx",
+        [
+            {"箱序号": 1, "MSKU": "MSKU-A", "装箱数量": 2, "长": 40, "宽": 30, "高": 20, "毛重": 10},
+        ],
+    )
+    delivery_path = _write_delivery_csv(
+        tmp_path / "SP260414001_1.csv",
+        [
+            {
+                cli.quantity_validation.DELIVERY_MSKU_COLUMN: "MSKU-A",
+                cli.quantity_validation.MSKU_SHIP_QTY_COLUMN: 2,
+                cli.quantity_validation.SKU_SHIP_QTY_COLUMN: "SKU-A × 1",
+            },
+            {
+                cli.quantity_validation.DELIVERY_MSKU_COLUMN: "MSKU-ZERO",
+                cli.quantity_validation.MSKU_SHIP_QTY_COLUMN: 0,
+                cli.quantity_validation.SKU_SHIP_QTY_COLUMN: "SKU-ZERO × 0",
+            },
+        ],
+        headers=_delivery_headers_with_msku_ship_quantity(),
+    )
+    _patch_delivery_lookup(monkeypatch, {"SP260414001": delivery_path})
+    _write_input_workbook_with_expected_stock_sheet(
+        input_path,
+        [_valid_source_row(SKU="SKU-A", 发货量=2, 总价=10)],
+    )
+    _write_template(template_path)
+
     payload = cli.fill_customs_declaration(
         input_path,
         template_xlsx=template_path,
@@ -1038,10 +1461,107 @@ def test_fill_quantity_validation_reports_unknown_wms_msku(monkeypatch, tmp_path
     )
 
     assert payload["success"] is True
-    assert payload["quantity_validation_status"] == "incomplete"
+    assert payload["quantity_validation_status"] == "passed"
+    assert payload["quantity_validation_summary"] == {
+        "total_sku_count": 1,
+        "matched_count": 1,
+        "mismatch_count": 0,
+        "unresolved_count": 0,
+        "not_shipped_msku_count": 1,
+    }
     rows = _read_validation_report_rows(payload["validation_report_xlsx"])
-    assert any(row["状态"] == "无法校验" and "MSKU-WMS" in row["问题说明"] for row in rows)
-    assert any(row["状态"] == "无法校验" and "MSKU-CSV" in row["问题说明"] for row in rows)
+    assert any(row["SKU"] == "SKU-A" and row["状态"] == "一致" for row in rows)
+    not_shipped_row = next(row for row in rows if row["状态"] == "未发货")
+    assert not_shipped_row["MSKU"] == "MSKU-ZERO"
+    assert "MSKU发货量 为 0" in not_shipped_row["问题说明"]
+    assert not any(row["状态"] == "无法校验" and "MSKU-ZERO" in row["问题说明"] for row in rows)
+
+
+def test_fill_quantity_validation_reports_positive_delivery_msku_missing_from_wms(monkeypatch, tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国（4.28）-2.xlsx"
+    template_path = tmp_path / "custom_declaration_documents.xlsx"
+    output_dir = tmp_path / "artifacts"
+    consignment_path = _write_consignment_excel(
+        tmp_path / "SP260414001.xlsx",
+        [
+            {"箱序号": 1, "MSKU": "MSKU-A", "装箱数量": 2, "长": 40, "宽": 30, "高": 20, "毛重": 10},
+        ],
+    )
+    delivery_path = _write_delivery_csv(
+        tmp_path / "SP260414001_1.csv",
+        [
+            {
+                cli.quantity_validation.DELIVERY_MSKU_COLUMN: "MSKU-A",
+                cli.quantity_validation.MSKU_SHIP_QTY_COLUMN: 2,
+                cli.quantity_validation.SKU_SHIP_QTY_COLUMN: "SKU-A × 1",
+            },
+            {
+                cli.quantity_validation.DELIVERY_MSKU_COLUMN: "MSKU-MISSING",
+                cli.quantity_validation.MSKU_SHIP_QTY_COLUMN: 1,
+                cli.quantity_validation.SKU_SHIP_QTY_COLUMN: "SKU-MISSING × 1",
+            },
+        ],
+        headers=_delivery_headers_with_msku_ship_quantity(),
+    )
+    _patch_delivery_lookup(monkeypatch, {"SP260414001": delivery_path})
+    _write_input_workbook_with_expected_stock_sheet(
+        input_path,
+        [_valid_source_row(SKU="SKU-A", 发货量=2, 总价=10)],
+    )
+    _write_template(template_path)
+
+    with pytest.raises(ValueError, match="无法按实际发货量生成报关资料.*MSKU-MISSING"):
+        cli.fill_customs_declaration(
+            input_path,
+            template_xlsx=template_path,
+            output_dir=output_dir,
+            consignment_excel=consignment_path,
+        )
+
+
+def test_fill_quantity_validation_uses_wms_when_delivery_msku_quantity_is_zero(monkeypatch, tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国（4.28）-2.xlsx"
+    template_path = tmp_path / "custom_declaration_documents.xlsx"
+    output_dir = tmp_path / "artifacts"
+    consignment_path = _write_consignment_excel(
+        tmp_path / "SP260414001.xlsx",
+        [
+            {"箱序号": 1, "MSKU": "MSKU-A", "装箱数量": 3, "长": 40, "宽": 30, "高": 20, "毛重": 10},
+        ],
+    )
+    delivery_path = _write_delivery_csv(
+        tmp_path / "SP260414001_1.csv",
+        [
+            {
+                cli.quantity_validation.DELIVERY_MSKU_COLUMN: "MSKU-A",
+                cli.quantity_validation.MSKU_SHIP_QTY_COLUMN: 0,
+                cli.quantity_validation.SKU_SHIP_QTY_COLUMN: "SKU-A × 1",
+            },
+        ],
+        headers=_delivery_headers_with_msku_ship_quantity(),
+    )
+    _patch_delivery_lookup(monkeypatch, {"SP260414001": delivery_path})
+    _write_input_workbook_with_expected_stock_sheet(
+        input_path,
+        [_valid_source_row(SKU="SKU-A", 发货量=3, 总价=10)],
+    )
+    _write_template(template_path)
+
+    payload = cli.fill_customs_declaration(
+        input_path,
+        template_xlsx=template_path,
+        output_dir=output_dir,
+        consignment_excel=consignment_path,
+    )
+
+    assert payload["success"] is True
+    assert payload["quantity_validation_status"] == "passed"
+    assert payload["quantity_validation_summary"]["not_shipped_msku_count"] == 0
+    rows = _read_validation_report_rows(payload["validation_report_xlsx"])
+    assert len(rows) == 1
+    assert rows[0]["SKU"] == "SKU-A"
+    assert rows[0]["实际发货量"] == 3
+    assert rows[0]["状态"] == "一致"
 
 
 def test_fill_rejects_invalid_total_price(tmp_path):
@@ -1273,14 +1793,14 @@ def test_fill_populates_formula_sheets_and_extends_formula_rows(tmp_path):
     workbook = load_workbook(payload["output_xlsx"], data_only=False)
     assert payload["formula_sheet_row_count"] == 3
     assert payload["formula_sheets"] == {"发票": 3, "箱单": 3, "合同": 3}
-    assert payload["total_amount"] == 30
-    assert payload["total_amount_upper"] == "人民币叁拾圆整"
+    assert payload["total_amount"] == 127.5
+    assert payload["total_amount_upper"] == "人民币壹佰贰拾柒圆伍角"
 
     invoice = workbook["发票"]
     assert invoice.cell(row=8, column=3).value == "=OFFSET(报关单!$D$1,ROW(报关单!D1)*3+16,0)"
     assert invoice.cell(row=9, column=3).value == "=OFFSET(报关单!$D$1,ROW(报关单!D2)*3+16,0)"
     assert invoice.cell(row=10, column=7).value == "=IFERROR(I10/E10,0)"
-    assert invoice.cell(row=11, column=3).value == "人民币叁拾圆整"
+    assert invoice.cell(row=11, column=3).value == "人民币壹佰贰拾柒圆伍角"
     assert invoice.cell(row=11, column=7).value == "TOTAL:"
     assert invoice.cell(row=11, column=9).value == "=SUM(I8:I10)"
 
@@ -1298,7 +1818,7 @@ def test_fill_populates_formula_sheets_and_extends_formula_rows(tmp_path):
     assert "B20:C20" in [str(merged_range) for merged_range in contract.merged_cells.ranges]
     assert "I20:K20" in [str(merged_range) for merged_range in contract.merged_cells.ranges]
     assert contract.cell(row=21, column=9).value == "=SUM(I18:K20)"
-    assert contract.cell(row=23, column=6).value == "人民币叁拾圆整"
+    assert contract.cell(row=23, column=6).value == "人民币壹佰贰拾柒圆伍角"
 
 
 def test_fill_keeps_and_clears_extra_customs_detail_blocks(tmp_path):
@@ -1546,14 +2066,14 @@ def test_fill_multiple_input_workbooks_combines_rows_without_cross_sp_weight_all
     _write_input_workbook(
         input_path_1,
         [
-            _valid_source_row(SKU="SAME-SKU", 品名="编织表带", 发货量=1, 售价=2, 总价=10, 单位="条"),
-            _valid_source_row(SKU="SAME-SKU", 品名="硅胶表带", 发货量=3, 售价=3, 总价=10, 单位="条"),
+            _valid_source_row(SKU="SKU-SP1-A", 品名="编织表带", 发货量=1, 售价=2, 总价=10, 单位="条"),
+            _valid_source_row(SKU="SKU-SP1-B", 品名="硅胶表带", 发货量=3, 售价=3, 总价=10, 单位="条"),
         ],
     )
     _write_input_workbook(
         input_path_2,
         [
-            _valid_source_row(SKU="SAME-SKU", 品名="PC保护套", 商品名称="手表保护套", 发货量=5, 售价=4, 总价=10.5, 单位="个"),
+            _valid_source_row(SKU="SKU-SP2-A", 品名="PC保护套", 商品名称="手表保护套", 发货量=5, 售价=4, 总价=10.5, 单位="个"),
         ],
     )
     _write_template(template_path, customs_detail_blocks=3, formula_detail_rows=1)
@@ -1577,8 +2097,8 @@ def test_fill_multiple_input_workbooks_combines_rows_without_cross_sp_weight_all
     }
     assert payload["box_count"] == 5
     assert payload["total_gross_weight"] == 14
-    assert payload["total_amount"] == 30.5
-    assert payload["total_amount_upper"] == "人民币叁拾圆伍角"
+    assert payload["total_amount"] == 31
+    assert payload["total_amount_upper"] == "人民币叁拾壹圆整"
     assert payload["row_count"] == 3
     assert payload["formula_sheets"] == {"发票": 3, "箱单": 3, "合同": 3}
     assert Path(payload["output_xlsx"]) == output_dir / "SP260414001_SP260422010_custom_declaration_documents.xlsx"
@@ -1676,6 +2196,7 @@ def test_fill_multiple_input_workbooks_writes_combined_quantity_validation_repor
         "matched_count": 2,
         "mismatch_count": 0,
         "unresolved_count": 0,
+        "not_shipped_msku_count": 0,
     }
     assert Path(payload["validation_report_xlsx"]).name == "SP260414001_SP260422010_quantity_validation_report.xlsx"
     rows = _read_validation_report_rows(payload["validation_report_xlsx"])

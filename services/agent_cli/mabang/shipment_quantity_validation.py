@@ -6,15 +6,16 @@ import re
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli.mabang.restock_workbook import clean_cell
+from services.agent_cli.mabang.restock_workbook import MERGE_DETAIL_HEADERS, clean_cell, find_merge_detail_sheet
 from services.amazon.amazon_logistic.sources.consignment_excel import resolve_column
 
 DELIVERY_CSV_DIR = Path("artifacts") / "mabang_fba_delivery"
 DELIVERY_MSKU_COLUMN = "MSKU"
+MSKU_SHIP_QTY_COLUMN = "MSKU发货量"
 SKU_SHIP_QTY_COLUMN = "SKU发货量"
 CONSIGNMENT_MSKU_COLUMN = "MSKU"
 CONSIGNMENT_QUANTITY_COLUMN = "装箱数量"
@@ -26,6 +27,7 @@ CONSIGNMENT_GROSS_WEIGHT_ALIASES = ("毛重", "Gross Weight", "gross_weight", "w
 ITEM_SPLIT_PATTERN = re.compile(r"[，,\r\n;；]+")
 SKU_QTY_PATTERN = re.compile(r"^\s*(?P<sku>.+?)\s*(?:×|x|X|\*)\s*(?P<qty>\d+(?:\.\d+)?)\s*$")
 EXPECTED_STOCK_HEADERS = ("SKU", "产品名称", "发货量", "规则型号", "单价")
+MERGE_PRICE_QUANTIZE = Decimal("0.01")
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,28 @@ class ConsignmentMskuRow:
 class ConsignmentMskuQuantityRow:
     row_number: int
     msku: str
+    quantity: Decimal
+
+
+@dataclass(frozen=True)
+class DeliveryMskuInfo:
+    msku: str
+    components: OrderedDict[str, Decimal]
+    msku_ship_quantity: Decimal | None
+
+
+@dataclass(frozen=True)
+class QuantityValidationIssue:
+    message: str
+    status: str = "无法校验"
+    msku: str = ""
+
+
+@dataclass(frozen=True)
+class StockSkuMergeInfo:
+    row_number: int
+    sku: str
+    merge_key: tuple[str, Decimal]
     quantity: Decimal
 
 
@@ -84,6 +108,16 @@ def _decimal_text(value: Decimal | None) -> str:
 
 def _normalize_sku_key(value: Any) -> str:
     return clean_cell(value).upper()
+
+
+def _normalized_price_key(value: Any, *, row_context: str) -> Decimal:
+    price = _parse_decimal(value, field_name="单价", row_context=row_context)
+    return price.quantize(MERGE_PRICE_QUANTIZE, rounding=ROUND_HALF_UP)
+
+
+def _merge_key_text(merge_key: tuple[str, Decimal]) -> str:
+    model, price = merge_key
+    return f"规则型号={model}, 单价={_decimal_text(price)}"
 
 
 def find_latest_delivery_csv(sp_no: str, *, csv_dir: str | Path | None = None) -> Path | None:
@@ -125,6 +159,19 @@ def _parse_sku_quantity_item(raw_item: str, *, row_number: int) -> tuple[str, De
     return sku, quantity
 
 
+def _parse_optional_msku_ship_quantity(value: Any) -> Decimal | None:
+    text = clean_cell(value)
+    if not text:
+        return None
+    try:
+        quantity = Decimal(text)
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if quantity < 0:
+        return None
+    return quantity
+
+
 def _read_delivery_rows(csv_path: str | Path) -> tuple[list[str], list[dict[str, str]]]:
     source_path = Path(csv_path).expanduser()
     if not source_path.is_file():
@@ -142,16 +189,27 @@ def _read_delivery_rows(csv_path: str | Path) -> tuple[list[str], list[dict[str,
     raise RuntimeError(f"读取发货单 CSV 失败: {source_path}, error={last_error}") from last_error
 
 
-def read_delivery_msku_components(csv_path: str | Path) -> OrderedDict[str, OrderedDict[str, Decimal]]:
+def read_delivery_msku_infos(csv_path: str | Path) -> OrderedDict[str, DeliveryMskuInfo]:
     headers, rows = _read_delivery_rows(csv_path)
     missing = [column for column in (DELIVERY_MSKU_COLUMN, SKU_SHIP_QTY_COLUMN) if column not in headers]
     if missing:
         raise ValueError(f"发货单 CSV 缺少列: {', '.join(missing)}")
 
     components: OrderedDict[str, OrderedDict[str, Decimal]] = OrderedDict()
+    msku_ship_quantities: dict[str, Decimal] = {}
     for index, row in enumerate(rows, start=2):
         msku = clean_cell(row.get(DELIVERY_MSKU_COLUMN))
         cell_value = clean_cell(row.get(SKU_SHIP_QTY_COLUMN))
+        msku_ship_quantity = (
+            _parse_optional_msku_ship_quantity(row.get(MSKU_SHIP_QTY_COLUMN))
+            if MSKU_SHIP_QTY_COLUMN in headers
+            else None
+        )
+        if msku_ship_quantity is not None:
+            if not msku:
+                raise ValueError(f"第{index}行 {MSKU_SHIP_QTY_COLUMN} 有值但 MSKU 为空")
+            msku_ship_quantities[msku] = msku_ship_quantities.get(msku, Decimal("0")) + msku_ship_quantity
+            components.setdefault(msku, OrderedDict())
         if not cell_value:
             continue
         if not msku:
@@ -167,7 +225,93 @@ def read_delivery_msku_components(csv_path: str | Path) -> OrderedDict[str, Orde
             msku_components[existing_sku] = msku_components.get(existing_sku, Decimal("0")) + quantity
     if not components:
         raise ValueError(f"发货单 CSV 未解析到有效 {DELIVERY_MSKU_COLUMN} + {SKU_SHIP_QTY_COLUMN}")
-    return components
+    return OrderedDict(
+        (
+            msku,
+            DeliveryMskuInfo(
+                msku=msku,
+                components=msku_components,
+                msku_ship_quantity=msku_ship_quantities.get(msku),
+            ),
+        )
+        for msku, msku_components in components.items()
+    )
+
+
+def read_delivery_msku_components(csv_path: str | Path) -> OrderedDict[str, OrderedDict[str, Decimal]]:
+    return OrderedDict(
+        (msku, info.components)
+        for msku, info in read_delivery_msku_infos(csv_path).items()
+    )
+
+
+def read_stock_sku_merge_infos(input_xlsx: str | Path) -> OrderedDict[str, StockSkuMergeInfo]:
+    try:
+        from openpyxl import load_workbook
+    except Exception as exc:
+        raise RuntimeError("缺少 openpyxl 依赖，无法读取备货单第一个表格") from exc
+
+    path = Path(input_xlsx).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError(f"输入 xlsx 不存在: {path}")
+
+    workbook = load_workbook(path, data_only=True, read_only=True)
+    try:
+        worksheet = find_merge_detail_sheet(workbook, path)
+        column_indexes = {header: index + 1 for index, header in enumerate(MERGE_DETAIL_HEADERS)}
+
+        merge_infos: OrderedDict[str, StockSkuMergeInfo] = OrderedDict()
+        conflicting_skus: list[str] = []
+        for row_number in range(2, worksheet.max_row + 1):
+            sku = clean_cell(worksheet.cell(row=row_number, column=column_indexes["SKU"]).value)
+            if not sku:
+                continue
+            sku_key = _normalize_sku_key(sku)
+            if not sku_key:
+                continue
+            row_context = f"财务合并明细表 {worksheet.title} 第{row_number}行 SKU={sku}"
+            model = clean_cell(worksheet.cell(row=row_number, column=column_indexes["规则型号"]).value)
+            if not model:
+                raise ValueError(f"{row_context} 缺少规则型号")
+            price = _normalized_price_key(
+                worksheet.cell(row=row_number, column=column_indexes["单价"]).value,
+                row_context=row_context,
+            )
+            quantity = _parse_decimal(
+                worksheet.cell(row=row_number, column=column_indexes["发货量"]).value,
+                field_name="发货量",
+                row_context=row_context,
+            )
+            merge_key = (model, price)
+            existing = merge_infos.get(sku_key)
+            if existing is not None:
+                if existing.merge_key[0] != model:
+                    conflicting_skus.append(
+                        f"{sku}: 规则型号={existing.merge_key[0]} / 规则型号={model}"
+                    )
+                    continue
+                merge_infos[sku_key] = StockSkuMergeInfo(
+                    row_number=existing.row_number,
+                    sku=existing.sku,
+                    merge_key=existing.merge_key,
+                    quantity=existing.quantity + quantity,
+                )
+                continue
+            merge_infos[sku_key] = StockSkuMergeInfo(
+                row_number=row_number,
+                sku=sku,
+                merge_key=merge_key,
+                quantity=quantity,
+            )
+        if conflicting_skus:
+            preview = "; ".join(conflicting_skus[:10])
+            suffix = " ..." if len(conflicting_skus) > 10 else ""
+            raise ValueError(f"财务合并明细表同一 SKU 存在不同规则型号，无法建立合并映射: {preview}{suffix}")
+        if not merge_infos:
+            raise ValueError(f"财务合并明细表 {worksheet.title} 未解析到有效库存 SKU 合并明细")
+        return merge_infos
+    finally:
+        workbook.close()
 
 
 def _resolve_required_column(columns: list[str], aliases: tuple[str, ...] | str, *, label: str) -> str:
@@ -375,26 +519,35 @@ def _unit_components(components: OrderedDict[str, Decimal], *, msku: str) -> Ord
 def build_actual_stock_sku_quantities(
     delivery_components: OrderedDict[str, OrderedDict[str, Decimal]],
     consignment_quantities: OrderedDict[str, Decimal],
-) -> tuple[OrderedDict[str, Decimal], list[str]]:
+    *,
+    delivery_msku_ship_quantities: dict[str, Decimal | None] | None = None,
+) -> tuple[OrderedDict[str, Decimal], list[QuantityValidationIssue]]:
     actual: OrderedDict[str, Decimal] = OrderedDict()
     display_skus: dict[str, str] = {}
-    issues: list[str] = []
+    issues: list[QuantityValidationIssue] = []
 
     for msku in consignment_quantities:
         components = delivery_components.get(msku)
         if components is None:
-            issues.append(f"WMS 装箱数据 MSKU 在发货单 CSV 中不存在: {msku}")
+            issues.append(QuantityValidationIssue(msku=msku, message=f"WMS 装箱数据 MSKU 在发货单 CSV 中不存在: {msku}"))
             continue
         try:
             unit_components = _unit_components(components, msku=msku)
         except Exception as exc:
-            issues.append(str(exc))
+            issues.append(QuantityValidationIssue(msku=msku, message=str(exc)))
             continue
         for sku, unit_quantity in unit_components.items():
             actual_quantity = consignment_quantities[msku] * unit_quantity
             if actual_quantity != actual_quantity.to_integral_value():
+                message = (
+                    f"MSKU 拆分后库存 SKU 数量不是整数: "
+                    f"MSKU={msku}, SKU={sku}, quantity={_decimal_text(actual_quantity)}"
+                )
                 issues.append(
-                    f"MSKU 拆分后库存 SKU 数量不是整数: MSKU={msku}, SKU={sku}, quantity={_decimal_text(actual_quantity)}"
+                    QuantityValidationIssue(
+                        msku=msku,
+                        message=message,
+                    )
                 )
                 continue
             sku_key = _normalize_sku_key(sku)
@@ -403,7 +556,17 @@ def build_actual_stock_sku_quantities(
 
     for msku in delivery_components:
         if msku not in consignment_quantities:
-            issues.append(f"发货单 CSV MSKU 在 WMS 装箱数据中不存在: {msku}")
+            msku_ship_quantity = (delivery_msku_ship_quantities or {}).get(msku)
+            if msku_ship_quantity == Decimal("0"):
+                issues.append(
+                    QuantityValidationIssue(
+                        status="未发货",
+                        msku=msku,
+                        message=f"发货单 {MSKU_SHIP_QTY_COLUMN} 为 0，WMS 无装箱记录，按未发货处理: {msku}",
+                    )
+                )
+            else:
+                issues.append(QuantityValidationIssue(msku=msku, message=f"发货单 CSV MSKU 在 WMS 装箱数据中不存在: {msku}"))
 
     return OrderedDict((display_skus[key], value) for key, value in actual.items()), issues
 
@@ -413,11 +576,16 @@ def build_quantity_validation_rows(
     sp_no: str,
     expected_quantities: OrderedDict[str, Decimal],
     actual_quantities: OrderedDict[str, Decimal],
-    issues: list[str],
+    issues: list[QuantityValidationIssue | str],
+    stock_sku_msku_sources: dict[str, list[str]] | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     expected_by_key = {_normalize_sku_key(sku): (sku, quantity) for sku, quantity in expected_quantities.items()}
     actual_by_key = {_normalize_sku_key(sku): (sku, quantity) for sku, quantity in actual_quantities.items()}
+    msku_sources_by_key = {
+        _normalize_sku_key(sku): [clean_cell(msku) for msku in mskus if clean_cell(msku)]
+        for sku, mskus in (stock_sku_msku_sources or {}).items()
+    }
     for sku_key in sorted(set(expected_by_key) | set(actual_by_key)):
         expected_sku, expected = expected_by_key.get(sku_key, (actual_by_key.get(sku_key, (sku_key, Decimal("0")))[0], Decimal("0")))
         actual_sku, actual = actual_by_key.get(sku_key, (expected_sku, Decimal("0")))
@@ -438,6 +606,7 @@ def build_quantity_validation_rows(
         rows.append(
             {
                 "SP单号": sp_no,
+                "MSKU": "\n".join(msku_sources_by_key.get(sku_key, [])),
                 "SKU": sku,
                 "预期发货量": expected,
                 "实际发货量": actual,
@@ -447,18 +616,73 @@ def build_quantity_validation_rows(
             }
         )
     for issue in issues:
+        if isinstance(issue, QuantityValidationIssue):
+            msku = issue.msku
+            status = issue.status
+            message = issue.message
+        else:
+            msku = ""
+            status = "无法校验"
+            message = issue
         rows.append(
             {
                 "SP单号": sp_no,
+                "MSKU": msku,
                 "SKU": "",
                 "预期发货量": None,
                 "实际发货量": None,
                 "差异": None,
-                "状态": "无法校验",
-                "问题说明": issue,
+                "状态": status,
+                "问题说明": message,
             }
         )
     return rows
+
+
+def build_stock_sku_msku_sources(
+    delivery_components: OrderedDict[str, OrderedDict[str, Decimal]],
+) -> OrderedDict[str, list[str]]:
+    sources: OrderedDict[str, list[str]] = OrderedDict()
+    display_skus: dict[str, str] = {}
+    for msku, components in delivery_components.items():
+        cleaned_msku = clean_cell(msku)
+        if not cleaned_msku:
+            continue
+        for sku in components:
+            sku_key = _normalize_sku_key(sku)
+            if not sku_key:
+                continue
+            display_skus.setdefault(sku_key, clean_cell(sku))
+            sku_sources = sources.setdefault(sku_key, [])
+            if cleaned_msku not in sku_sources:
+                sku_sources.append(cleaned_msku)
+    return OrderedDict((display_skus[key], value) for key, value in sources.items())
+
+
+def _summary_comparison_total_note(summary_comparison_rows: list[dict[str, Any]]) -> str:
+    shortage_lines: list[str] = []
+    reserved_quantity = Decimal("0")
+    original_quantity_total = Decimal("0")
+    actual_quantity_total = Decimal("0")
+    for row in summary_comparison_rows:
+        original_quantity = row.get("原发货量")
+        actual_quantity = row.get("实际发货量")
+        if not isinstance(original_quantity, Decimal) or not isinstance(actual_quantity, Decimal):
+            continue
+        original_quantity_total += original_quantity
+        actual_quantity_total += actual_quantity
+        reserved = original_quantity - actual_quantity
+        if reserved <= 0:
+            continue
+        reserved_quantity += reserved
+        sku = clean_cell(row.get("汇总表SKU"))
+        model = clean_cell(row.get("规格型号"))
+        shortage_lines.append(f"{sku} {model} {_decimal_text(reserved)}".strip())
+    shortage_lines.append(f"留下来{_decimal_text(reserved_quantity)}条当库存")
+    shortage_lines.append(
+        f"期望发货数量{_decimal_text(original_quantity_total)} 实际发货数量{_decimal_text(actual_quantity_total)}"
+    )
+    return "\n".join(shortage_lines)
 
 
 def summarize_quantity_validation(rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -466,11 +690,13 @@ def summarize_quantity_validation(rows: list[dict[str, Any]]) -> dict[str, int]:
     matched_count = sum(1 for row in sku_rows if row.get("状态") == "一致")
     mismatch_count = sum(1 for row in sku_rows if row.get("状态") in {"差异", "缺少实际", "多出实际"})
     unresolved_count = sum(1 for row in rows if row.get("状态") == "无法校验")
+    not_shipped_msku_count = sum(1 for row in rows if row.get("状态") == "未发货")
     return {
         "total_sku_count": len(sku_rows),
         "matched_count": matched_count,
         "mismatch_count": mismatch_count,
         "unresolved_count": unresolved_count,
+        "not_shipped_msku_count": not_shipped_msku_count,
     }
 
 
@@ -487,24 +713,33 @@ def write_quantity_validation_report(
     output_path: str | Path,
     rows: list[dict[str, Any]],
     source_rows: list[dict[str, Any]],
+    summary_comparison_rows: list[dict[str, Any]] | None = None,
 ) -> Path:
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
     except Exception as exc:
         raise RuntimeError("缺少 openpyxl 依赖，无法生成数量校验报告") from exc
+
+    def apply_uniform_cell_size(worksheet: Any) -> None:
+        for column_index in range(1, worksheet.max_column + 1):
+            worksheet.column_dimensions[get_column_letter(column_index)].width = 15
+        for row_index in range(1, worksheet.max_row + 1):
+            worksheet.row_dimensions[row_index].height = 15
 
     target_path = Path(output_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "数量校验"
-    headers = ["SP单号", "SKU", "预期发货量", "实际发货量", "差异", "状态", "问题说明"]
+    headers = ["SP单号", "MSKU", "SKU", "预期发货量", "实际发货量", "差异", "状态", "问题说明"]
     worksheet.append(headers)
     for row in rows:
         worksheet.append(
             [
                 row.get("SP单号", ""),
+                row.get("MSKU", ""),
                 row.get("SKU", ""),
                 _decimal_to_number(row.get("预期发货量")),
                 _decimal_to_number(row.get("实际发货量")),
@@ -517,17 +752,125 @@ def write_quantity_validation_report(
     for cell in worksheet[1]:
         cell.font = Font(bold=True)
         cell.fill = header_fill
+    wrap_alignment = Alignment(wrap_text=True, vertical="top")
+    for row_index in range(2, worksheet.max_row + 1):
+        worksheet.cell(row=row_index, column=2).alignment = wrap_alignment
+        worksheet.cell(row=row_index, column=8).alignment = wrap_alignment
     for column_letter, width in {
         "A": 18,
-        "B": 28,
-        "C": 14,
+        "B": 30,
+        "C": 28,
         "D": 14,
-        "E": 12,
+        "E": 14,
         "F": 12,
-        "G": 52,
+        "G": 12,
+        "H": 52,
     }.items():
         worksheet.column_dimensions[column_letter].width = width
     worksheet.freeze_panes = "A2"
+
+    if summary_comparison_rows is not None:
+        comparison_sheet = workbook.create_sheet("汇总表计算前后对比")
+        comparison_headers = [
+            "SP单号",
+            "汇总表行号",
+            "汇总表SKU",
+            "品名",
+            "规格型号",
+            "单价",
+            "售价",
+            "原发货量",
+            "实际发货量",
+            "数量差异",
+            "原总价",
+            "重算总价",
+            "金额差异",
+            "状态",
+            "问题说明",
+        ]
+        comparison_sheet.append(comparison_headers)
+        for row in summary_comparison_rows:
+            comparison_sheet.append(
+                [
+                    row.get("SP单号", ""),
+                    row.get("汇总表行号", ""),
+                    row.get("汇总表SKU", ""),
+                    row.get("品名", ""),
+                    row.get("规格型号", ""),
+                    _decimal_to_number(row.get("单价")),
+                    _decimal_to_number(row.get("售价")),
+                    _decimal_to_number(row.get("原发货量")),
+                    _decimal_to_number(row.get("实际发货量")),
+                    _decimal_to_number(row.get("数量差异")),
+                    _decimal_to_number(row.get("原总价")),
+                    _decimal_to_number(row.get("重算总价")),
+                    _decimal_to_number(row.get("金额差异")),
+                    row.get("状态", ""),
+                    row.get("问题说明", ""),
+                ]
+            )
+        total_quantity_diff = sum(
+            (
+                value
+                for row in summary_comparison_rows
+                if isinstance((value := row.get("数量差异")), Decimal)
+            ),
+            Decimal("0"),
+        )
+        total_amount_diff = sum(
+            (
+                value
+                for row in summary_comparison_rows
+                if isinstance((value := row.get("金额差异")), Decimal)
+            ),
+            Decimal("0"),
+        )
+        comparison_sheet.append(
+            [
+                "",
+                "",
+                "",
+                "合计",
+                "",
+                "",
+                "",
+                "",
+                "",
+                _decimal_to_number(total_quantity_diff),
+                "",
+                "",
+                _decimal_to_number(total_amount_diff),
+                "合计",
+                _summary_comparison_total_note(summary_comparison_rows),
+            ]
+        )
+        for cell in comparison_sheet[1]:
+            cell.font = Font(bold=True)
+            cell.fill = header_fill
+        for cell in comparison_sheet[comparison_sheet.max_row]:
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill("solid", fgColor="FFF2CC")
+        for row_index in range(2, comparison_sheet.max_row + 1):
+            comparison_sheet.cell(row=row_index, column=15).alignment = wrap_alignment
+        for column_letter, width in {
+            "A": 18,
+            "B": 12,
+            "C": 24,
+            "D": 24,
+            "E": 16,
+            "F": 12,
+            "G": 12,
+            "H": 14,
+            "I": 14,
+            "J": 12,
+            "K": 14,
+            "L": 14,
+            "M": 12,
+            "N": 16,
+            "O": 48,
+        }.items():
+            comparison_sheet.column_dimensions[column_letter].width = width
+        comparison_sheet.freeze_panes = "A2"
 
     source_sheet = workbook.create_sheet("数据来源")
     source_sheet.append(["生成时间", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
@@ -556,5 +899,7 @@ def write_quantity_validation_report(
         "F": 64,
     }.items():
         source_sheet.column_dimensions[column_letter].width = width
+    for sheet in workbook.worksheets:
+        apply_uniform_cell_size(sheet)
     workbook.save(target_path)
     return target_path
