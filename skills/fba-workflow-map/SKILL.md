@@ -29,6 +29,7 @@ flowchart TD
 
   E["fba-shipment-wms-box-download<br/>WMS 装箱数据"] --> F["fba-shipment-create<br/>Amazon FBA 创建货件"]
   E --> G["fba-logistics-select<br/>物流优选"]
+  A --> H["fba-customs-declaration-fill<br/>报关资料"]
   E --> H["fba-customs-declaration-fill<br/>报关资料"]
   L["备货单 xlsx"] --> H
 
@@ -60,7 +61,7 @@ flowchart TD
 | 发货单数据 | `fba-shipment-delivery-csv-download` |
 | 装箱与货件创建 | `fba-shipment-wms-box-download` -> `fba-shipment-create` |
 | 发票资料 | `fba-shipment-delivery-csv-download` -> `fba-stock-sku-download` + `fba-msku-detail-download` -> `fba-invoice-template-fill` |
-| 报关资料 | 备货单 + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill` |
+| 报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill` |
 | 物流报价与优选 | `fba-logistics-rate-import` -> `fba-logistics-select` |
 | 出口退税 | `fba-export-tax-products-manage` -> `fba-export-tax-delivery-summary` |
 
