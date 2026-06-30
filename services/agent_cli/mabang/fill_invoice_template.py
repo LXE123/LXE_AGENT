@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from services.agent_cli._shared.json_output import configure_utf8_stdio
+from services.agent_cli.mabang import shipment_quantity_validation as quantity_validation
 from services.agent_cli.mabang.fill_customs_declaration import (
     SourceDeclarationRow,
     _clean_cell,
@@ -44,7 +45,6 @@ from services.agent_cli.mabang.shipment_quantity_validation import (
     ConsignmentMskuRow,
     find_latest_delivery_csv,
     read_consignment_msku_rows,
-    read_delivery_msku_components,
     resolve_delivery_csv_path,
 )
 from services.amazon.amazon_logistic.sources.consignment_excel import (
@@ -70,6 +70,7 @@ IMAGE_COLUMN_WIDTH = 14
 UNKNOWN_DECLARED_PRICE_TEXT = "没有该材质的计算价格方式"
 INPUT_HEADERS = SUMMARY_HEADERS
 MERGE_PRICE_QUANTIZE = Decimal("0.01")
+REPORT_TOTAL_QUANTIZE = Decimal("0.001")
 MATERIAL_TRANSLATIONS = {
     "硅胶": "silicone",
     "尼龙": "nylon",
@@ -141,11 +142,14 @@ class InvoiceBoxRow:
 
 
 @dataclass(frozen=True)
-class StockSkuMergeInfo:
-    row_number: int
-    sku: str
-    merge_key: tuple[str, Decimal]
-    quantity: Decimal
+class InvoiceActualRowsResult:
+    invoice_rows: list[InvoiceBoxRow]
+    summary_comparison_rows: list[dict[str, Any]]
+    actual_quantities: OrderedDict[str, Decimal]
+    quantity_issues: list[quantity_validation.QuantityValidationIssue]
+
+
+StockSkuMergeInfo = quantity_validation.StockSkuMergeInfo
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -212,67 +216,7 @@ def read_invoice_source_rows(input_xlsx: str | Path) -> list[InvoiceSourceRow]:
 
 
 def read_stock_sku_merge_infos(input_xlsx: str | Path) -> OrderedDict[str, StockSkuMergeInfo]:
-    path = Path(input_xlsx).expanduser()
-    if not path.is_file():
-        raise FileNotFoundError(f"输入 xlsx 不存在: {path}")
-
-    workbook = _load_workbook(path, data_only=True)
-    try:
-        worksheet = find_merge_detail_sheet(workbook, path)
-        column_indexes = {header: index + 1 for index, header in enumerate(MERGE_DETAIL_HEADERS)}
-
-        merge_infos: OrderedDict[str, StockSkuMergeInfo] = OrderedDict()
-        conflicting_skus: list[str] = []
-        for row_number in range(2, worksheet.max_row + 1):
-            sku = _clean_cell(worksheet.cell(row=row_number, column=column_indexes["SKU"]).value)
-            if not sku:
-                continue
-            sku_key = normalize_sku_key(sku)
-            if not sku_key:
-                continue
-            row_context = f"财务合并明细表 {worksheet.title} 第{row_number}行 SKU={sku}"
-            model = _clean_cell(worksheet.cell(row=row_number, column=column_indexes["规则型号"]).value)
-            if not model:
-                raise ValueError(f"{row_context} 缺少规则型号")
-            price = _normalized_price_key(
-                worksheet.cell(row=row_number, column=column_indexes["单价"]).value,
-                row_context=row_context,
-            )
-            quantity = _parse_decimal(
-                worksheet.cell(row=row_number, column=column_indexes["发货量"]).value,
-                field_name="发货量",
-                row_context=row_context,
-            )
-            merge_key = (model, price)
-            existing = merge_infos.get(sku_key)
-            if existing is not None:
-                if existing.merge_key != merge_key:
-                    conflicting_skus.append(
-                        f"{sku}: {_merge_key_text(existing.merge_key)} / {_merge_key_text(merge_key)}"
-                    )
-                    continue
-                merge_infos[sku_key] = StockSkuMergeInfo(
-                    row_number=existing.row_number,
-                    sku=existing.sku,
-                    merge_key=existing.merge_key,
-                    quantity=existing.quantity + quantity,
-                )
-                continue
-            merge_infos[sku_key] = StockSkuMergeInfo(
-                row_number=row_number,
-                sku=sku,
-                merge_key=merge_key,
-                quantity=quantity,
-            )
-        if conflicting_skus:
-            preview = "; ".join(conflicting_skus[:10])
-            suffix = " ..." if len(conflicting_skus) > 10 else ""
-            raise ValueError(f"财务合并明细表同一 SKU 存在不同规则型号或单价，无法建立合并映射: {preview}{suffix}")
-        if not merge_infos:
-            raise ValueError(f"财务合并明细表 {worksheet.title} 未解析到有效库存 SKU 合并明细")
-        return merge_infos
-    finally:
-        workbook.close()
+    return quantity_validation.read_stock_sku_merge_infos(input_xlsx)
 
 
 def infer_missing_summary_models(
@@ -291,18 +235,7 @@ def infer_missing_summary_models(
         merge_info = stock_sku_merge_infos.get(sku_key)
         if merge_info is None:
             raise ValueError(f"汇总表第{row.row_number}行 SKU={row.sku} 规格型号为空，且财务合并明细表找不到同 SKU")
-        summary_price = _normalized_price_key(
-            row.purchase_price,
-            row_context=f"汇总表第{row.row_number}行 SKU={row.sku}",
-        )
-        merge_model, merge_price = merge_info.merge_key
-        if summary_price != merge_price:
-            raise ValueError(
-                f"汇总表第{row.row_number}行 SKU={row.sku} 规格型号为空，"
-                "但财务合并明细表同 SKU 单价不一致: "
-                f"汇总表单价={_decimal_sort_text(summary_price)}, "
-                f"财务合并明细表单价={_decimal_sort_text(merge_price)}"
-            )
+        merge_model = merge_info.merge_key[0]
         inferred_rows.append(replace(row, model=merge_model))
         notices.append(f"汇总表第{row.row_number}行 SKU={row.sku} 规格型号为空，已按财务合并明细表补为 {merge_model}")
     return inferred_rows, notices
@@ -316,61 +249,6 @@ def unique_source_skus(rows: list[InvoiceSourceRow]) -> list[str]:
             continue
         unique[key] = row.sku
     return list(unique.values())
-
-
-def _source_rows_by_sku(rows: list[InvoiceSourceRow]) -> OrderedDict[str, InvoiceSourceRow]:
-    by_key: OrderedDict[str, InvoiceSourceRow] = OrderedDict()
-    duplicate_skus: list[str] = []
-    for row in rows:
-        key = normalize_sku_key(row.sku)
-        if not key:
-            raise ValueError(f"第{row.row_number}行 SKU 不能为空")
-        if key in by_key:
-            duplicate_skus.append(row.sku)
-            continue
-        by_key[key] = row
-    if duplicate_skus:
-        preview = ", ".join(duplicate_skus[:10])
-        suffix = " ..." if len(duplicate_skus) > 10 else ""
-        raise ValueError(f"备货单 SKU 存在重复，无法按装箱数据拆分: {preview}{suffix}")
-    return by_key
-
-
-def _merge_key_text(merge_key: tuple[str, Decimal]) -> str:
-    return f"规则型号={merge_key[0]}, 单价={_decimal_sort_text(merge_key[1])}"
-
-
-def _merge_key_for_source_row(row: InvoiceSourceRow) -> tuple[str, Decimal]:
-    model = _clean_cell(row.model)
-    if not model:
-        raise ValueError(f"汇总表第{row.row_number}行 SKU={row.sku} 缺少规格型号")
-    price = _normalized_price_key(
-        row.purchase_price,
-        row_context=f"汇总表第{row.row_number}行 SKU={row.sku}",
-    )
-    return model, price
-
-
-def _source_rows_by_merge_key(rows: list[InvoiceSourceRow]) -> OrderedDict[tuple[str, Decimal], InvoiceSourceRow]:
-    by_key: OrderedDict[tuple[str, Decimal], InvoiceSourceRow] = OrderedDict()
-    duplicates: list[str] = []
-    for row in rows:
-        sku_key = normalize_sku_key(row.sku)
-        if not sku_key:
-            raise ValueError(f"汇总表第{row.row_number}行 SKU 不能为空")
-        merge_key = _merge_key_for_source_row(row)
-        if merge_key in by_key:
-            existing_sku_key = normalize_sku_key(by_key[merge_key].sku)
-            if existing_sku_key == sku_key:
-                continue
-            duplicates.append(f"{_merge_key_text(merge_key)}: {by_key[merge_key].sku}, {row.sku}")
-            continue
-        by_key[merge_key] = row
-    if duplicates:
-        preview = "; ".join(duplicates[:10])
-        suffix = " ..." if len(duplicates) > 10 else ""
-        raise ValueError(f"汇总表同一个规则型号+单价存在多个保留 SKU，无法归并: {preview}{suffix}")
-    return by_key
 
 
 def resolve_consignment_excel_path(sp_no: str, consignment_excel: str | Path | None = None) -> Path:
@@ -392,17 +270,6 @@ def _parse_decimal(value: Any, *, field_name: str, row_context: str) -> Decimal:
         raise ValueError(f"{row_context} 的 {field_name} 无法解析为数字: {value}") from exc
 
 
-def _normalized_price_key(value: Any, *, row_context: str) -> Decimal:
-    price = _parse_decimal(value, field_name="单价", row_context=row_context)
-    return price.quantize(MERGE_PRICE_QUANTIZE, rounding=ROUND_HALF_UP)
-
-
-def _decimal_sort_text(value: Decimal) -> str:
-    if value == value.to_integral_value():
-        return str(int(value))
-    return format(value.normalize(), "f").rstrip("0").rstrip(".")
-
-
 def _box_sort_key(box_no: str) -> tuple[int, str]:
     try:
         return 0, f"{int(Decimal(str(box_no))):08d}"
@@ -416,43 +283,176 @@ def _decimal_to_quantity(value: Decimal, *, context: str) -> Decimal:
     return value
 
 
-def build_invoice_box_rows(
+def _model_from_merge_info(merge_info: StockSkuMergeInfo) -> str:
+    model = _clean_cell(merge_info.merge_key[0])
+    if not model:
+        raise ValueError(f"财务合并明细表第{merge_info.row_number}行 SKU={merge_info.sku} 缺少规则型号")
+    return model
+
+
+def _source_rows_by_model(
+    rows: list[InvoiceSourceRow],
+    stock_sku_merge_infos: OrderedDict[str, StockSkuMergeInfo],
+) -> tuple[OrderedDict[str, InvoiceSourceRow], dict[int, str]]:
+    by_model: OrderedDict[str, InvoiceSourceRow] = OrderedDict()
+    model_by_summary_row: dict[int, str] = {}
+    duplicates: list[str] = []
+    for row in rows:
+        sku_key = normalize_sku_key(row.sku)
+        if not sku_key:
+            raise ValueError(f"汇总表第{row.row_number}行 SKU 不能为空")
+        merge_info = stock_sku_merge_infos.get(sku_key)
+        if merge_info is None:
+            raise ValueError(f"汇总表第{row.row_number}行 SKU={row.sku} 不在备货单第一个表格中，无法确定规则型号")
+        model = _model_from_merge_info(merge_info)
+        if model in by_model:
+            existing_row = by_model[model]
+            duplicates.append(
+                f"规则型号={model}: 第{existing_row.row_number}行 SKU={existing_row.sku}, "
+                f"第{row.row_number}行 SKU={row.sku}"
+            )
+            continue
+        by_model[model] = row
+        model_by_summary_row[row.row_number] = model
+    if duplicates:
+        preview = "; ".join(duplicates[:10])
+        suffix = " ..." if len(duplicates) > 10 else ""
+        raise ValueError(f"汇总表同一个规则型号存在多个代表 SKU，无法归并: {preview}{suffix}")
+    return by_model, model_by_summary_row
+
+
+def _parse_nonnegative_decimal(value: Any, *, field_name: str, row_context: str) -> Decimal:
+    numeric = _parse_decimal(value, field_name=field_name, row_context=row_context)
+    if numeric < 0:
+        raise ValueError(f"{row_context} 的 {field_name} 不能小于 0: {value}")
+    return numeric
+
+
+def _actual_total(quantity: Decimal, sale_price: Decimal) -> Decimal:
+    return (quantity * sale_price).quantize(REPORT_TOTAL_QUANTIZE, rounding=ROUND_HALF_UP)
+
+
+def _build_summary_comparison_rows(
+    *,
+    sp_no: str,
+    source_rows: list[InvoiceSourceRow],
+    model_by_summary_row: dict[int, str],
+    actual_by_model: OrderedDict[str, Decimal],
+) -> list[dict[str, Any]]:
+    comparison_rows: list[dict[str, Any]] = []
+    for summary_row in source_rows:
+        model = model_by_summary_row[summary_row.row_number]
+        row_context = f"汇总表第{summary_row.row_number}行 SKU={summary_row.sku}"
+        expected_quantity = _parse_nonnegative_decimal(
+            summary_row.quantity,
+            field_name="发货量",
+            row_context=row_context,
+        )
+        purchase_price = _parse_nonnegative_decimal(
+            summary_row.purchase_price,
+            field_name="单价",
+            row_context=row_context,
+        ).quantize(MERGE_PRICE_QUANTIZE, rounding=ROUND_HALF_UP)
+        sale_price = _parse_nonnegative_decimal(
+            summary_row.sale_price,
+            field_name="售价",
+            row_context=row_context,
+        )
+        original_total = _parse_nonnegative_decimal(
+            summary_row.total_price,
+            field_name="总价",
+            row_context=row_context,
+        )
+        actual_quantity = actual_by_model.get(model, Decimal("0"))
+        recalculated_total = _actual_total(actual_quantity, sale_price)
+        diff_quantity = actual_quantity - expected_quantity
+        diff_total = recalculated_total - original_total
+        if actual_quantity == 0:
+            status = "未发货不写入"
+        elif actual_quantity == expected_quantity and diff_total == 0:
+            status = "一致"
+        else:
+            status = "数量变化"
+        issue = "映射来源：汇总表 SKU 命中第一个表格型号组"
+        if status == "未发货不写入":
+            issue += "；实际发货量为 0，发票模板不写入该行"
+        comparison_rows.append(
+            {
+                "SP单号": sp_no,
+                "汇总表行号": summary_row.row_number,
+                "汇总表SKU": summary_row.sku,
+                "品名": summary_row.source_name,
+                "规格型号": model,
+                "单价": purchase_price,
+                "售价": sale_price,
+                "原发货量": expected_quantity,
+                "实际发货量": actual_quantity,
+                "数量差异": diff_quantity,
+                "原总价": original_total,
+                "重算总价": recalculated_total,
+                "金额差异": diff_total,
+                "状态": status,
+                "问题说明": issue,
+            }
+        )
+    return comparison_rows
+
+
+def build_actual_invoice_box_rows(
     source_rows: list[InvoiceSourceRow],
     stock_sku_merge_infos: OrderedDict[str, StockSkuMergeInfo],
     delivery_components: OrderedDict[str, OrderedDict[str, Decimal]],
     consignment_rows: list[ConsignmentMskuRow],
-) -> list[InvoiceBoxRow]:
-    source_by_merge_key = _source_rows_by_merge_key(source_rows)
+    *,
+    delivery_msku_ship_quantities: dict[str, Decimal | None] | None = None,
+    sp_no: str = "",
+) -> InvoiceActualRowsResult:
+    source_by_model, model_by_summary_row = _source_rows_by_model(source_rows, stock_sku_merge_infos)
     consignment_totals: OrderedDict[str, Decimal] = OrderedDict()
     for row in consignment_rows:
         consignment_totals[row.msku] = consignment_totals.get(row.msku, Decimal("0")) + row.quantity
 
-    missing_in_delivery = [msku for msku in consignment_totals if msku not in delivery_components]
-    if missing_in_delivery:
-        preview = ", ".join(missing_in_delivery[:10])
-        suffix = " ..." if len(missing_in_delivery) > 10 else ""
-        raise ValueError(f"装箱数据 MSKU 在发货单中不存在: {preview}{suffix}")
-    missing_in_consignment = [msku for msku in delivery_components if msku not in consignment_totals]
-    if missing_in_consignment:
-        preview = ", ".join(missing_in_consignment[:10])
-        suffix = " ..." if len(missing_in_consignment) > 10 else ""
-        raise ValueError(f"发货单 MSKU 在装箱数据中不存在: {preview}{suffix}")
+    actual_quantities, issues = quantity_validation.build_actual_stock_sku_quantities(
+        delivery_components,
+        consignment_totals,
+        delivery_msku_ship_quantities=delivery_msku_ship_quantities,
+    )
+    blocking_issues = [issue.message for issue in issues if issue.status == "无法校验"]
+    if blocking_issues:
+        preview = "; ".join(blocking_issues[:10])
+        suffix = " ..." if len(blocking_issues) > 10 else ""
+        raise ValueError(f"无法按实际发货量生成发票模板: {preview}{suffix}")
 
-    component_ratios: dict[str, OrderedDict[str, Decimal]] = {}
-    for msku, components in delivery_components.items():
-        total_quantity = consignment_totals[msku]
-        if total_quantity <= 0:
-            raise ValueError(f"装箱数据 MSKU 总装箱数量必须大于 0: {msku}")
-        ratios: OrderedDict[str, Decimal] = OrderedDict()
-        for sku, quantity in components.items():
-            ratios[sku] = quantity / total_quantity
-        component_ratios[msku] = ratios
+    actual_by_model: OrderedDict[str, Decimal] = OrderedDict()
+    for sku, actual_quantity in actual_quantities.items():
+        if actual_quantity == 0:
+            continue
+        sku_key = normalize_sku_key(sku)
+        merge_info = stock_sku_merge_infos.get(sku_key)
+        if merge_info is None:
+            raise ValueError(f"实际装箱库存 SKU 不在备货单第一个表格中: SKU={sku}")
+        model = _model_from_merge_info(merge_info)
+        if model not in source_by_model:
+            raise ValueError(
+                "实际装箱库存 SKU 型号组在汇总表中没有代表 SKU: "
+                f"SKU={sku}, 规则型号={model}"
+            )
+        actual_by_model[model] = actual_by_model.get(model, Decimal("0")) + actual_quantity
 
-    aggregate: OrderedDict[tuple[str, tuple[str, Decimal]], dict[str, Any]] = OrderedDict()
+    unit_components_by_msku: dict[str, OrderedDict[str, Decimal]] = {}
+    aggregate: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
     for consignment_row in consignment_rows:
-        for sku, ratio in component_ratios[consignment_row.msku].items():
+        if consignment_row.msku not in unit_components_by_msku:
+            components = delivery_components.get(consignment_row.msku)
+            if components is None:
+                raise ValueError(f"装箱数据 MSKU 在发货单中不存在: {consignment_row.msku}")
+            unit_components_by_msku[consignment_row.msku] = quantity_validation.unit_components_for_msku(
+                components,
+                msku=consignment_row.msku,
+            )
+        for sku, unit_quantity in unit_components_by_msku[consignment_row.msku].items():
             quantity = _decimal_to_quantity(
-                consignment_row.quantity * ratio,
+                consignment_row.quantity * unit_quantity,
                 context=f"箱序号={consignment_row.box_info.box_no}, MSKU={consignment_row.msku}, SKU={sku}",
             )
             if quantity == 0:
@@ -460,14 +460,15 @@ def build_invoice_box_rows(
             sku_key = normalize_sku_key(sku)
             merge_info = stock_sku_merge_infos.get(sku_key)
             if merge_info is None:
-                raise ValueError(f"拆分得到的库存 SKU 不在财务合并明细表中: SKU={sku}, MSKU={consignment_row.msku}")
-            source_row = source_by_merge_key.get(merge_info.merge_key)
+                raise ValueError(f"拆分得到的库存 SKU 不在备货单第一个表格中: SKU={sku}, MSKU={consignment_row.msku}")
+            model = _model_from_merge_info(merge_info)
+            source_row = source_by_model.get(model)
             if source_row is None:
                 raise ValueError(
-                    "拆分得到的库存 SKU 合并键在汇总表中不存在: "
-                    f"SKU={sku}, MSKU={consignment_row.msku}, {_merge_key_text(merge_info.merge_key)}"
+                    "拆分得到的库存 SKU 型号组在汇总表中没有代表 SKU: "
+                    f"SKU={sku}, MSKU={consignment_row.msku}, 规则型号={model}"
                 )
-            aggregate_key = (consignment_row.box_info.box_no, merge_info.merge_key)
+            aggregate_key = (consignment_row.box_info.box_no, model)
             if aggregate_key not in aggregate:
                 aggregate[aggregate_key] = {
                     "source": source_row,
@@ -487,37 +488,33 @@ def build_invoice_box_rows(
     if not invoice_rows:
         raise ValueError("按装箱数据拆分后未生成发票明细行")
 
-    actual_totals: OrderedDict[tuple[str, Decimal], Decimal] = OrderedDict()
-    for (_box_no, merge_key), value in aggregate.items():
-        actual_totals[merge_key] = actual_totals.get(merge_key, Decimal("0")) + value["quantity"]
+    summary_comparison_rows = _build_summary_comparison_rows(
+        sp_no=sp_no,
+        source_rows=source_rows,
+        model_by_summary_row=model_by_summary_row,
+        actual_by_model=actual_by_model,
+    )
+    sorted_rows = sorted(invoice_rows, key=lambda row: (_box_sort_key(row.box_info.box_no), row.source.row_number))
+    return InvoiceActualRowsResult(
+        invoice_rows=sorted_rows,
+        summary_comparison_rows=summary_comparison_rows,
+        actual_quantities=actual_quantities,
+        quantity_issues=issues,
+    )
 
-    expected_totals: OrderedDict[tuple[str, Decimal], Decimal] = OrderedDict()
-    for source_row in source_rows:
-        merge_key = _merge_key_for_source_row(source_row)
-        expected_totals[merge_key] = expected_totals.get(merge_key, Decimal("0")) + _parse_decimal(
-            source_row.quantity,
-            field_name="发货量",
-            row_context=f"备货单第{source_row.row_number}行 SKU={source_row.sku}",
-        )
 
-    mismatches: list[str] = []
-    for merge_key, expected in expected_totals.items():
-        actual = actual_totals.get(merge_key, Decimal("0"))
-        if actual != expected:
-            source_row = source_by_merge_key[merge_key]
-            mismatches.append(
-                f"{source_row.sku}({_merge_key_text(merge_key)}): "
-                f"expected={_decimal_sort_text(expected)}, actual={_decimal_sort_text(actual)}"
-            )
-    extra_keys = [merge_key for merge_key in actual_totals if merge_key not in expected_totals]
-    for merge_key in extra_keys:
-        mismatches.append(f"{_merge_key_text(merge_key)}: expected=0, actual={_decimal_sort_text(actual_totals[merge_key])}")
-    if mismatches:
-        preview = "; ".join(mismatches[:10])
-        suffix = " ..." if len(mismatches) > 10 else ""
-        raise ValueError(f"拆分归并后库存SKU数量与汇总表不一致: {preview}{suffix}")
-
-    return sorted(invoice_rows, key=lambda row: (_box_sort_key(row.box_info.box_no), row.source.row_number))
+def build_invoice_box_rows(
+    source_rows: list[InvoiceSourceRow],
+    stock_sku_merge_infos: OrderedDict[str, StockSkuMergeInfo],
+    delivery_components: OrderedDict[str, OrderedDict[str, Decimal]],
+    consignment_rows: list[ConsignmentMskuRow],
+) -> list[InvoiceBoxRow]:
+    return build_actual_invoice_box_rows(
+        source_rows,
+        stock_sku_merge_infos,
+        delivery_components,
+        consignment_rows,
+    ).invoice_rows
 
 
 def translate_commodity_name(row: InvoiceSourceRow) -> str:
@@ -799,6 +796,65 @@ def write_invoice_template(
     }
 
 
+def _empty_quantity_validation_summary() -> dict[str, int]:
+    return {
+        "total_sku_count": 0,
+        "matched_count": 0,
+        "mismatch_count": 0,
+        "unresolved_count": 0,
+        "not_shipped_msku_count": 0,
+    }
+
+
+def _build_validation_report_filename(sp_no: str) -> str:
+    return f"{sp_no}_invoice_quantity_validation_report.xlsx"
+
+
+def _build_invoice_quantity_validation_report(
+    *,
+    input_path: Path,
+    sp_no: str,
+    delivery_csv_path: Path,
+    consignment_excel_path: Path,
+    delivery_components: OrderedDict[str, OrderedDict[str, Decimal]],
+    actual_result: InvoiceActualRowsResult,
+    output_dir: str | Path,
+) -> dict[str, Any]:
+    expected_quantities = quantity_validation.read_expected_stock_sku_quantities(input_path)
+    rows = quantity_validation.build_quantity_validation_rows(
+        sp_no=sp_no,
+        expected_quantities=expected_quantities,
+        actual_quantities=actual_result.actual_quantities,
+        issues=actual_result.quantity_issues,
+        stock_sku_msku_sources=quantity_validation.build_stock_sku_msku_sources(delivery_components),
+    )
+    summary = quantity_validation.summarize_quantity_validation(rows)
+    status = quantity_validation.status_from_summary(summary)
+    source_info = {
+        "SP单号": sp_no,
+        "备货单": str(input_path),
+        "发货单CSV": str(delivery_csv_path),
+        "WMS装箱数据": str(consignment_excel_path),
+        "状态": status,
+        "问题": "; ".join(
+            str(row.get("问题说明") or "")
+            for row in rows
+            if row.get("状态") in {"差异", "缺少实际", "多出实际", "无法校验"}
+        ),
+    }
+    report_path = quantity_validation.write_quantity_validation_report(
+        output_path=Path(output_dir) / _build_validation_report_filename(sp_no),
+        rows=rows,
+        source_rows=[source_info],
+        summary_comparison_rows=actual_result.summary_comparison_rows,
+    )
+    return {
+        "validation_report_xlsx": str(report_path),
+        "quantity_validation_status": status,
+        "quantity_validation_summary": summary,
+    }
+
+
 async def fill_invoice_template(
     input_xlsx: str | Path,
     *,
@@ -816,10 +872,23 @@ async def fill_invoice_template(
     source_rows, inferred_model_notices = infer_missing_summary_models(source_rows, stock_sku_merge_infos)
     delivery_csv_path = resolve_delivery_csv_path(sp_no, delivery_csv)
     consignment_excel_path = resolve_consignment_excel_path(sp_no, consignment_excel)
-    delivery_components = read_delivery_msku_components(delivery_csv_path)
+    delivery_infos = quantity_validation.read_delivery_msku_infos(delivery_csv_path)
+    delivery_components = OrderedDict((msku, info.components) for msku, info in delivery_infos.items())
+    delivery_msku_ship_quantities = {
+        msku: info.msku_ship_quantity
+        for msku, info in delivery_infos.items()
+    }
     consignment_rows = read_consignment_msku_rows(consignment_excel_path)
-    invoice_rows = build_invoice_box_rows(source_rows, stock_sku_merge_infos, delivery_components, consignment_rows)
-    skus = unique_source_skus(source_rows)
+    actual_result = build_actual_invoice_box_rows(
+        source_rows,
+        stock_sku_merge_infos,
+        delivery_components,
+        consignment_rows,
+        delivery_msku_ship_quantities=delivery_msku_ship_quantities,
+        sp_no=sp_no,
+    )
+    invoice_rows = actual_result.invoice_rows
+    skus = unique_source_skus([row.source for row in invoice_rows])
     stock_result = await export_stock_sku_names(
         skus,
         delivery_no=f"{sp_no}_invoice",
@@ -834,6 +903,22 @@ async def fill_invoice_template(
         template_path=template_path,
         output_dir=output_dir,
     )
+    try:
+        validation_payload = _build_invoice_quantity_validation_report(
+            input_path=input_path,
+            sp_no=sp_no,
+            delivery_csv_path=delivery_csv_path,
+            consignment_excel_path=consignment_excel_path,
+            delivery_components=delivery_components,
+            actual_result=actual_result,
+            output_dir=DEFAULT_OUTPUT_DIR if output_dir is None else output_dir,
+        )
+    except Exception as exc:
+        validation_payload = {
+            "quantity_validation_status": "error",
+            "quantity_validation_summary": _empty_quantity_validation_summary(),
+            "validation_report_error": _exception_text(exc),
+        }
     payload["notice"] = inferred_model_notices + list(payload.get("notice", []))
     payload["input_xlsx"] = str(input_path)
     payload["delivery_csv_path"] = str(delivery_csv_path)
@@ -841,7 +926,12 @@ async def fill_invoice_template(
     payload["box_count"] = len({row.box_info.box_no for row in invoice_rows})
     payload["source_row_count"] = len(source_rows)
     payload["invoice_row_count"] = len(invoice_rows)
-    payload["merge_group_count"] = len({_merge_key_for_source_row(row) for row in source_rows})
+    payload["quantity_basis"] = "actual"
+    payload.update(validation_payload)
+    payload["merge_group_count"] = len({
+        _model_from_merge_info(stock_sku_merge_infos[normalize_sku_key(row.sku)])
+        for row in source_rows
+    })
     payload["merged_sku_count"] = max(0, len(stock_sku_merge_infos) - payload["merge_group_count"])
     return payload
 

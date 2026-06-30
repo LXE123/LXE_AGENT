@@ -34,7 +34,19 @@ def _write_input_workbook(
     from openpyxl import Workbook
 
     workbook = Workbook()
-    workbook.active.title = "Sheet2"
+    workbook.active.title = "备货明细"
+    workbook.active.append(["序号", *cli.MERGE_DETAIL_HEADERS])
+    for index, row in enumerate(rows, start=1):
+        workbook.active.append(
+            [
+                index,
+                row.get("SKU", ""),
+                row.get("产品名称", row.get("品名", "")),
+                row.get("发货量", ""),
+                row.get("规则型号", row.get("规格型号", "")),
+                row.get("单价", ""),
+            ]
+        )
     while len(workbook.worksheets) < sheet_count:
         workbook.create_sheet(f"Sheet{len(workbook.worksheets) + 1}")
     if sheet_count >= 2:
@@ -57,6 +69,49 @@ def _write_input_workbook(
         worksheet.append(list(summary_headers))
         for row in rows:
             worksheet.append([row.get(header, "") for header in summary_headers])
+    workbook.save(path)
+
+
+def _write_input_workbook_with_expected_and_summary_rows(
+    path: Path,
+    *,
+    expected_rows: list[dict[str, object]],
+    summary_rows: list[dict[str, object]],
+    merge_rows: list[dict[str, object]] | None = None,
+) -> None:
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    expected_sheet = workbook.active
+    expected_sheet.title = "备货明细"
+    expected_sheet.append(["序号", *cli.MERGE_DETAIL_HEADERS])
+    for index, row in enumerate(expected_rows, start=1):
+        expected_sheet.append(
+            [
+                index,
+                row.get("SKU", ""),
+                row.get("产品名称", row.get("品名", "")),
+                row.get("发货量", ""),
+                row.get("规则型号", row.get("规格型号", "")),
+                row.get("单价", ""),
+            ]
+        )
+    merge_sheet = workbook.create_sheet("Sheet1")
+    merge_sheet.append(list(cli.MERGE_DETAIL_HEADERS))
+    for row in list(merge_rows if merge_rows is not None else expected_rows):
+        merge_sheet.append(
+            [
+                row.get("SKU", ""),
+                row.get("产品名称", row.get("品名", "")),
+                row.get("发货量", ""),
+                row.get("规则型号", row.get("规格型号", "")),
+                row.get("单价", ""),
+            ]
+        )
+    summary_sheet = workbook.create_sheet("汇总表")
+    summary_sheet.append(list(cli.INPUT_HEADERS))
+    for row in summary_rows:
+        summary_sheet.append([row.get(header, "") for header in cli.INPUT_HEADERS])
     workbook.save(path)
 
 
@@ -168,6 +223,8 @@ def _write_stock_sku_xlsx(path: Path, rows: list[dict[str, str]], *, image_skus:
 
 def _write_delivery_csv(path: Path, rows: list[dict[str, object]]) -> None:
     headers = [cli.DELIVERY_MSKU_COLUMN, cli.SKU_SHIP_QTY_COLUMN]
+    if any(cli.quantity_validation.MSKU_SHIP_QTY_COLUMN in row for row in rows):
+        headers.insert(1, cli.quantity_validation.MSKU_SHIP_QTY_COLUMN)
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=headers)
         writer.writeheader()
@@ -186,6 +243,34 @@ def _write_consignment_excel(path: Path, rows: list[dict[str, object]]) -> None:
     for row in rows:
         worksheet.append([row.get(header, "") for header in headers])
     workbook.save(path)
+
+
+def _read_validation_report_rows(path: str | Path) -> list[dict[str, object]]:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, data_only=True)
+    worksheet = workbook["数量校验"]
+    headers = [worksheet.cell(row=1, column=column).value for column in range(1, worksheet.max_column + 1)]
+    rows = []
+    for row_number in range(2, worksheet.max_row + 1):
+        values = [worksheet.cell(row=row_number, column=column).value for column in range(1, worksheet.max_column + 1)]
+        rows.append(dict(zip(headers, values)))
+    workbook.close()
+    return rows
+
+
+def _read_summary_comparison_rows(path: str | Path) -> list[dict[str, object]]:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, data_only=True)
+    worksheet = workbook["汇总表计算前后对比"]
+    headers = [worksheet.cell(row=1, column=column).value for column in range(1, worksheet.max_column + 1)]
+    rows = []
+    for row_number in range(2, worksheet.max_row + 1):
+        values = [worksheet.cell(row=row_number, column=column).value for column in range(1, worksheet.max_column + 1)]
+        rows.append(dict(zip(headers, values)))
+    workbook.close()
+    return rows
 
 
 def test_main_missing_input_returns_failure_json(monkeypatch, capsys):
@@ -740,7 +825,7 @@ def test_blank_summary_model_fails_when_merge_detail_has_no_same_sku(tmp_path):
         cli.infer_missing_summary_models(source_rows, merge_infos)
 
 
-def test_blank_summary_model_fails_when_merge_detail_price_mismatches(tmp_path):
+def test_blank_summary_model_ignores_merge_detail_price_mismatch(tmp_path):
     input_path = tmp_path / "4.27-SP260416020-新棱镜备货-美国.xlsx"
     _write_input_workbook(
         input_path,
@@ -750,8 +835,10 @@ def test_blank_summary_model_fails_when_merge_detail_price_mismatches(tmp_path):
     source_rows = cli.read_invoice_source_rows(input_path)
     merge_infos = cli.read_stock_sku_merge_infos(input_path)
 
-    with pytest.raises(ValueError, match="同 SKU 单价不一致"):
-        cli.infer_missing_summary_models(source_rows, merge_infos)
+    inferred_rows, notices = cli.infer_missing_summary_models(source_rows, merge_infos)
+
+    assert inferred_rows[0].model == "ZF-5"
+    assert any("规格型号为空，已按财务合并明细表补为 ZF-5" in item for item in notices)
 
 
 def test_summary_merge_key_duplicate_fails(tmp_path):
@@ -766,11 +853,11 @@ def test_summary_merge_key_duplicate_fails(tmp_path):
 
     source_rows = cli.read_invoice_source_rows(input_path)
     merge_infos = cli.read_stock_sku_merge_infos(input_path)
-    with pytest.raises(ValueError, match="汇总表同一个规则型号\\+单价存在多个保留 SKU"):
+    with pytest.raises(ValueError, match="汇总表同一个规则型号存在多个代表 SKU"):
         cli.build_invoice_box_rows(source_rows, merge_infos, OrderedDict(), [])
 
 
-def test_summary_same_merge_key_same_sku_is_summed(tmp_path):
+def test_summary_same_model_duplicate_same_sku_fails(tmp_path):
     input_path = tmp_path / "4.27-SP260416020-新棱镜备货-美国.xlsx"
     _write_input_workbook(
         input_path,
@@ -782,21 +869,8 @@ def test_summary_same_merge_key_same_sku_is_summed(tmp_path):
     )
     source_rows = cli.read_invoice_source_rows(input_path)
     merge_infos = cli.read_stock_sku_merge_infos(input_path)
-    delivery_components = OrderedDict([("MSKU-A", OrderedDict([("SKU-A", cli.Decimal("5"))]))])
-    consignment_rows = [
-        cli.ConsignmentMskuRow(
-            row_number=2,
-            box_info=cli.ConsignmentBoxInfo(box_no="1", gross_weight="1", length="1", width="1", height="1"),
-            msku="MSKU-A",
-            quantity=cli.Decimal("5"),
-        )
-    ]
-
-    invoice_rows = cli.build_invoice_box_rows(source_rows, merge_infos, delivery_components, consignment_rows)
-
-    assert len(invoice_rows) == 1
-    assert invoice_rows[0].source.sku == "SKU-A"
-    assert invoice_rows[0].quantity == cli.Decimal("5")
+    with pytest.raises(ValueError, match="汇总表同一个规则型号存在多个代表 SKU"):
+        cli.build_invoice_box_rows(source_rows, merge_infos, OrderedDict(), [])
 
 
 def test_merge_detail_duplicate_same_sku_model_price_is_summed(tmp_path):
@@ -818,7 +892,7 @@ def test_merge_detail_duplicate_same_sku_model_price_is_summed(tmp_path):
     assert info.quantity == cli.Decimal("500")
 
 
-def test_merge_detail_same_sku_different_model_or_price_fails(tmp_path):
+def test_merge_detail_same_sku_different_model_fails(tmp_path):
     input_path = tmp_path / "4.27-SP260416020-新棱镜备货-美国.xlsx"
     _write_input_workbook(
         input_path,
@@ -829,7 +903,7 @@ def test_merge_detail_same_sku_different_model_or_price_fails(tmp_path):
         ],
     )
 
-    with pytest.raises(ValueError, match="同一 SKU 存在不同规则型号或单价"):
+    with pytest.raises(ValueError, match="同一 SKU 存在不同规则型号"):
         cli.read_stock_sku_merge_infos(input_path)
 
 
@@ -851,12 +925,14 @@ def test_split_sku_missing_merge_info_fails(tmp_path):
             quantity=cli.Decimal("2"),
         )
     ]
-    with pytest.raises(ValueError, match="不在财务合并明细表中"):
+    with pytest.raises(ValueError, match="不在备货单第一个表格中"):
         cli.build_invoice_box_rows(source_rows, merge_infos, delivery_components, consignment_rows)
 
 
-def test_box_split_quantity_mismatch_fails(monkeypatch, tmp_path):
+def test_fill_invoice_template_uses_actual_quantity_when_summary_expected_differs(monkeypatch, tmp_path):
     input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国.xlsx"
+    template_path = tmp_path / "invoice_Template.xlsx"
+    stock_path = tmp_path / "stock.xlsx"
     delivery_path = tmp_path / "SP260414001_1.csv"
     consignment_path = tmp_path / "SP260414001.xlsx"
     _write_input_workbook(input_path, [_valid_source_row(SKU="SKU-A", 发货量=3)])
@@ -868,22 +944,258 @@ def test_box_split_quantity_mismatch_fails(monkeypatch, tmp_path):
         consignment_path,
         [{"箱序号": 1, "MSKU": "MSKU-A", "装箱数量": 2, "长": 40, "宽": 30, "高": 20, "毛重": 1}],
     )
+    _write_invoice_template(template_path)
+    _write_stock_sku_xlsx(stock_path, [{cli.STOCK_SKU_COLUMN: "SKU-A", "库存SKU中文名称": "产品A"}])
 
-    async def fake_export_stock_sku_names(*args, **kwargs):
-        raise AssertionError("数量校验失败前不应调用库存 SKU 导出")
+    async def fake_export_stock_sku_names(skus, **kwargs):
+        assert skus == ["SKU-A"]
+        return SimpleNamespace(xlsx_paths=[str(stock_path)])
 
     monkeypatch.setattr(cli, "export_stock_sku_names", fake_export_stock_sku_names)
 
-    with pytest.raises(ValueError, match="拆分归并后库存SKU数量与汇总表不一致"):
-        asyncio.run(
-            cli.fill_invoice_template(
-                input_path,
-                template_path=tmp_path / "invoice_Template.xlsx",
-                output_dir=tmp_path / "out",
-                delivery_csv=delivery_path,
-                consignment_excel=consignment_path,
-            )
+    payload = asyncio.run(
+        cli.fill_invoice_template(
+            input_path,
+            template_path=template_path,
+            output_dir=tmp_path / "out",
+            delivery_csv=delivery_path,
+            consignment_excel=consignment_path,
         )
+    )
+
+    from openpyxl import load_workbook
+
+    assert payload["success"] is True
+    assert payload["quantity_basis"] == "actual"
+    assert payload["quantity_validation_status"] == "mismatch"
+    assert Path(payload["validation_report_xlsx"]).is_file()
+    workbook = load_workbook(payload["output_xlsx"], data_only=True)
+    worksheet = workbook[cli.INVOICE_TEMPLATE_SHEET]
+    assert worksheet.cell(row=16, column=10).value == 2
+    workbook.close()
+    comparison_rows = _read_summary_comparison_rows(payload["validation_report_xlsx"])
+    detail_row = next(row for row in comparison_rows if row["状态"] != "合计")
+    assert detail_row["原发货量"] == 3
+    assert detail_row["实际发货量"] == 2
+    assert detail_row["状态"] == "数量变化"
+
+
+def test_fill_invoice_template_splits_combo_msku_by_actual_wms_quantity(monkeypatch, tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国.xlsx"
+    template_path = tmp_path / "invoice_Template.xlsx"
+    stock_path = tmp_path / "stock.xlsx"
+    delivery_path = tmp_path / "SP260414001_1.csv"
+    consignment_path = tmp_path / "SP260414001.xlsx"
+    _write_input_workbook(
+        input_path,
+        [
+            _valid_source_row(SKU="SKU-A", 规格型号="M-A", 发货量=6, 单价=1.1, 总价=30),
+            _valid_source_row(SKU="SKU-B", 规格型号="M-B", 发货量=3, 单价=1.2, 总价=15),
+        ],
+    )
+    _write_delivery_csv(
+        delivery_path,
+        [{cli.DELIVERY_MSKU_COLUMN: "MSKU-COMBO", cli.SKU_SHIP_QTY_COLUMN: "SKU-A × 2，SKU-B × 1"}],
+    )
+    _write_consignment_excel(
+        consignment_path,
+        [{"箱序号": 1, "MSKU": "MSKU-COMBO", "装箱数量": 2, "长": 40, "宽": 30, "高": 20, "毛重": 1}],
+    )
+    _write_invoice_template(template_path)
+    _write_stock_sku_xlsx(
+        stock_path,
+        [
+            {cli.STOCK_SKU_COLUMN: "SKU-A", "库存SKU中文名称": "产品A"},
+            {cli.STOCK_SKU_COLUMN: "SKU-B", "库存SKU中文名称": "产品B"},
+        ],
+    )
+
+    async def fake_export_stock_sku_names(skus, **kwargs):
+        assert skus == ["SKU-A", "SKU-B"]
+        return SimpleNamespace(xlsx_paths=[str(stock_path)])
+
+    monkeypatch.setattr(cli, "export_stock_sku_names", fake_export_stock_sku_names)
+
+    payload = asyncio.run(
+        cli.fill_invoice_template(
+            input_path,
+            template_path=template_path,
+            output_dir=tmp_path / "out",
+            delivery_csv=delivery_path,
+            consignment_excel=consignment_path,
+        )
+    )
+
+    from openpyxl import load_workbook
+
+    assert payload["quantity_basis"] == "actual"
+    workbook = load_workbook(payload["output_xlsx"], data_only=True)
+    worksheet = workbook[cli.INVOICE_TEMPLATE_SHEET]
+    assert [worksheet.cell(row=row, column=17).value for row in range(16, 18)] == ["SKU-A", "SKU-B"]
+    assert [worksheet.cell(row=row, column=10).value for row in range(16, 18)] == [4, 2]
+    workbook.close()
+
+
+def test_fill_invoice_template_maps_summary_sku_to_first_sheet_model(monkeypatch, tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国.xlsx"
+    template_path = tmp_path / "invoice_Template.xlsx"
+    stock_path = tmp_path / "stock.xlsx"
+    delivery_path = tmp_path / "SP260414001_1.csv"
+    consignment_path = tmp_path / "SP260414001.xlsx"
+    _write_input_workbook_with_expected_and_summary_rows(
+        input_path,
+        expected_rows=[
+            _valid_source_row(SKU="SKU-A1", 规格型号="MODEL-FIRST", 规则型号="MODEL-FIRST", 发货量=2, 单价=1.1),
+            _valid_source_row(SKU="SKU-A2", 规格型号="MODEL-FIRST", 规则型号="MODEL-FIRST", 发货量=4, 单价=1.2),
+        ],
+        summary_rows=[
+            _valid_source_row(SKU="SKU-A1", 规格型号="汇总表乱填型号", 发货量=6, 售价=5, 总价=30),
+        ],
+    )
+    _write_delivery_csv(
+        delivery_path,
+        [{cli.DELIVERY_MSKU_COLUMN: "MSKU-COMBO", cli.SKU_SHIP_QTY_COLUMN: "SKU-A1 × 1，SKU-A2 × 2"}],
+    )
+    _write_consignment_excel(
+        consignment_path,
+        [{"箱序号": 1, "MSKU": "MSKU-COMBO", "装箱数量": 2, "长": 40, "宽": 30, "高": 20, "毛重": 1}],
+    )
+    _write_invoice_template(template_path)
+    _write_stock_sku_xlsx(stock_path, [{cli.STOCK_SKU_COLUMN: "SKU-A1", "库存SKU中文名称": "产品A"}])
+
+    async def fake_export_stock_sku_names(skus, **kwargs):
+        assert skus == ["SKU-A1"]
+        return SimpleNamespace(xlsx_paths=[str(stock_path)])
+
+    monkeypatch.setattr(cli, "export_stock_sku_names", fake_export_stock_sku_names)
+
+    payload = asyncio.run(
+        cli.fill_invoice_template(
+            input_path,
+            template_path=template_path,
+            output_dir=tmp_path / "out",
+            delivery_csv=delivery_path,
+            consignment_excel=consignment_path,
+        )
+    )
+
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(payload["output_xlsx"], data_only=True)
+    worksheet = workbook[cli.INVOICE_TEMPLATE_SHEET]
+    assert worksheet.cell(row=16, column=17).value == "SKU-A1"
+    assert worksheet.cell(row=16, column=10).value == 6
+    workbook.close()
+    comparison_rows = _read_summary_comparison_rows(payload["validation_report_xlsx"])
+    detail_row = next(row for row in comparison_rows if row["状态"] != "合计")
+    assert detail_row["汇总表SKU"] == "SKU-A1"
+    assert detail_row["规格型号"] == "MODEL-FIRST"
+    assert "汇总表 SKU 命中第一个表格型号组" in detail_row["问题说明"]
+
+
+def test_fill_invoice_template_treats_zero_delivery_msku_missing_from_wms_as_not_shipped(monkeypatch, tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国.xlsx"
+    template_path = tmp_path / "invoice_Template.xlsx"
+    stock_path = tmp_path / "stock.xlsx"
+    delivery_path = tmp_path / "SP260414001_1.csv"
+    consignment_path = tmp_path / "SP260414001.xlsx"
+    _write_input_workbook(
+        input_path,
+        [
+            _valid_source_row(SKU="SKU-A", 规格型号="M-A", 发货量=2, 总价=10),
+            _valid_source_row(SKU="SKU-B", 规格型号="M-B", 发货量=4, 总价=20),
+        ],
+    )
+    _write_delivery_csv(
+        delivery_path,
+        [
+            {
+                cli.DELIVERY_MSKU_COLUMN: "MSKU-A",
+                cli.quantity_validation.MSKU_SHIP_QTY_COLUMN: 2,
+                cli.SKU_SHIP_QTY_COLUMN: "SKU-A × 2",
+            },
+            {
+                cli.DELIVERY_MSKU_COLUMN: "MSKU-B",
+                cli.quantity_validation.MSKU_SHIP_QTY_COLUMN: 0,
+                cli.SKU_SHIP_QTY_COLUMN: "SKU-B × 0",
+            },
+        ],
+    )
+    _write_consignment_excel(
+        consignment_path,
+        [{"箱序号": 1, "MSKU": "MSKU-A", "装箱数量": 2, "长": 40, "宽": 30, "高": 20, "毛重": 1}],
+    )
+    _write_invoice_template(template_path)
+    _write_stock_sku_xlsx(stock_path, [{cli.STOCK_SKU_COLUMN: "SKU-A", "库存SKU中文名称": "产品A"}])
+
+    async def fake_export_stock_sku_names(skus, **kwargs):
+        assert skus == ["SKU-A"]
+        return SimpleNamespace(xlsx_paths=[str(stock_path)])
+
+    monkeypatch.setattr(cli, "export_stock_sku_names", fake_export_stock_sku_names)
+
+    payload = asyncio.run(
+        cli.fill_invoice_template(
+            input_path,
+            template_path=template_path,
+            output_dir=tmp_path / "out",
+            delivery_csv=delivery_path,
+            consignment_excel=consignment_path,
+        )
+    )
+
+    assert payload["success"] is True
+    assert payload["quantity_validation_summary"]["not_shipped_msku_count"] == 1
+    validation_rows = _read_validation_report_rows(payload["validation_report_xlsx"])
+    assert any(row["状态"] == "未发货" and row["MSKU"] == "MSKU-B" for row in validation_rows)
+    comparison_rows = _read_summary_comparison_rows(payload["validation_report_xlsx"])
+    by_sku = {row["汇总表SKU"]: row for row in comparison_rows if row["状态"] != "合计"}
+    assert by_sku["SKU-B"]["状态"] == "未发货不写入"
+
+
+def test_fill_invoice_template_rejects_actual_model_without_summary_representative(tmp_path):
+    input_path = tmp_path / "4.26-SP260414001-新棱镜备货-美国.xlsx"
+    _write_input_workbook_with_expected_and_summary_rows(
+        input_path,
+        expected_rows=[
+            _valid_source_row(SKU="SKU-A", 规格型号="MODEL-A", 规则型号="MODEL-A", 发货量=2),
+            _valid_source_row(SKU="SKU-B", 规格型号="MODEL-B", 规则型号="MODEL-B", 发货量=3),
+        ],
+        summary_rows=[_valid_source_row(SKU="SKU-A", 规格型号="MODEL-A", 发货量=2)],
+    )
+    source_rows = cli.read_invoice_source_rows(input_path)
+    merge_infos = cli.read_stock_sku_merge_infos(input_path)
+    delivery_components = OrderedDict([("MSKU-B", OrderedDict([("SKU-B", cli.Decimal("3"))]))])
+    consignment_rows = [
+        cli.ConsignmentMskuRow(
+            row_number=2,
+            box_info=cli.ConsignmentBoxInfo(box_no="1", gross_weight="1", length="1", width="1", height="1"),
+            msku="MSKU-B",
+            quantity=cli.Decimal("3"),
+        )
+    ]
+
+    with pytest.raises(ValueError, match="型号组在汇总表中没有代表 SKU"):
+        cli.build_invoice_box_rows(source_rows, merge_infos, delivery_components, consignment_rows)
+
+
+def test_fill_invoice_template_rejects_wms_msku_missing_from_delivery_csv(tmp_path):
+    input_path = tmp_path / "4.27-SP260416020-新棱镜备货-美国.xlsx"
+    _write_input_workbook(input_path, [_valid_source_row(SKU="SKU-A", 规格型号="M-1", 发货量=2)])
+    source_rows = cli.read_invoice_source_rows(input_path)
+    merge_infos = cli.read_stock_sku_merge_infos(input_path)
+    delivery_components = OrderedDict([("MSKU-A", OrderedDict([("SKU-A", cli.Decimal("2"))]))])
+    consignment_rows = [
+        cli.ConsignmentMskuRow(
+            row_number=2,
+            box_info=cli.ConsignmentBoxInfo(box_no="1", gross_weight="1", length="1", width="1", height="1"),
+            msku="MSKU-UNKNOWN",
+            quantity=cli.Decimal("2"),
+        )
+    ]
+
+    with pytest.raises(ValueError, match="WMS 装箱数据 MSKU 在发货单 CSV 中不存在"):
+        cli.build_invoice_box_rows(source_rows, merge_infos, delivery_components, consignment_rows)
 
 
 def test_fill_invoice_template_requires_local_delivery_csv(tmp_path):
