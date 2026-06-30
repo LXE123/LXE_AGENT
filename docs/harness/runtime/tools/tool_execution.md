@@ -54,8 +54,9 @@ self.tool_registry = ensure_all_tools_registered(get_registry())
 - coding tools：`read`、`write`、`edit`、`ls`、`send_file`、`exec`、`process`。
 - Feishu IM tools：群列表、消息读取、thread 消息读取、资源下载。
 - browser tools：只有紫鸟 browser 配置可用时才注册 planner schemas。
+- MCP tools：每个 turn 刷新 MCP runtime 后动态注册。模型看到的是 `mcp__...` 归一化工具名，handler 内部使用保存的 `server_name/raw_tool_name` 路由回 MCP session。
 
-当前 `_active_tool_names()` 返回 `tool_registry.all_names()` 的排序结果；也就是说 runtime 会把已注册工具都作为本轮 active tools。完整参数 schema 如何发送给 provider 见 [Tool Schema](tool_schema.md)。
+当前内置工具默认直接 active。MCP 工具按 `exposure` 决定直接暴露或 deferred；deferred 工具先留在本地 registry，模型通过 `tool_search` 搜索后，匹配工具才会进入下一步 provider tool schemas。完整参数 schema 如何发送给 provider 见 [Tool Schema](tool_schema.md)。
 
 ## ToolExecutionContext
 

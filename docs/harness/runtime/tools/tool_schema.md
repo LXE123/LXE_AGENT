@@ -47,10 +47,12 @@ ToolDefinition(
     parameters={...},
     handler=...,
     requires_resource=None,
+    source="builtin",
+    exposure="direct",
 )
 ```
 
-这些执行侧字段不会直接发送给模型。
+这些执行侧字段不会直接发送给模型。MCP 工具会额外保存 `mcp_route`、server/connector 展示信息、`search_text` 和 `exposure`，用于把模型可见名路由回原始 MCP server/tool。
 
 ## Registry 输出
 
@@ -69,6 +71,18 @@ ToolDefinition(
 
 浏览器 planner tools 的原始 schema 使用 `input_schema` 字段；注册到 runtime 时会转换成 `ToolDefinition.parameters`，之后统一以 canonical `parameters` 参与后续流程。
 
+## MCP ToolInfo Projection
+
+MCP 连接层每个 turn 根据 `config/mcp_servers.local.yaml` 或 `LXE_MCP_CONFIG_PATH` 构建 runtime。每个启用的 server 完成 `initialize -> tools/list` 后，工具会先变成内部 `McpToolInfo`：
+
+- `server_name` / `raw_tool_name`：执行时回调 MCP server 的原始身份。
+- `callable_namespace` / `callable_name`：归一化前的模型身份。
+- `model_name`：Anthropic 当前实际可见工具名，形如 `mcp__{namespace}__{tool}`，会 sanitize、去重、hash 并限制在 64 bytes 内。
+- `input_schema`：MCP `inputSchema` 修补为 object schema，缺失 `properties` 时补 `{}`。
+- `exposure` / `search_text`：决定直接暴露还是通过 `tool_search` 延迟加载。
+
+当前 provider 仍是 Anthropic Messages，不支持 Responses API namespace tools，所以 namespace 被压平成单个 tool name；raw MCP route 只留在执行元数据中。
+
 ## System Prompt 中的 Tool Summary
 
 `build_system_prompt()` 不把完整参数 schema 拼进 system prompt。它只用 `_tool_summary_block()` 生成简短摘要：
@@ -79,6 +93,8 @@ ToolDefinition(
 ```
 
 摘要只用于让模型知道有哪些工具类别。完整 schema 走 provider request 的 tools 顶层字段。
+
+如果启用 deferred MCP tools，初始摘要通常只包含 `tool_search` 和直接暴露工具。模型调用 `tool_search` 后，匹配到的 MCP 工具会在下一次 LLM step 的 provider tools 字段中出现。
 
 ## Provider Schema Adaptation
 
