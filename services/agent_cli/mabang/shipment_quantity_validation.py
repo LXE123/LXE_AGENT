@@ -516,6 +516,10 @@ def _unit_components(components: OrderedDict[str, Decimal], *, msku: str) -> Ord
     return OrderedDict((sku, quantity / Decimal(divisor)) for sku, quantity in components.items())
 
 
+def unit_components_for_msku(components: OrderedDict[str, Decimal], *, msku: str) -> OrderedDict[str, Decimal]:
+    return _unit_components(components, msku=msku)
+
+
 def build_actual_stock_sku_quantities(
     delivery_components: OrderedDict[str, OrderedDict[str, Decimal]],
     consignment_quantities: OrderedDict[str, Decimal],
