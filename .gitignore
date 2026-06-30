@@ -59,6 +59,7 @@ target/
 user_session_db
 config/config.py
 config/connector-states.local.json
+config/mcp_servers.local.yaml
 debug_data/
 /artifacts/
 downloads/
