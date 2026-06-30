@@ -13,6 +13,8 @@ FBA_SKILLS = {
     "fba-logistics-rate-import",
     "fba-logistics-select",
     "fba-msku-detail-download",
+    "fba-purchase-summary-create",
+    "fba-restock-workbook-create",
     "fba-shipment-create",
     "fba-shipment-delivery-csv-download",
     "fba-shipment-wms-box-download",
@@ -64,10 +66,34 @@ def test_fba_workflow_map_keeps_invoice_and_customs_independent() -> None:
     text = _skill_text("fba-workflow-map")
 
     assert 'D --> H["fba-customs-declaration-fill<br/>报关资料"]' not in text
+    assert 'A --> D["fba-invoice-template-fill<br/>发票导入模板"]' in text
+    assert "E --> D" in text
+    assert 'L["备货单 xlsx"] --> D' in text
     assert 'A --> H["fba-customs-declaration-fill<br/>报关资料"]' in text
     assert 'E --> H["fba-customs-declaration-fill<br/>报关资料"]' in text
     assert 'L["备货单 xlsx"] --> H' in text
+    assert "发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill`" in text
     assert "报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill`" in text
+    assert 'A --> M["fba-purchase-summary-create<br/>采购汇总表生成"]' in text
+    assert 'N["出口退税总表 xlsx"] --> M' in text
+    assert 'A --> O["fba-restock-workbook-create<br/>备货单生成"]' in text
+    assert "N --> O" in text
+    assert "采购汇总表生成 | FBA 发货单 CSV + 出口退税总表 -> `fba-purchase-summary-create`" in text
+    assert "备货单生成 | 单个 FBA 发货单 CSV + 出口退税总表 -> `fba-restock-workbook-create`" in text
+    assert "采购汇总表可多 SP 且包含厂家分类 sheet" in text
+    assert "备货单只允许单 SP 且不生成厂家分类 sheet" in text
+
+
+def test_fba_invoice_template_skill_documents_actual_quantity_contract() -> None:
+    text = _skill_text("fba-invoice-template-fill")
+
+    assert "quantity_basis=actual" in text
+    assert "WMS `装箱数量` 是发票模板的实际发货量来源" in text
+    assert "发货单 CSV 只提供 `MSKU -> 库存 SKU` 组成关系" in text
+    assert "备货单第一个表格提供 `库存 SKU -> 规则型号` 映射" in text
+    assert "汇总表 `SKU` 作为型号组代表行" in text
+    assert "不按汇总表预期 `发货量` 填写正式数量" in text
+    assert "`汇总表计算前后对比`" in text
 
 
 def test_fba_customs_declaration_skill_documents_actual_quantity_contract() -> None:
@@ -80,6 +106,52 @@ def test_fba_customs_declaration_skill_documents_actual_quantity_contract() -> N
     assert "备货单第一个表格提供 `库存 SKU -> 规则型号` 映射" in text
     assert "汇总表 `SKU` 作为型号组代表行" in text
     assert "`汇总表计算前后对比`" in text
+
+
+def test_fba_purchase_summary_skill_documents_contract() -> None:
+    text = _skill_text("fba-purchase-summary-create")
+
+    assert "services.agent_cli.mabang.generate_purchase_summary_workbook" in text
+    assert "--delivery-no" in text
+    assert "--master-xlsx" in text
+    assert "artifacts/mabang_fba_delivery/<SP>_*.csv" in text
+    assert "不自动下载" in text
+    assert "采购汇总表已生成" in text
+    assert "第一个 sheet 是 `采购汇总`，第二个 sheet 是 `未匹配`" in text
+    assert "`未匹配` sheet" in text
+    assert "`库存sku`、`来源SP单号`、`数量`、`问题说明`" in text
+    assert "sku_source_count" in text
+    assert "如果 `warnings` 非空" in text
+    assert "已自动去重" in text
+    assert "`库存sku` 为空的行且已忽略" in text
+    assert "按 `型号` 合并" in text
+    assert "`库存sku`、`产品名称` 单元格中按相同顺序分行显示" in text
+    assert "`来源SP单号` 按型号组去重并分行显示" in text
+    assert "所有列宽和行高已统一为 15" in text
+
+
+def test_fba_restock_workbook_skill_documents_contract() -> None:
+    text = _skill_text("fba-restock-workbook-create")
+
+    assert "services.agent_cli.mabang.generate_fba_restock_workbook" in text
+    assert "--delivery-no" in text
+    assert "--master-xlsx" in text
+    assert "一次只能处理一个 `SP` 发货单号" in text
+    assert "多个 SP 要拆成多次运行" in text
+    assert "artifacts/mabang_fba_delivery/<SP>_*.csv" in text
+    assert "不自动下载" in text
+    assert "不生成厂家分类 sheet" in text
+    assert "备货单已生成" in text
+    assert "第一个是 `备货单`，第二个是 `未匹配`" in text
+    assert "`未匹配` sheet" in text
+    assert "`库存sku`、`数量`、`问题说明`" in text
+    assert "`来源SP单号`" not in text
+    assert "如果 `warnings` 非空" in text
+    assert "不同厂家有相同型号" in text
+    assert "业务人员需要核查" in text
+    assert "按 `型号` 合并" in text
+    assert "不同厂家相同型号会保留为不同行" in text
+    assert "所有列宽和行高已统一为 15" in text
 
 
 def test_fba_skill_docs_do_not_contain_old_misleading_phrases() -> None:
