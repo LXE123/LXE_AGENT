@@ -39,6 +39,11 @@ class UnifiedToolRegistry:
     def has(self, name: str) -> bool:
         return str(name or "").strip() in self._tools
 
+    def definitions(self, names: list[str] | None = None) -> list[ToolDefinition]:
+        if names is None:
+            return list(self._tools.values())
+        return [self._tools[name] for name in names if name in self._tools]
+
 
 _registry = UnifiedToolRegistry()
 

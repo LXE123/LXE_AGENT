@@ -34,6 +34,8 @@ from .context_pipeline import (
     trim_step_tool_result_blocks,
 )
 from .llm_adapter import LLMResponse, LLMStreamEvent, agent_provider_descriptor, chat_with_tools_streaming
+from .mcp import build_mcp_connection_manager, mcp_tool_search_enabled
+from .mcp.registry import register_mcp_tools
 from .stream_logging import (
     StepStreamObserver,
     TurnTraceWriter,
@@ -44,8 +46,8 @@ from .tool_executor import ToolExecutionContext, clear_tool_context, set_tool_co
 from .tool_registry import (
     UnifiedToolRegistry,
     ensure_all_tools_registered,
-    get_registry,
 )
+from .tool_exposure import ToolExposureState, register_tool_search
 from .types import (
     ContextBuildStats,
     ContextCheckpointCallback,
@@ -356,7 +358,8 @@ class AgentLoop:
         self.tool_run_registrar = tool_run_registrar
         self.tool_run_finisher = tool_run_finisher
         self.context_checkpoint = context_checkpoint
-        self.tool_registry = ensure_all_tools_registered(get_registry())
+        self.tool_registry = ensure_all_tools_registered(UnifiedToolRegistry())
+        self.mcp_manager = None
         self.stream_logging_config = load_stream_logging_config()
         self.wire_trace_config = load_wire_trace_config()
         self._turn_trace_writer: TurnTraceWriter | None = None
@@ -717,8 +720,14 @@ class AgentLoop:
         current_turn_messages: list[dict[str, Any]] = [request_user_message]
         session_source = dict(getattr(self.session, "source", {}) or {})
         platform = str(session_source.get("platform") or "feishu").strip()
-        tool_names = _active_tool_names(tool_registry=self.tool_registry)
-        tool_schemas = self.tool_registry.tool_schemas(tool_names)
+        self.mcp_manager = await build_mcp_connection_manager()
+        register_mcp_tools(self.tool_registry, self.mcp_manager)
+        exposure_state = ToolExposureState(
+            registry=self.tool_registry,
+            search_enabled=mcp_tool_search_enabled(),
+        )
+        register_tool_search(self.tool_registry, exposure_state)
+        tool_schemas = exposure_state.active_schemas()
         system_prompt = build_system_prompt(
             platform=platform,
             tool_schemas=tool_schemas,
@@ -773,7 +782,7 @@ class AgentLoop:
                 current_turn_messages=current_turn_messages,
                 messages=messages,
                 system_prompt=system_prompt,
-                tool_schemas=tool_schemas,
+                exposure_state=exposure_state,
                 turn_log=turn_log,
                 exec_ctx=exec_ctx,
                 session_id=turn.session_id,
@@ -784,6 +793,9 @@ class AgentLoop:
             if self._turn_trace_writer is not None:
                 self._turn_trace_writer.close()
                 self._turn_trace_writer = None
+            if self.mcp_manager is not None:
+                await self.mcp_manager.close()
+                self.mcp_manager = None
             self._trace_session_id = ""
             self._trace_turn_id = ""
             self._trace_turn_started_at = 0.0
@@ -842,7 +854,7 @@ class AgentLoop:
         current_turn_messages: list[dict[str, Any]],
         messages: list[dict[str, Any]],
         system_prompt: str,
-        tool_schemas: list[dict[str, Any]],
+        exposure_state: ToolExposureState,
         turn_log: TurnLog,
         exec_ctx: ToolExecutionContext,
         session_id: str,
@@ -875,7 +887,8 @@ class AgentLoop:
                 return await self._cancel_outcome(messages_to_persist=current_turn_messages)
 
             is_last_step = step_idx == MAX_STEPS - 1
-            request_tool_schemas = [] if is_last_step else tool_schemas
+            active_tool_schemas = exposure_state.active_schemas()
+            request_tool_schemas = [] if is_last_step else active_tool_schemas
             tool_choice_mode: Literal["auto", "none"] = "none" if is_last_step else "auto"
 
             try:

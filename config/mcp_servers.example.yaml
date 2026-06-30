@@ -1,0 +1,17 @@
+# Copy this file to config/mcp_servers.local.yaml or set LXE_MCP_CONFIG_PATH.
+# Do not commit local secrets. Header values may reference environment variables
+# with ${ENV_NAME}; missing variables leave the server in an error state.
+
+mcpServers:
+  lxe-saihu:
+    enabled: true
+    type: streamable-http
+    url: "http://127.0.0.1:8000/mcp/"
+    headers:
+      Authorization: "Bearer ${LXE_DATA_SERVER_API_KEY}"
+    startup_timeout_s: 10
+    tool_timeout_s: 60
+    exposure: deferred
+    connector_id: lxe-saihu
+    connector_name: Saihu
+    connector_description: Local Saihu data tools from LXE_AGENT_TELEMETRY_SERVER.

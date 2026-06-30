@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import json
-from typing import Any, Awaitable, Callable, TypedDict
+from typing import Any, Awaitable, Callable, Literal, TypedDict
 
 from .skill_manifest import SkillQueueItem
 
@@ -23,6 +23,14 @@ class ToolDefinition:
     parameters: dict[str, Any]  # JSON Schema
     handler: Callable[..., Awaitable[ToolResult]]
     requires_resource: str | None = None
+    source: str = "builtin"
+    exposure: Literal["direct", "deferred"] = "direct"
+    search_text: str = ""
+    mcp_route: Any = None
+    server_name: str = ""
+    connector_id: str = ""
+    connector_name: str = ""
+    connector_description: str = ""
 
 
 @dataclass
