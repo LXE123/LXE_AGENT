@@ -30,7 +30,26 @@ OUTPUT_DIR = Path("artifacts") / "mabang_purchase_summary"
 SOURCE = "fba_purchase_summary"
 
 MASTER_REQUIRED_HEADERS = ("库存sku", "产品名称", "型号", "原价", "厂家", "备用厂家")
-MANUFACTURER_COLUMNS = ("库存sku", "产品名称", "来源SP单号", "型号", "原价", "厂家", "数量", "总价")
+MASTER_HEADER_ALIASES = {
+    "库存SKU": "库存sku",
+}
+MASTER_SKU_SHEET_NAME = "SKU表"
+CONTRACT_SHEET_NAME = "供应商合同信息"
+CONTRACT_REQUIRED_HEADERS = ("供货方", "单位", "合同产品名称")
+MANUFACTURER_COLUMNS = (
+    "库存sku",
+    "产品名称",
+    "来源SP单号",
+    "库存sku（第一行）",
+    "产品名称（第一行）",
+    "型号",
+    "原价",
+    "厂家",
+    "单位",
+    "合同产品名称",
+    "数量",
+    "总价",
+)
 UNMATCHED_COLUMNS = ("库存sku", "来源SP单号", "数量", "问题说明")
 SUMMARY_SHEET_NAME = "采购汇总"
 UNMATCHED_SHEET_NAME = "未匹配"
@@ -49,6 +68,16 @@ class MasterProducts(OrderedDict[str, dict[str, Any]]):
         self.skipped_empty_sku_rows: list[int] = []
         self.unmerged_empty_model_sku_count = 0
         self.unmerged_empty_model_skus: list[str] = []
+        self.contracts_by_manufacturer: dict[str, dict[str, str]] = {}
+        self.contract_lookup_enabled = False
+        self.contract_mapping_count = 0
+        self.contract_unmapped_manufacturer_count = 0
+        self.contract_unmapped_manufacturer_examples: list[str] = []
+        self.contract_conflict_manufacturer_count = 0
+        self.contract_conflict_manufacturer_examples: list[str] = []
+        self._contract_sheet_warning = ""
+        self._contract_unmapped_manufacturers: OrderedDict[str, None] = OrderedDict()
+        self._contract_conflict_manufacturers: set[str] = set()
         self.warnings: list[str] = []
 
 
@@ -82,24 +111,34 @@ def _decimal_from_cell(value: Any, *, field_name: str, row_number: int, source_p
     return result
 
 
-def _header_indexes(header_values: tuple[Any, ...], *, source_path: Path) -> dict[str, int]:
+def _header_indexes(
+    header_values: tuple[Any, ...],
+    *,
+    source_path: Path,
+    required_headers: tuple[str, ...] = MASTER_REQUIRED_HEADERS,
+    header_aliases: dict[str, str] | None = MASTER_HEADER_ALIASES,
+    sheet_label: str = "",
+) -> dict[str, int]:
     indexes: dict[str, int] = {}
     duplicates: list[str] = []
+    aliases = dict(header_aliases or {})
     for column_index, raw_header in enumerate(header_values, start=1):
-        header = _clean_cell(raw_header)
-        if not header:
+        raw_name = _clean_cell(raw_header)
+        if not raw_name:
             continue
+        header = aliases.get(raw_name, raw_name)
         if header in indexes:
             duplicates.append(header)
             continue
         indexes[header] = column_index
 
-    missing = [header for header in MASTER_REQUIRED_HEADERS if header not in indexes]
+    location = f" {sheet_label}" if sheet_label else ""
+    missing = [header for header in required_headers if header not in indexes]
     if missing:
-        raise RuntimeError(f"出口退税总表 {source_path.name} 缺少必需列: {', '.join(missing)}")
+        raise RuntimeError(f"出口退税总表 {source_path.name}{location} 缺少必需列: {', '.join(missing)}")
     if duplicates:
         duplicate_text = ", ".join(dict.fromkeys(duplicates))
-        raise RuntimeError(f"出口退税总表 {source_path.name} 第1行表头重复: {duplicate_text}")
+        raise RuntimeError(f"出口退税总表 {source_path.name}{location} 第1行表头重复: {duplicate_text}")
     return indexes
 
 
@@ -169,6 +208,100 @@ def _append_empty_model_warning(products: MasterProducts) -> None:
     )
 
 
+def _append_contract_warnings(products: MasterProducts) -> None:
+    if products._contract_sheet_warning:
+        products.warnings.append(products._contract_sheet_warning)
+    if products.contract_conflict_manufacturer_count > 0:
+        products.warnings.append(
+            f"出口退税总表 {CONTRACT_SHEET_NAME} sheet 存在同一供货方对应不同单位或合同产品名称，"
+            "相关厂家字段已留空: "
+            f"count={products.contract_conflict_manufacturer_count}, "
+            f"examples={', '.join(products.contract_conflict_manufacturer_examples)}"
+        )
+
+
+def _append_contract_unmapped_warning(products: MasterProducts) -> None:
+    products.contract_unmapped_manufacturer_count = len(products._contract_unmapped_manufacturers)
+    products.contract_unmapped_manufacturer_examples = list(products._contract_unmapped_manufacturers)[:20]
+    if products.contract_unmapped_manufacturer_count <= 0:
+        return
+    products.warnings.append(
+        f"出口退税总表 {CONTRACT_SHEET_NAME} sheet 未找到部分厂家对应的供货方映射，"
+        "单位和合同产品名称已留空: "
+        f"count={products.contract_unmapped_manufacturer_count}, "
+        f"examples={', '.join(products.contract_unmapped_manufacturer_examples)}"
+    )
+
+
+def _contract_fields_for_manufacturer(products: MasterProducts, manufacturer: str) -> tuple[str, str]:
+    if manufacturer in products._contract_conflict_manufacturers:
+        return "", ""
+    contract = products.contracts_by_manufacturer.get(manufacturer)
+    if contract is not None:
+        return contract["unit"], contract["contract_product_name"]
+    if products.contract_lookup_enabled:
+        products._contract_unmapped_manufacturers.setdefault(manufacturer, None)
+    return "", ""
+
+
+def _load_contract_mappings(workbook: Any, *, source_path: Path, products: MasterProducts) -> None:
+    if CONTRACT_SHEET_NAME not in workbook.sheetnames:
+        products._contract_sheet_warning = (
+            f"出口退税总表缺少 sheet: {CONTRACT_SHEET_NAME}，单位和合同产品名称将留空"
+        )
+        return
+
+    worksheet = workbook[CONTRACT_SHEET_NAME]
+    rows = worksheet.iter_rows(values_only=True)
+    try:
+        header_values = next(rows)
+    except StopIteration:
+        header_values = ()
+    try:
+        indexes = _header_indexes(
+            header_values,
+            source_path=source_path,
+            required_headers=CONTRACT_REQUIRED_HEADERS,
+            header_aliases={},
+            sheet_label=f"{CONTRACT_SHEET_NAME} sheet",
+        )
+    except RuntimeError as exc:
+        products._contract_sheet_warning = f"{_exception_text(exc)}，单位和合同产品名称将留空"
+        return
+
+    products.contract_lookup_enabled = True
+    conflicts: OrderedDict[str, None] = OrderedDict()
+    contracts: dict[str, dict[str, str]] = {}
+    for row in rows:
+        row_values = {
+            header: row[indexes[header] - 1] if indexes[header] - 1 < len(row) else None
+            for header in CONTRACT_REQUIRED_HEADERS
+        }
+        if not any(_clean_cell(value) for value in row_values.values()):
+            continue
+        supplier = _clean_cell(row_values["供货方"])
+        if not supplier or supplier in conflicts:
+            continue
+        contract = {
+            "unit": _clean_cell(row_values["单位"]),
+            "contract_product_name": _clean_cell(row_values["合同产品名称"]),
+        }
+        existing = contracts.get(supplier)
+        if existing is None:
+            contracts[supplier] = contract
+            continue
+        if existing == contract:
+            continue
+        contracts.pop(supplier, None)
+        conflicts[supplier] = None
+
+    products.contracts_by_manufacturer = contracts
+    products.contract_mapping_count = len(contracts)
+    products._contract_conflict_manufacturers = set(conflicts)
+    products.contract_conflict_manufacturer_count = len(conflicts)
+    products.contract_conflict_manufacturer_examples = list(conflicts)[:20]
+
+
 def load_master_products(master_xlsx: str | Path) -> MasterProducts:
     source_path = Path(master_xlsx).expanduser()
     if not source_path.is_file():
@@ -184,7 +317,9 @@ def load_master_products(master_xlsx: str | Path) -> MasterProducts:
     except Exception as exc:
         raise RuntimeError(f"读取出口退税总表失败: {source_path}, error={exc}") from exc
     try:
-        worksheet = workbook.worksheets[0]
+        if MASTER_SKU_SHEET_NAME not in workbook.sheetnames:
+            raise RuntimeError(f"出口退税总表 {source_path.name} 缺少 sheet: {MASTER_SKU_SHEET_NAME}")
+        worksheet = workbook[MASTER_SKU_SHEET_NAME]
         # Read-only workbooks must be consumed sequentially. Random single-cell
         # access reparses the stream and becomes extremely slow on large master files.
         rows = worksheet.iter_rows(values_only=True)
@@ -228,6 +363,7 @@ def load_master_products(master_xlsx: str | Path) -> MasterProducts:
             products[key] = record
             signatures[key] = signature
             first_row_numbers[key] = row_number
+        _load_contract_mappings(workbook, source_path=source_path, products=products)
     finally:
         workbook.close()
 
@@ -235,6 +371,7 @@ def load_master_products(master_xlsx: str | Path) -> MasterProducts:
         raise RuntimeError(f"出口退税总表 {source_path.name} 没有有效库存sku")
     _append_empty_sku_warning(products)
     _append_duplicate_warning(products, duplicate_keys)
+    _append_contract_warnings(products)
     return products
 
 
@@ -347,6 +484,7 @@ def build_restock_rows(
         product_name = _clean_cell(product.get("product_name"))
         model = _clean_cell(product.get("model"))
         original_price = product["original_price"]
+        unit, contract_product_name = _contract_fields_for_manufacturer(products, manufacturer)
         if not model:
             products.unmerged_empty_model_sku_count += 1
             if len(products.unmerged_empty_model_skus) < 20:
@@ -360,6 +498,8 @@ def build_restock_rows(
                     "model": model,
                     "original_price": original_price,
                     "manufacturer": manufacturer,
+                    "unit": unit,
+                    "contract_product_name": contract_product_name,
                     "quantity": quantity,
                     "first_sku": stock_sku,
                 }
@@ -378,6 +518,8 @@ def build_restock_rows(
                 "model": model,
                 "original_price": original_price,
                 "manufacturer": manufacturer,
+                "unit": unit,
+                "contract_product_name": contract_product_name,
                 "quantity": quantity,
                 "first_sku": stock_sku,
             }
@@ -407,9 +549,13 @@ def build_restock_rows(
             "\n".join(entry["stock_skus"]),
             "\n".join(entry["product_names"]),
             "\n".join(entry["source_delivery_nos"]),
+            entry["stock_skus"][0] if entry["stock_skus"] else "",
+            entry["product_names"][0] if entry["product_names"] else "",
             entry["model"],
             _decimal_to_cell_value(entry["original_price"]),
             entry["manufacturer"],
+            entry["unit"],
+            entry["contract_product_name"],
             _decimal_to_cell_value(entry["quantity"]),
             _decimal_to_cell_value(total_price),
         ]
@@ -420,6 +566,7 @@ def build_restock_rows(
         manufacturer_rows[manufacturer] = [entry_to_row(entry) for entry in entries]
 
     _append_empty_model_warning(products)
+    _append_contract_unmapped_warning(products)
     return summary_rows, manufacturer_rows, unmatched_rows, matched_sku_count, unmatched_sku_count
 
 
@@ -561,6 +708,11 @@ def generate_restock_workbook(
         "skipped_empty_sku_rows": products.skipped_empty_sku_rows,
         "unmerged_empty_model_sku_count": products.unmerged_empty_model_sku_count,
         "unmerged_empty_model_skus": products.unmerged_empty_model_skus,
+        "contract_mapping_count": products.contract_mapping_count,
+        "contract_unmapped_manufacturer_count": products.contract_unmapped_manufacturer_count,
+        "contract_unmapped_manufacturer_examples": products.contract_unmapped_manufacturer_examples,
+        "contract_conflict_manufacturer_count": products.contract_conflict_manufacturer_count,
+        "contract_conflict_manufacturer_examples": products.contract_conflict_manufacturer_examples,
         "warnings": products.warnings,
         "source": SOURCE,
     }

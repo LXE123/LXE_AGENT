@@ -116,6 +116,11 @@ def test_fba_purchase_summary_skill_documents_contract() -> None:
     assert "--master-xlsx" in text
     assert "artifacts/mabang_fba_delivery/<SP>_*.csv" in text
     assert "不自动下载" in text
+    assert "`SKU表` sheet" in text
+    assert "`库存sku` 或 `库存SKU`" in text
+    assert "`供应商合同信息` sheet 用 `供货方` 匹配 `SKU表` 的 `厂家`" in text
+    assert "`单位` 和 `合同产品名称`" in text
+    assert "contract_mapping_count" in text
     assert "采购汇总表已生成" in text
     assert "第一个 sheet 是 `采购汇总`，第二个 sheet 是 `未匹配`" in text
     assert "`未匹配` sheet" in text
@@ -127,6 +132,9 @@ def test_fba_purchase_summary_skill_documents_contract() -> None:
     assert "按 `型号` 合并" in text
     assert "`库存sku`、`产品名称` 单元格中按相同顺序分行显示" in text
     assert "`来源SP单号` 按型号组去重并分行显示" in text
+    assert "`库存sku（第一行）`、`产品名称（第一行）`" in text
+    assert "来源SP单号（第一行）" not in text
+    assert "`厂家`、`单位`、`合同产品名称`、`数量`、`总价`" in text
     assert "所有列宽和行高已统一为 15" in text
 
 
@@ -140,6 +148,11 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "多个 SP 要拆成多次运行" in text
     assert "artifacts/mabang_fba_delivery/<SP>_*.csv" in text
     assert "不自动下载" in text
+    assert "`SKU表` sheet" in text
+    assert "`库存sku` 或 `库存SKU`" in text
+    assert "`供应商合同信息` sheet 用 `供货方` 匹配 `SKU表` 的 `厂家`" in text
+    assert "`单位` 和 `合同产品名称`" in text
+    assert "contract_mapping_count" in text
     assert "不生成厂家分类 sheet" in text
     assert "备货单已生成" in text
     assert "第一个是 `备货单`，第二个是 `未匹配`" in text
@@ -151,6 +164,7 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "业务人员需要核查" in text
     assert "按 `型号` 合并" in text
     assert "不同厂家相同型号会保留为不同行" in text
+    assert "`厂家`、`单位`、`合同产品名称`、`数量`、`总价`" in text
     assert "所有列宽和行高已统一为 15" in text
 
 
