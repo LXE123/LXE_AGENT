@@ -13,7 +13,7 @@ DELIVERY_CSV_DIR = _purchase.DELIVERY_CSV_DIR
 OUTPUT_DIR = Path("artifacts") / "mabang_restock_workbook"
 SOURCE = "fba_restock_workbook"
 RESTOCK_SHEET_NAME = "备货单"
-RESTOCK_COLUMNS = ("库存sku", "产品名称", "型号", "原价", "厂家", "数量", "总价")
+RESTOCK_COLUMNS = ("库存sku", "产品名称", "型号", "原价", "厂家", "单位", "合同产品名称", "数量", "总价")
 RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "数量", "问题说明")
 
 close_all_network_clients = _purchase.close_all_network_clients
@@ -59,8 +59,8 @@ def _append_cross_manufacturer_model_warning(
 ) -> int:
     model_manufacturers: OrderedDict[str, OrderedDict[str, None]] = OrderedDict()
     for row in summary_rows:
-        model = _purchase._clean_cell(row[3] if len(row) > 3 else "")
-        manufacturer = _purchase._clean_cell(row[5] if len(row) > 5 else "")
+        model = _purchase._clean_cell(_purchase_row_value(row, "型号"))
+        manufacturer = _purchase._clean_cell(_purchase_row_value(row, "厂家"))
         if not model:
             continue
         manufacturers = model_manufacturers.setdefault(model, OrderedDict())
@@ -89,11 +89,20 @@ def _output_file_name(delivery_no: str) -> str:
     return f"{delivery_no}_restock_workbook.xlsx"
 
 
-def _drop_restock_source_column(rows: list[list[Any]]) -> list[list[Any]]:
+def _purchase_row_value(row: list[Any], column: str) -> Any:
+    column_index = _purchase.MANUFACTURER_COLUMNS.index(column)
+    return row[column_index] if column_index < len(row) else ""
+
+
+def _project_purchase_rows(rows: list[list[Any]], columns: tuple[str, ...]) -> list[list[Any]]:
     return [
-        [value for index, value in enumerate(row) if index != 2]
+        [_purchase_row_value(row, column) for column in columns]
         for row in rows
     ]
+
+
+def _drop_restock_source_column(rows: list[list[Any]]) -> list[list[Any]]:
+    return _project_purchase_rows(rows, RESTOCK_COLUMNS)
 
 
 def _drop_unmatched_source_column(rows: list[list[Any]]) -> list[list[Any]]:
@@ -135,7 +144,7 @@ def write_fba_restock_workbook(
 def _manufacturer_count(rows: list[list[Any]]) -> int:
     manufacturers: OrderedDict[str, None] = OrderedDict()
     for row in rows:
-        manufacturer = _purchase._clean_cell(row[5] if len(row) > 5 else "")
+        manufacturer = _purchase._clean_cell(_purchase_row_value(row, "厂家"))
         manufacturers[manufacturer] = None
     return len(manufacturers)
 
@@ -187,6 +196,11 @@ def generate_fba_restock_workbook(
         "skipped_empty_sku_rows": products.skipped_empty_sku_rows,
         "unmerged_empty_model_sku_count": products.unmerged_empty_model_sku_count,
         "unmerged_empty_model_skus": products.unmerged_empty_model_skus,
+        "contract_mapping_count": products.contract_mapping_count,
+        "contract_unmapped_manufacturer_count": products.contract_unmapped_manufacturer_count,
+        "contract_unmapped_manufacturer_examples": products.contract_unmapped_manufacturer_examples,
+        "contract_conflict_manufacturer_count": products.contract_conflict_manufacturer_count,
+        "contract_conflict_manufacturer_examples": products.contract_conflict_manufacturer_examples,
         "warnings": products.warnings,
         "source": SOURCE,
     }
