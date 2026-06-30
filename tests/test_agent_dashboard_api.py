@@ -1016,11 +1016,37 @@ def test_toolsets_endpoint_lists_registered_tools_without_handlers(dashboard_cli
     assert response.status_code == 200
     payload = response.json()
     names = {item["name"] for item in payload["items"]}
-    assert {"coding", "feishu_im", "browser"}.issubset(names)
+    assert {"coding", "feishu_im", "browser", "mcp"}.issubset(names)
     serialized = json.dumps(payload, ensure_ascii=False)
     assert "handler" not in serialized
     coding = next(item for item in payload["items"] if item["name"] == "coding")
     assert any(tool["name"] == "read" for tool in coding["tools"])
+
+
+def test_mcp_servers_endpoint_reports_configured_disabled_server(dashboard_client, monkeypatch, tmp_path):
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        """
+mcpServers:
+  lxe-saihu:
+    enabled: false
+    type: streamable-http
+    url: "http://127.0.0.1:8000/mcp/"
+    connector_name: Saihu
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LXE_MCP_CONFIG_PATH", str(config_path))
+
+    response = dashboard_client.get("/api/mcp/servers")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["tool_total"] == 0
+    assert payload["items"][0]["name"] == "lxe-saihu"
+    assert payload["items"][0]["status"] == "disabled"
+    assert payload["items"][0]["connector_name"] == "Saihu"
 
 
 def test_background_tasks_endpoint_returns_empty_list(dashboard_client):

@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from agent_runtime.packs.browser.tools import browser_tool_names
+from agent_runtime.mcp import build_mcp_connection_manager, load_mcp_config
 from agent_runtime.skill_index import load_skill_index
 from agent_runtime.tool_registry import ensure_all_tools_registered, get_registry
 from agent_runtime.tools.coding_tools import CODING_TOOL_NAMES
@@ -631,6 +632,11 @@ def _tool_payload(name: str) -> dict[str, Any] | None:
         "parameters": dict(tool.parameters or {}),
         "requires_resource": tool.requires_resource,
         "enabled": True,
+        "source": tool.source,
+        "exposure": tool.exposure,
+        "server_name": tool.server_name,
+        "connector_id": tool.connector_id,
+        "connector_name": tool.connector_name,
     }
 
 
@@ -658,6 +664,53 @@ def _toolsets_payload() -> list[dict[str, Any]]:
         ),
         _toolset_payload("browser", "Browser", list(browser_tool_names())),
     ]
+
+
+def _mcp_tool_payload(raw_tool: dict[str, Any]) -> dict[str, Any]:
+    item = dict(raw_tool or {})
+    return {
+        "name": str(item.get("model_name") or "").strip(),
+        "description": str(item.get("description") or "").strip(),
+        "parameters": dict(item.get("parameters") or {}),
+        "requires_resource": "mcp",
+        "enabled": True,
+        "source": "mcp",
+        "exposure": str(item.get("exposure") or "deferred").strip(),
+        "server_name": str(item.get("server_name") or "").strip(),
+        "raw_tool_name": str(item.get("raw_tool_name") or "").strip(),
+        "connector_id": str(item.get("connector_id") or "").strip(),
+        "connector_name": str(item.get("connector_name") or "").strip(),
+    }
+
+
+async def _mcp_snapshot_payload() -> dict[str, Any]:
+    manager = await build_mcp_connection_manager(load_mcp_config())
+    try:
+        servers = manager.status_payloads()
+        tools = [_mcp_tool_payload(tool) for tool in manager.tool_payloads()]
+        return {
+            "servers": servers,
+            "tools": tools,
+            "total_servers": len(servers),
+            "total_tools": len(tools),
+        }
+    finally:
+        await manager.close()
+
+
+async def _toolsets_payload_async() -> list[dict[str, Any]]:
+    items = _toolsets_payload()
+    mcp_payload = await _mcp_snapshot_payload()
+    items.append(
+        {
+            "name": "mcp",
+            "label": "MCP",
+            "enabled": bool(mcp_payload["tools"]),
+            "tools": mcp_payload["tools"],
+            "servers": mcp_payload["servers"],
+        }
+    )
+    return items
 
 
 def _session_titles_by_id(session_ids: list[str]) -> dict[str, str]:
@@ -752,8 +805,17 @@ def create_dashboard_app() -> FastAPI:
 
     @app.get("/api/tools/toolsets")
     async def toolsets() -> dict[str, Any]:
-        items = _toolsets_payload()
+        items = await _toolsets_payload_async()
         return {"items": items, "total": len(items)}
+
+    @app.get("/api/mcp/servers")
+    async def mcp_servers() -> dict[str, Any]:
+        payload = await _mcp_snapshot_payload()
+        return {
+            "items": payload["servers"],
+            "total": payload["total_servers"],
+            "tool_total": payload["total_tools"],
+        }
 
     @app.get("/api/background-tasks")
     async def background_tasks() -> dict[str, Any]:
