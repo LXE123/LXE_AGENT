@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import socket
 import time
 
 import pytest
@@ -45,6 +46,9 @@ def _clear_exec_sessions():
 def dashboard_client(monkeypatch, tmp_path):
     monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "local_agent.sqlite3"))
     monkeypatch.setenv("AGENT_SESSION_BINDINGS_PATH", str(tmp_path / "sessions.json"))
+    empty_mcp_config = tmp_path / "mcp.yaml"
+    empty_mcp_config.write_text("mcpServers: {}\n", encoding="utf-8")
+    monkeypatch.setenv("LXE_MCP_CONFIG_PATH", str(empty_mcp_config))
     monkeypatch.setattr(dashboard_api, "FEISHU_APP_ID", BOT_ID_LXE_CLAW)
     init_schema()
     return TestClient(create_dashboard_app())
@@ -105,6 +109,12 @@ def _configure_model_api_keys(monkeypatch) -> None:
     monkeypatch.setenv("KIMI_CODE_API_KEY", "kimi-key")
     monkeypatch.setenv("DEEPSEEK_API", "deepseek-key")
     monkeypatch.setenv("GLM_API_KEY", "glm-key")
+
+
+def _unused_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def _state(messages: list[dict] | None = None) -> dict:
@@ -1047,6 +1057,118 @@ mcpServers:
     assert payload["items"][0]["name"] == "lxe-saihu"
     assert payload["items"][0]["status"] == "disabled"
     assert payload["items"][0]["connector_name"] == "Saihu"
+
+
+def test_toolsets_endpoint_includes_mcp_servers(dashboard_client, monkeypatch, tmp_path):
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        """
+mcpServers:
+  lxe-saihu:
+    enabled: false
+    type: streamable-http
+    url: "http://127.0.0.1:8000/mcp/"
+    connector_name: Saihu
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LXE_MCP_CONFIG_PATH", str(config_path))
+
+    response = dashboard_client.get("/api/tools/toolsets")
+
+    assert response.status_code == 200
+    payload = response.json()
+    mcp = next(item for item in payload["items"] if item["name"] == "mcp")
+    assert mcp["servers"][0]["name"] == "lxe-saihu"
+    assert mcp["servers"][0]["enabled"] is False
+    assert mcp["servers"][0]["status"] == "disabled"
+
+
+def test_dashboard_reports_enabled_down_mcp_server_without_500(dashboard_client, monkeypatch, tmp_path):
+    port = _unused_local_port()
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        f"""
+mcpServers:
+  lxe-saihu:
+    enabled: true
+    type: streamable-http
+    url: "http://127.0.0.1:{port}/mcp/"
+    startup_timeout_s: 1
+    tool_timeout_s: 1
+    connector_name: Saihu
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LXE_MCP_CONFIG_PATH", str(config_path))
+
+    servers_response = dashboard_client.get("/api/mcp/servers")
+    toolsets_response = dashboard_client.get("/api/tools/toolsets")
+
+    assert servers_response.status_code == 200
+    servers_payload = servers_response.json()
+    assert servers_payload["total"] == 1
+    assert servers_payload["tool_total"] == 0
+    assert servers_payload["items"][0]["enabled"] is True
+    assert servers_payload["items"][0]["status"] == "error"
+    assert servers_payload["items"][0]["error"]
+
+    assert toolsets_response.status_code == 200
+    toolsets_payload = toolsets_response.json()
+    mcp = next(item for item in toolsets_payload["items"] if item["name"] == "mcp")
+    assert mcp["tools"] == []
+    assert mcp["servers"][0]["enabled"] is True
+    assert mcp["servers"][0]["status"] == "error"
+    assert mcp["servers"][0]["error"]
+
+
+def test_mcp_servers_endpoint_patch_writes_enabled_state(dashboard_client, monkeypatch, tmp_path):
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        """
+mcpServers:
+  lxe-saihu:
+    enabled: false
+    type: stdio
+    connector_name: Saihu
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LXE_MCP_CONFIG_PATH", str(config_path))
+
+    enabled = dashboard_client.patch("/api/mcp/servers/lxe-saihu", json={"enabled": True})
+    disabled = dashboard_client.patch("/api/mcp/servers/lxe-saihu", json={"enabled": False})
+
+    assert enabled.status_code == 200
+    assert enabled.json()["enabled"] is True
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] is False
+    saved = config_path.read_text(encoding="utf-8")
+    assert "enabled: false" in saved
+    assert "connector_name: Saihu" in saved
+
+
+def test_mcp_servers_endpoint_patch_rejects_invalid_id_or_payload(dashboard_client, monkeypatch, tmp_path):
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        """
+mcpServers:
+  lxe-saihu:
+    enabled: false
+    type: streamable-http
+    url: "http://127.0.0.1:8000/mcp/"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LXE_MCP_CONFIG_PATH", str(config_path))
+
+    missing = dashboard_client.patch("/api/mcp/servers/not-real", json={"enabled": True})
+    invalid = dashboard_client.patch("/api/mcp/servers/lxe-saihu", json={"enabled": "yes"})
+
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "MCP server not found"
+    assert invalid.status_code == 400
+    assert invalid.json()["detail"] == "enabled must be a boolean"
 
 
 def test_background_tasks_endpoint_returns_empty_list(dashboard_client):

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from agent_runtime.packs.browser.tools import browser_tool_names
 from agent_runtime.mcp import build_mcp_connection_manager, load_mcp_config
+from agent_runtime.mcp.config import set_mcp_server_enabled
 from agent_runtime.skill_index import load_skill_index
 from agent_runtime.tool_registry import ensure_all_tools_registered, get_registry
 from agent_runtime.tools.coding_tools import CODING_TOOL_NAMES
@@ -698,6 +700,22 @@ async def _mcp_snapshot_payload() -> dict[str, Any]:
         await manager.close()
 
 
+async def _set_mcp_server_enabled_payload(server_name: str, enabled: bool) -> dict[str, Any]:
+    try:
+        updated_config = set_mcp_server_enabled(server_name, enabled)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="MCP server not found") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    payload = await _mcp_snapshot_payload()
+    safe_name = updated_config.name
+    for item in payload["servers"]:
+        if str(item.get("name") or "").strip() == safe_name:
+            return item
+    raise HTTPException(status_code=404, detail="MCP server not found")
+
+
 async def _toolsets_payload_async() -> list[dict[str, Any]]:
     items = _toolsets_payload()
     mcp_payload = await _mcp_snapshot_payload()
@@ -739,7 +757,13 @@ def _background_tasks_payload() -> list[dict[str, Any]]:
     return items
 
 
-def create_dashboard_app() -> FastAPI:
+ChannelHealthSnapshot = Callable[[], Awaitable[dict[str, dict[str, Any]]]]
+
+
+def create_dashboard_app(
+    *,
+    channel_health_snapshot: ChannelHealthSnapshot | None = None,
+) -> FastAPI:
     app = FastAPI(
         title="Agent Dashboard",
         version="1.0.0",
@@ -757,6 +781,17 @@ def create_dashboard_app() -> FastAPI:
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
         return {"ok": True, "service": "agent-dashboard"}
+
+    @app.get("/api/channels/health")
+    async def channels_health() -> dict[str, Any]:
+        if channel_health_snapshot is None:
+            snapshot: dict[str, dict[str, Any]] = {}
+        else:
+            try:
+                snapshot = await channel_health_snapshot()
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail="channel health unavailable") from exc
+        return {"items": snapshot, "total": len(snapshot)}
 
     @app.get("/api/sessions")
     async def sessions(
@@ -816,6 +851,14 @@ def create_dashboard_app() -> FastAPI:
             "total": payload["total_servers"],
             "tool_total": payload["total_tools"],
         }
+
+    @app.patch("/api/mcp/servers/{server_name}")
+    async def update_mcp_server(server_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        safe_payload = dict(payload or {})
+        enabled = safe_payload.get("enabled")
+        if not isinstance(enabled, bool):
+            raise HTTPException(status_code=400, detail="enabled must be a boolean")
+        return await _set_mcp_server_enabled_payload(server_name, enabled)
 
     @app.get("/api/background-tasks")
     async def background_tasks() -> dict[str, Any]:

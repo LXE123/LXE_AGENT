@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import uvicorn
@@ -12,9 +13,16 @@ from .api import create_dashboard_app
 
 
 class DashboardServer:
-    def __init__(self, *, host: str, port: int) -> None:
+    def __init__(
+        self,
+        *,
+        host: str,
+        port: int,
+        channel_health_snapshot: Callable[[], Awaitable[dict[str, dict[str, Any]]]] | None = None,
+    ) -> None:
         self.host = str(host or "127.0.0.1").strip() or "127.0.0.1"
         self.port = max(1, int(port or 8765))
+        self._channel_health_snapshot = channel_health_snapshot
         self._server: uvicorn.Server | None = None
         self._task: asyncio.Task | None = None
         self._error = ""
@@ -32,7 +40,7 @@ class DashboardServer:
             logger.warning("[Dashboard] disabled: address already in use url=%s", self.url)
             return False
         config = uvicorn.Config(
-            create_dashboard_app(),
+            create_dashboard_app(channel_health_snapshot=self._channel_health_snapshot),
             host=self.host,
             port=self.port,
             log_level="info",
