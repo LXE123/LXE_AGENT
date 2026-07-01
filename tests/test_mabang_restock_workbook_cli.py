@@ -20,11 +20,25 @@ PURCHASE_COLUMNS = (
     "厂家",
     "单位",
     "合同产品名称",
+    "合同编号前缀",
+    "税率",
     "数量",
     "总价",
 )
 PURCHASE_UNMATCHED_COLUMNS = ("库存sku", "来源SP单号", "数量", "问题说明")
-RESTOCK_COLUMNS = ("库存sku", "产品名称", "型号", "原价", "厂家", "单位", "合同产品名称", "数量", "总价")
+RESTOCK_COLUMNS = (
+    "库存sku",
+    "产品名称",
+    "型号",
+    "原价",
+    "售价",
+    "厂家",
+    "单位",
+    "合同产品名称",
+    "数量",
+    "总价",
+    "总价（售价）",
+)
 RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "数量", "问题说明")
 MISSING_CONTRACT_SHEET_WARNING = "出口退税总表缺少 sheet: 供应商合同信息，单位和合同产品名称将留空"
 
@@ -46,6 +60,8 @@ def _purchase_row(
     total_price: object,
     unit: object = None,
     contract_product_name: object = None,
+    contract_no_prefix: object = None,
+    tax_rate: object = None,
 ) -> tuple[object, ...]:
     return (
         stock_skus,
@@ -58,6 +74,8 @@ def _purchase_row(
         manufacturer,
         unit,
         contract_product_name,
+        contract_no_prefix,
+        tax_rate,
         quantity,
         total_price,
     )
@@ -92,7 +110,7 @@ def _write_master_xlsx(
         worksheet.append([row.get(column, "") for column in columns])
     if contract_rows is not None:
         if contract_columns is None:
-            contract_columns = ["供货方", "单位", "合同产品名称"]
+            contract_columns = ["供货方", "单位", "合同产品名称", "合同编号前缀", "税率"]
         contract_sheet = workbook.create_sheet("供应商合同信息")
         contract_sheet.append(contract_columns)
         for row in contract_rows:
@@ -228,8 +246,8 @@ def test_generate_restock_workbook_fills_contract_fields_from_second_sheet(tmp_p
         master_path,
         [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
         contract_rows=[
-            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A"},
-            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A"},
+            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "合同编号前缀": "HT-A", "税率": "13%"},
+            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "合同编号前缀": "HT-A", "税率": "13%"},
         ],
     )
 
@@ -245,13 +263,171 @@ def test_generate_restock_workbook_fills_contract_fields_from_second_sheet(tmp_p
     assert payload["contract_mapping_count"] == 1
     assert payload["contract_unmapped_manufacturer_count"] == 0
     assert payload["contract_conflict_manufacturer_count"] == 0
+    assert payload["contract_prefix_conflict_manufacturer_count"] == 0
+    assert payload["contract_tax_rate_conflict_manufacturer_count"] == 0
     assert _sheet_values(output_path, "采购汇总") == [
         PURCHASE_COLUMNS,
-        _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4, "个", "合同产品A"),
+        _purchase_row(
+            "SKU-A",
+            "产品A",
+            "SP260508022",
+            "M-A",
+            2,
+            "厂家A",
+            2,
+            4,
+            "个",
+            "合同产品A",
+            "HT-A",
+            "13%",
+        ),
     ]
     assert _sheet_values(output_path, "厂家A") == [
         PURCHASE_COLUMNS,
+        _purchase_row(
+            "SKU-A",
+            "产品A",
+            "SP260508022",
+            "M-A",
+            2,
+            "厂家A",
+            2,
+            4,
+            "个",
+            "合同产品A",
+            "HT-A",
+            "13%",
+        ),
+    ]
+
+
+def test_generate_restock_workbook_warns_contract_prefix_missing_header(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 2"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[{"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "13%"}],
+        contract_columns=["供货方", "单位", "合同产品名称", "税率"],
+    )
+
+    payload = cli.generate_restock_workbook(
+        ["SP260508022"],
+        master_xlsx=master_path,
+        csv_dir=csv_dir,
+        output_dir=tmp_path,
+    )
+
+    assert payload["contract_mapping_count"] == 1
+    assert payload["contract_prefix_conflict_manufacturer_count"] == 0
+    assert payload["warnings"] == [
+        "出口退税总表 export_tax.xlsx 供应商合同信息 sheet 缺少列: 合同编号前缀，合同编号前缀将留空"
+    ]
+    assert _sheet_values(Path(payload["output_xlsx"]), "采购汇总") == [
+        PURCHASE_COLUMNS,
+        _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4, "个", "合同产品A", None, "13%"),
+    ]
+
+
+def test_generate_restock_workbook_warns_contract_prefix_conflict(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 2"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[
+            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "合同编号前缀": "HT-A"},
+            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "合同编号前缀": "HT-B"},
+        ],
+    )
+
+    payload = cli.generate_restock_workbook(
+        ["SP260508022"],
+        master_xlsx=master_path,
+        csv_dir=csv_dir,
+        output_dir=tmp_path,
+    )
+
+    assert payload["contract_mapping_count"] == 1
+    assert payload["contract_conflict_manufacturer_count"] == 0
+    assert payload["contract_prefix_conflict_manufacturer_count"] == 1
+    assert payload["contract_prefix_conflict_manufacturer_examples"] == ["厂家A"]
+    assert payload["warnings"] == [
+        "出口退税总表 供应商合同信息 sheet 存在同一供货方对应不同合同编号前缀，"
+        "合同编号前缀已留空: count=1, examples=厂家A"
+    ]
+    assert _sheet_values(Path(payload["output_xlsx"]), "采购汇总") == [
+        PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4, "个", "合同产品A"),
+    ]
+
+
+def test_generate_restock_workbook_warns_contract_tax_rate_missing_header(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 2"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[{"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "合同编号前缀": "HT-A"}],
+        contract_columns=["供货方", "单位", "合同产品名称", "合同编号前缀"],
+    )
+
+    payload = cli.generate_restock_workbook(
+        ["SP260508022"],
+        master_xlsx=master_path,
+        csv_dir=csv_dir,
+        output_dir=tmp_path,
+    )
+
+    assert payload["contract_mapping_count"] == 1
+    assert payload["contract_tax_rate_conflict_manufacturer_count"] == 0
+    assert payload["warnings"] == [
+        "出口退税总表 export_tax.xlsx 供应商合同信息 sheet 缺少列: 税率，税率将留空"
+    ]
+    assert _sheet_values(Path(payload["output_xlsx"]), "采购汇总") == [
+        PURCHASE_COLUMNS,
+        _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4, "个", "合同产品A", "HT-A"),
+    ]
+
+
+def test_generate_restock_workbook_warns_contract_tax_rate_conflict(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 2"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[
+            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "合同编号前缀": "HT-A", "税率": "13%"},
+            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "合同编号前缀": "HT-A", "税率": "9%"},
+        ],
+    )
+
+    payload = cli.generate_restock_workbook(
+        ["SP260508022"],
+        master_xlsx=master_path,
+        csv_dir=csv_dir,
+        output_dir=tmp_path,
+    )
+
+    assert payload["contract_mapping_count"] == 1
+    assert payload["contract_conflict_manufacturer_count"] == 0
+    assert payload["contract_tax_rate_conflict_manufacturer_count"] == 1
+    assert payload["contract_tax_rate_conflict_manufacturer_examples"] == ["厂家A"]
+    assert payload["warnings"] == [
+        "出口退税总表 供应商合同信息 sheet 存在同一供货方对应不同税率，"
+        "税率已留空: count=1, examples=厂家A"
+    ]
+    assert _sheet_values(Path(payload["output_xlsx"]), "采购汇总") == [
+        PURCHASE_COLUMNS,
+        _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4, "个", "合同产品A", "HT-A"),
     ]
 
 
@@ -410,10 +586,10 @@ def test_generate_restock_workbook_merges_rows_by_model_with_multiline_skus(tmp_
     assert _cell_wrap_text(output_path, "厂家A", "B2") is True
     assert _cell_wrap_text(output_path, "厂家A", "C2") is True
     widths, heights = _sheet_dimensions(output_path, "厂家A")
-    assert widths == [15] * 12
+    assert widths == [15] * 14
     assert heights == [15] * 2
     widths, heights = _sheet_dimensions(output_path, "采购汇总")
-    assert widths == [15] * 12
+    assert widths == [15] * 14
     assert heights == [15] * 2
 
 
@@ -669,10 +845,10 @@ def test_generate_restock_workbook_total_price_number_format(tmp_path):
     )
 
     output_path = Path(payload["output_xlsx"])
-    assert _cell_number_format(output_path, "采购汇总", "L2") == "0.00"
-    assert _cell_number_format(output_path, "采购汇总", "L3") == "0.000"
-    assert _cell_number_format(output_path, "厂家A", "L2") == "0.00"
-    assert _cell_number_format(output_path, "厂家A", "L3") == "0.000"
+    assert _cell_number_format(output_path, "采购汇总", "N2") == "0.00"
+    assert _cell_number_format(output_path, "采购汇总", "N3") == "0.000"
+    assert _cell_number_format(output_path, "厂家A", "N2") == "0.00"
+    assert _cell_number_format(output_path, "厂家A", "N3") == "0.000"
 
 
 def test_generate_restock_workbook_total_price_format_ignores_float_noise(tmp_path):
@@ -708,8 +884,8 @@ def test_generate_restock_workbook_total_price_format_ignores_float_noise(tmp_pa
     )
 
     output_path = Path(payload["output_xlsx"])
-    assert _cell_number_format(output_path, "采购汇总", "L2") == "0.00"
-    assert _cell_number_format(output_path, "采购汇总", "L3") == "0.000"
+    assert _cell_number_format(output_path, "采购汇总", "N2") == "0.00"
+    assert _cell_number_format(output_path, "采购汇总", "N3") == "0.000"
 
 
 def test_generate_restock_workbook_dedupes_identical_master_stock_sku(tmp_path):
@@ -1019,12 +1195,13 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
             {"库存sku": "SKU-A", "产品名称": "产品A", "型号": "JZ-19", "原价": 2, "厂家": "厂家A"},
             {"库存sku": "SKU-B", "产品名称": "产品B", "型号": "JZ-19", "原价": 2, "厂家": "厂家A"},
         ],
-        contract_rows=[{"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A"}],
+        contract_rows=[{"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "13%"}],
     )
 
     payload = restock_cli.generate_fba_restock_workbook(
         ["SP260508022"],
         master_xlsx=master_path,
+        gross_margin="0.3",
         csv_dir=csv_dir,
         output_dir=tmp_path,
     )
@@ -1037,21 +1214,157 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
     assert payload["matched_sku_count"] == 2
     assert payload["unmatched_sku_count"] == 1
     assert payload["contract_mapping_count"] == 1
+    assert payload["gross_margin"] == "0.3"
+    assert payload["pricing_basis"] == "tax_exclusive_cost"
     assert Path(payload["output_xlsx"]).name == "SP260508022_restock_workbook.xlsx"
     assert _sheet_names(output_path) == ["备货单", "未匹配"]
-    assert _sheet_values(output_path, "备货单") == [
-        RESTOCK_COLUMNS,
-        ("SKU-B\nSKU-A", "产品B\n产品A", "JZ-19", 2, "厂家A", "个", "合同产品A", 5, 10),
-    ]
+    restock_values = _sheet_values(output_path, "备货单")
+    assert restock_values[0] == RESTOCK_COLUMNS
+    assert restock_values[1][:4] == ("SKU-B\nSKU-A", "产品B\n产品A", "JZ-19", 2)
+    assert restock_values[1][4] == 2.53
+    assert restock_values[1][5:] == ("厂家A", "个", "合同产品A", 5, 10, 12.65)
     assert _sheet_values(output_path, "未匹配") == [
         RESTOCK_UNMATCHED_COLUMNS,
         ("SKU-X", 4, "出口退税总表未找到库存sku"),
     ]
     widths, heights = _sheet_dimensions(output_path, "备货单")
-    assert widths == [15] * 9
+    assert widths == [15] * 11
     assert heights == [15] * 2
     assert _cell_wrap_text(output_path, "备货单", "A2") is True
-    assert _cell_number_format(output_path, "备货单", "I2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "E2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "J2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "K2") == "0.00"
+
+
+def test_generate_fba_restock_workbook_accepts_tax_rate_forms_for_sale_price(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1，SKU-B × 1，SKU-C × 1"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [
+            {"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"},
+            {"库存sku": "SKU-B", "产品名称": "产品B", "型号": "M-B", "原价": 2, "厂家": "厂家B"},
+            {"库存sku": "SKU-C", "产品名称": "产品C", "型号": "M-C", "原价": 2, "厂家": "厂家C"},
+        ],
+        contract_rows=[
+            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "13%"},
+            {"供货方": "厂家B", "单位": "个", "合同产品名称": "合同产品B", "税率": "9%"},
+            {"供货方": "厂家C", "单位": "个", "合同产品名称": "合同产品C", "税率": "1.13"},
+        ],
+    )
+
+    payload = restock_cli.generate_fba_restock_workbook(
+        ["SP260508022"],
+        master_xlsx=master_path,
+        gross_margin="0.3",
+        csv_dir=csv_dir,
+        output_dir=tmp_path,
+    )
+
+    rows = _sheet_values(Path(payload["output_xlsx"]), "备货单")
+    assert rows[1][4] == 2.53
+    assert rows[2][4] == 2.62
+    assert rows[3][4] == 2.53
+
+
+@pytest.mark.parametrize("gross_margin", ["0.19", "0.51", "abc"])
+def test_generate_fba_restock_workbook_rejects_invalid_gross_margin(gross_margin):
+    with pytest.raises(ValueError, match="毛利率必须是 0.2～0.5 之间的数字"):
+        restock_cli.generate_fba_restock_workbook(
+            ["SP260508022"],
+            master_xlsx="missing.xlsx",
+            gross_margin=gross_margin,
+        )
+
+
+def test_generate_fba_restock_workbook_rejects_missing_tax_rate(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[{"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A"}],
+        contract_columns=["供货方", "单位", "合同产品名称"],
+    )
+
+    with pytest.raises(RuntimeError, match="备货单售价计算缺少税率"):
+        restock_cli.generate_fba_restock_workbook(
+            ["SP260508022"],
+            master_xlsx=master_path,
+            gross_margin="0.3",
+            csv_dir=csv_dir,
+            output_dir=tmp_path,
+        )
+
+
+def test_generate_fba_restock_workbook_rejects_unmapped_tax_rate(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[{"供货方": "厂家B", "单位": "个", "合同产品名称": "合同产品B", "税率": "13%"}],
+    )
+
+    with pytest.raises(RuntimeError, match="备货单售价计算缺少税率"):
+        restock_cli.generate_fba_restock_workbook(
+            ["SP260508022"],
+            master_xlsx=master_path,
+            gross_margin="0.3",
+            csv_dir=csv_dir,
+            output_dir=tmp_path,
+        )
+
+
+def test_generate_fba_restock_workbook_rejects_conflicting_tax_rate(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[
+            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "13%"},
+            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "9%"},
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="备货单售价计算缺少税率"):
+        restock_cli.generate_fba_restock_workbook(
+            ["SP260508022"],
+            master_xlsx=master_path,
+            gross_margin="0.3",
+            csv_dir=csv_dir,
+            output_dir=tmp_path,
+        )
+
+
+def test_generate_fba_restock_workbook_rejects_invalid_tax_rate(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[{"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "abc"}],
+    )
+
+    with pytest.raises(RuntimeError, match="备货单售价计算税率无法解析"):
+        restock_cli.generate_fba_restock_workbook(
+            ["SP260508022"],
+            master_xlsx=master_path,
+            gross_margin="0.3",
+            csv_dir=csv_dir,
+            output_dir=tmp_path,
+        )
 
 
 def test_generate_fba_restock_workbook_rejects_multiple_delivery_nos(tmp_path):
@@ -1065,6 +1378,7 @@ def test_generate_fba_restock_workbook_rejects_multiple_delivery_nos(tmp_path):
         restock_cli.generate_fba_restock_workbook(
             ["SP260508022", "SP260508023"],
             master_xlsx=master_path,
+            gross_margin="0.3",
             csv_dir=tmp_path,
             output_dir=tmp_path,
         )
@@ -1081,6 +1395,7 @@ def test_generate_fba_restock_workbook_missing_local_delivery_csv_fails(tmp_path
         restock_cli.generate_fba_restock_workbook(
             ["SP260508022"],
             master_xlsx=master_path,
+            gross_margin="0.3",
             csv_dir=tmp_path / "missing",
             output_dir=tmp_path,
         )
@@ -1095,6 +1410,7 @@ def test_generate_fba_restock_workbook_missing_master_fails(tmp_path):
         restock_cli.generate_fba_restock_workbook(
             ["SP260508022"],
             master_xlsx=tmp_path / "missing.xlsx",
+            gross_margin="0.3",
             csv_dir=csv_dir,
             output_dir=tmp_path,
         )
@@ -1111,25 +1427,32 @@ def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp
             {"库存sku": "SKU-A", "产品名称": "产品A", "型号": "JZ-19", "原价": 2, "厂家": "厂家A"},
             {"库存sku": "SKU-B", "产品名称": "产品B", "型号": "JZ-19", "原价": 2, "厂家": "厂家B"},
         ],
+        contract_rows=[
+            {"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "13%"},
+            {"供货方": "厂家B", "单位": "个", "合同产品名称": "合同产品B", "税率": "13%"},
+        ],
     )
 
     payload = restock_cli.generate_fba_restock_workbook(
         ["SP260508022"],
         master_xlsx=master_path,
+        gross_margin="0.3",
         csv_dir=csv_dir,
         output_dir=tmp_path,
     )
 
     assert payload["cross_manufacturer_model_count"] == 1
     assert payload["warnings"] == [
-        MISSING_CONTRACT_SHEET_WARNING,
         "不同厂家有相同型号，已保留为不同行，请业务人员核查: count=1, examples=JZ-19: 厂家A, 厂家B"
     ]
-    assert _sheet_values(Path(payload["output_xlsx"]), "备货单") == [
-        RESTOCK_COLUMNS,
-        ("SKU-A", "产品A", "JZ-19", 2, "厂家A", None, None, 2, 4),
-        ("SKU-B", "产品B", "JZ-19", 2, "厂家B", None, None, 3, 6),
-    ]
+    restock_values = _sheet_values(Path(payload["output_xlsx"]), "备货单")
+    assert restock_values[0] == RESTOCK_COLUMNS
+    assert restock_values[1][:4] == ("SKU-A", "产品A", "JZ-19", 2)
+    assert restock_values[1][4] == 2.53
+    assert restock_values[1][5:] == ("厂家A", "个", "合同产品A", 2, 4, 5.06)
+    assert restock_values[2][:4] == ("SKU-B", "产品B", "JZ-19", 2)
+    assert restock_values[2][4] == 2.53
+    assert restock_values[2][5:] == ("厂家B", "个", "合同产品B", 3, 6, 7.59)
 
 
 def test_generate_fba_restock_workbook_rejects_same_manufacturer_model_with_different_price(tmp_path):
@@ -1149,6 +1472,7 @@ def test_generate_fba_restock_workbook_rejects_same_manufacturer_model_with_diff
         restock_cli.generate_fba_restock_workbook(
             ["SP260508022"],
             master_xlsx=master_path,
+            gross_margin="0.3",
             csv_dir=csv_dir,
             output_dir=tmp_path,
         )
@@ -1162,16 +1486,34 @@ def test_fba_restock_main_outputs_success_json(monkeypatch, tmp_path, capsys):
     _write_master_xlsx(
         master_path,
         [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[{"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "13%"}],
     )
     monkeypatch.setattr(restock_cli, "DELIVERY_CSV_DIR", csv_dir)
     monkeypatch.setattr(restock_cli, "OUTPUT_DIR", tmp_path / "out")
     monkeypatch.setattr(restock_cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = restock_cli.main(["--delivery-no", "SP260508022", "--master-xlsx", str(master_path)])
+    exit_code = restock_cli.main(
+        ["--delivery-no", "SP260508022", "--master-xlsx", str(master_path), "--gross-margin", "0.3"]
+    )
 
     payload = _read_payload(capsys)
     assert exit_code == 0
     assert payload["success"] is True
     assert payload["source"] == "fba_restock_workbook"
+    assert payload["gross_margin"] == "0.3"
     assert Path(payload["output_xlsx"]).name == "SP260508022_restock_workbook.xlsx"
     assert Path(payload["output_xlsx"]).is_file()
+
+
+def test_fba_restock_main_outputs_failure_json_for_invalid_gross_margin(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(restock_cli, "close_all_network_clients", _noop_close_all_network_clients)
+
+    exit_code = restock_cli.main(
+        ["--delivery-no", "SP260508022", "--master-xlsx", str(tmp_path / "missing.xlsx"), "--gross-margin", "0.9"]
+    )
+
+    payload = _read_payload(capsys)
+    assert exit_code == 1
+    assert payload["success"] is False
+    assert payload["gross_margin"] == "0.9"
+    assert payload["exception"] == "毛利率必须是 0.2～0.5 之间的数字"

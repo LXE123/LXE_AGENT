@@ -13,6 +13,7 @@ FBA_SKILLS = {
     "fba-logistics-rate-import",
     "fba-logistics-select",
     "fba-msku-detail-download",
+    "fba-purchase-contract-fill",
     "fba-purchase-summary-create",
     "fba-restock-workbook-create",
     "fba-shipment-create",
@@ -76,9 +77,12 @@ def test_fba_workflow_map_keeps_invoice_and_customs_independent() -> None:
     assert "报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill`" in text
     assert 'A --> M["fba-purchase-summary-create<br/>采购汇总表生成"]' in text
     assert 'N["出口退税总表 xlsx"] --> M' in text
+    assert 'M --> P["fba-purchase-contract-fill<br/>采购合同填写"]' in text
+    assert 'Q["合同汇总模板 xlsx"] --> P' in text
     assert 'A --> O["fba-restock-workbook-create<br/>备货单生成"]' in text
     assert "N --> O" in text
     assert "采购汇总表生成 | FBA 发货单 CSV + 出口退税总表 -> `fba-purchase-summary-create`" in text
+    assert "采购合同填写 | 采购汇总表 + 合同汇总模板 -> `fba-purchase-contract-fill`" in text
     assert "备货单生成 | 单个 FBA 发货单 CSV + 出口退税总表 -> `fba-restock-workbook-create`" in text
     assert "采购汇总表可多 SP 且包含厂家分类 sheet" in text
     assert "备货单只允许单 SP 且不生成厂家分类 sheet" in text
@@ -119,7 +123,7 @@ def test_fba_purchase_summary_skill_documents_contract() -> None:
     assert "`SKU表` sheet" in text
     assert "`库存sku` 或 `库存SKU`" in text
     assert "`供应商合同信息` sheet 用 `供货方` 匹配 `SKU表` 的 `厂家`" in text
-    assert "`单位` 和 `合同产品名称`" in text
+    assert "`单位`、`合同产品名称`、`合同编号前缀` 和 `税率`" in text
     assert "contract_mapping_count" in text
     assert "采购汇总表已生成" in text
     assert "第一个 sheet 是 `采购汇总`，第二个 sheet 是 `未匹配`" in text
@@ -134,8 +138,28 @@ def test_fba_purchase_summary_skill_documents_contract() -> None:
     assert "`来源SP单号` 按型号组去重并分行显示" in text
     assert "`库存sku（第一行）`、`产品名称（第一行）`" in text
     assert "来源SP单号（第一行）" not in text
-    assert "`厂家`、`单位`、`合同产品名称`、`数量`、`总价`" in text
+    assert "`厂家`、`单位`、`合同产品名称`、`合同编号前缀`、`税率`、`数量`、`总价`" in text
     assert "所有列宽和行高已统一为 15" in text
+
+
+def test_fba_purchase_contract_fill_skill_documents_contract() -> None:
+    text = _skill_text("fba-purchase-contract-fill")
+
+    assert "services.agent_cli.mabang.fill_purchase_contracts" in text
+    assert "--purchase-summary-xlsx" in text
+    assert "--contract-template-xlsx" in text
+    assert "采购汇总表 xlsx 和合同汇总模板 xlsx" in text
+    assert "每家公司一个 xlsx" in text
+    assert "`附加件明细模板`" in text
+    assert "`补充协议附加件明细`" in text
+    assert "对应公司合同 sheet 和 `补充协议附加件明细` sheet" in text
+    assert "合同编号本阶段不处理" in text
+    assert "附加件里的采购合同编号也不处理" in text
+    assert "找不到厂家模板 sheet" in text
+    assert "运行当天 + 3 天" in text
+    assert "税率来自采购汇总表" in text
+    assert "`产品名称=合同产品名称`" in text
+    assert "模板有 `规格型号` 列时才写入 `型号`" in text
 
 
 def test_fba_restock_workbook_skill_documents_contract() -> None:
@@ -144,6 +168,7 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "services.agent_cli.mabang.generate_fba_restock_workbook" in text
     assert "--delivery-no" in text
     assert "--master-xlsx" in text
+    assert "--gross-margin" in text
     assert "一次只能处理一个 `SP` 发货单号" in text
     assert "多个 SP 要拆成多次运行" in text
     assert "artifacts/mabang_fba_delivery/<SP>_*.csv" in text
@@ -151,7 +176,14 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "`SKU表` sheet" in text
     assert "`库存sku` 或 `库存SKU`" in text
     assert "`供应商合同信息` sheet 用 `供货方` 匹配 `SKU表` 的 `厂家`" in text
-    assert "`单位` 和 `合同产品名称`" in text
+    assert "`单位`、`合同产品名称` 和 `税率`" in text
+    assert "`0.2` 到 `0.5`" in text
+    assert "毛利率" in text
+    assert "售价 = 原价 / 含税倍率 / (1 - 毛利率)" in text
+    assert "`13%` 按含税倍率 `1.13`" in text
+    assert "售价四舍五入保留两位小数" in text
+    assert "总价（售价）" in text
+    assert "合同编号前缀" not in text
     assert "contract_mapping_count" in text
     assert "不生成厂家分类 sheet" in text
     assert "备货单已生成" in text
@@ -164,8 +196,16 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "业务人员需要核查" in text
     assert "按 `型号` 合并" in text
     assert "不同厂家相同型号会保留为不同行" in text
-    assert "`厂家`、`单位`、`合同产品名称`、`数量`、`总价`" in text
+    assert "`原价`、`售价`、`厂家`、`单位`、`合同产品名称`、`数量`、`总价`、`总价（售价）`" in text
     assert "所有列宽和行高已统一为 15" in text
+
+
+def test_fba_purchase_summary_skill_does_not_require_pricing_margin() -> None:
+    text = _skill_text("fba-purchase-summary-create")
+
+    assert "--gross-margin" not in text
+    assert "毛利率" not in text
+    assert "售价" not in text
 
 
 def test_fba_skill_docs_do_not_contain_old_misleading_phrases() -> None:

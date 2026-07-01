@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections import OrderedDict
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
@@ -13,8 +13,23 @@ DELIVERY_CSV_DIR = _purchase.DELIVERY_CSV_DIR
 OUTPUT_DIR = Path("artifacts") / "mabang_restock_workbook"
 SOURCE = "fba_restock_workbook"
 RESTOCK_SHEET_NAME = "备货单"
-RESTOCK_COLUMNS = ("库存sku", "产品名称", "型号", "原价", "厂家", "单位", "合同产品名称", "数量", "总价")
+RESTOCK_COLUMNS = (
+    "库存sku",
+    "产品名称",
+    "型号",
+    "原价",
+    "售价",
+    "厂家",
+    "单位",
+    "合同产品名称",
+    "数量",
+    "总价",
+    "总价（售价）",
+)
 RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "数量", "问题说明")
+MIN_GROSS_MARGIN = Decimal("0.2")
+MAX_GROSS_MARGIN = Decimal("0.5")
+PRICING_BASIS = "tax_exclusive_cost"
 
 close_all_network_clients = _purchase.close_all_network_clients
 
@@ -94,15 +109,103 @@ def _purchase_row_value(row: list[Any], column: str) -> Any:
     return row[column_index] if column_index < len(row) else ""
 
 
-def _project_purchase_rows(rows: list[list[Any]], columns: tuple[str, ...]) -> list[list[Any]]:
-    return [
-        [_purchase_row_value(row, column) for column in columns]
-        for row in rows
-    ]
+def _parse_gross_margin(value: Any) -> Decimal:
+    text = _purchase._clean_cell(value)
+    if not text:
+        raise ValueError("毛利率必须是 0.2～0.5 之间的数字")
+    try:
+        gross_margin = Decimal(text)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("毛利率必须是 0.2～0.5 之间的数字") from exc
+    if not gross_margin.is_finite() or gross_margin < MIN_GROSS_MARGIN or gross_margin > MAX_GROSS_MARGIN:
+        raise ValueError("毛利率必须是 0.2～0.5 之间的数字")
+    return gross_margin
 
 
-def _drop_restock_source_column(rows: list[list[Any]]) -> list[list[Any]]:
-    return _project_purchase_rows(rows, RESTOCK_COLUMNS)
+def _decimal_from_restock_row(value: Any, *, field_name: str, manufacturer: str, model: str) -> Decimal:
+    text = _purchase._clean_cell(value)
+    if not text:
+        raise RuntimeError(f"备货单售价计算缺少{field_name}: 厂家={manufacturer}, 型号={model}")
+    try:
+        result = Decimal(text)
+    except (InvalidOperation, ValueError) as exc:
+        raise RuntimeError(
+            f"备货单售价计算{field_name}非数字: 厂家={manufacturer}, 型号={model}, value={text}"
+        ) from exc
+    if not result.is_finite():
+        raise RuntimeError(f"备货单售价计算{field_name}非数字: 厂家={manufacturer}, 型号={model}, value={text}")
+    return result
+
+
+def _tax_multiplier_from_rate(value: Any, *, manufacturer: str, model: str) -> Decimal:
+    text = _purchase._clean_cell(value)
+    if not text:
+        raise RuntimeError(f"备货单售价计算缺少税率: 厂家={manufacturer}, 型号={model}")
+    try:
+        if text.endswith("%"):
+            tax_rate = Decimal(text[:-1].strip())
+            multiplier = Decimal("1") + (tax_rate / Decimal("100"))
+        else:
+            numeric = Decimal(text)
+            if numeric < Decimal("1"):
+                multiplier = Decimal("1") + numeric
+            elif numeric < Decimal("2"):
+                multiplier = numeric
+            else:
+                multiplier = Decimal("1") + (numeric / Decimal("100"))
+    except (InvalidOperation, ValueError) as exc:
+        raise RuntimeError(
+            f"备货单售价计算税率无法解析: 厂家={manufacturer}, 型号={model}, value={text}"
+        ) from exc
+    if not multiplier.is_finite() or multiplier <= 0:
+        raise RuntimeError(f"备货单售价计算税率无法解析: 厂家={manufacturer}, 型号={model}, value={text}")
+    return multiplier
+
+
+def _sale_price_for_row(row: list[Any], *, gross_margin: Decimal) -> Decimal:
+    manufacturer = _purchase._clean_cell(_purchase_row_value(row, "厂家"))
+    model = _purchase._clean_cell(_purchase_row_value(row, "型号"))
+    original_price = _decimal_from_restock_row(
+        _purchase_row_value(row, "原价"),
+        field_name="原价",
+        manufacturer=manufacturer,
+        model=model,
+    )
+    tax_multiplier = _tax_multiplier_from_rate(
+        _purchase_row_value(row, "税率"),
+        manufacturer=manufacturer,
+        model=model,
+    )
+    sale_price = original_price / tax_multiplier / (Decimal("1") - gross_margin)
+    return sale_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _project_restock_rows(rows: list[list[Any]], *, gross_margin: Decimal) -> list[list[Any]]:
+    projected_rows: list[list[Any]] = []
+    for row in rows:
+        sale_price = _sale_price_for_row(row, gross_margin=gross_margin)
+        quantity = _decimal_from_restock_row(
+            _purchase_row_value(row, "数量"),
+            field_name="数量",
+            manufacturer=_purchase._clean_cell(_purchase_row_value(row, "厂家")),
+            model=_purchase._clean_cell(_purchase_row_value(row, "型号")),
+        )
+        sale_total_price = (sale_price * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        values = {
+            "库存sku": _purchase_row_value(row, "库存sku"),
+            "产品名称": _purchase_row_value(row, "产品名称"),
+            "型号": _purchase_row_value(row, "型号"),
+            "原价": _purchase_row_value(row, "原价"),
+            "售价": _purchase._decimal_to_cell_value(sale_price),
+            "厂家": _purchase_row_value(row, "厂家"),
+            "单位": _purchase_row_value(row, "单位"),
+            "合同产品名称": _purchase_row_value(row, "合同产品名称"),
+            "数量": _purchase_row_value(row, "数量"),
+            "总价": _purchase_row_value(row, "总价"),
+            "总价（售价）": _purchase._decimal_to_cell_value(sale_total_price),
+        }
+        projected_rows.append([values[column] for column in RESTOCK_COLUMNS])
+    return projected_rows
 
 
 def _drop_unmatched_source_column(rows: list[list[Any]]) -> list[list[Any]]:
@@ -117,6 +220,7 @@ def write_fba_restock_workbook(
     unmatched_rows: list[list[Any]],
     *,
     delivery_no: str,
+    gross_margin: Decimal,
     output_dir: str | Path | None = None,
 ) -> Path:
     directory = Path(OUTPUT_DIR if output_dir is None else output_dir)
@@ -132,7 +236,7 @@ def write_fba_restock_workbook(
     workbook.remove(workbook.active)
 
     restock_sheet = workbook.create_sheet(RESTOCK_SHEET_NAME)
-    _purchase._write_rows(restock_sheet, RESTOCK_COLUMNS, _drop_restock_source_column(restock_rows))
+    _purchase._write_rows(restock_sheet, RESTOCK_COLUMNS, _project_restock_rows(restock_rows, gross_margin=gross_margin))
 
     unmatched_sheet = workbook.create_sheet(_purchase.UNMATCHED_SHEET_NAME)
     _purchase._write_rows(unmatched_sheet, RESTOCK_UNMATCHED_COLUMNS, _drop_unmatched_source_column(unmatched_rows))
@@ -153,9 +257,11 @@ def generate_fba_restock_workbook(
     delivery_nos: str | list[str],
     *,
     master_xlsx: str | Path,
+    gross_margin: Any,
     csv_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
+    parsed_gross_margin = _parse_gross_margin(gross_margin)
     delivery_no = _normalize_single_delivery_no(delivery_nos)
     summary, sku_sources, normalized_delivery_no, csv_path = summarize_single_delivery_quantities(
         delivery_no,
@@ -173,6 +279,7 @@ def generate_fba_restock_workbook(
         restock_rows,
         unmatched_rows,
         delivery_no=normalized_delivery_no,
+        gross_margin=parsed_gross_margin,
         output_dir=output_dir,
     )
     return {
@@ -189,6 +296,8 @@ def generate_fba_restock_workbook(
         "unmatched_sku_count": unmatched_sku_count,
         "manufacturer_count": _manufacturer_count(restock_rows),
         "cross_manufacturer_model_count": cross_manufacturer_model_count,
+        "gross_margin": str(parsed_gross_margin),
+        "pricing_basis": PRICING_BASIS,
         "deduped_duplicate_sku_count": products.deduped_duplicate_sku_count,
         "deduped_duplicate_row_count": products.deduped_duplicate_row_count,
         "deduped_duplicate_sku_examples": products.deduped_duplicate_sku_examples,
@@ -212,6 +321,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--delivery-no", action="append", default=[])
     parser.add_argument("--master-xlsx", required=True)
+    parser.add_argument("--gross-margin", required=True)
     return parser
 
 
@@ -219,16 +329,23 @@ def main(argv: list[str] | None = None) -> int:
     _purchase.configure_utf8_stdio()
     delivery_nos: list[str] = []
     master_xlsx = ""
+    gross_margin = ""
     try:
         args = build_parser().parse_args(argv)
         delivery_nos = list(getattr(args, "delivery_no", []) or [])
         master_xlsx = str(getattr(args, "master_xlsx", "") or "")
-        payload = generate_fba_restock_workbook(delivery_nos, master_xlsx=master_xlsx)
+        gross_margin = str(getattr(args, "gross_margin", "") or "")
+        payload = generate_fba_restock_workbook(
+            delivery_nos,
+            master_xlsx=master_xlsx,
+            gross_margin=gross_margin,
+        )
     except Exception as exc:
         payload = {
             "success": False,
             "delivery_nos": delivery_nos,
             "master_xlsx": master_xlsx,
+            "gross_margin": gross_margin,
             "exception": _purchase._exception_text(exc),
             "source": SOURCE,
         }

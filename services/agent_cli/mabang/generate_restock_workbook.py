@@ -36,6 +36,8 @@ MASTER_HEADER_ALIASES = {
 MASTER_SKU_SHEET_NAME = "SKU表"
 CONTRACT_SHEET_NAME = "供应商合同信息"
 CONTRACT_REQUIRED_HEADERS = ("供货方", "单位", "合同产品名称")
+CONTRACT_PREFIX_HEADER = "合同编号前缀"
+CONTRACT_TAX_RATE_HEADER = "税率"
 MANUFACTURER_COLUMNS = (
     "库存sku",
     "产品名称",
@@ -47,6 +49,8 @@ MANUFACTURER_COLUMNS = (
     "厂家",
     "单位",
     "合同产品名称",
+    "合同编号前缀",
+    "税率",
     "数量",
     "总价",
 )
@@ -75,9 +79,17 @@ class MasterProducts(OrderedDict[str, dict[str, Any]]):
         self.contract_unmapped_manufacturer_examples: list[str] = []
         self.contract_conflict_manufacturer_count = 0
         self.contract_conflict_manufacturer_examples: list[str] = []
+        self.contract_prefix_conflict_manufacturer_count = 0
+        self.contract_prefix_conflict_manufacturer_examples: list[str] = []
+        self.contract_tax_rate_conflict_manufacturer_count = 0
+        self.contract_tax_rate_conflict_manufacturer_examples: list[str] = []
         self._contract_sheet_warning = ""
+        self._contract_prefix_header_warning = ""
+        self._contract_tax_rate_header_warning = ""
         self._contract_unmapped_manufacturers: OrderedDict[str, None] = OrderedDict()
         self._contract_conflict_manufacturers: set[str] = set()
+        self._contract_prefix_conflict_manufacturers: OrderedDict[str, None] = OrderedDict()
+        self._contract_tax_rate_conflict_manufacturers: OrderedDict[str, None] = OrderedDict()
         self.warnings: list[str] = []
 
 
@@ -218,6 +230,24 @@ def _append_contract_warnings(products: MasterProducts) -> None:
             f"count={products.contract_conflict_manufacturer_count}, "
             f"examples={', '.join(products.contract_conflict_manufacturer_examples)}"
         )
+    if products._contract_prefix_header_warning:
+        products.warnings.append(products._contract_prefix_header_warning)
+    if products.contract_prefix_conflict_manufacturer_count > 0:
+        products.warnings.append(
+            f"出口退税总表 {CONTRACT_SHEET_NAME} sheet 存在同一供货方对应不同合同编号前缀，"
+            "合同编号前缀已留空: "
+            f"count={products.contract_prefix_conflict_manufacturer_count}, "
+            f"examples={', '.join(products.contract_prefix_conflict_manufacturer_examples)}"
+        )
+    if products._contract_tax_rate_header_warning:
+        products.warnings.append(products._contract_tax_rate_header_warning)
+    if products.contract_tax_rate_conflict_manufacturer_count > 0:
+        products.warnings.append(
+            f"出口退税总表 {CONTRACT_SHEET_NAME} sheet 存在同一供货方对应不同税率，"
+            "税率已留空: "
+            f"count={products.contract_tax_rate_conflict_manufacturer_count}, "
+            f"examples={', '.join(products.contract_tax_rate_conflict_manufacturer_examples)}"
+        )
 
 
 def _append_contract_unmapped_warning(products: MasterProducts) -> None:
@@ -233,15 +263,20 @@ def _append_contract_unmapped_warning(products: MasterProducts) -> None:
     )
 
 
-def _contract_fields_for_manufacturer(products: MasterProducts, manufacturer: str) -> tuple[str, str]:
+def _contract_fields_for_manufacturer(products: MasterProducts, manufacturer: str) -> tuple[str, str, str, str]:
     if manufacturer in products._contract_conflict_manufacturers:
-        return "", ""
+        return "", "", "", ""
     contract = products.contracts_by_manufacturer.get(manufacturer)
     if contract is not None:
-        return contract["unit"], contract["contract_product_name"]
+        return (
+            contract["unit"],
+            contract["contract_product_name"],
+            contract.get("contract_no_prefix", ""),
+            contract.get("tax_rate", ""),
+        )
     if products.contract_lookup_enabled:
         products._contract_unmapped_manufacturers.setdefault(manufacturer, None)
-    return "", ""
+    return "", "", "", ""
 
 
 def _load_contract_mappings(workbook: Any, *, source_path: Path, products: MasterProducts) -> None:
@@ -270,13 +305,35 @@ def _load_contract_mappings(workbook: Any, *, source_path: Path, products: Maste
         return
 
     products.contract_lookup_enabled = True
+    prefix_column_index = indexes.get(CONTRACT_PREFIX_HEADER)
+    if prefix_column_index is None:
+        products._contract_prefix_header_warning = (
+            f"出口退税总表 {source_path.name} {CONTRACT_SHEET_NAME} sheet 缺少列: "
+            f"{CONTRACT_PREFIX_HEADER}，{CONTRACT_PREFIX_HEADER}将留空"
+        )
+    tax_rate_column_index = indexes.get(CONTRACT_TAX_RATE_HEADER)
+    if tax_rate_column_index is None:
+        products._contract_tax_rate_header_warning = (
+            f"出口退税总表 {source_path.name} {CONTRACT_SHEET_NAME} sheet 缺少列: "
+            f"{CONTRACT_TAX_RATE_HEADER}，{CONTRACT_TAX_RATE_HEADER}将留空"
+        )
     conflicts: OrderedDict[str, None] = OrderedDict()
+    prefix_conflicts: OrderedDict[str, None] = OrderedDict()
+    tax_rate_conflicts: OrderedDict[str, None] = OrderedDict()
     contracts: dict[str, dict[str, str]] = {}
     for row in rows:
         row_values = {
             header: row[indexes[header] - 1] if indexes[header] - 1 < len(row) else None
             for header in CONTRACT_REQUIRED_HEADERS
         }
+        if prefix_column_index is not None:
+            row_values[CONTRACT_PREFIX_HEADER] = (
+                row[prefix_column_index - 1] if prefix_column_index - 1 < len(row) else None
+            )
+        if tax_rate_column_index is not None:
+            row_values[CONTRACT_TAX_RATE_HEADER] = (
+                row[tax_rate_column_index - 1] if tax_rate_column_index - 1 < len(row) else None
+            )
         if not any(_clean_cell(value) for value in row_values.values()):
             continue
         supplier = _clean_cell(row_values["供货方"])
@@ -285,21 +342,40 @@ def _load_contract_mappings(workbook: Any, *, source_path: Path, products: Maste
         contract = {
             "unit": _clean_cell(row_values["单位"]),
             "contract_product_name": _clean_cell(row_values["合同产品名称"]),
+            "contract_no_prefix": _clean_cell(row_values.get(CONTRACT_PREFIX_HEADER)),
+            "tax_rate": _clean_cell(row_values.get(CONTRACT_TAX_RATE_HEADER)),
         }
         existing = contracts.get(supplier)
         if existing is None:
             contracts[supplier] = contract
             continue
-        if existing == contract:
+        if (
+            existing["unit"] == contract["unit"]
+            and existing["contract_product_name"] == contract["contract_product_name"]
+        ):
+            if existing["contract_no_prefix"] != contract["contract_no_prefix"]:
+                existing["contract_no_prefix"] = ""
+                prefix_conflicts[supplier] = None
+            if existing["tax_rate"] != contract["tax_rate"]:
+                existing["tax_rate"] = ""
+                tax_rate_conflicts[supplier] = None
             continue
         contracts.pop(supplier, None)
         conflicts[supplier] = None
+        prefix_conflicts.pop(supplier, None)
+        tax_rate_conflicts.pop(supplier, None)
 
     products.contracts_by_manufacturer = contracts
     products.contract_mapping_count = len(contracts)
     products._contract_conflict_manufacturers = set(conflicts)
     products.contract_conflict_manufacturer_count = len(conflicts)
     products.contract_conflict_manufacturer_examples = list(conflicts)[:20]
+    products._contract_prefix_conflict_manufacturers = prefix_conflicts
+    products.contract_prefix_conflict_manufacturer_count = len(prefix_conflicts)
+    products.contract_prefix_conflict_manufacturer_examples = list(prefix_conflicts)[:20]
+    products._contract_tax_rate_conflict_manufacturers = tax_rate_conflicts
+    products.contract_tax_rate_conflict_manufacturer_count = len(tax_rate_conflicts)
+    products.contract_tax_rate_conflict_manufacturer_examples = list(tax_rate_conflicts)[:20]
 
 
 def load_master_products(master_xlsx: str | Path) -> MasterProducts:
@@ -484,7 +560,10 @@ def build_restock_rows(
         product_name = _clean_cell(product.get("product_name"))
         model = _clean_cell(product.get("model"))
         original_price = product["original_price"]
-        unit, contract_product_name = _contract_fields_for_manufacturer(products, manufacturer)
+        unit, contract_product_name, contract_no_prefix, tax_rate = _contract_fields_for_manufacturer(
+            products,
+            manufacturer,
+        )
         if not model:
             products.unmerged_empty_model_sku_count += 1
             if len(products.unmerged_empty_model_skus) < 20:
@@ -500,6 +579,8 @@ def build_restock_rows(
                     "manufacturer": manufacturer,
                     "unit": unit,
                     "contract_product_name": contract_product_name,
+                    "contract_no_prefix": contract_no_prefix,
+                    "tax_rate": tax_rate,
                     "quantity": quantity,
                     "first_sku": stock_sku,
                 }
@@ -520,6 +601,8 @@ def build_restock_rows(
                 "manufacturer": manufacturer,
                 "unit": unit,
                 "contract_product_name": contract_product_name,
+                "contract_no_prefix": contract_no_prefix,
+                "tax_rate": tax_rate,
                 "quantity": quantity,
                 "first_sku": stock_sku,
             }
@@ -556,6 +639,8 @@ def build_restock_rows(
             entry["manufacturer"],
             entry["unit"],
             entry["contract_product_name"],
+            entry["contract_no_prefix"],
+            entry["tax_rate"],
             _decimal_to_cell_value(entry["quantity"]),
             _decimal_to_cell_value(total_price),
         ]
@@ -610,8 +695,10 @@ def _write_rows(worksheet: Any, columns: tuple[str, ...], rows: list[list[Any]])
     for row in worksheet.iter_rows(min_row=2, min_col=1, max_col=3):
         for cell in row:
             cell.alignment = wrap_alignment
-    if "总价" in columns:
-        total_price_column = columns.index("总价") + 1
+    for price_column_name in ("售价", "总价", "总价（售价）"):
+        if price_column_name not in columns:
+            continue
+        total_price_column = columns.index(price_column_name) + 1
         for row_index in range(2, worksheet.max_row + 1):
             cell = worksheet.cell(row=row_index, column=total_price_column)
             number_format = _total_price_number_format(cell.value)
@@ -713,6 +800,10 @@ def generate_restock_workbook(
         "contract_unmapped_manufacturer_examples": products.contract_unmapped_manufacturer_examples,
         "contract_conflict_manufacturer_count": products.contract_conflict_manufacturer_count,
         "contract_conflict_manufacturer_examples": products.contract_conflict_manufacturer_examples,
+        "contract_prefix_conflict_manufacturer_count": products.contract_prefix_conflict_manufacturer_count,
+        "contract_prefix_conflict_manufacturer_examples": products.contract_prefix_conflict_manufacturer_examples,
+        "contract_tax_rate_conflict_manufacturer_count": products.contract_tax_rate_conflict_manufacturer_count,
+        "contract_tax_rate_conflict_manufacturer_examples": products.contract_tax_rate_conflict_manufacturer_examples,
         "warnings": products.warnings,
         "source": SOURCE,
     }
