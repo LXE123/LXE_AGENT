@@ -781,7 +781,8 @@ class AgentLoop:
             outcome = await self._loop(
                 current_turn_messages=current_turn_messages,
                 messages=messages,
-                system_prompt=system_prompt,
+                platform=platform,
+                available_skills=available_skills,
                 exposure_state=exposure_state,
                 turn_log=turn_log,
                 exec_ctx=exec_ctx,
@@ -853,7 +854,8 @@ class AgentLoop:
         *,
         current_turn_messages: list[dict[str, Any]],
         messages: list[dict[str, Any]],
-        system_prompt: str,
+        platform: str,
+        available_skills: list[Any],
         exposure_state: ToolExposureState,
         turn_log: TurnLog,
         exec_ctx: ToolExecutionContext,
@@ -889,6 +891,12 @@ class AgentLoop:
             is_last_step = step_idx == MAX_STEPS - 1
             active_tool_schemas = exposure_state.active_schemas()
             request_tool_schemas = [] if is_last_step else active_tool_schemas
+            system_prompt = build_system_prompt(
+                platform=platform,
+                tool_schemas=request_tool_schemas,
+                available_skills=available_skills,
+                state_data=exec_ctx.state_data,
+            )
             tool_choice_mode: Literal["auto", "none"] = "none" if is_last_step else "auto"
 
             try:

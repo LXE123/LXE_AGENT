@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import socket
 
+from fastapi.testclient import TestClient
+
+from gateway.dashboard.api import create_dashboard_app
 from gateway.app import GatewayApp
 from gateway.dashboard.server import DashboardServer
 
@@ -74,6 +77,42 @@ def test_dashboard_server_swallows_uvicorn_system_exit(monkeypatch) -> None:
         await server.stop()
 
     asyncio.run(_run())
+
+
+def test_dashboard_health_endpoint_stays_dashboard_only() -> None:
+    client = TestClient(create_dashboard_app())
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "service": "agent-dashboard"}
+
+
+def test_dashboard_channels_health_endpoint_returns_snapshot() -> None:
+    async def snapshot() -> dict:
+        return {
+            "feishu": {
+                "connection_state": "connected",
+                "connection_alive": True,
+                "restart_in_progress": False,
+            }
+        }
+
+    client = TestClient(create_dashboard_app(channel_health_snapshot=snapshot))
+
+    response = client.get("/api/channels/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": {
+            "feishu": {
+                "connection_state": "connected",
+                "connection_alive": True,
+                "restart_in_progress": False,
+            }
+        },
+        "total": 1,
+    }
 
 
 def test_gateway_start_continues_when_dashboard_start_fails(monkeypatch) -> None:

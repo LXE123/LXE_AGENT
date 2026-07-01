@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from shared.env_config import env_flag, env_text
+from shared.env_config import env_flag, env_int, env_text
 from shared.log_config import local_logs_enabled
 
 
@@ -22,6 +22,23 @@ def _mask_value(value: str, *, keep: int = 4) -> str:
 
 FEISHU_APP_ID: str = _config_text("FEISHU_APP_ID")
 FEISHU_APP_SECRET: str = _config_text("FEISHU_APP_SECRET")
+FEISHU_GATEWAY_ENABLED: bool = env_flag("FEISHU_GATEWAY_ENABLED", True)
+FEISHU_WS_AUTO_RESTART_ENABLED: bool = env_flag("FEISHU_WS_AUTO_RESTART_ENABLED", True)
+FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS: int = env_int(
+    "FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS",
+    5400,
+    minimum=1,
+)
+FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS: int = env_int(
+    "FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS",
+    30,
+    minimum=1,
+)
+FEISHU_WS_AUTO_RESTART_RETRY_SECONDS: int = env_int(
+    "FEISHU_WS_AUTO_RESTART_RETRY_SECONDS",
+    60,
+    minimum=1,
+)
 FEISHU_API_HOST: str = "https://open.feishu.cn/open-apis"
 FEISHU_RAW_EVENT_DUMP_ENABLED: bool = (
     local_logs_enabled() and env_flag("FEISHU_RAW_EVENT_DUMP_ENABLED", True)
@@ -48,6 +65,9 @@ def feishu_runtime_status() -> dict[str, Any]:
     missing_required = feishu_missing_required_config()
     return {
         "enabled": not missing_required,
+        "gateway_enabled": FEISHU_GATEWAY_ENABLED,
+        "ws_auto_restart_enabled": FEISHU_WS_AUTO_RESTART_ENABLED,
+        "ws_auto_restart_interval_seconds": FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS,
         "missing_required": missing_required,
         "app_id_masked": _mask_value(FEISHU_APP_ID),
         "api_host": FEISHU_API_HOST,
@@ -70,8 +90,13 @@ __all__ = [
     "FEISHU_APP_ID",
     "FEISHU_APP_SECRET",
     "FEISHU_ENABLED",
+    "FEISHU_GATEWAY_ENABLED",
     "FEISHU_RAW_EVENT_DUMP_DIR",
     "FEISHU_RAW_EVENT_DUMP_ENABLED",
+    "FEISHU_WS_AUTO_RESTART_ENABLED",
+    "FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS",
+    "FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS",
+    "FEISHU_WS_AUTO_RESTART_RETRY_SECONDS",
     "feishu_missing_required_config",
     "feishu_runtime_status",
     "validate_feishu_runtime_config",

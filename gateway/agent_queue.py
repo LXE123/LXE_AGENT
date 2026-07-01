@@ -15,5 +15,8 @@ class AgentQueue:
     def put_nowait(self, event: InboundEvent) -> None:
         self._queue.put_nowait(event)
 
+    def empty(self) -> bool:
+        return self._queue.empty()
+
     def task_done(self) -> None:
         self._queue.task_done()

@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -22,6 +23,11 @@ from gateway.session_router import SessionRouter
 from gateway import config as gateway_settings
 from platforms.feishu.config import (
     FEISHU_ENABLED,
+    FEISHU_GATEWAY_ENABLED,
+    FEISHU_WS_AUTO_RESTART_ENABLED,
+    FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS,
+    FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS,
+    FEISHU_WS_AUTO_RESTART_RETRY_SECONDS,
     feishu_runtime_status,
     validate_feishu_runtime_config,
 )
@@ -47,6 +53,7 @@ class GatewayApp:
         "dispatcher_task": 3.0,
         "channel_registry": 8.0,
         "dashboard": 3.0,
+        "feishu_auto_restart": 3.0,
         "network_clients": 5.0,
     }
 
@@ -60,6 +67,12 @@ class GatewayApp:
         self._ingress_queue = AgentQueue()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._dispatcher_task: asyncio.Task | None = None
+        self._feishu_restart_task: asyncio.Task | None = None
+        self._feishu_restart_lock = asyncio.Lock()
+        self._feishu_restart_in_progress = False
+        self._feishu_next_restart_at = ""
+        self._feishu_last_restart_at = ""
+        self._feishu_last_restart_error = ""
         self._stop_event = asyncio.Event()
         self._scheduler: BackgroundScheduler | None = None
         self._gateway_id = str(gateway_settings.GATEWAY_ID or "agent-gateway").strip() or "agent-gateway"
@@ -75,12 +88,20 @@ class GatewayApp:
             DashboardServer(
                 host=dashboard_host(),
                 port=dashboard_port(),
+                channel_health_snapshot=self.channel_health_snapshot,
             )
             if dashboard_enabled()
             else None
         )
         self._dashboard_browser_opened = False
         self._started = False
+
+    async def channel_health_snapshot(self) -> dict[str, dict[str, Any]]:
+        snapshot = await self._registry.health_snapshot()
+        feishu_health = snapshot.get("feishu")
+        if feishu_health is not None:
+            snapshot["feishu"] = self._with_feishu_restart_health(feishu_health)
+        return snapshot
 
     async def _handle_heartbeat_wake_request(self, request) -> None:
         await self._heartbeat_wake.handle_request(request)
@@ -105,6 +126,12 @@ class GatewayApp:
     @classmethod
     def from_config(cls) -> "GatewayApp":
         registry = ChannelRegistry()
+        if not FEISHU_GATEWAY_ENABLED:
+            logger.warning("⚠️ [Gateway] Feishu gateway disabled: FEISHU_GATEWAY_ENABLED=0")
+            return cls(
+                registry=registry,
+                session_router=SessionRouter(registry=registry),
+            )
         if not FEISHU_ENABLED:
             validate_feishu_runtime_config()
         if importlib.util.find_spec("lark_oapi") is None:
@@ -156,7 +183,7 @@ class GatewayApp:
         logger.info("⏰ [Scheduler] 后台定时任务已启动 (%s)", gateway_identity_text(self._gateway_id))
         await asyncio.to_thread(self._refresh_mabang_erp_cookie)
 
-        health = await self._registry.health_snapshot()
+        health = await self.channel_health_snapshot()
         logger.info(
             "🚀 [Gateway] 启动成功 (%s mode=stream adapters=%s health=%s)",
             gateway_identity_text(self._gateway_id),
@@ -166,6 +193,7 @@ class GatewayApp:
         if self._dashboard_server is not None and self._dashboard_server.state().get("started"):
             logger.info("🖥️ [Dashboard] available at %s", self._dashboard_server.url)
             await self._open_dashboard_browser()
+        self._start_feishu_restart_monitor()
         self._started = True
 
     async def wait_forever(self) -> None:
@@ -209,6 +237,11 @@ class GatewayApp:
             return
 
         self._stop_event.set()
+        await self._await_stop_step(
+            "feishu auto-restart monitor",
+            self._stop_feishu_restart_monitor(),
+            timeout_s=self._STOP_TIMEOUTS["feishu_auto_restart"],
+        )
         await self._await_stop_step(
             "heartbeat wake manager",
             self._heartbeat_wake.stop(),
@@ -259,6 +292,215 @@ class GatewayApp:
         logger.info("🔒 [SQLite] 共享状态连接已释放")
         logger.info("👋 服务已完全停止，Bye!")
         self._started = False
+
+    def _get_feishu_adapter(self):
+        getter = getattr(self._registry, "get", None)
+        if not callable(getter):
+            return None
+        try:
+            return getter("feishu")
+        except Exception:
+            return None
+
+    def _start_feishu_restart_monitor(self) -> None:
+        if not FEISHU_GATEWAY_ENABLED:
+            logger.info("[FeishuRestart] monitor not started: reason=feishu_gateway_disabled")
+            return
+        if not FEISHU_WS_AUTO_RESTART_ENABLED:
+            logger.info("[FeishuRestart] monitor not started: reason=auto_restart_disabled")
+            return
+        if self._get_feishu_adapter() is None:
+            logger.info("[FeishuRestart] monitor not started: reason=missing_adapter")
+            return
+        if self._feishu_restart_task is not None and not self._feishu_restart_task.done():
+            return
+        logger.info(
+            "[FeishuRestart] monitor started: enabled=%s interval_s=%s idle_check_s=%s retry_s=%s",
+            FEISHU_WS_AUTO_RESTART_ENABLED,
+            FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS,
+            FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS,
+            FEISHU_WS_AUTO_RESTART_RETRY_SECONDS,
+        )
+        self._feishu_restart_task = asyncio.create_task(
+            self._feishu_restart_loop(),
+            name="gateway:feishu-auto-restart",
+        )
+
+    async def _stop_feishu_restart_monitor(self) -> None:
+        task = self._feishu_restart_task
+        self._feishu_restart_task = None
+        if task is None:
+            return
+        if not task.done():
+            self._stop_event.set()
+            try:
+                await asyncio.wait_for(
+                    task,
+                    timeout=max(0.1, self._STOP_TIMEOUTS["feishu_auto_restart"] / 2),
+                )
+                return
+            except asyncio.TimeoutError:
+                task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    async def _feishu_restart_loop(self) -> None:
+        try:
+            while not self._stop_event.is_set():
+                self._feishu_next_restart_at = self._utc_after(FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS)
+                logger.info(
+                    "[FeishuRestart] next restart scheduled: interval_s=%s next_restart_at=%s",
+                    FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS,
+                    self._feishu_next_restart_at,
+                )
+                if not await self._sleep_or_stop(FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS):
+                    return
+                self._feishu_next_restart_at = ""
+                logger.info("[FeishuRestart] restart due")
+                while not self._stop_event.is_set():
+                    if await self._restart_feishu_when_idle_once():
+                        break
+                    if self._stop_event.is_set():
+                        return
+                    self._feishu_next_restart_at = self._utc_after(FEISHU_WS_AUTO_RESTART_RETRY_SECONDS)
+                    logger.info(
+                        "[FeishuRestart] retry scheduled: retry_s=%s next_restart_at=%s",
+                        FEISHU_WS_AUTO_RESTART_RETRY_SECONDS,
+                        self._feishu_next_restart_at,
+                    )
+                    if not await self._sleep_or_stop(FEISHU_WS_AUTO_RESTART_RETRY_SECONDS):
+                        return
+        except asyncio.CancelledError:
+            logger.info("[FeishuRestart] monitor stopped: gateway_stopping=%s", self._stop_event.is_set())
+            raise
+
+    async def _restart_feishu_when_idle_once(self) -> bool:
+        adapter = self._get_feishu_adapter()
+        if adapter is None:
+            logger.warning("[FeishuRestart] restart deferred: reason=missing_adapter")
+            return False
+        if not await self._wait_for_feishu_restart_idle():
+            return False
+
+        if self._feishu_restart_lock.locked():
+            logger.info("[FeishuRestart] restart deferred: reason=restart_already_in_progress")
+            return False
+
+        async with self._feishu_restart_lock:
+            self._feishu_restart_in_progress = True
+            self._feishu_last_restart_error = ""
+            before_health = self._safe_adapter_health(adapter)
+            logger.info("[FeishuRestart] restart starting: health_before=%s", before_health)
+            try:
+                logger.info("[FeishuRestart] stop starting")
+                try:
+                    await adapter.stop()
+                except asyncio.CancelledError:
+                    if self._is_gateway_cancelling():
+                        raise
+                    logger.warning(
+                        "[FeishuRestart] adapter stop cancelled during SDK shutdown; continuing with start",
+                        exc_info=True,
+                    )
+                except Exception as exc:
+                    self._record_feishu_restart_failure("stop", exc)
+                    return False
+                else:
+                    logger.info("[FeishuRestart] stop done")
+
+                logger.info("[FeishuRestart] start starting")
+                try:
+                    await adapter.start()
+                except asyncio.CancelledError:
+                    if self._is_gateway_cancelling():
+                        raise
+                    exc = RuntimeError("adapter start cancelled outside gateway shutdown")
+                    self._record_feishu_restart_failure("start", exc, exc_info=True)
+                    return False
+                except Exception as exc:
+                    self._record_feishu_restart_failure("start", exc)
+                    return False
+            finally:
+                self._feishu_restart_in_progress = False
+
+            self._feishu_last_restart_at = self._utc_now()
+            self._feishu_last_restart_error = ""
+            after_health = self._safe_adapter_health(adapter)
+            logger.info("[FeishuRestart] restart done: health_after=%s", after_health)
+            return True
+
+    async def _wait_for_feishu_restart_idle(self) -> bool:
+        while not self._stop_event.is_set():
+            if self._session_scheduler.has_inflight_jobs():
+                logger.info(
+                    "[FeishuRestart] restart deferred: reason=active_agent_jobs check_after_s=%s",
+                    FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS,
+                )
+            elif not self._ingress_queue.empty():
+                logger.info(
+                    "[FeishuRestart] restart deferred: reason=queued_inbound_events check_after_s=%s",
+                    FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS,
+                )
+            else:
+                return True
+            if not await self._sleep_or_stop(FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS):
+                return False
+        return False
+
+    async def _sleep_or_stop(self, delay_s: float) -> bool:
+        if self._stop_event.is_set():
+            return False
+        try:
+            await asyncio.wait_for(
+                self._stop_event.wait(),
+                timeout=max(0.0, float(delay_s)),
+            )
+        except asyncio.TimeoutError:
+            return True
+        return False
+
+    @staticmethod
+    def _safe_adapter_health(adapter) -> dict:
+        try:
+            return dict(adapter.health() or {})
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def _with_feishu_restart_health(self, health: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(health or {})
+        payload["restart_in_progress"] = self._feishu_restart_in_progress
+        payload["last_restart_at"] = self._feishu_last_restart_at
+        payload["last_restart_error"] = self._feishu_last_restart_error
+        payload["next_restart_at"] = self._feishu_next_restart_at
+        if self._feishu_restart_in_progress:
+            payload["connection_state"] = "restarting"
+        return payload
+
+    def _record_feishu_restart_failure(self, phase: str, exc: BaseException, *, exc_info: bool = True) -> None:
+        error = self._exception_text(exc)
+        self._feishu_last_restart_error = f"phase={phase} error={error}"
+        logger.warning(
+            "[FeishuRestart] restart failed: phase=%s retry_s=%s error=%s",
+            phase,
+            FEISHU_WS_AUTO_RESTART_RETRY_SECONDS,
+            error,
+            exc_info=exc_info,
+        )
+
+    def _is_gateway_cancelling(self) -> bool:
+        task = asyncio.current_task()
+        return self._stop_event.is_set() or bool(task is not None and task.cancelling())
+
+    @staticmethod
+    def _exception_text(exc: BaseException) -> str:
+        return str(exc) or exc.__class__.__name__
+
+    @staticmethod
+    def _utc_now() -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    @classmethod
+    def _utc_after(cls, delay_s: float) -> str:
+        return (datetime.now(timezone.utc) + timedelta(seconds=max(0.0, float(delay_s)))).isoformat()
 
     async def _await_stop_step(
         self,

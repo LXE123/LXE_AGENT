@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -9,6 +10,71 @@ from .types import ToolDefinition, text_tool_result
 
 
 TOOL_SEARCH_NAME = "tool_search"
+_STOP_QUERY_TERMS = {"mcp", "tool", "tools", "server", "servers", "deferred"}
+_SOURCE_NOTE_RE = re.compile(r"\s*MCP tool from (?:server\s+)?[^.?!]+[.?!]?", re.IGNORECASE)
+
+
+def _normalize_query_terms(query: str) -> list[str]:
+    safe_query = " ".join(str(query or "").strip().casefold().split())
+    return [term for term in safe_query.split(" ") if term and term not in _STOP_QUERY_TERMS]
+
+
+def _semantic_tool_name(tool_name: str) -> str:
+    safe_name = str(tool_name or "").strip()
+    if safe_name.startswith("mcp__"):
+        parts = [part for part in safe_name.split("__") if part]
+        return parts[-1] if parts else ""
+    return safe_name
+
+
+def _semantic_description(description: str) -> str:
+    return " ".join(_SOURCE_NOTE_RE.sub(" ", str(description or "")).split())
+
+
+def _parameter_names(parameters: dict[str, Any]) -> list[str]:
+    properties = dict((parameters or {}).get("properties") or {})
+    return sorted(str(name or "").strip() for name in properties if str(name or "").strip())
+
+
+def _semantic_haystack(tool: ToolDefinition) -> str:
+    parts = [
+        _semantic_tool_name(tool.name),
+        _semantic_description(tool.description),
+        tool.search_text,
+        tool.connector_name,
+        tool.connector_description,
+        " ".join(_parameter_names(tool.parameters)),
+    ]
+    return " ".join(part.strip() for part in parts if str(part or "").strip()).casefold()
+
+
+def _tool_search_sources(tools: list[ToolDefinition]) -> list[tuple[str, str]]:
+    sources: dict[str, str] = {}
+    for tool in tools:
+        name = str(tool.connector_name or tool.server_name or "").strip()
+        if not name:
+            continue
+        description = str(tool.connector_description or "").strip()
+        sources.setdefault(name, description)
+    return sorted(sources.items(), key=lambda item: item[0].casefold())
+
+
+def _tool_search_description(exposure_state: "ToolExposureState") -> str:
+    sources = _tool_search_sources(exposure_state.deferred_tools())
+    if sources:
+        source_lines = "\n".join(
+            f"- {name}: {description}" if description else f"- {name}"
+            for name, description in sources
+        )
+    else:
+        source_lines = "None currently enabled."
+    return (
+        f"Available deferred tool sources:\n{source_lines}\n\n"
+        "Search deferred tools by source, capability, tool description, or parameter names. "
+        "It exposes matching tools for the next model step. "
+        "Use concrete source or capability terms such as connector names, business domains, "
+        "or actions. Do not search for generic implementation words like mcp, tool, server, or deferred."
+    )
 
 
 @dataclass
@@ -54,23 +120,18 @@ class ToolExposureState:
                 self.loaded_deferred_names.add(tool.name)
 
     def search(self, query: str, *, limit: int = 8) -> list[ToolDefinition]:
-        safe_query = " ".join(str(query or "").strip().casefold().split())
-        terms = [term for term in safe_query.split(" ") if term]
+        raw_terms = [term for term in " ".join(str(query or "").strip().casefold().split()).split(" ") if term]
+        terms = _normalize_query_terms(query)
+        if raw_terms and not terms:
+            return []
         scored: list[tuple[int, str, ToolDefinition]] = []
         for tool in self.deferred_tools():
-            haystack = " ".join(
-                [
-                    tool.name,
-                    tool.description,
-                    tool.search_text,
-                    tool.server_name,
-                    tool.connector_name,
-                ]
-            ).casefold()
+            haystack = _semantic_haystack(tool)
+            semantic_name = _semantic_tool_name(tool.name).casefold()
             if not terms:
                 score = 1
             else:
-                score = sum(2 if term in tool.name.casefold() else 1 for term in terms if term in haystack)
+                score = sum(2 if term in semantic_name else 1 for term in terms if term in haystack)
             if score > 0:
                 scored.append((score, tool.name, tool))
         scored.sort(key=lambda item: (-item[0], item[1]))
@@ -78,9 +139,6 @@ class ToolExposureState:
 
 
 def register_tool_search(registry: UnifiedToolRegistry, exposure_state: ToolExposureState) -> None:
-    if registry.has(TOOL_SEARCH_NAME):
-        return
-
     async def _handler(query: str = "", limit: int = 8, **_: Any):
         matches = exposure_state.search(query, limit=limit)
         loaded_names = [tool.name for tool in matches]
@@ -106,10 +164,7 @@ def register_tool_search(registry: UnifiedToolRegistry, exposure_state: ToolExpo
     registry.register(
         ToolDefinition(
             name=TOOL_SEARCH_NAME,
-            description=(
-                "Search deferred MCP tools by name, description, connector, server, or parameter names. "
-                "Call this before using MCP tools that are not already visible."
-            ),
+            description=_tool_search_description(exposure_state),
             parameters={
                 "type": "object",
                 "properties": {
