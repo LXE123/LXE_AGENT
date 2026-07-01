@@ -46,6 +46,16 @@ def test_load_default_permission_policy() -> None:
     assert policy.user_agent_policy["on_d73c763c561e81ed7e554dd59e286095"] == {"AMAZON_FBA"}
     assert policy.bot_skill_policy["AMAZON_FBA"] == {"amazon_fba", "default"}
 
+    assert policy.bot_alias_to_app_id["AMAZON_FBA_MACHINE_3"] == "cli_aace5ce849b9dbcd"
+    assert policy.bot_alias_to_key["AMAZON_FBA_MACHINE_3"] == "AMAZON_FBA"
+    assert policy.user_name_to_union_id["AMAZON_FBA_MACHINE_3_MEMBER"] == (
+        "on_af8c07dc3aa1933d8ddca81d574a8753"
+    )
+    assert policy.user_name_to_allow_aliases["AMAZON_FBA_MACHINE_3_MEMBER"] == {
+        "AMAZON_FBA_MACHINE_3",
+    }
+    assert policy.user_agent_policy["on_af8c07dc3aa1933d8ddca81d574a8753"] == {"AMAZON_FBA"}
+
     assert policy.bot_alias_to_app_id["AMAZON_REPLENISH_GROUP_1_MACHINE_2"] == "cli_aaa5e06b1bb81bcb"
     assert policy.bot_alias_to_key["AMAZON_REPLENISH_GROUP_1_MACHINE_2"] == "AMAZON-备货一组-二号机"
     assert policy.user_name_to_union_id["AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER"] == (
