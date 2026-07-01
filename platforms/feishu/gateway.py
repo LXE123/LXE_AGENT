@@ -54,6 +54,10 @@ def _monotonic_seconds() -> float:
     return time.monotonic()
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def _parse_feishu_millis(value: Any) -> int | None:
     text = str(value or "").strip()
     if not text:
@@ -322,28 +326,89 @@ class FeishuStreamAdapter:
         self._ready = threading.Event()
         self._start_error: BaseException | None = None
         self._stopping = False
+        self._health_lock = threading.Lock()
+        self._connection_state = "stopped"
+        self._last_connected_at = ""
+        self._last_disconnected_at = ""
+        self._last_error = ""
 
     def set_inbound_sink(self, sink: InboundSink) -> None:
         self._inbound_sink = sink
+
+    def _ensure_health_fields(self) -> None:
+        if not hasattr(self, "_health_lock"):
+            self._health_lock = threading.Lock()
+        if not hasattr(self, "_connection_state"):
+            self._connection_state = "stopped"
+        if not hasattr(self, "_last_connected_at"):
+            self._last_connected_at = ""
+        if not hasattr(self, "_last_disconnected_at"):
+            self._last_disconnected_at = ""
+        if not hasattr(self, "_last_error"):
+            self._last_error = ""
 
     def _connection_health(self) -> tuple[bool, str]:
         thread_alive = bool(self._thread and self._thread.is_alive())
         conn = getattr(self._client, "_conn", None) if self._client is not None else None
         connection_alive = bool(conn is not None and not getattr(conn, "closed", True))
+        start_error = getattr(self, "_start_error", None)
+        stopping = bool(getattr(self, "_stopping", False))
+        if start_error is not None and not thread_alive and not stopping:
+            return connection_alive, "failed"
         if not thread_alive:
             return connection_alive, "stopped"
         if connection_alive:
             return connection_alive, "connected"
         return connection_alive, "disconnected"
 
+    def _record_connection_state(
+        self,
+        state: str,
+        *,
+        connection_alive: bool,
+        thread_alive: bool,
+    ) -> None:
+        self._ensure_health_fields()
+        with self._health_lock:
+            previous = self._connection_state
+            if previous == state:
+                return
+            now = _utc_now_iso()
+            self._connection_state = state
+            if state == "connected":
+                self._last_connected_at = now
+            elif state in {"disconnected", "stopped", "failed"}:
+                self._last_disconnected_at = now
+        logger.info(
+            "[Feishu] websocket state changed: previous=%s state=%s connection_alive=%s thread_alive=%s",
+            previous,
+            state,
+            connection_alive,
+            thread_alive,
+        )
+
     def health(self) -> dict[str, Any]:
+        self._ensure_health_fields()
         thread_alive = bool(self._thread and self._thread.is_alive())
         connection_alive, connection_state = self._connection_health()
+        self._record_connection_state(
+            connection_state,
+            connection_alive=connection_alive,
+            thread_alive=thread_alive,
+        )
+        with self._health_lock:
+            last_connected_at = self._last_connected_at
+            last_disconnected_at = self._last_disconnected_at
+            last_error = self._last_error
         return {
             "running": thread_alive,
             "thread_alive": thread_alive,
             "connection_alive": connection_alive,
             "connection_state": connection_state,
+            "restart_in_progress": False,
+            "last_connected_at": last_connected_at,
+            "last_disconnected_at": last_disconnected_at,
+            "last_error": last_error,
             "thread": self._thread.name if self._thread else "",
             "loop": self._loop.__class__.__name__ if self._loop else "",
             "bot_open_id_configured": bool(self._bot_open_id),
@@ -368,6 +433,8 @@ class FeishuStreamAdapter:
         await self._refresh_bot_identity()
         self._ready.clear()
         self._start_error = None
+        with self._health_lock:
+            self._last_error = ""
         self._stopping = False
         self._thread = threading.Thread(
             target=self._run_thread,
@@ -394,6 +461,10 @@ class FeishuStreamAdapter:
             try:
                 future = asyncio.run_coroutine_threadsafe(self._shutdown_loop(), loop)
                 await asyncio.wait_for(asyncio.wrap_future(future), timeout=5.0)
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise
             except Exception:
                 pass
             try:
@@ -408,6 +479,7 @@ class FeishuStreamAdapter:
             expected_loop=loop,
             clear_host_loop=True,
         )
+        self._record_connection_state("stopped", connection_alive=False, thread_alive=False)
 
     def emit(self, event: InboundEvent) -> None:
         if self._inbound_sink is None:
@@ -845,6 +917,8 @@ class FeishuStreamAdapter:
         except BaseException as error:
             if not self._stopping:
                 self._start_error = error
+                with self._health_lock:
+                    self._last_error = str(error) or error.__class__.__name__
             self._ready.set()
             if not self._stopping:
                 logger.error("[Feishu] adapter crashed: %s", error, exc_info=True)
@@ -860,6 +934,8 @@ class FeishuStreamAdapter:
                 expected_loop=loop,
                 clear_host_loop=True,
             )
+            if not self._stopping:
+                self._record_connection_state("failed", connection_alive=False, thread_alive=False)
 
     async def _shutdown_loop(self) -> None:
         client = self._client
