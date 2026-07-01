@@ -43,7 +43,7 @@ def mcp_tool_search_enabled() -> bool:
 @dataclass(frozen=True)
 class McpServerConfig:
     name: str
-    enabled: bool = True
+    enabled: bool = False
     transport: TransportKind = "stdio"
     command: str = ""
     args: tuple[str, ...] = ()
@@ -171,7 +171,7 @@ def _server_config_from_mapping(name: str, raw_config: Any) -> McpServerConfig:
 
     return McpServerConfig(
         name=safe_name,
-        enabled=_as_bool(data.get("enabled"), field_name=f"{safe_name}.enabled", default=True),
+        enabled=_as_bool(data.get("enabled"), field_name=f"{safe_name}.enabled", default=False),
         transport=transport,
         command=str(data.get("command") or "").strip(),
         args=_as_str_tuple(data.get("args"), field_name=f"{safe_name}.args"),
@@ -227,6 +227,50 @@ def load_mcp_config(path: str | Path | None = None) -> McpConfig:
     return McpConfig(servers=servers)
 
 
+def _load_mcp_config_document(path: Path) -> dict[str, Any]:
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    try:
+        raw_data = yaml.safe_load(raw_text) or {}
+    except Exception as exc:
+        raise RuntimeError(f"MCP config is not valid YAML: {path}") from exc
+    return _as_mapping(raw_data, field_name="MCP config")
+
+
+def _servers_key(root: dict[str, Any]) -> str:
+    if "mcpServers" in root or "servers" not in root:
+        return "mcpServers"
+    return "servers"
+
+
+def set_mcp_server_enabled(
+    server_name: str,
+    enabled: bool,
+    path: str | Path | None = None,
+) -> McpServerConfig:
+    safe_name = _validate_server_name(server_name)
+    config_path = mcp_config_path(path)
+    root = _load_mcp_config_document(config_path)
+    servers_key = _servers_key(root)
+    servers = _as_mapping(root.get(servers_key, {}), field_name=servers_key)
+    if safe_name not in servers:
+        raise KeyError(safe_name)
+    server_config = _as_mapping(servers[safe_name], field_name=f"{servers_key}.{safe_name}")
+    server_config["enabled"] = bool(enabled)
+    servers[safe_name] = server_config
+    root[servers_key] = servers
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = config_path.with_suffix(f"{config_path.suffix}.tmp")
+    tmp_path.write_text(
+        yaml.safe_dump(root, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    tmp_path.replace(config_path)
+    return _server_config_from_mapping(safe_name, server_config)
+
+
 def resolve_env_placeholders(value: str, *, field_name: str) -> str:
     def _replace(match: re.Match[str]) -> str:
         env_name = match.group(1)
@@ -271,4 +315,5 @@ __all__ = [
     "mcp_tool_search_enabled",
     "resolve_env_placeholders",
     "resolve_server_headers",
+    "set_mcp_server_enabled",
 ]

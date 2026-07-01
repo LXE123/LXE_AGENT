@@ -6,7 +6,7 @@ from typing import Any
 
 from shared.logging import logger
 
-from .client import AsyncMcpClient
+from .client import AsyncMcpClient, McpStartupError
 from .config import McpConfig, McpServerConfig, load_mcp_config
 from .models import McpRoute, McpServerStatus, McpToolInfo
 from .naming import normalize_mcp_tools
@@ -53,10 +53,18 @@ class McpConnectionManager:
                 connector_name=server.connector_name,
                 connector_description=server.connector_description,
             )
-        await asyncio.gather(
-            *(self._start_server(server) for server in self.config.enabled_servers()),
-            return_exceptions=False,
+        enabled_servers = list(self.config.enabled_servers())
+        results = await asyncio.gather(
+            *(self._start_server(server) for server in enabled_servers),
+            return_exceptions=True,
         )
+        for server, result in zip(enabled_servers, results):
+            if not isinstance(result, BaseException):
+                continue
+            if isinstance(result, (KeyboardInterrupt, SystemExit)):
+                raise result
+            logger.warning("[MCP] server startup escaped task: server=%s error=%s", server.name, result)
+            self._set_error_status(server, result)
         self._tools = normalize_mcp_tools(self._tools)
         self._sync_status_tools()
 
@@ -64,18 +72,9 @@ class McpConnectionManager:
         client = AsyncMcpClient(server)
         try:
             await client.start()
-        except Exception as exc:
+        except (McpStartupError, Exception) as exc:
             logger.warning("[MCP] server startup failed: server=%s error=%s", server.name, exc)
-            self._statuses[server.name] = McpServerStatus(
-                name=server.name,
-                enabled=True,
-                transport=server.transport,
-                status="error",
-                error=str(exc),
-                connector_id=server.connector_id,
-                connector_name=server.connector_name,
-                connector_description=server.connector_description,
-            )
+            self._set_error_status(server, exc)
             return
 
         self._clients[server.name] = client
@@ -97,6 +96,25 @@ class McpConnectionManager:
             server_title=str(getattr(server_info, "title", "") or getattr(server_info, "name", "") or "").strip(),
             server_version=str(getattr(server_info, "version", "") or "").strip(),
             instructions=instructions,
+            connector_id=server.connector_id,
+            connector_name=server.connector_name,
+            connector_description=server.connector_description,
+        )
+
+    def _set_error_status(self, server: McpServerConfig, error: BaseException) -> None:
+        if isinstance(error, asyncio.CancelledError):
+            error_text = (
+                f"MCP server {server.name} startup was cancelled while opening the transport; "
+                "the server may be unavailable"
+            )
+        else:
+            error_text = str(error).strip() or error.__class__.__name__
+        self._statuses[server.name] = McpServerStatus(
+            name=server.name,
+            enabled=True,
+            transport=server.transport,
+            status="error",
+            error=error_text,
             connector_id=server.connector_id,
             connector_name=server.connector_name,
             connector_description=server.connector_description,

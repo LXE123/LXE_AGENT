@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 from datetime import timedelta
 from typing import Any
 
@@ -11,6 +11,17 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import Implementation
 
 from .config import McpServerConfig, resolve_env_placeholders, resolve_server_headers
+
+
+class McpStartupError(RuntimeError):
+    """MCP startup failure safe to record as server status."""
+
+
+async def _close_startup_stack(stack: AsyncExitStack) -> None:
+    # Startup cleanup can surface secondary transport-generator errors; keep the
+    # original startup failure as the visible cause.
+    with suppress(Exception, asyncio.CancelledError):
+        await stack.aclose()
 
 
 class AsyncMcpClient:
@@ -65,8 +76,22 @@ class AsyncMcpClient:
             )
             self.tools = await self._list_all_tools()
             self._exit_stack = stack
+        except asyncio.CancelledError as exc:
+            await _close_startup_stack(stack)
+            self.session = None
+            raise McpStartupError(
+                f"MCP server {self.config.name} startup was cancelled while opening the transport; "
+                "the server may be unavailable"
+            ) from exc
+        except TimeoutError as exc:
+            await _close_startup_stack(stack)
+            self.session = None
+            raise McpStartupError(
+                f"MCP server {self.config.name} startup timed out after "
+                f"{self.config.startup_timeout_s:g}s; the server may be unavailable"
+            ) from exc
         except Exception:
-            await stack.aclose()
+            await _close_startup_stack(stack)
             self.session = None
             raise
 
@@ -101,4 +126,4 @@ class AsyncMcpClient:
         self.session = None
 
 
-__all__ = ["AsyncMcpClient"]
+__all__ = ["AsyncMcpClient", "McpStartupError"]

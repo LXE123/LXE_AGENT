@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from agent_runtime.tool_registry import UnifiedToolRegistry
-from agent_runtime.types import ToolDefinition
+from agent_runtime.types import ToolDefinition, ToolExecutionError
 
 from .manager import McpConnectionManager
 from .models import McpToolInfo
@@ -12,7 +13,18 @@ from .schema import mcp_result_to_tool_result
 
 def tool_definition_from_mcp_info(manager: McpConnectionManager, info: McpToolInfo) -> ToolDefinition:
     async def _handler(**kwargs: Any):
-        result = await manager.call_tool(info.route, dict(kwargs or {}))
+        try:
+            result = await manager.call_tool(info.route, dict(kwargs or {}))
+        except asyncio.CancelledError as exc:
+            raise ToolExecutionError(
+                f"MCP tool call failed for {info.server_name}.{info.raw_tool_name}: "
+                "server disconnected or call was cancelled"
+            ) from exc
+        except Exception as exc:
+            message = str(exc).strip() or exc.__class__.__name__
+            raise ToolExecutionError(
+                f"MCP tool call failed for {info.server_name}.{info.raw_tool_name}: {message}"
+            ) from exc
         return mcp_result_to_tool_result(result)
 
     description = str(info.description or "").strip()

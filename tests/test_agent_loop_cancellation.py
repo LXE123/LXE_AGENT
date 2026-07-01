@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from types import SimpleNamespace
 from typing import Any
+
+import pytest
 
 from agent_runtime import loop as loop_mod
 from agent_runtime.context_pipeline import is_context_overflow_error, load_context_messages, validate_tool_call_closure
@@ -12,6 +15,13 @@ from agent_runtime.tool_registry import UnifiedToolRegistry
 from agent_runtime.types import ToolDefinition, TurnInput, text_tool_result
 from shared.llm.errors import LLMProviderError
 from shared.llm.events import LLMStreamEvent, LLMToolCall
+
+
+@pytest.fixture(autouse=True)
+def _empty_mcp_config(monkeypatch, tmp_path) -> None:
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text("mcpServers: {}\n", encoding="utf-8")
+    monkeypatch.setenv("LXE_MCP_CONFIG_PATH", str(config_path))
 
 
 def _session() -> SimpleNamespace:
@@ -31,6 +41,12 @@ def _turn_input() -> TurnInput:
         user_id="user-1",
         available_skills=[],
     )
+
+
+def _unused_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def _agent(
@@ -593,6 +609,128 @@ def test_context_overflow_provider_error_triggers_compaction_retry(monkeypatch) 
     assert "overflow" in triggers
     assert outcome.status == "done"
     assert outcome.reply == "完成"
+
+
+def test_deferred_mcp_tool_updates_provider_schema_and_system_prompt(monkeypatch) -> None:
+    class EmptyMcpManager:
+        tools: list[Any] = []
+
+        async def close(self) -> None:
+            return None
+
+    async def fake_build_mcp_connection_manager():
+        return EmptyMcpManager()
+
+    agent = _agent()
+
+    async def mcp_handler(**_kwargs: Any):
+        return text_tool_result("mcp")
+
+    agent.tool_registry.register(
+        ToolDefinition(
+            name="mcp__saihu__shop_list",
+            description="List Saihu shops",
+            parameters={"type": "object", "properties": {}},
+            handler=mcp_handler,
+            source="mcp",
+            exposure="deferred",
+            search_text="saihu shop list",
+            server_name="lxe-saihu",
+            connector_name="Saihu",
+            connector_description="Local Saihu data tools.",
+        )
+    )
+
+    calls: list[dict[str, Any]] = []
+    search_call = LLMToolCall(
+        id="toolu-search",
+        name="tool_search",
+        arguments={"query": "saihu shop", "limit": 5},
+    )
+
+    async def fake_chat_with_tools_streaming(**kwargs: Any) -> LLMResponse:
+        calls.append(
+            {
+                "system_prompt": kwargs["system_prompt"],
+                "tool_names": [tool["name"] for tool in kwargs["tool_schemas"]],
+            }
+        )
+        if len(calls) == 1:
+            return LLMResponse(
+                text="",
+                assistant_content=[
+                    {
+                        "type": "tool_call",
+                        "id": search_call.id,
+                        "name": search_call.name,
+                        "arguments": dict(search_call.arguments),
+                    }
+                ],
+                tool_calls=[search_call],
+            )
+        return LLMResponse(
+            text="完成",
+            public_text="完成",
+            assistant_content=[{"type": "text", "text": "完成"}],
+        )
+
+    monkeypatch.setattr(loop_mod, "build_mcp_connection_manager", fake_build_mcp_connection_manager)
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(agent.run(_turn_input()))
+
+    assert outcome.status == "done"
+    assert "tool_search" in calls[0]["tool_names"]
+    assert "mcp__saihu__shop_list" not in calls[0]["tool_names"]
+    assert "mcp__saihu__shop_list" not in calls[0]["system_prompt"]
+    assert "Available deferred tool sources:" in calls[0]["system_prompt"]
+    assert "Saihu: Local Saihu data tools." in calls[0]["system_prompt"]
+    assert "mcp__saihu__shop_list" in calls[1]["tool_names"]
+    assert "mcp__saihu__shop_list" in calls[1]["system_prompt"]
+
+
+def test_enabled_down_mcp_server_does_not_block_provider_step(monkeypatch, tmp_path) -> None:
+    port = _unused_local_port()
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        f"""
+mcpServers:
+  lxe-saihu:
+    enabled: true
+    type: streamable-http
+    url: "http://127.0.0.1:{port}/mcp/"
+    startup_timeout_s: 1
+    tool_timeout_s: 1
+    connector_name: Saihu
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LXE_MCP_CONFIG_PATH", str(config_path))
+
+    calls: list[dict[str, Any]] = []
+
+    async def fake_chat_with_tools_streaming(**kwargs: Any) -> LLMResponse:
+        calls.append(
+            {
+                "system_prompt": kwargs["system_prompt"],
+                "tool_names": [tool["name"] for tool in kwargs["tool_schemas"]],
+            }
+        )
+        return LLMResponse(
+            text="完成",
+            public_text="完成",
+            assistant_content=[{"type": "text", "text": "完成"}],
+        )
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+
+    outcome = asyncio.run(_agent().run(_turn_input()))
+
+    assert outcome.status == "done"
+    assert outcome.reply == "完成"
+    assert len(calls) == 1
+    assert all(not name.startswith("mcp__") for name in calls[0]["tool_names"])
+    assert "mcp__" not in calls[0]["system_prompt"]
 
 
 def test_context_canceled_is_not_context_overflow() -> None:
