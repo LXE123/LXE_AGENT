@@ -140,9 +140,10 @@ def test_fba_purchase_summary_skill_documents_contract() -> None:
     assert "`正飞`" in text
     assert "`均价 = sum(原价 * 数量) / sum(数量)`" in text
     assert "均价" in text and "四舍五入保留两位小数" in text
+    assert "`总价（均价） = 均价 * 数量`" in text
     assert "来源SP单号（第一行）" not in text
-    assert "最后一行是带填充色的 `合计` 行，会汇总 `数量` 和 `总价`" in text
-    assert "`原价`、`均价`、`厂家`、`单位`、`合同产品名称`、`合同编号前缀`、`税率`、`数量`、`总价`" in text
+    assert "最后一行是带填充色的 `合计` 行，会汇总 `数量`、`总价` 和 `总价（均价）`" in text
+    assert "`原价`、`均价`、`厂家`、`单位`、`合同产品名称`、`合同编号前缀`、`税率`、`数量`、`总价`、`总价（均价）`" in text
     assert "所有列宽和行高已统一为 15" in text
 
 
@@ -200,15 +201,20 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "contract_mapping_count" in text
     assert "不生成厂家分类 sheet" in text
     assert "备货单已生成" in text
+    assert "`M.D-<SP>-新棱镜备货-<国家>.xlsx`" in text
+    assert "国家来自发货单 CSV 的 `国家` 字段" in text
+    assert "`未知国家`" in text
     assert "第一个是 `备货单`，第二个是 `未匹配`" in text
     assert "`未匹配` sheet" in text
     assert "`库存sku`、`数量`、`问题说明`" in text
     assert "`来源SP单号`" not in text
     assert "如果 `warnings` 非空" in text
     assert "不同厂家有相同型号" in text
+    assert "发货单 CSV `国家` 缺失/为空/存在多个不同国家" in text
     assert "业务人员需要核查" in text
     assert "按 `型号` 合并" in text
     assert "不同厂家相同型号会保留为不同行" in text
+    assert "`库存sku（第一行）`、`产品名称（第一行）`" in text
     assert "`原价`、`均价`、`售价`、`售价(均价)`、`毛利率`、`厂家`、`单位`、`合同产品名称`、`数量`、`总价`、`总价（售价）`" in text
     assert "所有列宽和行高已统一为 15" in text
 
