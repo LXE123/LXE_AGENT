@@ -745,11 +745,11 @@ def _has_column_value(rows: list[list[Any]], *, column_index: int) -> bool:
 def _append_total_row(worksheet: Any, columns: tuple[str, ...], rows: list[list[Any]]) -> None:
     total_row: list[Any] = [""] * len(columns)
     total_row[0] = "合计"
-    for column_name in ("数量", "总价", "总价（均价）", "总价（售价）"):
+    for column_name in ("数量", "总价", "总价（均价）", "总价（售价）", "总价（售价(均价)）"):
         if column_name not in columns:
             continue
         column_index = columns.index(column_name)
-        if column_name in ("总价（均价）", "总价（售价）") and not _has_column_value(
+        if column_name in ("总价（均价）", "总价（售价）", "总价（售价(均价)）") and not _has_column_value(
             rows,
             column_index=column_index,
         ):
@@ -791,7 +791,15 @@ def _write_rows(
     for row in worksheet.iter_rows(min_row=2, min_col=1, max_col=3):
         for cell in row:
             cell.alignment = wrap_alignment
-    for price_column_name in ("均价", "售价", "售价(均价)", "总价", "总价（均价）", "总价（售价）"):
+    for price_column_name in (
+        "均价",
+        "售价",
+        "售价(均价)",
+        "总价",
+        "总价（均价）",
+        "总价（售价）",
+        "总价（售价(均价)）",
+    ):
         if price_column_name not in columns:
             continue
         total_price_column = columns.index(price_column_name) + 1

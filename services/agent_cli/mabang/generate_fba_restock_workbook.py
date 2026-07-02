@@ -35,7 +35,9 @@ RESTOCK_COLUMNS = (
     "合同产品名称",
     "数量",
     "总价",
+    "总价（均价）",
     "总价（售价）",
+    "总价（售价(均价)）",
 )
 RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "数量", "问题说明")
 MIN_GROSS_MARGIN = Decimal("0.2")
@@ -260,6 +262,11 @@ def _project_restock_rows(rows: list[list[Any]], *, gross_margin: Decimal) -> li
             model=_purchase._clean_cell(_purchase_row_value(row, "型号")),
         )
         sale_total_price = (sale_price * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        average_sale_total_price = (
+            (average_sale_price * quantity).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if isinstance(average_sale_price, Decimal)
+            else ""
+        )
         values = {
             "库存sku": _purchase_row_value(row, "库存sku"),
             "产品名称": _purchase_row_value(row, "产品名称"),
@@ -280,7 +287,13 @@ def _project_restock_rows(rows: list[list[Any]], *, gross_margin: Decimal) -> li
             "合同产品名称": _purchase_row_value(row, "合同产品名称"),
             "数量": _purchase_row_value(row, "数量"),
             "总价": _purchase_row_value(row, "总价"),
+            "总价（均价）": _purchase_row_value(row, "总价（均价）"),
             "总价（售价）": _purchase._decimal_to_cell_value(sale_total_price),
+            "总价（售价(均价)）": (
+                _purchase._decimal_to_cell_value(average_sale_total_price)
+                if isinstance(average_sale_total_price, Decimal)
+                else ""
+            ),
         }
         projected_rows.append([values[column] for column in RESTOCK_COLUMNS])
     return projected_rows
