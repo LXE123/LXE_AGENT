@@ -12,7 +12,7 @@ Context assembly 的核心取舍是把请求拆成三个输入面：`system_prom
 
 ## 链路位置
 
-这一层位于 `AgentLoop.run()` 开始阶段、真正进入 `_loop()` 调 LLM 之前。它读取 canonical messages，生成当前 user message 和 active tool schemas，完成 turn 前 prune 后，再把最终 messages、system prompt 和 tool schemas 交给 LLM streaming loop。
+这一层位于 `AgentLoop.run()` 开始阶段、真正进入 `_loop()` 调 LLM 之前。它读取 canonical messages，生成当前 user message 和 active tool schemas，完成 turn 前历史图片处理后，再把最终 messages、system prompt 和 tool schemas 交给 LLM streaming loop。
 
 本文说明当前 `AgentLoop.run()` 如何把历史 state、当前输入、system prompt、messages 和 tool schemas 组装成一次 LLM 请求前的上下文。事实来源：
 
@@ -29,11 +29,9 @@ Context assembly 的核心取舍是把请求拆成三个输入面：`system_prom
 3. `_active_tool_names()` 从 tool registry 取本轮可见工具名。
 4. `tool_registry.tool_schemas(tool_names)` 生成 canonical tool schemas。
 5. `build_system_prompt()` 生成本轮 system prompt。
-6. `build_llm_messages()` 合并历史 messages 和当前 turn message，并生成 context stats。
-7. `prune_tool_results()` 对历史 tool result 做 turn 前裁剪。
-8. 再次 `build_llm_messages()` 得到进入 LLM loop 的最终 messages。
+6. `build_llm_messages()` 合并历史 messages 和当前 turn message，生成进入 LLM loop 的 messages 和 context stats。
 
-tool result 裁剪、compaction、history limit 的细节见 [context_pruning_compaction.md](context_pruning_compaction.md)。
+step 内 tool result 裁剪、compaction、history limit 的细节见 [context_pruning_compaction.md](context_pruning_compaction.md)。
 
 ## System Prompt 组成
 

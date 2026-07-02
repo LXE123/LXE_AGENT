@@ -4,7 +4,7 @@
 
 ## 目的
 
-这篇文档解释当前 `AgentLoop` 如何在 turn 前、turn 内、turn 后控制上下文体积。读者如果在排查历史图片为什么消失、旧 tool result 为什么被清空或 head/tail trim、为什么某次 context overflow 后历史变成 summary、为什么 turn 结束后只保留最近若干 turn，应该读这一篇。
+这篇文档解释当前 `AgentLoop` 如何在 turn 前、turn 内、turn 后控制上下文体积。读者如果在排查历史图片为什么消失、某次 context overflow 后历史为什么变成 summary、为什么 turn 结束后只保留最近若干 turn，应该读这一篇。
 
 ## 设计理念
 
@@ -27,9 +27,7 @@ turn 前:
   -> prune_processed_history_images()
   -> make_user_message()
   -> build_system_prompt()
-  -> build_llm_messages() probe
-  -> prune_tool_results()
-  -> build_llm_messages() final
+  -> build_llm_messages()
 
 turn 内:
   AgentLoop._loop()
@@ -45,7 +43,7 @@ turn 后:
   -> final build_llm_messages() stats
 ```
 
-当前没有 TTL 修剪机制。`prune_tool_results()` 保留 `now_ts` 参数，但函数体内直接忽略该参数；是否修剪只由当前上下文占比、字符数和阈值决定。
+当前没有 TTL 修剪机制。turn 前不再按时间、占比或字符数裁剪历史 tool result；如果历史 tool result 让请求预算过高，后续会由 pre-call compaction 或 context overflow recovery 处理。
 
 ## Turn 前
 
@@ -77,68 +75,21 @@ self.state_data, _ = prune_processed_history_images(self.state_data)
 
 它不处理本轮 `user_content_blocks` 里的新图片。本轮图片会先进入 `make_user_message()`，仍可被本轮 LLM 看见。
 
-### Tool Result Hard Clear
+### 历史 Tool Result
 
 #### 目的
 
-Hard clear 的目的是在旧 tool result 已经占据上下文主体时快速止血，防止大段历史命令输出、网页抓取结果或结构化 payload 把本轮用户输入和近期对话挤出上下文。
+历史 tool result 在 turn 前保持原样，避免 runtime 在没有 transcript/model-visible context 分层时继续改写已持久化的工具结果内容。
 
 #### 设计理念
 
-当前实现先用“占比”和“总可修剪字符数”判断是否真的需要强清理。只有 tool result token share 超过硬阈值，并且累计可修剪内容足够大，才从旧到新清空内容。这样可以避免为几段不大的 tool output 过早牺牲历史可读性。
+当前实现不再对历史 tool result 做整段清空或 head/tail trim。上下文预算控制交给三个更明确的入口：新 tool result append 前的 step 级裁剪、provider request 前的预算检查和 compaction、provider 报 context overflow 后的恢复性 compaction。
 
 #### 细节
 
-`prune_tool_results()` 在 turn 前执行。它只修改历史 messages 中 role 为 `tool`、block type 为 `tool_result` 的内容。
+`AgentLoop.run()` 不再调用历史 tool result prune。`build_llm_messages()` 会按 `state_data.context.messages` 中的内容直接组装历史 tool result。
 
-当前 hard clear 阈值：
-
-| 常量 | 当前值 | 含义 |
-| --- | ---: | --- |
-| `TOOL_RESULT_HARD_SHARE` | `0.50` | tool result token 占总上下文 token 超过 50% 后尝试 hard clear |
-| `MIN_PRUNABLE_TOOL_CHARS` | `50000` | hard clear 前要求所有可修剪 tool result 总字符数至少达到 50000 |
-
-执行逻辑：
-
-1. 用 `build_llm_messages()` 估算当前上下文总 token。
-2. 收集历史 `tool_result` blocks，估算 tool result token 和字符数。
-3. 如果 tool result share 大于 `0.50`，且可修剪 tool result 总字符数至少 `50000`，从旧到新处理。
-4. 每个被处理的 tool result content 会被替换为 `[Old tool result content cleared]`。
-5. 每清理一项都会重新估算当前 share；share 回到 `0.50` 以下后停止。
-
-Hard clear 不会删除 `tool_result` block 本身，也不会删除 `tool_call_id`。它只替换 content，保证历史中的 tool call/result 结构仍然闭合。
-
-### Tool Result Soft Trim
-
-#### 目的
-
-Soft trim 的目的是在 tool result 占比偏高但还没到强清理程度时，保留旧结果的头尾信息，让模型仍能看到“这个工具大概返回了什么”，同时减少中间大段内容的 token 成本。
-
-#### 设计理念
-
-当前实现采用 head/tail 保留策略，而不是摘要旧 tool result。这样处理成本低、稳定、不会额外调用 LLM，也不会引入总结失真。它牺牲中间细节，换取上下文预算和历史轮廓。
-
-#### 细节
-
-当前 soft trim 阈值：
-
-| 常量 | 当前值 | 含义 |
-| --- | ---: | --- |
-| `TOOL_RESULT_SOFT_SHARE` | `0.30` | tool result token 占总上下文 token 超过 30% 后进入 soft trim |
-| `TOOL_RESULT_TRIM_THRESHOLD_CHARS` | `4000` | 单个 tool result 内容小于 4000 字符时不做 head/tail trim |
-| `TOOL_RESULT_TRIM_HEAD_CHARS` | `1500` | soft trim 保留头部字符数 |
-| `TOOL_RESULT_TRIM_TAIL_CHARS` | `1500` | soft trim 保留尾部字符数 |
-
-执行逻辑：
-
-1. 如果 hard clear 后 share 仍大于 `0.30`，或一开始就大于 `0.30`，进入 soft trim。
-2. 从旧到新遍历历史 tool result。
-3. 已被 hard clear 成 `[Old tool result content cleared]` 的内容跳过。
-4. 长度小于 `4000` 字符的内容跳过。
-5. 符合条件的内容保留头部 `1500` 字符和尾部 `1500` 字符，中间插入 `...[trimmed]...`。
-6. share 回到 `0.30` 以下后停止。
-
-Turn 前 tool result prune 完成后，`AgentLoop.run()` 会重新调用 `build_llm_messages()`，本轮 LLM step 使用的是 prune 后的历史。
+这不影响本轮新产生的 tool result：它们仍会在 append 前通过 `trim_step_tool_result_blocks()` 执行单个结果的 token 预算裁剪。
 
 ## Turn 内
 
@@ -317,5 +268,7 @@ build_llm_messages(
 - `turn_log.prune_performed`
 - `turn_log.prune_recovered_tokens`
 - `turn_log.compaction_performed`
+
+`turn_log.prune_performed` 和 `turn_log.prune_recovered_tokens` 仍保留在日志结构里用于兼容旧日志字段；当前 turn 前历史 tool result prune 已移除，正常新 turn 不会再由这条路径设置它们。
 
 `_log_context_warnings()` 当前只按上下文使用率发 `[Turn:CONTEXT]` warning：当 `estimated_tokens / context_window > 0.8` 时提示接近 compaction threshold。tool result share warning 在当前代码里没有对应分支。

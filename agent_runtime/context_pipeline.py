@@ -17,12 +17,6 @@ from .llm_adapter import agent_provider_descriptor, chat_with_tools
 from .skill_manifest import SkillQueueItem
 from .types import ContextBuildStats, tool_content_preview_text
 
-TOOL_RESULT_SOFT_SHARE = 0.30
-TOOL_RESULT_HARD_SHARE = 0.50
-TOOL_RESULT_TRIM_THRESHOLD_CHARS = 4000
-TOOL_RESULT_TRIM_HEAD_CHARS = 1500
-TOOL_RESULT_TRIM_TAIL_CHARS = 1500
-MIN_PRUNABLE_TOOL_CHARS = 50000
 RECENT_RAW_TURN_TOKEN_LIMIT = 20000
 DEFAULT_CONTEXT_WINDOW_TOKENS = 256000
 DEFAULT_RESERVE_TOKENS = 20000
@@ -31,7 +25,6 @@ PRECALL_COMPACTION_USAGE_THRESHOLD = 0.90
 DEFAULT_CHANNEL_HISTORY_LIMITS = {
     "feishu": {"dmHistoryLimit": 20},
 }
-_TOOL_RESULT_CLEARED_PLACEHOLDER = "[Old tool result content cleared]"
 _MISSING_TOOL_RESULT_STUB = "[Result unavailable — see context summary above]"
 _THINKING_SUMMARY_PLACEHOLDER = "[assistant thinking omitted]"
 _REDACTED_THINKING_SUMMARY_PLACEHOLDER = "[assistant redacted thinking omitted]"
@@ -789,46 +782,6 @@ def _context_token_stats(system_prompt: str, messages: list[dict[str, Any]]) -> 
     )
 
 
-def _trim_tool_result_content(text: str) -> str:
-    safe_text = str(text or "")
-    if len(safe_text) < TOOL_RESULT_TRIM_THRESHOLD_CHARS:
-        return safe_text
-    head = safe_text[:TOOL_RESULT_TRIM_HEAD_CHARS]
-    tail = safe_text[-TOOL_RESULT_TRIM_TAIL_CHARS:]
-    return f"{head}\n...[trimmed]...\n{tail}"
-
-
-def _message_tool_result_blocks(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    blocks: list[dict[str, Any]] = []
-    for message_index, raw_message in enumerate(list(messages or [])):
-        message = raw_message if isinstance(raw_message, dict) else {}
-        if not isinstance(raw_message, dict):
-            messages[message_index] = message
-        if str(message.get("role") or "").strip() != "tool":
-            continue
-        content = message.get("content")
-        if not isinstance(content, list):
-            continue
-        for block_index, raw_block in enumerate(list(content)):
-            block = raw_block if isinstance(raw_block, dict) else {}
-            if not isinstance(raw_block, dict):
-                content[block_index] = block
-            if str(block.get("type") or "").strip() != "tool_result":
-                continue
-            block_content = _tool_result_storage_text(block.get("content"))
-            blocks.append(
-                {
-                    "message_index": message_index,
-                    "block_index": block_index,
-                    "target": block,
-                    "content": block_content,
-                    "token_estimate": estimate_tokens(block_content),
-                    "char_count": len(block_content),
-                }
-            )
-    return blocks
-
-
 def _message_turn_spans(messages: list[dict[str, Any]]) -> list[tuple[int, int]]:
     if not messages:
         return []
@@ -1024,92 +977,6 @@ async def _summarize_history(*, messages: list[dict[str, Any]]) -> str:
     return str(response.text or "").strip()
 
 
-def prune_tool_results(
-    *,
-    state_data: dict[str, Any],
-    system_prompt: str,
-    now_ts: int | None = None,
-) -> tuple[dict[str, Any], ContextBuildStats, bool]:
-    _ = now_ts
-    messages = load_context_messages(state_data)
-    if not messages:
-        return state_data, ContextBuildStats(), False
-
-    _, initial_stats = build_llm_messages(
-        state_data=state_data,
-        current_turn_messages=[],
-        system_prompt=system_prompt,
-    )
-    total_tokens = int(initial_stats.estimated_tokens or 0)
-    tool_blocks = _message_tool_result_blocks(messages)
-    prunable_chars = sum(int(item.get("char_count") or 0) for item in tool_blocks)
-    mutated = False
-    tool_result_tokens = sum(int(item.get("token_estimate") or 0) for item in tool_blocks)
-
-    def _current_share() -> float:
-        if total_tokens <= 0:
-            return 0.0
-        return float(tool_result_tokens / total_tokens)
-
-    if _current_share() > TOOL_RESULT_HARD_SHARE and prunable_chars >= MIN_PRUNABLE_TOOL_CHARS:
-        for item in tool_blocks:
-            target = item.get("target")
-            if not isinstance(target, dict):
-                continue
-            content = str(target.get("content") or "")
-            if not content or content == _TOOL_RESULT_CLEARED_PLACEHOLDER:
-                continue
-            cleared_tokens = estimate_tokens(_TOOL_RESULT_CLEARED_PLACEHOLDER)
-            delta = int(item.get("token_estimate") or 0) - cleared_tokens
-            target["content"] = _TOOL_RESULT_CLEARED_PLACEHOLDER
-            item["content"] = _TOOL_RESULT_CLEARED_PLACEHOLDER
-            item["token_estimate"] = cleared_tokens
-            item["char_count"] = len(_TOOL_RESULT_CLEARED_PLACEHOLDER)
-            total_tokens = max(total_tokens - delta, 0)
-            tool_result_tokens = max(tool_result_tokens - delta, 0)
-            mutated = True
-            if _current_share() <= TOOL_RESULT_HARD_SHARE:
-                break
-
-    if _current_share() > TOOL_RESULT_SOFT_SHARE:
-        for item in tool_blocks:
-            target = item.get("target")
-            if not isinstance(target, dict):
-                continue
-            content = str(target.get("content") or "")
-            if content == _TOOL_RESULT_CLEARED_PLACEHOLDER:
-                continue
-            if len(content) < TOOL_RESULT_TRIM_THRESHOLD_CHARS:
-                continue
-            trimmed_content = _trim_tool_result_content(content)
-            if trimmed_content == content:
-                continue
-            trimmed_tokens = estimate_tokens(trimmed_content)
-            delta = int(item.get("token_estimate") or 0) - trimmed_tokens
-            target["content"] = trimmed_content
-            item["content"] = trimmed_content
-            item["token_estimate"] = trimmed_tokens
-            item["char_count"] = len(trimmed_content)
-            total_tokens = max(total_tokens - delta, 0)
-            tool_result_tokens = max(tool_result_tokens - delta, 0)
-            mutated = True
-            if _current_share() <= TOOL_RESULT_SOFT_SHARE:
-                break
-
-    next_state = update_context_state(
-        state_data,
-        {
-            "messages": messages,
-        },
-    )
-    final_stats = ContextBuildStats(
-        estimated_tokens=total_tokens,
-        raw_turn_count=_message_turn_count(messages),
-        retained_turn_count=_message_turn_count(messages),
-    )
-    return next_state, final_stats, mutated
-
-
 async def maybe_compact_history(
     *,
     state_data: dict[str, Any],
@@ -1197,7 +1064,6 @@ __all__ = [
     "make_user_message",
     "maybe_compact_history",
     "prune_processed_history_images",
-    "prune_tool_results",
     "replace_context_messages_in_state",
     "request_context_token_estimate",
     "sanitize_messages_for_provider",
