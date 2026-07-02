@@ -27,7 +27,6 @@ from .context_pipeline import (
     make_user_message,
     maybe_compact_history,
     prune_processed_history_images,
-    prune_tool_results,
     replace_context_messages_in_state,
     request_context_token_estimate,
     sanitize_messages_for_provider,
@@ -735,18 +734,6 @@ class AgentLoop:
             state_data=self.state_data,
         )
 
-        # --- prune tool results & record stats ---
-        _, pre_prune_stats = build_llm_messages(
-            state_data=self.state_data,
-            current_turn_messages=[],
-            system_prompt=system_prompt,
-        )
-        self.state_data, _prune_final_stats, prune_performed = prune_tool_results(
-            state_data=self.state_data,
-            system_prompt=system_prompt,
-        )
-        turn_log.prune_performed = prune_performed
-
         messages, context_stats = build_llm_messages(
             state_data=self.state_data,
             current_turn_messages=[],
@@ -759,10 +746,6 @@ class AgentLoop:
         turn_log.system_prompt_tokens = system_prompt_tokens
         turn_log.context_window_tokens = context_window
         turn_log.context_stats_before = context_stats
-        if prune_performed:
-            turn_log.prune_recovered_tokens = max(
-                0, pre_prune_stats.estimated_tokens - context_stats.estimated_tokens
-            )
 
         _log_turn_start(turn_log)
         _log_context_warnings(context_stats, context_window)
