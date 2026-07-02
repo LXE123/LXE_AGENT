@@ -18,7 +18,10 @@ RESTOCK_COLUMNS = (
     "产品名称",
     "型号",
     "原价",
+    "均价",
     "售价",
+    "售价(均价)",
+    "毛利率",
     "厂家",
     "单位",
     "合同产品名称",
@@ -180,10 +183,31 @@ def _sale_price_for_row(row: list[Any], *, gross_margin: Decimal) -> Decimal:
     return sale_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _sale_price_for_average_row(row: list[Any], *, gross_margin: Decimal) -> Decimal | str:
+    manufacturer = _purchase._clean_cell(_purchase_row_value(row, "厂家"))
+    if not _purchase._is_zhengfei_manufacturer(manufacturer):
+        return ""
+    model = _purchase._clean_cell(_purchase_row_value(row, "型号"))
+    average_price = _decimal_from_restock_row(
+        _purchase_row_value(row, "均价"),
+        field_name="均价",
+        manufacturer=manufacturer,
+        model=model,
+    )
+    tax_multiplier = _tax_multiplier_from_rate(
+        _purchase_row_value(row, "税率"),
+        manufacturer=manufacturer,
+        model=model,
+    )
+    sale_price = average_price / tax_multiplier / (Decimal("1") - gross_margin)
+    return sale_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 def _project_restock_rows(rows: list[list[Any]], *, gross_margin: Decimal) -> list[list[Any]]:
     projected_rows: list[list[Any]] = []
     for row in rows:
         sale_price = _sale_price_for_row(row, gross_margin=gross_margin)
+        average_sale_price = _sale_price_for_average_row(row, gross_margin=gross_margin)
         quantity = _decimal_from_restock_row(
             _purchase_row_value(row, "数量"),
             field_name="数量",
@@ -196,7 +220,14 @@ def _project_restock_rows(rows: list[list[Any]], *, gross_margin: Decimal) -> li
             "产品名称": _purchase_row_value(row, "产品名称"),
             "型号": _purchase_row_value(row, "型号"),
             "原价": _purchase_row_value(row, "原价"),
+            "均价": _purchase_row_value(row, "均价"),
             "售价": _purchase._decimal_to_cell_value(sale_price),
+            "售价(均价)": (
+                _purchase._decimal_to_cell_value(average_sale_price)
+                if isinstance(average_sale_price, Decimal)
+                else ""
+            ),
+            "毛利率": _purchase._decimal_to_cell_value(gross_margin),
             "厂家": _purchase_row_value(row, "厂家"),
             "单位": _purchase_row_value(row, "单位"),
             "合同产品名称": _purchase_row_value(row, "合同产品名称"),
@@ -236,7 +267,12 @@ def write_fba_restock_workbook(
     workbook.remove(workbook.active)
 
     restock_sheet = workbook.create_sheet(RESTOCK_SHEET_NAME)
-    _purchase._write_rows(restock_sheet, RESTOCK_COLUMNS, _project_restock_rows(restock_rows, gross_margin=gross_margin))
+    _purchase._write_rows(
+        restock_sheet,
+        RESTOCK_COLUMNS,
+        _project_restock_rows(restock_rows, gross_margin=gross_margin),
+        append_total=True,
+    )
 
     unmatched_sheet = workbook.create_sheet(_purchase.UNMATCHED_SHEET_NAME)
     _purchase._write_rows(unmatched_sheet, RESTOCK_UNMATCHED_COLUMNS, _drop_unmatched_source_column(unmatched_rows))

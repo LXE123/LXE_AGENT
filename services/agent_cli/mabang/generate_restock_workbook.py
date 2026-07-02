@@ -7,7 +7,7 @@ import re
 import sys
 from collections import OrderedDict
 from copy import copy
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +46,7 @@ MANUFACTURER_COLUMNS = (
     "产品名称（第一行）",
     "型号",
     "原价",
+    "均价",
     "厂家",
     "单位",
     "合同产品名称",
@@ -60,6 +61,8 @@ UNMATCHED_SHEET_NAME = "未匹配"
 EMPTY_MANUFACTURER_SHEET_NAME = "未填写厂家"
 INVALID_SHEET_TITLE_CHARS = re.compile(r"[\[\]:*?/\\]")
 FLOAT_NOISE_TOLERANCE = Decimal("0.000000001")
+ZHENGFEI_MANUFACTURER_MARKER = "正飞"
+TOTAL_ROW_FILL_COLOR = "FFFFF2CC"
 
 
 class MasterProducts(OrderedDict[str, dict[str, Any]]):
@@ -531,6 +534,31 @@ def _safe_sheet_title(raw_title: str, used_titles: set[str]) -> str:
     return title
 
 
+def _is_zhengfei_manufacturer(manufacturer: Any) -> bool:
+    return ZHENGFEI_MANUFACTURER_MARKER in _clean_cell(manufacturer)
+
+
+def _round_money_to_cents(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _zhengfei_average_prices_by_manufacturer(entries: list[dict[str, Any]]) -> dict[str, Decimal]:
+    totals: OrderedDict[str, dict[str, Decimal]] = OrderedDict()
+    for entry in entries:
+        manufacturer = _clean_cell(entry["manufacturer"])
+        if not _is_zhengfei_manufacturer(manufacturer):
+            continue
+        bucket = totals.setdefault(manufacturer, {"quantity": Decimal("0"), "total_price": Decimal("0")})
+        bucket["quantity"] += entry["quantity"]
+        bucket["total_price"] += entry["original_price"] * entry["quantity"]
+
+    averages: dict[str, Decimal] = {}
+    for manufacturer, values in totals.items():
+        if values["quantity"] > 0:
+            averages[manufacturer] = _round_money_to_cents(values["total_price"] / values["quantity"])
+    return averages
+
+
 def build_restock_rows(
     summary: OrderedDict[str, Decimal],
     sku_sources: OrderedDict[str, list[str]],
@@ -626,8 +654,15 @@ def build_restock_rows(
                 entry["source_delivery_nos"].append(source_value)
         entry["quantity"] += quantity
 
+    zhengfei_average_prices = _zhengfei_average_prices_by_manufacturer(summary_entries)
+
     def entry_to_row(entry: dict[str, Any]) -> list[Any]:
         total_price = entry["original_price"] * entry["quantity"]
+        average_price = ""
+        if _is_zhengfei_manufacturer(entry["manufacturer"]):
+            average = zhengfei_average_prices.get(_clean_cell(entry["manufacturer"]))
+            if average is not None:
+                average_price = _decimal_to_cell_value(average)
         return [
             "\n".join(entry["stock_skus"]),
             "\n".join(entry["product_names"]),
@@ -636,6 +671,7 @@ def build_restock_rows(
             entry["product_names"][0] if entry["product_names"] else "",
             entry["model"],
             _decimal_to_cell_value(entry["original_price"]),
+            average_price,
             entry["manufacturer"],
             entry["unit"],
             entry["contract_product_name"],
@@ -678,24 +714,67 @@ def _total_price_number_format(value: Any) -> str | None:
     return "0." + ("0" * decimal_places)
 
 
-def _write_rows(worksheet: Any, columns: tuple[str, ...], rows: list[list[Any]]) -> None:
-    from openpyxl.styles import Alignment
+def _sum_column_values(rows: list[list[Any]], *, column_index: int) -> Decimal:
+    total = Decimal("0")
+    for row in rows:
+        value = row[column_index] if column_index < len(row) else None
+        if value in (None, "") or isinstance(value, bool):
+            continue
+        try:
+            numeric_value = Decimal(str(value))
+        except (InvalidOperation, ValueError) as exc:
+            raise RuntimeError(f"合计行无法汇总非数字字段: {value}") from exc
+        if not numeric_value.is_finite():
+            raise RuntimeError(f"合计行无法汇总非数字字段: {value}")
+        total += numeric_value
+    return total
+
+
+def _append_total_row(worksheet: Any, columns: tuple[str, ...], rows: list[list[Any]]) -> None:
+    total_row: list[Any] = [""] * len(columns)
+    total_row[0] = "合计"
+    for column_name in ("数量", "总价", "总价（售价）"):
+        if column_name not in columns:
+            continue
+        column_index = columns.index(column_name)
+        total_row[column_index] = _decimal_to_cell_value(
+            _sum_column_values(rows, column_index=column_index)
+        )
+    worksheet.append(total_row)
+
+
+def _write_rows(
+    worksheet: Any,
+    columns: tuple[str, ...],
+    rows: list[list[Any]],
+    *,
+    append_total: bool = False,
+) -> None:
+    from openpyxl.styles import Alignment, PatternFill
     from openpyxl.utils import get_column_letter
 
     worksheet.append(list(columns))
     for row in rows:
         worksheet.append(row)
+    total_row_index = None
+    if append_total:
+        _append_total_row(worksheet, columns, rows)
+        total_row_index = worksheet.max_row
 
     for cell in worksheet[1]:
         font = copy(cell.font)
         font.bold = True
         cell.font = font
+    if total_row_index is not None:
+        total_fill = PatternFill(fill_type="solid", fgColor=TOTAL_ROW_FILL_COLOR)
+        for cell in worksheet[total_row_index]:
+            cell.fill = total_fill
     worksheet.freeze_panes = "A2"
     wrap_alignment = Alignment(wrap_text=True, vertical="top")
     for row in worksheet.iter_rows(min_row=2, min_col=1, max_col=3):
         for cell in row:
             cell.alignment = wrap_alignment
-    for price_column_name in ("售价", "总价", "总价（售价）"):
+    for price_column_name in ("均价", "售价", "售价(均价)", "总价", "总价（售价）"):
         if price_column_name not in columns:
             continue
         total_price_column = columns.index(price_column_name) + 1
@@ -739,7 +818,7 @@ def write_restock_workbook(
 
     used_titles = {SUMMARY_SHEET_NAME, UNMATCHED_SHEET_NAME}
     summary_sheet = workbook.create_sheet(SUMMARY_SHEET_NAME)
-    _write_rows(summary_sheet, MANUFACTURER_COLUMNS, summary_rows)
+    _write_rows(summary_sheet, MANUFACTURER_COLUMNS, summary_rows, append_total=True)
 
     unmatched_sheet = workbook.create_sheet(UNMATCHED_SHEET_NAME)
     _write_rows(unmatched_sheet, UNMATCHED_COLUMNS, unmatched_rows)
@@ -747,7 +826,7 @@ def write_restock_workbook(
     for manufacturer, rows in manufacturer_rows.items():
         sheet_title = _safe_sheet_title(manufacturer, used_titles)
         worksheet = workbook.create_sheet(sheet_title)
-        _write_rows(worksheet, MANUFACTURER_COLUMNS, rows)
+        _write_rows(worksheet, MANUFACTURER_COLUMNS, rows, append_total=True)
 
     workbook.save(output_path)
     return output_path

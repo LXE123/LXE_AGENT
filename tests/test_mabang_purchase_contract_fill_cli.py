@@ -20,6 +20,7 @@ def _purchase_row(
     quantity: object,
     unit_price: object,
     total_price: object,
+    average_price: object = None,
     product_name: str = "合同产品A",
     unit: str = "条",
     tax_rate: str = "13%",
@@ -32,6 +33,7 @@ def _purchase_row(
         "产品名称（第一行）": "产品A",
         "型号": model,
         "原价": unit_price,
+        "均价": average_price,
         "厂家": manufacturer,
         "单位": unit,
         "合同产品名称": product_name,
@@ -41,6 +43,14 @@ def _purchase_row(
         "总价": total_price,
     }
     return [values.get(column) for column in purchase_summary.MANUFACTURER_COLUMNS]
+
+
+def _purchase_summary_total_row(*, quantity: object, total_price: object) -> list[object]:
+    values = [""] * len(purchase_summary.MANUFACTURER_COLUMNS)
+    values[0] = "合计"
+    values[purchase_summary.MANUFACTURER_COLUMNS.index("数量")] = quantity
+    values[purchase_summary.MANUFACTURER_COLUMNS.index("总价")] = total_price
+    return values
 
 
 def _write_purchase_summary(path: Path, rows: list[list[object]]) -> None:
@@ -164,6 +174,8 @@ def _write_contract_template_with_merged_summary_and_terms(path: Path, sheet_nam
     worksheet.merge_cells("A6:F6")
     worksheet["A7"] = "销售条款：保留格式"
     worksheet.merge_cells("A7:H7")
+    worksheet.row_dimensions[6].height = 41
+    worksheet.row_dimensions[7].height = 73
     addendum_worksheet = workbook.create_sheet(cli.ADDENDUM_TEMPLATE_SHEET)
     _write_addendum_template_sheet(addendum_worksheet)
     workbook.save(path)
@@ -272,6 +284,7 @@ def test_fill_purchase_contracts_generates_one_file_per_manufacturer(tmp_path):
                 unit="个",
                 tax_rate="9%",
             ),
+            _purchase_summary_total_row(quantity=310, total_price=2060),
         ],
     )
     template_path = tmp_path / "contract_template.xlsx"
@@ -310,6 +323,106 @@ def test_fill_purchase_contracts_generates_one_file_per_manufacturer(tmp_path):
     assert "交货日期：2026年7月4日" in str(_cell_value(output_by_manufacturer["厂家A"], "厂家A", "E3"))
     assert "税率：13%" in str(_cell_value(output_by_manufacturer["厂家A"], "厂家A", "E3"))
     assert "税率：9%" in str(_cell_value(output_by_manufacturer["厂家B"], "深圳厂家B模板", "E3"))
+
+
+def test_fill_purchase_contracts_uses_zhengfei_average_price(tmp_path):
+    purchase_path = tmp_path / "purchase_summary.xlsx"
+    _write_purchase_summary(
+        purchase_path,
+        [
+            _purchase_row(
+                manufacturer="深圳正飞科技",
+                model="JZ-19",
+                quantity=2,
+                unit_price=2,
+                average_price=3.2,
+                total_price=4,
+            ),
+            _purchase_row(
+                manufacturer="深圳正飞科技",
+                model="JZ-20",
+                quantity=3,
+                unit_price=4,
+                average_price=3.2,
+                total_price=12,
+            ),
+            _purchase_summary_total_row(quantity=5, total_price=16),
+        ],
+    )
+    template_path = tmp_path / "contract_template.xlsx"
+    _write_contract_template(template_path, ["深圳正飞科技"])
+
+    payload = cli.fill_purchase_contracts(
+        purchase_summary_xlsx=purchase_path,
+        contract_template_xlsx=template_path,
+        output_dir=tmp_path / "out",
+        today=date(2026, 7, 1),
+    )
+
+    assert payload["success"] is True
+    output_path = Path(payload["output_files"][0]["output_xlsx"])
+    assert _sheet_values(output_path, "深圳正飞科技", "A5:G7") == [
+        (1, "合同产品A", "JZ-19", "条", 2, 3.2, 6.4),
+        (2, "合同产品A", "JZ-20", "条", 3, 3.2, 9.6),
+        ("合计", None, None, None, None, None, 16),
+    ]
+    assert _sheet_values(output_path, cli.ADDENDUM_OUTPUT_SHEET, "A5:G7") == [
+        (1, "合同产品A", "JZ-19", "条", 2, 3.2, 6.4),
+        (2, "合同产品A", "JZ-20", "条", 3, 3.2, 9.6),
+        ("合计", None, None, None, None, None, 16),
+    ]
+
+
+def test_fill_purchase_contracts_rejects_zhengfei_missing_average_price(tmp_path):
+    purchase_path = tmp_path / "purchase_summary.xlsx"
+    _write_purchase_summary(
+        purchase_path,
+        [
+            _purchase_row(
+                manufacturer="深圳正飞科技",
+                model="JZ-19",
+                quantity=2,
+                unit_price=2,
+                total_price=4,
+            ),
+        ],
+    )
+    template_path = tmp_path / "contract_template.xlsx"
+    _write_contract_template(template_path, ["深圳正飞科技"])
+
+    with pytest.raises(RuntimeError, match="正飞均价不能为空"):
+        cli.fill_purchase_contracts(
+            purchase_summary_xlsx=purchase_path,
+            contract_template_xlsx=template_path,
+            output_dir=tmp_path / "out",
+            today=date(2026, 7, 1),
+        )
+
+
+def test_load_purchase_summary_lines_rejects_middle_total_row(tmp_path):
+    purchase_path = tmp_path / "purchase_summary.xlsx"
+    _write_purchase_summary(
+        purchase_path,
+        [
+            _purchase_row(manufacturer="厂家A", model="A-1", quantity=1, unit_price=1, total_price=1),
+            _purchase_summary_total_row(quantity=3, total_price=3),
+            _purchase_row(manufacturer="厂家B", model="B-1", quantity=2, unit_price=1, total_price=2),
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="采购汇总表 第3行 合计行必须是最后一行"):
+        cli.load_purchase_summary_lines(purchase_path)
+
+
+def test_load_purchase_summary_lines_rejects_only_total_row(tmp_path):
+    purchase_path = tmp_path / "purchase_summary.xlsx"
+    _write_purchase_summary(
+        purchase_path,
+        [_purchase_summary_total_row(quantity=0, total_price=0)],
+    )
+
+    with pytest.raises(RuntimeError, match="采购汇总表没有可填写合同的厂家明细"):
+        cli.load_purchase_summary_lines(purchase_path)
 
 
 def test_fill_purchase_contracts_skips_missing_and_ambiguous_template_sheets(tmp_path):
@@ -497,6 +610,11 @@ def test_fill_purchase_contracts_preserves_summary_and_terms_merges_when_inserti
     assert _single_row_merged_ranges(output_path, "厂家A", 10) == ["A10:H10"]
     assert _single_row_merged_ranges(output_path, "厂家A", 6) == []
     assert _single_row_merged_ranges(output_path, "厂家A", 7) == []
+    assert _row_height(output_path, "厂家A", 6) == 33
+    assert _row_height(output_path, "厂家A", 7) == 33
+    assert _row_height(output_path, "厂家A", 8) == 33
+    assert _row_height(output_path, "厂家A", 9) == 41
+    assert _row_height(output_path, "厂家A", 10) == 73
 
 
 def test_fill_detail_rows_tolerates_dirty_merged_cell_records():
