@@ -17,6 +17,7 @@ PURCHASE_COLUMNS = (
     "产品名称（第一行）",
     "型号",
     "原价",
+    "均价",
     "厂家",
     "单位",
     "合同产品名称",
@@ -31,7 +32,10 @@ RESTOCK_COLUMNS = (
     "产品名称",
     "型号",
     "原价",
+    "均价",
     "售价",
+    "售价(均价)",
+    "毛利率",
     "厂家",
     "单位",
     "合同产品名称",
@@ -62,6 +66,7 @@ def _purchase_row(
     contract_product_name: object = None,
     contract_no_prefix: object = None,
     tax_rate: object = None,
+    average_price: object = None,
 ) -> tuple[object, ...]:
     return (
         stock_skus,
@@ -71,6 +76,7 @@ def _purchase_row(
         _first_line(product_names),
         model,
         original_price,
+        average_price,
         manufacturer,
         unit,
         contract_product_name,
@@ -78,6 +84,45 @@ def _purchase_row(
         tax_rate,
         quantity,
         total_price,
+    )
+
+
+def _purchase_total_row(quantity: object, total_price: object) -> tuple[object, ...]:
+    return (
+        "合计",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        quantity,
+        total_price,
+    )
+
+
+def _restock_total_row(quantity: object, total_price: object, sale_total_price: object) -> tuple[object, ...]:
+    return (
+        "合计",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        quantity,
+        total_price,
+        sale_total_price,
     )
 
 
@@ -159,6 +204,16 @@ def _cell_number_format(path: Path, sheet_name: str, cell: str) -> str:
         workbook.close()
 
 
+def _cell_fill_rgb(path: Path, sheet_name: str, cell: str) -> str:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, data_only=True)
+    try:
+        return str(workbook[sheet_name][cell].fill.fgColor.rgb)
+    finally:
+        workbook.close()
+
+
 def _sheet_dimensions(path: Path, sheet_name: str) -> tuple[list[float | None], list[float | None]]:
     from openpyxl import load_workbook
 
@@ -223,15 +278,21 @@ def test_generate_restock_workbook_groups_by_manufacturer(tmp_path):
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 1.5, "厂家A", 2, 3),
         _purchase_row("SKU-B", "产品B", "SP260508022", "M-B", 2, "厂家B", 3, 6),
+        _purchase_total_row(5, 9),
     ]
     assert _sheet_values(output_path, "厂家A") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 1.5, "厂家A", 2, 3),
+        _purchase_total_row(2, 3),
     ]
     assert _sheet_values(output_path, "厂家B") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-B", "产品B", "SP260508022", "M-B", 2, "厂家B", 3, 6),
+        _purchase_total_row(3, 6),
     ]
+    assert _cell_fill_rgb(output_path, "采购汇总", "A4") == cli.TOTAL_ROW_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "厂家A", "A3") == cli.TOTAL_ROW_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "厂家B", "A3") == cli.TOTAL_ROW_FILL_COLOR
     assert _sheet_values(output_path, "未匹配") == [
         PURCHASE_UNMATCHED_COLUMNS,
     ]
@@ -281,6 +342,7 @@ def test_generate_restock_workbook_fills_contract_fields_from_second_sheet(tmp_p
             "HT-A",
             "13%",
         ),
+        _purchase_total_row(2, 4),
     ]
     assert _sheet_values(output_path, "厂家A") == [
         PURCHASE_COLUMNS,
@@ -298,6 +360,7 @@ def test_generate_restock_workbook_fills_contract_fields_from_second_sheet(tmp_p
             "HT-A",
             "13%",
         ),
+        _purchase_total_row(2, 4),
     ]
 
 
@@ -328,6 +391,7 @@ def test_generate_restock_workbook_warns_contract_prefix_missing_header(tmp_path
     assert _sheet_values(Path(payload["output_xlsx"]), "采购汇总") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4, "个", "合同产品A", None, "13%"),
+        _purchase_total_row(2, 4),
     ]
 
 
@@ -363,6 +427,7 @@ def test_generate_restock_workbook_warns_contract_prefix_conflict(tmp_path):
     assert _sheet_values(Path(payload["output_xlsx"]), "采购汇总") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4, "个", "合同产品A"),
+        _purchase_total_row(2, 4),
     ]
 
 
@@ -393,6 +458,7 @@ def test_generate_restock_workbook_warns_contract_tax_rate_missing_header(tmp_pa
     assert _sheet_values(Path(payload["output_xlsx"]), "采购汇总") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4, "个", "合同产品A", "HT-A"),
+        _purchase_total_row(2, 4),
     ]
 
 
@@ -428,6 +494,7 @@ def test_generate_restock_workbook_warns_contract_tax_rate_conflict(tmp_path):
     assert _sheet_values(Path(payload["output_xlsx"]), "采购汇总") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4, "个", "合同产品A", "HT-A"),
+        _purchase_total_row(2, 4),
     ]
 
 
@@ -462,6 +529,7 @@ def test_generate_restock_workbook_warns_contract_mapping_conflict(tmp_path):
     assert _sheet_values(Path(payload["output_xlsx"]), "厂家A") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4),
+        _purchase_total_row(2, 4),
     ]
 
 
@@ -491,6 +559,7 @@ def test_generate_restock_workbook_warns_contract_mapping_missing_required_heade
     assert _sheet_values(Path(payload["output_xlsx"]), "厂家A") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4),
+        _purchase_total_row(2, 4),
     ]
 
 
@@ -522,6 +591,7 @@ def test_generate_restock_workbook_warns_unmapped_contract_manufacturer(tmp_path
     assert _sheet_values(Path(payload["output_xlsx"]), "厂家A") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4),
+        _purchase_total_row(2, 4),
     ]
 
 
@@ -552,6 +622,7 @@ def test_generate_restock_workbook_sums_multiple_delivery_nos(tmp_path):
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022\nSP260508023", "M-A", 4, "厂家A", 5, 20),
         _purchase_row("SKU-B", "产品B", "SP260508023", "M-B", 2, "厂家A", 1, 2),
+        _purchase_total_row(6, 22),
     ]
 
 
@@ -581,16 +652,17 @@ def test_generate_restock_workbook_merges_rows_by_model_with_multiline_skus(tmp_
     assert _sheet_values(output_path, "厂家A") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A\nSKU-B", "产品A\n产品A", "SP260508022", "JZ-19", 2, "厂家A", 5, 10),
+        _purchase_total_row(5, 10),
     ]
     assert _cell_wrap_text(output_path, "厂家A", "A2") is True
     assert _cell_wrap_text(output_path, "厂家A", "B2") is True
     assert _cell_wrap_text(output_path, "厂家A", "C2") is True
     widths, heights = _sheet_dimensions(output_path, "厂家A")
-    assert widths == [15] * 14
-    assert heights == [15] * 2
+    assert widths == [15] * 15
+    assert heights == [15] * 3
     widths, heights = _sheet_dimensions(output_path, "采购汇总")
-    assert widths == [15] * 14
-    assert heights == [15] * 2
+    assert widths == [15] * 15
+    assert heights == [15] * 3
 
 
 def test_generate_restock_workbook_ignores_same_model_product_name_conflict(tmp_path):
@@ -616,6 +688,7 @@ def test_generate_restock_workbook_ignores_same_model_product_name_conflict(tmp_
     assert _sheet_values(Path(payload["output_xlsx"]), "厂家A") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A\nSKU-B", "产品A\n产品B", "SP260508022", "JZ-19", 2, "厂家A", 5, 10),
+        _purchase_total_row(5, 10),
     ]
 
 
@@ -641,6 +714,7 @@ def test_generate_restock_workbook_does_not_record_zero_quantity_source(tmp_path
     assert _sheet_values(Path(payload["output_xlsx"]), "厂家A") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508023", "M-A", 2, "厂家A", 3, 6),
+        _purchase_total_row(3, 6),
     ]
 
 
@@ -654,6 +728,105 @@ def test_generate_restock_workbook_rejects_same_model_with_different_price(tmp_p
         [
             {"库存sku": "SKU-A", "产品名称": "产品A", "型号": "JZ-19", "原价": 2, "厂家": "厂家A"},
             {"库存sku": "SKU-B", "产品名称": "产品A", "型号": "JZ-19", "原价": 3, "厂家": "厂家A"},
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="同一厂家同一型号的原价不一致"):
+        cli.generate_restock_workbook(
+            ["SP260508022"],
+            master_xlsx=master_path,
+            csv_dir=csv_dir,
+            output_dir=tmp_path,
+        )
+
+
+def test_generate_restock_workbook_writes_zhengfei_average_price(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1，SKU-B × 2，SKU-C × 4"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [
+            {"库存sku": "SKU-A", "产品名称": "产品A", "型号": "JZ-19", "原价": 2, "厂家": "深圳正飞科技"},
+            {"库存sku": "SKU-B", "产品名称": "产品B", "型号": "JZ-20", "原价": 3, "厂家": "深圳正飞科技"},
+            {"库存sku": "SKU-C", "产品名称": "产品C", "型号": "M-C", "原价": 3, "厂家": "厂家A"},
+        ],
+    )
+
+    payload = cli.generate_restock_workbook(
+        ["SP260508022"],
+        master_xlsx=master_path,
+        csv_dir=csv_dir,
+        output_dir=tmp_path,
+    )
+
+    output_path = Path(payload["output_xlsx"])
+    assert _sheet_values(output_path, "采购汇总") == [
+        PURCHASE_COLUMNS,
+        _purchase_row(
+            "SKU-A",
+            "产品A",
+            "SP260508022",
+            "JZ-19",
+            2,
+            "深圳正飞科技",
+            1,
+            2,
+            average_price=2.67,
+        ),
+        _purchase_row(
+            "SKU-B",
+            "产品B",
+            "SP260508022",
+            "JZ-20",
+            3,
+            "深圳正飞科技",
+            2,
+            6,
+            average_price=2.67,
+        ),
+        _purchase_row("SKU-C", "产品C", "SP260508022", "M-C", 3, "厂家A", 4, 12),
+        _purchase_total_row(7, 20),
+    ]
+    assert _sheet_values(output_path, "深圳正飞科技") == [
+        PURCHASE_COLUMNS,
+        _purchase_row(
+            "SKU-A",
+            "产品A",
+            "SP260508022",
+            "JZ-19",
+            2,
+            "深圳正飞科技",
+            1,
+            2,
+            average_price=2.67,
+        ),
+        _purchase_row(
+            "SKU-B",
+            "产品B",
+            "SP260508022",
+            "JZ-20",
+            3,
+            "深圳正飞科技",
+            2,
+            6,
+            average_price=2.67,
+        ),
+        _purchase_total_row(3, 8),
+    ]
+
+
+def test_generate_restock_workbook_rejects_zhengfei_same_model_with_different_price(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 2，SKU-B × 3"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [
+            {"库存sku": "SKU-A", "产品名称": "产品A", "型号": "JZ-19", "原价": 2, "厂家": "深圳正飞科技"},
+            {"库存sku": "SKU-B", "产品名称": "产品B", "型号": "JZ-19", "原价": 3, "厂家": "深圳正飞科技"},
         ],
     )
 
@@ -691,10 +864,12 @@ def test_generate_restock_workbook_does_not_merge_same_model_across_manufacturer
     assert _sheet_values(output_path, "厂家A") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "JZ-19", 2, "厂家A", 2, 4),
+        _purchase_total_row(2, 4),
     ]
     assert _sheet_values(output_path, "厂家B") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-B", "产品A", "SP260508022", "JZ-19", 2, "厂家B", 3, 6),
+        _purchase_total_row(3, 6),
     ]
 
 
@@ -728,6 +903,7 @@ def test_generate_restock_workbook_keeps_empty_model_rows_unmerged_with_warning(
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", None, 2, "厂家A", 2, 4),
         _purchase_row("SKU-B", "产品A", "SP260508022", None, 2, "厂家A", 3, 6),
+        _purchase_total_row(5, 10),
     ]
 
 
@@ -756,10 +932,12 @@ def test_generate_restock_workbook_writes_unmatched_sheet(tmp_path):
     assert _sheet_values(output_path, "采购汇总") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "未填写厂家", 1, 2),
+        _purchase_total_row(1, 2),
     ]
     assert _sheet_values(output_path, "未填写厂家") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "未填写厂家", 1, 2),
+        _purchase_total_row(1, 2),
     ]
     assert _sheet_values(output_path, "未匹配") == [
         PURCHASE_UNMATCHED_COLUMNS,
@@ -821,6 +999,7 @@ def test_generate_restock_workbook_purchase_summary_preserves_delivery_order(tmp
         _purchase_row("SKU-B", "产品B", "SP260508022", "M-B", 1, "厂家A", 3, 3),
         _purchase_row("SKU-A", "产品A", "SP260508022\nSP260508023", "M-A", 1, "厂家A", 3, 3),
         _purchase_row("SKU-C", "产品C", "SP260508023", "M-C", 1, "厂家A", 4, 4),
+        _purchase_total_row(10, 10),
     ]
 
 
@@ -845,10 +1024,10 @@ def test_generate_restock_workbook_total_price_number_format(tmp_path):
     )
 
     output_path = Path(payload["output_xlsx"])
-    assert _cell_number_format(output_path, "采购汇总", "N2") == "0.00"
-    assert _cell_number_format(output_path, "采购汇总", "N3") == "0.000"
-    assert _cell_number_format(output_path, "厂家A", "N2") == "0.00"
-    assert _cell_number_format(output_path, "厂家A", "N3") == "0.000"
+    assert _cell_number_format(output_path, "采购汇总", "O2") == "0.00"
+    assert _cell_number_format(output_path, "采购汇总", "O3") == "0.000"
+    assert _cell_number_format(output_path, "厂家A", "O2") == "0.00"
+    assert _cell_number_format(output_path, "厂家A", "O3") == "0.000"
 
 
 def test_generate_restock_workbook_total_price_format_ignores_float_noise(tmp_path):
@@ -884,8 +1063,8 @@ def test_generate_restock_workbook_total_price_format_ignores_float_noise(tmp_pa
     )
 
     output_path = Path(payload["output_xlsx"])
-    assert _cell_number_format(output_path, "采购汇总", "N2") == "0.00"
-    assert _cell_number_format(output_path, "采购汇总", "N3") == "0.000"
+    assert _cell_number_format(output_path, "采购汇总", "O2") == "0.00"
+    assert _cell_number_format(output_path, "采购汇总", "O3") == "0.000"
 
 
 def test_generate_restock_workbook_dedupes_identical_master_stock_sku(tmp_path):
@@ -936,6 +1115,7 @@ def test_generate_restock_workbook_dedupes_identical_master_stock_sku(tmp_path):
     assert _sheet_values(Path(payload["output_xlsx"]), "厂家A") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4),
+        _purchase_total_row(2, 4),
     ]
 
 
@@ -970,6 +1150,7 @@ def test_generate_restock_workbook_skips_master_rows_with_empty_stock_sku(tmp_pa
     assert _sheet_values(Path(payload["output_xlsx"]), "厂家A") == [
         PURCHASE_COLUMNS,
         _purchase_row("SKU-A", "产品A", "SP260508022", "M-A", 2, "厂家A", 2, 4),
+        _purchase_total_row(2, 4),
     ]
 
 
@@ -1221,19 +1402,83 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
     restock_values = _sheet_values(output_path, "备货单")
     assert restock_values[0] == RESTOCK_COLUMNS
     assert restock_values[1][:4] == ("SKU-B\nSKU-A", "产品B\n产品A", "JZ-19", 2)
-    assert restock_values[1][4] == 2.53
-    assert restock_values[1][5:] == ("厂家A", "个", "合同产品A", 5, 10, 12.65)
+    assert restock_values[1][:7] == ("SKU-B\nSKU-A", "产品B\n产品A", "JZ-19", 2, None, 2.53, None)
+    assert restock_values[1][7:] == (0.3, "厂家A", "个", "合同产品A", 5, 10, 12.65)
+    assert restock_values[2] == _restock_total_row(5, 10, 12.65)
+    assert _cell_fill_rgb(output_path, "备货单", "A3") == cli.TOTAL_ROW_FILL_COLOR
     assert _sheet_values(output_path, "未匹配") == [
         RESTOCK_UNMATCHED_COLUMNS,
         ("SKU-X", 4, "出口退税总表未找到库存sku"),
     ]
     widths, heights = _sheet_dimensions(output_path, "备货单")
-    assert widths == [15] * 11
-    assert heights == [15] * 2
+    assert widths == [15] * 14
+    assert heights == [15] * 3
     assert _cell_wrap_text(output_path, "备货单", "A2") is True
+    assert _cell_number_format(output_path, "备货单", "F2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "M2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "N2") == "0.00"
+
+
+def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1，SKU-B × 2"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [
+            {"库存sku": "SKU-A", "产品名称": "产品A", "型号": "JZ-19", "原价": 2, "厂家": "深圳正飞科技"},
+            {"库存sku": "SKU-B", "产品名称": "产品B", "型号": "JZ-20", "原价": 3, "厂家": "深圳正飞科技"},
+        ],
+        contract_rows=[{"供货方": "深圳正飞科技", "单位": "个", "合同产品名称": "合同产品A", "税率": "13%"}],
+    )
+
+    payload = restock_cli.generate_fba_restock_workbook(
+        ["SP260508022"],
+        master_xlsx=master_path,
+        gross_margin="0.3",
+        csv_dir=csv_dir,
+        output_dir=tmp_path,
+    )
+
+    rows = _sheet_values(Path(payload["output_xlsx"]), "备货单")
+    assert rows[0] == RESTOCK_COLUMNS
+    assert rows[1] == (
+        "SKU-A",
+        "产品A",
+        "JZ-19",
+        2,
+        2.67,
+        2.53,
+        3.38,
+        0.3,
+        "深圳正飞科技",
+        "个",
+        "合同产品A",
+        1,
+        2,
+        2.53,
+    )
+    assert rows[2] == (
+        "SKU-B",
+        "产品B",
+        "JZ-20",
+        3,
+        2.67,
+        3.79,
+        3.38,
+        0.3,
+        "深圳正飞科技",
+        "个",
+        "合同产品A",
+        2,
+        6,
+        7.58,
+    )
+    assert rows[3] == _restock_total_row(3, 8, 10.11)
+    output_path = Path(payload["output_xlsx"])
     assert _cell_number_format(output_path, "备货单", "E2") == "0.00"
-    assert _cell_number_format(output_path, "备货单", "J2") == "0.00"
-    assert _cell_number_format(output_path, "备货单", "K2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "G2") == "0.00"
 
 
 def test_generate_fba_restock_workbook_accepts_tax_rate_forms_for_sale_price(tmp_path):
@@ -1264,9 +1509,9 @@ def test_generate_fba_restock_workbook_accepts_tax_rate_forms_for_sale_price(tmp
     )
 
     rows = _sheet_values(Path(payload["output_xlsx"]), "备货单")
-    assert rows[1][4] == 2.53
-    assert rows[2][4] == 2.62
-    assert rows[3][4] == 2.53
+    assert rows[1][5] == 2.53
+    assert rows[2][5] == 2.62
+    assert rows[3][5] == 2.53
 
 
 @pytest.mark.parametrize("gross_margin", ["0.19", "0.51", "abc"])
@@ -1448,11 +1693,12 @@ def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp
     restock_values = _sheet_values(Path(payload["output_xlsx"]), "备货单")
     assert restock_values[0] == RESTOCK_COLUMNS
     assert restock_values[1][:4] == ("SKU-A", "产品A", "JZ-19", 2)
-    assert restock_values[1][4] == 2.53
-    assert restock_values[1][5:] == ("厂家A", "个", "合同产品A", 2, 4, 5.06)
+    assert restock_values[1][5] == 2.53
+    assert restock_values[1][7:] == (0.3, "厂家A", "个", "合同产品A", 2, 4, 5.06)
     assert restock_values[2][:4] == ("SKU-B", "产品B", "JZ-19", 2)
-    assert restock_values[2][4] == 2.53
-    assert restock_values[2][5:] == ("厂家B", "个", "合同产品B", 3, 6, 7.59)
+    assert restock_values[2][5] == 2.53
+    assert restock_values[2][7:] == (0.3, "厂家B", "个", "合同产品B", 3, 6, 7.59)
+    assert restock_values[3] == _restock_total_row(5, 10, 12.65)
 
 
 def test_generate_fba_restock_workbook_rejects_same_manufacturer_model_with_different_price(tmp_path):

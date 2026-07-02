@@ -137,8 +137,12 @@ def test_fba_purchase_summary_skill_documents_contract() -> None:
     assert "`库存sku`、`产品名称` 单元格中按相同顺序分行显示" in text
     assert "`来源SP单号` 按型号组去重并分行显示" in text
     assert "`库存sku（第一行）`、`产品名称（第一行）`" in text
+    assert "`正飞`" in text
+    assert "`均价 = sum(原价 * 数量) / sum(数量)`" in text
+    assert "均价" in text and "四舍五入保留两位小数" in text
     assert "来源SP单号（第一行）" not in text
-    assert "`厂家`、`单位`、`合同产品名称`、`合同编号前缀`、`税率`、`数量`、`总价`" in text
+    assert "最后一行是带填充色的 `合计` 行，会汇总 `数量` 和 `总价`" in text
+    assert "`原价`、`均价`、`厂家`、`单位`、`合同产品名称`、`合同编号前缀`、`税率`、`数量`、`总价`" in text
     assert "所有列宽和行高已统一为 15" in text
 
 
@@ -158,7 +162,11 @@ def test_fba_purchase_contract_fill_skill_documents_contract() -> None:
     assert "找不到厂家模板 sheet" in text
     assert "运行当天 + 3 天" in text
     assert "税率来自采购汇总表" in text
+    assert "普通厂家明细表" in text
     assert "`产品名称=合同产品名称`" in text
+    assert "`正飞`" in text
+    assert "`均价` 填写 `含税单价`" in text
+    assert "`均价 * 数量` 重算 `含税金额`" in text
     assert "模板有 `规格型号` 列时才写入 `型号`" in text
 
 
@@ -180,9 +188,14 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "`0.2` 到 `0.5`" in text
     assert "毛利率" in text
     assert "售价 = 原价 / 含税倍率 / (1 - 毛利率)" in text
+    assert "`正飞`" in text
+    assert "`均价 = sum(原价 * 数量) / sum(数量)`" in text
+    assert "均价" in text and "四舍五入保留两位小数" in text
+    assert "`售价(均价) = 均价 / 含税倍率 / (1 - 毛利率)`" in text
     assert "`13%` 按含税倍率 `1.13`" in text
     assert "售价四舍五入保留两位小数" in text
     assert "总价（售价）" in text
+    assert "最后一行是带填充色的 `合计` 行，会汇总 `数量`、`总价` 和 `总价（售价）`" in text
     assert "合同编号前缀" not in text
     assert "contract_mapping_count" in text
     assert "不生成厂家分类 sheet" in text
@@ -196,7 +209,7 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "业务人员需要核查" in text
     assert "按 `型号` 合并" in text
     assert "不同厂家相同型号会保留为不同行" in text
-    assert "`原价`、`售价`、`厂家`、`单位`、`合同产品名称`、`数量`、`总价`、`总价（售价）`" in text
+    assert "`原价`、`均价`、`售价`、`售价(均价)`、`毛利率`、`厂家`、`单位`、`合同产品名称`、`数量`、`总价`、`总价（售价）`" in text
     assert "所有列宽和行高已统一为 15" in text
 
 

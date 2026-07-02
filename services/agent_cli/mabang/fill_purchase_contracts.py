@@ -104,6 +104,13 @@ def _decimal_from_value(value: Any, *, field_name: str, row_number: int) -> Deci
     return result
 
 
+def _row_value_by_header(row: tuple[Any, ...], indexes: dict[str, int], header: str) -> Any:
+    column_index = indexes.get(header)
+    if column_index is None:
+        return None
+    return row[column_index - 1] if column_index - 1 < len(row) else None
+
+
 def _normalize_header(value: Any) -> str:
     return re.sub(r"\s+", "", _clean_cell(value))
 
@@ -118,6 +125,11 @@ def _header_indexes(header_values: tuple[Any, ...]) -> dict[str, int]:
     if missing:
         raise RuntimeError(f"采购汇总表 {PURCHASE_SUMMARY_SHEET} sheet 缺少必需列: {', '.join(missing)}")
     return indexes
+
+
+def _is_purchase_summary_total_row(row: tuple[Any, ...]) -> bool:
+    first_cell = row[0] if row else None
+    return _clean_cell(first_cell) == "合计"
 
 
 def load_purchase_summary_lines(
@@ -144,9 +156,16 @@ def load_purchase_summary_lines(
             header_values = ()
         indexes = _header_indexes(tuple(header_values or ()))
 
+        data_rows = [
+            (row_number, tuple(row or ()))
+            for row_number, row in enumerate(rows, start=2)
+            if any(_clean_cell(value) for value in row)
+        ]
         grouped: OrderedDict[str, list[PurchaseContractLine]] = OrderedDict()
-        for row_number, row in enumerate(rows, start=2):
-            if not any(_clean_cell(value) for value in row):
+        for position, (row_number, row) in enumerate(data_rows):
+            if _is_purchase_summary_total_row(row):
+                if position != len(data_rows) - 1:
+                    raise RuntimeError(f"采购汇总表 第{row_number}行 合计行必须是最后一行")
                 continue
             values = {
                 header: row[indexes[header] - 1] if indexes[header] - 1 < len(row) else None
@@ -155,14 +174,27 @@ def load_purchase_summary_lines(
             manufacturer = _clean_cell(values["厂家"])
             if not manufacturer:
                 raise RuntimeError(f"采购汇总表 第{row_number}行 厂家不能为空")
+            quantity = _decimal_from_value(values["数量"], field_name="数量", row_number=row_number)
+            tax_unit_price = _decimal_from_value(values["原价"], field_name="原价", row_number=row_number)
+            tax_amount = _decimal_from_value(values["总价"], field_name="总价", row_number=row_number)
+            if purchase_summary._is_zhengfei_manufacturer(manufacturer):
+                average_price_value = _row_value_by_header(row, indexes, "均价")
+                if not _clean_cell(average_price_value):
+                    raise RuntimeError(f"采购汇总表 第{row_number}行 正飞均价不能为空")
+                tax_unit_price = _decimal_from_value(
+                    average_price_value,
+                    field_name="正飞均价",
+                    row_number=row_number,
+                )
+                tax_amount = tax_unit_price * quantity
             line = PurchaseContractLine(
                 manufacturer=manufacturer,
                 product_name=_clean_cell(values["合同产品名称"]),
                 model=_clean_cell(values["型号"]),
                 unit=_clean_cell(values["单位"]),
-                quantity=_decimal_from_value(values["数量"], field_name="数量", row_number=row_number),
-                tax_unit_price=_decimal_from_value(values["原价"], field_name="原价", row_number=row_number),
-                tax_amount=_decimal_from_value(values["总价"], field_name="总价", row_number=row_number),
+                quantity=quantity,
+                tax_unit_price=tax_unit_price,
+                tax_amount=tax_amount,
                 tax_rate=_clean_cell(values["税率"]),
             )
             grouped.setdefault(manufacturer, []).append(line)
@@ -264,11 +296,42 @@ def _merged_range_shifts_for_insert(
     return shifted_bounds
 
 
+def _row_dimension_shifts_for_insert(worksheet: Any, *, row: int) -> list[tuple[int, Any]]:
+    return [
+        (row_index, copy(dimension))
+        for row_index, dimension in worksheet.row_dimensions.items()
+        if row_index >= row
+    ]
+
+
+def _shift_row_dimensions_after_insert(
+    worksheet: Any,
+    *,
+    row: int,
+    amount: int,
+    shifted_dimensions: list[tuple[int, Any]],
+) -> None:
+    for row_index in list(worksheet.row_dimensions.keys()):
+        if row_index >= row:
+            del worksheet.row_dimensions[row_index]
+    for old_row_index, dimension in shifted_dimensions:
+        new_row_index = old_row_index + amount
+        dimension.index = new_row_index
+        worksheet.row_dimensions[new_row_index] = dimension
+
+
 def _insert_rows_preserving_merged_ranges(worksheet: Any, *, row: int, amount: int) -> None:
     if amount <= 0:
         return
     shifted_bounds = _merged_range_shifts_for_insert(worksheet, row=row, amount=amount)
+    shifted_dimensions = _row_dimension_shifts_for_insert(worksheet, row=row)
     worksheet.insert_rows(row, amount=amount)
+    _shift_row_dimensions_after_insert(
+        worksheet,
+        row=row,
+        amount=amount,
+        shifted_dimensions=shifted_dimensions,
+    )
     for old_bounds, _ in shifted_bounds:
         _remove_merged_range_registration(worksheet, old_bounds)
     for _, new_bounds in shifted_bounds:
