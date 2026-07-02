@@ -54,6 +54,7 @@ MANUFACTURER_COLUMNS = (
     "税率",
     "数量",
     "总价",
+    "总价（均价）",
 )
 UNMATCHED_COLUMNS = ("库存sku", "来源SP单号", "数量", "问题说明")
 SUMMARY_SHEET_NAME = "采购汇总"
@@ -659,10 +660,12 @@ def build_restock_rows(
     def entry_to_row(entry: dict[str, Any]) -> list[Any]:
         total_price = entry["original_price"] * entry["quantity"]
         average_price = ""
+        average_total_price = ""
         if _is_zhengfei_manufacturer(entry["manufacturer"]):
             average = zhengfei_average_prices.get(_clean_cell(entry["manufacturer"]))
             if average is not None:
                 average_price = _decimal_to_cell_value(average)
+                average_total_price = _decimal_to_cell_value(_round_money_to_cents(average * entry["quantity"]))
         return [
             "\n".join(entry["stock_skus"]),
             "\n".join(entry["product_names"]),
@@ -679,6 +682,7 @@ def build_restock_rows(
             entry["tax_rate"],
             _decimal_to_cell_value(entry["quantity"]),
             _decimal_to_cell_value(total_price),
+            average_total_price,
         ]
 
     summary_rows = [entry_to_row(entry) for entry in summary_entries]
@@ -730,13 +734,26 @@ def _sum_column_values(rows: list[list[Any]], *, column_index: int) -> Decimal:
     return total
 
 
+def _has_column_value(rows: list[list[Any]], *, column_index: int) -> bool:
+    for row in rows:
+        value = row[column_index] if column_index < len(row) else None
+        if value not in (None, "") and not isinstance(value, bool):
+            return True
+    return False
+
+
 def _append_total_row(worksheet: Any, columns: tuple[str, ...], rows: list[list[Any]]) -> None:
     total_row: list[Any] = [""] * len(columns)
     total_row[0] = "合计"
-    for column_name in ("数量", "总价", "总价（售价）"):
+    for column_name in ("数量", "总价", "总价（均价）", "总价（售价）"):
         if column_name not in columns:
             continue
         column_index = columns.index(column_name)
+        if column_name in ("总价（均价）", "总价（售价）") and not _has_column_value(
+            rows,
+            column_index=column_index,
+        ):
+            continue
         total_row[column_index] = _decimal_to_cell_value(
             _sum_column_values(rows, column_index=column_index)
         )
@@ -774,7 +791,7 @@ def _write_rows(
     for row in worksheet.iter_rows(min_row=2, min_col=1, max_col=3):
         for cell in row:
             cell.alignment = wrap_alignment
-    for price_column_name in ("均价", "售价", "售价(均价)", "总价", "总价（售价）"):
+    for price_column_name in ("均价", "售价", "售价(均价)", "总价", "总价（均价）", "总价（售价）"):
         if price_column_name not in columns:
             continue
         total_price_column = columns.index(price_column_name) + 1

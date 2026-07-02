@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import re
 from collections import OrderedDict
+from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
@@ -13,9 +15,15 @@ DELIVERY_CSV_DIR = _purchase.DELIVERY_CSV_DIR
 OUTPUT_DIR = Path("artifacts") / "mabang_restock_workbook"
 SOURCE = "fba_restock_workbook"
 RESTOCK_SHEET_NAME = "备货单"
+COUNTRY_COLUMN = "国家"
+DEFAULT_COUNTRY_NAME = "未知国家"
+RESTOCK_FILE_LABEL = "新棱镜备货"
+INVALID_FILE_NAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 RESTOCK_COLUMNS = (
     "库存sku",
     "产品名称",
+    "库存sku（第一行）",
+    "产品名称（第一行）",
     "型号",
     "原价",
     "均价",
@@ -103,8 +111,45 @@ def _append_cross_manufacturer_model_warning(
     return len(conflicts)
 
 
-def _output_file_name(delivery_no: str) -> str:
-    return f"{delivery_no}_restock_workbook.xlsx"
+def _safe_file_name_part(value: Any, *, fallback: str) -> str:
+    cleaned = INVALID_FILE_NAME_CHARS.sub("_", _purchase._clean_cell(value)).strip(". ")
+    return cleaned or fallback
+
+
+def _date_prefix(value: date) -> str:
+    return f"{value.month}.{value.day}"
+
+
+def _delivery_country_metadata(csv_path: str | Path) -> tuple[str, list[str]]:
+    headers, rows = _purchase._read_delivery_rows(csv_path)
+    warnings: list[str] = []
+    if COUNTRY_COLUMN not in headers:
+        warnings.append(f"发货单 CSV 缺少 `{COUNTRY_COLUMN}` 字段，备货单文件名国家已使用 `{DEFAULT_COUNTRY_NAME}`")
+        return DEFAULT_COUNTRY_NAME, warnings
+
+    countries: list[str] = []
+    for row in rows:
+        country = _purchase._clean_cell(row.get(COUNTRY_COLUMN))
+        if country and country not in countries:
+            countries.append(country)
+
+    if not countries:
+        warnings.append(f"发货单 CSV `{COUNTRY_COLUMN}` 字段为空，备货单文件名国家已使用 `{DEFAULT_COUNTRY_NAME}`")
+        return DEFAULT_COUNTRY_NAME, warnings
+
+    if len(countries) > 1:
+        warnings.append(
+            f"发货单 CSV 存在多个不同国家，备货单文件名已使用第一条非空国家 `{countries[0]}`，"
+            f"请业务人员核查: {', '.join(countries[:20])}"
+        )
+    return countries[0], warnings
+
+
+def _output_file_name(delivery_no: str, *, country: str, today: date) -> str:
+    delivery_no_part = _safe_file_name_part(delivery_no, fallback="SP")
+    label_part = _safe_file_name_part(RESTOCK_FILE_LABEL, fallback="备货")
+    country_part = _safe_file_name_part(country, fallback=DEFAULT_COUNTRY_NAME)
+    return f"{_date_prefix(today)}-{delivery_no_part}-{label_part}-{country_part}.xlsx"
 
 
 def _purchase_row_value(row: list[Any], column: str) -> Any:
@@ -218,6 +263,8 @@ def _project_restock_rows(rows: list[list[Any]], *, gross_margin: Decimal) -> li
         values = {
             "库存sku": _purchase_row_value(row, "库存sku"),
             "产品名称": _purchase_row_value(row, "产品名称"),
+            "库存sku（第一行）": _purchase_row_value(row, "库存sku（第一行）"),
+            "产品名称（第一行）": _purchase_row_value(row, "产品名称（第一行）"),
             "型号": _purchase_row_value(row, "型号"),
             "原价": _purchase_row_value(row, "原价"),
             "均价": _purchase_row_value(row, "均价"),
@@ -251,12 +298,14 @@ def write_fba_restock_workbook(
     unmatched_rows: list[list[Any]],
     *,
     delivery_no: str,
+    country: str,
     gross_margin: Decimal,
+    today: date,
     output_dir: str | Path | None = None,
 ) -> Path:
     directory = Path(OUTPUT_DIR if output_dir is None else output_dir)
     directory.mkdir(parents=True, exist_ok=True)
-    output_path = directory / _output_file_name(delivery_no)
+    output_path = directory / _output_file_name(delivery_no, country=country, today=today)
 
     try:
         from openpyxl import Workbook
@@ -296,6 +345,7 @@ def generate_fba_restock_workbook(
     gross_margin: Any,
     csv_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
+    today: date | None = None,
 ) -> dict[str, Any]:
     parsed_gross_margin = _parse_gross_margin(gross_margin)
     delivery_no = _normalize_single_delivery_no(delivery_nos)
@@ -303,7 +353,9 @@ def generate_fba_restock_workbook(
         delivery_no,
         csv_dir=csv_dir,
     )
+    country, country_warnings = _delivery_country_metadata(csv_path)
     products = _purchase.load_master_products(master_xlsx)
+    products.warnings.extend(country_warnings)
     restock_rows, _manufacturer_rows, unmatched_rows, matched_sku_count, unmatched_sku_count = (
         _purchase.build_restock_rows(summary, sku_sources, products)
     )
@@ -315,7 +367,9 @@ def generate_fba_restock_workbook(
         restock_rows,
         unmatched_rows,
         delivery_no=normalized_delivery_no,
+        country=country,
         gross_margin=parsed_gross_margin,
+        today=today or date.today(),
         output_dir=output_dir,
     )
     return {
@@ -324,6 +378,7 @@ def generate_fba_restock_workbook(
         "delivery_nos": [normalized_delivery_no],
         "csv_path": csv_path,
         "csv_paths": [csv_path],
+        "country": country,
         "master_xlsx": str(Path(master_xlsx).expanduser()),
         "output_xlsx": str(output_xlsx),
         "sku_count": len(summary),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -25,11 +26,14 @@ PURCHASE_COLUMNS = (
     "税率",
     "数量",
     "总价",
+    "总价（均价）",
 )
 PURCHASE_UNMATCHED_COLUMNS = ("库存sku", "来源SP单号", "数量", "问题说明")
 RESTOCK_COLUMNS = (
     "库存sku",
     "产品名称",
+    "库存sku（第一行）",
+    "产品名称（第一行）",
     "型号",
     "原价",
     "均价",
@@ -67,6 +71,7 @@ def _purchase_row(
     contract_no_prefix: object = None,
     tax_rate: object = None,
     average_price: object = None,
+    average_total_price: object = None,
 ) -> tuple[object, ...]:
     return (
         stock_skus,
@@ -84,10 +89,15 @@ def _purchase_row(
         tax_rate,
         quantity,
         total_price,
+        average_total_price,
     )
 
 
-def _purchase_total_row(quantity: object, total_price: object) -> tuple[object, ...]:
+def _purchase_total_row(
+    quantity: object,
+    total_price: object,
+    average_total_price: object = None,
+) -> tuple[object, ...]:
     return (
         "合计",
         None,
@@ -104,6 +114,7 @@ def _purchase_total_row(quantity: object, total_price: object) -> tuple[object, 
         None,
         quantity,
         total_price,
+        average_total_price,
     )
 
 
@@ -120,17 +131,33 @@ def _restock_total_row(quantity: object, total_price: object, sale_total_price: 
         None,
         None,
         None,
+        None,
+        None,
         quantity,
         total_price,
         sale_total_price,
     )
 
 
-def _write_delivery_csv(path: Path, rows: list[str]) -> None:
-    headers = ["发货单号", "SKU发货量", "备注"]
+def _write_delivery_csv(
+    path: Path,
+    rows: list[str],
+    *,
+    countries: list[str] | None = None,
+    include_country: bool = False,
+) -> None:
+    headers = ["发货单号", "SKU发货量"]
+    if include_country or countries is not None:
+        headers.append("国家")
+    headers.append("备注")
     lines = [",".join(f'"{header}"' for header in headers)]
-    for value in rows:
-        lines.append(",".join(f'"{field}"' for field in ["SP260508022", value, ""]))
+    country_values = list(countries or [])
+    for index, value in enumerate(rows):
+        fields = ["SP260508022", value]
+        if include_country or countries is not None:
+            fields.append(country_values[index] if index < len(country_values) else "")
+        fields.append("")
+        lines.append(",".join(f'"{field}"' for field in fields))
     path.write_text("\n".join(lines), encoding="utf-8-sig")
 
 
@@ -658,10 +685,10 @@ def test_generate_restock_workbook_merges_rows_by_model_with_multiline_skus(tmp_
     assert _cell_wrap_text(output_path, "厂家A", "B2") is True
     assert _cell_wrap_text(output_path, "厂家A", "C2") is True
     widths, heights = _sheet_dimensions(output_path, "厂家A")
-    assert widths == [15] * 15
+    assert widths == [15] * 16
     assert heights == [15] * 3
     widths, heights = _sheet_dimensions(output_path, "采购汇总")
-    assert widths == [15] * 15
+    assert widths == [15] * 16
     assert heights == [15] * 3
 
 
@@ -774,6 +801,7 @@ def test_generate_restock_workbook_writes_zhengfei_average_price(tmp_path):
             1,
             2,
             average_price=2.67,
+            average_total_price=2.67,
         ),
         _purchase_row(
             "SKU-B",
@@ -785,9 +813,10 @@ def test_generate_restock_workbook_writes_zhengfei_average_price(tmp_path):
             2,
             6,
             average_price=2.67,
+            average_total_price=5.34,
         ),
         _purchase_row("SKU-C", "产品C", "SP260508022", "M-C", 3, "厂家A", 4, 12),
-        _purchase_total_row(7, 20),
+        _purchase_total_row(7, 20, 8.01),
     ]
     assert _sheet_values(output_path, "深圳正飞科技") == [
         PURCHASE_COLUMNS,
@@ -801,6 +830,7 @@ def test_generate_restock_workbook_writes_zhengfei_average_price(tmp_path):
             1,
             2,
             average_price=2.67,
+            average_total_price=2.67,
         ),
         _purchase_row(
             "SKU-B",
@@ -812,9 +842,12 @@ def test_generate_restock_workbook_writes_zhengfei_average_price(tmp_path):
             2,
             6,
             average_price=2.67,
+            average_total_price=5.34,
         ),
-        _purchase_total_row(3, 8),
+        _purchase_total_row(3, 8, 8.01),
     ]
+    assert _cell_number_format(output_path, "采购汇总", "P2") == "0.00"
+    assert _cell_number_format(output_path, "深圳正飞科技", "P2") == "0.00"
 
 
 def test_generate_restock_workbook_rejects_zhengfei_same_model_with_different_price(tmp_path):
@@ -1026,8 +1059,10 @@ def test_generate_restock_workbook_total_price_number_format(tmp_path):
     output_path = Path(payload["output_xlsx"])
     assert _cell_number_format(output_path, "采购汇总", "O2") == "0.00"
     assert _cell_number_format(output_path, "采购汇总", "O3") == "0.000"
+    assert _cell_number_format(output_path, "采购汇总", "P2") == "General"
     assert _cell_number_format(output_path, "厂家A", "O2") == "0.00"
     assert _cell_number_format(output_path, "厂家A", "O3") == "0.000"
+    assert _cell_number_format(output_path, "厂家A", "P2") == "General"
 
 
 def test_generate_restock_workbook_total_price_format_ignores_float_noise(tmp_path):
@@ -1367,8 +1402,8 @@ def test_purchase_summary_main_outputs_success_json(monkeypatch, tmp_path, capsy
 def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
-    csv_path = csv_dir / "SP260508022_1.csv"
-    _write_delivery_csv(csv_path, ["SKU-B × 3，SKU-A × 2，SKU-X × 4"])
+    csv_path = csv_dir / "SP260605003_1.csv"
+    _write_delivery_csv(csv_path, ["SKU-B × 3，SKU-A × 2，SKU-X × 4"], countries=["德国"])
     master_path = tmp_path / "export_tax.xlsx"
     _write_master_xlsx(
         master_path,
@@ -1380,30 +1415,47 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
     )
 
     payload = restock_cli.generate_fba_restock_workbook(
-        ["SP260508022"],
+        ["SP260605003"],
         master_xlsx=master_path,
         gross_margin="0.3",
         csv_dir=csv_dir,
         output_dir=tmp_path,
+        today=date(2026, 6, 8),
     )
 
     output_path = Path(payload["output_xlsx"])
     assert payload["success"] is True
     assert payload["source"] == "fba_restock_workbook"
-    assert payload["delivery_no"] == "SP260508022"
+    assert payload["delivery_no"] == "SP260605003"
     assert payload["csv_path"] == str(csv_path)
+    assert payload["country"] == "德国"
     assert payload["matched_sku_count"] == 2
     assert payload["unmatched_sku_count"] == 1
     assert payload["contract_mapping_count"] == 1
     assert payload["gross_margin"] == "0.3"
     assert payload["pricing_basis"] == "tax_exclusive_cost"
-    assert Path(payload["output_xlsx"]).name == "SP260508022_restock_workbook.xlsx"
+    assert Path(payload["output_xlsx"]).name == "6.8-SP260605003-新棱镜备货-德国.xlsx"
     assert _sheet_names(output_path) == ["备货单", "未匹配"]
     restock_values = _sheet_values(output_path, "备货单")
     assert restock_values[0] == RESTOCK_COLUMNS
-    assert restock_values[1][:4] == ("SKU-B\nSKU-A", "产品B\n产品A", "JZ-19", 2)
-    assert restock_values[1][:7] == ("SKU-B\nSKU-A", "产品B\n产品A", "JZ-19", 2, None, 2.53, None)
-    assert restock_values[1][7:] == (0.3, "厂家A", "个", "合同产品A", 5, 10, 12.65)
+    assert restock_values[1] == (
+        "SKU-B\nSKU-A",
+        "产品B\n产品A",
+        "SKU-B",
+        "产品B",
+        "JZ-19",
+        2,
+        None,
+        2.53,
+        None,
+        0.3,
+        "厂家A",
+        "个",
+        "合同产品A",
+        5,
+        10,
+        12.65,
+    )
     assert restock_values[2] == _restock_total_row(5, 10, 12.65)
     assert _cell_fill_rgb(output_path, "备货单", "A3") == cli.TOTAL_ROW_FILL_COLOR
     assert _sheet_values(output_path, "未匹配") == [
@@ -1411,12 +1463,94 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
         ("SKU-X", 4, "出口退税总表未找到库存sku"),
     ]
     widths, heights = _sheet_dimensions(output_path, "备货单")
-    assert widths == [15] * 14
+    assert widths == [15] * 16
     assert heights == [15] * 3
     assert _cell_wrap_text(output_path, "备货单", "A2") is True
-    assert _cell_number_format(output_path, "备货单", "F2") == "0.00"
-    assert _cell_number_format(output_path, "备货单", "M2") == "0.00"
-    assert _cell_number_format(output_path, "备货单", "N2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "H2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "O2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "P2") == "0.00"
+
+
+def test_generate_fba_restock_workbook_uses_unknown_country_when_country_column_is_missing(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260605003_1.csv", ["SKU-A × 1"])
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "JZ-19", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[{"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "13%"}],
+    )
+
+    payload = restock_cli.generate_fba_restock_workbook(
+        ["SP260605003"],
+        master_xlsx=master_path,
+        gross_margin="0.3",
+        csv_dir=csv_dir,
+        output_dir=tmp_path,
+        today=date(2026, 7, 2),
+    )
+
+    assert payload["country"] == "未知国家"
+    assert Path(payload["output_xlsx"]).name == "7.2-SP260605003-新棱镜备货-未知国家.xlsx"
+    assert "缺少 `国家` 字段" in payload["warnings"][-1]
+
+
+def test_generate_fba_restock_workbook_uses_unknown_country_when_country_is_empty(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(csv_dir / "SP260605003_1.csv", ["SKU-A × 1"], include_country=True)
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "JZ-19", "原价": 2, "厂家": "厂家A"}],
+        contract_rows=[{"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "13%"}],
+    )
+
+    payload = restock_cli.generate_fba_restock_workbook(
+        ["SP260605003"],
+        master_xlsx=master_path,
+        gross_margin="0.3",
+        csv_dir=csv_dir,
+        output_dir=tmp_path,
+        today=date(2026, 12, 5),
+    )
+
+    assert payload["country"] == "未知国家"
+    assert Path(payload["output_xlsx"]).name == "12.5-SP260605003-新棱镜备货-未知国家.xlsx"
+    assert "`国家` 字段为空" in payload["warnings"][-1]
+
+
+def test_generate_fba_restock_workbook_uses_first_country_and_sanitizes_file_name(tmp_path):
+    csv_dir = tmp_path / "csv"
+    csv_dir.mkdir()
+    _write_delivery_csv(
+        csv_dir / "SP260605003_1.csv",
+        ["SKU-A × 1", "SKU-B × 1"],
+        countries=["德/国", "法国"],
+    )
+    master_path = tmp_path / "export_tax.xlsx"
+    _write_master_xlsx(
+        master_path,
+        [
+            {"库存sku": "SKU-A", "产品名称": "产品A", "型号": "JZ-19", "原价": 2, "厂家": "厂家A"},
+            {"库存sku": "SKU-B", "产品名称": "产品B", "型号": "JZ-20", "原价": 2, "厂家": "厂家A"},
+        ],
+        contract_rows=[{"供货方": "厂家A", "单位": "个", "合同产品名称": "合同产品A", "税率": "13%"}],
+    )
+
+    payload = restock_cli.generate_fba_restock_workbook(
+        ["SP260605003"],
+        master_xlsx=master_path,
+        gross_margin="0.3",
+        csv_dir=csv_dir,
+        output_dir=tmp_path,
+        today=date(2026, 6, 8),
+    )
+
+    assert payload["country"] == "德/国"
+    assert Path(payload["output_xlsx"]).name == "6.8-SP260605003-新棱镜备货-德_国.xlsx"
+    assert "存在多个不同国家" in payload["warnings"][-1]
 
 
 def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_path):
@@ -1446,6 +1580,8 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
     assert rows[1] == (
         "SKU-A",
         "产品A",
+        "SKU-A",
+        "产品A",
         "JZ-19",
         2,
         2.67,
@@ -1460,6 +1596,8 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
         2.53,
     )
     assert rows[2] == (
+        "SKU-B",
+        "产品B",
         "SKU-B",
         "产品B",
         "JZ-20",
@@ -1477,8 +1615,8 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
     )
     assert rows[3] == _restock_total_row(3, 8, 10.11)
     output_path = Path(payload["output_xlsx"])
-    assert _cell_number_format(output_path, "备货单", "E2") == "0.00"
     assert _cell_number_format(output_path, "备货单", "G2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "I2") == "0.00"
 
 
 def test_generate_fba_restock_workbook_accepts_tax_rate_forms_for_sale_price(tmp_path):
@@ -1509,9 +1647,9 @@ def test_generate_fba_restock_workbook_accepts_tax_rate_forms_for_sale_price(tmp
     )
 
     rows = _sheet_values(Path(payload["output_xlsx"]), "备货单")
-    assert rows[1][5] == 2.53
-    assert rows[2][5] == 2.62
-    assert rows[3][5] == 2.53
+    assert rows[1][7] == 2.53
+    assert rows[2][7] == 2.62
+    assert rows[3][7] == 2.53
 
 
 @pytest.mark.parametrize("gross_margin", ["0.19", "0.51", "abc"])
@@ -1664,7 +1802,7 @@ def test_generate_fba_restock_workbook_missing_master_fails(tmp_path):
 def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp_path):
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
-    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 2，SKU-B × 3"])
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 2，SKU-B × 3"], countries=["德国"])
     master_path = tmp_path / "export_tax.xlsx"
     _write_master_xlsx(
         master_path,
@@ -1692,12 +1830,12 @@ def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp
     ]
     restock_values = _sheet_values(Path(payload["output_xlsx"]), "备货单")
     assert restock_values[0] == RESTOCK_COLUMNS
-    assert restock_values[1][:4] == ("SKU-A", "产品A", "JZ-19", 2)
-    assert restock_values[1][5] == 2.53
-    assert restock_values[1][7:] == (0.3, "厂家A", "个", "合同产品A", 2, 4, 5.06)
-    assert restock_values[2][:4] == ("SKU-B", "产品B", "JZ-19", 2)
-    assert restock_values[2][5] == 2.53
-    assert restock_values[2][7:] == (0.3, "厂家B", "个", "合同产品B", 3, 6, 7.59)
+    assert restock_values[1][:6] == ("SKU-A", "产品A", "SKU-A", "产品A", "JZ-19", 2)
+    assert restock_values[1][7] == 2.53
+    assert restock_values[1][9:] == (0.3, "厂家A", "个", "合同产品A", 2, 4, 5.06)
+    assert restock_values[2][:6] == ("SKU-B", "产品B", "SKU-B", "产品B", "JZ-19", 2)
+    assert restock_values[2][7] == 2.53
+    assert restock_values[2][9:] == (0.3, "厂家B", "个", "合同产品B", 3, 6, 7.59)
     assert restock_values[3] == _restock_total_row(5, 10, 12.65)
 
 
@@ -1727,7 +1865,7 @@ def test_generate_fba_restock_workbook_rejects_same_manufacturer_model_with_diff
 def test_fba_restock_main_outputs_success_json(monkeypatch, tmp_path, capsys):
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
-    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1"])
+    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1"], countries=["德国"])
     master_path = tmp_path / "export_tax.xlsx"
     _write_master_xlsx(
         master_path,
@@ -1747,7 +1885,8 @@ def test_fba_restock_main_outputs_success_json(monkeypatch, tmp_path, capsys):
     assert payload["success"] is True
     assert payload["source"] == "fba_restock_workbook"
     assert payload["gross_margin"] == "0.3"
-    assert Path(payload["output_xlsx"]).name == "SP260508022_restock_workbook.xlsx"
+    today = date.today()
+    assert Path(payload["output_xlsx"]).name == f"{today.month}.{today.day}-SP260508022-新棱镜备货-德国.xlsx"
     assert Path(payload["output_xlsx"]).is_file()
 
 
