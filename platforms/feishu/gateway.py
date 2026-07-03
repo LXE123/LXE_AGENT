@@ -347,10 +347,44 @@ class FeishuStreamAdapter:
         if not hasattr(self, "_last_error"):
             self._last_error = ""
 
+    @staticmethod
+    def _is_websocket_connection_alive(conn: Any) -> bool:
+        if conn is None:
+            return False
+
+        try:
+            closed = getattr(conn, "closed")
+        except Exception:
+            closed = None
+        if isinstance(closed, bool):
+            return not closed
+
+        try:
+            state = getattr(conn, "state")
+        except Exception:
+            state = None
+        if state is not None:
+            state_name = str(getattr(state, "name", "") or "").upper()
+            if state_name:
+                return state_name == "OPEN"
+            state_value = getattr(state, "value", state)
+            try:
+                return int(state_value) == 1
+            except Exception:
+                return False
+
+        if hasattr(conn, "close_code"):
+            try:
+                return getattr(conn, "close_code") is None
+            except Exception:
+                return False
+
+        return False
+
     def _connection_health(self) -> tuple[bool, str]:
         thread_alive = bool(self._thread and self._thread.is_alive())
         conn = getattr(self._client, "_conn", None) if self._client is not None else None
-        connection_alive = bool(conn is not None and not getattr(conn, "closed", True))
+        connection_alive = self._is_websocket_connection_alive(conn)
         start_error = getattr(self, "_start_error", None)
         stopping = bool(getattr(self, "_stopping", False))
         if start_error is not None and not thread_alive and not stopping:

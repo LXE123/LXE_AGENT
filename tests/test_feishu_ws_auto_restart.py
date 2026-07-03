@@ -10,6 +10,7 @@ from gateway.models import InboundEvent
 from platforms.feishu import config as feishu_config
 from platforms.feishu import gateway as feishu_gateway
 from platforms.feishu.gateway import FeishuStreamAdapter
+from websockets.protocol import State
 
 
 class _FakeRouter:
@@ -138,6 +139,7 @@ def test_feishu_adapter_health_connection_states(monkeypatch) -> None:
     assert adapter.health()["connection_state"] == "stopped"
 
     adapter._thread = _FakeThread(True)
+
     adapter._client = SimpleNamespace(_conn=SimpleNamespace(closed=False))
     connected = adapter.health()
     assert connected["connection_state"] == "connected"
@@ -149,6 +151,42 @@ def test_feishu_adapter_health_connection_states(monkeypatch) -> None:
     assert disconnected["connection_state"] == "disconnected"
     assert disconnected["connection_alive"] is False
     assert disconnected["last_disconnected_at"]
+
+    adapter._client = SimpleNamespace(_conn=SimpleNamespace(state=State.OPEN))
+    connected = adapter.health()
+    assert connected["connection_state"] == "connected"
+    assert connected["connection_alive"] is True
+
+    for state in (State.CONNECTING, State.CLOSING, State.CLOSED):
+        adapter._client = SimpleNamespace(_conn=SimpleNamespace(state=state))
+        disconnected = adapter.health()
+        assert disconnected["connection_state"] == "disconnected"
+        assert disconnected["connection_alive"] is False
+
+    adapter._client = SimpleNamespace(_conn=SimpleNamespace(state=1))
+    connected = adapter.health()
+    assert connected["connection_state"] == "connected"
+    assert connected["connection_alive"] is True
+
+    adapter._client = SimpleNamespace(_conn=SimpleNamespace(state=3))
+    disconnected = adapter.health()
+    assert disconnected["connection_state"] == "disconnected"
+    assert disconnected["connection_alive"] is False
+
+    adapter._client = SimpleNamespace(_conn=SimpleNamespace(close_code=None))
+    connected = adapter.health()
+    assert connected["connection_state"] == "connected"
+    assert connected["connection_alive"] is True
+
+    adapter._client = SimpleNamespace(_conn=SimpleNamespace(close_code=1000))
+    disconnected = adapter.health()
+    assert disconnected["connection_state"] == "disconnected"
+    assert disconnected["connection_alive"] is False
+
+    adapter._client = SimpleNamespace(_conn=SimpleNamespace())
+    disconnected = adapter.health()
+    assert disconnected["connection_state"] == "disconnected"
+    assert disconnected["connection_alive"] is False
 
     adapter._thread = None
     adapter._start_error = RuntimeError("start exploded")
@@ -175,6 +213,75 @@ def test_feishu_restart_monitor_skips_disabled_and_missing_adapter(monkeypatch) 
         app = _app()
         app._start_feishu_restart_monitor()
         assert app._feishu_restart_task is None
+
+    asyncio.run(_run())
+
+
+def test_feishu_restart_monitor_alive_is_exposed_in_channel_health(monkeypatch) -> None:
+    async def _run() -> None:
+        monkeypatch.setattr(app_mod, "FEISHU_GATEWAY_ENABLED", True)
+        monkeypatch.setattr(app_mod, "FEISHU_WS_AUTO_RESTART_ENABLED", True)
+        monkeypatch.setattr(app_mod, "FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS", 5400)
+
+        app = _app(_FakeFeishuAdapter())
+        app._start_feishu_restart_monitor()
+        task = app._feishu_restart_task
+
+        assert task is not None
+        snapshot = await app.channel_health_snapshot()
+        assert snapshot["feishu"]["restart_monitor_alive"] is True
+
+        await app._stop_feishu_restart_monitor()
+        snapshot = await app.channel_health_snapshot()
+        assert snapshot["feishu"]["restart_monitor_alive"] is False
+        assert app._feishu_last_restart_error == ""
+
+    asyncio.run(_run())
+
+
+def test_feishu_restart_monitor_done_callback_records_crash(monkeypatch) -> None:
+    async def _run() -> None:
+        async def crash_loop() -> None:
+            raise RuntimeError("monitor exploded")
+
+        monkeypatch.setattr(app_mod, "FEISHU_GATEWAY_ENABLED", True)
+        monkeypatch.setattr(app_mod, "FEISHU_WS_AUTO_RESTART_ENABLED", True)
+
+        app = _app(_FakeFeishuAdapter())
+        app._feishu_restart_loop = crash_loop
+        app._start_feishu_restart_monitor()
+        task = app._feishu_restart_task
+
+        assert task is not None
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        snapshot = await app.channel_health_snapshot()
+        assert snapshot["feishu"]["restart_monitor_alive"] is False
+        assert "monitor_error=monitor exploded" in app._feishu_last_restart_error
+        assert "monitor_error=monitor exploded" in snapshot["feishu"]["last_restart_error"]
+
+    asyncio.run(_run())
+
+
+def test_feishu_restart_monitor_cancelled_task_does_not_record_error(monkeypatch) -> None:
+    async def _run() -> None:
+        monkeypatch.setattr(app_mod, "FEISHU_GATEWAY_ENABLED", True)
+        monkeypatch.setattr(app_mod, "FEISHU_WS_AUTO_RESTART_ENABLED", True)
+        monkeypatch.setattr(app_mod, "FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS", 5400)
+
+        app = _app(_FakeFeishuAdapter())
+        app._start_feishu_restart_monitor()
+        task = app._feishu_restart_task
+
+        assert task is not None
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await asyncio.sleep(0)
+
+        snapshot = await app.channel_health_snapshot()
+        assert snapshot["feishu"]["restart_monitor_alive"] is False
+        assert app._feishu_last_restart_error == ""
 
     asyncio.run(_run())
 
