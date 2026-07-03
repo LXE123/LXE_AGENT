@@ -153,6 +153,26 @@ type ConnectorPayload = {
   skill_count: number;
 };
 
+type ChannelHealthPayload = {
+  running?: boolean;
+  thread_alive?: boolean;
+  connection_alive?: boolean;
+  connection_state?: string;
+  restart_monitor_alive?: boolean;
+  restart_in_progress?: boolean;
+  next_restart_at?: string;
+  last_restart_at?: string;
+  last_restart_error?: string;
+  last_connected_at?: string;
+  last_disconnected_at?: string;
+  last_error?: string;
+};
+
+type ChannelHealthList = {
+  items: Record<string, ChannelHealthPayload>;
+  total: number;
+};
+
 type SkillContentPayload = {
   name: string;
   type: string;
@@ -303,6 +323,11 @@ const EMPTY_SESSION_LIST: SessionListPayload = {
 
 const EMPTY_PROJECT_DOCS: ApiList<ProjectDocPayload> = {
   items: [],
+  total: 0
+};
+
+const EMPTY_CHANNEL_HEALTH: ChannelHealthList = {
+  items: {},
   total: 0
 };
 
@@ -489,7 +514,19 @@ const ZH_TEXT = {
     disable: "关闭",
     saving: "保存中",
     kind: "类型",
-    note: "关闭后 agent 不会看到该 connector 的 CLI skills；不会卸载 CLI，也不会清除认证。"
+    note: "关闭后 agent 不会看到该 connector 的 CLI skills；不会卸载 CLI，也不会清除认证。",
+    healthUnavailable: "健康状态不可用",
+    wsConnected: "飞书已连接",
+    wsDisconnected: "飞书未连接",
+    wsRestarting: "飞书重启中",
+    wsStopped: "飞书已停止",
+    wsFailed: "飞书连接失败",
+    wsUnknown: "飞书状态未知",
+    monitorRunning: "自动重启监控运行中",
+    monitorStopped: "自动重启监控已停止",
+    nextRestart: "下次重启",
+    lastRestart: "最近重启",
+    lastError: "最近错误"
   },
   skillModal: {
     location: "位置",
@@ -724,7 +761,19 @@ const UI_TEXT: Record<Language, UiText> = {
       disable: "Disable",
       saving: "Saving",
       kind: "Kind",
-      note: "Disabling hides this connector's CLI skills from agents; it does not uninstall the CLI or clear auth."
+      note: "Disabling hides this connector's CLI skills from agents; it does not uninstall the CLI or clear auth.",
+      healthUnavailable: "Health unavailable",
+      wsConnected: "Feishu connected",
+      wsDisconnected: "Feishu disconnected",
+      wsRestarting: "Feishu restarting",
+      wsStopped: "Feishu stopped",
+      wsFailed: "Feishu connection failed",
+      wsUnknown: "Feishu status unknown",
+      monitorRunning: "Auto-restart monitor running",
+      monitorStopped: "Auto-restart monitor stopped",
+      nextRestart: "Next restart",
+      lastRestart: "Last restart",
+      lastError: "Last error"
     },
     skillModal: {
       location: "Location",
@@ -801,6 +850,7 @@ type DashboardData = {
   backgroundTasks: ApiList<BackgroundTaskPayload>;
   models: ApiList<ModelPayload>;
   currentModel: ModelPayload | null;
+  channelHealth: ChannelHealthList;
 };
 
 type DetailTarget =
@@ -1152,6 +1202,23 @@ function formatDate(value: number): string {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value * 1000));
+}
+
+function formatIsoDate(value: string | null | undefined): string {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "-";
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    return raw;
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(date);
 }
 
 function formatNumber(value: number): string {
@@ -2767,6 +2834,118 @@ function McpView({
   );
 }
 
+type FeishuConnectionState = "connected" | "disconnected" | "restarting" | "stopped" | "failed" | "unknown";
+
+function feishuConnectionState(health: ChannelHealthPayload): FeishuConnectionState {
+  const state = String(health.connection_state || "").trim().toLowerCase();
+  if (health.restart_in_progress || state === "restarting") {
+    return "restarting";
+  }
+  if (state === "connected" || health.connection_alive) {
+    return "connected";
+  }
+  if (state === "failed") {
+    return "failed";
+  }
+  if (state === "stopped") {
+    return "stopped";
+  }
+  if (state === "disconnected") {
+    return "disconnected";
+  }
+  return "unknown";
+}
+
+function feishuConnectionLabel(t: UiText, state: FeishuConnectionState): string {
+  if (state === "connected") {
+    return t.connectors.wsConnected;
+  }
+  if (state === "restarting") {
+    return t.connectors.wsRestarting;
+  }
+  if (state === "stopped") {
+    return t.connectors.wsStopped;
+  }
+  if (state === "failed") {
+    return t.connectors.wsFailed;
+  }
+  if (state === "disconnected") {
+    return t.connectors.wsDisconnected;
+  }
+  return t.connectors.wsUnknown;
+}
+
+function feishuConnectionPillClass(state: FeishuConnectionState): string {
+  if (state === "connected") {
+    return "pill ok";
+  }
+  if (state === "failed") {
+    return "pill danger";
+  }
+  if (state === "restarting") {
+    return "pill active";
+  }
+  return "pill warn";
+}
+
+function FeishuHealthPanel({
+  health,
+  healthError
+}: {
+  health: ChannelHealthPayload | undefined;
+  healthError: string;
+}) {
+  const t = useUiText();
+  if (!health) {
+    return (
+      <div className="dashboard-health-panel">
+        <div className="pill-row dashboard-health-pills">
+          <span className={healthError ? "pill danger" : "pill warn"}>{t.connectors.healthUnavailable}</span>
+        </div>
+        {healthError ? (
+          <div className="dashboard-health-error">
+            <span>{t.connectors.lastError}</span>
+            <strong>{healthError}</strong>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const connectionState = feishuConnectionState(health);
+  const monitorAlive = Boolean(health.restart_monitor_alive);
+  const errorText = String(health.last_restart_error || health.last_error || healthError || "").trim();
+
+  return (
+    <div className="dashboard-health-panel">
+      <div className="pill-row dashboard-health-pills">
+        <span className={feishuConnectionPillClass(connectionState)}>
+          {feishuConnectionLabel(t, connectionState)}
+        </span>
+        <span className={monitorAlive ? "pill ok" : "pill warn"}>
+          {monitorAlive ? t.connectors.monitorRunning : t.connectors.monitorStopped}
+        </span>
+      </div>
+      <dl className="dashboard-health-list">
+        <div>
+          <dt>{t.connectors.nextRestart}</dt>
+          <dd>{formatIsoDate(health.next_restart_at)}</dd>
+        </div>
+        <div>
+          <dt>{t.connectors.lastRestart}</dt>
+          <dd>{formatIsoDate(health.last_restart_at)}</dd>
+        </div>
+        {errorText ? (
+          <div className="dashboard-health-error-row">
+            <dt>{t.connectors.lastError}</dt>
+            <dd>{errorText}</dd>
+          </div>
+        ) : null}
+      </dl>
+    </div>
+  );
+}
+
 function ConnectorsView({
   connectors,
   savingId,
@@ -3439,6 +3618,8 @@ function DashboardStatusModal({
   summary,
   currentModel,
   apiOnline,
+  feishuHealth,
+  channelHealthError,
   language,
   onLanguageChange
 }: {
@@ -3447,6 +3628,8 @@ function DashboardStatusModal({
   summary: SessionSummaryPayload;
   currentModel: ModelPayload | null;
   apiOnline: boolean;
+  feishuHealth: ChannelHealthPayload | undefined;
+  channelHealthError: string;
   language: Language;
   onLanguageChange: (language: Language) => void;
 }) {
@@ -3496,6 +3679,7 @@ function DashboardStatusModal({
               <strong>{statusLabel}</strong>
             </div>
           </div>
+          <FeishuHealthPanel health={feishuHealth} healthError={channelHealthError} />
           <div className="dashboard-status-row">
             <span>{t.models.current}</span>
             <strong>{currentModelLabel}</strong>
@@ -3528,6 +3712,7 @@ function App() {
   const [docsLoading, setDocsLoading] = useState(false);
   const [docsLoaded, setDocsLoaded] = useState(false);
   const [docsError, setDocsError] = useState("");
+  const [channelHealthError, setChannelHealthError] = useState("");
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -3596,8 +3781,16 @@ function App() {
           fetchJson<ApiList<ModelPayload>>("/api/models"),
           fetchJson<ModelPayload>("/api/models/current")
         ]);
+        let channelHealth = EMPTY_CHANNEL_HEALTH;
+        let nextChannelHealthError = "";
+        try {
+          channelHealth = await fetchJson<ChannelHealthList>("/api/channels/health");
+        } catch (err) {
+          nextChannelHealthError = err instanceof Error ? err.message : String(err);
+        }
         if (!cancelled) {
-          setData({ skills, connectors, toolsets, backgroundTasks, models, currentModel });
+          setData({ skills, connectors, toolsets, backgroundTasks, models, currentModel, channelHealth });
+          setChannelHealthError(nextChannelHealthError);
           setError("");
         }
       } catch (err) {
@@ -3613,6 +3806,29 @@ function App() {
     load();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshChannelHealth() {
+      try {
+        const channelHealth = await fetchJson<ChannelHealthList>("/api/channels/health");
+        if (!cancelled) {
+          setData((current) => (current ? { ...current, channelHealth } : current));
+          setChannelHealthError("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setChannelHealthError(err instanceof Error ? err.message : String(err));
+        }
+      }
+    }
+
+    const interval = window.setInterval(refreshChannelHealth, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
     };
   }, []);
 
@@ -4272,6 +4488,8 @@ function App() {
         <DashboardStatusModal
           apiOnline={dashboardApiOnline}
           currentModel={data?.currentModel || null}
+          feishuHealth={data?.channelHealth.items.feishu}
+          channelHealthError={channelHealthError}
           language={language}
           onClose={() => setDashboardStatusOpen(false)}
           onLanguageChange={setLanguage}

@@ -321,9 +321,37 @@ class GatewayApp:
             FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS,
             FEISHU_WS_AUTO_RESTART_RETRY_SECONDS,
         )
-        self._feishu_restart_task = asyncio.create_task(
+        task = asyncio.create_task(
             self._feishu_restart_loop(),
             name="gateway:feishu-auto-restart",
+        )
+        self._feishu_restart_task = task
+        task.add_done_callback(self._handle_feishu_restart_task_done)
+
+    def _feishu_restart_monitor_alive(self) -> bool:
+        task = self._feishu_restart_task
+        return bool(task is not None and not task.done())
+
+    def _handle_feishu_restart_task_done(self, task: asyncio.Task) -> None:
+        if self._feishu_restart_task is task:
+            self._feishu_restart_task = None
+        if task.cancelled():
+            return
+        if self._stop_event.is_set():
+            return
+        try:
+            exc = task.exception()
+        except asyncio.CancelledError:
+            return
+        if exc is None:
+            logger.warning("[FeishuRestart] monitor exited unexpectedly without error")
+            return
+        error = self._exception_text(exc)
+        self._feishu_last_restart_error = f"monitor_error={error}"
+        logger.error(
+            "[FeishuRestart] monitor crashed: error=%s",
+            error,
+            exc_info=(type(exc), exc, exc.__traceback__),
         )
 
     async def _stop_feishu_restart_monitor(self) -> None:
@@ -468,6 +496,7 @@ class GatewayApp:
     def _with_feishu_restart_health(self, health: dict[str, Any]) -> dict[str, Any]:
         payload = dict(health or {})
         payload["restart_in_progress"] = self._feishu_restart_in_progress
+        payload["restart_monitor_alive"] = self._feishu_restart_monitor_alive()
         payload["last_restart_at"] = self._feishu_last_restart_at
         payload["last_restart_error"] = self._feishu_last_restart_error
         payload["next_restart_at"] = self._feishu_next_restart_at
