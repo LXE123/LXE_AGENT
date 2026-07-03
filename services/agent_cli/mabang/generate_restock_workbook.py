@@ -67,6 +67,7 @@ INVALID_SHEET_TITLE_CHARS = re.compile(r"[\[\]:*?/\\]")
 FLOAT_NOISE_TOLERANCE = Decimal("0.000000001")
 ZHENGFEI_MANUFACTURER_MARKER = "正飞"
 TOTAL_ROW_FILL_COLOR = "FFFFF2CC"
+PURCHASE_ORDER_COLUMN_FILL_COLOR = "FFE2F0D9"
 
 
 class MasterProducts(OrderedDict[str, dict[str, Any]]):
@@ -785,7 +786,7 @@ def _has_column_value(rows: list[list[Any]], *, column_index: int) -> bool:
 def _append_total_row(worksheet: Any, columns: tuple[str, ...], rows: list[list[Any]]) -> None:
     total_row: list[Any] = [""] * len(columns)
     total_row[0] = "合计"
-    for column_name in ("数量", "总价", "总价（均价）", "总价（售价）", "总价（售价(均价)）"):
+    for column_name in ("数量", "总价", "总价（原价）", "总价（均价）", "总价（售价）", "总价（售价(均价)）"):
         if column_name not in columns:
             continue
         column_index = columns.index(column_name)
@@ -826,16 +827,27 @@ def _write_rows(
         total_fill = PatternFill(fill_type="solid", fgColor=TOTAL_ROW_FILL_COLOR)
         for cell in worksheet[total_row_index]:
             cell.fill = total_fill
+    if "采购订单号" in columns:
+        purchase_order_fill = PatternFill(fill_type="solid", fgColor=PURCHASE_ORDER_COLUMN_FILL_COLOR)
+        purchase_order_column = columns.index("采购订单号") + 1
+        for row_index in range(2, worksheet.max_row + 1):
+            if row_index == total_row_index:
+                continue
+            worksheet.cell(row=row_index, column=purchase_order_column).fill = purchase_order_fill
     worksheet.freeze_panes = "A2"
     wrap_alignment = Alignment(wrap_text=True, vertical="top")
-    for row in worksheet.iter_rows(min_row=2, min_col=1, max_col=3):
-        for cell in row:
-            cell.alignment = wrap_alignment
+    for text_column_name in ("库存sku", "产品名称", "来源SP单号", "库存sku（第一行）", "产品名称（第一行）"):
+        if text_column_name not in columns:
+            continue
+        text_column = columns.index(text_column_name) + 1
+        for row_index in range(2, worksheet.max_row + 1):
+            worksheet.cell(row=row_index, column=text_column).alignment = wrap_alignment
     for price_column_name in (
         "均价",
         "售价",
         "售价(均价)",
         "总价",
+        "总价（原价）",
         "总价（均价）",
         "总价（售价）",
         "总价（售价(均价)）",

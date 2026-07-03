@@ -26,24 +26,26 @@ DEFAULT_COUNTRY_NAME = "未知国家"
 RESTOCK_FILE_LABEL = "新棱镜备货"
 INVALID_FILE_NAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 RESTOCK_COLUMNS = (
+    "日期",
     "库存sku",
     "产品名称",
     "库存sku（第一行）",
     "产品名称（第一行）",
+    "采购订单号",
+    "合同产品名称",
+    "单位",
     "型号",
+    "数量",
     "原价",
     "均价",
     "售价",
     "售价(均价)",
-    "毛利率",
-    "厂家",
-    "单位",
-    "合同产品名称",
-    "数量",
-    "总价",
+    "总价（原价）",
     "总价（均价）",
     "总价（售价）",
     "总价（售价(均价)）",
+    "毛利率",
+    "厂家",
 )
 RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "数量", "问题说明")
 MIN_GROSS_MARGIN = Decimal("0.2")
@@ -256,7 +258,12 @@ def _sale_price_for_average_row(row: list[Any], *, gross_margin: Decimal) -> Dec
     return sale_price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def _project_restock_rows(rows: list[list[Any]], *, gross_margin: Decimal) -> list[list[Any]]:
+def _project_restock_rows(
+    rows: list[list[Any]],
+    *,
+    gross_margin: Decimal,
+    generated_date: date,
+) -> list[list[Any]]:
     projected_rows: list[list[Any]] = []
     for row in rows:
         sale_price = _sale_price_for_row(row, gross_margin=gross_margin)
@@ -274,10 +281,12 @@ def _project_restock_rows(rows: list[list[Any]], *, gross_margin: Decimal) -> li
             else ""
         )
         values = {
+            "日期": generated_date.isoformat(),
             "库存sku": _purchase_row_value(row, "库存sku"),
             "产品名称": _purchase_row_value(row, "产品名称"),
             "库存sku（第一行）": _purchase_row_value(row, "库存sku（第一行）"),
             "产品名称（第一行）": _purchase_row_value(row, "产品名称（第一行）"),
+            "采购订单号": "",
             "型号": _purchase_row_value(row, "型号"),
             "原价": _purchase_row_value(row, "原价"),
             "均价": _purchase_row_value(row, "均价"),
@@ -292,7 +301,7 @@ def _project_restock_rows(rows: list[list[Any]], *, gross_margin: Decimal) -> li
             "单位": _purchase_row_value(row, "单位"),
             "合同产品名称": _purchase_row_value(row, "合同产品名称"),
             "数量": _purchase_row_value(row, "数量"),
-            "总价": _purchase_row_value(row, "总价"),
+            "总价（原价）": _purchase_row_value(row, "总价"),
             "总价（均价）": _purchase_row_value(row, "总价（均价）"),
             "总价（售价）": _purchase._decimal_to_cell_value(sale_total_price),
             "总价（售价(均价)）": (
@@ -338,7 +347,7 @@ def write_fba_restock_workbook(
     _purchase._write_rows(
         restock_sheet,
         RESTOCK_COLUMNS,
-        _project_restock_rows(restock_rows, gross_margin=gross_margin),
+        _project_restock_rows(restock_rows, gross_margin=gross_margin, generated_date=today),
         append_total=True,
     )
 

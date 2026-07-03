@@ -146,9 +146,11 @@ def test_fba_purchase_summary_skill_documents_contract() -> None:
     assert "`总价（均价） = 均价 * 数量`" in text
     assert "每个单 SP 备货单的数量只来自自己的 SP" in text
     assert "使用整批 SP 的统一均价" in text
+    assert "每个单 SP 备货单的 `日期` 使用生成当天 `YYYY-MM-DD`，`采购订单号` 固定留空并填充颜色" in text
     assert "来源SP单号（第一行）" not in text
     assert "最后一行是带填充色的 `合计` 行，会汇总 `数量`、`总价` 和 `总价（均价）`" in text
     assert "`原价`、`均价`、`厂家`、`单位`、`合同产品名称`、`合同编号前缀`、`税率`、`数量`、`总价`、`总价（均价）`" in text
+    assert "`备货单` 字段为 `日期`、`库存sku`、`产品名称`、`库存sku（第一行）`、`产品名称（第一行）`、`采购订单号`、`合同产品名称`、`单位`、`型号`、`数量`、`原价`、`均价`、`售价`、`售价(均价)`、`总价（原价）`、`总价（均价）`、`总价（售价）`、`总价（售价(均价)）`、`毛利率`、`厂家`" in text
     assert "所有列宽和行高已统一为 15" in text
 
 
@@ -207,7 +209,7 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "`13%` 按含税倍率 `1.13`" in text
     assert "售价四舍五入保留两位小数" in text
     assert "总价（售价）" in text
-    assert "最后一行是带填充色的 `合计` 行，会汇总 `数量`、`总价`、`总价（均价）`、`总价（售价）` 和 `总价（售价(均价)）`" in text
+    assert "最后一行是带填充色的 `合计` 行，会汇总 `数量`、`总价（原价）`、`总价（均价）`、`总价（售价）` 和 `总价（售价(均价)）`" in text
     assert "合同编号前缀" not in text
     assert "contract_mapping_count" in text
     assert "不生成厂家分类 sheet" in text
@@ -226,7 +228,8 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "按 `型号` 合并" in text
     assert "不同厂家相同型号会保留为不同行" in text
     assert "`库存sku（第一行）`、`产品名称（第一行）`" in text
-    assert "`原价`、`均价`、`售价`、`售价(均价)`、`毛利率`、`厂家`、`单位`、`合同产品名称`、`数量`、`总价`、`总价（均价）`、`总价（售价）`、`总价（售价(均价)）`" in text
+    assert "`日期` 使用生成当天 `YYYY-MM-DD`，`采购订单号` 固定留空并填充颜色" in text
+    assert "`日期`、`库存sku`、`产品名称`、`库存sku（第一行）`、`产品名称（第一行）`、`采购订单号`、`合同产品名称`、`单位`、`型号`、`数量`、`原价`、`均价`、`售价`、`售价(均价)`、`总价（原价）`、`总价（均价）`、`总价（售价）`、`总价（售价(均价)）`、`毛利率`、`厂家`" in text
     assert "所有列宽和行高已统一为 15" in text
 
 
