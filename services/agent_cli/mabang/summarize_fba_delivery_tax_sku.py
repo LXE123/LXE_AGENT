@@ -3,15 +3,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
-import json
 import re
-import sys
 from collections import OrderedDict
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_output import configure_utf8_stdio
+from services.agent_cli._shared.json_cli import (
+    JsonArgumentParser,
+    configure_utf8_stdio,
+    exception_text as _exception_text,
+    write_json as _write_json,
+)
 from services.mabang.stock_sku_export import export_stock_sku_names
 from services.mabang.amazon.fba import download_fba_delivery_csv
 from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
@@ -33,21 +36,6 @@ SOURCE = "fba_delivery_tax_summary"
 ITEM_SPLIT_PATTERN = re.compile(r"[，,\r\n;；]+")
 SKU_QTY_PATTERN = re.compile(r"^\s*(?P<sku>.+?)\s*(?:×|x|X|\*)\s*(?P<qty>\d+(?:\.\d+)?)\s*$")
 WHITESPACE_PATTERN = re.compile(r"\s+")
-
-
-class JsonArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
-        raise ValueError(str(message or "").strip() or "参数解析失败")
-
-
-def _write_json(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(dict(payload or {}), ensure_ascii=False) + "\n")
-    sys.stdout.flush()
-
-
-def _exception_text(exc: Exception) -> str:
-    message = str(exc or "").strip()
-    return message or exc.__class__.__name__
 
 
 def _require_delivery_no(value: Any) -> str:

@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import re
-import sys
 from collections import OrderedDict
 from copy import copy
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_output import configure_utf8_stdio
+from services.agent_cli._shared.json_cli import (
+    JsonArgumentParser,
+    configure_utf8_stdio,
+    exception_text as _exception_text,
+    write_json as _write_json,
+)
 from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
     DELIVERY_CSV_DIR,
     ITEM_SPLIT_PATTERN,
@@ -95,21 +98,6 @@ class MasterProducts(OrderedDict[str, dict[str, Any]]):
         self._contract_prefix_conflict_manufacturers: OrderedDict[str, None] = OrderedDict()
         self._contract_tax_rate_conflict_manufacturers: OrderedDict[str, None] = OrderedDict()
         self.warnings: list[str] = []
-
-
-class JsonArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
-        raise ValueError(str(message or "").strip() or "参数解析失败")
-
-
-def _write_json(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(dict(payload or {}), ensure_ascii=False) + "\n")
-    sys.stdout.flush()
-
-
-def _exception_text(exc: Exception) -> str:
-    message = str(exc or "").strip()
-    return message or exc.__class__.__name__
 
 
 def _decimal_from_cell(value: Any, *, field_name: str, row_number: int, source_path: Path) -> Decimal:

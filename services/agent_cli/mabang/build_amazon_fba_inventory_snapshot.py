@@ -1,30 +1,17 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sys
-from typing import Any
 
-from services.agent_cli._shared.json_output import configure_utf8_stdio
+from services.agent_cli._shared.json_cli import (
+    JsonArgumentParser,
+    configure_utf8_stdio,
+    exception_text as _exception_text,
+    write_json as _write_json,
+)
 from services.mabang.amazon.fba.amazon_fba_inventory import (
     build_amazon_fba_inventory_snapshot,
     normalize_store_name,
 )
-
-
-class JsonArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
-        raise ValueError(str(message or "").strip() or "参数解析失败")
-
-
-def _write_json(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(dict(payload or {}), ensure_ascii=False) + "\n")
-    sys.stdout.flush()
-
-
-def _exception_text(exc: Exception) -> str:
-    message = str(exc or "").strip()
-    return message or exc.__class__.__name__
 
 
 def build_parser() -> argparse.ArgumentParser:

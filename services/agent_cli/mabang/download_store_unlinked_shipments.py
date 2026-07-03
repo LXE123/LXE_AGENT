@@ -2,34 +2,22 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
-import sys
 from typing import Any
 
 from shared.infra.net import close_all_network_clients
 from shared.logging import logger
-from services.agent_cli._shared.json_output import configure_utf8_stdio
+from services.agent_cli._shared.json_cli import (
+    JsonArgumentParser,
+    configure_utf8_stdio,
+    exception_text as _exception_text,
+    write_json as _write_json,
+)
 from services.mabang.amazon.fba.unlinked_shipments import (
     StoreUnlinkedShipmentDownloadResult,
     build_store_unlinked_shipments_snapshot,
     download_store_unlinked_shipments,
     normalize_store_name,
 )
-
-
-class JsonArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
-        raise ValueError(str(message or "").strip() or "参数解析失败")
-
-
-def _write_json(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(dict(payload or {}), ensure_ascii=False) + "\n")
-    sys.stdout.flush()
-
-
-def _exception_text(exc: Exception) -> str:
-    message = str(exc or "").strip()
-    return message or exc.__class__.__name__
 
 
 def build_parser() -> argparse.ArgumentParser:
