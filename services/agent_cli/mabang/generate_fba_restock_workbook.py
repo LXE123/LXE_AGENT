@@ -9,6 +9,12 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
+from services.agent_cli._shared.json_cli import (
+    JsonArgumentParser,
+    configure_utf8_stdio,
+    exception_text as _exception_text,
+    write_json as _write_json,
+)
 from services.agent_cli.mabang import generate_restock_workbook as _purchase
 
 DELIVERY_CSV_DIR = _purchase.DELIVERY_CSV_DIR
@@ -420,7 +426,7 @@ def generate_fba_restock_workbook(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = _purchase.JsonArgumentParser(
+    parser = JsonArgumentParser(
         prog="python -m services.agent_cli.mabang.generate_fba_restock_workbook"
     )
     parser.add_argument("--delivery-no", action="append", default=[])
@@ -430,7 +436,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    _purchase.configure_utf8_stdio()
+    configure_utf8_stdio()
     delivery_nos: list[str] = []
     master_xlsx = ""
     gross_margin = ""
@@ -450,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
             "delivery_nos": delivery_nos,
             "master_xlsx": master_xlsx,
             "gross_margin": gross_margin,
-            "exception": _purchase._exception_text(exc),
+            "exception": _exception_text(exc),
             "source": SOURCE,
         }
     finally:
@@ -459,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:
             pass
 
-    _purchase._write_json(payload)
+    _write_json(payload)
     return 0 if bool(payload.get("success")) else 1
 
 

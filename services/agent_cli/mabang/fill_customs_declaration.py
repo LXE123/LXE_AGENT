@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import argparse
 import copy
-import json
 import re
 import shutil
-import sys
 from collections import OrderedDict
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_output import configure_utf8_stdio
+from services.agent_cli._shared.json_cli import (
+    JsonArgumentParser,
+    configure_utf8_stdio,
+    exception_text as _exception_text,
+    write_json as _write_json,
+)
 from services.agent_cli.mabang.restock_workbook import (
     SUMMARY_HEADERS,
     SUMMARY_WORKSHEET_NAME,
@@ -76,11 +79,6 @@ CELL_REF_PATTERN = re.compile(
     r"(?P<row_absolute>\$?)"
     r"(?P<row>\d+)"
 )
-
-
-class JsonArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
-        raise ValueError(str(message or "").strip() or "参数解析失败")
 
 
 @dataclass(frozen=True)
@@ -214,16 +212,6 @@ FORMULA_SHEET_CONFIGS = (
         summary_markers=("总      值", "Total Amount:"),
     ),
 )
-
-
-def _write_json(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(dict(payload or {}), ensure_ascii=False) + "\n")
-    sys.stdout.flush()
-
-
-def _exception_text(exc: Exception) -> str:
-    message = str(exc or "").strip()
-    return message or exc.__class__.__name__
 
 
 def _clean_cell(value: Any) -> str:
