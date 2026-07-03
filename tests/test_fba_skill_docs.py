@@ -75,17 +75,17 @@ def test_fba_workflow_map_keeps_invoice_and_customs_independent() -> None:
     assert 'L["备货单 xlsx"] --> H' in text
     assert "发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill`" in text
     assert "报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill`" in text
-    assert 'A --> M["fba-purchase-summary-create<br/>采购汇总表生成"]' in text
+    assert 'A --> M["fba-purchase-summary-create<br/>采购汇总表+批量备货单生成"]' in text
     assert 'N["出口退税总表 xlsx"] --> M' in text
     assert 'M --> P["fba-purchase-contract-fill<br/>采购合同填写"]' in text
     assert 'Q["合同汇总模板 xlsx"] --> P' in text
-    assert 'A --> O["fba-restock-workbook-create<br/>备货单生成"]' in text
+    assert 'A --> O["fba-restock-workbook-create<br/>单 SP 备货单兼容生成"]' in text
     assert "N --> O" in text
-    assert "采购汇总表生成 | FBA 发货单 CSV + 出口退税总表 -> `fba-purchase-summary-create`" in text
+    assert "采购汇总表与批量备货单生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-purchase-summary-create`" in text
     assert "采购合同填写 | 采购汇总表 + 合同汇总模板 -> `fba-purchase-contract-fill`" in text
-    assert "备货单生成 | 单个 FBA 发货单 CSV + 出口退税总表 -> `fba-restock-workbook-create`" in text
-    assert "采购汇总表可多 SP 且包含厂家分类 sheet" in text
-    assert "备货单只允许单 SP 且不生成厂家分类 sheet" in text
+    assert "单 SP 备货单兼容生成 | 单个 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-restock-workbook-create`" in text
+    assert "一次生成采购汇总表和每个 SP 的备货单" in text
+    assert "正飞 `均价` 会按整批 SP 统一计算" in text
 
 
 def test_fba_invoice_template_skill_documents_actual_quantity_contract() -> None:
@@ -115,9 +115,10 @@ def test_fba_customs_declaration_skill_documents_actual_quantity_contract() -> N
 def test_fba_purchase_summary_skill_documents_contract() -> None:
     text = _skill_text("fba-purchase-summary-create")
 
-    assert "services.agent_cli.mabang.generate_purchase_summary_workbook" in text
+    assert "services.agent_cli.mabang.generate_purchase_batch_workbooks" in text
     assert "--delivery-no" in text
     assert "--master-xlsx" in text
+    assert "--gross-margin" in text
     assert "artifacts/mabang_fba_delivery/<SP>_*.csv" in text
     assert "不自动下载" in text
     assert "`SKU表` sheet" in text
@@ -125,7 +126,9 @@ def test_fba_purchase_summary_skill_documents_contract() -> None:
     assert "`供应商合同信息` sheet 用 `供货方` 匹配 `SKU表` 的 `厂家`" in text
     assert "`单位`、`合同产品名称`、`合同编号前缀` 和 `税率`" in text
     assert "contract_mapping_count" in text
-    assert "采购汇总表已生成" in text
+    assert "采购汇总表和各 SP 备货单已生成" in text
+    assert "purchase_summary_xlsx" in text
+    assert "restock_xlsx_paths" in text
     assert "第一个 sheet 是 `采购汇总`，第二个 sheet 是 `未匹配`" in text
     assert "`未匹配` sheet" in text
     assert "`库存sku`、`来源SP单号`、`数量`、`问题说明`" in text
@@ -141,6 +144,8 @@ def test_fba_purchase_summary_skill_documents_contract() -> None:
     assert "`均价 = sum(原价 * 数量) / sum(数量)`" in text
     assert "均价" in text and "四舍五入保留两位小数" in text
     assert "`总价（均价） = 均价 * 数量`" in text
+    assert "每个单 SP 备货单的数量只来自自己的 SP" in text
+    assert "使用整批 SP 的统一均价" in text
     assert "来源SP单号（第一行）" not in text
     assert "最后一行是带填充色的 `合计` 行，会汇总 `数量`、`总价` 和 `总价（均价）`" in text
     assert "`原价`、`均价`、`厂家`、`单位`、`合同产品名称`、`合同编号前缀`、`税率`、`数量`、`总价`、`总价（均价）`" in text
@@ -175,11 +180,14 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     text = _skill_text("fba-restock-workbook-create")
 
     assert "services.agent_cli.mabang.generate_fba_restock_workbook" in text
+    assert "兼容入口" in text
     assert "--delivery-no" in text
     assert "--master-xlsx" in text
     assert "--gross-margin" in text
     assert "一次只能处理一个 `SP` 发货单号" in text
     assert "多个 SP 要拆成多次运行" in text
+    assert "一批 SP" in text
+    assert "必须改用 `fba-purchase-summary-create`" in text
     assert "artifacts/mabang_fba_delivery/<SP>_*.csv" in text
     assert "不自动下载" in text
     assert "`SKU表` sheet" in text
@@ -191,6 +199,7 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "售价 = 原价 / 含税倍率 / (1 - 毛利率)" in text
     assert "`正飞`" in text
     assert "`均价 = sum(原价 * 数量) / sum(数量)`" in text
+    assert "只按当前单个 SP 计算" in text
     assert "均价" in text and "四舍五入保留两位小数" in text
     assert "`总价（均价） = 均价 * 数量`" in text
     assert "`售价(均价) = 均价 / 含税倍率 / (1 - 毛利率)`" in text
@@ -221,12 +230,12 @@ def test_fba_restock_workbook_skill_documents_contract() -> None:
     assert "所有列宽和行高已统一为 15" in text
 
 
-def test_fba_purchase_summary_skill_does_not_require_pricing_margin() -> None:
+def test_fba_purchase_summary_skill_requires_pricing_margin() -> None:
     text = _skill_text("fba-purchase-summary-create")
 
-    assert "--gross-margin" not in text
-    assert "毛利率" not in text
-    assert "售价" not in text
+    assert "--gross-margin" in text
+    assert "毛利率" in text
+    assert "售价(均价)" in text
 
 
 def test_fba_skill_docs_do_not_contain_old_misleading_phrases() -> None:

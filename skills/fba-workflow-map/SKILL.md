@@ -39,11 +39,11 @@ flowchart TD
   A --> I["fba-export-tax-delivery-summary<br/>发货单退税汇总"]
   J["fba-export-tax-products-manage<br/>退税白名单"] --> I
   K["fba-logistics-rate-import<br/>物流报价导入"] --> G
-  A --> M["fba-purchase-summary-create<br/>采购汇总表生成"]
+  A --> M["fba-purchase-summary-create<br/>采购汇总表+批量备货单生成"]
   N["出口退税总表 xlsx"] --> M
   M --> P["fba-purchase-contract-fill<br/>采购合同填写"]
   Q["合同汇总模板 xlsx"] --> P
-  A --> O["fba-restock-workbook-create<br/>备货单生成"]
+  A --> O["fba-restock-workbook-create<br/>单 SP 备货单兼容生成"]
   N --> O
 ```
 
@@ -58,9 +58,9 @@ flowchart TD
 | 下载 MSKU 明细、发票前准备 MSKU 数据 | `fba-msku-detail-download` |
 | 填写 invoice_Template、生成发票导入表 | `fba-invoice-template-fill` |
 | 填写报关资料、生成报关单/发票/箱单/合同 | `fba-customs-declaration-fill` |
-| 按发货单和出口退税总表生成采购汇总表 | `fba-purchase-summary-create` |
+| 按一批发货单和出口退税总表生成采购汇总表、采购单、批量备货单 | `fba-purchase-summary-create` |
 | 根据采购汇总表和合同汇总模板填写采购合同 | `fba-purchase-contract-fill` |
-| 按单个发货单和出口退税总表生成备货单 | `fba-restock-workbook-create` |
+| 明确只按单个发货单独立生成备货单，且不需要整批正飞均价 | `fba-restock-workbook-create` |
 | 导入物流报价、更新物流价格 | `fba-logistics-rate-import` |
 | 物流优选、选物流渠道 | `fba-logistics-select` |
 | 维护可退税 SKU 白名单 | `fba-export-tax-products-manage` |
@@ -74,13 +74,13 @@ flowchart TD
 | 装箱与货件创建 | `fba-shipment-wms-box-download` -> `fba-shipment-create` |
 | 发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill` |
 | 报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill` |
-| 采购汇总表生成 | FBA 发货单 CSV + 出口退税总表 -> `fba-purchase-summary-create` |
+| 采购汇总表与批量备货单生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-purchase-summary-create` |
 | 采购合同填写 | 采购汇总表 + 合同汇总模板 -> `fba-purchase-contract-fill` |
-| 备货单生成 | 单个 FBA 发货单 CSV + 出口退税总表 -> `fba-restock-workbook-create` |
+| 单 SP 备货单兼容生成 | 单个 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-restock-workbook-create` |
 | 物流报价与优选 | `fba-logistics-rate-import` -> `fba-logistics-select` |
 | 出口退税 | `fba-export-tax-products-manage` -> `fba-export-tax-delivery-summary` |
 
-采购汇总表和备货单都依赖出口退税总表，但输出约束不同：采购汇总表可多 SP 且包含厂家分类 sheet；备货单只允许单 SP 且不生成厂家分类 sheet。
+日常采购流程应走 `fba-purchase-summary-create`，一次生成采购汇总表和每个 SP 的备货单；这样正飞 `均价` 会按整批 SP 统一计算。`fba-restock-workbook-create` 只作为单 SP 独立生成的兼容入口。
 
 ## Answering Rules
 

@@ -255,7 +255,12 @@ def _append_contract_unmapped_warning(products: MasterProducts) -> None:
     )
 
 
-def _contract_fields_for_manufacturer(products: MasterProducts, manufacturer: str) -> tuple[str, str, str, str]:
+def _contract_fields_for_manufacturer(
+    products: MasterProducts,
+    manufacturer: str,
+    *,
+    collect_warnings: bool = True,
+) -> tuple[str, str, str, str]:
     if manufacturer in products._contract_conflict_manufacturers:
         return "", "", "", ""
     contract = products.contracts_by_manufacturer.get(manufacturer)
@@ -266,7 +271,7 @@ def _contract_fields_for_manufacturer(products: MasterProducts, manufacturer: st
             contract.get("contract_no_prefix", ""),
             contract.get("tax_rate", ""),
         )
-    if products.contract_lookup_enabled:
+    if products.contract_lookup_enabled and collect_warnings:
         products._contract_unmapped_manufacturers.setdefault(manufacturer, None)
     return "", "", "", ""
 
@@ -548,11 +553,19 @@ def _zhengfei_average_prices_by_manufacturer(entries: list[dict[str, Any]]) -> d
     return averages
 
 
-def build_restock_rows(
+def _build_restock_entries(
     summary: OrderedDict[str, Decimal],
     sku_sources: OrderedDict[str, list[str]],
     products: MasterProducts,
-) -> tuple[list[list[Any]], OrderedDict[str, list[list[Any]]], list[list[Any]], int, int]:
+    *,
+    collect_warnings: bool,
+) -> tuple[
+    list[dict[str, Any]],
+    OrderedDict[str, list[dict[str, Any]]],
+    list[list[Any]],
+    int,
+    int,
+]:
     summary_entries: list[dict[str, Any]] = []
     manufacturer_entries: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
     merge_entries: dict[tuple[str, str], dict[str, Any]] = {}
@@ -580,11 +593,13 @@ def build_restock_rows(
         unit, contract_product_name, contract_no_prefix, tax_rate = _contract_fields_for_manufacturer(
             products,
             manufacturer,
+            collect_warnings=collect_warnings,
         )
         if not model:
-            products.unmerged_empty_model_sku_count += 1
-            if len(products.unmerged_empty_model_skus) < 20:
-                products.unmerged_empty_model_skus.append(stock_sku)
+            if collect_warnings:
+                products.unmerged_empty_model_sku_count += 1
+                if len(products.unmerged_empty_model_skus) < 20:
+                    products.unmerged_empty_model_skus.append(stock_sku)
             entries.append(
                 {
                     "stock_skus": [stock_sku],
@@ -643,7 +658,43 @@ def build_restock_rows(
                 entry["source_delivery_nos"].append(source_value)
         entry["quantity"] += quantity
 
-    zhengfei_average_prices = _zhengfei_average_prices_by_manufacturer(summary_entries)
+    return summary_entries, manufacturer_entries, unmatched_rows, matched_sku_count, unmatched_sku_count
+
+
+def zhengfei_average_prices_for_summary(
+    summary: OrderedDict[str, Decimal],
+    sku_sources: OrderedDict[str, list[str]],
+    products: MasterProducts,
+) -> dict[str, Decimal]:
+    summary_entries, _manufacturer_entries, _unmatched_rows, _matched_count, _unmatched_count = (
+        _build_restock_entries(
+            summary,
+            sku_sources,
+            products,
+            collect_warnings=False,
+        )
+    )
+    return _zhengfei_average_prices_by_manufacturer(summary_entries)
+
+
+def build_restock_rows(
+    summary: OrderedDict[str, Decimal],
+    sku_sources: OrderedDict[str, list[str]],
+    products: MasterProducts,
+    *,
+    zhengfei_average_prices: dict[str, Decimal] | None = None,
+    collect_warnings: bool = True,
+) -> tuple[list[list[Any]], OrderedDict[str, list[list[Any]]], list[list[Any]], int, int]:
+    summary_entries, manufacturer_entries, unmatched_rows, matched_sku_count, unmatched_sku_count = (
+        _build_restock_entries(
+            summary,
+            sku_sources,
+            products,
+            collect_warnings=collect_warnings,
+        )
+    )
+    if zhengfei_average_prices is None:
+        zhengfei_average_prices = _zhengfei_average_prices_by_manufacturer(summary_entries)
 
     def entry_to_row(entry: dict[str, Any]) -> list[Any]:
         total_price = entry["original_price"] * entry["quantity"]
@@ -678,8 +729,9 @@ def build_restock_rows(
     for manufacturer, entries in manufacturer_entries.items():
         manufacturer_rows[manufacturer] = [entry_to_row(entry) for entry in entries]
 
-    _append_empty_model_warning(products)
-    _append_contract_unmapped_warning(products)
+    if collect_warnings:
+        _append_empty_model_warning(products)
+        _append_contract_unmapped_warning(products)
     return summary_rows, manufacturer_rows, unmatched_rows, matched_sku_count, unmatched_sku_count
 
 
