@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import socket
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -18,10 +19,13 @@ class DashboardServer:
         *,
         host: str,
         port: int,
+        port_auto_fallback: bool = True,
         channel_health_snapshot: Callable[[], Awaitable[dict[str, dict[str, Any]]]] | None = None,
     ) -> None:
         self.host = str(host or "127.0.0.1").strip() or "127.0.0.1"
-        self.port = max(1, int(port or 8765))
+        self.requested_port = self._normalize_port(port)
+        self.port = self.requested_port
+        self.port_auto_fallback = bool(port_auto_fallback)
         self._channel_health_snapshot = channel_health_snapshot
         self._server: uvicorn.Server | None = None
         self._task: asyncio.Task | None = None
@@ -35,10 +39,31 @@ class DashboardServer:
         if self._task is not None and not self._task.done():
             return True
         self._error = ""
-        if not self._port_available():
-            self._error = "address already in use"
-            logger.warning("[Dashboard] disabled: address already in use url=%s", self.url)
+        self.port = self.requested_port
+        sock, bind_error = self._bind_socket(self.requested_port)
+        if sock is None and self.port_auto_fallback:
+            fallback_sock, fallback_error = self._bind_socket(0)
+            if fallback_sock is not None:
+                sock = fallback_sock
+                self.port = self._socket_port(sock)
+                logger.warning(
+                    "[Dashboard] port fallback: requested=%s actual=%s reason=%s",
+                    self.requested_port,
+                    self.port,
+                    self._bind_error_text(bind_error),
+                )
+            else:
+                self._error = (
+                    f"{self._bind_error_text(bind_error)}; "
+                    f"dynamic fallback failed: {self._bind_error_text(fallback_error)}"
+                )
+                logger.warning("[Dashboard] disabled: %s url=%s", self._error, self.url)
+                return False
+        if sock is None:
+            self._error = self._bind_error_text(bind_error)
+            logger.warning("[Dashboard] disabled: %s url=%s", self._error, self.url)
             return False
+        self.port = self._socket_port(sock)
         config = uvicorn.Config(
             create_dashboard_app(channel_health_snapshot=self._channel_health_snapshot),
             host=self.host,
@@ -49,7 +74,7 @@ class DashboardServer:
         server = uvicorn.Server(config)
         server.install_signal_handlers = lambda: None
         self._server = server
-        self._task = asyncio.create_task(self._serve_guarded(server), name="gateway:dashboard")
+        self._task = asyncio.create_task(self._serve_guarded(server, [sock]), name="gateway:dashboard")
         for _ in range(50):
             if bool(getattr(server, "started", False)):
                 logger.info("[Dashboard] started: url=%s", self.url)
@@ -61,17 +86,45 @@ class DashboardServer:
         logger.warning("[Dashboard] start not confirmed after timeout: url=%s", self.url)
         return False
 
-    def _port_available(self) -> bool:
+    @staticmethod
+    def _normalize_port(port: int) -> int:
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.bind((self.host, self.port))
-        except OSError:
-            return False
-        return True
+            value = int(port)
+        except Exception:
+            return 8765
+        if value < 0 or value > 65535:
+            return 8765
+        return value
 
-    async def _serve_guarded(self, server: uvicorn.Server) -> None:
+    def _bind_socket(self, port: int) -> tuple[socket.socket | None, BaseException | None]:
+        family = socket.AF_INET6 if ":" in self.host else socket.AF_INET
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            await server.serve()
+            sock.bind((self.host, int(port)))
+        except Exception as exc:
+            sock.close()
+            return None, exc
+        sock.set_inheritable(True)
+        return sock, None
+
+    @staticmethod
+    def _socket_port(sock: socket.socket) -> int:
+        return int(sock.getsockname()[1])
+
+    @staticmethod
+    def _bind_error_text(exc: BaseException | None) -> str:
+        if exc is None:
+            return "bind failed"
+        if isinstance(exc, OSError) and exc.errno in {errno.EADDRINUSE, errno.EACCES}:
+            if exc.errno == errno.EADDRINUSE:
+                return "address already in use"
+            return "permission denied"
+        return str(exc) or exc.__class__.__name__
+
+    async def _serve_guarded(self, server: uvicorn.Server, sockets: list[socket.socket]) -> None:
+        try:
+            await server.serve(sockets=sockets)
         except asyncio.CancelledError:
             raise
         except SystemExit as exc:
@@ -82,6 +135,9 @@ class DashboardServer:
             self._error = str(exc) or exc.__class__.__name__
             self._server = None
             logger.warning("[Dashboard] disabled: start failed url=%s error=%s", self.url, self._error, exc_info=True)
+        finally:
+            for sock in sockets:
+                sock.close()
 
     async def stop(self) -> None:
         task = self._task

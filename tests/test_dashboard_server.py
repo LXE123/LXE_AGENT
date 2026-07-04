@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from gateway.dashboard.api import create_dashboard_app
 from gateway.app import GatewayApp
+from gateway.dashboard import settings as dashboard_settings
 from gateway.dashboard.server import DashboardServer
 
 
@@ -16,11 +17,24 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def test_dashboard_port_auto_fallback_setting(monkeypatch) -> None:
+    monkeypatch.delenv("AGENT_DASHBOARD_PORT_AUTO_FALLBACK", raising=False)
+    assert dashboard_settings.dashboard_port_auto_fallback() is True
+
+    monkeypatch.setenv("AGENT_DASHBOARD_PORT_AUTO_FALLBACK", "0")
+    assert dashboard_settings.dashboard_port_auto_fallback() is False
+
+    monkeypatch.setenv("AGENT_DASHBOARD_PORT_AUTO_FALLBACK", "1")
+    assert dashboard_settings.dashboard_port_auto_fallback() is True
+
+
 def test_dashboard_server_starts_and_stops_on_free_port() -> None:
     async def _run() -> None:
-        server = DashboardServer(host="127.0.0.1", port=_free_port())
+        port = _free_port()
+        server = DashboardServer(host="127.0.0.1", port=port)
 
         assert await server.start() is True
+        assert server.port == port
         state = server.state()
         assert state["enabled"] is True
         assert state["started"] is True
@@ -33,13 +47,48 @@ def test_dashboard_server_starts_and_stops_on_free_port() -> None:
     asyncio.run(_run())
 
 
-def test_dashboard_server_returns_false_when_port_is_occupied() -> None:
+def test_dashboard_server_uses_dynamic_port_when_requested_port_is_zero() -> None:
+    async def _run() -> None:
+        server = DashboardServer(host="127.0.0.1", port=0)
+
+        assert await server.start() is True
+        assert server.port > 0
+        assert server.url == f"http://127.0.0.1:{server.port}"
+        assert not server.url.endswith(":0")
+
+        await server.stop()
+
+    asyncio.run(_run())
+
+
+def test_dashboard_server_falls_back_when_port_is_occupied() -> None:
     async def _run() -> None:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.bind(("127.0.0.1", 0))
             sock.listen(1)
             port = int(sock.getsockname()[1])
             server = DashboardServer(host="127.0.0.1", port=port)
+
+            assert await server.start() is True
+            state = server.state()
+            assert state["started"] is True
+            assert state["running"] is True
+            assert state["error"] == ""
+            assert server.port != port
+            assert server.url == f"http://127.0.0.1:{server.port}"
+
+            await server.stop()
+
+    asyncio.run(_run())
+
+
+def test_dashboard_server_returns_false_when_port_is_occupied_and_fallback_disabled() -> None:
+    async def _run() -> None:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            sock.listen(1)
+            port = int(sock.getsockname()[1])
+            server = DashboardServer(host="127.0.0.1", port=port, port_auto_fallback=False)
 
             assert await server.start() is False
             state = server.state()
@@ -60,7 +109,7 @@ def test_dashboard_server_swallows_uvicorn_system_exit(monkeypatch) -> None:
         def __init__(self, _config) -> None:
             self.install_signal_handlers = None
 
-        async def serve(self) -> None:
+        async def serve(self, sockets=None) -> None:
             raise SystemExit(1)
 
     monkeypatch.setattr("gateway.dashboard.server.uvicorn.Server", FakeUvicornServer)
@@ -202,8 +251,8 @@ def test_gateway_start_opens_dashboard_browser(monkeypatch) -> None:
 
     class FakeDashboardServer:
         host = "0.0.0.0"
-        port = 8765
-        url = "http://0.0.0.0:8765"
+        port = 49152
+        url = "http://0.0.0.0:49152"
         stopped = False
 
         async def start(self) -> bool:
@@ -273,7 +322,7 @@ def test_gateway_start_opens_dashboard_browser(monkeypatch) -> None:
         app._dashboard_server = FakeDashboardServer()
 
         await app.start()
-        assert opened_urls == ["http://127.0.0.1:8765"]
+        assert opened_urls == ["http://127.0.0.1:49152"]
         await app.stop()
 
     asyncio.run(_run())

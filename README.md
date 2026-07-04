@@ -7,7 +7,7 @@
 
 - 飞书机器人入口：支持私聊和群聊会话。
 - FBA 业务 skill：覆盖马帮、紫鸟、物流、报关、发票和退税等本地流程。
-- 本地 Dashboard：默认运行在 `http://127.0.0.1:8765/`。
+- 本地 Dashboard：默认优先运行在 `http://127.0.0.1:8765/`。
 - 会话记录：本地保存 session 统计和 JSONL 聊天记录。
 - 可选数据服务同步：可上传 session/token/tool 使用量到 LXE Agent Data Server。
 
@@ -55,6 +55,8 @@ LXE update
 - Windows 安装/更新会尝试安装 `dws`；首次使用钉钉能力前需手动运行 `dws auth login`。
 - 如需 FBA 模板文件，按 `data/README.md` 准备本机业务数据。
 - 启动时默认自动打开 Dashboard；如需关闭，设置 `AGENT_DASHBOARD_OPEN_BROWSER=0`。
+- Dashboard 默认使用 `AGENT_DASHBOARD_PORT=8765`；如果端口被占用，会自动切换到一个空闲端口并在日志里输出实际 URL。
+- 如需严格固定端口，设置 `AGENT_DASHBOARD_PORT_AUTO_FALLBACK=0`；如需每次都动态分配端口，设置 `AGENT_DASHBOARD_PORT=0`。
 - 如需上传使用统计，配置 `LXE_DATA_SERVER_ENABLED`、`LXE_DATA_SERVER_URL` 和 `LXE_DATA_SERVER_API_KEY`。
 
 ## 开发检查
