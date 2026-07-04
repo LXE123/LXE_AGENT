@@ -12,6 +12,7 @@ from services.agent_cli._shared.json_cli import (
 )
 from services.mabang.amazon.fba.store_msku_actual_inventory import export_store_msku_actual_inventory
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -31,6 +32,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     store_name = ""
     try:
         args = build_parser().parse_args(argv)

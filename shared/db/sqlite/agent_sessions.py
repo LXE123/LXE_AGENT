@@ -23,7 +23,7 @@ from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import _resolve_model_capabilities_match
 from shared.llm.provider_catalog import descriptor_for_provider, normalize_provider_name
 from shared.llm import runtime_config as runtime_settings
-from shared.logging import logger
+from shared.logging import get_logger
 
 from ._agent_storage import (
     json_object_from_storage,
@@ -38,6 +38,8 @@ from .session_messages import (
     load_session_messages,
     save_session_messages,
 )
+
+logger = get_logger(__name__)
 
 
 MAX_PENDING_EVENTS = 10

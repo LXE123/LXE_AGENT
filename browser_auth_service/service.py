@@ -10,11 +10,13 @@ from urllib.parse import urlparse
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
-from shared.logging import logger
+from shared.logging import get_logger
 from services.mabang.auth_constants import PRIVATE_AMZ_HOST, PRIVATE_AMZ_REQUIRED_COOKIE_NAMES
 from services.mabang import config as mabang_settings
 
 from . import config as auth_settings
+
+logger = get_logger(__name__)
 
 PHPSESSID_COOKIE_NAME = "PHPSESSID"
 PHPSESSID_HOST = "private.mabangerp.com"

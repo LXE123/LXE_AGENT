@@ -12,7 +12,10 @@ from agent_runtime.types import ToolDefinition, ToolExecutionError, ToolResult, 
 from platforms.feishu.api_client import DownloadedResource, api_client
 from platforms.feishu.history_formatter import format_message_list
 from shared.log_config import local_logs_enabled
-from shared.logging import logger
+from shared.log_retention import ensure_local_log_retention_once
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 _FILENAME_SANITIZER = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
@@ -270,6 +273,7 @@ def _dump_raw_messages(
     query: dict[str, Any],
     items: list[dict[str, Any]],
 ) -> str:
+    ensure_local_log_retention_once()
     if not local_logs_enabled():
         logger.info("[FeishuIMTools] raw message dump skipped: local logs disabled")
         return ""
@@ -628,13 +632,17 @@ FEISHU_IM_TOOLS = (
 
 
 def register_feishu_im_tools(registry: Any) -> None:
+    added_names: list[str] = []
     for tool in FEISHU_IM_TOOLS:
         if not registry.has(tool.name):
             registry.register(tool)
-    logger.info(
+            added_names.append(tool.name)
+    if not added_names:
+        return
+    logger.debug(
         "[FeishuIMTools] registered %d tools: %s",
-        len(FEISHU_IM_TOOLS),
-        ", ".join(tool.name for tool in FEISHU_IM_TOOLS),
+        len(added_names),
+        ", ".join(added_names),
     )
 
 

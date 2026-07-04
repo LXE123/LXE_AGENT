@@ -18,6 +18,7 @@ from services.agent_cli._shared.json_cli import (
 from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
 from services.mabang.stock_sku_export import export_stock_sku_names
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 DELIVERY_CSV_DIR = Path("artifacts") / "mabang_fba_delivery"
 STOCK_SKU_OUTPUT_DIR = Path("artifacts") / "mabang_stock_sku"
@@ -159,6 +160,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     delivery_no = ""
     try:
         args = build_parser().parse_args(argv)

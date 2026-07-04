@@ -10,12 +10,14 @@ from urllib.parse import urlsplit
 import aiohttp
 
 from shared.infra.net import erp_http_session
-from shared.logging import logger
+from shared.logging import get_logger
 
 from ...auth import get_fba_wms_cookie_header
 from ...errors import MabangAuthError, MabangBusinessError
 from .consignment_paths import resolve_wms_consignment_dir
 from . import wms_config as wms_settings
+
+logger = get_logger(__name__)
 
 DEFAULT_WMS_EXPORT_URL = "https://wms.private.mabangerp.com/export_service/fbaamazon/ExeclFbaPackInfo2Amazon"
 DEFAULT_WMS_EXPORT_ORIGIN = "https://wms.private.mabangerp.com"

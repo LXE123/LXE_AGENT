@@ -5,10 +5,12 @@ from typing import Any
 
 from shared.db.client import save_response_route_delivery_handle, save_response_route_patch
 from shared.infra.net import HttpSessionPurpose, get_aiohttp_session
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .auth import token_manager
 from .config import FEISHU_API_HOST
+
+logger = get_logger(__name__)
 
 
 _STREAM_ELEMENT_ID = "streaming_content"

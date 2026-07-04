@@ -9,7 +9,10 @@ from typing import Any, TypedDict
 
 from shared.env_config import env_flag, env_text
 from shared.log_config import local_logs_enabled
-from shared.logging import logger
+from shared.log_retention import ensure_local_log_retention_once
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 _TRACE_STRING_LIMIT = 8192
 _IMAGE_DATA_PLACEHOLDER = "[image base64 omitted from wire trace]"
@@ -249,6 +252,7 @@ class WireTraceWriter:
         self._handle = None
         self._event_count = 0
 
+        ensure_local_log_retention_once()
         if not self._enabled:
             return
 

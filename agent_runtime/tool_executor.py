@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from shared.agent_state import ensure_agent_state, merge_agent_state
-from shared.logging import logger
+from shared.logging import get_logger
 from shared.media.image_processing import compress_image_bytes
 
 from .facts import ToolExecutionFact
@@ -23,6 +23,8 @@ from .types import (
     text_content_block,
     text_tool_result,
 )
+
+logger = get_logger(__name__)
 
 
 class ToolExecutionContext:

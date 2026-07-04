@@ -8,7 +8,9 @@ import time
 from typing import Awaitable, Callable
 
 from shared.agent_io import AgentJob
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 CancelHandle = Callable[[], None]

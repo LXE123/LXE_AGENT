@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from shared.llm.transports.wire_trace import WireTraceContext, load_wire_trace_config, wire_trace_turn_dir
 from shared.llm.errors import LLMProviderError
-from shared.logging import logger
+from shared.logging import get_logger, reset_log_context, set_log_context
 
 from .context_pipeline import (
     PRECALL_COMPACTION_USAGE_THRESHOLD,
@@ -58,6 +58,8 @@ from .types import (
     TurnOutcome,
     tool_content_preview_text,
 )
+
+logger = get_logger(__name__)
 
 
 ProgressCallback = Callable[[str], Awaitable[None]]
@@ -682,158 +684,163 @@ class AgentLoop:
             user_input_preview=user_input[:100],
             started_at=time.time(),
         )
-        self._trace_session_id = turn_log.session_id
-        self._trace_turn_id = turn_log.turn_id
-        self._trace_turn_started_at = turn_log.started_at
-        self._wire_trace_turn_dir = wire_trace_turn_dir(
-            self.wire_trace_config,
-            session_id=turn_log.session_id,
-            turn_id=turn_log.turn_id,
-            started_at=turn_log.started_at,
-        )
-        self._turn_trace_writer = TurnTraceWriter(
-            session_id=turn_log.session_id,
-            turn_id=turn_log.turn_id,
-            config=self.stream_logging_config,
-            started_at=turn_log.started_at,
-        )
-        logger.info(
-            "[Turn:TRACE] session=%s turn=%s mode=%s trace=%s wire=%s",
-            turn_log.session_id,
-            turn_log.turn_id,
-            self.stream_logging_config.mode,
-            self._turn_trace_writer.trace_path or "-",
-            self._wire_trace_turn_dir or "-",
-        )
-
-        self.state_data, _ = prune_processed_history_images(self.state_data)
-        request_user_message = make_user_message(user_content_blocks if user_content_blocks else user_input)
-        self.state_data = append_messages_to_state(
-            self.state_data,
-            messages=[request_user_message],
-            validate_closure=False,
-        )
-        await self._checkpoint_context(
-            _CHECKPOINT_APPEND_MESSAGE,
-            reason="user_message",
-            message=request_user_message,
-        )
-        current_turn_messages: list[dict[str, Any]] = [request_user_message]
-        session_source = dict(getattr(self.session, "source", {}) or {})
-        platform = str(session_source.get("platform") or "feishu").strip()
-        self.mcp_manager = await build_mcp_connection_manager()
-        register_mcp_tools(self.tool_registry, self.mcp_manager)
-        exposure_state = ToolExposureState(
-            registry=self.tool_registry,
-            search_enabled=mcp_tool_search_enabled(),
-        )
-        register_tool_search(self.tool_registry, exposure_state)
-        tool_schemas = exposure_state.active_schemas()
-        system_prompt = build_system_prompt(
-            platform=platform,
-            tool_schemas=tool_schemas,
-            available_skills=available_skills,
-            state_data=self.state_data,
-        )
-
-        messages, context_stats = build_llm_messages(
-            state_data=self.state_data,
-            current_turn_messages=[],
-            system_prompt=system_prompt,
-        )
-
-        # --- populate context snapshot for logging ---
-        system_prompt_tokens = estimate_tokens(system_prompt)
-        context_window = _model_context_window()
-        turn_log.system_prompt_tokens = system_prompt_tokens
-        turn_log.context_window_tokens = context_window
-        turn_log.context_stats_before = context_stats
-
-        _log_turn_start(turn_log)
-        _log_context_warnings(context_stats, context_window)
-
-        exec_ctx = ToolExecutionContext(
-            session=self.session,
-            state_data=self.state_data,
-            on_progress=self.on_progress,
-            cancellation_check=self.cancellation_check,
-            turn_id=turn_log.turn_id,
-            response_route_id=str(turn.response_route_id or "").strip(),
-            cancel_event=self.cancel_event,
-        )
-        set_tool_context(exec_ctx)
+        log_context_token = set_log_context(session_id=turn_log.session_id, turn_id=turn_log.turn_id)
         try:
-            outcome = await self._loop(
-                current_turn_messages=current_turn_messages,
-                messages=messages,
-                platform=platform,
-                available_skills=available_skills,
-                exposure_state=exposure_state,
-                turn_log=turn_log,
-                exec_ctx=exec_ctx,
-                session_id=turn.session_id,
+            self._trace_session_id = turn_log.session_id
+            self._trace_turn_id = turn_log.turn_id
+            self._trace_turn_started_at = turn_log.started_at
+            self._wire_trace_turn_dir = wire_trace_turn_dir(
+                self.wire_trace_config,
+                session_id=turn_log.session_id,
+                turn_id=turn_log.turn_id,
+                started_at=turn_log.started_at,
             )
-        finally:
-            clear_tool_context()
-            self.state_data = dict(exec_ctx.state_data)
-            if self._turn_trace_writer is not None:
-                self._turn_trace_writer.close()
-                self._turn_trace_writer = None
-            if self.mcp_manager is not None:
-                await self.mcp_manager.close()
-                self.mcp_manager = None
-            self._trace_session_id = ""
-            self._trace_turn_id = ""
-            self._trace_turn_started_at = 0.0
-            self._wire_trace_turn_dir = ""
+            self._turn_trace_writer = TurnTraceWriter(
+                session_id=turn_log.session_id,
+                turn_id=turn_log.turn_id,
+                config=self.stream_logging_config,
+                started_at=turn_log.started_at,
+            )
+            logger.info(
+                "[Turn:TRACE] session=%s turn=%s mode=%s trace=%s wire=%s",
+                turn_log.session_id,
+                turn_log.turn_id,
+                self.stream_logging_config.mode,
+                self._turn_trace_writer.trace_path or "-",
+                self._wire_trace_turn_dir or "-",
+            )
 
-        compaction = await maybe_compact_history(
-            state_data=self.state_data,
-            session_id=turn.session_id,
-            system_prompt=system_prompt,
-            trigger="post_turn",
-        )
-        self.state_data = compaction.state_data
-        turn_log.compaction_performed = compaction.compacted
-
-        is_group = bool(
-            str(getattr(self.session, "conversation_type", "") or "").strip() == "2"
-        )
-        self.state_data = apply_message_history_limit(
-            self.state_data,
-            platform=platform,
-            is_group=is_group,
-        )
-
-        repaired_messages, repaired = sanitize_messages_for_provider(load_context_messages(self.state_data))
-        if repaired:
-            self.state_data = replace_context_messages_in_state(
+            self.state_data, _ = prune_processed_history_images(self.state_data)
+            request_user_message = make_user_message(user_content_blocks if user_content_blocks else user_input)
+            self.state_data = append_messages_to_state(
                 self.state_data,
-                messages=repaired_messages,
-                validate_closure=True,
+                messages=[request_user_message],
+                validate_closure=False,
+            )
+            await self._checkpoint_context(
+                _CHECKPOINT_APPEND_MESSAGE,
+                reason="user_message",
+                message=request_user_message,
+            )
+            current_turn_messages: list[dict[str, Any]] = [request_user_message]
+            session_source = dict(getattr(self.session, "source", {}) or {})
+            platform = str(session_source.get("platform") or "feishu").strip()
+            self.mcp_manager = await build_mcp_connection_manager()
+            register_mcp_tools(self.tool_registry, self.mcp_manager)
+            exposure_state = ToolExposureState(
+                registry=self.tool_registry,
+                search_enabled=mcp_tool_search_enabled(),
+            )
+            register_tool_search(self.tool_registry, exposure_state)
+            tool_schemas = exposure_state.active_schemas()
+            system_prompt = build_system_prompt(
+                platform=platform,
+                tool_schemas=tool_schemas,
+                available_skills=available_skills,
+                state_data=self.state_data,
             )
 
-        state_patch = dict(self.state_data)
+            messages, context_stats = build_llm_messages(
+                state_data=self.state_data,
+                current_turn_messages=[],
+                system_prompt=system_prompt,
+            )
 
-        # --- final context snapshot after compaction & limits ---
-        _, after_stats = build_llm_messages(
-            state_data=self.state_data,
-            current_turn_messages=[],
-            system_prompt=system_prompt,
-        )
-        turn_log.context_stats_after = after_stats
+            # --- populate context snapshot for logging ---
+            system_prompt_tokens = estimate_tokens(system_prompt)
+            context_window = _model_context_window()
+            turn_log.system_prompt_tokens = system_prompt_tokens
+            turn_log.context_window_tokens = context_window
+            turn_log.context_stats_before = context_stats
 
-        turn_log.finalize(outcome.status)
-        if outcome.status == "error":
-            turn_log.error_summary = outcome.reply[:200]
-        _log_turn_end(turn_log)
+            _log_turn_start(turn_log)
+            _log_context_warnings(context_stats, context_window)
 
-        return TurnOutcome(
-            status=outcome.status,
-            reply=outcome.reply,
-            state_data_patch=state_patch,
-            turn_log=turn_log,
-        )
+            exec_ctx = ToolExecutionContext(
+                session=self.session,
+                state_data=self.state_data,
+                on_progress=self.on_progress,
+                cancellation_check=self.cancellation_check,
+                turn_id=turn_log.turn_id,
+                response_route_id=str(turn.response_route_id or "").strip(),
+                cancel_event=self.cancel_event,
+            )
+            set_tool_context(exec_ctx)
+            try:
+                outcome = await self._loop(
+                    current_turn_messages=current_turn_messages,
+                    messages=messages,
+                    platform=platform,
+                    available_skills=available_skills,
+                    exposure_state=exposure_state,
+                    turn_log=turn_log,
+                    exec_ctx=exec_ctx,
+                    session_id=turn.session_id,
+                )
+            finally:
+                clear_tool_context()
+                self.state_data = dict(exec_ctx.state_data)
+                if self._turn_trace_writer is not None:
+                    self._turn_trace_writer.close()
+                    self._turn_trace_writer = None
+                if self.mcp_manager is not None:
+                    await self.mcp_manager.close()
+                    self.mcp_manager = None
+                self._trace_session_id = ""
+                self._trace_turn_id = ""
+                self._trace_turn_started_at = 0.0
+                self._wire_trace_turn_dir = ""
+
+            compaction = await maybe_compact_history(
+                state_data=self.state_data,
+                session_id=turn.session_id,
+                system_prompt=system_prompt,
+                trigger="post_turn",
+            )
+            self.state_data = compaction.state_data
+            turn_log.compaction_performed = compaction.compacted
+
+            is_group = bool(
+                str(getattr(self.session, "conversation_type", "") or "").strip() == "2"
+            )
+            self.state_data = apply_message_history_limit(
+                self.state_data,
+                platform=platform,
+                is_group=is_group,
+            )
+
+            repaired_messages, repaired = sanitize_messages_for_provider(load_context_messages(self.state_data))
+            if repaired:
+                self.state_data = replace_context_messages_in_state(
+                    self.state_data,
+                    messages=repaired_messages,
+                    validate_closure=True,
+                )
+
+            state_patch = dict(self.state_data)
+
+            # --- final context snapshot after compaction & limits ---
+            _, after_stats = build_llm_messages(
+                state_data=self.state_data,
+                current_turn_messages=[],
+                system_prompt=system_prompt,
+            )
+            turn_log.context_stats_after = after_stats
+
+            turn_log.finalize(outcome.status)
+            if outcome.status == "error":
+                turn_log.error_summary = outcome.reply[:200]
+            _log_turn_end(turn_log)
+
+            return TurnOutcome(
+                status=outcome.status,
+                reply=outcome.reply,
+                state_data_patch=state_patch,
+                turn_log=turn_log,
+            )
+
+        finally:
+            reset_log_context(log_context_token)
 
     async def _loop(
         self,

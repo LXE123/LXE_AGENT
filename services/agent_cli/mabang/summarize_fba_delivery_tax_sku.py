@@ -19,6 +19,7 @@ from services.mabang.stock_sku_export import export_stock_sku_names
 from services.mabang.amazon.fba import download_fba_delivery_csv
 from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 DELIVERY_CSV_DIR = Path("artifacts") / "mabang_fba_delivery"
 OUTPUT_DIR = Path("artifacts") / "mabang_fba_tax_summary"
@@ -327,6 +328,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     delivery_no = ""
     try:
         args = build_parser().parse_args(argv)

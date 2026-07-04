@@ -21,10 +21,12 @@ from shared.llm.provider_catalog import ProviderDescriptor
 from shared.llm import runtime_config as runtime_settings
 from shared.llm.transports.anthropic_sdk_stream import stream_message_events as sdk_stream_message_events
 from shared.llm.transports.wire_trace import WireTraceContext
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .tool_schema_adapter import adapt_tool_schemas
 from .types import ToolSchema
+
+logger = get_logger(__name__)
 
 ToolChoiceMode = Literal["auto", "none"]
 _DEEPSEEK_PROVIDER_NAME = "deepseek"

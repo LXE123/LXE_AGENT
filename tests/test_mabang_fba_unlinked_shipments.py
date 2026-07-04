@@ -287,7 +287,7 @@ def test_download_raw_file_from_url_saves_original_binary(monkeypatch, tmp_path)
 def test_download_store_unlinked_shipments_skips_zero_totals_and_logs_progress(
     monkeypatch, tmp_path, caplog
 ) -> None:
-    caplog.set_level(logging.INFO, logger="bot_logger")
+    caplog.set_level(logging.INFO, logger="services.mabang.amazon.fba.unlinked_shipments")
 
     async def fake_get_token() -> str:
         return "token"

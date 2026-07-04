@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from shared.infra.net import build_child_env
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class BrowserAuthClientError(RuntimeError):

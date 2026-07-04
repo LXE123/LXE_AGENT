@@ -4,10 +4,12 @@ from uuid import uuid4
 
 from shared.agent_io import EmitRequest
 from shared.db.client import load_agent_session, load_response_route_context
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .channel_registry import ChannelRegistry
 from .models import OutboundRequest
+
+logger = get_logger(__name__)
 
 
 class GatewayEmitter:

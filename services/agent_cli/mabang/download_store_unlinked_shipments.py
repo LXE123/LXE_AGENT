@@ -5,7 +5,7 @@ import asyncio
 from typing import Any
 
 from shared.infra.net import close_all_network_clients
-from shared.logging import logger
+from shared.logging import get_logger, setup_logging
 from services.agent_cli._shared.json_cli import (
     JsonArgumentParser,
     configure_utf8_stdio,
@@ -18,6 +18,8 @@ from services.mabang.amazon.fba.unlinked_shipments import (
     download_store_unlinked_shipments,
     normalize_store_name,
 )
+
+logger = get_logger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,6 +78,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     store_name = ""
     try:
         args = build_parser().parse_args(argv)

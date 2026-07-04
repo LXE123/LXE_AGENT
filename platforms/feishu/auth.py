@@ -5,9 +5,11 @@ import asyncio
 import time
 
 from shared.infra.net import HttpSessionPurpose, get_aiohttp_session
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .config import FEISHU_API_HOST, FEISHU_APP_ID, FEISHU_APP_SECRET
+
+logger = get_logger(__name__)
 
 
 class FeishuTokenManager:

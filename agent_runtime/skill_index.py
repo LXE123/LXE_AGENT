@@ -5,9 +5,11 @@ from pathlib import Path
 
 import yaml
 
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .skill_manifest import SkillManifest, SkillQueueItem, SkillReferenceManifest
+
+logger = get_logger(__name__)
 
 
 SKILLS_ROOT = Path(__file__).resolve().parents[1] / "skills"

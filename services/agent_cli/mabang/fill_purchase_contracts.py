@@ -19,6 +19,7 @@ from services.agent_cli._shared.json_cli import (
 )
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 OUTPUT_DIR = Path("artifacts") / "mabang_purchase_contracts"
 SOURCE = "fba_purchase_contract_fill"
@@ -812,6 +813,7 @@ def main(
     prog: str = "python -m services.agent_cli.mabang.fill_purchase_contracts",
 ) -> int:
     configure_utf8_stdio()
+    setup_logging()
     purchase_summary_xlsx = ""
     contract_template_xlsx = ""
     try:

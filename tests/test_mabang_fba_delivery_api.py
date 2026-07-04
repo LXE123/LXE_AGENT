@@ -68,7 +68,7 @@ def test_wait_for_delivery_task_times_out(monkeypatch):
 
 
 def test_wait_for_delivery_task_uses_ten_second_min_poll_interval_and_logs_progress(monkeypatch, caplog):
-    caplog.set_level(logging.INFO, logger="bot_logger")
+    caplog.set_level(logging.INFO, logger="services.mabang.amazon.fba.batch_delivery")
     calls = {"count": 0}
     sleeps: list[float] = []
 

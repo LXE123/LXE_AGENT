@@ -8,12 +8,14 @@ from pathlib import Path
 from aiohttp import FormData
 
 from shared.infra.net import HttpSessionPurpose, get_aiohttp_session
-from shared.logging import logger
+from shared.logging import get_logger
 from shared.platform.markdown_card import build_markdown_card
 
 from .auth import token_manager
 from .card_sender import FeishuCardSender, build_markdown_card_context
 from .config import FEISHU_API_HOST
+
+logger = get_logger(__name__)
 
 
 _IMAGE_EXTENSIONS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"})

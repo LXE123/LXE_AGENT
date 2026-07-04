@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .client import upload_snapshot
 from .config import (
@@ -14,6 +14,8 @@ from .config import (
     data_server_session_limit,
 )
 from .snapshot import build_agent_snapshot
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)

@@ -3,11 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .api_client import api_client
 from .converters import build_convert_context_from_item, convert_message_content, extract_mention_open_id
 from .user_name_cache import get_user_name_cache
+
+logger = get_logger(__name__)
 
 
 def _millis_string_to_datetime(value: str) -> str:

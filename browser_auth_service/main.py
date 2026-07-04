@@ -5,7 +5,9 @@ import json
 import sys
 
 from shared.infra.net import bootstrap_network_policy
-from shared.logging import logger
+from shared.logging import get_logger, setup_logging
+
+logger = get_logger(__name__)
 
 
 def _configure_utf8_stdio() -> None:
@@ -18,6 +20,7 @@ def _configure_utf8_stdio() -> None:
 
 def main() -> int:
     _configure_utf8_stdio()
+    setup_logging()
     bootstrap_network_policy(label="browser_auth_service", emit=logger.info)
     from .service import ensure_auth
 

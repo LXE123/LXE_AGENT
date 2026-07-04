@@ -28,6 +28,7 @@ from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
     find_latest_delivery_csv,
 )
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 OUTPUT_DIR = Path("artifacts") / "mabang_purchase_summary"
 SOURCE = "fba_purchase_summary"
@@ -68,6 +69,7 @@ FLOAT_NOISE_TOLERANCE = Decimal("0.000000001")
 ZHENGFEI_MANUFACTURER_MARKER = "正飞"
 TOTAL_ROW_FILL_COLOR = "FFFFF2CC"
 PURCHASE_ORDER_COLUMN_FILL_COLOR = "FFE2F0D9"
+AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR = "FFD9D9D9"
 
 
 class MasterProducts(OrderedDict[str, dict[str, Any]]):
@@ -834,6 +836,18 @@ def _write_rows(
             if row_index == total_row_index:
                 continue
             worksheet.cell(row=row_index, column=purchase_order_column).fill = purchase_order_fill
+    auxiliary_column_names = ["售价(均价)", "总价（售价(均价)）"]
+    if "采购订单号" in columns:
+        auxiliary_column_names.extend(["库存sku", "产品名称"])
+    auxiliary_fill = PatternFill(fill_type="solid", fgColor=AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR)
+    for auxiliary_column_name in auxiliary_column_names:
+        if auxiliary_column_name not in columns:
+            continue
+        auxiliary_column = columns.index(auxiliary_column_name) + 1
+        for row_index in range(1, worksheet.max_row + 1):
+            if row_index == total_row_index:
+                continue
+            worksheet.cell(row=row_index, column=auxiliary_column).fill = auxiliary_fill
     worksheet.freeze_panes = "A2"
     wrap_alignment = Alignment(wrap_text=True, vertical="top")
     for text_column_name in ("库存sku", "产品名称", "来源SP单号", "库存sku（第一行）", "产品名称（第一行）"):
@@ -984,6 +998,7 @@ def main(
     prog: str = "python -m services.agent_cli.mabang.generate_restock_workbook",
 ) -> int:
     configure_utf8_stdio()
+    setup_logging()
     delivery_nos: list[str] = []
     master_xlsx = ""
     try:

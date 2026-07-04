@@ -10,6 +10,7 @@ from services.agent_cli._shared.json_cli import (
     write_json as _write_json,
 )
 from services.mabang.amazon.fba import replenishment_template as template_service
+from shared.logging import setup_logging
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -124,6 +125,7 @@ def _success_payload_for_args(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     command = ""
     try:
         args = build_parser().parse_args(argv)

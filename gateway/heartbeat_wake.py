@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from gateway.session_scheduler import SessionScheduler
 from shared.agent_io import AgentJob, HeartbeatWakeRequest
 from shared.db.client import has_agent_session_pending_events, load_agent_session
-from shared.logging import logger
+from shared.logging import get_logger
 from shared.session_bindings import SessionSource
+
+logger = get_logger(__name__)
 
 _NORMAL_DELAY_S = 0.25
 _RETRY_DELAY_S = 1.0

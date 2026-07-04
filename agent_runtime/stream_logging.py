@@ -10,10 +10,13 @@ from typing import Any, Literal, TypedDict
 from shared.env_config import env_flag, env_int, env_text
 from shared.llm.transports.wire_trace import dated_session_trace_dir
 from shared.log_config import local_logs_enabled
-from shared.logging import logger
+from shared.log_retention import ensure_local_log_retention_once
+from shared.logging import get_logger
 
 from .llm_adapter import LLMResponse, LLMStreamEvent
 from .types import StreamStepSummary
+
+logger = get_logger(__name__)
 
 
 StreamLogMode = Literal["summary", "debug", "trace"]
@@ -251,6 +254,7 @@ class TurnTraceWriter:
         self._path = ""
         self._started_at = 0.0 if started_at is None else float(started_at)
 
+        ensure_local_log_retention_once()
         if not self._enabled:
             return
 

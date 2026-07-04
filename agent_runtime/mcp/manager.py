@@ -4,13 +4,15 @@ import asyncio
 from dataclasses import replace
 from typing import Any
 
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .client import AsyncMcpClient, McpStartupError
 from .config import McpConfig, McpServerConfig, load_mcp_config
 from .models import McpRoute, McpServerStatus, McpToolInfo
 from .naming import normalize_mcp_tools
 from .schema import mcp_tool_description, model_visible_input_schema
+
+logger = get_logger(__name__)
 
 
 class McpConnectionManager:

@@ -11,7 +11,9 @@ from uuid import uuid4
 
 from shared.db.sqlite.engine import database_path
 from shared.env_config import env_text
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def machine_identity_path() -> Path:

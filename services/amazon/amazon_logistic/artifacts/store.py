@@ -4,7 +4,9 @@ import os
 from pathlib import Path
 
 from shared.infra.artifact_io import build_timestamped_path, write_text
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 _DATA_DIR = Path("artifacts") / "amazon_fba_logistics"

@@ -15,7 +15,7 @@ from shared.db.client import (
     pop_agent_session_pending_events,
     update_agent_session,
 )
-from shared.logging import logger
+from shared.logging import get_logger
 from shared.permission_policy import (
     bot_key_for_bot_id,
     can_user_access_bot,
@@ -25,6 +25,8 @@ from shared.permission_policy import (
 )
 from shared.platform.context import SessionContext
 from shared.session_bindings import SessionBindingStore, SessionSource
+
+logger = get_logger(__name__)
 
 
 _CONTROL_COMMANDS = {

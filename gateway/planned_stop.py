@@ -10,7 +10,9 @@ from pathlib import Path
 from threading import Event
 from typing import Any, Callable
 
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

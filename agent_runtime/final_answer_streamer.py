@@ -7,9 +7,11 @@ from typing import Awaitable, Callable
 from uuid import uuid4
 
 from shared.llm.events import LLMStreamEvent
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .tool_display import build_tool_display_step, sanitize_tool_steps
+
+logger = get_logger(__name__)
 
 
 StreamEmitter = Callable[..., Awaitable[None]]

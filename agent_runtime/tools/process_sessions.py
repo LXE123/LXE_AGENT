@@ -15,8 +15,10 @@ from typing import Any
 from uuid import uuid4
 
 from agent_runtime.emit_bus import request_heartbeat_wake
-from shared.logging import logger
+from shared.logging import get_logger
 from shared.db.client import append_agent_session_pending_event, discard_agent_session_pending_event
+
+logger = get_logger(__name__)
 
 
 DEFAULT_YIELD_MS = 10_000.0

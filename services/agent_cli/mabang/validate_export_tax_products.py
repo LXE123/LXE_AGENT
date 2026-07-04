@@ -18,6 +18,7 @@ from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
     TAX_PRODUCT_NAME_COLUMN,
     TAX_PRODUCT_SKU_COLUMN,
 )
+from shared.logging import setup_logging
 
 SOURCE = "export_tax_products_validation"
 WHITESPACE_PATTERN = re.compile(r"\s+")
@@ -120,6 +121,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     products_path = ""
     try:
         args = build_parser().parse_args(argv)

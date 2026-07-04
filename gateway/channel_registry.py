@@ -4,7 +4,9 @@ import asyncio
 from typing import Any
 
 from shared.platform.adapter import ChannelAdapter
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class ChannelRegistry:

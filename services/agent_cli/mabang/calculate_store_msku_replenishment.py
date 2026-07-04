@@ -9,6 +9,7 @@ from services.agent_cli._shared.json_cli import (
     write_json as _write_json,
 )
 from services.mabang.amazon.fba.store_msku_replenishment import calculate_store_msku_replenishment
+from shared.logging import setup_logging
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     store_name = ""
     try:
         args = build_parser().parse_args(argv)

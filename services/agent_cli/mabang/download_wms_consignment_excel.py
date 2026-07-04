@@ -14,6 +14,7 @@ from services.agent_cli._shared.json_cli import (
 )
 from services.mabang.amazon.fba import download_consignment_excel_from_wms
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 PREFERRED_SHEET_NAME = "FBA装箱任务"
 BOX_SPLIT_SIZE = 5
@@ -190,6 +191,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     ship_no = ""
     try:
         args = build_parser().parse_args(argv)

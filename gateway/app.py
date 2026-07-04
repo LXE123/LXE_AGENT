@@ -48,7 +48,10 @@ from shared.db.client import (
 )
 from shared.gateway_identity import gateway_identity_text
 from shared.infra.net import close_all_network_clients
-from shared.logging import logger
+from shared.log_retention import ensure_local_log_retention_once
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class GatewayApp:
@@ -162,6 +165,7 @@ class GatewayApp:
 
         self._loop = asyncio.get_running_loop()
         init_schema()
+        ensure_local_log_retention_once()
         if self._dashboard_server is not None:
             await self._dashboard_server.start()
         self._log_feishu_runtime("Gateway", connects_gateway=True)

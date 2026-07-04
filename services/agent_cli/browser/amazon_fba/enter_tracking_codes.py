@@ -13,6 +13,7 @@ from services.agent_cli.browser.amazon_fba._shared import (
     validate_args,
 )
 from services.browser.workflows.amazon_fba_enter_tracking_codes import run_enter_tracking_codes_workflow
+from shared.logging import setup_logging
 
 
 def run_enter_tracking_codes(
@@ -31,6 +32,7 @@ def run_enter_tracking_codes(
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     try:
         parser = build_parser("enter_tracking_codes")
         args = parser.parse_args(argv)

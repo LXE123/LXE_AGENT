@@ -14,6 +14,7 @@ from services.agent_cli.browser.amazon_fba._shared import (
     validate_args,
 )
 from services.browser.workflows.amazon_fba_prepare_multi_box_excel import run_prepare_multi_box_excel_workflow
+from shared.logging import setup_logging
 
 
 def run_prepare_multi_box_excel(
@@ -31,6 +32,7 @@ def run_prepare_multi_box_excel(
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     try:
         parser = build_parser("prepare_multi_box_excel")
         args = parser.parse_args(argv)

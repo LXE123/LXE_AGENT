@@ -4,10 +4,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from shared.infra.net import HttpSessionPurpose, get_aiohttp_session
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .auth import token_manager
 from .config import FEISHU_API_HOST
+
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)

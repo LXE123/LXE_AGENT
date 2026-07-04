@@ -13,6 +13,7 @@ from services.agent_cli._shared.json_cli import (
 from services.mabang.amazon.fba import download_fba_delivery_csv
 from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 
 def _require_delivery_no(value: Any) -> str:
@@ -48,6 +49,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     delivery_no = ""
     try:
         args = build_parser().parse_args(argv)

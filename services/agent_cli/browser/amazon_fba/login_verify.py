@@ -17,6 +17,7 @@ from services.agent_cli.browser.amazon_fba._shared import (
 from services.browser.workflows.amazon_fba_common import selected_store as _selected_store
 from services.browser.workflows.amazon_fba_common import workflow_output_dir as _workflow_output_dir
 from services.browser.workflows.amazon_fba_login_verify import run_login_verify_workflow
+from shared.logging import setup_logging
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -89,6 +90,7 @@ def run_login_verify(
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     try:
         parser = _build_parser()
         args = parser.parse_args(argv)

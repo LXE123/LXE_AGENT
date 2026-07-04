@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from shared.agent_state import ensure_agent_state, runtime_patch_from_state
-from shared.logging import logger
+from shared.logging import get_logger
 
 from agent_runtime.packs.browser.driver_session import attached_driver, select_first_normal_tab
 from agent_runtime.packs.browser.dispatcher import dispatch_ziniao_browser, dispatch_ziniao_page
@@ -15,6 +15,8 @@ from agent_runtime.packs.browser.tools import build_browser_tool_call
 from services.browser.models.protocol import emit_progress
 from services.browser.store.store_session_service import StoreSessionService
 from services.browser.workflows.amazon_fba_common import WorkflowBrowserSession
+
+logger = get_logger(__name__)
 
 
 def _artifacts_dir(session_id: str) -> Path:
