@@ -71,7 +71,7 @@ tuple[list[dict[str, Any]], ContextBuildStats]
 - `raw_turn_count`：按 message turn span 估算的 turn 数。
 - `retained_turn_count`：当前与 `raw_turn_count` 相同。
 
-token 估算使用 `estimate_tokens()`，规则是把字符串或 JSON 序列化内容长度除以 4 后向上取整。
+token 估算使用 `estimate_tokens()`：普通字符串或 JSON 序列化内容按 UTF-8 bytes / 4 向上取整；canonical image block 不按 base64 长度估算，每张图固定按 1600 tokens 计入。
 
 ## Tool Schemas 在请求中的位置
 
@@ -84,6 +84,14 @@ tool_schemas: canonical tool schemas
 ```
 
 system prompt 里的 `Tool Summaries` 只是工具摘要，完整参数 schema 通过 provider adapter 作为请求顶层工具定义传给模型。
+
+真正发 provider request 前，`_prepare_provider_messages()` 会用 `request_context_token_estimate()` 估算完整请求预算：
+
+```text
+system_prompt + messages + tool_schemas
+```
+
+如果这个完整预算超过 context window 的 90%，会先触发 `maybe_compact_history(trigger="pre_call", extra_tokens=estimate_tokens(tool_schemas))`，再重新清理 provider-bound messages。
 
 ## `_loop()` 内部追加
 
