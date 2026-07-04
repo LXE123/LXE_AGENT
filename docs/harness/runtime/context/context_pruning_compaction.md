@@ -8,11 +8,11 @@
 
 ## 设计理念
 
-上下文裁剪和压缩不是普通 prompt 组装，它们会改变后续 LLM 能看到的历史形态。当前实现采用三段式防线：turn 前先移除已经处理过的大体积历史内容，turn 内只在 provider 报 context overflow 时做恢复性压缩，turn 后再把完整本轮写入历史并进行持久化前后的长期治理。
+上下文裁剪和压缩不是普通 prompt 组装，它们会改变后续 LLM 能看到的历史形态。当前实现采用三段式防线：turn 前移除已经处理过的历史图片，turn 内在 tool result append 前做单结果裁剪、在 provider request 前做预算检查和压缩/老化，provider 报 context overflow 时再做恢复性压缩，turn 后做长期历史治理。
 
 ## 链路位置
 
-这一层贯穿 `AgentLoop.run()`：turn 前处理 `state_data.context.messages` 并构造本轮 messages；turn 内在 `_loop()` 中处理 LLM step overflow；turn 后追加本轮 messages，再做 compaction、history limit 和 final context stats。上下文基础格式见 [canonical_message.md](canonical_message.md)，turn 前组装链路见 [context_assembly.md](context_assembly.md)。
+这一层贯穿 `AgentLoop.run()`：turn 前处理 `state_data.context.messages` 并构造本轮 messages；turn 内在 `_loop()` 中处理新 tool result、pre-call 预算管理和 LLM step overflow；turn 后追加本轮 messages，再做 compaction、history limit 和 final context stats。上下文基础格式见 [canonical_message.md](canonical_message.md)，turn 前组装链路见 [context_assembly.md](context_assembly.md)。
 
 本文只维护当前 `AgentLoop` 对上下文裁剪、压缩、history limit、历史图片裁剪和 context overflow recovery 的实现。事实来源限定为：
 
@@ -31,6 +31,9 @@ turn 前:
 
 turn 内:
   AgentLoop._loop()
+  -> tool result append 前 trim_step_tool_result_blocks()
+  -> provider request 前 sanitize + request budget estimate
+  -> maybe_compact_history(trigger="pre_call")
   -> LLM step
   -> context overflow?
   -> maybe_compact_history(trigger="overflow")
@@ -83,17 +86,54 @@ self.state_data, _ = prune_processed_history_images(self.state_data)
 
 #### 设计理念
 
-当前实现不再对历史 tool result 做整段清空或 head/tail trim。上下文预算控制交给三个更明确的入口：新 tool result append 前的 step 级裁剪、provider request 前的预算检查和 compaction、provider 报 context overflow 后的恢复性 compaction。
+当前实现不再对历史 tool result 做整段清空或 head/tail trim。上下文预算控制交给三个更明确的入口：新 tool result append 前的 step 级裁剪、provider request 前的预算检查和 compaction/aging、provider 报 context overflow 后的恢复性 compaction/aging。
 
 #### 细节
 
 `AgentLoop.run()` 不再调用历史 tool result prune。`build_llm_messages()` 会按 `state_data.context.messages` 中的内容直接组装历史 tool result。
 
-这不影响本轮新产生的 tool result：它们仍会在 append 前通过 `trim_step_tool_result_blocks()` 执行单个结果的 token 预算裁剪。
+这不影响本轮新产生的 tool result：它们仍会在 append 前通过 `trim_step_tool_result_blocks()` 执行单个结果的 token 预算裁剪。裁剪是 block-aware 的：字符串 content 维持原有文本裁剪；list content 中的 image block 原样保留、不参与文本预算；多个 text block 会共享一个总文本预算，超限时合并成一个裁剪后的 text block。
 
 ## Turn 内
 
-Turn 内阶段发生在 `AgentLoop._loop()` 每个 LLM/tool step 之间。正常情况下，这一阶段不会周期性裁剪上下文；它只处理 provider 明确报出的 context overflow。
+Turn 内阶段发生在 `AgentLoop._loop()` 每个 LLM/tool step 之间。它现在有两个主动入口：tool result 返回后、append 前执行单结果裁剪；每次发 provider request 前执行 sanitizer、预算估算和必要的压缩/老化。provider 明确报 context overflow 时仍有一次恢复性重试。
+
+### Step Tool Result 裁剪
+
+#### 目的
+
+Step 级 tool result 裁剪的目的是在新工具结果进入本轮 messages 之前限制单个结果的体积，避免一个工具调用直接把下一次模型请求撑爆。
+
+#### 细节
+
+`trim_step_tool_result_blocks()` 对每个新 `tool_result` block 单独处理，默认上限是 `STEP_TOOL_RESULT_MAX_TOKENS = 10000`：
+
+- 字符串 content 使用 UTF-8 byte 头尾保留裁剪，token 估算为 `ceil(bytes / 4)`。
+- list content 不再 `json.dumps()` 降级成字符串。
+- list content 的 image block 原样保留，不参与文本预算；历史阶段会由 `prune_processed_history_images()` 替换成占位符。
+- list content 的多个 text block 共享一个总文本预算，超限时合并为一个裁剪后的 text block。
+
+### Pre-Call Budget Guard
+
+#### 目的
+
+Pre-call budget guard 的目的是在真正请求供应商前检查完整请求体积，提前处理 `system_prompt + messages + tool_schemas`，而不是等 provider 报错。
+
+#### 细节
+
+`_prepare_provider_messages()` 每次请求前会先运行 `sanitize_messages_for_provider()`，再调用 `request_context_token_estimate()` 估算：
+
+```text
+estimate_tokens(system_prompt) + estimate_tokens(messages) + estimate_tokens(tool_schemas)
+```
+
+当估算值超过 `context_window * PRECALL_COMPACTION_USAGE_THRESHOLD`，当前默认是 90%，会调用：
+
+```python
+maybe_compact_history(trigger="pre_call", extra_tokens=estimate_tokens(tool_schemas))
+```
+
+`extra_tokens` 让 `maybe_compact_history()` 在内部继续按完整请求预算判断，而不是只看 system 和 messages。
 
 ### Context Overflow Recovery
 
@@ -103,13 +143,13 @@ Context overflow recovery 的目的是在 provider 拒绝当前请求时，给�
 
 #### 设计理念
 
-当前实现把 overflow recovery 设计成“异常恢复”，不是常规压缩入口。它只压缩 `exec_ctx.state_data` 中的历史，不直接裁剪当前 turn messages。这样可以最大限度保留当前用户输入和本轮已经产生的 tool result，同时用旧历史摘要为本轮请求腾空间。
+当前实现把 overflow recovery 设计成“异常恢复”。它复用 `maybe_compact_history()`，先尝试摘要旧历史；如果没有可摘要的旧前缀，或者摘要后仍超预算，会对当前 turn 中预算外的旧 tool result 和旧 assistant thinking 做 deterministic aging。
 
 #### 细节
 
 在 `_loop()` 中，如果一次 LLM step 抛出的异常被 `is_context_overflow_error()` 判断为上下文溢出，并且本 step 尚未做过 overflow recovery，会执行：
 
-1. `maybe_compact_history(trigger="overflow")` 尝试压缩当前 `exec_ctx.state_data`。
+1. `maybe_compact_history(trigger="overflow", extra_tokens=estimate_tokens(request_tool_schemas))` 尝试压缩或老化当前 `exec_ctx.state_data`。
 2. 如果压缩成功，用新的 state 和当前 `current_turn_messages` 重新 `build_llm_messages()`。
 3. 清掉上一段 stream summary。
 4. 设置 `overflow_recovered = True`，继续当前 step 的下一次循环尝试。
@@ -121,29 +161,34 @@ Context overflow recovery 的目的是在 provider 拒绝当前请求时，给�
 - error 对象上的 `context_overflow=True`
 - 文本中包含 `context overflow`、`context window`、`maximum context`、`too many tokens`、`prompt is too long`、`model token limit` 等提示
 
-### Overflow Compaction
+### Compaction 与 Turn 内 Aging
 
 #### 目的
 
-Overflow compaction 的目的是把旧历史压成一条 summary message，让当前 turn 能继续发送给 provider。它不是为了整理长期历史，而是为了从一次失败的 LLM request 中恢复。
+Compaction 的目的是把旧历史压成一条 summary message，让当前 turn 能继续发送给 provider。Turn 内 aging 是 compaction 无法释放足够空间时的确定性兜底，专门处理当前 turn 内较旧的 tool result 和 assistant thinking。
 
 #### 设计理念
 
-Overflow compaction 复用 `maybe_compact_history()`，和 turn 后 compaction 使用同一套摘要机制。差别只在触发点：`trigger="overflow"` 发生在 LLM step 异常分支中，压缩成功后立即 rebuild messages 并重试当前 step。
+`maybe_compact_history()` 仍然优先走原有摘要压缩：保留最近约 `20000` estimated tokens 的 raw turn，把更旧 messages 总结成一条 summary message。只有当没有可摘要前缀，或摘要后仍超预算时，才进入 deterministic aging。
 
 #### 细节
 
-`maybe_compact_history()` 的触发条件是：
+`maybe_compact_history()` 的 hard budget 是：
 
 ```text
-estimated_tokens > model_context_window_tokens - DEFAULT_RESERVE_TOKENS
+estimated_tokens + extra_tokens > model_context_window_tokens - DEFAULT_RESERVE_TOKENS
 ```
+
+`trigger="pre_call"` 时，pre-call 入口还会用 90% 窗口作为更早的触发线。
+
+`trigger="overflow"` 表示 provider 或 adapter 已经明确报出 context overflow。这个入口不会因为本地粗略估算低于 hard budget 就直接 no-op，而是会强制尝试 summary compaction；如果没有可摘要前缀，或摘要后仍不足，再进入 deterministic aging。若最终没有任何可安全收缩内容，才会返回 `compacted=False`，由 LLM error 路径处理。
 
 当前默认值：
 
 - `DEFAULT_CONTEXT_WINDOW_TOKENS = 256000`
 - `DEFAULT_RESERVE_TOKENS = 20000`
 - `RECENT_RAW_TURN_TOKEN_LIMIT = 20000`
+- `AGED_TOOL_RESULT_MAX_TOKENS = 1000`
 
 `model_context_window_tokens` 优先来自 `active_agent_planner_capabilities().context_window_tokens`，读取失败时回退到 `256000`。
 
@@ -168,13 +213,14 @@ estimated_tokens > model_context_window_tokens - DEFAULT_RESERVE_TOKENS
 
 当前 summary 是内联写回 `state_data.context.messages`，不是 side table，也不是单独 compaction record。
 
----
+Aging 时：
 
-目前 turn 内对上下文的管理还是太粗糙，已经出现了爆掉上下文窗口的情况。（最高一次到达大概 50 万 tokens，是 25 万上限的两倍。）
-我要引入两个新的机制：
-1. 对 tool_result 的裁剪。目前 agent loop 中，只要大模型返回 tool_use 类型的文本，那么当前 step 就一定会执行 tool。而 tool 的 result 的大小是不确定的，那么就需要我们做好管理准备。
-触发时间段：tool result 回来后、下一次模型请求前。
-
+1. 找到最后一条 `user` message 到末尾的当前 turn span。
+2. 从末尾往前累计 `estimate_tokens(message)`，最近约 `20000` estimated tokens 保持原样。
+3. 超出近期预算的旧 `tool_result` 字符串 content 会裁剪到约 `1000` estimated tokens。
+4. 超出近期预算的旧 `tool_result` list content 会把 text block 合并并共享约 `1000` estimated tokens，image block 替换成 `[image data removed - already processed by model]`。
+5. 超出近期预算的旧 assistant message 保留 text/tool_call，删除 thinking/redacted_thinking；最后一条 assistant message 的 thinking/redacted_thinking 无条件保留。
+6. 如果一级 aging 后仍超过 `context_window - DEFAULT_RESERVE_TOKENS`，预算外旧 `tool_result.content` 会进入第二档 stub：`[tool result elided to save context]`。
 
 ## Turn 后
 
@@ -203,7 +249,7 @@ Turn 结束后，`AgentLoop.run()` 会决定要追加哪些 messages：
 maybe_compact_history(trigger="post_turn")
 ```
 
-post-turn compaction 使用和 overflow compaction 相同的阈值、recent raw turn token target 和 summary 写入形态：
+post-turn compaction 使用和 overflow/pre-call compaction 相同的摘要与 aging 机制：
 
 - reserve tokens：`20000`
 - recent raw turn token target：`20000`

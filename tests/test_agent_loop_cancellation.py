@@ -8,7 +8,12 @@ from typing import Any
 import pytest
 
 from agent_runtime import loop as loop_mod
-from agent_runtime.context_pipeline import is_context_overflow_error, load_context_messages, validate_tool_call_closure
+from agent_runtime.context_pipeline import (
+    ContextCompactionResult,
+    is_context_overflow_error,
+    load_context_messages,
+    validate_tool_call_closure,
+)
 from agent_runtime.llm_adapter import LLMResponse
 from agent_runtime.loop import AgentLoop
 from agent_runtime.tool_registry import UnifiedToolRegistry
@@ -381,8 +386,9 @@ def test_large_tool_result_is_trimmed_before_next_model_request(monkeypatch) -> 
             sent_messages = list(kwargs.get("messages") or [])
             tool_message = next(message for message in sent_messages if message.get("role") == "tool")
             content = tool_message["content"][0]["content"]
-            assert "tokens truncated" in content
-            assert len(content.encode("utf-8")) <= 10000 * 4
+            text = content[0]["text"]
+            assert "tokens truncated" in text
+            assert len(text.encode("utf-8")) <= 10000 * 4
         return responses.pop(0)
 
     async def read_tool(**_: Any) -> Any:
@@ -404,7 +410,7 @@ def test_large_tool_result_is_trimmed_before_next_model_request(monkeypatch) -> 
     tool_content = messages[2]["content"][0]["content"]
 
     assert outcome.status == "done"
-    assert "tokens truncated" in tool_content
+    assert "tokens truncated" in tool_content[0]["text"]
 
 
 def test_cancel_after_partial_tool_completion_closes_remaining_tool_calls(monkeypatch) -> None:
@@ -598,7 +604,10 @@ def test_context_overflow_provider_error_triggers_compaction_retry(monkeypatch) 
     async def fake_maybe_compact_history(**kwargs: Any):
         trigger = str(kwargs.get("trigger") or "")
         triggers.append(trigger)
-        return dict(kwargs.get("state_data") or {}), trigger == "overflow"
+        return ContextCompactionResult(
+            state_data=dict(kwargs.get("state_data") or {}),
+            compacted=trigger == "overflow",
+        )
 
     monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
     monkeypatch.setattr(loop_mod, "maybe_compact_history", fake_maybe_compact_history)

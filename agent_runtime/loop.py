@@ -432,13 +432,15 @@ class AgentLoop:
             tool_schemas=tool_schemas,
         )
         if context_window > 0 and estimated_tokens > int(context_window * PRECALL_COMPACTION_USAGE_THRESHOLD):
-            exec_ctx.state_data, compacted = await maybe_compact_history(
+            compaction = await maybe_compact_history(
                 state_data=exec_ctx.state_data,
                 session_id=session_id,
                 system_prompt=system_prompt,
                 trigger="pre_call",
+                extra_tokens=estimate_tokens(tool_schemas),
             )
-            if compacted:
+            exec_ctx.state_data = compaction.state_data
+            if compaction.compacted:
                 await self._checkpoint_context(
                     _CHECKPOINT_SNAPSHOT,
                     reason="pre_call_compaction",
@@ -785,13 +787,14 @@ class AgentLoop:
             self._trace_turn_started_at = 0.0
             self._wire_trace_turn_dir = ""
 
-        self.state_data, compacted = await maybe_compact_history(
+        compaction = await maybe_compact_history(
             state_data=self.state_data,
             session_id=turn.session_id,
             system_prompt=system_prompt,
             trigger="post_turn",
         )
-        turn_log.compaction_performed = compacted
+        self.state_data = compaction.state_data
+        turn_log.compaction_performed = compaction.compacted
 
         is_group = bool(
             str(getattr(self.session, "conversation_type", "") or "").strip() == "2"
@@ -902,13 +905,15 @@ class AgentLoop:
                 return await self._cancel_outcome(messages_to_persist=current_turn_messages)
             except Exception as error:
                 if is_context_overflow_error(error) and not overflow_recovered:
-                    exec_ctx.state_data, compacted = await maybe_compact_history(
+                    compaction = await maybe_compact_history(
                         state_data=exec_ctx.state_data,
                         session_id=session_id,
                         system_prompt=system_prompt,
                         trigger="overflow",
+                        extra_tokens=estimate_tokens(request_tool_schemas),
                     )
-                    if compacted:
+                    exec_ctx.state_data = compaction.state_data
+                    if compaction.compacted:
                         messages, _ = build_llm_messages(
                             state_data=exec_ctx.state_data,
                             current_turn_messages=[],
