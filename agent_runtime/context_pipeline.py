@@ -25,7 +25,6 @@ RECENT_RAW_TURN_TOKEN_LIMIT = 20000
 DEFAULT_CONTEXT_WINDOW_TOKENS = 256000
 DEFAULT_RESERVE_TOKENS = 20000
 STEP_TOOL_RESULT_MAX_TOKENS = 10000
-AGED_TOOL_RESULT_MAX_TOKENS = 1000
 PRECALL_COMPACTION_USAGE_THRESHOLD = 0.90
 DEFAULT_CHANNEL_HISTORY_LIMITS = {
     "feishu": {"dmHistoryLimit": 20},
@@ -34,7 +33,6 @@ _MISSING_TOOL_RESULT_STUB = "[Result unavailable — see context summary above]"
 _THINKING_SUMMARY_PLACEHOLDER = "[assistant thinking omitted]"
 _REDACTED_THINKING_SUMMARY_PLACEHOLDER = "[assistant redacted thinking omitted]"
 _PROCESSED_IMAGE_PLACEHOLDER = "[image data removed - already processed by model]"
-_AGED_TOOL_RESULT_ELIDED_STUB = "[tool result elided to save context]"
 
 
 @dataclass
@@ -43,7 +41,6 @@ class ContextCompactionResult:
     compacted: bool = False
     summary_text: str = ""
     compacted_count: int = 0
-    aged: bool = False
 
 _SAFETY_PROMPT = """
 You have no independent goals: do not pursue self-preservation, replication,
@@ -833,42 +830,6 @@ def _trim_inline_text_blocks_to_token_budget(
     return next_content, True
 
 
-def _merge_inline_text_blocks_to_token_budget(
-    content: list[dict[str, Any]],
-    *,
-    max_tokens: int,
-) -> tuple[list[dict[str, Any]], bool]:
-    cleaned = [dict(block or {}) if isinstance(block, dict) else {} for block in list(content or [])]
-    text_parts: list[str] = []
-    text_count = 0
-    for raw_block in cleaned:
-        block = dict(raw_block or {})
-        if str(block.get("type") or "").strip() != "text":
-            continue
-        text_count += 1
-        text_parts.append(str(block.get("text") or ""))
-
-    combined_text = "\n".join(part for part in text_parts if part)
-    if not combined_text:
-        return cleaned, False
-
-    trimmed_text, was_trimmed = trim_text_to_token_budget(combined_text, max_tokens=max_tokens)
-    next_content: list[dict[str, Any]] = []
-    inserted_text = False
-    for raw_block in cleaned:
-        block = dict(raw_block or {})
-        block_type = str(block.get("type") or "").strip()
-        if block_type == "text":
-            if not inserted_text:
-                next_content.append({"type": "text", "text": trimmed_text})
-                inserted_text = True
-            continue
-        next_content.append(block)
-
-    changed = was_trimmed or text_count != 1 or next_content != cleaned
-    return next_content, changed
-
-
 def trim_step_tool_result_blocks(
     tool_results: list[dict[str, Any]] | None,
     *,
@@ -906,169 +867,6 @@ def _last_user_span_start(messages: list[dict[str, Any]]) -> int:
         if str(dict(messages[index] or {}).get("role") or "").strip() == "user":
             return index
     return 0
-
-
-def _last_assistant_index(messages: list[dict[str, Any]], *, start: int) -> int:
-    for index in range(len(messages) - 1, max(-1, start - 1), -1):
-        if str(dict(messages[index] or {}).get("role") or "").strip() == "assistant":
-            return index
-    return -1
-
-
-def _age_assistant_message(
-    message: dict[str, Any],
-    *,
-    keep_thinking: bool,
-) -> tuple[dict[str, Any], bool]:
-    next_message = dict(message or {})
-    content = _clean_assistant_content_blocks(next_message.get("content"))
-    next_content: list[dict[str, Any]] = []
-    changed = content != list(next_message.get("content") or [])
-
-    for raw_block in content:
-        block = dict(raw_block or {})
-        block_type = str(block.get("type") or "").strip()
-        if block_type in {"thinking", "redacted_thinking"} and not keep_thinking:
-            changed = True
-            continue
-        next_content.append(block)
-
-    next_message["content"] = next_content
-    return next_message, changed
-
-
-def _age_tool_result_content(content: Any) -> tuple[Any, bool]:
-    if isinstance(content, list):
-        cleaned = _clean_inline_content_blocks(content)
-        trimmed_content, text_changed = _merge_inline_text_blocks_to_token_budget(
-            cleaned,
-            max_tokens=AGED_TOOL_RESULT_MAX_TOKENS,
-        )
-        aged_content, image_changed = _prune_inline_image_blocks(trimmed_content)
-        return aged_content, text_changed or image_changed or aged_content != content
-
-    content_text = _tool_result_storage_text(content)
-    trimmed_text, was_trimmed = trim_text_to_token_budget(
-        content_text,
-        max_tokens=AGED_TOOL_RESULT_MAX_TOKENS,
-    )
-    return trimmed_text, was_trimmed
-
-
-def _age_tool_message(
-    message: dict[str, Any],
-    *,
-    elide_results: bool,
-) -> tuple[dict[str, Any], bool]:
-    next_message = dict(message or {})
-    changed = False
-    next_blocks: list[dict[str, Any]] = []
-    for raw_block in list(next_message.get("content") or []):
-        block = dict(raw_block or {})
-        if str(block.get("type") or "").strip() != "tool_result":
-            next_blocks.append(block)
-            continue
-
-        if elide_results:
-            if block.get("content") != _AGED_TOOL_RESULT_ELIDED_STUB:
-                block["content"] = _AGED_TOOL_RESULT_ELIDED_STUB
-                changed = True
-            next_blocks.append(block)
-            continue
-
-        aged_content, content_changed = _age_tool_result_content(block.get("content"))
-        if content_changed:
-            block["content"] = aged_content
-            changed = True
-        next_blocks.append(block)
-
-    next_message["content"] = next_blocks
-    return next_message, changed
-
-
-def _current_turn_aging_indexes(
-    messages: list[dict[str, Any]],
-    *,
-    keep_recent_tokens: int,
-) -> set[int]:
-    if not messages:
-        return set()
-
-    span_start = _last_user_span_start(messages)
-    safe_keep_recent_tokens = max(0, int(keep_recent_tokens or 0))
-
-    aged_indexes: set[int] = set()
-    consumed_tokens = 0
-    for index in range(len(messages) - 1, span_start - 1, -1):
-        consumed_tokens += estimate_tokens(messages[index])
-        if consumed_tokens <= safe_keep_recent_tokens:
-            continue
-        if index == span_start and str(messages[index].get("role") or "").strip() == "user":
-            continue
-        aged_indexes.add(index)
-    return aged_indexes
-
-
-def _age_current_turn_messages(
-    messages: list[dict[str, Any]] | None,
-    *,
-    keep_recent_tokens: int,
-    elide_tool_results: bool,
-    aged_indexes: set[int] | None = None,
-) -> tuple[list[dict[str, Any]], bool]:
-    cleaned = _clean_canonical_messages(messages)
-    if not cleaned:
-        return [], bool(messages)
-
-    span_start = _last_user_span_start(cleaned)
-    last_assistant = _last_assistant_index(cleaned, start=span_start)
-    if aged_indexes is None:
-        aged_indexes = _current_turn_aging_indexes(
-            cleaned,
-            keep_recent_tokens=keep_recent_tokens,
-        )
-
-    changed = len(cleaned) != len(list(messages or []))
-    next_messages: list[dict[str, Any]] = []
-    for index, raw_message in enumerate(cleaned):
-        message = dict(raw_message or {})
-        if index not in aged_indexes:
-            next_messages.append(message)
-            continue
-
-        role = str(message.get("role") or "").strip()
-        if role == "tool":
-            aged_message, message_changed = _age_tool_message(
-                message,
-                elide_results=elide_tool_results,
-            )
-            next_messages.append(aged_message)
-            changed = changed or message_changed
-            continue
-        if role == "assistant":
-            aged_message, message_changed = _age_assistant_message(
-                message,
-                keep_thinking=index == last_assistant,
-            )
-            next_messages.append(aged_message)
-            changed = changed or message_changed
-            continue
-
-        next_messages.append(message)
-
-    return next_messages, changed
-
-
-def age_current_turn_messages(
-    messages: list[dict[str, Any]] | None,
-    *,
-    keep_recent_tokens: int = RECENT_RAW_TURN_TOKEN_LIMIT,
-) -> tuple[list[dict[str, Any]], bool]:
-    return _age_current_turn_messages(
-        messages,
-        keep_recent_tokens=keep_recent_tokens,
-        elide_tool_results=False,
-    )
 
 
 def request_context_token_estimate(
@@ -1318,117 +1116,83 @@ async def maybe_compact_history(
         return ContextCompactionResult(state_data=state_data)
 
     working_state = state_data
-    summary_text = ""
-    compacted_count = 0
-    summary_compacted = False
     compacted_messages, retained_messages = _select_recent_message_turns(messages)
-    if compacted_messages:
+    if not compacted_messages:
+        logger.warning(
+            "[ContextCompaction] session=%s trigger=%s no summarizable history prefix current_tokens=%s trigger_limit=%s",
+            session_id,
+            trigger,
+            current_tokens,
+            trigger_limit,
+        )
+        return ContextCompactionResult(state_data=state_data)
+
+    try:
         next_summary = await _summarize_history(messages=compacted_messages)
-        if next_summary:
-            summary_text = next_summary
-            compacted_count = len(compacted_messages)
-            summary_compacted = True
-            working_state = update_context_state(
-                state_data,
-                {
-                    "messages": [make_compaction_summary_message(next_summary), *retained_messages],
-                },
-            )
-            logger.info(
-                "[ContextCompaction] session=%s trigger=%s compacted_messages=%s retained_messages=%s summary=%s aged=%s",
-                session_id,
-                trigger,
-                len(compacted_messages),
-                len(retained_messages),
-                "inline_message",
-                False,
-            )
+    except Exception as exc:
+        logger.warning(
+            "[ContextCompaction] session=%s trigger=%s summary failed compacted_messages=%s retained_messages=%s error=%s",
+            session_id,
+            trigger,
+            len(compacted_messages),
+            len(retained_messages),
+            exc,
+            exc_info=True,
+        )
+        return ContextCompactionResult(state_data=state_data)
 
-            summary_messages, summary_stats = build_llm_messages(
-                state_data=working_state,
-                current_turn_messages=[],
-                system_prompt=system_prompt,
-            )
-            _ = summary_messages
-            current_tokens = summary_stats.estimated_tokens + max(0, int(extra_tokens or 0))
-            if current_tokens <= trigger_limit:
-                return ContextCompactionResult(
-                    state_data=working_state,
-                    compacted=True,
-                    summary_text=summary_text,
-                    compacted_count=compacted_count,
-                    aged=False,
-                )
+    summary_text = str(next_summary or "").strip()
+    if not summary_text:
+        logger.warning(
+            "[ContextCompaction] session=%s trigger=%s summary returned empty compacted_messages=%s retained_messages=%s",
+            session_id,
+            trigger,
+            len(compacted_messages),
+            len(retained_messages),
+        )
+        return ContextCompactionResult(state_data=state_data)
 
-    messages_for_aging = load_context_messages(working_state)
-    aging_indexes = _current_turn_aging_indexes(
-        messages_for_aging,
-        keep_recent_tokens=RECENT_RAW_TURN_TOKEN_LIMIT,
+    compacted_count = len(compacted_messages)
+    working_state = update_context_state(
+        state_data,
+        {
+            "messages": [make_compaction_summary_message(summary_text), *retained_messages],
+        },
     )
-    aged_messages, aged = _age_current_turn_messages(
-        messages_for_aging,
-        keep_recent_tokens=RECENT_RAW_TURN_TOKEN_LIMIT,
-        elide_tool_results=False,
-        aged_indexes=aging_indexes,
+
+    summary_messages, summary_stats = build_llm_messages(
+        state_data=working_state,
+        current_turn_messages=[],
+        system_prompt=system_prompt,
     )
-    hard_aged = False
-    if aged:
-        working_state = update_context_state(
-            working_state,
-            {
-                "messages": aged_messages,
-            },
-        )
-        aged_probe_messages, aged_stats = build_llm_messages(
-            state_data=working_state,
-            current_turn_messages=[],
-            system_prompt=system_prompt,
-        )
-        _ = aged_probe_messages
-        current_tokens = aged_stats.estimated_tokens + max(0, int(extra_tokens or 0))
-    if aging_indexes and current_tokens > hard_limit:
-        hard_aged_messages, hard_aged = _age_current_turn_messages(
-            aged_messages,
-            keep_recent_tokens=RECENT_RAW_TURN_TOKEN_LIMIT,
-            elide_tool_results=True,
-            aged_indexes=aging_indexes,
-        )
-        if hard_aged:
-            aged_messages = hard_aged_messages
-            working_state = update_context_state(
-                working_state,
-                {
-                    "messages": aged_messages,
-                },
-            )
-    if aged or hard_aged:
-        logger.info(
-            "[ContextCompaction] session=%s trigger=%s compacted_messages=%s retained_messages=%s summary=%s aged=%s",
+    _ = summary_messages
+    compacted_tokens = summary_stats.estimated_tokens + max(0, int(extra_tokens or 0))
+    if compacted_tokens > trigger_limit:
+        logger.warning(
+            "[ContextCompaction] session=%s trigger=%s summary still over budget compacted_messages=%s retained_messages=%s tokens=%s trigger_limit=%s",
             session_id,
             trigger,
             compacted_count,
-            max(0, len(load_context_messages(working_state)) - compacted_count),
-            "inline_message" if summary_text else "",
-            True,
+            len(retained_messages),
+            compacted_tokens,
+            trigger_limit,
         )
-        return ContextCompactionResult(
-            state_data=working_state,
-            compacted=True,
-            summary_text=summary_text,
-            compacted_count=compacted_count,
-            aged=True,
-        )
+        return ContextCompactionResult(state_data=state_data)
 
-    if summary_compacted:
-        return ContextCompactionResult(
-            state_data=working_state,
-            compacted=True,
-            summary_text=summary_text,
-            compacted_count=compacted_count,
-            aged=False,
-        )
-
-    return ContextCompactionResult(state_data=state_data)
+    logger.info(
+        "[ContextCompaction] session=%s trigger=%s compacted_messages=%s retained_messages=%s summary=%s",
+        session_id,
+        trigger,
+        compacted_count,
+        len(retained_messages),
+        "inline_message",
+    )
+    return ContextCompactionResult(
+        state_data=working_state,
+        compacted=True,
+        summary_text=summary_text,
+        compacted_count=compacted_count,
+    )
 
 
 def is_context_overflow_error(error: BaseException) -> bool:
@@ -1453,12 +1217,10 @@ def is_context_overflow_error(error: BaseException) -> bool:
 
 
 __all__ = [
-    "AGED_TOOL_RESULT_MAX_TOKENS",
     "ContextBuildStats",
     "ContextCompactionResult",
     "PRECALL_COMPACTION_USAGE_THRESHOLD",
     "STEP_TOOL_RESULT_MAX_TOKENS",
-    "age_current_turn_messages",
     "append_messages_to_state",
     "apply_message_history_limit",
     "build_llm_messages",

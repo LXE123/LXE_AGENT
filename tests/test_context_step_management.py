@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import agent_runtime.context_pipeline as context_pipeline
 from agent_runtime.context_pipeline import (
-    age_current_turn_messages,
     build_llm_messages,
     estimate_tokens,
     load_context_messages,
@@ -245,236 +245,8 @@ def test_build_llm_messages_preserves_step_trimmed_tool_result() -> None:
     assert "tokens truncated" in content
 
 
-def test_age_current_turn_messages_keeps_recent_budget_raw() -> None:
-    messages = [
-        {"role": "user", "content": "run"},
-        {
-            "role": "assistant",
-            "content": [
-                {
-                    "type": "tool_call",
-                    "id": "toolu-1",
-                    "name": "exec",
-                    "arguments": {"cmd": "small"},
-                }
-            ],
-        },
-        {
-            "role": "tool",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_call_id": "toolu-1",
-                    "content": "small result",
-                }
-            ],
-        },
-        {"role": "assistant", "content": [{"type": "text", "text": "done"}]},
-    ]
-
-    aged, changed = age_current_turn_messages(
-        messages,
-        keep_recent_tokens=estimate_tokens(messages) + 1,
-    )
-
-    assert changed is False
-    assert aged == messages
-
-
-def test_age_current_turn_messages_trims_budget_out_tool_result_text() -> None:
-    messages = [
-        {"role": "user", "content": "run"},
-        {
-            "role": "assistant",
-            "content": [
-                {
-                    "type": "tool_call",
-                    "id": "toolu-1",
-                    "name": "exec",
-                    "arguments": {"cmd": "large"},
-                }
-            ],
-        },
-        {
-            "role": "tool",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_call_id": "toolu-1",
-                    "content": "START🙂" + ("中" * 50000) + "END🙂",
-                }
-            ],
-        },
-        {"role": "assistant", "content": [{"type": "text", "text": "recent"}]},
-    ]
-
-    aged, changed = age_current_turn_messages(messages, keep_recent_tokens=20)
-
-    content = aged[2]["content"][0]["content"]
-    assert changed is True
-    assert "tokens truncated" in content
-    assert content.startswith("START🙂")
-    assert content.endswith("END🙂")
-    assert estimate_tokens(content) <= 1000
-    validate_tool_call_closure(aged)
-
-
-def test_age_current_turn_messages_ages_list_tool_result_images_and_shared_text_budget() -> None:
-    image_block = {
-        "type": "image",
-        "source": {
-            "type": "base64",
-            "media_type": "image/png",
-            "data": "A" * 70000,
-        },
-    }
-    messages = [
-        {"role": "user", "content": "inspect screenshot"},
-        {
-            "role": "assistant",
-            "content": [
-                {
-                    "type": "tool_call",
-                    "id": "toolu-1",
-                    "name": "screenshot",
-                    "arguments": {},
-                }
-            ],
-        },
-        {
-            "role": "tool",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_call_id": "toolu-1",
-                    "content": [
-                        {"type": "text", "text": "START🙂" + ("中" * 4000)},
-                        image_block,
-                        {"type": "text", "text": ("尾" * 4000) + "END🙂"},
-                    ],
-                }
-            ],
-        },
-        {"role": "assistant", "content": [{"type": "text", "text": "recent"}]},
-    ]
-
-    aged, changed = age_current_turn_messages(messages, keep_recent_tokens=20)
-
-    content = aged[2]["content"][0]["content"]
-    text_blocks = [block for block in content if block.get("type") == "text"]
-    image_blocks = [block for block in content if block.get("type") == "image"]
-    assert changed is True
-    assert image_blocks == []
-    assert any(block.get("text") == "[image data removed - already processed by model]" for block in text_blocks)
-    trimmed_text = text_blocks[0]["text"]
-    assert "tokens truncated" in trimmed_text
-    assert trimmed_text.startswith("START🙂")
-    assert trimmed_text.endswith("END🙂")
-    assert estimate_tokens(trimmed_text) <= 1000
-    validate_tool_call_closure(aged)
-
-
-def test_age_current_turn_messages_merges_list_tool_result_text_blocks_even_under_budget() -> None:
-    messages = [
-        {"role": "user", "content": "inspect screenshot"},
-        {
-            "role": "assistant",
-            "content": [
-                {
-                    "type": "tool_call",
-                    "id": "toolu-1",
-                    "name": "screenshot",
-                    "arguments": {},
-                }
-            ],
-        },
-        {
-            "role": "tool",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_call_id": "toolu-1",
-                    "content": [
-                        {"type": "text", "text": "alpha"},
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/png",
-                                "data": "A" * 70000,
-                            },
-                        },
-                        {"type": "text", "text": "beta"},
-                    ],
-                }
-            ],
-        },
-        {"role": "assistant", "content": [{"type": "text", "text": "recent"}]},
-    ]
-
-    aged, changed = age_current_turn_messages(messages, keep_recent_tokens=20)
-
-    content = aged[2]["content"][0]["content"]
-    text_values = [block["text"] for block in content if block.get("type") == "text"]
-    assert changed is True
-    assert text_values == [
-        "alpha\nbeta",
-        "[image data removed - already processed by model]",
-    ]
-    validate_tool_call_closure(aged)
-
-
-def test_age_current_turn_messages_drops_old_assistant_thinking_but_keeps_latest() -> None:
-    messages = [
-        {"role": "user", "content": "run"},
-        {
-            "role": "assistant",
-            "content": [
-                {"type": "thinking", "thinking": "old private reasoning" * 100, "signature": "sig-old"},
-                {"type": "redacted_thinking", "data": "old redacted"},
-                {"type": "text", "text": "calling tool"},
-                {
-                    "type": "tool_call",
-                    "id": "toolu-1",
-                    "name": "exec",
-                    "arguments": {"cmd": "echo hi"},
-                },
-            ],
-        },
-        {
-            "role": "tool",
-            "content": [
-                {
-                    "type": "tool_result",
-                    "tool_call_id": "toolu-1",
-                    "content": "ok",
-                }
-            ],
-        },
-        {
-            "role": "assistant",
-            "content": [
-                {"type": "thinking", "thinking": "latest private reasoning", "signature": "sig-new"},
-                {"type": "text", "text": "recent"},
-            ],
-        },
-    ]
-
-    aged, changed = age_current_turn_messages(
-        messages,
-        keep_recent_tokens=estimate_tokens(messages[-1]) + 1,
-    )
-
-    old_types = [block["type"] for block in aged[1]["content"]]
-    latest_types = [block["type"] for block in aged[-1]["content"]]
-    assert changed is True
-    assert old_types == ["text", "tool_call"]
-    assert "thinking" in latest_types
-    assert "redacted_thinking" not in old_types
-    validate_tool_call_closure(aged)
-
-
-def test_maybe_compact_history_ages_single_current_turn_when_summary_has_no_prefix(monkeypatch) -> None:
+def test_maybe_compact_history_single_span_does_not_age_tool_result(monkeypatch, caplog) -> None:
+    caplog.set_level(logging.WARNING)
     monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 22050)
     state_data = {
         "context": {
@@ -515,43 +287,95 @@ def test_maybe_compact_history_ages_single_current_turn_when_summary_has_no_pref
         )
     )
 
-    messages = load_context_messages(result.state_data)
-    content = messages[2]["content"][0]["content"]
-    assert result.compacted is True
-    assert result.aged is True
-    assert result.compacted_count == 0
-    assert "tokens truncated" in content
-    validate_tool_call_closure(messages)
+    assert result.compacted is False
+    assert result.state_data == state_data
+    assert any("no summarizable history prefix" in record.getMessage() for record in caplog.records)
 
 
-def test_maybe_compact_history_elides_old_tool_result_when_aging_still_exceeds_budget(monkeypatch) -> None:
-    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 20100)
+def test_maybe_compact_history_returns_original_state_when_summary_raises(monkeypatch, caplog) -> None:
+    caplog.set_level(logging.WARNING)
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        raise RuntimeError("summary provider unavailable")
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
     state_data = {
         "context": {
             "messages": [
-                {"role": "user", "content": "run"},
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_call",
-                            "id": "toolu-1",
-                            "name": "exec",
-                            "arguments": {"cmd": "large"},
-                        }
-                    ],
-                },
-                {
-                    "role": "tool",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_call_id": "toolu-1",
-                            "content": "START-" + ("x" * 90000) + "-END",
-                        }
-                    ],
-                },
-                {"role": "assistant", "content": [{"type": "text", "text": "recent"}]},
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "recent " + ("x" * 90000)},
+                {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="overflow",
+        )
+    )
+
+    assert result.compacted is False
+    assert result.state_data == state_data
+    assert any("summary failed" in record.getMessage() for record in caplog.records)
+
+
+def test_maybe_compact_history_returns_original_state_when_summary_empty(monkeypatch, caplog) -> None:
+    caplog.set_level(logging.WARNING)
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        return "  \n"
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "recent " + ("x" * 90000)},
+                {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="overflow",
+        )
+    )
+
+    assert result.compacted is False
+    assert result.state_data == state_data
+    assert any("summary returned empty" in record.getMessage() for record in caplog.records)
+
+
+def test_maybe_compact_history_returns_original_state_when_summary_still_over_budget(
+    monkeypatch,
+    caplog,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 22050)
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        return "summary that cannot offset the retained oversized span"
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "recent " + ("x" * 90000)},
+                {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]},
             ],
         },
     }
@@ -565,11 +389,9 @@ def test_maybe_compact_history_elides_old_tool_result_when_aging_still_exceeds_b
         )
     )
 
-    messages = load_context_messages(result.state_data)
-    assert result.compacted is True
-    assert result.aged is True
-    assert messages[2]["content"][0]["content"] == "[tool result elided to save context]"
-    validate_tool_call_closure(messages)
+    assert result.compacted is False
+    assert result.state_data == state_data
+    assert any("summary still over budget" in record.getMessage() for record in caplog.records)
 
 
 def test_overflow_compaction_bypasses_local_estimate_gate_for_summary(monkeypatch) -> None:
@@ -605,14 +427,17 @@ def test_overflow_compaction_bypasses_local_estimate_gate_for_summary(monkeypatc
 
     messages = load_context_messages(result.state_data)
     assert result.compacted is True
-    assert result.aged is False
     assert result.compacted_count == 2
     assert messages[0]["role"] == "user"
     assert "summary from overflow" in messages[0]["content"]
     assert messages[1]["content"].startswith("recent ")
 
 
-def test_overflow_compaction_bypasses_local_estimate_gate_for_aging(monkeypatch) -> None:
+def test_overflow_compaction_bypasses_local_estimate_gate_but_does_not_age_single_span(
+    monkeypatch,
+    caplog,
+) -> None:
+    caplog.set_level(logging.WARNING)
     monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
     state_data = {
         "context": {
@@ -654,12 +479,9 @@ def test_overflow_compaction_bypasses_local_estimate_gate_for_aging(monkeypatch)
     )
 
     messages = load_context_messages(result.state_data)
-    content = messages[2]["content"][0]["content"]
-    assert result.compacted is True
-    assert result.aged is True
-    assert "tokens truncated" in content
-    assert content.startswith("START-")
-    assert content.endswith("-END")
+    assert result.compacted is False
+    assert messages == state_data["context"]["messages"]
+    assert any("no summarizable history prefix" in record.getMessage() for record in caplog.records)
     validate_tool_call_closure(messages)
 
 
