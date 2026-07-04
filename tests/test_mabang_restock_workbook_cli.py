@@ -32,11 +32,10 @@ PURCHASE_COLUMNS = (
 PURCHASE_UNMATCHED_COLUMNS = ("库存sku", "来源SP单号", "数量", "问题说明")
 RESTOCK_COLUMNS = (
     "日期",
-    "库存sku",
-    "产品名称",
     "库存sku（第一行）",
     "产品名称（第一行）",
     "采购订单号",
+    "厂家",
     "合同产品名称",
     "单位",
     "型号",
@@ -44,13 +43,14 @@ RESTOCK_COLUMNS = (
     "原价",
     "均价",
     "售价",
-    "售价(均价)",
     "总价（原价）",
     "总价（均价）",
     "总价（售价）",
-    "总价（售价(均价)）",
     "毛利率",
-    "厂家",
+    "库存sku",
+    "产品名称",
+    "售价(均价)",
+    "总价（售价(均价)）",
 )
 RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "数量", "问题说明")
 MISSING_CONTRACT_SHEET_WARNING = "出口退税总表缺少 sheet: 供应商合同信息，单位和合同产品名称将留空"
@@ -139,18 +139,18 @@ def _restock_total_row(
         None,
         None,
         None,
-        None,
         quantity,
-        None,
         None,
         None,
         None,
         total_price,
         average_total_price,
         sale_total_price,
+        None,
+        None,
+        None,
+        None,
         average_sale_total_price,
-        None,
-        None,
     )
 
 
@@ -1455,11 +1455,10 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
     assert restock_values[0] == RESTOCK_COLUMNS
     assert restock_values[1] == (
         "2026-06-08",
-        "SKU-B\nSKU-A",
-        "产品B\n产品A",
         "SKU-B",
         "产品B",
         None,
+        "厂家A",
         "合同产品A",
         "个",
         "JZ-19",
@@ -1467,18 +1466,28 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
         2,
         None,
         2.53,
-        None,
         10,
         None,
         12.65,
-        None,
         0.3,
-        "厂家A",
+        "SKU-B\nSKU-A",
+        "产品B\n产品A",
+        None,
+        None,
     )
     assert restock_values[2] == _restock_total_row(5, 10, 12.65)
     assert _cell_fill_rgb(output_path, "备货单", "A3") == cli.TOTAL_ROW_FILL_COLOR
-    assert _cell_fill_rgb(output_path, "备货单", "F2") == cli.PURCHASE_ORDER_COLUMN_FILL_COLOR
-    assert _cell_fill_rgb(output_path, "备货单", "F3") == cli.TOTAL_ROW_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "D2") == cli.PURCHASE_ORDER_COLUMN_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "D3") == cli.TOTAL_ROW_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "Q1") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "Q2") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "R1") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "R2") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "S1") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "S2") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "T1") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "T2") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "T3") == cli.TOTAL_ROW_FILL_COLOR
     assert _sheet_values(output_path, "未匹配") == [
         RESTOCK_UNMATCHED_COLUMNS,
         ("SKU-X", 4, "出口退税总表未找到库存sku"),
@@ -1487,12 +1496,15 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
     assert widths == [15] * 20
     assert heights == [15] * 3
     assert _cell_wrap_text(output_path, "备货单", "B2") is True
-    assert _cell_wrap_text(output_path, "备货单", "E2") is True
+    assert _cell_wrap_text(output_path, "备货单", "C2") is True
+    assert _cell_wrap_text(output_path, "备货单", "Q2") is True
+    assert _cell_wrap_text(output_path, "备货单", "R2") is True
+    assert _cell_number_format(output_path, "备货单", "L2") == "0.00"
     assert _cell_number_format(output_path, "备货单", "M2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "N2") == "General"
     assert _cell_number_format(output_path, "备货单", "O2") == "0.00"
-    assert _cell_number_format(output_path, "备货单", "P2") == "General"
-    assert _cell_number_format(output_path, "备货单", "Q2") == "0.00"
-    assert _cell_number_format(output_path, "备货单", "R2") == "General"
+    assert _cell_number_format(output_path, "备货单", "S2") == "General"
+    assert _cell_number_format(output_path, "备货单", "T2") == "General"
 
 
 def test_generate_fba_restock_workbook_uses_unknown_country_when_country_column_is_missing(tmp_path):
@@ -1606,9 +1618,8 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
         "2026-06-08",
         "SKU-A",
         "产品A",
-        "SKU-A",
-        "产品A",
         None,
+        "深圳正飞科技",
         "合同产品A",
         "个",
         "JZ-19",
@@ -1616,21 +1627,21 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
         2,
         2.67,
         2.53,
-        3.38,
         2,
         2.67,
         2.53,
-        3.38,
         0.3,
-        "深圳正飞科技",
+        "SKU-A",
+        "产品A",
+        3.38,
+        3.38,
     )
     assert rows[2] == (
         "2026-06-08",
         "SKU-B",
         "产品B",
-        "SKU-B",
-        "产品B",
         None,
+        "深圳正飞科技",
         "合同产品A",
         "个",
         "JZ-20",
@@ -1638,13 +1649,14 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
         3,
         2.67,
         3.79,
-        3.38,
         6,
         5.34,
         7.58,
-        6.76,
         0.3,
-        "深圳正飞科技",
+        "SKU-B",
+        "产品B",
+        3.38,
+        6.76,
     )
     assert rows[3] == _restock_total_row(
         3,
@@ -1654,10 +1666,13 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
         average_sale_total_price=10.14,
     )
     output_path = Path(payload["output_xlsx"])
+    assert _cell_number_format(output_path, "备货单", "K2") == "0.00"
     assert _cell_number_format(output_path, "备货单", "L2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "M2") == "0.00"
     assert _cell_number_format(output_path, "备货单", "N2") == "0.00"
-    assert _cell_number_format(output_path, "备货单", "P2") == "0.00"
-    assert _cell_number_format(output_path, "备货单", "R2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "O2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "S2") == "0.00"
+    assert _cell_number_format(output_path, "备货单", "T2") == "0.00"
 
 
 def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_restock(tmp_path):
@@ -1750,9 +1765,8 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             "2026-06-08",
             "SKU-A",
             "产品A",
-            "SKU-A",
-            "产品A",
             None,
+            "深圳正飞科技",
             "合同产品A",
             "个",
             "JZ-19",
@@ -1760,21 +1774,21 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             2,
             2.67,
             2.53,
-            3.38,
             2,
             2.67,
             2.53,
-            3.38,
             0.3,
-            "深圳正飞科技",
+            "SKU-A",
+            "产品A",
+            3.38,
+            3.38,
         ),
         (
             "2026-06-08",
             "SKU-C",
             "产品C",
-            "SKU-C",
-            "产品C",
             None,
+            "厂家A",
             "合同产品C",
             "个",
             "M-C",
@@ -1782,13 +1796,14 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             3,
             None,
             3.79,
-            None,
             12,
             None,
             15.16,
-            None,
             0.3,
-            "厂家A",
+            "SKU-C",
+            "产品C",
+            None,
+            None,
         ),
         _restock_total_row(5, 14, 17.69, average_total_price=2.67, average_sale_total_price=3.38),
     ]
@@ -1801,9 +1816,8 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             "2026-06-08",
             "SKU-B",
             "产品B",
-            "SKU-B",
-            "产品B",
             None,
+            "深圳正飞科技",
             "合同产品A",
             "个",
             "JZ-20",
@@ -1811,13 +1825,14 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             3,
             2.67,
             3.79,
-            3.38,
             6,
             5.34,
             7.58,
-            6.76,
             0.3,
-            "深圳正飞科技",
+            "SKU-B",
+            "产品B",
+            3.38,
+            6.76,
         ),
         _restock_total_row(2, 6, 7.58, average_total_price=5.34, average_sale_total_price=6.76),
     ]
@@ -1874,9 +1889,9 @@ def test_generate_fba_restock_workbook_accepts_tax_rate_forms_for_sale_price(tmp
     )
 
     rows = _sheet_values(Path(payload["output_xlsx"]), "备货单")
-    assert rows[1][12] == 2.53
-    assert rows[2][12] == 2.62
-    assert rows[3][12] == 2.53
+    assert rows[1][11] == 2.53
+    assert rows[2][11] == 2.62
+    assert rows[3][11] == 2.53
 
 
 @pytest.mark.parametrize("gross_margin", ["0.19", "0.51", "abc"])
@@ -2062,9 +2077,8 @@ def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp
         "2026-06-08",
         "SKU-A",
         "产品A",
-        "SKU-A",
-        "产品A",
         None,
+        "厂家A",
         "合同产品A",
         "个",
         "JZ-19",
@@ -2072,21 +2086,21 @@ def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp
         2,
         None,
         2.53,
-        None,
         4,
         None,
         5.06,
-        None,
         0.3,
-        "厂家A",
+        "SKU-A",
+        "产品A",
+        None,
+        None,
     )
     assert restock_values[2] == (
         "2026-06-08",
         "SKU-B",
         "产品B",
-        "SKU-B",
-        "产品B",
         None,
+        "厂家B",
         "合同产品B",
         "个",
         "JZ-19",
@@ -2094,13 +2108,14 @@ def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp
         2,
         None,
         2.53,
-        None,
         6,
         None,
         7.59,
-        None,
         0.3,
-        "厂家B",
+        "SKU-B",
+        "产品B",
+        None,
+        None,
     )
     assert restock_values[3] == _restock_total_row(5, 10, 12.65)
 

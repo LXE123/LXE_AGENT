@@ -28,11 +28,10 @@ RESTOCK_FILE_LABEL = "新棱镜备货"
 INVALID_FILE_NAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 RESTOCK_COLUMNS = (
     "日期",
-    "库存sku",
-    "产品名称",
     "库存sku（第一行）",
     "产品名称（第一行）",
     "采购订单号",
+    "厂家",
     "合同产品名称",
     "单位",
     "型号",
@@ -40,13 +39,14 @@ RESTOCK_COLUMNS = (
     "原价",
     "均价",
     "售价",
-    "售价(均价)",
     "总价（原价）",
     "总价（均价）",
     "总价（售价）",
-    "总价（售价(均价)）",
     "毛利率",
-    "厂家",
+    "库存sku",
+    "产品名称",
+    "售价(均价)",
+    "总价（售价(均价)）",
 )
 RESTOCK_UNMATCHED_COLUMNS = ("库存sku", "数量", "问题说明")
 MIN_GROSS_MARGIN = Decimal("0.2")
