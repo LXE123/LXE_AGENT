@@ -14,7 +14,13 @@ from clients.auth.browser_auth_client import ensure_auth_sync
 from gateway.agent_queue import AgentQueue
 from gateway.channel_registry import ChannelRegistry
 from gateway.dashboard import DashboardServer
-from gateway.dashboard.settings import dashboard_enabled, dashboard_host, dashboard_open_browser, dashboard_port
+from gateway.dashboard.settings import (
+    dashboard_enabled,
+    dashboard_host,
+    dashboard_open_browser,
+    dashboard_port,
+    dashboard_port_auto_fallback,
+)
 from gateway.emitter import GatewayEmitter
 from gateway.heartbeat_wake import HeartbeatWakeManager
 from gateway.models import InboundEvent
@@ -88,6 +94,7 @@ class GatewayApp:
             DashboardServer(
                 host=dashboard_host(),
                 port=dashboard_port(),
+                port_auto_fallback=dashboard_port_auto_fallback(),
                 channel_health_snapshot=self.channel_health_snapshot,
             )
             if dashboard_enabled()
