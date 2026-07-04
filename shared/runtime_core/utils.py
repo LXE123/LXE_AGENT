@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import os
 
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 async def emit_tool_files_to_session(

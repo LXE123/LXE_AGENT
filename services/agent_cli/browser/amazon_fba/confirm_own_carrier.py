@@ -14,6 +14,7 @@ from services.agent_cli.browser.amazon_fba._shared import (
     validate_args,
 )
 from services.browser.workflows.amazon_fba_confirm_own_carrier import run_confirm_own_carrier_workflow
+from shared.logging import setup_logging
 
 
 def run_confirm_own_carrier(
@@ -32,6 +33,7 @@ def run_confirm_own_carrier(
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     try:
         parser = build_parser("confirm_own_carrier")
         args = parser.parse_args(argv)

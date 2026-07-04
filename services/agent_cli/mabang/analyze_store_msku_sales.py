@@ -9,6 +9,7 @@ from services.agent_cli._shared.json_cli import (
     write_json as _write_json,
 )
 from services.mabang.amazon.fba.store_msku_sales_analysis import analyze_store_msku_sales
+from shared.logging import setup_logging
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -21,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     store_name = ""
     try:
         args = build_parser().parse_args(argv)

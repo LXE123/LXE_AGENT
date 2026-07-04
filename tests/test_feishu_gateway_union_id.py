@@ -171,7 +171,7 @@ def test_feishu_handler_drops_message_over_max_age(monkeypatch, caplog) -> None:
     submitted = _install_handler_probe(monkeypatch, adapter, now_ref)
     old_create_time = int(now_ref["ms"] - (feishu_gateway._FEISHU_INBOUND_MAX_AGE_SECONDS + 1) * 1000)
 
-    caplog.set_level(logging.INFO, logger="bot_logger")
+    caplog.set_level(logging.INFO, logger="platforms.feishu.gateway")
     adapter._build_message_handler(object)(
         _fake_lark_message_event(message_id="om_old_age", create_time=str(old_create_time))
     )
@@ -256,7 +256,7 @@ def test_feishu_raw_event_dump_failure_does_not_block_handler(monkeypatch, caplo
     monkeypatch.setattr(feishu_gateway, "_write_feishu_raw_event_dump", fail_write)
     adapter = _adapter_without_runtime()
 
-    caplog.set_level(logging.WARNING, logger="bot_logger")
+    caplog.set_level(logging.WARNING, logger="platforms.feishu.gateway")
     adapter._build_message_handler(object)(_fake_lark_message_event())
 
     assert "dump failed" in caplog.text
@@ -473,7 +473,7 @@ def test_feishu_parse_parent_fetch_failure_keeps_current_message(monkeypatch, ca
     monkeypatch.setattr(feishu_gateway.api_client, "get_message_items", fail_get_message_items)
     adapter = _adapter_without_runtime()
 
-    caplog.set_level(logging.WARNING, logger="bot_logger")
+    caplog.set_level(logging.WARNING, logger="platforms.feishu.gateway")
     event = asyncio.run(
         adapter._parse_message_event(
             {
@@ -513,7 +513,7 @@ def test_feishu_inbound_log_includes_union_id(caplog) -> None:
         sender_nick="sender",
     )
 
-    caplog.set_level(logging.INFO, logger="bot_logger")
+    caplog.set_level(logging.INFO, logger="platforms.feishu.gateway")
     adapter.emit(event)
 
     assert emitted == [event]

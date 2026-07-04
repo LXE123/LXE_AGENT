@@ -6,9 +6,11 @@ from sqlite3 import Row
 from typing import Any, Optional
 
 from shared.db.shared_state_dto import ResponseRouteContext
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .engine import connection_scope
+
+logger = get_logger(__name__)
 
 
 _NULL_BYTE = "\x00"

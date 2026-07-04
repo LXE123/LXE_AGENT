@@ -11,6 +11,10 @@
 1. State your plan in a short bullet list (in chat, not a file)
 2. Identify the root cause — no band-aids
 
+## Logging
+- New Python modules should use `from shared.logging import get_logger` and define `logger = get_logger(__name__)`.
+- Do not import the legacy global `logger` in new modules; it exists only for gradual migration compatibility.
+
 ---
 
 关于运行环境相关说明：

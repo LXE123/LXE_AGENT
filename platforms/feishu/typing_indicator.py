@@ -3,9 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from shared.db.client import save_response_route_patch
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .api_client import FeishuApiClient, api_client
+
+logger = get_logger(__name__)
 
 _TYPING_EMOJI_TYPE = "Typing"
 _TYPING_MESSAGE_ID_KEY = "typing_message_id"

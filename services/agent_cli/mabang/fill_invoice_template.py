@@ -59,6 +59,7 @@ from services.mabang.stock_sku_export import (
     normalize_sku_key,
 )
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 SOURCE = "invoice_template_fill"
 DEFAULT_TEMPLATE_PATH = Path("data") / "invoice_Template" / "invoice_Template.xlsx"
@@ -947,6 +948,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     try:
         args = build_parser().parse_args(argv)
         payload = asyncio.run(_run_async(args))

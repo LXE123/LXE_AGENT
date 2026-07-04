@@ -3,7 +3,9 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 REPORT_IO_PREFIX = "[ReportIO]"

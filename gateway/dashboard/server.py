@@ -8,9 +8,11 @@ from typing import Any
 
 import uvicorn
 
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .api import create_dashboard_app
+
+logger = get_logger(__name__)
 
 
 class DashboardServer:

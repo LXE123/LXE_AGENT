@@ -14,12 +14,14 @@ from shared.db.client import (
     pop_agent_session_pending_events,
     update_agent_session,
 )
-from shared.logging import logger
+from shared.logging import get_logger
 from shared.runtime_core.outcome import job_handled
 
 from .final_answer_streamer import FinalAnswerStreamer
 from .runtime import run_turn
 from .types import TurnOutcome
+
+logger = get_logger(__name__)
 
 FinalEmitter = Callable[..., Awaitable[None]]
 StreamEmitter = Callable[..., Awaitable[None]]

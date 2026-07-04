@@ -4,7 +4,9 @@ import io
 
 from PIL import Image
 
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 _MAX_DIMENSION = 1024

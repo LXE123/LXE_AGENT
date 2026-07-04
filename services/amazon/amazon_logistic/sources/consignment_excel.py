@@ -8,10 +8,12 @@ from typing import Any
 
 from services.mabang.amazon.fba import download_consignment_excel_from_wms
 from services.mabang.amazon.fba.consignment_paths import resolve_wms_consignment_dir
-from shared.logging import logger
+from shared.logging import get_logger
 
 from ..input.validator import normalize_consignment_no
 from . import wms_export_config as wms_export_settings
+
+logger = get_logger(__name__)
 
 
 def resolve_consignment_excel_dir() -> Path:

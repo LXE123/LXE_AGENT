@@ -10,7 +10,6 @@ from shared.llm.events import LLMStreamEvent
 from .loop import run_agent_turn
 from .skill_index import load_skill_index
 from .skill_manifest import SkillQueueItem
-from .tool_registry import ensure_all_tools_registered, get_registry
 from .types import ContextCheckpointCallback, TurnOutcome
 
 
@@ -55,7 +54,6 @@ async def run_turn(
     tool_run_finisher: Callable[[str], None] | None = None,
     context_checkpoint: ContextCheckpointCallback | None = None,
 ) -> TurnOutcome:
-    tool_registry = ensure_all_tools_registered(get_registry())
     state_data = dict(getattr(session, "state_data", {}) or {})
     available_skills = load_available_skills_for_session(session)
 

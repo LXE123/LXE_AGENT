@@ -15,7 +15,8 @@ from typing import Any, Literal
 from gateway.models import InboundEvent, OutboundRequest
 from shared.db.client import load_response_route_context
 from shared.log_config import local_logs_enabled
-from shared.logging import logger
+from shared.log_retention import ensure_local_log_retention_once
+from shared.logging import get_logger
 from shared.platform.adapter import InboundSink
 
 from .bot_probe import probe_feishu_bot_identity
@@ -35,6 +36,8 @@ from .api_client import api_client
 from .history_formatter import format_message_list
 from .message_parser import is_bot_mentioned, parse_message_payload_async, strip_bot_mention
 from .typing_indicator import FeishuTypingIndicator
+
+logger = get_logger(__name__)
 
 
 _RECOVERABLE_CARDKIT_ERROR_CODE = 200850
@@ -143,6 +146,7 @@ def _write_feishu_raw_event_dump(record: dict[str, Any]) -> None:
 
 
 def _dump_feishu_raw_event(*, adapter: str, data: Any, snapshot: dict[str, Any] | None) -> None:
+    ensure_local_log_retention_once()
     if not _feishu_raw_event_dump_enabled():
         return
     try:

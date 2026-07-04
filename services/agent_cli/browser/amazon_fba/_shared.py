@@ -18,7 +18,9 @@ from services.agent_cli.browser.amazon_common.region_switch import normalize_sit
 from services.browser.workflows.amazon_fba_common import selected_store as _selected_store
 from services.browser.workflows.amazon_fba_common import workflow_output_dir as _workflow_output_dir
 from shared.infra.net import close_all_network_clients
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 FixedFlowRunner = Callable[..., dict[str, Any]]

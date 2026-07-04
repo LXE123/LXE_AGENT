@@ -14,10 +14,9 @@ from gateway.planned_stop import (
     write_gateway_status,
 )
 from shared.infra.net import bootstrap_network_policy
-from shared.logging import logger
+from shared.logging import get_logger, setup_logging
 
-
-bootstrap_network_policy(label="gateway", emit=logger.info)
+logger = get_logger(__name__)
 
 
 async def _run_gateway() -> None:
@@ -80,6 +79,8 @@ def _stop_gateway() -> int:
 
 
 def main() -> int:
+    setup_logging()
+    bootstrap_network_policy(label="gateway", emit=logger.info)
     if len(sys.argv) > 1 and sys.argv[1].strip().lower() == "stop":
         return _stop_gateway()
     try:

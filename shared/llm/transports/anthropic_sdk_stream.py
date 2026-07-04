@@ -12,7 +12,9 @@ from shared.llm.deepseek_errors import classify_deepseek_error
 from shared.llm.kimi_coding.errors import classify_kimi_coding_error
 from shared.llm.provider_catalog import ProviderDescriptor
 from shared.llm.transports.wire_trace import WireTraceContext, WireTraceWriter
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 ToolChoiceMode = Literal["auto", "none"]
 _ANTHROPIC_DEFAULT_OUTPUT_LIMIT = 128_000

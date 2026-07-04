@@ -5,12 +5,14 @@ import subprocess
 import time
 from typing import Any
 
-from shared.logging import logger
+from shared.logging import get_logger
 
 from . import ziniao_config as ziniao_settings
 from .ziniao_client import ZiniaoClient, ZiniaoClientError
 from .ziniao_lifecycle import ZiniaoLifecycleManager
 from .ziniao_process import download_driver, kill_process, normalize_browser_version
+
+logger = get_logger(__name__)
 
 
 def _user_info() -> dict[str, str]:

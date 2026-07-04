@@ -24,6 +24,7 @@ from shared.infra.net import close_all_network_clients
 from shared.runtime_core.utils import send_file_to_current_session
 
 from . import defaults
+from shared.logging import setup_logging
 
 
 class JsonArgumentParser(argparse.ArgumentParser):
@@ -335,6 +336,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, str | bool]:
 
 def main() -> int:
     configure_utf8_stdio()
+    setup_logging()
     parser = build_parser()
     result: dict[str, str | bool]
 

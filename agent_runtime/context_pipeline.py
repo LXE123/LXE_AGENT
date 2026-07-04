@@ -12,11 +12,13 @@ from uuid import uuid4
 
 from shared.agent_state import context_state, update_context_state
 from shared.llm.agent_planner import active_agent_planner_capabilities
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .llm_adapter import agent_provider_descriptor, chat_with_tools
 from .skill_manifest import SkillQueueItem
 from .types import ContextBuildStats, tool_content_preview_text
+
+logger = get_logger(__name__)
 
 IMAGE_TOKEN_ESTIMATE = 1600
 RECENT_RAW_TURN_TOKEN_LIMIT = 20000

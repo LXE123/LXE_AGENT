@@ -3,12 +3,14 @@ from __future__ import annotations
 import os
 import sys
 
-from shared.logging import logger
+from shared.logging import get_logger
 from shared.llm.glm import client as glm_client
 from shared.llm.kimi_coding import client as kimi_coding_client
 from shared.llm.model_capabilities import ModelCapabilities, _resolve_model_capabilities_match
 from shared.llm.provider_catalog import ProviderDescriptor, descriptor_for_provider, normalize_provider_name
 from shared.llm import runtime_config as runtime_settings
+
+logger = get_logger(__name__)
 
 _ACTIVE_PROVIDER_ENV = "AGENT_LLM_PROVIDER"
 _ACTIVE_MODEL_ENV = "AGENT_LLM_MODEL"

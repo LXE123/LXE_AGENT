@@ -14,6 +14,7 @@ from services.agent_cli.browser.amazon_fba._shared import (
     validate_args,
 )
 from services.browser.workflows.amazon_fba_prepare_upload import run_prepare_upload_workflow
+from shared.logging import setup_logging
 
 
 def run_prepare_upload(
@@ -31,6 +32,7 @@ def run_prepare_upload(
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     try:
         parser = build_parser("prepare_upload")
         args = parser.parse_args(argv)

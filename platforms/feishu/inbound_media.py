@@ -8,13 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from shared.infra.net import HttpSessionPurpose, get_aiohttp_session
-from shared.logging import logger
+from shared.logging import get_logger
 
 from shared.media.image_processing import compress_image_bytes
 
 from .auth import token_manager
 from .config import FEISHU_API_HOST
 from .message_parser import InboundResource
+
+logger = get_logger(__name__)
 
 
 _FILENAME_SANITIZER = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')

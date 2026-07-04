@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from shared.logging import logger
+from shared.logging import get_logger
 
 from .tools.coding_tools import CODING_TOOL_NAMES, register_coding_tools
 from .tools.feishu_im_tools import register_feishu_im_tools
 from .types import ToolDefinition, ToolSchema
+
+logger = get_logger(__name__)
 
 
 class UnifiedToolRegistry:
@@ -63,7 +65,7 @@ def register_browser_tools(registry: UnifiedToolRegistry | None = None) -> None:
     reg = registry or _registry
     configured, reason = ziniao_tool_config_status()
     if not configured:
-        logger.info("[ToolRegistry] skip Ziniao browser tools: %s", reason)
+        logger.debug("[ToolRegistry] skip Ziniao browser tools: %s", reason)
         return
 
     registered_count = 0
@@ -81,7 +83,8 @@ def register_browser_tools(registry: UnifiedToolRegistry | None = None) -> None:
             )
         )
         registered_count += 1
-    logger.info("[ToolRegistry] registered browser tools=%s total_tools=%s", registered_count, len(reg.all_names()))
+    if registered_count:
+        logger.debug("[ToolRegistry] registered browser tools=%s total_tools=%s", registered_count, len(reg.all_names()))
 
 
 def ensure_all_tools_registered(registry: UnifiedToolRegistry | None = None) -> UnifiedToolRegistry:

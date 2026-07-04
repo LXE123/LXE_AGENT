@@ -12,6 +12,7 @@ from services.mabang.amazon.fba.unlinked_shipments import (
     build_store_unlinked_shipments_snapshot,
     normalize_store_name,
 )
+from shared.logging import setup_logging
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     store_name = ""
     try:
         args = build_parser().parse_args(argv)

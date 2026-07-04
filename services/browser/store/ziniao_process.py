@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from shared.infra.net import external_requests_session
-from shared.logging import logger
+from shared.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 _WINDOWS_DRIVER_CONFIG_URL = "https://cdn-superbrowser-attachment.ziniao.com/webdriver/exe_32/config.json"

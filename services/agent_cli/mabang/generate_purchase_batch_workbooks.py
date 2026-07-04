@@ -16,6 +16,7 @@ from services.agent_cli._shared.json_cli import (
 )
 from services.agent_cli.mabang import generate_fba_restock_workbook as restock_workbook
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
+from shared.logging import setup_logging
 
 SOURCE = "fba_purchase_batch_workbooks"
 
@@ -162,6 +163,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     delivery_nos: list[str] = []
     master_xlsx = ""
     gross_margin = ""

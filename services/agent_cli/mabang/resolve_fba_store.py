@@ -19,6 +19,7 @@ from services.mabang.amazon.fba.store_resolver import (
     write_fba_stores_xlsx,
 )
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 CANDIDATE_JSON_LIMIT = 10
 
@@ -93,6 +94,7 @@ def _augment_error_payload(payload: dict[str, Any], exc: Exception) -> dict[str,
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     store_name = ""
     try:
         args = build_parser().parse_args(argv)

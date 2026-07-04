@@ -24,6 +24,7 @@ from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
 from services.agent_cli.mabang.validate_export_tax_products import validate_export_tax_products
 from services.mabang.stock_sku_export import export_stock_sku_names
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 SOURCE = "export_tax_products_import"
 DEFAULT_BACKUP_DIR = Path("artifacts") / "export_tax_products_backup"
@@ -210,6 +211,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     try:
         args = build_parser().parse_args(argv)
         payload = asyncio.run(_run_async(args))

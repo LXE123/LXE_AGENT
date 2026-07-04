@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from shared.infra.net import erp_http_session, external_http_session
-from shared.logging import logger
+from shared.logging import get_logger
 from services.mabang import config as mabang_settings
 
 from ...auth import get_fba_free_token
@@ -26,6 +26,8 @@ from .batch_delivery import (
     request_download_info,
     wait_for_delivery_task,
 )
+
+logger = get_logger(__name__)
 
 DEFAULT_SHOP_COUNTRY_URL = "https://api-private.mabangerp.com/fba/api/v1/shop/shopCountry"
 DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_fba_unlinked_shipments"

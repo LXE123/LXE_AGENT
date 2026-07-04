@@ -28,6 +28,7 @@ from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
     find_latest_delivery_csv,
 )
 from shared.infra.net import close_all_network_clients
+from shared.logging import setup_logging
 
 OUTPUT_DIR = Path("artifacts") / "mabang_purchase_summary"
 SOURCE = "fba_purchase_summary"
@@ -984,6 +985,7 @@ def main(
     prog: str = "python -m services.agent_cli.mabang.generate_restock_workbook",
 ) -> int:
     configure_utf8_stdio()
+    setup_logging()
     delivery_nos: list[str] = []
     master_xlsx = ""
     try:

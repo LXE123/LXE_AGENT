@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from services.agent_cli.mabang import generate_restock_workbook as _impl
+from shared.logging import setup_logging
 
 DELIVERY_CSV_DIR = _impl.DELIVERY_CSV_DIR
 OUTPUT_DIR = _impl.OUTPUT_DIR
@@ -61,6 +62,7 @@ def build_parser():
 
 
 def main(argv: list[str] | None = None) -> int:
+    setup_logging()
     _sync_runtime_overrides()
     return _impl.main(
         argv,

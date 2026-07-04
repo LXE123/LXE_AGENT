@@ -16,6 +16,7 @@ from services.agent_cli._shared.json_cli import (
     write_json as _write_json,
 )
 from services.agent_cli.mabang import generate_restock_workbook as _purchase
+from shared.logging import setup_logging
 
 DELIVERY_CSV_DIR = _purchase.DELIVERY_CSV_DIR
 OUTPUT_DIR = Path("artifacts") / "mabang_restock_workbook"
@@ -446,6 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     delivery_nos: list[str] = []
     master_xlsx = ""
     gross_margin = ""

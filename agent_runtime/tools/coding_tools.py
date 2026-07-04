@@ -21,7 +21,7 @@ from typing import Any
 
 from PIL import Image
 
-from shared.logging import logger
+from shared.logging import get_logger
 from shared.runtime_core.utils import send_file_to_current_session
 
 from agent_runtime.tool_executor import get_tool_context
@@ -34,6 +34,8 @@ from agent_runtime.types import (
     text_content_block,
     text_tool_result,
 )
+
+logger = get_logger(__name__)
 
 
 # ===================================================================
@@ -1243,10 +1245,13 @@ CODING_TOOL_NAMES = frozenset(t.name for t in CODING_TOOLS)
 
 def register_coding_tools(registry: Any) -> None:
     """Register all coding tools into the UnifiedToolRegistry."""
+    added_names: list[str] = []
     for tool in CODING_TOOLS:
         if not registry.has(tool.name):
             registry.register(tool)
-    logger.info(f"[CodingTools] registered {len(CODING_TOOLS)} tools: {', '.join(t.name for t in CODING_TOOLS)}")
+            added_names.append(tool.name)
+    if added_names:
+        logger.debug("[CodingTools] registered %d tools: %s", len(added_names), ", ".join(added_names))
 
 
 __all__ = [

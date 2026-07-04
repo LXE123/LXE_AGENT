@@ -27,6 +27,7 @@ from services.amazon.amazon_logistic.sources.consignment_excel import (
     find_consignment_excel,
     resolve_column,
 )
+from shared.logging import setup_logging
 
 SOURCE = "customs_declaration_fill"
 DEFAULT_TEMPLATE_PATH = Path("data") / "customs_declaration" / "custom_declaration_documents.xlsx"
@@ -1882,6 +1883,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     configure_utf8_stdio()
+    setup_logging()
     try:
         args = build_parser().parse_args(argv)
         payload = fill_customs_declaration(
