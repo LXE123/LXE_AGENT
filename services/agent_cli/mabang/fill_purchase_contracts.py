@@ -495,6 +495,37 @@ def _set_cell_value(worksheet: Any, *, row: int, column: int, value: Any) -> Non
     _writable_cell(worksheet, row=row, column=column).value = value
 
 
+def _make_single_row_cell_writable(worksheet: Any, *, row: int, column: int) -> None:
+    for merged_range in list(worksheet.merged_cells.ranges):
+        if (
+            merged_range.min_row != row
+            or merged_range.max_row != row
+            or not (merged_range.min_col < column <= merged_range.max_col)
+        ):
+            continue
+
+        start_column = merged_range.min_col
+        end_column = merged_range.max_col
+        source_cell = worksheet.cell(row=row, column=start_column)
+        _safe_unmerge_single_row_range(worksheet, merged_range)
+        if start_column < column - 1:
+            worksheet.merge_cells(
+                start_row=row,
+                start_column=start_column,
+                end_row=row,
+                end_column=column - 1,
+            )
+        if column + 1 < end_column:
+            worksheet.merge_cells(
+                start_row=row,
+                start_column=column + 1,
+                end_row=row,
+                end_column=end_column,
+            )
+        _copy_cell_style(source_cell, worksheet.cell(row=row, column=column))
+        return
+
+
 def _clear_row_values(worksheet: Any, *, row: int) -> None:
     for column_index in range(1, worksheet.max_column + 1):
         cell = _writable_cell(worksheet, row=row, column=column_index)
@@ -659,8 +690,20 @@ def _fill_detail_rows(worksheet: Any, lines: list[PurchaseContractLine]) -> int:
         _apply_column_spans(worksheet, layout=layout, row=row_index)
         _clear_row_values(worksheet, row=row_index)
 
+    total_quantity = sum((line.quantity for line in lines), Decimal("0"))
     total_amount = sum((line.tax_amount for line in lines), Decimal("0"))
     _apply_column_spans(worksheet, layout=layout, row=layout.summary_row)
+    _make_single_row_cell_writable(
+        worksheet,
+        row=layout.summary_row,
+        column=layout.columns["quantity"],
+    )
+    _set_cell_value(
+        worksheet,
+        row=layout.summary_row,
+        column=layout.columns["quantity"],
+        value=_decimal_to_cell_value(total_quantity),
+    )
     _set_cell_value(
         worksheet,
         row=layout.summary_row,

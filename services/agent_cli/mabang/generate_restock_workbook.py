@@ -850,7 +850,14 @@ def _write_rows(
             worksheet.cell(row=row_index, column=auxiliary_column).fill = auxiliary_fill
     worksheet.freeze_panes = "A2"
     wrap_alignment = Alignment(wrap_text=True, vertical="top")
-    for text_column_name in ("库存sku", "产品名称", "来源SP单号", "库存sku（第一行）", "产品名称（第一行）"):
+    for text_column_name in (
+        "库存sku",
+        "产品名称",
+        "来源SP单号",
+        "库存sku（第一行）",
+        "产品名称（第一行）",
+        "厂家",
+    ):
         if text_column_name not in columns:
             continue
         text_column = columns.index(text_column_name) + 1
