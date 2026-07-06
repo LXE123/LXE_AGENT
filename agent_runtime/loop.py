@@ -735,7 +735,6 @@ class AgentLoop:
             tool_schemas = exposure_state.active_schemas()
             system_prompt = build_system_prompt(
                 platform=platform,
-                tool_schemas=tool_schemas,
                 available_skills=available_skills,
                 state_data=self.state_data,
             )
@@ -877,6 +876,15 @@ class AgentLoop:
                     message=messages[-1] if messages else message,
                 )
 
+        # Built once per turn: all inputs are stable within a turn, and a
+        # byte-identical system prompt across steps keeps the provider
+        # prompt-cache prefix warm.
+        system_prompt = build_system_prompt(
+            platform=platform,
+            available_skills=available_skills,
+            state_data=exec_ctx.state_data,
+        )
+
         for step_idx in range(MAX_STEPS):
             if await self._cancel_requested():
                 return await self._cancel_outcome(messages_to_persist=current_turn_messages)
@@ -884,12 +892,6 @@ class AgentLoop:
             is_last_step = step_idx == MAX_STEPS - 1
             active_tool_schemas = exposure_state.active_schemas()
             request_tool_schemas = [] if is_last_step else active_tool_schemas
-            system_prompt = build_system_prompt(
-                platform=platform,
-                tool_schemas=request_tool_schemas,
-                available_skills=available_skills,
-                state_data=exec_ctx.state_data,
-            )
             tool_choice_mode: Literal["auto", "none"] = "none" if is_last_step else "auto"
 
             try:

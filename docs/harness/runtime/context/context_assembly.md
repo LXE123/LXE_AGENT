@@ -35,20 +35,28 @@ step 内 tool result 裁剪、compaction、history limit 的细节见 [context_p
 
 ## System Prompt 组成
 
-`build_system_prompt()` 每个 turn 重新构造 system prompt。当前组成顺序：
+`build_system_prompt()` 每个 turn 重新构造 system prompt。段落按"稳定前缀 + 易变后缀"排序，中间由 `SYSTEM_PROMPT_CACHE_BREAKPOINT`（定义在 `shared/llm/events.py`）分隔；transport 层会把 marker 之前的部分转成带 `cache_control: {"type": "ephemeral"}` 的 system block，使 provider prompt cache 不被每轮变化的后缀打断。
+
+稳定前缀（打 cache 断点）：
 
 | Section | 来源 | 说明 |
 | --- | --- | --- |
-| `## Soul` | `SOUL.md` | 文件存在时加入，用于基础行为风格。 |
-| `## Tool Summaries` | active tool schemas | 只列工具名和简短描述，不包含完整 JSON Schema。 |
-| `## Skills (mandatory)` | 硬编码 prompt | 指导模型如何选择并读取 skill。 |
-| `<available_skills>` | 当前 bot skill policy 结果 | 每项包含 name、description、location。 |
-| `## Safety` | 硬编码 prompt | 安全和边界规则。 |
-| `## Tool Call Style` | 硬编码 prompt | 工具调用、执行会话、审批和轮询规则。 |
+| `## Soul` | `SOUL.md` | 文件存在时加入，只承载人格和语气，不含约束规则。 |
+| `## Safety & Boundaries` | 硬编码 prompt | 全部安全与边界规则的唯一存放处：外部写操作确认门、隐私、消息平台规则、human oversight。 |
+| `## Tool Call Style` | 硬编码 prompt | 工具调用叙述风格；各工具的具体使用规则以其自身 description 为准。 |
 | `## Attachment Handling` | 硬编码 prompt | 非图片附件的处理方式。 |
+| `## Skills (mandatory)` | 硬编码 prompt | 指导模型如何选择并读取 skill。 |
+
+易变后缀（不缓存）：
+
+| Section | 来源 | 说明 |
+| --- | --- | --- |
+| `<available_skills>` | 当前 bot skill policy 结果 | 每项包含 name、description、location。 |
 | `## Runtime` | 当前 provider/model/OS/Python | 给模型运行环境事实。 |
 | `## Workspace` | `Path.cwd()` | 告诉模型当前工作目录。 |
-| `## Current Date & Time` | 本机当前时间 | 给模型当前日期时间和时区。 |
+| `## Current Date & Time` | 本机当前时间（分钟精度） | 给模型当前日期时间和时区。 |
+
+原 `## Tool Summaries` 段已移除：active tool schemas 完整走 provider tools 字段，system prompt 不再重复一份截断摘要；deferred MCP 工具的发现由 tool_search 工具自身的 description 承担。exec/process 的会话与轮询规则也已下沉到这两个工具的 description（`agent_runtime/tools/coding_tools.py`）。
 
 `state_data` 当前传入 `build_system_prompt()`，但该函数现在没有读取其中的 context 内容。
 
@@ -83,7 +91,7 @@ messages: canonical messages
 tool_schemas: canonical tool schemas
 ```
 
-system prompt 里的 `Tool Summaries` 只是工具摘要，完整参数 schema 通过 provider adapter 作为请求顶层工具定义传给模型。
+完整参数 schema 通过 provider adapter 作为请求顶层工具定义传给模型；system prompt 不包含工具摘要。
 
 真正发 provider request 前，`_prepare_provider_messages()` 会用 `request_context_token_estimate()` 估算完整请求预算：
 

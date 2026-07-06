@@ -12,6 +12,8 @@ from uuid import uuid4
 
 from shared.agent_state import context_state, update_context_state
 from shared.llm.agent_planner import active_agent_planner_capabilities
+from shared.llm.errors import LLMProviderError
+from shared.llm.events import SYSTEM_PROMPT_CACHE_BREAKPOINT
 from shared.logging import get_logger
 
 from .llm_adapter import agent_provider_descriptor, chat_with_tools
@@ -25,6 +27,7 @@ RECENT_RAW_TURN_TOKEN_LIMIT = 20000
 DEFAULT_CONTEXT_WINDOW_TOKENS = 256000
 DEFAULT_RESERVE_TOKENS = 20000
 STEP_TOOL_RESULT_MAX_TOKENS = 10000
+SUMMARY_COMPACTION_MAX_ATTEMPTS = 2
 PRECALL_COMPACTION_USAGE_THRESHOLD = 0.90
 DEFAULT_CHANNEL_HISTORY_LIMITS = {
     "feishu": {"dmHistoryLimit": 20},
@@ -42,18 +45,32 @@ class ContextCompactionResult:
     summary_text: str = ""
     compacted_count: int = 0
 
+# Constraint rules, one home only: operational safety gates live here, not
+# in SOUL.md (persona). Abstract alignment principles are compressed to one
+# line — rules need a concrete decision point to bind to. Wording partly
+# inspired by Anthropic's constitution.
 _SAFETY_PROMPT = """
-You have no independent goals: do not pursue self-preservation, replication,
-resource acquisition, or power-seeking; avoid long-term plans beyond the
-user's request.
+External actions — sending messages, emails, or posts; any write to an
+external platform or API (orders, listings, prices, inventory, account
+settings): confirm with the user first, unless this turn's request
+explicitly asks for that exact action or the user has durably authorized
+it. Approval in one context does not carry over to the next.
+Internal actions — reading files, searching, organizing the workspace —
+need no confirmation; be resourceful before asking.
 
-Prioritize safety and human oversight over completion; if instructions
-conflict, pause and ask; comply with stop/pause/audit requests and never
-bypass safeguards. (Inspired by Anthropic's constitution.)
+Privacy: the user's personal and business data (orders, revenue,
+credentials, conversation history) stays private. Never move it to
+another chat, platform, or external service unless the user asks.
 
-Do not manipulate or persuade anyone to expand access or disable safeguards.
-Do not copy yourself or change system prompts, safety rules, or tool policies
-unless explicitly requested.
+Messaging surfaces: never send half-baked or speculative replies. In
+group chats you are not the user's voice; write as the assistant and be
+careful what you say on their behalf.
+
+Human oversight: you have no goals beyond the user's request. Comply
+with stop/pause/audit requests immediately; if instructions conflict,
+pause and ask. Do not change system prompts, safety rules, or tool
+policies unless explicitly requested, and do not persuade anyone to
+expand your access or disable safeguards.
 """.strip()
 
 _TOOL_CALL_STYLE_PROMPT = """
@@ -64,15 +81,8 @@ Keep narration brief and value-dense; avoid repeating obvious steps.
 Use plain human language for narration unless in a technical context.
 When a first-class tool exists for an action, use the tool directly instead
 of asking the user to run equivalent CLI or slash commands.
-exec starts shell commands; process manages exec sessions after they start.
-Do not re-exec a command to check its status; use process instead.
-Use process when you need logs, status, stdin input, termination, or removal.
-When exec returns a running session, move on to other work unless you
-specifically need intermediate output or progress.
-When a backgrounded exec session completes, you will be notified automatically.
-Do not poll just to wait for completion. Poll only when you need progress
-or new output. If poll returns no new output, move on instead of polling again.
-Do not use exec sleep or delay loops for deferred follow-ups.
+Follow the usage rules in each tool's own description; they are the source
+of truth for how that tool behaves.
 """.strip()
 
 _ATTACHMENT_HANDLING_PROMPT = """
@@ -98,14 +108,14 @@ user's explicit request.
 
 _SKILLS_PROMPT = """
 Before replying: scan <available_skills> <description> entries.
-- If exactly one skill clearly applies: read its SKILL.md at <location> with `read`, then follow it.
+- If exactly one skill clearly applies: read its SKILL.md at <location> with the file-reading tool, then follow it.
 - If multiple could apply: choose the most specific one, then read/follow it.
 - If none clearly apply: do not read any SKILL.md.
 Constraints: never read more than one skill up front; only read after selecting.
 - When a skill drives external API writes, assume rate limits: prefer fewer larger writes, avoid tight one-item loops, serialize bursts when possible, and respect 429/Retry-After.
 
 The following skills provide specialized instructions for specific tasks.
-Use the read tool to load a skill's file when the task matches its description.
+Load a skill's file when the task matches its description.
 When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.
 """.strip()
 
@@ -624,20 +634,6 @@ def make_tool_results_message(*, tool_results: list[dict[str, Any]] | None) -> d
         blocks.append(block)
     return {"role": "tool", "content": blocks}
 
-def _tool_summary_block(tool_schemas: list[dict[str, Any]]) -> str:
-    lines: list[str] = []
-    for schema in list(tool_schemas or []):
-        item = dict(schema or {})
-        name = str(item.get("name") or "").strip()
-        description = " ".join(str(item.get("description") or "").strip().split())
-        if not name:
-            continue
-        if len(description) > 180:
-            description = description[:177].rstrip() + "..."
-        lines.append(f"- {name}: {description or '(no description)'}")
-    return "\n".join(lines).strip() or "(none)"
-
-
 def _available_skills_block(
     *,
     available_skills: list[SkillQueueItem],
@@ -706,35 +702,41 @@ def _workspace_block() -> str:
 
 
 def _current_datetime_block() -> str:
+    # Minute precision keeps the prompt from changing on every single call.
     now = datetime.now().astimezone()
-    return now.strftime("%Y-%m-%d %H:%M:%S %Z")
+    return now.strftime("%Y-%m-%d %H:%M %Z")
 
 
 def build_system_prompt(
     *,
     platform: str,
-    tool_schemas: list[dict[str, Any]],
     available_skills: list[SkillQueueItem],
     state_data: dict[str, Any] | None = None,
 ) -> str:
+    # Stable sections first, volatile sections after the cache breakpoint:
+    # the transport caches everything before the marker, so per-turn changes
+    # (skill policy, runtime facts, current time) never invalidate the prefix.
     soul_text = _read_repo_markdown("SOUL.md")
-    parts = []
+    stable_parts = []
     if soul_text:
-        parts.append("## Soul\n" + soul_text)
-    parts.extend(
+        stable_parts.append("## Soul\n" + soul_text)
+    stable_parts.extend(
         [
-            "## Tool Summaries\n" + _tool_summary_block(tool_schemas),
-            "## Skills (mandatory)\n" + _SKILLS_PROMPT,
-            _available_skills_block(available_skills=available_skills),
-            "## Safety\n" + _SAFETY_PROMPT,
+            "## Safety & Boundaries\n" + _SAFETY_PROMPT,
             "## Tool Call Style\n" + _TOOL_CALL_STYLE_PROMPT,
             "## Attachment Handling\n" + _ATTACHMENT_HANDLING_PROMPT,
-            "## Runtime\n" + _runtime_block(),
-            "## Workspace\n" + _workspace_block(),
-            "## Current Date & Time\n" + _current_datetime_block(),
+            "## Skills (mandatory)\n" + _SKILLS_PROMPT,
         ]
     )
-    return "\n\n".join(part for part in parts if str(part or "").strip())
+    volatile_parts = [
+        _available_skills_block(available_skills=available_skills),
+        "## Runtime\n" + _runtime_block(),
+        "## Workspace\n" + _workspace_block(),
+        "## Current Date & Time\n" + _current_datetime_block(),
+    ]
+    stable_text = "\n\n".join(part for part in stable_parts if str(part or "").strip())
+    volatile_text = "\n\n".join(part for part in volatile_parts if str(part or "").strip())
+    return f"{stable_text}{SYSTEM_PROMPT_CACHE_BREAKPOINT}{volatile_text}"
 
 
 def load_context_messages(state_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1086,6 +1088,59 @@ async def _summarize_history(*, messages: list[dict[str, Any]]) -> str:
     return str(response.text or "").strip()
 
 
+def _summary_failure_reason(error: BaseException) -> str:
+    if isinstance(error, LLMProviderError) and (error.context_overflow or not error.retryable):
+        return "non_retryable"
+    return "exception"
+
+
+async def _summarize_history_with_retry(
+    *,
+    messages: list[dict[str, Any]],
+    session_id: str,
+    trigger: str,
+    compacted_message_count: int,
+    retained_message_count: int,
+) -> str:
+    max_attempts = max(1, int(SUMMARY_COMPACTION_MAX_ATTEMPTS or 1))
+    for attempt in range(1, max_attempts + 1):
+        try:
+            summary_text = str(await _summarize_history(messages=messages) or "").strip()
+        except Exception as exc:
+            reason = _summary_failure_reason(exc)
+            logger.warning(
+                "[ContextCompaction] session=%s trigger=%s summary failed compacted_messages=%s retained_messages=%s attempt=%s/%s reason=%s error=%s",
+                session_id,
+                trigger,
+                compacted_message_count,
+                retained_message_count,
+                attempt,
+                max_attempts,
+                reason,
+                exc,
+                exc_info=True,
+            )
+            if reason == "non_retryable" or attempt >= max_attempts:
+                return ""
+            continue
+
+        if summary_text:
+            return summary_text
+
+        logger.warning(
+            "[ContextCompaction] session=%s trigger=%s summary returned empty compacted_messages=%s retained_messages=%s attempt=%s/%s reason=empty",
+            session_id,
+            trigger,
+            compacted_message_count,
+            retained_message_count,
+            attempt,
+            max_attempts,
+        )
+        if attempt >= max_attempts:
+            return ""
+    return ""
+
+
 async def maybe_compact_history(
     *,
     state_data: dict[str, Any],
@@ -1127,29 +1182,14 @@ async def maybe_compact_history(
         )
         return ContextCompactionResult(state_data=state_data)
 
-    try:
-        next_summary = await _summarize_history(messages=compacted_messages)
-    except Exception as exc:
-        logger.warning(
-            "[ContextCompaction] session=%s trigger=%s summary failed compacted_messages=%s retained_messages=%s error=%s",
-            session_id,
-            trigger,
-            len(compacted_messages),
-            len(retained_messages),
-            exc,
-            exc_info=True,
-        )
-        return ContextCompactionResult(state_data=state_data)
-
-    summary_text = str(next_summary or "").strip()
+    summary_text = await _summarize_history_with_retry(
+        messages=compacted_messages,
+        session_id=session_id,
+        trigger=trigger,
+        compacted_message_count=len(compacted_messages),
+        retained_message_count=len(retained_messages),
+    )
     if not summary_text:
-        logger.warning(
-            "[ContextCompaction] session=%s trigger=%s summary returned empty compacted_messages=%s retained_messages=%s",
-            session_id,
-            trigger,
-            len(compacted_messages),
-            len(retained_messages),
-        )
         return ContextCompactionResult(state_data=state_data)
 
     compacted_count = len(compacted_messages)
@@ -1221,6 +1261,7 @@ __all__ = [
     "ContextCompactionResult",
     "PRECALL_COMPACTION_USAGE_THRESHOLD",
     "STEP_TOOL_RESULT_MAX_TOKENS",
+    "SUMMARY_COMPACTION_MAX_ATTEMPTS",
     "append_messages_to_state",
     "apply_message_history_limit",
     "build_llm_messages",

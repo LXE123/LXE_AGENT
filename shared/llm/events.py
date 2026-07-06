@@ -29,7 +29,13 @@ class LLMStreamEvent:
     raw: dict[str, Any] = field(default_factory=dict)
 
 
+# Splits a system prompt into a stable prefix and a volatile suffix. The
+# transport turns the prefix into a system block with cache_control so the
+# provider prompt cache survives per-turn changes in the suffix.
+SYSTEM_PROMPT_CACHE_BREAKPOINT = "\n\n<<system-prompt-cache-breakpoint>>\n\n"
+
 __all__ = [
     "LLMStreamEvent",
     "LLMToolCall",
+    "SYSTEM_PROMPT_CACHE_BREAKPOINT",
 ]

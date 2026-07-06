@@ -1170,7 +1170,10 @@ CODING_EXEC = ToolDefinition(
     description=(
         "Execute shell commands. Returns result if command finishes within yield_ms "
         "(default 10s), otherwise backgrounds the command and returns a session ID. "
-        "Use the process tool to check progress of backgrounded commands. "
+        "Use the process tool to manage backgrounded sessions; do not re-exec a command "
+        "just to check its status. When exec returns a running session, move on to other "
+        "work — you will be notified automatically when it completes. Do not use exec "
+        "sleep or delay loops for deferred follow-ups. "
         "On Windows, exec.command already runs inside PowerShell. Do not prefix commands "
         "with powershell/pwsh -Command; pass the PowerShell script body directly. "
         "Wrong: powershell -Command \"Get-Date\". Correct: Get-Date. "
@@ -1206,7 +1209,10 @@ CODING_PROCESS = ToolDefinition(
     description=(
         "Manage running or finished exec sessions. Actions: list (show all sessions), "
         "poll (get new output), log (full output with offset/limit), write (send stdin), "
-        "kill (terminate), remove (kill + delete)."
+        "kill (terminate), remove (kill + delete). "
+        "Backgrounded sessions notify you automatically on completion, so do not poll "
+        "just to wait; poll only when you need progress or new output. If poll returns "
+        "no new output, move on instead of polling again."
     ),
     parameters={
         "type": "object",
