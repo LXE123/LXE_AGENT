@@ -620,7 +620,7 @@ def test_context_overflow_provider_error_triggers_compaction_retry(monkeypatch) 
     assert outcome.reply == "完成"
 
 
-def test_deferred_mcp_tool_updates_provider_schema_and_system_prompt(monkeypatch) -> None:
+def test_deferred_mcp_tool_updates_provider_schema(monkeypatch) -> None:
     class EmptyMcpManager:
         tools: list[Any] = []
 
@@ -662,6 +662,9 @@ def test_deferred_mcp_tool_updates_provider_schema_and_system_prompt(monkeypatch
             {
                 "system_prompt": kwargs["system_prompt"],
                 "tool_names": [tool["name"] for tool in kwargs["tool_schemas"]],
+                "tool_descriptions": {
+                    tool["name"]: str(tool.get("description") or "") for tool in kwargs["tool_schemas"]
+                },
             }
         )
         if len(calls) == 1:
@@ -692,10 +695,10 @@ def test_deferred_mcp_tool_updates_provider_schema_and_system_prompt(monkeypatch
     assert "tool_search" in calls[0]["tool_names"]
     assert "mcp__saihu__shop_list" not in calls[0]["tool_names"]
     assert "mcp__saihu__shop_list" not in calls[0]["system_prompt"]
-    assert "Available deferred tool sources:" in calls[0]["system_prompt"]
-    assert "Saihu: Local Saihu data tools." in calls[0]["system_prompt"]
+    assert "Available deferred tool sources:" in calls[0]["tool_descriptions"]["tool_search"]
+    assert "Saihu: Local Saihu data tools." in calls[0]["tool_descriptions"]["tool_search"]
     assert "mcp__saihu__shop_list" in calls[1]["tool_names"]
-    assert "mcp__saihu__shop_list" in calls[1]["system_prompt"]
+    assert "mcp__saihu__shop_list" not in calls[1]["system_prompt"]
 
 
 def test_enabled_down_mcp_server_does_not_block_provider_step(monkeypatch, tmp_path) -> None:

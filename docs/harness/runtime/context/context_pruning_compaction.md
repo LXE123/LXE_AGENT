@@ -143,7 +143,7 @@ Context overflow recovery 的目的是在 provider 拒绝当前请求时，给�
 
 #### 设计理念
 
-当前实现把 overflow recovery 设计成“异常恢复”。它复用 `maybe_compact_history()` 尝试摘要旧历史。`trigger="overflow"` 不受本地估算早退门禁限制；但如果没有可摘要的旧前缀、摘要调用失败、摘要为空，或摘要后仍超预算，本次恢复会返回 `compacted=False`，由现有 LLM error 路径 fail-stop。
+当前实现把 overflow recovery 设计成“异常恢复”。它复用 `maybe_compact_history()` 尝试摘要旧历史。`trigger="overflow"` 不受本地估算早退门禁限制；但如果没有可摘要的旧前缀、摘要生成最多两次后仍失败或为空，或摘要后仍超预算，本次恢复会返回 `compacted=False`，由现有 LLM error 路径 fail-stop。
 
 #### 细节
 
@@ -169,7 +169,7 @@ Summary compaction 的目的是把旧历史压成一条 summary message，让当
 
 #### 设计理念
 
-`maybe_compact_history()` 只做摘要压缩：保留最近约 `20000` estimated tokens 的 raw turn，把更旧 messages 总结成一条 summary message。摘要调用失败、返回空、没有可摘要前缀，或者摘要后重新估算仍超过触发阈值，都不写入 snapshot，返回 `compacted=False`。
+`maybe_compact_history()` 只做摘要压缩：保留最近约 `20000` estimated tokens 的 raw turn，把更旧 messages 总结成一条 summary message。摘要调用异常或返回空时最多尝试两次；没有可摘要前缀、两次摘要仍失败/为空，或者摘要后重新估算仍超过触发阈值，都不写入 snapshot，返回 `compacted=False`。
 
 #### 细节
 
@@ -188,6 +188,7 @@ estimated_tokens + extra_tokens > model_context_window_tokens - DEFAULT_RESERVE_
 - `DEFAULT_CONTEXT_WINDOW_TOKENS = 256000`
 - `DEFAULT_RESERVE_TOKENS = 20000`
 - `RECENT_RAW_TURN_TOKEN_LIMIT = 20000`
+- `SUMMARY_COMPACTION_MAX_ATTEMPTS = 2`
 
 `model_context_window_tokens` 优先来自 `active_agent_planner_capabilities().context_window_tokens`，读取失败时回退到 `256000`。
 
@@ -197,6 +198,8 @@ estimated_tokens + extra_tokens > model_context_window_tokens - DEFAULT_RESERVE_
 2. 累计达到约 `20000` token 后，这部分较新的 turn 保留为原文。
 3. 更旧的 messages 会被 `_summarize_history()` 渲染成 transcript 后交给 LLM 总结。
 4. `make_compaction_summary_message()` 把 summary 写成一条 `user` message。
+
+摘要生成阶段有一次窄重试：普通异常、超时、provider retryable error、空摘要会再试一次。`LLMProviderError(context_overflow=True)` 或 `retryable=False` 不重试；摘要后仍超预算也不重试，因为这属于结构性预算失败，不是瞬时故障。
 
 压缩后的 history 形态是：
 

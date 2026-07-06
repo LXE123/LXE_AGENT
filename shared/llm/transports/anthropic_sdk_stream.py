@@ -6,7 +6,7 @@ from typing import Any, Callable, Iterable, Literal
 from anthropic import APIStatusError, Anthropic
 
 from shared.llm.errors import AnthropicStreamError, LLMProviderError
-from shared.llm.events import LLMStreamEvent, LLMToolCall
+from shared.llm.events import SYSTEM_PROMPT_CACHE_BREAKPOINT, LLMStreamEvent, LLMToolCall
 from shared.llm import runtime_config as runtime_settings
 from shared.llm.deepseek_errors import classify_deepseek_error
 from shared.llm.kimi_coding.errors import classify_kimi_coding_error
@@ -474,6 +474,26 @@ def _iter_sdk_stream_events(
             continue
 
 
+def _system_payload(system_prompt: str) -> str | list[dict[str, Any]]:
+    text = str(system_prompt or "")
+    if SYSTEM_PROMPT_CACHE_BREAKPOINT not in text:
+        return text.strip()
+    stable_text, _, volatile_text = text.partition(SYSTEM_PROMPT_CACHE_BREAKPOINT)
+    volatile_text = volatile_text.replace(SYSTEM_PROMPT_CACHE_BREAKPOINT, "\n\n")
+    blocks: list[dict[str, Any]] = []
+    if stable_text.strip():
+        blocks.append(
+            {
+                "type": "text",
+                "text": stable_text.strip(),
+                "cache_control": {"type": "ephemeral"},
+            }
+        )
+    if volatile_text.strip():
+        blocks.append({"type": "text", "text": volatile_text.strip()})
+    return blocks or text.replace(SYSTEM_PROMPT_CACHE_BREAKPOINT, "\n\n").strip()
+
+
 def _request_payload(
     *,
     descriptor: ProviderDescriptor,
@@ -488,7 +508,7 @@ def _request_payload(
     payload: dict[str, Any] = {
         "model": descriptor.default_model,
         "max_tokens": requested_limit,
-        "system": str(system_prompt or "").strip(),
+        "system": _system_payload(system_prompt),
         "messages": list(messages),
         "stream": True,
     }

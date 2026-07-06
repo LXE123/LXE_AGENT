@@ -13,6 +13,7 @@ from agent_runtime.context_pipeline import (
     trim_step_tool_result_blocks,
     validate_tool_call_closure,
 )
+from shared.llm.errors import LLMProviderError
 
 
 def test_sanitize_messages_for_provider_injects_missing_tool_result_stub() -> None:
@@ -325,6 +326,123 @@ def test_maybe_compact_history_returns_original_state_when_summary_raises(monkey
     assert any("summary failed" in record.getMessage() for record in caplog.records)
 
 
+def test_maybe_compact_history_retries_summary_exception_once(monkeypatch, caplog) -> None:
+    caplog.set_level(logging.WARNING)
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
+    calls = {"count": 0}
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("temporary summary outage")
+        return "summary after retry"
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "recent " + ("x" * 90000)},
+                {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="overflow",
+        )
+    )
+
+    messages = load_context_messages(result.state_data)
+    assert calls["count"] == 2
+    assert result.compacted is True
+    assert "summary after retry" in messages[0]["content"]
+    assert any("attempt=1/2" in record.getMessage() for record in caplog.records)
+
+
+def test_maybe_compact_history_retries_empty_summary_once(monkeypatch, caplog) -> None:
+    caplog.set_level(logging.WARNING)
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
+    calls = {"count": 0}
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return " \n "
+        return "summary after empty retry"
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "recent " + ("x" * 90000)},
+                {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="overflow",
+        )
+    )
+
+    messages = load_context_messages(result.state_data)
+    assert calls["count"] == 2
+    assert result.compacted is True
+    assert "summary after empty retry" in messages[0]["content"]
+    assert any("reason=empty" in record.getMessage() for record in caplog.records)
+
+
+def test_maybe_compact_history_returns_original_state_after_two_summary_exceptions(
+    monkeypatch,
+    caplog,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
+    calls = {"count": 0}
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        calls["count"] += 1
+        raise RuntimeError("summary still unavailable")
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "recent " + ("x" * 90000)},
+                {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="overflow",
+        )
+    )
+
+    assert calls["count"] == 2
+    assert result.compacted is False
+    assert result.state_data == state_data
+    assert sum("summary failed" in record.getMessage() for record in caplog.records) == 2
+
+
 def test_maybe_compact_history_returns_original_state_when_summary_empty(monkeypatch, caplog) -> None:
     caplog.set_level(logging.WARNING)
     monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
@@ -358,14 +476,142 @@ def test_maybe_compact_history_returns_original_state_when_summary_empty(monkeyp
     assert any("summary returned empty" in record.getMessage() for record in caplog.records)
 
 
+def test_maybe_compact_history_returns_original_state_after_two_empty_summaries(
+    monkeypatch,
+    caplog,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
+    calls = {"count": 0}
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        calls["count"] += 1
+        return "  \n"
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "recent " + ("x" * 90000)},
+                {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="overflow",
+        )
+    )
+
+    assert calls["count"] == 2
+    assert result.compacted is False
+    assert result.state_data == state_data
+    assert sum("summary returned empty" in record.getMessage() for record in caplog.records) == 2
+
+
+def test_maybe_compact_history_does_not_retry_non_retryable_summary_error(
+    monkeypatch,
+    caplog,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
+    calls = {"count": 0}
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        calls["count"] += 1
+        raise LLMProviderError(
+            "bad request",
+            provider="test",
+            retryable=False,
+        )
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "recent " + ("x" * 90000)},
+                {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="overflow",
+        )
+    )
+
+    assert calls["count"] == 1
+    assert result.compacted is False
+    assert result.state_data == state_data
+    assert any("reason=non_retryable" in record.getMessage() for record in caplog.records)
+
+
+def test_maybe_compact_history_does_not_retry_summary_context_overflow(
+    monkeypatch,
+    caplog,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
+    calls = {"count": 0}
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        calls["count"] += 1
+        raise LLMProviderError(
+            "summary prompt is too long",
+            provider="test",
+            retryable=True,
+            context_overflow=True,
+        )
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "recent " + ("x" * 90000)},
+                {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="overflow",
+        )
+    )
+
+    assert calls["count"] == 1
+    assert result.compacted is False
+    assert result.state_data == state_data
+    assert any("reason=non_retryable" in record.getMessage() for record in caplog.records)
+
+
 def test_maybe_compact_history_returns_original_state_when_summary_still_over_budget(
     monkeypatch,
     caplog,
 ) -> None:
     caplog.set_level(logging.WARNING)
     monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 22050)
+    calls = {"count": 0}
 
     async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        calls["count"] += 1
         return "summary that cannot offset the retained oversized span"
 
     monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
@@ -389,6 +635,7 @@ def test_maybe_compact_history_returns_original_state_when_summary_still_over_bu
         )
     )
 
+    assert calls["count"] == 1
     assert result.compacted is False
     assert result.state_data == state_data
     assert any("summary still over budget" in record.getMessage() for record in caplog.records)
