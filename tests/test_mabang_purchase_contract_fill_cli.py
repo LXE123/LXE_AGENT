@@ -229,6 +229,15 @@ def _cell_fill(path: Path, sheet_name: str, cell: str) -> str:
         workbook.close()
 
 
+def _cell_alignment(path: Path, sheet_name: str, cell: str) -> tuple[str | None, str | None, bool | None]:
+    workbook = load_workbook(path)
+    try:
+        alignment = workbook[sheet_name][cell].alignment
+        return alignment.horizontal, alignment.vertical, alignment.wrap_text
+    finally:
+        workbook.close()
+
+
 def _row_height(path: Path, sheet_name: str, row_index: int) -> float | None:
     workbook = load_workbook(path, data_only=True)
     try:
@@ -319,9 +328,14 @@ def test_fill_purchase_contracts_generates_one_file_per_manufacturer(tmp_path):
     assert _row_height(output_by_manufacturer["厂家A"], cli.ADDENDUM_OUTPUT_SHEET, 5) == 33
     assert _column_width(output_by_manufacturer["厂家A"], cli.ADDENDUM_OUTPUT_SHEET, "B") == 31
     assert cli.ADDENDUM_TEMPLATE_SHEET not in _workbook_sheet_names(output_by_manufacturer["厂家A"])
-    assert "Date: 2026年7月1日" in str(_cell_value(output_by_manufacturer["厂家A"], "厂家A", "E2"))
-    assert "交货日期：2026年7月4日" in str(_cell_value(output_by_manufacturer["厂家A"], "厂家A", "E3"))
-    assert "税率：13%" in str(_cell_value(output_by_manufacturer["厂家A"], "厂家A", "E3"))
+    assert _cell_value(output_by_manufacturer["厂家A"], "厂家A", "E2") == (
+        "合同编号：KEEP-厂家A\nDate：2026年7月1日"
+    )
+    assert _cell_value(output_by_manufacturer["厂家A"], "厂家A", "E3") == (
+        "交货日期：2026年7月4日\n付款期限：发货验收付款\n币种：人民币 税率：13%"
+    )
+    assert _cell_alignment(output_by_manufacturer["厂家A"], "厂家A", "E2") == ("left", "center", True)
+    assert _cell_alignment(output_by_manufacturer["厂家A"], "厂家A", "E3") == ("left", "center", True)
     assert "税率：9%" in str(_cell_value(output_by_manufacturer["厂家B"], "深圳厂家B模板", "E3"))
 
 
@@ -525,7 +539,7 @@ def test_fill_purchase_contracts_inserts_rows_preserves_style_and_keeps_contract
     )
 
     output_path = Path(payload["output_files"][0]["output_xlsx"])
-    assert "合同编号：KEEP-厂家A" in str(_cell_value(output_path, "厂家A", "E2"))
+    assert _cell_value(output_path, "厂家A", "E2") == "合同编号：KEEP-厂家A\nDate：2026年7月1日"
     assert _sheet_values(output_path, "厂家A", "A5:G7") == [
         (1, "合同产品A", "A-1", "条", 2, 3, 6),
         (2, "合同产品A", "A-2", "条", 4, 5, 20),
@@ -697,8 +711,8 @@ def test_fill_purchase_contracts_does_not_pollute_delivery_date_when_tax_value_i
     text = str(_cell_value(output_path, "厂家A", "E3"))
     assert "交货日期：2026年7月4日" in text
     assert "交货日期：13%" not in text
-    assert "税率：13%" not in text
-    assert payload["warnings"] == ["厂家 `厂家A` 合同模板未找到税率位置"]
+    assert "税率：13%" in text
+    assert payload["warnings"] == []
 
 
 def test_fill_purchase_contracts_allows_missing_model_column(tmp_path):

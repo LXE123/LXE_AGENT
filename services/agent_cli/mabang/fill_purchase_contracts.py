@@ -327,16 +327,6 @@ def _insert_rows_preserving_merged_ranges(worksheet: Any, *, row: int, amount: i
         _merge_cells_if_missing(worksheet, new_bounds)
 
 
-def _cell_is_in_merged_range(worksheet: Any, *, row: int, column: int) -> bool:
-    for merged_range in worksheet.merged_cells.ranges:
-        if (
-            merged_range.min_row <= row <= merged_range.max_row
-            and merged_range.min_col <= column <= merged_range.max_col
-        ):
-            return True
-    return False
-
-
 def _copy_cell_style(source_cell: Any, target_cell: Any) -> None:
     if source_cell.has_style:
         target_cell._style = copy(source_cell._style)
@@ -537,60 +527,65 @@ def _format_date_text(value: date) -> str:
     return f"{value.year}年{value.month}月{value.day}日"
 
 
-def _date_line_replacer(label: str, value: date) -> str:
-    date_text = _format_date_text(value)
-    date_pattern = r"\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日"
-
-    def replace(match: re.Match[str]) -> str:
-        return f"{match.group(1)}{date_text}"
-
-    if label == "delivery":
-        return lambda text: re.sub(
-            rf"(交货日期\s*[:：]?\s*){date_pattern}",
-            replace,
-            text,
-        )
-    return lambda text: re.sub(
-        rf"((?:Date|日期)\s*[:：]?\s*){date_pattern}",
-        replace,
-        text,
+def _apply_info_block_alignment(cell: Any) -> None:
+    try:
+        from openpyxl.styles import Alignment
+    except Exception:
+        return
+    cell.alignment = Alignment(
+        horizontal="left",
+        vertical="center",
+        wrap_text=True,
     )
 
 
-def _set_adjacent_label_value(worksheet: Any, *, row: int, column: int, value: Any) -> bool:
-    for target_column in range(column + 1, worksheet.max_column + 1):
-        target = worksheet.cell(row=row, column=target_column)
-        if target.__class__.__name__ != "MergedCell" and not _cell_is_in_merged_range(
-            worksheet,
-            row=row,
-            column=target_column,
-        ):
-            target.value = value
+def _extract_contract_number(value: str) -> str:
+    match = re.search(
+        r"合同编号\s*[:：]\s*(.*?)(?=\s*(?:Date|日期)\s*[:：]|[\r\n]|$)",
+        value,
+        flags=re.IGNORECASE,
+    )
+    return _clean_cell(match.group(1)) if match else ""
+
+
+def _fill_contract_info_block(worksheet: Any, *, contract_date: date) -> bool:
+    date_text = _format_date_text(contract_date)
+    for row in worksheet.iter_rows():
+        for cell in row:
+            raw_text = cell.value
+            if not isinstance(raw_text, str):
+                continue
+            if "交货日期" in raw_text:
+                continue
+            if "合同编号" not in raw_text and "Date" not in raw_text and "日期" not in raw_text:
+                continue
+            contract_number = _extract_contract_number(raw_text)
+            if not contract_number:
+                continue
+            cell.value = f"合同编号：{contract_number}\nDate：{date_text}"
+            _apply_info_block_alignment(cell)
             return True
     return False
 
 
-def _fill_text_label(
+def _fill_delivery_payment_tax_block(
     worksheet: Any,
     *,
-    predicate: Any,
-    value: str,
-    replacer: Any,
+    delivery_date: date,
+    tax_rate_text: str,
 ) -> bool:
+    delivery_date_text = _format_date_text(delivery_date)
     for row in worksheet.iter_rows():
         for cell in row:
             raw_text = cell.value
-            if not isinstance(raw_text, str) or not predicate(raw_text):
+            if not isinstance(raw_text, str) or "交货日期" not in raw_text:
                 continue
-            stripped = _clean_cell(raw_text)
-            if stripped.rstrip(":：") in {"Date", "日期", "交货日期", "税率"}:
-                if _set_adjacent_label_value(worksheet, row=cell.row, column=cell.column, value=value):
-                    return True
-                continue
-            replaced = replacer(raw_text)
-            if replaced == raw_text:
-                continue
-            cell.value = replaced
+            cell.value = (
+                f"交货日期：{delivery_date_text}\n"
+                "付款期限：发货验收付款\n"
+                f"币种：人民币 税率：{tax_rate_text}"
+            )
+            _apply_info_block_alignment(cell)
             return True
     return False
 
@@ -623,32 +618,17 @@ def _fill_date_and_tax(
     warnings: list[str],
     manufacturer: str,
 ) -> None:
-    contract_date_text = _format_date_text(contract_date)
-    delivery_date_text = _format_date_text(delivery_date)
     tax_rate_text = _format_tax_rate(tax_rate)
 
-    if not _fill_text_label(
-        worksheet,
-        predicate=lambda text: ("Date" in text) or ("日期" in text and "交货日期" not in text),
-        value=contract_date_text,
-        replacer=_date_line_replacer("contract", contract_date),
-    ):
+    if not _fill_contract_info_block(worksheet, contract_date=contract_date):
         warnings.append(f"厂家 `{manufacturer}` 合同模板未找到合同日期位置")
-    if not _fill_text_label(
-        worksheet,
-        predicate=lambda text: "交货日期" in text,
-        value=delivery_date_text,
-        replacer=_date_line_replacer("delivery", delivery_date),
-    ):
-        warnings.append(f"厂家 `{manufacturer}` 合同模板未找到交货日期位置")
     if not tax_rate_text:
         warnings.append(f"厂家 `{manufacturer}` 采购汇总表税率为空")
         return
-    if not _fill_text_label(
+    if not _fill_delivery_payment_tax_block(
         worksheet,
-        predicate=lambda text: "税率" in text,
-        value=tax_rate_text,
-        replacer=lambda text: re.sub(r"(税率\s*[:：]?\s*)[\d.]+%?", rf"\g<1>{tax_rate_text}", text),
+        delivery_date=delivery_date,
+        tax_rate_text=tax_rate_text,
     ):
         warnings.append(f"厂家 `{manufacturer}` 合同模板未找到税率位置")
 

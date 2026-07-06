@@ -63,7 +63,7 @@ users:
     allow:
       - AMAZON_FBA_MACHINE_3
   AMAZON_FBA_MACHINE_4_MEMBER:
-    union_id: on_98802893bcf795b1b02cfbee615e59b2
+    union_id: on_03ddcd4ddc38c689cec23f7fac06c547
     allow:
       - AMAZON_FBA_MACHINE_4
   AMAZON_REPLENISH_GROUP_1_MEMBER:
