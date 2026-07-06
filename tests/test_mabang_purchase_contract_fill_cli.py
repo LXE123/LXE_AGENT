@@ -308,11 +308,11 @@ def test_fill_purchase_contracts_generates_one_file_per_manufacturer(tmp_path):
     assert _workbook_sheet_names(output_by_manufacturer["厂家B"]) == ["深圳厂家B模板", cli.ADDENDUM_OUTPUT_SHEET]
     assert _sheet_values(output_by_manufacturer["厂家A"], "厂家A", "A5:G6") == [
         (1, "合同产品A", "JY-1", "条", 300, 6.8, 2040),
-        ("合计", None, None, None, None, None, 2040),
+        ("合计", None, None, None, 300, None, 2040),
     ]
     assert _sheet_values(output_by_manufacturer["厂家A"], cli.ADDENDUM_OUTPUT_SHEET, "A5:G6") == [
         (1, "合同产品A", "JY-1", "条", 300, 6.8, 2040),
-        ("合计", None, None, None, None, None, 2040),
+        ("合计", None, None, None, 300, None, 2040),
     ]
     assert _cell_value(output_by_manufacturer["厂家A"], cli.ADDENDUM_OUTPUT_SHEET, "A2") == "采购合同编号：KEEP-ADDENDUM"
     assert _single_row_merged_ranges(output_by_manufacturer["厂家A"], cli.ADDENDUM_OUTPUT_SHEET, 1) == ["A1:H1"]
@@ -364,12 +364,12 @@ def test_fill_purchase_contracts_uses_zhengfei_average_price(tmp_path):
     assert _sheet_values(output_path, "深圳正飞科技", "A5:G7") == [
         (1, "合同产品A", "JZ-19", "条", 2, 3.2, 6.4),
         (2, "合同产品A", "JZ-20", "条", 3, 3.2, 9.6),
-        ("合计", None, None, None, None, None, 16),
+        ("合计", None, None, None, 5, None, 16),
     ]
     assert _sheet_values(output_path, cli.ADDENDUM_OUTPUT_SHEET, "A5:G7") == [
         (1, "合同产品A", "JZ-19", "条", 2, 3.2, 6.4),
         (2, "合同产品A", "JZ-20", "条", 3, 3.2, 9.6),
-        ("合计", None, None, None, None, None, 16),
+        ("合计", None, None, None, 5, None, 16),
     ]
 
 
@@ -495,7 +495,7 @@ def test_fill_purchase_contracts_applies_header_column_spans_to_detail_rows(tmp_
             (1, "合同产品A", "A-1", "条", 2, 3, 6, None, None),
             (None, None, None, None, None, None, None, None, None),
             (None, None, None, None, None, None, None, None, None),
-            ("合计", None, None, None, None, None, 6, None, None),
+            ("合计", None, None, None, 2, None, 6, None, None),
         ]
         for row_index in range(5, 9):
             assert f"G{row_index}:H{row_index}" in _single_row_merged_ranges(
@@ -529,7 +529,7 @@ def test_fill_purchase_contracts_inserts_rows_preserves_style_and_keeps_contract
     assert _sheet_values(output_path, "厂家A", "A5:G7") == [
         (1, "合同产品A", "A-1", "条", 2, 3, 6),
         (2, "合同产品A", "A-2", "条", 4, 5, 20),
-        ("合计", None, None, None, None, None, 26),
+        ("合计", None, None, None, 6, None, 26),
     ]
     assert _cell_fill(output_path, "厂家A", "B6") == _cell_fill(output_path, "厂家A", "B5")
     assert _row_height(output_path, "厂家A", 6) == 33
@@ -560,7 +560,7 @@ def test_fill_purchase_contracts_resets_malformed_detail_row_merges(tmp_path):
         (2, "合同产品A", "A-2", "条", 4, 5, 20),
         (None, None, None, None, None, None, None),
         (None, None, None, None, None, None, None),
-        ("合计", None, None, None, None, None, 26),
+        ("合计", None, None, None, 6, None, 26),
     ]
     assert _single_row_merged_ranges(output_path, "厂家A", 6) == _single_row_merged_ranges(
         output_path,
@@ -603,10 +603,10 @@ def test_fill_purchase_contracts_preserves_summary_and_terms_merges_when_inserti
         (2, "合同产品A", "A-2", "条", 4, 5, 20, None),
         (3, "合同产品A", "A-3", "条", 6, 5, 30, None),
         (4, "合同产品A", "A-4", "条", 8, 5, 40, None),
-        ("合计", None, None, None, None, None, 96, None),
+        ("合计", None, None, None, 20, None, 96, None),
         ("销售条款：保留格式", None, None, None, None, None, None, None),
     ]
-    assert _single_row_merged_ranges(output_path, "厂家A", 9) == ["A9:F9"]
+    assert _single_row_merged_ranges(output_path, "厂家A", 9) == ["A9:D9"]
     assert _single_row_merged_ranges(output_path, "厂家A", 10) == ["A10:H10"]
     assert _single_row_merged_ranges(output_path, "厂家A", 6) == []
     assert _single_row_merged_ranges(output_path, "厂家A", 7) == []
@@ -664,7 +664,7 @@ def test_fill_detail_rows_tolerates_dirty_merged_cell_records():
         (2, "合同产品A", "A-2", "条", 4, 5, 20),
         (None, None, None, None, None, None, None),
         (None, None, None, None, None, None, None),
-        ("合计", None, None, None, None, None, 26),
+        ("合计", None, None, None, 6, None, 26),
     ]
     assert sorted(
         str(merged_range)
@@ -721,7 +721,7 @@ def test_fill_purchase_contracts_allows_missing_model_column(tmp_path):
     output_path = Path(payload["output_files"][0]["output_xlsx"])
     assert _sheet_values(output_path, "厂家A", "A5:F6") == [
         (1, "合同产品A", "条", 2, 3, 6),
-        ("合计", None, None, None, None, 6),
+        ("合计", None, None, 2, None, 6),
     ]
 
 

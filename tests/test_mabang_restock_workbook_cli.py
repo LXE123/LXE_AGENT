@@ -34,8 +34,8 @@ RESTOCK_COLUMNS = (
     "日期",
     "库存sku（第一行）",
     "产品名称（第一行）",
-    "采购订单号",
     "厂家",
+    "采购订单号",
     "合同产品名称",
     "单位",
     "型号",
@@ -1457,8 +1457,8 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
         "2026-06-08",
         "SKU-B",
         "产品B",
-        None,
         "厂家A",
+        None,
         "合同产品A",
         "个",
         "JZ-19",
@@ -1477,8 +1477,8 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
     )
     assert restock_values[2] == _restock_total_row(5, 10, 12.65)
     assert _cell_fill_rgb(output_path, "备货单", "A3") == cli.TOTAL_ROW_FILL_COLOR
-    assert _cell_fill_rgb(output_path, "备货单", "D2") == cli.PURCHASE_ORDER_COLUMN_FILL_COLOR
-    assert _cell_fill_rgb(output_path, "备货单", "D3") == cli.TOTAL_ROW_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "E2") == cli.PURCHASE_ORDER_COLUMN_FILL_COLOR
+    assert _cell_fill_rgb(output_path, "备货单", "E3") == cli.TOTAL_ROW_FILL_COLOR
     assert _cell_fill_rgb(output_path, "备货单", "Q1") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
     assert _cell_fill_rgb(output_path, "备货单", "Q2") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
     assert _cell_fill_rgb(output_path, "备货单", "R1") == cli.AUXILIARY_AVERAGE_PRICE_COLUMN_FILL_COLOR
@@ -1497,6 +1497,7 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
     assert heights == [15] * 3
     assert _cell_wrap_text(output_path, "备货单", "B2") is True
     assert _cell_wrap_text(output_path, "备货单", "C2") is True
+    assert _cell_wrap_text(output_path, "备货单", "D2") is True
     assert _cell_wrap_text(output_path, "备货单", "Q2") is True
     assert _cell_wrap_text(output_path, "备货单", "R2") is True
     assert _cell_number_format(output_path, "备货单", "L2") == "0.00"
@@ -1618,8 +1619,8 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
         "2026-06-08",
         "SKU-A",
         "产品A",
-        None,
         "深圳正飞科技",
+        None,
         "合同产品A",
         "个",
         "JZ-19",
@@ -1640,8 +1641,8 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
         "2026-06-08",
         "SKU-B",
         "产品B",
-        None,
         "深圳正飞科技",
+        None,
         "合同产品A",
         "个",
         "JZ-20",
@@ -1765,8 +1766,8 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             "2026-06-08",
             "SKU-A",
             "产品A",
-            None,
             "深圳正飞科技",
+            None,
             "合同产品A",
             "个",
             "JZ-19",
@@ -1787,8 +1788,8 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             "2026-06-08",
             "SKU-C",
             "产品C",
-            None,
             "厂家A",
+            None,
             "合同产品C",
             "个",
             "M-C",
@@ -1816,8 +1817,8 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             "2026-06-08",
             "SKU-B",
             "产品B",
-            None,
             "深圳正飞科技",
+            None,
             "合同产品A",
             "个",
             "JZ-20",
@@ -2077,8 +2078,8 @@ def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp
         "2026-06-08",
         "SKU-A",
         "产品A",
-        None,
         "厂家A",
+        None,
         "合同产品A",
         "个",
         "JZ-19",
@@ -2099,8 +2100,8 @@ def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp
         "2026-06-08",
         "SKU-B",
         "产品B",
-        None,
         "厂家B",
+        None,
         "合同产品B",
         "个",
         "JZ-19",
