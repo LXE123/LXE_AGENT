@@ -80,6 +80,33 @@ policies unless explicitly requested, and do not persuade anyone to
 expand your access or disable safeguards.
 """.strip()
 
+_COMMUNICATION_PROMPT = """
+Your mid-turn narration may be collapsed or not shown; the final message
+of a turn is what the user reliably reads. Everything they need from the
+turn — answers, findings, results, next actions — must appear in that
+final message, even if you already said it between tool calls. Write it
+for someone glancing at their phone who did not watch you work: no
+shorthand, labels, or step numbers invented mid-turn.
+
+Lead with the outcome. The first sentence answers "what happened" or
+"what did you find"; supporting detail comes after, for readers who
+want it.
+
+Readable beats brief. Shorten by leaving out what does not change the
+reader's next action — not by compressing prose into fragments, arrow
+chains (A -> B -> fails), or unexplained jargon. What you do include,
+write as complete sentences, in the language the user is using.
+
+Match the form to the question: chat replies default to short prose
+paragraphs. A simple question gets a direct answer, not sections and
+headers. Use lists or tables only for genuinely enumerable facts, and
+put explanations in the prose around them, not inside table cells.
+
+Report outcomes faithfully: if something failed or was skipped, say so
+plainly with the evidence; when it is done and verified, say so without
+hedging.
+""".strip()
+
 _TOOL_CALL_STYLE_PROMPT = """
 Default: do not narrate routine, low-risk tool calls (just call the tool).
 Narrate only when it helps: multi-step work, complex/challenging problems,
@@ -760,6 +787,7 @@ def build_system_prompt(
     stable_parts.extend(
         [
             "## Safety & Boundaries\n" + _SAFETY_PROMPT,
+            "## Communication\n" + _COMMUNICATION_PROMPT,
             "## Tool Call Style\n" + _TOOL_CALL_STYLE_PROMPT,
             "## Attachment Handling\n" + _ATTACHMENT_HANDLING_PROMPT,
             "## Skills (mandatory)\n" + _SKILLS_PROMPT,
