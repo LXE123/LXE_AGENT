@@ -704,7 +704,8 @@ def _running_payload(session: ExecSession) -> dict[str, Any]:
         )
     else:
         message = (
-            f"命令仍在运行。用 process(action='poll', session='{session.id}') 查看进度。"
+            "命令仍在运行，完成后会自动通知你，请继续处理其他工作，不要轮询等待。"
+            f"只有需要查看中间进度时才用 process(action='poll', session='{session.id}')。"
         )
     payload: dict[str, Any] = {
         "status": session.status.value,

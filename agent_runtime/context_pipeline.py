@@ -732,6 +732,8 @@ def _workspace_block() -> str:
         [
             f"Your working directory is: {workspace_dir}",
             "Treat this directory as the single global workspace for file operations unless explicitly instructed otherwise.",
+            "File tools are sandboxed to this workspace; paths outside it are rejected.",
+            "Root-level .env* files and user_session_db/ are write-protected.",
         ]
     ).strip()
 
