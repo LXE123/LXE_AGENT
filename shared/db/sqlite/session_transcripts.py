@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +17,15 @@ from .session_messages import _clean_session_id, load_session_messages, session_
 logger = get_logger(__name__)
 
 _IMAGE_OMITTED_PLACEHOLDER = "[image omitted from transcript]"
+
+# In-process replay cache: model-context replay is O(full transcript), so the
+# result is cached per transcript file and kept fresh incrementally on append.
+# All writes in this process go through _append_event under the same lock; the
+# (size, mtime_ns) signature invalidates the entry if anything else touches
+# the file (external edit, test unlink, env-path switch).
+_REPLAY_CACHE_MAX_ENTRIES = 32
+_replay_cache: OrderedDict[str, tuple[tuple[int, int], list[dict[str, Any]]]] = OrderedDict()
+_replay_cache_lock = threading.RLock()
 _REPLACEMENT_KINDS = {
     "compaction",
     "context_reset",
@@ -89,15 +100,69 @@ def _clean_transcript_messages(messages: Any) -> list[dict[str, Any]]:
     return [_strip_message_images(message) for message in _clean_messages(messages)]
 
 
+def _transcript_stat_signature(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (int(stat.st_size), int(stat.st_mtime_ns))
+
+
+def _replay_cache_store(path_key: str, signature: tuple[int, int], messages: list[dict[str, Any]]) -> None:
+    _replay_cache[path_key] = (signature, messages)
+    _replay_cache.move_to_end(path_key)
+    while len(_replay_cache) > _REPLAY_CACHE_MAX_ENTRIES:
+        _replay_cache.popitem(last=False)
+
+
+def clear_transcript_replay_cache() -> None:
+    with _replay_cache_lock:
+        _replay_cache.clear()
+
+
+def _apply_transcript_event(
+    messages: list[dict[str, Any]],
+    event: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Fold one transcript event into the model-context message list.
+
+    Single source of truth for replay semantics: replacements swap the whole
+    list, message events append. Mutates and/or returns the resulting list.
+    """
+    replacement_kind = _replacement_kind_from_event(event)
+    if replacement_kind:
+        return _clean_transcript_messages(event.get("replacement_history") or [])
+    if str(event.get("kind") or "").strip() == "message":
+        messages.extend(_clean_transcript_messages([dict(event.get("message") or {})]))
+    return messages
+
+
 def _append_event(session_id: str, event: dict[str, Any]) -> dict[str, Any]:
     safe_session_id = _clean_session_id(session_id)
-    target_dir = session_transcripts_dir()
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_path = target_dir / f"{safe_session_id}.jsonl"
     payload = sanitize_json_for_storage(event)
-    with target_path.open("a", encoding="utf-8", newline="\n") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
-        handle.write("\n")
+    with _replay_cache_lock:
+        target_dir = session_transcripts_dir()
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_path = target_dir / f"{safe_session_id}.jsonl"
+        path_key = str(target_path)
+
+        pre_signature = _transcript_stat_signature(target_path)
+        cached = _replay_cache.get(path_key)
+        base_messages: list[dict[str, Any]] | None = None
+        if cached is not None and pre_signature is not None and cached[0] == pre_signature:
+            base_messages = cached[1]
+        elif pre_signature is None and not target_path.exists():
+            base_messages = []
+
+        with target_path.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+            handle.write("\n")
+
+        post_signature = _transcript_stat_signature(target_path)
+        if base_messages is not None and post_signature is not None:
+            _replay_cache_store(path_key, post_signature, _apply_transcript_event(base_messages, payload))
+        else:
+            _replay_cache.pop(path_key, None)
     return payload
 
 
@@ -204,18 +269,23 @@ def ensure_transcript_seeded_from_legacy_messages(session_id: str) -> bool:
 
 
 def replay_transcript_model_context(session_id: str) -> list[dict[str, Any]]:
-    events = load_transcript_events(session_id)
-    messages: list[dict[str, Any]] = []
-    for event in events:
-        replacement_kind = _replacement_kind_from_event(event)
-        if replacement_kind:
-            messages = _clean_transcript_messages(event.get("replacement_history") or [])
-            continue
-        kind = str(event.get("kind") or "").strip()
-        if kind == "message":
-            cleaned = _clean_transcript_messages([dict(event.get("message") or {})])
-            messages.extend(cleaned)
-    return messages
+    path = session_transcript_path(session_id)
+    path_key = str(path)
+    with _replay_cache_lock:
+        signature = _transcript_stat_signature(path)
+        if signature is None:
+            _replay_cache.pop(path_key, None)
+            return []
+        cached = _replay_cache.get(path_key)
+        if cached is not None and cached[0] == signature:
+            _replay_cache.move_to_end(path_key)
+            return list(cached[1])
+        events = load_transcript_events(session_id)
+        messages: list[dict[str, Any]] = []
+        for event in events:
+            messages = _apply_transcript_event(messages, event)
+        _replay_cache_store(path_key, signature, messages)
+        return list(messages)
 
 
 def _event_has_display_row(event: dict[str, Any]) -> bool:
@@ -320,6 +390,7 @@ def load_transcript_display_page(
 __all__ = [
     "append_transcript_message",
     "append_transcript_replacement",
+    "clear_transcript_replay_cache",
     "count_transcript_messages",
     "ensure_transcript_seeded_from_legacy_messages",
     "load_transcript_display_page",

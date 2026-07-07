@@ -492,6 +492,19 @@ def load_agent_session(session_id: str) -> Optional[AgentSessionState]:
         return _to_state(record, conn=conn)
 
 
+def load_agent_session_record(session_id: str) -> Optional[AgentSessionRecord]:
+    """Load session metadata only — no transcript replay, so no state_data.
+
+    For callers that need existence, source, or counters but not the model
+    context (emitters, wake scheduling, post-turn persistence checks).
+    """
+    safe_session_id = str(session_id or "").strip()
+    if not safe_session_id:
+        return None
+    with connection_scope() as conn:
+        return _load_session_record(conn, safe_session_id)
+
+
 def list_agent_sessions(*, limit: int = 1000) -> list[AgentSessionState]:
     safe_limit = max(1, min(int(limit or 1000), 10000))
     with connection_scope() as conn:
@@ -570,6 +583,7 @@ def update_agent_session(
     model_config: dict[str, Any] | None = None,
     title: str | None = None,
     title_candidate: str | None = None,
+    include_state: bool = True,
 ) -> Optional[AgentSessionState]:
     if not session_id:
         return None
@@ -607,12 +621,16 @@ def update_agent_session(
         )
         record.last_active_at = now
         _save_session_record(conn, record)
+        if not include_state:
+            return None
         return _to_state(record, conn=conn)
 
 
 def append_agent_session_message(
     session_id: str,
     message: dict[str, Any] | None,
+    *,
+    include_state: bool = True,
 ) -> Optional[AgentSessionState]:
     if not session_id:
         return None
@@ -625,11 +643,15 @@ def append_agent_session_message(
 
         appended = append_transcript_message(record.session_id, dict(message or {}), reason="append_message")
         if appended is None:
+            if not include_state:
+                return None
             return _to_state(record, conn=conn)
 
         record.message_count = _clean_int(record.message_count) + 1
         record.last_active_at = _now_ts()
         _save_session_record(conn, record)
+        if not include_state:
+            return None
         return _to_state(record, conn=conn)
 
 
@@ -642,6 +664,7 @@ def append_agent_session_context_replacement(
     summary_text: str = "",
     compacted_count: int = 0,
     trigger: str = "",
+    include_state: bool = True,
 ) -> Optional[AgentSessionState]:
     if not session_id:
         return None
@@ -663,6 +686,8 @@ def append_agent_session_context_replacement(
         )
         record.last_active_at = _now_ts()
         _save_session_record(conn, record)
+        if not include_state:
+            return None
         return _to_state(record, conn=conn)
 
 
@@ -902,6 +927,7 @@ __all__ = [
     "has_agent_session_pending_events",
     "list_agent_sessions",
     "load_agent_session",
+    "load_agent_session_record",
     "pop_agent_session_pending_events",
     "reset_agent_session_context",
     "update_agent_session",

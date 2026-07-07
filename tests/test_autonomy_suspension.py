@@ -123,7 +123,7 @@ def test_heartbeat_wake_dropped_while_suspended(monkeypatch: pytest.MonkeyPatch)
             return SimpleNamespace(session_id=session_id, source=dict(_FAKE_SOURCE))
 
         monkeypatch.setattr(heartbeat_wake_module, "has_agent_session_pending_events", fake_has_pending)
-        monkeypatch.setattr(heartbeat_wake_module, "load_agent_session", fake_load_session)
+        monkeypatch.setattr(heartbeat_wake_module, "load_agent_session_record", fake_load_session)
 
         suspend_session_autonomy("session-1")
         await manager.request_now(session_id="session-1", reason="exec-event")

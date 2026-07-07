@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 from shared.agent_io import EmitRequest
-from shared.db.client import load_agent_session, load_response_route_context
+from shared.db.client import load_agent_session_record, load_response_route_context
 from shared.logging import get_logger
 
 from .channel_registry import ChannelRegistry
@@ -17,7 +17,7 @@ class GatewayEmitter:
         self._registry = registry
 
     async def emit(self, emit: EmitRequest) -> None:
-        session = await load_agent_session(emit.session_id)
+        session = await load_agent_session_record(emit.session_id)
         if session is None:
             raise RuntimeError(f"agent session not found: {emit.session_id}")
         emit_kind = str(emit.emit_kind or "").strip()
@@ -126,7 +126,7 @@ class GatewayEmitter:
         if not safe_session_id or not safe_response_route_id:
             return
 
-        session = await load_agent_session(safe_session_id)
+        session = await load_agent_session_record(safe_session_id)
         if session is None:
             raise RuntimeError(f"agent session not found: {safe_session_id}")
         route_ctx = await load_response_route_context(safe_response_route_id)

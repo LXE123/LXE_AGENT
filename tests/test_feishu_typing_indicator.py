@@ -245,7 +245,7 @@ def test_gateway_emitter_sends_typing_indicator_outbound(monkeypatch) -> None:
 
     import gateway.emitter as emitter_mod
 
-    monkeypatch.setattr(emitter_mod, "load_agent_session", fake_load_agent_session)
+    monkeypatch.setattr(emitter_mod, "load_agent_session_record", fake_load_agent_session)
     monkeypatch.setattr(emitter_mod, "load_response_route_context", fake_load_response_route_context)
     adapter = _FakeAdapter()
     emitter = GatewayEmitter(registry=_FakeRegistry(adapter))

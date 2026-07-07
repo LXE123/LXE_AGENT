@@ -42,6 +42,10 @@ def _patch_turn_handler_basics(monkeypatch, events: list[str], *, run_error: Exc
         assert session_id == "session-1"
         return session
 
+    async def fake_load_agent_session_record(session_id: str) -> SimpleNamespace:
+        assert session_id == "session-1"
+        return session
+
     async def fake_update_agent_session(*_args: Any, **_kwargs: Any) -> None:
         events.append("persist")
 
@@ -52,6 +56,7 @@ def _patch_turn_handler_basics(monkeypatch, events: list[str], *, run_error: Exc
         return TurnOutcome(status="done", reply="answer", state_data_patch={})
 
     monkeypatch.setattr(turn_handler_mod, "load_agent_session", fake_load_agent_session)
+    monkeypatch.setattr(turn_handler_mod, "load_agent_session_record", fake_load_agent_session_record)
     monkeypatch.setattr(turn_handler_mod, "update_agent_session", fake_update_agent_session)
     monkeypatch.setattr(turn_handler_mod, "run_turn", fake_run_turn)
     monkeypatch.setattr(turn_handler_mod, "_should_stream_final_answer", lambda _session: False)
