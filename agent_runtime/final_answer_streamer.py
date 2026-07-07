@@ -16,6 +16,11 @@ logger = get_logger(__name__)
 
 StreamEmitter = Callable[..., Awaitable[None]]
 
+# 终结（finish/fail/cancel）时等待 sender task 收尾的兜底超时。
+# sender 卡死会让整个 turn 协程永远无法结束，进而冻结整个会话，
+# 所以超时后强制取消 task 并继续，绝不允许无限等待。
+_SENDER_FINALIZE_TIMEOUT_S = 30.0
+
 
 @dataclass(frozen=True, slots=True)
 class _StreamSnapshot:
@@ -210,7 +215,7 @@ class FinalAnswerStreamer:
             self._sender_wakeup.set()
             task = self._sender_task
         if task is not None and task is not asyncio.current_task():
-            await task
+            await self._await_sender_task(task)
 
     async def fail(self, message: str) -> None:
         safe_message = str(message or "").strip()
@@ -228,7 +233,7 @@ class FinalAnswerStreamer:
             self._sender_wakeup.set()
             task = self._sender_task
         if task is not None and task is not asyncio.current_task():
-            await task
+            await self._await_sender_task(task)
 
     async def cancel(self) -> None:
         async with self._lock:
@@ -253,7 +258,27 @@ class FinalAnswerStreamer:
             self._sender_wakeup.set()
             task = self._sender_task
         if task is not None and task is not asyncio.current_task():
-            await task
+            await self._await_sender_task(task)
+
+    async def _await_sender_task(self, task: asyncio.Task[None]) -> None:
+        try:
+            await asyncio.wait_for(task, timeout=_SENDER_FINALIZE_TIMEOUT_S)
+        except asyncio.TimeoutError:
+            logger.error(
+                "[FinalAnswerStreamer] sender task did not finish within %.0fs, cancelled: "
+                "session_id=%s emit_id=%s",
+                _SENDER_FINALIZE_TIMEOUT_S,
+                self.session_id,
+                self.emit_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "[FinalAnswerStreamer] sender task failed during finalize: session_id=%s emit_id=%s error=%s",
+                self.session_id,
+                self.emit_id,
+                exc,
+                exc_info=True,
+            )
 
     def _ensure_sender_locked(self) -> None:
         if self._sender_task is None or self._sender_task.done():
@@ -320,6 +345,12 @@ class FinalAnswerStreamer:
                 if close_after:
                     async with self._lock:
                         self._closed = True
+                    return
+            # _next_sender_action 返回 None 有两种含义：暂时无事可做，或已关闭
+            # （例如 cancel 时还没发过任何内容）。已关闭时必须退出，
+            # 否则 finish/fail/cancel 对本 task 的 await 会永远挂起，冻结整个会话。
+            async with self._lock:
+                if self._closed:
                     return
 
     async def _next_sender_action(self) -> tuple[str, _StreamSnapshot, bool, float] | None:

@@ -746,3 +746,57 @@ def test_tool_start_and_finish_emit_safe_steps_without_result_or_error(monkeypat
     assert "must not leak" not in payload
     assert "abc" not in payload
     assert "/Users/me/project" not in payload
+
+
+def test_cancel_without_any_delivery_completes_and_closes() -> None:
+    """回归: cancel 时从未发送过内容, sender task 必须退出, cancel 不能永远挂起."""
+
+    async def scenario() -> None:
+        calls: list[EmitCall] = []
+
+        async def emit_stream(*args, **kwargs) -> None:
+            calls.append(EmitCall(*args[:7]))
+
+        streamer = FinalAnswerStreamer(
+            session_id="s1",
+            response_route_id="r1",
+            emit_stream=emit_stream,
+            min_interval_ms=0,
+        )
+
+        await asyncio.wait_for(streamer.cancel(), timeout=2.0)
+
+        assert calls == []
+        assert streamer._closed is True
+        task = streamer._sender_task
+        assert task is None or task.done()
+
+    _run(scenario())
+
+
+def test_cancel_after_tool_pending_heartbeat_completes() -> None:
+    """回归: 线上 /stop 挂死时序 — start_tool_pending 已发过一帧, cancel 时无正文内容."""
+
+    async def scenario() -> None:
+        calls: list[EmitCall] = []
+
+        async def emit_stream(*args, **kwargs) -> None:
+            calls.append(EmitCall(*args[:7]))
+
+        streamer = FinalAnswerStreamer(
+            session_id="s1",
+            response_route_id="r1",
+            emit_stream=emit_stream,
+            min_interval_ms=0,
+        )
+
+        await streamer.start_tool_pending()
+        await _wait_until(lambda: len(calls) >= 1)
+
+        await asyncio.wait_for(streamer.cancel(), timeout=2.0)
+
+        assert streamer._closed is True
+        task = streamer._sender_task
+        assert task is None or task.done()
+
+    _run(scenario())
