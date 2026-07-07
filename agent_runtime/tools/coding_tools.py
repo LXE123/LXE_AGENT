@@ -96,7 +96,9 @@ _READ_DESCRIPTION = (
     "Read the contents of a file under the project root (workspace). Supports text files and images (jpg, png, gif, webp). "
     "Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB "
     "(whichever is hit first). Use offset/limit for large files. When you need the full file, "
-    "continue with offset until complete."
+    "continue with offset until complete. "
+    "Binary and office files (xlsx, docx, pdf, zip, etc.) cannot be read as text; "
+    "use exec with a Python script or a matching skill instead."
 )
 _READ_FILE_TYPE_SNIFF_BYTES = 4100
 _READ_MAX_LINES = 2000
@@ -1373,7 +1375,11 @@ CODING_READ = ToolDefinition(
 
 CODING_WRITE = ToolDefinition(
     name="write",
-    description="Create or overwrite a file with the given content. Auto-creates parent directories.",
+    description=(
+        "Create or overwrite a file with the given content. Auto-creates parent directories. "
+        "For partial changes to an existing file, use edit instead; avoid overwriting a file "
+        "you have not read."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -1388,7 +1394,12 @@ CODING_WRITE = ToolDefinition(
 
 CODING_EDIT = ToolDefinition(
     name="edit",
-    description="Find-and-replace in a file. old_string must match exactly once. Use read first to see the file.",
+    description=(
+        "Find-and-replace in a file. old_string must appear exactly once and must match the "
+        "file content exactly, including whitespace and indentation. Use read first to see "
+        "the file; if old_string matches multiple locations, include more surrounding context "
+        "to make it unique."
+    ),
     parameters={
         "type": "object",
         "properties": {
@@ -1516,7 +1527,8 @@ CODING_SEND_FILE = ToolDefinition(
         "Send an existing local file from the artifacts directory or a skill assets directory under "
         "the project root (workspace) to the current user in the current session. Supports images "
         "and regular files. Use this only after the file already exists; it does not read or modify "
-        "the file."
+        "the file. If the file lives elsewhere in the workspace, copy it into artifacts/ first "
+        "(e.g. with exec), then send."
     ),
     parameters={
         "type": "object",
@@ -1541,6 +1553,9 @@ CODING_EXEC = ToolDefinition(
         "just to check its status. When exec returns a running session, move on to other "
         "work — you will be notified automatically when it completes. Do not use exec "
         "sleep or delay loops for deferred follow-ups. "
+        "Prefer the dedicated read/grep/find/ls/edit/write tools over shell equivalents "
+        "(cat, type, Get-Content, sed, grep, ls); use exec for actual command execution, "
+        "not file access. "
         "On Windows, exec.command already runs inside PowerShell. Do not prefix commands "
         "with powershell/pwsh -Command; pass the PowerShell script body directly. "
         "Wrong: powershell -Command \"Get-Date\". Correct: Get-Date. "
@@ -1578,8 +1593,9 @@ CODING_PROCESS = ToolDefinition(
         "poll (get new output), log (full output with offset/limit), write (send stdin), "
         "kill (terminate), remove (kill + delete). "
         "Backgrounded sessions notify you automatically on completion, so do not poll "
-        "just to wait; poll only when you need progress or new output. If poll returns "
-        "no new output, move on instead of polling again."
+        "just to wait; poll only when you need progress or new output. poll blocks up to "
+        "5 seconds waiting for new output before returning, so never call it in a tight "
+        "loop. If poll returns no new output, move on instead of polling again."
     ),
     parameters={
         "type": "object",

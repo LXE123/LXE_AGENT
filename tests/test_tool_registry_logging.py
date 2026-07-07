@@ -29,7 +29,7 @@ def test_builtin_tool_registration_debug_logs_actual_additions(caplog, monkeypat
     ensure_all_tools_registered(UnifiedToolRegistry())
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any("[CodingTools] registered 7 tools" in message for message in messages)
+    assert any("[CodingTools] registered 9 tools" in message for message in messages)
     assert any("[FeishuIMTools] registered 4 tools" in message for message in messages)
 
 

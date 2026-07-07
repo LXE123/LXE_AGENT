@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import time
 import uuid
 from typing import Any
 
+from gateway.autonomy_suspension import (
+    resume_session_autonomy,
+    suspend_session_autonomy,
+)
 from gateway.channel_registry import ChannelRegistry
 from gateway.models import InboundEvent, LaneKey, OutboundRequest, RouteDecision
 from gateway.session_scheduler import SessionScheduler
 from shared.agent_io import AgentJob
 from shared.agent_state import build_initial_agent_state
 from shared.db.client import (
+    append_agent_session_pending_event,
     create_agent_session,
     create_response_route_context,
     load_agent_session,
@@ -159,6 +165,11 @@ class SessionRouter:
             return RouteDecision(route_kind="agent_control", lane_key=lane, platform=ctx.platform)
 
         session = await self._load_or_create_bound_session(ctx)
+        if resume_session_autonomy(session.session_id):
+            logger.info(
+                "[SessionRouter] autonomy resumed by user message: session_id=%s",
+                session.session_id,
+            )
         pending_events = await pop_agent_session_pending_events(session.session_id)
         job = AgentJob(
             job_id=uuid.uuid4().hex,
@@ -197,13 +208,42 @@ class SessionRouter:
             return
 
         session_id = str(session.session_id or "").strip()
+        cleared = self._scheduler.clear_pending(session_id) if self._scheduler is not None else 0
         stopped = self._scheduler.request_stop(session_id) if self._scheduler is not None else False
-        logger.info("[SessionRouter] stop: session_id=%s stopped=%s", session_id, stopped)
-        if not stopped:
-            message = "当前没有正在执行的回复。"
+        suspend_session_autonomy(session_id)
+        interrupted = stopped or cleared > 0
+        logger.info(
+            "[SessionRouter] stop: session_id=%s stopped=%s cleared_jobs=%s autonomy_suspended=true",
+            session_id,
+            stopped,
+            cleared,
+        )
+        if interrupted:
+            await self._append_user_stop_event(session_id, ctx=ctx)
+            message = "已停止当前回复，并暂停自动继续。后台任务结果会在你下次发消息时一并汇报。"
         else:
-            message = "已请求停止当前回复。"
+            message = "当前没有正在执行的回复。已暂停自动继续，后台任务结果会在你下次发消息时一并汇报。"
         await self._send_control_feedback(ctx, session_id=session_id, markdown=message)
+
+    async def _append_user_stop_event(self, session_id: str, *, ctx: SessionContext) -> None:
+        event = {
+            "event_id": uuid.uuid4().hex,
+            "job_id": f"user-stop-{uuid.uuid4().hex[:8]}",
+            "created_at": int(time.time()),
+            "text": (
+                "用户已通过 /stop 叫停当前任务。之前未完成的计划已作废，"
+                "不要继续执行或重试，除非用户重新明确要求。"
+            ),
+            "response_route_id": str(ctx.response_route_id or "").strip(),
+        }
+        try:
+            await append_agent_session_pending_event(session_id, event)
+        except Exception as exc:
+            logger.warning(
+                "[SessionRouter] user stop event append failed: session_id=%s error=%s",
+                session_id,
+                exc,
+            )
 
     async def _handle_clear(self, *, session, ctx: SessionContext) -> None:
         if session is not None:
@@ -219,6 +259,7 @@ class SessionRouter:
                     markdown="当前有进行中的回复，暂不创建新会话。",
                 )
                 return
+            resume_session_autonomy(session_id)
 
         new_session = await self._rotate_session(ctx)
         logger.info(

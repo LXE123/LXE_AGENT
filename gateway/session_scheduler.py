@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
+import contextlib
 from dataclasses import dataclass, field
 import threading
 import time
@@ -183,6 +184,24 @@ class SessionScheduler:
             handle.job_id,
         )
         return True
+
+    def clear_pending(self, session_id: str) -> int:
+        """Drop queued (not yet running) jobs for a session. Returns the number cleared."""
+        safe_session_id = str(session_id or "").strip()
+        if not safe_session_id:
+            return 0
+        pending = self._pending_by_session.pop(safe_session_id, None)
+        cleared = len(pending) if pending else 0
+        self._ready_set.discard(safe_session_id)
+        with contextlib.suppress(ValueError):
+            self._ready_sessions.remove(safe_session_id)
+        if cleared:
+            logger.info(
+                "[SessionScheduler] pending jobs cleared: session_id=%s cleared=%s",
+                safe_session_id,
+                cleared,
+            )
+        return cleared
 
     def has_inflight_work(self, session_id: str) -> bool:
         safe_session_id = str(session_id or "").strip()
