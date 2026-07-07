@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import threading
 import time
 from typing import Awaitable, Callable
+from uuid import uuid4
 
 from shared.agent_io import AgentJob
 from shared.logging import get_logger
@@ -31,6 +32,7 @@ class RunHandle:
     session_id: str
     job_id: str
     response_route_id: str = ""
+    origin_job: AgentJob | None = None
     task: asyncio.Task | None = None
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     thread_cancel_event: threading.Event = field(default_factory=threading.Event)
@@ -38,7 +40,31 @@ class RunHandle:
     cleanup_state: str = "running"
     active_tools: dict[str, ToolRunHandle] = field(default_factory=dict)
     _provider_cancel_handle: CancelHandle | None = field(default=None, init=False, repr=False)
+    _steering_messages: list[dict[str, str]] = field(default_factory=list, init=False, repr=False)
     _lock: threading.RLock = field(default_factory=threading.RLock, init=False, repr=False)
+
+    def push_steering(self, text: str, *, response_route_id: str = "", message_id: str = "") -> None:
+        """Queue a user message to be injected at the next step boundary."""
+        safe_text = str(text or "").strip()
+        if not safe_text:
+            return
+        with self._lock:
+            self._steering_messages.append(
+                {
+                    "text": safe_text,
+                    "response_route_id": str(response_route_id or "").strip(),
+                    "message_id": str(message_id or "").strip(),
+                }
+            )
+
+    def drain_steering(self) -> list[dict[str, str]]:
+        """Return and clear all queued steering messages (called from the loop)."""
+        with self._lock:
+            if not self._steering_messages:
+                return []
+            drained = list(self._steering_messages)
+            self._steering_messages.clear()
+        return drained
 
     def request_cancel(self) -> None:
         self.cancel_event.set()
@@ -271,6 +297,7 @@ class SessionScheduler:
                 session_id=session_id,
                 job_id=str(job.job_id or "").strip(),
                 response_route_id=str(job.response_route_id or "").strip(),
+                origin_job=job,
             )
             task = asyncio.create_task(self._run_job(job, handle), name=f"agent-job:{job.job_id}")
             handle.task = task
@@ -297,5 +324,66 @@ class SessionScheduler:
             handle = self._active_runs.pop(session_id, None)
             if handle is not None:
                 handle.cleanup_state = "done" if error is None else "error"
+                self._requeue_leftover_steering(handle)
             self._mark_ready(session_id)
         self._drain()
+
+    def _requeue_leftover_steering(self, handle: RunHandle) -> None:
+        """turn 结束时仍未被消费的插话消息，重新入队成新 turn，避免丢失。
+
+        被 /stop 取消的 run 例外：用户已叫停，剩余插话随之丢弃。
+        """
+        leftover = handle.drain_steering()
+        if not leftover:
+            return
+        if handle.cancelled:
+            logger.info(
+                "[SessionScheduler] steering dropped after cancelled run: session_id=%s job_id=%s count=%s",
+                handle.session_id,
+                handle.job_id,
+                len(leftover),
+            )
+            return
+        origin = handle.origin_job
+        if origin is None:
+            logger.warning(
+                "[SessionScheduler] cannot requeue steering, origin job missing: session_id=%s job_id=%s",
+                handle.session_id,
+                handle.job_id,
+            )
+            return
+        text = "\n\n".join(
+            part for part in (str(item.get("text") or "").strip() for item in leftover) if part
+        )
+        if not text:
+            return
+        last = leftover[-1]
+        raw_data = {
+            key: value
+            for key, value in dict(origin.raw_data or {}).items()
+            if key != "system_events"
+        }
+        job = AgentJob(
+            job_id=uuid4().hex,
+            session_id=origin.session_id,
+            session_key=origin.session_key,
+            response_route_id=str(last.get("response_route_id") or "").strip() or origin.response_route_id,
+            user_id=origin.user_id,
+            conversation_id=origin.conversation_id,
+            is_group=origin.is_group,
+            message_id=str(last.get("message_id") or "").strip(),
+            user_input=text,
+            job_kind="turn",
+            sender_nick=origin.sender_nick,
+            raw_data=raw_data,
+            source=dict(origin.source or {}),
+            user_content_blocks=[],
+        )
+        self._pending_by_session[job.session_id].appendleft(job)
+        logger.info(
+            "[SessionScheduler] leftover steering requeued as new turn: session_id=%s new_job_id=%s count=%s chars=%s",
+            job.session_id,
+            job.job_id,
+            len(leftover),
+            len(text),
+        )

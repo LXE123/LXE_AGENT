@@ -463,6 +463,7 @@ async def handle_unified_turn_job(
                     tool_run_registrar=getattr(run_handle, "register_tool_run", None),
                     tool_run_finisher=getattr(run_handle, "finish_tool_run", None),
                     context_checkpoint=context_checkpoint,
+                    steering_drain=getattr(run_handle, "drain_steering", None),
                     run_id=job_id,
                     response_route_id=response_route_id,
                 )
