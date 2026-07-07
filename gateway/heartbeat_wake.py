@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+from gateway.autonomy_suspension import is_session_autonomy_suspended
 from gateway.session_scheduler import SessionScheduler
 from shared.agent_io import AgentJob, HeartbeatWakeRequest
 from shared.db.client import has_agent_session_pending_events, load_agent_session
@@ -144,6 +145,15 @@ class HeartbeatWakeManager:
         logger.info("[ExecNotify] wake batch start: count=%s", len(batch))
         try:
             for wake in batch:
+                if is_session_autonomy_suspended(wake.session_id):
+                    # 用户 /stop 后挂起自主性：丢弃唤醒，事件留在 DB，
+                    # 随下一条用户消息一并送达。
+                    logger.info(
+                        "[ExecNotify] wake dropped: owner_session_id=%s heartbeat_reason=%s reason=autonomy_suspended",
+                        wake.session_id,
+                        wake.reason,
+                    )
+                    continue
                 if not await has_agent_session_pending_events(wake.session_id):
                     logger.info(
                         "[ExecNotify] wake dropped: owner_session_id=%s heartbeat_reason=%s reason=no_pending_events",
