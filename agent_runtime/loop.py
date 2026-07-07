@@ -1188,6 +1188,7 @@ class AgentLoop:
                     step=step_idx,
                     event="tool_result",
                     tool_name=tool_call.name,
+                    tool_args=dict(tool_call.arguments or {}),
                     tool_result_preview=observation[:200],
                     success=True,
                     duration_ms=duration_ms,

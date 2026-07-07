@@ -2,6 +2,8 @@
 name: fba-purchase-contract-fill
 description: 根据采购汇总表 xlsx 和用户提供的合同汇总模板 xlsx 填写采购合同。用户要求填写采购合同、根据采购汇总表生成合同、按公司/厂家模板生成合同文件时使用；不要用于生成采购汇总表、备货单、报关资料或 Amazon 创建货件。
 type: amazon_fba
+commands:
+  - services.agent_cli.mabang.fill_purchase_contracts
 ---
 
 # FBA Purchase Contract Fill

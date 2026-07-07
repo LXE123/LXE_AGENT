@@ -2,6 +2,8 @@
 name: replenishment-amazon-restock-inventory-snapshot
 description: 将用户从 Seller Central 手动下载的亚马逊补充库存 CSV 解析为备货可用的亚马逊补充库存 snapshot。用户要求使用亚马逊补充库存、解析补充库存 CSV、校验补充库存文件是否对应店铺、询问亚马逊库存报告怎么下载/哪里下载/下载路径/截图指引，或在备货建议中增加亚马逊补充库存扣减字段时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
+commands:
+  - services.agent_cli.mabang.build_amazon_restock_inventory_snapshot
 ---
 
 ## When to Use

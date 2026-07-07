@@ -2,6 +2,11 @@
 name: fba-shipment-create
 description: 用固定 CLI 完成 Amazon FBA 创建货件流程。用户要求创建货件、上传装箱数据、生成多包装箱 Excel、确认自己的承运人、输入追踪号，或继续 prepare_upload / prepare_multi_box_excel / confirm_own_carrier / enter_tracking_codes 任一阶段时使用。
 type: amazon_fba
+commands:
+  - services.agent_cli.browser.amazon_fba.confirm_own_carrier
+  - services.agent_cli.browser.amazon_fba.enter_tracking_codes
+  - services.agent_cli.browser.amazon_fba.prepare_multi_box_excel
+  - services.agent_cli.browser.amazon_fba.prepare_upload
 ---
 
 # FBA Shipment Create

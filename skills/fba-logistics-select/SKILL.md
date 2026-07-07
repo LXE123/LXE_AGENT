@@ -2,6 +2,8 @@
 name: fba-logistics-select
 description: 用固定 CLI 执行 Amazon FBA 物流优选。用户提到物流优选、选物流、物流报价、算渠道价格，并提供 consignment_no、shipment_no、destination_address 三列 TSV 时使用。
 type: amazon_fba
+commands:
+  - services.agent_cli.amazon_logistic.run
 ---
 
 # FBA Logistics Select

@@ -2,6 +2,8 @@
 name: fba-export-tax-delivery-summary
 description: 统计 FBA 发货单出口退税 SKU 汇总。用户要求按 SP 发货单统计出口退税产品、汇总 SKU 发货量、生成退税产品 xlsx 时使用。
 type: amazon_fba
+commands:
+  - services.agent_cli.mabang.summarize_fba_delivery_tax_sku
 ---
 
 # Export Tax Delivery Summary

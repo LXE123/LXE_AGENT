@@ -27,6 +27,10 @@ def data_server_session_limit() -> int:
     return env_int("LXE_DATA_SERVER_SESSION_LIMIT", 1000, minimum=1)
 
 
+def data_server_usage_days() -> int:
+    return env_int("LXE_DATA_SERVER_USAGE_DAYS", 30, minimum=1)
+
+
 __all__ = [
     "data_server_api_key",
     "data_server_enabled",
@@ -34,4 +38,5 @@ __all__ = [
     "data_server_url",
     "data_server_session_limit",
     "data_server_sync_interval_seconds",
+    "data_server_usage_days",
 ]

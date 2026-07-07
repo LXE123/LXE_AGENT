@@ -2,6 +2,8 @@
 name: fba-export-tax-products-manage
 description: 维护出口退税产品白名单。用户要求把 SKU 加入出口退税产品列表、导入可出口退税 SKU、更新退税产品白名单时使用。
 type: amazon_fba
+commands:
+  - services.agent_cli.mabang.import_export_tax_products
 ---
 
 # Export Tax Products Manage

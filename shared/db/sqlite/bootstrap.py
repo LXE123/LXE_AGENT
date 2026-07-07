@@ -79,6 +79,41 @@ def _create_ziniao_sessions(conn) -> None:
     )
 
 
+def _create_turn_usage(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS turn_usage (
+            turn_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            started_at REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT '',
+            elapsed_ms INTEGER NOT NULL DEFAULT 0,
+            llm_calls INTEGER NOT NULL DEFAULT 0,
+            tool_calls INTEGER NOT NULL DEFAULT 0,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS turn_usage_items (
+            item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            turn_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            started_at REAL NOT NULL,
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            module TEXT NOT NULL DEFAULT '',
+            calls INTEGER NOT NULL DEFAULT 1,
+            errors INTEGER NOT NULL DEFAULT 0,
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            detail TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+
+
 def _create_indexes(conn) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_response_routes_platform_message_id "
@@ -100,6 +135,18 @@ def _create_indexes(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_agent_sessions_model "
         "ON agent_sessions (model)"
     )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_turn_usage_started_at "
+        "ON turn_usage (started_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_turn_usage_items_kind_name "
+        "ON turn_usage_items (kind, name, started_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_turn_usage_items_turn_id "
+        "ON turn_usage_items (turn_id)"
+    )
 
 
 def init_schema() -> None:
@@ -108,4 +155,5 @@ def init_schema() -> None:
         _create_ziniao_sessions(conn)
         _create_agent_sessions(conn)
         _create_pending_events(conn)
+        _create_turn_usage(conn)
         _create_indexes(conn)

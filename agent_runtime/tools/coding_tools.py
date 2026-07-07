@@ -11,10 +11,12 @@ import base64
 import contextlib
 from dataclasses import dataclass
 import fnmatch
+from functools import lru_cache
 import io
 import json
 import os
 import re
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -25,7 +27,11 @@ from shared.logging import get_logger
 from shared.runtime_core.utils import send_file_to_current_session
 
 from agent_runtime.tool_executor import get_tool_context
-from agent_runtime.tools.process_sessions import process_exec_session, run_exec_command
+from agent_runtime.tools.process_sessions import (
+    decode_process_output,
+    process_exec_session,
+    run_exec_command,
+)
 from agent_runtime.types import (
     ToolDefinition,
     ToolExecutionError,
@@ -674,88 +680,354 @@ async def _handle_edit(
 # Handler: grep
 # ===================================================================
 
-async def _handle_grep(
-    pattern: str = "", path: str = "", glob: str = "",
-    output_mode: str = "content", **_: Any,
+_RG_TIMEOUT_SEC = 30.0
+_GREP_OUTPUT_MODES = ("files_with_matches", "content", "count")
+_GREP_FALLBACK_TYPE_EXTS: dict[str, tuple[str, ...]] = {
+    "py": (".py", ".pyi"),
+    "js": (".js", ".mjs", ".cjs", ".jsx"),
+    "ts": (".ts", ".tsx", ".mts", ".cts"),
+    "json": (".json",),
+    "yaml": (".yml", ".yaml"),
+    "toml": (".toml",),
+    "md": (".md", ".markdown"),
+    "html": (".html", ".htm"),
+    "css": (".css", ".scss", ".sass"),
+    "sh": (".sh", ".bash", ".zsh"),
+    "ps": (".ps1", ".psm1", ".psd1"),
+    "sql": (".sql",),
+    "csv": (".csv",),
+    "txt": (".txt",),
+}
+
+
+@lru_cache(maxsize=1)
+def _ripgrep_executable() -> str:
+    return shutil.which("rg") or ""
+
+
+def _normalize_grep_mode(output_mode: str) -> str:
+    mode = str(output_mode or "").strip() or "files_with_matches"
+    if mode not in _GREP_OUTPUT_MODES:
+        _tool_error(f"未知 output_mode: {mode}，支持: {', '.join(_GREP_OUTPUT_MODES)}")
+    return mode
+
+
+def _grep_result_limit(head_limit: int | None, mode: str) -> int:
+    if head_limit is not None:
+        return max(1, int(head_limit))
+    return _MAX_GREP if mode == "content" else _MAX_FIND
+
+
+def _grep_context_spans(context: int | None, before: int | None, after: int | None) -> tuple[int, int]:
+    base = max(0, int(context or 0))
+    span_before = max(0, int(before)) if before is not None else base
+    span_after = max(0, int(after)) if after is not None else base
+    return span_before, span_after
+
+
+def _limit_grep_body(lines: list[str], limit: int) -> str:
+    if len(lines) <= limit:
+        return "\n".join(lines)
+    shown = lines[:limit]
+    shown.append(f"... ({len(lines) - limit} more lines, raise head_limit or narrow the search)")
+    return "\n".join(shown)
+
+
+def _strip_rg_path_prefix(line: str) -> str:
+    if line.startswith("./") or line.startswith(".\\"):
+        return line[2:]
+    return line
+
+
+async def _grep_with_ripgrep(
+    *,
+    pattern: str,
+    search_path: Path,
+    mode: str,
+    glob: str,
+    file_type: str,
+    case_insensitive: bool,
+    context: int | None,
+    before_context: int | None,
+    after_context: int | None,
+    multiline: bool,
+    limit: int,
 ) -> ToolResult:
+    args = [_ripgrep_executable(), "--no-config", "--color=never", "--no-heading"]
+    if mode == "files_with_matches":
+        args.append("--files-with-matches")
+    elif mode == "count":
+        args.append("--count")
+    else:
+        args.append("--line-number")
+        if context is not None:
+            args += ["-C", str(max(0, int(context)))]
+        if before_context is not None:
+            args += ["-B", str(max(0, int(before_context)))]
+        if after_context is not None:
+            args += ["-A", str(max(0, int(after_context)))]
+    if case_insensitive:
+        args.append("--ignore-case")
+    if multiline:
+        args += ["--multiline", "--multiline-dotall"]
+    if glob:
+        args += ["--glob", glob]
+    for skip in sorted(_SKIP_DIRS):
+        args += ["--glob", f"!**/{skip}/**"]
+    if file_type:
+        args += ["--type", file_type]
+    rel = search_path.relative_to(WORKSPACE_ROOT)
+    args += ["--regexp", pattern, "--", str(rel) if rel.parts else "."]
+
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        cwd=str(WORKSPACE_ROOT),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        stdin=asyncio.subprocess.DEVNULL,
+    )
     try:
-        root = _safe_resolve(path or ".")
-    except (ValueError, PermissionError) as e:
-        _tool_error(str(e))
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_RG_TIMEOUT_SEC)
+    except asyncio.TimeoutError:
+        with contextlib.suppress(Exception):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.communicate()
+        _tool_error(f"grep 超时（{_RG_TIMEOUT_SEC:.0f}s），请缩小搜索范围")
 
-    try:
-        regex = re.compile(pattern)
-    except re.error as e:
-        _tool_error(f"正则错误: {e}")
+    out_text = decode_process_output(stdout).strip()
+    err_text = decode_process_output(stderr).strip()
+    if proc.returncode not in (0, 1) and not out_text:
+        _tool_error(f"ripgrep 失败 (exit {proc.returncode}): {_truncate(err_text, 500)}")
+    if not out_text:
+        return text_tool_result("No matches found.")
 
-    results: list[str] = []
-    file_match_counts: dict[str, int] = {}
-    hit_limit = False
+    lines = [_strip_rg_path_prefix(line) for line in out_text.splitlines()]
+    return text_tool_result(_truncate(_limit_grep_body(lines, limit)))
 
+
+def _matches_grep_glob(fpath: Path, root: Path, glob: str) -> bool:
+    negate = glob.startswith("!")
+    body = glob[1:] if negate else glob
+    rel = fpath.relative_to(root).as_posix() if fpath != root else fpath.name
+    matched = fnmatch.fnmatch(fpath.name, body) or fnmatch.fnmatch(rel, body)
+    return not matched if negate else matched
+
+
+def _iter_grep_files(root: Path, *, glob: str, file_type: str):
+    exts: tuple[str, ...] | None = None
+    if file_type:
+        exts = _GREP_FALLBACK_TYPE_EXTS.get(file_type)
+        if exts is None:
+            _tool_error(
+                f"未知 type: {file_type}（无 ripgrep 时支持: "
+                f"{', '.join(sorted(_GREP_FALLBACK_TYPE_EXTS))}），或改用 glob 过滤"
+            )
+    if root.is_file():
+        yield root
+        return
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if not _should_skip_dir(d)]
         for fname in filenames:
-            if glob and not fnmatch.fnmatch(fname, glob):
-                continue
             fpath = Path(dirpath) / fname
+            if exts is not None and fpath.suffix.lower() not in exts:
+                continue
+            if glob and not _matches_grep_glob(fpath, root, glob):
+                continue
             if _looks_binary_file(fpath):
                 continue
-            try:
-                lines = fpath.read_text(encoding="utf-8", errors="replace").splitlines()
-            except Exception:
+            yield fpath
+
+
+def _grep_file_content_lines(
+    rel: str, lines: list[str], regex: re.Pattern[str], *, before: int, after: int,
+) -> list[str]:
+    match_set = {i for i, line in enumerate(lines) if regex.search(line)}
+    if not match_set:
+        return []
+    if not before and not after:
+        return [f"{rel}:{i + 1}:{lines[i].rstrip()}" for i in sorted(match_set)]
+
+    intervals: list[list[int]] = []
+    for idx in sorted(match_set):
+        start = max(0, idx - before)
+        end = min(len(lines) - 1, idx + after)
+        if intervals and start <= intervals[-1][1] + 1:
+            intervals[-1][1] = max(intervals[-1][1], end)
+        else:
+            intervals.append([start, end])
+
+    out: list[str] = []
+    for k, (start, end) in enumerate(intervals):
+        if k:
+            out.append("--")
+        for i in range(start, end + 1):
+            sep = ":" if i in match_set else "-"
+            out.append(f"{rel}{sep}{i + 1}{sep}{lines[i].rstrip()}")
+    return out
+
+
+def _grep_multiline_start_lines(text: str, regex: re.Pattern[str]) -> list[int]:
+    return [text.count("\n", 0, m.start()) + 1 for m in regex.finditer(text)]
+
+
+async def _grep_fallback(
+    *,
+    pattern: str,
+    search_path: Path,
+    mode: str,
+    glob: str,
+    file_type: str,
+    case_insensitive: bool,
+    context: int | None,
+    before_context: int | None,
+    after_context: int | None,
+    multiline: bool,
+    limit: int,
+) -> ToolResult:
+    flags = re.IGNORECASE if case_insensitive else 0
+    if multiline:
+        flags |= re.MULTILINE | re.DOTALL
+    try:
+        regex = re.compile(pattern, flags)
+    except re.error as e:
+        _tool_error(f"正则错误: {e}")
+
+    before, after = _grep_context_spans(context, before_context, after_context)
+    content_lines: list[str] = []
+    file_counts: dict[str, int] = {}
+    with_context = bool(before or after)
+
+    for fpath in _iter_grep_files(search_path, glob=glob, file_type=file_type):
+        try:
+            text = fpath.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        rel = fpath.relative_to(WORKSPACE_ROOT).as_posix()
+
+        if multiline:
+            starts = _grep_multiline_start_lines(text, regex)
+            if not starts:
                 continue
-            rel = str(fpath.relative_to(WORKSPACE_ROOT))
-            for i, line in enumerate(lines, 1):
-                if regex.search(line):
-                    file_match_counts[rel] = file_match_counts.get(rel, 0) + 1
-                    if output_mode == "content" and len(results) < _MAX_GREP:
-                        results.append(f"{rel}:{i}: {line.rstrip()}")
-            if len(file_match_counts) > _MAX_GREP * 2:
-                hit_limit = True
-                break
-        if hit_limit:
+            file_counts[rel] = len(starts)
+            if mode == "content":
+                lines = text.splitlines()
+                for line_no in starts:
+                    snippet = lines[line_no - 1].rstrip() if line_no - 1 < len(lines) else ""
+                    content_lines.append(f"{rel}:{line_no}:{snippet}")
+        elif mode == "content":
+            block = _grep_file_content_lines(rel, text.splitlines(), regex, before=before, after=after)
+            if not block:
+                continue
+            if with_context and content_lines:
+                content_lines.append("--")
+            content_lines.extend(block)
+        else:
+            count = sum(1 for line in text.splitlines() if regex.search(line))
+            if not count:
+                continue
+            file_counts[rel] = count
+
+        if mode == "content" and len(content_lines) > limit:
+            break
+        if mode != "content" and len(file_counts) > limit:
             break
 
-    mode = str(output_mode or "content").strip()
     if mode == "files_with_matches":
-        body = "\n".join(sorted(file_match_counts.keys()))
+        lines_out = sorted(file_counts)
     elif mode == "count":
-        body = "\n".join(f"{k}: {v}" for k, v in sorted(file_match_counts.items()))
+        lines_out = [f"{k}:{v}" for k, v in sorted(file_counts.items())]
     else:
-        body = "\n".join(results)
+        lines_out = content_lines
 
-    if not body:
+    if not lines_out:
         return text_tool_result("No matches found.")
+    return text_tool_result(_truncate(_limit_grep_body(lines_out, limit)))
 
-    suffix = ""
-    if hit_limit:
-        suffix = f"\n... (results truncated, too many matches)"
-    return text_tool_result(_truncate(body + suffix))
+
+async def _handle_grep(
+    pattern: str = "",
+    path: str = "",
+    glob: str = "",
+    type: str = "",
+    output_mode: str = "files_with_matches",
+    case_insensitive: bool = False,
+    context: int | None = None,
+    before_context: int | None = None,
+    after_context: int | None = None,
+    multiline: bool = False,
+    head_limit: int | None = None,
+    **_: Any,
+) -> ToolResult:
+    if not str(pattern or ""):
+        _tool_error("pattern 不能为空")
+    try:
+        search_path = _safe_resolve(path or ".")
+    except (ValueError, PermissionError) as e:
+        _tool_error(str(e))
+    if not search_path.exists():
+        _tool_error(f"路径不存在: {search_path}")
+
+    mode = _normalize_grep_mode(output_mode)
+    limit = _grep_result_limit(head_limit, mode)
+    kwargs: dict[str, Any] = {
+        "pattern": str(pattern),
+        "search_path": search_path,
+        "mode": mode,
+        "glob": str(glob or "").strip(),
+        "file_type": str(type or "").strip(),
+        "case_insensitive": bool(case_insensitive),
+        "context": context,
+        "before_context": before_context,
+        "after_context": after_context,
+        "multiline": bool(multiline),
+        "limit": limit,
+    }
+    if _ripgrep_executable():
+        return await _grep_with_ripgrep(**kwargs)
+    return await _grep_fallback(**kwargs)
 
 
 # ===================================================================
 # Handler: find
 # ===================================================================
 
-async def _handle_find(pattern: str = "", path: str = "", **_: Any) -> ToolResult:
+async def _handle_find(
+    pattern: str = "", path: str = "", head_limit: int | None = None, **_: Any,
+) -> ToolResult:
+    pat = str(pattern or "").strip()
+    if not pat:
+        _tool_error("pattern 不能为空")
     try:
         root = _safe_resolve(path or ".")
     except (ValueError, PermissionError) as e:
         _tool_error(str(e))
+    if not root.is_dir():
+        _tool_error(f"不是目录: {root}")
 
-    matches: list[str] = []
-    for p in root.rglob(pattern):
-        if any(part in _SKIP_DIRS for part in p.parts):
-            continue
-        matches.append(str(p.relative_to(WORKSPACE_ROOT)))
-        if len(matches) >= _MAX_FIND:
-            break
+    limit = max(1, int(head_limit or _MAX_FIND))
+    matched: list[tuple[float, str]] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not _should_skip_dir(d)]
+        for fname in filenames:
+            fpath = Path(dirpath) / fname
+            rel_to_root = fpath.relative_to(root).as_posix()
+            if not (fnmatch.fnmatch(fname, pat) or fnmatch.fnmatch(rel_to_root, pat)):
+                continue
+            try:
+                mtime = fpath.stat().st_mtime
+            except OSError:
+                mtime = 0.0
+            matched.append((mtime, fpath.relative_to(WORKSPACE_ROOT).as_posix()))
 
-    if not matches:
+    if not matched:
         return text_tool_result("No files found.")
-    body = "\n".join(matches)
-    if len(matches) >= _MAX_FIND:
-        body += f"\n... (showing first {_MAX_FIND} results)"
+
+    matched.sort(key=lambda item: (-item[0], item[1]))
+    shown = [rel for _mtime, rel in matched[:limit]]
+    body = "\n".join(shown)
+    if len(matched) > limit:
+        body += f"\n... (showing first {limit} of {len(matched)} results, sorted by modification time)"
     return text_tool_result(_truncate(body))
 
 
@@ -1130,6 +1402,101 @@ CODING_EDIT = ToolDefinition(
     handler=_handle_edit,
 )
 
+CODING_GREP = ToolDefinition(
+    name="grep",
+    description=(
+        "Search file contents with a regular expression (powered by ripgrep when available). "
+        "Prefer this over exec with grep/rg. Output modes: files_with_matches (default, paths of "
+        "files with at least one match), content (matching lines with line numbers, supports "
+        "context lines), count (matching line count per file). Filter files with glob (e.g. "
+        "\"*.py\") or type (e.g. py). Results are capped by head_limit; a trailing note reports "
+        "how much was omitted."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string", "description": "Regular expression to search for"},
+            "path": {
+                "type": "string",
+                "description": "File or directory to search (default: project root / workspace)",
+                "default": ".",
+            },
+            "glob": {
+                "type": "string",
+                "description": "Glob to filter file paths, e.g. \"*.py\" or \"skills/**\". Prefix with ! to exclude",
+            },
+            "type": {
+                "type": "string",
+                "description": "File type filter, e.g. py, js, ts, json, yaml, md, sh",
+            },
+            "output_mode": {
+                "type": "string",
+                "enum": ["files_with_matches", "content", "count"],
+                "description": "Output format (default files_with_matches)",
+                "default": "files_with_matches",
+            },
+            "case_insensitive": {
+                "type": "boolean",
+                "description": "Case-insensitive matching (like rg -i)",
+            },
+            "context": {
+                "type": "integer",
+                "description": "Lines of context before and after each match (content mode, like rg -C)",
+            },
+            "before_context": {
+                "type": "integer",
+                "description": "Lines of context before each match (content mode, like rg -B)",
+            },
+            "after_context": {
+                "type": "integer",
+                "description": "Lines of context after each match (content mode, like rg -A)",
+            },
+            "multiline": {
+                "type": "boolean",
+                "description": "Allow pattern to match across lines; . also matches newlines (like rg -U)",
+            },
+            "head_limit": {
+                "type": "integer",
+                "description": "Max result lines (default 100 for content, 200 for other modes)",
+            },
+        },
+        "required": ["pattern"],
+        "additionalProperties": False,
+    },
+    handler=_handle_grep,
+)
+
+CODING_FIND = ToolDefinition(
+    name="find",
+    description=(
+        "Find files by glob pattern, e.g. \"*.py\" or \"skills/**/SKILL.md\". The pattern is "
+        "matched against file names and paths relative to the search directory, at any depth. "
+        "Returns file paths sorted by modification time (newest first). Prefer this over exec "
+        "with find/ls when locating files by name."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "pattern": {
+                "type": "string",
+                "description": "Glob pattern matched against file names and relative paths",
+            },
+            "path": {
+                "type": "string",
+                "description": "Directory to search (default: project root / workspace)",
+                "default": ".",
+            },
+            "head_limit": {
+                "type": "integer",
+                "description": "Max results (default 200)",
+            },
+        },
+        "required": ["pattern"],
+        "additionalProperties": False,
+    },
+    handler=_handle_find,
+)
+
 CODING_LS = ToolDefinition(
     name="ls",
     description="List directory contents with type (d/f/l), size, and modification time.",
@@ -1245,7 +1612,17 @@ CODING_PROCESS = ToolDefinition(
     handler=_handle_process,
 )
 
-CODING_TOOLS = [CODING_READ, CODING_WRITE, CODING_EDIT, CODING_LS, CODING_SEND_FILE, CODING_EXEC, CODING_PROCESS]
+CODING_TOOLS = [
+    CODING_READ,
+    CODING_WRITE,
+    CODING_EDIT,
+    CODING_GREP,
+    CODING_FIND,
+    CODING_LS,
+    CODING_SEND_FILE,
+    CODING_EXEC,
+    CODING_PROCESS,
+]
 CODING_TOOL_NAMES = frozenset(t.name for t in CODING_TOOLS)
 
 

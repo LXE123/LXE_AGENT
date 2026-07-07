@@ -26,6 +26,12 @@ from shared.connector_state import (
 )
 from shared.db.sqlite.engine import connection_scope
 from shared.db.sqlite.session_transcripts import load_transcript_display_page
+from shared.db.sqlite.usage_stats import (
+    skill_usage_detail,
+    skill_usage_stats,
+    tool_usage_stats,
+    usage_overview,
+)
 from shared.env import upsert_project_local_config_values
 from shared.llm.agent_planner import agent_planner_selection_options
 from shared.llm.kimi_coding import client as kimi_coding_client
@@ -813,6 +819,27 @@ def create_dashboard_app(
     async def skills() -> dict[str, Any]:
         items = _skills_payload()
         return {"items": items, "total": len(items)}
+
+    @app.get("/api/stats/overview")
+    async def stats_overview(days: int = Query(default=30, ge=1, le=365)) -> dict[str, Any]:
+        return usage_overview(days=days)
+
+    @app.get("/api/stats/skills")
+    async def stats_skills(days: int = Query(default=30, ge=1, le=365)) -> dict[str, Any]:
+        items = skill_usage_stats(days=days)
+        return {"items": items, "total": len(items), "days": days}
+
+    @app.get("/api/stats/skills/{skill_name}")
+    async def stats_skill_detail(
+        skill_name: str,
+        days: int = Query(default=30, ge=1, le=365),
+    ) -> dict[str, Any]:
+        return skill_usage_detail(skill_name, days=days)
+
+    @app.get("/api/stats/tools")
+    async def stats_tools(days: int = Query(default=30, ge=1, le=365)) -> dict[str, Any]:
+        items = tool_usage_stats(days=days)
+        return {"items": items, "total": len(items), "days": days}
 
     @app.get("/api/connectors")
     async def connectors() -> dict[str, Any]:

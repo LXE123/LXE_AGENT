@@ -45,6 +45,15 @@ def _normalize_references(values: object) -> list[SkillReferenceManifest]:
     return refs
 
 
+def _normalize_commands(values: object) -> list[str]:
+    commands: list[str] = []
+    for entry in list(values or []):
+        command = str(entry or "").strip()
+        if command and command not in commands:
+            commands.append(command)
+    return commands
+
+
 def _resolve_path_within_skill(skill_dir: Path, relative_path: str) -> Path:
     skill_root = skill_dir.resolve()
     resolved = (skill_dir / str(relative_path or "").strip()).resolve()
@@ -101,6 +110,7 @@ def _load_skill(skill_dir: Path) -> SkillManifest:
         description=description,
         type=skill_type,
         references=_normalize_references(meta.get("references") or []),
+        commands=_normalize_commands(meta.get("commands") or []),
         body_path=skill_path,
         root_dir=skill_dir,
     )
@@ -125,6 +135,7 @@ def load_skill_index(*, force_reload: bool = False) -> SkillIndex:
 
     skills: dict[str, SkillManifest] = {}
     skill_keys: dict[str, str] = {}
+    command_owners: dict[str, str] = {}
     if not SKILLS_ROOT.exists():
         raise RuntimeError(f"skills root not found: {SKILLS_ROOT}")
 
@@ -133,6 +144,12 @@ def load_skill_index(*, force_reload: bool = False) -> SkillIndex:
         normalized_name = manifest.name.casefold()
         if normalized_name in skill_keys:
             raise RuntimeError(f"duplicate skill name: {manifest.name} conflicts with {skill_keys[normalized_name]}")
+        for command in manifest.commands:
+            if command in command_owners:
+                raise RuntimeError(
+                    f"duplicate skill command: {command} declared by both {command_owners[command]} and {manifest.name}"
+                )
+            command_owners[command] = manifest.name
         skill_keys[normalized_name] = manifest.name
         skills[manifest.name] = manifest
 

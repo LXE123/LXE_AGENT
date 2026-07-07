@@ -2,6 +2,8 @@
 name: fba-invoice-template-fill
 description: 根据用户上传的备货 xlsx、本地 FBA 发货单 CSV 和本地 WMS 装箱数据填写发票导入模板，按 WMS 实际发货量生成 invoice_Template 和数量校验报告。用户要求填写发票模板、生成发票导入表、把备货单写入 invoice_Template，或为 FBA 发票资料准备模板时使用。
 type: amazon_fba
+commands:
+  - services.agent_cli.mabang.fill_invoice_template
 ---
 
 # Invoice Template Fill

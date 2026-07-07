@@ -2,6 +2,8 @@
 name: fba-shipment-delivery-csv-download
 description: 下载马帮 FBA 发货单 SKU 数据 CSV。用户要求获取、导出、下载 FBA 发货单、发货单 SKU 数据、发货单表格、SP 发货单 CSV 时使用；不要用于 WMS 装箱数据或托运单 Excel。
 type: amazon_fba
+commands:
+  - services.agent_cli.mabang.download_fba_delivery_csv
 ---
 
 # FBA Delivery CSV Download

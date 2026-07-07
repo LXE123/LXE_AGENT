@@ -2,6 +2,8 @@
 name: fba-restock-workbook-create
 description: 兼容入口：根据一个本地 FBA 发货单 CSV、用户提供的出口退税总表和毛利率独立生成单 SP 备货单。仅当用户明确要求单个 SP 独立生成且不需要一批 SP 的正飞统一均价时使用；日常一批 SP 的采购汇总表和备货单生成应使用 fba-purchase-summary-create。
 type: amazon_fba
+commands:
+  - services.agent_cli.mabang.generate_fba_restock_workbook
 ---
 
 # FBA Restock Workbook Create

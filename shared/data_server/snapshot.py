@@ -7,6 +7,7 @@ from typing import Any
 from shared.agent_state import MESSAGES_KEY, context_state
 from shared.db.shared_state_dto import AgentSessionState
 from shared.db.sqlite.agent_sessions import list_agent_sessions
+from shared.db.sqlite.usage_stats import export_turn_usage
 
 from .identity import load_or_create_machine_id
 
@@ -35,11 +36,21 @@ def _session_payload(state: AgentSessionState) -> dict[str, Any]:
     }
 
 
+def _turn_usage_payload(days: int) -> dict[str, Any]:
+    safe_days = max(1, int(days or 0) or 30)
+    try:
+        turns = export_turn_usage(days=safe_days)
+    except Exception:
+        turns = []
+    return {"days": safe_days, "turns": turns}
+
+
 def build_agent_snapshot(
     *,
     gateway_id: str = "",
     machine_id: str | None = None,
     session_limit: int = 1000,
+    usage_days: int = 30,
 ) -> dict[str, Any]:
     resolved_machine_id = str(machine_id or load_or_create_machine_id()).strip()
     sessions = list_agent_sessions(limit=session_limit)
@@ -49,6 +60,7 @@ def build_agent_snapshot(
         "hostname": socket.gethostname(),
         "uploaded_at": time.time(),
         "sessions": [_session_payload(session) for session in sessions],
+        "turn_usage": _turn_usage_payload(usage_days),
     }
 
 

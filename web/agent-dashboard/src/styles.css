@@ -3192,3 +3192,165 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+/* Usage stats page */
+.usage-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.usage-range {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.usage-range-button {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-soft);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.usage-range-button.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-muted);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.usage-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+}
+
+.usage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px var(--shadow-soft);
+}
+
+.usage-card-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+.usage-card-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.usage-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.usage-section > h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-strong);
+}
+
+.usage-chart-shell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 16px 10px;
+}
+
+.usage-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 140px;
+  overflow-x: auto;
+}
+
+.usage-chart-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  flex: 1 0 26px;
+  min-width: 0;
+  height: 100%;
+}
+
+.usage-chart-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex: 1;
+  width: 100%;
+  justify-content: center;
+}
+
+.usage-chart-bar {
+  display: inline-block;
+  width: 9px;
+  border-radius: 3px 3px 0 0;
+}
+
+.usage-chart-bar.turns {
+  background: var(--accent-muted);
+}
+
+.usage-chart-bar.executions {
+  background: var(--accent);
+}
+
+.usage-chart-label {
+  font-size: 10.5px;
+  color: var(--muted-light);
+  white-space: nowrap;
+}
+
+.usage-chart-legend {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.usage-chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.usage-legend-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.usage-legend-dot.turns {
+  background: var(--accent-muted);
+}
+
+.usage-legend-dot.executions {
+  background: var(--accent);
+}
+
+.usage-table th,
+.usage-table td {
+  white-space: nowrap;
+}
+
+.pill.usage-muted {
+  color: var(--muted-light);
+  border-style: dashed;
+}

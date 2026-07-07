@@ -2,6 +2,8 @@
 name: fba-logistics-rate-import
 description: 导入物流报价或物流更新 Excel。用户要求导入物流报价表、运行物流更新脚本、ingest 物流 Excel、更新物流价格文件时使用。
 type: amazon_fba
+commands:
+  - scripts.logistics_update_ingest
 ---
 
 # Logistics Rate Import

@@ -2,6 +2,8 @@
 name: replenishment-msku-download
 description: 按已解析的马帮 Amazon FBA 店铺 ID 下载该店铺 MSKU 数据 Excel。用户要求获取某个店铺、欧洲区整组或欧洲子站点的 MSKU 数据、店铺 MSKU 表、补货用 MSKU 数据时使用；如果用户只给店铺名，先使用 replenishment-store-resolve 解析 store_name、store_id 和 id_type。
 type: amazon_replenish
+commands:
+  - services.agent_cli.mabang.download_store_msku_excel
 ---
 
 ## When to Use

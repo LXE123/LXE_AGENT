@@ -2,6 +2,8 @@
 name: fba-purchase-summary-create
 description: 根据一批本地 FBA 发货单 CSV、用户提供的出口退税总表和毛利率，一次生成采购汇总表以及每个 SP 的备货单。用户要求按一批 SP 生成采购汇总、采购单、批量备货单、厂家分类采购表，或需要正飞按整批发货单统一均价时使用；不要用于 WMS 装箱数据、Amazon 创建货件、发票模板或报关资料。
 type: amazon_fba
+commands:
+  - services.agent_cli.mabang.generate_purchase_batch_workbooks
 ---
 
 # FBA Purchase Summary Create

@@ -2,6 +2,8 @@
 name: replenishment-unlinked-shipment-download
 description: 按马帮 Amazon FBA 店铺名下载未关联货件原生导出文件，并基于本次下载文件生成未关联货件快照，覆盖 WMS待配货、WMS待装箱、待关联货件。用户要求测试下载未关联货件、下载未关联货件原始文件、检查备货缺失货件数据时使用。
 type: amazon_replenish
+commands:
+  - services.agent_cli.mabang.download_store_unlinked_shipments
 ---
 
 ## When to Use

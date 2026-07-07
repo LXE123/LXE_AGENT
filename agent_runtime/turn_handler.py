@@ -13,6 +13,7 @@ from shared.db.client import (
     append_agent_session_message,
     load_agent_session,
     pop_agent_session_pending_events,
+    record_turn_usage,
     update_agent_session,
 )
 from shared.agent_state import CONTEXT_KEY, MESSAGES_KEY, context_state
@@ -22,6 +23,7 @@ from shared.runtime_core.outcome import job_handled
 from .final_answer_streamer import FinalAnswerStreamer
 from .runtime import run_turn
 from .types import TurnOutcome
+from .usage_stats import collect_turn_usage
 
 logger = get_logger(__name__)
 
@@ -212,6 +214,12 @@ async def _persist_and_deliver(
         metrics_delta=metrics_delta,
         title_candidate=title_candidate,
     )
+
+    if turn_log is not None:
+        try:
+            await record_turn_usage(collect_turn_usage(turn_log).to_record())
+        except Exception as exc:
+            logger.warning("[TurnHandler] turn usage stats persist failed: %s", exc)
 
     if skip_emit_final or not message:
         return

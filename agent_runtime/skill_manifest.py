@@ -16,6 +16,7 @@ class SkillManifest:
     description: str
     type: str
     references: list[SkillReferenceManifest] = field(default_factory=list)
+    commands: list[str] = field(default_factory=list)
     body_path: Path = field(default_factory=Path)
     root_dir: Path = field(default_factory=Path)
 

@@ -12,6 +12,7 @@ from .config import (
     data_server_request_timeout_seconds,
     data_server_url,
     data_server_session_limit,
+    data_server_usage_days,
 )
 from .snapshot import build_agent_snapshot
 
@@ -39,6 +40,7 @@ def sync_once(*, gateway_id: str = "") -> DataServerSyncResult:
     snapshot = build_agent_snapshot(
         gateway_id=gateway_id,
         session_limit=data_server_session_limit(),
+        usage_days=data_server_usage_days(),
     )
     session_count = len(list(snapshot.get("sessions") or []))
     if session_count <= 0:

@@ -2,6 +2,8 @@
 name: fba-stock-sku-download
 description: 根据本地 FBA 发货单 CSV 的 SKU发货量 列下载马帮库存 SKU Excel。用户要求按 SP 单号获取库存 SKU 表、库存 SKU Excel、库存数据表时使用。
 type: amazon_fba
+commands:
+  - services.agent_cli.mabang.download_stock_sku_excel
 ---
 
 # FBA Stock SKU Download

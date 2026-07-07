@@ -9,6 +9,7 @@ from typing import Any
 
 from shared.db.sqlite import agent_state_client as _agent_state
 from shared.db.sqlite import response_route_state as _response_route_state
+from shared.db.sqlite import usage_stats as _usage_stats
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="shared_state_db")
 
@@ -202,6 +203,10 @@ async def reset_agent_session_context(
     )
 
 
+async def record_turn_usage(record: dict[str, Any] | None) -> None:
+    await _run_db_call(_usage_stats.record_turn_usage, record)
+
+
 def init_schema() -> None:
     _agent_state.init_schema()
 
@@ -230,6 +235,7 @@ __all__ = [
     "load_response_route_context",
     "load_response_route_session",
     "pop_agent_session_pending_events",
+    "record_turn_usage",
     "reset_agent_session_context",
     "save_response_route_patch",
     "save_response_route_delivery_handle",

@@ -2,6 +2,8 @@
 name: replenishment-algorithm-config-manage
 description: 管理马帮 Amazon 备货算法参数方案。用户要求查看备货公式参数、导出备货算法配置表给业务人员修改、校验配置表xlsx、导入/保存自定义参数方案、查看已有参数方案或准备用某套算法参数计算备货时使用。
 type: amazon_replenish
+commands:
+  - services.agent_cli.mabang.replenishment_template
 ---
 
 ## Hard Rules

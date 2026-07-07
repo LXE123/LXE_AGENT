@@ -2,6 +2,8 @@
 name: fba-customs-declaration-fill
 description: 根据用户上传的一个或多个备货 xlsx、本地 FBA 发货单 CSV 和本地 WMS 装箱数据填写报关资料模板，按 WMS 实际发货量生成申报要素、报关单明细、发票、箱单、合同和库存 SKU 数量校验报告。用户要求填写报关单、报关资料、报关文件时使用。
 type: amazon_fba
+commands:
+  - services.agent_cli.mabang.fill_customs_declaration
 ---
 
 # Customs Declaration Fill

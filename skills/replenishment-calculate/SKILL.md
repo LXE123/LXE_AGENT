@@ -2,6 +2,8 @@
 name: replenishment-calculate
 description: 基于本地销量分析报告、真实库存（深圳仓库）报告和同日未关联货件快照生成马帮 Amazon 店铺 MSKU 备货建议。用户要求计算某个店铺的备货量、补货量、运输方式、链接备货汇总或“xxx店铺备货建议/补货建议”时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
+commands:
+  - services.agent_cli.mabang.calculate_store_msku_replenishment
 ---
 
 ## When to Use
