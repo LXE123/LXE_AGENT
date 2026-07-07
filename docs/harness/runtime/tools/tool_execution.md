@@ -220,4 +220,4 @@ browser tools 不是普通 Python handler 直接完成所有工作。`register_b
 }
 ```
 
-随后进入下一次 LLM step。turn 结束后，`current_turn_messages` 会随普通 turn history 一起追加到 `state_data.context.messages`，再经过 post-turn compaction 和 history limit。
+随后进入下一次 LLM step。tool result message 产生后会立即追加到 model-visible state，并写入 transcript message checkpoint；turn 后如果 history limit、compaction 或 repair 改写模型视图，会再追加对应 replacement checkpoint。

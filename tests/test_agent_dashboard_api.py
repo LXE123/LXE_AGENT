@@ -19,10 +19,10 @@ from gateway.dashboard import api as dashboard_api
 from gateway.dashboard.api import create_dashboard_app
 from shared.agent_state import CONTEXT_KEY, RUNTIME_KEY
 from shared.connector_state import LARK_CLI_SKILL_NAMES, set_connector_enabled
-from shared.db.sqlite.agent_sessions import create_agent_session, update_agent_session
+from shared.db.sqlite.agent_sessions import append_agent_session_message, create_agent_session, update_agent_session
 from shared.db.sqlite.bootstrap import init_schema
 from shared.db.sqlite.engine import connection_scope
-from shared.db.sqlite.session_messages import session_messages_path
+from shared.db.sqlite.session_transcripts import append_transcript_replacement, session_transcript_path
 from shared.env import upsert_project_env_values, upsert_project_local_config_values
 from shared.llm import runtime_config as runtime_settings
 from shared.permission_policy import (
@@ -398,6 +398,64 @@ def test_session_detail_endpoint_returns_metadata_and_messages(dashboard_client)
     }
 
 
+def test_session_detail_endpoint_shows_transcript_messages_and_compaction_marker(dashboard_client):
+    created = create_agent_session(
+        session_id="detail-compaction-session",
+        source=_source("chat-detail-compaction"),
+        state_data=_state([{"role": "user", "content": "original request"}]),
+        title="Detail Compaction",
+    )
+    append_transcript_replacement(
+        created.session_id,
+        replacement_history=[{"role": "user", "content": "summary"}],
+        replacement_kind="compaction",
+        reason="pre_call_compaction",
+        summary_text="summary",
+        compacted_count=1,
+        trigger="pre_call",
+    )
+
+    response = dashboard_client.get(f"/api/sessions/{created.session_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["messages"] == [
+        {"role": "user", "content": "original request"},
+        {"role": "system", "content": "[上下文已压缩：1 条消息 → 摘要]"},
+    ]
+    assert payload["messages_page"]["raw_message_total"] == 1
+
+
+def test_session_detail_endpoint_hides_non_user_visible_replacements(dashboard_client):
+    created = create_agent_session(
+        session_id="detail-repair-session",
+        source=_source("chat-detail-repair"),
+        state_data=_state([{"role": "user", "content": "first"}]),
+        title="Detail Repair",
+    )
+    append_transcript_replacement(
+        created.session_id,
+        replacement_history=[{"role": "user", "content": "model-only repair"}],
+        replacement_kind="repair",
+        reason="pre_call_repair",
+    )
+    append_agent_session_message(
+        created.session_id,
+        {"role": "user", "content": "second"},
+    )
+
+    response = dashboard_client.get(f"/api/sessions/{created.session_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["messages"] == [
+        {"role": "user", "content": "first"},
+        {"role": "user", "content": "second"},
+    ]
+    assert payload["messages_page"]["total"] == 2
+    assert payload["messages_page"]["raw_message_total"] == 2
+
+
 def test_session_detail_endpoint_defaults_to_latest_10_display_items(dashboard_client):
     messages = [{"role": "user", "content": f"message {index}"} for index in range(100)]
     created = create_agent_session(
@@ -554,14 +612,14 @@ def test_session_detail_endpoint_keeps_contiguous_assistant_messages_on_one_disp
     }
 
 
-def test_session_detail_endpoint_returns_empty_messages_when_jsonl_missing(dashboard_client):
+def test_session_detail_endpoint_returns_empty_messages_when_transcript_missing(dashboard_client):
     created = create_agent_session(
         session_id="missing-jsonl-session",
         source=_source("chat-missing"),
         state_data=_state([{"role": "user", "content": "will be removed"}]),
         title="Missing JSONL",
     )
-    session_messages_path(created.session_id).unlink()
+    session_transcript_path(created.session_id).unlink()
 
     response = dashboard_client.get(f"/api/sessions/{created.session_id}")
 

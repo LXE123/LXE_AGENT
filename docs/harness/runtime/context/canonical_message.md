@@ -4,7 +4,7 @@
 
 ## 目的
 
-这篇文档解释 runtime 内部“长期记忆”的数据形状：`state_data` 里哪些内容属于控制态，哪些内容属于可进入 LLM 的 message history。读者如果在排查消息为什么被清洗、某个 role/block 为什么被保留或丢弃、JSONL history 和 provider messages 如何对应，应该读这一篇。
+这篇文档解释 runtime 内部“长期记忆”的数据形状：`state_data` 里哪些内容属于控制态，哪些内容属于可进入 LLM 的 model-visible message history。读者如果在排查消息为什么被清洗、某个 role/block 为什么被保留或丢弃、transcript replay 和 provider messages 如何对应，应该读这一篇。
 
 ## 设计理念
 
@@ -12,14 +12,15 @@ Canonical message 是 runtime 的共同语言。它把 session 存储、context 
 
 ## 链路位置
 
-这一层位于 session storage 和 `AgentLoop` 之间。turn 开始时，JSONL history 被读回并清洗成 canonical messages；turn 执行中，assistant message 和 tool result 继续按同一格式追加；turn 结束后，这套 messages 再写回 session message history。
+这一层位于 session storage 和 `AgentLoop` 之间。turn 开始时，transcript 事件日志被 replay 成 model-visible canonical messages；turn 执行中，assistant message 和 tool result 继续按同一格式追加并 checkpoint；turn 结束后，metadata 仍写入 SQLite，但 messages 不再作为唯一历史被整包重写。
 
 本文说明当前 runtime 内部保存和传递的 context state 与 canonical message 格式。事实来源：
 
 - [shared/agent_state.py](../../../../shared/agent_state.py)
 - [agent_runtime/context_pipeline.py](../../../../agent_runtime/context_pipeline.py)
 - [agent_runtime/llm_adapter.py](../../../../agent_runtime/llm_adapter.py)
-- [shared/db/sqlite/session_messages.py](../../../../shared/db/sqlite/session_messages.py)
+- [shared/db/sqlite/session_transcripts.py](../../../../shared/db/sqlite/session_transcripts.py)
+- [shared/db/sqlite/session_messages.py](../../../../shared/db/sqlite/session_messages.py)（legacy import 来源）
 
 ## Context State Shape
 
@@ -51,13 +52,15 @@ Canonical message 是 runtime 的共同语言。它把 session 存储、context 
 
 ## Storage
 
-当前 session message history 不再保存在 SQLite session row 或旧 context data 表中。SQLite session row 保存 metadata、metrics、model 等字段；message history 保存在 JSONL 文件：
+当前 session message history 不再保存在 SQLite session row 或旧 context data 表中。SQLite session row 保存 metadata、metrics、model 等字段；完整事实历史保存在 append-only transcript JSONL：
 
 ```text
-session_messages/<session_id>.jsonl
+session_transcripts/<session_id>.jsonl
 ```
 
-`save_session_messages()` 写入前会调用 `update_context_state()` 清洗 messages，再逐行写 JSON。`load_session_messages()` 读取 JSONL 后也会重新清洗，非法 role 或非法 block 不会进入最终 context。
+`message` 事件保存原始 canonical message；`compaction`、`repair`、`history_limit`、`context_reset`、`memory_clear` 和 `legacy_import` 事件保存模型视图 replacement。`load_agent_session()` 会 replay transcript：从最近 replacement 的 `replacement_history` 开始，再追加后续 `message` 事件，得到 `state_data.context.messages`。
+
+旧的 `session_messages/<session_id>.jsonl` 只作为 lazy legacy import 来源；老 session 第一次加载且没有 transcript 时，会被写成一个 `legacy_import` replacement 事件。
 
 上下文如何从本轮临时消息进入长期 history，见 [Context Persistence](context_persistence.md)。
 

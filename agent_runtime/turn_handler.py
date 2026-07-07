@@ -9,11 +9,13 @@ from uuid import uuid4
 from agent_runtime.emit_bus import emit_final as default_emit_final
 from agent_runtime.emit_bus import emit_stream as default_emit_stream
 from shared.db.client import (
+    append_agent_session_context_replacement,
     append_agent_session_message,
     load_agent_session,
     pop_agent_session_pending_events,
     update_agent_session,
 )
+from shared.agent_state import CONTEXT_KEY, MESSAGES_KEY, context_state
 from shared.logging import get_logger
 from shared.runtime_core.outcome import job_handled
 
@@ -28,6 +30,29 @@ StreamEmitter = Callable[..., Awaitable[None]]
 TypingIndicatorEmitter = Callable[..., Awaitable[None]]
 _CHECKPOINT_APPEND_MESSAGE = "append_message"
 _CHECKPOINT_SNAPSHOT = "snapshot"
+
+
+def _replacement_kind_from_checkpoint_reason(reason: str) -> str:
+    safe_reason = str(reason or "").strip()
+    if safe_reason.endswith("_compaction") or safe_reason == "post_turn_compaction":
+        return "compaction"
+    if "history_limit" in safe_reason:
+        return "history_limit"
+    return "repair"
+
+
+def _strip_context_messages_from_state_patch(state_patch: dict[str, Any]) -> dict[str, Any]:
+    patch = dict(state_patch or {})
+    raw_context = patch.get(CONTEXT_KEY)
+    if not isinstance(raw_context, dict):
+        return patch
+    context = dict(raw_context)
+    context.pop(MESSAGES_KEY, None)
+    if context:
+        patch[CONTEXT_KEY] = context
+    else:
+        patch.pop(CONTEXT_KEY, None)
+    return patch
 
 
 def _sanitize_system_prefixed_text(text: str) -> str:
@@ -172,7 +197,7 @@ async def _persist_and_deliver(
     session_id = str(getattr(session, "session_id", "") or "").strip()
 
     message = str(outcome.reply or "").strip()
-    state_patch = dict(outcome.state_data_patch or {})
+    state_patch = _strip_context_messages_from_state_patch(dict(outcome.state_data_patch or {}))
     turn_log = outcome.turn_log
     metrics_delta = {
         "api_call_count": int(getattr(turn_log, "total_llm_calls", 0) or 0),
@@ -334,7 +359,19 @@ async def handle_unified_turn_job(
         if op == _CHECKPOINT_SNAPSHOT:
             state_data = checkpoint_payload.get("state_data")
             if isinstance(state_data, dict):
-                await update_agent_session(session_id, state_data_patch=dict(state_data))
+                reason = str(checkpoint_payload.get("reason") or "").strip()
+                await append_agent_session_context_replacement(
+                    session_id,
+                    replacement_history=list(context_state(state_data).get(MESSAGES_KEY) or []),
+                    replacement_kind=str(
+                        checkpoint_payload.get("replacement_kind")
+                        or _replacement_kind_from_checkpoint_reason(reason)
+                    ),
+                    reason=reason,
+                    summary_text=str(checkpoint_payload.get("summary_text") or ""),
+                    compacted_count=int(checkpoint_payload.get("compacted_count") or 0),
+                    trigger=str(checkpoint_payload.get("trigger") or ""),
+                )
             return
         logger.warning("[TurnHandler] unknown context checkpoint operation: %s", op or "-")
 

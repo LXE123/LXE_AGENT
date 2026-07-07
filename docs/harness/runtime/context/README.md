@@ -8,7 +8,7 @@
 
 ## 设计理念
 
-Context management 被拆成几层共同语言：state 和 canonical message 负责保存历史，context assembly 负责把一次 turn 组装成请求，tool schema 负责工具定义的内部格式和 provider 适配，pruning/compaction 负责预算控制。这样存储格式、prompt 组装、工具协议和上下文压缩不会在同一篇文档里互相覆盖。
+Context management 被拆成几层共同语言：transcript 负责保存事实历史，canonical message 负责 model-visible context 的内部形状，context assembly 负责把一次 turn 组装成请求，tool schema 负责工具定义的内部格式和 provider 适配，pruning/compaction 负责预算控制。这样存储格式、prompt 组装、工具协议和上下文压缩不会在同一篇文档里互相覆盖。
 
 ## 链路位置
 
@@ -22,12 +22,13 @@ Context management 被拆成几层共同语言：state 和 canonical message 负
 - [agent_runtime/context_pipeline.py](../../../../agent_runtime/context_pipeline.py)
 - [agent_runtime/tool_schema_adapter.py](../../../../agent_runtime/tool_schema_adapter.py)
 - [agent_runtime/llm_adapter.py](../../../../agent_runtime/llm_adapter.py)
-- [shared/db/sqlite/session_messages.py](../../../../shared/db/sqlite/session_messages.py)
+- [shared/db/sqlite/session_transcripts.py](../../../../shared/db/sqlite/session_transcripts.py)
+- [shared/db/sqlite/session_messages.py](../../../../shared/db/sqlite/session_messages.py)（legacy import 来源）
 
 ## 阅读顺序
 
-1. [Canonical Message 与 Context State](canonical_message.md)：当前 `state_data` shape、message roles、content blocks、JSONL storage 和 provider message adaptation。
-2. [Context Persistence](context_persistence.md)：本轮临时上下文如何在 turn 边界变成长期 message history。
+1. [Canonical Message 与 Context State](canonical_message.md)：当前 `state_data` shape、message roles、content blocks、model-visible context 和 provider message adaptation。
+2. [Context Persistence](context_persistence.md)：transcript 事件日志如何派生用户视图和模型视图。
 3. [Context Assembly](context_assembly.md)：每个 turn 如何组装 system prompt、messages 和 tool schemas。
 4. [Tool Schema](../tools/tool_schema.md)：内部 canonical `ToolSchema`、registry 输出和 Anthropic schema adaptation。
-5. [上下文裁剪与压缩实现细节](context_pruning_compaction.md)：历史图片裁剪、tool result prune、compaction、history limit 和 overflow recovery。
+5. [上下文裁剪与压缩实现细节](context_pruning_compaction.md)：历史图片裁剪、step tool result 裁剪、compaction、history limit 和 overflow recovery。

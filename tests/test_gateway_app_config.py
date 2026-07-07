@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gateway.app as app_mod
+import platforms.feishu.gateway as feishu_gateway
 
 
 def test_gateway_from_config_registers_only_feishu(monkeypatch) -> None:
@@ -14,6 +15,7 @@ def test_gateway_from_config_registers_only_feishu(monkeypatch) -> None:
     monkeypatch.setattr(app_mod, "FEISHU_ENABLED", True)
     monkeypatch.setattr(app_mod, "FEISHU_GATEWAY_ENABLED", True)
     monkeypatch.setattr(app_mod, "validate_feishu_runtime_config", lambda: None)
+    monkeypatch.setattr(feishu_gateway, "validate_feishu_runtime_config", lambda: None)
     monkeypatch.setattr(app_mod.importlib.util, "find_spec", fake_find_spec)
 
     app = app_mod.GatewayApp.from_config()

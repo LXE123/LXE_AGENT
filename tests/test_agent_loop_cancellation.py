@@ -355,8 +355,81 @@ def test_context_checkpoint_order_for_user_tool_call_and_tool_result(monkeypatch
         ("user_message", "user"),
         ("assistant_tool_call", "assistant"),
         ("tool_result", "tool"),
+        ("assistant_final", "assistant"),
     ]
     assert messages[-1] == {"role": "assistant", "content": [{"type": "text", "text": "完成"}]}
+
+
+def test_context_checkpoint_records_final_assistant_reply(monkeypatch) -> None:
+    checkpoint_events: list[tuple[str, str, str]] = []
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        return LLMResponse(
+            text="完成",
+            public_text="完成",
+            assistant_content=[{"type": "text", "text": "完成"}],
+        )
+
+    async def checkpoint(operation: str, payload: dict[str, Any]) -> None:
+        message = dict(payload.get("message") or {})
+        checkpoint_events.append((operation, str(payload.get("reason") or ""), str(message.get("role") or "")))
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+    turn = _turn_input()
+    turn.context_checkpoint = checkpoint
+
+    outcome = asyncio.run(_agent().run(turn))
+
+    assert outcome.status == "done"
+    assert ("append_message", "assistant_final", "assistant") in checkpoint_events
+
+
+def test_context_checkpoint_records_llm_error_reply(monkeypatch) -> None:
+    checkpoint_events: list[tuple[str, str, str]] = []
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        raise LLMProviderError(
+            "Authentication Fails",
+            provider="deepseek",
+            status_code=401,
+            category="认证失败",
+            user_message="DeepSeek 认证失败，请检查 API Key 是否正确。",
+            retryable=False,
+        )
+
+    async def checkpoint(operation: str, payload: dict[str, Any]) -> None:
+        message = dict(payload.get("message") or {})
+        checkpoint_events.append((operation, str(payload.get("reason") or ""), str(message.get("role") or "")))
+
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+    turn = _turn_input()
+    turn.context_checkpoint = checkpoint
+
+    outcome = asyncio.run(_agent().run(turn))
+
+    assert outcome.status == "error"
+    assert ("append_message", "assistant_error", "assistant") in checkpoint_events
+
+
+def test_context_checkpoint_records_max_steps_terminal_reply(monkeypatch) -> None:
+    checkpoint_events: list[tuple[str, str, str]] = []
+
+    async def fake_chat_with_tools_streaming(**_kwargs: Any) -> LLMResponse:
+        raise AssertionError("MAX_STEPS=0 should skip provider calls")
+
+    async def checkpoint(operation: str, payload: dict[str, Any]) -> None:
+        message = dict(payload.get("message") or {})
+        checkpoint_events.append((operation, str(payload.get("reason") or ""), str(message.get("role") or "")))
+
+    monkeypatch.setattr(loop_mod, "MAX_STEPS", 0)
+    monkeypatch.setattr(loop_mod, "chat_with_tools_streaming", fake_chat_with_tools_streaming)
+    turn = _turn_input()
+    turn.context_checkpoint = checkpoint
+
+    outcome = asyncio.run(_agent().run(turn))
+
+    assert outcome.status == "done"
+    assert ("append_message", "assistant_max_steps", "assistant") in checkpoint_events
 
 
 def test_large_tool_result_is_trimmed_before_next_model_request(monkeypatch) -> None:

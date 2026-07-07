@@ -370,7 +370,7 @@ const ZH_TEXT = {
     sessions: "会话",
     toolCalls: "工具调用",
     tokens: "Token",
-    messages: "消息",
+    messages: "原始消息",
     apiCalls: "API 调用"
   },
   common: {
@@ -617,7 +617,7 @@ const UI_TEXT: Record<Language, UiText> = {
       sessions: "Sessions",
       toolCalls: "Tool Calls",
       tokens: "Tokens",
-      messages: "Messages",
+      messages: "Raw messages",
       apiCalls: "API Calls"
     },
     common: {

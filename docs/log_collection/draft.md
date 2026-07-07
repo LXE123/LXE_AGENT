@@ -2,7 +2,7 @@
 
 本地已有两类数据：
 1. agent_sessions：session 级统计，比如 token、tool 次数、消息数、时间。
-2. session_messages/*.jsonl：聊天记录。
+2. session_transcripts/*.jsonl：append-only transcript 事件日志，可派生用户视图和模型视图。
 
 中心服务器用 machine_id + session_id 作为全局 session 标识。
 machine_id 由本地 agent 生成和维护，即使被删除也接受，因为只是产生一个新安装实例。

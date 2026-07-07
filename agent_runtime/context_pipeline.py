@@ -45,6 +45,13 @@ class ContextCompactionResult:
     summary_text: str = ""
     compacted_count: int = 0
 
+
+@dataclass
+class _MidturnCompactionPlan:
+    original_user_message: dict[str, Any]
+    compacted_messages: list[dict[str, Any]]
+    retained_messages: list[dict[str, Any]]
+
 # Constraint rules, one home only: operational safety gates live here, not
 # in SOUL.md (persona). Abstract alignment principles are compressed to one
 # line — rules need a concrete decision point to bind to. Wording partly
@@ -159,6 +166,27 @@ Use this EXACT format:
 - [Or "(none)" if not applicable]
 
 Keep each section concise. Preserve exact file paths, function names, and error messages."""
+
+_MIDTURN_SUMMARIZATION_PROMPT = """The messages above are intermediate steps from the current user task. Create a checkpoint summary that another LLM will use to continue the same task.
+
+Use this EXACT format:
+
+## Original Request
+- Quote the user's original request verbatim.
+
+## Completed Steps
+- List completed actions and confirmed results.
+- Preserve exact file paths, SKU IDs, shipment IDs, tool names, and error messages.
+
+## Omitted Raw Tool Results
+- List which raw tool results are no longer in the model-visible context.
+- For any omitted file, SKILL.md, config, command output, or external data, state how to re-fetch it.
+- Explicitly state that omitted raw content must be re-read with tools before being relied on; do not assume it from memory.
+
+## Current State
+- Describe what remains to do next.
+
+Keep it concise but operationally precise."""
 
 
 def _repo_root() -> Path:
@@ -541,6 +569,13 @@ def prune_processed_history_images(
 def make_compaction_summary_message(summary: str) -> dict[str, Any]:
     return make_user_message(
         "The conversation history before this point was compacted into the following summary: "
+        f"{str(summary or '').strip()}"
+    )
+
+
+def make_midturn_compaction_summary_message(summary: str) -> dict[str, Any]:
+    return make_user_message(
+        "The intermediate steps of the current task were compacted into the following checkpoint summary: "
         f"{str(summary or '').strip()}"
     )
 
@@ -930,6 +965,70 @@ def _select_recent_message_turns(messages: list[dict[str, Any]]) -> tuple[list[d
     return list(messages[:keep_start]), list(messages[keep_start:])
 
 
+def _message_step_spans(messages: list[dict[str, Any]], start: int, end: int) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    current_start: int | None = None
+    safe_start = max(0, int(start or 0))
+    safe_end = min(len(messages), max(safe_start, int(end or 0)))
+    for index in range(safe_start, safe_end):
+        role = str(dict(messages[index] or {}).get("role") or "").strip()
+        if role == "assistant":
+            if current_start is not None:
+                spans.append((current_start, index))
+            current_start = index
+            continue
+        if current_start is None:
+            current_start = index
+    if current_start is not None:
+        spans.append((current_start, safe_end))
+    return [(span_start, span_end) for span_start, span_end in spans if span_end > span_start]
+
+
+def _select_midturn_compaction_plan(messages: list[dict[str, Any]]) -> _MidturnCompactionPlan | None:
+    if not messages:
+        return None
+    span_start = _last_user_span_start(messages)
+    if span_start >= len(messages) - 1:
+        return None
+    user_message = dict(messages[span_start] or {})
+    if str(user_message.get("role") or "").strip() != "user":
+        return None
+
+    step_spans = _message_step_spans(messages, span_start + 1, len(messages))
+    if not step_spans:
+        return None
+
+    keep_group_index = len(step_spans)
+    consumed_tokens = 0
+    for index in range(len(step_spans) - 1, -1, -1):
+        start, end = step_spans[index]
+        group_tokens = _message_span_token_size(messages, start, end)
+        if consumed_tokens > 0 and consumed_tokens + group_tokens > RECENT_RAW_TURN_TOKEN_LIMIT:
+            break
+        keep_group_index = index
+        consumed_tokens += group_tokens
+        if consumed_tokens >= RECENT_RAW_TURN_TOKEN_LIMIT:
+            break
+
+    compacted_spans = step_spans[:keep_group_index]
+    if not compacted_spans and len(step_spans) == 1:
+        start, end = step_spans[0]
+        if _message_span_token_size(messages, start, end) > RECENT_RAW_TURN_TOKEN_LIMIT:
+            compacted_spans = step_spans
+            keep_group_index = len(step_spans)
+    if not compacted_spans:
+        return None
+
+    compact_start = compacted_spans[0][0]
+    compact_end = compacted_spans[-1][1]
+    retained_start = step_spans[keep_group_index][0] if keep_group_index < len(step_spans) else len(messages)
+    return _MidturnCompactionPlan(
+        original_user_message=user_message,
+        compacted_messages=list(messages[compact_start:compact_end]),
+        retained_messages=list(messages[retained_start:]),
+    )
+
+
 def build_llm_messages(
     *,
     state_data: dict[str, Any],
@@ -1015,6 +1114,26 @@ def replace_context_messages_in_state(
     )
 
 
+def _text_from_user_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+
+    parts: list[str] = []
+    for raw_block in list(content or []):
+        block = dict(raw_block or {}) if isinstance(raw_block, dict) else {}
+        block_type = str(block.get("type") or "").strip()
+        if block_type == "text":
+            text = str(block.get("text") or "").strip()
+            if text:
+                parts.append(text)
+            continue
+        if block_type == "image":
+            parts.append("[image omitted]")
+    return "\n".join(parts).strip()
+
+
 def _render_messages_for_summary(messages: list[dict[str, Any]]) -> str:
     lines: list[str] = []
     spans = _message_turn_spans(messages)
@@ -1027,7 +1146,7 @@ def _render_messages_for_summary(messages: list[dict[str, Any]]) -> str:
             role = str(item.get("role") or "").strip()
             content = item.get("content")
             if role in {"user", "system"}:
-                text = str(content or "").strip()
+                text = _text_from_user_content(content)
                 if text:
                     lines.append(f"{role.capitalize()}: {text}")
                 continue
@@ -1088,6 +1207,30 @@ async def _summarize_history(*, messages: list[dict[str, Any]]) -> str:
     return str(response.text or "").strip()
 
 
+async def _summarize_midturn_history(
+    *,
+    messages: list[dict[str, Any]],
+    original_user_message: dict[str, Any],
+) -> str:
+    transcript = _render_messages_for_summary(messages)
+    if not transcript.strip():
+        return ""
+    original_request = _text_from_user_content(dict(original_user_message or {}).get("content"))
+    user_text = (
+        f"{_MIDTURN_SUMMARIZATION_PROMPT}\n\n"
+        f"Original user request:\n{original_request}\n\n"
+        f"Intermediate steps to summarize:\n{transcript}"
+    )
+    response = await chat_with_tools(
+        system_prompt=_SUMMARY_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_text}],
+        tool_schemas=None,
+        max_tokens=32768,
+        temperature=0.0,
+    )
+    return str(response.text or "").strip()
+
+
 def _summary_failure_reason(error: BaseException) -> str:
     if isinstance(error, LLMProviderError) and (error.context_overflow or not error.retryable):
         return "non_retryable"
@@ -1101,11 +1244,15 @@ async def _summarize_history_with_retry(
     trigger: str,
     compacted_message_count: int,
     retained_message_count: int,
+    summarize_func: Any | None = None,
 ) -> str:
     max_attempts = max(1, int(SUMMARY_COMPACTION_MAX_ATTEMPTS or 1))
     for attempt in range(1, max_attempts + 1):
         try:
-            summary_text = str(await _summarize_history(messages=messages) or "").strip()
+            if summarize_func is None:
+                summary_text = str(await _summarize_history(messages=messages) or "").strip()
+            else:
+                summary_text = str(await summarize_func(messages=messages) or "").strip()
         except Exception as exc:
             reason = _summary_failure_reason(exc)
             logger.warning(
@@ -1170,17 +1317,97 @@ async def maybe_compact_history(
     if trigger_name != "overflow" and current_tokens <= trigger_limit:
         return ContextCompactionResult(state_data=state_data)
 
-    working_state = state_data
-    compacted_messages, retained_messages = _select_recent_message_turns(messages)
-    if not compacted_messages:
-        logger.warning(
-            "[ContextCompaction] session=%s trigger=%s no summarizable history prefix current_tokens=%s trigger_limit=%s",
+    def _should_keep_compacted_result(compacted_tokens: int) -> bool:
+        return int(compacted_tokens or 0) < int(current_tokens or 0)
+
+    async def _attempt_midturn_compaction(
+        *,
+        messages_for_plan: list[dict[str, Any]],
+        prefix_messages: list[dict[str, Any]] | None = None,
+        prior_summary_text: str = "",
+        prior_compacted_count: int = 0,
+    ) -> ContextCompactionResult | None:
+        midturn_plan = _select_midturn_compaction_plan(messages_for_plan)
+        if midturn_plan is None:
+            return None
+
+        async def _summarize_midturn_for_retry(*, messages: list[dict[str, Any]]) -> str:
+            return await _summarize_midturn_history(
+                messages=messages,
+                original_user_message=midturn_plan.original_user_message,
+            )
+
+        summary_text = await _summarize_history_with_retry(
+            messages=midturn_plan.compacted_messages,
+            session_id=session_id,
+            trigger=trigger,
+            compacted_message_count=len(midturn_plan.compacted_messages),
+            retained_message_count=len(midturn_plan.retained_messages),
+            summarize_func=_summarize_midturn_for_retry,
+        )
+        if not summary_text:
+            return ContextCompactionResult(state_data=state_data)
+
+        compacted_count = len(midturn_plan.compacted_messages)
+        next_messages = [
+            *list(prefix_messages or []),
+            midturn_plan.original_user_message,
+            make_midturn_compaction_summary_message(summary_text),
+            *midturn_plan.retained_messages,
+        ]
+        working_state = update_context_state(state_data, {"messages": next_messages})
+        summary_messages, summary_stats = build_llm_messages(
+            state_data=working_state,
+            current_turn_messages=[],
+            system_prompt=system_prompt,
+        )
+        _ = summary_messages
+        compacted_tokens = summary_stats.estimated_tokens + max(0, int(extra_tokens or 0))
+        total_compacted_count = max(0, int(prior_compacted_count or 0)) + compacted_count
+        if compacted_tokens > trigger_limit and not _should_keep_compacted_result(compacted_tokens):
+            logger.warning(
+                "[ContextCompaction] session=%s trigger=%s summary still over budget compacted_messages=%s retained_messages=%s tokens=%s trigger_limit=%s",
+                session_id,
+                trigger,
+                total_compacted_count,
+                len(next_messages),
+                compacted_tokens,
+                trigger_limit,
+            )
+            return ContextCompactionResult(state_data=state_data)
+        logger.info(
+            "[ContextCompaction] session=%s trigger=%s compacted_messages=%s retained_messages=%s summary=%s",
             session_id,
             trigger,
-            current_tokens,
-            trigger_limit,
+            total_compacted_count,
+            len(next_messages),
+            "midturn_message",
         )
-        return ContextCompactionResult(state_data=state_data)
+        combined_summary_text = "\n\n".join(
+            part
+            for part in [str(prior_summary_text or "").strip(), summary_text]
+            if part
+        )
+        return ContextCompactionResult(
+            state_data=working_state,
+            compacted=True,
+            summary_text=combined_summary_text,
+            compacted_count=total_compacted_count,
+        )
+
+    compacted_messages, retained_messages = _select_recent_message_turns(messages)
+    if not compacted_messages:
+        midturn_result = await _attempt_midturn_compaction(messages_for_plan=messages)
+        if midturn_result is None:
+            logger.warning(
+                "[ContextCompaction] session=%s trigger=%s no summarizable history prefix current_tokens=%s trigger_limit=%s",
+                session_id,
+                trigger,
+                current_tokens,
+                trigger_limit,
+            )
+            return ContextCompactionResult(state_data=state_data)
+        return midturn_result
 
     summary_text = await _summarize_history_with_retry(
         messages=compacted_messages,
@@ -1208,16 +1435,27 @@ async def maybe_compact_history(
     _ = summary_messages
     compacted_tokens = summary_stats.estimated_tokens + max(0, int(extra_tokens or 0))
     if compacted_tokens > trigger_limit:
-        logger.warning(
-            "[ContextCompaction] session=%s trigger=%s summary still over budget compacted_messages=%s retained_messages=%s tokens=%s trigger_limit=%s",
-            session_id,
-            trigger,
-            compacted_count,
-            len(retained_messages),
-            compacted_tokens,
-            trigger_limit,
+        summary_context_messages = load_context_messages(working_state)
+        latest_user_start = _last_user_span_start(summary_context_messages)
+        midturn_result = await _attempt_midturn_compaction(
+            messages_for_plan=summary_context_messages,
+            prefix_messages=summary_context_messages[:latest_user_start],
+            prior_summary_text=summary_text,
+            prior_compacted_count=compacted_count,
         )
-        return ContextCompactionResult(state_data=state_data)
+        if midturn_result is not None and midturn_result.compacted:
+            return midturn_result
+        if not _should_keep_compacted_result(compacted_tokens):
+            logger.warning(
+                "[ContextCompaction] session=%s trigger=%s summary still over budget compacted_messages=%s retained_messages=%s tokens=%s trigger_limit=%s",
+                session_id,
+                trigger,
+                compacted_count,
+                len(retained_messages),
+                compacted_tokens,
+                trigger_limit,
+            )
+            return ContextCompactionResult(state_data=state_data)
 
     logger.info(
         "[ContextCompaction] session=%s trigger=%s compacted_messages=%s retained_messages=%s summary=%s",

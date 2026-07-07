@@ -114,6 +114,28 @@ async def append_agent_session_message(
     )
 
 
+async def append_agent_session_context_replacement(
+    session_id: str,
+    *,
+    replacement_history: list[dict[str, Any]] | None,
+    replacement_kind: str,
+    reason: str = "",
+    summary_text: str = "",
+    compacted_count: int = 0,
+    trigger: str = "",
+):
+    return await _run_db_call(
+        _agent_state.append_agent_session_context_replacement_state,
+        session_id,
+        replacement_history=replacement_history,
+        replacement_kind=replacement_kind,
+        reason=reason,
+        summary_text=summary_text,
+        compacted_count=compacted_count,
+        trigger=trigger,
+    )
+
+
 async def cancel_agent_session(
     session_id: str,
     *,
@@ -194,6 +216,7 @@ def dispose() -> None:
 # Shared response route lifecycle used by the agent gateway.
 __all__ = [
     "append_agent_session_message",
+    "append_agent_session_context_replacement",
     "append_agent_session_pending_event",
     "cancel_agent_session",
     "clear_agent_session_memory",

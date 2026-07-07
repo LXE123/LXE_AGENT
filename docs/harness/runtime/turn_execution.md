@@ -94,15 +94,14 @@ Skill 的完整 catalog 见 [Skill docs](../skill/README.md)。这里不复制 s
 
 1. 创建 `TurnLog` 和 trace writer。
 2. 裁剪已处理历史图片。
-3. 构造当前 user message。
+3. 构造当前 user message，追加到 model-visible state，并写 transcript message checkpoint。
 4. 读取 active tool names 和 tool schemas。
 5. 构造 system prompt 和 LLM messages。
-6. 做 turn 前 tool result prune。
-7. 建立 `ToolExecutionContext`。
-8. 进入 `_loop()` 执行 LLM/tool step。
-9. turn 结束后追加本轮 messages。
-10. 执行 post-turn compaction 和 history limit。
-11. 生成最终 context stats 和 `TurnOutcome`。
+6. 建立 `ToolExecutionContext`。
+7. 进入 `_loop()` 执行 LLM/tool step；完整 assistant/tool message 产生时即时 checkpoint。
+8. turn 结束后先执行 history limit，再执行 post-turn compaction，必要时追加 transcript replacement。
+9. 执行最终 sanitizer repair。
+10. 生成最终 context stats 和 `TurnOutcome`。
 
 Context 细节见 [Runtime Context](context/README.md)，tool schema 和 tool execution 细节见 [Runtime Tools](tools/README.md)。
 

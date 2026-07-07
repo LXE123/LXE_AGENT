@@ -393,6 +393,10 @@ class AgentLoop:
         reason: str,
         message: dict[str, Any] | None = None,
         state_data: dict[str, Any] | None = None,
+        replacement_kind: str = "",
+        summary_text: str = "",
+        compacted_count: int = 0,
+        trigger: str = "",
     ) -> None:
         if self.context_checkpoint is None:
             return
@@ -403,6 +407,14 @@ class AgentLoop:
             payload["message"] = copy.deepcopy(message)
         if state_data is not None:
             payload["state_data"] = copy.deepcopy(state_data)
+        if replacement_kind:
+            payload["replacement_kind"] = str(replacement_kind or "").strip()
+        if summary_text:
+            payload["summary_text"] = str(summary_text or "").strip()
+        if compacted_count:
+            payload["compacted_count"] = int(compacted_count or 0)
+        if trigger:
+            payload["trigger"] = str(trigger or "").strip()
         await self.context_checkpoint(operation, payload)
 
     async def _prepare_provider_messages(
@@ -425,6 +437,7 @@ class AgentLoop:
                 _CHECKPOINT_SNAPSHOT,
                 reason="pre_call_repair",
                 state_data=exec_ctx.state_data,
+                replacement_kind="repair",
             )
 
         context_window = _model_context_window()
@@ -447,6 +460,10 @@ class AgentLoop:
                     _CHECKPOINT_SNAPSHOT,
                     reason="pre_call_compaction",
                     state_data=exec_ctx.state_data,
+                    replacement_kind="compaction",
+                    summary_text=compaction.summary_text,
+                    compacted_count=compaction.compacted_count,
+                    trigger="pre_call",
                 )
                 prepared_messages = load_context_messages(exec_ctx.state_data)
                 prepared_messages, repaired = sanitize_messages_for_provider(prepared_messages)
@@ -460,6 +477,7 @@ class AgentLoop:
                         _CHECKPOINT_SNAPSHOT,
                         reason="pre_call_post_compaction_repair",
                         state_data=exec_ctx.state_data,
+                        replacement_kind="repair",
                     )
             estimated_tokens = request_context_token_estimate(
                 system_prompt=system_prompt,
@@ -656,9 +674,15 @@ class AgentLoop:
         _log_step(final_step)
         assistant_blocks = _assistant_history_blocks(response)
         if assistant_blocks and not fallback_text:
-            await append_message(make_assistant_content_message(content=assistant_blocks))
+            await append_message(
+                make_assistant_content_message(content=assistant_blocks),
+                checkpoint_reason="assistant_final",
+            )
         else:
-            await append_message(make_assistant_text_message(final_text))
+            await append_message(
+                make_assistant_text_message(final_text),
+                checkpoint_reason="assistant_final",
+            )
         return TurnOutcome(
             status="done",
             reply=final_text,
@@ -790,6 +814,23 @@ class AgentLoop:
                 self._trace_turn_started_at = 0.0
                 self._wire_trace_turn_dir = ""
 
+            is_group = bool(
+                str(getattr(self.session, "conversation_type", "") or "").strip() == "2"
+            )
+            before_history_limit_messages = load_context_messages(self.state_data)
+            self.state_data = apply_message_history_limit(
+                self.state_data,
+                platform=platform,
+                is_group=is_group,
+            )
+            if load_context_messages(self.state_data) != before_history_limit_messages:
+                await self._checkpoint_context(
+                    _CHECKPOINT_SNAPSHOT,
+                    reason="post_turn_history_limit",
+                    state_data=self.state_data,
+                    replacement_kind="history_limit",
+                )
+
             compaction = await maybe_compact_history(
                 state_data=self.state_data,
                 session_id=turn.session_id,
@@ -798,15 +839,16 @@ class AgentLoop:
             )
             self.state_data = compaction.state_data
             turn_log.compaction_performed = compaction.compacted
-
-            is_group = bool(
-                str(getattr(self.session, "conversation_type", "") or "").strip() == "2"
-            )
-            self.state_data = apply_message_history_limit(
-                self.state_data,
-                platform=platform,
-                is_group=is_group,
-            )
+            if compaction.compacted:
+                await self._checkpoint_context(
+                    _CHECKPOINT_SNAPSHOT,
+                    reason="post_turn_compaction",
+                    state_data=self.state_data,
+                    replacement_kind="compaction",
+                    summary_text=compaction.summary_text,
+                    compacted_count=compaction.compacted_count,
+                    trigger="post_turn",
+                )
 
             repaired_messages, repaired = sanitize_messages_for_provider(load_context_messages(self.state_data))
             if repaired:
@@ -814,6 +856,12 @@ class AgentLoop:
                     self.state_data,
                     messages=repaired_messages,
                     validate_closure=True,
+                )
+                await self._checkpoint_context(
+                    _CHECKPOINT_SNAPSHOT,
+                    reason="post_turn_repair",
+                    state_data=self.state_data,
+                    replacement_kind="repair",
                 )
 
             state_patch = dict(self.state_data)
@@ -932,6 +980,10 @@ class AgentLoop:
                             _CHECKPOINT_SNAPSHOT,
                             reason="overflow_compaction",
                             state_data=exec_ctx.state_data,
+                            replacement_kind="compaction",
+                            summary_text=compaction.summary_text,
+                            compacted_count=compaction.compacted_count,
+                            trigger="overflow",
                         )
                         self._take_last_stream_summary()
                         overflow_recovered = True
@@ -946,7 +998,10 @@ class AgentLoop:
                 turn_log.steps.append(_err_step)
                 _log_step(_err_step)
                 reply = _llm_error_reply(error)
-                await _append_message(make_assistant_text_message(reply))
+                await _append_message(
+                    make_assistant_text_message(reply),
+                    checkpoint_reason="assistant_error",
+                )
                 return TurnOutcome(
                     status="error",
                     reply=reply,
@@ -1162,7 +1217,10 @@ class AgentLoop:
                     validate_closure=True,
                 )
 
-        await _append_message(make_assistant_text_message(_MAX_STEPS_TERMINAL_REPLY))
+        await _append_message(
+            make_assistant_text_message(_MAX_STEPS_TERMINAL_REPLY),
+            checkpoint_reason="assistant_max_steps",
+        )
         return TurnOutcome(
             status="done",
             reply=_MAX_STEPS_TERMINAL_REPLY,

@@ -108,10 +108,14 @@ system_prompt + messages + tool_schemas
 - `current_turn_messages`：用于 turn 结束后持久化。
 - `messages`：用于同一 turn 后续 step 继续发给 LLM。
 
-这意味着同一个 turn 内的多步工具调用不需要重新读取持久化 history；它会在内存里的 `messages` 列表上持续追加，直到 turn 完成或失败。
+每条完整 canonical message 产生后还会触发 context checkpoint，追加 transcript `message` 事件。`current_turn_messages` 仍用于 runtime 计算和 turn-end 统计，但不再是“直到 turn 结束才第一次持久化”的唯一缓存。
+
+这意味着同一个 turn 内的多步工具调用不需要重新读取持久化 history；它会在内存里的 `messages` 列表上持续追加，直到 turn 完成或失败，同时 transcript 已经有可恢复的事件序列。
 
 ## Turn 后持久化
 
-turn 结束后，`AgentLoop.run()` 会把 `current_turn_messages` 追加进 `state_data.context.messages`，再执行 post-turn compaction 和 history limit。最终 `state_data_patch` 交给 `turn_handler` 写回 session storage，message history 会落到 JSONL session message 文件。
+turn 结束后，`AgentLoop.run()` 会用本轮已经 checkpoint 的消息更新内存 `state_data.context.messages`，先执行 history limit，再执行 post-turn compaction 和最终 repair。任何导致 model-visible context 改写的步骤都会通过 transcript replacement checkpoint 落库。
+
+最终 `state_data_patch` 仍交给 `turn_handler` 保存 metrics、title、model 等 session metadata，但 patch 中的 `context.messages` 会被移除，避免 turn 末再把模型视图当作完整聊天历史重写。
 
 完整持久化边界和设计取舍见 [Context Persistence](context_persistence.md)。

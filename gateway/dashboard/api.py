@@ -25,7 +25,7 @@ from shared.connector_state import (
     set_connector_enabled,
 )
 from shared.db.sqlite.engine import connection_scope
-from shared.db.sqlite.session_messages import load_session_messages_page
+from shared.db.sqlite.session_transcripts import load_transcript_display_page
 from shared.env import upsert_project_local_config_values
 from shared.llm.agent_planner import agent_planner_selection_options
 from shared.llm.kimi_coding import client as kimi_coding_client
@@ -395,7 +395,7 @@ def _session_detail(session_id: str, *, message_limit: int = 10, message_page: i
     if row is None:
         raise HTTPException(status_code=404, detail="session not found")
     session = _session_row_payload(row)
-    messages_page = load_session_messages_page(
+    messages_page = load_transcript_display_page(
         session["session_id"],
         limit=message_limit,
         page=message_page,

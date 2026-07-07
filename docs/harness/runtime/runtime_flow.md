@@ -79,7 +79,8 @@ pending event
 - SQLite `agent_sessions`：session metadata、source、model、metrics 和 title。
 - SQLite `response_routes`：平台回复定位。
 - SQLite `agent_session_pending_events`：后台完成事件。
-- JSONL `session_messages/<session_id>.jsonl`：canonical message history。
+- JSONL `session_transcripts/<session_id>.jsonl`：append-only transcript 事件日志，派生用户视图和模型视图。
+- JSONL `session_messages/<session_id>.jsonl`：legacy message history，只作为老 session lazy import 来源。
 - `sessions.json`：`session_key -> session_id` 绑定。
 
 这些存储不属于 flow 文档的实现细节；需要查字段和落盘方式时读 [Local agent database layout](../../database/local_agent.md) 和 [Runtime Context](context/README.md)。

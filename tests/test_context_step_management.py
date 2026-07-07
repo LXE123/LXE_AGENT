@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from types import SimpleNamespace
 
 import agent_runtime.context_pipeline as context_pipeline
 from agent_runtime.context_pipeline import (
@@ -246,9 +247,20 @@ def test_build_llm_messages_preserves_step_trimmed_tool_result() -> None:
     assert "tokens truncated" in content
 
 
-def test_maybe_compact_history_single_span_does_not_age_tool_result(monkeypatch, caplog) -> None:
-    caplog.set_level(logging.WARNING)
+def test_maybe_compact_history_single_span_uses_midturn_summary_not_tool_result_aging(monkeypatch) -> None:
     monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 22050)
+
+    async def fake_summarize_midturn_history(
+        *,
+        messages: list[dict[str, object]],
+        original_user_message: dict[str, object],
+    ) -> str:
+        assert original_user_message == {"role": "user", "content": "run"}
+        assert messages[0]["role"] == "assistant"
+        assert messages[1]["role"] == "tool"
+        return "midturn summary"
+
+    monkeypatch.setattr(context_pipeline, "_summarize_midturn_history", fake_summarize_midturn_history)
     state_data = {
         "context": {
             "messages": [
@@ -288,9 +300,356 @@ def test_maybe_compact_history_single_span_does_not_age_tool_result(monkeypatch,
         )
     )
 
+    messages = load_context_messages(result.state_data)
+    assert result.compacted is True
+    assert messages[0] == {"role": "user", "content": "run"}
+    assert "midturn summary" in messages[1]["content"]
+    assert "[tool result elided to save context]" not in str(messages)
+
+
+def test_maybe_compact_history_midturn_compacts_after_old_turn_summary_still_over_budget(monkeypatch) -> None:
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 22050)
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        assert messages[0] == {"role": "user", "content": "old request"}
+        return "old turn summary"
+
+    async def fake_summarize_midturn_history(
+        *,
+        messages: list[dict[str, object]],
+        original_user_message: dict[str, object],
+    ) -> str:
+        assert original_user_message == {"role": "user", "content": "run latest"}
+        assert messages[0]["role"] == "assistant"
+        assert messages[1]["role"] == "tool"
+        return "latest turn checkpoint"
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    monkeypatch.setattr(context_pipeline, "_summarize_midturn_history", fake_summarize_midturn_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "run latest"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_call",
+                            "id": "toolu-1",
+                            "name": "exec",
+                            "arguments": {"cmd": "large"},
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_call_id": "toolu-1",
+                            "content": "START-" + ("x" * 90000) + "-END",
+                        }
+                    ],
+                },
+                {"role": "assistant", "content": [{"type": "text", "text": "recent"}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="pre_call",
+        )
+    )
+
+    messages = load_context_messages(result.state_data)
+    assert result.compacted is True
+    assert result.compacted_count == 4
+    assert "old turn summary" in messages[0]["content"]
+    assert messages[1] == {"role": "user", "content": "run latest"}
+    assert "latest turn checkpoint" in messages[2]["content"]
+    assert messages[-1] == {"role": "assistant", "content": [{"type": "text", "text": "recent"}]}
+
+
+def test_maybe_compact_history_keeps_improved_pre_call_summary_above_soft_trigger(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1000)
+    monkeypatch.setattr(context_pipeline, "DEFAULT_RESERVE_TOKENS", 0)
+    monkeypatch.setattr(context_pipeline, "RECENT_RAW_TURN_TOKEN_LIMIT", 100)
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        assert messages[0] == {"role": "user", "content": "old request"}
+        return "old request summary"
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer " + ("o" * 1200)}]},
+                {"role": "user", "content": "recent " + ("x" * 3700)},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="pre_call",
+        )
+    )
+
+    messages = load_context_messages(result.state_data)
+    assert result.compacted is True
+    assert result.state_data != state_data
+    assert "old request summary" in messages[0]["content"]
+    assert messages[1]["content"].startswith("recent ")
+
+
+def test_maybe_compact_history_keeps_improved_summary_when_midturn_fallback_empty(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1000)
+    monkeypatch.setattr(context_pipeline, "DEFAULT_RESERVE_TOKENS", 0)
+    monkeypatch.setattr(context_pipeline, "RECENT_RAW_TURN_TOKEN_LIMIT", 100)
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        assert messages[0] == {"role": "user", "content": "old request"}
+        return "old request summary"
+
+    async def fake_summarize_midturn_history(
+        *,
+        messages: list[dict[str, object]],
+        original_user_message: dict[str, object],
+    ) -> str:
+        assert messages[0]["role"] == "assistant"
+        assert original_user_message == {"role": "user", "content": "run"}
+        return ""
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    monkeypatch.setattr(context_pipeline, "_summarize_midturn_history", fake_summarize_midturn_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer " + ("o" * 1200)}]},
+                {"role": "user", "content": "run"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_call",
+                            "id": "toolu-1",
+                            "name": "exec",
+                            "arguments": {"cmd": "large"},
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_call_id": "toolu-1",
+                            "content": "START-" + ("x" * 5000) + "-END",
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="pre_call",
+        )
+    )
+
+    messages = load_context_messages(result.state_data)
+    assert result.compacted is True
+    assert result.state_data != state_data
+    assert "old request summary" in messages[0]["content"]
+    assert messages[1] == {"role": "user", "content": "run"}
+    assert messages[-1]["role"] == "tool"
+
+
+def test_maybe_compact_history_drops_summary_when_it_does_not_reduce_tokens(
+    monkeypatch,
+    caplog,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1000)
+    monkeypatch.setattr(context_pipeline, "DEFAULT_RESERVE_TOKENS", 0)
+    monkeypatch.setattr(context_pipeline, "RECENT_RAW_TURN_TOKEN_LIMIT", 100)
+
+    async def fake_summarize_history(*, messages: list[dict[str, object]]) -> str:
+        return "worse summary " + ("s" * 6000)
+
+    monkeypatch.setattr(context_pipeline, "_summarize_history", fake_summarize_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "old request"},
+                {"role": "assistant", "content": [{"type": "text", "text": "old answer"}]},
+                {"role": "user", "content": "recent " + ("x" * 3700)},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="pre_call",
+        )
+    )
+
     assert result.compacted is False
     assert result.state_data == state_data
-    assert any("no summarizable history prefix" in record.getMessage() for record in caplog.records)
+    assert any("summary still over budget" in record.getMessage() for record in caplog.records)
+
+
+def test_maybe_compact_history_keeps_improved_midturn_summary_above_soft_trigger(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1000)
+    monkeypatch.setattr(context_pipeline, "DEFAULT_RESERVE_TOKENS", 0)
+    monkeypatch.setattr(context_pipeline, "RECENT_RAW_TURN_TOKEN_LIMIT", 100)
+
+    async def fake_summarize_midturn_history(
+        *,
+        messages: list[dict[str, object]],
+        original_user_message: dict[str, object],
+    ) -> str:
+        assert original_user_message == {"role": "user", "content": "run"}
+        assert messages[0]["role"] == "assistant"
+        assert messages[1]["role"] == "tool"
+        return "tool checkpoint"
+
+    monkeypatch.setattr(context_pipeline, "_summarize_midturn_history", fake_summarize_midturn_history)
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "run"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_call",
+                            "id": "toolu-1",
+                            "name": "exec",
+                            "arguments": {"cmd": "large"},
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_call_id": "toolu-1",
+                            "content": "START-" + ("x" * 5000) + "-END",
+                        }
+                    ],
+                },
+                {"role": "assistant", "content": [{"type": "text", "text": "recent " + ("r" * 3300)}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="pre_call",
+        )
+    )
+
+    messages = load_context_messages(result.state_data)
+    assert result.compacted is True
+    assert "tool checkpoint" in messages[1]["content"]
+    assert messages[-1]["content"][0]["text"].startswith("recent ")
+
+
+def test_render_messages_for_summary_extracts_multiblock_user_text_without_repr() -> None:
+    transcript = context_pipeline._render_messages_for_summary(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "first"},
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": "A" * 100,
+                        },
+                    },
+                    {"type": "text", "text": "second"},
+                ],
+            },
+            {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+        ]
+    )
+
+    assert "User: first" in transcript
+    assert "second" in transcript
+    assert "[image omitted]" in transcript
+    assert "{'type': 'text'" not in transcript
+    assert "AAAAAAAA" not in transcript
+
+
+def test_summarize_midturn_history_extracts_original_multiblock_request(monkeypatch) -> None:
+    captured: dict[str, str] = {}
+
+    async def fake_chat_with_tools(**kwargs: object) -> SimpleNamespace:
+        messages = list(kwargs["messages"])  # type: ignore[index]
+        captured["content"] = str(messages[0]["content"])
+        return SimpleNamespace(text="summary")
+
+    monkeypatch.setattr(context_pipeline, "chat_with_tools", fake_chat_with_tools)
+
+    result = asyncio.run(
+        context_pipeline._summarize_midturn_history(
+            messages=[{"role": "assistant", "content": [{"type": "text", "text": "worked"}]}],
+            original_user_message={
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "inspect"},
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": "B" * 100,
+                        },
+                    },
+                    {"type": "text", "text": "please"},
+                ],
+            },
+        )
+    )
+
+    assert result == "summary"
+    assert "inspect" in captured["content"]
+    assert "please" in captured["content"]
+    assert "[image omitted]" in captured["content"]
+    assert "{'type': 'text'" not in captured["content"]
+    assert "BBBBBBBB" not in captured["content"]
 
 
 def test_maybe_compact_history_returns_original_state_when_summary_raises(monkeypatch, caplog) -> None:
@@ -680,7 +1039,7 @@ def test_overflow_compaction_bypasses_local_estimate_gate_for_summary(monkeypatc
     assert messages[1]["content"].startswith("recent ")
 
 
-def test_overflow_compaction_bypasses_local_estimate_gate_but_does_not_age_single_span(
+def test_overflow_compaction_noops_when_single_turn_has_no_step_to_summarize(
     monkeypatch,
     caplog,
 ) -> None:
@@ -689,29 +1048,7 @@ def test_overflow_compaction_bypasses_local_estimate_gate_but_does_not_age_singl
     state_data = {
         "context": {
             "messages": [
-                {"role": "user", "content": "run"},
-                {
-                    "role": "assistant",
-                    "content": [
-                        {
-                            "type": "tool_call",
-                            "id": "toolu-1",
-                            "name": "exec",
-                            "arguments": {"cmd": "large"},
-                        }
-                    ],
-                },
-                {
-                    "role": "tool",
-                    "content": [
-                        {
-                            "type": "tool_result",
-                            "tool_call_id": "toolu-1",
-                            "content": "START-" + ("x" * 90000) + "-END",
-                        }
-                    ],
-                },
-                {"role": "assistant", "content": [{"type": "text", "text": "recent"}]},
+                {"role": "user", "content": "run " + ("x" * 90000)},
             ],
         },
     }
@@ -729,6 +1066,95 @@ def test_overflow_compaction_bypasses_local_estimate_gate_but_does_not_age_singl
     assert result.compacted is False
     assert messages == state_data["context"]["messages"]
     assert any("no summarizable history prefix" in record.getMessage() for record in caplog.records)
+
+
+def test_overflow_compaction_summarizes_oversized_single_turn_at_step_boundary(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(context_pipeline, "_model_context_window_tokens", lambda: 1_000_000)
+    summarized: dict[str, list[dict[str, object]]] = {}
+
+    async def fake_summarize_midturn_history(
+        *,
+        messages: list[dict[str, object]],
+        original_user_message: dict[str, object],
+    ) -> str:
+        summarized["messages"] = messages
+        assert original_user_message == {"role": "user", "content": "run long task"}
+        return "checkpoint summary with omitted tool result list"
+
+    monkeypatch.setattr(context_pipeline, "_summarize_midturn_history", fake_summarize_midturn_history)
+    old_tool_call = {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "tool_call",
+                "id": "toolu-old",
+                "name": "exec",
+                "arguments": {"cmd": "large"},
+            }
+        ],
+    }
+    old_tool_result = {
+        "role": "tool",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_call_id": "toolu-old",
+                "content": "START-" + ("x" * 90000) + "-END",
+            }
+        ],
+    }
+    recent_tool_call = {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "tool_call",
+                "id": "toolu-recent",
+                "name": "exec",
+                "arguments": {"cmd": "small"},
+            }
+        ],
+    }
+    recent_tool_result = {
+        "role": "tool",
+        "content": [
+            {
+                "type": "tool_result",
+                "tool_call_id": "toolu-recent",
+                "content": "recent result",
+            }
+        ],
+    }
+    state_data = {
+        "context": {
+            "messages": [
+                {"role": "user", "content": "run long task"},
+                old_tool_call,
+                old_tool_result,
+                recent_tool_call,
+                recent_tool_result,
+                {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]},
+            ],
+        },
+    }
+
+    result = asyncio.run(
+        maybe_compact_history(
+            state_data=state_data,
+            session_id="s1",
+            system_prompt="",
+            trigger="overflow",
+        )
+    )
+
+    messages = load_context_messages(result.state_data)
+    assert result.compacted is True
+    assert summarized["messages"] == [old_tool_call, old_tool_result]
+    assert messages[0] == {"role": "user", "content": "run long task"}
+    assert "current task were compacted" in messages[1]["content"]
+    assert "checkpoint summary with omitted tool result list" in messages[1]["content"]
+    assert messages[2:] == [recent_tool_call, recent_tool_result, {"role": "assistant", "content": [{"type": "text", "text": "recent answer"}]}]
     validate_tool_call_closure(messages)
 
 

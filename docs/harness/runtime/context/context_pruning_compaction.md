@@ -12,7 +12,7 @@
 
 ## 链路位置
 
-这一层贯穿 `AgentLoop.run()`：turn 前处理 `state_data.context.messages` 并构造本轮 messages；turn 内在 `_loop()` 中处理新 tool result、pre-call 预算管理和 LLM step overflow；turn 后追加本轮 messages，再做 compaction、history limit 和 final context stats。上下文基础格式见 [canonical_message.md](canonical_message.md)，turn 前组装链路见 [context_assembly.md](context_assembly.md)。
+这一层贯穿 `AgentLoop.run()`：turn 前处理 replay 后的 `state_data.context.messages` 并构造本轮 messages；turn 内在 `_loop()` 中处理新 tool result、pre-call 预算管理和 LLM step overflow；turn 后先应用 history limit，再做 post-turn compaction、repair 和 final context stats。上下文基础格式见 [canonical_message.md](canonical_message.md)，turn 前组装链路见 [context_assembly.md](context_assembly.md)。
 
 本文只维护当前 `AgentLoop` 对上下文裁剪、压缩、history limit、历史图片裁剪和 context overflow recovery 的实现。事实来源限定为：
 
@@ -40,9 +40,9 @@ turn 内:
   -> rebuild messages and retry
 
 turn 后:
-  append current_turn_messages
+  apply_message_history_limit()
   -> maybe_compact_history(trigger="post_turn")
-  -> apply_message_history_limit()
+  -> sanitize repair if needed
   -> final build_llm_messages() stats
 ```
 
@@ -165,11 +165,13 @@ Context overflow recovery 的目的是在 provider 拒绝当前请求时，给�
 
 #### 目的
 
-Summary compaction 的目的是把旧历史压成一条 summary message，让当前 turn 能继续发送给 provider。当前实现不再对当前 turn 的旧 tool result 做 deterministic aging；如果摘要不能安全降到预算内，就保留原 state 并让现有错误路径停止。
+Summary compaction 的目的是把模型可见历史压成一条 summary message，让当前 turn 能继续发送给 provider。当前实现不再对当前 turn 的旧 tool result 做 deterministic aging；如果摘要不能安全降到预算内，就保留原 state 并让现有错误路径停止。
 
 #### 设计理念
 
-`maybe_compact_history()` 只做摘要压缩：保留最近约 `20000` estimated tokens 的 raw turn，把更旧 messages 总结成一条 summary message。摘要调用异常或返回空时最多尝试两次；没有可摘要前缀、两次摘要仍失败/为空，或者摘要后重新估算仍超过触发阈值，都不写入 snapshot，返回 `compacted=False`。
+`maybe_compact_history()` 只做摘要压缩。优先路径是跨 turn 摘要：保留最近约 `20000` estimated tokens 的 raw turn，把更旧 messages 总结成一条 summary message。若没有可摘要旧 turn，但最新 user span 自身已经过大，会走 turn 内 checkpoint summary：逐字保留本 turn 的原始 user message，按 step 边界保留末端约 `20000` token，把中间旧步骤摘要成一条独立前缀的 user message。若跨 turn 摘要成功但重新估算仍超预算，也会在“旧摘要 + 最新 turn”的模型视图上继续尝试 mid-turn checkpoint summary。
+
+摘要调用异常或返回空时最多尝试两次；没有可摘要前缀、两次摘要仍失败/为空，或者摘要后重新估算仍超过触发阈值，都不写入 replacement，返回 `compacted=False`。
 
 #### 细节
 
@@ -199,6 +201,14 @@ estimated_tokens + extra_tokens > model_context_window_tokens - DEFAULT_RESERVE_
 3. 更旧的 messages 会被 `_summarize_history()` 渲染成 transcript 后交给 LLM 总结。
 4. `make_compaction_summary_message()` 把 summary 写成一条 `user` message。
 
+如果第 1 步没有得到可压缩旧 turn，则会尝试 `_select_midturn_compaction_plan()`：
+
+1. 定位最后一条 user message 开始的当前 span。
+2. 将该 span 内的 assistant/tool 消息按 step 分组，边界只落在 assistant + 后续 tool results 之后，避免拆开 tool call/tool result。
+3. 从末端保留约 `20000` token 的最近步骤。
+4. 将更早步骤交给 `_summarize_midturn_history()`，摘要 prompt 要求逐字引用原始请求、保留文件路径/ID/报错原文，并列出被省略 raw tool result 及重新获取方式。
+5. 压缩后的模型视图形态为：原始 user message + mid-turn checkpoint summary user message + retained recent step messages。
+
 摘要生成阶段有一次窄重试：普通异常、超时、provider retryable error、空摘要会再试一次。`LLMProviderError(context_overflow=True)` 或 `retryable=False` 不重试；摘要后仍超预算也不重试，因为这属于结构性预算失败，不是瞬时故障。
 
 压缩后的 history 形态是：
@@ -213,13 +223,13 @@ estimated_tokens + extra_tokens > model_context_window_tokens - DEFAULT_RESERVE_
 ]
 ```
 
-当前 summary 是内联写回 `state_data.context.messages`，不是 side table，也不是单独 compaction record。
+summary 会先写入 `state_data.context.messages` 作为新的 model-visible view；持久化时由 `AgentLoop` 通过 context checkpoint 追加 transcript `compaction` replacement 事件，`replacement_history` 就是这份压缩后的模型视图。完整原始 message 事件仍留在 transcript 中供用户视图展示。
 
-压缩成功必须满足：summary 非空，并且写入 summary 后的 `system_prompt + messages + extra_tokens` 估算值不超过当前触发阈值。否则会记录 warning，保留原始 `state_data.context.messages`。
+压缩成功必须满足：summary 非空，并且写入 summary 后的 `system_prompt + messages + extra_tokens` 估算值不超过当前触发阈值。否则会记录 warning，保留原始 `state_data.context.messages`，也不会追加 compaction replacement。
 
 ## Turn 后
 
-Turn 后阶段发生在 `AgentLoop._loop()` 返回 `TurnOutcome` 之后。它会先把本轮需要持久化的 messages 追加到 state，然后再处理长期历史体积。
+Turn 后阶段发生在 `AgentLoop._loop()` 返回 `TurnOutcome` 之后。本轮完整 message 在产生时已经进入内存 state 并通过 transcript `message` checkpoint 持久化；turn 后主要处理 model-visible context 的长期体积，并在发生改写时追加 transcript replacement。
 
 ### Post-Turn Compaction
 
@@ -229,16 +239,11 @@ Post-turn compaction 的目的是在一次 turn 完整结束后，把过大的�
 
 #### 设计理念
 
-当前实现选择在 append messages 之后做 post-turn compaction。这样本轮用户输入、assistant tool call、tool result 和最终回复会先作为完整结构进入历史，再由 compaction 决定旧历史是否需要摘要。它优先保留最近约 `20000` token 的原文，把更早历史压成 summary。
+当前实现选择在 history limit 之后做 post-turn compaction。这样如果平台 turn 数上限已经能收缩模型视图，summary 不会刚生成就被 turn limit 丢弃。post-turn compaction 仍优先保留最近约 `20000` token 的原文，把更早历史压成 summary；如果最新 turn 自身过大，也可以走 mid-turn checkpoint summary。
 
 #### 细节
 
-Turn 结束后，`AgentLoop.run()` 会决定要追加哪些 messages：
-
-- 普通完成或错误：追加 `current_turn_messages`。
-- cancelled：追加 `outcome.messages_to_persist`，也就是取消前已经闭合、允许持久化的消息。
-
-如果有 messages 被追加，就调用：
+Turn 结束后，`AgentLoop.run()` 会先调用 `apply_message_history_limit()`；如果 history limit 改写了模型视图，会 checkpoint 一个 `history_limit` replacement。随后调用：
 
 ```python
 maybe_compact_history(trigger="post_turn")
@@ -253,6 +258,8 @@ post-turn compaction 使用和 overflow/pre-call compaction 相同的 summary co
 
 压缩成功后，`turn_log.compaction_performed = True`。
 
+如果 post-turn sanitizer 发现 closure 需要修复，会追加一个 `repair` replacement。turn 末最终 `state_data_patch` 只用于 session metadata 和 runtime state；`turn_handler` 会剥离 `context.messages`，避免把模型视图当作 transcript 快照重写。
+
 ### History Turn Limit
 
 #### 目的
@@ -265,7 +272,7 @@ History turn limit 的目的是给特定平台设置硬性的历史轮数上限�
 
 #### 细节
 
-`apply_message_history_limit()` 在 post-turn compaction 之后运行。它按平台和会话类型读取配置：
+`apply_message_history_limit()` 在 post-turn compaction 之前运行。它按平台和会话类型读取配置：
 
 ```python
 DEFAULT_CHANNEL_HISTORY_LIMITS = {

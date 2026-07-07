@@ -32,11 +32,11 @@ from ._agent_storage import (
     utc_now,
 )
 from .engine import connection_scope
-from .session_messages import (
-    append_session_message,
-    clear_session_messages,
-    load_session_messages,
-    save_session_messages,
+from .session_transcripts import (
+    append_transcript_message,
+    append_transcript_replacement,
+    ensure_transcript_seeded_from_legacy_messages,
+    replay_transcript_model_context,
 )
 
 logger = get_logger(__name__)
@@ -61,6 +61,10 @@ _METRIC_FIELDS = {
     "api_call_count",
 }
 _TITLE_LIMIT = 60
+_COMPACTION_TITLE_SKIP_PREFIXES = (
+    "The conversation history before this point was compacted into the following summary:",
+    "The intermediate steps of the current task were compacted into the following checkpoint summary:",
+)
 
 
 @dataclass
@@ -362,7 +366,8 @@ def _compose_record_state(
     conn: Connection,
 ) -> dict[str, Any]:
     _ = conn
-    context_data = {MESSAGES_KEY: load_session_messages(record.session_id)}
+    ensure_transcript_seeded_from_legacy_messages(record.session_id)
+    context_data = {MESSAGES_KEY: replay_transcript_model_context(record.session_id)}
     return compose_agent_state({}, context_data)
 
 
@@ -404,8 +409,13 @@ def _merge_state_data(
         _runtime_patch_values(raw_patch.get(RUNTIME_KEY))
     context_patch = dict(raw_patch.get(CONTEXT_KEY) or {}) if isinstance(raw_patch.get(CONTEXT_KEY), dict) else {}
     if CONTEXT_KEY in raw_patch and MESSAGES_KEY in context_patch:
-        saved_messages = save_session_messages(record.session_id, context_patch.get(MESSAGES_KEY))
-        return len(saved_messages)
+        append_transcript_replacement(
+            record.session_id,
+            replacement_history=context_patch.get(MESSAGES_KEY),
+            replacement_kind="repair",
+            reason="state_data_context_patch",
+        )
+        return _clean_int(record.message_count)
     return None
 
 
@@ -443,7 +453,10 @@ def _title_from_messages(messages: list[dict[str, Any]]) -> str:
         raw_message = dict(message or {})
         if str(raw_message.get("role") or "").strip() != "user":
             continue
-        title = _title_from_text(_text_from_user_message(raw_message))
+        text = _text_from_user_message(raw_message)
+        if any(text.startswith(prefix) for prefix in _COMPACTION_TITLE_SKIP_PREFIXES):
+            continue
+        title = _title_from_text(text)
         if title:
             return title
     return ""
@@ -520,7 +533,15 @@ def create_agent_session(
 
     with connection_scope() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        saved_messages = save_session_messages(safe_session_id, dict(context_data or {}).get(MESSAGES_KEY) or [])
+        message_count = 0
+        for message in list(dict(context_data or {}).get(MESSAGES_KEY) or []):
+            appended = append_transcript_message(
+                safe_session_id,
+                dict(message or {}),
+                reason="session_create",
+            )
+            if appended is not None:
+                message_count += 1
         record = AgentSessionRecord(
             session_id=safe_session_id,
             source=_clean_source(source),
@@ -528,7 +549,7 @@ def create_agent_session(
             model_config=selected_model_config,
             created_at=now,
             last_active_at=now,
-            message_count=len(saved_messages),
+            message_count=message_count,
             tool_call_count=0,
             input_tokens=0,
             output_tokens=0,
@@ -571,7 +592,7 @@ def update_agent_session(
         messages = None
         if new_message_count is not None:
             record.message_count = new_message_count
-            messages = load_session_messages(record.session_id)
+            messages = replay_transcript_model_context(record.session_id)
 
         metrics = _metrics_delta_values(metrics_delta)
         record.tool_call_count += metrics["tool_call_count"]
@@ -602,11 +623,44 @@ def append_agent_session_message(
         if record is None:
             return None
 
-        appended = append_session_message(record.session_id, dict(message or {}))
+        appended = append_transcript_message(record.session_id, dict(message or {}), reason="append_message")
         if appended is None:
             return _to_state(record, conn=conn)
 
-        record.message_count = len(load_session_messages(record.session_id))
+        record.message_count = _clean_int(record.message_count) + 1
+        record.last_active_at = _now_ts()
+        _save_session_record(conn, record)
+        return _to_state(record, conn=conn)
+
+
+def append_agent_session_context_replacement(
+    session_id: str,
+    *,
+    replacement_history: list[dict[str, Any]] | None,
+    replacement_kind: str,
+    reason: str = "",
+    summary_text: str = "",
+    compacted_count: int = 0,
+    trigger: str = "",
+) -> Optional[AgentSessionState]:
+    if not session_id:
+        return None
+
+    with connection_scope() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        record = _load_session_record(conn, session_id)
+        if record is None:
+            return None
+
+        append_transcript_replacement(
+            record.session_id,
+            replacement_history=replacement_history or [],
+            replacement_kind=replacement_kind,
+            reason=reason,
+            summary_text=summary_text,
+            compacted_count=compacted_count,
+            trigger=trigger,
+        )
         record.last_active_at = _now_ts()
         _save_session_record(conn, record)
         return _to_state(record, conn=conn)
@@ -628,9 +682,13 @@ def clear_agent_session_memory(
             return None
 
         safe_reason = str(reason or "").strip() or "slash_command_clear"
-        message_count_before = len(load_session_messages(safe_session_id))
-        clear_session_messages(safe_session_id)
-        record.message_count = 0
+        message_count_before = _clean_int(record.message_count)
+        append_transcript_replacement(
+            safe_session_id,
+            replacement_history=[],
+            replacement_kind="memory_clear",
+            reason=safe_reason,
+        )
         record.last_active_at = _now_ts()
         _save_session_record(conn, record)
 
@@ -815,8 +873,12 @@ def reset_agent_session_context(
             return None
 
         safe_reason = str(reset_reason or "").strip() or "user_requested_context_reset"
-        clear_session_messages(safe_session_id)
-        record.message_count = 0
+        append_transcript_replacement(
+            safe_session_id,
+            replacement_history=[],
+            replacement_kind="context_reset",
+            reason=safe_reason,
+        )
         record.last_active_at = _now_ts()
         _save_session_record(conn, record)
         logger.info(
@@ -830,6 +892,7 @@ def reset_agent_session_context(
 
 
 __all__ = [
+    "append_agent_session_context_replacement",
     "append_agent_session_message",
     "append_agent_session_pending_event",
     "cancel_agent_session",

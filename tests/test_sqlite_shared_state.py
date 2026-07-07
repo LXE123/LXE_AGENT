@@ -43,6 +43,15 @@ from shared.db.sqlite.response_route_state import (
 )
 from shared.db.sqlite.engine import connect
 from shared.db.sqlite.session_messages import load_session_messages, save_session_messages, session_messages_path
+from shared.db.sqlite.session_transcripts import (
+    append_transcript_message,
+    append_transcript_replacement,
+    count_transcript_messages,
+    ensure_transcript_seeded_from_legacy_messages,
+    load_transcript_events,
+    replay_transcript_model_context,
+    session_transcript_path,
+)
 from shared.db.sqlite.store_sessions import (
     clear_store_sessions,
     delete_store_session,
@@ -583,10 +592,10 @@ def test_session_message_jsonl_create_load_and_update(sqlite_db):
         "session-context",
         state_data=_state([{"role": "user", "content": "hello"}]),
     )
-    path = session_messages_path(created.session_id)
+    path = session_transcript_path(created.session_id)
     assert path.is_file()
     assert created.message_count == 1
-    assert load_session_messages(created.session_id)[0]["content"] == "hello"
+    assert replay_transcript_model_context(created.session_id)[0]["content"] == "hello"
 
     updated = update_agent_session(
         created.session_id,
@@ -595,7 +604,8 @@ def test_session_message_jsonl_create_load_and_update(sqlite_db):
     assert updated is not None
     assert updated.message_count == 1
     assert updated.state_data[CONTEXT_KEY]["messages"][0]["role"] == "assistant"
-    assert load_session_messages(created.session_id)[0]["content"][0]["text"] == "ok"
+    assert replay_transcript_model_context(created.session_id)[0]["content"][0]["text"] == "ok"
+    assert load_transcript_events(created.session_id)[-1]["replacement_kind"] == "repair"
 
     save_session_messages(created.session_id, [{"role": "not-a-role", "content": "ignored"}])
     assert load_session_messages(created.session_id) == []
@@ -614,10 +624,272 @@ def test_append_agent_session_message_appends_jsonl_without_snapshot_rewrite(sql
 
     assert updated is not None
     assert updated.message_count == 2
-    assert load_session_messages(created.session_id) == [
+    assert replay_transcript_model_context(created.session_id) == [
         {"role": "user", "content": "hello"},
         {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
     ]
+
+
+def test_transcript_replay_uses_latest_replacement_plus_later_messages(sqlite_db):
+    append_transcript_message(
+        "transcript-replay",
+        {"role": "user", "content": "old request"},
+        reason="user_message",
+    )
+    append_transcript_replacement(
+        "transcript-replay",
+        replacement_history=[{"role": "user", "content": "summary of old request"}],
+        replacement_kind="compaction",
+        reason="pre_call_compaction",
+        summary_text="summary of old request",
+        compacted_count=1,
+        trigger="pre_call",
+    )
+    append_transcript_message(
+        "transcript-replay",
+        {"role": "assistant", "content": "new answer"},
+        reason="assistant_final",
+    )
+
+    events = load_transcript_events("transcript-replay")
+
+    assert [event["kind"] for event in events] == ["message", "compaction", "message"]
+    assert events[1]["replacement_kind"] == "compaction"
+    assert replay_transcript_model_context("transcript-replay") == [
+        {"role": "user", "content": "summary of old request"},
+        {"role": "assistant", "content": [{"type": "text", "text": "new answer"}]},
+    ]
+    assert count_transcript_messages("transcript-replay") == 2
+
+
+def test_transcript_message_strips_inline_image_base64(sqlite_db):
+    append_transcript_message(
+        "transcript-image",
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "see image"},
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/png",
+                        "data": "A" * 100,
+                    },
+                },
+            ],
+        },
+    )
+
+    event = load_transcript_events("transcript-image")[0]
+    placeholder = event["message"]["content"][1]
+    replayed = replay_transcript_model_context("transcript-image")
+
+    assert placeholder == {
+        "type": "text",
+        "text": "[image omitted from transcript: image/png]",
+    }
+    assert replayed[0]["content"][1] == placeholder
+    assert all(block["type"] != "image" for block in replayed[0]["content"])
+
+
+def test_transcript_tool_result_image_replay_uses_text_placeholder(sqlite_db):
+    append_transcript_message(
+        "transcript-tool-image",
+        {
+            "role": "tool",
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_call_id": "toolu-1",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/webp",
+                                "data": "C" * 100,
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    replayed = replay_transcript_model_context("transcript-tool-image")
+    content = replayed[0]["content"][0]["content"]
+
+    assert content == [{"type": "text", "text": "[image omitted from transcript: image/webp]"}]
+    assert all(block["type"] != "image" for block in content)
+
+
+def test_transcript_legacy_import_seeds_replay_once(sqlite_db):
+    save_session_messages(
+        "legacy-transcript",
+        [
+            {"role": "user", "content": "legacy request"},
+            {"role": "assistant", "content": "legacy answer"},
+        ],
+    )
+
+    ensure_transcript_seeded_from_legacy_messages("legacy-transcript")
+    ensure_transcript_seeded_from_legacy_messages("legacy-transcript")
+
+    events = load_transcript_events("legacy-transcript")
+    assert len(events) == 1
+    assert events[0]["kind"] == "legacy_import"
+    assert events[0]["replacement_kind"] == "legacy_import"
+    assert replay_transcript_model_context("legacy-transcript") == [
+        {"role": "user", "content": "legacy request"},
+        {"role": "assistant", "content": [{"type": "text", "text": "legacy answer"}]},
+    ]
+
+
+def test_transcript_legacy_import_skips_existing_file_without_parsing(sqlite_db):
+    path = session_transcript_path("legacy-transcript-existing")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not-json}\n", encoding="utf-8")
+    save_session_messages(
+        "legacy-transcript-existing",
+        [{"role": "user", "content": "legacy request"}],
+    )
+
+    assert ensure_transcript_seeded_from_legacy_messages("legacy-transcript-existing") is False
+
+
+def test_transcript_replay_accepts_legacy_replacement_kind_wrapper(sqlite_db):
+    path = session_transcript_path("legacy-replacement-wrapper")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    events = [
+        {
+            "ts": 1.0,
+            "kind": "replacement",
+            "replacement_kind": "compaction",
+            "replacement_history": [{"role": "user", "content": "wrapped summary"}],
+        },
+        {
+            "ts": 2.0,
+            "kind": "message",
+            "message": {"role": "assistant", "content": "after wrapper"},
+        },
+    ]
+    path.write_text(
+        "\n".join(json.dumps(event, ensure_ascii=False) for event in events) + "\n",
+        encoding="utf-8",
+    )
+
+    assert replay_transcript_model_context("legacy-replacement-wrapper") == [
+        {"role": "user", "content": "wrapped summary"},
+        {"role": "assistant", "content": [{"type": "text", "text": "after wrapper"}]},
+    ]
+
+
+def test_transcript_reset_preserves_events_but_replays_empty_context(sqlite_db):
+    append_transcript_message(
+        "transcript-reset",
+        {"role": "user", "content": "keep in transcript"},
+    )
+    append_transcript_replacement(
+        "transcript-reset",
+        replacement_history=[],
+        replacement_kind="context_reset",
+        reason="user_requested_context_reset",
+    )
+
+    events = load_transcript_events("transcript-reset")
+
+    assert [event["kind"] for event in events] == ["message", "context_reset"]
+    assert count_transcript_messages("transcript-reset") == 1
+    assert replay_transcript_model_context("transcript-reset") == []
+
+
+def test_agent_session_loads_model_context_from_transcript_replay(sqlite_db):
+    created = _create_session(
+        "session-transcript-model",
+        state_data=_state([{"role": "user", "content": "hello"}]),
+    )
+
+    updated = append_agent_session_message(
+        created.session_id,
+        {"role": "assistant", "content": "ok"},
+    )
+    loaded = load_agent_session(created.session_id)
+
+    assert updated is not None
+    assert loaded is not None
+    assert loaded.state_data[CONTEXT_KEY][MESSAGES_KEY] == [
+        {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": [{"type": "text", "text": "ok"}]},
+    ]
+    assert [event["kind"] for event in load_transcript_events(created.session_id)] == [
+        "message",
+        "message",
+    ]
+    assert loaded.message_count == 2
+
+
+def test_agent_session_context_patch_writes_replacement_without_erasing_transcript(sqlite_db):
+    created = _create_session(
+        "session-transcript-replacement",
+        state_data=_state([{"role": "user", "content": "original"}]),
+    )
+
+    updated = update_agent_session(
+        created.session_id,
+        state_data_patch={CONTEXT_KEY: {MESSAGES_KEY: [{"role": "user", "content": "summary"}]}},
+    )
+
+    assert updated is not None
+    assert updated.state_data[CONTEXT_KEY][MESSAGES_KEY] == [{"role": "user", "content": "summary"}]
+    events = load_transcript_events(created.session_id)
+    assert [event["kind"] for event in events] == ["message", "repair"]
+    assert events[0]["message"]["content"] == "original"
+    assert events[1]["replacement_kind"] == "repair"
+    assert updated.message_count == 1
+
+
+def test_agent_session_title_skips_compaction_summary_messages(sqlite_db):
+    created = _create_session("session-summary-title", state_data=_state())
+
+    updated = update_agent_session(
+        created.session_id,
+        state_data_patch={
+            CONTEXT_KEY: {
+                MESSAGES_KEY: [
+                    {
+                        "role": "user",
+                        "content": "The conversation history before this point was compacted into the following summary: old work",
+                    },
+                    {
+                        "role": "user",
+                        "content": "The intermediate steps of the current task were compacted into the following checkpoint summary: middle work",
+                    },
+                    {"role": "user", "content": "真正的用户请求标题"},
+                ],
+            },
+        },
+    )
+
+    assert updated is not None
+    assert updated.title == "真正的用户请求标题"
+
+
+def test_agent_session_reset_preserves_transcript_messages_and_replays_empty_context(sqlite_db):
+    created = _create_session(
+        "session-transcript-reset",
+        state_data=_state([{"role": "user", "content": "before reset"}]),
+    )
+
+    reset = reset_agent_session_context(created.session_id)
+
+    assert reset is not None
+    assert reset.message_count == 1
+    assert reset.state_data[CONTEXT_KEY][MESSAGES_KEY] == []
+    events = load_transcript_events(created.session_id)
+    assert [event["kind"] for event in events] == ["message", "context_reset"]
+    assert events[1]["replacement_kind"] == "context_reset"
+    assert events[0]["message"]["content"] == "before reset"
 
 
 def test_context_state_preserves_assistant_thinking_blocks():
@@ -659,7 +931,7 @@ def test_session_messages_roundtrip_preserves_assistant_thinking_blocks(sqlite_d
 
     assert updated is not None
     assert updated.state_data[CONTEXT_KEY][MESSAGES_KEY] == [assistant_message]
-    assert load_session_messages(created.session_id) == [assistant_message]
+    assert replay_transcript_model_context(created.session_id) == [assistant_message]
 
 
 def test_agent_session_create_update_and_source(sqlite_db):
@@ -723,7 +995,7 @@ def test_agent_session_create_update_and_source(sqlite_db):
     assert stored_source["extra"] == source_extra
     assert json.loads(session_row["model_config"])["model"] == session_row["model"]
     assert session_row["message_count"] == 1
-    assert load_session_messages("session-1")[0]["content"] == "hello"
+    assert replay_transcript_model_context("session-1")[0]["content"] == "hello"
 
     updated = update_agent_session(
         "session-1",
@@ -1077,7 +1349,7 @@ def test_agent_session_control_operations(sqlite_db):
 
     cleared = clear_agent_session_memory("session-control")
     assert cleared is not None
-    assert cleared.message_count == 0
+    assert cleared.message_count == 1
     assert cleared.state_data[CONTEXT_KEY]["messages"] == []
 
     update_agent_session(
@@ -1086,7 +1358,7 @@ def test_agent_session_control_operations(sqlite_db):
     )
     reset = reset_agent_session_context("session-control")
     assert reset is not None
-    assert reset.message_count == 0
+    assert reset.message_count == 1
     assert reset.state_data[CONTEXT_KEY]["messages"] == []
 
     cancelled = cancel_agent_session("session-control")
@@ -1109,6 +1381,7 @@ def test_agent_session_validation_and_bad_storage_fail_loud(sqlite_db):
         )
 
     session_message_path = session_messages_path("session-bad-event")
+    session_message_path.parent.mkdir(parents=True, exist_ok=True)
     session_message_path.write_text("{not-json}\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="invalid session message JSONL"):
         load_session_messages("session-bad-event")
