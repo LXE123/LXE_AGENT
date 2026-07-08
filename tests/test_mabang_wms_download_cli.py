@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 from agent_runtime.tools import fba_shipment_tools
 from services.agent_cli.mabang import download_wms_consignment_excel as cli
 from services.amazon.amazon_logistic.sources import consignment_excel as consignment_source
+import services.mabang.auth as mabang_auth
 import services.mabang.amazon.fba.wms as wms_module
 
 
@@ -109,6 +111,170 @@ def test_prepare_upload_local_consignment_missing_uses_shared_cache_error(monkey
 def test_prepare_upload_legacy_test_file_helpers_removed():
     assert not hasattr(fba_shipment_tools, "_resolve_prepare_upload_test_file_dir")
     assert not hasattr(fba_shipment_tools, "_find_prepare_upload_consignment_excel")
+
+
+def test_get_fba_wms_cookie_header_passes_force_refresh(monkeypatch) -> None:
+    calls: list[dict] = []
+
+    async def fake_get_auth_context(**kwargs):
+        calls.append(kwargs)
+        return mabang_auth.MabangAuthContext(
+            scope="fba",
+            account="account",
+            source="refresh",
+            cookies_by_domain={},
+            free_token="",
+            wms_cookie_header="wms-cookie=1",
+            raw={},
+        )
+
+    monkeypatch.setattr(mabang_auth, "get_auth_context", fake_get_auth_context)
+
+    cookie_header = asyncio.run(mabang_auth.get_fba_wms_cookie_header(force_refresh=True))
+
+    assert cookie_header == "wms-cookie=1"
+    assert calls == [
+        {
+            "scope": "fba",
+            "require_wms_cookie_header": True,
+            "force_refresh": True,
+        }
+    ]
+
+
+def _wms_login_html() -> bytes:
+    return (
+        '<!DOCTYPE html><html><head><title>马帮WMS</title></head>'
+        '<body><form action="/login" method="post">'
+        '<input id="userName" name="userName">'
+        '<input id="pwd" name="pwd" type="password">'
+        "</form></body></html>"
+    ).encode("utf-8")
+
+
+def test_wms_login_page_html_triggers_force_refresh_and_retry(monkeypatch, tmp_path: Path) -> None:
+    token_calls: list[bool] = []
+    request_cookies: list[str] = []
+    responses = [
+        (200, _wms_login_html(), "text/html;charset=UTF-8", ""),
+        (200, b"excel-bytes", "application/vnd.ms-excel", 'attachment; filename="pack.xls"'),
+    ]
+
+    async def fake_get_cookie(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "wms-cookie=fresh" if force_refresh else "wms-cookie=stale"
+
+    async def fake_request(ship_no: str, cookie_header: str):
+        request_cookies.append(cookie_header)
+        return responses.pop(0)
+
+    monkeypatch.setattr(wms_module, "get_fba_wms_cookie_header", fake_get_cookie)
+    monkeypatch.setattr(wms_module, "_request_once", fake_request)
+    monkeypatch.setattr(wms_module, "_resolve_excel_dir", lambda: tmp_path)
+    monkeypatch.setattr(wms_module.wms_settings, "FBA_LOGISTICS_WMS_EXPORT_RETRY", 0)
+
+    path = asyncio.run(wms_module.download_consignment_excel_from_wms("SP260627014"))
+
+    assert path == tmp_path / "SP260627014.xls"
+    assert path.read_bytes() == b"excel-bytes"
+    assert token_calls == [False, True]
+    assert request_cookies == ["wms-cookie=stale", "wms-cookie=fresh"]
+
+
+def test_wms_http_auth_failure_triggers_force_refresh_and_retry(monkeypatch, tmp_path: Path) -> None:
+    token_calls: list[bool] = []
+    responses = [
+        (401, b"unauthorized", "text/plain", ""),
+        (200, b"excel-bytes", "application/vnd.ms-excel", 'attachment; filename="pack.xls"'),
+    ]
+
+    async def fake_get_cookie(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "wms-cookie=fresh" if force_refresh else "wms-cookie=stale"
+
+    async def fake_request(ship_no: str, cookie_header: str):
+        return responses.pop(0)
+
+    monkeypatch.setattr(wms_module, "get_fba_wms_cookie_header", fake_get_cookie)
+    monkeypatch.setattr(wms_module, "_request_once", fake_request)
+    monkeypatch.setattr(wms_module, "_resolve_excel_dir", lambda: tmp_path)
+    monkeypatch.setattr(wms_module.wms_settings, "FBA_LOGISTICS_WMS_EXPORT_RETRY", 0)
+
+    path = asyncio.run(wms_module.download_consignment_excel_from_wms("SP260627014"))
+
+    assert path.read_bytes() == b"excel-bytes"
+    assert token_calls == [False, True]
+
+
+def test_wms_auth_failure_after_force_refresh_does_not_loop(monkeypatch, tmp_path: Path) -> None:
+    token_calls: list[bool] = []
+    responses = [
+        (200, _wms_login_html(), "text/html;charset=UTF-8", ""),
+        (200, _wms_login_html(), "text/html;charset=UTF-8", ""),
+    ]
+
+    async def fake_get_cookie(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "wms-cookie=fresh" if force_refresh else "wms-cookie=stale"
+
+    async def fake_request(ship_no: str, cookie_header: str):
+        return responses.pop(0)
+
+    monkeypatch.setattr(wms_module, "get_fba_wms_cookie_header", fake_get_cookie)
+    monkeypatch.setattr(wms_module, "_request_once", fake_request)
+    monkeypatch.setattr(wms_module, "_resolve_excel_dir", lambda: tmp_path)
+    monkeypatch.setattr(wms_module.wms_settings, "FBA_LOGISTICS_WMS_EXPORT_RETRY", 0)
+
+    with pytest.raises(wms_module.WmsExcelDownloadError, match="已强制刷新后重试仍失败"):
+        asyncio.run(wms_module.download_consignment_excel_from_wms("SP260627014"))
+
+    assert token_calls == [False, True]
+
+
+def test_non_login_html_does_not_force_refresh(monkeypatch, tmp_path: Path) -> None:
+    token_calls: list[bool] = []
+
+    async def fake_get_cookie(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "wms-cookie=stale"
+
+    async def fake_request(ship_no: str, cookie_header: str):
+        return 200, b"<html><body>maintenance</body></html>", "text/html;charset=UTF-8", ""
+
+    monkeypatch.setattr(wms_module, "get_fba_wms_cookie_header", fake_get_cookie)
+    monkeypatch.setattr(wms_module, "_request_once", fake_request)
+    monkeypatch.setattr(wms_module, "_resolve_excel_dir", lambda: tmp_path)
+    monkeypatch.setattr(wms_module.wms_settings, "FBA_LOGISTICS_WMS_EXPORT_RETRY", 0)
+
+    with pytest.raises(wms_module.WmsExcelDownloadError, match="非Excel"):
+        asyncio.run(wms_module.download_consignment_excel_from_wms("SP260627014"))
+
+    assert token_calls == [False, False]
+
+
+def test_wms_network_error_keeps_existing_retry_without_force_refresh(monkeypatch, tmp_path: Path) -> None:
+    token_calls: list[bool] = []
+    request_count = 0
+
+    async def fake_get_cookie(force_refresh: bool = False) -> str:
+        token_calls.append(force_refresh)
+        return "wms-cookie=stale"
+
+    async def fake_request(ship_no: str, cookie_header: str):
+        nonlocal request_count
+        request_count += 1
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(wms_module, "get_fba_wms_cookie_header", fake_get_cookie)
+    monkeypatch.setattr(wms_module, "_request_once", fake_request)
+    monkeypatch.setattr(wms_module, "_resolve_excel_dir", lambda: tmp_path)
+    monkeypatch.setattr(wms_module.wms_settings, "FBA_LOGISTICS_WMS_EXPORT_RETRY", 1)
+
+    with pytest.raises(wms_module.WmsExcelDownloadError, match="WMS 导出最终失败"):
+        asyncio.run(wms_module.download_consignment_excel_from_wms("SP260627014"))
+
+    assert token_calls == [False, False]
+    assert request_count == 2
 
 
 def test_missing_ship_no_returns_failure_json(capsys):

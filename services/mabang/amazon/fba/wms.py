@@ -66,6 +66,23 @@ def _decode_response_body(body: bytes) -> str:
     return body.decode("utf-8", errors="replace")
 
 
+def _is_html_response(content_type: str) -> bool:
+    return "html" in str(content_type or "").lower()
+
+
+def _looks_like_wms_login_page(body: bytes) -> bool:
+    text = _decode_response_body(body)
+    if not text:
+        return False
+    normalized = text.lower()
+    return (
+        '<form action="/login"' in normalized
+        and 'id="username"' in normalized
+        and 'id="pwd"' in normalized
+        and "马帮wms" in normalized
+    )
+
+
 def _resolve_request_meta() -> tuple[str, str, str]:
     return DEFAULT_WMS_EXPORT_URL, DEFAULT_WMS_EXPORT_ORIGIN, DEFAULT_WMS_EXPORT_REFERER
 
@@ -177,9 +194,14 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
     attempts = retry + 1
     last_error: Exception | None = None
 
-    for idx in range(attempts):
+    idx = 0
+    auth_refreshed = False
+    force_refresh_next = False
+    while idx < attempts:
+        idx += 1
         try:
-            cookie_header = await get_fba_wms_cookie_header()
+            cookie_header = await get_fba_wms_cookie_header(force_refresh=force_refresh_next)
+            force_refresh_next = False
             try:
                 status, body, content_type, content_disposition = await _request_once(normalized, cookie_header)
             except Exception as exc:
@@ -192,6 +214,8 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
             if status >= 400:
                 response_text = _decode_response_body(body)
                 raise WmsExcelDownloadError(f"WMS 导出失败(status={status}): {response_text}")
+            if _is_html_response(content_type) and _looks_like_wms_login_page(body):
+                raise WmsExcelAuthError("WMS 导出返回登录页，疑似登录态失效")
             if not _is_excel_response(content_type, content_disposition):
                 response_text = _decode_response_body(body)
                 raise WmsExcelDownloadError(
@@ -205,8 +229,27 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
                 f"[FBA Logistics][WMS] Excel 下载完成: shipNo={normalized}, file={saved.name}, size={len(body)}"
             )
             return saved
+        except WmsExcelAuthError as exc:
+            if not auth_refreshed:
+                last_error = exc
+                auth_refreshed = True
+                force_refresh_next = True
+                if idx >= attempts:
+                    attempts += 1
+                logger.warning(
+                    f"[FBA Logistics][WMS] 鉴权失败，准备强制刷新后重试: "
+                    f"shipNo={normalized}, attempt={idx}/{attempts}, error={exc}"
+                )
+                continue
+
+            last_error = WmsExcelAuthError(f"{exc}，已强制刷新后重试仍失败")
+            logger.warning(
+                f"[FBA Logistics][WMS] Excel 下载失败: shipNo={normalized}, "
+                f"attempt={idx}/{attempts}, error={last_error}"
+            )
+            break
         except Exception as exc:
             last_error = exc
-            logger.warning(f"[FBA Logistics][WMS] Excel 下载失败: shipNo={normalized}, attempt={idx + 1}/{attempts}, error={exc}")
+            logger.warning(f"[FBA Logistics][WMS] Excel 下载失败: shipNo={normalized}, attempt={idx}/{attempts}, error={exc}")
 
     raise WmsExcelDownloadError(f"WMS 导出最终失败(shipNo={normalized}, attempts={attempts}): {last_error}")

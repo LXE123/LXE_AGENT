@@ -116,8 +116,12 @@ async def get_fba_free_token(force_refresh: bool = False) -> str:
     return token
 
 
-async def get_fba_wms_cookie_header() -> str:
-    context = await get_auth_context(scope="fba", require_wms_cookie_header=True)
+async def get_fba_wms_cookie_header(force_refresh: bool = False) -> str:
+    context = await get_auth_context(
+        scope="fba",
+        require_wms_cookie_header=True,
+        force_refresh=force_refresh,
+    )
     cookie_header = str(context.wms_cookie_header or "").strip()
     if not cookie_header:
         raise MabangAuthError("未获取到 WMS Cookie Header")
