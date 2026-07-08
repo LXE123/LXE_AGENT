@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -804,6 +805,64 @@ def test_wait_collect_shipment_summaries_raises_last_error_after_timeout(monkeyp
     with pytest.raises(RuntimeError, match="last failure 2"):
         own_carrier._wait_collect_shipment_summaries(driver, timeout_seconds=1)
     assert calls == ["collect", "collect"]
+
+
+def test_sanitize_excel_filename_preserves_sp_number() -> None:
+    assert own_carrier._sanitize_excel_filename("shipment-summary-SP260618003") == "shipment-summary-SP260618003"
+
+
+def test_write_shipment_summary_excel_uses_short_sp_filename(tmp_path: Path) -> None:
+    path = own_carrier._write_shipment_summary_excel(
+        tmp_path,
+        [
+            {
+                "shipment_name": "FBA",
+                "shipment_id": "FBA123",
+                "shipment_tracking_id": "PO123",
+                "send_to_address": "RDU2",
+            }
+        ],
+        consignment_no="SP260618003",
+    )
+
+    assert Path(path).name == "SP260618003_summary.xlsx"
+    assert Path(path).is_file()
+
+
+def test_write_shipment_summary_excel_sanitizes_invalid_sp_filename_chars(tmp_path: Path) -> None:
+    path = own_carrier._write_shipment_summary_excel(
+        tmp_path,
+        [
+            {
+                "shipment_name": "FBA",
+                "shipment_id": "FBA123",
+                "shipment_tracking_id": "PO123",
+                "send_to_address": "RDU2",
+            }
+        ],
+        consignment_no="SP/260618003",
+    )
+
+    assert Path(path).name == "SP_260618003_summary.xlsx"
+    assert Path(path).parent == tmp_path.resolve()
+
+
+def test_write_shipment_summary_excel_without_sp_uses_timestamp_fallback(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(own_carrier.time, "time", lambda: 1783500000)
+
+    path = own_carrier._write_shipment_summary_excel(
+        tmp_path,
+        [
+            {
+                "shipment_name": "FBA",
+                "shipment_id": "FBA123",
+                "shipment_tracking_id": "PO123",
+                "send_to_address": "RDU2",
+            }
+        ],
+    )
+
+    assert Path(path).name == "shipment-summary-1783500000.xlsx"
 
 
 def test_confirm_own_carrier_phase_3_2_selects_carrier_before_date(monkeypatch) -> None:

@@ -53,22 +53,22 @@ def test_archive_selected_result_files_copies_allowed_files_to_artifacts(monkeyp
         {
             "key": "consignment_excel",
             "value": "artifacts/amazon_fba/attachments/SP260516028/prepare_upload/"
-            "consignment_excel_consignment.xlsx",
+            "SP260516028_consignment.xlsx",
         },
         {
             "key": "filled_template",
             "value": "artifacts/amazon_fba/attachments/SP260516028/prepare_upload/"
-            "filled_template_filled.xlsx",
+            "SP260516028_upload.xlsx",
         },
     ]
     assert (
         project_root
         / "artifacts/amazon_fba/attachments/SP260516028/prepare_upload/"
-        "consignment_excel_consignment.xlsx"
+        "SP260516028_consignment.xlsx"
     ).read_bytes() == b"consignment"
     assert (
         project_root
-        / "artifacts/amazon_fba/attachments/SP260516028/prepare_upload/filled_template_filled.xlsx"
+        / "artifacts/amazon_fba/attachments/SP260516028/prepare_upload/SP260516028_upload.xlsx"
     ).read_bytes() == b"filled"
     assert not (
         project_root
@@ -93,12 +93,12 @@ def test_archive_selected_result_files_works_without_agent_session(monkeypatch, 
         {
             "key": "filled_template",
             "value": "artifacts/amazon_fba/attachments/SP260516028/prepare_upload/"
-            "filled_template_filled.xlsx",
+            "SP260516028_upload.xlsx",
         }
     ]
     assert (
         project_root
-        / "artifacts/amazon_fba/attachments/SP260516028/prepare_upload/filled_template_filled.xlsx"
+        / "artifacts/amazon_fba/attachments/SP260516028/prepare_upload/SP260516028_upload.xlsx"
     ).read_bytes() == b"filled"
     assert result["notice"] == "base notice"
 
@@ -144,15 +144,62 @@ def test_send_selected_result_files_compat_wrapper_archives_instead_of_emitting(
         {
             "key": "shipment_summary_excel",
             "value": "artifacts/amazon_fba/attachments/SP260516028/confirm_own_carrier/"
-            "shipment_summary_excel_summary.xlsx",
+            "SP260516028_summary.xlsx",
         }
     ]
     assert (
         project_root
         / "artifacts/amazon_fba/attachments/SP260516028/confirm_own_carrier/"
-        "shipment_summary_excel_summary.xlsx"
+        "SP260516028_summary.xlsx"
     ).read_bytes() == b"summary"
     assert "runtime emit handler not configured" not in result["notice"]
+
+
+def test_archive_selected_result_files_uses_short_step2_file_name(monkeypatch, tmp_path: Path):
+    project_root = _configure_archive_root(monkeypatch, tmp_path)
+    source = tmp_path / "2026-07-08_10-22-51_edf8e216-a569-48e0-9a78-3a321f525f1c.filled.xlsx"
+    source.write_bytes(b"step2")
+
+    result = fba_shared.archive_selected_result_files(
+        _payload([{"key": "step2_filled", "value": str(source)}]),
+        allowed_keys=("step2_filled",),
+        stage="prepare_multi_box_excel",
+    )
+
+    assert result["file_path"] == [
+        {
+            "key": "step2_filled",
+            "value": "artifacts/amazon_fba/attachments/SP260516028/prepare_multi_box_excel/"
+            "SP260516028_multi_box.xlsx",
+        }
+    ]
+    assert (
+        project_root
+        / "artifacts/amazon_fba/attachments/SP260516028/prepare_multi_box_excel/SP260516028_multi_box.xlsx"
+    ).read_bytes() == b"step2"
+
+
+def test_archive_selected_result_files_keeps_safe_fallback_for_unknown_allowed_key(monkeypatch, tmp_path: Path):
+    project_root = _configure_archive_root(monkeypatch, tmp_path)
+    source = tmp_path / "note.txt"
+    source.write_bytes(b"note")
+
+    result = fba_shared.archive_selected_result_files(
+        _payload([{"key": "future_report", "value": str(source)}]),
+        allowed_keys=("future_report",),
+        stage="future_stage",
+    )
+
+    assert result["file_path"] == [
+        {
+            "key": "future_report",
+            "value": "artifacts/amazon_fba/attachments/SP260516028/future_stage/future_report_note.txt",
+        }
+    ]
+    assert (
+        project_root
+        / "artifacts/amazon_fba/attachments/SP260516028/future_stage/future_report_note.txt"
+    ).read_bytes() == b"note"
 
 
 def test_fba_shipment_create_skill_requires_parent_send_file():

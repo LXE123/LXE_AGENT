@@ -48,6 +48,9 @@ def test_fba_shipment_create_keeps_stage_contracts() -> None:
     assert "第三段完成且已准备追踪号" not in text
     assert "| 4 `enter_tracking_codes` | 第三段完成 |" in text
     assert text.count("亚马逊店铺页面店铺出现bug，已返回第二步开头，请执行第二阶段CLI") == 1
+    assert "失败原因不明" in text
+    assert "提醒用户检查亚马逊 Seller Central 是否未切换到简体中文界面" in text
+    assert "不是简体中文时先停止" not in text
     assert "如果 `file_path` 非空" in text
     assert "send_file" in text
     assert "不重跑 CLI" in text

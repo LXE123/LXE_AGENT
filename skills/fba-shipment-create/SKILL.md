@@ -62,6 +62,7 @@ commands:
 
 - 四段 stdout 都只读最后一条 `type=result` JSON。
 - `params_ready=false` 或 `finished=false`：停止，只转述 `exception` 原文和必要 `context`。
+- 如果 `exception` 显示失败原因不明，提醒用户检查亚马逊 Seller Central 是否未切换到简体中文界面。
 - `finished=true`：按 `notice` 判断阶段状态；不要自行解释页面原因。
 - `file_path` 是可发送附件路径数组；`value` 已在 workspace `artifacts/` 下，不要猜路径、不要改路径。
 - CLI 成功后，如果 `file_path` 非空，必须逐个调用 `send_file(path="<file_path.value>")`。

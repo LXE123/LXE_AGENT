@@ -26,6 +26,12 @@ logger = get_logger(__name__)
 FixedFlowRunner = Callable[..., dict[str, Any]]
 _PROJECT_ROOT = Path(__file__).resolve().parents[4]
 _ATTACHMENTS_ROOT = _PROJECT_ROOT / "artifacts" / "amazon_fba" / "attachments"
+_ATTACHMENT_SHORT_NAME_SUFFIXES = {
+    "consignment_excel": "consignment",
+    "filled_template": "upload",
+    "step2_filled": "multi_box",
+    "shipment_summary_excel": "summary",
+}
 
 
 def build_parser(prog: str) -> argparse.ArgumentParser:
@@ -132,6 +138,18 @@ def _relative_workspace_path(path: Path) -> str:
         return str(path.resolve())
 
 
+def _archive_target_name(*, key: str, source_path: Path, consignment_no: str) -> str:
+    safe_key = str(key or "").strip()
+    short_suffix = _ATTACHMENT_SHORT_NAME_SUFFIXES.get(safe_key)
+    if short_suffix:
+        extension = source_path.suffix or ""
+        return _safe_path_segment(
+            f"{consignment_no}_{short_suffix}{extension}",
+            f"{short_suffix}{extension or '_attachment'}",
+        )
+    return _safe_path_segment(f"{safe_key}_{source_path.name}", f"{safe_key}_attachment")
+
+
 def archive_selected_result_files(
     payload: dict[str, Any] | None,
     *,
@@ -166,7 +184,11 @@ def archive_selected_result_files(
             if not source_path.is_file():
                 raise FileNotFoundError(f"file path missing: {source_path}")
             target_dir.mkdir(parents=True, exist_ok=True)
-            target_name = _safe_path_segment(f"{key}_{source_path.name}", f"{key}_attachment")
+            target_name = _archive_target_name(
+                key=key,
+                source_path=source_path,
+                consignment_no=consignment_no,
+            )
             target_path = target_dir / target_name
             if source_path != target_path.resolve():
                 shutil.copy2(source_path, target_path)
