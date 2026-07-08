@@ -71,12 +71,26 @@ def _create_ziniao_sessions(conn) -> None:
             debugging_port INTEGER NOT NULL DEFAULT 0,
             download_path TEXT NOT NULL DEFAULT '',
             browser_path TEXT NOT NULL DEFAULT '',
+            core_type TEXT NOT NULL DEFAULT '',
+            core_version TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             PRIMARY KEY (host_id, browser_oauth)
         )
         """
     )
+    _ensure_column(conn, "ziniao_store_sessions", "core_type", "TEXT NOT NULL DEFAULT ''")
+    _ensure_column(conn, "ziniao_store_sessions", "core_version", "TEXT NOT NULL DEFAULT ''")
+
+
+def _ensure_column(conn, table_name: str, column_name: str, column_sql: str) -> None:
+    existing = {
+        str(row["name"] if hasattr(row, "keys") else row[1])
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name in existing:
+        return
+    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
 
 
 def _create_turn_usage(conn) -> None:

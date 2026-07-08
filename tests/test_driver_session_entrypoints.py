@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from agent_runtime.packs.browser import dispatcher, executor
+from agent_runtime.packs.browser import dispatcher, driver_session, executor
 from services.agent_cli._shared import browser_session as browser_session_module
 
 
@@ -54,6 +54,8 @@ def _store_session() -> SimpleNamespace:
         browser_oauth="store-1",
         browser_name="Amazon-YRZ",
         download_path="D:\\RPA\\downloads",
+        core_type=0,
+        core_version="138.1.2.80",
     )
 
 
@@ -113,6 +115,42 @@ def test_fba_cli_browser_session_selects_first_normal_tab(monkeypatch, tmp_path)
     assert ("select_first_normal_tab", driver, {}) in calls
 
 
+def test_fba_cli_browser_session_passes_core_fields_to_attached_driver(monkeypatch, tmp_path) -> None:
+    calls: list[tuple] = []
+    driver = object()
+    service = _FakeStoreSessionService(_store_session(), calls)
+
+    monkeypatch.setattr(browser_session_module, "StoreSessionService", lambda: service)
+    monkeypatch.setattr(
+        browser_session_module.shared_state_client,
+        "load_agent_session_state",
+        lambda session_id: SimpleNamespace(state_data={}),
+    )
+    monkeypatch.setattr(
+        browser_session_module,
+        "attached_driver",
+        lambda **kwargs: calls.append(("attached_driver", kwargs)) or _DriverContext(driver, calls),
+    )
+    monkeypatch.setattr(browser_session_module, "select_first_normal_tab", lambda selected_driver, **kwargs: None)
+
+    with browser_session_module.browser_session(
+        session_id="session-1",
+        context={"store_id": "store-1"},
+        output_dir=tmp_path,
+    ):
+        pass
+
+    assert (
+        "attached_driver",
+        {
+            "browser_path": "D:\\RPA\\browser",
+            "debugging_port": 16851,
+            "core_type": 0,
+            "core_version": "138.1.2.80",
+        },
+    ) in calls
+
+
 def test_open_store_selects_blank_capable_tab_before_ip_check(monkeypatch, tmp_path) -> None:
     calls: list[tuple] = []
     driver = object()
@@ -146,3 +184,31 @@ def test_open_store_selects_blank_capable_tab_before_ip_check(monkeypatch, tmp_p
     assert calls.index(("select_first_normal_tab", driver, {"allow_blank": True})) < calls.index(
         ("check_ip", driver, "https://ip-check.test")
     )
+
+
+def test_attached_driver_passes_core_fields_to_selenium_runner(monkeypatch) -> None:
+    calls: list[dict] = []
+    driver = SimpleNamespace(implicitly_wait=lambda seconds: calls.append({"implicitly_wait": seconds}))
+
+    class FakeRunner:
+        def get_driver(self, open_ret_json):
+            calls.append(dict(open_ret_json))
+            return driver
+
+    monkeypatch.setattr(driver_session, "_resolve_browser_driver", lambda: FakeRunner())
+    monkeypatch.setattr(driver_session, "detach_driver", lambda selected_driver: calls.append({"detach": selected_driver}))
+
+    with driver_session.attached_driver(
+        browser_path="/tmp/browser",
+        debugging_port=9222,
+        core_type=0,
+        core_version="138.1.2.80",
+    ) as attached:
+        assert attached is driver
+
+    assert {
+        "browserPath": "/tmp/browser",
+        "debuggingPort": 9222,
+        "core_type": 0,
+        "core_version": "138.1.2.80",
+    } in calls

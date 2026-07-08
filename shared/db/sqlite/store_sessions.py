@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import json
 from datetime import datetime, timezone
 from sqlite3 import Row
 from typing import Any
@@ -67,6 +68,22 @@ def _safe_required_path(field_name: str, value: Any) -> str:
     return text
 
 
+def _core_type_to_storage(value: Any) -> str:
+    if value is None or value == "":
+        return ""
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _core_type_from_storage(value: Any) -> Any:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        return text
+
+
 def _to_state(row: Row | None, *, host_id: str) -> ZiniaoStoreSessionState | None:
     if row is None:
         return None
@@ -78,6 +95,8 @@ def _to_state(row: Row | None, *, host_id: str) -> ZiniaoStoreSessionState | Non
         debugging_port=int(row["debugging_port"] or 0),
         download_path=str(row["download_path"] or "").strip(),
         browser_path=str(row["browser_path"] or "").strip(),
+        core_type=_core_type_from_storage(row["core_type"]),
+        core_version=str(row["core_version"] or "").strip(),
         created_at=_datetime_from_storage(row["created_at"]),
         updated_at=_datetime_from_storage(row["updated_at"]),
     )
@@ -119,6 +138,8 @@ def upsert_store_session(
     debugging_port: int,
     download_path: str,
     browser_path: str,
+    core_type: Any = None,
+    core_version: str = "",
     host_id: str | None = None,
 ) -> ZiniaoStoreSessionState:
     safe_host_id = browser_host_id(host_id)
@@ -128,6 +149,8 @@ def upsert_store_session(
     safe_debugging_port = _safe_debugging_port(debugging_port)
     safe_download_path = _safe_required_path("download_path", download_path)
     safe_browser_path = _safe_required_path("browser_path", browser_path)
+    safe_core_type = _core_type_to_storage(core_type)
+    safe_core_version = str(core_version or "").strip()
     now = _datetime_to_storage(_utc_now())
 
     with connection_scope() as conn:
@@ -141,16 +164,20 @@ def upsert_store_session(
                 debugging_port,
                 download_path,
                 browser_path,
+                core_type,
+                core_version,
                 created_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(host_id, browser_oauth) DO UPDATE SET
                 browser_id = excluded.browser_id,
                 browser_name = excluded.browser_name,
                 debugging_port = excluded.debugging_port,
                 download_path = excluded.download_path,
                 browser_path = excluded.browser_path,
+                core_type = excluded.core_type,
+                core_version = excluded.core_version,
                 updated_at = excluded.updated_at
             """,
             (
@@ -161,6 +188,8 @@ def upsert_store_session(
                 safe_debugging_port,
                 safe_download_path,
                 safe_browser_path,
+                safe_core_type,
+                safe_core_version,
                 now,
                 now,
             ),

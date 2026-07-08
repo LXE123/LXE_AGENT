@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+import platform
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 from shared.logging import get_logger
@@ -34,22 +36,66 @@ def _control_port() -> int:
     return safe_port
 
 
-def _build_client_command(control_port: int) -> list[str]:
-    client_path = _client_path()
-    if not client_path:
-        raise RuntimeError("ZINIAO_CLIENT_PATH 未配置")
-    if not os.path.exists(client_path):
-        raise RuntimeError(f"ZINIAO_CLIENT_PATH 不存在: {client_path}")
-    if not os.path.isfile(client_path):
-        raise RuntimeError(f"ZINIAO_CLIENT_PATH 不是可执行文件: {client_path}")
-    if os.name == "nt" and not client_path.lower().endswith(".exe"):
-        raise RuntimeError(f"ZINIAO_CLIENT_PATH 不是 Windows exe 文件: {client_path}")
+def _client_args(control_port: int) -> list[str]:
     return [
-        client_path,
         "--run_type=web_driver",
         "--ipc_type=http",
         f"--port={int(control_port)}",
     ]
+
+
+def _resolve_macos_open_target(client_path: str) -> str:
+    if client_path == "ziniao":
+        return client_path
+
+    path = Path(client_path).expanduser()
+    for candidate in [path, *path.parents]:
+        if candidate.suffix.lower() == ".app":
+            return str(candidate)
+    return str(path)
+
+
+def _build_windows_client_command(client_path: str, control_port: int) -> list[str]:
+    if not os.path.exists(client_path):
+        raise RuntimeError(f"ZINIAO_CLIENT_PATH 不存在: {client_path}")
+    if not os.path.isfile(client_path):
+        raise RuntimeError(f"ZINIAO_CLIENT_PATH 不是可执行文件: {client_path}")
+    if not client_path.lower().endswith(".exe"):
+        raise RuntimeError(f"ZINIAO_CLIENT_PATH 不是 Windows exe 文件: {client_path}")
+    return [client_path, *_client_args(control_port)]
+
+
+def _build_macos_client_command(client_path: str, control_port: int) -> list[str]:
+    if client_path != "ziniao":
+        path = Path(client_path).expanduser()
+        if not path.exists():
+            raise RuntimeError(f"ZINIAO_CLIENT_PATH 不存在: {path}")
+        if not (path.is_file() or (path.suffix.lower() == ".app" and path.is_dir())):
+            raise RuntimeError(f"ZINIAO_CLIENT_PATH 不是 macOS app 或可执行文件: {path}")
+    return ["open", "-a", _resolve_macos_open_target(client_path), "--args", *_client_args(control_port)]
+
+
+def _build_linux_client_command(client_path: str, control_port: int) -> list[str]:
+    if not os.path.exists(client_path):
+        raise RuntimeError(f"ZINIAO_CLIENT_PATH 不存在: {client_path}")
+    if not os.path.isfile(client_path):
+        raise RuntimeError(f"ZINIAO_CLIENT_PATH 不是可执行文件: {client_path}")
+    return [client_path, "--no-sandbox", *_client_args(control_port)]
+
+
+def _build_client_command(control_port: int) -> list[str]:
+    client_path = _client_path()
+    if not client_path:
+        raise RuntimeError("ZINIAO_CLIENT_PATH 未配置")
+
+    system_name = str(platform.system() or "").strip()
+    if system_name == "Windows":
+        return _build_windows_client_command(client_path, control_port)
+    if system_name == "Darwin":
+        return _build_macos_client_command(client_path, control_port)
+    if system_name == "Linux":
+        return _build_linux_client_command(client_path, control_port)
+    raise RuntimeError(f"Unsupported system for Ziniao client startup: {system_name or 'unknown'}")
 
 
 class ZiniaoBrowserClient:

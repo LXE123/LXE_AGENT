@@ -45,6 +45,8 @@ class ZiniaoStoreSessionState:
     debugging_port: int
     download_path: str
     browser_path: str
+    core_type: Any
+    core_version: str
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 

@@ -40,7 +40,13 @@ def _client_path(tmp_path):
     return str(path)
 
 
-def _configure(monkeypatch, tmp_path, *, client_path: str | None = None) -> None:
+def _configure(monkeypatch, tmp_path, *, client_path: str | None = None, system: str = "Windows") -> None:
+    monkeypatch.setattr(
+        ziniao_browser_client,
+        "platform",
+        SimpleNamespace(system=lambda: system),
+        raising=False,
+    )
     monkeypatch.setattr(ziniao_browser_client.ziniao_settings, "ZINIAO_BROWSER_VERSION", "v6", raising=False)
     monkeypatch.setattr(ziniao_browser_client.ziniao_settings, "ZINIAO_WEBDRIVER_PATH", str(tmp_path), raising=False)
     monkeypatch.setattr(
@@ -50,6 +56,64 @@ def _configure(monkeypatch, tmp_path, *, client_path: str | None = None) -> None
         raising=False,
     )
     monkeypatch.setattr(ziniao_browser_client.ziniao_settings, "ZINIAO_SOCKET_PORT", 19000, raising=False)
+
+
+def test_build_client_command_uses_windows_webdriver_args(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path, system="Windows")
+
+    assert ziniao_browser_client._build_client_command(19000) == [
+        _client_path(tmp_path),
+        "--run_type=web_driver",
+        "--ipc_type=http",
+        "--port=19000",
+    ]
+
+
+def test_build_client_command_uses_macos_open_a_for_app_name(monkeypatch, tmp_path):
+    _configure(monkeypatch, tmp_path, client_path="ziniao", system="Darwin")
+
+    assert ziniao_browser_client._build_client_command(19000) == [
+        "open",
+        "-a",
+        "ziniao",
+        "--args",
+        "--run_type=web_driver",
+        "--ipc_type=http",
+        "--port=19000",
+    ]
+
+
+def test_build_client_command_resolves_macos_inner_executable_to_app_bundle(monkeypatch, tmp_path):
+    client_path = tmp_path / "ziniao.app" / "Contents" / "MacOS" / "ziniao"
+    client_path.parent.mkdir(parents=True)
+    client_path.write_text("fake", encoding="utf-8")
+    client_path.chmod(0o755)
+    _configure(monkeypatch, tmp_path, client_path=str(client_path), system="Darwin")
+
+    assert ziniao_browser_client._build_client_command(19000) == [
+        "open",
+        "-a",
+        str(tmp_path / "ziniao.app"),
+        "--args",
+        "--run_type=web_driver",
+        "--ipc_type=http",
+        "--port=19000",
+    ]
+
+
+def test_build_client_command_uses_linux_no_sandbox(monkeypatch, tmp_path):
+    client_path = tmp_path / "ziniaobrowser"
+    client_path.write_text("fake", encoding="utf-8")
+    client_path.chmod(0o755)
+    _configure(monkeypatch, tmp_path, client_path=str(client_path), system="Linux")
+
+    assert ziniao_browser_client._build_client_command(19000) == [
+        str(client_path),
+        "--no-sandbox",
+        "--run_type=web_driver",
+        "--ipc_type=http",
+        "--port=19000",
+    ]
 
 
 def test_open_client_api_available_does_not_prepare_or_launch(monkeypatch, tmp_path):

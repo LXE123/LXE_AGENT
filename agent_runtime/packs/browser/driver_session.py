@@ -14,12 +14,14 @@ def _resolve_browser_driver() -> SeleniumRunner:
     return SeleniumRunner(driver_folder_path())
 
 
-def create_driver(*, browser_path: str, debugging_port: int) -> Any:
+def create_driver(*, browser_path: str, debugging_port: int, core_type: Any = None, core_version: str = "") -> Any:
     try:
         return _resolve_browser_driver().get_driver(
             {
                 "browserPath": str(browser_path or "").strip(),
                 "debuggingPort": int(debugging_port or 0),
+                "core_type": core_type,
+                "core_version": str(core_version or "").strip(),
             }
         )
     except SeleniumRunnerError as exc:
@@ -131,8 +133,19 @@ def select_first_normal_tab(driver: Any, *, allow_blank: bool = False) -> dict[s
 
 
 @contextmanager
-def attached_driver(*, browser_path: str, debugging_port: int) -> Iterator[Any]:
-    driver = create_driver(browser_path=browser_path, debugging_port=debugging_port)
+def attached_driver(
+    *,
+    browser_path: str,
+    debugging_port: int,
+    core_type: Any = None,
+    core_version: str = "",
+) -> Iterator[Any]:
+    driver = create_driver(
+        browser_path=browser_path,
+        debugging_port=debugging_port,
+        core_type=core_type,
+        core_version=core_version,
+    )
     try:
         try:
             driver.implicitly_wait(20)

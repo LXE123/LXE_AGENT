@@ -22,6 +22,8 @@ class StoreSessionMap:
         debugging_port: int,
         download_path: str,
         browser_path: str,
+        core_type=None,
+        core_version: str = "",
     ):
         return shared_state_client.upsert_ziniao_store_session_state(
             browser_oauth=str(browser_oauth or "").strip(),
@@ -30,6 +32,8 @@ class StoreSessionMap:
             debugging_port=int(debugging_port or 0),
             download_path=str(download_path or "").strip(),
             browser_path=str(browser_path or "").strip(),
+            core_type=core_type,
+            core_version=str(core_version or "").strip(),
             host_id=self._host_id,
         )
 

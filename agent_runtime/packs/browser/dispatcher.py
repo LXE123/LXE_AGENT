@@ -11,6 +11,7 @@ from agent_runtime.packs.browser.driver_session import (
 from services.browser.store.store_session_service import StoreSessionService
 from services.browser.store.ziniao_browser_client import ZiniaoBrowserClient
 from services.browser.store.ziniao_lifecycle import ZiniaoLifecycleManager
+from services.browser.store.ziniao_trace import trace_context
 
 
 def _store_session_service() -> StoreSessionService:
@@ -163,6 +164,13 @@ def _validate_ref(snapshot: dict[str, Any], ref: str) -> str:
 
 
 def dispatch_ziniao_browser(runtime: Any, arguments: dict[str, Any], *, output_dir) -> dict[str, Any]:
+    action = str(arguments.get("action") or "").strip().lower()
+    store_id = str(arguments.get("store_id") or "").strip()
+    with trace_context(f"ziniao_browser.{action or 'unknown'}", store_id=store_id):
+        return _dispatch_ziniao_browser(runtime, arguments, output_dir=output_dir)
+
+
+def _dispatch_ziniao_browser(runtime: Any, arguments: dict[str, Any], *, output_dir) -> dict[str, Any]:
     _ = output_dir
     _ = runtime
     action = str(arguments.get("action") or "").strip().lower()
@@ -177,6 +185,8 @@ def dispatch_ziniao_browser(runtime: Any, arguments: dict[str, Any], *, output_d
             with attached_driver(
                 browser_path=str(store_session.browser_path or "").strip(),
                 debugging_port=int(store_session.debugging_port or 0),
+                core_type=getattr(store_session, "core_type", None),
+                core_version=str(getattr(store_session, "core_version", "") or "").strip(),
             ) as driver:
                 select_first_normal_tab(driver, allow_blank=True)
                 if not check_ip(driver, ip_detection_page):
