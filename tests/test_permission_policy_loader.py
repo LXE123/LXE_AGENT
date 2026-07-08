@@ -66,6 +66,11 @@ def test_load_default_permission_policy() -> None:
     }
     assert policy.user_agent_policy["on_03ddcd4ddc38c689cec23f7fac06c547"] == {"AMAZON_FBA"}
 
+    assert policy.bot_alias_to_app_id["LXE_CLAW_BACKUP_MACHINE_1"] == "cli_aac1e8a335b81cc5"
+    assert policy.bot_alias_to_key["LXE_CLAW_BACKUP_MACHINE_1"] == "LXE_CLAW"
+    assert policy.bot_id_to_key["cli_aac1e8a335b81cc5"] == "LXE_CLAW"
+    assert policy.bot_skill_policy["LXE_CLAW"] == {"*"}
+
     assert policy.bot_alias_to_app_id["AMAZON_REPLENISH_GROUP_1_MACHINE_2"] == "cli_aaa5e06b1bb81bcb"
     assert policy.bot_alias_to_key["AMAZON_REPLENISH_GROUP_1_MACHINE_2"] == "AMAZON-备货一组-二号机"
     assert policy.user_name_to_union_id["AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER"] == (

@@ -35,6 +35,7 @@ BOT_ID_AMAZON_FBA_MACHINE_3 = "cli_aace5ce849b9dbcd"
 USER_AMAZON_FBA_MACHINE_3_MEMBER = "on_af8c07dc3aa1933d8ddca81d574a8753"
 BOT_ID_AMAZON_FBA_MACHINE_4 = "cli_aac1e80571789ce4"
 USER_AMAZON_FBA_MACHINE_4_MEMBER = "on_03ddcd4ddc38c689cec23f7fac06c547"
+BOT_ID_LXE_CLAW_BACKUP_MACHINE_1 = "cli_aac1e8a335b81cc5"
 BOT_ID_AMAZON_REPLENISH_GROUP_1_MACHINE_2 = "cli_aaa5e06b1bb81bcb"
 USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER = "on_5b073ea5ba8e6e5bae65c81cdfc849f4"
 
@@ -54,7 +55,9 @@ def test_policy_user_access_matrix() -> None:
     }
 
     assert can_user_access_bot(USER_LYX, BOT_ID_LXE_CLAW)
+    assert can_user_access_bot(USER_LYX, BOT_ID_LXE_CLAW_BACKUP_MACHINE_1)
     assert can_user_access_bot(USER_ZQY, BOT_ID_LXE_CLAW)
+    assert can_user_access_bot(USER_ZQY, BOT_ID_LXE_CLAW_BACKUP_MACHINE_1)
     for bot_id in fba_bot_ids:
         assert can_user_access_bot(USER_LYX, bot_id)
         assert can_user_access_bot(USER_ZQY, bot_id)
@@ -62,6 +65,7 @@ def test_policy_user_access_matrix() -> None:
     for bot_id in fba_bot_ids:
         assert can_user_access_bot(USER_ZGL, bot_id)
     assert not can_user_access_bot(USER_ZGL, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_ZGL, BOT_ID_LXE_CLAW_BACKUP_MACHINE_1)
     for bot_id in replenish_bot_ids:
         assert can_user_access_bot(USER_LYX, bot_id)
         assert can_user_access_bot(USER_ZQY, bot_id)
@@ -70,18 +74,21 @@ def test_policy_user_access_matrix() -> None:
     for bot_id in fba_bot_ids:
         assert can_user_access_bot(USER_AMAZON_FBA_MACHINE_2_MEMBER, bot_id)
     assert not can_user_access_bot(USER_AMAZON_FBA_MACHINE_2_MEMBER, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_AMAZON_FBA_MACHINE_2_MEMBER, BOT_ID_LXE_CLAW_BACKUP_MACHINE_1)
     for bot_id in replenish_bot_ids:
         assert not can_user_access_bot(USER_AMAZON_FBA_MACHINE_2_MEMBER, bot_id)
 
     for bot_id in fba_bot_ids:
         assert can_user_access_bot(USER_AMAZON_FBA_MACHINE_3_MEMBER, bot_id)
     assert not can_user_access_bot(USER_AMAZON_FBA_MACHINE_3_MEMBER, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_AMAZON_FBA_MACHINE_3_MEMBER, BOT_ID_LXE_CLAW_BACKUP_MACHINE_1)
     for bot_id in replenish_bot_ids:
         assert not can_user_access_bot(USER_AMAZON_FBA_MACHINE_3_MEMBER, bot_id)
 
     for bot_id in fba_bot_ids:
         assert can_user_access_bot(USER_AMAZON_FBA_MACHINE_4_MEMBER, bot_id)
     assert not can_user_access_bot(USER_AMAZON_FBA_MACHINE_4_MEMBER, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_AMAZON_FBA_MACHINE_4_MEMBER, BOT_ID_LXE_CLAW_BACKUP_MACHINE_1)
     for bot_id in replenish_bot_ids:
         assert not can_user_access_bot(USER_AMAZON_FBA_MACHINE_4_MEMBER, bot_id)
 
@@ -99,6 +106,7 @@ def test_policy_user_access_matrix() -> None:
         BOT_ID_AMAZON_REPLENISH_GROUP_1_MACHINE_2,
     )
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_1_MEMBER, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_1_MEMBER, BOT_ID_LXE_CLAW_BACKUP_MACHINE_1)
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_1_MEMBER, BOT_ID_LXE_FBA_AGENT)
 
     assert can_user_access_bot(
@@ -123,6 +131,10 @@ def test_policy_user_access_matrix() -> None:
     )
     assert not can_user_access_bot(
         USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER,
+        BOT_ID_LXE_CLAW_BACKUP_MACHINE_1,
+    )
+    assert not can_user_access_bot(
+        USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER,
         BOT_ID_LXE_FBA_AGENT,
     )
 
@@ -136,6 +148,7 @@ def test_policy_user_access_matrix() -> None:
         BOT_ID_AMAZON_REPLENISH_GROUP_3,
     )
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_2_MEMBER, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_2_MEMBER, BOT_ID_LXE_CLAW_BACKUP_MACHINE_1)
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_2_MEMBER, BOT_ID_LXE_FBA_AGENT)
 
     assert can_user_access_bot(
@@ -148,10 +161,12 @@ def test_policy_user_access_matrix() -> None:
         BOT_ID_AMAZON_REPLENISH_GROUP_2,
     )
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_3_MEMBER, BOT_ID_LXE_CLAW)
+    assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_3_MEMBER, BOT_ID_LXE_CLAW_BACKUP_MACHINE_1)
     assert not can_user_access_bot(USER_AMAZON_REPLENISH_GROUP_3_MEMBER, BOT_ID_LXE_FBA_AGENT)
 
     for bot_id in {
         BOT_ID_LXE_CLAW,
+        BOT_ID_LXE_CLAW_BACKUP_MACHINE_1,
         BOT_ID_LXE_FBA_AGENT,
         BOT_ID_AMAZON_FBA_MACHINE_2,
         BOT_ID_AMAZON_FBA_MACHINE_3,
@@ -198,6 +213,7 @@ def test_policy_skill_type_matrix() -> None:
     }
 
     assert allowed_skill_types_for_bot(BOT_ID_LXE_CLAW) == {ALL}
+    assert allowed_skill_types_for_bot(BOT_ID_LXE_CLAW_BACKUP_MACHINE_1) == {ALL}
     for bot_id in fba_bot_ids:
         assert allowed_skill_types_for_bot(bot_id) == {
             SKILL_TYPE_AMAZON_FBA,
@@ -254,10 +270,11 @@ def test_runtime_filters_available_skills_by_bot(monkeypatch, tmp_path) -> None:
     all_skill_names = {item.name for item in index.queue(allowed_types={ALL})}
     default_disabled_connector_skills = set(LARK_CLI_SKILL_NAMES) | {"dws"}
 
-    claw_session = SimpleNamespace(platform="feishu", raw_data={"app_id": BOT_ID_LXE_CLAW})
-    assert {item.name for item in load_available_skills_for_session(claw_session)} == (
-        all_skill_names - default_disabled_connector_skills
-    )
+    for bot_id in {BOT_ID_LXE_CLAW, BOT_ID_LXE_CLAW_BACKUP_MACHINE_1}:
+        claw_session = SimpleNamespace(platform="feishu", raw_data={"app_id": bot_id})
+        assert {item.name for item in load_available_skills_for_session(claw_session)} == (
+            all_skill_names - default_disabled_connector_skills
+        )
 
     for bot_id in {
         BOT_ID_LXE_FBA_AGENT,

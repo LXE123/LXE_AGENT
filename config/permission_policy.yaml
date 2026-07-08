@@ -53,6 +53,11 @@ bots:
     app_id: cli_a93d57dc47385cc0
     skill_types:
       - "*"
+  LXE_CLAW_BACKUP_MACHINE_1:
+    key: LXE_CLAW
+    app_id: cli_aac1e8a335b81cc5
+    skill_types:
+      - "*"
 users:
   AMAZON_FBA_MACHINE_2_MEMBER:
     union_id: on_d73c763c561e81ed7e554dd59e286095

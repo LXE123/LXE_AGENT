@@ -26,6 +26,7 @@ BOT_ID_AMAZON_FBA_MACHINE_3 = "cli_aace5ce849b9dbcd"
 USER_AMAZON_FBA_MACHINE_3_MEMBER = "on_af8c07dc3aa1933d8ddca81d574a8753"
 BOT_ID_AMAZON_FBA_MACHINE_4 = "cli_aac1e80571789ce4"
 USER_AMAZON_FBA_MACHINE_4_MEMBER = "on_03ddcd4ddc38c689cec23f7fac06c547"
+BOT_ID_LXE_CLAW_BACKUP_MACHINE_1 = "cli_aac1e8a335b81cc5"
 BOT_ID_AMAZON_REPLENISH_GROUP_1_MACHINE_2 = "cli_aaa5e06b1bb81bcb"
 USER_AMAZON_REPLENISH_GROUP_1_MACHINE_2_MEMBER = "on_5b073ea5ba8e6e5bae65c81cdfc849f4"
 
@@ -684,6 +685,66 @@ def test_router_allows_dev_member_on_claw_bot(monkeypatch) -> None:
     assert job.source["user_id_alt"] == USER_DEV_GROUP_MEMBER
     assert job.source["extra"]["bot_app_id"] == BOT_ID_LXE_CLAW
     assert job.source["extra"]["bot_name"] == "LXE_CLAW"
+    assert adapter.outbound_requests == []
+
+
+def test_router_allows_dev_member_on_claw_backup_bot(monkeypatch) -> None:
+    adapter = _FakeAdapter()
+    scheduler = _FakeScheduler()
+    router = _router(adapter, scheduler)
+    calls = {"created": 0}
+
+    async def fake_create_response_route_context(_ctx) -> None:
+        return None
+
+    async def fake_load_session(*_args, **_kwargs):
+        return None
+
+    async def fake_create_agent_session(**kwargs):
+        calls["created"] += 1
+        return SimpleNamespace(
+            session_id="session-1",
+            source=kwargs["source"],
+            state_data=kwargs["state_data"],
+        )
+
+    async def fake_pop_pending_events(_session_id: str):
+        return []
+
+    monkeypatch.setattr(router_mod, "create_response_route_context", fake_create_response_route_context)
+    monkeypatch.setattr(router_mod, "load_agent_session", fake_load_session)
+    monkeypatch.setattr(router_mod, "create_agent_session", fake_create_agent_session)
+    monkeypatch.setattr(router_mod, "pop_agent_session_pending_events", fake_pop_pending_events)
+
+    decision = asyncio.run(
+        router.route_message(
+            _event(
+                user_id=OPEN_ID_DEV_GROUP_MEMBER,
+                union_id=USER_DEV_GROUP_MEMBER,
+                app_id=BOT_ID_LXE_CLAW_BACKUP_MACHINE_1,
+                source_extra={
+                    "bot_app_id": BOT_ID_LXE_CLAW_BACKUP_MACHINE_1,
+                    "bot_id": "ou_bot_dev_backup",
+                    "bot_name": "后备能源-一号机",
+                },
+            )
+        )
+    )
+
+    assert decision.route_kind == "agent_message"
+    assert calls["created"] == 1
+    assert len(scheduler.jobs) == 1
+    job, front = scheduler.jobs[0]
+    assert not front
+    assert job.session_id == "session-1"
+    assert job.session_key == "agent:main:feishu:dm:chat-1"
+    assert job.response_route_id == "route-1"
+    assert job.user_id == USER_DEV_GROUP_MEMBER
+    assert job.raw_data["app_id"] == BOT_ID_LXE_CLAW_BACKUP_MACHINE_1
+    assert job.raw_data["union_id"] == USER_DEV_GROUP_MEMBER
+    assert job.source["user_id_alt"] == USER_DEV_GROUP_MEMBER
+    assert job.source["extra"]["bot_app_id"] == BOT_ID_LXE_CLAW_BACKUP_MACHINE_1
+    assert job.source["extra"]["bot_name"] == "后备能源-一号机"
     assert adapter.outbound_requests == []
 
 
