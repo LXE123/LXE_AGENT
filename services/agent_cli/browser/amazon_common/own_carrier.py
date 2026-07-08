@@ -380,10 +380,13 @@ def _wait_collect_shipment_summaries(driver: Any, *, timeout_seconds: float = 10
     raise RuntimeError("未找到货件摘要区域 shipment-summary")
 
 
+def _sanitize_excel_filename_part(raw_name: str) -> str:
+    safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1F]+', "_", str(raw_name or "").strip())
+    return safe_name.strip(" .")
+
+
 def _sanitize_excel_filename(raw_name: str) -> str:
-    safe_name = re.sub(r'[<>:"/\\\\|?*\\x00-\\x1F]+', "_", str(raw_name or "").strip())
-    safe_name = safe_name.strip(" .")
-    return safe_name or f"shipment-summary-{int(time.time())}"
+    return _sanitize_excel_filename_part(raw_name) or f"shipment-summary-{int(time.time())}"
 
 
 def _reserve_output_file(directory: Path, filename: str) -> Path:
@@ -408,9 +411,9 @@ def _write_shipment_summary_excel(
     Workbook = _require_openpyxl_workbook()
     safe_output_dir = Path(output_dir).expanduser().resolve()
     safe_output_dir.mkdir(parents=True, exist_ok=True)
-    safe_consignment_no = str(consignment_no or "").strip()
+    safe_consignment_no = _sanitize_excel_filename_part(consignment_no)
     file_stub = (
-        f"shipment-summary-{safe_consignment_no}"
+        f"{safe_consignment_no}_summary"
         if safe_consignment_no
         else f"shipment-summary-{int(time.time())}"
     )
