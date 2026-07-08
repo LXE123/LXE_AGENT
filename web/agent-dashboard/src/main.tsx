@@ -26,324 +26,69 @@ import {
   X
 } from "lucide-react";
 import "./styles.css";
+import { fetchJson, patchJson } from "./api";
+import { EmptyState, successRateText } from "./components";
+import {
+  formatDate,
+  formatDuration,
+  formatDurationMs,
+  formatIsoDate,
+  formatNumber,
+  groupSkillsByType,
+  skillTypeLabel
+} from "./format";
+import {
+  I18nContext,
+  LANGUAGE_STORAGE_KEY,
+  UI_TEXT,
+  initialLanguage,
+  useUiText
+} from "./i18n";
+import type { Language, UiText } from "./i18n";
+import type {
+  ApiList,
+  BackgroundTaskPayload,
+  CapabilityPayload,
+  ChannelHealthList,
+  ChannelHealthPayload,
+  ConnectorPayload,
+  ConversationRenderItem,
+  ConversationToolGroup,
+  DocsContentMode,
+  DocsTreeFileNode,
+  DocsTreeFolderNode,
+  DocsTreeNode,
+  McpServerPayload,
+  MessagesPagePayload,
+  ModelOptionPayload,
+  ModelPayload,
+  ProjectDocContentPayload,
+  ProjectDocPayload,
+  SessionDetailPayload,
+  SessionListPayload,
+  SessionMessage,
+  SessionPayload,
+  SessionSummaryPayload,
+  SkillContentMode,
+  SkillContentPayload,
+  SkillContentView,
+  SkillPayload,
+  SkillReferenceContentPayload,
+  SkillReferencePayload,
+  SkillStatPayload,
+  SourceSummary,
+  StatsOverviewPayload,
+  ThinkingStatePayload,
+  ToolPayload,
+  ToolStatPayload,
+  ToolsetPayload
+} from "./payloads";
+import { DashboardHome } from "./views/home";
+import { SKILL_BADGE_STATS_DAYS, StatsView, useSkillUsageStats } from "./views/stats";
 
-type CapabilityPayload = {
-  provider: string;
-  model: string;
-  context_window_tokens: number;
-  max_tokens: number;
-  max_output_tokens?: number;
-  supports_vision: boolean;
-  supports_thinking: boolean;
-  supports_temperature: boolean;
-};
-
-type ThinkingStatePayload = {
-  enabled: boolean;
-  level: string;
-  editable: boolean;
-};
-
-type ModelOptionPayload = {
-  model: string;
-  thinking_request_style: string;
-  thinking_levels: string[];
-  thinking_level_labels: Record<string, string>;
-  thinking_default: string;
-  capabilities: CapabilityPayload;
-};
-
-type ModelPayload = {
-  provider: string;
-  label: string;
-  api_style: string;
-  model: string;
-  configured: boolean;
-  selectable: boolean;
-  disabled_reason: string;
-  model_options: ModelOptionPayload[];
-  thinking_request_style: string;
-  thinking_levels: string[];
-  thinking_level_labels: Record<string, string>;
-  thinking_default: string;
-  thinking_state: ThinkingStatePayload;
-  capabilities: CapabilityPayload;
-};
-
-type SessionPayload = {
-  session_id: string;
-  title: string;
-  source: Record<string, unknown>;
-  source_summary: SourceSummary;
-  model: string;
-  model_config: Record<string, unknown>;
-  created_at: number;
-  last_active_at: number;
-  message_count: number;
-  tool_call_count: number;
-  input_tokens: number;
-  output_tokens: number;
-  api_call_count: number;
-};
-
-type SourceSummary = {
-  platform: string;
-  chat_type: string;
-};
-
-type SessionMessage = {
-  role: string;
-  content?: unknown;
-  tool_call_id?: string;
-  tool_name?: string;
-  tool_calls?: unknown;
-  [key: string]: unknown;
-};
-
-type MessagesPagePayload = {
-  total: number;
-  raw_message_total: number;
-  start: number;
-  end: number;
-  limit: number;
-  current_page: number;
-  total_pages: number;
-  has_previous: boolean;
-  has_next: boolean;
-};
-
-type SessionDetailPayload = {
-  session: SessionPayload;
-  messages: SessionMessage[];
-  messages_page: MessagesPagePayload;
-};
-
-type ConversationToolGroup = {
-  messages: SessionMessage[];
-  startIndex: number;
-  key: string;
-};
-
-type ConversationRenderItem =
-  | { type: "message"; message: SessionMessage; index: number; toolGroups: ConversationToolGroup[] }
-  | { type: "tool_group"; group: ConversationToolGroup };
-
-type SkillReferencePayload = {
-  path: string;
-  description: string;
-};
-
-type SkillPayload = {
-  name: string;
-  type: string;
-  description: string;
-  enabled: boolean;
-  location: string;
-  references: SkillReferencePayload[];
-};
-
-type SkillStatPayload = {
-  name: string;
-  module: string;
-  activations: number;
-  executions: number;
-  failures: number;
-  execution_turns: number;
-  duration_ms: number;
-  last_used_at: number;
-};
-
-type ToolStatPayload = {
-  name: string;
-  calls: number;
-  errors: number;
-  duration_ms: number;
-  turns: number;
-  last_used_at: number;
-};
-
-type StatsOverviewPayload = {
-  days: number;
-  totals: {
-    turns: number;
-    error_turns: number;
-    tool_calls: number;
-    llm_calls: number;
-    input_tokens: number;
-    output_tokens: number;
-    skill_executions: number;
-    skill_failures: number;
-  };
-  modules: Array<{
-    module: string;
-    skills: number;
-    turns: number;
-    executions: number;
-    failures: number;
-    duration_ms: number;
-  }>;
-  daily: Array<{
-    day: string;
-    turns: number;
-    tool_calls: number;
-    executions: number;
-    failures: number;
-  }>;
-};
-
-type ConnectorPayload = {
-  id: string;
-  name: string;
-  description: string;
-  kind: string;
-  enabled: boolean;
-  everConnected: boolean;
-  userDisabled: boolean;
-  skill_names: string[];
-  skill_count: number;
-};
-
-type ChannelHealthPayload = {
-  running?: boolean;
-  thread_alive?: boolean;
-  connection_alive?: boolean;
-  connection_state?: string;
-  restart_monitor_alive?: boolean;
-  restart_in_progress?: boolean;
-  next_restart_at?: string;
-  last_restart_at?: string;
-  last_restart_error?: string;
-  last_connected_at?: string;
-  last_disconnected_at?: string;
-  last_error?: string;
-};
-
-type ChannelHealthList = {
-  items: Record<string, ChannelHealthPayload>;
-  total: number;
-};
-
-type SkillContentPayload = {
-  name: string;
-  type: string;
-  description: string;
-  location: string;
-  references: SkillReferencePayload[];
-  content: string;
-};
-
-type SkillReferenceContentPayload = {
-  skill_name: string;
-  path: string;
-  description: string;
-  location: string;
-  content: string;
-};
-
-type SkillContentView = {
-  title: string;
-  subtitle: string;
-  content: string;
-};
-
-type SkillContentMode = "preview" | "source";
-
-type ProjectDocPayload = {
-  path: string;
-  title: string;
-  section: string;
-  status: string;
-  size: number;
-};
-
-type ProjectDocContentPayload = ProjectDocPayload & {
-  content: string;
-};
-
-type DocsContentMode = "preview" | "source";
-
-type DocsTreeFileNode = {
-  kind: "file";
-  name: string;
-  path: string;
-  doc: ProjectDocPayload;
-};
-
-type DocsTreeFolderNode = {
-  kind: "folder";
-  name: string;
-  path: string;
-  children: DocsTreeNode[];
-};
-
-type DocsTreeNode = DocsTreeFileNode | DocsTreeFolderNode;
-
-type ToolPayload = {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  requires_resource: string | null;
-  enabled: boolean;
-};
-
-type McpServerPayload = {
-  name: string;
-  enabled: boolean;
-  transport: string;
-  status: string;
-  tool_count: number;
-  error: string;
-  server_title: string;
-  connector_name: string;
-};
-
-type ToolsetPayload = {
-  name: string;
-  label: string;
-  enabled: boolean;
-  tools: ToolPayload[];
-  servers?: McpServerPayload[];
-};
-
-type BackgroundTaskPayload = {
-  task_id: string;
-  session_id: string;
-  session_title: string;
-  origin_turn_id: string;
-  card_id: string;
-  status: string;
-  pid: number | null;
-  command: string;
-  cwd: string;
-  started_at: number;
-  ended_at: number | null;
-  duration_sec: number;
-  background: boolean;
-  exit_code: number | null;
-  truncated: boolean;
-  output_tail: string;
-};
-
-type ApiList<T> = {
-  items: T[];
-  total: number;
-  limit?: number;
-  offset?: number;
-};
-
-type SessionSummaryPayload = {
-  total_sessions: number;
-  tool_call_count: number;
-  token_count: number;
-};
-
-type SessionListPayload = ApiList<SessionPayload> & {
-  summary: SessionSummaryPayload;
-};
 
 const SESSION_MESSAGE_PAGE_LIMIT = 10;
 const SESSION_LIST_PAGE_SIZE = 10;
-const LANGUAGE_STORAGE_KEY = "agent-dashboard-language";
 const DOCS_HOME_PATH = "README.md";
 const DOCS_ROUTE_PREFIX = "/docs";
 const DASHBOARD_TAB_IDS = new Set([
@@ -382,588 +127,6 @@ const EMPTY_CHANNEL_HEALTH: ChannelHealthList = {
   total: 0
 };
 
-type Language = "zh" | "en";
-
-const ZH_TEXT = {
-  language: {
-    label: "语言",
-    zh: "中文",
-    en: "EN"
-  },
-  app: {
-    eyebrow: "本地 Agent",
-    title: "Agent Dashboard",
-    subtitle: "查看当前 gateway 的会话、模型、工具和技能。",
-    apiOnline: "API 在线",
-    apiOffline: "API 离线"
-  },
-  nav: {
-    sessions: "会话",
-    docs: "文档",
-    models: "模型",
-    tools: "工具",
-    mcp: "MCP",
-    skills: "技能",
-    connectors: "连接器",
-    tasks: "任务",
-    usage: "统计",
-    aria: "Dashboard 区域"
-  },
-  sidebar: {
-    brand: "Agent",
-    collapse: "收起侧边栏",
-    expand: "展开侧边栏"
-  },
-  home: {
-    title: "欢迎使用 Agent Dashboard",
-    subtitle: "进入会话页面查看历史记录，或使用左侧导航查看模型、工具、技能、任务和文档。"
-  },
-  stats: {
-    sessions: "会话",
-    toolCalls: "工具调用",
-    tokens: "Token",
-    messages: "原始消息",
-    apiCalls: "API 调用"
-  },
-  common: {
-    loading: "加载中",
-    copied: "已复制",
-    unknown: "unknown",
-    unnamedSession: "未命名会话",
-    previous: "上一页",
-    next: "下一页",
-    pageIndex: (current: string, total: string) => `第 ${current} / ${total} 页`,
-    errorPrefix: (label: string, message: string) => `${label}：${message}`,
-    countItems: (count: string, unit: string) => `${count} ${unit}`,
-    yes: "是",
-    no: "否",
-    none: "无",
-    notSupported: "不支持",
-    fallbackTool: "工具",
-    block: "块"
-  },
-  role: {
-    user: "user",
-    assistant: "assistant",
-    tool: "tool",
-    system: "system",
-    unknown: "unknown"
-  },
-  sessions: {
-    title: "会话",
-    searchPlaceholder: "搜索 sessions",
-    searchAria: "搜索 sessions",
-    selectPrompt: "选择一个会话查看详情。",
-    searchResults: (count: string) => `搜索结果 ${count} 条`,
-    total: (count: string) => `共 ${count} 条`,
-    empty: "暂无 session 记录。",
-    emptySearch: "没有匹配的 session。",
-    loading: "正在加载 sessions...",
-    errorLabel: "Sessions 错误",
-    columnSession: "会话",
-    tokenSuffix: "Token"
-  },
-  docs: {
-    title: "文档",
-    searchPlaceholder: "搜索文档",
-    searchAria: "搜索文档",
-    backToDashboard: "返回控制台",
-    loading: "正在加载文档...",
-    loadingContent: "正在加载文档内容...",
-    empty: "暂无文档。",
-    emptySearch: "没有匹配的文档。",
-    errorLabel: "文档错误",
-    selectPrompt: "选择一篇文档阅读。",
-    preview: "预览",
-    source: "原文",
-    copySource: "复制原文",
-    path: "路径",
-    status: "状态",
-    size: "大小",
-    rootGroup: "根目录",
-    untitled: "未命名文档"
-  },
-  sessionDetail: {
-    back: "会话",
-    eyebrow: "Session 详情",
-    details: "详情",
-    hideDetails: "收起详情",
-    sessionId: "Session ID",
-    source: "来源",
-    model: "历史模型",
-    lastActive: "最后活跃",
-    loading: "正在加载对话...",
-    errorLabel: "Session 错误",
-    empty: "该 session 暂无对话记录。",
-    pageBlocks: (visible: string, total: string) => `当前页 ${visible} / 总 ${total} 对话块`,
-    rawMessages: (count: string) => `原始消息 ${count} 条`
-  },
-  message: {
-    thinking: "思考",
-    redactedThinking: "部分思考已加密，无法展示",
-    toolCalls: "工具调用",
-    toolResult: "工具结果",
-    toolResultError: "工具结果错误",
-    copyResult: "复制结果",
-    toolActivity: "工具活动",
-    toolOperation: "工具操作",
-    toolContinuation: "工具操作续段",
-    calls: "调用",
-    results: "结果",
-    error: "错误"
-  },
-  models: {
-    model: "模型",
-    current: "当前",
-    switching: "切换中",
-    setCurrent: "设为当前",
-    context: "上下文",
-    output: "输出",
-    vision: "视觉",
-    thinking: "思考",
-    modelOptionUnavailable: "模型选项不可用",
-    providerNotSelectable: "WebUI 暂不支持切换",
-    missingApiKey: "缺少 API Key"
-  },
-  tools: {
-    itemUnit: "个工具",
-    emptyToolset: "该 toolset 暂无可展示工具。",
-    servers: "MCP Servers",
-    serverUnit: "个 server",
-    mcpTools: "MCP Tools",
-    status: "状态",
-    enabled: "已启用",
-    disabled: "已关闭",
-    enable: "启用",
-    disable: "关闭",
-    saving: "保存中",
-    noServers: "暂无 MCP server。"
-  },
-  tasks: {
-    empty: "暂无后台任务。",
-    itemUnit: "个任务",
-    task: "任务",
-    status: "状态",
-    session: "Session",
-    command: "命令",
-    duration: "耗时",
-    startedAt: "开始时间"
-  },
-  skills: {
-    itemUnit: "个技能",
-    empty: "当前 agent 暂无可用 skill。",
-    refs: (count: string) => `${count} 个引用`,
-    defaultGroup: "默认",
-    uncategorized: "未分类"
-  },
-  usage: {
-    title: "使用统计",
-    rangeAria: "统计时间范围",
-    rangeDays: (days: string) => `${days} 天`,
-    loading: "正在加载统计...",
-    errorLabel: "统计错误",
-    empty: "所选时间范围内暂无使用数据。",
-    totalsTurns: "回合",
-    totalsErrorTurns: "错误回合",
-    totalsToolCalls: "工具调用",
-    totalsExecutions: "技能执行",
-    totalsFailures: "执行失败",
-    totalsTokens: "Token",
-    dailyTitle: "每日趋势",
-    dailyLegendTurns: "回合",
-    dailyLegendExecutions: "技能执行",
-    modulesTitle: "模块",
-    skillsTitle: "技能",
-    toolsTitle: "工具",
-    columnName: "名称",
-    columnSkills: "技能数",
-    columnTurns: "回合",
-    columnActivations: "激活",
-    columnExecutions: "执行",
-    columnFailures: "失败",
-    columnSuccessRate: "成功率",
-    columnAvgDuration: "平均耗时",
-    columnCalls: "调用",
-    columnErrors: "错误",
-    columnLastUsed: "最近使用",
-    executionsBadge: (count: string) => `${count} 次执行`,
-    successRateBadge: (pct: string) => `成功率 ${pct}`,
-    neverUsed: "近 30 天未使用"
-  },
-  connectors: {
-    subtitle: "控制 agent 是否能看到平台 CLI skills。",
-    itemUnit: "个技能",
-    empty: "暂无 connector。",
-    enabled: "已启用",
-    disabled: "已关闭",
-    enable: "启用",
-    disable: "关闭",
-    saving: "保存中",
-    kind: "类型",
-    note: "关闭后 agent 不会看到该 connector 的 CLI skills；不会卸载 CLI，也不会清除认证。",
-    healthUnavailable: "健康状态不可用",
-    wsConnected: "飞书已连接",
-    wsDisconnected: "飞书未连接",
-    wsRestarting: "飞书重启中",
-    wsStopped: "飞书已停止",
-    wsFailed: "飞书连接失败",
-    wsUnknown: "飞书状态未知",
-    monitorRunning: "自动重启监控运行中",
-    monitorStopped: "自动重启监控已停止",
-    nextRestart: "下次重启",
-    lastRestart: "最近重启",
-    lastError: "最近错误"
-  },
-  skillModal: {
-    location: "位置",
-    references: "引用文件",
-    loadingReference: "加载中...",
-    noReferences: "无引用文件。",
-    copySource: "复制原文",
-    loadingContent: "正在加载 skill 内容...",
-    modeAria: "Skill 内容展示模式",
-    preview: "预览",
-    source: "原文"
-  },
-  detailModal: {
-    tool: "工具",
-    skill: "技能",
-    task: "后台任务",
-    close: "关闭",
-    inputSchema: "输入结构",
-    status: "状态",
-    sessionTitle: "会话标题",
-    session: "Session",
-    turn: "Turn",
-    card: "Card",
-    pid: "PID",
-    started: "开始时间",
-    ended: "结束时间",
-    duration: "耗时",
-    exitCode: "退出码",
-    cwd: "CWD",
-    command: "命令",
-    outputTail: "输出尾部",
-    noOutput: "无输出"
-  },
-  skillTypes: {
-    default: "默认",
-    amazon_fba: "Amazon FBA",
-    amazon_replenish: "Amazon Replenish",
-    uncategorized: "未分类"
-  },
-  mermaid: {
-    renderError: (message: string) => `Mermaid 渲染错误：${message}`,
-    rendering: "正在渲染 Mermaid 图..."
-  },
-  errors: {
-    dashboardLoad: "Dashboard 数据加载中...",
-    api: "API 错误"
-  }
-};
-
-type UiText = typeof ZH_TEXT;
-
-const UI_TEXT: Record<Language, UiText> = {
-  zh: ZH_TEXT,
-  en: {
-    language: {
-      label: "Language",
-      zh: "中文",
-      en: "EN"
-    },
-    app: {
-      eyebrow: "Local Harness Agent",
-      title: "Agent Dashboard",
-      subtitle: "Sessions, models, tools and skills from the running gateway.",
-      apiOnline: "API online",
-      apiOffline: "API offline"
-    },
-    nav: {
-      sessions: "Sessions",
-      docs: "Docs",
-      models: "Models",
-      tools: "Tools",
-      mcp: "MCP",
-      skills: "Skills",
-      connectors: "Connectors",
-      tasks: "Tasks",
-      usage: "Stats",
-      aria: "Dashboard sections"
-    },
-    sidebar: {
-      brand: "Agent",
-      collapse: "Collapse sidebar",
-      expand: "Expand sidebar"
-    },
-    home: {
-      title: "Welcome to Agent Dashboard",
-      subtitle: "Open Sessions to review history, or use the sidebar to view Models, Tools, Skills, Tasks, and Docs."
-    },
-    stats: {
-      sessions: "Sessions",
-      toolCalls: "Tool Calls",
-      tokens: "Tokens",
-      messages: "Raw messages",
-      apiCalls: "API Calls"
-    },
-    common: {
-      loading: "loading",
-      copied: "Copied",
-      unknown: "unknown",
-      unnamedSession: "Untitled session",
-      previous: "Previous",
-      next: "Next",
-      pageIndex: (current: string, total: string) => `Page ${current} / ${total}`,
-      errorPrefix: (label: string, message: string) => `${label}: ${message}`,
-      countItems: (count: string, unit: string) => `${count} ${unit}`,
-      yes: "yes",
-      no: "no",
-      none: "none",
-      notSupported: "not supported",
-      fallbackTool: "tool",
-      block: "block"
-    },
-    role: {
-      user: "user",
-      assistant: "assistant",
-      tool: "tool",
-      system: "system",
-      unknown: "unknown"
-    },
-    sessions: {
-      title: "Sessions",
-      searchPlaceholder: "Search sessions",
-      searchAria: "Search sessions",
-      selectPrompt: "Select a session to view details.",
-      searchResults: (count: string) => `${count} search results`,
-      total: (count: string) => `${count} total`,
-      empty: "No sessions yet.",
-      emptySearch: "No matching sessions.",
-      loading: "Loading sessions...",
-      errorLabel: "Sessions error",
-      columnSession: "Session",
-      tokenSuffix: "Token"
-    },
-    docs: {
-      title: "Docs",
-      searchPlaceholder: "Search docs",
-      searchAria: "Search docs",
-      backToDashboard: "Back to dashboard",
-      loading: "Loading docs...",
-      loadingContent: "Loading document...",
-      empty: "No docs found.",
-      emptySearch: "No matching docs.",
-      errorLabel: "Docs error",
-      selectPrompt: "Select a document to read.",
-      preview: "Preview",
-      source: "Source",
-      copySource: "Copy source",
-      path: "Path",
-      status: "Status",
-      size: "Size",
-      rootGroup: "Root",
-      untitled: "Untitled doc"
-    },
-    sessionDetail: {
-      back: "Sessions",
-      eyebrow: "Session Detail",
-      details: "Details",
-      hideDetails: "Hide details",
-      sessionId: "Session ID",
-      source: "Source",
-      model: "Historical model",
-      lastActive: "Last active",
-      loading: "Loading conversation...",
-      errorLabel: "Session error",
-      empty: "This session has no conversation records.",
-      pageBlocks: (visible: string, total: string) => `${visible} / ${total} conversation blocks on this page`,
-      rawMessages: (count: string) => `${count} raw messages`
-    },
-    message: {
-      thinking: "Thinking",
-      redactedThinking: "Some thinking is encrypted and cannot be displayed",
-      toolCalls: "tool calls",
-      toolResult: "tool result",
-      toolResultError: "tool result error",
-      copyResult: "Copy result",
-      toolActivity: "tool activity",
-      toolOperation: "Tool activity",
-      toolContinuation: "Tool activity continuation",
-      calls: "calls",
-      results: "results",
-      error: "error"
-    },
-    models: {
-      model: "Model",
-      current: "Current",
-      switching: "Switching",
-      setCurrent: "Set current",
-      context: "Context",
-      output: "Output",
-      vision: "Vision",
-      thinking: "Thinking",
-      modelOptionUnavailable: "Model option is not available",
-      providerNotSelectable: "Not selectable in WebUI",
-      missingApiKey: "Missing API key"
-    },
-    tools: {
-      itemUnit: "tools",
-      emptyToolset: "This toolset has no tools to show.",
-      servers: "MCP Servers",
-      serverUnit: "servers",
-      mcpTools: "MCP Tools",
-      status: "Status",
-      enabled: "Enabled",
-      disabled: "Disabled",
-      enable: "Enable",
-      disable: "Disable",
-      saving: "Saving",
-      noServers: "No MCP servers."
-    },
-    tasks: {
-      empty: "No background tasks.",
-      itemUnit: "tasks",
-      task: "Task",
-      status: "Status",
-      session: "Session",
-      command: "Command",
-      duration: "Duration",
-      startedAt: "Started"
-    },
-    skills: {
-      itemUnit: "skills",
-      empty: "No skills are available for the current agent.",
-      refs: (count: string) => `${count} refs`,
-      defaultGroup: "Default",
-      uncategorized: "Uncategorized"
-    },
-    usage: {
-      title: "Usage Stats",
-      rangeAria: "Stats time range",
-      rangeDays: (days: string) => `${days} days`,
-      loading: "Loading stats...",
-      errorLabel: "Stats error",
-      empty: "No usage data in the selected range.",
-      totalsTurns: "Turns",
-      totalsErrorTurns: "Error Turns",
-      totalsToolCalls: "Tool Calls",
-      totalsExecutions: "Skill Runs",
-      totalsFailures: "Failed Runs",
-      totalsTokens: "Tokens",
-      dailyTitle: "Daily Trend",
-      dailyLegendTurns: "Turns",
-      dailyLegendExecutions: "Skill runs",
-      modulesTitle: "Modules",
-      skillsTitle: "Skills",
-      toolsTitle: "Tools",
-      columnName: "Name",
-      columnSkills: "Skills",
-      columnTurns: "Turns",
-      columnActivations: "Activations",
-      columnExecutions: "Runs",
-      columnFailures: "Failures",
-      columnSuccessRate: "Success",
-      columnAvgDuration: "Avg Duration",
-      columnCalls: "Calls",
-      columnErrors: "Errors",
-      columnLastUsed: "Last Used",
-      executionsBadge: (count: string) => `${count} runs`,
-      successRateBadge: (pct: string) => `${pct} success`,
-      neverUsed: "Unused in 30 days"
-    },
-    connectors: {
-      subtitle: "Control whether agents can see platform CLI skills.",
-      itemUnit: "skills",
-      empty: "No connectors.",
-      enabled: "Enabled",
-      disabled: "Disabled",
-      enable: "Enable",
-      disable: "Disable",
-      saving: "Saving",
-      kind: "Kind",
-      note: "Disabling hides this connector's CLI skills from agents; it does not uninstall the CLI or clear auth.",
-      healthUnavailable: "Health unavailable",
-      wsConnected: "Feishu connected",
-      wsDisconnected: "Feishu disconnected",
-      wsRestarting: "Feishu restarting",
-      wsStopped: "Feishu stopped",
-      wsFailed: "Feishu connection failed",
-      wsUnknown: "Feishu status unknown",
-      monitorRunning: "Auto-restart monitor running",
-      monitorStopped: "Auto-restart monitor stopped",
-      nextRestart: "Next restart",
-      lastRestart: "Last restart",
-      lastError: "Last error"
-    },
-    skillModal: {
-      location: "Location",
-      references: "References",
-      loadingReference: "loading...",
-      noReferences: "No references.",
-      copySource: "Copy source",
-      loadingContent: "Loading skill content...",
-      modeAria: "Skill content display mode",
-      preview: "Preview",
-      source: "Source"
-    },
-    detailModal: {
-      tool: "Tool",
-      skill: "Skill",
-      task: "Background Task",
-      close: "Close",
-      inputSchema: "Input schema",
-      status: "Status",
-      sessionTitle: "Session title",
-      session: "Session",
-      turn: "Turn",
-      card: "Card",
-      pid: "PID",
-      started: "Started",
-      ended: "Ended",
-      duration: "Duration",
-      exitCode: "Exit code",
-      cwd: "CWD",
-      command: "Command",
-      outputTail: "Output tail",
-      noOutput: "no output"
-    },
-    skillTypes: {
-      default: "Default",
-      amazon_fba: "Amazon FBA",
-      amazon_replenish: "Amazon Replenish",
-      uncategorized: "Uncategorized"
-    },
-    mermaid: {
-      renderError: (message: string) => `Mermaid render error: ${message}`,
-      rendering: "Rendering Mermaid diagram..."
-    },
-    errors: {
-      dashboardLoad: "Loading dashboard data...",
-      api: "API error"
-    }
-  }
-};
-
-const I18nContext = React.createContext<UiText>(ZH_TEXT);
-
-function useUiText(): UiText {
-  return React.useContext(I18nContext);
-}
-
-function isLanguage(value: string | null): value is Language {
-  return value === "zh" || value === "en";
-}
-
-function initialLanguage(): Language {
-  try {
-    const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    return isLanguage(stored) ? stored : "zh";
-  } catch {
-    return "zh";
-  }
-}
-
 type DashboardData = {
   skills: ApiList<SkillPayload>;
   connectors: ApiList<ConnectorPayload>;
@@ -980,7 +143,6 @@ type DetailTarget =
   | { type: "task"; item: BackgroundTaskPayload; title: string }
   | null;
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 const MERMAID_LANGUAGE_PATTERN = /\blanguage-mermaid\b/;
 
 type MermaidApi = typeof import("mermaid").default;
@@ -1069,39 +231,6 @@ function docsMarkdownComponents(currentPath: string, onNavigate: (path: string) 
   };
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { Accept: "application/json" }
-  });
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
-  }
-  return (await response.json()) as T;
-}
-
-async function patchJson<T>(path: string, payload: Record<string, unknown>): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: "PATCH",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-  if (!response.ok) {
-    let detail = `${response.status} ${response.statusText}`;
-    try {
-      const body = (await response.json()) as { detail?: unknown };
-      if (body.detail) {
-        detail = String(body.detail);
-      }
-    } catch {
-      // Keep the HTTP status fallback.
-    }
-    throw new Error(detail);
-  }
-  return (await response.json()) as T;
-}
 
 function modelThinkingLevelLabel(model: ModelPayload, level: string): string {
   const normalized = String(level || "").trim().toLowerCase();
@@ -1313,47 +442,6 @@ function docsAncestorFolders(path: string): string[] {
   return ancestors;
 }
 
-function formatDate(value: number): string {
-  if (!value) {
-    return "-";
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value * 1000));
-}
-
-function formatIsoDate(value: string | null | undefined): string {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    return "-";
-  }
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) {
-    return raw;
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
-}
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("en-US").format(Math.max(0, Number(value) || 0));
-}
-
-function formatDuration(value: number | null | undefined): string {
-  const duration = Number(value);
-  if (!Number.isFinite(duration) || duration < 0) {
-    return "-";
-  }
-  return `${duration.toFixed(duration >= 10 ? 0 : 1)}s`;
-}
-
 function sourceLabel(source: SourceSummary | Record<string, unknown>): string {
   const platform = String(source.platform || "unknown");
   const chatType = String(source.chat_type || "");
@@ -1547,27 +635,6 @@ function StatTile({
         <div className="stat-value">{value}</div>
       </div>
     </div>
-  );
-}
-
-function EmptyState({ label }: { label: string }) {
-  return (
-    <div className="empty-state">
-      <Info size={18} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function DashboardHome() {
-  const t = useUiText();
-  return (
-    <section className="dashboard-home" aria-labelledby="dashboard-home-title">
-      <div className="dashboard-home-copy">
-        <h2 id="dashboard-home-title">{t.home.title}</h2>
-        <p>{t.home.subtitle}</p>
-      </div>
-    </section>
   );
 }
 
@@ -3253,338 +2320,9 @@ function BackgroundTasksView({
   );
 }
 
-const SKILL_TYPE_ORDER = ["default", "amazon_fba", "amazon_replenish"];
 
-function skillTypeLabel(type: string, t: UiText): string {
-  const normalized = String(type || "").trim();
-  const labels: Record<string, string> = {
-    default: t.skillTypes.default,
-    amazon_fba: t.skillTypes.amazon_fba,
-    amazon_replenish: t.skillTypes.amazon_replenish
-  };
-  return labels[normalized] || normalized || t.skillTypes.uncategorized;
-}
 
-function skillTypeRank(type: string): number {
-  const index = SKILL_TYPE_ORDER.indexOf(String(type || "").trim());
-  return index >= 0 ? index : SKILL_TYPE_ORDER.length;
-}
 
-function groupSkillsByType(skills: SkillPayload[], t: UiText): Array<{ type: string; label: string; skills: SkillPayload[] }> {
-  const groups = new Map<string, SkillPayload[]>();
-  for (const skill of skills) {
-    const type = String(skill.type || "").trim() || "uncategorized";
-    groups.set(type, [...(groups.get(type) || []), skill]);
-  }
-  return Array.from(groups.entries())
-    .map(([type, items]) => ({
-      type,
-      label: skillTypeLabel(type, t),
-      skills: items.slice().sort((left, right) => left.name.localeCompare(right.name))
-    }))
-    .sort((left, right) => {
-      const leftRank = skillTypeRank(left.type);
-      const rightRank = skillTypeRank(right.type);
-      if (leftRank !== rightRank) {
-        return leftRank - rightRank;
-      }
-      return left.label.localeCompare(right.label);
-    });
-}
-
-const USAGE_RANGE_OPTIONS = [7, 30, 90];
-const SKILL_BADGE_STATS_DAYS = 30;
-
-function formatDurationMs(value: number): string {
-  const ms = Math.max(0, Number(value) || 0);
-  if (ms <= 0) {
-    return "-";
-  }
-  if (ms < 1000) {
-    return `${Math.round(ms)}ms`;
-  }
-  const seconds = ms / 1000;
-  return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
-}
-
-function successRateText(executions: number, failures: number): string {
-  if (executions <= 0) {
-    return "-";
-  }
-  const rate = ((executions - failures) / executions) * 100;
-  return `${Math.round(Math.max(0, Math.min(100, rate)))}%`;
-}
-
-function useSkillUsageStats(days: number): Record<string, SkillStatPayload> | null {
-  const [stats, setStats] = useState<Record<string, SkillStatPayload> | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetchJson<ApiList<SkillStatPayload>>(`/api/stats/skills?days=${days}`)
-      .then((payload) => {
-        if (cancelled) {
-          return;
-        }
-        const map: Record<string, SkillStatPayload> = {};
-        for (const item of payload.items) {
-          map[item.name] = item;
-        }
-        setStats(map);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStats(null);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [days]);
-  return stats;
-}
-
-function UsageDailyChart({ daily }: { daily: StatsOverviewPayload["daily"] }) {
-  const t = useUiText();
-  if (!daily.length) {
-    return null;
-  }
-  const maxValue = Math.max(1, ...daily.map((entry) => Math.max(entry.turns, entry.executions)));
-  return (
-    <div className="usage-chart-shell">
-      <div className="usage-chart" role="img" aria-label={t.usage.dailyTitle}>
-        {daily.map((entry) => (
-          <div className="usage-chart-day" key={entry.day} title={`${entry.day} · ${t.usage.dailyLegendTurns} ${formatNumber(entry.turns)} · ${t.usage.dailyLegendExecutions} ${formatNumber(entry.executions)}`}>
-            <div className="usage-chart-bars">
-              <span
-                className="usage-chart-bar turns"
-                style={{ height: `${Math.max(3, (entry.turns / maxValue) * 100)}%` }}
-              />
-              <span
-                className="usage-chart-bar executions"
-                style={{ height: `${Math.max(entry.executions > 0 ? 3 : 0, (entry.executions / maxValue) * 100)}%` }}
-              />
-            </div>
-            <span className="usage-chart-label">{entry.day.slice(5)}</span>
-          </div>
-        ))}
-      </div>
-      <div className="usage-chart-legend">
-        <span><i className="usage-legend-dot turns" />{t.usage.dailyLegendTurns}</span>
-        <span><i className="usage-legend-dot executions" />{t.usage.dailyLegendExecutions}</span>
-      </div>
-    </div>
-  );
-}
-
-function StatsView() {
-  const t = useUiText();
-  const [days, setDays] = useState(30);
-  const [overview, setOverview] = useState<StatsOverviewPayload | null>(null);
-  const [skillStats, setSkillStats] = useState<SkillStatPayload[]>([]);
-  const [toolStats, setToolStats] = useState<ToolStatPayload[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    Promise.all([
-      fetchJson<StatsOverviewPayload>(`/api/stats/overview?days=${days}`),
-      fetchJson<ApiList<SkillStatPayload>>(`/api/stats/skills?days=${days}`),
-      fetchJson<ApiList<ToolStatPayload>>(`/api/stats/tools?days=${days}`)
-    ])
-      .then(([nextOverview, nextSkills, nextTools]) => {
-        if (cancelled) {
-          return;
-        }
-        setOverview(nextOverview);
-        setSkillStats(nextSkills.items);
-        setToolStats(nextTools.items);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [days]);
-
-  if (loading) {
-    return <EmptyState label={t.usage.loading} />;
-  }
-  if (error) {
-    return <EmptyState label={t.common.errorPrefix(t.usage.errorLabel, error)} />;
-  }
-  if (!overview || !overview.totals.turns) {
-    return (
-      <div className="usage-page">
-        <div className="usage-range" role="group" aria-label={t.usage.rangeAria}>
-          {USAGE_RANGE_OPTIONS.map((option) => (
-            <button
-              className={days === option ? "usage-range-button active" : "usage-range-button"}
-              key={option}
-              type="button"
-              onClick={() => setDays(option)}
-            >
-              {t.usage.rangeDays(String(option))}
-            </button>
-          ))}
-        </div>
-        <EmptyState label={t.usage.empty} />
-      </div>
-    );
-  }
-
-  const totals = overview.totals;
-  const totalCards = [
-    { label: t.usage.totalsTurns, value: formatNumber(totals.turns) },
-    { label: t.usage.totalsErrorTurns, value: formatNumber(totals.error_turns) },
-    { label: t.usage.totalsToolCalls, value: formatNumber(totals.tool_calls) },
-    { label: t.usage.totalsExecutions, value: formatNumber(totals.skill_executions) },
-    { label: t.usage.totalsFailures, value: formatNumber(totals.skill_failures) },
-    { label: t.usage.totalsTokens, value: formatNumber(totals.input_tokens + totals.output_tokens) }
-  ];
-
-  return (
-    <div className="usage-page">
-      <div className="usage-range" role="group" aria-label={t.usage.rangeAria}>
-        {USAGE_RANGE_OPTIONS.map((option) => (
-          <button
-            className={days === option ? "usage-range-button active" : "usage-range-button"}
-            key={option}
-            type="button"
-            onClick={() => setDays(option)}
-          >
-            {t.usage.rangeDays(String(option))}
-          </button>
-        ))}
-      </div>
-
-      <div className="usage-cards">
-        {totalCards.map((card) => (
-          <div className="usage-card" key={card.label}>
-            <span className="usage-card-value">{card.value}</span>
-            <span className="usage-card-label">{card.label}</span>
-          </div>
-        ))}
-      </div>
-
-      <section className="usage-section">
-        <h3>{t.usage.dailyTitle}</h3>
-        <UsageDailyChart daily={overview.daily} />
-      </section>
-
-      {overview.modules.length ? (
-        <section className="usage-section">
-          <h3>{t.usage.modulesTitle}</h3>
-          <div className="table-shell">
-            <table className="session-table usage-table">
-              <thead>
-                <tr>
-                  <th>{t.usage.columnName}</th>
-                  <th>{t.usage.columnSkills}</th>
-                  <th>{t.usage.columnTurns}</th>
-                  <th>{t.usage.columnExecutions}</th>
-                  <th>{t.usage.columnFailures}</th>
-                  <th>{t.usage.columnSuccessRate}</th>
-                  <th>{t.usage.columnAvgDuration}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.modules.map((module) => (
-                  <tr key={module.module || "-"}>
-                    <td>{skillTypeLabel(module.module, t)}</td>
-                    <td>{formatNumber(module.skills)}</td>
-                    <td>{formatNumber(module.turns)}</td>
-                    <td>{formatNumber(module.executions)}</td>
-                    <td>{formatNumber(module.failures)}</td>
-                    <td>{successRateText(module.executions, module.failures)}</td>
-                    <td>{formatDurationMs(module.executions > 0 ? module.duration_ms / module.executions : 0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {skillStats.length ? (
-        <section className="usage-section">
-          <h3>{t.usage.skillsTitle}</h3>
-          <div className="table-shell">
-            <table className="session-table usage-table">
-              <thead>
-                <tr>
-                  <th>{t.usage.columnName}</th>
-                  <th>{t.usage.columnActivations}</th>
-                  <th>{t.usage.columnExecutions}</th>
-                  <th>{t.usage.columnFailures}</th>
-                  <th>{t.usage.columnSuccessRate}</th>
-                  <th>{t.usage.columnTurns}</th>
-                  <th>{t.usage.columnAvgDuration}</th>
-                  <th>{t.usage.columnLastUsed}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {skillStats.map((skill) => (
-                  <tr key={skill.name}>
-                    <td>{skill.name}</td>
-                    <td>{formatNumber(skill.activations)}</td>
-                    <td>{formatNumber(skill.executions)}</td>
-                    <td>{formatNumber(skill.failures)}</td>
-                    <td>{successRateText(skill.executions, skill.failures)}</td>
-                    <td>{formatNumber(skill.execution_turns)}</td>
-                    <td>{formatDurationMs(skill.executions > 0 ? skill.duration_ms / skill.executions : 0)}</td>
-                    <td>{formatDate(skill.last_used_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {toolStats.length ? (
-        <section className="usage-section">
-          <h3>{t.usage.toolsTitle}</h3>
-          <div className="table-shell">
-            <table className="session-table usage-table">
-              <thead>
-                <tr>
-                  <th>{t.usage.columnName}</th>
-                  <th>{t.usage.columnCalls}</th>
-                  <th>{t.usage.columnErrors}</th>
-                  <th>{t.usage.columnTurns}</th>
-                  <th>{t.usage.columnAvgDuration}</th>
-                  <th>{t.usage.columnLastUsed}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {toolStats.map((tool) => (
-                  <tr key={tool.name}>
-                    <td>{tool.name}</td>
-                    <td>{formatNumber(tool.calls)}</td>
-                    <td>{formatNumber(tool.errors)}</td>
-                    <td>{formatNumber(tool.turns)}</td>
-                    <td>{formatDurationMs(tool.calls > 0 ? tool.duration_ms / tool.calls : 0)}</td>
-                    <td>{formatDate(tool.last_used_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-    </div>
-  );
-}
 
 function SkillsView({
   skills,
@@ -4445,6 +3183,14 @@ function App() {
     setSidebarCollapsed((current) => !current);
   }
 
+  // Two-pane sessions view: keep the detail pane populated by default.
+  useEffect(() => {
+    if (activeTab === "sessions" && !selectedSession && sessionsData.items.length > 0) {
+      void openSession(sessionsData.items[0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selectedSession, sessionsData.items]);
+
   function pushDashboardRoute(tab: string) {
     const nextTab = DASHBOARD_TAB_IDS.has(tab) && tab !== "docs" ? tab : "home";
     if (window.location.pathname !== "/" || window.history.state?.tab !== nextTab) {
@@ -4803,7 +3549,9 @@ function App() {
           <nav className="tab-list" aria-label={t.nav.aria}>
             {tabs.map((tab) => (
               <button
-                className={activeTab === tab.id ? "tab active" : "tab"}
+                className={
+                  activeTab === tab.id ? `tab tab-${tab.id} active` : `tab tab-${tab.id}`
+                }
                 key={tab.id}
                 title={tab.label}
                 type="button"
@@ -4835,7 +3583,7 @@ function App() {
 
         <section className={showDashboardHome ? "main-panel dashboard-home-panel" : "main-panel"}>
           {!showDashboardHome ? (
-            <header className="main-header">
+            <header className={`main-header tab-${activeTab}`}>
               <div className="main-title">
                 <h2>{pageTitle}</h2>
                 {pageSubtitle ? <p>{pageSubtitle}</p> : null}
@@ -4847,36 +3595,48 @@ function App() {
             {error ? <EmptyState label={t.common.errorPrefix(t.errors.api, error)} /> : null}
             {!loading && !error && data ? (
               <>
-                {activeTab === "sessions" && selectedSession ? (
-                  <SessionDetailView
-                    fallbackSession={selectedSession}
-                    detail={sessionDetail}
-                    loading={sessionDetailLoading}
-                    error={sessionDetailError}
-                    pageLoading={sessionDetailPageLoading}
-                    pageError={sessionDetailPageError}
-                    onPageChange={loadSessionMessagesPage}
-                  />
-                ) : null}
-                {activeTab === "sessions" && !selectedSession ? (
-                  <section className="sessions-page">
-                    <SessionsIndex
-                      sessions={sessionsData.items}
-                      query={query}
-                      searchOpen={showSessionSearch}
-                      searchFocusKey={sessionSearchFocusKey}
-                      loading={sessionsLoading}
-                      error={sessionsError}
-                      hasMore={hasMoreSessions}
-                      loadMoreError={sessionLoadMoreError}
-                      selectedSessionId=""
-                      onQueryChange={handleSessionQueryChange}
-                      onLoadMore={loadMoreSessions}
-                      onOpen={openSession}
-                    />
+                {activeTab === "sessions" ? (
+                  <section className="sessions-split">
+                    <div className="sessions-split-index">
+                      <SessionsIndex
+                        sessions={sessionsData.items}
+                        query={query}
+                        searchOpen
+                        searchFocusKey={sessionSearchFocusKey}
+                        loading={sessionsLoading}
+                        error={sessionsError}
+                        hasMore={hasMoreSessions}
+                        loadMoreError={sessionLoadMoreError}
+                        selectedSessionId={selectedSession?.session_id || ""}
+                        onQueryChange={handleSessionQueryChange}
+                        onLoadMore={loadMoreSessions}
+                        onOpen={openSession}
+                      />
+                    </div>
+                    <div className="sessions-split-detail">
+                      {selectedSession ? (
+                        <SessionDetailView
+                          fallbackSession={selectedSession}
+                          detail={sessionDetail}
+                          loading={sessionDetailLoading}
+                          error={sessionDetailError}
+                          pageLoading={sessionDetailPageLoading}
+                          pageError={sessionDetailPageError}
+                          onPageChange={loadSessionMessagesPage}
+                        />
+                      ) : (
+                        <EmptyState label={t.sessions.selectPrompt} />
+                      )}
+                    </div>
                   </section>
                 ) : null}
-                {activeTab === "home" ? <DashboardHome /> : null}
+                {activeTab === "home" ? (
+                  <DashboardHome
+                    onOpenSession={openSession}
+                    onOpenSessions={() => openDashboardTab("sessions")}
+                    onOpenStats={() => openDashboardTab("stats")}
+                  />
+                ) : null}
                 {activeTab === "models" ? (
                   <ModelsView
                     models={data.models.items}
@@ -4935,4 +3695,10 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+// Reuse the root across vite HMR full-reloads of this entry module.
+const rootContainer = document.getElementById("root")! as HTMLElement & {
+  __appRoot?: ReturnType<typeof createRoot>;
+};
+const appRoot = rootContainer.__appRoot ?? createRoot(rootContainer);
+rootContainer.__appRoot = appRoot;
+appRoot.render(<App />);
