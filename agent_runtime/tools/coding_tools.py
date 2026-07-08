@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+from collections import OrderedDict
 import contextlib
 from dataclasses import dataclass
 import fnmatch
@@ -97,6 +98,9 @@ _READ_DESCRIPTION = (
     "Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB "
     "(whichever is hit first). Use offset/limit for large files. When you need the full file, "
     "continue with offset until complete. "
+    "Text output uses cat -n style: each line is prefixed with its line number and a tab; "
+    "strip this prefix when quoting file content elsewhere (e.g. in edit old_string). "
+    "Reading a file also unlocks edit/write for it in this session. "
     "Binary and office files (xlsx, docx, pdf, zip, etc.) cannot be read as text; "
     "use exec with a Python script or a matching skill instead."
 )
@@ -459,7 +463,7 @@ def _read_text_body(path: Path, *, offset: int, limit: int) -> str:
 
     max_index = min(total, start_index + safe_limit)
     for index in range(start_index, max_index):
-        line = lines[index]
+        line = f"{index + 1:6d}\t{lines[index]}"
         candidate_lines = selected + [line]
         candidate_text = "\n".join(candidate_lines)
         if len(candidate_text.encode("utf-8")) > _READ_TEXT_MAX_BYTES:
@@ -583,6 +587,69 @@ def _build_read_image_result(path: Path, *, detected_mime: str) -> ToolResult:
 
 
 # ===================================================================
+# 安全编辑契约：read-before-modify 台账
+# ===================================================================
+#
+# 会话内读过的文件记录 (session_id, path) -> mtime_ns。
+# edit / 覆盖已有文件的 write 必须先 read 过该文件；read 之后文件在磁盘上
+# 被外部修改（mtime 变化）则要求重新 read。这是硬约束，防止模型盲改文件。
+
+_FILE_READ_LEDGER: OrderedDict[tuple[str, str], int] = OrderedDict()
+_FILE_READ_LEDGER_MAX = 10_000
+
+
+def _ledger_session_key() -> str:
+    try:
+        ctx = get_tool_context()
+    except RuntimeError:
+        return ""
+    session = getattr(ctx, "session", None)
+    return str(getattr(session, "session_id", "") or "").strip()
+
+
+def _file_mtime_ns(path: Path) -> int | None:
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def _record_file_read(resolved: Path) -> None:
+    mtime = _file_mtime_ns(resolved)
+    if mtime is None:
+        return
+    key = (_ledger_session_key(), str(resolved))
+    _FILE_READ_LEDGER[key] = mtime
+    _FILE_READ_LEDGER.move_to_end(key)
+    while len(_FILE_READ_LEDGER) > _FILE_READ_LEDGER_MAX:
+        _FILE_READ_LEDGER.popitem(last=False)
+
+
+def _display_path(resolved: Path) -> str:
+    try:
+        return str(resolved.relative_to(WORKSPACE_ROOT))
+    except ValueError:
+        return str(resolved)
+
+
+def _check_read_before_modify(resolved: Path, *, action: str) -> None:
+    """已存在的文件必须在本会话 read 过且未被外部修改，才允许 edit/overwrite。"""
+    rel = _display_path(resolved)
+    recorded = _FILE_READ_LEDGER.get((_ledger_session_key(), str(resolved)))
+    if recorded is None:
+        _tool_error(f"{action} 被拒绝：请先用 read 读取该文件再修改: {rel}")
+    current = _file_mtime_ns(resolved)
+    if current is not None and current != recorded:
+        _tool_error(
+            f"{action} 被拒绝：文件在上次 read 之后被修改过，请重新 read 确认最新内容: {rel}"
+        )
+
+
+def clear_file_read_ledger_for_tests() -> None:
+    _FILE_READ_LEDGER.clear()
+
+
+# ===================================================================
 # Handler: read
 # ===================================================================
 
@@ -605,9 +672,13 @@ async def _handle_read(
 
     detected_mime = _sniff_read_image_mime(sample)
     if detected_mime:
-        return _build_read_image_result(resolved, detected_mime=detected_mime)
+        result = _build_read_image_result(resolved, detected_mime=detected_mime)
+        _record_file_read(resolved)
+        return result
 
-    return text_tool_result(_read_text_body(resolved, offset=offset, limit=limit))
+    body = _read_text_body(resolved, offset=offset, limit=limit)
+    _record_file_read(resolved)
+    return text_tool_result(body)
 
 
 # ===================================================================
@@ -624,12 +695,18 @@ async def _handle_write(file_path: str = "", content: str = "", **_: Any) -> Too
     if denied_reason:
         _tool_error(f"写入被拒绝: {denied_reason}")
 
+    if resolved.exists():
+        if not resolved.is_file():
+            _tool_error(f"路径不是普通文件，无法写入: {_display_path(resolved)}")
+        _check_read_before_modify(resolved, action="write")
+
     try:
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
     except Exception as e:
         _tool_error(f"写入失败: {e}")
 
+    _record_file_read(resolved)
     return text_tool_result(f"Wrote {len(content)} chars to {resolved.relative_to(WORKSPACE_ROOT)}")
 
 
@@ -638,7 +715,11 @@ async def _handle_write(file_path: str = "", content: str = "", **_: Any) -> Too
 # ===================================================================
 
 async def _handle_edit(
-    file_path: str = "", old_string: str = "", new_string: str = "", **_: Any,
+    file_path: str = "",
+    old_string: str = "",
+    new_string: str = "",
+    replace_all: bool = False,
+    **_: Any,
 ) -> ToolResult:
     try:
         resolved = _safe_resolve(file_path)
@@ -655,6 +736,13 @@ async def _handle_edit(
     if _looks_binary_file(resolved):
         _tool_error(_binary_read_error(resolved))
 
+    if not old_string:
+        _tool_error("old_string 不能为空")
+    if old_string == new_string:
+        _tool_error("new_string 必须和 old_string 不同")
+
+    _check_read_before_modify(resolved, action="edit")
+
     try:
         text = resolved.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
@@ -663,11 +751,24 @@ async def _handle_edit(
     count = text.count(old_string)
     if count == 0:
         _tool_error("old_string not found in file")
+
+    if replace_all:
+        new_text = text.replace(old_string, new_string)
+        resolved.write_text(new_text, encoding="utf-8")
+        _record_file_read(resolved)
+        return text_tool_result(
+            f"Edited {resolved.relative_to(WORKSPACE_ROOT)}: replaced {count} occurrences"
+        )
+
     if count > 1:
-        _tool_error(f"old_string matches {count} locations, provide more context to be unique")
+        _tool_error(
+            f"old_string matches {count} locations, provide more context to be unique "
+            "or set replace_all=true"
+        )
 
     new_text = text.replace(old_string, new_string, 1)
     resolved.write_text(new_text, encoding="utf-8")
+    _record_file_read(resolved)
 
     # 返回替换处前后几行作为确认
     pos = new_text.find(new_string)
@@ -1377,8 +1478,8 @@ CODING_WRITE = ToolDefinition(
     name="write",
     description=(
         "Create or overwrite a file with the given content. Auto-creates parent directories. "
-        "For partial changes to an existing file, use edit instead; avoid overwriting a file "
-        "you have not read."
+        "Overwriting an existing file requires reading it with read first in this session — "
+        "the write fails otherwise. For partial changes to an existing file, use edit instead."
     ),
     parameters={
         "type": "object",
@@ -1395,17 +1496,25 @@ CODING_WRITE = ToolDefinition(
 CODING_EDIT = ToolDefinition(
     name="edit",
     description=(
-        "Find-and-replace in a file. old_string must appear exactly once and must match the "
-        "file content exactly, including whitespace and indentation. Use read first to see "
-        "the file; if old_string matches multiple locations, include more surrounding context "
-        "to make it unique."
+        "Find-and-replace in a file. The file must have been read with read in this session "
+        "first — the edit fails otherwise, and also fails if the file changed on disk since "
+        "the last read (re-read it then). old_string must match the raw file content exactly, "
+        "including whitespace and indentation; do NOT include the line-number prefix shown in "
+        "read output. By default old_string must appear exactly once — include more "
+        "surrounding context to make it unique, or set replace_all=true to replace every "
+        "occurrence."
     ),
     parameters={
         "type": "object",
         "properties": {
             "file_path": {"type": "string", "description": "File path"},
-            "old_string": {"type": "string", "description": "Exact text to find (must appear exactly once)"},
-            "new_string": {"type": "string", "description": "Replacement text"},
+            "old_string": {"type": "string", "description": "Exact text to find (raw file content, no line-number prefix)"},
+            "new_string": {"type": "string", "description": "Replacement text (must differ from old_string)"},
+            "replace_all": {
+                "type": "boolean",
+                "description": "Replace every occurrence of old_string (default false: exactly one match required)",
+                "default": False,
+            },
         },
         "required": ["file_path", "old_string", "new_string"],
         "additionalProperties": False,
