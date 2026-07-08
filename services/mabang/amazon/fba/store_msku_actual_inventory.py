@@ -513,7 +513,7 @@ async def _resolve_private_auth() -> tuple[str, str]:
 
 
 async def _resolve_private_amz_cookie() -> str:
-    context = await get_auth_context(scope="private_amz")
+    context = await get_auth_context(scope="private_amz", purpose="store_msku_actual_inventory_download")
     cookie_header = build_cookie_header(
         context.cookies_by_domain,
         request_host=PRIVATE_AMZ_HOST,

@@ -14,7 +14,12 @@ from shared.logging import reset_log_context, set_log_context, setup_logging
 _MANAGED_HANDLER_ATTR = "_lxe_agent_logging_handler"
 _TRACKED_LOGGERS = (
     "bot_logger",
+    "browser_auth_service.service",
+    "clients.auth.browser_auth_client",
     "platforms.feishu",
+    "services.mabang.auth_audit",
+    "services.mabang.amazon.fba.wms",
+    "services.mabang.auth",
     "agent_runtime.stream_logging",
     "shared.other",
     "httpx",
@@ -67,6 +72,7 @@ def test_setup_logging_is_idempotent_and_preserves_external_handlers(monkeypatch
     root.addHandler(external_handler)
     try:
         monkeypatch.setenv("LOG_LEVEL", "INFO")
+        monkeypatch.setenv("LOCAL_LOGS_ENABLED", "0")
 
         setup_logging()
         setup_logging()
@@ -272,6 +278,45 @@ def test_runtime_file_logging_requires_global_local_logs_switch(tmp_path, monkey
     assert len(matches) == 1
     assert "enabled runtime file log" in matches[0].read_text(encoding="utf-8")
     assert "disabled runtime file log" not in matches[0].read_text(encoding="utf-8")
+
+
+def test_browser_auth_file_logging_filters_dedicated_modules(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(logging_config, "_repo_root", lambda: tmp_path)
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
+    monkeypatch.setenv("LOG_FILE", "runtime.log")
+    monkeypatch.setenv("BROWSER_AUTH_LOG_FILE", "browser_auth_service.log")
+
+    setup_logging()
+    logging.getLogger("browser_auth_service.service").info("browser auth detail")
+    logging.getLogger("clients.auth.browser_auth_client").info("client detail")
+    logging.getLogger("services.mabang.auth_audit").info("auth audit detail")
+    logging.getLogger("services.mabang.amazon.fba.wms").info("wms detail")
+    logging.getLogger("gateway.app").info("gateway detail")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    matches = list((tmp_path / "logs" / "browser_auth_service").glob("*/browser_auth_service.log"))
+    assert len(matches) == 1
+    text = matches[0].read_text(encoding="utf-8")
+    assert "browser auth detail" in text
+    assert "client detail" in text
+    assert "auth audit detail" in text
+    assert "wms detail" in text
+    assert "gateway detail" not in text
+
+
+def test_browser_auth_file_logging_requires_explicit_file_env(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(logging_config, "_repo_root", lambda: tmp_path)
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
+    monkeypatch.setenv("LOG_FILE", "runtime.log")
+    monkeypatch.delenv("BROWSER_AUTH_LOG_FILE", raising=False)
+
+    setup_logging()
+    logging.getLogger("browser_auth_service.service").info("browser auth detail")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+
+    assert list((tmp_path / "logs" / "browser_auth_service").glob("*/*.log")) == []
 
 
 def test_production_modules_do_not_import_legacy_global_logger() -> None:

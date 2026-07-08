@@ -115,29 +115,49 @@ def test_prepare_upload_legacy_test_file_helpers_removed():
 
 def test_get_fba_wms_cookie_header_passes_force_refresh(monkeypatch) -> None:
     calls: list[dict] = []
+    audit_calls: list[dict] = []
 
-    async def fake_get_auth_context(**kwargs):
+    async def fake_ensure_payload(**kwargs):
         calls.append(kwargs)
-        return mabang_auth.MabangAuthContext(
-            scope="fba",
-            account="account",
-            source="refresh",
-            cookies_by_domain={},
-            free_token="",
-            wms_cookie_header="wms-cookie=1",
-            raw={},
+        return {
+            "success": True,
+            "scope": "fba",
+            "account": "account",
+            "source": "refresh",
+            "cookies_by_domain": {},
+            "free_token": "",
+            "wms_cookie_header": "wms-cookie=1",
+        }
+
+    monkeypatch.setattr(mabang_auth, "ensure_mabang_auth_payload", fake_ensure_payload)
+    monkeypatch.setattr(mabang_auth.auth_audit, "log_auth_material_acquired", lambda **kwargs: audit_calls.append(kwargs))
+
+    cookie_header = asyncio.run(
+        mabang_auth.get_fba_wms_cookie_header(
+            force_refresh=True,
+            purpose="wms_consignment_excel_export",
         )
-
-    monkeypatch.setattr(mabang_auth, "get_auth_context", fake_get_auth_context)
-
-    cookie_header = asyncio.run(mabang_auth.get_fba_wms_cookie_header(force_refresh=True))
+    )
 
     assert cookie_header == "wms-cookie=1"
     assert calls == [
         {
             "scope": "fba",
+            "account": "",
             "require_wms_cookie_header": True,
             "force_refresh": True,
+        }
+    ]
+    assert audit_calls == [
+        {
+            "purpose": "wms_consignment_excel_export",
+            "caller": "services.mabang.auth.get_auth_context",
+            "scope": "fba",
+            "source": "refresh",
+            "force_refresh": True,
+            "cookies_by_domain": {},
+            "free_token": "",
+            "wms_cookie_header": "wms-cookie=1",
         }
     ]
 
@@ -152,6 +172,35 @@ def _wms_login_html() -> bytes:
     ).encode("utf-8")
 
 
+def test_wms_uses_shared_auth_material_consumption_audit(monkeypatch, tmp_path: Path) -> None:
+    audit_calls: list[dict] = []
+
+    async def fake_get_cookie(force_refresh: bool = False, purpose: str = "") -> str:
+        return "PHPSESSID=secret-sid; route=secret-route"
+
+    async def fake_request(ship_no: str, cookie_header: str):
+        return 200, b"excel-bytes", "application/vnd.ms-excel", 'attachment; filename="pack.xls"'
+
+    def fake_audit(**kwargs):
+        audit_calls.append(kwargs)
+
+    monkeypatch.setattr(wms_module, "get_fba_wms_cookie_header", fake_get_cookie)
+    monkeypatch.setattr(wms_module, "_request_once", fake_request)
+    monkeypatch.setattr(wms_module, "_resolve_excel_dir", lambda: tmp_path)
+    monkeypatch.setattr(wms_module.auth_audit, "log_auth_material_consumed", fake_audit)
+    monkeypatch.setattr(wms_module.wms_settings, "FBA_LOGISTICS_WMS_EXPORT_RETRY", 0)
+
+    path = asyncio.run(wms_module.download_consignment_excel_from_wms("SP260627014"))
+
+    assert path.read_bytes() == b"excel-bytes"
+    assert audit_calls
+    assert audit_calls[0]["purpose"] == "wms_consignment_excel_export"
+    assert audit_calls[0]["auth_kind"] == "wms_cookie_header"
+    assert audit_calls[0]["force_refresh"] is False
+    assert not hasattr(wms_module, "_cookie_header_name_summary")
+    assert not hasattr(wms_module, "_session_cookie_jar_name_summary")
+
+
 def test_wms_login_page_html_triggers_force_refresh_and_retry(monkeypatch, tmp_path: Path) -> None:
     token_calls: list[bool] = []
     request_cookies: list[str] = []
@@ -160,7 +209,7 @@ def test_wms_login_page_html_triggers_force_refresh_and_retry(monkeypatch, tmp_p
         (200, b"excel-bytes", "application/vnd.ms-excel", 'attachment; filename="pack.xls"'),
     ]
 
-    async def fake_get_cookie(force_refresh: bool = False) -> str:
+    async def fake_get_cookie(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "wms-cookie=fresh" if force_refresh else "wms-cookie=stale"
 
@@ -188,7 +237,7 @@ def test_wms_http_auth_failure_triggers_force_refresh_and_retry(monkeypatch, tmp
         (200, b"excel-bytes", "application/vnd.ms-excel", 'attachment; filename="pack.xls"'),
     ]
 
-    async def fake_get_cookie(force_refresh: bool = False) -> str:
+    async def fake_get_cookie(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "wms-cookie=fresh" if force_refresh else "wms-cookie=stale"
 
@@ -213,7 +262,7 @@ def test_wms_auth_failure_after_force_refresh_does_not_loop(monkeypatch, tmp_pat
         (200, _wms_login_html(), "text/html;charset=UTF-8", ""),
     ]
 
-    async def fake_get_cookie(force_refresh: bool = False) -> str:
+    async def fake_get_cookie(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "wms-cookie=fresh" if force_refresh else "wms-cookie=stale"
 
@@ -234,7 +283,7 @@ def test_wms_auth_failure_after_force_refresh_does_not_loop(monkeypatch, tmp_pat
 def test_non_login_html_does_not_force_refresh(monkeypatch, tmp_path: Path) -> None:
     token_calls: list[bool] = []
 
-    async def fake_get_cookie(force_refresh: bool = False) -> str:
+    async def fake_get_cookie(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "wms-cookie=stale"
 
@@ -256,7 +305,7 @@ def test_wms_network_error_keeps_existing_retry_without_force_refresh(monkeypatc
     token_calls: list[bool] = []
     request_count = 0
 
-    async def fake_get_cookie(force_refresh: bool = False) -> str:
+    async def fake_get_cookie(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "wms-cookie=stale"
 

@@ -534,9 +534,13 @@ def test_ziniao_store_session_crud_and_upsert(sqlite_db):
         debugging_port=9222,
         download_path="D:/downloads/one",
         browser_path="D:/browser/one.exe",
+        core_type=0,
+        core_version="138.1.2.80",
         host_id="host-a",
     )
     assert first.browser_id == 100
+    assert first.core_type == 0
+    assert first.core_version == "138.1.2.80"
 
     second = upsert_store_session(
         browser_oauth="store-1",
@@ -545,16 +549,22 @@ def test_ziniao_store_session_crud_and_upsert(sqlite_db):
         debugging_port=9333,
         download_path="D:/downloads/two",
         browser_path="D:/browser/two.exe",
+        core_type="Chromium",
+        core_version="146.0.1",
         host_id="host-a",
     )
     assert second.browser_id == 101
     assert second.browser_name == "店铺一新"
+    assert second.core_type == "Chromium"
+    assert second.core_version == "146.0.1"
 
     items = list_store_sessions(host_id="host-a")
     assert len(items) == 1
     loaded = load_store_session("store-1", host_id="host-a")
     assert loaded is not None
     assert loaded.debugging_port == 9333
+    assert loaded.core_type == "Chromium"
+    assert loaded.core_version == "146.0.1"
 
     assert delete_store_session("store-1", host_id="host-a")
     assert load_store_session("store-1", host_id="host-a") is None
@@ -583,6 +593,28 @@ def test_ziniao_store_session_validation_and_clear(sqlite_db):
     )
     assert clear_store_sessions(host_id="host-a") == 1
     assert list_store_sessions(host_id="host-a") == []
+
+
+def test_ziniao_store_session_init_schema_adds_core_columns_to_existing_table(sqlite_db):
+    with connect() as conn:
+        conn.execute("ALTER TABLE ziniao_store_sessions DROP COLUMN core_type")
+        conn.execute("ALTER TABLE ziniao_store_sessions DROP COLUMN core_version")
+
+    init_schema()
+
+    created = upsert_store_session(
+        browser_oauth="store-1",
+        browser_id=1,
+        browser_name="store-1",
+        debugging_port=9222,
+        download_path="D:/downloads",
+        browser_path="D:/browser.exe",
+        core_type=0,
+        core_version="138.1.2.80",
+        host_id="host-a",
+    )
+    assert created.core_type == 0
+    assert created.core_version == "138.1.2.80"
 
 
 def test_session_message_jsonl_create_load_and_update(sqlite_db):

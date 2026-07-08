@@ -6,6 +6,7 @@ from shared.db.shared_state_dto import ZiniaoStoreSessionState
 
 from .store_session_map import StoreSessionMap
 from .ziniao_browser_client import ZiniaoBrowserClient
+from .ziniao_trace import redact_value, trace_event
 
 
 def _safe_browser_oauth(value: Any) -> str:
@@ -44,6 +45,10 @@ def _running_browser_id(entry: dict[str, Any]) -> int:
     return 0
 
 
+def _running_browser_oauth(entry: dict[str, Any]) -> str:
+    return str((entry or {}).get("browserOauth") or "").strip()
+
+
 class StoreSessionService:
     def __init__(
         self,
@@ -73,20 +78,41 @@ class StoreSessionService:
         self,
         *,
         catalog_by_id: dict[int, dict[str, Any]],
+        catalog_by_oauth: dict[str, dict[str, Any]],
     ) -> list[dict[str, Any]]:
         seen_browser_ids: set[int] = set()
+        seen_browser_oauths: set[str] = set()
         summaries: list[dict[str, Any]] = []
         for item in self._browser.get_running_info():
-            browser_id = _running_browser_id(item)
-            if browser_id <= 0 or browser_id in seen_browser_ids:
-                continue
-            catalog_entry = catalog_by_id.get(browser_id)
+            running_oauth = _running_browser_oauth(item)
+            catalog_entry = catalog_by_oauth.get(running_oauth) if running_oauth else None
+            browser_id = _safe_browser_id((catalog_entry or {}).get("browserId"))
+            if catalog_entry is None:
+                browser_id = _running_browser_id(item)
+                catalog_entry = catalog_by_id.get(browser_id) if browser_id > 0 else None
             if not catalog_entry:
+                trace_event(
+                    "session.running.unmatched",
+                    level="warning",
+                    browser_id=browser_id,
+                    has_browser_id=bool(str((item or {}).get("browserId") or "").strip()),
+                    has_browser_oauth=bool(running_oauth),
+                    running_store=redact_value(running_oauth) if running_oauth else None,
+                )
                 continue
-            seen_browser_ids.add(browser_id)
+            browser_oauth = str(catalog_entry.get("browserOauth") or "").strip()
+            browser_id = _safe_browser_id(catalog_entry.get("browserId") or browser_id)
+            if browser_oauth and browser_oauth in seen_browser_oauths:
+                continue
+            if browser_id > 0 and browser_id in seen_browser_ids:
+                continue
+            if browser_oauth:
+                seen_browser_oauths.add(browser_oauth)
+            if browser_id > 0:
+                seen_browser_ids.add(browser_id)
             summaries.append(
                 {
-                    "browserOauth": str(catalog_entry.get("browserOauth") or "").strip(),
+                    "browserOauth": browser_oauth,
                     "browserId": browser_id,
                     "browserName": str(catalog_entry.get("browserName") or "").strip(),
                     "running": True,
@@ -126,41 +152,72 @@ class StoreSessionService:
         browser_path = str(start_result.get("browserPath") or "").strip()
         if not browser_path:
             raise RuntimeError(f"startBrowser 未返回 browserPath: {safe_browser_oauth}")
-        return self._map.upsert(
+        record = self._map.upsert(
             browser_oauth=safe_browser_oauth,
             browser_id=browser_id,
             browser_name=browser_name,
             debugging_port=debugging_port,
             download_path=download_path,
             browser_path=browser_path,
+            core_type=start_result.get("core_type"),
+            core_version=str(start_result.get("core_version") or "").strip(),
         )
+        trace_event(
+            "session.upsert.success",
+            store_id=safe_browser_oauth,
+            browser_id=browser_id,
+            browser_name=browser_name,
+            debugging_port=debugging_port,
+            download_path=download_path,
+            browser_path=browser_path,
+            core_type=start_result.get("core_type"),
+            core_version=start_result.get("core_version"),
+        )
+        return record
 
     def start_store_session(
         self,
         browser_oauth: str,
     ) -> tuple[ZiniaoStoreSessionState, dict[str, Any]]:
         safe_browser_oauth = _safe_browser_oauth(browser_oauth)
+        trace_event("session.start.request", store_id=safe_browser_oauth)
         _, _, catalog_by_oauth = self._browser_catalog()
         catalog_entry = catalog_by_oauth.get(safe_browser_oauth)
         if catalog_entry is None:
+            trace_event("session.catalog.miss", level="error", store_id=safe_browser_oauth)
             raise RuntimeError(f"目标店铺不存在: {safe_browser_oauth}")
-        start_result = self._browser.start_browser(safe_browser_oauth)
-        return (
-            self._record_from_start(
-                browser_oauth=safe_browser_oauth,
-                catalog_entry=catalog_entry,
-                start_result=start_result,
-            ),
-            dict(start_result or {}),
+        trace_event(
+            "session.catalog.hit",
+            store_id=safe_browser_oauth,
+            browser_id=catalog_entry.get("browserId"),
+            browser_name=catalog_entry.get("browserName"),
         )
+        start_result = self._browser.start_browser(safe_browser_oauth)
+        record = self._record_from_start(
+            browser_oauth=safe_browser_oauth,
+            catalog_entry=catalog_entry,
+            start_result=start_result,
+        )
+        trace_event(
+            "session.start.success",
+            store_id=safe_browser_oauth,
+            browser_id=record.browser_id,
+            browser_name=record.browser_name,
+            debugging_port=record.debugging_port,
+            browser_path=record.browser_path,
+        )
+        return (record, dict(start_result or {}))
 
     def list_running_stores(self) -> list[dict[str, Any]]:
         status = self.list_store_status()
         return [dict(item or {}) for item in list(status.get("running_stores") or [])]
 
     def list_store_status(self) -> dict[str, list[dict[str, Any]]]:
-        catalog_entries, catalog_by_id, _ = self._browser_catalog()
-        running_stores = self._normalized_running_summaries(catalog_by_id=catalog_by_id)
+        catalog_entries, catalog_by_id, catalog_by_oauth = self._browser_catalog()
+        running_stores = self._normalized_running_summaries(
+            catalog_by_id=catalog_by_id,
+            catalog_by_oauth=catalog_by_oauth,
+        )
         self._reconcile_map(
             {
                 str(item.get("browserOauth") or "").strip()
@@ -173,6 +230,11 @@ class StoreSessionService:
             for item in running_stores
             if int(item.get("browserId") or 0) > 0
         }
+        running_browser_oauths = {
+            str(item.get("browserOauth") or "").strip()
+            for item in running_stores
+            if str(item.get("browserOauth") or "").strip()
+        }
         inactive_stores = [
             {
                 "browserOauth": str(item.get("browserOauth") or "").strip(),
@@ -180,7 +242,9 @@ class StoreSessionService:
                 "browserName": str(item.get("browserName") or "").strip(),
             }
             for item in catalog_entries
-            if int(item.get("browserId") or 0) > 0 and int(item.get("browserId") or 0) not in running_browser_ids
+            if int(item.get("browserId") or 0) > 0
+            and int(item.get("browserId") or 0) not in running_browser_ids
+            and str(item.get("browserOauth") or "").strip() not in running_browser_oauths
         ]
         return {
             "running_stores": [
@@ -196,11 +260,16 @@ class StoreSessionService:
 
     def ensure_store_session(self, browser_oauth: str, *, force_restart: bool = False) -> ZiniaoStoreSessionState:
         safe_browser_oauth = _safe_browser_oauth(browser_oauth)
+        trace_event("session.ensure.request", store_id=safe_browser_oauth, force_restart=force_restart)
         _, catalog_by_id, catalog_by_oauth = self._browser_catalog()
         catalog_entry = catalog_by_oauth.get(safe_browser_oauth)
         if catalog_entry is None:
+            trace_event("session.catalog.miss", level="error", store_id=safe_browser_oauth)
             raise RuntimeError(f"目标店铺不存在: {safe_browser_oauth}")
-        running_summaries = self._normalized_running_summaries(catalog_by_id=catalog_by_id)
+        running_summaries = self._normalized_running_summaries(
+            catalog_by_id=catalog_by_id,
+            catalog_by_oauth=catalog_by_oauth,
+        )
         running_browser_oauths = {
             str(item.get("browserOauth") or "").strip()
             for item in running_summaries
@@ -211,25 +280,45 @@ class StoreSessionService:
         if not force_restart and safe_browser_oauth in running_browser_oauths:
             existing = self._map.get(safe_browser_oauth)
             if existing is not None:
+                trace_event(
+                    "session.ensure.reuse",
+                    store_id=safe_browser_oauth,
+                    browser_id=existing.browser_id,
+                    debugging_port=existing.debugging_port,
+                    browser_path=existing.browser_path,
+                )
                 return existing
 
-        return self._record_from_start(
+        record = self._record_from_start(
             browser_oauth=safe_browser_oauth,
             catalog_entry=catalog_entry,
             start_result=self._browser.start_browser(safe_browser_oauth),
         )
+        trace_event(
+            "session.ensure.started",
+            store_id=safe_browser_oauth,
+            force_restart=force_restart,
+            browser_id=record.browser_id,
+            debugging_port=record.debugging_port,
+            browser_path=record.browser_path,
+        )
+        return record
 
     def stop_store_session(self, browser_oauth: str) -> bool:
         safe_browser_oauth = _safe_browser_oauth(browser_oauth)
+        trace_event("session.stop.request", store_id=safe_browser_oauth)
         try:
             self._browser.stop_browser(safe_browser_oauth)
         finally:
             deleted = self._map.delete(safe_browser_oauth)
+            trace_event("session.stop.cleanup", store_id=safe_browser_oauth, deleted=deleted)
         return deleted
 
     def close_client(self) -> int:
         self._browser.close_client()
-        return self._map.clear()
+        cleared = self._map.clear()
+        trace_event("session.client.close", cleared_sessions=cleared)
+        return cleared
 
 
 __all__ = ["StoreSessionService"]

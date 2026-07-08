@@ -289,7 +289,7 @@ def test_download_store_unlinked_shipments_skips_zero_totals_and_logs_progress(
 ) -> None:
     caplog.set_level(logging.INFO, logger="services.mabang.amazon.fba.unlinked_shipments")
 
-    async def fake_get_token() -> str:
+    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
         return "token"
 
     async def fake_resolve(store_name: str, *, token: str | None = None) -> ship.ShopOption:
@@ -433,7 +433,7 @@ def test_download_store_unlinked_shipments_force_refreshes_once_after_shop_auth_
     token_calls: list[bool] = []
     run_calls: list[str] = []
 
-    async def fake_get_token(force_refresh: bool = False) -> str:
+    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "retry-token" if force_refresh else "cached-token"
 
@@ -471,7 +471,7 @@ def test_download_store_unlinked_shipments_force_refreshes_once_after_mid_flow_a
     token_calls: list[bool] = []
     run_calls: list[str] = []
 
-    async def fake_get_token(force_refresh: bool = False) -> str:
+    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "retry-token" if force_refresh else "cached-token"
 
@@ -515,7 +515,7 @@ def test_download_store_unlinked_shipments_does_not_retry_more_than_once(monkeyp
     token_calls: list[bool] = []
     run_calls: list[str] = []
 
-    async def fake_get_token(force_refresh: bool = False) -> str:
+    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "retry-token" if force_refresh else "cached-token"
 

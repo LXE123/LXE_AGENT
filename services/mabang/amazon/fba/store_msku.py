@@ -258,7 +258,7 @@ async def _read_store_msku_json(resp: Any, *, action: str) -> dict[str, Any]:
 
 
 async def resolve_store_msku_auth() -> StoreMskuAuth:
-    context = await get_auth_context(scope="private_amz")
+    context = await get_auth_context(scope="private_amz", purpose="store_msku_download")
     private_amz_cookie_header = build_cookie_header(
         context.cookies_by_domain,
         request_host=PRIVATE_AMZ_HOST,

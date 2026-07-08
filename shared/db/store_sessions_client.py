@@ -26,6 +26,8 @@ def upsert_ziniao_store_session_state(
     debugging_port: int,
     download_path: str,
     browser_path: str,
+    core_type=None,
+    core_version: str = "",
     host_id: str | None = None,
 ):
     return _store_sessions.upsert_store_session(
@@ -35,6 +37,8 @@ def upsert_ziniao_store_session_state(
         debugging_port=debugging_port,
         download_path=download_path,
         browser_path=browser_path,
+        core_type=core_type,
+        core_version=core_version,
         host_id=host_id,
     )
 

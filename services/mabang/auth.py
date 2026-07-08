@@ -6,6 +6,7 @@ from typing import Any
 from clients.auth.browser_auth_client import ensure_auth
 from services.mabang import config as mabang_settings
 
+from . import auth_audit
 from .cookies import extract_named_cookies, require_cookie_values
 from .errors import MabangAuthError
 
@@ -77,6 +78,7 @@ async def get_auth_context(
     account: str = "",
     require_wms_cookie_header: bool = False,
     force_refresh: bool = False,
+    purpose: str = "",
 ) -> MabangAuthContext:
     payload = await ensure_mabang_auth_payload(
         scope=scope,
@@ -84,13 +86,26 @@ async def get_auth_context(
         require_wms_cookie_header=require_wms_cookie_header,
         force_refresh=force_refresh,
     )
+    resolved_account = _resolve_account(scope, account)
+    cookies_by_domain = _normalize_cookies_by_domain(payload)
+    wms_cookie_header = str(payload.get("wms_cookie_header") or "").strip()
+    auth_audit.log_auth_material_acquired(
+        purpose=purpose,
+        caller="services.mabang.auth.get_auth_context",
+        scope=str(scope or "").strip().lower(),
+        source=str(payload.get("source") or "").strip(),
+        force_refresh=force_refresh,
+        cookies_by_domain=cookies_by_domain,
+        free_token=str(payload.get("free_token") or "").strip(),
+        wms_cookie_header=wms_cookie_header,
+    )
     return MabangAuthContext(
         scope=str(scope or "").strip().lower(),
-        account=_resolve_account(scope, account),
+        account=resolved_account,
         source=str(payload.get("source") or "").strip(),
-        cookies_by_domain=_normalize_cookies_by_domain(payload),
+        cookies_by_domain=cookies_by_domain,
         free_token=str(payload.get("free_token") or "").strip(),
-        wms_cookie_header=str(payload.get("wms_cookie_header") or "").strip(),
+        wms_cookie_header=wms_cookie_header,
         raw=payload,
     )
 
@@ -104,11 +119,12 @@ async def get_erp_cookie_bundle(account: str = "") -> dict[str, str]:
     )
 
 
-async def get_fba_free_token(force_refresh: bool = False) -> str:
+async def get_fba_free_token(force_refresh: bool = False, purpose: str = "") -> str:
     context = await get_auth_context(
         scope="fba",
         require_wms_cookie_header=False,
         force_refresh=force_refresh,
+        purpose=purpose,
     )
     token = str(context.free_token or "").strip()
     if not token:
@@ -116,11 +132,12 @@ async def get_fba_free_token(force_refresh: bool = False) -> str:
     return token
 
 
-async def get_fba_wms_cookie_header(force_refresh: bool = False) -> str:
+async def get_fba_wms_cookie_header(force_refresh: bool = False, purpose: str = "") -> str:
     context = await get_auth_context(
         scope="fba",
         require_wms_cookie_header=True,
         force_refresh=force_refresh,
+        purpose=purpose,
     )
     cookie_header = str(context.wms_cookie_header or "").strip()
     if not cookie_header:

@@ -123,7 +123,9 @@ def ensure_auth_sync(
     logger.info(
         f"[BrowserAuthClient][{reason_label}] browser_auth_service 返回成功: "
         f"scope={str(scope or '').strip()} account={masked_account} "
-        f"source={payload.get('source')}"
+        f"source={payload.get('source')} "
+        f"free_token_present={bool(str(payload.get('free_token') or '').strip())} "
+        f"wms_cookie_header_present={bool(str(payload.get('wms_cookie_header') or '').strip())}"
     )
     return payload
 

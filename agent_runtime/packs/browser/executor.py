@@ -50,6 +50,8 @@ def _page_workflow_session(runtime: Any, *, store_id: str, output_dir: Path) -> 
             driver_context = attached_driver(
                 browser_path=str(store_session.browser_path or "").strip(),
                 debugging_port=int(store_session.debugging_port or 0),
+                core_type=getattr(store_session, "core_type", None),
+                core_version=str(getattr(store_session, "core_version", "") or "").strip(),
             )
             driver = driver_context.__enter__()
         except RuntimeError:
@@ -57,6 +59,8 @@ def _page_workflow_session(runtime: Any, *, store_id: str, output_dir: Path) -> 
             driver_context = attached_driver(
                 browser_path=str(store_session.browser_path or "").strip(),
                 debugging_port=int(store_session.debugging_port or 0),
+                core_type=getattr(store_session, "core_type", None),
+                core_version=str(getattr(store_session, "core_version", "") or "").strip(),
             )
             driver = driver_context.__enter__()
         try:

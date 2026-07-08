@@ -208,7 +208,7 @@ def extract_delivery_id(payload: dict[str, Any], delivery_no: str) -> int:
 
 async def fetch_batch_delivery_list(delivery_no: str, *, token: str | None = None) -> dict[str, Any]:
     target = _require_delivery_no(delivery_no)
-    active_token = str(token or "").strip() or await get_fba_free_token()
+    active_token = str(token or "").strip() or await get_fba_free_token(purpose="fba_delivery_list")
     api_url = _configured_text("FBA_DELIVERY_LIST_API_URL", DEFAULT_BATCH_DELIVERY_LIST_URL)
     payload = {
         "status": "0",
@@ -230,7 +230,7 @@ async def create_delivery_export_task(
     if normalized_id <= 0:
         raise ValueError("delivery_id 必须是正整数")
 
-    active_token = str(token or "").strip() or await get_fba_free_token()
+    active_token = str(token or "").strip() or await get_fba_free_token(purpose="fba_delivery_export_task_create")
     date_text = _today_text(report_date)
     api_url = _configured_text("FBA_DELIVERY_TASK_PUSH_URL", DEFAULT_TASK_PUSH_URL)
     payload = {
@@ -275,7 +275,7 @@ async def fetch_task_report_row(task_id: int, *, token: str | None = None) -> di
     if normalized_task_id <= 0:
         raise ValueError("task_id 必须是正整数")
 
-    active_token = str(token or "").strip() or await get_fba_free_token()
+    active_token = str(token or "").strip() or await get_fba_free_token(purpose="fba_delivery_export_task_poll")
     api_url = _configured_text("FBA_DELIVERY_TASK_LIST_URL", DEFAULT_TASK_LIST_URL)
     async with erp_http_session.get(
         api_url,
@@ -433,7 +433,7 @@ async def request_download_info(
     if not normalized_hash:
         raise BatchDeliveryApiError(f"下载发货单CSV缺少 fileHash: taskId={normalized_task_id}")
 
-    active_token = str(token or "").strip() or await get_fba_free_token()
+    active_token = str(token or "").strip() or await get_fba_free_token(purpose="fba_delivery_download_info")
     api_url = _configured_text("FBA_DELIVERY_TASK_DOWNLOAD_URL", DEFAULT_TASK_DOWNLOAD_URL)
     params = {
         "taskId": str(normalized_task_id),
@@ -539,7 +539,7 @@ async def download_fba_delivery_csv(
     output_dir: str | Path | None = None,
 ) -> BatchDeliveryCsvResult:
     target = _require_delivery_no(delivery_no)
-    token = await get_fba_free_token()
+    token = await get_fba_free_token(purpose="fba_delivery_csv_download")
 
     try:
         return await _download_fba_delivery_csv_with_token(
@@ -553,7 +553,10 @@ async def download_fba_delivery_csv(
     except BatchDeliveryApiAuthError:
         logger.warning("[FBAAuthRetry] FBA发货单鉴权失败，准备强制刷新 freeToken: delivery_no=%s", target)
 
-    retry_token = await get_fba_free_token(force_refresh=True)
+    retry_token = await get_fba_free_token(
+        force_refresh=True,
+        purpose="fba_delivery_csv_download_force_refresh",
+    )
     try:
         result = await _download_fba_delivery_csv_with_token(
             target,
