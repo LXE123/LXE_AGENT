@@ -60,6 +60,26 @@ def test_read_offset_keeps_absolute_line_numbers(monkeypatch: pytest.MonkeyPatch
     assert text.splitlines()[0] == f"{3:6d}\tl3"
 
 
+def test_read_allows_external_agent_skill_files_read_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _make_workspace(monkeypatch, tmp_path)
+    external_root = tmp_path / "agent-skills"
+    skill_dir = external_root / "external-skill"
+    skill_dir.mkdir(parents=True)
+    skill_path = skill_dir / "SKILL.md"
+    skill_path.write_text("# External Skill\n\nRead-only body.\n", encoding="utf-8")
+    monkeypatch.setattr(coding_tools, "EXTERNAL_SKILLS_ROOTS", (external_root,), raising=False)
+
+    text = _text(_read(str(skill_path)))
+
+    assert f"{1:6d}\t# External Skill" in text
+    with pytest.raises(ToolExecutionError, match="路径越界"):
+        asyncio.run(coding_tools._handle_write(str(skill_path), "changed\n"))
+    assert skill_path.read_text(encoding="utf-8") == "# External Skill\n\nRead-only body.\n"
+
+
 def test_edit_rejects_unread_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     workspace = _make_workspace(monkeypatch, tmp_path)
     (workspace / "a.txt").write_text("hello\n", encoding="utf-8")

@@ -1,13 +1,7 @@
-# Ziniao WebDriver Core APIs
-
-状态：Reference
-
-本文是外部平台/API 参考资料，不是当前运行时 skill 文档。当前 truth source 是 `/skills/*/SKILL.md`。
-
----
+# 核心工作流接口
 
 > 本文件是 ziniao-webdriver-doc 的 Level 2 参考文档。
-> 仅在需要查阅 applyAuth / getBrowserList / startBrowser 的请求/响应格式与状态码时再加载。
+> 仅在需要查阅 applyAuth / getBrowserList / startBrowser 的请求/响应格式与状态码时加载。
 
 ## 概述
 

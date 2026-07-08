@@ -1,13 +1,7 @@
-# Ziniao WebDriver Startup Params
-
-状态：Reference
-
-本文是外部平台/API 参考资料，不是当前运行时 skill 文档。当前 truth source 是 `/skills/*/SKILL.md`。
-
----
+# 启动参数详细说明
 
 > 本文件是 ziniao-webdriver-doc 的 Level 2 参考文档。
-> 仅在需要了解紫鸟浏览器 WebDriver 模式的启动命令行参数时再加载。
+> 仅在需要了解紫鸟浏览器 WebDriver 模式的启动命令行参数时加载。
 
 ## 概述
 

@@ -1,13 +1,7 @@
-# Ziniao WebDriver Prerequisites
-
-状态：Reference
-
-本文是外部平台/API 参考资料，不是当前运行时 skill 文档。当前 truth source 是 `/skills/*/SKILL.md`。
-
----
+# 前置条件与排障
 
 > 本文件是 ziniao-webdriver-doc 的 Level 2 参考文档。
-> 仅在需要了解权限开通、账号配置、常见问题排查时再加载。
+> 仅在需要了解权限开通、账号配置、常见问题排查时加载。
 
 ## 概述
 
