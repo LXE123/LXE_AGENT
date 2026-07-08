@@ -172,6 +172,7 @@ This is the full SKILL.md body.
     (references_dir / "example.md").write_text(reference_text, encoding="utf-8")
     (references_dir / "secret.md").write_text(secret_text, encoding="utf-8")
     monkeypatch.setattr(skill_index_module, "SKILLS_ROOT", skills_root)
+    monkeypatch.setattr(skill_index_module, "EXTERNAL_SKILLS_ROOTS", ())
     monkeypatch.setattr(skill_index_module, "_SKILL_INDEX", None)
     return {
         "name": "dashboard-test-skill",
@@ -207,6 +208,7 @@ references:
         )
         (references_dir / "example.md").write_text(f"# {name} Reference\n", encoding="utf-8")
     monkeypatch.setattr(skill_index_module, "SKILLS_ROOT", skills_root)
+    monkeypatch.setattr(skill_index_module, "EXTERNAL_SKILLS_ROOTS", ())
     monkeypatch.setattr(skill_index_module, "_SKILL_INDEX", None)
 
 

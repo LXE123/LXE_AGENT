@@ -27,6 +27,7 @@ from PIL import Image
 from shared.logging import get_logger
 from shared.runtime_core.utils import send_file_to_current_session
 
+from agent_runtime.skill_index import is_external_skill_path_allowed
 from agent_runtime.tool_executor import get_tool_context
 from agent_runtime.tools.process_sessions import (
     decode_process_output,
@@ -52,6 +53,7 @@ logger = get_logger(__name__)
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS_ROOT = WORKSPACE_ROOT / "artifacts"
 SKILLS_ROOT = WORKSPACE_ROOT / "skills"
+EXTERNAL_SKILLS_ROOTS = (Path.home() / ".agents" / "skills",)
 
 _WRITE_DENIED_ROOT_FILES = frozenset({
     ".env",
@@ -94,7 +96,8 @@ _COMMAND_CONTROL_KEYS = (
 )
 
 _READ_DESCRIPTION = (
-    "Read the contents of a file under the project root (workspace). Supports text files and images (jpg, png, gif, webp). "
+    "Read the contents of a file under the project root (workspace), or read-only files under configured external skill directories. "
+    "Supports text files and images (jpg, png, gif, webp). "
     "Images are sent as attachments. For text files, output is truncated to 2000 lines or 50KB "
     "(whichever is hit first). Use offset/limit for large files. When you need the full file, "
     "continue with offset until complete. "
@@ -135,6 +138,39 @@ def _safe_resolve(raw: str) -> Path:
     if not resolved.is_relative_to(WORKSPACE_ROOT):
         raise PermissionError(f"路径越界: {resolved} 不在 {WORKSPACE_ROOT} 内")
     return resolved
+
+
+def _external_skill_roots() -> list[Path]:
+    roots: list[Path] = []
+    for root in list(EXTERNAL_SKILLS_ROOTS or ()):
+        try:
+            path = Path(root).expanduser().resolve()
+        except (OSError, TypeError):
+            continue
+        if path not in roots:
+            roots.append(path)
+    return roots
+
+
+def _is_external_skill_path(resolved: Path) -> bool:
+    for root in _external_skill_roots():
+        if is_external_skill_path_allowed(root, resolved):
+            return True
+    return False
+
+
+def _safe_resolve_readable(raw: str) -> Path:
+    """Resolve read paths under workspace or configured external skill roots."""
+    text = str(raw or "").strip()
+    if not text:
+        raise ValueError("路径不能为空")
+    p = Path(text).expanduser()
+    if not p.is_absolute():
+        p = WORKSPACE_ROOT / p
+    resolved = p.resolve()
+    if resolved.is_relative_to(WORKSPACE_ROOT) or _is_external_skill_path(resolved):
+        return resolved
+    raise PermissionError(f"路径越界: {resolved} 不在 {WORKSPACE_ROOT} 或外部 skills 目录内")
 
 
 def _is_write_denied(resolved: Path) -> str | None:
@@ -657,7 +693,7 @@ async def _handle_read(
     path: str = "", offset: int = 1, limit: int = _READ_MAX_LINES, **_: Any,
 ) -> ToolResult:
     try:
-        resolved = _safe_resolve(path)
+        resolved = _safe_resolve_readable(path)
     except (ValueError, PermissionError) as e:
         _tool_error(str(e))
 
@@ -1463,7 +1499,7 @@ CODING_READ = ToolDefinition(
         "properties": {
             "path": {
                 "type": "string",
-                "description": "Path to the file to read, relative to the project root (workspace) or absolute inside it",
+                "description": "Path to the file to read, relative to the project root (workspace), absolute inside it, or absolute inside a configured external skills directory",
             },
             "offset": {"type": "integer", "description": "Line number to start reading from (1-indexed)"},
             "limit": {"type": "integer", "description": "Maximum number of lines to read"},
