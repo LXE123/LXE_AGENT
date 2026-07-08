@@ -120,6 +120,22 @@ def test_remove_storage_local_storage_key_removes_only_target_origin_token() -> 
     assert service._storage_lookup_token(payload, "https://amz1.mabangerp.com", "freeToken") == "other-origin-token"
 
 
+def test_remove_storage_domain_cookies_removes_only_wms_domain() -> None:
+    payload = {
+        "cookies": [
+            {"name": "WMSID", "value": "old", "domain": "wms.private.mabangerp.com"},
+            {"name": "SUBWMS", "value": "old", "domain": "sub.wms.private.mabangerp.com"},
+            {"name": "PHPSESSID", "value": "keep", "domain": "private.mabangerp.com"},
+            {"name": "GLOBAL", "value": "keep", "domain": ".mabangerp.com"},
+        ]
+    }
+
+    removed = service._remove_storage_domain_cookies(payload, "wms.private.mabangerp.com")
+
+    assert removed == 2
+    assert [cookie["name"] for cookie in payload["cookies"]] == ["PHPSESSID", "GLOBAL"]
+
+
 def test_ensure_fba_auth_uses_cache_when_fresh_and_not_forced(tmp_path: Path, monkeypatch) -> None:
     payload = _token_payload("cached-token")
 
@@ -218,3 +234,89 @@ def test_ensure_fba_auth_force_refresh_removes_cached_token_from_seed(tmp_path: 
     assert service._storage_lookup_token(seed_payload, "https://amz1-private.mabangerp.com", "freeToken") == ""
     assert result["source"] == "refresh"
     assert result["free_token"] == "fresh-token"
+
+
+def test_ensure_fba_auth_force_refresh_removes_wms_cookie_seed_when_required(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text("{}", encoding="utf-8")
+    payload = _token_payload("cached-token")
+    payload["cookies"] = [
+        {"name": "WMSID", "value": "old", "domain": "wms.private.mabangerp.com"},
+        {"name": "PHPSESSID", "value": "keep", "domain": "private.mabangerp.com"},
+    ]
+    captured_seed: dict[str, object] = {}
+
+    class FakePage:
+        def __init__(self) -> None:
+            self.url = "https://private.mabangerp.com/"
+
+        def goto(self, url: str, wait_until: str = "load") -> None:
+            self.url = url
+
+        def wait_for_timeout(self, timeout_ms: int) -> None:
+            return None
+
+    class FakeContext:
+        def new_page(self) -> FakePage:
+            return FakePage()
+
+        def close(self) -> None:
+            return None
+
+    class FakeBrowser:
+        def close(self) -> None:
+            return None
+
+    class FakeChromium:
+        def launch(self, *, headless: bool):
+            return FakeBrowser()
+
+    class FakePlaywright:
+        chromium = FakeChromium()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    def fake_open_context(browser, state_file, can_reuse_state, storage_state_payload=None):
+        captured_seed["payload"] = storage_state_payload
+        return FakeContext()
+
+    def fake_save_storage_state(context, state_file, extra_fields=None):
+        return {
+            "origins": [
+                {
+                    "origin": "https://amz1-private.mabangerp.com",
+                    "localStorage": [{"name": "freeToken", "value": "fresh-token"}],
+                }
+            ],
+            **(extra_fields or {}),
+        }
+
+    monkeypatch.setattr(service, "sync_playwright", lambda: FakePlaywright())
+    monkeypatch.setattr(service, "_open_context", fake_open_context)
+    monkeypatch.setattr(service, "_is_login_page", lambda page: False)
+    monkeypatch.setattr(service, "_extract_token", lambda page, origin, key: "fresh-token")
+    monkeypatch.setattr(service, "_collect_wms_cookie_header", lambda page, context, host, text: "fresh-wms=1")
+    monkeypatch.setattr(service, "_save_storage_state", fake_save_storage_state)
+
+    result = service._ensure_fba_auth(
+        account="account",
+        password="password",
+        state_file=state_file,
+        payload=payload,
+        phpsessid_status={"valid": True},
+        require_wms_cookie_header=True,
+        force_refresh=True,
+    )
+
+    seed_payload = captured_seed["payload"]
+    assert isinstance(seed_payload, dict)
+    seed_cookies = seed_payload["cookies"]
+    assert [cookie["name"] for cookie in seed_cookies] == ["PHPSESSID"]
+    assert result["wms_cookie_header"] == "fresh-wms=1"

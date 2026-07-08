@@ -360,6 +360,22 @@ def _remove_storage_local_storage_key(payload: dict[str, Any], origin: str, key:
     return removed
 
 
+def _remove_storage_domain_cookies(payload: dict[str, Any], host: str) -> int:
+    cookies = payload.get("cookies")
+    if not isinstance(cookies, list):
+        return 0
+
+    removed = 0
+    kept_cookies = []
+    for cookie in cookies:
+        if isinstance(cookie, dict) and _is_domain_or_subdomain(str(cookie.get("domain") or ""), host):
+            removed += 1
+            continue
+        kept_cookies.append(cookie)
+    payload["cookies"] = kept_cookies
+    return removed
+
+
 def _storage_lookup_domain_cookies(payload: dict[str, Any], host: str) -> list[dict[str, Any]]:
     cookies = payload.get("cookies")
     if not isinstance(cookies, list):
@@ -805,6 +821,10 @@ def _ensure_fba_auth(
         removed_tokens = _remove_storage_local_storage_key(seed_payload, token_origin, token_key)
         if removed_tokens:
             logger.info(f"[BrowserAuth] force_refresh 剔除旧 FBA token seed: count={removed_tokens}")
+        if require_wms_cookie_header:
+            removed_wms_cookies = _remove_storage_domain_cookies(seed_payload, wms_host)
+            if removed_wms_cookies:
+                logger.info(f"[BrowserAuth] force_refresh 剔除旧 WMS cookie seed: count={removed_wms_cookies}")
     used_relogin = False
 
     with sync_playwright() as playwright:
