@@ -343,6 +343,7 @@ class AgentLoop:
         tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None,
         tool_run_finisher: Callable[[str], None] | None = None,
         context_checkpoint: ContextCheckpointCallback | None = None,
+        steering_drain: Callable[[], list[str]] | None = None,
     ) -> None:
         self.session = session
         self.state_data = dict(state_data or {})
@@ -359,6 +360,7 @@ class AgentLoop:
         self.tool_run_registrar = tool_run_registrar
         self.tool_run_finisher = tool_run_finisher
         self.context_checkpoint = context_checkpoint
+        self.steering_drain = steering_drain
         self.tool_registry = ensure_all_tools_registered(UnifiedToolRegistry())
         self.mcp_manager = None
         self.stream_logging_config = load_stream_logging_config()
@@ -496,6 +498,51 @@ class AgentLoop:
                 context_overflow=True,
             )
         return prepared_messages
+
+    @staticmethod
+    def _steering_entry_text(entry: Any) -> str:
+        if isinstance(entry, dict):
+            return str(entry.get("text") or "").strip()
+        return str(entry or "").strip()
+
+    async def _inject_steering_messages(
+        self,
+        append_message: Callable[..., Awaitable[None]],
+        *,
+        turn_log: TurnLog,
+    ) -> bool:
+        """Pull any queued steering messages and append them as user turns.
+
+        Runs at each step boundary, where the last message is either the
+        original user request, a tool_result, or a completed assistant reply —
+        all valid points to insert a fresh user message, so tool_use/tool_result
+        pairing is never split. Returns True when a message was injected.
+        """
+        if self.steering_drain is None:
+            return False
+        try:
+            pending = self.steering_drain()
+        except Exception as exc:
+            logger.warning("[Turn:STEER] drain failed: %s", exc)
+            return False
+        if not pending:
+            return False
+        parts = [text for text in (self._steering_entry_text(entry) for entry in pending) if text]
+        if not parts:
+            return False
+        combined = "\n\n".join(parts)
+        logger.info(
+            "[Turn:STEER] injecting %d steering message(s): session=%s turn=%s chars=%d",
+            len(parts),
+            turn_log.session_id,
+            turn_log.turn_id,
+            len(combined),
+        )
+        await append_message(
+            make_user_message(combined),
+            checkpoint_reason="user_steering",
+        )
+        return True
 
     async def _cancel_outcome(
         self,
@@ -937,6 +984,8 @@ class AgentLoop:
             if await self._cancel_requested():
                 return await self._cancel_outcome(messages_to_persist=current_turn_messages)
 
+            await self._inject_steering_messages(_append_message, turn_log=turn_log)
+
             is_last_step = step_idx == MAX_STEPS - 1
             active_tool_schemas = exposure_state.active_schemas()
             request_tool_schemas = [] if is_last_step else active_tool_schemas
@@ -1018,6 +1067,12 @@ class AgentLoop:
                 )
                 if await self._cancel_requested():
                     return await self._cancel_outcome(messages_to_persist=current_turn_messages)
+                # 用户在本次 LLM 调用期间插话：不结束 turn，注入后继续下一步。
+                # 最后一个 step 不延续（留给调度器兜底重新入队）。
+                if not is_last_step and await self._inject_steering_messages(
+                    _append_message, turn_log=turn_log
+                ):
+                    continue
                 return outcome
 
             tool_calls = list(response.tool_calls or [])
@@ -1031,6 +1086,10 @@ class AgentLoop:
                 )
                 if await self._cancel_requested():
                     return await self._cancel_outcome(messages_to_persist=current_turn_messages)
+                if not is_last_step and await self._inject_steering_messages(
+                    _append_message, turn_log=turn_log
+                ):
+                    continue
                 return outcome
 
             if is_last_step:
@@ -1252,6 +1311,7 @@ async def run_agent_turn(
     tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None,
     tool_run_finisher: Callable[[str], None] | None = None,
     context_checkpoint: ContextCheckpointCallback | None = None,
+    steering_drain: Callable[[], list[str]] | None = None,
 ) -> TurnOutcome:
     loop = AgentLoop(
         session=session,
@@ -1269,6 +1329,7 @@ async def run_agent_turn(
         tool_run_registrar=tool_run_registrar,
         tool_run_finisher=tool_run_finisher,
         context_checkpoint=context_checkpoint,
+        steering_drain=steering_drain,
     )
     turn_input = TurnInput(
         user_input=user_text,

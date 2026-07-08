@@ -60,6 +60,11 @@ async def load_agent_session(session_id: str):
     return await _run_db_call(_agent_state.load_agent_session_state, session_id)
 
 
+async def load_agent_session_record(session_id: str):
+    """Load session metadata without replaying the transcript (no state_data)."""
+    return await _run_db_call(_agent_state.load_agent_session_record_state, session_id)
+
+
 async def create_agent_session(
     *,
     source: dict[str, Any] | None = None,
@@ -90,6 +95,7 @@ async def update_agent_session(
     model_config: dict[str, Any] | None = None,
     title: str | None = None,
     title_candidate: str | None = None,
+    include_state: bool = True,
 ):
     return await _run_db_call(
         _agent_state.update_agent_session_state,
@@ -101,17 +107,21 @@ async def update_agent_session(
         model_config=model_config,
         title=title,
         title_candidate=title_candidate,
+        include_state=include_state,
     )
 
 
 async def append_agent_session_message(
     session_id: str,
     message: dict[str, Any] | None,
-):
-    return await _run_db_call(
+) -> None:
+    # Write-only: skipping the state rebuild avoids a full transcript replay
+    # per appended message.
+    await _run_db_call(
         _agent_state.append_agent_session_message_state,
         session_id,
         message,
+        include_state=False,
     )
 
 
@@ -124,8 +134,9 @@ async def append_agent_session_context_replacement(
     summary_text: str = "",
     compacted_count: int = 0,
     trigger: str = "",
-):
-    return await _run_db_call(
+) -> None:
+    # Write-only, same as append_agent_session_message.
+    await _run_db_call(
         _agent_state.append_agent_session_context_replacement_state,
         session_id,
         replacement_history=replacement_history,
@@ -134,6 +145,7 @@ async def append_agent_session_context_replacement(
         summary_text=summary_text,
         compacted_count=compacted_count,
         trigger=trigger,
+        include_state=False,
     )
 
 
@@ -232,6 +244,7 @@ __all__ = [
     "has_agent_session_pending_events",
     "init_schema",
     "load_agent_session",
+    "load_agent_session_record",
     "load_response_route_context",
     "load_response_route_session",
     "pop_agent_session_pending_events",

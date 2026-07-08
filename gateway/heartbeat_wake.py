@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from gateway.autonomy_suspension import is_session_autonomy_suspended
 from gateway.session_scheduler import SessionScheduler
 from shared.agent_io import AgentJob, HeartbeatWakeRequest
-from shared.db.client import has_agent_session_pending_events, load_agent_session
+from shared.db.client import has_agent_session_pending_events, load_agent_session_record
 from shared.logging import get_logger
 from shared.session_bindings import SessionSource
 
@@ -169,7 +169,7 @@ class HeartbeatWakeManager:
                     )
                     self._queue_pending(wake.session_id, "retry", wake.response_route_id)
                     continue
-                session = await load_agent_session(wake.session_id)
+                session = await load_agent_session_record(wake.session_id)
                 if session is None:
                     logger.warning(
                         "[ExecNotify] wake dropped: owner_session_id=%s heartbeat_reason=%s reason=session_missing",

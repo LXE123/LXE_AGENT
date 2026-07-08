@@ -12,6 +12,7 @@ from shared.db.client import (
     append_agent_session_context_replacement,
     append_agent_session_message,
     load_agent_session,
+    load_agent_session_record,
     pop_agent_session_pending_events,
     record_turn_usage,
     update_agent_session,
@@ -141,19 +142,6 @@ async def _emit_typing_indicator_best_effort(
         logger.warning("[TurnHandler] typing indicator %s failed: %s", operation, exc)
 
 
-async def _turn_cancel_requested(session_id: str, job_id: str) -> bool:
-    safe_session_id = str(session_id or "").strip()
-    safe_job_id = str(job_id or "").strip()
-    if not safe_session_id or not safe_job_id:
-        return False
-
-    latest = await load_agent_session(safe_session_id)
-    if not latest:
-        return True
-
-    return False
-
-
 async def _emit_final_answer_stream_frame(
     session_id: str,
     response_route_id: str,
@@ -213,6 +201,7 @@ async def _persist_and_deliver(
         state_data_patch=state_patch,
         metrics_delta=metrics_delta,
         title_candidate=title_candidate,
+        include_state=False,
     )
 
     if turn_log is not None:
@@ -351,9 +340,9 @@ async def handle_unified_turn_job(
         )
 
     async def cancellation_check() -> bool:
-        if run_handle is not None and bool(getattr(run_handle, "cancelled", False)):
-            return True
-        return await _turn_cancel_requested(session_id, job_id)
+        # Purely in-memory: /stop sets the RunHandle cancel events directly.
+        # This runs once per stream event, so it must never touch the DB.
+        return run_handle is not None and bool(getattr(run_handle, "cancelled", False))
 
     async def context_checkpoint(operation: str, payload: dict[str, Any]) -> None:
         op = str(operation or "").strip()
@@ -411,7 +400,7 @@ async def handle_unified_turn_job(
             )
             if not pending_events:
                 logger.info("[ExecNotify] heartbeat noop: owner_session_id=%s job_id=%s", session_id, job_id)
-                await update_agent_session(session_id)
+                await update_agent_session(session_id, include_state=False)
                 return job_handled()
             formatted_events = _format_system_events(pending_events)
             heartbeat_prompt = (
@@ -463,6 +452,7 @@ async def handle_unified_turn_job(
                     tool_run_registrar=getattr(run_handle, "register_tool_run", None),
                     tool_run_finisher=getattr(run_handle, "finish_tool_run", None),
                     context_checkpoint=context_checkpoint,
+                    steering_drain=getattr(run_handle, "drain_steering", None),
                     run_id=job_id,
                     response_route_id=response_route_id,
                 )
@@ -503,7 +493,8 @@ async def handle_unified_turn_job(
             except Exception as exc:
                 logger.warning("[TurnHandler] final answer stream emit failed: %s", exc, exc_info=True)
 
-        latest_session = await load_agent_session(session_id)
+        # Existence check + session_id only; the metadata record is enough.
+        latest_session = await load_agent_session_record(session_id)
         if latest_session is None:
             logger.info("[TurnHandler] session disappeared before persist: session_id=%s", session_id)
             return job_handled()

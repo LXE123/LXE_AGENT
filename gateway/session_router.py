@@ -9,6 +9,10 @@ from gateway.autonomy_suspension import (
     suspend_session_autonomy,
 )
 from gateway.channel_registry import ChannelRegistry
+from gateway.steering_mode import (
+    is_session_steering_enabled,
+    toggle_session_steering,
+)
 from gateway.models import InboundEvent, LaneKey, OutboundRequest, RouteDecision
 from gateway.session_scheduler import SessionScheduler
 from shared.agent_io import AgentJob
@@ -38,6 +42,7 @@ logger = get_logger(__name__)
 _CONTROL_COMMANDS = {
     "/stop": "stop",
     "/clear": "clear",
+    "/steer": "steer",
 }
 
 
@@ -170,6 +175,10 @@ class SessionRouter:
                 "[SessionRouter] autonomy resumed by user message: session_id=%s",
                 session.session_id,
             )
+
+        if await self._try_steer_active_run(session_id=session.session_id, ctx=ctx):
+            return RouteDecision(route_kind="agent_steer", lane_key=lane, platform=ctx.platform)
+
         pending_events = await pop_agent_session_pending_events(session.session_id)
         job = AgentJob(
             job_id=uuid.uuid4().hex,
@@ -190,11 +199,75 @@ class SessionRouter:
         await self._scheduler.enqueue(job)
         return RouteDecision(route_kind="agent_message", lane_key=lane, platform=ctx.platform)
 
+    async def _try_steer_active_run(self, *, session_id: str, ctx: SessionContext) -> bool:
+        """If steering mode is on and a turn is running, inject the message into it.
+
+        Returns True when the message was consumed as steering (caller should not
+        enqueue a new turn). Falls back to normal enqueue when steering is off,
+        no turn is running, or the message carries non-text attachments.
+        """
+        safe_session_id = str(session_id or "").strip()
+        if not safe_session_id or self._scheduler is None:
+            return False
+        if not is_session_steering_enabled(safe_session_id):
+            return False
+        if ctx.user_content_blocks:
+            # 带附件（图片/文件）的消息走正常排队，避免丢失附件内容。
+            return False
+        text = str(ctx.user_input or "").strip()
+        if not text:
+            return False
+        handle = self._scheduler.active_run(safe_session_id)
+        if handle is None:
+            return False
+        handle.push_steering(
+            text,
+            response_route_id=str(ctx.response_route_id or "").strip(),
+            message_id=str(ctx.message_id or "").strip(),
+        )
+        logger.info(
+            "[SessionRouter] steered active run: session_id=%s job_id=%s chars=%d",
+            safe_session_id,
+            getattr(handle, "job_id", ""),
+            len(text),
+        )
+        await self._send_control_feedback(
+            ctx,
+            session_id=safe_session_id,
+            markdown="收到，已插入当前任务，我会在下一步处理你的最新指令。",
+        )
+        return True
+
     async def _handle_control_command(self, command: str, *, session, ctx: SessionContext) -> None:
         if command == "stop":
             await self._handle_stop(session=session, ctx=ctx)
             return
+        if command == "steer":
+            await self._handle_steer(session=session, ctx=ctx)
+            return
         await self._handle_clear(session=session, ctx=ctx)
+
+    async def _handle_steer(self, *, session, ctx: SessionContext) -> None:
+        if session is None:
+            await self._send_control_feedback(
+                ctx,
+                session_id="",
+                markdown="当前没有会话。发消息开始对话后再用 /steer 切换实时插话模式。",
+            )
+            return
+        session_id = str(session.session_id or "").strip()
+        enabled = toggle_session_steering(session_id)
+        logger.info("[SessionRouter] steer toggled: session_id=%s enabled=%s", session_id, enabled)
+        if enabled:
+            message = (
+                "已开启实时插话模式：我执行任务期间你发的消息会立刻插入当前任务，"
+                "在下一步工具调用间隙生效，用来随时纠正方向。再次输入 /steer 可关闭。"
+            )
+        else:
+            message = (
+                "已关闭实时插话模式：我执行任务期间你发的消息会排队，等当前任务结束后再处理。"
+            )
+        await self._send_control_feedback(ctx, session_id=session_id, markdown=message)
 
     async def _handle_stop(self, *, session, ctx: SessionContext) -> None:
         if session is None:

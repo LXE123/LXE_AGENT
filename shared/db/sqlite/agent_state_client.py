@@ -13,6 +13,7 @@ from .agent_sessions import (
     discard_agent_session_pending_event,
     has_agent_session_pending_events,
     load_agent_session,
+    load_agent_session_record,
     pop_agent_session_pending_events,
     reset_agent_session_context,
     update_agent_session,
@@ -29,6 +30,10 @@ def dispose() -> None:
 
 def load_agent_session_state(session_id: str):
     return load_agent_session(session_id)
+
+
+def load_agent_session_record_state(session_id: str):
+    return load_agent_session_record(session_id)
 
 
 def create_agent_session_state(
@@ -60,6 +65,7 @@ def update_agent_session_state(
     model_config: dict[str, Any] | None = None,
     title: str | None = None,
     title_candidate: str | None = None,
+    include_state: bool = True,
 ):
     return update_agent_session(
         session_id,
@@ -70,14 +76,17 @@ def update_agent_session_state(
         model_config=model_config,
         title=title,
         title_candidate=title_candidate,
+        include_state=include_state,
     )
 
 
 def append_agent_session_message_state(
     session_id: str,
     message: dict[str, Any] | None,
+    *,
+    include_state: bool = True,
 ):
-    return append_agent_session_message(session_id, message)
+    return append_agent_session_message(session_id, message, include_state=include_state)
 
 
 def append_agent_session_context_replacement_state(
@@ -89,6 +98,7 @@ def append_agent_session_context_replacement_state(
     summary_text: str = "",
     compacted_count: int = 0,
     trigger: str = "",
+    include_state: bool = True,
 ):
     return append_agent_session_context_replacement(
         session_id,
@@ -98,6 +108,7 @@ def append_agent_session_context_replacement_state(
         summary_text=summary_text,
         compacted_count=compacted_count,
         trigger=trigger,
+        include_state=include_state,
     )
 
 
@@ -165,6 +176,7 @@ __all__ = [
     "has_agent_session_pending_events_state",
     "init_schema",
     "load_agent_session_state",
+    "load_agent_session_record_state",
     "pop_agent_session_pending_events_state",
     "reset_agent_session_state",
     "update_agent_session_state",

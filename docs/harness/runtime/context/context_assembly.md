@@ -43,6 +43,7 @@ step 内 tool result 裁剪、compaction、history limit 的细节见 [context_p
 | --- | --- | --- |
 | `## Soul` | `SOUL.md` | 文件存在时加入，只承载人格和语气，不含约束规则。 |
 | `## Safety & Boundaries` | 硬编码 prompt | 全部安全与边界规则的唯一存放处：外部写操作确认门、隐私、消息平台规则、human oversight。 |
+| `## Communication` | 硬编码 prompt | 最终回复规范：最终消息自包含、结论先行、可读性优先于电报体、形式匹配问题体量、如实汇报。 |
 | `## Tool Call Style` | 硬编码 prompt | 工具调用叙述风格；各工具的具体使用规则以其自身 description 为准。 |
 | `## Attachment Handling` | 硬编码 prompt | 非图片附件的处理方式。 |
 | `## Skills (mandatory)` | 硬编码 prompt | 指导模型如何选择并读取 skill。 |

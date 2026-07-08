@@ -53,6 +53,7 @@ async def run_turn(
     tool_run_registrar: Callable[[str, str, Callable[[], None] | None], None] | None = None,
     tool_run_finisher: Callable[[str], None] | None = None,
     context_checkpoint: ContextCheckpointCallback | None = None,
+    steering_drain: Callable[[], list[str]] | None = None,
 ) -> TurnOutcome:
     state_data = dict(getattr(session, "state_data", {}) or {})
     available_skills = load_available_skills_for_session(session)
@@ -78,6 +79,7 @@ async def run_turn(
         tool_run_registrar=tool_run_registrar,
         tool_run_finisher=tool_run_finisher,
         context_checkpoint=context_checkpoint,
+        steering_drain=steering_drain,
     )
 
 
