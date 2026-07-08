@@ -12,6 +12,7 @@ import aiohttp
 from shared.infra.net import erp_http_session
 from shared.logging import get_logger
 
+from ... import auth_audit
 from ...auth import get_fba_wms_cookie_header
 from ...errors import MabangAuthError, MabangBusinessError
 from .consignment_paths import resolve_wms_consignment_dir
@@ -23,6 +24,7 @@ DEFAULT_WMS_EXPORT_URL = "https://wms.private.mabangerp.com/export_service/fbaam
 DEFAULT_WMS_EXPORT_ORIGIN = "https://wms.private.mabangerp.com"
 DEFAULT_WMS_EXPORT_REFERER = "https://wms.private.mabangerp.com/redirect/40402/page"
 AUTH_FAIL_STATUS = {401, 403}
+WMS_CONSIGNMENT_EXCEL_PURPOSE = "wms_consignment_excel_export"
 
 
 class WmsExcelDownloadError(MabangBusinessError):
@@ -200,8 +202,22 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
     while idx < attempts:
         idx += 1
         try:
-            cookie_header = await get_fba_wms_cookie_header(force_refresh=force_refresh_next)
+            active_force_refresh = force_refresh_next
+            cookie_header = await get_fba_wms_cookie_header(
+                force_refresh=active_force_refresh,
+                purpose=WMS_CONSIGNMENT_EXCEL_PURPOSE,
+            )
             force_refresh_next = False
+            api_url, _, _ = _resolve_request_meta()
+            auth_audit.log_auth_material_consumed(
+                purpose=WMS_CONSIGNMENT_EXCEL_PURPOSE,
+                caller="services.mabang.amazon.fba.wms.download_consignment_excel_from_wms",
+                auth_kind="wms_cookie_header",
+                request_url=api_url,
+                force_refresh=active_force_refresh,
+                cookie_header=cookie_header,
+                session=erp_http_session,
+            )
             try:
                 status, body, content_type, content_disposition = await _request_once(normalized, cookie_header)
             except Exception as exc:
@@ -209,6 +225,12 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
                 if wrapped is exc:
                     raise
                 raise wrapped from exc
+            logger.info(
+                f"[MabangAuthAudit] event=auth_request_response purpose={WMS_CONSIGNMENT_EXCEL_PURPOSE} "
+                f"caller=services.mabang.amazon.fba.wms.download_consignment_excel_from_wms shipNo={normalized} "
+                f"attempt={idx}/{attempts}, force_refresh={active_force_refresh}, "
+                f"status={status}, content_type={content_type or '-'}"
+            )
             if status in AUTH_FAIL_STATUS:
                 raise WmsExcelAuthError(f"WMS 导出鉴权失败(status={status})")
             if status >= 400:

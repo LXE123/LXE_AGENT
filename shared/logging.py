@@ -13,6 +13,13 @@ from shared.log_config import local_logs_enabled
 _MANAGED_HANDLER_ATTR = "_lxe_agent_logging_handler"
 _DEFAULT_FORMAT = "➤ %(asctime)s %(levelname)-8s [%(display_name)s]%(log_context)s %(message)s"
 _THIRD_PARTY_LOGGERS = ("httpx", "httpcore", "lark_oapi", "aiohttp")
+_BROWSER_AUTH_LOGGER_PREFIXES = (
+    "browser_auth_service",
+    "clients.auth.browser_auth_client",
+    "services.mabang.auth",
+    "services.mabang.auth_audit",
+    "services.mabang.amazon.fba.wms",
+)
 _LOG_CONTEXT: ContextVar[tuple[str, str]] = ContextVar("lxe_agent_log_context", default=("", ""))
 
 logger = logging.getLogger("bot_logger")
@@ -74,6 +81,16 @@ class _LogContextFilter(logging.Filter):
         record.display_name = _display_logger_name(record.name)
         record.log_context = _log_context_text(record.session_id, record.turn_id)
         return True
+
+
+class _LoggerPrefixFilter(logging.Filter):
+    def __init__(self, prefixes: tuple[str, ...]) -> None:
+        super().__init__()
+        self._prefixes = tuple(str(prefix or "").strip() for prefix in prefixes if str(prefix or "").strip())
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        name = str(record.name or "").strip()
+        return any(name == prefix or name.startswith(f"{prefix}.") for prefix in self._prefixes)
 
 
 class _HumanReadableFormatter(logging.Formatter):
@@ -147,12 +164,29 @@ def _runtime_log_path() -> Path | None:
     return (_repo_root() / "logs" / "runtime" / day / file_name).resolve()
 
 
+def _browser_auth_log_path() -> Path | None:
+    raw = env_text("BROWSER_AUTH_LOG_FILE", "")
+    if not raw:
+        return None
+    file_name = Path(raw).name.strip()
+    if not file_name or file_name in {".", ".."}:
+        return None
+    day = datetime.now().strftime("%Y%m%d")
+    return (_repo_root() / "logs" / "browser_auth_service" / day / file_name).resolve()
+
+
 def _build_runtime_file_handler(path: Path) -> logging.Handler:
     path.parent.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(path, encoding="utf-8")
     setattr(handler, _MANAGED_HANDLER_ATTR, True)
     handler.addFilter(_LogContextFilter())
     handler.setFormatter(_log_formatter())
+    return handler
+
+
+def _build_browser_auth_file_handler(path: Path) -> logging.Handler:
+    handler = _build_runtime_file_handler(path)
+    handler.addFilter(_LoggerPrefixFilter(_BROWSER_AUTH_LOGGER_PREFIXES))
     return handler
 
 
@@ -169,6 +203,9 @@ def setup_logging() -> None:
         cleanup_local_logs(repo_root=_repo_root())
     if runtime_log_path is not None and local_logs_enabled():
         root.addHandler(_build_runtime_file_handler(runtime_log_path))
+    browser_auth_log_path = _browser_auth_log_path()
+    if browser_auth_log_path is not None and local_logs_enabled():
+        root.addHandler(_build_browser_auth_file_handler(browser_auth_log_path))
     root.setLevel(root_level)
 
     logger.propagate = True

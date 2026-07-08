@@ -336,7 +336,7 @@ def match_fba_store(query: str, stores: list[FbaStore]) -> FbaStoreResolveResult
 
 
 async def resolve_fba_store_auth() -> FbaStoreResolverAuth:
-    context = await get_auth_context(scope="private_amz")
+    context = await get_auth_context(scope="private_amz", purpose="fba_store_resolver")
     cookie_header = build_cookie_header(
         context.cookies_by_domain,
         request_host=PRIVATE_AMZ_HOST,

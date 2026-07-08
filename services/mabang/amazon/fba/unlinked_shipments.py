@@ -624,7 +624,7 @@ def pick_shop_option(store_name: str, shops: list[ShopOption]) -> ShopOption:
 
 
 async def fetch_shop_options(*, token: str | None = None) -> list[ShopOption]:
-    active_token = _clean_text(token) or await get_fba_free_token()
+    active_token = _clean_text(token) or await get_fba_free_token(purpose="fba_unlinked_shipments_shop_options")
     api_url = _configured_text("FBA_SHOP_COUNTRY_API_URL", DEFAULT_SHOP_COUNTRY_URL)
     async with erp_http_session.get(
         api_url,
@@ -655,7 +655,7 @@ async def fetch_status_total(
     *,
     token: str | None = None,
 ) -> int:
-    active_token = _clean_text(token) or await get_fba_free_token()
+    active_token = _clean_text(token) or await get_fba_free_token(purpose="fba_unlinked_shipments_status_total")
     api_url = _configured_text("FBA_DELIVERY_LIST_API_URL", DEFAULT_BATCH_DELIVERY_LIST_URL)
     payload = _status_payload(spec, store_id, page=1, pre_page=1)
     async with erp_http_session.post(api_url, json=payload, headers=_request_headers(active_token)) as resp:
@@ -670,7 +670,7 @@ async def create_unlinked_export_task(
     token: str | None = None,
     report_date: str | date | None = None,
 ) -> int:
-    active_token = _clean_text(token) or await get_fba_free_token()
+    active_token = _clean_text(token) or await get_fba_free_token(purpose="fba_unlinked_shipments_export_task_create")
     date_text = _today_text(report_date)
     api_url = _configured_text("FBA_DELIVERY_TASK_PUSH_URL", DEFAULT_TASK_PUSH_URL)
     payload = {
@@ -852,7 +852,7 @@ async def download_store_unlinked_shipments(
         safe_timeout_sec(timeout_sec),
         safe_poll_interval_sec(poll_interval_sec),
     )
-    token = await get_fba_free_token()
+    token = await get_fba_free_token(purpose="fba_unlinked_shipments_download")
 
     try:
         return await _download_store_unlinked_shipments_with_token(
@@ -867,7 +867,10 @@ async def download_store_unlinked_shipments(
     except BatchDeliveryApiAuthError:
         logger.warning("[FBAAuthRetry] 未关联货件鉴权失败，准备强制刷新 freeToken: store_name=%s", clean_store_name)
 
-    retry_token = await get_fba_free_token(force_refresh=True)
+    retry_token = await get_fba_free_token(
+        force_refresh=True,
+        purpose="fba_unlinked_shipments_download_force_refresh",
+    )
     try:
         result = await _download_store_unlinked_shipments_with_token(
             clean_store_name,

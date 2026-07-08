@@ -239,7 +239,7 @@ def test_download_fba_delivery_csv_force_refreshes_once_after_auth_failure(monke
     token_calls: list[bool] = []
     run_calls: list[str] = []
 
-    async def fake_get_token(force_refresh: bool = False) -> str:
+    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "retry-token" if force_refresh else "cached-token"
 
@@ -270,7 +270,7 @@ def test_download_fba_delivery_csv_does_not_retry_more_than_once(monkeypatch, tm
     token_calls: list[bool] = []
     run_calls: list[str] = []
 
-    async def fake_get_token(force_refresh: bool = False) -> str:
+    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "retry-token" if force_refresh else "cached-token"
 
@@ -291,7 +291,7 @@ def test_download_fba_delivery_csv_does_not_retry_more_than_once(monkeypatch, tm
 def test_download_fba_delivery_csv_does_not_force_refresh_non_auth_errors(monkeypatch, tmp_path):
     token_calls: list[bool] = []
 
-    async def fake_get_token(force_refresh: bool = False) -> str:
+    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
         token_calls.append(force_refresh)
         return "cached-token"
 

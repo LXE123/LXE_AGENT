@@ -39,6 +39,28 @@ $env:FBA_LOGISTICS_TOKEN_HEADLESS="0"
 - `free_token` 是否为空
 - `wms_cookie_header` 是否为空
 
+## 看复盘日志
+
+需要 `LOCAL_LOGS_ENABLED=1`，且 `BROWSER_AUTH_LOG_FILE=browser_auth_service.log`。
+
+专用日志在：
+
+```text
+logs/browser_auth_service/YYYYMMDD/browser_auth_service.log
+```
+
+macOS / Linux：
+
+```bash
+tail -f logs/browser_auth_service/$(date +%Y%m%d)/browser_auth_service.log
+```
+
+Windows PowerShell：
+
+```powershell
+Get-Content -Wait "logs\browser_auth_service\$(Get-Date -Format yyyyMMdd)\browser_auth_service.log"
+```
+
 ## 测试命令
 
 只跑 browser auth 相关单测：
