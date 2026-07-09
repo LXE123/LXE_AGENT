@@ -10,6 +10,10 @@ browser_auth_service/auth_data/mabang_erp/<account>/state.json
 
 里面有 cookie/token，排查时不要粘贴完整内容。
 
+## 认证材料边界
+
+认证材料唯一来源是本服务的 `state.json` 和 CLI JSON 返回值。`erp_http_session` / `external_http_session` 使用无状态 CookieJar，不参与认证状态；新流程如果依赖服务端 `Set-Cookie` 连续性，需要显式纳入认证材料或使用局部短命 HTTP session。
+
 ## 用 CLI 测 4 条认证路径
 
 建议先开可视化，方便看页面到底跳到哪里：

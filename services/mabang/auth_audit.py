@@ -81,6 +81,18 @@ def session_cookie_jar_summary(session: Any, url: str) -> str:
     return f"host={host or '-'} {_format_names(names)}"
 
 
+def _session_cookie_jar_names(session: Any, url: str) -> list[str]:
+    cookie_jar = getattr(session, "cookie_jar", None)
+    if cookie_jar is None:
+        return []
+    try:
+        cookies = cookie_jar.filter_cookies(str(url or ""))
+    except Exception:
+        return []
+    keys = getattr(cookies, "keys", None)
+    return _unique_nonempty([str(name or "").strip() for name in keys()] if callable(keys) else [])
+
+
 def _clean_label(value: str, default: str = "-") -> str:
     text = str(value or "").strip()
     return text or default
@@ -121,14 +133,22 @@ def log_auth_material_consumed(
 ) -> None:
     host = str(request_host or "").strip() or str(urlsplit(str(request_url or "")).hostname or "").strip()
     token_text = "-" if token_present is None else str(bool(token_present))
+    jar_summary = session_cookie_jar_summary(session, request_url) if session is not None else "-"
     logger.info(
         "[MabangAuthAudit] event=auth_material_consumed "
         f"purpose={_clean_label(purpose)} caller={_clean_label(caller)} "
         f"auth_kind={_clean_label(auth_kind)} request_host={_clean_label(host)} "
         f"force_refresh={bool(force_refresh)} token_present={token_text} "
         f"cookie_header={cookie_header_summary(cookie_header)} "
-        f"session_cookie_jar={session_cookie_jar_summary(session, request_url) if session is not None else '-'}"
+        f"session_cookie_jar={jar_summary}"
     )
+    if session is not None and _session_cookie_jar_names(session, request_url):
+        logger.warning(
+            "[MabangAuthAudit] event=shadow_cookie_jar_detected "
+            f"purpose={_clean_label(purpose)} request_host={_clean_label(host)} "
+            f"jar={jar_summary} "
+            "(共享 session 不应持有任何 cookie,认证边界疑似被突破)"
+        )
 
 
 __all__ = [

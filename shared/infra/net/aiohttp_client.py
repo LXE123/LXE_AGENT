@@ -60,6 +60,9 @@ def _build_session(options: HttpSessionOptions) -> aiohttp.ClientSession:
         connector=connector,
         timeout=timeout,
         headers=dict(options.headers or {}),
+        # Shared sessions are connection pools only. Auth material must come
+        # from browser_auth_service; default CookieJar can shadow manual cookies.
+        cookie_jar=aiohttp.DummyCookieJar(),
         trust_env=False,
     )
 

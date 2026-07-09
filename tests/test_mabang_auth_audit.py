@@ -83,3 +83,55 @@ def test_log_auth_material_acquired_includes_purpose_and_material_summary(caplog
     assert "PHPSESSID" in text
     assert "secret-token" not in text
     assert "secret" not in text
+
+
+def test_log_auth_material_consumed_warns_when_session_cookie_jar_is_nonempty(caplog) -> None:
+    class FakeCookieJar:
+        def filter_cookies(self, url: str):
+            cookie = SimpleCookie()
+            cookie["SESSION"] = "secret-session"
+            return cookie
+
+    class FakeSession:
+        cookie_jar = FakeCookieJar()
+
+    caplog.set_level("WARNING", logger="services.mabang.auth_audit")
+
+    auth_audit.log_auth_material_consumed(
+        purpose="wms_consignment_excel_export",
+        caller="services.mabang.amazon.fba.wms.download_consignment_excel_from_wms",
+        auth_kind="wms_cookie_header",
+        request_url="https://wms.private.mabangerp.com/export_service/fbaamazon/ExeclFbaPackInfo2Amazon",
+        cookie_header="SESSION=fresh-session",
+        session=FakeSession(),
+    )
+
+    text = caplog.text
+    assert "event=shadow_cookie_jar_detected" in text
+    assert "purpose=wms_consignment_excel_export" in text
+    assert "request_host=wms.private.mabangerp.com" in text
+    assert "SESSION" in text
+    assert "secret-session" not in text
+    assert "fresh-session" not in text
+
+
+def test_log_auth_material_consumed_does_not_warn_when_session_cookie_jar_is_empty(caplog) -> None:
+    class FakeCookieJar:
+        def filter_cookies(self, url: str):
+            return SimpleCookie()
+
+    class FakeSession:
+        cookie_jar = FakeCookieJar()
+
+    caplog.set_level("WARNING", logger="services.mabang.auth_audit")
+
+    auth_audit.log_auth_material_consumed(
+        purpose="wms_consignment_excel_export",
+        caller="services.mabang.amazon.fba.wms.download_consignment_excel_from_wms",
+        auth_kind="wms_cookie_header",
+        request_url="https://wms.private.mabangerp.com/export_service/fbaamazon/ExeclFbaPackInfo2Amazon",
+        cookie_header="SESSION=fresh-session",
+        session=FakeSession(),
+    )
+
+    assert "event=shadow_cookie_jar_detected" not in caplog.text
