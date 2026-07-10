@@ -416,6 +416,7 @@ def test_runtime_stream_final_typing_and_heartbeat_events_are_correlated() -> No
             assert events[-1]["payload"] == {
                 "session_id": "session-1",
                 "status": "completed",
+                "remaining_steering": [],
             }
         finally:
             await worker.shutdown()
@@ -493,6 +494,14 @@ def test_turn_cancel_reuses_run_handle_cancellation() -> None:
             await asyncio.sleep(0)
             await worker.handle_message(
                 _envelope(
+                    "turn.steer",
+                    {"session_id": "session-1", "text": "drop after cancel"},
+                    message_id="steer-before-cancel",
+                    run_id="run-1",
+                )
+            )
+            await worker.handle_message(
+                _envelope(
                     "turn.cancel",
                     {"session_id": "session-1"},
                     message_id="cancel-1",
@@ -508,6 +517,7 @@ def test_turn_cancel_reuses_run_handle_cancellation() -> None:
             cancel_reply = next(item for item in outputs if item["reply_to"] == "cancel-1")
             assert cancel_reply["payload"] == {"cancelled": True, "session_id": "session-1"}
             assert completion["payload"]["status"] == "cancelled"
+            assert "remaining_steering" not in completion["payload"]
         finally:
             await worker.shutdown()
 
@@ -557,6 +567,114 @@ def test_turn_steer_reuses_active_run_handle() -> None:
             steer_reply = next(item for item in outputs if item["reply_to"] == "steer-1")
             assert steer_reply["payload"] == {"accepted": True, "session_id": "session-1"}
         finally:
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
+def test_steering_accepted_before_closure_is_handed_off_in_completion() -> None:
+    release_turn = asyncio.Event()
+
+    async def fake_turn_handler(**_kwargs: Any) -> None:
+        await release_turn.wait()
+
+    async def run() -> None:
+        outputs: list[dict[str, Any]] = []
+        worker = await _started_worker(outputs, turn_handler=fake_turn_handler)
+        try:
+            await worker.handle_message(
+                _envelope("turn.start", _job(), message_id="start-handoff", run_id="run-1")
+            )
+            await worker.handle_message(
+                _envelope(
+                    "turn.steer",
+                    {
+                        "session_id": "session-1",
+                        "text": "handoff steering",
+                        "response_route_id": "route-handoff",
+                        "message_id": "message-handoff",
+                    },
+                    message_id="steer-handoff",
+                    run_id="run-1",
+                )
+            )
+            release_turn.set()
+            completion = await _wait_for_output(
+                outputs,
+                kind="runtime.turn.completed",
+                run_id="run-1",
+            )
+
+            steer_reply = await _wait_for_reply(outputs, "steer-handoff")
+            assert steer_reply["kind"] == "turn.steer.result"
+            assert completion["payload"]["remaining_steering"] == [
+                {
+                    "text": "handoff steering",
+                    "response_route_id": "route-handoff",
+                    "message_id": "message-handoff",
+                }
+            ]
+        finally:
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
+def test_steering_after_closure_is_rejected_while_completion_is_in_flight() -> None:
+    release_turn = asyncio.Event()
+    completion_started = asyncio.Event()
+    release_completion = asyncio.Event()
+
+    async def fake_turn_handler(**_kwargs: Any) -> None:
+        await release_turn.wait()
+
+    async def run() -> None:
+        outputs: list[dict[str, Any]] = []
+
+        async def write_envelope(envelope: dict[str, Any]) -> None:
+            if envelope["kind"] == "runtime.turn.completed":
+                completion_started.set()
+                await release_completion.wait()
+            outputs.append(envelope)
+
+        worker = RuntimeWorker(
+            write_envelope=write_envelope,
+            turn_handler=fake_turn_handler,
+            initialize_storage=lambda: None,
+            close_storage=lambda: None,
+        )
+        await worker.start()
+        try:
+            await worker.handle_message(
+                _envelope("turn.start", _job(), message_id="start-closing", run_id="run-1")
+            )
+            release_turn.set()
+            await asyncio.wait_for(completion_started.wait(), timeout=1)
+
+            late_steer = asyncio.create_task(
+                worker.handle_message(
+                    _envelope(
+                        "turn.steer",
+                        {"session_id": "session-1", "text": "too late"},
+                        message_id="steer-closing",
+                        run_id="run-1",
+                    )
+                )
+            )
+            await asyncio.sleep(0)
+            assert late_steer.done() is False
+            release_completion.set()
+            await late_steer
+
+            result = await _wait_for_reply(outputs, "steer-closing")
+            assert result["kind"] == "error"
+            assert result["payload"]["code"] == "run_closing"
+            assert not any(
+                item["kind"] == "turn.steer.result" and item["reply_to"] == "steer-closing"
+                for item in outputs
+            )
+        finally:
+            release_completion.set()
             await worker.shutdown()
 
     asyncio.run(run())
@@ -742,6 +860,69 @@ def test_non_finite_handler_result_returns_error_and_worker_stays_ready(
             assert outputs[0]["kind"] == "error"
             assert outputs[0]["reply_to"] == "dashboard-nan"
             assert outputs[0]["payload"]["code"] == "invalid_result"
+            assert outputs[1]["kind"] == "health.result"
+            assert outputs[1]["payload"]["ready"] is True
+        finally:
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
+def test_surrogate_in_incoming_envelope_returns_safe_correlated_error() -> None:
+    async def run() -> None:
+        outputs: list[dict[str, Any]] = []
+        worker = await _started_worker(outputs)
+        try:
+            await worker.handle_line(
+                '{"protocol_version":"1","message_id":"surrogate-input",'
+                '"reply_to":null,"run_id":"surrogate-run","seq":0,'
+                '"kind":"\\ud800","payload":{"nested":["\\udfff"]}}'
+            )
+            await worker.handle_message(_envelope("health", message_id="health-after-surrogate"))
+
+            error = outputs[0]
+            assert error["kind"] == "error"
+            assert error["reply_to"] == "surrogate-input"
+            assert error["run_id"] == "surrogate-run"
+            assert error["payload"]["code"] == "invalid_envelope"
+            assert error["payload"]["request_kind"] == ""
+            assert "\\ud800" not in json.dumps(error, ensure_ascii=True)
+            assert "\\udfff" not in json.dumps(error, ensure_ascii=True)
+            assert outputs[1]["kind"] == "health.result"
+            assert outputs[1]["payload"]["ready"] is True
+        finally:
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
+def test_surrogate_in_handler_result_returns_error_and_worker_stays_ready() -> None:
+    async def unsafe_result(_params: dict[str, Any]) -> dict[str, Any]:
+        return {"nested": ["safe", "\ud800"]}
+
+    async def run() -> None:
+        outputs: list[dict[str, Any]] = []
+        worker = await _started_worker(
+            outputs,
+            dashboard_handlers={"metrics.surrogate": unsafe_result},
+        )
+        try:
+            await worker.handle_message(
+                _envelope(
+                    "dashboard.query",
+                    {"operation": "metrics.surrogate", "params": {}},
+                    message_id="surrogate-result",
+                )
+            )
+            await worker.handle_message(
+                _envelope("health", message_id="health-after-surrogate-result")
+            )
+
+            error = outputs[0]
+            assert error["kind"] == "error"
+            assert error["reply_to"] == "surrogate-result"
+            assert error["payload"]["code"] == "invalid_result"
+            assert "\\ud800" not in json.dumps(error, ensure_ascii=True)
             assert outputs[1]["kind"] == "health.result"
             assert outputs[1]["payload"]["ready"] is True
         finally:

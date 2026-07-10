@@ -98,6 +98,35 @@ class _ActiveRun:
     job: AgentJob
     handle: RunHandle
     task: asyncio.Task[Any] | None = None
+    accepting_steering: bool = True
+
+
+def _contains_surrogate(value: str) -> bool:
+    return any("\ud800" <= char <= "\udfff" for char in value)
+
+
+def _safe_protocol_text(value: Any, *, strip: bool = True) -> str:
+    if not isinstance(value, str) or _contains_surrogate(value):
+        return ""
+    return value.strip() if strip else value
+
+
+def _validate_unicode_scalars(value: Any) -> None:
+    if isinstance(value, str):
+        if _contains_surrogate(value):
+            raise WorkerRequestError(
+                "invalid_envelope",
+                "worker envelope contains an invalid Unicode surrogate",
+            )
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            _validate_unicode_scalars(key)
+            _validate_unicode_scalars(item)
+        return
+    if isinstance(value, (list, tuple, set, frozenset)):
+        for item in value:
+            _validate_unicode_scalars(item)
 
 
 def _require_text(payload: Mapping[str, Any], key: str) -> str:
@@ -115,7 +144,14 @@ def _require_object(payload: Mapping[str, Any], key: str) -> dict[str, Any]:
 
 
 def _to_jsonable(value: Any) -> Any:
-    if value is None or isinstance(value, (bool, int, str)):
+    if value is None or isinstance(value, (bool, int)):
+        return value
+    if isinstance(value, str):
+        if _contains_surrogate(value):
+            raise WorkerRequestError(
+                "invalid_result",
+                "handler result contains an invalid Unicode surrogate",
+            )
         return value
     if isinstance(value, float):
         if not math.isfinite(value):
@@ -129,7 +165,16 @@ def _to_jsonable(value: Any) -> Any:
     if is_dataclass(value) and not isinstance(value, type):
         return _to_jsonable(asdict(value))
     if isinstance(value, Mapping):
-        return {str(key): _to_jsonable(item) for key, item in value.items()}
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            safe_key = str(key)
+            if _contains_surrogate(safe_key):
+                raise WorkerRequestError(
+                    "invalid_result",
+                    "handler result contains an invalid Unicode surrogate",
+                )
+            result[safe_key] = _to_jsonable(item)
+        return result
     if isinstance(value, (list, tuple, set, frozenset)):
         return [_to_jsonable(item) for item in value]
     raise TypeError(f"value is not JSON serializable: {type(value).__name__}")
@@ -222,7 +267,17 @@ class RuntimeWorker:
 
     async def handle_message(self, message: object) -> None:
         request = message if isinstance(message, dict) else None
-        request_kind = str(request.get("kind") or "").strip() if request is not None else ""
+        request_kind = _safe_protocol_text(request.get("kind")) if request is not None else ""
+        try:
+            _validate_unicode_scalars(message)
+        except WorkerRequestError as exc:
+            await self._send_error(
+                code=exc.code,
+                message=str(exc),
+                request=request,
+                request_kind="",
+            )
+            return
         try:
             validate_contract("worker_envelope", message)
         except ValidationError as exc:
@@ -645,6 +700,11 @@ class RuntimeWorker:
         payload: dict[str, Any],
     ) -> None:
         current = self._target_run(request, payload)
+        if not current.accepting_steering:
+            raise WorkerRequestError(
+                "run_closing",
+                f"run is no longer accepting steering: {current.run_id}",
+            )
         text = _require_text(payload, "text")
         current.handle.push_steering(
             text,
@@ -702,12 +762,22 @@ class RuntimeWorker:
                 exc_info=True,
             )
         finally:
+            current.accepting_steering = False
+            remaining_steering = current.handle.drain_steering()
+            include_remaining_steering = status != "cancelled" and not current.handle.cancelled
+            if not include_remaining_steering:
+                remaining_steering = []
             current.handle.cleanup_state = status
             try:
                 await self._emit_completion_once(
                     current,
                     status=status,
                     error_message=error_message,
+                    remaining_steering=(
+                        remaining_steering
+                        if include_remaining_steering
+                        else None
+                    ),
                 )
             finally:
                 self._active_runs.pop(current.run_id, None)
@@ -754,6 +824,7 @@ class RuntimeWorker:
         *,
         status: str,
         error_message: str,
+        remaining_steering: list[dict[str, str]] | None,
     ) -> None:
         if current.run_id in self._completion_emitted:
             return
@@ -764,6 +835,11 @@ class RuntimeWorker:
         }
         if error_message:
             payload["error"] = error_message
+        if remaining_steering is not None:
+            payload["remaining_steering"] = [
+                dict(item)
+                for item in remaining_steering
+            ]
         await self._send(
             kind="runtime.turn.completed",
             payload=payload,
@@ -794,16 +870,18 @@ class RuntimeWorker:
         reply_to = None
         run_id = None
         if request is not None:
-            candidate_reply_to = str(request.get("message_id") or "").strip()
+            candidate_reply_to = _safe_protocol_text(request.get("message_id"))
             reply_to = candidate_reply_to or None
-            candidate_run_id = str(request.get("run_id") or "").strip()
+            candidate_run_id = _safe_protocol_text(request.get("run_id"))
             run_id = candidate_run_id or None
+        safe_message = _safe_protocol_text(message, strip=False) or "request failed"
+        safe_request_kind = _safe_protocol_text(request_kind)
         await self._send(
             kind="error",
             payload={
                 "code": str(code or "handler_error"),
-                "message": str(message or "request failed"),
-                "request_kind": str(request_kind or ""),
+                "message": safe_message,
+                "request_kind": safe_request_kind,
             },
             reply_to=reply_to,
             run_id=run_id,
