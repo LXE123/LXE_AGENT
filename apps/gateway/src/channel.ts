@@ -3,6 +3,12 @@ import type { OutboundRequest } from "./models";
 
 export type InboundSink = (event: InboundEvent) => Promise<void>;
 
+export class ChannelStartupAbortedError extends Error {
+  constructor() {
+    super("channel startup aborted by stop request");
+  }
+}
+
 export interface ChannelAdapter {
   readonly platform: string;
   handleOutbound(request: OutboundRequest): Promise<void>;
@@ -15,6 +21,10 @@ export interface ChannelAdapter {
 export class ChannelRegistry {
   private readonly adapters = new Map<string, ChannelAdapter>();
   private readonly started = new Set<string>();
+  private desiredStarted = false;
+  private generation = 0;
+  private startTask: Promise<void> | undefined;
+  private stopTask: Promise<void> | undefined;
 
   register(adapter: ChannelAdapter): void {
     const key = String(adapter.platform ?? "").trim();
@@ -37,22 +47,58 @@ export class ChannelRegistry {
     for (const adapter of this.adapters.values()) adapter.setInboundSink?.(sink);
   }
 
-  async startAll(): Promise<void> {
+  startAll(): Promise<void> {
+    if (this.startTask) return this.startTask;
+    if (this.stopTask) return this.stopTask.then(() => this.startAll());
+    this.desiredStarted = true;
+    const generation = ++this.generation;
+    const task = this.startGeneration(generation).finally(() => {
+      if (this.startTask === task) this.startTask = undefined;
+    });
+    this.startTask = task;
+    return task;
+  }
+
+  stopAll(): Promise<void> {
+    this.desiredStarted = false;
+    this.generation += 1;
+    if (this.stopTask) return this.stopTask;
+    const inFlightStart = this.startTask;
+    const task = (async () => {
+      await inFlightStart?.catch(() => undefined);
+      await this.stopStarted();
+    })().finally(() => {
+      if (this.stopTask === task) this.stopTask = undefined;
+    });
+    this.stopTask = task;
+    return task;
+  }
+
+  private async startGeneration(generation: number): Promise<void> {
     try {
       for (const [key, adapter] of this.adapters) {
+        this.assertStartDesired(generation);
         if (this.started.has(key)) continue;
         // A start method may bind sockets before throwing. Mark it first so
         // rollback also invokes the failing adapter's idempotent stop().
         this.started.add(key);
         await adapter.start?.();
+        this.assertStartDesired(generation);
       }
     } catch (error) {
-      await this.stopAll();
+      this.desiredStarted = false;
+      await this.stopStarted();
       throw error;
     }
   }
 
-  async stopAll(): Promise<void> {
+  private assertStartDesired(generation: number): void {
+    if (!this.desiredStarted || generation !== this.generation) {
+      throw new ChannelStartupAbortedError();
+    }
+  }
+
+  private async stopStarted(): Promise<void> {
     for (const [key, adapter] of [...this.adapters.entries()].reverse()) {
       if (!this.started.delete(key)) continue;
       try {

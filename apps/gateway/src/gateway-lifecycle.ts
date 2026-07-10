@@ -6,6 +6,12 @@ export class IngressClosedError extends Error {
   }
 }
 
+export class GatewayStartupAbortedError extends Error {
+  constructor() {
+    super("Gateway startup aborted by stop request");
+  }
+}
+
 export interface LifecycleChannelsPort {
   wireInbound(sink: (event: InboundEvent) => Promise<void>): void;
   startAll(): Promise<void>;
@@ -55,45 +61,68 @@ export class GatewayLifecycle {
   private acceptingIngress = false;
   private started = false;
   private shutdownStarted = false;
+  private startupGeneration = 0;
+  private startTask: Promise<void> | undefined;
   private stopPromise: Promise<void> | undefined;
   private lastError = "";
 
   constructor(private readonly options: GatewayLifecycleOptions) {}
 
-  async start(): Promise<void> {
-    if (this.started) return;
-    if (this.shutdownStarted) throw new Error("Gateway shutdown has started");
+  start(): Promise<void> {
+    if (this.started) return Promise.resolve();
+    if (this.shutdownStarted) return Promise.reject(new GatewayStartupAbortedError());
+    if (this.startTask) return this.startTask;
+    const generation = ++this.startupGeneration;
+    const task = this.startOnce(generation).finally(() => {
+      if (this.startTask === task) this.startTask = undefined;
+    });
+    this.startTask = task;
+    return task;
+  }
+
+  private async startOnce(generation: number): Promise<void> {
     try {
       await this.options.state.ensureUsable();
+      this.assertStartupActive(generation);
       this.stateUsable = true;
       this.statusWriteAttempted = true;
       this.options.status.writeStatus(this.options.bootId);
+      this.assertStartupActive(generation);
       this.pollingAttempted = true;
       this.options.status.startPolling(this.options.bootId, () => {
         void this.stop();
       });
+      this.assertStartupActive(generation);
 
       if (this.options.dashboard.enabled) {
         this.dashboardAttempted = true;
         this.dashboardBound = await this.options.dashboard.start();
+        this.assertStartupActive(generation);
         if (!this.dashboardBound) throw new Error("Dashboard listener failed to bind");
       } else {
         this.dashboardBound = true;
       }
 
       await this.options.worker.start();
+      this.assertStartupActive(generation);
       if (!this.options.worker.isReady) throw new Error("runtime worker is not ready");
       this.heartbeatAttempted = true;
       await this.options.heartbeat.start();
+      this.assertStartupActive(generation);
       this.options.channels.wireInbound((event) => this.acceptInbound(event));
       this.acceptingIngress = true;
       this.channelsAttempted = true;
       this.channelsStarted = true;
       await this.options.channels.startAll();
+      this.assertStartupActive(generation);
       this.started = true;
       this.lastError = "";
     } catch (cause) {
       this.acceptingIngress = false;
+      if (this.shutdownStarted || generation !== this.startupGeneration) {
+        this.lastError = "Gateway startup aborted by stop request";
+        throw new GatewayStartupAbortedError();
+      }
       const original = cause instanceof Error ? cause.message : String(cause);
       const cleanupErrors = await this.teardown(new Error(original));
       this.lastError = cleanupErrors.length > 0
@@ -105,7 +134,11 @@ export class GatewayLifecycle {
 
   async stop(): Promise<void> {
     if (this.stopPromise) return this.stopPromise;
-    this.stopPromise = this.stopOnce();
+    this.shutdownStarted = true;
+    this.acceptingIngress = false;
+    this.startupGeneration += 1;
+    const inFlightStart = this.startTask;
+    this.stopPromise = this.stopOnce(inFlightStart);
     return this.stopPromise;
   }
 
@@ -158,12 +191,19 @@ export class GatewayLifecycle {
     await this.options.inbound(event);
   }
 
-  private async stopOnce(): Promise<void> {
-    if (this.shutdownStarted) return;
-    this.shutdownStarted = true;
-    this.acceptingIngress = false;
+  private async stopOnce(inFlightStart: Promise<void> | undefined): Promise<void> {
     const errors = await this.teardown(new Error("Gateway shutdown started"));
+    if (inFlightStart) {
+      await inFlightStart.catch(() => undefined);
+      errors.push(...await this.teardown(new Error("Gateway shutdown finalized after startup abort")));
+    }
     if (errors.length > 0) this.lastError = errors.join("; ");
+  }
+
+  private assertStartupActive(generation: number): void {
+    if (this.shutdownStarted || generation !== this.startupGeneration) {
+      throw new GatewayStartupAbortedError();
+    }
   }
 
   private async teardown(reason: Error): Promise<string[]> {

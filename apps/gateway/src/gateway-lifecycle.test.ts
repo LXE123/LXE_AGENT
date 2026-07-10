@@ -26,6 +26,7 @@ class FakeChannels implements LifecycleChannelsPort {
   sink: ((event: InboundEvent) => Promise<void>) | undefined;
   failStart = false;
   failStop = false;
+  startGate: Promise<void> | undefined;
   health: Record<string, JsonObject> = { test: { ready: true } };
 
   constructor(private readonly calls: string[]) {}
@@ -37,6 +38,7 @@ class FakeChannels implements LifecycleChannelsPort {
 
   async startAll(): Promise<void> {
     this.calls.push("channels.start");
+    await this.startGate;
     if (this.failStart) throw new Error("channel failed");
   }
 
@@ -53,12 +55,14 @@ class FakeChannels implements LifecycleChannelsPort {
 const makeLifecycle = (
   options: {
     channelFailure?: boolean;
+    channelStartGate?: Promise<void>;
     channelStopFailure?: boolean;
     dashboardStartFailure?: boolean;
     dashboardBound?: boolean;
     dashboardStopFailure?: boolean;
     heartbeatStopFailure?: boolean;
     heartbeatStartFailure?: boolean;
+    heartbeatStartGate?: Promise<void>;
     pollerStartFailure?: boolean;
     stateFailure?: boolean;
     statusWriteFailure?: boolean;
@@ -71,6 +75,7 @@ const makeLifecycle = (
   const channels = new FakeChannels(calls);
   channels.failStart = options.channelFailure ?? false;
   channels.failStop = options.channelStopFailure ?? false;
+  channels.startGate = options.channelStartGate;
   const worker = {
     isReady: false,
     workerPid: 999,
@@ -121,6 +126,7 @@ const makeLifecycle = (
     heartbeat: {
       async start() {
         calls.push("heartbeat.start");
+        await options.heartbeatStartGate;
         if (options.heartbeatStartFailure) throw new Error("heartbeat start failed");
       },
       async stop() {
@@ -275,5 +281,50 @@ describe("GatewayLifecycle", () => {
     worker.isReady = true;
     channels.health = { test: { ready: false, error: "offline" } };
     expect((await lifecycle.healthSnapshot()).ready).toBe(false);
+  });
+
+  test("stop aborts a heartbeat-gated startup and waits for it to settle", async () => {
+    let releaseHeartbeat!: () => void;
+    const heartbeatGate = new Promise<void>((resolve) => {
+      releaseHeartbeat = resolve;
+    });
+    const { lifecycle, calls } = makeLifecycle({ heartbeatStartGate: heartbeatGate });
+    const starting = lifecycle.start().catch((error: unknown) => error);
+    while (!calls.includes("heartbeat.start")) await Bun.sleep(0);
+    let stopResolved = false;
+    const stopping = lifecycle.stop().then(() => {
+      stopResolved = true;
+    });
+    await Bun.sleep(0);
+    expect(stopResolved).toBe(false);
+
+    releaseHeartbeat();
+    expect(await starting).toBeInstanceOf(Error);
+    await stopping;
+    expect(calls).not.toContain("channels.wire");
+    expect(calls).not.toContain("channels.start");
+    expect((await lifecycle.healthSnapshot()).shutdown_started).toBe(true);
+  });
+
+  test("stop aborts a channel-gated startup without allowing late readiness", async () => {
+    let releaseChannel!: () => void;
+    const channelGate = new Promise<void>((resolve) => {
+      releaseChannel = resolve;
+    });
+    const { lifecycle, calls } = makeLifecycle({ channelStartGate: channelGate });
+    const starting = lifecycle.start().catch((error: unknown) => error);
+    while (!calls.includes("channels.start")) await Bun.sleep(0);
+    let stopResolved = false;
+    const stopping = lifecycle.stop().then(() => {
+      stopResolved = true;
+    });
+    await Bun.sleep(0);
+    expect(stopResolved).toBe(false);
+
+    releaseChannel();
+    expect(await starting).toBeInstanceOf(Error);
+    await stopping;
+    expect((await lifecycle.healthSnapshot()).ready).toBe(false);
+    expect((await lifecycle.healthSnapshot()).shutdown_started).toBe(true);
   });
 });
