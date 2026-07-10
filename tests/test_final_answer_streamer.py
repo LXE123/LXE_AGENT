@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass
 
@@ -28,6 +29,34 @@ class EmitCall:
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def test_incremental_emit_diagnostics_are_debug(caplog) -> None:
+    async def scenario() -> None:
+        async def emit_stream(*_args, **_kwargs) -> None:
+            return None
+
+        streamer = FinalAnswerStreamer(
+            session_id="session-1",
+            response_route_id="route-1",
+            emit_stream=emit_stream,
+            min_interval_ms=0,
+            emit_id="emit-1",
+        )
+        await streamer.push_delta("hello")
+        await streamer.finish("hello")
+
+    caplog.set_level(logging.DEBUG, logger="agent_runtime.final_answer_streamer")
+    _run(scenario())
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "agent_runtime.final_answer_streamer"
+        and "[FinalAnswerStreamer] emit:" in record.getMessage()
+    ]
+    assert records
+    assert all(record.levelno == logging.DEBUG for record in records)
 
 
 async def _wait_until(predicate, *, timeout_s: float = 1.0) -> None:

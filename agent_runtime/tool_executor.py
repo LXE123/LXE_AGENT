@@ -223,7 +223,7 @@ def make_browser_tool_handler(tool_name: str) -> Callable[..., Awaitable[ToolRes
 
     async def _handler(**kwargs: Any) -> ToolResult:
         ctx = get_tool_context()
-        logger.info(f"[ToolCall] {tool_name} args={json.dumps(kwargs, ensure_ascii=False)}")
+        logger.debug(f"[ToolCall] {tool_name} args={json.dumps(kwargs, ensure_ascii=False)}")
 
         from agent_runtime.packs.browser.tools import build_browser_tool_call
 
@@ -245,9 +245,9 @@ def make_browser_tool_handler(tool_name: str) -> Callable[..., Awaitable[ToolRes
                 cancellation_check=ctx.cancellation_check,
             )
             ctx.update_state(updated_state)
-            logger.info(f"[ToolResult] {tool_name} success={fact.success}")
+            logger.debug(f"[ToolResult] {tool_name} success={fact.success}")
             if fact.summary:
-                logger.info(f"[ToolResult] summary={fact.summary}")
+                logger.debug(f"[ToolResult] summary={fact.summary}")
             if fact.failure_reason:
                 logger.error(f"[ToolResult] failure={fact.failure_reason}")
         except Exception as exc:

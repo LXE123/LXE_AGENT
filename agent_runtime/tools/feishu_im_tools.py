@@ -275,7 +275,7 @@ def _dump_raw_messages(
 ) -> str:
     ensure_local_log_retention_once()
     if not local_logs_enabled():
-        logger.info("[FeishuIMTools] raw message dump skipped: local logs disabled")
+        logger.debug("[FeishuIMTools] raw message dump skipped: local logs disabled")
         return ""
 
     now = _local_now()
@@ -306,7 +306,7 @@ def _dump_raw_messages(
         ],
     }
     target_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    logger.info("[FeishuIMTools] raw message dump saved: path=%s", target_path)
+    logger.debug("[FeishuIMTools] raw message dump saved: path=%s", target_path)
     return str(target_path.resolve())
 
 
@@ -473,7 +473,7 @@ async def _handle_fetch_resource(
         "content_type": str(resource.content_type or "").split(";", 1)[0].strip() or "application/octet-stream",
         "size_bytes": len(resource.data),
     }
-    logger.info(
+    logger.debug(
         "[FeishuIMTools] downloaded resource: message_id=%s file_key=%s saved_path=%s",
         safe_message_id,
         safe_file_key,

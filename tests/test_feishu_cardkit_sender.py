@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from types import SimpleNamespace
 from typing import Any
 
@@ -209,7 +210,7 @@ def test_finalize_text_closes_stream_then_updates_final_card(monkeypatch) -> Non
     }
 
 
-def test_feishu_stream_adapter_passes_thinking_elapsed_to_final_card_sender() -> None:
+def test_feishu_stream_adapter_passes_thinking_elapsed_to_final_card_sender(caplog) -> None:
     calls: list[dict[str, Any]] = []
 
     class FakeCardKitSender:
@@ -267,6 +268,7 @@ def test_feishu_stream_adapter_passes_thinking_elapsed_to_final_card_sender() ->
     )
 
     route_ctx = SimpleNamespace()
+    caplog.set_level(logging.INFO, logger="platforms.feishu.gateway")
     asyncio.run(adapter._handle_stream_message(request, route_ctx))
 
     assert calls == [
@@ -285,6 +287,8 @@ def test_feishu_stream_adapter_passes_thinking_elapsed_to_final_card_sender() ->
         }
     ]
     assert adapter._stream_state == {}
+    delivered = next(record for record in caplog.records if "final response delivered" in record.getMessage())
+    assert delivered.levelno == logging.INFO
 
 
 def test_feishu_stream_adapter_passes_tool_steps_to_final_card_sender() -> None:

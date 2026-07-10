@@ -14,6 +14,15 @@ from .api import create_dashboard_app
 
 logger = get_logger(__name__)
 
+_DASHBOARD_UVICORN_LOG_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "loggers": {
+        name: {"handlers": [], "level": "INFO", "propagate": True}
+        for name in ("uvicorn", "uvicorn.error", "uvicorn.access")
+    },
+}
+
 
 class DashboardServer:
     def __init__(
@@ -71,6 +80,7 @@ class DashboardServer:
             host=self.host,
             port=self.port,
             log_level="info",
+            log_config=_DASHBOARD_UVICORN_LOG_CONFIG,
             lifespan="on",
         )
         server = uvicorn.Server(config)

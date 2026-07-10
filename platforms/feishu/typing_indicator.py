@@ -44,7 +44,7 @@ class FeishuTypingIndicator:
         safe_response_route_id = str(response_route_id or "").strip()
         message_id = _source_message_id(ctx)
         if not safe_response_route_id or not message_id:
-            logger.info(
+            logger.debug(
                 "[FeishuTyping] skip start: response_route_id=%s message_id=%s",
                 safe_response_route_id or "<empty>",
                 message_id or "<empty>",
@@ -55,7 +55,7 @@ class FeishuTypingIndicator:
         existing_reaction_id = str(extra_data.get(_TYPING_REACTION_ID_KEY) or "").strip()
         existing_message_id = str(extra_data.get(_TYPING_MESSAGE_ID_KEY) or "").strip()
         if existing_reaction_id and existing_message_id == message_id:
-            logger.info("[FeishuTyping] typing indicator already active: response_route_id=%s", safe_response_route_id)
+            logger.debug("[FeishuTyping] typing indicator already active: response_route_id=%s", safe_response_route_id)
             return
 
         try:
@@ -76,7 +76,7 @@ class FeishuTypingIndicator:
                 _TYPING_REACTION_ID_KEY: reaction_id,
             },
         )
-        logger.info("[FeishuTyping] typing indicator added: response_route_id=%s", safe_response_route_id)
+        logger.debug("[FeishuTyping] typing indicator added: response_route_id=%s", safe_response_route_id)
 
     async def stop(self, ctx: Any, response_route_id: str) -> None:
         safe_response_route_id = str(response_route_id or "").strip()
@@ -92,7 +92,7 @@ class FeishuTypingIndicator:
 
         try:
             await self._client.delete_message_reaction(message_id, reaction_id)
-            logger.info("[FeishuTyping] typing indicator removed: response_route_id=%s", safe_response_route_id)
+            logger.debug("[FeishuTyping] typing indicator removed: response_route_id=%s", safe_response_route_id)
         except Exception as exc:
             logger.warning(
                 "[FeishuTyping] remove typing indicator failed: response_route_id=%s message_id=%s error=%s",

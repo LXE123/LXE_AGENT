@@ -497,14 +497,14 @@ def test_feishu_parse_parent_fetch_failure_keeps_current_message(monkeypatch, ca
     assert "failed to load quoted message" in caplog.text
 
 
-def test_feishu_inbound_log_includes_union_id(caplog) -> None:
+def test_feishu_inbound_info_shows_sender_union_id_and_message(caplog) -> None:
     adapter = _adapter_without_runtime()
     emitted: list[InboundEvent] = []
     adapter._inbound_sink = emitted.append
     event = InboundEvent(
         platform="feishu",
         event_type="agent_message",
-        user_input="hello",
+        user_input="hello\nworld",
         user_id="ou_sender_open_id",
         union_id="on_sender_union_id",
         conversation_id="oc_chat",
@@ -513,9 +513,20 @@ def test_feishu_inbound_log_includes_union_id(caplog) -> None:
         sender_nick="sender",
     )
 
-    caplog.set_level(logging.INFO, logger="platforms.feishu.gateway")
+    caplog.set_level(logging.DEBUG, logger="platforms.feishu.gateway")
     adapter.emit(event)
 
     assert emitted == [event]
-    assert "user_id=ou_sender_open_id" in caplog.text
-    assert "union_id=on_sender_union_id" in caplog.text
+    info_records = [record for record in caplog.records if record.levelno == logging.INFO]
+    debug_records = [record for record in caplog.records if record.levelno == logging.DEBUG]
+    assert len(info_records) == 1
+    info_message = info_records[0].getMessage()
+    assert "message received" in info_message
+    assert 'sender="sender"' in info_message
+    assert "union_id=on_sender_union_id" in info_message
+    assert 'text="hello world"' in info_message
+    assert "ou_sender_open_id" not in info_records[0].getMessage()
+    assert "chat_id=" not in info_message
+    assert "msg_id=" not in info_message
+    assert any("user_id=ou_sender_open_id" in record.getMessage() for record in debug_records)
+    assert any("union_id=on_sender_union_id" in record.getMessage() for record in debug_records)

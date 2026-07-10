@@ -385,21 +385,21 @@ async def handle_unified_turn_job(
     try:
         if job_kind == "heartbeat":
             heartbeat_reason = str(raw_data.get("heartbeat_reason") or "").strip() or "exec-event"
-            logger.info(
+            logger.debug(
                 "[ExecNotify] heartbeat start: owner_session_id=%s job_id=%s heartbeat_reason=%s",
                 session_id,
                 job_id,
                 heartbeat_reason,
             )
             pending_events = _normalize_system_events(await pop_agent_session_pending_events(session_id))
-            logger.info(
+            logger.debug(
                 "[ExecNotify] heartbeat popped events: owner_session_id=%s job_id=%s count=%s",
                 session_id,
                 job_id,
                 len(pending_events),
             )
             if not pending_events:
-                logger.info("[ExecNotify] heartbeat noop: owner_session_id=%s job_id=%s", session_id, job_id)
+                logger.debug("[ExecNotify] heartbeat noop: owner_session_id=%s job_id=%s", session_id, job_id)
                 await update_agent_session(session_id, include_state=False)
                 return job_handled()
             formatted_events = _format_system_events(pending_events)
@@ -408,7 +408,7 @@ async def handle_unified_turn_job(
                 "System: 以上是后台任务完成事件。请只处理这些事件的结果，将执行状态简洁告知用户。"
                 "不要主动读取聊天记录、群消息或调用与上述事件无关的工具。"
             ).strip()
-            logger.info(
+            logger.debug(
                 "[ExecNotify] heartbeat prompt ready: owner_session_id=%s job_id=%s event_count=%s prompt_chars=%s",
                 session_id,
                 job_id,

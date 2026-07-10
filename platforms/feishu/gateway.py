@@ -47,6 +47,8 @@ _FEISHU_INBOUND_MAX_AGE_SECONDS = 5 * 60
 _REDACTED_THINKING_NOTICE = "部分思考已加密，无法展示"
 _TYPING_REACTION_EMOJI_TYPE = "Typing"
 _StreamStatus = Literal["streaming", "reopening", "dead", "finalized"]
+_TERMINAL_SENDER_PREVIEW_CHARS = 80
+_TERMINAL_MESSAGE_PREVIEW_CHARS = 160
 
 
 def _now_ms() -> int:
@@ -59,6 +61,19 @@ def _monotonic_seconds() -> float:
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _terminal_text_preview(value: Any, *, limit: int) -> str:
+    text = " ".join(str(value or "").split()) or "-"
+    safe_limit = max(4, int(limit))
+    if len(text) > safe_limit:
+        text = text[: safe_limit - 3].rstrip() + "..."
+    return json.dumps(text, ensure_ascii=False)
+
+
+def _terminal_union_id(value: Any) -> str:
+    text = str(value or "").strip()
+    return "".join(ch for ch in text if ch.isalnum() or ch in {"_", "-"}) or "-"
 
 
 def _parse_feishu_millis(value: Any) -> int | None:
@@ -523,6 +538,14 @@ class FeishuStreamAdapter:
         if self._inbound_sink is None:
             raise RuntimeError("inbound sink not configured for feishu adapter")
         logger.info(
+            "[Feishu] message received: sender=%s union_id=%s chat_type=%s text=%s attachments=%d",
+            _terminal_text_preview(event.sender_nick, limit=_TERMINAL_SENDER_PREVIEW_CHARS),
+            _terminal_union_id(event.union_id),
+            "group" if event.is_group else "p2p",
+            _terminal_text_preview(event.user_input, limit=_TERMINAL_MESSAGE_PREVIEW_CHARS),
+            len(list(event.user_content_blocks or [])),
+        )
+        logger.debug(
             "[Feishu] inbound accepted: chat_type=%s chat_id=%s msg_id=%s user_id=%s union_id=%s text=%s",
             "group" if event.is_group else "p2p",
             str(event.conversation_id or "").strip(),
@@ -535,7 +558,7 @@ class FeishuStreamAdapter:
 
     async def handle_outbound(self, request: OutboundRequest) -> None:
         route_ctx = await _load_send_context(request.response_route_id, session_id=request.session_id)
-        logger.info(
+        logger.debug(
             "[Feishu] outbound request: action=%s session_id=%s response_route_id=%s event_id=%s",
             request.action,
             str(request.session_id or "").strip(),
@@ -609,10 +632,10 @@ class FeishuStreamAdapter:
                 writer = _StreamWriterState()
                 self._stream_state[session_id] = writer
             if writer.finished or writer.status == "finalized":
-                logger.info("[Feishu] ignore finished stream frame: session_id=%s seq=%d", session_id, source_seq)
+                logger.debug("[Feishu] ignore finished stream frame: session_id=%s seq=%d", session_id, source_seq)
                 return
             if source_seq <= writer.source_seq:
-                logger.info("[Feishu] ignore stale stream frame: session_id=%s seq=%d", session_id, source_seq)
+                logger.debug("[Feishu] ignore stale stream frame: session_id=%s seq=%d", session_id, source_seq)
                 return
 
             writer.source_seq = source_seq
@@ -755,6 +778,12 @@ class FeishuStreamAdapter:
         writer.opened = True
         writer.status = "finalized"
         writer.finished = True
+        logger.info(
+            "[Feishu] final response delivered: status=%s content_len=%d tools=%d",
+            "error" if writer.final_error else "ok",
+            len(writer.last_content),
+            len(writer.tool_steps),
+        )
 
     async def _handle_cardkit_error_locked(
         self,

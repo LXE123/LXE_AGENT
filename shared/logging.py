@@ -11,7 +11,8 @@ from shared.log_config import local_logs_enabled
 
 
 _MANAGED_HANDLER_ATTR = "_lxe_agent_logging_handler"
-_DEFAULT_FORMAT = "➤ %(asctime)s %(levelname)-8s [%(display_name)s]%(log_context)s %(message)s"
+_CONSOLE_FORMAT = "%(asctime)s %(levelname)-8s [%(display_name)s]%(log_context)s %(message)s"
+_RUNTIME_FORMAT = "%(asctime)s %(levelname)-8s [%(name)s]%(runtime_log_context)s %(message)s"
 _THIRD_PARTY_LOGGERS = ("httpx", "httpcore", "lark_oapi", "aiohttp")
 _BROWSER_AUTH_LOGGER_PREFIXES = (
     "browser_auth_service",
@@ -65,6 +66,17 @@ def _log_context_text(session_id: str, turn_id: str) -> str:
     return f" [ctx {' '.join(parts)}]" if parts else ""
 
 
+def _runtime_log_context_text(session_id: str, turn_id: str) -> str:
+    parts: list[str] = []
+    safe_session_id = str(session_id or "").strip()
+    safe_turn_id = str(turn_id or "").strip()
+    if safe_session_id:
+        parts.append(f"session={safe_session_id}")
+    if safe_turn_id:
+        parts.append(f"turn={safe_turn_id}")
+    return f" [ctx {' '.join(parts)}]" if parts else ""
+
+
 def set_log_context(*, session_id: str = "", turn_id: str = "") -> Token[tuple[str, str]]:
     return _LOG_CONTEXT.set((str(session_id or "").strip(), str(turn_id or "").strip()))
 
@@ -80,6 +92,7 @@ class _LogContextFilter(logging.Filter):
         record.turn_id = str(turn_id or "").strip()
         record.display_name = _display_logger_name(record.name)
         record.log_context = _log_context_text(record.session_id, record.turn_id)
+        record.runtime_log_context = _runtime_log_context_text(record.session_id, record.turn_id)
         return True
 
 
@@ -93,12 +106,37 @@ class _LoggerPrefixFilter(logging.Filter):
         return any(name == prefix or name.startswith(f"{prefix}.") for prefix in self._prefixes)
 
 
+class _ConsoleAccessFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != "uvicorn.access":
+            return True
+        args = record.args
+        if not isinstance(args, tuple) or len(args) < 5:
+            return True
+        method = str(args[1] or "").strip().upper()
+        path = str(args[2] or "").partition("?")[0]
+        try:
+            status_code = int(args[4])
+        except (TypeError, ValueError):
+            return True
+        return not (
+            method == "GET"
+            and path == "/api/channels/health"
+            and 200 <= status_code < 300
+        )
+
+
 class _HumanReadableFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         if not hasattr(record, "display_name"):
             record.display_name = _display_logger_name(record.name)
         if not hasattr(record, "log_context"):
             record.log_context = _log_context_text(
+                str(getattr(record, "session_id", "") or ""),
+                str(getattr(record, "turn_id", "") or ""),
+            )
+        if not hasattr(record, "runtime_log_context"):
+            record.runtime_log_context = _runtime_log_context_text(
                 str(getattr(record, "session_id", "") or ""),
                 str(getattr(record, "turn_id", "") or ""),
             )
@@ -137,19 +175,33 @@ def _remove_managed_handlers(target_logger: logging.Logger) -> None:
         handler.close()
 
 
-def _log_formatter() -> logging.Formatter:
+def _console_formatter() -> logging.Formatter:
     log_format = env_text("LOG_FORMAT", "text").strip().lower()
     if log_format not in {"", "text"}:
         # LOG_FORMAT values beyond text are reserved for a later PR.
         pass
-    return _HumanReadableFormatter(_DEFAULT_FORMAT)
+    return _HumanReadableFormatter(_CONSOLE_FORMAT, datefmt="%H:%M:%S")
+
+
+def _runtime_formatter() -> logging.Formatter:
+    return _HumanReadableFormatter(_RUNTIME_FORMAT)
+
+
+def _console_level() -> int:
+    return max(logging.INFO, _coerce_level(env_text("LOG_LEVEL", "INFO"), logging.INFO))
+
+
+def _runtime_level() -> int:
+    return _coerce_level(env_text("RUNTIME_LOG_LEVEL", "DEBUG"), logging.DEBUG)
 
 
 def _build_stderr_handler() -> logging.Handler:
     handler = logging.StreamHandler()
     setattr(handler, _MANAGED_HANDLER_ATTR, True)
+    handler.setLevel(_console_level())
     handler.addFilter(_LogContextFilter())
-    handler.setFormatter(_log_formatter())
+    handler.addFilter(_ConsoleAccessFilter())
+    handler.setFormatter(_console_formatter())
     return handler
 
 
@@ -179,8 +231,9 @@ def _build_runtime_file_handler(path: Path) -> logging.Handler:
     path.parent.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(path, encoding="utf-8")
     setattr(handler, _MANAGED_HANDLER_ATTR, True)
+    handler.setLevel(_runtime_level())
     handler.addFilter(_LogContextFilter())
-    handler.setFormatter(_log_formatter())
+    handler.setFormatter(_runtime_formatter())
     return handler
 
 
@@ -192,21 +245,22 @@ def _build_browser_auth_file_handler(path: Path) -> logging.Handler:
 
 def setup_logging() -> None:
     root = logging.getLogger()
-    root_level = _coerce_level(env_text("LOG_LEVEL", "INFO"), logging.INFO)
 
     _remove_managed_handlers(root)
-    root.addHandler(_build_stderr_handler())
+    managed_handlers = [_build_stderr_handler()]
     runtime_log_path = _runtime_log_path()
     if runtime_log_path is not None:
         from shared.log_retention import cleanup_local_logs
 
         cleanup_local_logs(repo_root=_repo_root())
     if runtime_log_path is not None and local_logs_enabled():
-        root.addHandler(_build_runtime_file_handler(runtime_log_path))
+        managed_handlers.append(_build_runtime_file_handler(runtime_log_path))
     browser_auth_log_path = _browser_auth_log_path()
     if browser_auth_log_path is not None and local_logs_enabled():
-        root.addHandler(_build_browser_auth_file_handler(browser_auth_log_path))
-    root.setLevel(root_level)
+        managed_handlers.append(_build_browser_auth_file_handler(browser_auth_log_path))
+    for handler in managed_handlers:
+        root.addHandler(handler)
+    root.setLevel(min(handler.level for handler in managed_handlers))
 
     logger.propagate = True
     logger.setLevel(logging.NOTSET)

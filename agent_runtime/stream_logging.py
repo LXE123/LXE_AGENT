@@ -563,7 +563,7 @@ class StepStreamObserver:
         )
 
     def _log_sse(self, *, event: LLMStreamEvent, attempt: int) -> None:
-        logger.info(
+        logger.debug(
             "[Turn:SSE] step=%d attempt=%d event=%s index=%d chars=%d tool=%s stop=%s",
             self.step_idx,
             attempt,
@@ -586,7 +586,7 @@ class StepStreamObserver:
         if phase == "error":
             logger.warning(message)
             return
-        logger.info(message)
+        logger.debug(message)
 
     def _session_id(self) -> str:
         if self.trace_writer is None:

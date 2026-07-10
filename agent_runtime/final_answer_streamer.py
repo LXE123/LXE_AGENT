@@ -430,7 +430,7 @@ class FinalAnswerStreamer:
             self._last_sent_tool_elapsed_ms = safe_tool_elapsed_ms
             self._last_sent_tool_steps = list(safe_tool_steps)
             self._last_emit_at = now
-        logger.info(
+        logger.debug(
             "[FinalAnswerStreamer] emit: session_id=%s state=%s seq=%d content_len=%d thinking_len=%d redacted_thinking_count=%d thinking_elapsed_ms=%d tool_pending=%s tool_steps=%d tool_elapsed_ms=%d interval_ms=%d",
             self.session_id,
             state,

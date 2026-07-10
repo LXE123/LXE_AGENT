@@ -199,7 +199,7 @@ def _add_manifest(
     normalized_name = manifest.name.casefold()
     if normalized_name in skill_keys:
         if source_kind == "external":
-            logger.info(
+            logger.debug(
                 "[SkillIndex] skipping external skill %s from %s because %s is already loaded",
                 manifest.name,
                 manifest.body_path,
@@ -210,7 +210,7 @@ def _add_manifest(
     for command in manifest.commands:
         if command in command_owners:
             if source_kind == "external":
-                logger.info(
+                logger.debug(
                     "[SkillIndex] skipping external skill %s from %s because command %s is owned by %s",
                     manifest.name,
                     manifest.body_path,
@@ -257,7 +257,7 @@ def load_skill_index(*, force_reload: bool = False) -> SkillIndex:
                 skills=skills,
             )
 
-    logger.info("[SkillIndex] loaded %s skills from %s", len(skills), ", ".join(loaded_roots))
+    logger.debug("[SkillIndex] loaded %s skills from %s", len(skills), ", ".join(loaded_roots))
     _SKILL_INDEX = SkillIndex(skills)
     _SKILL_INDEX_SIGNATURE = signature
     return _SKILL_INDEX

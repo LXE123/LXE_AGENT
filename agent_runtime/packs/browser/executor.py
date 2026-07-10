@@ -134,7 +134,7 @@ def _finalize_payload(
     clicked_element = dict(payload.get("clicked_element") or {})
     action_name = str(tool_call.arguments.get("action") or "").strip()
     if tool_call.name == "ziniao_page" and action_name == "browser_click" and clicked_element:
-        logger.info(
+        logger.debug(
             "🖱️ [AmazonStoreAgent] clicked element: session_id=%s aid=%s tag=%s text=%s",
             runtime.session_id,
             str(clicked_element.get("aid") or "").strip(),

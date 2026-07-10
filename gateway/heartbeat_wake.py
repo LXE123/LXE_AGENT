@@ -66,7 +66,7 @@ class HeartbeatWakeManager:
         if not safe_session_id:
             raise RuntimeError("session_id required")
         self._queue_pending(safe_session_id, safe_reason, safe_response_route_id)
-        logger.info(
+        logger.debug(
             "[ExecNotify] wake queued: owner_session_id=%s heartbeat_reason=%s pending_count=%s",
             safe_session_id,
             safe_reason,
@@ -85,7 +85,7 @@ class HeartbeatWakeManager:
             self._pending[session_id] = next_wake
             return
         if _WAKE_PRIORITY.get(next_wake.reason, 0) >= _WAKE_PRIORITY.get(previous.reason, 0):
-            logger.info(
+            logger.debug(
                 "[ExecNotify] wake deduped: owner_session_id=%s previous_reason=%s next_reason=%s",
                 session_id,
                 previous.reason,
@@ -105,7 +105,7 @@ class HeartbeatWakeManager:
                 return
             return
         self._timer_kind = "retry" if kind == "retry" else "normal"
-        logger.info(
+        logger.debug(
             "[ExecNotify] wake timer scheduled: kind=%s delay_s=%.2f pending_count=%s",
             self._timer_kind,
             float(delay_s),
@@ -142,27 +142,27 @@ class HeartbeatWakeManager:
             return
         self._pending.clear()
         self._running = True
-        logger.info("[ExecNotify] wake batch start: count=%s", len(batch))
+        logger.debug("[ExecNotify] wake batch start: count=%s", len(batch))
         try:
             for wake in batch:
                 if is_session_autonomy_suspended(wake.session_id):
                     # 用户 /stop 后挂起自主性：丢弃唤醒，事件留在 DB，
                     # 随下一条用户消息一并送达。
-                    logger.info(
+                    logger.debug(
                         "[ExecNotify] wake dropped: owner_session_id=%s heartbeat_reason=%s reason=autonomy_suspended",
                         wake.session_id,
                         wake.reason,
                     )
                     continue
                 if not await has_agent_session_pending_events(wake.session_id):
-                    logger.info(
+                    logger.debug(
                         "[ExecNotify] wake dropped: owner_session_id=%s heartbeat_reason=%s reason=no_pending_events",
                         wake.session_id,
                         wake.reason,
                     )
                     continue
                 if self._scheduler.has_inflight_work(wake.session_id):
-                    logger.info(
+                    logger.debug(
                         "[ExecNotify] wake deferred: owner_session_id=%s heartbeat_reason=%s reason=session_busy",
                         wake.session_id,
                         wake.reason,
@@ -218,7 +218,7 @@ class HeartbeatWakeManager:
                 )
         finally:
             self._running = False
-            logger.info("[ExecNotify] wake batch done: remaining_pending=%s", len(self._pending))
+            logger.debug("[ExecNotify] wake batch done: remaining_pending=%s", len(self._pending))
             if self._pending:
                 next_kind = "retry" if all(item.reason == "retry" for item in self._pending.values()) else "normal"
                 self._ensure_scheduled(_RETRY_DELAY_S if next_kind == "retry" else _NORMAL_DELAY_S, next_kind)
