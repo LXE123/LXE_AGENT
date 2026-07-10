@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lxe-agent.local/protocol/emit-request.schema.json",
+  "title": "EmitRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "session_id",
+    "response_route_id",
+    "content",
+    "thinking",
+    "redacted_thinking_count",
+    "thinking_elapsed_ms",
+    "tool_pending",
+    "tool_elapsed_ms",
+    "tool_steps",
+    "files",
+    "emit_kind",
+    "emit_id",
+    "stream_type",
+    "state",
+    "seq"
+  ],
+  "properties": {
+    "session_id": { "type": "string", "minLength": 1 },
+    "response_route_id": { "type": "string" },
+    "content": { "type": "string" },
+    "thinking": { "type": "string" },
+    "redacted_thinking_count": { "type": "integer", "minimum": 0 },
+    "thinking_elapsed_ms": { "type": "integer", "minimum": 0 },
+    "tool_pending": { "type": "boolean" },
+    "tool_elapsed_ms": { "type": "integer", "minimum": 0 },
+    "tool_steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "title", "detail", "status", "duration_ms"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "detail": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": ["running", "success", "error"]
+          },
+          "duration_ms": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "emit_kind": { "type": "string" },
+    "emit_id": { "type": "string" },
+    "stream_type": { "type": "string" },
+    "state": { "type": "string" },
+    "seq": { "type": "integer", "minimum": 0 }
+  }
+}

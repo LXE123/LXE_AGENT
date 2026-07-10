@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lxe-agent.local/protocol/inbound-event.schema.json",
+  "title": "InboundEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "platform",
+    "event_type",
+    "user_input",
+    "user_id",
+    "conversation_id",
+    "is_group",
+    "message_id",
+    "sender_nick",
+    "response_route_id",
+    "union_id",
+    "source",
+    "raw_data",
+    "user_content_blocks"
+  ],
+  "properties": {
+    "platform": { "type": "string", "minLength": 1 },
+    "event_type": { "type": "string", "minLength": 1 },
+    "user_input": { "type": "string" },
+    "user_id": { "type": "string", "minLength": 1 },
+    "conversation_id": { "type": "string", "minLength": 1 },
+    "is_group": { "type": "boolean" },
+    "message_id": { "type": "string", "minLength": 1 },
+    "sender_nick": { "type": "string" },
+    "response_route_id": { "type": "string" },
+    "union_id": { "type": "string" },
+    "source": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "raw_data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "user_content_blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "session_id": "session_1",
+  "response_route_id": "route_1",
+  "content": "Inventory checked.",
+  "thinking": "",
+  "redacted_thinking_count": 0,
+  "thinking_elapsed_ms": 0,
+  "tool_pending": false,
+  "tool_elapsed_ms": 12,
+  "tool_steps": [
+    {
+      "id": "tool_1",
+      "name": "inventory_lookup",
+      "title": "Inventory lookup",
+      "detail": "Completed",
+      "status": "success",
+      "duration_ms": 12
+    }
+  ],
+  "files": [],
+  "emit_kind": "message",
+  "emit_id": "emit_1",
+  "stream_type": "answer",
+  "state": "final",
+  "seq": 1
+}

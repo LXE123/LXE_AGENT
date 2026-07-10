@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lxe-agent.local/protocol/agent-job.schema.json",
+  "title": "AgentJob",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "job_id",
+    "session_id",
+    "session_key",
+    "response_route_id",
+    "user_id",
+    "conversation_id",
+    "is_group",
+    "message_id",
+    "user_input",
+    "job_kind",
+    "sender_nick",
+    "source",
+    "raw_data",
+    "user_content_blocks"
+  ],
+  "properties": {
+    "job_id": { "type": "string", "minLength": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "session_key": { "type": "string", "minLength": 1 },
+    "response_route_id": { "type": "string" },
+    "user_id": { "type": "string", "minLength": 1 },
+    "conversation_id": { "type": "string", "minLength": 1 },
+    "is_group": { "type": "boolean" },
+    "message_id": { "type": "string", "minLength": 1 },
+    "user_input": { "type": "string" },
+    "job_kind": { "type": "string", "minLength": 1 },
+    "sender_nick": { "type": "string" },
+    "source": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "raw_data": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "user_content_blocks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "protocol_version": "2",
+  "message_id": "message_1",
+  "reply_to": null,
+  "run_id": "run_1",
+  "seq": 0,
+  "kind": "turn.start",
+  "payload": {
+    "job_id": "job_1"
+  }
+}
