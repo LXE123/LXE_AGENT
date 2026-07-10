@@ -29,6 +29,7 @@ services/test_file/
 # AI/Agent tools
 .claude/
 .codex/
+.superpowers/
 
 # Sidecar/soak PoC local artifacts
 sidecars/
