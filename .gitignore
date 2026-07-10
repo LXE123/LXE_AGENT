@@ -30,6 +30,7 @@ services/test_file/
 .claude/
 .codex/
 .superpowers/
+.worktrees/
 
 # Sidecar/soak PoC local artifacts
 sidecars/
