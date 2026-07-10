@@ -62,11 +62,13 @@ class FakeStorage implements StoragePort {
   readonly routes: JsonObject[] = [];
   readonly appended: Array<{ sessionId: string; event: JsonObject }> = [];
   pending: JsonObject[] = [];
+  readonly sessions = new Set<string>();
   rebindMissing = false;
   appendFails = false;
 
   async ensureSession(request: JsonObject): Promise<void> {
     this.ensured.push(request);
+    this.sessions.add(String(request.session_id));
   }
   async rebindSession(request: JsonObject): Promise<void> {
     if (this.rebindMissing) throw new SessionNotFoundError(String(request.session_id));
@@ -74,6 +76,9 @@ class FakeStorage implements StoragePort {
   }
   async upsertResponseRoute(request: JsonObject): Promise<void> {
     this.routes.push(request);
+  }
+  async getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject } | undefined> {
+    return this.sessions.has(sessionId) ? { session_id: sessionId, source: {} } : undefined;
   }
   async popPendingEvents(): Promise<JsonObject[]> {
     return this.pending.splice(0);
@@ -242,6 +247,37 @@ describe("SessionRouter permission and normal routes", () => {
 });
 
 describe("SessionRouter controls and steering", () => {
+  test.each([
+    ["/stop", "当前没有正在执行的回复。"],
+    ["/steer", "当前没有会话。发消息开始对话后再用 /steer 切换实时插话模式。"],
+  ])("treats a stale binding as no session for %s", async (command: string, feedback: string) => {
+    const setupValue = setup();
+    await setupValue.router.routeMessage(event());
+    const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    setupValue.storage.sessions.delete(sessionId);
+    setupValue.scheduler.active.add(sessionId);
+
+    await setupValue.router.routeMessage(event({ user_input: command }));
+    expect(setupValue.channel.outbound.at(-1)?.payload.markdown).toBe(feedback);
+    expect(setupValue.scheduler.stopped).toEqual([]);
+    expect(setupValue.state.isAutonomySuspended(sessionId)).toBe(false);
+    expect(setupValue.state.isSteeringEnabled(sessionId)).toBe(false);
+  });
+
+  test("rotates a stale binding on clear", async () => {
+    const setupValue = setup();
+    await setupValue.router.routeMessage(event());
+    const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    setupValue.storage.sessions.delete(sessionId);
+    setupValue.scheduler.active.add(sessionId);
+
+    await setupValue.router.routeMessage(event({ user_input: "/clear" }));
+    const rotated = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    expect(rotated).not.toBe(sessionId);
+    expect(setupValue.storage.ensured).toHaveLength(2);
+    expect(setupValue.channel.outbound.at(-1)?.payload.markdown).toBe("已创建新会话。");
+  });
+
   test("accepts full-width stop and reports no bound session", async () => {
     const { router, channel } = setup();
     const decision = await router.routeMessage(event({ user_input: "／STOP now" }));
@@ -333,5 +369,20 @@ describe("SessionRouter controls and steering", () => {
     expect(setupValue.scheduler.jobs.at(-1)?.job.user_content_blocks).toEqual([
       { type: "image", file_key: "file-1" },
     ]);
+  });
+
+  test("queues plain text when an active run closes before steering is accepted", async () => {
+    const setupValue = setup();
+    await setupValue.router.routeMessage(event());
+    const sessionId = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    await setupValue.router.routeMessage(event({ user_input: "/steer" }));
+    setupValue.scheduler.active.add(sessionId);
+    setupValue.scheduler.acceptSteering = false;
+
+    const result = await setupValue.router.routeMessage(
+      event({ user_input: "queue instead", message_id: "closing-message" }),
+    );
+    expect(result.route_kind).toBe("agent_message");
+    expect(setupValue.scheduler.jobs.at(-1)?.job.user_input).toBe("queue instead");
   });
 });

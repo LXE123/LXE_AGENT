@@ -21,10 +21,17 @@ export class SessionNotFoundError extends Error {
   }
 }
 
+export interface StorageSessionRecord {
+  session_id: string;
+  source: JsonObject;
+}
+
 export interface StoragePort {
   ensureSession(request: JsonObject): Promise<void>;
   rebindSession(request: JsonObject): Promise<void>;
   upsertResponseRoute(request: JsonObject): Promise<void>;
+  /** Backed by the worker's default `dashboard.query: session.get` operation. */
+  getSession(sessionId: string): Promise<StorageSessionRecord | undefined>;
   popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
 }
@@ -118,7 +125,11 @@ export class SessionRouter {
 
     const command = normalizeControlCommand(context.user_input);
     if (command) {
-      const entry = this.options.bindings.get(context.session_key);
+      const binding = this.options.bindings.get(context.session_key);
+      const entry =
+        binding?.session_id && (await this.options.storage.getSession(binding.session_id))
+          ? binding
+          : undefined;
       await this.handleControl(command, entry, context);
       return { route_kind: "agent_control", lane_key: lane, platform: context.platform };
     }

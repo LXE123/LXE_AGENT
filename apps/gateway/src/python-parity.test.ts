@@ -19,6 +19,7 @@ import {
   SessionSource,
   type SessionBindingEntry,
 } from "./session-bindings";
+import { SessionRuntimeState } from "./session-state";
 
 interface Fixture {
   env: {
@@ -43,6 +44,15 @@ interface Fixture {
     decision: RouteDecision;
     job: AgentJob;
     controls: Record<string, { route_kind: RouteDecision["route_kind"]; feedback: string }>;
+    stale_controls: Record<
+      string,
+      {
+        route_kind: RouteDecision["route_kind"];
+        feedback: string;
+        autonomy_suspended: boolean;
+        steering_enabled: boolean;
+      }
+    >;
     unknown: { route_kind: RouteDecision["route_kind"]; feedback: string };
   };
   scheduler: {
@@ -76,6 +86,9 @@ class MemoryStorage implements StoragePort {
   async ensureSession(): Promise<void> {}
   async rebindSession(): Promise<void> {}
   async upsertResponseRoute(): Promise<void> {}
+  async getSession(): Promise<undefined> {
+    return undefined;
+  }
   async popPendingEvents(): Promise<JsonObject[]> {
     return this.pending.splice(0);
   }
@@ -141,13 +154,19 @@ const tick = async (): Promise<void> => {
 const routerFor = (
   input: InboundEvent,
   policy: PermissionPolicy,
-): { router: SessionRouter; queue: RouterQueue; channel: FakeChannelAdapter } => {
+): {
+  router: SessionRouter;
+  queue: RouterQueue;
+  channel: FakeChannelAdapter;
+  state: SessionRuntimeState;
+} => {
   const root = mkdtempSync(join(tmpdir(), "lxe-python-parity-"));
   roots.push(root);
   const queue = new RouterQueue();
   const channel = new FakeChannelAdapter(input.platform);
   const channels = new ChannelRegistry();
   channels.register(channel);
+  const state = new SessionRuntimeState();
   const router = new SessionRouter({
     policy,
     bindings: new SessionBindingStore(join(root, "sessions.json"), {
@@ -157,10 +176,11 @@ const routerFor = (
     storage: new MemoryStorage(),
     scheduler: queue,
     channels,
+    state,
     id: () => "<generated>",
     nowSeconds: () => 1_700_000_000,
   });
-  return { router, queue, channel };
+  return { router, queue, channel, state };
 };
 
 describe("Python/Bun differential fixture", () => {
@@ -240,6 +260,17 @@ describe("Python/Bun differential fixture", () => {
       const result = await control.router.routeMessage(controlEvent);
       expect(result.route_kind).toBe(expected.route_kind);
       expect(control.channel.outbound.at(-1)?.payload.markdown).toBe(expected.feedback);
+    }
+    for (const [command, expected] of Object.entries(fixture.router.stale_controls)) {
+      const staleEvent = { ...fixture.router.event, user_input: "seed" };
+      const stale = routerFor(staleEvent, policy);
+      await stale.router.routeMessage(staleEvent);
+      const result = await stale.router.routeMessage({ ...staleEvent, user_input: command });
+      expect(result.route_kind).toBe(expected.route_kind);
+      expect(stale.channel.outbound.at(-1)?.payload.markdown).toBe(expected.feedback);
+      const sessionId = stale.queue.jobs[0]!.session_id;
+      expect(stale.state.isAutonomySuspended(sessionId)).toBe(expected.autonomy_suspended);
+      expect(stale.state.isSteeringEnabled(sessionId)).toBe(expected.steering_enabled);
     }
     const unknownEvent: InboundEvent = {
       ...fixture.router.event,

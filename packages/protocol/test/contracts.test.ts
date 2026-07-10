@@ -37,4 +37,17 @@ describe("protocol contracts", () => {
 
     expect(validateAgentJob(invalidAgentJobShape)).toBe(false);
   });
+
+  test("allows an empty heartbeat message id but keeps normal turns strict", async () => {
+    const { validateAgentJob } = await loadProtocol();
+    const heartbeat = {
+      ...validAgentJob,
+      job_id: "heartbeat-1",
+      job_kind: "heartbeat",
+      message_id: "",
+      user_input: "",
+    };
+    expect(validateAgentJob(heartbeat)).toBe(true);
+    expect(validateAgentJob({ ...heartbeat, job_kind: "turn" })).toBe(false);
+  });
 });

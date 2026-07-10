@@ -34,6 +34,7 @@ from shared.db.client import (
     create_agent_session,
     create_response_route_context,
     dispose,
+    has_agent_session_pending_events,
     init_schema,
     load_agent_session_record,
     load_response_route_context,
@@ -203,6 +204,25 @@ def _default_data_server_sync(params: dict[str, Any]) -> Any:
     return data_server_sync_once(gateway_id=gateway_id)
 
 
+async def _default_session_get(params: dict[str, Any]) -> dict[str, Any]:
+    session_id = _require_text(params, "session_id")
+    return {"session": await load_agent_session_record(session_id)}
+
+
+async def _default_pending_events_has(params: dict[str, Any]) -> dict[str, Any]:
+    session_id = _require_text(params, "session_id")
+    return {
+        "session_id": session_id,
+        "has_pending_events": bool(await has_agent_session_pending_events(session_id)),
+    }
+
+
+DEFAULT_DASHBOARD_OPERATIONS: dict[str, OperationHandler] = {
+    "session.get": _default_session_get,
+    "pending_events.has": _default_pending_events_has,
+}
+
+
 class RuntimeWorker:
     """Protocol-v1 request dispatcher around existing runtime and DB APIs."""
 
@@ -227,7 +247,10 @@ class RuntimeWorker:
             if name in MAINTENANCE_OPERATIONS:
                 default_maintenance[name] = handler
         self._maintenance_handlers = default_maintenance
-        self._dashboard_handlers = dict(dashboard_handlers or {})
+        self._dashboard_handlers = dict(DEFAULT_DASHBOARD_OPERATIONS)
+        for name, handler in dict(dashboard_handlers or {}).items():
+            if name not in DEFAULT_DASHBOARD_OPERATIONS:
+                self._dashboard_handlers[name] = handler
         self._initialize_storage = initialize_storage
         self._close_storage = close_storage
         self._shutdown_timeout_s = max(0.1, float(shutdown_timeout_s))
@@ -447,6 +470,7 @@ class RuntimeWorker:
                         "request_kinds": sorted(REQUEST_KINDS),
                         "event_kinds": list(EVENT_KINDS),
                         "maintenance_operations": sorted(MAINTENANCE_OPERATIONS),
+                        "dashboard_operations": sorted(self._dashboard_handlers),
                     },
                 },
             )

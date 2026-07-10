@@ -51,6 +51,21 @@ describe("permission policy", () => {
     expect(resolvePermissionUserId({ raw_data: { sender_union_id: "raw" } })).toBe("raw");
   });
 
+  test.each([
+    ["bot key", false, "key must not be empty"],
+    ["bot app id", 0, "app_id must not be empty"],
+    ["user union id", false, "union_id must not be empty"],
+  ])("treats falsy scalar %s as empty", (_name: string, value: unknown, message: string) => {
+    const data = structuredClone(valid()) as unknown as {
+      bots: Record<string, { key: unknown; app_id: unknown; skill_types: unknown[] }>;
+      users: Record<string, { union_id: unknown; allow: unknown[] }>;
+    };
+    if (_name === "bot key") data.bots.PRIMARY!.key = value;
+    if (_name === "bot app id") data.bots.PRIMARY!.app_id = value;
+    if (_name === "user union id") data.users.Alice!.union_id = value;
+    expect(() => buildPermissionPolicy(data, "policy.yaml")).toThrow(message);
+  });
+
   const invalidCases: Array<[string, unknown, string]> = [
     ["missing bots", { users: {} }, "bots must be a mapping"],
     ["empty bots", { bots: {}, users: {} }, "bots must not be empty"],
@@ -77,6 +92,29 @@ describe("permission policy", () => {
     writeFileSync(path, "bots:\n  A: {}\n  A: {}\nusers: {}\n", "utf8");
     expect(() => loadPermissionPolicy(path)).toThrow(PermissionPolicyError);
     expect(() => loadPermissionPolicy(path)).toThrow("duplicate");
+  });
+
+  test("rejects falsy YAML scalars as empty identifiers", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-policy-falsy-"));
+    roots.push(root);
+    const path = join(root, "policy.yaml");
+    writeFileSync(
+      path,
+      [
+        "bots:",
+        "  PRIMARY:",
+        "    key: false",
+        "    app_id: 0",
+        "    skill_types: [default]",
+        "users:",
+        "  Alice:",
+        "    union_id: false",
+        "    allow: [PRIMARY]",
+        "",
+      ].join("\n"),
+      "utf8",
+    );
+    expect(() => loadPermissionPolicy(path)).toThrow("key must not be empty");
   });
 
   test("resolves explicit, environment, then project-default policy paths", () => {

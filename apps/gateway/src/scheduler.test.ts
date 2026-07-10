@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentJob, JsonObject } from "@lxe/protocol";
+import { validateAgentJob } from "@lxe/protocol";
 import {
   HeartbeatWakeQueue,
+  RuntimeRequestError,
   RunHandle,
   SessionScheduler,
   type RuntimePort,
@@ -65,6 +67,52 @@ describe("RunHandle", () => {
 });
 
 describe("SessionScheduler", () => {
+  test("keeps a rejected start active until the supervisor terminates it while unhealthy", async () => {
+    const startFailures: Array<{ runId: string; error: unknown }> = [];
+    const runtime = new RecordingRuntime();
+    runtime.startTurn = async (value: AgentJob): Promise<void> => {
+      runtime.started.push(value);
+      if (value.job_id === "j1") throw new Error("worker exited");
+    };
+    const scheduler = new SessionScheduler({
+      runtime,
+      maxConcurrency: 1,
+      onStartFailure: (handle, error) => startFailures.push({ runId: handle.runId, error }),
+    });
+    await scheduler.enqueue(job("s1", "j1"));
+    await scheduler.enqueue(job("s1", "j2"));
+    await tick();
+
+    expect(runtime.started.map((item) => item.job_id)).toEqual(["j1"]);
+    expect(scheduler.activeRun("s1")?.jobId).toBe("j1");
+    expect(startFailures).toHaveLength(1);
+
+    scheduler.setRuntimeReady(false);
+    expect(scheduler.terminateActiveRun("j1", "s1")).toBe(true);
+    expect(scheduler.terminateActiveRun("j1", "s1")).toBe(false);
+    expect(scheduler.activeRun("s1")).toBeUndefined();
+    await tick();
+    expect(runtime.started.map((item) => item.job_id)).toEqual(["j1"]);
+
+    scheduler.setRuntimeReady(true);
+    await tick();
+    expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "j2"]);
+  });
+
+  test("does not dispatch queued jobs until runtime readiness is restored", async () => {
+    const runtime = new RecordingRuntime();
+    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    scheduler.setRuntimeReady(false);
+    await scheduler.enqueue(job("s1", "j1"));
+    await tick();
+    expect(runtime.started).toEqual([]);
+    expect(scheduler.hasInflightWork("s1")).toBe(true);
+
+    scheduler.setRuntimeReady(true);
+    await tick();
+    expect(runtime.started.map((item) => item.job_id)).toEqual(["j1"]);
+  });
+
   test("serializes a session while running distinct sessions up to the global cap", async () => {
     const runtime = new RecordingRuntime();
     const scheduler = new SessionScheduler({ runtime, maxConcurrency: 2 });
@@ -197,6 +245,82 @@ describe("SessionScheduler", () => {
     expect(runtime.steered).toEqual([{ runId: "j1", text: "new direction" }]);
     expect(await scheduler.steerActive("missing", { text: "x" })).toBe(false);
   });
+
+  test.each(["run_closing", "run_not_found"])(
+    "falls back when steering receives protocol error %s",
+    async (code: string) => {
+      const runtime = new RecordingRuntime();
+      runtime.steerTurn = async (): Promise<void> => {
+        throw new RuntimeRequestError(code, "run closed");
+      };
+      const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+      await scheduler.enqueue(job("s1", "j1"));
+      await tick();
+      expect(await scheduler.steerActive("s1", { text: "fallback" })).toBe(false);
+      expect(scheduler.activeRun("s1")?.drainSteering()).toEqual([]);
+    },
+  );
+
+  test.each(["run_closing", "run_not_found"])(
+    "does not mark cancellation accepted for protocol error %s",
+    async (code: string) => {
+      const runtime = new RecordingRuntime();
+      runtime.cancelTurn = async (): Promise<void> => {
+        throw new RuntimeRequestError(code, "run closed");
+      };
+      const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1, id: () => "requeued" });
+      await scheduler.enqueue(job("s1", "j1"));
+      await tick();
+      expect(await scheduler.requestStop("s1")).toBe(false);
+      expect(scheduler.activeRun("s1")?.cancelRequested).toBe(false);
+
+      scheduler.handleRuntimeEvent(
+        completion("j1", "s1", {
+          status: "completed",
+          session_id: "s1",
+          remaining_steering: [{ text: "keep me" }],
+        }),
+      );
+      await tick();
+      expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "requeued"]);
+    },
+  );
+
+  test("coalesces concurrent and repeated accepted stop requests", async () => {
+    const runtime = new RecordingRuntime();
+    let resolveCancel!: () => void;
+    const cancelAccepted = new Promise<void>((resolve) => {
+      resolveCancel = resolve;
+    });
+    let calls = 0;
+    runtime.cancelTurn = async (): Promise<void> => {
+      calls += 1;
+      await cancelAccepted;
+    };
+    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    await scheduler.enqueue(job("s1", "j1"));
+    await tick();
+    const first = scheduler.requestStop("s1");
+    const second = scheduler.requestStop("s1");
+    await tick();
+    expect(calls).toBe(1);
+    resolveCancel();
+    expect(await Promise.all([first, second])).toEqual([true, true]);
+    expect(await scheduler.requestStop("s1")).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  test("propagates unexpected cancel errors without poisoning the handle", async () => {
+    const runtime = new RecordingRuntime();
+    runtime.cancelTurn = async (): Promise<void> => {
+      throw new Error("transport bug");
+    };
+    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    await scheduler.enqueue(job("s1", "j1"));
+    await tick();
+    await expect(scheduler.requestStop("s1")).rejects.toThrow("transport bug");
+    expect(scheduler.activeRun("s1")?.cancelRequested).toBe(false);
+  });
 });
 
 describe("HeartbeatWakeQueue", () => {
@@ -262,6 +386,7 @@ describe("HeartbeatWakeQueue", () => {
         user_content_blocks: [],
       },
     ]);
+    expect(validateAgentJob(runtime.started[0])).toBe(true);
   });
 
   test("drops suspended/no-event sessions and defers busy sessions as retry", async () => {
@@ -306,8 +431,51 @@ describe("HeartbeatWakeQueue", () => {
     });
     wakes.request({ session_id: "invalid" });
     wakes.request({ session_id: "valid" });
-    await expect(wakes.flush()).resolves.toBeUndefined();
+    await expect(wakes.flush()).resolves.toBe(false);
     await tick();
     expect(runtime.started.map((item) => item.session_id)).toEqual(["valid"]);
+  });
+
+  test("signals reschedule when a wake arrives during a running batch", async () => {
+    const runtime = new RecordingRuntime();
+    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 2 });
+    let releaseFirst!: () => void;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const wakes = new HeartbeatWakeQueue({
+      scheduler,
+      hasPendingEvents: async (sessionId) => {
+        if (sessionId === "first") {
+          firstEntered();
+          await firstBlocked;
+        }
+        return true;
+      },
+      loadSession: async (sessionId) => ({
+        session_id: sessionId,
+        source: { platform: "feishu", chat_id: sessionId, chat_type: "dm", user_id: "user" },
+      }),
+      isSuspended: () => false,
+      id: () => `heartbeat-${runtime.started.length + 1}`,
+    });
+
+    wakes.request({ session_id: "first" });
+    const firstFlush = wakes.flush();
+    await entered;
+    wakes.request({ session_id: "second" });
+    expect(await wakes.flush()).toBe(true);
+    expect(wakes.pendingCount).toBe(1);
+
+    releaseFirst();
+    expect(await firstFlush).toBe(true);
+    expect(wakes.pendingCount).toBe(1);
+    expect(await wakes.flush()).toBe(false);
+    await tick();
+    expect(runtime.started.map((item) => item.session_id)).toEqual(["first", "second"]);
   });
 });

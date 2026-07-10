@@ -19,7 +19,13 @@ export interface PermissionPolicy {
 }
 
 type Mapping = Record<string, unknown>;
-const clean = (value: unknown): string => String(value ?? "").trim();
+const clean = (value: unknown): string => {
+  if (value === null || value === undefined || value === false || value === 0 || value === "") return "";
+  if (value === true) return "True";
+  if (Array.isArray(value) && value.length === 0) return "";
+  if (typeof value === "object" && Object.keys(value).length === 0) return "";
+  return String(value).trim();
+};
 const isMapping = (value: unknown): value is Mapping =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 

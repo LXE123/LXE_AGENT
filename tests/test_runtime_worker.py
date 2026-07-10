@@ -453,6 +453,7 @@ def test_heartbeat_turn_with_no_pending_events_is_a_provider_noop(
                 session_id="session-heartbeat",
                 job_kind="heartbeat",
             )
+            heartbeat_job["message_id"] = ""
             heartbeat_job["raw_data"] = {"heartbeat_reason": "exec-event"}
             await worker.handle_message(
                 _envelope(
@@ -1044,6 +1045,91 @@ def test_maintenance_and_dashboard_dispatch_are_explicit_allowlists() -> None:
             assert dashboard["payload"] == {"result": {"limit": 10, "items": []}}
             assert rejected["kind"] == "error"
             assert rejected["payload"]["code"] == "unsupported_operation"
+        finally:
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
+def test_default_dashboard_queries_expose_read_only_session_and_pending_state(
+    isolated_db: Path,
+) -> None:
+    _ = isolated_db
+
+    async def run() -> None:
+        outputs: list[dict[str, Any]] = []
+        worker = await _started_worker(outputs)
+        try:
+            await worker.handle_message(
+                _envelope(
+                    "session.ensure",
+                    {"session_id": "session-query", "source": _source(), "entry_text": ""},
+                    message_id="ensure-query",
+                )
+            )
+            await worker.handle_message(
+                _envelope(
+                    "dashboard.query",
+                    {"operation": "session.get", "params": {"session_id": "session-query"}},
+                    message_id="query-session-found",
+                )
+            )
+            await worker.handle_message(
+                _envelope(
+                    "dashboard.query",
+                    {"operation": "session.get", "params": {"session_id": "missing"}},
+                    message_id="query-session-missing",
+                )
+            )
+            await worker.handle_message(
+                _envelope(
+                    "dashboard.query",
+                    {
+                        "operation": "pending_events.has",
+                        "params": {"session_id": "session-query"},
+                    },
+                    message_id="query-pending-false",
+                )
+            )
+            await worker.handle_message(
+                _envelope(
+                    "pending_events.append",
+                    {
+                        "session_id": "session-query",
+                        "event": {
+                            "event_id": "event-query",
+                            "job_id": "job-query",
+                            "created_at": 123,
+                            "text": "done",
+                        },
+                    },
+                    message_id="append-query",
+                )
+            )
+            await worker.handle_message(
+                _envelope(
+                    "dashboard.query",
+                    {
+                        "operation": "pending_events.has",
+                        "params": {"session_id": "session-query"},
+                    },
+                    message_id="query-pending-true",
+                )
+            )
+
+            found = next(item for item in outputs if item["reply_to"] == "query-session-found")
+            missing = next(item for item in outputs if item["reply_to"] == "query-session-missing")
+            pending_false = next(item for item in outputs if item["reply_to"] == "query-pending-false")
+            pending_true = next(item for item in outputs if item["reply_to"] == "query-pending-true")
+            assert found["payload"]["result"]["session"]["session_id"] == "session-query"
+            assert found["payload"]["result"]["session"]["source"] == _source()
+            assert missing["payload"] == {"result": {"session": None}}
+            assert pending_false["payload"] == {
+                "result": {"session_id": "session-query", "has_pending_events": False}
+            }
+            assert pending_true["payload"] == {
+                "result": {"session_id": "session-query", "has_pending_events": True}
+            }
         finally:
             await worker.shutdown()
 

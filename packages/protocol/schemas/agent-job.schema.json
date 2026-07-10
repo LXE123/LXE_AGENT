@@ -28,7 +28,7 @@
     "user_id": { "type": "string", "minLength": 1 },
     "conversation_id": { "type": "string", "minLength": 1 },
     "is_group": { "type": "boolean" },
-    "message_id": { "type": "string", "minLength": 1 },
+    "message_id": { "type": "string" },
     "user_input": { "type": "string" },
     "job_kind": { "type": "string", "minLength": 1 },
     "sender_nick": { "type": "string" },
@@ -47,5 +47,16 @@
         "additionalProperties": true
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "job_kind": { "const": "heartbeat" } },
+        "required": ["job_kind"]
+      },
+      "else": {
+        "properties": { "message_id": { "type": "string", "minLength": 1 } }
+      }
+    }
+  ]
 }

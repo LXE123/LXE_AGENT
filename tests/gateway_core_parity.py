@@ -20,6 +20,14 @@ from gateway.models import InboundEvent
 from gateway.session_router import SessionRouter
 from gateway.session_scheduler import RunHandle, SessionScheduler
 from gateway.heartbeat_wake import HeartbeatWakeManager
+from gateway.autonomy_suspension import (
+    is_session_autonomy_suspended,
+    reset_autonomy_suspension_for_tests,
+)
+from gateway.steering_mode import (
+    is_session_steering_enabled,
+    reset_steering_mode_for_tests,
+)
 import gateway.session_router as router_module
 import shared.env as env_module
 from shared.agent_io import AgentJob
@@ -192,8 +200,11 @@ class _Registry:
 
 
 class _Bindings:
+    def __init__(self, *, bound: bool = False) -> None:
+        self.bound = bound
+
     def get(self, _key: str) -> None:
-        return None
+        return SimpleNamespace(session_id="session-fixed") if self.bound else None
 
     def get_or_create(self, _source: SessionSource) -> Any:
         return SimpleNamespace(session_id="session-fixed")
@@ -297,6 +308,22 @@ async def router_fixture() -> dict[str, Any]:
             "feedback": control_adapter.outbound[-1].payload["markdown"],
         }
 
+    stale_controls: dict[str, Any] = {}
+    for command in ("/stop", "/clear", "/steer"):
+        reset_autonomy_suspension_for_tests()
+        reset_steering_mode_for_tests()
+        stale_adapter = _Adapter()
+        stale_router = SessionRouter(registry=_Registry(stale_adapter))
+        stale_router.bind_scheduler(_RouterScheduler())  # type: ignore[arg-type]
+        stale_router._bindings = _Bindings(bound=True)  # type: ignore[assignment]
+        stale_decision = await stale_router.route_message(make_event(command))
+        stale_controls[command] = {
+            "route_kind": stale_decision.route_kind,
+            "feedback": stale_adapter.outbound[-1].payload["markdown"],
+            "autonomy_suspended": is_session_autonomy_suspended("session-fixed"),
+            "steering_enabled": is_session_steering_enabled("session-fixed"),
+        }
+
     denied_adapter = _Adapter()
     denied_router = SessionRouter(registry=_Registry(denied_adapter))
     denied_router.bind_scheduler(_RouterScheduler())  # type: ignore[arg-type]
@@ -315,6 +342,7 @@ async def router_fixture() -> dict[str, Any]:
         },
         "job": routed_job,
         "controls": controls,
+        "stale_controls": stale_controls,
         "unknown": {
             "route_kind": denied.route_kind,
             "feedback": denied_adapter.outbound[-1].payload["markdown"],

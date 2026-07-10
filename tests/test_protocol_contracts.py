@@ -47,3 +47,21 @@ def test_invalid_payload_shape_fails() -> None:
 
     with pytest.raises(ValidationError):
         validate_contract("agent_job", _fixture("invalid-agent-job-shape.json"))
+
+
+def test_agent_job_allows_empty_heartbeat_message_id_but_not_normal_turn() -> None:
+    from shared.protocol import validate_contract
+
+    heartbeat = _fixture("valid-agent-job.json")
+    heartbeat.update(
+        {
+            "job_id": "heartbeat-1",
+            "job_kind": "heartbeat",
+            "message_id": "",
+            "user_input": "",
+        }
+    )
+    validate_contract("agent_job", heartbeat)
+    heartbeat["job_kind"] = "turn"
+    with pytest.raises(ValidationError):
+        validate_contract("agent_job", heartbeat)

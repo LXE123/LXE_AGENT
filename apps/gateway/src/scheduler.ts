@@ -8,6 +8,29 @@ export interface SteeringMessage {
   message_id?: string;
 }
 
+export type RuntimeRequestErrorCode =
+  | "run_closing"
+  | "run_not_found"
+  | "run_mismatch"
+  | "session_busy"
+  | "session_not_found"
+  | "invalid_request"
+  | "unsupported_operation"
+  | (string & {});
+
+export class RuntimeRequestError extends Error {
+  constructor(
+    readonly code: RuntimeRequestErrorCode,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const isRunUnavailableError = (error: unknown): boolean =>
+  error instanceof RuntimeRequestError &&
+  (error.code === "run_closing" || error.code === "run_not_found");
+
 export class RunHandle {
   readonly sessionId: string;
   readonly jobId: string;
@@ -17,6 +40,8 @@ export class RunHandle {
   startAcknowledged = false;
   cancelRequested = false;
   closing = false;
+  startError: unknown;
+  cancelRequest: Promise<boolean> | undefined;
   private steering: Required<SteeringMessage>[] = [];
 
   constructor(readonly originJob: AgentJob, now: () => number = Date.now) {
@@ -56,11 +81,12 @@ export interface RuntimeEvent {
   payload: JsonObject;
 }
 
-interface SchedulerOptions {
+export interface SchedulerOptions {
   runtime: RuntimePort;
   maxConcurrency: number;
   id?: () => string;
   now?: () => number;
+  onStartFailure?: (handle: RunHandle, error: unknown) => void;
 }
 
 const clean = (value: unknown): string => String(value ?? "").trim();
@@ -74,18 +100,40 @@ export class SessionScheduler {
   private readonly maxConcurrency: number;
   private readonly id: () => string;
   private readonly now: () => number;
+  private readonly onStartFailure: ((handle: RunHandle, error: unknown) => void) | undefined;
   private readonly pending = new Map<string, AgentJob[]>();
   private readonly ready: string[] = [];
   private readonly readySet = new Set<string>();
   private readonly activeBySession = new Map<string, RunHandle>();
   private readonly activeByRun = new Map<string, RunHandle>();
   private draining = false;
+  private runtimeReady = true;
 
   constructor(options: SchedulerOptions) {
     this.runtime = options.runtime;
     this.maxConcurrency = Math.max(1, Math.trunc(options.maxConcurrency || 1));
     this.id = options.id ?? (() => randomUUID().replaceAll("-", ""));
     this.now = options.now ?? Date.now;
+    this.onStartFailure = options.onStartFailure;
+  }
+
+  setRuntimeReady(ready: boolean): void {
+    const wasReady = this.runtimeReady;
+    this.runtimeReady = ready;
+    if (!wasReady && ready) this.drain();
+  }
+
+  terminateActiveRun(runId: string, sessionId = ""): boolean {
+    const handle = this.activeByRun.get(clean(runId));
+    if (!handle) return false;
+    const expectedSessionId = clean(sessionId);
+    if (expectedSessionId && handle.sessionId !== expectedSessionId) return false;
+    handle.closing = true;
+    this.activeByRun.delete(handle.runId);
+    this.activeBySession.delete(handle.sessionId);
+    this.markReady(handle.sessionId);
+    this.drain();
+    return true;
   }
 
   async enqueue(job: AgentJob, options: { front?: boolean } = {}): Promise<void> {
@@ -127,23 +175,41 @@ export class SessionScheduler {
   async requestStop(sessionId: string): Promise<boolean> {
     const handle = this.activeRun(sessionId);
     if (!handle) return false;
-    if (!handle.cancelRequested) {
-      handle.cancelRequested = true;
-      await this.runtime.cancelTurn(handle);
-    }
-    return true;
+    if (handle.cancelRequested) return true;
+    if (handle.cancelRequest) return handle.cancelRequest;
+    const request = Promise.resolve()
+      .then(() => this.runtime.cancelTurn(handle))
+      .then(() => {
+        handle.cancelRequested = true;
+        return true;
+      })
+      .catch((error: unknown) => {
+        handle.cancelRequested = false;
+        if (isRunUnavailableError(error)) return false;
+        throw error;
+      })
+      .finally(() => {
+        if (handle.cancelRequest === request) handle.cancelRequest = undefined;
+      });
+    handle.cancelRequest = request;
+    return request;
   }
 
   async steerActive(sessionId: string, message: SteeringMessage): Promise<boolean> {
     const handle = this.activeRun(sessionId);
     const text = clean(message.text);
-    if (!handle || handle.closing || handle.cancelRequested || !text) return false;
+    if (!handle || handle.closing || handle.cancelRequested || handle.cancelRequest || !text) return false;
     const safeMessage: Required<SteeringMessage> = {
       text,
       response_route_id: clean(message.response_route_id),
       message_id: clean(message.message_id),
     };
-    await this.runtime.steerTurn(handle, safeMessage);
+    try {
+      await this.runtime.steerTurn(handle, safeMessage);
+    } catch (error) {
+      if (isRunUnavailableError(error)) return false;
+      throw error;
+    }
     handle.pushSteering(safeMessage);
     return true;
   }
@@ -218,7 +284,7 @@ export class SessionScheduler {
   }
 
   private drain(): void {
-    if (this.draining) return;
+    if (this.draining || !this.runtimeReady) return;
     this.draining = true;
     try {
       while (this.activeBySession.size < this.maxConcurrency && this.ready.length > 0) {
@@ -234,7 +300,7 @@ export class SessionScheduler {
         this.activeByRun.set(handle.runId, handle);
         void this.runtime.startTurn(next, handle).then(
           () => this.handleStartAcknowledged(handle.runId),
-          () => this.handleStartFailed(handle),
+          (error: unknown) => this.handleStartFailed(handle, error),
         );
       }
     } finally {
@@ -242,12 +308,10 @@ export class SessionScheduler {
     }
   }
 
-  private handleStartFailed(handle: RunHandle): void {
+  private handleStartFailed(handle: RunHandle, error: unknown): void {
     if (this.activeByRun.get(handle.runId) !== handle) return;
-    this.activeByRun.delete(handle.runId);
-    this.activeBySession.delete(handle.sessionId);
-    this.markReady(handle.sessionId);
-    this.drain();
+    handle.startError = error;
+    this.onStartFailure?.(handle, error);
   }
 }
 
@@ -257,15 +321,17 @@ export interface HeartbeatWakeRequest {
   response_route_id?: string;
 }
 
-interface SessionRecord {
+export interface RuntimeSessionRecord {
   session_id: string;
   source: JsonObject;
 }
 
-interface HeartbeatOptions {
+export interface HeartbeatOptions {
   scheduler: SessionScheduler;
+  /** Backed by the worker's default `dashboard.query: pending_events.has` operation. */
   hasPendingEvents: (sessionId: string) => Promise<boolean>;
-  loadSession: (sessionId: string) => Promise<SessionRecord | undefined>;
+  /** Backed by the worker's default `dashboard.query: session.get` operation. */
+  loadSession: (sessionId: string) => Promise<RuntimeSessionRecord | undefined>;
   isSuspended: (sessionId: string) => boolean;
   id?: () => string;
 }
@@ -304,10 +370,10 @@ export class HeartbeatWakeQueue {
     }
   }
 
-  async flush(): Promise<void> {
-    if (this.flushing) return;
+  async flush(): Promise<boolean> {
+    if (this.flushing) return this.pending.size > 0;
     const batch = [...this.pending.values()];
-    if (batch.length === 0) return;
+    if (batch.length === 0) return false;
     this.pending.clear();
     this.flushing = true;
     try {
@@ -315,6 +381,7 @@ export class HeartbeatWakeQueue {
     } finally {
       this.flushing = false;
     }
+    return this.pending.size > 0;
   }
 
   private async process(wake: Required<HeartbeatWakeRequest>): Promise<void> {
