@@ -1426,7 +1426,7 @@ async def _handle_exec(
     except RuntimeError as e:
         _tool_error(str(e))
     if normalized_cmd != cmd:
-        logger.info("[CodingTools] normalized project Python command: %s -> %s", cmd, normalized_cmd)
+        logger.debug("[CodingTools] normalized project Python command: %s -> %s", cmd, normalized_cmd)
         cmd = normalized_cmd
 
     for pat in _CMD_BLACKLIST:

@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from gateway.dashboard.api import create_dashboard_app
 from gateway.app import GatewayApp
 from gateway.dashboard import settings as dashboard_settings
+from gateway.dashboard import server as dashboard_server
 from gateway.dashboard.server import DashboardServer
 
 
@@ -26,6 +27,14 @@ def test_dashboard_port_auto_fallback_setting(monkeypatch) -> None:
 
     monkeypatch.setenv("AGENT_DASHBOARD_PORT_AUTO_FALLBACK", "1")
     assert dashboard_settings.dashboard_port_auto_fallback() is True
+
+
+def test_dashboard_uvicorn_loggers_propagate_to_project_root() -> None:
+    loggers = dashboard_server._DASHBOARD_UVICORN_LOG_CONFIG["loggers"]
+
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        assert loggers[name]["handlers"] == []
+        assert loggers[name]["propagate"] is True
 
 
 def test_dashboard_server_starts_and_stops_on_free_port() -> None:

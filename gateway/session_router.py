@@ -127,7 +127,7 @@ class SessionRouter:
             scope="agent",
         ).as_key()
 
-        logger.info(
+        logger.debug(
             "[SessionRouter] inbound event: platform=%s session_key=%s chat=%s chat_type=%s msg_id=%s user_id=%s union_id=%s text=%s",
             ctx.platform,
             session_key,
@@ -197,6 +197,11 @@ class SessionRouter:
             user_content_blocks=list(ctx.user_content_blocks or []),
         )
         await self._scheduler.enqueue(job)
+        logger.info(
+            "[SessionRouter] message queued: platform=%s attachments=%d",
+            ctx.platform,
+            len(list(ctx.user_content_blocks or [])),
+        )
         return RouteDecision(route_kind="agent_message", lane_key=lane, platform=ctx.platform)
 
     async def _try_steer_active_run(self, *, session_id: str, ctx: SessionContext) -> bool:
@@ -375,7 +380,7 @@ class SessionRouter:
         )
         if refreshed is None:
             return session
-        logger.info(
+        logger.debug(
             "[SessionRouter] rebound session source: session=%s session_key=%s response_route_id=%s",
             refreshed.session_id,
             ctx.session_key,
@@ -391,7 +396,7 @@ class SessionRouter:
             state_data=build_initial_agent_state(entry_text=ctx.user_input),
             session_id=session_id,
         )
-        logger.info(
+        logger.debug(
             "[SessionRouter] created session: platform=%s session_key=%s session=%s",
             ctx.platform,
             ctx.session_key,

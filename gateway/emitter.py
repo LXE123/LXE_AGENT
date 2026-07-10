@@ -26,7 +26,7 @@ class GatewayEmitter:
         source = dict(getattr(session, "source", {}) or {})
         platform = str(route_ctx.platform or "").strip() if route_ctx is not None else str(source.get("platform") or "").strip()
         adapter = self._registry.get(platform)
-        logger.info(
+        logger.debug(
             "[GatewayEmitter] dispatch emit: session_id=%s kind=%s platform=%s response_route_id=%s content_len=%d files=%d",
             emit.session_id,
             emit_kind,
@@ -36,7 +36,7 @@ class GatewayEmitter:
             len(list(emit.files or [])),
         )
         if emit_kind == "progress":
-            logger.info("[GatewayEmitter] ignore progress emit: session_id=%s emit_id=%s", emit.session_id, emit.emit_id)
+            logger.debug("[GatewayEmitter] ignore progress emit: session_id=%s emit_id=%s", emit.session_id, emit.emit_id)
             return
         if emit_kind == "stream":
             await self._send_stream_message(adapter, emit=emit, platform=platform, response_route_id=response_route_id)
@@ -140,7 +140,7 @@ class GatewayEmitter:
         source = dict(getattr(session, "source", {}) or {})
         platform = str(route_ctx.platform or "").strip() or str(source.get("platform") or "").strip()
         if platform != "feishu":
-            logger.info(
+            logger.debug(
                 "[GatewayEmitter] skip typing indicator for non-feishu platform: session_id=%s response_route_id=%s platform=%s",
                 safe_session_id,
                 safe_response_route_id,
@@ -148,7 +148,7 @@ class GatewayEmitter:
             )
             return
 
-        logger.info(
+        logger.debug(
             "[GatewayEmitter] typing_indicator: session_id=%s response_route_id=%s operation=%s",
             safe_session_id,
             safe_response_route_id,
@@ -181,7 +181,7 @@ class GatewayEmitter:
         tool_steps = [dict(step or {}) for step in list(getattr(emit, "tool_steps", []) or []) if isinstance(step, dict)]
         if not safe_content and not safe_thinking and redacted_thinking_count <= 0 and not tool_pending and not tool_steps:
             return
-        logger.info(
+        logger.debug(
             "[GatewayEmitter] stream_message: session_id=%s response_route_id=%s stream_type=%s state=%s seq=%d content_len=%d thinking_len=%d redacted_thinking_count=%d thinking_elapsed_ms=%d tool_pending=%s tool_steps=%d tool_elapsed_ms=%d",
             emit.session_id,
             response_route_id,
@@ -229,12 +229,6 @@ class GatewayEmitter:
         safe_content = str(content or "").strip()
         if not safe_content:
             return
-        logger.info(
-            "[GatewayEmitter] send_message: session_id=%s response_route_id=%s content_len=%d",
-            emit.session_id,
-            response_route_id,
-            len(safe_content),
-        )
         request = OutboundRequest(
             action="send_message",
             platform=platform,
@@ -244,6 +238,11 @@ class GatewayEmitter:
             event_id=emit.emit_id,
         )
         await adapter.handle_outbound(request)
+        logger.info(
+            "[GatewayEmitter] message sent: kind=%s content_len=%d",
+            str(emit.emit_kind or "").strip() or "-",
+            len(safe_content),
+        )
 
     async def _send_files(
         self,
@@ -257,12 +256,6 @@ class GatewayEmitter:
             file_path = str(path or "").strip()
             if not file_path:
                 continue
-            logger.info(
-                "[GatewayEmitter] send_file: session_id=%s response_route_id=%s path=%s",
-                emit.session_id,
-                response_route_id,
-                file_path,
-            )
             request = OutboundRequest(
                 action="send_file",
                 platform=platform,
@@ -272,6 +265,11 @@ class GatewayEmitter:
                 event_id=emit.emit_id,
             )
             await adapter.handle_outbound(request)
+            logger.info(
+                "[GatewayEmitter] file sent: kind=%s path=%s",
+                str(emit.emit_kind or "").strip() or "-",
+                file_path,
+            )
 
 
 __all__ = ["GatewayEmitter"]

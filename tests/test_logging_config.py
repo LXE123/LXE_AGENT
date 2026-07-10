@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import re
 from pathlib import Path
 
 import pytest
@@ -45,6 +46,10 @@ def _restore_logging_state(monkeypatch):
     monkeypatch.delenv("LOG_LEVEL", raising=False)
     monkeypatch.delenv("LOG_LEVELS", raising=False)
     monkeypatch.delenv("LOG_FORMAT", raising=False)
+    monkeypatch.delenv("RUNTIME_LOG_LEVEL", raising=False)
+    monkeypatch.delenv("LOG_FILE", raising=False)
+    monkeypatch.delenv("BROWSER_AUTH_LOG_FILE", raising=False)
+    monkeypatch.delenv("LOCAL_LOGS_ENABLED", raising=False)
     yield
     for handler in list(root.handlers):
         if getattr(handler, _MANAGED_HANDLER_ATTR, False):
@@ -84,13 +89,35 @@ def test_setup_logging_is_idempotent_and_preserves_external_handlers(monkeypatch
         external_handler.close()
 
 
-def test_setup_logging_uses_root_log_level_from_env(monkeypatch) -> None:
+def test_log_level_debug_does_not_enable_console_debug(monkeypatch) -> None:
     monkeypatch.setenv("LOG_LEVEL", "DEBUG")
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "0")
 
     setup_logging()
+    stream = io.StringIO()
+    handler = _managed_handlers()[0]
+    old_stream = handler.setStream(stream)
+    try:
+        logging.getLogger("shared.other").debug("hidden debug detail")
+        logging.getLogger("shared.other").info("visible summary")
+    finally:
+        handler.setStream(old_stream)
 
-    assert logging.getLogger().level == logging.DEBUG
-    assert logging.getLogger("shared.other").isEnabledFor(logging.DEBUG)
+    assert logging.getLogger().level == logging.INFO
+    assert handler.level == logging.INFO
+    assert "hidden debug detail" not in stream.getvalue()
+    assert "visible summary" in stream.getvalue()
+
+
+def test_log_level_warning_tightens_console(monkeypatch) -> None:
+    monkeypatch.setenv("LOG_LEVEL", "WARNING")
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "0")
+
+    setup_logging()
+    handler = _managed_handlers()[0]
+
+    assert logging.getLogger().level == logging.WARNING
+    assert handler.level == logging.WARNING
 
 
 def test_setup_logging_applies_scoped_log_levels(monkeypatch) -> None:
@@ -150,6 +177,117 @@ def test_managed_text_formatter_includes_logger_name() -> None:
     assert "session=" not in output
     assert "turn=" not in output
     assert "[ctx " not in output
+
+
+def test_console_and_runtime_file_use_separate_levels_and_formats(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(logging_config, "_repo_root", lambda: tmp_path)
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
+    monkeypatch.setenv("LOG_FILE", "runtime.log")
+    monkeypatch.setenv("LOG_LEVEL", "INFO")
+    monkeypatch.setenv("RUNTIME_LOG_LEVEL", "DEBUG")
+
+    setup_logging()
+    console_handler = next(
+        handler
+        for handler in _managed_handlers()
+        if not isinstance(handler, logging.FileHandler)
+    )
+    runtime_handler = next(
+        handler
+        for handler in _managed_handlers()
+        if isinstance(handler, logging.FileHandler)
+    )
+    stream = io.StringIO()
+    old_stream = console_handler.setStream(stream)
+    try:
+        token = set_log_context(session_id="session-a-long", turn_id="turn-a-long")
+        try:
+            target_logger = logging.getLogger("agent_runtime.loop")
+            target_logger.debug("runtime detail")
+            target_logger.info("console summary")
+        finally:
+            reset_log_context(token)
+        runtime_handler.flush()
+    finally:
+        console_handler.setStream(old_stream)
+
+    console_output = stream.getvalue()
+    assert "runtime detail" not in console_output
+    assert "console summary" in console_output
+    assert re.search(r"^\d{2}:\d{2}:\d{2} INFO\s+\[agent\.loop\]", console_output)
+    assert "➤" not in console_output
+    assert "[ctx s=session- t=turn-a-l]" in console_output
+
+    runtime_path = next((tmp_path / "logs" / "runtime").glob("*/runtime.log"))
+    runtime_output = runtime_path.read_text(encoding="utf-8")
+    assert "runtime detail" in runtime_output
+    assert "console summary" in runtime_output
+    assert re.search(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} DEBUG", runtime_output)
+    assert "[agent_runtime.loop]" in runtime_output
+    assert "[ctx session=session-a-long turn=turn-a-long]" in runtime_output
+
+
+def test_runtime_log_level_defaults_to_debug_and_can_be_overridden(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(logging_config, "_repo_root", lambda: tmp_path)
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
+    monkeypatch.setenv("LOG_FILE", "runtime.log")
+    monkeypatch.setenv("LOG_LEVEL", "INFO")
+
+    setup_logging()
+    runtime_handler = next(
+        handler
+        for handler in _managed_handlers()
+        if isinstance(handler, logging.FileHandler)
+    )
+
+    assert runtime_handler.level == logging.DEBUG
+    assert logging.getLogger().level == logging.DEBUG
+
+    monkeypatch.setenv("RUNTIME_LOG_LEVEL", "WARNING")
+    setup_logging()
+    runtime_handler = next(
+        handler
+        for handler in _managed_handlers()
+        if isinstance(handler, logging.FileHandler)
+    )
+
+    assert runtime_handler.level == logging.WARNING
+    assert logging.getLogger().level == logging.INFO
+
+
+def test_successful_dashboard_health_access_is_runtime_only(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(logging_config, "_repo_root", lambda: tmp_path)
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
+    monkeypatch.setenv("LOG_FILE", "runtime.log")
+
+    setup_logging()
+    console_handler = next(
+        handler
+        for handler in _managed_handlers()
+        if not isinstance(handler, logging.FileHandler)
+    )
+    stream = io.StringIO()
+    old_stream = console_handler.setStream(stream)
+    try:
+        access_logger = logging.getLogger("uvicorn.access")
+        access_logger.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1", "GET", "/api/channels/health", "1.1", 200)
+        access_logger.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1", "GET", "/api/channels/health", "1.1", 503)
+        access_logger.info('%s - "%s %s HTTP/%s" %d', "127.0.0.1", "GET", "/api/sessions", "1.1", 200)
+        for handler in _managed_handlers():
+            handler.flush()
+    finally:
+        console_handler.setStream(old_stream)
+
+    console_output = stream.getvalue()
+    assert 'GET /api/channels/health HTTP/1.1" 200' not in console_output
+    assert 'GET /api/channels/health HTTP/1.1" 503' in console_output
+    assert 'GET /api/sessions HTTP/1.1" 200' in console_output
+
+    runtime_path = next((tmp_path / "logs" / "runtime").glob("*/runtime.log"))
+    runtime_output = runtime_path.read_text(encoding="utf-8")
+    assert 'GET /api/channels/health HTTP/1.1" 200' in runtime_output
+    assert 'GET /api/channels/health HTTP/1.1" 503' in runtime_output
+    assert 'GET /api/sessions HTTP/1.1" 200' in runtime_output
 
 
 def test_log_format_falls_back_to_text(monkeypatch) -> None:

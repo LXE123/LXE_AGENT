@@ -118,7 +118,7 @@ class GatewayApp:
 
     async def _execute_agent_job(self, job, run_handle: RunHandle) -> None:
         job_kind = str(getattr(job, "job_kind", "") or "turn").strip() or "turn"
-        logger.info(
+        logger.debug(
             "[Gateway] execute agent job inline: session_id=%s job_id=%s response_route_id=%s job_kind=%s",
             job.session_id,
             str(getattr(job, "job_id", "") or "").strip(),

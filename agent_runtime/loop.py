@@ -224,7 +224,7 @@ def _log_step(step_log: StepLog) -> None:
     if event in ("tool_call", "tool_error"):
         args_suffix = f" args={format_log_payload_preview(step_log.tool_args)}"
     if event in ("text_reply", "tool_call", "llm_error"):
-        logger.info(
+        logger.debug(
             "[Turn:STEP] step=%d event=%s llm_latency=%dms tokens_in=%d tokens_out=%d%s%s%s",
             step_log.step,
             event,
@@ -236,7 +236,7 @@ def _log_step(step_log: StepLog) -> None:
             args_suffix if event == "tool_call" else "",
         )
     elif event in ("tool_result", "tool_error"):
-        logger.info(
+        logger.debug(
             "[Turn:STEP] step=%d event=%s tool=%s duration=%dms success=%s%s",
             step_log.step,
             event,
@@ -244,6 +244,20 @@ def _log_step(step_log: StepLog) -> None:
             step_log.duration_ms,
             step_log.success,
             args_suffix if event == "tool_error" else "",
+        )
+    if event == "tool_call":
+        logger.info(
+            "[Turn] tool started: step=%d tool=%s",
+            step_log.step,
+            step_log.tool_name or "-",
+        )
+    elif event in ("tool_result", "tool_error"):
+        logger.info(
+            "[Turn] tool finished: step=%d tool=%s status=%s duration=%dms",
+            step_log.step,
+            step_log.tool_name or "-",
+            "ok" if step_log.success else "error",
+            step_log.duration_ms,
         )
 
 
@@ -255,6 +269,11 @@ def _log_turn_start(turn_log: TurnLog) -> None:
     ctx_window = turn_log.context_window_tokens
     usage_pct = (stats.estimated_tokens / ctx_window * 100) if ctx_window > 0 else 0
     logger.info(
+        "[Turn] turn started: message_turns=%d context_usage=%.1f%%",
+        stats.raw_turn_count,
+        usage_pct,
+    )
+    logger.debug(
         "[Turn:START] session=%s user=\"%s\" message_turns=%d"
         " context={sys=%d, msg=%d, total=%d, capacity=%d, usage=%.1f%%}",
         turn_log.session_id,
@@ -290,8 +309,17 @@ def _log_turn_end(turn_log: TurnLog) -> None:
     stats_after = turn_log.context_stats_after
     ctx_window = turn_log.context_window_tokens
 
-    # Line 1: core metrics
     logger.info(
+        "[Turn] turn completed: status=%s elapsed=%dms steps=%d tools=%d tokens_in=%d tokens_out=%d",
+        turn_log.status,
+        turn_log.elapsed_ms,
+        len(turn_log.steps),
+        turn_log.total_tool_calls,
+        turn_log.total_input_tokens,
+        turn_log.total_output_tokens,
+    )
+
+    logger.debug(
         "[Turn:END] status=%s elapsed=%dms steps=%d llm_calls=%d tool_calls=%d"
         " tokens_in=%d tokens_out=%d tools=%s",
         turn_log.status,
@@ -304,12 +332,11 @@ def _log_turn_end(turn_log: TurnLog) -> None:
         turn_log.tools_used or "[]",
     )
 
-    # Line 2: context before → after delta
     if stats_after is not None:
         after_usage_pct = (stats_after.estimated_tokens / ctx_window * 100) if ctx_window > 0 else 0
         before_tokens = stats_before.estimated_tokens if stats_before else 0
         delta = stats_after.estimated_tokens - before_tokens
-        logger.info(
+        logger.debug(
             "[Turn:END] context_after={total=%d, usage=%.1f%%}"
             " delta=%+d prune=%s(recovered=%d) compaction=%s",
             stats_after.estimated_tokens,
@@ -772,7 +799,7 @@ class AgentLoop:
                 config=self.stream_logging_config,
                 started_at=turn_log.started_at,
             )
-            logger.info(
+            logger.debug(
                 "[Turn:TRACE] session=%s turn=%s mode=%s trace=%s wire=%s",
                 turn_log.session_id,
                 turn_log.turn_id,

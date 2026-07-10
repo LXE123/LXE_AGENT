@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from types import SimpleNamespace
 from typing import Any
 
@@ -72,7 +73,7 @@ def _reaction_event(emoji_type: str = "Typing") -> SimpleNamespace:
     )
 
 
-def test_typing_indicator_start_adds_reaction_and_saves_state(monkeypatch) -> None:
+def test_typing_indicator_start_adds_reaction_and_saves_state(monkeypatch, caplog) -> None:
     patches: list[tuple[str, dict[str, str]]] = []
 
     async def fake_save_response_route_patch(response_route_id: str, patch: dict[str, str]) -> None:
@@ -85,6 +86,7 @@ def test_typing_indicator_start_adds_reaction_and_saves_state(monkeypatch) -> No
         indicator = FeishuTypingIndicator(client=client)
         await indicator.start(_ctx({"source_message_id": "msg-source"}), "route-1")
 
+    caplog.set_level(logging.DEBUG, logger="platforms.feishu.typing_indicator")
     asyncio.run(_run())
 
     assert client.add_calls == [("msg-source", "Typing")]
@@ -97,6 +99,8 @@ def test_typing_indicator_start_adds_reaction_and_saves_state(monkeypatch) -> No
             },
         )
     ]
+    added_record = next(record for record in caplog.records if "typing indicator added" in record.getMessage())
+    assert added_record.levelno == logging.DEBUG
 
 
 def test_typing_indicator_stop_deletes_reaction_and_clears_state(monkeypatch) -> None:
@@ -181,7 +185,7 @@ def test_typing_indicator_is_best_effort_for_missing_state_and_api_errors(monkey
     ]
 
 
-def test_feishu_gateway_dispatches_typing_indicator_action(monkeypatch) -> None:
+def test_feishu_gateway_dispatches_typing_indicator_action(monkeypatch, caplog) -> None:
     calls: list[dict[str, Any]] = []
 
     async def fake_load_send_context(response_route_id: str, *, session_id: str = "") -> SimpleNamespace:
@@ -210,6 +214,7 @@ def test_feishu_gateway_dispatches_typing_indicator_action(monkeypatch) -> None:
         response_route_id="route-1",
     )
 
+    caplog.set_level(logging.DEBUG, logger="platforms.feishu.gateway")
     asyncio.run(FeishuStreamAdapter.handle_outbound(adapter, request))
 
     assert calls == [
@@ -219,6 +224,8 @@ def test_feishu_gateway_dispatches_typing_indicator_action(monkeypatch) -> None:
             "operation": "start",
         }
     ]
+    outbound_record = next(record for record in caplog.records if "outbound request" in record.getMessage())
+    assert outbound_record.levelno == logging.DEBUG
 
 
 def test_gateway_emitter_sends_typing_indicator_outbound(monkeypatch) -> None:
@@ -267,6 +274,100 @@ def test_gateway_emitter_sends_typing_indicator_outbound(monkeypatch) -> None:
     assert request.session_id == "session-1"
     assert request.response_route_id == "route-1"
     assert request.event_id == "emit-1"
+
+
+def test_gateway_emitter_stream_is_debug_and_final_send_is_info(monkeypatch, caplog) -> None:
+    class _FakeAdapter:
+        def __init__(self) -> None:
+            self.requests: list[OutboundRequest] = []
+
+        async def handle_outbound(self, request: OutboundRequest) -> None:
+            self.requests.append(request)
+
+    class _FakeRegistry:
+        def __init__(self, adapter: _FakeAdapter) -> None:
+            self.adapter = adapter
+
+        def get(self, platform: str) -> _FakeAdapter:
+            assert platform == "feishu"
+            return self.adapter
+
+    async def fake_load_agent_session(session_id: str) -> SimpleNamespace:
+        return SimpleNamespace(session_id=session_id, source={"platform": "feishu"})
+
+    async def fake_load_response_route_context(response_route_id: str) -> SimpleNamespace:
+        return SimpleNamespace(response_route_id=response_route_id, platform="feishu")
+
+    import gateway.emitter as emitter_mod
+
+    monkeypatch.setattr(emitter_mod, "load_agent_session_record", fake_load_agent_session)
+    monkeypatch.setattr(emitter_mod, "load_response_route_context", fake_load_response_route_context)
+    adapter = _FakeAdapter()
+    emitter = GatewayEmitter(registry=_FakeRegistry(adapter))
+
+    async def _run() -> None:
+        await emitter.emit_stream(
+            session_id="session-1",
+            response_route_id="route-1",
+            stream_type="final_answer",
+            state="delta",
+            seq=1,
+            content="partial",
+        )
+        await emitter.emit_final(
+            session_id="session-1",
+            response_route_id="route-1",
+            content="complete",
+        )
+
+    caplog.set_level(logging.DEBUG, logger="gateway.emitter")
+    asyncio.run(_run())
+
+    stream_records = [
+        record
+        for record in caplog.records
+        if "dispatch emit" in record.getMessage() or "stream_message" in record.getMessage()
+    ]
+    assert stream_records
+    assert all(record.levelno == logging.DEBUG for record in stream_records)
+    final_record = next(record for record in caplog.records if "message sent" in record.getMessage())
+    assert final_record.levelno == logging.INFO
+
+
+def test_gateway_emitter_does_not_log_message_sent_when_adapter_fails(monkeypatch, caplog) -> None:
+    class _FailingAdapter:
+        async def handle_outbound(self, _request: OutboundRequest) -> None:
+            raise RuntimeError("send failed")
+
+    class _FakeRegistry:
+        def get(self, platform: str) -> _FailingAdapter:
+            assert platform == "feishu"
+            return _FailingAdapter()
+
+    async def fake_load_agent_session(session_id: str) -> SimpleNamespace:
+        return SimpleNamespace(session_id=session_id, source={"platform": "feishu"})
+
+    async def fake_load_response_route_context(response_route_id: str) -> SimpleNamespace:
+        return SimpleNamespace(response_route_id=response_route_id, platform="feishu")
+
+    import gateway.emitter as emitter_mod
+    import pytest
+
+    monkeypatch.setattr(emitter_mod, "load_agent_session_record", fake_load_agent_session)
+    monkeypatch.setattr(emitter_mod, "load_response_route_context", fake_load_response_route_context)
+    emitter = GatewayEmitter(registry=_FakeRegistry())
+    caplog.set_level(logging.INFO, logger="gateway.emitter")
+
+    with pytest.raises(RuntimeError, match="send failed"):
+        asyncio.run(
+            emitter.emit_final(
+                session_id="session-1",
+                response_route_id="route-1",
+                content="complete",
+            )
+        )
+
+    assert not any("message sent" in record.getMessage() for record in caplog.records)
 
 
 def test_feishu_gateway_registers_reaction_event_processors() -> None:

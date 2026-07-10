@@ -454,7 +454,7 @@ async def _notify_completion(session: ExecSession) -> None:
     event: dict[str, Any] = {}
     async with session.completion_lock:
         if session.completion_consumed:
-            logger.info(
+            logger.debug(
                 "[ExecNotify] notify skipped: exec_session_id=%s reason=completion_consumed",
                 session.id,
             )
@@ -462,7 +462,7 @@ async def _notify_completion(session: ExecSession) -> None:
         if session.notified or not session.notify_on_exit:
             return
         owner_session_id = str(session.owner_session_id or "").strip()
-        logger.info(
+        logger.debug(
             "[ExecNotify] notify start: exec_session_id=%s owner_session_id=%s origin_turn_id=%s status=%s exit_code=%s",
             session.id,
             owner_session_id,
@@ -486,7 +486,7 @@ async def _notify_completion(session: ExecSession) -> None:
                 str(event.get("event_id") or "").strip(),
             )
             return
-        logger.info(
+        logger.debug(
             "[ExecNotify] event enqueued: exec_session_id=%s owner_session_id=%s event_id=%s job_id=%s",
             session.id,
             owner_session_id,
@@ -499,7 +499,7 @@ async def _notify_completion(session: ExecSession) -> None:
         reason="exec-event",
         response_route_id=str(session.response_route_id or "").strip(),
     )
-    logger.info(
+    logger.debug(
         "[ExecNotify] wake requested: exec_session_id=%s owner_session_id=%s event_id=%s heartbeat_reason=%s",
         session.id,
         owner_session_id,
@@ -509,7 +509,7 @@ async def _notify_completion(session: ExecSession) -> None:
     async with session.completion_lock:
         if not session.completion_consumed:
             session.notified = True
-    logger.info(
+    logger.debug(
         "[ExecNotify] notify done: exec_session_id=%s owner_session_id=%s event_id=%s",
         session.id,
         owner_session_id,
@@ -519,25 +519,25 @@ async def _notify_completion(session: ExecSession) -> None:
 
 def _schedule_completion_notification(session: ExecSession) -> None:
     if session.completion_consumed:
-        logger.info(
+        logger.debug(
             "[ExecNotify] notify skipped: exec_session_id=%s reason=completion_consumed",
             session.id,
         )
         return
     if session.notified:
-        logger.info(
+        logger.debug(
             "[ExecNotify] notify skipped: exec_session_id=%s reason=already_notified",
             session.id,
         )
         return
     if not session.notify_on_exit:
-        logger.info(
+        logger.debug(
             "[ExecNotify] notify skipped: exec_session_id=%s reason=notify_disabled",
             session.id,
         )
         return
     if session.notification_task is not None and not session.notification_task.done():
-        logger.info("[ExecNotify] notify already scheduled: exec_session_id=%s", session.id)
+        logger.debug("[ExecNotify] notify already scheduled: exec_session_id=%s", session.id)
         return
     try:
         loop = asyncio.get_running_loop()
@@ -582,6 +582,13 @@ def _finish_session(session: ExecSession, *, status_override: SessionStatus | No
     if not session.done_event.is_set():
         session.done_event.set()
     logger.info(
+        "[Exec] process finished: task=%s status=%s exit_code=%s duration=%.2fs",
+        session.id,
+        session.status.value,
+        session.exit_code,
+        _duration_seconds(session),
+    )
+    logger.debug(
         "[ExecNotify] exec finished: exec_session_id=%s owner_session_id=%s status=%s exit_code=%s duration_sec=%.2f notify_on_exit=%s tail=%s",
         session.id,
         str(session.owner_session_id or "").strip(),
@@ -673,7 +680,7 @@ async def _consume_completion(session: ExecSession, *, reason: str) -> bool:
             session.completion_consumed = False
             session.notify_on_exit = previous_notify_on_exit
             raise
-        logger.info(
+        logger.debug(
             "[ExecNotify] completion consumed: exec_session_id=%s owner_session_id=%s reason=%s deleted_events=%s",
             session.id,
             owner_session_id,
@@ -790,6 +797,11 @@ async def run_exec_command(
     session.process = proc
     session.pid = proc.pid
     logger.info(
+        "[Exec] process started: task=%s background=%s",
+        session.id,
+        bool(background),
+    )
+    logger.debug(
         "[ExecNotify] exec started: exec_session_id=%s owner_session_id=%s origin_turn_id=%s pid=%s background=%s cwd=%s command=%s",
         session.id,
         str(session.owner_session_id or "").strip(),

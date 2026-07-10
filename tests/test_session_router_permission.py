@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from types import SimpleNamespace
 
 import gateway.session_router as router_mod
@@ -201,7 +202,7 @@ def test_router_does_not_fallback_to_open_id_for_user_access(monkeypatch) -> Non
     assert "没有权限" in adapter.outbound_requests[0].payload["markdown"]
 
 
-def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
+def test_router_allows_authorized_user_and_bot(monkeypatch, caplog) -> None:
     adapter = _FakeAdapter()
     scheduler = _FakeScheduler()
     router = _router(adapter, scheduler)
@@ -229,6 +230,7 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     monkeypatch.setattr(router_mod, "create_agent_session", fake_create_agent_session)
     monkeypatch.setattr(router_mod, "pop_agent_session_pending_events", fake_pop_pending_events)
 
+    caplog.set_level(logging.DEBUG, logger="gateway.session_router")
     decision = asyncio.run(
         router.route_message(
             _event(
@@ -258,6 +260,15 @@ def test_router_allows_authorized_user_and_bot(monkeypatch) -> None:
     assert job.raw_data["session_key"] == "agent:main:feishu:dm:chat-1"
     assert job.source["user_id_alt"] == USER_ZGL
     assert job.source["extra"]["bot_app_id"] == BOT_ID_LXE_FBA_AGENT
+    router_records = [record for record in caplog.records if record.name == "gateway.session_router"]
+    info_records = [record for record in router_records if record.levelno == logging.INFO]
+    debug_records = [record for record in router_records if record.levelno == logging.DEBUG]
+    assert len(info_records) == 1
+    assert "message queued" in info_records[0].getMessage()
+    assert "hello" not in info_records[0].getMessage()
+    assert "chat-1" not in info_records[0].getMessage()
+    assert USER_ZGL not in info_records[0].getMessage()
+    assert any("text=hello" in record.getMessage() for record in debug_records)
     assert job.source["extra"]["bot_name"] == "FBA业务助手"
     assert adapter.outbound_requests == []
 
