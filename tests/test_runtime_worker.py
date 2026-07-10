@@ -680,6 +680,126 @@ def test_steering_after_closure_is_rejected_while_completion_is_in_flight() -> N
     asyncio.run(run())
 
 
+def test_cancel_accepted_before_closure_produces_cancelled_completion() -> None:
+    release_turn = asyncio.Event()
+
+    async def fake_turn_handler(**_kwargs: Any) -> None:
+        await release_turn.wait()
+
+    async def run() -> None:
+        outputs: list[dict[str, Any]] = []
+        worker = await _started_worker(outputs, turn_handler=fake_turn_handler)
+        try:
+            await worker.handle_message(
+                _envelope("turn.start", _job(), message_id="start-cancel-race", run_id="run-1")
+            )
+            await asyncio.sleep(0)
+            await worker.handle_message(
+                _envelope(
+                    "turn.cancel",
+                    {"session_id": "session-1"},
+                    message_id="cancel-before-closing",
+                    run_id="run-1",
+                )
+            )
+            assert worker._active_runs["run-1"].handle.cancelled is True
+            release_turn.set()
+
+            completion = await _wait_for_output(
+                outputs,
+                kind="runtime.turn.completed",
+                run_id="run-1",
+            )
+            cancel = await _wait_for_reply(outputs, "cancel-before-closing")
+            assert cancel["kind"] == "turn.cancel.result"
+            assert cancel["payload"]["cancelled"] is True
+            assert completion["payload"]["status"] == "cancelled"
+        finally:
+            release_turn.set()
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
+def test_cancel_after_closure_is_rejected_while_completion_is_in_flight() -> None:
+    release_turn = asyncio.Event()
+    completion_started = asyncio.Event()
+    release_completion = asyncio.Event()
+
+    async def fake_turn_handler(**_kwargs: Any) -> None:
+        await release_turn.wait()
+
+    async def run() -> None:
+        outputs: list[dict[str, Any]] = []
+
+        async def write_envelope(envelope: dict[str, Any]) -> None:
+            if envelope["kind"] == "runtime.turn.completed":
+                completion_started.set()
+                await release_completion.wait()
+            outputs.append(envelope)
+
+        worker = RuntimeWorker(
+            write_envelope=write_envelope,
+            turn_handler=fake_turn_handler,
+            initialize_storage=lambda: None,
+            close_storage=lambda: None,
+        )
+        await worker.start()
+        try:
+            await worker.handle_message(
+                _envelope("turn.start", _job(), message_id="start-cancel-closing", run_id="run-1")
+            )
+            release_turn.set()
+            await asyncio.wait_for(completion_started.wait(), timeout=1)
+
+            late_cancel = asyncio.create_task(
+                worker.handle_message(
+                    _envelope(
+                        "turn.cancel",
+                        {"session_id": "session-1"},
+                        message_id="cancel-closing",
+                        run_id="run-1",
+                    )
+                )
+            )
+            await asyncio.sleep(0)
+            assert late_cancel.done() is False
+            release_completion.set()
+            await late_cancel
+
+            completion = await _wait_for_output(
+                outputs,
+                kind="runtime.turn.completed",
+                run_id="run-1",
+            )
+            result = await _wait_for_reply(outputs, "cancel-closing")
+            assert completion["payload"]["status"] == "completed"
+            assert result["kind"] == "error"
+            assert result["payload"]["code"] == "run_closing"
+            assert not any(
+                item["kind"] == "turn.cancel.result" and item["reply_to"] == "cancel-closing"
+                for item in outputs
+            )
+            while worker._active_runs:
+                await asyncio.sleep(0)
+            await worker.handle_message(
+                _envelope(
+                    "turn.cancel",
+                    {"session_id": "session-1"},
+                    message_id="cancel-after-completed",
+                    run_id="run-1",
+                )
+            )
+            after_completed = await _wait_for_reply(outputs, "cancel-after-completed")
+            assert after_completed["kind"] == "error"
+            assert after_completed["payload"]["code"] == "run_closing"
+        finally:
+            release_completion.set()
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
 def test_distinct_sessions_run_concurrently() -> None:
     started: set[str] = set()
     both_started = asyncio.Event()
@@ -760,6 +880,102 @@ def test_duplicate_run_id_never_emits_duplicate_completion() -> None:
                 "start-after-complete",
             }
         finally:
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
+def test_surrogate_turn_exception_emits_one_safe_error_completion() -> None:
+    async def failing_turn(**_kwargs: Any) -> None:
+        raise RuntimeError("\ud800")
+
+    async def run() -> None:
+        outputs: list[dict[str, Any]] = []
+        worker = await _started_worker(outputs, turn_handler=failing_turn)
+        try:
+            await worker.handle_message(
+                _envelope("turn.start", _job(), message_id="start-error", run_id="run-1")
+            )
+            while worker._active_runs:
+                await asyncio.sleep(0)
+            await worker.handle_message(_envelope("health", message_id="health-after-turn-error"))
+
+            completions = [
+                item
+                for item in outputs
+                if item["kind"] == "runtime.turn.completed" and item["run_id"] == "run-1"
+            ]
+            assert len(completions) == 1
+            assert completions[0]["payload"] == {
+                "session_id": "session-1",
+                "status": "error",
+                "error": "RuntimeError",
+                "remaining_steering": [],
+            }
+            assert "\\ud800" not in json.dumps(completions[0], ensure_ascii=True)
+            assert outputs[-1]["kind"] == "health.result"
+            assert outputs[-1]["payload"]["ready"] is True
+        finally:
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
+def test_completion_guard_marks_emitted_only_after_successful_write() -> None:
+    release_turn = asyncio.Event()
+    completion_attempts = 0
+
+    async def waiting_turn(**_kwargs: Any) -> None:
+        await release_turn.wait()
+
+    async def run() -> None:
+        nonlocal completion_attempts
+        outputs: list[dict[str, Any]] = []
+
+        async def fail_first_completion(envelope: dict[str, Any]) -> None:
+            nonlocal completion_attempts
+            if envelope["kind"] == "runtime.turn.completed":
+                completion_attempts += 1
+                if completion_attempts == 1:
+                    raise RuntimeError("transient completion write failure")
+            outputs.append(envelope)
+
+        worker = RuntimeWorker(
+            write_envelope=fail_first_completion,
+            turn_handler=waiting_turn,
+            initialize_storage=lambda: None,
+            close_storage=lambda: None,
+        )
+        await worker.start()
+        try:
+            await worker.handle_message(
+                _envelope("turn.start", _job(), message_id="start-retry", run_id="run-1")
+            )
+            await asyncio.sleep(0)
+            current = worker._active_runs["run-1"]
+            with pytest.raises(RuntimeError, match="transient completion write failure"):
+                await worker._emit_completion_once(
+                    current,
+                    status="error",
+                    error_message="safe error",
+                    remaining_steering=[],
+                )
+            await worker._emit_completion_once(
+                current,
+                status="error",
+                error_message="safe error",
+                remaining_steering=[],
+            )
+            release_turn.set()
+            while worker._active_runs:
+                await asyncio.sleep(0)
+
+            completions = [item for item in outputs if item["kind"] == "runtime.turn.completed"]
+            assert completion_attempts == 2
+            assert len(completions) == 1
+            assert completions[0]["payload"]["status"] == "error"
+        finally:
+            release_turn.set()
             await worker.shutdown()
 
     asyncio.run(run())

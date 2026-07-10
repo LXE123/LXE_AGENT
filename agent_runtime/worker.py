@@ -98,7 +98,7 @@ class _ActiveRun:
     job: AgentJob
     handle: RunHandle
     task: asyncio.Task[Any] | None = None
-    accepting_steering: bool = True
+    closing: bool = False
 
 
 def _contains_surrogate(value: str) -> bool:
@@ -109,6 +109,16 @@ def _safe_protocol_text(value: Any, *, strip: bool = True) -> str:
     if not isinstance(value, str) or _contains_surrogate(value):
         return ""
     return value.strip() if strip else value
+
+
+def _safe_exception_message(exc: BaseException) -> str:
+    try:
+        message = _safe_protocol_text(str(exc), strip=False)
+    except Exception:
+        message = ""
+    if message:
+        return message
+    return _safe_protocol_text(type(exc).__name__) or "Exception"
 
 
 def _validate_unicode_scalars(value: Any) -> None:
@@ -228,6 +238,7 @@ class RuntimeWorker:
         self._active_run_by_session: dict[str, str] = {}
         self._seen_run_ids: set[str] = set()
         self._completion_emitted: set[str] = set()
+        self._completion_in_progress: set[str] = set()
         self._cancel_requested_run_ids: set[str] = set()
         self._request_tasks: set[asyncio.Task[None]] = set()
         self._ready = False
@@ -383,11 +394,14 @@ class RuntimeWorker:
         for current in list(self._active_runs.values()):
             self._request_run_cancel(current)
 
-    def _request_run_cancel(self, current: _ActiveRun) -> None:
+    def _request_run_cancel(self, current: _ActiveRun) -> bool:
+        if current.closing:
+            return False
         if current.run_id in self._cancel_requested_run_ids:
-            return
+            return True
         self._cancel_requested_run_ids.add(current.run_id)
         current.handle.request_cancel()
+        return True
 
     def _on_request_task_done(self, task: asyncio.Task[None]) -> None:
         self._request_tasks.discard(task)
@@ -688,7 +702,11 @@ class RuntimeWorker:
         payload: dict[str, Any],
     ) -> None:
         current = self._target_run(request, payload)
-        self._request_run_cancel(current)
+        if not self._request_run_cancel(current):
+            raise WorkerRequestError(
+                "run_closing",
+                f"run is no longer accepting cancellation: {current.run_id}",
+            )
         await self._reply(
             request,
             {"cancelled": True, "session_id": current.job.session_id},
@@ -700,7 +718,7 @@ class RuntimeWorker:
         payload: dict[str, Any],
     ) -> None:
         current = self._target_run(request, payload)
-        if not current.accepting_steering:
+        if current.closing:
             raise WorkerRequestError(
                 "run_closing",
                 f"run is no longer accepting steering: {current.run_id}",
@@ -726,6 +744,11 @@ class RuntimeWorker:
             raise WorkerRequestError("invalid_request", "run_id is required")
         current = self._active_runs.get(run_id)
         if current is None:
+            if run_id in self._seen_run_ids:
+                raise WorkerRequestError(
+                    "run_closing",
+                    f"run is already closing or completed: {run_id}",
+                )
             raise WorkerRequestError("run_not_found", f"active run not found: {run_id}")
         repeated_session_id = str(payload.get("session_id") or "").strip()
         if repeated_session_id and repeated_session_id != current.job.session_id:
@@ -753,16 +776,16 @@ class RuntimeWorker:
             status = "cancelled"
         except Exception as exc:
             status = "error"
-            error_message = str(exc) or type(exc).__name__
+            error_message = _safe_exception_message(exc)
             logger.error(
-                "[RuntimeWorker] turn failed: session_id=%s run_id=%s error=%s",
+                "[RuntimeWorker] turn failed: session_id=%s run_id=%s error_type=%s error=%s",
                 current.job.session_id,
                 current.run_id,
-                exc,
-                exc_info=True,
+                _safe_protocol_text(type(exc).__name__) or "Exception",
+                error_message,
             )
         finally:
-            current.accepting_steering = False
+            current.closing = True
             remaining_steering = current.handle.drain_steering()
             include_remaining_steering = status != "cancelled" and not current.handle.cancelled
             if not include_remaining_steering:
@@ -826,26 +849,33 @@ class RuntimeWorker:
         error_message: str,
         remaining_steering: list[dict[str, str]] | None,
     ) -> None:
-        if current.run_id in self._completion_emitted:
+        if (
+            current.run_id in self._completion_emitted
+            or current.run_id in self._completion_in_progress
+        ):
             return
-        self._completion_emitted.add(current.run_id)
-        payload: dict[str, Any] = {
-            "session_id": current.job.session_id,
-            "status": str(status or "error"),
-        }
-        if error_message:
-            payload["error"] = error_message
-        if remaining_steering is not None:
-            payload["remaining_steering"] = [
-                dict(item)
-                for item in remaining_steering
-            ]
-        await self._send(
-            kind="runtime.turn.completed",
-            payload=payload,
-            reply_to=current.request_message_id,
-            run_id=current.run_id,
-        )
+        self._completion_in_progress.add(current.run_id)
+        try:
+            payload: dict[str, Any] = {
+                "session_id": current.job.session_id,
+                "status": str(status or "error"),
+            }
+            if error_message:
+                payload["error"] = error_message
+            if remaining_steering is not None:
+                payload["remaining_steering"] = [
+                    dict(item)
+                    for item in remaining_steering
+                ]
+            await self._send(
+                kind="runtime.turn.completed",
+                payload=payload,
+                reply_to=current.request_message_id,
+                run_id=current.run_id,
+            )
+            self._completion_emitted.add(current.run_id)
+        finally:
+            self._completion_in_progress.discard(current.run_id)
 
     async def _reply(
         self,
