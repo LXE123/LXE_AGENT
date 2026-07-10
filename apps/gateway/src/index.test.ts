@@ -1,0 +1,22 @@
+import { expect, test } from "bun:test";
+import {
+  ChannelRegistry,
+  HeartbeatWakeQueue,
+  SessionBindingStore,
+  SessionRouter,
+  SessionRuntimeState,
+  SessionScheduler,
+  buildPermissionPolicy,
+  loadProjectEnv,
+} from "./index";
+
+test("the thin Gateway entrypoint exports core modules without starting services", () => {
+  expect(ChannelRegistry).toBeTypeOf("function");
+  expect(HeartbeatWakeQueue).toBeTypeOf("function");
+  expect(SessionBindingStore).toBeTypeOf("function");
+  expect(SessionRouter).toBeTypeOf("function");
+  expect(SessionRuntimeState).toBeTypeOf("function");
+  expect(SessionScheduler).toBeTypeOf("function");
+  expect(buildPermissionPolicy).toBeTypeOf("function");
+  expect(loadProjectEnv).toBeTypeOf("function");
+});
