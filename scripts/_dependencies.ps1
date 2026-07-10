@@ -301,38 +301,35 @@ function Resolve-Uv {
     return $command.Source
 }
 
-function Find-LxeBun {
-    param([switch]$PreferInstallDirectory)
+function Find-LxeBunCandidates {
+    $candidates = @()
+    $command = Get-Command bun -ErrorAction SilentlyContinue
+    if ($null -ne $command -and -not [string]::IsNullOrWhiteSpace([string]$command.Source)) {
+        $candidates += [string]$command.Source
+    }
 
     $bunRoot = [string]$env:BUN_INSTALL
     if ([string]::IsNullOrWhiteSpace($bunRoot)) {
         $bunRoot = Join-Path (Get-LxeUserHome) ".bun"
     }
     $bunBin = Join-Path $bunRoot "bin"
-    $installedCandidates = @(@("bun.exe", "bun") | ForEach-Object { Join-Path $bunBin $_ })
-
-    if ($PreferInstallDirectory) {
-        foreach ($candidate in $installedCandidates) {
-            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-                Add-LxePathEntry -Path $bunBin
-                return $candidate
+    foreach ($candidate in @(@("bun.exe", "bun") | ForEach-Object { Join-Path $bunBin $_ })) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            Add-LxePathEntry -Path $bunBin
+            $alreadyAdded = $false
+            foreach ($existing in $candidates) {
+                if ([string]::Equals($existing, $candidate, [StringComparison]::OrdinalIgnoreCase)) {
+                    $alreadyAdded = $true
+                    break
+                }
+            }
+            if (-not $alreadyAdded) {
+                $candidates += $candidate
             }
         }
     }
 
-    $command = Get-Command bun -ErrorAction SilentlyContinue
-    if ($null -ne $command) {
-        return $command.Source
-    }
-
-    foreach ($candidate in $installedCandidates) {
-        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
-            Add-LxePathEntry -Path $bunBin
-            return $candidate
-        }
-    }
-
-    return ""
+    return $candidates
 }
 
 function Get-LxeBunVersion {
@@ -355,19 +352,25 @@ function Resolve-Bun {
         [switch]$InstallIfMissing
     )
 
-    $bunPath = Find-LxeBun
-    if (-not [string]::IsNullOrWhiteSpace($bunPath)) {
-        $installedVersion = Get-LxeBunVersion -BunPath $bunPath
+    $foundVersions = @()
+    foreach ($candidate in @(Find-LxeBunCandidates)) {
+        $installedVersion = Get-LxeBunVersion -BunPath $candidate
         if ([string]::Equals($installedVersion, $Version, [StringComparison]::Ordinal)) {
-            return $bunPath
+            return $candidate
         }
-        if (-not $InstallIfMissing) {
-            throw "Bun $Version is required; found $installedVersion at $bunPath."
+        if (-not [string]::IsNullOrWhiteSpace($installedVersion)) {
+            $foundVersions += "$installedVersion at $candidate"
         }
-        Write-Host "Bun $installedVersion is installed; replacing it with pinned Bun $Version."
     }
-    elseif (-not $InstallIfMissing) {
+
+    if (-not $InstallIfMissing) {
+        if ($foundVersions.Count -gt 0) {
+            throw "Bun $Version is required; found $($foundVersions -join ', ')."
+        }
         throw "Bun $Version is required but is not available on PATH or in the default Bun installation directory."
+    }
+    if ($foundVersions.Count -gt 0) {
+        Write-Host "Replacing available Bun version(s) with pinned Bun $Version`: $($foundVersions -join ', ')"
     }
 
     if ($env:OS -ne "Windows_NT") {
@@ -392,15 +395,20 @@ function Resolve-Bun {
         }
     }
 
-    $bunPath = Find-LxeBun -PreferInstallDirectory
-    if ([string]::IsNullOrWhiteSpace($bunPath)) {
-        throw "Bun installation finished, but Bun $Version is not available."
+    $foundVersions = @()
+    foreach ($candidate in @(Find-LxeBunCandidates)) {
+        $installedVersion = Get-LxeBunVersion -BunPath $candidate
+        if ([string]::Equals($installedVersion, $Version, [StringComparison]::Ordinal)) {
+            return $candidate
+        }
+        if (-not [string]::IsNullOrWhiteSpace($installedVersion)) {
+            $foundVersions += "$installedVersion at $candidate"
+        }
     }
-    $installedVersion = Get-LxeBunVersion -BunPath $bunPath
-    if (-not [string]::Equals($installedVersion, $Version, [StringComparison]::Ordinal)) {
-        throw "Bun installation finished, but Bun $Version is not available. Found $installedVersion at $bunPath."
+    if ($foundVersions.Count -gt 0) {
+        throw "Bun installation finished, but Bun $Version is not available. Found $($foundVersions -join ', ')."
     }
-    return $bunPath
+    throw "Bun installation finished, but Bun $Version is not available."
 }
 
 function Find-LxeGit {

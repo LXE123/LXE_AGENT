@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -49,11 +51,56 @@ def test_windows_dependency_helper_installs_and_verifies_exact_bun() -> None:
     helper = _read(SCRIPTS / "_dependencies.ps1")
 
     assert "function Resolve-Bun" in helper
+    assert "function Find-LxeBunCandidates" in helper
     assert "https://bun.sh/install.ps1" in helper
     assert '@("-Version", $Version' in helper
-    assert "$bunPath = Find-LxeBun -PreferInstallDirectory" in helper
+    assert "foreach ($candidate in @(Find-LxeBunCandidates))" in helper
     assert 'throw "Bun $Version is required' in helper
     assert 'throw "Bun installation finished, but Bun $Version is not available.' in helper
+
+
+def test_windows_resolver_prefers_exact_install_candidate_over_older_path() -> None:
+    powershell = (
+        os.environ.get("LXE_TEST_POWERSHELL")
+        or shutil.which("pwsh")
+        or shutil.which("powershell")
+    )
+    if not powershell:
+        pytest.skip("PowerShell is required for the behavioral resolver test")
+
+    helper_path = str(SCRIPTS / "_dependencies.ps1").replace("'", "''")
+    behavior_probe = f"""
+. '{helper_path}'
+
+function Find-LxeBun {{
+    return 'C:\\path-bun\\bun.exe'
+}}
+
+function Find-LxeBunCandidates {{
+    return @('C:\\path-bun\\bun.exe', 'C:\\install-bun\\bun.exe')
+}}
+
+function Get-LxeBunVersion {{
+    param([Parameter(Mandatory = $true)][string]$BunPath)
+    if ($BunPath -eq 'C:\\install-bun\\bun.exe') {{
+        return '1.3.14'
+    }}
+    return '1.2.0'
+}}
+
+$resolved = Resolve-Bun -Version '1.3.14'
+if ($resolved -ne 'C:\\install-bun\\bun.exe') {{
+    throw "Expected exact install candidate, got: $resolved"
+}}
+"""
+    result = subprocess.run(
+        [powershell, "-NoLogo", "-NoProfile", "-Command", behavior_probe],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize(
