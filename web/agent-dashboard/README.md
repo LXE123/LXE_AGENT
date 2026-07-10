@@ -6,28 +6,27 @@
 
 ## 环境要求
 
-- Node.js `20.19+`、`22.12+` 或 `23+`
-- npm
+- Bun `1.3.14`
 - 主项目 Python 环境仍按根目录要求使用 `uv + Python 3.12.10`
 
-Windows 用户通常不需要手动准备 Node.js；一键安装和 `scripts/webui.ps1` 会尝试发现或安装合适的 Node.js LTS。
+Windows 用户通常不需要手动准备 Bun；一键安装和 `scripts/webui.ps1` 会尝试发现或安装固定版本 Bun `1.3.14`。
 
 ## 安装依赖
 
-在本目录运行：
+在项目根目录运行：
 
 ```bash
-npm ci
+bun install --frozen-lockfile
 ```
 
-不要手动编辑 `node_modules`。依赖版本以 `package-lock.json` 为准。
+不要手动编辑 `node_modules`。所有前端工作区的依赖版本以根目录 `bun.lock` 为准。
 
 ## 本地开发
 
 启动 Vite 开发服务器：
 
 ```bash
-npm run dev
+bun run --cwd web/agent-dashboard dev
 ```
 
 默认访问：
@@ -61,7 +60,7 @@ AGENT_DASHBOARD_PORT=8765 AGENT_DASHBOARD_PORT_AUTO_FALLBACK=0 uv run --frozen p
 生产构建：
 
 ```bash
-npm run build
+bun run dashboard:build
 ```
 
 这个命令会先运行 TypeScript 编译，再执行 Vite build。输出目录是：
@@ -77,7 +76,7 @@ web/agent-dashboard/dist/
 如果只是想检查构建后的静态页面，可以运行：
 
 ```bash
-npm run preview
+bun run --cwd web/agent-dashboard preview
 ```
 
 `preview` 只预览前端构建产物，不等价于完整 Dashboard。真实 API、会话数据、模型切换、文档读取等能力仍需要后端 gateway/dashboard。
@@ -93,7 +92,7 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\webui.ps1" -EnsureBuilt
 ```
 
 - `-Build`：安装依赖并构建 WebUI。
-- `-CheckOnly`：检查 Node.js、WebUI 源文件和 `dist/index.html` 是否存在。
+- `-CheckOnly`：检查 Bun `1.3.14`、根工作区锁、WebUI 源文件和 `dist/index.html` 是否存在。
 - `-EnsureBuilt`：如果已有构建则检查；没有构建则自动构建。
 
 一键安装和更新脚本也会调用这个 WebUI 构建流程。
@@ -105,8 +104,8 @@ powershell -ExecutionPolicy Bypass -File ".\scripts\webui.ps1" -EnsureBuilt
 说明 WebUI 还没有构建。运行：
 
 ```bash
-npm ci
-npm run build
+bun install --frozen-lockfile
+bun run dashboard:build
 ```
 
 或在 Windows 上运行：
@@ -115,19 +114,18 @@ npm run build
 powershell -ExecutionPolicy Bypass -File ".\scripts\webui.ps1" -Build
 ```
 
-### Node.js 版本不支持
+### Bun 版本不支持
 
 如果脚本提示：
 
 ```text
-Node.js 20.19+, 22.12+, or 23+ with npm is required for Dashboard UI.
+Bun 1.3.14 is required but is not available.
 ```
 
-请安装满足版本要求的 Node.js LTS，并重新打开终端确认：
+请安装固定版本 Bun `1.3.14`，并重新打开终端确认：
 
 ```bash
-node -v
-npm -v
+bun --version
 ```
 
 ### Vite 页面能打开，但 API 失败
@@ -142,4 +140,4 @@ AGENT_DASHBOARD_PORT=8765 AGENT_DASHBOARD_PORT_AUTO_FALLBACK=0 uv run --frozen p
 
 ### 构建出现 Mermaid chunk size warning
 
-`npm run build` 可能提示 Mermaid 相关 chunk 超过 500 kB。这是 Vite 的包体积提示，不等于构建失败。只要命令退出码为 0，并生成了 `dist/index.html`，构建就是可用的。
+`bun run dashboard:build` 可能提示 Mermaid 相关 chunk 超过 500 kB。这是 Vite 的包体积提示，不等于构建失败。只要命令退出码为 0，并生成了 `dist/index.html`，构建就是可用的。

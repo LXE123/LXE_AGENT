@@ -6,6 +6,7 @@ REF="main"
 INSTALL_DIR=""
 NO_PATH=0
 PYTHON_VERSION="3.12.10"
+BUN_VERSION="1.3.14"
 PROJECT_NAME="lxe-agent"
 LAUNCHER_DIR="$HOME/.lxe/bin"
 LAUNCHER_PATH="$LAUNCHER_DIR/LXE"
@@ -143,59 +144,45 @@ get_project_root() {
   printf '%s\n' "$target"
 }
 
-node_supported() {
-  command -v node >/dev/null 2>&1 || return 1
-  node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 20 && minor >= 19) || (major === 22 && minor >= 12) || major > 22 ? 0 : 1)'
+load_bun_path() {
+  export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+  export PATH="$BUN_INSTALL/bin:$PATH"
 }
 
-load_nvm() {
-  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-  if [[ -s "$NVM_DIR/nvm.sh" ]]; then
-    # shellcheck disable=SC1090
-    . "$NVM_DIR/nvm.sh"
-  fi
+bun_supported() {
+  command -v bun >/dev/null 2>&1 || return 1
+  [[ "$(bun --version)" == "$BUN_VERSION" ]]
 }
 
-ensure_node() {
-  if node_supported && command -v npm >/dev/null 2>&1; then
-    echo "Using Node.js $(node --version)"
-    echo "Using npm $(npm --version)"
+ensure_bun() {
+  load_bun_path
+  if bun_supported; then
+    echo "Using Bun $(bun --version)"
     return
   fi
 
-  load_nvm
-  if ! command -v nvm >/dev/null 2>&1; then
-    echo "nvm not found. Installing nvm..."
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-    load_nvm
-  fi
-  if ! command -v nvm >/dev/null 2>&1; then
-    echo "nvm installation finished, but nvm is still unavailable." >&2
+  echo "Bun $BUN_VERSION is not available. Installing the pinned version..."
+  curl -fsSL https://bun.sh/install | bash -s -- "bun-v$BUN_VERSION"
+  load_bun_path
+  if ! bun_supported; then
+    echo "Bun installation finished, but Bun $BUN_VERSION is not available." >&2
     exit 1
   fi
-
-  nvm install --lts
-  nvm use --lts
-
-  if ! node_supported || ! command -v npm >/dev/null 2>&1; then
-    echo "Node.js 20.19+, 22.12+, or 23+ with npm is required for Dashboard UI." >&2
-    exit 1
-  fi
-  echo "Using Node.js $(node --version)"
-  echo "Using npm $(npm --version)"
+  echo "Using Bun $(bun --version)"
 }
 
 build_dashboard() {
   local project_root="$1"
   local dashboard_dir="$project_root/web/agent-dashboard"
+  [[ -f "$project_root/package.json" ]] || { echo "Root package.json missing: $project_root" >&2; exit 1; }
+  [[ -f "$project_root/bun.lock" ]] || { echo "Root bun.lock missing: $project_root" >&2; exit 1; }
   [[ -f "$dashboard_dir/package.json" ]] || { echo "Dashboard package.json missing: $dashboard_dir" >&2; exit 1; }
-  [[ -f "$dashboard_dir/package-lock.json" ]] || { echo "Dashboard package-lock.json missing: $dashboard_dir" >&2; exit 1; }
 
-  ensure_node
+  ensure_bun
   (
-    cd "$dashboard_dir"
-    npm ci
-    npm run build
+    cd "$project_root"
+    bun install --frozen-lockfile
+    bun run dashboard:build
   )
   [[ -f "$dashboard_dir/dist/index.html" ]] || { echo "Dashboard UI build did not produce dist/index.html" >&2; exit 1; }
 }

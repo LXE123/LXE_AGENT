@@ -301,6 +301,108 @@ function Resolve-Uv {
     return $command.Source
 }
 
+function Find-LxeBun {
+    param([switch]$PreferInstallDirectory)
+
+    $bunRoot = [string]$env:BUN_INSTALL
+    if ([string]::IsNullOrWhiteSpace($bunRoot)) {
+        $bunRoot = Join-Path (Get-LxeUserHome) ".bun"
+    }
+    $bunBin = Join-Path $bunRoot "bin"
+    $installedCandidates = @(@("bun.exe", "bun") | ForEach-Object { Join-Path $bunBin $_ })
+
+    if ($PreferInstallDirectory) {
+        foreach ($candidate in $installedCandidates) {
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+                Add-LxePathEntry -Path $bunBin
+                return $candidate
+            }
+        }
+    }
+
+    $command = Get-Command bun -ErrorAction SilentlyContinue
+    if ($null -ne $command) {
+        return $command.Source
+    }
+
+    foreach ($candidate in $installedCandidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            Add-LxePathEntry -Path $bunBin
+            return $candidate
+        }
+    }
+
+    return ""
+}
+
+function Get-LxeBunVersion {
+    param([Parameter(Mandatory = $true)][string]$BunPath)
+
+    $versionResult = Invoke-LxeNativeCapture -FilePath $BunPath -Arguments @("--version")
+    if ($versionResult.ExitCode -ne 0) {
+        Write-LxeNativeResultOutput -Result $versionResult
+        return ""
+    }
+    foreach ($line in @($versionResult.Stderr)) {
+        Write-Host $line
+    }
+    return ($versionResult.Stdout -join "`n").Trim()
+}
+
+function Resolve-Bun {
+    param(
+        [Parameter(Mandatory = $true)][string]$Version,
+        [switch]$InstallIfMissing
+    )
+
+    $bunPath = Find-LxeBun
+    if (-not [string]::IsNullOrWhiteSpace($bunPath)) {
+        $installedVersion = Get-LxeBunVersion -BunPath $bunPath
+        if ([string]::Equals($installedVersion, $Version, [StringComparison]::Ordinal)) {
+            return $bunPath
+        }
+        if (-not $InstallIfMissing) {
+            throw "Bun $Version is required; found $installedVersion at $bunPath."
+        }
+        Write-Host "Bun $installedVersion is installed; replacing it with pinned Bun $Version."
+    }
+    elseif (-not $InstallIfMissing) {
+        throw "Bun $Version is required but is not available on PATH or in the default Bun installation directory."
+    }
+
+    if ($env:OS -ne "Windows_NT") {
+        throw "Automatic Bun installation from the PowerShell dependency helper is only supported on Windows. Install Bun $Version and rerun this script."
+    }
+
+    Write-Host "Installing pinned Bun $Version with the official installer..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-bun-installer-" + [Guid]::NewGuid().ToString("N"))
+    $bunInstaller = Join-Path $tempRoot "install-bun.ps1"
+    New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+    try {
+        Invoke-WebRequest -Uri https://bun.sh/install.ps1 -OutFile $bunInstaller
+        $bunInstallExit = Invoke-PowerShellFile -ScriptPath $bunInstaller -Arguments @("-Version", $Version, "-NoCompletions")
+        if ($bunInstallExit -ne 0) {
+            throw "Bun $Version installer failed with exit code $bunInstallExit."
+        }
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force
+        }
+    }
+
+    $bunPath = Find-LxeBun -PreferInstallDirectory
+    if ([string]::IsNullOrWhiteSpace($bunPath)) {
+        throw "Bun installation finished, but Bun $Version is not available."
+    }
+    $installedVersion = Get-LxeBunVersion -BunPath $bunPath
+    if (-not [string]::Equals($installedVersion, $Version, [StringComparison]::Ordinal)) {
+        throw "Bun installation finished, but Bun $Version is not available. Found $installedVersion at $bunPath."
+    }
+    return $bunPath
+}
+
 function Find-LxeGit {
     $command = Get-Command git -ErrorAction SilentlyContinue
     if ($null -ne $command) {
