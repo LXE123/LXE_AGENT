@@ -391,4 +391,45 @@ describe("WorkerClient", () => {
     await tick();
     expect(logs).toEqual(["INFO 中文 log", "continued"]);
   });
+
+  test("deliberate close rejects and removes every unrelated pending RPC exactly once", async () => {
+    const process = new FakeWorkerProcess();
+    const fatals: Error[] = [];
+    const client = new WorkerClient({ process, onFatal: (error) => fatals.push(error) });
+    client.start();
+    let settlements = 0;
+    const dashboard = client.request("dashboard.query", { operation: "session.get" }).catch((error) => {
+      settlements += 1;
+      return error;
+    });
+    const maintenance = client.request("maintenance.run", { operation: "data_server_sync" }).catch(
+      (error) => {
+        settlements += 1;
+        return error;
+      },
+    );
+    await tick();
+
+    client.closeStdin();
+    expect(await dashboard).toBeInstanceOf(Error);
+    expect(await maintenance).toBeInstanceOf(Error);
+    await tick();
+    expect(settlements).toBe(2);
+    expect(fatals).toEqual([]);
+  });
+
+  test("treats a whitespace-only stdout line as pollution", async () => {
+    const process = new FakeWorkerProcess();
+    const fatals: Error[] = [];
+    const client = new WorkerClient({ process, onFatal: (error) => fatals.push(error) });
+    client.start();
+    const request = client.request("health", {}).catch((error: unknown) => error);
+    await tick();
+    process.emitRaw("  \t\r\n");
+
+    const outcome = await Promise.race([request, Bun.sleep(50).then(() => "timeout")]);
+    expect(outcome).toBeInstanceOf(Error);
+    expect(fatals[0]?.message).toContain("whitespace");
+    process.exit();
+  });
 });

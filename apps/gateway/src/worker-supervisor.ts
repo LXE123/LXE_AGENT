@@ -70,6 +70,7 @@ export interface WorkerSupervisorOptions {
   onTyping?: (event: WorkerEnvelope) => void | Promise<void>;
   onHeartbeatWake?: (event: WorkerEnvelope) => void | Promise<void>;
   onRunFailure?: (handle: RunHandle, error: Error) => void;
+  onObserverError?: (error: Error) => void;
 }
 
 interface WorkerGeneration {
@@ -88,10 +89,12 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
   private current: WorkerGeneration | undefined;
   private generationCounter = 0;
   private restartTask: Promise<void> | undefined;
-  private startTask: Promise<void> | undefined;
+  private connectionTask: Promise<void> | undefined;
   private stopping = false;
   private ready = false;
+  private runtimePid: number | undefined;
   private readonly activeRuns = new Map<string, RunHandle>();
+  private readonly terminalizedRuns = new Set<string>();
 
   constructor(private readonly options: WorkerSupervisorOptions) {
     this.restartDelay = options.restartDelay ?? sleep;
@@ -108,22 +111,21 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
     return this.current?.process.pid;
   }
 
+  get runtimeWorkerPid(): number | undefined {
+    return this.runtimePid;
+  }
+
   start(): Promise<void> {
     if (this.stopping) return Promise.reject(new Error("worker supervisor is stopping"));
     if (this.ready) return Promise.resolve();
-    if (this.startTask) return this.startTask;
-    this.options.scheduler.setRuntimeReady(false);
-    const task = this.connect().finally(() => {
-      if (this.startTask === task) this.startTask = undefined;
-    });
-    this.startTask = task;
-    return task;
+    this.markRuntimeUnready();
+    return this.ensureConnected();
   }
 
   async stop(): Promise<void> {
     if (this.stopping) return;
     this.stopping = true;
-    this.setReady(false);
+    this.markRuntimeUnready();
     this.failActiveRuns(new Error("worker supervisor stopped"));
     const generation = this.current;
     if (!generation) return;
@@ -133,6 +135,7 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
       return;
     }
     this.current = undefined;
+    this.runtimePid = undefined;
 
     const shutdownReply = generation.client.request("worker.shutdown", {});
     const shutdownObserved = shutdownReply.catch(() => undefined);
@@ -159,14 +162,12 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
   failActiveRuns(error: Error): void {
     const affected = [...this.activeRuns.values()];
     this.activeRuns.clear();
-    for (const handle of affected) {
-      if (!this.options.scheduler.terminateActiveRun(handle.runId, handle.sessionId)) continue;
-      this.options.onRunFailure?.(handle, error);
-    }
+    for (const handle of affected) this.terminalizeRun(handle, error);
   }
 
   async startTurn(job: AgentJob, handle: RunHandle): Promise<void> {
     this.assertReady();
+    this.terminalizedRuns.delete(handle.runId);
     this.activeRuns.set(handle.runId, handle);
     try {
       const result = await this.runtimeRequest("turn.start", job as unknown as JsonObject, handle.runId);
@@ -174,10 +175,8 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
     } catch (error) {
       if (this.activeRuns.get(handle.runId) === handle) {
         this.activeRuns.delete(handle.runId);
-        if (this.options.scheduler.terminateActiveRun(handle.runId, handle.sessionId)) {
-          const failure = error instanceof Error ? error : new Error(String(error));
-          this.options.onRunFailure?.(handle, failure);
-        }
+        const failure = error instanceof Error ? error : new Error(String(error));
+        this.terminalizeRun(handle, failure);
       }
       throw error;
     }
@@ -274,8 +273,8 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
     let generation!: WorkerGeneration;
     const client = new WorkerClient({
       process,
-      onEvent: (event) => this.handleEvent(id, event),
-      onFatal: (error) => this.handleFatal(id, error),
+      onEvent: (event) => this.handleEvent(generation, event),
+      onFatal: (error) => this.handleFatal(generation, error),
       ...(this.options.logStderr ? { logStderr: this.options.logStderr } : {}),
     });
     generation = { id, process, client, failed: false };
@@ -284,10 +283,11 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
     try {
       const hello = await client.request("worker.hello", {});
       this.validateHello(hello);
+      this.runtimePid = Number(hello.worker_pid);
       const health = await client.request("health", {});
       if (health.ready !== true) throw new Error("worker health is not ready");
       if (this.current !== generation || this.stopping) throw new Error("worker startup was superseded");
-      this.setReady(true);
+      this.markRuntimeReady();
     } catch (cause) {
       const error = cause instanceof Error ? cause : new Error(String(cause));
       await this.failGeneration(generation, error);
@@ -297,6 +297,9 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
 
   private validateHello(payload: JsonObject): void {
     if (payload.protocol_version !== "1") throw new Error("worker protocol version mismatch");
+    if (!Number.isInteger(payload.worker_pid) || Number(payload.worker_pid) <= 0) {
+      throw new Error("worker pid is invalid");
+    }
     const capabilities = objectValue(payload.capabilities);
     if (!capabilities) throw new Error("worker capabilities are missing");
     this.requireCapabilities("request", stringArray(capabilities.request_kinds), REQUIRED_REQUEST_KINDS);
@@ -322,38 +325,64 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
     if (missing.length > 0) throw new Error(`worker ${label} capabilities missing: ${missing.join(", ")}`);
   }
 
-  private async handleEvent(generationId: number, event: WorkerEnvelope): Promise<void> {
-    if (this.current?.id !== generationId) return;
+  private async handleEvent(generation: WorkerGeneration, event: WorkerEnvelope): Promise<void> {
+    if (this.current !== generation) return;
     if (event.kind === "runtime.emit") return this.options.onEmit?.(event);
     if (event.kind === "runtime.typing") return this.options.onTyping?.(event);
     if (event.kind === "runtime.heartbeat_wake") return this.options.onHeartbeatWake?.(event);
     if (event.kind === "runtime.turn.completed") {
+      const runId = String(event.run_id ?? "").trim();
+      if (this.terminalizedRuns.has(runId)) return;
+      const handle = this.activeRuns.get(runId);
+      if (!runId || !handle) throw new Error(`completion references unknown run: ${runId || "<empty>"}`);
+      const sessionId = String(event.payload.session_id ?? "").trim();
+      if (sessionId !== handle.sessionId) {
+        throw new Error(`completion session mismatch for run ${runId}`);
+      }
+      const jobId = String(event.payload.job_id ?? "").trim();
+      if (jobId && jobId !== handle.jobId) throw new Error(`completion job mismatch for run ${runId}`);
+      const status = String(event.payload.status ?? "").trim();
+      if (!new Set(["completed", "cancelled", "error"]).has(status)) {
+        throw new Error(`completion status is invalid for run ${runId}: ${status}`);
+      }
       const accepted = this.options.scheduler.handleRuntimeEvent(event);
-      if (accepted && event.run_id) this.activeRuns.delete(event.run_id);
+      if (!accepted) throw new Error(`scheduler rejected completion for active run: ${runId}`);
+      this.activeRuns.delete(runId);
       return;
     }
     throw new Error(`unsupported runtime event: ${event.kind}`);
   }
 
-  private handleFatal(generationId: number, error: Error): void {
-    const generation = this.current;
-    if (!generation || generation.id !== generationId) return;
+  private handleFatal(generation: WorkerGeneration, error: Error): void {
     void this.failGeneration(generation, error).catch(() => undefined);
   }
 
   private failGeneration(generation: WorkerGeneration, error: Error): Promise<void> {
     if (generation.cleanup) return generation.cleanup;
-    if (this.current !== generation) return Promise.resolve();
     generation.failed = true;
-    this.setReady(false);
-    this.failActiveRuns(error);
-    generation.client.expectExit();
+    let releaseCleanup!: () => void;
+    const observerGate = new Promise<void>((resolve) => {
+      releaseCleanup = resolve;
+    });
     generation.cleanup = (async () => {
+      await observerGate;
+      generation.client.expectExit();
       await generation.process.forceKill();
       await generation.process.exited;
-      if (this.current === generation) this.current = undefined;
+      if (this.current === generation) {
+        this.current = undefined;
+        this.runtimePid = undefined;
+      }
       if (!this.stopping) this.scheduleRestart();
     })();
+    try {
+      if (this.current === generation) {
+        this.markRuntimeUnready();
+        this.failActiveRuns(error);
+      }
+    } finally {
+      releaseCleanup();
+    }
     return generation.cleanup;
   }
 
@@ -369,7 +398,7 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
       await this.restartDelay(this.restartDelayMs);
       if (this.stopping || this.ready) return;
       try {
-        await this.connect();
+        await this.ensureConnected();
         return;
       } catch {
         // A new full delay is required after every failed generation.
@@ -377,9 +406,70 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
     }
   }
 
-  private setReady(ready: boolean): void {
-    this.ready = ready;
-    this.options.scheduler.setRuntimeReady(ready);
+  private ensureConnected(): Promise<void> {
+    if (this.stopping) return Promise.reject(new Error("worker supervisor is stopping"));
+    if (this.ready) return Promise.resolve();
+    if (this.connectionTask) return this.connectionTask;
+    const task = (async () => {
+      const failedGeneration = this.current?.failed ? this.current : undefined;
+      if (failedGeneration?.cleanup) await failedGeneration.cleanup;
+      if (this.stopping) throw new Error("worker supervisor is stopping");
+      if (this.ready) return;
+      await this.connect();
+    })().finally(() => {
+      if (this.connectionTask === task) this.connectionTask = undefined;
+    });
+    this.connectionTask = task;
+    return task;
+  }
+
+  private markRuntimeReady(): void {
+    this.ready = true;
+    try {
+      this.options.scheduler.setRuntimeReady(true);
+    } catch (cause) {
+      this.ready = false;
+      throw cause;
+    }
+  }
+
+  private markRuntimeUnready(): void {
+    this.ready = false;
+    try {
+      this.options.scheduler.setRuntimeReady(false);
+    } catch (cause) {
+      this.reportObserverError(cause);
+    }
+  }
+
+  private terminalizeRun(handle: RunHandle, error: Error): void {
+    this.rememberTerminalized(handle.runId);
+    try {
+      this.options.scheduler.terminateActiveRun(handle.runId, handle.sessionId);
+    } catch (cause) {
+      this.reportObserverError(cause);
+    }
+    try {
+      this.options.onRunFailure?.(handle, error);
+    } catch (cause) {
+      this.reportObserverError(cause);
+    }
+  }
+
+  private rememberTerminalized(runId: string): void {
+    this.terminalizedRuns.add(runId);
+    if (this.terminalizedRuns.size <= 10_000) return;
+    const oldest = this.terminalizedRuns.values().next().value;
+    if (typeof oldest === "string") this.terminalizedRuns.delete(oldest);
+  }
+
+  private reportObserverError(cause: unknown): void {
+    const error = cause instanceof Error ? cause : new Error(String(cause));
+    try {
+      this.options.onObserverError?.(error);
+    } catch {
+      // Observer reporting is also isolated from process cleanup.
+    }
   }
 
   private assertReady(): WorkerClient {

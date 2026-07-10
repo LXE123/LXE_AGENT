@@ -101,8 +101,8 @@ describe("runtime worker process adapter", () => {
 
       const shutdown = client.request("worker.shutdown", {});
       await client.flushWrites();
-      client.closeStdin();
       expect((await withTimeout(shutdown, 5_000)).shutting_down).toBe(true);
+      client.closeStdin();
       expect(await withTimeout(worker.exited, 5_000)).toBe(0);
     } finally {
       if (pidExists(worker.pid)) await worker.forceKill();

@@ -55,10 +55,13 @@ class RecordingScheduler implements SupervisorSchedulerPort {
   readonly calls: string[] = [];
   ready = false;
   completionResult = true;
+  throwOnUnready = false;
+  throwTerminateRuns = new Set<string>();
 
   setRuntimeReady(ready: boolean): void {
     this.ready = ready;
     this.calls.push(`ready:${ready}`);
+    if (!ready && this.throwOnUnready) throw new Error("ready observer failed");
   }
 
   handleRuntimeEvent(event: { kind: string; run_id?: string | null; payload: JsonObject }): boolean {
@@ -68,6 +71,7 @@ class RecordingScheduler implements SupervisorSchedulerPort {
 
   terminateActiveRun(runId: string, sessionId?: string): boolean {
     this.calls.push(`terminate:${runId}:${sessionId ?? ""}`);
+    if (this.throwTerminateRuns.has(runId)) throw new Error(`terminate failed: ${runId}`);
     return true;
   }
 }
@@ -111,6 +115,25 @@ const job = (id = "run-1", sessionId = "session-1"): AgentJob => ({
 });
 
 describe("WorkerSupervisor handshake", () => {
+  test("stop during an unanswered hello rejects startup and does not hang", async () => {
+    const scheduler = new RecordingScheduler();
+    const process = new ScriptedWorkerProcess(7088, (request, current) => {
+      if (request.kind === "worker.shutdown") current.reply(request, { shutting_down: true });
+    });
+    const supervisor = new WorkerSupervisor({ spawn: () => process, scheduler });
+    const starting = supervisor.start().catch((error: unknown) => error);
+    await Bun.sleep(0);
+    const stopping = supervisor.stop();
+
+    const [startResult, stopResult] = await Promise.race([
+      Promise.all([starting, stopping]),
+      Bun.sleep(100).then(() => ["timeout", "timeout"]),
+    ]);
+    expect(startResult).toBeInstanceOf(Error);
+    expect(stopResult).toBeUndefined();
+    expect(process.stdinClosed).toBe(true);
+  });
+
   test("coalesces concurrent start calls into one live worker", async () => {
     const scheduler = new RecordingScheduler();
     let releaseHello!: () => void;
@@ -504,6 +527,135 @@ describe("WorkerSupervisor adapters and failure semantics", () => {
     await Bun.sleep(0);
     await Bun.sleep(0);
     expect(spawnCount).toBe(2);
+    await supervisor.stop();
+  });
+
+  test("observer failures cannot skip remaining runs, process cleanup, or restart", async () => {
+    const scheduler = new RecordingScheduler();
+    const process = new ScriptedWorkerProcess(7030, healthyHandler, false);
+    const restartWaiters: Array<() => void> = [];
+    const failureCalls: string[] = [];
+    const supervisor = new WorkerSupervisor({
+      spawn: () => process,
+      scheduler,
+      restartDelay: () => new Promise((resolve) => restartWaiters.push(resolve)),
+      onRunFailure: (handle) => {
+        failureCalls.push(handle.runId);
+        if (handle.runId === "run-1") throw new Error("failure observer failed");
+      },
+    });
+    await supervisor.start();
+    await supervisor.startTurn(job("run-1", "session-1"), new RunHandle(job("run-1", "session-1")));
+    await supervisor.startTurn(job("run-2", "session-2"), new RunHandle(job("run-2", "session-2")));
+    scheduler.throwOnUnready = true;
+    scheduler.throwTerminateRuns.add("run-1");
+    scheduler.calls.length = 0;
+
+    process.emit({
+      protocol_version: "1",
+      message_id: "bad-sequence",
+      reply_to: null,
+      run_id: null,
+      seq: 99,
+      kind: "runtime.emit",
+      payload: {},
+    });
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+
+    expect(scheduler.calls[0]).toBe("ready:false");
+    expect(scheduler.calls).toContain("terminate:run-1:session-1");
+    expect(scheduler.calls).toContain("terminate:run-2:session-2");
+    expect(failureCalls).toEqual(["run-1", "run-2"]);
+    expect(process.forceKills).toBe(1);
+    expect(restartWaiters).toHaveLength(1);
+    await supervisor.stop();
+  });
+
+  test("manual start during restart delay shares the next connection attempt", async () => {
+    const scheduler = new RecordingScheduler();
+    const restartWaiters: Array<() => void> = [];
+    const processes = [
+      new ScriptedWorkerProcess(7040, healthyHandler),
+      new ScriptedWorkerProcess(7041, healthyHandler),
+      new ScriptedWorkerProcess(7042, healthyHandler),
+    ];
+    let spawnCount = 0;
+    const supervisor = new WorkerSupervisor({
+      spawn: () => processes[spawnCount++]!,
+      scheduler,
+      restartDelay: () => new Promise((resolve) => restartWaiters.push(resolve)),
+    });
+    await supervisor.start();
+    processes[0]!.exit(9);
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+    expect(restartWaiters).toHaveLength(1);
+
+    restartWaiters[0]!();
+    const manualStart = supervisor.start();
+    await manualStart;
+    expect(spawnCount).toBe(2);
+    expect(supervisor.workerPid).toBe(7041);
+    await Bun.sleep(0);
+    await Bun.sleep(0);
+
+    expect(spawnCount).toBe(2);
+    expect(supervisor.workerPid).toBe(7041);
+    expect(processes[1]!.forceKills).toBe(0);
+    await supervisor.stop();
+  });
+
+  test.each(["mismatched session", "invalid status", "scheduler rejection", "unknown run"])(
+    "treats %s completion as a fatal inconsistency",
+    async (failureKind) => {
+      const scheduler = new RecordingScheduler();
+      const process = new ScriptedWorkerProcess(7050, healthyHandler);
+      const supervisor = new WorkerSupervisor({
+        spawn: () => process,
+        scheduler,
+        restartDelay: () => new Promise(() => undefined),
+      });
+      await supervisor.start();
+      const handle = new RunHandle(job());
+      await supervisor.startTurn(handle.originJob, handle);
+      if (failureKind === "scheduler rejection") scheduler.completionResult = false;
+      process.event(
+        "runtime.turn.completed",
+        {
+          session_id: failureKind === "mismatched session" ? "wrong" : handle.sessionId,
+          job_id: handle.jobId,
+          status: failureKind === "invalid status" ? "future" : "completed",
+        },
+        failureKind === "unknown run" ? "unknown" : handle.runId,
+      );
+      await Bun.sleep(0);
+      await Bun.sleep(0);
+      expect(supervisor.isReady).toBe(false);
+      expect(process.forceKills).toBe(1);
+      await supervisor.stop();
+    },
+  );
+
+  test("ignores a late completion only after explicit terminalization", async () => {
+    const scheduler = new RecordingScheduler();
+    const process = new ScriptedWorkerProcess(7060, healthyHandler);
+    const supervisor = new WorkerSupervisor({ spawn: () => process, scheduler });
+    await supervisor.start();
+    const handle = new RunHandle(job());
+    await supervisor.startTurn(handle.originJob, handle);
+    supervisor.failActiveRuns(new Error("explicit terminalization"));
+    scheduler.calls.length = 0;
+    process.event(
+      "runtime.turn.completed",
+      { session_id: handle.sessionId, job_id: handle.jobId, status: "cancelled" },
+      handle.runId,
+    );
+    await Bun.sleep(0);
+
+    expect(supervisor.isReady).toBe(true);
+    expect(process.forceKills).toBe(0);
+    expect(scheduler.calls).toEqual([]);
     await supervisor.stop();
   });
 });

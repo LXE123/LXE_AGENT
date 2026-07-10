@@ -23,7 +23,7 @@ export interface GatewayLifecycleOptions {
   };
   worker: {
     readonly isReady: boolean;
-    readonly workerPid?: number;
+    readonly workerPid: number | undefined;
     start(): Promise<void>;
     failActiveRuns(error: Error): void;
     stop(): Promise<void>;
@@ -46,10 +46,12 @@ export interface GatewayLifecycleOptions {
 export class GatewayLifecycle {
   private stateUsable = false;
   private dashboardBound = false;
+  private dashboardAttempted = false;
   private channelsStarted = false;
-  private heartbeatStarted = false;
-  private statusWritten = false;
-  private pollingStarted = false;
+  private channelsAttempted = false;
+  private heartbeatAttempted = false;
+  private statusWriteAttempted = false;
+  private pollingAttempted = false;
   private acceptingIngress = false;
   private started = false;
   private shutdownStarted = false;
@@ -64,14 +66,15 @@ export class GatewayLifecycle {
     try {
       await this.options.state.ensureUsable();
       this.stateUsable = true;
+      this.statusWriteAttempted = true;
       this.options.status.writeStatus(this.options.bootId);
-      this.statusWritten = true;
+      this.pollingAttempted = true;
       this.options.status.startPolling(this.options.bootId, () => {
         void this.stop();
       });
-      this.pollingStarted = true;
 
       if (this.options.dashboard.enabled) {
+        this.dashboardAttempted = true;
         this.dashboardBound = await this.options.dashboard.start();
         if (!this.dashboardBound) throw new Error("Dashboard listener failed to bind");
       } else {
@@ -80,18 +83,22 @@ export class GatewayLifecycle {
 
       await this.options.worker.start();
       if (!this.options.worker.isReady) throw new Error("runtime worker is not ready");
+      this.heartbeatAttempted = true;
       await this.options.heartbeat.start();
-      this.heartbeatStarted = true;
       this.options.channels.wireInbound((event) => this.acceptInbound(event));
       this.acceptingIngress = true;
+      this.channelsAttempted = true;
       this.channelsStarted = true;
       await this.options.channels.startAll();
       this.started = true;
       this.lastError = "";
     } catch (cause) {
       this.acceptingIngress = false;
-      this.lastError = cause instanceof Error ? cause.message : String(cause);
-      await this.cleanupAfterFailedStart();
+      const original = cause instanceof Error ? cause.message : String(cause);
+      const cleanupErrors = await this.teardown(new Error(original));
+      this.lastError = cleanupErrors.length > 0
+        ? `${original}; cleanup: ${cleanupErrors.join("; ")}`
+        : original;
       throw cause;
     }
   }
@@ -155,11 +162,17 @@ export class GatewayLifecycle {
     if (this.shutdownStarted) return;
     this.shutdownStarted = true;
     this.acceptingIngress = false;
+    const errors = await this.teardown(new Error("Gateway shutdown started"));
+    if (errors.length > 0) this.lastError = errors.join("; ");
+  }
+
+  private async teardown(reason: Error): Promise<string[]> {
     const errors: string[] = [];
-    if (this.channelsStarted) {
+    if (this.channelsAttempted) {
       await this.runStopStep("channels", () => this.options.channels.stopAll(), errors);
     }
     this.channelsStarted = false;
+    this.channelsAttempted = false;
     await this.runStopStep(
       "scheduler",
       () => this.options.scheduler.setRuntimeReady(false),
@@ -167,32 +180,33 @@ export class GatewayLifecycle {
     );
     await this.runStopStep(
       "active runs",
-      () => this.options.worker.failActiveRuns(new Error("Gateway shutdown started")),
+      () => this.options.worker.failActiveRuns(reason),
       errors,
     );
-    if (this.heartbeatStarted) {
+    if (this.heartbeatAttempted) {
       await this.runStopStep("heartbeat", () => this.options.heartbeat.stop(), errors);
     }
-    this.heartbeatStarted = false;
-    if (this.options.dashboard.enabled && this.dashboardBound) {
+    this.heartbeatAttempted = false;
+    if (this.options.dashboard.enabled && this.dashboardAttempted) {
       await this.runStopStep("Dashboard", () => this.options.dashboard.stop(), errors);
     }
     this.dashboardBound = false;
+    this.dashboardAttempted = false;
     await this.runStopStep("worker", () => this.options.worker.stop(), errors);
-    if (this.pollingStarted) {
+    if (this.pollingAttempted) {
       await this.runStopStep("planned-stop poller", () => this.options.status.stopPolling(), errors);
     }
-    this.pollingStarted = false;
-    if (this.statusWritten) {
+    this.pollingAttempted = false;
+    if (this.statusWriteAttempted) {
       await this.runStopStep(
         "gateway status",
         () => this.options.status.clearStatus(this.options.bootId),
         errors,
       );
     }
-    this.statusWritten = false;
+    this.statusWriteAttempted = false;
     this.started = false;
-    if (errors.length > 0) this.lastError = errors.join("; ");
+    return errors;
   }
 
   private async runStopStep(
@@ -206,24 +220,5 @@ export class GatewayLifecycle {
       const message = cause instanceof Error ? cause.message : String(cause);
       errors.push(`${label}: ${message}`);
     }
-  }
-
-  private async cleanupAfterFailedStart(): Promise<void> {
-    if (this.channelsStarted) await this.options.channels.stopAll().catch(() => undefined);
-    this.channelsStarted = false;
-    this.options.scheduler.setRuntimeReady(false);
-    this.options.worker.failActiveRuns(new Error(this.lastError || "Gateway startup failed"));
-    if (this.heartbeatStarted) await Promise.resolve(this.options.heartbeat.stop()).catch(() => undefined);
-    this.heartbeatStarted = false;
-    if (this.options.dashboard.enabled && this.dashboardBound) {
-      await Promise.resolve(this.options.dashboard.stop()).catch(() => undefined);
-    }
-    this.dashboardBound = false;
-    await this.options.worker.stop().catch(() => undefined);
-    if (this.pollingStarted) this.options.status.stopPolling();
-    this.pollingStarted = false;
-    if (this.statusWritten) this.options.status.clearStatus(this.options.bootId);
-    this.statusWritten = false;
-    this.started = false;
   }
 }

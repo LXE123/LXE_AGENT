@@ -90,6 +90,38 @@ describe("GatewayStatusFiles", () => {
 });
 
 describe("PlannedStopPoller", () => {
+  test("reports a poll error and continues polling", () => {
+    const { files } = fixture();
+    const scheduled: Array<() => void> = [];
+    const errors: Error[] = [];
+    let polls = 0;
+    let stops = 0;
+    files.consumeMarkerForSelf = () => {
+      polls += 1;
+      if (polls === 1) throw new Error("transient read failure");
+      return true;
+    };
+    const poller = new PlannedStopPoller(
+      files,
+      {
+        setInterval(callback) {
+          scheduled.push(callback);
+          return 1;
+        },
+        clearInterval: () => undefined,
+      },
+      (error) => errors.push(error),
+    );
+    poller.start("boot-a", () => {
+      stops += 1;
+    });
+
+    expect(() => scheduled[0]!()).not.toThrow();
+    expect(errors.map((error) => error.message)).toEqual(["transient read failure"]);
+    scheduled[0]!();
+    expect(stops).toBe(1);
+  });
+
   test("polls, consumes a targeted marker, and requests shutdown once", () => {
     const { files } = fixture();
     const status = files.writeStatus("boot-a");

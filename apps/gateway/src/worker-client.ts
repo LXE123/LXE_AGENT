@@ -152,7 +152,9 @@ export class WorkerClient {
   }
 
   expectExit(): void {
+    if (this.expectedExit) return;
     this.expectedExit = true;
+    this.rejectPending(new Error("worker client closed before the request completed"));
   }
 
   async flushWrites(): Promise<void> {
@@ -160,7 +162,7 @@ export class WorkerClient {
   }
 
   closeStdin(): void {
-    this.expectedExit = true;
+    this.expectExit();
     this.process.closeStdin();
   }
 
@@ -184,7 +186,10 @@ export class WorkerClient {
           if (encoder.encode(line).byteLength > this.maxLineBytes) {
             throw protocolError(`stdout line exceeds ${this.maxLineBytes} bytes`);
           }
-          if (line.trim()) await this.handleLine(line);
+          if (line.length > 0) {
+            if (!line.trim()) throw protocolError("stdout contains a whitespace-only line");
+            await this.handleLine(line);
+          }
         }
         if (encoder.encode(buffer).byteLength > this.maxLineBytes) {
           throw protocolError(`stdout line exceeds ${this.maxLineBytes} bytes`);
@@ -288,12 +293,17 @@ export class WorkerClient {
   private fail(error: Error): void {
     if (this.failed || this.expectedExit) return;
     this.failed = true;
-    for (const pending of this.pending.values()) pending.reject(error);
-    this.pending.clear();
+    this.rejectPending(error);
     try {
       this.onFatal(error);
     } catch {
       // A supervisor observer must not create a second failure path.
     }
+  }
+
+  private rejectPending(error: Error): void {
+    const pending = [...this.pending.values()];
+    this.pending.clear();
+    for (const request of pending) request.reject(error);
   }
 }

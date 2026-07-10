@@ -54,10 +54,15 @@ const makeLifecycle = (
   options: {
     channelFailure?: boolean;
     channelStopFailure?: boolean;
+    dashboardStartFailure?: boolean;
     dashboardBound?: boolean;
     dashboardStopFailure?: boolean;
     heartbeatStopFailure?: boolean;
+    heartbeatStartFailure?: boolean;
+    pollerStartFailure?: boolean;
     stateFailure?: boolean;
+    statusWriteFailure?: boolean;
+    workerStartFailure?: boolean;
     workerStopFailure?: boolean;
   } = {},
 ) => {
@@ -71,6 +76,7 @@ const makeLifecycle = (
     workerPid: 999,
     async start() {
       calls.push("worker.start");
+      if (options.workerStartFailure) throw new Error("worker start failed");
       this.isReady = true;
     },
     failActiveRuns() {
@@ -96,6 +102,7 @@ const makeLifecycle = (
       enabled: true,
       async start() {
         calls.push("dashboard.start");
+        if (options.dashboardStartFailure) throw new Error("dashboard start failed");
         return options.dashboardBound ?? true;
       },
       async stop() {
@@ -114,6 +121,7 @@ const makeLifecycle = (
     heartbeat: {
       async start() {
         calls.push("heartbeat.start");
+        if (options.heartbeatStartFailure) throw new Error("heartbeat start failed");
       },
       async stop() {
         calls.push("heartbeat.stop");
@@ -126,12 +134,14 @@ const makeLifecycle = (
     status: {
       writeStatus() {
         calls.push("status.write");
+        if (options.statusWriteFailure) throw new Error("status write failed");
       },
       clearStatus() {
         calls.push("status.clear");
       },
       startPolling(_bootId, _requestStop) {
         calls.push("status.poll-start");
+        if (options.pollerStartFailure) throw new Error("poller start failed");
       },
       stopPolling() {
         calls.push("status.poll-stop");
@@ -190,6 +200,23 @@ describe("GatewayLifecycle", () => {
     const health = await lifecycle.healthSnapshot();
     expect(health.ready).toBe(false);
     expect(health.state_storage_usable).toBe(false);
+  });
+
+  test.each([
+    ["status", { statusWriteFailure: true }, "status write failed"],
+    ["poller", { pollerStartFailure: true }, "poller start failed"],
+    ["Dashboard", { dashboardStartFailure: true }, "dashboard start failed"],
+    ["worker", { workerStartFailure: true }, "worker start failed"],
+    ["heartbeat", { heartbeatStartFailure: true }, "heartbeat start failed"],
+    ["channel", { channelFailure: true }, "channel failed"],
+  ] as const)("best-effort teardown preserves the original %s startup error", async (_label, options, message) => {
+    const { lifecycle, calls } = makeLifecycle(options);
+    await expect(lifecycle.start()).rejects.toThrow(message);
+    expect(calls).toContain("worker.stop");
+    expect(calls).toContain("status.clear");
+    if (!("statusWriteFailure" in options)) expect(calls).toContain("status.poll-stop");
+    if ("dashboardStartFailure" in options) expect(calls).toContain("dashboard.stop");
+    if ("heartbeatStartFailure" in options) expect(calls).toContain("heartbeat.stop");
   });
 
   test("shutdown order is explicit, rejects ingress, and is idempotent", async () => {

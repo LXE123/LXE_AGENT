@@ -164,8 +164,12 @@ export class GatewayStatusFiles {
   private atomicWrite(path: string, payload: JsonObject): void {
     mkdirSync(dirname(path), { recursive: true });
     const temporary = `${path}.tmp-${this.pid}-${this.writeCounter++}`;
-    writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-    renameSync(temporary, path);
+    try {
+      writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+      renameSync(temporary, path);
+    } finally {
+      remove(temporary);
+    }
   }
 }
 
@@ -186,16 +190,26 @@ export class PlannedStopPoller {
   constructor(
     private readonly files: GatewayStatusFiles,
     private readonly clock: PollerClock = defaultPollerClock,
+    private readonly onError: (error: Error) => void = () => undefined,
   ) {}
 
   start(bootId: string, requestStop: () => void, pollIntervalMs = 500): void {
     this.stop();
     this.requested = false;
     this.token = this.clock.setInterval(() => {
-      if (this.requested || !this.files.consumeMarkerForSelf(bootId)) return;
-      this.requested = true;
-      this.stop();
-      requestStop();
+      try {
+        if (this.requested || !this.files.consumeMarkerForSelf(bootId)) return;
+        requestStop();
+        this.requested = true;
+        this.stop();
+      } catch (cause) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        try {
+          this.onError(error);
+        } catch {
+          // Logging failure must not stop future planned-stop polls.
+        }
+      }
     }, Math.max(50, Math.trunc(pollIntervalMs)));
   }
 

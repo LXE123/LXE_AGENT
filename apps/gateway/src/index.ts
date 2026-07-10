@@ -1,6 +1,7 @@
 export * from "./channel";
 export * from "./env";
 export * from "./gateway-lifecycle";
+export * from "./gateway-composition";
 export * from "./heartbeat-bridge";
 export * from "./models";
 export * from "./planned-stop";
