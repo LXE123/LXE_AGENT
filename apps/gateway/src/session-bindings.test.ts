@@ -52,6 +52,18 @@ describe("SessionSource", () => {
 });
 
 describe("SessionBindingStore", () => {
+  test("probes a Unicode/space state path without creating sessions.json", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-bindings-probe-"));
+    roots.push(root);
+    const path = join(root, "状态 with spaces", "sessions.json");
+    const store = new SessionBindingStore(path);
+    store.ensureUsable();
+    expect(readdirSync(join(root, "状态 with spaces"))).toEqual([]);
+
+    writeFileSync(path, "[]", "utf8");
+    expect(() => store.ensureUsable()).toThrow("must be a JSON object");
+  });
+
   test("writes deterministic UTF-8 JSON atomically and preserves entry flags", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-bindings-"));
     roots.push(root);

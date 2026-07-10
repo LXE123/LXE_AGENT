@@ -190,7 +190,8 @@ def test_worker_hello_and_health_are_correlated() -> None:
             assert health["kind"] == "health.result"
             assert health["reply_to"] == "health-1"
             assert health["payload"] == {"ready": True, "active_run_count": 0}
-            assert hello["seq"] < health["seq"]
+            assert hello["seq"] == 0
+            assert health["seq"] == 1
         finally:
             await worker.shutdown()
 

@@ -186,6 +186,18 @@ export class SessionBindingStore {
     return entries;
   }
 
+  ensureUsable(): void {
+    this.loadAll();
+    const parent = dirname(this.path);
+    mkdirSync(parent, { recursive: true });
+    const probe = join(parent, `.sessions-write-probe.${randomUUID().replaceAll("-", "")}.tmp`);
+    try {
+      writeFileSync(probe, "{}\n", "utf8");
+    } finally {
+      rmSync(probe, { force: true });
+    }
+  }
+
   saveAll(entries: Readonly<Record<string, SessionBindingEntry>>): void {
     mkdirSync(dirname(this.path), { recursive: true });
     const sorted: Record<string, SessionBindingEntry> = {};

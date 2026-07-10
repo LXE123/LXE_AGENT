@@ -256,7 +256,7 @@ class RuntimeWorker:
         self._shutdown_timeout_s = max(0.1, float(shutdown_timeout_s))
 
         self._write_lock = asyncio.Lock()
-        self._next_seq = 1
+        self._next_seq = 0
         self._active_runs: dict[str, _ActiveRun] = {}
         self._active_run_by_session: dict[str, str] = {}
         self._seen_run_ids: set[str] = set()

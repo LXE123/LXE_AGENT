@@ -431,7 +431,7 @@ describe("HeartbeatWakeQueue", () => {
     });
     wakes.request({ session_id: "invalid" });
     wakes.request({ session_id: "valid" });
-    await expect(wakes.flush()).resolves.toBe(false);
+    await expect(wakes.flush()).resolves.toBe("none");
     await tick();
     expect(runtime.started.map((item) => item.session_id)).toEqual(["valid"]);
   });
@@ -468,13 +468,13 @@ describe("HeartbeatWakeQueue", () => {
     const firstFlush = wakes.flush();
     await entered;
     wakes.request({ session_id: "second" });
-    expect(await wakes.flush()).toBe(true);
+    expect(await wakes.flush()).toBe("normal");
     expect(wakes.pendingCount).toBe(1);
 
     releaseFirst();
-    expect(await firstFlush).toBe(true);
+    expect(await firstFlush).toBe("normal");
     expect(wakes.pendingCount).toBe(1);
-    expect(await wakes.flush()).toBe(false);
+    expect(await wakes.flush()).toBe("none");
     await tick();
     expect(runtime.started.map((item) => item.session_id)).toEqual(["first", "second"]);
   });

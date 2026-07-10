@@ -321,6 +321,8 @@ export interface HeartbeatWakeRequest {
   response_route_id?: string;
 }
 
+export type HeartbeatScheduleKind = "none" | "normal" | "retry";
+
 export interface RuntimeSessionRecord {
   session_id: string;
   source: JsonObject;
@@ -370,10 +372,10 @@ export class HeartbeatWakeQueue {
     }
   }
 
-  async flush(): Promise<boolean> {
-    if (this.flushing) return this.pending.size > 0;
+  async flush(): Promise<HeartbeatScheduleKind> {
+    if (this.flushing) return this.pendingScheduleKind();
     const batch = [...this.pending.values()];
-    if (batch.length === 0) return false;
+    if (batch.length === 0) return "none";
     this.pending.clear();
     this.flushing = true;
     try {
@@ -381,7 +383,14 @@ export class HeartbeatWakeQueue {
     } finally {
       this.flushing = false;
     }
-    return this.pending.size > 0;
+    return this.pendingScheduleKind();
+  }
+
+  private pendingScheduleKind(): HeartbeatScheduleKind {
+    if (this.pending.size === 0) return "none";
+    return [...this.pending.values()].every((wake) => wake.reason === "retry")
+      ? "retry"
+      : "normal";
   }
 
   private async process(wake: Required<HeartbeatWakeRequest>): Promise<void> {
