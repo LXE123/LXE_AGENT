@@ -26,6 +26,7 @@ class FakeChannels implements LifecycleChannelsPort {
   sink: ((event: InboundEvent) => Promise<void>) | undefined;
   failStart = false;
   failStop = false;
+  live = false;
   startGate: Promise<void> | undefined;
   health: Record<string, JsonObject> = { test: { ready: true } };
 
@@ -40,10 +41,12 @@ class FakeChannels implements LifecycleChannelsPort {
     this.calls.push("channels.start");
     await this.startGate;
     if (this.failStart) throw new Error("channel failed");
+    this.live = true;
   }
 
   async stopAll(): Promise<void> {
     this.calls.push("channels.stop");
+    this.live = false;
     if (this.failStop) throw new Error("channels stop failed");
   }
 
@@ -95,6 +98,22 @@ const makeLifecycle = (
       }
     },
   };
+  const heartbeat = {
+    live: false,
+    async start() {
+      calls.push("heartbeat.start");
+      await options.heartbeatStartGate;
+      if (options.heartbeatStartFailure) throw new Error("heartbeat start failed");
+      this.live = true;
+    },
+    async stop() {
+      calls.push("heartbeat.stop");
+      this.live = false;
+      if (options.heartbeatStopFailure) {
+        throw new Error("heartbeat stop failed");
+      }
+    },
+  };
   const lifecycle = new GatewayLifecycle({
     bootId: "boot-1",
     state: {
@@ -123,19 +142,7 @@ const makeLifecycle = (
         calls.push(`scheduler.ready:${ready}`);
       },
     },
-    heartbeat: {
-      async start() {
-        calls.push("heartbeat.start");
-        await options.heartbeatStartGate;
-        if (options.heartbeatStartFailure) throw new Error("heartbeat start failed");
-      },
-      async stop() {
-        calls.push("heartbeat.stop");
-        if (options.heartbeatStopFailure) {
-          throw new Error("heartbeat stop failed");
-        }
-      },
-    },
+    heartbeat,
     channels,
     status: {
       writeStatus() {
@@ -157,7 +164,7 @@ const makeLifecycle = (
       ingested.push(event.message_id);
     },
   });
-  return { lifecycle, calls, channels, worker, ingested };
+  return { lifecycle, calls, channels, heartbeat, worker, ingested };
 };
 
 describe("GatewayLifecycle", () => {
@@ -288,7 +295,7 @@ describe("GatewayLifecycle", () => {
     const heartbeatGate = new Promise<void>((resolve) => {
       releaseHeartbeat = resolve;
     });
-    const { lifecycle, calls } = makeLifecycle({ heartbeatStartGate: heartbeatGate });
+    const { lifecycle, calls, heartbeat } = makeLifecycle({ heartbeatStartGate: heartbeatGate });
     const starting = lifecycle.start().catch((error: unknown) => error);
     while (!calls.includes("heartbeat.start")) await Bun.sleep(0);
     let stopResolved = false;
@@ -301,6 +308,8 @@ describe("GatewayLifecycle", () => {
     releaseHeartbeat();
     expect(await starting).toBeInstanceOf(Error);
     await stopping;
+    expect(calls.filter((call) => call === "heartbeat.stop")).toHaveLength(2);
+    expect(heartbeat.live).toBe(false);
     expect(calls).not.toContain("channels.wire");
     expect(calls).not.toContain("channels.start");
     expect((await lifecycle.healthSnapshot()).shutdown_started).toBe(true);
@@ -311,7 +320,7 @@ describe("GatewayLifecycle", () => {
     const channelGate = new Promise<void>((resolve) => {
       releaseChannel = resolve;
     });
-    const { lifecycle, calls } = makeLifecycle({ channelStartGate: channelGate });
+    const { lifecycle, calls, channels } = makeLifecycle({ channelStartGate: channelGate });
     const starting = lifecycle.start().catch((error: unknown) => error);
     while (!calls.includes("channels.start")) await Bun.sleep(0);
     let stopResolved = false;
@@ -324,6 +333,8 @@ describe("GatewayLifecycle", () => {
     releaseChannel();
     expect(await starting).toBeInstanceOf(Error);
     await stopping;
+    expect(calls.filter((call) => call === "channels.stop")).toHaveLength(2);
+    expect(channels.live).toBe(false);
     expect((await lifecycle.healthSnapshot()).ready).toBe(false);
     expect((await lifecycle.healthSnapshot()).shutdown_started).toBe(true);
   });

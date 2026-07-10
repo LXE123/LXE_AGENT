@@ -192,7 +192,10 @@ export class GatewayLifecycle {
   }
 
   private async stopOnce(inFlightStart: Promise<void> | undefined): Promise<void> {
-    const errors = await this.teardown(new Error("Gateway shutdown started"));
+    const errors = await this.teardown(
+      new Error("Gateway shutdown started"),
+      inFlightStart !== undefined,
+    );
     if (inFlightStart) {
       await inFlightStart.catch(() => undefined);
       errors.push(...await this.teardown(new Error("Gateway shutdown finalized after startup abort")));
@@ -206,13 +209,13 @@ export class GatewayLifecycle {
     }
   }
 
-  private async teardown(reason: Error): Promise<string[]> {
+  private async teardown(reason: Error, preserveAttempts = false): Promise<string[]> {
     const errors: string[] = [];
     if (this.channelsAttempted) {
       await this.runStopStep("channels", () => this.options.channels.stopAll(), errors);
     }
     this.channelsStarted = false;
-    this.channelsAttempted = false;
+    if (!preserveAttempts) this.channelsAttempted = false;
     await this.runStopStep(
       "scheduler",
       () => this.options.scheduler.setRuntimeReady(false),
@@ -226,17 +229,17 @@ export class GatewayLifecycle {
     if (this.heartbeatAttempted) {
       await this.runStopStep("heartbeat", () => this.options.heartbeat.stop(), errors);
     }
-    this.heartbeatAttempted = false;
+    if (!preserveAttempts) this.heartbeatAttempted = false;
     if (this.options.dashboard.enabled && this.dashboardAttempted) {
       await this.runStopStep("Dashboard", () => this.options.dashboard.stop(), errors);
     }
     this.dashboardBound = false;
-    this.dashboardAttempted = false;
+    if (!preserveAttempts) this.dashboardAttempted = false;
     await this.runStopStep("worker", () => this.options.worker.stop(), errors);
     if (this.pollingAttempted) {
       await this.runStopStep("planned-stop poller", () => this.options.status.stopPolling(), errors);
     }
-    this.pollingAttempted = false;
+    if (!preserveAttempts) this.pollingAttempted = false;
     if (this.statusWriteAttempted) {
       await this.runStopStep(
         "gateway status",
@@ -244,7 +247,7 @@ export class GatewayLifecycle {
         errors,
       );
     }
-    this.statusWriteAttempted = false;
+    if (!preserveAttempts) this.statusWriteAttempted = false;
     this.started = false;
     return errors;
   }
