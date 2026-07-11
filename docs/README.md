@@ -21,9 +21,10 @@
 - `Current` [Project README](../README.md)：项目概览、快速安装、运行要求和开发检查。
 - `Current` [Python 3.12.10 / uv 部署说明](py31210.md)：Python 和依赖管理规则。
 - `Current` [Local agent database layout](database/local_agent.md)：SQLite 状态、保留的 PostgreSQL pricing 范围和 runtime notes。
-- `Current` [Event loop architecture](eventloop.md)：asyncio runtime 和关闭策略。
+- `Current` [Event loop architecture](eventloop.md)：Bun 事件循环、任务所有权和关闭策略。
 - `Current` [Runtime](harness/runtime/README.md)：agent runtime 架构、turn execution、context 和 tools 文档入口。
-- `Current` [LLM Integration](harness/llm/README.md)：模型供应商 catalog、streaming adapter 和 `LLMResponse`。
+- `Current` [LLM Integration](harness/llm/README.md)：模型供应商 catalog、Anthropic-compatible streaming 和 provider 边界。
+- `Current` [Logging and runtime traces](harness/logger.md)：终端日志、runtime 文件日志、trace 脱敏和保留策略。
 - `Current` [Gateway](harness/gateway/README.md)：gateway 生命周期、平台边界、路由权限、调度取消和出站唤醒。
 - `Current` [Skill docs and catalog](harness/skill/README.md)：当前运行中 skill catalog 和旧 skill 文档分类入口。
 - `Current` [本机业务数据目录](../data/README.md)：私有 Excel/template 文件路径。
@@ -50,7 +51,7 @@
 这些区域有价值，但使用前需要对照当前代码：
 
 - `Needs Refresh` [Install script planning](install.md)：安装脚本设计笔记，不是最终用户手册。
-- `Needs Refresh` [Dashboard/UI idea](visualization/preliminary_idea.md)：早期 UI 设想，当前实现是 React 加 FastAPI。
+- `Needs Refresh` [Dashboard/UI idea](visualization/preliminary_idea.md)：早期 UI 设想，当前实现是 React 前端加 Bun Dashboard API。
 
 ## 草稿和归档
 

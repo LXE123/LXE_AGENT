@@ -1,6 +1,8 @@
 # Docs Audit
 
-日期：2026-06-19
+首次盘点日期：2026-06-19
+
+Current 文档最近校准：2026-07-11
 
 这是 `docs/` 的第一版盘点。目标是先建立分类和可信边界，再决定哪些内容要重写、移动或删除。
 
@@ -111,15 +113,17 @@ Draft or archive：
 
 ## Completed Docs
 
-- `docs/harness/runtime/README.md` 和 `docs/harness/runtime/turn_execution.md`：已按单进程 `TypeScriptAgentRuntime.runTurn() -> TurnOutcome -> GatewayEmitter` 重建 Current 文档；旧无状态 runtime 设计稿已删除。
+- `docs/harness/runtime/README.md`、`turn_execution.md` 和 `turn_step_lifecycle.md`：已按当前 Bun runtime 的 turn snapshot、step loop、tool execution、provider retry、取消和最终交付边界重建。
 - `docs/harness/runtime/runtime_flow.md`：已从旧 runtime 架构总览重写为端到端运行链路总览，作为跨 gateway/runtime/context/tools 的导航图。
-- `docs/harness/llm/`：已按当前 `packages/runtime/src/provider.ts` 与 `packages/runtime/src/trace.ts` 重建 provider integration Current 文档，覆盖 catalog、模型热切换、Anthropic Messages streaming、错误分类和 trace；旧 loose LLM 笔记、模型笔记、协议笔记和空占位已删除。
-- `docs/harness/gateway/`：已删除两篇旧 gateway 文档，并按当前代码重建为 Current 专题目录，覆盖生命周期、平台边界、路由权限、调度取消和出站唤醒。
-- `docs/harness/runtime/context/`：已重建为 Current runtime context 专题目录，覆盖 context state、canonical messages、context assembly 和 pruning/compaction。
+- `docs/harness/llm/`：已按 `packages/runtime/src/provider.ts` 与 `packages/runtime/src/trace.ts` 展开 provider catalog、原子模型切换、Anthropic-compatible streaming、provider history repair、错误分类、超时和 trace 脱敏。
+- `docs/harness/gateway/`：已按当前 Bun gateway 展开生命周期、channel adapter、Feishu rich inbound/CardKit、路由权限、调度取消、steering、heartbeat、response-route isolation 和关闭顺序。
+- `docs/harness/runtime/context/`：已展开 canonical message、assembly、provider 前预算、summary-only compaction、JSONL append 与 replacement checkpoint。
 - `docs/harness/runtime/tools/tool_schema.md`：已从 context 文档中拆出，作为 runtime tools 下的 current tool schema 文档。
 - `docs/harness/runtime/tools/tool_execution.md`：已补 runtime tool execution 生命周期，覆盖 registry lookup、`ToolExecutionContext`、handler 调用、`ToolResult`、取消、final answer stream 工具状态和 canonical `tool_result` 写回。
 - `docs/harness/skill/` 敏感旧记录第一批：删除 1 个真正空占位文件，保留 7 篇脱敏旧 skill 流程记录；保留业务流程、关键 endpoint/selector 思路和字段说明，不把它们提升为当前运行时 skill 文档。
-- `docs/harness/skill/README.md` 和 `docs/harness/skill/current_skill_catalog.md`：已按当前运行中 `skills/*/SKILL.md` 重建 skill 文档入口和 catalog，覆盖 `amazon_fba`、`amazon_replenish`、`default` 三类 skill。
+- `docs/harness/skill/README.md` 和 `docs/harness/skill/current_skill_catalog.md`：已按当前 27 个 repository skills 重建 discovery、校验、权限/connector 过滤、按需激活、script tool ownership 和三类业务目录。
+- `docs/harness/logger.md`：已补终端/文件/trace 三层输出、级别覆盖、async context、敏感信息脱敏和本地保留策略。
+- `docs/database/local_agent.md`：已补 SQLite 与 JSONL transcript 分工、light/full load path、replacement checkpoint、本地状态安全和备份恢复边界。
 - `docs/harness/skill/` 物理规范化：旧草稿、阶段记录、脱敏流程记录和紫鸟参考资料已分流到 `archive/` 和 `reference/`，归档目录已对齐当前 runtime skill slug，并统一标题、状态头和 truth source 说明；未修改 `/skills/*/SKILL.md`。
 
 ## Missing High-Priority Docs

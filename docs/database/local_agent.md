@@ -1,46 +1,72 @@
-# Local Agent Database Layout
+# Local Agent Storage
 
-本地部署 agent 使用 SQLite 保存运行态。旧的 PostgreSQL agent shared-state 已删除，不再维护 PostgreSQL model、DDL 或读写实现。
+Status: `Current`
 
-## SQLite Local State
+The Bun runtime owns local agent state through `packages/runtime/src/storage.ts` and `bun:sqlite`. The default database is `local_agent.sqlite3`; conversation transcripts are stored separately as append-only JSONL.
 
-默认数据库文件：
+## Ownership Boundary
 
-```text
-user_session_db/local_agent.sqlite3
-```
+Local storage contains operational state required to resume and route agent work:
 
-可通过环境变量覆盖：
+- agent sessions and their current metadata;
+- channel response-route bindings;
+- pending events produced while a session is stopped or busy;
+- usage/accounting records needed by the local runtime;
+- transcript checkpoints and replacement markers.
 
-```text
-LXE_SQLITE_DB_PATH
-```
+The local database is not the source of truth for remote product data, provider credentials, or business workbooks. PostgreSQL remains limited to explicitly configured pricing/data-server responsibilities rather than replacing local runtime state.
 
-当前 SQLite 表：
+## SQLite And Transcript Split
 
-- `response_routes`：平台响应路由、回调定位、发送结果句柄。
-- `agent_sessions`：agent 会话元数据，包括 `source`、模型信息、创建/活跃时间、消息计数、工具/API/token 计数和标题。
-- `agent_session_pending_events`：后台任务完成事件队列，每个 session 最多 10 条，append/pop 使用显式写事务。
-- `ziniao_store_sessions`：紫鸟店铺浏览器 session 复用状态。
+SQLite stores indexed mutable state that needs transactional reads and updates. JSONL stores chronological canonical messages efficiently without rewriting the entire transcript after each tool step.
 
-旧版本地 SQLite schema 不再自动迁移。`agent_sessions` 不再包含 `status`、`state_data` 或 `pending_events` 列；消息内容存储在每个 session 的 JSONL message 文件中，pending events 存储在 `agent_session_pending_events` 表中。如旧安装启动后出现 SQLite schema 错误，先备份再删除 `user_session_db/local_agent.sqlite3` 重建。
+This split supports two access paths:
 
-## PostgreSQL
+- full session loading replays the transcript and reconstructs model-visible state;
+- lightweight session-record loading reads metadata without transcript replay for hot paths such as routing, wake checks, emitter checks, and persistence guards.
 
-PostgreSQL 目前只保留 FBA pricing 数据：
+Code must choose the light path only when message content is not required.
 
-- `pricing_channels`
-- `pricing_rate_tiers`
-- `pricing_constraints`
-- `pricing_surcharge_rules`
+## Transcript Records
 
-不要把 FBA pricing 的 PostgreSQL 访问和 agent shared-state 混在一起清理。
+Transcript files are append-only under normal operation. Records represent canonical user, assistant, and tool messages. A context replacement checkpoint can supersede an older prefix after summary compaction without mutating historical lines in place.
 
-## Runtime Notes
+Replay applies records in order and honors replacement checkpoints. A stat-based cache may reuse a replay result while file identity, size, and modification metadata remain unchanged; append or replacement invalidates that view.
 
-当前执行链路是单 gateway 进程内调度：
+## Consistency Rules
 
-- `apps/gateway/src/production.ts` 初始化 `TypeScriptAgentRuntime`、`SessionScheduler`、`SessionRouter`、`HeartbeatBridge` 和平台 adapter。
-- `apps/gateway/src/scheduler.ts` 按 session 串行执行 agent job，并用全局并发限制控制同一时间运行的 job 数量。
-- `apps/gateway/src/heartbeat-bridge.ts` 在后台任务写入 pending event 后唤醒对应 session；如果 session 忙，会延后重试。
-- `packages/runtime/src/storage.ts` 使用 `bun:sqlite` 原始 SQL 和显式 transaction；Gateway/Runtime 共享同一个 store 实例。
+- Route binding and session identity updates are transactional.
+- Appending a message must not require rewriting the full session snapshot.
+- Canonical tool calls and tool results remain paired across persistence and replay.
+- Pending events survive cancellation/stop boundaries until a later user turn consumes them.
+- Lightweight record reads never claim to include transcript state.
+- Context replacement is explicit and replayable; it is not silent deletion.
+
+## Paths And Local Safety
+
+The database, transcripts, local environment overrides, logs, downloaded artifacts, and connector state are machine-local runtime data. They must remain ignored by Git and must not be modified through model-facing coding tools.
+
+Do not place secrets in SQLite merely because the file is ignored. Provider and platform credentials stay in private environment/config surfaces designed for that purpose.
+
+## Backup And Recovery
+
+Before manual migration or destructive repair:
+
+1. stop the gateway so no writer remains active;
+2. copy the SQLite database and transcript directory together;
+3. record the current commit and schema/runtime version;
+4. validate the copy before changing the originals.
+
+Deleting only SQLite or only transcript files can leave route/session metadata inconsistent with conversation history. Prefer tested migration or rebuild commands over hand-editing database rows and JSONL.
+
+## Diagnostics
+
+When session state appears stale, inspect in this order:
+
+1. route binding and session metadata in SQLite;
+2. pending-event state and scheduler ownership;
+3. transcript tail and the most recent replacement checkpoint;
+4. replay cache invalidation signals;
+5. runtime logs for append, replacement, or transaction failures.
+
+Tests covering storage should use temporary paths and isolated databases. They must not read the developer machine's ignored runtime state.
