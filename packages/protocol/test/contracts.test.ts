@@ -28,6 +28,25 @@ describe("protocol contracts", () => {
     expect(validateAgentJob(invalidAgentJobShape)).toBe(false);
   });
 
+  test("enforces the final-answer stream discriminant", async () => {
+    const { validateEmitRequest } = await loadProtocol();
+    const stream = {
+      ...validEmitRequest,
+      emit_kind: "stream",
+      stream_type: "final_answer",
+      state: "delta",
+      seq: 1,
+    };
+    expect(validateEmitRequest(stream)).toBe(true);
+    expect(validateEmitRequest({ ...stream, stream_type: "content_block_delta" })).toBe(false);
+    expect(validateEmitRequest({ ...stream, state: "running" })).toBe(false);
+    expect(validateEmitRequest({ ...stream, seq: 0 })).toBe(false);
+
+    const final = { ...stream, emit_kind: "final", stream_type: "", state: "", seq: 0 };
+    expect(validateEmitRequest(final)).toBe(true);
+    expect(validateEmitRequest({ ...final, stream_type: "final_answer", state: "final", seq: 1 })).toBe(false);
+  });
+
   test("allows an empty heartbeat message id but keeps normal turns strict", async () => {
     const { validateAgentJob } = await loadProtocol();
     const heartbeat = {

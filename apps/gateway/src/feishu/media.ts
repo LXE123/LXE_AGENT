@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { extname } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
 import type { FeishuApiPort, FeishuRouteContext } from "./cardkit";
+import { parseFeishuEnvelope } from "./response";
 
 export interface FeishuMediaApi extends FeishuApiPort {
   upload(path: string, kind: "image" | "file"): Promise<string>;
@@ -61,7 +62,9 @@ export class FeishuMedia {
           "/im/v1/messages?receive_id_type=chat_id",
           { receive_id: route.conversation_id, msg_type: messageType, ...payload },
         );
-    const code = Number(result.code ?? -1);
-    if (code !== 0) throw new Error(`Feishu send ${messageType} failed with code ${code}`);
+    const response = parseFeishuEnvelope(result, `send_${messageType}`);
+    if (response.code !== 0) {
+      throw new Error(`Feishu send ${messageType} failed with code ${response.code}${response.msg ? `: ${response.msg}` : ""}`);
+    }
   }
 }

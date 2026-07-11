@@ -3,6 +3,7 @@ export * from "./coding-tools";
 export * from "./mcp";
 export * from "./maintenance";
 export * from "./runtime";
+export * from "./final-answer-streamer";
 export * from "./script-tools";
 export * from "./skills";
 export * from "./provider";

@@ -1,0 +1,210 @@
+import { randomUUID } from "node:crypto";
+import type { EmitRequest, ToolStep } from "@lxe/protocol";
+import { buildToolDisplayStep } from "./tool-display";
+import type { ToolUseBlock } from "./types";
+
+interface StreamSnapshot {
+  content: string;
+  thinking: string;
+  thinkingElapsedMs: number;
+  toolPending: boolean;
+  toolElapsedMs: number;
+  toolSteps: ToolStep[];
+}
+
+export interface FinalAnswerStreamerOptions {
+  sessionId: string;
+  responseRouteId: string;
+  emit(request: EmitRequest): Promise<boolean>;
+  emitId?: string;
+  minIntervalMs?: number;
+  now?: () => number;
+  delay?: (milliseconds: number) => Promise<void>;
+}
+
+const cloneSteps = (steps: ToolStep[]): ToolStep[] => steps.map((step) => ({ ...step }));
+
+export class FinalAnswerStreamer {
+  private readonly emitId: string;
+  private readonly minIntervalMs: number;
+  private readonly now: () => number;
+  private readonly delay: (milliseconds: number) => Promise<void>;
+  private content = "";
+  private thinking = "";
+  private thinkingStartedAt = 0;
+  private thinkingElapsedMs = 0;
+  private toolPending = false;
+  private toolStartedAt = 0;
+  private toolElapsedMs = 0;
+  private toolSteps: ToolStep[] = [];
+  private lastSent = "";
+  private lastSentContent = "";
+  private sequence = 0;
+  private lastAttemptAt = 0;
+  private delivered = false;
+  private deltaFailed = false;
+  private terminal = false;
+  private pending: Promise<void> | undefined;
+
+  constructor(private readonly options: FinalAnswerStreamerOptions) {
+    this.emitId = String(options.emitId ?? "").trim() || randomUUID().replaceAll("-", "");
+    this.minIntervalMs = Math.max(0, Math.trunc(options.minIntervalMs ?? 150));
+    this.now = options.now ?? Date.now;
+    this.delay = options.delay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+  }
+
+  async pushDelta(delta: { text?: string; thinking?: string }): Promise<void> {
+    if (this.terminal) return;
+    const text = String(delta.text ?? "");
+    const thinking = String(delta.thinking ?? "");
+    if (thinking && !this.content && !this.thinkingStartedAt) this.thinkingStartedAt = this.now();
+    if (text && this.thinkingStartedAt && !this.thinkingElapsedMs) {
+      this.thinkingElapsedMs = Math.max(0, this.now() - this.thinkingStartedAt);
+    }
+    this.content += text;
+    this.thinking += thinking;
+    this.scheduleDelta();
+  }
+
+  async startToolPending(): Promise<void> {
+    if (this.terminal || this.toolSteps.length > 0) return;
+    this.toolPending = true;
+    this.scheduleDelta();
+  }
+
+  async pushToolStart(call: ToolUseBlock): Promise<void> {
+    if (this.terminal) return;
+    if (!this.toolStartedAt) this.toolStartedAt = this.now();
+    this.toolPending = false;
+    this.upsertTool(buildToolDisplayStep(call.id, call.name, call.input, "running", 0));
+    this.scheduleDelta();
+  }
+
+  async pushToolFinish(call: ToolUseBlock, status: "success" | "error", durationMs: number): Promise<void> {
+    if (this.terminal) return;
+    this.toolPending = false;
+    this.toolElapsedMs = Math.max(this.toolElapsedMs, Math.max(0, Math.trunc(durationMs)));
+    this.upsertTool(buildToolDisplayStep(call.id, call.name, call.input, status, durationMs));
+    this.scheduleDelta();
+  }
+
+  async finish(content: string): Promise<boolean> {
+    const finalContent = String(content ?? "").trim();
+    if (finalContent && finalContent.length >= this.content.length) this.content = finalContent;
+    return this.close("final");
+  }
+
+  async fail(content: string): Promise<boolean> {
+    if (!this.content) this.content = String(content ?? "").trim();
+    return this.close("error");
+  }
+
+  async cancel(): Promise<boolean> {
+    this.terminal = true;
+    await this.pending;
+    if (!this.delivered) return false;
+    this.content = this.lastSentContent;
+    await this.emitFrame("final");
+    return this.delivered;
+  }
+
+  private async close(state: "final" | "error"): Promise<boolean> {
+    this.terminal = true;
+    this.finishTimers();
+    this.finalizeRunningTools();
+    await this.pending;
+    if (!this.deltaFailed && this.snapshotKey() !== this.lastSent) await this.emitFrame("delta");
+    if (this.deltaFailed && !this.delivered) return false;
+    await this.emitFrame(state);
+    return this.delivered;
+  }
+
+  private scheduleDelta(): void {
+    if (this.terminal || this.deltaFailed || this.pending || this.snapshotKey() === this.lastSent) return;
+    const elapsed = this.lastAttemptAt ? this.now() - this.lastAttemptAt : this.minIntervalMs;
+    const waitMs = Math.max(0, this.minIntervalMs - elapsed);
+    this.pending = (async () => {
+      if (waitMs > 0) await this.delay(waitMs);
+      if (!this.terminal && !this.deltaFailed && this.snapshotKey() !== this.lastSent) {
+        await this.emitFrame("delta");
+      }
+    })().finally(() => {
+      this.pending = undefined;
+      if (!this.terminal && !this.deltaFailed && this.snapshotKey() !== this.lastSent) this.scheduleDelta();
+    });
+  }
+
+  private async emitFrame(state: "delta" | "final" | "error"): Promise<void> {
+    const snapshot = this.snapshot();
+    const key = JSON.stringify(snapshot);
+    this.sequence += 1;
+    this.lastAttemptAt = this.now();
+    let ok = false;
+    try {
+      ok = await this.options.emit({
+        session_id: this.options.sessionId,
+        response_route_id: this.options.responseRouteId,
+        content: snapshot.content,
+        thinking: snapshot.thinking,
+        redacted_thinking_count: 0,
+        thinking_elapsed_ms: snapshot.thinkingElapsedMs,
+        tool_pending: snapshot.toolPending,
+        tool_elapsed_ms: snapshot.toolElapsedMs,
+        tool_steps: cloneSteps(snapshot.toolSteps),
+        files: [],
+        emit_kind: "stream",
+        emit_id: this.emitId,
+        stream_type: "final_answer",
+        state,
+        seq: this.sequence,
+      });
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      if (state === "delta") this.deltaFailed = true;
+      return;
+    }
+    this.delivered = true;
+    this.lastSent = key;
+    this.lastSentContent = snapshot.content;
+  }
+
+  private snapshot(): StreamSnapshot {
+    const elapsed = this.toolStartedAt && !this.toolElapsedMs ? this.now() - this.toolStartedAt : this.toolElapsedMs;
+    return {
+      content: this.content,
+      thinking: this.thinking,
+      thinkingElapsedMs: Math.max(0, Math.trunc(this.thinkingElapsedMs)),
+      toolPending: this.toolPending && this.toolSteps.length === 0,
+      toolElapsedMs: Math.max(0, Math.trunc(elapsed)),
+      toolSteps: cloneSteps(this.toolSteps),
+    };
+  }
+
+  private snapshotKey(): string {
+    return JSON.stringify(this.snapshot());
+  }
+
+  private upsertTool(step: ToolStep): void {
+    const index = this.toolSteps.findIndex((current) => current.id && current.id === step.id);
+    if (index >= 0) this.toolSteps[index] = step;
+    else this.toolSteps.push(step);
+  }
+
+  private finishTimers(): void {
+    if (this.thinkingStartedAt && !this.thinkingElapsedMs) {
+      this.thinkingElapsedMs = Math.max(0, this.now() - this.thinkingStartedAt);
+    }
+    if (this.toolStartedAt && !this.toolElapsedMs) {
+      this.toolElapsedMs = Math.max(0, this.now() - this.toolStartedAt);
+    }
+    this.toolPending = false;
+  }
+
+  private finalizeRunningTools(): void {
+    this.toolSteps = this.toolSteps.map((step) => step.status === "running"
+      ? { ...step, status: "error", duration_ms: Math.max(step.duration_ms, this.toolElapsedMs) }
+      : step);
+  }
+}

@@ -93,13 +93,25 @@ describe("TypeScriptAgentRuntime", () => {
     expect(store.messages[2]?.content).toEqual([
       expect.objectContaining({ type: "tool_result", tool_use_id: "tool-1" }),
     ]);
-    expect(emitted.at(-1)).toEqual(expect.objectContaining({
+    const streamFrames = emitted.filter((request) => request.emit_kind === "stream");
+    expect(streamFrames.at(-1)).toEqual(expect.objectContaining({
       session_id: "s1",
       response_route_id: "r1",
       content: "done",
-      emit_kind: "final",
+      emit_kind: "stream",
+      stream_type: "final_answer",
+      state: "final",
+      tool_steps: [expect.objectContaining({
+        id: "tool-1",
+        name: "echo",
+        status: "success",
+      })],
     }));
-    expect(emitted.some((request) => request.emit_kind === "stream" && request.content === "done")).toBe(true);
+    expect(emitted.some((request) => request.emit_kind === "final")).toBe(false);
+    expect(new Set(streamFrames.map((request) => request.emit_id)).size).toBe(1);
+    expect(streamFrames.map((request) => request.seq)).toEqual(
+      streamFrames.map((_, index) => index + 1),
+    );
     await runtime.stop();
     expect(services).toEqual(["start", "stop"]);
   });

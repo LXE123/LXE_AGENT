@@ -47,7 +47,7 @@ export interface ToolStep {
   duration_ms: number;
 }
 
-export interface EmitRequest {
+interface EmitRequestPayload {
   session_id: string;
   response_route_id: string;
   content: string;
@@ -58,9 +58,20 @@ export interface EmitRequest {
   tool_elapsed_ms: number;
   tool_steps: ToolStep[];
   files: string[];
-  emit_kind: string;
   emit_id: string;
-  stream_type: string;
-  state: string;
-  seq: number;
 }
+
+export type EmitRequest = EmitRequestPayload & (
+  | {
+      emit_kind: "stream";
+      stream_type: "final_answer";
+      state: "delta" | "final" | "error";
+      seq: number;
+    }
+  | {
+      emit_kind: "final" | "tool" | "progress";
+      stream_type: "";
+      state: "";
+      seq: 0;
+    }
+);

@@ -18,9 +18,9 @@
     }
   ],
   "files": [],
-  "emit_kind": "message",
+  "emit_kind": "stream",
   "emit_id": "emit_1",
-  "stream_type": "answer",
+  "stream_type": "final_answer",
   "state": "final",
   "seq": 1
 }

@@ -1,5 +1,6 @@
 import type { JsonObject, JsonValue } from "@lxe/protocol";
 import type { OutboundRequest, ResponseRoutePatch } from "../models";
+import { parseFeishuEnvelope } from "./response";
 
 export interface FeishuApiPort {
   request(method: string, path: string, body: JsonObject): Promise<JsonObject>;
@@ -25,8 +26,9 @@ export class FeishuCardKitError extends Error {
     readonly operation: string,
     readonly code: number,
     readonly cardId = "",
+    readonly detail = "",
   ) {
-    super(`Feishu CardKit ${operation} failed with code ${code}`);
+    super(`Feishu CardKit ${operation} failed with code ${code}${detail ? `: ${detail}` : ""}`);
   }
 }
 
@@ -339,9 +341,9 @@ export class FeishuCardKit {
     cardId = "",
   ): Promise<JsonObject> {
     const result = await this.options.api.request(method, path, body);
-    const code = Number(result.code ?? 0);
-    if (code !== 0) throw new FeishuCardKitError(operation, code, cardId);
-    return result;
+    const envelope = parseFeishuEnvelope(result, operation);
+    if (envelope.code !== 0) throw new FeishuCardKitError(operation, envelope.code, cardId, envelope.msg);
+    return { code: envelope.code, msg: envelope.msg, data: envelope.data };
   }
 
   private cleanup(sessionId: string): void {

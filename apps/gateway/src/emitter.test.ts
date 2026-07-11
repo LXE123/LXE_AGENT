@@ -3,7 +3,7 @@ import type { EmitRequest } from "@lxe/protocol";
 import { ChannelRegistry, FakeChannelAdapter } from "./channel";
 import { GatewayEmitter } from "./emitter";
 
-const emit = (patch: Partial<EmitRequest> = {}): EmitRequest => ({
+const emit = (patch: Record<string, unknown> = {}): EmitRequest => ({
   session_id: "session-1",
   response_route_id: "route-1",
   content: "hello",
@@ -20,7 +20,7 @@ const emit = (patch: Partial<EmitRequest> = {}): EmitRequest => ({
   state: "",
   seq: 0,
   ...patch,
-});
+} as EmitRequest);
 
 const setup = () => {
   const registry = new ChannelRegistry();

@@ -3,6 +3,7 @@ import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
 import { createLogger } from "@lxe/core";
 import { ToolRegistry } from "./tools";
 import { pruneMessages, validateToolCallClosure } from "./context";
+import { FinalAnswerStreamer } from "./final-answer-streamer";
 import type {
   AgentRuntime,
   RuntimeContentBlock,
@@ -85,6 +86,13 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     if (!this.started) throw new Error("runtime is not started");
     const session = await this.options.store.getSession(job.session_id);
     if (!session) throw new Error(`session not found: ${job.session_id}`);
+    const finalAnswerStreamer = job.response_route_id && String(session.source.platform ?? "").trim() === "feishu"
+      ? new FinalAnswerStreamer({
+          sessionId: job.session_id,
+          responseRouteId: job.response_route_id,
+          emit: (request) => this.emitBestEffort(request, "stream"),
+        })
+      : undefined;
     this.active.add(handle);
     let inputTokens = 0;
     let outputTokens = 0;
@@ -127,10 +135,10 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       await this.options.store.appendMessage(job.session_id, userMessage, "turn_input");
 
       const maxSteps = Math.max(1, Math.trunc(this.options.maxSteps ?? 32));
-      let streamSequence = 0;
-      let streamDeliveryFailed = false;
+      await finalAnswerStreamer?.startToolPending();
       for (let step = 0; step < maxSteps; step += 1) {
         if (isCancelled(handle)) {
+          await finalAnswerStreamer?.cancel();
           await recordUsage("cancelled");
           return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
         }
@@ -143,36 +151,13 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
         const providerMessages = pruneMessages(messages, this.options.maxContextMessages ?? 200);
         validateToolCallClosure(providerMessages);
-        let streamedContent = "";
-        let streamedThinking = "";
-        const streamStartedAt = Date.now();
         const response = await this.options.provider.turn({
           system: this.options.systemPrompt,
           messages: providerMessages,
           tools: this.options.tools.schemas(),
           signal: handle.signal,
           onDelta: async (delta) => {
-            if (isCancelled(handle) || !job.response_route_id || streamDeliveryFailed) return;
-            streamedContent += String(delta.text ?? "");
-            streamedThinking += String(delta.thinking ?? "");
-            streamSequence += 1;
-            streamDeliveryFailed = !(await this.emitBestEffort({
-              session_id: job.session_id,
-              response_route_id: job.response_route_id,
-              content: streamedContent,
-              thinking: streamedThinking,
-              redacted_thinking_count: 0,
-              thinking_elapsed_ms: streamedThinking ? Date.now() - streamStartedAt : 0,
-              tool_pending: false,
-              tool_elapsed_ms: 0,
-              tool_steps: [],
-              files: [],
-              emit_kind: "stream",
-              emit_id: randomUUID().replaceAll("-", ""),
-              stream_type: "content_block_delta",
-              state: "running",
-              seq: streamSequence,
-            }, "stream"));
+            if (!isCancelled(handle)) await finalAnswerStreamer?.pushDelta(delta);
           },
         });
         apiCalls += 1;
@@ -184,7 +169,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const calls = toolUseBlocks(response.content);
         if (calls.length === 0) {
           const reply = textContent(response.content);
-          if (reply && job.response_route_id) {
+          const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.finish(reply) : false;
+          if (reply && job.response_route_id && !streamDelivered) {
             await this.emitBestEffort(this.finalRequest(job, reply), "final");
           }
           await recordUsage("completed");
@@ -194,6 +180,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const results: ToolResultBlock[] = [];
         for (const call of calls) {
           if (isCancelled(handle)) {
+            await finalAnswerStreamer?.cancel();
             await recordUsage("cancelled");
             return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
           }
@@ -202,6 +189,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           const usage = toolUsage.get(call.name) ?? { calls: 0, errors: 0, duration_ms: 0 };
           usage.calls += 1;
           toolUsage.set(call.name, usage);
+          await finalAnswerStreamer?.pushToolStart(call);
+          let toolStatus: "success" | "error" = "success";
           try {
             const result = await this.options.tools.execute(call.name, call.input, {
               handle,
@@ -225,9 +214,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 files: result.files,
                 emit_kind: "tool",
                 emit_id: randomUUID().replaceAll("-", ""),
-                stream_type: "tool_result",
-                state: "running",
-                seq: 1,
+                stream_type: "",
+                state: "",
+                seq: 0,
               });
             }
             results.push({
@@ -237,6 +226,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             });
           } catch (cause) {
             usage.errors += 1;
+            toolStatus = "error";
             const message = cause instanceof Error ? cause.message : String(cause);
             results.push({
               type: "tool_result",
@@ -245,7 +235,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               is_error: true,
             });
           } finally {
-            usage.duration_ms += Date.now() - startedToolAt;
+            const durationMs = Date.now() - startedToolAt;
+            usage.duration_ms += durationMs;
+            await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs);
           }
         }
         const toolMessage: RuntimeMessage = { role: "user", content: results };
@@ -255,6 +247,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       throw new Error(`agent loop exceeded ${maxSteps} steps`);
     } catch (cause) {
       if (isCancelled(handle) || (cause instanceof DOMException && cause.name === "AbortError")) {
+        await finalAnswerStreamer?.cancel();
         await recordUsage("cancelled");
         return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
       }
@@ -262,7 +255,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       this.logger.error("turn failed", { session_id: job.session_id, run_id: job.job_id, error: cause });
       const reply = `执行失败: ${message}`;
       await recordUsage("error");
-      if (job.response_route_id) await this.emitBestEffort(this.finalRequest(job, reply), "error");
+      const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.fail(reply) : false;
+      if (job.response_route_id && !streamDelivered) await this.emitBestEffort(this.finalRequest(job, reply), "error");
       return this.outcome("error", reply, inputTokens, outputTokens, toolCalls);
     } finally {
       if (typingStarted) {
@@ -334,9 +328,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       files: [],
       emit_kind: "final",
       emit_id: randomUUID().replaceAll("-", ""),
-      stream_type: "final_answer",
-      state: "final",
-      seq: 1,
+      stream_type: "",
+      state: "",
+      seq: 0,
     };
   }
 }

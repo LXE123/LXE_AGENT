@@ -53,10 +53,32 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
     },
-    "emit_kind": { "type": "string" },
+    "emit_kind": { "enum": ["final", "tool", "progress", "stream"] },
     "emit_id": { "type": "string" },
     "stream_type": { "type": "string" },
     "state": { "type": "string" },
     "seq": { "type": "integer", "minimum": 0 }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "emit_kind": { "const": "stream" } },
+        "required": ["emit_kind"]
+      },
+      "then": {
+        "properties": {
+          "stream_type": { "const": "final_answer" },
+          "state": { "enum": ["delta", "final", "error"] },
+          "seq": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "else": {
+        "properties": {
+          "stream_type": { "const": "" },
+          "state": { "const": "" },
+          "seq": { "const": 0 }
+        }
+      }
+    }
+  ]
 }

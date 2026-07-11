@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { createLogger } from "@lxe/core";
+import { configureLogging, createLogger } from "@lxe/core";
 import { runGatewayCli, type GatewayApplicationPort } from "./cli";
 import { loadProjectEnv } from "./env";
 import { GatewayStatusFiles } from "./planned-stop";
@@ -79,20 +79,47 @@ async function waitForShutdown(app: GatewayApplicationPort): Promise<void> {
 export async function main(arguments_: readonly string[] = Bun.argv.slice(2)): Promise<number> {
   const projectRoot = resolve(import.meta.dir, "../../..");
   const environment = loadProjectEnv({ projectRoot });
-  return runGatewayCli(arguments_, {
-    createApp: () => createProductionGateway({ projectRoot, environment }),
-    requestStop: () => requestGatewayStop(projectRoot),
-    waitForShutdown,
-  });
+  const logging = configureLogging({ projectRoot, environment });
+  const onUnhandledRejection = (cause: unknown): void => {
+    const error = cause instanceof Error ? cause : new Error(String(cause));
+    logger.error("unhandled rejection", { error });
+    process.exitCode = 1;
+    void logging.flush().finally(() => {
+      try {
+        process.kill(process.pid, "SIGTERM");
+      } catch {
+        // The process is already terminating.
+      }
+    });
+  };
+  const onUncaughtException = (cause: Error): void => {
+    logger.error("uncaught exception", { error: cause });
+  };
+  process.on("unhandledRejection", onUnhandledRejection);
+  process.on("uncaughtExceptionMonitor", onUncaughtException);
+  try {
+    return await runGatewayCli(arguments_, {
+      createApp: () => createProductionGateway({ projectRoot, environment }),
+      requestStop: () => requestGatewayStop(projectRoot),
+      waitForShutdown,
+    });
+  } catch (cause) {
+    const error = cause instanceof Error ? cause : new Error(String(cause));
+    logger.error("fatal", { error });
+    throw error;
+  } finally {
+    process.off("unhandledRejection", onUnhandledRejection);
+    process.off("uncaughtExceptionMonitor", onUncaughtException);
+    await logging.flush();
+    await logging.close();
+  }
 }
 
 if (import.meta.main) {
   try {
     const code = await main();
-    process.exitCode = code;
-  } catch (cause) {
-    const error = cause instanceof Error ? cause : new Error(String(cause));
-    logger.error("fatal", { error });
+    if (!process.exitCode) process.exitCode = code;
+  } catch {
     process.exitCode = 1;
   }
 }

@@ -17,6 +17,7 @@
     "test": "bun test",
     "dashboard:build": "bun run --cwd web/agent-dashboard build",
     "gateway:dev": "bun run --cwd apps/gateway dev",
+    "gateway:watch": "bun run --cwd apps/gateway watch",
     "gateway:start": "bun run --cwd apps/gateway start",
     "gateway:stop": "bun run --cwd apps/gateway stop",
     "gateway:build": "bun run --cwd apps/gateway build",

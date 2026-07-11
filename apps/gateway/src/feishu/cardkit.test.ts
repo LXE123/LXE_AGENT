@@ -38,9 +38,15 @@ const request = (state: "delta" | "final" | "error", seq: number, patch: JsonObj
 class FakeApi {
   readonly calls: Array<{ method: string; path: string; body: JsonObject }> = [];
   failNext: FeishuCardKitError | undefined;
+  returnNext: JsonObject | undefined;
 
   async request(method: string, path: string, body: JsonObject): Promise<JsonObject> {
     this.calls.push({ method, path, body });
+    if (this.returnNext) {
+      const result = this.returnNext;
+      this.returnNext = undefined;
+      return result;
+    }
     if (this.failNext) {
       const error = this.failNext;
       this.failNext = undefined;
@@ -117,6 +123,16 @@ describe("Feishu CardKit stream state", () => {
     state.api.failNext = new FeishuCardKitError("stream_card_content", 500, "card-1");
     await expect(state.cardkit.handle(request("delta", 3), state.route)).rejects.toThrow("500");
     await state.cardkit.handle(request("final", 4), state.route);
+  });
+
+  test("reports malformed and nonzero API envelopes with the Feishu message", async () => {
+    const denied = setup();
+    denied.api.returnNext = { code: 999, msg: "permission denied", data: {} };
+    await expect(denied.cardkit.handle(request("delta", 1), denied.route)).rejects.toThrow("permission denied");
+
+    const malformed = setup();
+    malformed.api.returnNext = { data: { card_id: "card-1" } };
+    await expect(malformed.cardkit.handle(request("delta", 1), malformed.route)).rejects.toThrow("malformed Feishu response");
   });
 
   test("retries terminal close/finalize once after a recoverable reopen", async () => {

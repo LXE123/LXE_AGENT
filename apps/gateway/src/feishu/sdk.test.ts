@@ -7,13 +7,14 @@ describe("official Feishu SDK factory", () => {
     const registered: Record<string, (value: unknown) => unknown> = {};
     const starts: unknown[] = [];
     const closes: unknown[] = [];
+    let apiResponse: unknown = { code: 0, msg: "success", data: { card_id: "card-1" } };
     class Client {
       im = { v1: {
         messageReaction: { create: async () => ({ data: { reaction_id: "r" } }), delete: async () => ({}) },
         file: { create: async () => ({ file_key: "f" }) },
         image: { create: async () => ({ image_key: "i" }) },
       } };
-      request = async () => ({ data: { code: 0 } });
+      request = async () => apiResponse;
       constructor(readonly options: unknown) {}
     }
     class EventDispatcher {
@@ -46,6 +47,13 @@ describe("official Feishu SDK factory", () => {
     await registered["im.message.reaction.created_v1"]?.({});
     await registered["im.message.reaction.deleted_v1"]?.({});
     expect(callbacks.slice(0, 3)).toEqual(["message", "reaction-created", "reaction-deleted"]);
+    expect(await sdk.api.request("POST", "/cardkit/v1/cards", {})).toEqual({
+      code: 0,
+      msg: "success",
+      data: { card_id: "card-1" },
+    });
+    apiResponse = { data: { card_id: "missing-code" } };
+    await expect(sdk.api.request("POST", "/cardkit/v1/cards", {})).rejects.toThrow("malformed Feishu response");
     await sdk.connection.start();
     expect(starts).toHaveLength(1);
     expect(sdk.connection.status()).toEqual(expect.objectContaining({ state: "connected" }));

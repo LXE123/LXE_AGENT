@@ -65,6 +65,21 @@ const object = (value: unknown): Record<string, unknown> =>
     ? value as Record<string, unknown>
     : {};
 const jsonObject = (value: unknown): JsonObject => object(value) as JsonObject;
+const apiResponse = (value: unknown): JsonObject => {
+  const response = object(value);
+  const rawCode = response.code;
+  const code = typeof rawCode === "number" || (typeof rawCode === "string" && rawCode.trim())
+    ? Number(rawCode)
+    : Number.NaN;
+  if (!Number.isFinite(code) || !Number.isInteger(code)) {
+    throw new Error("malformed Feishu response: missing numeric code");
+  }
+  return {
+    code,
+    msg: String(response.msg ?? "").trim(),
+    data: jsonObject(response.data),
+  };
+};
 
 const fileType = (path: string): "opus" | "mp4" | "pdf" | "doc" | "xls" | "ppt" | "stream" => {
   const extension = extname(path).toLowerCase();
@@ -127,8 +142,7 @@ export function createOfficialFeishuSdk(
         url: `/open-apis${path}`,
         data: body,
       });
-      const outer = object(response);
-      return jsonObject(outer.data ?? outer);
+      return apiResponse(response);
     },
     upload: async (path, kind) => {
       const content = Buffer.from(await readFile(path));

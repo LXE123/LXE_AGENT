@@ -57,12 +57,17 @@ describe("Feishu media and card delivery", () => {
   test("rejects empty markdown, missing paths and nonzero API responses", async () => {
     const media = new FeishuMedia({
       api: {
-        request: async () => ({ code: 999 }),
+        request: async () => ({ code: 999, msg: "permission denied", data: {} }),
         upload: async () => "key",
       },
     });
     await expect(media.sendMarkdown(route(), " ")).rejects.toThrow("empty");
     await expect(media.sendFile(route(), "/definitely/missing")).rejects.toThrow("missing");
-    await expect(media.sendMarkdown(route(), "content")).rejects.toThrow("999");
+    await expect(media.sendMarkdown(route(), "content")).rejects.toThrow("999: permission denied");
+
+    const malformed = new FeishuMedia({
+      api: { request: async () => ({ data: {} }), upload: async () => "key" },
+    });
+    await expect(malformed.sendMarkdown(route(), "content")).rejects.toThrow("malformed Feishu response");
   });
 });
