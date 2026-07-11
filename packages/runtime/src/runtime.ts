@@ -11,6 +11,8 @@ import {
   type ContextCompactionResult,
 } from "./context";
 import { FinalAnswerStreamer } from "./final-answer-streamer";
+import { RuntimeProviderError, type RuntimeProviderManager } from "./provider";
+import type { RuntimeTraceControllerPort } from "./trace";
 import type {
   AgentRuntime,
   RuntimeContentBlock,
@@ -20,6 +22,7 @@ import type {
   RuntimeProvider,
   RuntimeStore,
   RuntimeStreamEvent,
+  RuntimeTurnResponse,
   RuntimeUsage,
   ToolResultBlock,
   ToolUseBlock,
@@ -28,7 +31,9 @@ import type {
 
 export interface TypeScriptAgentRuntimeOptions {
   store: RuntimeStore;
-  provider: RuntimeProvider;
+  provider?: RuntimeProvider;
+  providerManager?: RuntimeProviderManager;
+  traceController?: RuntimeTraceControllerPort;
   tools: ToolRegistry;
   emitter: RuntimeEmitter;
   systemPrompt: string;
@@ -106,9 +111,20 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     if (!this.started) throw new Error("runtime is not started");
     const session = await this.options.store.getSession(job.session_id);
     if (!session) throw new Error(`session not found: ${job.session_id}`);
-    const contextWindowTokens = this.options.contextWindowTokens ?? this.options.display?.contextWindowTokens;
+    const providerSnapshot = this.options.providerManager?.acquire();
+    const provider = providerSnapshot?.provider ?? this.options.provider;
+    if (!provider) throw new Error("runtime provider is not configured");
+    const descriptor = providerSnapshot?.descriptor;
+    const trace = this.options.traceController?.startTurn(job.session_id, job.job_id);
+    trace?.record("turn_start", {
+      session_id: job.session_id,
+      turn_id: job.job_id,
+      provider: descriptor?.name ?? "custom",
+      model: descriptor?.model ?? this.options.display?.model ?? "",
+    });
+    const contextWindowTokens = descriptor?.contextWindowTokens ?? this.options.contextWindowTokens ?? this.options.display?.contextWindowTokens;
     const contextPipeline = new ContextPipeline({
-      provider: this.options.provider,
+      provider,
       store: this.options.store,
       ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
     });
@@ -118,8 +134,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           responseRouteId: job.response_route_id,
           emit: (request) => this.emitBestEffort(request, "stream"),
           ...(this.options.display ? {
-            model: this.options.display.model,
-            contextWindowTokens: this.options.display.contextWindowTokens,
+            model: descriptor?.model ?? this.options.display.model,
+            contextWindowTokens: descriptor?.contextWindowTokens ?? this.options.display.contextWindowTokens,
           } : {}),
           toolUseMode: this.options.display?.toolUseMode ?? "on",
           showFullPaths: this.options.display?.showFullPaths ?? false,
@@ -155,6 +171,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         tool_calls: toolCalls,
         api_calls: apiCalls,
         tools: [...toolUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
+      });
+      trace?.record("turn_end", {
+        status,
+        elapsed_ms: Math.max(0, Math.trunc((Date.now() / 1_000 - startedAt) * 1_000)),
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        tool_calls: toolCalls,
+        api_calls: apiCalls,
       });
     };
     try {
@@ -218,14 +242,52 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           messages: structuredClone(messages) as RuntimeMessage[],
           tools: toolSchemas,
           signal: handle.signal,
+          ...(trace ? { trace } : {}),
           onEvent: async (event: RuntimeStreamEvent) => {
+            trace?.record("stream_event", {
+              type: event.type,
+              ...(event.type === "text_delta" ? { chars: event.text.length } : {}),
+              ...(event.type === "thinking_delta" ? { chars: event.thinking.length } : {}),
+            });
             if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
           },
         });
+        const invokeProvider = async (maximumAttempts = 3): Promise<RuntimeTurnResponse> => {
+          let lastError: unknown;
+          for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+            apiCalls += 1;
+            this.logger.debug("provider attempt", {
+              session_id: job.session_id,
+              turn_id: job.job_id,
+              step: step + 1,
+              attempt,
+              provider: descriptor?.name ?? "custom",
+              model: descriptor?.model ?? this.options.display?.model ?? "",
+            });
+            trace?.record("provider_attempt", { step: step + 1, attempt });
+            try {
+              return await provider.turn(providerRequest());
+            } catch (error) {
+              if (isCancelled(handle) || (error instanceof DOMException && error.name === "AbortError")) throw error;
+              if (isContextOverflowError(error)) throw error;
+              const retryable = error instanceof RuntimeProviderError ? error.retryable : true;
+              lastError = error;
+              this.logger.warn("provider attempt failed", {
+                session_id: job.session_id,
+                turn_id: job.job_id,
+                step: step + 1,
+                attempt,
+                retryable,
+                error,
+              });
+              if (!retryable || attempt >= maximumAttempts) throw error;
+            }
+          }
+          throw lastError ?? new Error("provider request failed");
+        };
         let response;
         try {
-          apiCalls += 1;
-          response = await this.options.provider.turn(providerRequest());
+          response = await invokeProvider();
         } catch (error) {
           if (!isContextOverflowError(error)) throw error;
           const overflow = await contextPipeline.prepare({
@@ -242,8 +304,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             throw new ContextCompactionError(overflow.failureReason, overflow.afterTokens);
           }
           if (!overflow.compacted || overflow.hardLimitExceeded) throw error;
-          apiCalls += 1;
-          response = await this.options.provider.turn(providerRequest());
+          response = await invokeProvider(1);
         }
         inputTokens += Math.max(0, Math.trunc(response.usage.input_tokens));
         outputTokens += Math.max(0, Math.trunc(response.usage.output_tokens));
@@ -330,6 +391,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           const usage = toolUsage.get(call.name) ?? { calls: 0, errors: 0, duration_ms: 0 };
           usage.calls += 1;
           toolUsage.set(call.name, usage);
+          trace?.record("tool_start", { step: step + 1, tool: call.name, tool_use_id: call.id, input: call.input });
           await finalAnswerStreamer?.pushToolStart(call);
           let toolStatus: "success" | "error" = "success";
           let toolDisplayOutput: { result?: unknown; error?: unknown } | undefined;
@@ -382,6 +444,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           } finally {
             const durationMs = Date.now() - startedToolAt;
             usage.duration_ms += durationMs;
+            trace?.record("tool_end", { step: step + 1, tool: call.name, tool_use_id: call.id, status: toolStatus, duration_ms: durationMs });
             await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs, toolDisplayOutput);
           }
         }
@@ -405,7 +468,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         await recordUsage("cancelled");
         return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
       }
-      const message = cause instanceof Error ? cause.message : String(cause);
+      const message = cause instanceof RuntimeProviderError
+        ? cause.userMessage
+        : cause instanceof Error ? cause.message : String(cause);
       this.logger.error("turn failed", { session_id: job.session_id, run_id: job.job_id, error: cause });
       const reply = `执行失败: ${message}`;
       await recordUsage("error");

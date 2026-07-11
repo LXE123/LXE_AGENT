@@ -5,6 +5,7 @@ import type { JsonObject } from "@lxe/protocol";
 import { envFlag, envInteger, envText, type Environment } from "@lxe/core";
 import type {
   RuntimeContentBlock,
+  RuntimeMessage,
   RuntimeProvider,
   RuntimeProviderRequest,
   RuntimeSummaryRequest,
@@ -31,6 +32,45 @@ export interface ProviderDescriptor {
   thinkingEffort: string;
   thinkingDisplay: string;
   contextWindowTokens: number;
+  requestTimeoutMs: number;
+}
+
+export interface ProviderConfigPatch {
+  provider?: string;
+  model?: string;
+  thinkingEnabled?: boolean;
+  thinkingEffort?: string;
+}
+
+export interface RuntimeProviderSnapshot {
+  generation: number;
+  descriptor: ProviderDescriptor;
+  provider: RuntimeProvider;
+}
+
+export interface RuntimeProviderManager {
+  acquire(): RuntimeProviderSnapshot;
+  reconfigure(
+    patch: ProviderConfigPatch,
+    persist?: (environmentPatch: Record<string, string>) => Promise<void> | void,
+  ): Promise<RuntimeProviderSnapshot>;
+}
+
+export class RuntimeProviderError extends Error {
+  readonly contextOverflow: boolean;
+  constructor(
+    message: string,
+    readonly provider: string,
+    readonly category: string,
+    readonly userMessage: string,
+    readonly retryable: boolean,
+    readonly statusCode?: number,
+    contextOverflow = false,
+  ) {
+    super(message);
+    this.name = "RuntimeProviderError";
+    this.contextOverflow = contextOverflow;
+  }
 }
 
 interface AnthropicMessageLike {
@@ -117,8 +157,96 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
     thinkingEffort: envText(env, "AGENT_LLM_THINKING_EFFORT", "low").toLowerCase(),
     thinkingDisplay: envText(env, "AGENT_LLM_THINKING_DISPLAY", "omitted").toLowerCase(),
     contextWindowTokens: Math.max(0, Math.trunc(Number((modelSpec as Record<string, unknown>).context_window_tokens ?? 0))),
+    requestTimeoutMs: envInteger(env, "LLM_REQUEST_TIMEOUT_S", 30, { min: 10, max: 3_600 }) * 1_000,
   };
 }
+
+const errorObject = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+const errorStatus = (error: unknown): number | undefined => {
+  const source = errorObject(error);
+  const response = errorObject(source.response);
+  for (const raw of [source.status, source.statusCode, source.status_code, response.status]) {
+    const value = Number(raw);
+    if (Number.isInteger(value) && value > 0) return value;
+  }
+  return undefined;
+};
+
+export function normalizeProviderError(error: unknown, descriptor: ProviderDescriptor): RuntimeProviderError {
+  if (error instanceof RuntimeProviderError) return error;
+  const message = String(error instanceof Error ? error.message : error ?? "provider request failed").trim();
+  const lower = message.toLowerCase();
+  const status = errorStatus(error);
+  const overflow = ["context overflow", "context window", "maximum context", "context length", "too many tokens", "prompt is too long"]
+    .some((value) => lower.includes(value));
+  const auth = status === 401 || status === 403 || /auth|api key|unauthor/iu.test(message);
+  const rateLimit = status === 429 || /rate.?limit|too many requests/iu.test(message);
+  const retryable = !auth && !overflow && (rateLimit || status === undefined || status >= 500 || /timeout|timed out|connect|reset|overload|temporar/iu.test(message));
+  const label = descriptor.name === "deepseek" ? "DeepSeek" : descriptor.name === "kimi_coding" ? "Kimi Coding" : descriptor.name;
+  const category = overflow ? "上下文超限" : auth ? "认证错误" : rateLimit ? "限流" : retryable ? "服务暂时异常" : "请求错误";
+  const userMessage = overflow
+    ? `${label} 上下文超过模型限制，请压缩后重试。`
+    : auth
+      ? `${label} 认证失败，请检查 API Key 是否正确或已过期。`
+      : retryable
+        ? `${label} 服务暂时异常，请稍后重试。`
+        : `${label} 请求失败：${message}`;
+  return new RuntimeProviderError(message, descriptor.name, category, userMessage, retryable, status, overflow);
+}
+
+const deepseekText = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return String(value ?? "");
+  return value.map((raw) => {
+    const block = errorObject(raw);
+    if (block.type === "text") return String(block.text ?? "");
+    if (block.type === "image") return "[image omitted: DeepSeek Anthropic API does not support image content]";
+    return "";
+  }).filter(Boolean).join("\n");
+};
+
+export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor: ProviderDescriptor): RuntimeMessage[] {
+  if (descriptor.name !== "deepseek") return structuredClone(messages);
+  return messages.map((message): RuntimeMessage => {
+    if (!Array.isArray(message.content)) return { role: message.role, content: message.content };
+    if (message.role === "assistant") {
+      return {
+        role: "assistant",
+        content: message.content.map((raw) => {
+          const block = errorObject(raw);
+          if (block.type === "thinking") return { type: "thinking", thinking: String(block.thinking ?? ""), signature: "" };
+          if (block.type === "redacted_thinking") return { type: "text", text: "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]" };
+          return structuredClone(block) as JsonObject;
+        }),
+      };
+    }
+    return {
+      role: "user",
+      content: message.content.map((raw) => {
+        const block = errorObject(raw);
+        if (block.type === "image") return { type: "text", text: "[image omitted: DeepSeek Anthropic API does not support image content]" };
+        if (block.type === "tool_result") return {
+          ...structuredClone(block),
+          content: deepseekText(block.content),
+        } as JsonObject;
+        return structuredClone(block) as JsonObject;
+      }),
+    };
+  });
+}
+
+const systemPayload = (system: string): string | JsonObject[] => {
+  const marker = "\n\n<<system-prompt-cache-breakpoint>>\n\n";
+  if (!system.includes(marker)) return system.trim();
+  const [stable, ...rest] = system.split(marker);
+  const volatile = rest.join("\n\n");
+  return [
+    ...(stable?.trim() ? [{ type: "text", text: stable.trim(), cache_control: { type: "ephemeral" } }] : []),
+    ...(volatile.trim() ? [{ type: "text", text: volatile.trim() }] : []),
+  ];
+};
 
 const thinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
   const style = descriptor.thinkingStyle;
@@ -180,6 +308,73 @@ const runtimeUsage = (usage: AnthropicMessageLike["usage"]): RuntimeSummaryResul
   cache_creation_input_tokens: Math.max(0, Math.trunc(usage.cache_creation_input_tokens ?? 0)),
 });
 
+const timedSignal = (parent: AbortSignal, timeoutMs: number): {
+  signal: AbortSignal;
+  cleanup(): void;
+  timedOut(): boolean;
+} => {
+  const controller = new AbortController();
+  let timeoutReached = false;
+  const abort = (): void => controller.abort(parent.reason ?? new DOMException("Aborted", "AbortError"));
+  if (parent.aborted) abort();
+  else parent.addEventListener("abort", abort, { once: true });
+  const safeTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, timeoutMs) : 30_000;
+  const timeout = setTimeout(() => {
+    timeoutReached = true;
+    controller.abort(new DOMException("Provider request timed out", "TimeoutError"));
+  }, safeTimeoutMs);
+  timeout.unref?.();
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      parent.removeEventListener("abort", abort);
+    },
+    timedOut: () => timeoutReached,
+  };
+};
+
+type RuntimeProviderFactory = (descriptor: ProviderDescriptor) => RuntimeProvider;
+
+export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
+  private snapshot: RuntimeProviderSnapshot;
+
+  constructor(
+    private readonly projectRoot: string,
+    private readonly environment: Environment,
+    private readonly factory: RuntimeProviderFactory = (descriptor) => new AnthropicRuntimeProvider(descriptor),
+  ) {
+    const descriptor = loadProviderDescriptor(projectRoot, environment);
+    this.snapshot = { generation: 1, descriptor, provider: factory(descriptor) };
+  }
+
+  acquire(): RuntimeProviderSnapshot {
+    return this.snapshot;
+  }
+
+  async reconfigure(
+    patch: ProviderConfigPatch,
+    persist?: (environmentPatch: Record<string, string>) => Promise<void> | void,
+  ): Promise<RuntimeProviderSnapshot> {
+    const environmentPatch: Record<string, string> = {};
+    if (patch.provider !== undefined) environmentPatch.AGENT_LLM_PROVIDER = patch.provider;
+    if (patch.model !== undefined) environmentPatch.AGENT_LLM_MODEL = patch.model;
+    if (patch.thinkingEnabled !== undefined) environmentPatch.AGENT_LLM_THINKING_ENABLED = patch.thinkingEnabled ? "1" : "0";
+    if (patch.thinkingEffort !== undefined) environmentPatch.AGENT_LLM_THINKING_EFFORT = patch.thinkingEffort;
+    const candidateEnvironment = { ...this.environment, ...environmentPatch };
+    const descriptor = loadProviderDescriptor(this.projectRoot, candidateEnvironment);
+    const provider = this.factory(descriptor);
+    await persist?.(environmentPatch);
+    Object.assign(this.environment, environmentPatch);
+    this.snapshot = {
+      generation: this.snapshot.generation + 1,
+      descriptor,
+      provider,
+    };
+    return this.snapshot;
+  }
+}
+
 export class AnthropicRuntimeProvider implements RuntimeProvider {
   private readonly client: AnthropicClientPort;
 
@@ -195,51 +390,87 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
   }
 
   async turn(request: RuntimeProviderRequest): Promise<RuntimeTurnResponse> {
-    const stream = this.client.messages.stream({
-      model: this.descriptor.model,
-      max_tokens: this.descriptor.maxTokens,
-      system: request.system,
-      messages: request.messages,
-      tools: request.tools,
-      stream: true,
-      ...thinkingPayload(this.descriptor),
-    }, { signal: request.signal });
-    let delivery = Promise.resolve();
-    const deliver = (event: RuntimeStreamEvent): void => {
-      if (!request.onEvent) return;
-      delivery = delivery.then(() => request.onEvent?.(event)).then(() => undefined);
-    };
-    stream.on?.("thinking", (thinking) => deliver({ type: "thinking_delta", thinking: String(thinking ?? "") }));
-    stream.on?.("text", (text) => deliver({ type: "text_delta", text: String(text ?? "") }));
-    stream.on?.("contentBlock", (block) => {
-      if (block !== null && typeof block === "object" && (block as Record<string, unknown>).type === "redacted_thinking") {
-        deliver({ type: "redacted_thinking" });
+    const timed = timedSignal(request.signal, this.descriptor.requestTimeoutMs);
+    try {
+      const parameters = {
+        model: this.descriptor.model,
+        max_tokens: this.descriptor.maxTokens,
+        system: systemPayload(request.system),
+        messages: adaptMessagesForProvider(request.messages, this.descriptor),
+        ...(request.tools.length > 0 ? { tools: request.tools, tool_choice: { type: "auto" } } : {}),
+        stream: true,
+        ...thinkingPayload(this.descriptor),
+      };
+      request.trace?.wire("request_start", {
+        provider: this.descriptor.name,
+        parameters: parameters as unknown as JsonObject,
+      });
+      const stream = this.client.messages.stream(parameters, { signal: timed.signal });
+      let delivery = Promise.resolve();
+      const deliver = (event: RuntimeStreamEvent): void => {
+        if (!request.onEvent) return;
+        delivery = delivery.then(() => request.onEvent?.(event)).then(() => undefined);
+      };
+      stream.on?.("thinking", (thinking) => deliver({ type: "thinking_delta", thinking: String(thinking ?? "") }));
+      stream.on?.("text", (text) => deliver({ type: "text_delta", text: String(text ?? "") }));
+      stream.on?.("contentBlock", (block) => {
+        if (block !== null && typeof block === "object" && (block as Record<string, unknown>).type === "redacted_thinking") {
+          deliver({ type: "redacted_thinking" });
+        }
+      });
+      const message = await stream.finalMessage();
+      await delivery;
+      request.trace?.wire("request_end", {
+        ok: true,
+        stop_reason: String(message.stop_reason ?? ""),
+        usage: runtimeUsage(message.usage) as unknown as JsonObject,
+      });
+      return {
+        content: message.content.map(runtimeBlock).filter((value): value is RuntimeContentBlock => Boolean(value)),
+        stop_reason: String(message.stop_reason ?? ""),
+        usage: runtimeUsage(message.usage),
+      };
+    } catch (error) {
+      request.trace?.wire("request_end", { ok: false, error: String(error instanceof Error ? error.message : error) });
+      if (request.signal.aborted) throw request.signal.reason ?? new DOMException("Aborted", "AbortError");
+      if (timed.timedOut()) {
+        throw new RuntimeProviderError(
+          `provider request timed out after ${this.descriptor.requestTimeoutMs}ms`,
+          this.descriptor.name,
+          "请求超时",
+          `${this.descriptor.name} 请求超时，请稍后重试。`,
+          true,
+        );
       }
-    });
-    const message = await stream.finalMessage();
-    await delivery;
-    return {
-      content: message.content.map(runtimeBlock).filter((value): value is RuntimeContentBlock => Boolean(value)),
-      stop_reason: String(message.stop_reason ?? ""),
-      usage: runtimeUsage(message.usage),
-    };
+      throw normalizeProviderError(error, this.descriptor);
+    } finally {
+      timed.cleanup();
+    }
   }
 
   async summarize(request: RuntimeSummaryRequest): Promise<RuntimeSummaryResult> {
-    const stream = this.client.messages.stream({
-      model: this.descriptor.model,
-      max_tokens: Math.min(32_768, this.descriptor.maxTokens),
-      system: SUMMARY_SYSTEM_PROMPT,
-      messages: request.messages,
-      stream: true,
-      ...(this.descriptor.thinkingStyle === "provider-managed" ? {} : { thinking: { type: "disabled" } }),
-    }, { signal: request.signal });
-    const message = await stream.finalMessage();
-    const text = message.content
-      .filter((block) => block.type === "text")
-      .map((block) => String(block.text ?? ""))
-      .join("")
-      .trim();
-    return { text, usage: runtimeUsage(message.usage) };
+    const timed = timedSignal(request.signal, this.descriptor.requestTimeoutMs);
+    try {
+      const stream = this.client.messages.stream({
+        model: this.descriptor.model,
+        max_tokens: Math.min(32_768, this.descriptor.maxTokens),
+        system: SUMMARY_SYSTEM_PROMPT,
+        messages: adaptMessagesForProvider(request.messages, this.descriptor),
+        stream: true,
+        ...(this.descriptor.thinkingStyle === "provider-managed" ? {} : { thinking: { type: "disabled" } }),
+      }, { signal: timed.signal });
+      const message = await stream.finalMessage();
+      const text = message.content
+        .filter((block) => block.type === "text")
+        .map((block) => String(block.text ?? ""))
+        .join("")
+        .trim();
+      return { text, usage: runtimeUsage(message.usage) };
+    } catch (error) {
+      if (request.signal.aborted) throw request.signal.reason ?? new DOMException("Aborted", "AbortError");
+      throw normalizeProviderError(error, this.descriptor);
+    } finally {
+      timed.cleanup();
+    }
   }
 }

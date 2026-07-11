@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../src/runtime";
+import { RuntimeProviderError } from "../src/provider";
 import { ToolRegistry } from "../src/tools";
 import type { RuntimeHandle, RuntimeMessage, RuntimeStore, RuntimeTurnResponse } from "../src/types";
 
@@ -575,5 +576,40 @@ describe("TypeScriptAgentRuntime", () => {
       role: "assistant", content: [{ type: "text", text: "本轮已达到最大步骤，请发送下一条消息继续。" }],
     });
     await runtime.stop();
+  });
+
+  test("retries retryable provider errors three times but stops non-retryable errors immediately", async () => {
+    const run = async (retryable: boolean): Promise<{ calls: number; outcome: Awaited<ReturnType<TypeScriptAgentRuntime["runTurn"]>> }> => {
+      const store = new MemoryStore();
+      let calls = 0;
+      const runtime = new TypeScriptAgentRuntime({
+        store, tools: new ToolRegistry(),
+        provider: {
+          summarize,
+          turn: async () => {
+            calls += 1;
+            throw new RuntimeProviderError(
+              retryable ? "service unavailable" : "invalid authentication",
+              "kimi_coding",
+              retryable ? "服务暂时异常" : "认证错误",
+              retryable ? "Kimi Coding 服务暂时异常，请稍后重试。" : "Kimi Coding 认证失败，请检查 API Key。",
+              retryable,
+              retryable ? 503 : 401,
+            );
+          },
+        },
+        emitter: { emit: async () => undefined, typing: async () => undefined }, systemPrompt: "test",
+      });
+      await runtime.start();
+      const outcome = await runtime.runTurn(job(), handle());
+      await runtime.stop();
+      return { calls, outcome };
+    };
+    const retryable = await run(true);
+    expect(retryable.calls).toBe(3);
+    expect(retryable.outcome.reply).toBe("执行失败: Kimi Coding 服务暂时异常，请稍后重试。");
+    const fatal = await run(false);
+    expect(fatal.calls).toBe(1);
+    expect(fatal.outcome.reply).toBe("执行失败: Kimi Coding 认证失败，请检查 API Key。");
   });
 });

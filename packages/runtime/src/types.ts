@@ -61,6 +61,10 @@ export interface RuntimeProviderRequest {
   tools: ToolSchema[];
   signal: AbortSignal;
   onEvent?: (event: RuntimeStreamEvent) => Promise<void> | void;
+  trace?: {
+    record(kind: string, payload?: JsonObject): void;
+    wire(kind: string, payload?: JsonObject): void;
+  };
 }
 
 export interface RuntimeProvider {

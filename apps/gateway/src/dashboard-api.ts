@@ -10,7 +10,13 @@ import {
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { parse } from "yaml";
 import type { JsonObject } from "@lxe/protocol";
-import { mcpServerPrefix, type McpConfig, type SqliteRuntimeStore, type ToolRegistry } from "@lxe/runtime";
+import {
+  mcpServerPrefix,
+  type McpConfig,
+  type RuntimeProviderManager,
+  type SqliteRuntimeStore,
+  type ToolRegistry,
+} from "@lxe/runtime";
 
 type Environment = Record<string, string | undefined>;
 
@@ -24,6 +30,7 @@ interface DashboardApiOptions {
   backgroundTasks?: () => JsonObject[];
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
   mcpStatus?: (serverName: string) => { connected: boolean; error: string };
+  providerManager?: RuntimeProviderManager;
 }
 
 interface SkillManifest {
@@ -460,8 +467,31 @@ export class DashboardApi {
     const model = requestedModel || text(spec.default_model);
     if (!(model in models)) return json({ detail: "Unsupported model for provider" }, 400);
     if (!this.authEnvNames(provider).some((name) => Boolean(text(this.options.environment[name])))) return json({ detail: "missing API key" }, 400);
-    this.updateEnvironment({ AGENT_LLM_PROVIDER: provider, AGENT_LLM_MODEL: model });
-    return json(this.modelPayload(spec, model));
+    const modelSpec = object(models[model]);
+    const levels = Array.isArray(modelSpec.thinking_levels) ? modelSpec.thinking_levels.map(text) : [];
+    const currentEffort = text(this.options.environment.AGENT_LLM_THINKING_EFFORT).toLowerCase();
+    const effort = levels.includes(currentEffort) ? currentEffort : text(modelSpec.thinking_default) || (levels[0] ?? "off");
+    const patch = {
+      provider,
+      model,
+      thinkingEnabled: effort !== "off",
+      thinkingEffort: effort,
+    };
+    const environmentPatch = {
+      AGENT_LLM_PROVIDER: provider,
+      AGENT_LLM_MODEL: model,
+      AGENT_LLM_THINKING_ENABLED: effort === "off" ? "0" : "1",
+      AGENT_LLM_THINKING_EFFORT: effort,
+    };
+    const snapshot = this.options.providerManager
+      ? await this.options.providerManager.reconfigure(patch, (values) => this.persistEnvironment(values))
+      : undefined;
+    if (!snapshot) this.updateEnvironment(environmentPatch);
+    return json({
+      ...this.modelPayload(spec, model),
+      generation: snapshot?.generation ?? 0,
+      effective_from: "next_turn",
+    });
   }
 
   private async patchThinking(request: Request): Promise<Response> {
@@ -470,12 +500,20 @@ export class DashboardApi {
     const level = text(body.level).toLowerCase();
     const levels = Array.isArray(current.thinking_levels) ? current.thinking_levels.map(text) : [];
     if (!levels.includes(level)) return json({ detail: `Current model thinking level must be one of: ${levels.join(", ")}` }, 400);
-    this.updateEnvironment({ AGENT_LLM_THINKING_ENABLED: level === "off" ? "0" : "1", AGENT_LLM_THINKING_EFFORT: level });
-    return json(this.currentModel());
+    const environmentPatch = { AGENT_LLM_THINKING_ENABLED: level === "off" ? "0" : "1", AGENT_LLM_THINKING_EFFORT: level };
+    const snapshot = this.options.providerManager
+      ? await this.options.providerManager.reconfigure({ thinkingEnabled: level !== "off", thinkingEffort: level }, (values) => this.persistEnvironment(values))
+      : undefined;
+    if (!snapshot) this.updateEnvironment(environmentPatch);
+    return json({ ...this.currentModel(), generation: snapshot?.generation ?? 0, effective_from: "next_turn" });
   }
 
   private updateEnvironment(values: Record<string, string>): void {
+    this.persistEnvironment(values);
     Object.assign(this.options.environment, values);
+  }
+
+  private persistEnvironment(values: Record<string, string>): void {
     const path = join(this.options.projectRoot, ".env.local");
     let lines: string[] = [];
     try { lines = readFileSync(path, "utf8").split(/\r?\n/); } catch (error) {
@@ -486,6 +524,9 @@ export class DashboardApi {
       if (index >= 0) lines[index] = `${key}=${value}`;
       else lines.push(`${key}=${value}`);
     }
-    writeFileSync(path, `${lines.filter((line, index) => line || index < lines.length - 1).join("\n")}\n`, "utf8");
+    mkdirSync(dirname(path), { recursive: true });
+    const temporary = `${path}.${process.pid}.tmp`;
+    writeFileSync(temporary, `${lines.filter((line, index) => line || index < lines.length - 1).join("\n")}\n`, "utf8");
+    renameSync(temporary, path);
   }
 }

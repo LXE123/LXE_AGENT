@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SqliteRuntimeStore, ToolRegistry } from "@lxe/runtime";
+import { SqliteRuntimeStore, ToolRegistry, type RuntimeProviderManager } from "@lxe/runtime";
 import { DashboardApi } from "./dashboard-api";
 
 const roots: string[] = [];
@@ -45,6 +45,32 @@ describe("DashboardApi", () => {
       input_schema: { type: "object", properties: {} },
       execute: async () => ({ content: [] }),
     });
+    const reconfigured: unknown[] = [];
+    const providerManager: RuntimeProviderManager = {
+      acquire: () => { throw new Error("not needed by Dashboard test"); },
+      reconfigure: async (patch, persist) => {
+        reconfigured.push(patch);
+        await persist?.({
+          AGENT_LLM_PROVIDER: patch.provider ?? "kimi_coding",
+          AGENT_LLM_MODEL: patch.model ?? "kimi-for-coding",
+          AGENT_LLM_THINKING_ENABLED: patch.thinkingEnabled === false ? "0" : "1",
+          AGENT_LLM_THINKING_EFFORT: patch.thinkingEffort ?? "off",
+        });
+        return {
+          generation: 2,
+          descriptor: {
+            name: patch.provider ?? "kimi_coding", model: patch.model ?? "kimi-for-coding",
+            baseURL: "", apiKey: "", maxTokens: 4096, defaultHeaders: {}, thinkingStyle: "none",
+            thinkingEnabled: patch.thinkingEnabled ?? false, thinkingEffort: patch.thinkingEffort ?? "off",
+            thinkingDisplay: "omitted", contextWindowTokens: 200_000, requestTimeoutMs: 30_000,
+          },
+          provider: {
+            summarize: async () => ({ text: "", usage: { input_tokens: 0, output_tokens: 0 } }),
+            turn: async () => ({ content: [], stop_reason: "end_turn", usage: { input_tokens: 0, output_tokens: 0 } }),
+          },
+        };
+      },
+    };
     const api = new DashboardApi({
       projectRoot: root,
       environment: { KIMI_API_KEY: "test-key" },
@@ -53,6 +79,7 @@ describe("DashboardApi", () => {
       mcpConfig: { servers: [] },
       connectorStatePath: join(root, "config", "connectors.json"),
       backgroundTasks: () => [{ task_id: "task-1", status: "running" }],
+      providerManager,
     });
     const call = async (path: string, init?: RequestInit) => {
       const request = new Request(`http://dashboard${path}`, init);
@@ -80,7 +107,8 @@ describe("DashboardApi", () => {
     expect((await call("/api/models/current", {
       method: "PATCH", headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "kimi_coding", model: "kimi-for-coding" }),
-    })).body).toMatchObject({ provider: "kimi_coding", model: "kimi-for-coding" });
+    })).body).toMatchObject({ provider: "kimi_coding", model: "kimi-for-coding", generation: 2, effective_from: "next_turn" });
+    expect(reconfigured).toEqual([expect.objectContaining({ provider: "kimi_coding", model: "kimi-for-coding" })]);
 
     const connectors = (await call("/api/connectors")).body as { total: number; items: Array<Record<string, unknown>> };
     expect(connectors.total).toBe(2);

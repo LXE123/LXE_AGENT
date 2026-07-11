@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
 import { createLogger } from "@lxe/core";
 import {
-  AnthropicRuntimeProvider,
+  AtomicRuntimeProviderManager,
   McpManager,
   MaintenanceScheduler,
   SqliteRuntimeStore,
@@ -11,12 +11,12 @@ import {
   TypeScriptAgentRuntime,
   loadMcpConfig,
   setMcpServerEnabled,
-  loadProviderDescriptor,
   registerCodingTools,
   registerScriptTools,
   PythonScriptToolRunner,
   ZINIAO_SCRIPT_TOOL_DEFINITIONS,
   buildSkillIndexPrompt,
+  configureRuntimeTracing,
   registerToolSearch,
 } from "@lxe/runtime";
 import { BunDashboardServer } from "./dashboard";
@@ -91,6 +91,9 @@ export function createProductionGateway(
   const directStore =
     options.directStorage ??
     (new SqliteRuntimeStore(databasePath) as unknown as DirectGatewayStorage);
+  const providerManager = options.directRuntime
+    ? undefined
+    : new AtomicRuntimeProviderManager(options.projectRoot, options.environment);
   let gatewayEmitter: GatewayEmitter | undefined;
   let heartbeatWake: ((payload: JsonObject) => void) | undefined;
   const tools = new ToolRegistry();
@@ -191,6 +194,7 @@ export function createProductionGateway(
       await mcpManager.setEnabled(serverName, enabled);
     },
     mcpStatus: (serverName) => mcpManager.status(serverName),
+    ...(providerManager ? { providerManager } : {}),
   });
   const permissionKey = policy.botIdToKey.get(feishu.appId);
   const allowedSkillTypes = permissionKey
@@ -204,11 +208,12 @@ export function createProductionGateway(
   const directRuntime =
     options.directRuntime ??
     (() => {
-      const providerDescriptor = loadProviderDescriptor(options.projectRoot, options.environment);
-      const provider = new AnthropicRuntimeProvider(providerDescriptor);
+      if (!providerManager) throw new Error("provider manager is not configured");
+      const providerDescriptor = providerManager.acquire().descriptor;
       return new TypeScriptAgentRuntime({
         store: directStore as unknown as SqliteRuntimeStore,
-        provider,
+        providerManager,
+        traceController: configureRuntimeTracing({ projectRoot: options.projectRoot, environment: options.environment }),
         tools,
         contextWindowTokens: providerDescriptor.contextWindowTokens,
         display: {
