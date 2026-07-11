@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Keep the production topology as one Bun process.
-- Do not restore Python Gateway, Runtime, worker, or compatibility imports.
+- Do not restore the deleted legacy Gateway/Runtime worker architecture or compatibility imports.
 - Preserve existing SQLite schema and route payload fields.
 - Write every regression test before its production change and observe the expected failure.
 

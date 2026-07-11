@@ -4,91 +4,47 @@
 
 ## 目的
 
-这篇文档解释 gateway 进程如何从一个 Python 入口变成可接收平台消息的运行体。读者如果想知道服务启动时创建了哪些组件、后台任务在哪里启动、停止信号会怎样传播，应该先读这一篇。
+当前生产拓扑是一个 Bun 进程：Gateway、TypeScript Runtime、Dashboard、scheduler、channels 和常驻维护任务都在同一进程内。Python 只会由 script bridge 按请求启动，完成后退出。
 
-## 设计理念
+## 事实来源
 
-生命周期层只做 bootstrap 和组件编排，不把平台消息解析、权限判断、agent 执行或出站发送写进入口。`main.py` 保持很薄，`GatewayApp` 集中管理 start/stop 顺序，让 adapter、Dashboard 和 shared-state 连接释放有一个清晰的归口。
+- [`apps/gateway/src/main.ts`](/apps/gateway/src/main.ts)：CLI、顶层 fatal handler 和日志 flush。
+- [`apps/gateway/src/cli.ts`](/apps/gateway/src/cli.ts)：`start`、`stop`、状态文件和配置读取。
+- [`apps/gateway/src/production.ts`](/apps/gateway/src/production.ts)：生产组件装配。
+- [`apps/gateway/src/direct-composition.ts`](/apps/gateway/src/direct-composition.ts)：单进程 Gateway/Runtime 组合。
+- [`apps/gateway/src/gateway-lifecycle.ts`](/apps/gateway/src/gateway-lifecycle.ts)：启动、停止和失败回滚。
 
-## 链路位置
+## 启动
 
-这一层覆盖 `main.py -> GatewayApp`。它把 `ChannelRegistry`、`SessionRouter`、`SessionScheduler`、`GatewayEmitter` 和 `HeartbeatWakeManager` 装配好，然后通过 dispatch loop 把 adapter 送入的 `InboundEvent` 交给下一篇文档描述的路由层。
+开发环境使用：
 
-本文维护当前 gateway 的启动、初始化、后台任务和关闭顺序。事实来源是 [main.py](../../../main.py)、[gateway/app.py](../../../gateway/app.py)、[gateway/config.py](../../../gateway/config.py) 和 [gateway/dashboard/settings.py](../../../gateway/dashboard/settings.py)。
+```powershell
+bun run gateway:dev
+```
 
-## 启动入口
+非 watch 的本地启动使用：
 
-`main.py` 是 gateway 进程入口：
+```powershell
+bun run gateway:start
+```
 
-- 先调用 `bootstrap_network_policy(label="gateway")` 建立网络策略。
-- 记录当前 agent planner 摘要。
-- 通过 `GatewayApp.from_config()` 创建应用。
-- 注册 `SIGINT` / `SIGTERM`。第一次信号触发 `app.request_shutdown()`，第二次信号直接 `os._exit(130)`。
-- 执行 `app.start()`，随后 `app.wait_forever()` 阻塞到 stop event，最后在 `finally` 中调用 `app.stop()`。
+启动时依次完成 env/config、文件日志、SQLite/JSONL store、TypeScript Runtime、Dashboard、scheduler、channel 和 ingress 的初始化。Runtime 内部再启动 MCP manager、process manager 和维护任务；单个 MCP server 启动失败只记录该 server 的 error，不阻塞其它组件。
 
-`main()` 使用 `asyncio.run()` 启动 `_run_gateway()`，所以 gateway 的主生命周期运行在单个 asyncio event loop 内。
+飞书 adapter 将平台事件转换成 `InboundEvent`，`SessionRouter` 创建 `AgentJob`，`SessionScheduler` 直接调用同进程 `TypeScriptAgentRuntime.runTurn()`。生产路径没有 worker supervisor、跨进程 NDJSON envelope 或其它 Runtime fallback。
 
-## GatewayApp 组装
+## 停止
 
-`GatewayApp.__init__()` 组装 gateway 内部依赖：
+`SIGINT`、`SIGTERM`、CLI stop、fatal error 和 planned stop 最终都进入同一个生命周期控制器。关闭顺序保证：
 
-- `ChannelRegistry`：保存平台 adapter。
-- `AgentQueue`：接收 adapter 送入的 `InboundEvent`。
-- `SessionScheduler`：执行 agent job，`AGENT_MAX_CONCURRENCY` 来自 [gateway/config.py](../../../gateway/config.py)。
-- `GatewayEmitter`：把 agent emit 请求发送回平台。
-- `HeartbeatWakeManager`：处理后台 pending event 的 wake 请求。
-- `SessionRouter`：解析入站消息、权限、session 和控制命令。
-- `DashboardServer`：当 `AGENT_DASHBOARD_ENABLED` 为 true 时启动。
+1. 停止新 ingress 与 heartbeat wake。
+2. 取消并等待 active turn，终止已注册的进程树。
+3. 停止 scheduler 和 Runtime services。
+4. 停止 channels 与 Dashboard。
+5. 关闭 SQLite，并 flush/close Bun 文件日志。
+6. 清理只属于当前 boot id 的状态文件。
 
-`GatewayApp.from_config()` 当前注册的是 `FeishuStreamAdapter`。它会校验 Feishu runtime config，并要求 `lark-oapi` 依赖可用。
+每个步骤有有界等待；启动中途失败会逆序关闭已启动组件。验收要求连续 start/stop/restart 三轮后没有残留端口、SQLite lock、MCP、Python 或浏览器子进程。
 
-## start()
+## Dashboard
 
-`GatewayApp.start()` 的当前顺序：
-
-1. 获取当前 asyncio loop。
-2. 调用 `init_schema()` 初始化 SQLite schema。
-3. 启动 Dashboard server。
-4. 记录 Feishu runtime 状态。
-5. 注册 emit handler 和 heartbeat wake handler。
-6. 创建 `_dispatch_loop()` task。
-7. 为每个 adapter 设置 inbound sink：`adapter.set_inbound_sink(self.publish_from_adapter)`。
-8. 启动所有 channel adapter。
-9. 创建并启动 APScheduler。
-10. 同步刷新一次 Mabang ERP cookie。
-11. 读取 adapter health snapshot 并记录启动成功日志。
-12. 如果 Dashboard 已启动且配置允许，打开浏览器。
-
-如果 adapter 启动失败，`start()` 会取消 dispatch task、停止 session scheduler、停止 adapter、停止 dashboard，并 reset emit handlers。
-
-## 后台定时任务
-
-`_build_scheduler()` 当前注册这些 APScheduler job：
-
-- `mabang_erp_cookie_refresh`：每 2 小时刷新 Mabang ERP cookie。
-- `agent_data_snapshot_sync`：当 LXE Data Server 同步开启时按配置同步 snapshot。
-
-这些 job 不负责平台连接生命周期；adapter 只在 gateway start/stop 时由 `ChannelRegistry` 统一启动和关闭。Feishu SDK 自己的连接恢复能力仍由 adapter 内部配置保留。
-
-## 入站 dispatch loop
-
-adapter 调用 `publish_from_adapter(event)` 后，gateway 使用 `loop.call_soon_threadsafe()` 把 `InboundEvent` 放进 `AgentQueue`。
-
-`_dispatch_loop()` 从 queue 取事件，并调用 `SessionRouter.route_message(event)`。路由异常只记录日志，不会退出 dispatch loop。
-
-## stop()
-
-`GatewayApp.stop()` 当前关闭顺序：
-
-1. 设置 stop event。
-2. 停止 `HeartbeatWakeManager`。
-3. 停止 `SessionScheduler`。
-4. 取消 dispatch task。
-5. 停止 channel adapters。
-6. 停止 Dashboard server。
-7. 停止 APScheduler。
-8. 关闭网络客户端。
-9. 释放 SQLite shared-state store。
-10. reset emit handlers。
-
-每个异步关闭步骤通过 `_await_stop_step()` 包装，有独立 timeout 和 warning 日志，避免单个组件卡住导致整个进程无法退出。
+Dashboard API 和静态文件均由 `BunDashboardServer` 提供，默认监听 `127.0.0.1:8765`。模型/thinking PATCH 先创建并验证新的 provider client，再原子更新 `.env.local` 与 provider snapshot；变化只影响下一 turn。

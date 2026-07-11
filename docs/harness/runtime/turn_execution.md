@@ -2,142 +2,37 @@
 
 状态：Current
 
-## 目的
+事实来源：[`packages/runtime/src/runtime.ts`](/packages/runtime/src/runtime.ts)。
 
-这篇文档解释一个已经通过 gateway 路由和调度的 `AgentJob`，在 runtime 内部如何被执行完。读者如果在排查一次回复为什么没有发送、pending event 为什么进入了本轮、heartbeat job 为什么触发、state patch 为什么写回，应该读这一篇。
+## Turn snapshot
 
-## 设计理念
+每个 turn 开始时固定一次 provider snapshot、system/skill prompt 和 tool exposure state。Dashboard 的模型、thinking、connector 或 MCP 变化从下一 turn 生效，不会改变正在执行的 turn。
 
-Turn execution 被拆成三层：`handle_unified_turn_job()` 处理 job 级别的输入输出和平台反馈，`run_turn()` 准备 runtime 依赖和可见 skills，`AgentLoop.run()` 执行真正的 LLM/tool step loop。这样 job 生命周期、skill/tool 可见性、LLM 循环和持久化不会挤在一个函数里。
+## Step loop
 
-## 链路位置
+每个 LLM step 前按顺序执行：
 
-这一层位于 `SessionScheduler` 之后、context/tools/LLM integration 之前。它从 gateway 收到 `AgentJob` 和 `RunHandle`，进入 `AgentLoop` 后调用 [Runtime Context](context/README.md)、[Runtime Tools](tools/README.md) 和 [LLM Integration](../llm/README.md)，最后产出 `TurnOutcome` 并交回 turn handler 持久化和发送。
+1. 检查 cancel，并消费 steering。
+2. 运行 token-aware `ContextPipeline`，验证 canonical tool closure。
+3. 读取本 turn 当前已暴露的 tool schemas。
+4. 调用 provider；timeout、429、连接错误和 5xx 最多三次，鉴权/参数错误立即失败。
+5. context overflow 不走普通重试：强制压缩后只重试一次。
+6. 持久化 assistant tool-use，再逐个 dispatch 工具并即时写入 tool result。
 
-本文事实来源：
+原生 direct 工具立即可见；MCP 与业务 script tools 默认 deferred。`tool_search` 命中后从下一 step 暴露；读取某个 `SKILL.md` 会激活 owner tools 并记录 skill usage。
 
-- [agent_runtime/turn_handler.py](../../../agent_runtime/turn_handler.py)
-- [agent_runtime/runtime.py](../../../agent_runtime/runtime.py)
-- [agent_runtime/loop.py](../../../agent_runtime/loop.py)
-- [agent_runtime/final_answer_streamer.py](../../../agent_runtime/final_answer_streamer.py)
-- [agent_runtime/types.py](../../../agent_runtime/types.py)
+## Cancel 与 steering
 
-## 输入：AgentJob
+LLM、summary、MCP 和 script/process 工具共用 turn `AbortSignal`。取消发生在多个 tool use 之间时，尚未 dispatch 的调用会写入 cancelled result stub，保证 transcript 闭合。steering 在 LLM step、tool dispatch 与 context checkpoint 前消费；必要时跳过剩余工具并让 provider 重新判断。
 
-Gateway scheduler 调用 `GatewayApp._execute_agent_job()`，再进入 `handle_unified_turn_job()`。runtime 不直接读取平台 adapter，它只消费已经由 gateway 归一化过的 job payload。
+## 最大步骤
 
-当前 payload 主要包含：
+默认最多 50 step。达到上限会持久化当前闭合状态，并回复“本轮已达到最大步骤，请发送下一条消息继续”，不当作内部错误。
 
-- `session_id`
-- `response_route_id`
-- `session_key`
-- `source`
-- `user_text`
-- `job_id`
-- `job_kind`
-- `raw_data`
-- `user_content_blocks`
+## 最终回复
 
-`job_kind` 当前主要有两类：普通用户 turn 使用 `turn`，后台唤醒使用 `job_kind="heartbeat"`。
+飞书 turn 使用一个 `FinalAnswerStreamer` 和单一 `emit_id`：thinking、tool 状态、正文与终态关闭同一张 CardKit 卡。只有从未成功投递任何流帧时才回退一次普通 final/error；cancel 不创建新错误卡。
 
-## TurnHandler
+## Usage 与 trace
 
-`handle_unified_turn_job()` 是 runtime 的 job 入口。它负责：
-
-- 从 job 中取出 session、route、输入文本、source 和 raw data。
-- 加载当前 session；session 不存在时直接结束 job。
-- 为 Feishu 普通 turn best-effort 发送 typing indicator。
-- 当 session 支持流式 final answer 时创建 `FinalAnswerStreamer`。
-- 构造 tool start / finish 回调，把工具状态推给 final answer stream。
-- 构造 cancellation check，把 `RunHandle.cancelled` 传给 agent loop。
-
-这一层不直接执行 LLM step，也不直接运行工具。
-
-## 普通 Turn
-
-普通 `turn` 会先处理 pending system events：
-
-1. 从 `raw_data.system_events` 读取 gateway 在路由阶段弹出的事件。
-2. 把每条事件格式化成 `System: [time] ...` 文本。
-3. 如果本轮有 inline content blocks，把 system events 插到 blocks 前面。
-4. 如果本轮只有文本，把 system events 拼到用户文本前面。
-5. 用户原文中伪造的 `System:` 前缀会被改写成 `System (untrusted):`。
-
-这样后台事件可以搭本轮用户消息进入 agent loop，但不会被误认为真正的系统 prompt。
-
-## Heartbeat Job
-
-`job_kind="heartbeat"` 用于后台 pending event 主动唤醒。它和普通 turn 走同一个 runtime loop，但输入构造不同：
-
-1. 从 session pending events 中 `pop_agent_session_pending_events(session_id)`。
-2. 如果没有 pending events，只 touch session 并结束。
-3. 把 pending events 格式化成 system event 文本。
-4. 构造 heartbeat prompt，要求 agent 只处理这些后台完成事件。
-5. 清空 `user_content_blocks`，再调用 `run_turn()`。
-
-Heartbeat job 的价值是复用同一套 `AgentLoop`、context、tool 和 final emit 机制，而不是绕过 session 串行规则单独发消息。
-
-## run_turn()
-
-`run_turn()` 是 runtime 的轻量入口。它负责：
-
-- 确保所有 runtime tools 注册到 registry。
-- 从 session 读取 `state_data`。
-- 根据当前 session 的 bot id 和 permission policy 加载 visible skills。
-- 把输入、callbacks、cancel handles 和 visible skills 传给 `run_agent_turn()`。
-
-Skill 的完整 catalog 见 [Skill docs](../skill/README.md)。这里不复制 skill prompt，只说明本轮 runtime 如何拿到可见 skill 队列。
-
-## AgentLoop.run()
-
-`AgentLoop.run()` 是一次 turn 的核心执行体：
-
-1. 创建 `TurnLog` 和 trace writer。
-2. 裁剪已处理历史图片。
-3. 构造当前 user message，追加到 model-visible state，并写 transcript message checkpoint。
-4. 读取 active tool names 和 tool schemas。
-5. 构造 system prompt 和 LLM messages。
-6. 建立 `ToolExecutionContext`。
-7. 进入 `_loop()` 执行 LLM/tool step；完整 assistant/tool message 产生时即时 checkpoint。
-8. turn 结束后先执行 history limit，再执行 post-turn compaction，必要时追加 transcript replacement。
-9. 执行最终 sanitizer repair。
-10. 生成最终 context stats 和 `TurnOutcome`。
-
-Context 细节见 [Runtime Context](context/README.md)，tool schema 和 tool execution 细节见 [Runtime Tools](tools/README.md)。
-
-## Step Loop
-
-`AgentLoop._loop()` 是 turn 内部的重复执行节拍。它每个 step 先检查取消和最大步数边界，再调用 LLM streaming；如果 LLM 返回 text reply，本 turn 结束；如果返回 tool calls，runtime 先写 assistant tool call message，再执行工具、写回 tool result message，并进入下一 step。
-
-这层细节见 [Turn Step Lifecycle](turn_step_lifecycle.md)。工具调用本身的 handler lifecycle 见 [Tool Execution](tools/tool_execution.md)；LLM streaming 每个 step 最多尝试 3 次，context overflow 不走普通重试，而是触发 compaction recovery 并重建 messages 后继续。
-
-## TurnOutcome
-
-`TurnOutcome` 是 agent loop 返回给 turn handler 的统一结果：
-
-- `status`：`done`、`waiting`、`cancelled` 或 `error`。
-- `reply`：最终要展示给用户的文本。
-- `state_data_patch`：本轮更新后的 state。
-- `messages_to_persist`：取消场景下需要保留的已完成消息。
-- `turn_log`：本轮结构化执行日志和 metrics。
-
-`AgentLoop.run()` 返回后，`handle_unified_turn_job()` 继续负责持久化和发送。
-
-## 持久化与 Final Emit
-
-turn handler 会重新加载最新 session，然后调用 `_persist_and_deliver()`：
-
-- 用 `state_data_patch` 更新 session state。
-- 从 `TurnLog` 计算 `api_call_count`、`tool_call_count`、`input_tokens` 和 `output_tokens` 的 metrics delta。
-- 普通 turn 使用原始 user text 作为 title candidate。
-- 如果 final answer stream 已经发送过最终内容，则跳过重复 final。
-- 如果 outcome 是 `cancelled`，也跳过 final emit。
-- 否则通过 `emit_final_fn()` 发送最终回复。
-
-typing indicator 如果已启动，会在 `finally` 中 best-effort 停止。
-
-## 取消边界
-
-Runtime 取消信号来自 gateway 的 `RunHandle`。turn handler 把 `cancel_event`、`thread_cancel_event`、provider cancel registrar 和 tool run registrar 传入 `run_turn()`，再传给 `AgentLoop`。
-
-如果取消发生在 tool call 已经写入但 tool result 尚未完成的阶段，agent loop 会补 synthetic error tool result，保持 canonical message history 闭合。
+turn、provider attempt、tool、skill、retry、cancel 与 context checkpoint 写结构化日志和 usage tables。`AGENT_STREAM_*` 与 `AGENT_SSE_WIRE_TRACE_*` trace 使用日期/session/turn/step/attempt 层级，并与 runtime log 共用脱敏和保留策略。

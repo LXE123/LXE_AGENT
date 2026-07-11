@@ -40,7 +40,7 @@ PostgreSQL 目前只保留 FBA pricing 数据：
 
 当前执行链路是单 gateway 进程内调度：
 
-- `gateway/app.py` 初始化 `SessionScheduler`、`AgentQueue`、`SessionRouter`、`HeartbeatWakeManager` 和平台 adapter。
-- `gateway/session_scheduler.py` 按 session 串行执行 agent job，并用全局并发限制控制同一时间运行的 job 数量。
-- `gateway/heartbeat_wake.py` 在后台任务写入 pending event 后唤醒对应 session；如果 session 忙，会延后重试。
-- `shared/db/client.py` 为 async 调用方提供线程池包装，SQLite 写入逻辑仍保持同步实现。
+- `apps/gateway/src/production.ts` 初始化 `TypeScriptAgentRuntime`、`SessionScheduler`、`SessionRouter`、`HeartbeatBridge` 和平台 adapter。
+- `apps/gateway/src/scheduler.ts` 按 session 串行执行 agent job，并用全局并发限制控制同一时间运行的 job 数量。
+- `apps/gateway/src/heartbeat-bridge.ts` 在后台任务写入 pending event 后唤醒对应 session；如果 session 忙，会延后重试。
+- `packages/runtime/src/storage.ts` 使用 `bun:sqlite` 原始 SQL 和显式 transaction；Gateway/Runtime 共享同一个 store 实例。

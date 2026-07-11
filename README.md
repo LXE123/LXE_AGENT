@@ -62,6 +62,22 @@ LXE update
 
 ## 开发检查
 
+开发启动（前台，便于直接观察日志）：
+
+```powershell
+bun run gateway:dev
+```
+
+停止由 CLI 启动的后台实例：
+
+```powershell
+bun run gateway:stop
+```
+
+当天 Bun 与一次性工具日志位于 `logs/runtime/YYYYMMDD/`；`LOCAL_LOGS_ENABLED=1` 且 `LOG_FILE` 非空时写入 runtime JSONL。
+
+完整检查：
+
 ```bash
 bun install --frozen-lockfile
 bun run verify:migration

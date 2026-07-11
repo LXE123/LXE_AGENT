@@ -92,7 +92,7 @@ Current candidates：
 Needs refresh：
 
 - `docs/install.md`：安装脚本规划笔记；当前用户入口更接近 README 和 scripts 实现。
-- `docs/visualization/preliminary_idea.md`：早期 Dashboard 设想；当前实现是 `gateway/dashboard/api.py` 和 `web/agent-dashboard/src/main.tsx`。
+- `docs/visualization/preliminary_idea.md`：早期 Dashboard 设想；当前实现是 `apps/gateway/src/dashboard-api.ts` 和 `web/agent-dashboard/src/main.tsx`。
 
 Reference：
 
@@ -111,9 +111,9 @@ Draft or archive：
 
 ## Completed Docs
 
-- `docs/harness/runtime/README.md` 和 `docs/harness/runtime/turn_execution.md`：已补 runtime Current 入口和 turn execution 专题，覆盖 `TurnHandler -> run_turn -> AgentLoop -> TurnOutcome -> persist/final emit`；旧 3 篇无状态 runtime 设计稿已删除。
+- `docs/harness/runtime/README.md` 和 `docs/harness/runtime/turn_execution.md`：已按单进程 `TypeScriptAgentRuntime.runTurn() -> TurnOutcome -> GatewayEmitter` 重建 Current 文档；旧无状态 runtime 设计稿已删除。
 - `docs/harness/runtime/runtime_flow.md`：已从旧 runtime 架构总览重写为端到端运行链路总览，作为跨 gateway/runtime/context/tools 的导航图。
-- `docs/harness/llm/`：已从 runtime 目录拆到 harness 级专题，并按当前 `agent_runtime/llm_adapter.py` 和 `shared/llm/` 重建 LLM provider integration Current 文档，覆盖 provider catalog、模型选择、Anthropic Messages streaming adapter 和 `LLMResponse`；旧 loose LLM 笔记、模型笔记、协议笔记和空占位已删除。
+- `docs/harness/llm/`：已按当前 `packages/runtime/src/provider.ts` 与 `packages/runtime/src/trace.ts` 重建 provider integration Current 文档，覆盖 catalog、模型热切换、Anthropic Messages streaming、错误分类和 trace；旧 loose LLM 笔记、模型笔记、协议笔记和空占位已删除。
 - `docs/harness/gateway/`：已删除两篇旧 gateway 文档，并按当前代码重建为 Current 专题目录，覆盖生命周期、平台边界、路由权限、调度取消和出站唤醒。
 - `docs/harness/runtime/context/`：已重建为 Current runtime context 专题目录，覆盖 context state、canonical messages、context assembly 和 pruning/compaction。
 - `docs/harness/runtime/tools/tool_schema.md`：已从 context 文档中拆出，作为 runtime tools 下的 current tool schema 文档。

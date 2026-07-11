@@ -1,6 +1,6 @@
 # Agent Dashboard WebUI
 
-这里是本地 Agent Dashboard 的前端工程。它使用 React、TypeScript 和 Vite 构建，生产构建产物由后端 `gateway/dashboard/api.py` 通过 FastAPI 静态托管。
+这里是本地 Agent Dashboard 的前端工程。它使用 React、TypeScript 和 Vite 构建，生产构建产物由同一 Bun Gateway 进程中的 `BunDashboardServer` 静态托管。
 
 这个 README 只说明 WebUI 子项目怎么安装、开发、打包和排查常见问题。完整项目安装、Python 环境和业务配置仍以根目录 `README.md`、`docs/py31210.md` 为准。
 
@@ -69,7 +69,7 @@ bun run dashboard:build
 web/agent-dashboard/dist/
 ```
 
-构建完成后，主程序启动的 DashboardServer 会托管 `dist/index.html` 和静态资源。也就是说，用户平时访问的是 Python 后端提供的 Dashboard URL，而不是 Vite dev server。
+构建完成后，主程序启动的 `BunDashboardServer` 会托管 `dist/index.html` 和静态资源。也就是说，用户平时访问的是 Bun Gateway 提供的 Dashboard URL，而不是 Vite dev server。
 
 ## 预览
 

@@ -67,6 +67,15 @@ for await (const path of new Bun.Glob("skills/**/SKILL.md").scan({ cwd: root, on
   }
 }
 
+const staleArchitectureDocs = /main\.py|agent_runtime|gateway\/[A-Za-z0-9_/-]+\.py|Python\s+(?:Gateway|Runtime|Dashboard|backend)/i;
+for (const pattern of ["README.md", "web/**/*.md", "docs/harness/**/*.md", "docs/database/**/*.md"]) {
+  for await (const path of new Bun.Glob(pattern).scan({ cwd: root, onlyFiles: true })) {
+    if (staleArchitectureDocs.test(read(path))) {
+      failures.push(`${path}: documentation must describe the Bun-only production architecture`);
+    }
+  }
+}
+
 if (failures.length > 0) {
   for (const failure of failures) console.error(failure);
   process.exit(1);
