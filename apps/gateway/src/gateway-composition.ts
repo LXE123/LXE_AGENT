@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { JsonObject, WorkerEnvelope } from "@lxe/protocol";
 import { ChannelRegistry, type ChannelAdapter } from "./channel";
+import { GatewayEmitter } from "./emitter";
+import { FeishuAdapter, type FeishuAdapterOptions } from "./feishu/adapter";
 import { GatewayLifecycle, type GatewayLifecycleOptions } from "./gateway-lifecycle";
 import { HeartbeatBridge, type HeartbeatClock } from "./heartbeat-bridge";
 import type { PermissionPolicy } from "./permission-policy";
@@ -43,6 +45,7 @@ export interface GatewayCompositionOptions {
   maxConcurrency?: number;
   bootId?: string;
   channels?: readonly ChannelAdapter[];
+  feishu?: Omit<FeishuAdapterOptions, "store" | "hasInflight">;
   dashboard?: DashboardPort;
   spawnWorker?: () => WorkerProcess;
   restartDelay?: (milliseconds: number) => Promise<void>;
@@ -70,6 +73,7 @@ export interface GatewayCompositionParts {
   statusFiles: GatewayStatusFiles;
   statusController: GatewayStatusController;
   lifecycle: GatewayLifecycle;
+  emitter?: GatewayEmitter;
 }
 
 export interface GatewayComposition {
@@ -96,6 +100,7 @@ export function createGatewayComposition(options: GatewayCompositionOptions): Ga
   for (const channel of options.channels ?? []) channels.register(channel);
 
   let supervisor!: WorkerSupervisor;
+  let emitter: GatewayEmitter | undefined;
   const runtimeDelegate: RuntimePort = {
     startTurn: (job, handle) => supervisor.startTurn(job, handle),
     cancelTurn: (handle) => supervisor.cancelTurn(handle),
@@ -133,11 +138,26 @@ export function createGatewayComposition(options: GatewayCompositionOptions): Ga
     ...(options.restartDelay ? { restartDelay: options.restartDelay } : {}),
     ...(options.shutdownDelay ? { shutdownDelay: options.shutdownDelay } : {}),
     ...(options.logStderr ? { logStderr: options.logStderr } : {}),
-    ...(options.onEmit ? { onEmit: options.onEmit } : {}),
-    ...(options.onTyping ? { onTyping: options.onTyping } : {}),
+    onEmit: async (event) => {
+      await emitter?.handleEmit(event);
+      await options.onEmit?.(event);
+    },
+    onTyping: async (event) => {
+      await emitter?.handleTyping(event);
+      await options.onTyping?.(event);
+    },
     ...(options.onRunFailure ? { onRunFailure: options.onRunFailure } : {}),
     ...(options.onObserverError ? { onObserverError: options.onObserverError } : {}),
   });
+
+  if (options.feishu) {
+    channels.register(new FeishuAdapter({
+      ...options.feishu,
+      store: supervisor,
+      hasInflight: () => scheduler.hasInflightJobs(),
+    }));
+  }
+  if (channels.keys().length > 0) emitter = new GatewayEmitter({ registry: channels, routes: supervisor });
 
   const router = new SessionRouter({
     policy: options.policy,
@@ -180,6 +200,7 @@ export function createGatewayComposition(options: GatewayCompositionOptions): Ga
     statusFiles,
     statusController,
     lifecycle,
+    ...(emitter ? { emitter } : {}),
   };
   return {
     parts,

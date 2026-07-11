@@ -39,6 +39,8 @@ from shared.db.client import (
     load_agent_session_record,
     load_response_route_context,
     pop_agent_session_pending_events,
+    save_response_route_delivery_handle,
+    save_response_route_patch,
     update_agent_session,
 )
 from shared.logging import get_logger, setup_logging
@@ -217,9 +219,15 @@ async def _default_pending_events_has(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _default_response_route_get(params: dict[str, Any]) -> dict[str, Any]:
+    response_route_id = _require_text(params, "response_route_id")
+    return {"response_route": await load_response_route_context(response_route_id)}
+
+
 DEFAULT_DASHBOARD_OPERATIONS: dict[str, OperationHandler] = {
     "session.get": _default_session_get,
     "pending_events.has": _default_pending_events_has,
+    "response_route.get": _default_response_route_get,
 }
 
 
@@ -491,6 +499,9 @@ class RuntimeWorker:
             await self._session_rebind(request, payload)
             return
         if kind == "response_route.upsert":
+            if str(payload.get("mode") or "").strip() == "patch":
+                await self._response_route_patch(request, payload)
+                return
             context = self._route_context(payload)
             await create_response_route_context(context)
             stored = await load_response_route_context(context.response_route_id)
@@ -552,6 +563,45 @@ class RuntimeWorker:
             self.stop_requested = True
             return
         raise WorkerRequestError("unsupported_request", f"unsupported request kind: {kind}")
+
+    async def _response_route_patch(
+        self,
+        request: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> None:
+        response_route_id = _require_text(payload, "response_route_id")
+        stored = await load_response_route_context(response_route_id)
+        if stored is None:
+            raise WorkerRequestError(
+                "response_route_not_found",
+                f"response route not found: {response_route_id}",
+            )
+
+        patch = payload.get("patch", {})
+        if not isinstance(patch, dict):
+            raise WorkerRequestError("invalid_request", "patch must be an object")
+        delivery_handle = payload.get("delivery_handle")
+        if delivery_handle is not None and not isinstance(delivery_handle, dict):
+            raise WorkerRequestError("invalid_request", "delivery_handle must be an object")
+        if patch:
+            await save_response_route_patch(response_route_id, dict(patch))
+        if isinstance(delivery_handle, dict):
+            platform_value = delivery_handle.get("platform")
+            message_value = delivery_handle.get("platform_message_id")
+            updated = await save_response_route_delivery_handle(
+                response_route_id,
+                platform=(str(platform_value).strip() if platform_value is not None else None),
+                platform_message_id=(str(message_value).strip() if message_value is not None else None),
+            )
+            if not updated:
+                raise WorkerRequestError(
+                    "response_route_not_found",
+                    f"response route not found: {response_route_id}",
+                )
+        await self._reply(
+            request,
+            {"response_route_id": response_route_id, "patched": True},
+        )
 
     async def _session_ensure(
         self,

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "1.70.0",
     "@lxe/protocol": "workspace:*",
     "yaml": "2.8.1"
   },

@@ -194,7 +194,42 @@ describe("WorkerClient", () => {
     process.emit(response(process.writes[0]!, 2, { ready: true }));
 
     expect(await request).toEqual({ ready: true });
+    while (events.length < 2) await tick();
     expect(events).toEqual(["runtime.emit:first", "runtime.typing:second"]);
+    process.exit();
+  });
+
+  test("continues reading replies while a serialized event observer performs a worker RPC", async () => {
+    const process = new FakeWorkerProcess();
+    const fatals: Error[] = [];
+    let observerResult: JsonObject | undefined;
+    let client!: WorkerClient;
+    client = new WorkerClient({
+      process,
+      onFatal: (error) => fatals.push(error),
+      onEvent: async () => {
+        observerResult = await client.request("dashboard.query", { operation: "response_route.get" });
+      },
+    });
+    client.start();
+    process.emit({
+      protocol_version: "1",
+      message_id: "event-reentrant",
+      reply_to: null,
+      run_id: "run-1",
+      seq: 0,
+      kind: "runtime.emit",
+      payload: {},
+    });
+    await tick();
+    expect(process.writes[0]?.kind).toBe("dashboard.query");
+    process.emit(response(process.writes[0]!, 1, { result: { response_route: {} } }));
+    const settled = await Promise.race([
+      (async () => { while (!observerResult) await tick(); return observerResult; })(),
+      Bun.sleep(50).then(() => "timeout"),
+    ]);
+    expect(settled).not.toBe("timeout");
+    expect(fatals).toEqual([]);
     process.exit();
   });
 

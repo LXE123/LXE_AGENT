@@ -39,7 +39,7 @@ const helloPayload = (): JsonObject => ({
     request_kinds: REQUIRED_REQUESTS,
     event_kinds: REQUIRED_EVENTS,
     maintenance_operations: ["data_server_sync", "mabang_erp_cookie_refresh"],
-    dashboard_operations: ["session.get", "pending_events.has"],
+    dashboard_operations: ["session.get", "pending_events.has", "response_route.get"],
   },
 });
 
@@ -249,7 +249,29 @@ describe("WorkerSupervisor adapters and failure semantics", () => {
           });
         } else if (operation === "pending_events.has") {
           current.reply(request, { result: { session_id: "session-1", has_pending_events: true } });
+        } else if (operation === "response_route.get") {
+          current.reply(request, {
+            result: {
+              response_route: {
+                response_route_id: "route-1",
+                owner_user_id: "user-1",
+                platform: "feishu",
+                platform_message_id: "om_1",
+                conversation_id: "chat-1",
+                conversation_type: "2",
+                sender_nick: "Tester",
+                extra_data: { source_message_id: "source-1", typing_reaction_id: "reaction-1" },
+                created_at: "2026-07-10T00:00:00+00:00",
+                updated_at: "2026-07-10T00:00:01+00:00",
+              },
+            },
+          });
         } else current.reply(request, { result: { operation } });
+      } else if (request.kind === "response_route.upsert") {
+        current.reply(request, {
+          response_route_id: String(request.payload.response_route_id ?? ""),
+          patched: true,
+        });
       } else if (request.kind === "pending_events.pop") {
         current.reply(request, { events: [{ event_id: "event-1" }] });
       } else healthyHandler(request, current);
@@ -274,6 +296,22 @@ describe("WorkerSupervisor adapters and failure semantics", () => {
       source: { platform: "test", chat_id: "chat", chat_type: "dm", user_id: "user" },
     });
     expect(await supervisor.hasPendingEvents("session-1")).toBe(true);
+    expect(await supervisor.getResponseRoute("route-1")).toEqual({
+      response_route_id: "route-1",
+      owner_user_id: "user-1",
+      platform: "feishu",
+      platform_message_id: "om_1",
+      conversation_id: "chat-1",
+      conversation_type: "2",
+      sender_nick: "Tester",
+      extra_data: { source_message_id: "source-1", typing_reaction_id: "reaction-1" },
+      created_at: "2026-07-10T00:00:00+00:00",
+      updated_at: "2026-07-10T00:00:01+00:00",
+    });
+    await supervisor.patchResponseRoute("route-1", {
+      patch: { typing_reaction_id: "reaction-2" },
+      deliveryHandle: { platform: "feishu", platform_message_id: "om_2" },
+    });
     expect(await supervisor.popPendingEvents("session-1")).toEqual([{ event_id: "event-1" }]);
     expect(await supervisor.dashboardQuery("future.query", { value: 1 })).toEqual({
       operation: "future.query",

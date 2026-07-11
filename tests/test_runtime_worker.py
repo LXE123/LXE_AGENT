@@ -343,6 +343,97 @@ def test_response_route_and_pending_event_operations_use_shared_db_validation(
     asyncio.run(run())
 
 
+def test_response_route_query_and_patch_preserve_existing_state(isolated_db: Path) -> None:
+    _ = isolated_db
+
+    async def run() -> None:
+        outputs: list[dict[str, Any]] = []
+        worker = await _started_worker(outputs)
+        try:
+            await worker.handle_message(
+                _envelope(
+                    "response_route.upsert",
+                    _route(route_id="route-patch", platform="feishu"),
+                    message_id="route-create",
+                )
+            )
+            await worker.handle_message(
+                _envelope(
+                    "response_route.upsert",
+                    {
+                        "mode": "patch",
+                        "response_route_id": "route-patch",
+                        "patch": {"typing_reaction_id": "reaction-1", "custom": "kept"},
+                        "delivery_handle": {
+                            "platform": "feishu",
+                            "platform_message_id": "om_card_1",
+                        },
+                    },
+                    message_id="route-patch",
+                )
+            )
+            await worker.handle_message(
+                _envelope(
+                    "dashboard.query",
+                    {
+                        "operation": "response_route.get",
+                        "params": {"response_route_id": "route-patch"},
+                    },
+                    message_id="route-get",
+                )
+            )
+
+            patch_reply = await _wait_for_reply(outputs, "route-patch")
+            assert patch_reply["payload"] == {
+                "response_route_id": "route-patch",
+                "patched": True,
+            }
+            get_reply = await _wait_for_reply(outputs, "route-get")
+            route = get_reply["payload"]["result"]["response_route"]
+            assert route["response_route_id"] == "route-patch"
+            assert route["owner_user_id"] == "user-1"
+            assert route["platform"] == "feishu"
+            assert route["platform_message_id"] == "om_card_1"
+            assert route["conversation_id"] == "chat-1"
+            assert route["extra_data"] == {
+                "platform": "feishu",
+                "source_message_id": "message-1",
+                "typing_reaction_id": "reaction-1",
+                "custom": "kept",
+            }
+        finally:
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
+def test_response_route_patch_rejects_missing_route(isolated_db: Path) -> None:
+    _ = isolated_db
+
+    async def run() -> None:
+        outputs: list[dict[str, Any]] = []
+        worker = await _started_worker(outputs)
+        try:
+            await worker.handle_message(
+                _envelope(
+                    "response_route.upsert",
+                    {
+                        "mode": "patch",
+                        "response_route_id": "missing-route",
+                        "patch": {"typing_reaction_id": "reaction-1"},
+                    },
+                    message_id="missing-patch",
+                )
+            )
+            reply = await _wait_for_reply(outputs, "missing-patch")
+            assert reply["kind"] == "error"
+            assert reply["payload"]["code"] == "response_route_not_found"
+        finally:
+            await worker.shutdown()
+
+    asyncio.run(run())
+
+
 def test_runtime_stream_final_typing_and_heartbeat_events_are_correlated() -> None:
     async def fake_turn_handler(
         job: AgentJob,

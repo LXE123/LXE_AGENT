@@ -88,6 +88,7 @@ export class WorkerClient {
   private nextInputSeq = 0;
   private nextOutputSeq = 0;
   private writeTail: Promise<void> = Promise.resolve();
+  private eventTail: Promise<void> = Promise.resolve();
   private started = false;
   private failed = false;
   private expectedExit = false;
@@ -260,7 +261,14 @@ export class WorkerClient {
     this.nextOutputSeq += 1;
 
     if (EVENT_KINDS.has(envelope.kind)) {
-      await this.onEvent?.(envelope);
+      const observation = this.eventTail.then(async () => {
+        if (this.failed || this.expectedExit) return;
+        await this.onEvent?.(envelope);
+      });
+      this.eventTail = observation.catch((cause) => {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        this.fail(new Error(`worker event observer failed: ${error.message}`, { cause: error }));
+      });
       return;
     }
     const replyTo = envelope.reply_to;

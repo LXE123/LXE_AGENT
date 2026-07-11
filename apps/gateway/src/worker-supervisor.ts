@@ -36,7 +36,11 @@ const REQUIRED_EVENT_KINDS = [
   "runtime.turn.completed",
 ] as const;
 
-const REQUIRED_DASHBOARD_OPERATIONS = ["session.get", "pending_events.has"] as const;
+const REQUIRED_DASHBOARD_OPERATIONS = [
+  "session.get",
+  "pending_events.has",
+  "response_route.get",
+] as const;
 const REQUIRED_MAINTENANCE_OPERATIONS = [
   "mabang_erp_cookie_refresh",
   "data_server_sync",
@@ -71,6 +75,27 @@ export interface WorkerSupervisorOptions {
   onHeartbeatWake?: (event: WorkerEnvelope) => void | Promise<void>;
   onRunFailure?: (handle: RunHandle, error: Error) => void;
   onObserverError?: (error: Error) => void;
+}
+
+export interface ResponseRouteRecord {
+  response_route_id: string;
+  owner_user_id: string;
+  platform: string;
+  platform_message_id: string | null;
+  conversation_id: string | null;
+  conversation_type: string | null;
+  sender_nick: string | null;
+  extra_data: JsonObject;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ResponseRoutePatch {
+  patch?: JsonObject;
+  deliveryHandle?: {
+    platform?: string;
+    platform_message_id?: string;
+  };
 }
 
 interface WorkerGeneration {
@@ -255,6 +280,73 @@ export class WorkerSupervisor implements RuntimePort, StoragePort {
       throw new RuntimeRequestError("invalid_result", "invalid pending_events.has result");
     }
     return result.has_pending_events;
+  }
+
+  async getResponseRoute(responseRouteId: string): Promise<ResponseRouteRecord | undefined> {
+    const safeId = String(responseRouteId ?? "").trim();
+    if (!safeId) throw new RuntimeRequestError("invalid_request", "response_route_id is required");
+    const payload = await this.storageRequest(
+      "dashboard.query",
+      { operation: "response_route.get", params: { response_route_id: safeId } },
+      "",
+    );
+    const result = objectValue(payload.result);
+    if (!result || result.response_route === null) return undefined;
+    const route = objectValue(result.response_route);
+    if (!route) throw new RuntimeRequestError("invalid_result", "invalid response_route.get result");
+    const requiredText = (key: string): string => {
+      const value = route[key];
+      if (typeof value !== "string" || !value.trim()) {
+        throw new RuntimeRequestError("invalid_result", `invalid response route ${key}`);
+      }
+      return value.trim();
+    };
+    const nullableText = (key: string): string | null => {
+      const value = route[key];
+      if (value === null) return null;
+      if (typeof value !== "string") {
+        throw new RuntimeRequestError("invalid_result", `invalid response route ${key}`);
+      }
+      return value;
+    };
+    const extraData = objectValue(route.extra_data);
+    if (!extraData) throw new RuntimeRequestError("invalid_result", "invalid response route extra_data");
+    return {
+      response_route_id: requiredText("response_route_id"),
+      owner_user_id: requiredText("owner_user_id"),
+      platform: requiredText("platform"),
+      platform_message_id: nullableText("platform_message_id"),
+      conversation_id: nullableText("conversation_id"),
+      conversation_type: nullableText("conversation_type"),
+      sender_nick: nullableText("sender_nick"),
+      extra_data: extraData,
+      created_at: nullableText("created_at"),
+      updated_at: nullableText("updated_at"),
+    };
+  }
+
+  async patchResponseRoute(responseRouteId: string, update: ResponseRoutePatch): Promise<void> {
+    const safeId = String(responseRouteId ?? "").trim();
+    if (!safeId) throw new RuntimeRequestError("invalid_request", "response_route_id is required");
+    const payload: JsonObject = {
+      mode: "patch",
+      response_route_id: safeId,
+      patch: { ...(update.patch ?? {}) },
+    };
+    if (update.deliveryHandle) {
+      payload.delivery_handle = {
+        ...(update.deliveryHandle.platform !== undefined
+          ? { platform: String(update.deliveryHandle.platform).trim() }
+          : {}),
+        ...(update.deliveryHandle.platform_message_id !== undefined
+          ? { platform_message_id: String(update.deliveryHandle.platform_message_id).trim() }
+          : {}),
+      };
+    }
+    const result = await this.storageRequest("response_route.upsert", payload, "");
+    if (result.patched !== true || result.response_route_id !== safeId) {
+      throw new RuntimeRequestError("invalid_result", "invalid response route patch result");
+    }
   }
 
   async dashboardQuery(operation: string, params: JsonObject = {}): Promise<JsonValue> {
