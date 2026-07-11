@@ -2,8 +2,94 @@
 
 状态：Current
 
-Runtime 在 dispatch 前消费 steering/cancel，记录 tool start，再由 registry 执行 handler。结果的 state patch 在 SQLite transaction 中合并；文件只允许 `artifacts/**` 或 `skills/*/assets/**`，并由 TS emitter 投递一次。
+## 目的
 
-Coding write/edit 要求 read ledger 与 mtime 仍匹配，并检查真实路径防止 symlink escape。MCP call 有独立 timeout，断连只失败当前工具。Script bridge 受 per-entry timeout、output limit、AbortSignal 与 Windows tree kill 控制，stdout 必须只有一个协议 JSON。
+Tool execution 把 provider 的 `tool_use` 转为受控本地调用，并确保 cancel、error、artifact、state patch、usage 和 canonical result 在所有来源上保持一致。
 
-无论 success、error、cancel 还是 steering，已写入的 tool use 都必须得到 tool result，保证 transcript closure。
+## Dispatch 前检查
+
+Runtime 只 dispatch 当前 assistant message 中结构有效的 tool use。每个调用前：
+
+1. 检查 turn abort。
+2. 消费 steering；若用户改变计划，剩余调用写 skipped result。
+3. 在当前 exposure state 中验证工具可见。
+4. 验证 input 为 object。
+5. 建立 tool trace、display step 和 usage timer。
+
+未知或未暴露工具不能通过直接构造 name 绕过 schema。
+
+## Native 工具
+
+Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、edit、grep、find、exec、process 和 send_file：
+
+- 路径先规范化并限制在 workspace/允许边界。
+- read 输出稳定行号，并记录 session read version。
+- 修改现有文件要求 read-before-modify；外部 mtime/content 变化导致 stale edit。
+- root private env、用户 session DB 和 runtime state 不可写。
+- binary 不通过文本 read；artifact 使用 send_file。
+- background exec 返回 task id，由 process tools poll/log/remove。
+
+Process stdout/stderr 有大小限制，cancel 会终止登记的进程树。
+
+## MCP 工具
+
+`McpManager` 读取 local YAML，替换环境占位并连接 enabled stdio 或 streamable-http server。每个 server 独立 startup timeout；失败只记录 server error，不阻塞 Runtime start。
+
+Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更新 MCP status 并返回 tool error。Enable/disable 会注册或移除该 server definition，不在 Dashboard PATCH 时隐式调用模型。
+
+## Script tools
+
+`PythonScriptToolRunner` 使用固定 command 启动 `py_tools.bridge`，发送单个 JSON request并等待单个 JSON response：
+
+- catalog 决定 name、schema、module、owner skills 和 exposure。
+- cwd 固定为项目根目录。
+- 默认业务 timeout 为 10 分钟，最大 output 10 MiB。
+- stdout 只允许协议 JSON；日志必须写 stderr。
+- abort/timeout 终止子进程和 Windows process tree。
+- 非零退出、额外 stdout、非法 JSON 或 payload shape 都是明确错误。
+
+脚本返回 artifact paths 前必须通过 project/runtime boundary 校验。Skill 不能用 coding exec 直接启动业务模块绕过 catalog。
+
+## State patch 与 artifact
+
+Handler result 可以包含：
+
+- `state_patch`：Runtime 调用 store 做 object merge。
+- `files`：通过 `emit_kind=tool` 立即交给 GatewayEmitter。
+- `content`：进入模型可见 tool result。
+
+Artifact delivery 与工具业务执行分离。发送失败会报告 delivery error，但不得自动重跑已成功生成文件的工具。
+
+## Result closure
+
+成功 result 使用原 `tool_use_id`。异常转换为 `is_error=true` 和可读错误文本。多个调用的 results 作为一个 user message append；cancel 或 steering 会为尚未执行的调用生成 closure stub。
+
+Oversized content 在 append 前由 ContextPipeline 以总文本 10k token 预算裁剪。Image block 保留给当前 turn，并单独计 token。
+
+## Display 与日志
+
+`tool-display.ts` 生成 CardKit step：
+
+- detail 默认限制 240 chars。
+- full mode 才展示 result detail，最大 4000 chars。
+- error detail 最大 2000 chars。
+- 路径、secret、cookie、authorization 和大型 payload 被脱敏/截断。
+
+Model-visible result、用户展示和运行日志是三个不同输出，不能互相直接复用。
+
+## Usage
+
+Runtime 按 tool name 记录 calls、errors、duration；当前已激活 owner skill 同步累计 usage。Turn 完成后批量写入 usage tables，Dashboard 可按时间和 skill/tool 查询。
+
+## Failure 语义
+
+- Tool error 不使 Bun 进程退出，模型可以在下一 step 恢复。
+- Abort 不继续 dispatch 剩余调用。
+- Background completion 通过 pending event/heartbeat 汇报。
+- MCP/server failure 隔离到对应 connector。
+- Script protocol failure不接受部分结果。
+- Artifact send failure 不改变 canonical tool result 已执行事实。
+
+## 验证
+
+Tests 覆盖 file safety、read-before-edit、process lifecycle、tool search、MCP timeout/disable、script bridge framing、skill ownership、result trimming、cancel closure 和 artifact ordering。

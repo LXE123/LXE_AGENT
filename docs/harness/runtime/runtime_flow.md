@@ -2,46 +2,87 @@
 
 状态：Current
 
+## 目的
+
+本专题给出一次用户消息从平台 ingress 到最终 CardKit/file delivery 的端到端地图，并说明每层拥有的状态。需要定位“消息在哪一步丢失”“谁负责 cancel”“工具结果何时持久化”时，应先从这里确定边界，再进入专题文档。
+
 ## 主链路
 
 ```text
-Bun CLI
-  -> ProductionGatewayApplication
-  -> FeishuAdapter
-  -> InboundEvent
-  -> SessionRouter
-  -> AgentJob
-  -> SessionScheduler
+Feishu event
+  -> FeishuAdapter / InboundEvent
+  -> SessionRouter / permission + binding + route
+  -> SessionScheduler / RunHandle
   -> TypeScriptAgentRuntime.runTurn()
-  -> RuntimeProvider / ToolRegistry
+  -> ContextPipeline.prepare()
+  -> RuntimeProvider.turn()
+  -> ToolRegistry.execute()
   -> TurnOutcome
   -> GatewayEmitter
-  -> Feishu CardKit / media
+  -> Feishu CardKit / message / file
 ```
 
-Gateway 与 Runtime 是同一 Bun 进程内的直接函数调用。`RunHandle` 同时承载 `AbortSignal`、steering queue 和活跃进程登记；同 session 串行、跨 session 并发由 `SessionScheduler` 保证。
+Gateway 与 Runtime 是同一 Bun 进程内的直接函数调用。平台 callback、session 排队和 turn 执行仍是独立模块，以接口而不是进程隔离职责。
 
 ## 边界地图
 
-| 边界 | 当前实现 |
-| --- | --- |
-| Bootstrap/lifecycle | [`apps/gateway/src/main.ts`](/apps/gateway/src/main.ts)、[`production.ts`](/apps/gateway/src/production.ts)、[`gateway-lifecycle.ts`](/apps/gateway/src/gateway-lifecycle.ts) |
-| Inbound | [`apps/gateway/src/feishu/inbound.ts`](/apps/gateway/src/feishu/inbound.ts) |
-| Routing/scheduling | [`router.ts`](/apps/gateway/src/router.ts)、[`scheduler.ts`](/apps/gateway/src/scheduler.ts) |
-| Turn execution | [`packages/runtime/src/runtime.ts`](/packages/runtime/src/runtime.ts) |
-| Context | [`packages/runtime/src/context.ts`](/packages/runtime/src/context.ts) |
-| Provider | [`packages/runtime/src/provider.ts`](/packages/runtime/src/provider.ts) |
-| Tools/MCP/skills | [`tools.ts`](/packages/runtime/src/tools.ts)、[`mcp.ts`](/packages/runtime/src/mcp.ts)、[`skills.ts`](/packages/runtime/src/skills.ts) |
-| Storage | [`packages/runtime/src/storage.ts`](/packages/runtime/src/storage.ts) |
-| Outbound | [`apps/gateway/src/emitter.ts`](/apps/gateway/src/emitter.ts)、[`apps/gateway/src/feishu/cardkit.ts`](/apps/gateway/src/feishu/cardkit.ts) |
+| 边界 | 状态与职责 | 当前实现 |
+| --- | --- | --- |
+| Bootstrap | env、policy、store、provider、tools、Dashboard、channels | [`production.ts`](/apps/gateway/src/production.ts) |
+| Inbound | 飞书事件、资源与统一消息 | [`feishu/inbound.ts`](/apps/gateway/src/feishu/inbound.ts) |
+| Routing | 权限、binding、route、控制命令 | [`router.ts`](/apps/gateway/src/router.ts) |
+| Scheduling | queue、active run、abort、steering | [`scheduler.ts`](/apps/gateway/src/scheduler.ts) |
+| Turn | provider/context/tool loop 与 outcome | [`runtime.ts`](/packages/runtime/src/runtime.ts) |
+| Context | canonical history、预算与 compaction | [`context.ts`](/packages/runtime/src/context.ts) |
+| Provider | catalog、SDK stream、retry、usage | [`provider.ts`](/packages/runtime/src/provider.ts) |
+| Tools | native、MCP、script、skill exposure | [`tools.ts`](/packages/runtime/src/tools.ts) |
+| Storage | session、route、JSONL、usage | [`storage.ts`](/packages/runtime/src/storage.ts) |
+| Outbound | emit validation、route resolution、platform action | [`emitter.ts`](/apps/gateway/src/emitter.ts) |
+
+## Turn 建立
+
+Router ensure/rebind session，保存 response route，并把 pending events 与当前用户输入组成 `AgentJob`。Scheduler 创建 `RunHandle` 后，Runtime 读取 session、固定 provider generation、创建 exposure state、system prompt、trace 和可选 `FinalAnswerStreamer`。
+
+用户消息立即 append 到 transcript。之后每个 steering 也以独立 user message 持久化，确保进程退出后 replay 与模型实际看见的顺序一致。
+
+## Step 循环
+
+每个 step 顺序固定：
+
+1. 检查 abort 并消费 steering。
+2. 获取当前 exposure schemas。
+3. ContextPipeline 修复 message closure、裁剪新 tool result、估算完整请求并按需压缩。
+4. Provider streaming 产出 thinking/text/redacted/tool-use 和 usage。
+5. assistant content 先 append transcript。
+6. 没有 tool use 时进入 final；否则逐个执行工具。
+7. 每个 tool result 即时 append，然后进入下一 step。
+
+默认最多 50 step。达到上限会返回可继续的用户提示并保持 transcript 闭合，不把 Gateway 进程视为失败。
+
+## Tool 数据流
+
+`ToolExposureState` 在 turn 内持续存在。direct 工具最初可见；deferred 工具通过 `tool_search` 暴露；读取允许的 `SKILL.md` 会激活 owner script tools。新 exposure 从下一 provider step 使用。
+
+Tool execute context 包含 handle、session、route、turn 和 exposure state。工具可以返回 model-visible content、artifact files 与受控 session state patch。Runtime 先写 state patch/发送 artifact，再把 tool result 放入 canonical history；错误转换成 `is_error` result，不让模型看见未闭合 tool use。
 
 ## 持久化
 
-- SQLite 保存 session、response route、pending event 和 usage。
-- `session_transcripts/*.jsonl` 是 append-only transcript；replacement/compaction checkpoint 不重写旧事件。
-- `sessions.json` 保存稳定的 session binding。
-- transcript replay cache 以 size/mtime 失效；base64 图片只在当前 turn 内存存在，落盘时替换为占位。
+- SQLite 保存 session、response route、pending event、turn/tool/skill usage 和 Dashboard 查询数据。
+- `session_transcripts/*.jsonl` 只追加 message 与 replacement/compaction checkpoint。
+- `sessions.json` 保存平台 source 到 session id 的稳定 binding。
+- replay cache 使用文件 size/mtime 签名，并在进程内 append 后直接更新。
+- 已处理 base64 image 在持久化边界替换为占位，不长期保存二进制正文。
 
-## Python 边界
+## Cancel 与失败
 
-浏览器、Amazon、马帮和 Excel 业务能力通过 [`py_tools/catalog.json`](/py_tools/catalog.json) 与单请求 JSON bridge 调用。stdout 只允许一个协议响应，日志走 stderr；TS 负责 timeout、输出限制、取消、Windows 进程树终止和文件投递。它们不是常驻 runtime，也不能由 active skill 通过 coding `exec` 绕过。
+RunHandle 的 signal 同时中断 provider、summary、MCP、script 和 process。取消发生在多个 tool use 中间时，剩余调用写 cancelled stub。Provider retryable failure 在 step 内重试；context overflow 走一次强制 compaction；结构性错误或重复 overflow 终止 turn。
+
+Runtime 返回 `completed|cancelled|error` outcome，Scheduler 释放 active slot。平台发送是独立 delivery 边界：发送失败不回滚已持久化 outcome，也不重放工具。
+
+## 可观测性
+
+turn_start/end、provider attempt、stream event、tool start/end、context checkpoint、usage 和 delivery failure 写入结构化日志或 trace。日志中的 token、authorization、cookie、base64、绝对敏感路径和 encrypted thinking data会被脱敏。
+
+## 一次性脚本边界
+
+业务脚本由 `py_tools/catalog.json` 注册，Runtime 通过 JSON bridge 启动 `.venv` 子进程。stdout 只允许协议响应，stderr 用于日志；Runtime 负责 timeout、最大输出、abort、Windows 进程树终止和 artifact 路径校验。
