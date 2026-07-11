@@ -1,4 +1,5 @@
 export * from "./channel";
+export * from "./direct-composition";
 export * from "./env";
 export * from "./gateway-lifecycle";
 export * from "./gateway-composition";

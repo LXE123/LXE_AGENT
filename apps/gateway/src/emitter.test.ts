@@ -92,6 +92,18 @@ describe("GatewayEmitter", () => {
     expect(channel.outbound.map((item) => item.action)).toEqual(["send_message", "send_file"]);
   });
 
+  test("accepts direct Runtime requests without a worker envelope", async () => {
+    const { channel, emitter } = setup();
+    await emitter.emit(emit({ content: "direct" }));
+    await emitter.typing({
+      session_id: "session-1",
+      response_route_id: "route-1",
+      operation: "start",
+      emit_id: "typing-direct",
+    });
+    expect(channel.outbound.map((item) => item.action)).toEqual(["send_message", "typing_indicator"]);
+  });
+
   test("typing is Feishu-only, validates payloads and requires existing context", async () => {
     const { channel, emitter } = setup();
     await emitter.handleTyping(event("runtime.typing", {

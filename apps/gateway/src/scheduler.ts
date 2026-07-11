@@ -8,6 +8,11 @@ export interface SteeringMessage {
   message_id?: string;
 }
 
+export interface ManagedProcess {
+  kill(): void | Promise<void>;
+  forceKill(): void | Promise<void>;
+}
+
 export type RuntimeRequestErrorCode =
   | "run_closing"
   | "run_not_found"
@@ -43,6 +48,8 @@ export class RunHandle {
   startError: unknown;
   cancelRequest: Promise<boolean> | undefined;
   private steering: Required<SteeringMessage>[] = [];
+  private readonly abortController = new AbortController();
+  private readonly processes = new Set<ManagedProcess>();
 
   constructor(readonly originJob: AgentJob, now: () => number = Date.now) {
     this.sessionId = originJob.session_id.trim();
@@ -66,6 +73,24 @@ export class RunHandle {
     const result = this.steering;
     this.steering = [];
     return result;
+  }
+
+  get signal(): AbortSignal {
+    return this.abortController.signal;
+  }
+
+  get cancelled(): boolean {
+    return this.cancelRequested || this.signal.aborted;
+  }
+
+  registerProcess(process: ManagedProcess): () => void {
+    this.processes.add(process);
+    return () => this.processes.delete(process);
+  }
+
+  async abort(): Promise<void> {
+    if (!this.signal.aborted) this.abortController.abort();
+    await Promise.allSettled([...this.processes].map((process) => Promise.resolve(process.kill())));
   }
 }
 

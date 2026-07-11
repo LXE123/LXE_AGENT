@@ -33,7 +33,13 @@ export class GatewayEmitter {
     if (event.kind !== "runtime.emit" || !validateEmitRequest(event.payload)) {
       throw new Error(`invalid runtime.emit payload: ${validateEmitRequest.errors?.[0]?.message ?? "wrong event kind"}`);
     }
-    const emit = event.payload as unknown as EmitRequest;
+    await this.emit(event.payload as unknown as EmitRequest);
+  }
+
+  async emit(emit: EmitRequest): Promise<void> {
+    if (!validateEmitRequest(emit)) {
+      throw new Error(`invalid runtime.emit payload: ${validateEmitRequest.errors?.[0]?.message ?? "invalid request"}`);
+    }
     const context = await this.resolve(emit.session_id, emit.response_route_id);
     if (!context) throw new Error("response context unexpectedly unavailable");
     const adapter = this.options.registry.get(context.platform);
@@ -76,6 +82,25 @@ export class GatewayEmitter {
     if (event.kind !== "runtime.typing" || !sessionId || !responseRouteId) {
       throw new Error("invalid runtime.typing payload");
     }
+    await this.typing({
+      session_id: sessionId,
+      response_route_id: responseRouteId,
+      operation,
+      emit_id: emitId,
+    });
+  }
+
+  async typing(payload: {
+    session_id: string;
+    response_route_id: string;
+    operation: string;
+    emit_id?: string;
+  }): Promise<void> {
+    const sessionId = safeText(payload.session_id);
+    const responseRouteId = safeText(payload.response_route_id);
+    const operation = safeText(payload.operation);
+    const emitId = safeText(payload.emit_id);
+    if (!sessionId || !responseRouteId) throw new Error("invalid runtime.typing payload");
     if (!new Set(["start", "stop"]).has(operation)) throw new Error(`unsupported typing operation: ${operation}`);
     const context = await this.resolve(sessionId, responseRouteId, true);
     if (!context || context.platform !== "feishu") return;

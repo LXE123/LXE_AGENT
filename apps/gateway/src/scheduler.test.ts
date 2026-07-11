@@ -64,6 +64,21 @@ describe("RunHandle", () => {
     ]);
     expect(handle.drainSteering()).toEqual([]);
   });
+
+  test("aborts registered processes and exposes one cancellation signal", async () => {
+    const handle = new RunHandle(job("s1", "j1"));
+    const calls: string[] = [];
+    const unregister = handle.registerProcess({
+      kill: () => { calls.push("kill"); },
+      forceKill: async () => { calls.push("force"); },
+    });
+    expect(handle.signal.aborted).toBe(false);
+    await handle.abort();
+    expect(handle.signal.aborted).toBe(true);
+    expect(handle.cancelled).toBe(true);
+    expect(calls).toEqual(["kill"]);
+    unregister();
+  });
 });
 
 describe("SessionScheduler", () => {

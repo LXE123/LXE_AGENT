@@ -14,6 +14,7 @@
     "@larksuiteoapi/node-sdk": "1.70.0",
     "@lxe/core": "workspace:*",
     "@lxe/protocol": "workspace:*",
+    "@lxe/runtime": "workspace:*",
     "yaml": "2.8.1"
   },
   "devDependencies": {

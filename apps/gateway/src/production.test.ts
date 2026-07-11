@@ -64,4 +64,51 @@ describe("production Gateway application", () => {
     expect(existsSync(join(runtimeRoot, "tmp", "gateway", "gateway-status.json"))).toBe(false);
     expect(worker.stdinClosed).toBe(true);
   });
+
+  test("selects the direct TypeScript Runtime when no worker spawner is supplied", async () => {
+    const runtimeRoot = mkdtempSync(join(tmpdir(), "lxe-production-direct-"));
+    roots.push(runtimeRoot);
+    const calls: string[] = [];
+    const policy = buildPermissionPolicy(
+      {
+        bots: { TEST: { key: "test", app_id: "app-test", skill_types: ["default"] } },
+        users: { Tester: { union_id: "union-test", allow: ["TEST"] } },
+      },
+      "production-direct-policy.yaml",
+    );
+    const storage = {
+      ensureSession: async () => undefined,
+      rebindSession: async () => undefined,
+      upsertResponseRoute: async () => undefined,
+      getSession: async () => ({ session_id: "s1", source: { platform: "test" } }),
+      popPendingEvents: async () => [],
+      appendPendingEvent: async () => undefined,
+      hasPendingEvents: async () => false,
+      getResponseRoute: async () => undefined,
+      patchResponseRoute: async () => undefined,
+    };
+    const runtime = {
+      start: async () => { calls.push("runtime:start"); },
+      stop: async () => { calls.push("runtime:stop"); },
+      runTurn: async () => ({
+        status: "completed" as const,
+        reply: "",
+        input_tokens: 0,
+        output_tokens: 0,
+        tool_calls: 0,
+      }),
+    };
+    const application = createProductionGateway({
+      projectRoot: runtimeRoot,
+      runtimeRoot,
+      environment: { AGENT_DASHBOARD_ENABLED: "0", FEISHU_GATEWAY_ENABLED: "0" },
+      policy,
+      directRuntime: runtime,
+      directStorage: storage,
+    });
+    await application.start();
+    expect(calls).toEqual(["runtime:start"]);
+    await application.stop();
+    expect(calls).toEqual(["runtime:start", "runtime:stop"]);
+  });
 });
