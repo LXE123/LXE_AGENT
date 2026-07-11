@@ -1,0 +1,49 @@
+{
+  "coding": {
+    "protected_root_files": [
+      ".env",
+      ".env.local",
+      ".envrc",
+      ".env.development",
+      ".env.production",
+      ".env.test",
+      ".env.staging"
+    ],
+    "protected_root_directories": ["user_session_db"],
+    "skip_directories": [
+      ".git",
+      "node_modules",
+      "__pycache__",
+      ".venv",
+      "venv",
+      ".tox",
+      ".mypy_cache",
+      ".pytest_cache",
+      "dist",
+      "build"
+    ],
+    "read_before_modify": true,
+    "default_yield_ms": 10000,
+    "default_timeout_seconds": 120,
+    "process_output_chars": 200000,
+    "process_pending_chars": 30000,
+    "process_tail_chars": 2000,
+    "process_ttl_seconds": 1800
+  },
+  "runtime": {
+    "max_steps": 50,
+    "max_step_reply": "本轮已达到最大步骤，请发送下一条消息继续。",
+    "provider_attempts": 3,
+    "overflow_retries": 1
+  },
+  "mcp": {
+    "startup_timeout_seconds": 10,
+    "tool_timeout_seconds": 60,
+    "default_exposure": "deferred"
+  },
+  "storage": {
+    "transcript_cache": true,
+    "strip_persisted_base64_images": true,
+    "title_from_first_user_message": true
+  }
+}
