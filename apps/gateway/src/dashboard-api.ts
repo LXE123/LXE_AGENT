@@ -147,9 +147,14 @@ export class DashboardApi {
       return json(this.listPayload(this.options.backgroundTasks?.() ?? []));
     }
     if (request.method === "GET" && path === "/api/stats/overview") return json(this.overview(url));
-    if (request.method === "GET" && path === "/api/stats/skills") return json({ ...this.listPayload([]), days: this.days(url) });
+    if (request.method === "GET" && path === "/api/stats/skills") {
+      const days = this.days(url);
+      return json({ ...this.listPayload(this.options.store.skillUsageStats(days)), days });
+    }
     if (request.method === "GET" && path.startsWith("/api/stats/skills/")) {
-      return json({ name: decodeURIComponent(path.slice("/api/stats/skills/".length)), days: this.days(url), items: [] });
+      const name = decodeURIComponent(path.slice("/api/stats/skills/".length));
+      const days = this.days(url);
+      return json({ name, days, items: this.options.store.skillUsageStats(days, name) });
     }
     if (request.method === "GET" && path === "/api/stats/tools") {
       const days = this.days(url);

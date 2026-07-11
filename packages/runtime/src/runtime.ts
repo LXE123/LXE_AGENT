@@ -115,10 +115,17 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const providerSnapshot = this.options.providerManager?.acquire();
     const provider = providerSnapshot?.provider ?? this.options.provider;
     if (!provider) throw new Error("runtime provider is not configured");
+    const skillUsage = new Map<string, { module: string; calls: number; errors: number; duration_ms: number }>();
     const exposureOptions = typeof this.options.toolExposure === "function"
       ? this.options.toolExposure()
       : this.options.toolExposure;
-    const toolExposure = this.options.tools.createExposureState(exposureOptions);
+    const toolExposure = this.options.tools.createExposureState({
+      ...exposureOptions,
+      onSkillActivated: async (name) => {
+        skillUsage.set(name, { module: "", calls: 1, errors: 0, duration_ms: 0 });
+        await exposureOptions?.onSkillActivated?.(name);
+      },
+    });
     const systemPrompt = typeof this.options.systemPrompt === "function"
       ? this.options.systemPrompt()
       : this.options.systemPrompt;
@@ -179,6 +186,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         tool_calls: toolCalls,
         api_calls: apiCalls,
         tools: [...toolUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
+        skills: [...skillUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
       });
       trace?.record("turn_end", {
         status,
@@ -397,6 +405,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           toolCalls += 1;
           const startedToolAt = Date.now();
           const usage = toolUsage.get(call.name) ?? { calls: 0, errors: 0, duration_ms: 0 };
+          const ownerSkills = (this.options.tools.definition(call.name)?.ownerSkills ?? [])
+            .filter((name) => skillUsage.has(name));
           usage.calls += 1;
           toolUsage.set(call.name, usage);
           trace?.record("tool_start", { step: step + 1, tool: call.name, tool_use_id: call.id, input: call.input });
@@ -453,6 +463,13 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           } finally {
             const durationMs = Date.now() - startedToolAt;
             usage.duration_ms += durationMs;
+            for (const skillName of ownerSkills) {
+              const skill = skillUsage.get(skillName);
+              if (!skill) continue;
+              skill.module = call.name;
+              skill.duration_ms += durationMs;
+              if (toolStatus === "error") skill.errors += 1;
+            }
             trace?.record("tool_end", { step: step + 1, tool: call.name, tool_use_id: call.id, status: toolStatus, duration_ms: durationMs });
             await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs, toolDisplayOutput);
           }

@@ -1,8 +1,8 @@
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
-import type { JsonObject } from "@lxe/protocol";
+import type { JsonObject, JsonValue } from "@lxe/protocol";
 import type { RuntimeMessage, RuntimeSessionRecord, RuntimeStore } from "./types";
 
 const parseObject = (value: unknown): JsonObject => {
@@ -30,6 +30,37 @@ const mergeObjects = (base: JsonObject, patch: JsonObject): JsonObject => {
 };
 
 const text = (value: unknown): string => String(value ?? "").trim();
+
+const imagePlaceholder = (): JsonObject => ({
+  type: "text",
+  text: "[Image omitted from persisted transcript after this turn]",
+});
+
+const sanitizePersistedValue = (value: JsonValue): JsonValue => {
+  if (Array.isArray(value)) return value.map(sanitizePersistedValue);
+  if (value === null || typeof value !== "object") {
+    return typeof value === "string" && /^data:image\/[^;]+;base64,/iu.test(value)
+      ? "[Image data URL omitted from persisted transcript after this turn]"
+      : value;
+  }
+  const source = parseObject(value.source);
+  if (text(value.type) === "image" && (text(source.type) === "base64" || typeof source.data === "string")) {
+    return imagePlaceholder();
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizePersistedValue(item)]));
+};
+
+const persistedMessage = (message: RuntimeMessage): RuntimeMessage =>
+  sanitizePersistedValue(message as unknown as JsonObject) as unknown as RuntimeMessage;
+
+const sessionTitle = (message: RuntimeMessage, reason: string): string => {
+  if (message.role !== "user" || !["turn_input", "user_input", "inbound"].includes(reason)) return "";
+  const content = typeof message.content === "string"
+    ? message.content
+    : message.content.filter((block) => block.type === "text" && typeof block.text === "string")
+      .map((block) => String(block.text)).join(" ");
+  return content.replaceAll(/\s+/g, " ").trim().slice(0, 120);
+};
 
 const normalizeLegacyBlock = (value: unknown): JsonObject | undefined => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
@@ -95,6 +126,9 @@ export interface DashboardSessionPageOptions {
 
 export class SqliteRuntimeStore implements RuntimeStore {
   private database: Database | undefined;
+  private readonly replayCache = new Map<string, { path: string; size: number; mtimeMs: number; messages: RuntimeMessage[] }>();
+  private replayHits = 0;
+  private replayMisses = 0;
 
   constructor(readonly path: string) {}
 
@@ -176,6 +210,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
   async stop(): Promise<void> {
     this.database?.close(false);
     this.database = undefined;
+    this.replayCache.clear();
   }
 
   async ensureSession(request: JsonObject): Promise<void> {
@@ -318,15 +353,69 @@ export class SqliteRuntimeStore implements RuntimeStore {
     return transaction();
   }
 
+  discardPendingEvents(sessionId: string): number {
+    const result = this.db().transaction(() => this.db().query(
+      "DELETE FROM agent_session_pending_events WHERE session_id = ?",
+    ).run(text(sessionId)))();
+    return Number(result.changes ?? 0);
+  }
+
+  async resetContext(sessionId: string, reason: "context_reset" | "memory_clear" = "context_reset"): Promise<void> {
+    const safeSessionId = text(sessionId);
+    const path = this.transcriptPath(safeSessionId);
+    this.validCacheBeforeWrite(safeSessionId, path);
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, `${JSON.stringify({
+      kind: "replacement",
+      replacement_kind: reason,
+      replacement_history: [],
+      ts: Date.now() / 1_000,
+    })}\n`, "utf8");
+    this.db().transaction(() => {
+      this.db().query("UPDATE agent_sessions SET last_active_at = ?, message_count = 0 WHERE session_id = ?")
+        .run(Date.now() / 1_000, safeSessionId);
+      this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
+    })();
+    this.updateCacheAfterWrite(safeSessionId, path, []);
+  }
+
+  clearSessionRuntimeState(sessionId: string): void {
+    const safeSessionId = text(sessionId);
+    this.db().transaction(() => {
+      const row = this.db().query("SELECT source FROM agent_sessions WHERE session_id = ?")
+        .get(safeSessionId) as { source: string } | null;
+      if (!row) throw new Error(`session not found: ${safeSessionId}`);
+      const source = parseObject(row.source);
+      delete source.tool_state;
+      this.db().query("UPDATE agent_sessions SET source = ?, last_active_at = ? WHERE session_id = ?")
+        .run(JSON.stringify(source), Date.now() / 1_000, safeSessionId);
+      this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
+    })();
+  }
+
+  replayCacheStats(): { hits: number; misses: number; entries: number } {
+    return { hits: this.replayHits, misses: this.replayMisses, entries: this.replayCache.size };
+  }
+
   async loadMessages(sessionId: string): Promise<RuntimeMessage[]> {
+    const safeSessionId = text(sessionId);
+    const path = this.transcriptPath(safeSessionId);
     let raw: string;
     try {
-      raw = readFileSync(this.transcriptPath(sessionId), "utf8");
+      const stat = statSync(path);
+      const cached = this.replayCache.get(safeSessionId);
+      if (cached && cached.path === path && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+        this.replayHits += 1;
+        return structuredClone(cached.messages);
+      }
+      this.replayMisses += 1;
+      raw = readFileSync(path, "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return this.loadLegacyMessages(sessionId);
+      this.replayCache.delete(safeSessionId);
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return this.loadLegacyMessages(safeSessionId);
       throw error;
     }
-    if (!raw.trim()) return this.loadLegacyMessages(sessionId);
+    if (!raw.trim()) return this.loadLegacyMessages(safeSessionId);
     let messages: RuntimeMessage[] = [];
     for (const line of raw.split(/\r?\n/)) {
       if (!line.trim()) continue;
@@ -346,16 +435,28 @@ export class SqliteRuntimeStore implements RuntimeStore {
         }
       }
     }
-    return messages;
+    const stat = statSync(path);
+    this.replayCache.set(safeSessionId, { path, size: stat.size, mtimeMs: stat.mtimeMs, messages: structuredClone(messages) });
+    return structuredClone(messages);
   }
 
   async appendMessage(sessionId: string, message: RuntimeMessage, reason = "runtime"): Promise<void> {
-    const path = this.transcriptPath(sessionId);
+    const safeSessionId = text(sessionId);
+    const path = this.transcriptPath(safeSessionId);
+    const cached = this.validCacheBeforeWrite(safeSessionId, path);
+    const persisted = persistedMessage(message);
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, `${JSON.stringify({ kind: "message", message, reason, ts: Date.now() / 1_000 })}\n`, "utf8");
-    this.db().query(`
-      UPDATE agent_sessions SET last_active_at = ?, message_count = message_count + 1 WHERE session_id = ?
-    `).run(Date.now() / 1_000, text(sessionId));
+    appendFileSync(path, `${JSON.stringify({ kind: "message", message: persisted, reason, ts: Date.now() / 1_000 })}\n`, "utf8");
+    const title = sessionTitle(message, reason);
+    this.db().transaction(() => {
+      this.db().query(`
+        UPDATE agent_sessions SET last_active_at = ?, message_count = message_count + 1,
+          title = CASE WHEN title = '' AND ? <> '' THEN ? ELSE title END
+        WHERE session_id = ?
+      `).run(Date.now() / 1_000, title, title, safeSessionId);
+    })();
+    if (cached) this.updateCacheAfterWrite(safeSessionId, path, [...cached.messages, persisted]);
+    else this.replayCache.delete(safeSessionId);
   }
 
   async replaceMessages(
@@ -366,16 +467,21 @@ export class SqliteRuntimeStore implements RuntimeStore {
   ): Promise<void> {
     const safeSessionId = text(sessionId);
     const path = this.transcriptPath(safeSessionId);
+    this.validCacheBeforeWrite(safeSessionId, path);
+    const persisted = messages.map(persistedMessage);
     mkdirSync(dirname(path), { recursive: true });
     appendFileSync(path, `${JSON.stringify({
       ...metadata,
       kind: "replacement",
       replacement_kind: replacementKind,
-      replacement_history: messages,
+      replacement_history: persisted,
       ts: Date.now() / 1_000,
     })}\n`, "utf8");
-    this.db().query("UPDATE agent_sessions SET last_active_at = ? WHERE session_id = ?")
-      .run(Date.now() / 1_000, safeSessionId);
+    this.db().transaction(() => {
+      this.db().query("UPDATE agent_sessions SET last_active_at = ? WHERE session_id = ?")
+        .run(Date.now() / 1_000, safeSessionId);
+    })();
+    this.updateCacheAfterWrite(safeSessionId, path, persisted);
   }
 
   async patchSessionState(sessionId: string, patch: JsonObject): Promise<void> {
@@ -397,6 +503,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const turnId = text(metrics.turn_id) || randomUUID().replaceAll("-", "");
     const startedAt = Number(metrics.started_at ?? Date.now() / 1_000);
     const tools = Array.isArray(metrics.tools) ? metrics.tools.map(parseObject) : [];
+    const skills = Array.isArray(metrics.skills) ? metrics.skills.map(parseObject) : [];
     this.db().transaction(() => {
       this.db().query(`
         UPDATE agent_sessions SET
@@ -430,6 +537,18 @@ export class SqliteRuntimeStore implements RuntimeStore {
           Number(tool.errors ?? 0), Number(tool.duration_ms ?? 0),
         );
       }
+      for (const skill of skills) {
+        const name = text(skill.name);
+        if (!name) continue;
+        this.db().query(`
+          INSERT INTO turn_usage_items
+            (turn_id, session_id, started_at, kind, name, module, calls, errors, duration_ms, detail)
+          VALUES (?, ?, ?, 'skill', ?, ?, ?, ?, ?, ?)
+        `).run(
+          turnId, safeSessionId, startedAt, name, text(skill.module), Number(skill.calls ?? 1),
+          Number(skill.errors ?? 0), Number(skill.duration_ms ?? 0), text(skill.detail),
+        );
+      }
     })();
   }
 
@@ -445,8 +564,22 @@ export class SqliteRuntimeStore implements RuntimeStore {
     `).get(cutoff) as Record<string, number>;
     const daily = this.db().query(`
       SELECT date(started_at, 'unixepoch', 'localtime') AS day, COUNT(*) AS turns,
-             COALESCE(SUM(tool_calls), 0) AS tool_calls
-      FROM turn_usage WHERE started_at >= ? GROUP BY day ORDER BY day ASC
+             COALESCE(SUM(tool_calls), 0) AS tool_calls,
+             (SELECT COALESCE(SUM(i.calls), 0) FROM turn_usage_items i
+              WHERE i.kind = 'skill' AND date(i.started_at, 'unixepoch', 'localtime') = date(t.started_at, 'unixepoch', 'localtime')) AS executions,
+             (SELECT COALESCE(SUM(i.errors), 0) FROM turn_usage_items i
+              WHERE i.kind = 'skill' AND date(i.started_at, 'unixepoch', 'localtime') = date(t.started_at, 'unixepoch', 'localtime')) AS failures
+      FROM turn_usage t WHERE started_at >= ? GROUP BY day ORDER BY day ASC
+    `).all(cutoff) as Array<Record<string, unknown>>;
+    const skillTotals = this.db().query(`
+      SELECT COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures
+      FROM turn_usage_items WHERE kind = 'skill' AND started_at >= ?
+    `).get(cutoff) as Record<string, number> | null;
+    const modules = this.db().query(`
+      SELECT module, COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures,
+             COALESCE(SUM(duration_ms), 0) AS duration_ms
+      FROM turn_usage_items WHERE kind = 'skill' AND started_at >= ?
+      GROUP BY module ORDER BY executions DESC, module ASC
     `).all(cutoff) as Array<Record<string, unknown>>;
     return {
       days: safeDays,
@@ -454,11 +587,15 @@ export class SqliteRuntimeStore implements RuntimeStore {
         turns: Number(totals.turns ?? 0), error_turns: Number(totals.error_turns ?? 0),
         tool_calls: Number(totals.tool_calls ?? 0), llm_calls: Number(totals.llm_calls ?? 0),
         input_tokens: Number(totals.input_tokens ?? 0), output_tokens: Number(totals.output_tokens ?? 0),
-        skill_executions: 0, skill_failures: 0,
+        skill_executions: Number(skillTotals?.executions ?? 0), skill_failures: Number(skillTotals?.failures ?? 0),
       },
-      modules: [],
+      modules: modules.map((row) => ({
+        module: text(row.module), executions: Number(row.executions ?? 0), failures: Number(row.failures ?? 0),
+        duration_ms: Number(row.duration_ms ?? 0),
+      })),
       daily: daily.map((row) => ({
-        day: text(row.day), turns: Number(row.turns ?? 0), tool_calls: Number(row.tool_calls ?? 0), executions: 0, failures: 0,
+        day: text(row.day), turns: Number(row.turns ?? 0), tool_calls: Number(row.tool_calls ?? 0),
+        executions: Number(row.executions ?? 0), failures: Number(row.failures ?? 0),
       })),
     };
   }
@@ -475,6 +612,23 @@ export class SqliteRuntimeStore implements RuntimeStore {
     return rows.map((row) => ({
       name: text(row.name), calls: Number(row.calls ?? 0), errors: Number(row.errors ?? 0),
       duration_ms: Number(row.duration_ms ?? 0), turns: Number(row.turns ?? 0), last_used_at: Number(row.last_used_at ?? 0),
+    }));
+  }
+
+  skillUsageStats(days: number, name = ""): JsonObject[] {
+    const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
+    const skillName = text(name);
+    const rows = this.db().query(`
+      SELECT name, module, COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures,
+             COALESCE(SUM(duration_ms), 0) AS duration_ms, COUNT(DISTINCT turn_id) AS turns,
+             MAX(started_at) AS last_used_at
+      FROM turn_usage_items WHERE kind = 'skill' AND started_at >= ? AND (? = '' OR name = ?)
+      GROUP BY name, module ORDER BY executions DESC, name ASC
+    `).all(cutoff, skillName, skillName) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      name: text(row.name), module: text(row.module), executions: Number(row.executions ?? 0),
+      failures: Number(row.failures ?? 0), duration_ms: Number(row.duration_ms ?? 0),
+      turns: Number(row.turns ?? 0), last_used_at: Number(row.last_used_at ?? 0),
     }));
   }
 
@@ -603,6 +757,32 @@ export class SqliteRuntimeStore implements RuntimeStore {
       output_tokens: Number(row.output_tokens ?? 0),
       api_call_count: Number(row.api_call_count ?? 0),
     };
+  }
+
+  private validCacheBeforeWrite(
+    sessionId: string,
+    path: string,
+  ): { path: string; size: number; mtimeMs: number; messages: RuntimeMessage[] } | undefined {
+    const cached = this.replayCache.get(sessionId);
+    if (!cached || cached.path !== path) return undefined;
+    try {
+      const stat = statSync(path);
+      if (cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached;
+    } catch {
+      // External deletion invalidates the replay cache.
+    }
+    this.replayCache.delete(sessionId);
+    return undefined;
+  }
+
+  private updateCacheAfterWrite(sessionId: string, path: string, messages: RuntimeMessage[]): void {
+    const stat = statSync(path);
+    this.replayCache.set(sessionId, {
+      path,
+      size: stat.size,
+      mtimeMs: stat.mtimeMs,
+      messages: structuredClone(messages),
+    });
   }
 
   private transcriptPath(sessionId: string): string {
