@@ -8,12 +8,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
-import { parse } from "yaml";
 import type { JsonObject } from "@lxe/protocol";
 import {
   mcpServerPrefix,
+  SkillCatalog,
   type McpConfig,
   type RuntimeProviderManager,
+  type SkillManifest,
   type SqliteRuntimeStore,
   type ToolRegistry,
 } from "@lxe/runtime";
@@ -29,18 +30,14 @@ interface DashboardApiOptions {
   connectorStatePath?: string;
   backgroundTasks?: () => JsonObject[];
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
-  mcpStatus?: (serverName: string) => { connected: boolean; error: string };
+  mcpStatus?: (serverName: string) => {
+    connected: boolean;
+    error: string;
+    tools?: Array<{ rawName: string; modelName: string }>;
+  };
   providerManager?: RuntimeProviderManager;
-}
-
-interface SkillManifest {
-  name: string;
-  type: string;
-  description: string;
-  location: string;
-  root: string;
-  references: Array<{ path: string; description: string }>;
-  content: string;
+  skillCatalog?: SkillCatalog;
+  allowedSkillTypes?: ReadonlySet<string>;
 }
 
 const connectorDefinitions = [
@@ -120,37 +117,17 @@ const markdownStatus = (content: string): string => {
   return "";
 };
 
-const parseSkill = (path: string): SkillManifest | undefined => {
-  const content = readFileSync(path, "utf8");
-  const match = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
-  if (!match?.[1]) return undefined;
-  const metadata = object(parse(match[1]));
-  const name = text(metadata.name);
-  if (!name) return undefined;
-  const references = Array.isArray(metadata.references)
-    ? metadata.references.map(object).map((item) => ({ path: text(item.path), description: text(item.description) }))
-      .filter((item) => Boolean(item.path))
-    : [];
-  return {
-    name,
-    type: text(metadata.type) || "default",
-    description: text(metadata.description),
-    location: resolve(path),
-    root: dirname(path),
-    references,
-    content,
-  };
-};
-
 const loadJson = (path: string): Record<string, unknown> => object(JSON.parse(readFileSync(path, "utf8")));
 
 export class DashboardApi {
   private readonly connectorStatePath: string;
+  private readonly skillCatalog: SkillCatalog;
 
   constructor(private readonly options: DashboardApiOptions) {
     this.connectorStatePath = options.connectorStatePath
       ?? (text(options.environment.LXE_CONNECTOR_STATE_PATH)
         || join(options.projectRoot, "config", "connector-states.local.json"));
+    this.skillCatalog = options.skillCatalog ?? new SkillCatalog(options.projectRoot);
   }
 
   async handle(request: Request, url: URL): Promise<Response | undefined> {
@@ -209,10 +186,18 @@ export class DashboardApi {
   }
 
   private skills(): SkillManifest[] {
-    const disabled = new Set(this.connectors().filter((item) => !item.enabled).flatMap((item) => item.skill_names));
-    return recursiveFiles(join(this.options.projectRoot, "skills"), (path) => basename(path) === "SKILL.md")
-      .map(parseSkill).filter((item): item is SkillManifest => Boolean(item))
-      .filter((item) => !disabled.has(item.name)).sort((left, right) => left.name.localeCompare(right.name));
+    return this.skillCatalog.list({
+      disabledNames: this.disabledSkillNames(),
+      ...(this.options.allowedSkillTypes ? { allowedTypes: this.options.allowedSkillTypes } : {}),
+    });
+  }
+
+  disabledSkillNames(): Set<string> {
+    return new Set(this.connectors().filter((item) => !item.enabled).flatMap((item) => item.skill_names));
+  }
+
+  disabledConnectorIds(): Set<string> {
+    return new Set(this.connectors().filter((item) => !item.enabled).map((item) => String(item.id)));
   }
 
   private skill(path: string): Response {
@@ -321,14 +306,24 @@ export class DashboardApi {
   }
 
   private toolsets(): JsonObject[] {
-    const native = this.options.tools.schemas().filter((tool) => !tool.name.includes("__"));
-    const groups: JsonObject[] = native.length ? [{ name: "coding", label: "Native tools", enabled: true, tools: native.map((tool) => ({
-      name: tool.name, description: tool.description, parameters: tool.input_schema, requires_resource: null, enabled: true,
-    })) }] : [];
+    const payload = (tool: ReturnType<ToolRegistry["definitionsSnapshot"]>[number]): JsonObject => ({
+      name: tool.name,
+      raw_name: tool.rawName ?? tool.name,
+      description: tool.description,
+      parameters: tool.input_schema,
+      requires_resource: null,
+      enabled: true,
+      source: tool.source,
+      exposure: tool.exposure,
+      connector_name: tool.connectorName ?? "",
+    });
+    const native = this.options.tools.definitionsSnapshot().filter((tool) => tool.source !== "mcp");
+    const groups: JsonObject[] = native.length ? [{
+      name: "coding", label: "Native and script tools", enabled: true, tools: native.map(payload),
+    }] : [];
     for (const server of this.options.mcpConfig.servers) {
-      const tools = this.options.tools.schemas().filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).map((tool) => ({
-        name: tool.name, description: tool.description, parameters: tool.input_schema, requires_resource: null, enabled: true,
-      }));
+      const tools = this.options.tools.definitionsSnapshot()
+        .filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).map(payload);
       groups.push({ name: `mcp:${server.name}`, label: server.name, enabled: server.enabled, tools, servers: [this.mcpServer(server)] });
     }
     return groups;
@@ -346,6 +341,8 @@ export class DashboardApi {
       error: live?.error ?? "",
       server_title: server.name,
       connector_name: server.name,
+      exposure: server.exposure,
+      tools: live?.tools ?? [],
     };
   }
 

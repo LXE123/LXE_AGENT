@@ -14,8 +14,8 @@ import {
   registerCodingTools,
   registerScriptTools,
   PythonScriptToolRunner,
+  SkillCatalog,
   ZINIAO_SCRIPT_TOOL_DEFINITIONS,
-  buildSkillIndexPrompt,
   configureRuntimeTracing,
   registerToolSearch,
 } from "@lxe/runtime";
@@ -97,6 +97,7 @@ export function createProductionGateway(
   let gatewayEmitter: GatewayEmitter | undefined;
   let heartbeatWake: ((payload: JsonObject) => void) | undefined;
   const tools = new ToolRegistry();
+  const skillCatalog = new SkillCatalog(options.projectRoot);
   const processes = registerCodingTools(tools, {
     workspaceRoot: options.projectRoot,
     onProcessComplete: async (snapshot) => {
@@ -182,6 +183,10 @@ export function createProductionGateway(
   const mcpConfig = loadMcpConfig(mcpConfigPath, options.environment);
   const mcpManager = new McpManager(mcpConfig);
   runtimeServices.push(mcpManager);
+  const permissionKey = policy.botIdToKey.get(feishu.appId);
+  const allowedSkillTypes = permissionKey
+    ? policy.botSkillPolicy.get(permissionKey)
+    : undefined;
   dashboardApi = new DashboardApi({
     projectRoot: options.projectRoot,
     environment: options.environment,
@@ -194,16 +199,15 @@ export function createProductionGateway(
       await mcpManager.setEnabled(serverName, enabled);
     },
     mcpStatus: (serverName) => mcpManager.status(serverName),
+    skillCatalog,
+    ...(allowedSkillTypes ? { allowedSkillTypes } : {}),
     ...(providerManager ? { providerManager } : {}),
   });
-  const permissionKey = policy.botIdToKey.get(feishu.appId);
-  const allowedSkillTypes = permissionKey
-    ? policy.botSkillPolicy.get(permissionKey)
-    : undefined;
-  const skillPrompt = buildSkillIndexPrompt(options.projectRoot, {
+  const skillOptions = () => ({
     ...(allowedSkillTypes
       ? { allowedTypes: allowedSkillTypes }
       : { allowedTypes: new Set<string>() }),
+    disabledNames: dashboardApi?.disabledSkillNames() ?? new Set<string>(),
   });
   const directRuntime =
     options.directRuntime ??
@@ -215,6 +219,10 @@ export function createProductionGateway(
         providerManager,
         traceController: configureRuntimeTracing({ projectRoot: options.projectRoot, environment: options.environment }),
         tools,
+        toolExposure: () => ({
+          allowedSkills: new Set(skillCatalog.list(skillOptions()).map((skill) => skill.name)),
+          disabledConnectors: dashboardApi?.disabledConnectorIds() ?? new Set<string>(),
+        }),
         contextWindowTokens: providerDescriptor.contextWindowTokens,
         display: {
           model: providerDescriptor.model,
@@ -233,12 +241,11 @@ export function createProductionGateway(
             await gatewayEmitter.typing(request);
           },
         },
-        systemPrompt: [
+        systemPrompt: () => [
           readFileSync(join(options.projectRoot, "SOUL.md"), "utf8"),
-          skillPrompt,
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
+          "<<system-prompt-cache-breakpoint>>",
+          skillCatalog.buildPrompt(skillOptions()),
+        ].filter(Boolean).join("\n\n"),
         services: runtimeServices,
       });
     })();

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildSkillIndexPrompt } from "../src/skills";
+import { SkillCatalog, buildSkillIndexPrompt } from "../src/skills";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -21,5 +21,34 @@ describe("skill context", () => {
     expect(prompt).toContain("demo");
     expect(prompt).toContain("skills/demo/SKILL.md");
     expect(prompt).not.toContain("blocked");
+  });
+
+  test("prefers repository skills, refreshes by signature, and validates references", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-skills-catalog-"));
+    roots.push(root);
+    const userRoot = join(root, "user-skills");
+    mkdirSync(join(root, "skills", "demo", "references"), { recursive: true });
+    mkdirSync(join(userRoot, "demo"), { recursive: true });
+    writeFileSync(join(root, "skills", "demo", "references", "help.md"), "help", "utf8");
+    writeFileSync(join(root, "skills", "demo", "SKILL.md"), [
+      "---", "name: demo", "type: default", "description: Repository version",
+      "references:", "  - path: references/help.md", "---", "# Demo", "",
+    ].join("\n"), "utf8");
+    writeFileSync(join(userRoot, "demo", "SKILL.md"), "---\nname: demo\ndescription: User version\n---\n", "utf8");
+    const catalog = new SkillCatalog(root, userRoot);
+    expect(catalog.get("demo")?.description).toBe("Repository version");
+    expect(catalog.get("demo")?.references).toEqual([{ path: "references/help.md", description: "" }]);
+
+    writeFileSync(join(root, "skills", "demo", "SKILL.md"), [
+      "---", "name: demo", "type: default", "description: Repository version updated",
+      "references:", "  - path: references/help.md", "---", "# Demo", "",
+    ].join("\n"), "utf8");
+    expect(catalog.get("demo")?.description).toBe("Repository version updated");
+
+    mkdirSync(join(root, "skills", "broken"), { recursive: true });
+    writeFileSync(join(root, "skills", "broken", "SKILL.md"), [
+      "---", "name: broken", "references:", "  - path: ../outside.md", "---", "",
+    ].join("\n"), "utf8");
+    expect(() => catalog.list()).toThrow("skill reference escapes its root");
   });
 });

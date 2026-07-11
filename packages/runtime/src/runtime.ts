@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
 import { createLogger } from "@lxe/core";
-import { ToolRegistry } from "./tools";
+import { ToolRegistry, type ToolExposureOptions } from "./tools";
 import {
   ContextCompactionError,
   ContextOverflowError,
@@ -35,8 +35,9 @@ export interface TypeScriptAgentRuntimeOptions {
   providerManager?: RuntimeProviderManager;
   traceController?: RuntimeTraceControllerPort;
   tools: ToolRegistry;
+  toolExposure?: ToolExposureOptions | (() => ToolExposureOptions);
   emitter: RuntimeEmitter;
-  systemPrompt: string;
+  systemPrompt: string | (() => string);
   maxSteps?: number;
   contextWindowTokens?: number;
   display?: {
@@ -114,6 +115,13 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const providerSnapshot = this.options.providerManager?.acquire();
     const provider = providerSnapshot?.provider ?? this.options.provider;
     if (!provider) throw new Error("runtime provider is not configured");
+    const exposureOptions = typeof this.options.toolExposure === "function"
+      ? this.options.toolExposure()
+      : this.options.toolExposure;
+    const toolExposure = this.options.tools.createExposureState(exposureOptions);
+    const systemPrompt = typeof this.options.systemPrompt === "function"
+      ? this.options.systemPrompt()
+      : this.options.systemPrompt;
     const descriptor = providerSnapshot?.descriptor;
     const trace = this.options.traceController?.startTurn(job.session_id, job.job_id);
     trace?.record("turn_start", {
@@ -220,11 +228,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
         }
         await appendSteering();
-        const toolSchemas = this.options.tools.schemas();
+        const toolSchemas = toolExposure.schemas();
         const prepared = await contextPipeline.prepare({
           sessionId: job.session_id,
           messages,
-          systemPrompt: this.options.systemPrompt,
+          systemPrompt,
           toolSchemas,
           signal: handle.signal,
           trigger: "pre_call",
@@ -238,7 +246,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           throw new ContextOverflowError(prepared.afterTokens, contextPipeline.hardLimitTokens);
         }
         const providerRequest = () => ({
-          system: this.options.systemPrompt,
+          system: systemPrompt,
           messages: structuredClone(messages) as RuntimeMessage[],
           tools: toolSchemas,
           signal: handle.signal,
@@ -293,7 +301,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           const overflow = await contextPipeline.prepare({
             sessionId: job.session_id,
             messages,
-            systemPrompt: this.options.systemPrompt,
+            systemPrompt,
             toolSchemas,
             signal: handle.signal,
             trigger: "overflow",
@@ -324,7 +332,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               const postTurn = await contextPipeline.postTurn({
                 sessionId: job.session_id,
                 messages,
-                systemPrompt: this.options.systemPrompt,
+                systemPrompt,
                 signal: handle.signal,
               });
               accountContext(postTurn);
@@ -401,6 +409,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               session_id: job.session_id,
               response_route_id: job.response_route_id,
               turn_id: job.job_id,
+              exposureState: toolExposure,
             });
             if (result.state_patch && Object.keys(result.state_patch).length > 0) {
               await this.options.store.patchSessionState(job.session_id, result.state_patch);

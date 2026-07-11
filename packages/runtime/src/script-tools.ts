@@ -42,6 +42,9 @@ export interface ScriptToolDefinition {
   name: string;
   description: string;
   input_schema: JsonObject;
+  ownerSkills?: string[];
+  connectorName?: string;
+  timeoutMs?: number;
 }
 
 export interface RegisterScriptToolsOptions {
@@ -63,6 +66,7 @@ export const ZINIAO_SCRIPT_TOOL_DEFINITIONS: ScriptToolDefinition[] = [
       required: ["action"],
       additionalProperties: false,
     },
+    ownerSkills: ["fba-shipment-create"],
   },
   {
     name: "ziniao_page",
@@ -82,6 +86,7 @@ export const ZINIAO_SCRIPT_TOOL_DEFINITIONS: ScriptToolDefinition[] = [
       required: ["action", "store_id"],
       additionalProperties: false,
     },
+    ownerSkills: ["fba-shipment-create"],
   },
 ];
 
@@ -195,6 +200,8 @@ export function registerScriptTools(registry: ToolRegistry, options: RegisterScr
   for (const definition of options.definitions) {
     registry.register({
       ...definition,
+      source: "script",
+      exposure: "deferred",
       execute: async (arguments_, context) => {
         const callId = randomUUID();
         const response = await options.runner.execute({

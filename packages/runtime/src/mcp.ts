@@ -20,7 +20,11 @@ export interface McpServerConfig {
   cwd: string;
   url: string;
   headers: Record<string, string>;
+  startupTimeoutMs: number;
+  toolTimeoutMs: number;
+  enabledTools: Set<string>;
   disabledTools: Set<string>;
+  exposure: "deferred" | "direct" | "auto";
 }
 
 export interface McpConfig {
@@ -40,7 +44,7 @@ export interface McpConnection {
 }
 
 export interface McpConnector {
-  connect(server: McpServerConfig): Promise<McpConnection>;
+  connect(server: McpServerConfig, signal?: AbortSignal): Promise<McpConnection>;
 }
 
 const mapping = (value: unknown): Record<string, unknown> =>
@@ -60,12 +64,57 @@ export const mcpToolName = (serverName: string, toolName: string): string => {
   return `${value.slice(0, Math.max(1, 64 - suffix.length)).replaceAll(/[_-]+$/g, "")}${suffix}`;
 };
 
+const uniqueMcpToolName = (serverName: string, toolName: string, used: ReadonlySet<string>): string => {
+  const candidate = mcpToolName(serverName, toolName);
+  if (!used.has(candidate)) return candidate;
+  const suffix = `_${new Bun.CryptoHasher("sha1").update(`${serverName}\0${toolName}`).digest("hex").slice(0, 10)}`;
+  const bytes = new TextEncoder();
+  let prefix = candidate;
+  while (bytes.encode(`${prefix}${suffix}`).byteLength > 64) prefix = prefix.slice(0, -1);
+  return `${prefix.replaceAll(/[_-]+$/g, "")}${suffix}`;
+};
+
+const withTimeout = async <T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  label: string,
+  parent?: AbortSignal,
+): Promise<T> => {
+  const controller = new AbortController();
+  const abort = (): void => controller.abort(parent?.reason ?? new DOMException("Cancelled", "AbortError"));
+  if (parent?.aborted) abort();
+  else parent?.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(() => controller.abort(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+  const interrupted = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener("abort", () => reject(
+      controller.signal.reason instanceof Error
+        ? controller.signal.reason
+        : new DOMException("Cancelled", "AbortError"),
+    ), { once: true });
+  });
+  try {
+    return await Promise.race([operation(controller.signal), interrupted]);
+  } finally {
+    clearTimeout(timer);
+    parent?.removeEventListener("abort", abort);
+  }
+};
+
 const resolvePlaceholders = (value: string, env: Environment, field: string): string =>
   value.replaceAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => {
-    const resolved = String(env[name] ?? "");
-    void field;
+    const resolved = env[name];
+    if (resolved === undefined || resolved === "") throw new Error(`missing environment variable ${name} for MCP ${field}`);
     return resolved;
   });
+
+const seconds = (value: unknown, fallback: number): number => {
+  const parsed = Number(value ?? fallback);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed * 1_000) : fallback * 1_000;
+};
+
+const stringSet = (value: unknown): Set<string> => new Set(Array.isArray(value)
+  ? value.map((item) => String(item).trim()).filter(Boolean)
+  : []);
 
 export function loadMcpConfig(path: string, env: Environment): McpConfig {
   let source: string;
@@ -87,21 +136,26 @@ export function loadMcpConfig(path: string, env: Environment): McpConfig {
         : rawTransport === "stdio" ? "stdio" : (() => { throw new Error(`unsupported MCP transport: ${rawTransport}`); })();
       const headers = Object.fromEntries(Object.entries(stringMapping(config.headers))
         .map(([key, value]) => [key, resolvePlaceholders(value, env, `${name}.headers.${key}`)]));
-      const rawDisabledTools = config.disabled_tools ?? config.disabledTools;
-      const disabledTools = Array.isArray(rawDisabledTools)
-        ? rawDisabledTools.map((item) => String(item).trim()).filter(Boolean)
-        : [];
+      const exposure = String(config.exposure ?? "deferred").trim().toLowerCase();
+      if (!["deferred", "direct", "auto"].includes(exposure)) throw new Error(`invalid MCP exposure for ${name}: ${exposure}`);
       return {
         name,
         enabled: config.enabled === true || ["1", "true", "yes", "on"].includes(String(config.enabled ?? "").toLowerCase()),
         transport,
-        command: String(config.command ?? "").trim(),
-        args: Array.isArray(config.args) ? config.args.map((item) => String(item)) : [],
-        env: stringMapping(config.env),
-        cwd: String(config.cwd ?? "").trim(),
-        url: String(config.url ?? "").trim(),
+        command: resolvePlaceholders(String(config.command ?? "").trim(), env, `${name}.command`),
+        args: Array.isArray(config.args)
+          ? config.args.map((item, index) => resolvePlaceholders(String(item), env, `${name}.args.${index}`))
+          : [],
+        env: Object.fromEntries(Object.entries(stringMapping(config.env))
+          .map(([key, value]) => [key, resolvePlaceholders(value, env, `${name}.env.${key}`)])),
+        cwd: resolvePlaceholders(String(config.cwd ?? "").trim(), env, `${name}.cwd`),
+        url: resolvePlaceholders(String(config.url ?? "").trim(), env, `${name}.url`),
         headers,
-        disabledTools: new Set(disabledTools),
+        startupTimeoutMs: seconds(config.startup_timeout_s ?? config.startupTimeoutS, 10),
+        toolTimeoutMs: seconds(config.tool_timeout_s ?? config.toolTimeoutS, 60),
+        enabledTools: stringSet(config.enabled_tools ?? config.enabledTools),
+        disabledTools: stringSet(config.disabled_tools ?? config.disabledTools),
+        exposure: exposure as McpServerConfig["exposure"],
       };
     }),
   };
@@ -124,8 +178,10 @@ export function setMcpServerEnabled(path: string, serverName: string, enabled: b
 }
 
 export class OfficialMcpConnector implements McpConnector {
-  async connect(server: McpServerConfig): Promise<McpConnection> {
+  async connect(server: McpServerConfig, signal?: AbortSignal): Promise<McpConnection> {
     const client = new Client({ name: "lxe-agent", version: "0.1.0" });
+    const closeOnAbort = (): void => { void client.close(); };
+    signal?.addEventListener("abort", closeOnAbort, { once: true });
     const transport = server.transport === "stdio"
       ? new StdioClientTransport({
         command: server.command,
@@ -136,8 +192,13 @@ export class OfficialMcpConnector implements McpConnector {
       : new StreamableHTTPClientTransport(new URL(server.url), {
         requestInit: { headers: server.headers },
       });
-    await client.connect(transport as unknown as Parameters<typeof client.connect>[0]);
-    const listed = await client.listTools();
+    try {
+      await client.connect(transport as unknown as Parameters<typeof client.connect>[0]);
+      if (signal?.aborted) throw signal.reason;
+    } finally {
+      signal?.removeEventListener("abort", closeOnAbort);
+    }
+    const listed = await client.listTools(undefined, signal ? { signal } : undefined);
     return {
       tools: listed.tools.map((tool) => ({
         name: tool.name,
@@ -159,6 +220,7 @@ export class OfficialMcpConnector implements McpConnector {
 export class McpManager {
   private readonly connections = new Map<string, McpConnection>();
   private readonly errors = new Map<string, string>();
+  private readonly toolNames = new Map<string, Array<{ rawName: string; modelName: string }>>();
   private registry: ToolRegistry | undefined;
 
   constructor(
@@ -168,14 +230,10 @@ export class McpManager {
 
   async start(registry: ToolRegistry): Promise<void> {
     this.registry = registry;
-    for (const server of this.config.servers) {
-      if (!server.enabled) continue;
-      try {
-        await this.connect(server, registry);
-      } catch (error) {
-        this.errors.set(server.name, error instanceof Error ? error.message : String(error));
-      }
-    }
+    await Promise.all(this.config.servers.filter((server) => server.enabled).map(async (server) => {
+      try { await this.connect(server, registry); }
+      catch (error) { this.errors.set(server.name, error instanceof Error ? error.message : String(error)); }
+    }));
   }
 
   async setEnabled(serverName: string, enabled: boolean): Promise<void> {
@@ -187,6 +245,7 @@ export class McpManager {
     server.enabled = enabled;
     if (!enabled) {
       registry.unregisterWhere((name) => name.startsWith(mcpServerPrefix(serverName)));
+      this.toolNames.delete(serverName);
       const connection = this.connections.get(serverName);
       this.connections.delete(serverName);
       await connection?.close();
@@ -199,14 +258,19 @@ export class McpManager {
     }
   }
 
-  status(serverName: string): { connected: boolean; error: string } {
-    return { connected: this.connections.has(serverName), error: this.errors.get(serverName) ?? "" };
+  status(serverName: string): { connected: boolean; error: string; tools: Array<{ rawName: string; modelName: string }> } {
+    return {
+      connected: this.connections.has(serverName),
+      error: this.errors.get(serverName) ?? "",
+      tools: structuredClone(this.toolNames.get(serverName) ?? []),
+    };
   }
 
   async stop(): Promise<void> {
     const connections = [...this.connections.entries()].reverse();
     this.connections.clear();
     this.errors.clear();
+    this.toolNames.clear();
     for (const [serverName] of connections) {
       this.registry?.unregisterWhere((name) => name.startsWith(mcpServerPrefix(serverName)));
     }
@@ -215,20 +279,45 @@ export class McpManager {
   }
 
   private async connect(server: McpServerConfig, registry: ToolRegistry): Promise<void> {
-    const connection = await this.connector.connect(server);
+    const connection = await withTimeout(
+      (signal) => this.connector.connect(server, signal),
+      server.startupTimeoutMs,
+      `MCP server ${server.name} startup`,
+    );
     this.connections.set(server.name, connection);
     this.errors.delete(server.name);
+    const used = new Set(registry.definitionsSnapshot().map((definition) => definition.name));
+    const names: Array<{ rawName: string; modelName: string }> = [];
     for (const tool of connection.tools) {
       if (!tool.name.trim() || server.disabledTools.has(tool.name)) continue;
+      if (server.enabledTools.size > 0 && !server.enabledTools.has(tool.name)) continue;
+      const modelName = uniqueMcpToolName(server.name, tool.name, used);
+      used.add(modelName);
+      names.push({ rawName: tool.name, modelName });
       registry.register({
-        name: mcpToolName(server.name, tool.name),
+        name: modelName,
+        rawName: tool.name,
         description: tool.description ?? "",
         input_schema: tool.inputSchema ?? { type: "object", properties: {} },
+        source: "mcp",
+        exposure: server.exposure === "direct" ? "direct" : "deferred",
+        connectorName: server.name,
         execute: async (input, context) => {
-          const result = await connection.callTool(tool.name, input, context.handle.signal);
-          return { content: result.content ?? [] };
+          try {
+            const result = await withTimeout(
+              (signal) => connection.callTool(tool.name, input, signal),
+              server.toolTimeoutMs,
+              `MCP tool ${server.name}/${tool.name}`,
+              context.handle.signal,
+            );
+            return { content: result.content ?? [] };
+          } catch (error) {
+            this.errors.set(server.name, error instanceof Error ? error.message : String(error));
+            throw error;
+          }
         },
       });
     }
+    this.toolNames.set(server.name, names);
   }
 }

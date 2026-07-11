@@ -433,6 +433,9 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       const path = readablePath(root, input.path);
       if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`file not found: ${input.path}`);
       const extension = extname(path).toLowerCase();
+      if (basename(path).toLowerCase() === "skill.md") {
+        await context.exposureState?.activateSkill(basename(dirname(path)));
+      }
       const mediaType = IMAGE_MEDIA_TYPES[extension];
       if (mediaType) {
         const data = readFileSync(path);

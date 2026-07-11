@@ -11,18 +11,16 @@ export function registerToolSearch(registry: ToolRegistry): void {
       required: ["query"],
       additionalProperties: false,
     },
-    execute: async (input) => {
-      const terms = String(input.query ?? "").toLowerCase().split(/[^\p{L}\p{N}_-]+/u).filter((term) => term.length > 1);
-      if (terms.length === 0) throw new Error("tool_search query must contain a specific capability");
+    source: "native",
+    exposure: "direct",
+    execute: async (input, context) => {
       const limit = Math.max(1, Math.min(Number(input.limit ?? 8), 20));
-      const matches = registry.schemas().filter((tool) => tool.name !== "tool_search").map((tool) => {
-        const haystack = `${tool.name} ${tool.description} ${JSON.stringify(tool.input_schema)}`.toLowerCase();
-        const score = terms.reduce((total, term) => total + (haystack.includes(term) ? 1 : 0), 0);
-        return { tool, score };
-      }).filter((item) => item.score > 0).sort((left, right) => right.score - left.score || left.tool.name.localeCompare(right.tool.name)).slice(0, limit);
+      const exposure = context.exposureState ?? registry.createExposureState();
+      const matches = exposure.search(String(input.query ?? ""), limit);
       const payload: JsonObject = {
         query: String(input.query ?? ""),
-        tools: matches.map(({ tool }) => ({ name: tool.name, description: tool.description, input_schema: tool.input_schema })),
+        tools: matches.map((tool) => ({ name: tool.name, description: tool.description, input_schema: tool.input_schema })),
+        note: "Matched deferred tools are available from the next model step.",
       };
       return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
     },
