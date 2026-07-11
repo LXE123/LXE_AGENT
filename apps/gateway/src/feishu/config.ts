@@ -47,6 +47,7 @@ export interface FeishuConfig {
   autoRestartRetryMs: number;
   apiHost: string;
   domain: FeishuDomain;
+  rawEventDumpEnabled: boolean;
   cardDisplay: FeishuCardDisplayConfig;
   missingRequired(): string[];
   validate(): void;
@@ -69,6 +70,8 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
   const autoRestartIntervalMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS", 5_400);
   const autoRestartIdleCheckMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS", 30);
   const autoRestartRetryMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_RETRY_SECONDS", 60);
+  const rawEventDumpEnabled = envBoolean(env, "LOCAL_LOGS_ENABLED", false)
+    && envBoolean(env, "FEISHU_RAW_EVENT_DUMP_ENABLED", true);
   const requestedToolUseMode = envText(env, "FEISHU_TOOL_USE_MODE", "on").toLowerCase();
   const toolUseMode: FeishuToolUseMode = requestedToolUseMode === "off" || requestedToolUseMode === "full"
     ? requestedToolUseMode
@@ -99,6 +102,7 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
     autoRestartRetryMs,
     apiHost,
     domain: apiDomain(apiHost),
+    rawEventDumpEnabled,
     cardDisplay,
     missingRequired,
     validate: () => {
@@ -114,6 +118,7 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
       app_id_masked: mask(appId),
       api_host: apiHost,
       tool_use_mode: cardDisplay.toolUseMode,
+      raw_event_dump_enabled: rawEventDumpEnabled,
     }),
   };
 }

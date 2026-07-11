@@ -15,6 +15,7 @@ describe("Feishu config", () => {
     expect(config.domain).toBe("lark");
     expect(config.autoRestartEnabled).toBe(false);
     expect(config.autoRestartIntervalMs).toBe(123_000);
+    expect(config.rawEventDumpEnabled).toBe(false);
     expect(config.cardDisplay).toEqual({
       toolUseMode: "on",
       showFullPaths: false,
@@ -51,5 +52,7 @@ describe("Feishu config", () => {
       footer: { status: true, elapsed: false, tokens: false, cache: false, context: false, model: true },
     });
     expect(loadFeishuConfig({ FEISHU_TOOL_USE_MODE: "invalid" }).cardDisplay.toolUseMode).toBe("on");
+    expect(loadFeishuConfig({ LOCAL_LOGS_ENABLED: "1" }).rawEventDumpEnabled).toBe(true);
+    expect(loadFeishuConfig({ LOCAL_LOGS_ENABLED: "1", FEISHU_RAW_EVENT_DUMP_ENABLED: "0" }).rawEventDumpEnabled).toBe(false);
   });
 });

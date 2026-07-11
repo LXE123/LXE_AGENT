@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { JsonObject } from "@lxe/protocol";
@@ -33,7 +33,7 @@ const outbound = (action: string, payload: JsonObject): OutboundRequest => ({
   event_id: "emit-1",
 });
 
-const setup = (options: { failStart?: boolean; hangStart?: boolean; hangStop?: boolean } = {}) => {
+const setup = (options: { failStart?: boolean; hangStart?: boolean; hangStop?: boolean; projectRoot?: string; rawDump?: boolean } = {}) => {
   let callbacks!: FeishuSdkCallbacks;
   const calls: string[] = [];
   const apiCalls: string[] = [];
@@ -95,10 +95,12 @@ const setup = (options: { failStart?: boolean; hangStart?: boolean; hangStop?: b
       FEISHU_APP_ID: "cli_test",
       FEISHU_APP_SECRET: "secret",
       FEISHU_WS_AUTO_RESTART_ENABLED: "false",
+      ...(options.rawDump ? { LOCAL_LOGS_ENABLED: "1" } : {}),
     }),
     store,
     sdkFactory: (value) => { callbacks = value; return services; },
     stopTimeoutMs: 5,
+    ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),
   });
   return { adapter, calls, apiCalls, get callbacks() { return callbacks; } };
 };
@@ -184,6 +186,26 @@ describe("FeishuAdapter lifecycle and delivery", () => {
     await expect(state.adapter.handleOutbound(outbound("send_message", {}))).rejects.toThrow("empty");
     await expect(state.adapter.handleOutbound({ ...outbound("send_message", { markdown: "x" }), platform: "slack" })).rejects.toThrow("platform");
     await expect(state.adapter.handleOutbound(outbound("unknown", {}))).rejects.toThrow("unsupported");
+    await state.adapter.stop();
+  });
+
+  test("dumps raw inbound events only when local logs are enabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lxe-adapter-raw-"));
+    roots.push(root);
+    const state = setup({ projectRoot: root, rawDump: true });
+    state.adapter.setInboundSink(async () => undefined);
+    await state.adapter.start();
+    await state.callbacks.onMessage({
+      sender: { sender_type: "user", sender_id: { open_id: "ou_user" } },
+      message: {
+        message_type: "system", content: JSON.stringify({ text: "joined" }), chat_type: "p2p",
+        chat_id: "oc_chat", create_time: String(Date.now()), message_id: "om_raw",
+      },
+    });
+    const days = await readdir(join(root, "logs", "runtime"));
+    const raw = await readFile(join(root, "logs", "runtime", days[0]!, "feishu_raw_events.jsonl"), "utf8");
+    expect(raw).toContain("om_raw");
+    expect(raw.trim().split(/\r?\n/)).toHaveLength(1);
     await state.adapter.stop();
   });
 });

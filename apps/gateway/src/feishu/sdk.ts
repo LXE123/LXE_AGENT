@@ -5,6 +5,7 @@ import type { JsonObject } from "@lxe/protocol";
 import type { FeishuCardKitApi } from "./cardkit";
 import type { FeishuConfig } from "./config";
 import type { FeishuMediaApi } from "./media";
+import type { FeishuInboundResourceApi } from "./resources";
 import type { FeishuReactionPort } from "./typing";
 import { normalizeFeishuTransportError } from "./response";
 
@@ -35,6 +36,7 @@ export interface FeishuSdkServices {
   api: FeishuMediaApi;
   cardkit: FeishuCardKitApi;
   reactions: FeishuReactionPort;
+  resources?: FeishuInboundResourceApi;
   probeBotIdentity(): Promise<{ openId: string; name: string }>;
 }
 
@@ -195,6 +197,34 @@ export function createOfficialFeishuSdk(
       });
     },
   };
+  const resources: FeishuInboundResourceApi = {
+    download: async (messageId, fileKey, type, signal) => {
+      try {
+        const response = object(await client.request({
+          method: "GET",
+          url: `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/resources/${encodeURIComponent(fileKey)}`,
+          params: { type },
+          responseType: "arraybuffer",
+          $return_headers: true,
+          signal,
+        }));
+        const headers = object(response.headers);
+        const disposition = String(headers["content-disposition"] ?? "").trim();
+        const encodedName = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)/i)?.[1] ?? "";
+        let fileName = encodedName;
+        try { fileName = decodeURIComponent(encodedName); } catch { /* Keep the server-provided value. */ }
+        const raw = response.data;
+        const data = raw instanceof Uint8Array ? raw : new Uint8Array(raw as ArrayBuffer);
+        return {
+          data,
+          contentType: String(headers["content-type"] ?? "application/octet-stream").trim(),
+          fileName,
+        };
+      } catch (cause) {
+        throw normalizeFeishuTransportError("GET", `/im/v1/messages/${messageId}/resources/${fileKey}`, cause);
+      }
+    },
+  };
   const invokeCardKit = async (
     method: string,
     path: string,
@@ -248,6 +278,7 @@ export function createOfficialFeishuSdk(
     api,
     cardkit,
     reactions,
+    resources,
     connection: {
       start: async () => { await ws.start({ eventDispatcher: dispatcher }); },
       stop: async (force = false) => { await ws.close({ force }); },

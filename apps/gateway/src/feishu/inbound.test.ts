@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FeishuInboundNormalizer, snapshotMessageEvent } from "./inbound";
+import { FEISHU_CONVERTER_TYPES, FeishuInboundNormalizer, convertFeishuMessage, snapshotMessageEvent } from "./inbound";
 
 const baseEvent = (patch: Record<string, unknown> = {}) => ({
   header: { app_id: "cli_test" },
@@ -128,6 +128,39 @@ describe("Feishu inbound normalization", () => {
     expect((await normalizer().normalize(file))?.user_content_blocks).toEqual([
       { type: "file", file_key: "file_1" },
     ]);
+  });
+
+  test("converts the complete rich-message registry and preserves unknown messages", () => {
+    const fixtures: Record<string, Record<string, unknown>> = {
+      location: { name: "Warehouse", address: "Shenzhen", latitude: "22.5", longitude: "114.0" },
+      sticker: { file_key: "sticker-1" },
+      calendar: { summary: "Planning", start_time: "10:00", event_id: "event-1" },
+      share_chat: { chat_name: "Ops", chat_id: "chat-1" },
+      share_user: { user_name: "Alice", user_id: "user-1" },
+      share: { title: "Shared item" },
+      folder: { file_key: "folder-1", file_name: "Reports" },
+      todo: { summary: "Restock", due_time: "tomorrow", task_id: "task-1" },
+      vote: { topic: "Ship today?", options: ["yes", "no"] },
+      video_chat: { topic: "Daily", meeting_id: "meeting-1" },
+      merge_forward: { title: "History", messages: [{ message_type: "text", content: JSON.stringify({ text: "nested" }) }] },
+      interactive: { title: "Card title", text: "Card body" },
+      system: { text: "User joined" },
+    };
+    for (const [messageType, content] of Object.entries(fixtures)) {
+      const snapshot = snapshotMessageEvent(baseEvent({
+        message_id: `om_${messageType}`,
+        message_type: messageType,
+        content: JSON.stringify(content),
+      }))!;
+      const converted = convertFeishuMessage(snapshot);
+      expect(converted.message || converted.resources.length > 0).toBeTruthy();
+    }
+    expect(FEISHU_CONVERTER_TYPES).toEqual(expect.arrayContaining(Object.keys(fixtures)));
+    const unknown = snapshotMessageEvent(baseEvent({
+      message_id: "om_unknown", message_type: "future_type", content: JSON.stringify({ text: "future payload" }),
+    }))!;
+    expect(convertFeishuMessage(unknown).message).toContain("Unsupported Feishu message: future_type");
+    expect(convertFeishuMessage(unknown).message).toContain("future payload");
   });
 
   test("deduplicates for 12 hours and rejects messages older than five minutes", async () => {

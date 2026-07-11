@@ -148,6 +148,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   if (options.feishu) {
     channels.register(new FeishuAdapter({
       ...options.feishu,
+      projectRoot: options.projectRoot,
       store: options.storage,
       hasInflight: () => scheduler.hasInflightJobs(),
     }));

@@ -32,7 +32,7 @@ export interface FeishuInboundResource extends JsonObject {
   file_name: string;
 }
 
-interface ResolvedResources {
+export interface ResolvedResources {
   userInput: string;
   userContentBlocks: JsonObject[];
   resourceMetadata: JsonObject[];
@@ -119,26 +119,105 @@ const postText = (value: unknown): string => {
   return lines.join("\n").trim();
 };
 
-const parseContent = (snapshot: FeishuMessageSnapshot): { message: string; resources: FeishuInboundResource[] } => {
-  const parsed = record(parseJson(snapshot.content));
-  if (snapshot.message_type === "text") return { message: text(parsed.text), resources: [] };
-  if (snapshot.message_type === "post") return { message: postText(parsed), resources: [] };
-  if (snapshot.message_type === "image") {
-    const key = text(parsed.image_key);
+export interface FeishuInboundConversion {
+  message: string;
+  resources: FeishuInboundResource[];
+}
+
+export type FeishuMessageConverter = (content: Record<string, unknown>, snapshot: FeishuMessageSnapshot) => FeishuInboundConversion;
+
+const none = (message: string): FeishuInboundConversion => ({ message: message.trim(), resources: [] });
+const readableJson = (value: unknown): string => JSON.stringify(value, null, 2).slice(0, 4_000);
+const firstText = (value: unknown): string => {
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return value.map(firstText).filter(Boolean).join("\n");
+  const item = record(value);
+  return text(item.text) || text(item.title) || text(item.name) || text(item.summary) || text(item.content);
+};
+
+const converters: Readonly<Record<string, FeishuMessageConverter>> = {
+  text: (content) => none(text(content.text)),
+  post: (content) => none(postText(content)),
+  image: (content) => {
+    const key = text(content.image_key);
     return { message: "", resources: key ? [{ type: "image", file_key: key, file_name: "" }] : [] };
-  }
-  if (["file", "audio", "video"].includes(snapshot.message_type)) {
-    const key = text(parsed.file_key);
+  },
+  file: (content) => {
+    const key = text(content.file_key);
+    return { message: "", resources: key ? [{ type: "file", file_key: key, file_name: text(content.file_name) }] : [] };
+  },
+  audio: (content) => {
+    const key = text(content.file_key);
+    return { message: "[Audio message]", resources: key ? [{ type: "audio", file_key: key, file_name: text(content.file_name) }] : [] };
+  },
+  video: (content) => {
+    const key = text(content.file_key);
+    const imageKey = text(content.image_key);
     return {
-      message: "",
-      resources: key ? [{
-        type: "file",
-        file_key: key,
-        file_name: text(parsed.file_name),
-      }] : [],
+      message: "[Video message]",
+      resources: [
+        ...(key ? [{ type: "video", file_key: key, file_name: text(content.file_name) }] : []),
+        ...(imageKey ? [{ type: "image", file_key: imageKey, file_name: "video-cover" }] : []),
+      ],
     };
-  }
-  return { message: text(parsed.text), resources: [] };
+  },
+  location: (content) => none([
+    `[Location] ${text(content.name) || text(content.address) || "Shared location"}`,
+    text(content.address),
+    text(content.latitude) && text(content.longitude) ? `${text(content.latitude)}, ${text(content.longitude)}` : "",
+  ].filter(Boolean).join("\n")),
+  sticker: (content) => {
+    const key = text(content.file_key) || text(content.image_key);
+    return { message: "[Sticker]", resources: key ? [{ type: "image", file_key: key, file_name: "sticker" }] : [] };
+  },
+  calendar: (content) => none([
+    `[Calendar] ${firstText(content.summary) || firstText(content.title) || "Shared event"}`,
+    text(content.start_time), text(content.end_time), text(content.event_id),
+  ].filter(Boolean).join("\n")),
+  share_chat: (content) => none(`[Shared chat] ${text(content.chat_name) || text(content.chat_id) || "Unknown chat"}`),
+  share_user: (content) => none(`[Shared contact] ${text(content.user_name) || text(content.user_id) || "Unknown user"}`),
+  share: (content) => none(`[Shared item] ${firstText(content) || readableJson(content)}`),
+  folder: (content) => {
+    const key = text(content.file_key);
+    return {
+      message: `[Shared folder] ${text(content.file_name) || text(content.name) || key || "Unknown folder"}`,
+      resources: key ? [{ type: "folder", file_key: key, file_name: text(content.file_name) || text(content.name) }] : [],
+    };
+  },
+  todo: (content) => none([
+    `[Todo] ${firstText(content.summary) || firstText(content.title) || "Shared task"}`,
+    text(content.due_time), text(content.task_id) || text(content.todo_id),
+  ].filter(Boolean).join("\n")),
+  vote: (content) => none([
+    `[Vote] ${firstText(content.topic) || firstText(content.title) || "Shared vote"}`,
+    ...array(content.options).map(firstText).filter(Boolean),
+  ].join("\n")),
+  video_chat: (content) => none([
+    `[Video meeting] ${firstText(content.topic) || firstText(content.title) || "Shared meeting"}`,
+    text(content.start_time), text(content.meeting_id),
+  ].filter(Boolean).join("\n")),
+  merge_forward: (content) => none([
+    `[Merged forward] ${firstText(content.title)}`.trim(),
+    ...array(content.messages).map((item) => {
+      const message = record(item);
+      const nestedType = text(message.message_type, "unknown") || "unknown";
+      const nestedContent = record(typeof message.content === "string" ? parseJson(message.content) : message.content);
+      const converted = converters[nestedType]?.(nestedContent, {} as FeishuMessageSnapshot);
+      return converted?.message || firstText(nestedContent) || `[${nestedType}]`;
+    }),
+  ].filter(Boolean).join("\n\n")),
+  interactive: (content) => none(`[Interactive card]\n${firstText(content) || readableJson(content)}`),
+  system: (content) => none(`[System message] ${firstText(content) || readableJson(content)}`),
+};
+
+export const FEISHU_CONVERTER_TYPES = Object.freeze(Object.keys(converters));
+
+export const convertFeishuMessage = (snapshot: FeishuMessageSnapshot): FeishuInboundConversion => {
+  const parsed = record(parseJson(snapshot.content));
+  const converter = converters[snapshot.message_type];
+  if (converter) return converter(parsed, snapshot);
+  const fallback = firstText(parsed);
+  return none(`[Unsupported Feishu message: ${snapshot.message_type}]${fallback ? `\n${fallback}` : ""}`);
 };
 
 const mentionOpenId = (mention: FeishuMention): string => text(mention.id?.open_id);
@@ -169,7 +248,7 @@ export class FeishuInboundNormalizer {
     if (!this.accept(snapshot)) return null;
     const botOpenId = text(this.options.botOpenId);
     const mentions = snapshot.mentions;
-    let { message, resources } = parseContent(snapshot);
+    let { message, resources } = convertFeishuMessage(snapshot);
     if (snapshot.chat_type === "group") {
       if (!botOpenId || !mentions.some((item) => mentionOpenId(item) === botOpenId)) return null;
       message = stripBotMention(message, mentions, botOpenId);
@@ -186,7 +265,7 @@ export class FeishuInboundNormalizer {
             userContentBlocks: resources.map((item) => ({ ...item })),
             resourceMetadata: resources.map((item) => ({ ...item })),
           };
-      message = resolved.userInput.trim();
+      message = [message, resolved.userInput].map((item) => item.trim()).filter(Boolean).join("\n");
       blocks = resolved.userContentBlocks.map((item) => ({ ...item }));
       resourceMetadata = resolved.resourceMetadata.map((item) => ({ ...item }));
     }

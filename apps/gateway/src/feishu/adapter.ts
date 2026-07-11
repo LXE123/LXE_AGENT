@@ -1,10 +1,14 @@
 import type { JsonObject, JsonValue } from "@lxe/protocol";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { createLogger } from "@lxe/core";
 import type { ChannelAdapter, InboundSink } from "../channel";
 import type { OutboundRequest, ResponseRoutePatch, ResponseRouteRecord } from "../models";
 import { FeishuCardKit, type FeishuRouteContext } from "./cardkit";
 import type { FeishuConfig } from "./config";
-import { FeishuInboundNormalizer, snapshotMessageEvent } from "./inbound";
+import { FeishuInboundNormalizer, convertFeishuMessage, snapshotMessageEvent } from "./inbound";
 import { FeishuMedia } from "./media";
+import { createFeishuInboundResourceResolver } from "./resources";
 import { FeishuIdleRestart, type RestartClock } from "./restart";
 import type { FeishuSdkFactory, FeishuSdkServices } from "./sdk";
 import { createOfficialFeishuSdkFactory } from "./sdk";
@@ -25,6 +29,7 @@ export interface FeishuAdapterOptions {
   stopTimeoutMs?: number;
   delay?: (milliseconds: number) => Promise<void>;
   uuid?: () => string;
+  projectRoot?: string;
 }
 
 const object = (value: JsonValue | undefined): JsonObject | undefined =>
@@ -50,6 +55,7 @@ export class FeishuAdapter implements ChannelAdapter {
   private stopTask: Promise<void> | undefined;
   private readonly delay: (milliseconds: number) => Promise<void>;
   private readonly stopTimeoutMs: number;
+  private readonly logger = createLogger("gateway.feishu");
 
   constructor(private readonly options: FeishuAdapterOptions) {
     this.delay = options.delay ?? Bun.sleep;
@@ -177,6 +183,49 @@ export class FeishuAdapter implements ChannelAdapter {
       botName: identity.name,
       appId: this.options.config.appId,
       botIdSource: identity.openId ? "probe" : "",
+      ...(sdk.resources && this.options.projectRoot ? {
+        resolveResources: createFeishuInboundResourceResolver({
+          projectRoot: this.options.projectRoot,
+          api: sdk.resources,
+        }),
+      } : {}),
+      loadQuote: async (parentId, chatId) => {
+        try {
+          const response = await sdk.api.request("GET", `/im/v1/messages/${encodeURIComponent(parentId)}`, {});
+          const data = object(response.data);
+          const items = Array.isArray(data?.items) ? data.items : [];
+          const item = object(items[0] as JsonValue | undefined) ?? data ?? {};
+          const body = object(item.body as JsonValue | undefined) ?? {};
+          const quotedSnapshot = snapshotMessageEvent({
+            sender: item.sender ?? {},
+            message: {
+              message_type: text(item.msg_type as JsonValue | undefined) || text(item.message_type as JsonValue | undefined) || "unknown",
+              content: text(body.content as JsonValue | undefined) || "{}",
+              chat_type: "p2p",
+              chat_id: chatId,
+              message_id: parentId,
+            },
+          });
+          const converted = quotedSnapshot ? convertFeishuMessage(quotedSnapshot) : { message: "", resources: [] };
+          return {
+            text: converted.message ? `[Quoted message]\n${converted.message}` : `[Quoted message: ${parentId}]`,
+            metadata: {
+              message_id: parentId,
+              message_type: quotedSnapshot?.message_type ?? "unknown",
+              chat_id: chatId,
+            },
+          };
+        } catch (cause) {
+          return {
+            text: `[Quoted message unavailable: ${parentId}]`,
+            metadata: {
+              message_id: parentId,
+              chat_id: chatId,
+              error: cause instanceof Error ? cause.message.slice(0, 500) : String(cause).slice(0, 500),
+            },
+          };
+        }
+      },
       ...(this.options.uuid ? { uuid: this.options.uuid } : {}),
     });
     try {
@@ -266,12 +315,29 @@ export class FeishuAdapter implements ChannelAdapter {
   }
 
   private async handleMessage(data: unknown): Promise<void> {
+    this.dumpRawEvent(data);
     const snapshot = snapshotMessageEvent(data);
     const normalizer = this.normalizer;
     const sink = this.inboundSink;
     if (!snapshot || !normalizer || !sink || !this.desiredStarted) return;
     const event = await normalizer.normalize(snapshot);
     if (event) await sink(event);
+  }
+
+  private dumpRawEvent(data: unknown): void {
+    if (!this.options.config.rawEventDumpEnabled || !this.options.projectRoot) return;
+    try {
+      const now = new Date();
+      const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+      const directory = join(this.options.projectRoot, "logs", "runtime", day);
+      mkdirSync(directory, { recursive: true });
+      appendFileSync(join(directory, "feishu_raw_events.jsonl"), `${JSON.stringify({
+        timestamp: now.toISOString(),
+        event: data,
+      })}\n`, "utf8");
+    } catch (error) {
+      this.logger.warn("Feishu raw event dump failed", { error });
+    }
   }
 
   private async loadRoute(responseRouteId: string): Promise<FeishuRouteContext> {
