@@ -4,12 +4,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun",
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts",
+    "stop": "bun src/main.ts stop",
+    "build": "bun build src/main.ts --outdir dist --target bun",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "1.70.0",
+    "@lxe/core": "workspace:*",
     "@lxe/protocol": "workspace:*",
     "yaml": "2.8.1"
   },

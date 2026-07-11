@@ -1,0 +1,98 @@
+import { resolve } from "node:path";
+import { createLogger } from "@lxe/core";
+import { runGatewayCli, type GatewayApplicationPort } from "./cli";
+import { loadProjectEnv } from "./env";
+import { GatewayStatusFiles } from "./planned-stop";
+import { createProductionGateway } from "./production";
+
+const logger = createLogger("gateway.main");
+
+interface StopRequestOptions {
+  timeoutMs?: number;
+  pollMs?: number;
+  pidExists?: (pid: number) => boolean;
+  delay?: (milliseconds: number) => Promise<void>;
+}
+
+const processExists = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export async function requestGatewayStop(
+  projectRoot: string,
+  options: StopRequestOptions = {},
+): Promise<boolean> {
+  const files = new GatewayStatusFiles({ projectRoot });
+  const status = files.readStatus();
+  if (!status) return false;
+  const targetPid = Number(status.pid);
+  const pidExists = options.pidExists ?? processExists;
+  if (!Number.isSafeInteger(targetPid) || targetPid <= 0 || !pidExists(targetPid)) return false;
+  files.writePlannedStopMarker(status);
+  const timeoutMs = Math.max(1, Math.trunc(options.timeoutMs ?? 30_000));
+  const pollMs = Math.max(1, Math.trunc(options.pollMs ?? 100));
+  const delay = options.delay ?? Bun.sleep;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!pidExists(targetPid)) return true;
+    await delay(pollMs);
+  }
+  return !pidExists(targetPid);
+}
+
+async function waitForShutdown(app: GatewayApplicationPort): Promise<void> {
+  await new Promise<void>((resolveWait) => {
+    let settled = false;
+    let stopping = false;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearInterval(timer);
+      process.off("SIGINT", onSignal);
+      process.off("SIGTERM", onSignal);
+      resolveWait();
+    };
+    const onSignal = (): void => {
+      if (stopping) {
+        process.exitCode = 130;
+        finish();
+        return;
+      }
+      stopping = true;
+      void app.stop().finally(finish);
+    };
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
+    const timer = setInterval(() => {
+      void app.health().then((health) => {
+        if (health.shutdown_started === true) finish();
+      }).catch(() => undefined);
+    }, 100);
+  });
+}
+
+export async function main(arguments_: readonly string[] = Bun.argv.slice(2)): Promise<number> {
+  const projectRoot = resolve(import.meta.dir, "../../..");
+  const environment = loadProjectEnv({ projectRoot });
+  return runGatewayCli(arguments_, {
+    createApp: () => createProductionGateway({ projectRoot, environment }),
+    requestStop: () => requestGatewayStop(projectRoot),
+    waitForShutdown,
+  });
+}
+
+if (import.meta.main) {
+  try {
+    const code = await main();
+    process.exitCode = code;
+  } catch (cause) {
+    const error = cause instanceof Error ? cause : new Error(String(cause));
+    logger.error("fatal", { error });
+    process.exitCode = 1;
+  }
+}

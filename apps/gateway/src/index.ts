@@ -5,6 +5,7 @@ export * from "./gateway-composition";
 export * from "./heartbeat-bridge";
 export * from "./models";
 export * from "./planned-stop";
+export * from "./production";
 export * from "./permission-policy";
 export * from "./router";
 export * from "./scheduler";
