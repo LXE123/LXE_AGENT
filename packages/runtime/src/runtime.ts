@@ -111,13 +111,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     };
     try {
       if (job.job_kind === "turn" && job.response_route_id) {
-        await this.options.emitter.typing({
+        typingStarted = await this.typingBestEffort({
           session_id: job.session_id,
           response_route_id: job.response_route_id,
           operation: "start",
           emit_id: randomUUID().replaceAll("-", ""),
-        });
-        typingStarted = true;
+        }, "start");
       }
       const messages = await this.options.store.loadMessages(job.session_id);
       const userContent: RuntimeMessage["content"] = job.user_content_blocks.length > 0
@@ -129,6 +128,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
 
       const maxSteps = Math.max(1, Math.trunc(this.options.maxSteps ?? 32));
       let streamSequence = 0;
+      let streamDeliveryFailed = false;
       for (let step = 0; step < maxSteps; step += 1) {
         if (isCancelled(handle)) {
           await recordUsage("cancelled");
@@ -152,11 +152,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           tools: this.options.tools.schemas(),
           signal: handle.signal,
           onDelta: async (delta) => {
-            if (isCancelled(handle) || !job.response_route_id) return;
+            if (isCancelled(handle) || !job.response_route_id || streamDeliveryFailed) return;
             streamedContent += String(delta.text ?? "");
             streamedThinking += String(delta.thinking ?? "");
             streamSequence += 1;
-            await this.options.emitter.emit({
+            streamDeliveryFailed = !(await this.emitBestEffort({
               session_id: job.session_id,
               response_route_id: job.response_route_id,
               content: streamedContent,
@@ -172,7 +172,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               stream_type: "content_block_delta",
               state: "running",
               seq: streamSequence,
-            });
+            }, "stream"));
           },
         });
         apiCalls += 1;
@@ -184,7 +184,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const calls = toolUseBlocks(response.content);
         if (calls.length === 0) {
           const reply = textContent(response.content);
-          if (reply && job.response_route_id) await this.options.emitter.emit(this.finalRequest(job, reply));
+          if (reply && job.response_route_id) {
+            await this.emitBestEffort(this.finalRequest(job, reply), "final");
+          }
           await recordUsage("completed");
           return this.outcome("completed", reply, inputTokens, outputTokens, toolCalls);
         }
@@ -260,18 +262,51 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       this.logger.error("turn failed", { session_id: job.session_id, run_id: job.job_id, error: cause });
       const reply = `执行失败: ${message}`;
       await recordUsage("error");
-      if (job.response_route_id) await this.options.emitter.emit(this.finalRequest(job, reply));
+      if (job.response_route_id) await this.emitBestEffort(this.finalRequest(job, reply), "error");
       return this.outcome("error", reply, inputTokens, outputTokens, toolCalls);
     } finally {
       if (typingStarted) {
-        await this.options.emitter.typing({
+        await this.typingBestEffort({
           session_id: job.session_id,
           response_route_id: job.response_route_id,
           operation: "stop",
           emit_id: randomUUID().replaceAll("-", ""),
-        }).catch(() => undefined);
+        }, "stop");
       }
       this.active.delete(handle);
+    }
+  }
+
+  private async emitBestEffort(request: EmitRequest, phase: string): Promise<boolean> {
+    try {
+      await this.options.emitter.emit(request);
+      return true;
+    } catch (error) {
+      this.logger.warn("outbound delivery failed", {
+        phase,
+        session_id: request.session_id,
+        response_route_id: request.response_route_id,
+        error,
+      });
+      return false;
+    }
+  }
+
+  private async typingBestEffort(
+    request: Parameters<RuntimeEmitter["typing"]>[0],
+    phase: string,
+  ): Promise<boolean> {
+    try {
+      await this.options.emitter.typing(request);
+      return true;
+    } catch (error) {
+      this.logger.warn("typing delivery failed", {
+        phase,
+        session_id: request.session_id,
+        response_route_id: request.response_route_id,
+        error,
+      });
+      return false;
     }
   }
 

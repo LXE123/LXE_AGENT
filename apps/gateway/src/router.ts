@@ -135,6 +135,7 @@ export class SessionRouter {
     }
 
     const entry = await this.loadOrCreateSession(context);
+    await this.options.storage.upsertResponseRoute(responseRoutePayload(context));
     this.state.resumeAutonomy(entry.session_id);
     if (await this.trySteer(entry.session_id, context)) {
       return { route_kind: "agent_steer", lane_key: lane, platform: context.platform };
@@ -191,7 +192,6 @@ export class SessionRouter {
         await this.options.storage.rebindSession({
           session_id: existing.session_id,
           source: { ...context.source },
-          response_route: responseRoutePayload(context),
         });
       } catch (error) {
         if (!(error instanceof SessionNotFoundError)) throw error;
@@ -199,7 +199,6 @@ export class SessionRouter {
           session_id: existing.session_id,
           source: { ...context.source },
           entry_text: context.user_input,
-          response_route: responseRoutePayload(context),
         });
       }
       return existing;
@@ -209,7 +208,6 @@ export class SessionRouter {
       session_id: entry.session_id,
       source: { ...context.source },
       entry_text: context.user_input,
-      response_route: responseRoutePayload(context),
     });
     return entry;
   }
@@ -305,7 +303,6 @@ export class SessionRouter {
       session_id: next.session_id,
       source: { ...context.source },
       entry_text: context.user_input,
-      response_route: responseRoutePayload(context),
     });
     await this.sendFeedback(context, next.session_id, "已创建新会话。");
   }

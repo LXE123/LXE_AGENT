@@ -198,4 +198,109 @@ describe("TypeScriptAgentRuntime", () => {
     ]);
     await runtime.stop();
   });
+
+  test("stops stream retries after the first delivery failure and preserves the completed turn", async () => {
+    const store = new MemoryStore();
+    let streamAttempts = 0;
+    let finalAttempts = 0;
+    let providerCalls = 0;
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "noop",
+      description: "noop",
+      input_schema: { type: "object" },
+      execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+    });
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      provider: { turn: async (request) => {
+        providerCalls += 1;
+        await request.onDelta?.({ text: "d" });
+        await request.onDelta?.({ text: "o" });
+        if (providerCalls === 1) {
+          return {
+            content: [{ type: "tool_use", id: "tool-1", name: "noop", input: {} }],
+            stop_reason: "tool_use",
+            usage: { input_tokens: 2, output_tokens: 1 },
+          };
+        }
+        await request.onDelta?.({ text: "ne" });
+        return {
+          content: [{ type: "text", text: "done" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 4, output_tokens: 1 },
+        };
+      } },
+      emitter: {
+        emit: async (request) => {
+          if (request.emit_kind === "stream") streamAttempts += 1;
+          if (request.emit_kind === "final") finalAttempts += 1;
+          throw new Error("delivery offline");
+        },
+        typing: async () => undefined,
+      },
+      systemPrompt: "test",
+    });
+
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+
+    expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "done" }));
+    expect(streamAttempts).toBe(1);
+    expect(finalAttempts).toBe(1);
+    expect(store.messages.at(-1)).toEqual({
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+    });
+    await runtime.stop();
+  });
+
+  test("returns an error outcome when both the provider and error reply delivery fail", async () => {
+    const store = new MemoryStore();
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: { turn: async () => { throw new Error("provider offline"); } },
+      emitter: {
+        emit: async () => { throw new Error("delivery offline"); },
+        typing: async () => undefined,
+      },
+      systemPrompt: "test",
+    });
+
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+
+    expect(outcome).toEqual(expect.objectContaining({
+      status: "error",
+      reply: "执行失败: provider offline",
+    }));
+    expect(store.metrics.at(-1)).toEqual(expect.objectContaining({ status: "error" }));
+    await runtime.stop();
+  });
+
+  test("keeps a successful turn independent from typing delivery", async () => {
+    const store = new MemoryStore();
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: { turn: async () => ({
+        content: [{ type: "text", text: "done" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }) },
+      emitter: {
+        emit: async () => undefined,
+        typing: async () => { throw new Error("typing unavailable"); },
+      },
+      systemPrompt: "test",
+    });
+
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+
+    expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "done" }));
+    await runtime.stop();
+  });
 });

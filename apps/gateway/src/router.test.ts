@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentJob, InboundEvent, JsonObject } from "@lxe/protocol";
+import { SqliteRuntimeStore } from "@lxe/runtime";
 import { FakeChannelAdapter, ChannelRegistry } from "./channel";
 import { buildPermissionPolicy } from "./permission-policy";
 import {
@@ -96,8 +97,10 @@ class FakeScheduler implements RouterSchedulerPort {
   readonly active = new Set<string>();
   readonly pending = new Map<string, number>();
   acceptSteering = true;
+  beforeEnqueue?: () => void | Promise<void>;
 
   async enqueue(value: AgentJob, options: { front?: boolean } = {}): Promise<void> {
+    await this.beforeEnqueue?.();
     this.jobs.push({ job: value, front: Boolean(options.front) });
   }
   activeRun(sessionId: string): RunHandle | undefined {
@@ -153,6 +156,50 @@ const setup = () => {
 };
 
 describe("SessionRouter permission and normal routes", () => {
+  test("persists a real SQLite response route before scheduler enqueue", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-router-sqlite-"));
+    roots.push(root);
+    const storage = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
+    await storage.start();
+    const bindings = new SessionBindingStore(join(root, "sessions.json"), {
+      id: () => "session-real",
+      now: () => "2026-01-01T00:00:00+00:00",
+    });
+    const scheduler = new FakeScheduler();
+    scheduler.beforeEnqueue = async () => {
+      expect(await storage.getResponseRoute("route-real")).toEqual(expect.objectContaining({
+        response_route_id: "route-real",
+        owner_user_id: "union-alice",
+        conversation_id: "chat-1",
+        conversation_type: "1",
+        extra_data: expect.objectContaining({
+          platform: "feishu",
+          source_message_id: "message-real",
+        }),
+      }));
+    };
+    const channels = new ChannelRegistry();
+    channels.register(new FakeChannelAdapter("feishu"));
+    const router = new SessionRouter({
+      policy,
+      bindings,
+      storage,
+      scheduler,
+      channels,
+      id: () => "job-real",
+    });
+
+    try {
+      await router.routeMessage(event({
+        response_route_id: "route-real",
+        message_id: "message-real",
+      }));
+      expect(scheduler.jobs).toHaveLength(1);
+    } finally {
+      await storage.stop();
+    }
+  });
+
   test("denies unknown bots and unauthorized users before touching sessions", async () => {
     const unknown = setup();
     const decision = await unknown.router.routeMessage(
@@ -171,6 +218,16 @@ describe("SessionRouter permission and normal routes", () => {
   test("creates source/context, ensures a binding, pops events, and constructs the exact AgentJob", async () => {
     const { router, storage, scheduler } = setup();
     storage.pending = [{ event_id: "pending-1", text: "done" }];
+    scheduler.beforeEnqueue = () => {
+      expect(storage.routes).toEqual([
+        expect.objectContaining({
+          response_route_id: "route-1",
+          conversation_id: "chat-1",
+          message_id: "message-1",
+          source: expect.objectContaining({ user_id_alt: "union-alice" }),
+        }),
+      ]);
+    };
     const decision = await router.routeMessage(event());
 
     expect(decision).toEqual({
@@ -179,6 +236,7 @@ describe("SessionRouter permission and normal routes", () => {
       platform: "feishu",
     });
     expect(storage.ensured).toHaveLength(1);
+    expect(storage.ensured[0]?.response_route).toBeUndefined();
     expect(storage.rebound).toEqual([]);
     expect(scheduler.jobs).toHaveLength(1);
     expect(scheduler.jobs[0]?.job).toEqual({

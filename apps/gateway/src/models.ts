@@ -65,10 +65,12 @@ export const responseRoutePayload = (context: SessionContext): JsonObject => ({
   user_id: context.user_id,
   response_route_id: context.response_route_id,
   conversation_id: context.conversation_id,
+  conversation_type: context.is_group ? "2" : "1",
   is_group: context.is_group,
   message_id: context.message_id,
   sender_nick: context.sender_nick,
   session_key: context.session_key,
   source: { ...context.source },
   raw_data: { ...context.raw_data },
+  extra_data: { platform: context.platform },
 });
