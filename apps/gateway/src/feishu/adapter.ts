@@ -159,7 +159,7 @@ export class FeishuAdapter implements ChannelAdapter {
       },
     });
     this.sdk = sdk;
-    this.cardkit = new FeishuCardKit({ api: sdk.api, store: this.options.store });
+    this.cardkit = new FeishuCardKit({ api: sdk.cardkit, store: this.options.store });
     this.typing = new FeishuTyping({ reactions: sdk.reactions, store: this.options.store });
     this.media = new FeishuMedia({ api: sdk.api });
     let identity = { openId: "", name: "" };

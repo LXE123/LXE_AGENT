@@ -54,10 +54,31 @@ const setup = (options: { failStart?: boolean; hangStart?: boolean; hangStop?: b
     api: {
       request: async (method, path) => {
         apiCalls.push(`${method}:${path}`);
-        if (path === "/cardkit/v1/cards") return { code: 0, data: { card_id: "card-1" } };
         return { code: 0, data: { message_id: "om_sent" } };
       },
       upload: async (_path, kind) => `${kind}_key`,
+    },
+    cardkit: {
+      createCardEntity: async () => {
+        apiCalls.push("cardkit:card.create");
+        return { code: 0, data: { card_id: "card-1" } };
+      },
+      streamCardContent: async () => {
+        apiCalls.push("cardkit:cardElement.content");
+        return { code: 0 };
+      },
+      updateCard: async () => {
+        apiCalls.push("cardkit:card.update");
+        return { code: 0 };
+      },
+      setStreamingMode: async () => {
+        apiCalls.push("cardkit:card.settings");
+        return { code: 0 };
+      },
+      sendCardByReference: async () => {
+        apiCalls.push("cardkit:im.message.reply");
+        return { code: 0, data: { message_id: "om_sent" } };
+      },
     },
     reactions: {
       add: async () => "reaction-1",

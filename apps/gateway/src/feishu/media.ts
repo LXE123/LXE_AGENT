@@ -1,10 +1,11 @@
 import { stat } from "node:fs/promises";
 import { extname } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
-import type { FeishuApiPort, FeishuRouteContext } from "./cardkit";
+import type { FeishuRouteContext } from "./cardkit";
 import { parseFeishuEnvelope } from "./response";
 
-export interface FeishuMediaApi extends FeishuApiPort {
+export interface FeishuMediaApi {
+  request(method: string, path: string, body: JsonObject): Promise<JsonObject>;
   upload(path: string, kind: "image" | "file"): Promise<string>;
 }
 

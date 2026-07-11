@@ -1,9 +1,29 @@
+/**
+ * Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ *
+ * CardKit API calls and streaming card shapes are adapted from openclaw-lark.
+ */
+
 import type { JsonObject, JsonValue } from "@lxe/protocol";
 import type { OutboundRequest, ResponseRoutePatch } from "../models";
 import { parseFeishuEnvelope } from "./response";
 
-export interface FeishuApiPort {
-  request(method: string, path: string, body: JsonObject): Promise<JsonObject>;
+export interface FeishuCardKitApi {
+  createCardEntity(card: JsonObject): Promise<JsonObject>;
+  streamCardContent(params: {
+    cardId: string;
+    elementId: string;
+    content: string;
+    sequence: number;
+  }): Promise<JsonObject>;
+  updateCard(params: { cardId: string; card: JsonObject; sequence: number }): Promise<JsonObject>;
+  setStreamingMode(params: { cardId: string; streamingMode: boolean; sequence: number }): Promise<JsonObject>;
+  sendCardByReference(params: {
+    conversationId: string;
+    sourceMessageId: string;
+    cardId: string;
+  }): Promise<JsonObject>;
 }
 
 export interface FeishuRouteStore {
@@ -48,6 +68,7 @@ interface StreamWriter {
   toolElapsedMs: number;
   toolSteps: JsonObject[];
   lastToolKey: string;
+  lastStreamedContent: string;
 }
 
 const asObject = (value: JsonValue | undefined): JsonObject =>
@@ -57,6 +78,7 @@ const integer = (value: JsonValue | undefined): number => Number.isInteger(value
 const toolSteps = (value: JsonValue | undefined): JsonObject[] =>
   Array.isArray(value) ? value.filter((item): item is JsonObject => item !== null && typeof item === "object" && !Array.isArray(item)).map((item) => ({ ...item })) : [];
 const summary = (value: string, limit = 50): string => value.replace(/\s+/gu, " ").trim().slice(0, limit);
+export const STREAMING_ELEMENT_ID = "streaming_content";
 
 const toolPanel = (pending: boolean, steps: JsonObject[], elapsedMs: number, final: boolean): JsonObject | undefined => {
   if (!pending && steps.length === 0) return undefined;
@@ -78,16 +100,32 @@ export function buildStreamingCard(content: string, pending: boolean, steps: Jso
   const elements: JsonObject[] = [];
   const panel = toolPanel(pending, steps, elapsedMs, false);
   if (panel) elements.push(panel);
-  elements.push({ tag: "markdown", element_id: "stream_content", content });
+  elements.push({
+    tag: "markdown",
+    content,
+    text_align: "left",
+    text_size: "normal_v2",
+    margin: "0px 0px 0px 0px",
+    element_id: STREAMING_ELEMENT_ID,
+  });
+  elements.push({
+    tag: "markdown",
+    content: " ",
+    icon: {
+      tag: "custom_icon",
+      img_key: "img_v3_02vb_496bec09-4b43-4773-ad6b-0cdd103cd2bg",
+      size: "16px 16px",
+    },
+    element_id: "loading_icon",
+  });
   return {
     schema: "2.0",
     config: {
       streaming_mode: true,
-      summary: { content: "回答生成中..." },
-      streaming_config: {
-        print_frequency_ms: { default: 50 },
-        print_step: { default: 2 },
-        print_strategy: "fast",
+      locales: ["zh_cn", "en_us"],
+      summary: {
+        content: "Processing...",
+        i18n_content: { zh_cn: "处理中...", en_us: "Processing..." },
       },
     },
     body: { elements },
@@ -124,7 +162,7 @@ export class FeishuCardKit {
   private readonly writers = new Map<string, StreamWriter>();
   private readonly queues = new Map<string, Promise<void>>();
 
-  constructor(private readonly options: { api: FeishuApiPort; store: FeishuRouteStore }) {}
+  constructor(private readonly options: { api: FeishuCardKitApi; store: FeishuRouteStore }) {}
 
   handle(request: OutboundRequest, route: FeishuRouteContext): Promise<void> {
     const sessionId = String(request.session_id ?? "").trim();
@@ -163,6 +201,7 @@ export class FeishuCardKit {
         toolElapsedMs: 0,
         toolSteps: [],
         lastToolKey: "",
+        lastStreamedContent: "",
       };
       this.writers.set(sessionId, writer);
     }
@@ -184,19 +223,15 @@ export class FeishuCardKit {
       const nextToolKey = JSON.stringify([writer.toolPending, writer.toolSteps, writer.toolElapsedMs]);
       const replaceCard = nextToolKey !== writer.lastToolKey;
       const sendDelta = async (): Promise<void> => {
+        if (!replaceCard && writer.lastContent === writer.lastStreamedContent) return;
         const sequence = ++writer.cardSeq;
         if (replaceCard) {
-          await this.checked(
-            "update_card",
-            "PUT",
-            `/cardkit/v1/cards/${writer.cardId}`,
-            {
-              card: { type: "card_json", data: JSON.stringify(buildStreamingCard(writer.lastContent, writer.toolPending, writer.toolSteps, writer.toolElapsedMs)) },
-              sequence,
-              uuid: `update_${writer.cardId}_${sequence}`,
-            },
-            writer.cardId,
-          );
+          await this.checked("update_card", this.options.api.updateCard({
+            cardId: writer.cardId,
+            card: buildStreamingCard(writer.lastContent, writer.toolPending, writer.toolSteps, writer.toolElapsedMs),
+            sequence,
+          }), writer.cardId);
+          writer.lastStreamedContent = writer.lastContent;
         } else {
           await this.updateContent(writer, sequence);
         }
@@ -211,32 +246,19 @@ export class FeishuCardKit {
     }
     const errorFinal = frameState === "error";
     const finalCard = buildFinalCard(writer, errorFinal);
-    const finalSummary = stringValue(asObject(finalCard.config).summary && asObject(asObject(finalCard.config).summary).content);
     const finalize = async (): Promise<void> => {
       const closeSequence = ++writer.cardSeq;
-      await this.checked(
-        "close_streaming_mode",
-        "PATCH",
-        `/cardkit/v1/cards/${writer.cardId}/settings`,
-        {
-          settings: JSON.stringify({ config: { streaming_mode: false, summary: { content: finalSummary } } }),
-          sequence: closeSequence,
-          uuid: `close_${writer.cardId}_${closeSequence}`,
-        },
-        writer.cardId,
-      );
+      await this.checked("close_streaming_mode", this.options.api.setStreamingMode({
+        cardId: writer.cardId,
+        streamingMode: false,
+        sequence: closeSequence,
+      }), writer.cardId);
       const updateSequence = ++writer.cardSeq;
-      await this.checked(
-        "update_card",
-        "PUT",
-        `/cardkit/v1/cards/${writer.cardId}`,
-        {
-          card: { type: "card_json", data: JSON.stringify(finalCard) },
-          sequence: updateSequence,
-          uuid: `update_${writer.cardId}_${updateSequence}`,
-        },
-        writer.cardId,
-      );
+      await this.checked("update_card", this.options.api.updateCard({
+        cardId: writer.cardId,
+        card: finalCard,
+        sequence: updateSequence,
+      }), writer.cardId);
     };
     try {
       await finalize();
@@ -256,12 +278,9 @@ export class FeishuCardKit {
     if (!reuse) {
       const created = await this.checked(
         "create_stream_card",
-        "POST",
-        "/cardkit/v1/cards",
-        {
-          type: "card_json",
-          data: JSON.stringify(buildStreamingCard(writer.lastContent, writer.toolPending, writer.toolSteps, writer.toolElapsedMs)),
-        },
+        this.options.api.createCardEntity(
+          buildStreamingCard(writer.lastContent, writer.toolPending, writer.toolSteps, writer.toolElapsedMs),
+        ),
       );
       writer.cardId = stringValue(asObject(created.data).card_id);
       if (!writer.cardId) throw new Error("Feishu create_stream_card missing card_id");
@@ -273,22 +292,15 @@ export class FeishuCardKit {
     }
     if (writer.platformMessageId) return;
     const sourceMessageId = stringValue(route.extra_data.source_message_id) || route.message_id;
-    const content = JSON.stringify({ type: "card", data: { card_id: writer.cardId } });
-    const result = sourceMessageId
-      ? await this.checked(
-          "send_stream_card_reply",
-          "POST",
-          `/im/v1/messages/${sourceMessageId}/reply`,
-          { msg_type: "interactive", content },
-          writer.cardId,
-        )
-      : await this.checked(
-          "send_stream_card",
-          "POST",
-          "/im/v1/messages?receive_id_type=chat_id",
-          { receive_id: route.conversation_id, msg_type: "interactive", content },
-          writer.cardId,
-        );
+    const result = await this.checked(
+      sourceMessageId ? "send_stream_card_reply" : "send_stream_card",
+      this.options.api.sendCardByReference({
+        conversationId: route.conversation_id,
+        sourceMessageId,
+        cardId: writer.cardId,
+      }),
+      writer.cardId,
+    );
     writer.platformMessageId = stringValue(asObject(result.data).message_id);
     if (!writer.platformMessageId) throw new Error("Feishu stream send missing message_id");
     await this.options.store.patchResponseRoute(request.response_route_id, {
@@ -297,13 +309,13 @@ export class FeishuCardKit {
   }
 
   private async updateContent(writer: StreamWriter, sequence: number): Promise<void> {
-    await this.checked(
-      "stream_card_content",
-      "PUT",
-      `/cardkit/v1/cards/${writer.cardId}/elements/stream_content/content`,
-      { content: writer.lastContent, sequence, uuid: `stream_${writer.cardId}_${sequence}` },
-      writer.cardId,
-    );
+    await this.checked("stream_card_content", this.options.api.streamCardContent({
+      cardId: writer.cardId,
+      elementId: STREAMING_ELEMENT_ID,
+      content: writer.lastContent,
+      sequence,
+    }), writer.cardId);
+    writer.lastStreamedContent = writer.lastContent;
   }
 
   private async recoverOrFail(writer: StreamWriter, cause: unknown, retry: () => Promise<void>): Promise<void> {
@@ -314,17 +326,11 @@ export class FeishuCardKit {
     }
     writer.reopenCount += 1;
     const sequence = ++writer.cardSeq;
-    await this.checked(
-      "reopen_streaming_mode",
-      "PATCH",
-      `/cardkit/v1/cards/${writer.cardId}/settings`,
-      {
-        settings: JSON.stringify({ config: { streaming_mode: true, summary: { content: "回答生成中..." } } }),
-        sequence,
-        uuid: `reopen_${writer.cardId}_${sequence}`,
-      },
-      writer.cardId,
-    );
+    await this.checked("reopen_streaming_mode", this.options.api.setStreamingMode({
+      cardId: writer.cardId,
+      streamingMode: true,
+      sequence,
+    }), writer.cardId);
     try {
       await retry();
     } catch (retryError) {
@@ -335,12 +341,10 @@ export class FeishuCardKit {
 
   private async checked(
     operation: string,
-    method: string,
-    path: string,
-    body: JsonObject,
+    request: Promise<JsonObject>,
     cardId = "",
   ): Promise<JsonObject> {
-    const result = await this.options.api.request(method, path, body);
+    const result = await request;
     const envelope = parseFeishuEnvelope(result, operation);
     if (envelope.code !== 0) throw new FeishuCardKitError(operation, envelope.code, cardId, envelope.msg);
     return { code: envelope.code, msg: envelope.msg, data: envelope.data };

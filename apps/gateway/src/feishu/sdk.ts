@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { JsonObject } from "@lxe/protocol";
-import type { FeishuApiPort } from "./cardkit";
+import type { FeishuCardKitApi } from "./cardkit";
 import type { FeishuConfig } from "./config";
 import type { FeishuMediaApi } from "./media";
 import type { FeishuReactionPort } from "./typing";
@@ -32,7 +32,8 @@ export interface FeishuConnectionPort {
 
 export interface FeishuSdkServices {
   connection: FeishuConnectionPort;
-  api: FeishuApiPort & FeishuMediaApi;
+  api: FeishuMediaApi;
+  cardkit: FeishuCardKitApi;
   reactions: FeishuReactionPort;
   probeBotIdentity(): Promise<{ openId: string; name: string }>;
 }
@@ -51,7 +52,19 @@ interface Constructors {
 
 type LooseClient = {
   request(options: Record<string, unknown>): Promise<unknown>;
+  cardkit: { v1: {
+    card: {
+      create(payload: unknown): Promise<unknown>;
+      update(payload: unknown): Promise<unknown>;
+      settings(payload: unknown): Promise<unknown>;
+    };
+    cardElement: { content(payload: unknown): Promise<unknown> };
+  } };
   im: { v1: {
+    message: {
+      reply(payload: unknown): Promise<unknown>;
+      create(payload: unknown): Promise<unknown>;
+    };
     messageReaction: {
       create(payload: unknown): Promise<unknown>;
       delete(payload: unknown): Promise<unknown>;
@@ -182,8 +195,58 @@ export function createOfficialFeishuSdk(
       });
     },
   };
+  const invokeCardKit = async (
+    method: string,
+    path: string,
+    operation: () => Promise<unknown>,
+  ): Promise<JsonObject> => {
+    try {
+      return apiResponse(await operation());
+    } catch (cause) {
+      throw normalizeFeishuTransportError(method, path, cause);
+    }
+  };
+  const cardkit: FeishuCardKitApi = {
+    createCardEntity: async (card) => invokeCardKit("POST", "/cardkit/v1/cards", () =>
+      client.cardkit.v1.card.create({
+        data: { type: "card_json", data: JSON.stringify(card) },
+      })),
+    streamCardContent: async ({ cardId, elementId, content, sequence }) =>
+      invokeCardKit("PUT", `/cardkit/v1/cards/${cardId}/elements/${elementId}/content`, () =>
+        client.cardkit.v1.cardElement.content({
+          data: { content, sequence },
+          path: { card_id: cardId, element_id: elementId },
+        })),
+    updateCard: async ({ cardId, card, sequence }) =>
+      invokeCardKit("PUT", `/cardkit/v1/cards/${cardId}`, () =>
+        client.cardkit.v1.card.update({
+          data: { card: { type: "card_json", data: JSON.stringify(card) }, sequence },
+          path: { card_id: cardId },
+        })),
+    setStreamingMode: async ({ cardId, streamingMode, sequence }) =>
+      invokeCardKit("PATCH", `/cardkit/v1/cards/${cardId}/settings`, () =>
+        client.cardkit.v1.card.settings({
+          data: { settings: JSON.stringify({ streaming_mode: streamingMode }), sequence },
+          path: { card_id: cardId },
+        })),
+    sendCardByReference: async ({ conversationId, sourceMessageId, cardId }) => {
+      const content = JSON.stringify({ type: "card", data: { card_id: cardId } });
+      return sourceMessageId
+        ? invokeCardKit("POST", `/im/v1/messages/${sourceMessageId}/reply`, () =>
+            client.im.v1.message.reply({
+              path: { message_id: sourceMessageId },
+              data: { msg_type: "interactive", content },
+            }))
+        : invokeCardKit("POST", "/im/v1/messages?receive_id_type=chat_id", () =>
+            client.im.v1.message.create({
+              params: { receive_id_type: "chat_id" },
+              data: { receive_id: conversationId, msg_type: "interactive", content },
+            }));
+    },
+  };
   return {
     api,
+    cardkit,
     reactions,
     connection: {
       start: async () => { await ws.start({ eventDispatcher: dispatcher }); },

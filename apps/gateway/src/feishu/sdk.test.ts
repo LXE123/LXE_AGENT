@@ -7,11 +7,46 @@ describe("official Feishu SDK factory", () => {
     const registered: Record<string, (value: unknown) => unknown> = {};
     const starts: unknown[] = [];
     const closes: unknown[] = [];
+    const typedCalls: Array<{ operation: string; payload: unknown }> = [];
     let clientOptions: Record<string, unknown> = {};
-    let apiResponse: unknown = { code: 0, msg: "success", data: { card_id: "card-1" } };
+    let apiResponse: unknown = { code: 0, msg: "success", data: { message_id: "om-raw" } };
     let apiError: unknown;
+    let typedApiError: unknown;
     class Client {
+      cardkit = { v1: {
+        card: {
+          create: async (payload: unknown) => {
+            typedCalls.push({ operation: "card.create", payload });
+            return { code: 0, msg: "success", data: { card_id: "card-typed" } };
+          },
+          update: async (payload: unknown) => {
+            typedCalls.push({ operation: "card.update", payload });
+            return { code: 0, msg: "success", data: {} };
+          },
+          settings: async (payload: unknown) => {
+            typedCalls.push({ operation: "card.settings", payload });
+            return { code: 0, msg: "success", data: {} };
+          },
+        },
+        cardElement: {
+          content: async (payload: unknown) => {
+            typedCalls.push({ operation: "cardElement.content", payload });
+            if (typedApiError) throw typedApiError;
+            return { code: 0, msg: "success", data: {} };
+          },
+        },
+      } };
       im = { v1: {
+        message: {
+          reply: async (payload: unknown) => {
+            typedCalls.push({ operation: "im.message.reply", payload });
+            return { code: 0, msg: "success", data: { message_id: "om-reply" } };
+          },
+          create: async (payload: unknown) => {
+            typedCalls.push({ operation: "im.message.create", payload });
+            return { code: 0, msg: "success", data: { message_id: "om-create" } };
+          },
+        },
         messageReaction: { create: async () => ({ data: { reaction_id: "r" } }), delete: async () => ({}) },
         file: { create: async () => ({ file_key: "f" }) },
         image: { create: async () => ({ image_key: "i" }) },
@@ -55,13 +90,13 @@ describe("official Feishu SDK factory", () => {
     await registered["im.message.reaction.created_v1"]?.({});
     await registered["im.message.reaction.deleted_v1"]?.({});
     expect(callbacks.slice(0, 3)).toEqual(["message", "reaction-created", "reaction-deleted"]);
-    expect(await sdk.api.request("POST", "/cardkit/v1/cards", {})).toEqual({
+    expect(await sdk.api.request("POST", "/im/v1/messages/om-source/reply", {})).toEqual({
       code: 0,
       msg: "success",
-      data: { card_id: "card-1" },
+      data: { message_id: "om-raw" },
     });
-    apiResponse = { data: { card_id: "missing-code" } };
-    await expect(sdk.api.request("POST", "/cardkit/v1/cards", {})).rejects.toThrow("malformed Feishu response");
+    apiResponse = { data: { message_id: "missing-code" } };
+    await expect(sdk.api.request("POST", "/im/v1/messages/om-source/reply", {})).rejects.toThrow("malformed Feishu response");
     apiError = Object.assign(new Error("Request failed with status code 400"), {
       name: "AxiosError",
       code: "ERR_BAD_REQUEST",
@@ -70,8 +105,94 @@ describe("official Feishu SDK factory", () => {
         data: { code: 200000, msg: "invalid card data token=private" },
       },
     });
-    await expect(sdk.api.request("POST", "/cardkit/v1/cards", {})).rejects.toThrow(
-      "Feishu API POST /cardkit/v1/cards failed: HTTP 400, code 200000: invalid card data token=[redacted]",
+    await expect(sdk.api.request("POST", "/im/v1/messages/om-source/reply", {})).rejects.toThrow(
+      "Feishu API POST /im/v1/messages/om-source/reply failed: HTTP 400, code 200000: invalid card data token=[redacted]",
+    );
+    apiError = undefined;
+
+    const card = { schema: "2.0", config: { streaming_mode: true }, body: { elements: [] } };
+    expect(await sdk.cardkit.createCardEntity(card)).toEqual({
+      code: 0,
+      msg: "success",
+      data: { card_id: "card-typed" },
+    });
+    await sdk.cardkit.streamCardContent({
+      cardId: "card-typed",
+      elementId: "streaming_content",
+      content: "hello",
+      sequence: 1,
+    });
+    await sdk.cardkit.updateCard({ cardId: "card-typed", card, sequence: 2 });
+    await sdk.cardkit.setStreamingMode({ cardId: "card-typed", streamingMode: false, sequence: 3 });
+    await sdk.cardkit.sendCardByReference({
+      conversationId: "oc-chat",
+      sourceMessageId: "om-source",
+      cardId: "card-typed",
+    });
+    await sdk.cardkit.sendCardByReference({
+      conversationId: "oc-chat",
+      sourceMessageId: "",
+      cardId: "card-typed",
+    });
+
+    expect(typedCalls).toEqual([
+      {
+        operation: "card.create",
+        payload: { data: { type: "card_json", data: JSON.stringify(card) } },
+      },
+      {
+        operation: "cardElement.content",
+        payload: {
+          data: { content: "hello", sequence: 1 },
+          path: { card_id: "card-typed", element_id: "streaming_content" },
+        },
+      },
+      {
+        operation: "card.update",
+        payload: {
+          data: { card: { type: "card_json", data: JSON.stringify(card) }, sequence: 2 },
+          path: { card_id: "card-typed" },
+        },
+      },
+      {
+        operation: "card.settings",
+        payload: {
+          data: { settings: JSON.stringify({ streaming_mode: false }), sequence: 3 },
+          path: { card_id: "card-typed" },
+        },
+      },
+      {
+        operation: "im.message.reply",
+        payload: {
+          path: { message_id: "om-source" },
+          data: {
+            msg_type: "interactive",
+            content: JSON.stringify({ type: "card", data: { card_id: "card-typed" } }),
+          },
+        },
+      },
+      {
+        operation: "im.message.create",
+        payload: {
+          params: { receive_id_type: "chat_id" },
+          data: {
+            receive_id: "oc-chat",
+            msg_type: "interactive",
+            content: JSON.stringify({ type: "card", data: { card_id: "card-typed" } }),
+          },
+        },
+      },
+    ]);
+    typedApiError = Object.assign(new Error("Request failed with status code 400"), {
+      response: { status: 400, data: { code: 99992402, msg: "field validation failed" } },
+    });
+    await expect(sdk.cardkit.streamCardContent({
+      cardId: "card-typed",
+      elementId: "streaming_content",
+      content: "bad",
+      sequence: 4,
+    })).rejects.toThrow(
+      "Feishu API PUT /cardkit/v1/cards/card-typed/elements/streaming_content/content failed: HTTP 400, code 99992402: field validation failed",
     );
     await sdk.connection.start();
     expect(starts).toHaveLength(1);

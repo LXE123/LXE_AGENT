@@ -36,12 +36,12 @@ const request = (state: "delta" | "final" | "error", seq: number, patch: JsonObj
 });
 
 class FakeApi {
-  readonly calls: Array<{ method: string; path: string; body: JsonObject }> = [];
+  readonly calls: Array<{ operation: string; params: JsonObject }> = [];
   failNext: FeishuCardKitError | undefined;
   returnNext: JsonObject | undefined;
 
-  async request(method: string, path: string, body: JsonObject): Promise<JsonObject> {
-    this.calls.push({ method, path, body });
+  private async execute(operation: string, params: JsonObject, fallback: JsonObject): Promise<JsonObject> {
+    this.calls.push({ operation, params });
     if (this.returnNext) {
       const result = this.returnNext;
       this.returnNext = undefined;
@@ -52,9 +52,27 @@ class FakeApi {
       this.failNext = undefined;
       throw error;
     }
-    if (path === "/cardkit/v1/cards") return { code: 0, data: { card_id: "card-1" } };
-    if (path.includes("/im/v1/messages")) return { code: 0, data: { message_id: "om_card" } };
-    return { code: 0 };
+    return fallback;
+  }
+
+  async createCardEntity(card: JsonObject): Promise<JsonObject> {
+    return this.execute("card.create", { card }, { code: 0, data: { card_id: "card-1" } });
+  }
+
+  async streamCardContent(params: { cardId: string; elementId: string; content: string; sequence: number }): Promise<JsonObject> {
+    return this.execute("cardElement.content", params, { code: 0 });
+  }
+
+  async updateCard(params: { cardId: string; card: JsonObject; sequence: number }): Promise<JsonObject> {
+    return this.execute("card.update", params, { code: 0 });
+  }
+
+  async setStreamingMode(params: { cardId: string; streamingMode: boolean; sequence: number }): Promise<JsonObject> {
+    return this.execute("card.settings", params, { code: 0 });
+  }
+
+  async sendCardByReference(params: { conversationId: string; sourceMessageId: string; cardId: string }): Promise<JsonObject> {
+    return this.execute("im.message.sendCardByReference", params, { code: 0, data: { message_id: "om_card" } });
   }
 }
 
@@ -82,10 +100,22 @@ describe("Feishu CardKit stream state", () => {
     await state.cardkit.handle(request("delta", 1), state.route);
     await state.cardkit.handle(request("delta", 2), state.route);
 
-    expect(state.api.calls.filter((item) => item.path === "/cardkit/v1/cards")).toHaveLength(1);
-    expect(state.api.calls.filter((item) => item.path.includes("/reply"))).toHaveLength(1);
+    expect(state.api.calls.filter((item) => item.operation === "card.create")).toHaveLength(1);
+    expect(state.api.calls.filter((item) => item.operation === "im.message.sendCardByReference")).toHaveLength(1);
+    const createdCard = state.api.calls.find((item) => item.operation === "card.create")?.params.card;
+    expect(createdCard).toEqual(expect.objectContaining({
+      schema: "2.0",
+      config: expect.objectContaining({
+        streaming_mode: true,
+        locales: ["zh_cn", "en_us"],
+      }),
+    }));
+    expect(JSON.stringify(createdCard)).toContain("streaming_content");
+    expect(JSON.stringify(createdCard)).toContain("loading_icon");
+    expect(state.api.calls.find((item) => item.operation === "cardElement.content")?.params.elementId)
+      .toBe("streaming_content");
     const sequences = state.api.calls
-      .map((item) => item.body.sequence)
+      .map((item) => item.params.sequence)
       .filter((item): item is number => typeof item === "number");
     expect(sequences).toEqual([1, 2]);
     expect(state.patches).toContainEqual({
@@ -96,21 +126,53 @@ describe("Feishu CardKit stream state", () => {
     });
   });
 
+  test("does not send an empty or unchanged element-content update during thinking", async () => {
+    const state = setup();
+    await state.cardkit.handle(request("delta", 1, {
+      content: "",
+      thinking: "",
+      tool_pending: true,
+      tool_steps: [],
+    }), state.route);
+    await state.cardkit.handle(request("delta", 2, {
+      content: "",
+      thinking: "reasoning",
+      tool_pending: true,
+      tool_steps: [],
+    }), state.route);
+    await state.cardkit.handle(request("delta", 3, {
+      content: "answer",
+      thinking: "reasoning",
+      tool_pending: true,
+      tool_steps: [],
+    }), state.route);
+    await state.cardkit.handle(request("delta", 4, {
+      content: "answer",
+      thinking: "more reasoning",
+      tool_pending: true,
+      tool_steps: [],
+    }), state.route);
+
+    const contentUpdates = state.api.calls.filter((item) => item.operation === "cardElement.content");
+    expect(contentUpdates).toHaveLength(1);
+    expect(contentUpdates[0]?.params.content).toBe("answer");
+  });
+
   test("final closes then replaces the card with thinking/tool/error semantics and cleans state", async () => {
     const state = setup();
     await state.cardkit.handle(request("delta", 1), state.route);
     await state.cardkit.handle(request("error", 2), state.route);
-    const close = state.api.calls.find((item) => item.path.endsWith("/settings") && String(item.body.settings).includes("false"));
-    const update = state.api.calls.find((item) => item.method === "PUT" && item.path === "/cardkit/v1/cards/card-1" && item.body.sequence === 3);
-    expect(close?.body.sequence).toBe(2);
-    expect(update?.body.sequence).toBe(3);
-    expect(JSON.stringify(update?.body)).toContain("private reasoning");
-    expect(JSON.stringify(update?.body)).toContain("部分思考内容已被模型隐藏");
-    expect(JSON.stringify(update?.body)).toContain("Search");
-    expect(JSON.stringify(update?.body)).toContain("生成失败");
+    const close = state.api.calls.find((item) => item.operation === "card.settings" && item.params.streamingMode === false);
+    const update = state.api.calls.find((item) => item.operation === "card.update" && item.params.sequence === 3);
+    expect(close?.params.sequence).toBe(2);
+    expect(update?.params.sequence).toBe(3);
+    expect(JSON.stringify(update?.params)).toContain("private reasoning");
+    expect(JSON.stringify(update?.params)).toContain("部分思考内容已被模型隐藏");
+    expect(JSON.stringify(update?.params)).toContain("Search");
+    expect(JSON.stringify(update?.params)).toContain("生成失败");
     expect(state.patches.at(-1)).toEqual({ patch: { cardkit_card_id: "", cardkit_emit_id: "" } });
     await state.cardkit.handle(request("delta", 3), state.route);
-    expect(state.api.calls.filter((item) => item.body.sequence === 4)).toHaveLength(0);
+    expect(state.api.calls.filter((item) => item.params.sequence === 4)).toHaveLength(0);
   });
 
   test("reopens once for 200850 and fails terminally for repeated or other API errors", async () => {
@@ -118,7 +180,7 @@ describe("Feishu CardKit stream state", () => {
     await state.cardkit.handle(request("delta", 1), state.route);
     state.api.failNext = new FeishuCardKitError("stream_card_content", 200850, "card-1");
     await state.cardkit.handle(request("delta", 2), state.route);
-    expect(state.api.calls.filter((item) => item.path.endsWith("/settings") && String(item.body.settings).includes("true"))).toHaveLength(1);
+    expect(state.api.calls.filter((item) => item.operation === "card.settings" && item.params.streamingMode === true)).toHaveLength(1);
 
     state.api.failNext = new FeishuCardKitError("stream_card_content", 500, "card-1");
     await expect(state.cardkit.handle(request("delta", 3), state.route)).rejects.toThrow("500");
@@ -140,8 +202,8 @@ describe("Feishu CardKit stream state", () => {
     await state.cardkit.handle(request("delta", 1), state.route);
     state.api.failNext = new FeishuCardKitError("close_streaming_mode", 200850, "card-1");
     await state.cardkit.handle(request("final", 2), state.route);
-    expect(state.api.calls.filter((item) => item.path.endsWith("/settings") && String(item.body.settings).includes("true"))).toHaveLength(1);
-    expect(state.api.calls.filter((item) => item.path.endsWith("/settings") && String(item.body.settings).includes("false"))).toHaveLength(2);
+    expect(state.api.calls.filter((item) => item.operation === "card.settings" && item.params.streamingMode === true)).toHaveLength(1);
+    expect(state.api.calls.filter((item) => item.operation === "card.settings" && item.params.streamingMode === false)).toHaveLength(2);
     expect(state.patches.at(-1)).toEqual({ patch: { cardkit_card_id: "", cardkit_emit_id: "" } });
   });
 
@@ -152,7 +214,7 @@ describe("Feishu CardKit stream state", () => {
       state.cardkit.handle(request("delta", 2), state.route),
       state.cardkit.handle(request("final", 3), state.route),
     ]);
-    const sequences = state.api.calls.map((item) => item.body.sequence).filter((item) => typeof item === "number");
+    const sequences = state.api.calls.map((item) => item.params.sequence).filter((item) => typeof item === "number");
     expect(sequences).toEqual([1, 2, 3, 4]);
   });
 });

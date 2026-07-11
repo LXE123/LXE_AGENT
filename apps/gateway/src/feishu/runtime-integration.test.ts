@@ -24,7 +24,7 @@ class IntegrationStore implements RuntimeStore {
 
 describe("Runtime to Feishu CardKit delivery", () => {
   test("creates and finalizes one streaming card without a legacy final card", async () => {
-    const apiCalls: Array<{ method: string; path: string; body: JsonObject }> = [];
+    const apiCalls: Array<{ operation: string; params: JsonObject }> = [];
     let route: ResponseRouteRecord = {
       response_route_id: "route-1",
       owner_user_id: "ou-user",
@@ -49,13 +49,30 @@ describe("Runtime to Feishu CardKit delivery", () => {
     };
     const sdkFactory = (callbacks: FeishuSdkCallbacks): FeishuSdkServices => ({
       api: {
-        request: async (method, path, body) => {
-          apiCalls.push({ method, path, body });
-          if (path === "/cardkit/v1/cards") return { code: 0, msg: "success", data: { card_id: "card-1" } };
-          if (path.includes("/im/v1/messages")) return { code: 0, msg: "success", data: { message_id: "om-card" } };
+        request: async () => ({ code: 0, msg: "success", data: {} }),
+        upload: async () => "file-key",
+      },
+      cardkit: {
+        createCardEntity: async (card) => {
+          apiCalls.push({ operation: "card.create", params: { card } });
+          return { code: 0, msg: "success", data: { card_id: "card-1" } };
+        },
+        streamCardContent: async (params) => {
+          apiCalls.push({ operation: "cardElement.content", params });
           return { code: 0, msg: "success", data: {} };
         },
-        upload: async () => "file-key",
+        updateCard: async (params) => {
+          apiCalls.push({ operation: "card.update", params });
+          return { code: 0, msg: "success", data: {} };
+        },
+        setStreamingMode: async (params) => {
+          apiCalls.push({ operation: "card.settings", params });
+          return { code: 0, msg: "success", data: {} };
+        },
+        sendCardByReference: async (params) => {
+          apiCalls.push({ operation: "im.message.reply", params });
+          return { code: 0, msg: "success", data: { message_id: "om-card" } };
+        },
       },
       reactions: { add: async () => "reaction-1", remove: async () => undefined },
       connection: {
@@ -125,12 +142,12 @@ describe("Runtime to Feishu CardKit delivery", () => {
       user_content_blocks: [],
     }, handle);
 
-    expect(apiCalls.filter((call) => call.path === "/cardkit/v1/cards")).toHaveLength(1);
-    const replies = apiCalls.filter((call) => call.path.endsWith("/reply"));
+    expect(apiCalls.filter((call) => call.operation === "card.create")).toHaveLength(1);
+    const replies = apiCalls.filter((call) => call.operation === "im.message.reply");
     expect(replies).toHaveLength(1);
-    expect(String(replies[0]?.body.content)).toContain("card_id");
-    expect(apiCalls.some((call) => call.path.endsWith("/settings") && String(call.body.settings).includes("false"))).toBe(true);
-    expect(apiCalls.some((call) => call.method === "PUT" && call.path === "/cardkit/v1/cards/card-1")).toBe(true);
+    expect(replies[0]?.params.cardId).toBe("card-1");
+    expect(apiCalls.some((call) => call.operation === "card.settings" && call.params.streamingMode === false)).toBe(true);
+    expect(apiCalls.some((call) => call.operation === "card.update")).toBe(true);
 
     await runtime.stop();
     await registry.stopAll();
