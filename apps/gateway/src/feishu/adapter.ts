@@ -225,7 +225,19 @@ export class FeishuAdapter implements ChannelAdapter {
         this.delay(this.stopTimeoutMs),
       ]);
     }
-    await this.startTask?.catch(() => undefined);
+    const startTask = this.startTask;
+    if (startTask) {
+      if (completed) {
+        await Promise.race([
+          sdk.connection.stop(true).catch(() => undefined),
+          this.delay(this.stopTimeoutMs),
+        ]);
+      }
+      await Promise.race([
+        startTask.catch(() => undefined),
+        this.delay(this.stopTimeoutMs),
+      ]);
+    }
     this.ready = false;
     this.connectionState = "stopped";
     this.lastDisconnectedAt = new Date().toISOString();

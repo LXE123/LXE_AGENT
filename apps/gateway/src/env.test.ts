@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { gatewaySettings, loadProjectEnv, parseEnvFile } from "./env";
 
 describe("project environment", () => {
   test("keeps the first value across process, .env, local, and runtime layers", () => {
     const files: Record<string, string> = {
-      "/repo/.env": "A=env\nB=env\nexport C='single value'\n",
-      "/repo/.env.local": "A=local\nB=local\nD=local\n",
-      "/repo/config/runtime.env": "A=runtime\nE=\"line\\nnext\"\n",
+      [join("/repo", ".env")]: "A=env\nB=env\nexport C='single value'\n",
+      [join("/repo", ".env.local")]: "A=local\nB=local\nD=local\n",
+      [join("/repo", "config", "runtime.env")]: "A=runtime\nE=\"line\\nnext\"\n",
     };
 
     const result = loadProjectEnv({

@@ -16,6 +16,7 @@
     "dashboard:build": "bun run --cwd web/agent-dashboard build",
     "gateway:dev": "bun run --cwd apps/gateway dev",
     "gateway:build": "bun run --cwd apps/gateway build",
+    "verify:migration": "bun run typecheck && bun test packages/protocol/test apps/gateway/src/env.test.ts apps/gateway/src/permission-policy.test.ts apps/gateway/src/python-parity.test.ts apps/gateway/src/session-bindings.test.ts apps/gateway/src/router.test.ts apps/gateway/src/scheduler.test.ts apps/gateway/src/gateway-lifecycle.test.ts apps/gateway/src/feishu && bun run gateway:build",
     "verify": "bun run typecheck && bun run test && bun run dashboard:build && bun run gateway:build"
   },
   "devDependencies": {

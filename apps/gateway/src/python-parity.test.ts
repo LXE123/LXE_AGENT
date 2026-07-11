@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import type { AgentJob, InboundEvent, JsonObject } from "@lxe/protocol";
 import { ChannelRegistry, FakeChannelAdapter } from "./channel";
 import { loadProjectEnv } from "./env";
@@ -69,6 +69,7 @@ const projectRoot = resolve(import.meta.dir, "../../..");
 const generated = Bun.spawnSync({
   cmd: ["uv", "run", "--frozen", "python", "tests/gateway_core_parity.py"],
   cwd: projectRoot,
+  env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
   stdout: "pipe",
   stderr: "pipe",
 });
@@ -185,12 +186,13 @@ const routerFor = (
 
 describe("Python/Bun differential fixture", () => {
   test("matches env precedence and parsing", () => {
+    const fixtureRoot = resolve("/fixture");
     const result = loadProjectEnv({
-      projectRoot: "/fixture",
+      projectRoot: fixtureRoot,
       initial: fixture.env.initial,
       readFile: (path) => {
-        const relative = path.replace("/fixture/", "");
-        return fixture.env.files[relative];
+        const fixturePath = relative(fixtureRoot, path).replaceAll("\\", "/");
+        return fixture.env.files[fixturePath];
       },
     });
     expect(result).toEqual(fixture.env.result);

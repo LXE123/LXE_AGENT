@@ -125,16 +125,16 @@ describe("permission policy", () => {
         projectRoot: "/repo",
         home: "/home/tester",
       }),
-    ).toBe("/home/tester/explicit.yaml");
+    ).toBe(join("/home/tester", "explicit.yaml"));
     expect(
       permissionPolicyPath({
         env: { LXE_PERMISSION_POLICY_PATH: "~/env.yaml" },
         projectRoot: "/repo",
         home: "/home/tester",
       }),
-    ).toBe("/home/tester/env.yaml");
+    ).toBe(join("/home/tester", "env.yaml"));
     expect(permissionPolicyPath({ env: {}, projectRoot: "/repo" })).toBe(
-      "/repo/config/permission_policy.yaml",
+      join("/repo", "config", "permission_policy.yaml"),
     );
   });
 });
