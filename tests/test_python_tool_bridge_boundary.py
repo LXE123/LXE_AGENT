@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from types import ModuleType
 from types import SimpleNamespace
 
 from py_tools import bridge
 from py_tools.business import load_catalog
+from py_tools.business import execute_module_json
 from services.browser.tools import client
 from services.browser.tools.models import ExecuteToolResult, ToolExecutionResult
 
@@ -133,3 +136,25 @@ def test_catalog_covers_active_business_skills_and_bridge_dispatches_module(monk
     assert response["ok"] is True
     assert calls[0][1] == {"store_name": "Demo"}
     assert calls[0][2]["response_route_id"] == "route-current"
+
+
+def test_business_adapter_supports_legacy_zero_argument_main(monkeypatch) -> None:
+    module_name = "tests.fake_zero_argument_business_cli"
+    module = ModuleType(module_name)
+
+    def main() -> int:
+        assert sys.argv == [module_name, "--store-name", "Demo"]
+        print('{"success":true,"message":"ok"}')
+        return 0
+
+    module.main = main  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module_name, module)
+    ok, content, files, error = execute_module_json(
+        {"module": module_name},
+        {"store_name": "Demo"},
+        {"session_id": "session"},
+    )
+    assert ok is True
+    assert content == [{"type": "text", "text": '{"success":true,"message":"ok"}'}]
+    assert files == []
+    assert error is None

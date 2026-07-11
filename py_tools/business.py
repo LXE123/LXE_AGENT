@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import inspect
 import io
 import json
 from pathlib import Path
+import sys
 from typing import Any
 
 from shared.logging import get_logger
@@ -136,7 +138,15 @@ def execute_module_json(
     argv = _argv(dict(arguments or {}), [str(item) for item in list(entry.get("positional") or [])])
     with contextlib.redirect_stdout(stdout):
         try:
-            exit_code = int(main(argv) or 0)
+            if len(inspect.signature(main).parameters) == 0:
+                original_argv = sys.argv
+                try:
+                    sys.argv = [module_name, *argv]
+                    exit_code = int(main() or 0)
+                finally:
+                    sys.argv = original_argv
+            else:
+                exit_code = int(main(argv) or 0)
         except SystemExit as exc:
             exit_code = int(exc.code or 0)
     lines = [line.strip() for line in stdout.getvalue().splitlines() if line.strip()]
