@@ -26,3 +26,33 @@ export function parseFeishuEnvelope(result: JsonObject, operation: string): Feis
   }
   return { code, msg: safeFeishuMessage(result.msg), data: object(result.data) };
 }
+
+const record = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+
+export function normalizeFeishuTransportError(method: string, path: string, cause: unknown): Error {
+  const source = record(cause);
+  const response = record(source.response);
+  const payload = record(response.data);
+  const status = Number(response.status);
+  if (!Number.isInteger(status) || status <= 0) {
+    return cause instanceof Error ? cause : new Error(String(cause));
+  }
+  const rawCode = payload.code;
+  const code = typeof rawCode === "number" || (typeof rawCode === "string" && rawCode.trim())
+    ? Number(rawCode)
+    : Number.NaN;
+  const message = safeFeishuMessage(String(payload.msg ?? payload.message ?? ""));
+  const details = [
+    `HTTP ${status}`,
+    ...(Number.isFinite(code) ? [`code ${code}`] : []),
+  ].join(", ");
+  const error = new Error(
+    `Feishu API ${String(method).toUpperCase()} ${path} failed: ${details}${message ? `: ${message}` : ""}`,
+    cause instanceof Error ? { cause } : undefined,
+  );
+  error.name = "FeishuApiHttpError";
+  return error;
+}

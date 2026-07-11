@@ -6,6 +6,7 @@ import type { FeishuApiPort } from "./cardkit";
 import type { FeishuConfig } from "./config";
 import type { FeishuMediaApi } from "./media";
 import type { FeishuReactionPort } from "./typing";
+import { normalizeFeishuTransportError } from "./response";
 
 export const FEISHU_EVENT_TYPES = [
   "im.message.receive_v1",
@@ -112,7 +113,8 @@ export function createOfficialFeishuSdk(
     appId: config.appId,
     appSecret: config.appSecret,
     domain,
-    loggerLevel: Lark.LoggerLevel.info,
+    // Runtime owns structured delivery errors; suppress the SDK's raw Axios dumps.
+    loggerLevel: Lark.LoggerLevel.fatal,
   }) as LooseClient;
   const handlers = {
     "im.message.receive_v1": callbacks.onMessage,
@@ -137,12 +139,16 @@ export function createOfficialFeishuSdk(
 
   const api: FeishuSdkServices["api"] = {
     request: async (method, path, body) => {
-      const response = await client.request({
-        method,
-        url: `/open-apis${path}`,
-        data: body,
-      });
-      return apiResponse(response);
+      try {
+        const response = await client.request({
+          method,
+          url: `/open-apis${path}`,
+          data: body,
+        });
+        return apiResponse(response);
+      } catch (cause) {
+        throw normalizeFeishuTransportError(method, path, cause);
+      }
     },
     upload: async (path, kind) => {
       const content = Buffer.from(await readFile(path));

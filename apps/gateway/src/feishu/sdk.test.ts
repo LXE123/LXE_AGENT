@@ -7,15 +7,22 @@ describe("official Feishu SDK factory", () => {
     const registered: Record<string, (value: unknown) => unknown> = {};
     const starts: unknown[] = [];
     const closes: unknown[] = [];
+    let clientOptions: Record<string, unknown> = {};
     let apiResponse: unknown = { code: 0, msg: "success", data: { card_id: "card-1" } };
+    let apiError: unknown;
     class Client {
       im = { v1: {
         messageReaction: { create: async () => ({ data: { reaction_id: "r" } }), delete: async () => ({}) },
         file: { create: async () => ({ file_key: "f" }) },
         image: { create: async () => ({ image_key: "i" }) },
       } };
-      request = async () => apiResponse;
-      constructor(readonly options: unknown) {}
+      request = async () => {
+        if (apiError) throw apiError;
+        return apiResponse;
+      };
+      constructor(readonly options: unknown) {
+        clientOptions = options as Record<string, unknown>;
+      }
     }
     class EventDispatcher {
       constructor(readonly options: unknown) {}
@@ -43,6 +50,7 @@ describe("official Feishu SDK factory", () => {
     }, { Client, EventDispatcher, WSClient } as never);
 
     expect(Object.keys(registered).sort()).toEqual([...FEISHU_EVENT_TYPES].sort());
+    expect(clientOptions.loggerLevel).toBe(0);
     await registered["im.message.receive_v1"]?.({});
     await registered["im.message.reaction.created_v1"]?.({});
     await registered["im.message.reaction.deleted_v1"]?.({});
@@ -54,6 +62,17 @@ describe("official Feishu SDK factory", () => {
     });
     apiResponse = { data: { card_id: "missing-code" } };
     await expect(sdk.api.request("POST", "/cardkit/v1/cards", {})).rejects.toThrow("malformed Feishu response");
+    apiError = Object.assign(new Error("Request failed with status code 400"), {
+      name: "AxiosError",
+      code: "ERR_BAD_REQUEST",
+      response: {
+        status: 400,
+        data: { code: 200000, msg: "invalid card data token=private" },
+      },
+    });
+    await expect(sdk.api.request("POST", "/cardkit/v1/cards", {})).rejects.toThrow(
+      "Feishu API POST /cardkit/v1/cards failed: HTTP 400, code 200000: invalid card data token=[redacted]",
+    );
     await sdk.connection.start();
     expect(starts).toHaveLength(1);
     expect(sdk.connection.status()).toEqual(expect.objectContaining({ state: "connected" }));
