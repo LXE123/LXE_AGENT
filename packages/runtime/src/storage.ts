@@ -17,7 +17,70 @@ const parseObject = (value: unknown): JsonObject => {
   }
 };
 
+const mergeObjects = (base: JsonObject, patch: JsonObject): JsonObject => {
+  const merged: JsonObject = { ...base };
+  for (const [key, value] of Object.entries(patch)) {
+    const current = merged[key];
+    merged[key] = value !== null && typeof value === "object" && !Array.isArray(value) &&
+      current !== null && typeof current === "object" && !Array.isArray(current)
+      ? mergeObjects(current as JsonObject, value as JsonObject)
+      : value;
+  }
+  return merged;
+};
+
 const text = (value: unknown): string => String(value ?? "").trim();
+
+const normalizeLegacyBlock = (value: unknown): JsonObject | undefined => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const block = { ...(value as JsonObject) };
+  const type = text(block.type);
+  if (type === "tool_call") {
+    return {
+      type: "tool_use",
+      id: text(block.id),
+      name: text(block.name),
+      input: parseObject(block.arguments),
+    };
+  }
+  if (type === "tool_result") {
+    const toolUseId = text(block.tool_use_id) || text(block.tool_call_id);
+    const normalized: JsonObject = {
+      ...block,
+      type: "tool_result",
+      tool_use_id: toolUseId,
+    };
+    delete normalized.tool_call_id;
+    return normalized;
+  }
+  return block;
+};
+
+const normalizeLegacyMessage = (value: unknown): RuntimeMessage | undefined => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as { role?: unknown; content?: unknown };
+  const legacyRole = text(candidate.role);
+  if (!new Set(["user", "assistant", "tool"]).has(legacyRole)) return undefined;
+  const role: RuntimeMessage["role"] = legacyRole === "tool" ? "user" : legacyRole as RuntimeMessage["role"];
+  if (!Array.isArray(candidate.content)) return { role, content: String(candidate.content ?? "") };
+  return {
+    role,
+    content: candidate.content.map(normalizeLegacyBlock).filter((block): block is JsonObject => Boolean(block)),
+  };
+};
+
+const normalizeLegacyMessages = (values: unknown[]): RuntimeMessage[] =>
+  values.map(normalizeLegacyMessage).filter((message): message is RuntimeMessage => Boolean(message));
+
+const replacementKinds = new Set([
+  "compaction",
+  "context_reset",
+  "memory_clear",
+  "legacy_import",
+  "repair",
+  "history_limit",
+  "context_replacement",
+]);
 
 export interface DashboardSessionListOptions {
   limit: number;
@@ -79,6 +142,33 @@ export class SqliteRuntimeStore implements RuntimeStore {
         queued_at TEXT NOT NULL,
         FOREIGN KEY(session_id) REFERENCES agent_sessions(session_id) ON DELETE CASCADE
       );
+      CREATE TABLE IF NOT EXISTS turn_usage (
+        turn_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        started_at REAL NOT NULL,
+        status TEXT NOT NULL DEFAULT '',
+        elapsed_ms INTEGER NOT NULL DEFAULT 0,
+        llm_calls INTEGER NOT NULL DEFAULT 0,
+        tool_calls INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS turn_usage_items (
+        item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        turn_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        started_at REAL NOT NULL,
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        module TEXT NOT NULL DEFAULT '',
+        calls INTEGER NOT NULL DEFAULT 1,
+        errors INTEGER NOT NULL DEFAULT 0,
+        duration_ms INTEGER NOT NULL DEFAULT 0,
+        detail TEXT NOT NULL DEFAULT ''
+      );
+      CREATE INDEX IF NOT EXISTS idx_turn_usage_started_at ON turn_usage (started_at);
+      CREATE INDEX IF NOT EXISTS idx_turn_usage_items_kind_name ON turn_usage_items (kind, name, started_at);
+      CREATE INDEX IF NOT EXISTS idx_turn_usage_items_turn_id ON turn_usage_items (turn_id);
     `);
     this.database = database;
   }
@@ -91,7 +181,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
   async ensureSession(request: JsonObject): Promise<void> {
     const sessionId = text(request.session_id);
     if (!sessionId) throw new Error("session_id required");
-    const source = parseObject(request.source);
+    const incomingSource = parseObject(request.source);
+    const current = this.db().query("SELECT source FROM agent_sessions WHERE session_id = ?")
+      .get(sessionId) as { source: string } | null;
+    const source = mergeObjects(current ? parseObject(current.source) : {}, incomingSource);
     const now = Date.now() / 1_000;
     this.db().query(`
       INSERT INTO agent_sessions (session_id, source, created_at, last_active_at)
@@ -230,9 +323,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
     try {
       raw = readFileSync(this.transcriptPath(sessionId), "utf8");
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return this.loadLegacyMessages(sessionId);
       throw error;
     }
+    if (!raw.trim()) return this.loadLegacyMessages(sessionId);
     let messages: RuntimeMessage[] = [];
     for (const line of raw.split(/\r?\n/)) {
       if (!line.trim()) continue;
@@ -240,17 +334,15 @@ export class SqliteRuntimeStore implements RuntimeStore {
       if (event.kind === "message") {
         const message = event.message as unknown;
         if (message !== null && typeof message === "object" && !Array.isArray(message)) {
-          const candidate = message as unknown as RuntimeMessage;
-          if (candidate.role === "user" || candidate.role === "assistant") messages.push(candidate);
+          const candidate = normalizeLegacyMessage(message);
+          if (candidate) messages.push(candidate);
         }
-      } else if (event.kind === "legacy_import" || event.kind === "context_replacement") {
+      } else {
+        const kind = text(event.kind);
+        const replacementKind = kind === "replacement" ? text(event.replacement_kind) : kind;
+        if (!replacementKinds.has(replacementKind)) continue;
         if (Array.isArray(event.replacement_history)) {
-          const replacement = event.replacement_history as unknown[];
-          messages = replacement.filter((value) => {
-            if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
-            const role = (value as { role?: unknown }).role;
-            return role === "user" || role === "assistant";
-          }) as RuntimeMessage[];
+          messages = normalizeLegacyMessages(event.replacement_history as unknown[]);
         }
       }
     }
@@ -266,23 +358,132 @@ export class SqliteRuntimeStore implements RuntimeStore {
     `).run(Date.now() / 1_000, text(sessionId));
   }
 
+  async patchSessionState(sessionId: string, patch: JsonObject): Promise<void> {
+    const safeSessionId = text(sessionId);
+    const transaction = this.db().transaction(() => {
+      const row = this.db().query("SELECT source FROM agent_sessions WHERE session_id = ?")
+        .get(safeSessionId) as { source: string } | null;
+      if (!row) throw new Error(`session not found: ${safeSessionId}`);
+      const source = parseObject(row.source);
+      source.tool_state = mergeObjects(parseObject(source.tool_state), patch);
+      this.db().query("UPDATE agent_sessions SET source = ?, last_active_at = ? WHERE session_id = ?")
+        .run(JSON.stringify(source), Date.now() / 1_000, safeSessionId);
+    });
+    transaction();
+  }
+
   async recordTurn(sessionId: string, metrics: JsonObject): Promise<void> {
-    this.db().query(`
-      UPDATE agent_sessions SET
-        last_active_at = ?,
-        input_tokens = input_tokens + ?,
-        output_tokens = output_tokens + ?,
-        tool_call_count = tool_call_count + ?,
-        api_call_count = api_call_count + ?
-      WHERE session_id = ?
-    `).run(
-      Date.now() / 1_000,
-      Number(metrics.input_tokens ?? 0),
-      Number(metrics.output_tokens ?? 0),
-      Number(metrics.tool_calls ?? 0),
-      Number(metrics.api_calls ?? 0),
-      text(sessionId),
-    );
+    const safeSessionId = text(sessionId);
+    const turnId = text(metrics.turn_id) || randomUUID().replaceAll("-", "");
+    const startedAt = Number(metrics.started_at ?? Date.now() / 1_000);
+    const tools = Array.isArray(metrics.tools) ? metrics.tools.map(parseObject) : [];
+    this.db().transaction(() => {
+      this.db().query(`
+        UPDATE agent_sessions SET
+          last_active_at = ?, input_tokens = input_tokens + ?, output_tokens = output_tokens + ?,
+          tool_call_count = tool_call_count + ?, api_call_count = api_call_count + ?
+        WHERE session_id = ?
+      `).run(
+        Date.now() / 1_000,
+        Number(metrics.input_tokens ?? 0), Number(metrics.output_tokens ?? 0),
+        Number(metrics.tool_calls ?? 0), Number(metrics.api_calls ?? metrics.llm_calls ?? 0), safeSessionId,
+      );
+      this.db().query(`
+        INSERT OR REPLACE INTO turn_usage
+          (turn_id, session_id, started_at, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        turnId, safeSessionId, startedAt, text(metrics.status), Number(metrics.elapsed_ms ?? 0),
+        Number(metrics.api_calls ?? metrics.llm_calls ?? 0), Number(metrics.tool_calls ?? 0),
+        Number(metrics.input_tokens ?? 0), Number(metrics.output_tokens ?? 0),
+      );
+      this.db().query("DELETE FROM turn_usage_items WHERE turn_id = ?").run(turnId);
+      for (const tool of tools) {
+        const name = text(tool.name);
+        if (!name) continue;
+        this.db().query(`
+          INSERT INTO turn_usage_items
+            (turn_id, session_id, started_at, kind, name, module, calls, errors, duration_ms, detail)
+          VALUES (?, ?, ?, 'tool', ?, '', ?, ?, ?, '')
+        `).run(
+          turnId, safeSessionId, startedAt, name, Number(tool.calls ?? 0),
+          Number(tool.errors ?? 0), Number(tool.duration_ms ?? 0),
+        );
+      }
+    })();
+  }
+
+  usageOverview(days: number): JsonObject {
+    const safeDays = Math.max(1, Math.min(Math.trunc(days), 365));
+    const cutoff = Date.now() / 1_000 - safeDays * 86_400;
+    const totals = this.db().query(`
+      SELECT COUNT(*) AS turns, COALESCE(SUM(tool_calls), 0) AS tool_calls,
+             COALESCE(SUM(llm_calls), 0) AS llm_calls, COALESCE(SUM(input_tokens), 0) AS input_tokens,
+             COALESCE(SUM(output_tokens), 0) AS output_tokens,
+             COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS error_turns
+      FROM turn_usage WHERE started_at >= ?
+    `).get(cutoff) as Record<string, number>;
+    const daily = this.db().query(`
+      SELECT date(started_at, 'unixepoch', 'localtime') AS day, COUNT(*) AS turns,
+             COALESCE(SUM(tool_calls), 0) AS tool_calls
+      FROM turn_usage WHERE started_at >= ? GROUP BY day ORDER BY day ASC
+    `).all(cutoff) as Array<Record<string, unknown>>;
+    return {
+      days: safeDays,
+      totals: {
+        turns: Number(totals.turns ?? 0), error_turns: Number(totals.error_turns ?? 0),
+        tool_calls: Number(totals.tool_calls ?? 0), llm_calls: Number(totals.llm_calls ?? 0),
+        input_tokens: Number(totals.input_tokens ?? 0), output_tokens: Number(totals.output_tokens ?? 0),
+        skill_executions: 0, skill_failures: 0,
+      },
+      modules: [],
+      daily: daily.map((row) => ({
+        day: text(row.day), turns: Number(row.turns ?? 0), tool_calls: Number(row.tool_calls ?? 0), executions: 0, failures: 0,
+      })),
+    };
+  }
+
+  toolUsageStats(days: number): JsonObject[] {
+    const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
+    const rows = this.db().query(`
+      SELECT name, COALESCE(SUM(calls), 0) AS calls, COALESCE(SUM(errors), 0) AS errors,
+             COALESCE(SUM(duration_ms), 0) AS duration_ms, COUNT(DISTINCT turn_id) AS turns,
+             MAX(started_at) AS last_used_at
+      FROM turn_usage_items WHERE kind = 'tool' AND started_at >= ?
+      GROUP BY name ORDER BY calls DESC, name ASC
+    `).all(cutoff) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      name: text(row.name), calls: Number(row.calls ?? 0), errors: Number(row.errors ?? 0),
+      duration_ms: Number(row.duration_ms ?? 0), turns: Number(row.turns ?? 0), last_used_at: Number(row.last_used_at ?? 0),
+    }));
+  }
+
+  exportTurnUsage(days: number, limit = 5_000): JsonObject[] {
+    const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
+    const rows = this.db().query(`
+      SELECT turn_id, session_id, started_at, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens
+      FROM turn_usage WHERE started_at >= ? ORDER BY started_at ASC LIMIT ?
+    `).all(cutoff, Math.max(1, Math.min(Math.trunc(limit), 50_000))) as Array<Record<string, unknown>>;
+    const turns = rows.map((row) => ({
+      turn_id: text(row.turn_id), session_id: text(row.session_id), started_at: Number(row.started_at ?? 0),
+      status: text(row.status), elapsed_ms: Number(row.elapsed_ms ?? 0), llm_calls: Number(row.llm_calls ?? 0),
+      tool_calls: Number(row.tool_calls ?? 0), input_tokens: Number(row.input_tokens ?? 0), output_tokens: Number(row.output_tokens ?? 0),
+      items: [] as JsonObject[],
+    }));
+    const byId = new Map(turns.map((turn) => [turn.turn_id, turn]));
+    if (turns.length > 0) {
+      const items = this.db().query(`
+        SELECT turn_id, kind, name, module, calls, errors, duration_ms, detail
+        FROM turn_usage_items WHERE started_at >= ? ORDER BY item_id ASC
+      `).all(cutoff) as Array<Record<string, unknown>>;
+      for (const row of items) {
+        byId.get(text(row.turn_id))?.items.push({
+          kind: text(row.kind), name: text(row.name), module: text(row.module), calls: Number(row.calls ?? 0),
+          errors: Number(row.errors ?? 0), duration_ms: Number(row.duration_ms ?? 0), detail: text(row.detail),
+        });
+      }
+    }
+    return turns;
   }
 
   listSessions(options: DashboardSessionListOptions): {
@@ -387,5 +588,18 @@ export class SqliteRuntimeStore implements RuntimeStore {
   private transcriptPath(sessionId: string): string {
     const safe = text(sessionId).replaceAll(/[^A-Za-z0-9_.-]/g, "_");
     return join(dirname(this.path), "session_transcripts", `${safe}.jsonl`);
+  }
+
+  private loadLegacyMessages(sessionId: string): RuntimeMessage[] {
+    const safe = text(sessionId).replaceAll(/[^A-Za-z0-9_.-]/g, "_");
+    const path = join(dirname(this.path), "session_messages", `${safe}.jsonl`);
+    let raw: string;
+    try {
+      raw = readFileSync(path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    return normalizeLegacyMessages(raw.split(/\r?\n/).filter((line) => line.trim()).map(parseObject));
   }
 }

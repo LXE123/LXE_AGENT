@@ -220,20 +220,21 @@ export function createOfficialFeishuImToolApi(config: FeishuConfig): FeishuImToo
   const domain = config.domain === "feishu" ? Lark.Domain.Feishu : config.domain === "lark" ? Lark.Domain.Lark : config.domain;
   const client = new Lark.Client({ appId: config.appId, appSecret: config.appSecret, domain }) as unknown as LooseClient;
   return {
-    get: async (path, params) => {
-      const response = object(await client.request({ method: "GET", url: `/open-apis${path}`, params }));
+    get: async (path, params, signal) => {
+      const response = object(await client.request({ method: "GET", url: `/open-apis${path}`, params, signal }));
       const payload = object(response.data ?? response);
       const code = Number(response.code ?? 0);
       if (code !== 0) throw new Error(`Feishu API error: ${text(response.msg) || code}`);
       return payload as JsonObject;
     },
-    download: async (messageId, fileKey, type) => {
+    download: async (messageId, fileKey, type, signal) => {
       const response = object(await client.request({
         method: "GET",
         url: `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/resources/${encodeURIComponent(fileKey)}`,
         params: { type },
         responseType: "arraybuffer",
         $return_headers: true,
+        signal,
       }));
       const headers = object(response.headers);
       const disposition = text(headers["content-disposition"]);

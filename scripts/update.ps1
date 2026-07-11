@@ -11,6 +11,7 @@ Set-Location $ProjectRoot
 
 $git = Resolve-Git
 $uv = Resolve-Uv
+$bun = Resolve-Bun -Version "1.3.14"
 $powershell = Resolve-PowerShell
 
 function Invoke-DwsSetup {
@@ -86,11 +87,12 @@ Invoke-NativeChecked -Label "launcher setup" -FilePath $powershell -Arguments @(
     (Join-Path $ProjectRoot "scripts\launcher.ps1"),
     "-ProjectRoot",
     $ProjectRoot,
-    "-UvPath",
-    $uv
+    "-BunPath",
+    $bun
 )
 Invoke-NativeChecked -Label "uv sync" -FilePath $uv -Arguments @("sync", "--frozen", "--all-groups", "--python", $PythonVersion)
 Invoke-NativeChecked -Label "Playwright Chromium install" -FilePath $uv -Arguments @("run", "--frozen", "python", "-m", "playwright", "install", "chromium")
+Invoke-NativeChecked -Label "Bun frozen workspace install" -FilePath $bun -Arguments @("install", "--frozen-lockfile")
 Invoke-NativeChecked -Label "Dashboard UI build" -FilePath $powershell -Arguments @(
     "-ExecutionPolicy",
     "Bypass",

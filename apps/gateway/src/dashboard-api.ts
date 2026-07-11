@@ -10,7 +10,7 @@ import {
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { parse } from "yaml";
 import type { JsonObject } from "@lxe/protocol";
-import type { McpConfig, SqliteRuntimeStore, ToolRegistry } from "@lxe/runtime";
+import { mcpServerPrefix, type McpConfig, type SqliteRuntimeStore, type ToolRegistry } from "@lxe/runtime";
 
 type Environment = Record<string, string | undefined>;
 
@@ -23,6 +23,7 @@ interface DashboardApiOptions {
   connectorStatePath?: string;
   backgroundTasks?: () => JsonObject[];
   setMcpEnabled?: (serverName: string, enabled: boolean) => Promise<void> | void;
+  mcpStatus?: (serverName: string) => { connected: boolean; error: string };
 }
 
 interface SkillManifest {
@@ -166,7 +167,10 @@ export class DashboardApi {
     if (request.method === "GET" && path.startsWith("/api/stats/skills/")) {
       return json({ name: decodeURIComponent(path.slice("/api/stats/skills/".length)), days: this.days(url), items: [] });
     }
-    if (request.method === "GET" && path === "/api/stats/tools") return json({ ...this.listPayload([]), days: this.days(url) });
+    if (request.method === "GET" && path === "/api/stats/tools") {
+      const days = this.days(url);
+      return json({ ...this.listPayload(this.options.store.toolUsageStats(days)), days });
+    }
     if (request.method === "GET" && path === "/api/models") return json(this.listPayload(this.models()));
     if (request.method === "GET" && path === "/api/models/current") return json(this.currentModel());
     if (request.method === "PATCH" && path === "/api/models/current") return this.patchModel(request);
@@ -315,7 +319,7 @@ export class DashboardApi {
       name: tool.name, description: tool.description, parameters: tool.input_schema, requires_resource: null, enabled: true,
     })) }] : [];
     for (const server of this.options.mcpConfig.servers) {
-      const tools = this.options.tools.schemas().filter((tool) => tool.name.startsWith(`${server.name}__`)).map((tool) => ({
+      const tools = this.options.tools.schemas().filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).map((tool) => ({
         name: tool.name, description: tool.description, parameters: tool.input_schema, requires_resource: null, enabled: true,
       }));
       groups.push({ name: `mcp:${server.name}`, label: server.name, enabled: server.enabled, tools, servers: [this.mcpServer(server)] });
@@ -324,14 +328,15 @@ export class DashboardApi {
   }
 
   private mcpServer(server: McpConfig["servers"][number]): JsonObject {
-    const toolCount = this.options.tools.schemas().filter((tool) => tool.name.startsWith(`${server.name}__`)).length;
+    const toolCount = this.options.tools.schemas().filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).length;
+    const live = this.options.mcpStatus?.(server.name);
     return {
       name: server.name,
       enabled: server.enabled,
       transport: server.transport,
-      status: server.enabled ? "configured" : "disabled",
+      status: !server.enabled ? "disabled" : live?.connected ? "ready" : live?.error ? "error" : "configured",
       tool_count: toolCount,
-      error: "",
+      error: live?.error ?? "",
       server_title: server.name,
       connector_name: server.name,
     };
@@ -358,21 +363,11 @@ export class DashboardApi {
   }
 
   private overview(url: URL): JsonObject {
-    const days = this.days(url);
-    const summary = this.options.store.listSessions({ limit: 1, offset: 0 }).summary;
-    return {
-      days,
-      totals: {
-        turns: 0, error_turns: 0, tool_calls: Number(summary.tool_call_count ?? 0), llm_calls: 0,
-        input_tokens: 0, output_tokens: Number(summary.token_count ?? 0), skill_executions: 0, skill_failures: 0,
-      },
-      modules: [],
-      daily: [],
-    };
+    return this.options.store.usageOverview(this.days(url));
   }
 
   private models(): JsonObject[] {
-    const providerRoot = join(this.options.projectRoot, "shared", "llm", "providers");
+    const providerRoot = join(this.options.projectRoot, "packages", "runtime", "config", "providers");
     if (!existsSync(providerRoot)) return [];
     return readdirSync(providerRoot).filter((name) => name.endsWith(".json"))
       .map((name) => this.modelPayload(loadJson(join(providerRoot, name))))
@@ -442,7 +437,9 @@ export class DashboardApi {
 
   private authEnvNames(provider: string): string[] {
     try {
-      const profiles = object(loadJson(join(this.options.projectRoot, "shared", "llm", "auth_profiles.json")).profiles);
+      const profiles = object(loadJson(join(
+        this.options.projectRoot, "packages", "runtime", "config", "auth-profiles.json",
+      )).profiles);
       const names = object(profiles[provider]).env_names;
       return Array.isArray(names) ? names.map(text) : [];
     } catch {
@@ -454,7 +451,9 @@ export class DashboardApi {
     const body = object(await request.json());
     const provider = text(body.provider);
     const requestedModel = text(body.model);
-    const specPath = join(this.options.projectRoot, "shared", "llm", "providers", `${provider}.json`);
+    const specPath = join(
+      this.options.projectRoot, "packages", "runtime", "config", "providers", `${provider}.json`,
+    );
     if (!existsSync(specPath)) return json({ detail: "Unsupported model provider" }, 400);
     const spec = loadJson(specPath);
     const models = object(spec.models);

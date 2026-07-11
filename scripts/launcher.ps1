@@ -1,10 +1,11 @@
 param(
     [string]$ProjectRoot = "",
-    [string]$UvPath = "",
+    [string]$BunPath = "",
     [switch]$NoPath
 )
 
 . (Join-Path $PSScriptRoot "_console_encoding.ps1")
+. (Join-Path $PSScriptRoot "_dependencies.ps1")
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -29,20 +30,11 @@ function Resolve-ProjectRoot {
     return [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 }
 
-function Resolve-UvPath {
-    if (-not [string]::IsNullOrWhiteSpace($UvPath)) {
-        return Resolve-FullPath $UvPath
+function Resolve-BunPath {
+    if (-not [string]::IsNullOrWhiteSpace($BunPath)) {
+        return Resolve-FullPath $BunPath
     }
-    $command = Get-Command uv -ErrorAction SilentlyContinue
-    if ($null -ne $command) {
-        return $command.Source
-    }
-    $localUv = Join-Path $env:USERPROFILE ".local\bin\uv.exe"
-    if (Test-Path -LiteralPath $localUv) {
-        $env:Path = "$(Split-Path -Parent $localUv);$env:Path"
-        return $localUv
-    }
-    throw "uv is not available on PATH."
+    return Resolve-Bun -Version "1.3.14"
 }
 
 function Normalize-PathForCompare {
@@ -87,7 +79,7 @@ function Write-Utf8BomFile {
 function Write-LxeLauncher {
     param(
         [Parameter(Mandatory = $true)][string]$ResolvedProjectRoot,
-        [Parameter(Mandatory = $true)][string]$ResolvedUvPath
+        [Parameter(Mandatory = $true)][string]$ResolvedBunPath
     )
     New-Item -ItemType Directory -Path $NewLauncherDir -Force | Out-Null
     $cmdContent = @"
@@ -97,13 +89,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0LXE.launcher.ps1" %*
 exit /b %ERRORLEVEL%
 "@
     $projectRootLiteral = ConvertTo-PowerShellSingleQuotedLiteral $ResolvedProjectRoot
-    $uvPathLiteral = ConvertTo-PowerShellSingleQuotedLiteral $ResolvedUvPath
+    $bunPathLiteral = ConvertTo-PowerShellSingleQuotedLiteral $ResolvedBunPath
     $psContent = @"
 `$ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 `$LxeRoot = $projectRootLiteral
-`$UvPath = $uvPathLiteral
+`$BunPath = $bunPathLiteral
 
 function Exit-LxeNativeCommand {
     if (`$LASTEXITCODE -is [int]) {
@@ -114,13 +106,13 @@ function Exit-LxeNativeCommand {
 
 function Invoke-LxeStart {
     Set-Location -LiteralPath `$LxeRoot
-    & `$UvPath run --frozen python .\main.py
+    & `$BunPath run gateway:start
     Exit-LxeNativeCommand
 }
 
 function Invoke-LxeStop {
     Set-Location -LiteralPath `$LxeRoot
-    & `$UvPath run --frozen python .\main.py stop
+    & `$BunPath run gateway:stop
     Exit-LxeNativeCommand
 }
 
@@ -261,9 +253,9 @@ function Repair-OriginRemote {
 }
 
 $resolvedProjectRoot = Resolve-ProjectRoot
-$resolvedUvPath = Resolve-UvPath
+$resolvedBunPath = Resolve-BunPath
 
-Write-LxeLauncher -ResolvedProjectRoot $resolvedProjectRoot -ResolvedUvPath $resolvedUvPath
+Write-LxeLauncher -ResolvedProjectRoot $resolvedProjectRoot -ResolvedBunPath $resolvedBunPath
 Update-UserPath
 Remove-OldLauncher
 Repair-OriginRemote -ResolvedProjectRoot $resolvedProjectRoot

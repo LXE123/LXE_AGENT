@@ -46,5 +46,7 @@ uv run --frozen python -m services.agent_cli.amazon_logistic.run --input-text $i
 ## Result Handling
 
 - 只按 CLI 返回内容解释物流优选结果。
-- 不要输出本地 md 文件路径，除非用户明确要求。
+- 成功且返回的 `files` 非空时，逐个调用 TS `send_file` 工具发送文件。
+- `send_file` 失败时报告发送失败，不要重跑 CLI。
+- 不要把本地 md 文件路径作为普通文本回复给用户。
 - 失败时只转述 CLI 错误原文。

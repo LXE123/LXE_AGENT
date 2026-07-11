@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-from agent_runtime.skill_index import load_skill_index
 from services.agent_cli.mabang import calculate_store_msku_replenishment as cli
 from services.mabang.amazon.fba.store_msku_replenishment import StoreMskuReplenishmentResult
 
@@ -336,11 +335,3 @@ def test_failure_returns_last_line_json(monkeypatch, capsys) -> None:
         "store_name": "Amazon-Lerxiuer-FR",
         "exception": "replenishment failed for Amazon-Lerxiuer-FR",
     }
-
-
-def test_skill_index_loads_mabang_fba_store_replenishment_calculate() -> None:
-    manifest = load_skill_index(force_reload=True).get("replenishment-calculate")
-
-    assert manifest is not None
-    assert manifest.name == "replenishment-calculate"
-    assert manifest.type == "amazon_replenish"

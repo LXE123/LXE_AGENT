@@ -35,6 +35,7 @@ export class MaintenanceScheduler {
   private readonly fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   private readonly timers: Array<ReturnType<typeof setInterval>> = [];
   private readonly active = new Set<Promise<unknown>>();
+  private readonly controllers = new Set<AbortController>();
   private stopped = true;
 
   constructor(private readonly options: MaintenanceSchedulerOptions) {
@@ -45,13 +46,15 @@ export class MaintenanceScheduler {
     if (!this.stopped) return;
     this.stopped = false;
     if (envBoolean(this.options.environment, "LXE_MAINTENANCE_AUTH_ENABLED", true)) {
-      await this.refreshAuth();
+      await this.track(this.refreshAuth());
+      if (this.stopped) return;
       const authTimer = setInterval(() => this.track(this.refreshAuth()), 2 * 60 * 60_000);
       authTimer.unref?.();
       this.timers.push(authTimer);
     }
     if (envBoolean(this.options.environment, "LXE_DATA_SERVER_ENABLED")) {
-      await this.syncDataServer();
+      await this.track(this.syncDataServer());
+      if (this.stopped) return;
       const interval = envInteger(this.options.environment, "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS", 10_800, 30) * 1_000;
       const syncTimer = setInterval(() => this.track(this.syncDataServer()), interval);
       syncTimer.unref?.();
@@ -62,6 +65,7 @@ export class MaintenanceScheduler {
   async stop(): Promise<void> {
     this.stopped = true;
     for (const timer of this.timers.splice(0)) clearInterval(timer);
+    for (const controller of this.controllers) controller.abort(new Error("maintenance stopped"));
     await Promise.allSettled([...this.active]);
   }
 
@@ -71,11 +75,22 @@ export class MaintenanceScheduler {
     if (!serverUrl || !apiKey) return { uploaded: false, skipped_reason: "missing_config" };
     const sessionLimit = envInteger(this.options.environment, "LXE_DATA_SERVER_SESSION_LIMIT", 1_000, 1);
     const usageDays = envInteger(this.options.environment, "LXE_DATA_SERVER_USAGE_DAYS", 30, 1);
-    const listed = this.options.store.listSessions({ limit: Math.min(sessionLimit, 200), offset: 0 });
     const sessions: JsonObject[] = [];
-    for (const session of listed.items.slice(0, sessionLimit)) {
-      const detail = await this.options.store.sessionDetail(String(session.session_id ?? ""), { limit: 200, page: 1 });
-      sessions.push({ ...session, messages: detail?.messages ?? [] });
+    for (let offset = 0; sessions.length < sessionLimit; offset += 200) {
+      const listed = this.options.store.listSessions({ limit: Math.min(200, sessionLimit - sessions.length), offset });
+      if (listed.items.length === 0) break;
+      for (const session of listed.items) {
+        const sessionId = String(session.session_id ?? "");
+        const first = await this.options.store.sessionDetail(sessionId, { limit: 200, page: 1 });
+        const messages = [...(Array.isArray(first?.messages) ? first.messages : [])];
+        const totalPages = Number((first?.messages_page as JsonObject | undefined)?.total_pages ?? 1);
+        for (let page = 2; page <= totalPages; page += 1) {
+          const next = await this.options.store.sessionDetail(sessionId, { limit: 200, page });
+          if (Array.isArray(next?.messages)) messages.push(...next.messages);
+        }
+        sessions.push({ ...session, messages });
+      }
+      if (listed.items.length < 200) break;
     }
     if (sessions.length === 0) return { uploaded: false, skipped_reason: "no_sessions" };
     const snapshot: JsonObject = {
@@ -84,9 +99,10 @@ export class MaintenanceScheduler {
       hostname: hostname(),
       uploaded_at: Date.now() / 1_000,
       sessions,
-      turn_usage: { days: usageDays, turns: [] },
+      turn_usage: { days: usageDays, turns: this.options.store.exportTurnUsage(usageDays) },
     };
     const controller = new AbortController();
+    this.controllers.add(controller);
     const timeout = setTimeout(() => controller.abort(new Error("data server request timed out")),
       envInteger(this.options.environment, "LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS", 30, 1) * 1_000);
     try {
@@ -105,11 +121,14 @@ export class MaintenanceScheduler {
       };
     } finally {
       clearTimeout(timeout);
+      this.controllers.delete(controller);
     }
   }
 
   private async refreshAuth(): Promise<void> {
     const callId = randomUUID();
+    const controller = new AbortController();
+    this.controllers.add(controller);
     try {
       const response = await this.options.authRunner.execute({
         protocol_version: "1",
@@ -117,10 +136,12 @@ export class MaintenanceScheduler {
         tool_name: "browser_auth_refresh",
         arguments: { scope: "erp" },
         session: { session_id: "maintenance", response_route_id: "", user_id: "", conversation_id: "" },
-      }, new AbortController().signal);
+      }, controller.signal);
       if (!response.ok) this.logger.warn("browser auth refresh failed", { error: response.error?.message ?? "unknown" });
     } catch (error) {
       this.logger.warn("browser auth refresh failed", { error });
+    } finally {
+      this.controllers.delete(controller);
     }
   }
 
@@ -144,8 +165,13 @@ export class MaintenanceScheduler {
     return machineId;
   }
 
-  private track(task: Promise<unknown>): void {
-    this.active.add(task);
-    void task.catch((error) => this.logger.warn("scheduled maintenance failed", { error })).finally(() => this.active.delete(task));
+  private track(task: Promise<unknown>): Promise<void> {
+    let tracked: Promise<void>;
+    tracked = task
+      .then(() => undefined)
+      .catch((error) => this.logger.warn("scheduled maintenance failed", { error }))
+      .finally(() => this.active.delete(tracked));
+    this.active.add(tracked);
+    return tracked;
   }
 }

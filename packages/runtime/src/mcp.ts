@@ -51,10 +51,19 @@ const mapping = (value: unknown): Record<string, unknown> =>
 const stringMapping = (value: unknown): Record<string, string> =>
   Object.fromEntries(Object.entries(mapping(value)).map(([key, item]) => [key, String(item ?? "")]));
 
+const safeName = (value: string, fallback: string): string => value.trim().replaceAll(/[^A-Za-z0-9_-]+/g, "_").replaceAll(/_+/g, "_").replaceAll(/^_+|_+$/g, "") || fallback;
+export const mcpServerPrefix = (serverName: string): string => `mcp__${safeName(serverName, "mcp")}__`;
+export const mcpToolName = (serverName: string, toolName: string): string => {
+  const value = `${mcpServerPrefix(serverName)}${safeName(toolName, "tool")}`;
+  if (new TextEncoder().encode(value).byteLength <= 64) return value;
+  const suffix = `_${new Bun.CryptoHasher("sha1").update(`${serverName}\0${toolName}`).digest("hex").slice(0, 10)}`;
+  return `${value.slice(0, Math.max(1, 64 - suffix.length)).replaceAll(/[_-]+$/g, "")}${suffix}`;
+};
+
 const resolvePlaceholders = (value: string, env: Environment, field: string): string =>
   value.replaceAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, name: string) => {
     const resolved = String(env[name] ?? "");
-    if (!resolved) throw new Error(`environment variable ${name} for ${field} is not set`);
+    void field;
     return resolved;
   });
 
@@ -135,8 +144,8 @@ export class OfficialMcpConnector implements McpConnector {
         ...(tool.description ? { description: tool.description } : {}),
         inputSchema: tool.inputSchema as JsonObject,
       })),
-      callTool: async (name, arguments_) => {
-        const result = await client.callTool({ name, arguments: arguments_ });
+      callTool: async (name, arguments_, signal) => {
+        const result = await client.callTool({ name, arguments: arguments_ }, undefined, signal ? { signal } : {});
         const content = Array.isArray(result.content)
           ? result.content.filter((item): item is JsonObject => item !== null && typeof item === "object" && !Array.isArray(item)) as JsonObject[]
           : [];
@@ -149,6 +158,7 @@ export class OfficialMcpConnector implements McpConnector {
 
 export class McpManager {
   private readonly connections = new Map<string, McpConnection>();
+  private readonly errors = new Map<string, string>();
   private registry: ToolRegistry | undefined;
 
   constructor(
@@ -160,7 +170,11 @@ export class McpManager {
     this.registry = registry;
     for (const server of this.config.servers) {
       if (!server.enabled) continue;
-      await this.connect(server, registry);
+      try {
+        await this.connect(server, registry);
+      } catch (error) {
+        this.errors.set(server.name, error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
@@ -172,20 +186,29 @@ export class McpManager {
     if (server.enabled === enabled && this.connections.has(serverName) === enabled) return;
     server.enabled = enabled;
     if (!enabled) {
-      registry.unregisterWhere((name) => name.startsWith(`${serverName}__`));
+      registry.unregisterWhere((name) => name.startsWith(mcpServerPrefix(serverName)));
       const connection = this.connections.get(serverName);
       this.connections.delete(serverName);
       await connection?.close();
       return;
     }
-    await this.connect(server, registry);
+    try {
+      await this.connect(server, registry);
+    } catch (error) {
+      this.errors.set(server.name, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  status(serverName: string): { connected: boolean; error: string } {
+    return { connected: this.connections.has(serverName), error: this.errors.get(serverName) ?? "" };
   }
 
   async stop(): Promise<void> {
     const connections = [...this.connections.entries()].reverse();
     this.connections.clear();
+    this.errors.clear();
     for (const [serverName] of connections) {
-      this.registry?.unregisterWhere((name) => name.startsWith(`${serverName}__`));
+      this.registry?.unregisterWhere((name) => name.startsWith(mcpServerPrefix(serverName)));
     }
     await Promise.allSettled(connections.map(([, connection]) => connection.close()));
     this.registry = undefined;
@@ -194,10 +217,11 @@ export class McpManager {
   private async connect(server: McpServerConfig, registry: ToolRegistry): Promise<void> {
     const connection = await this.connector.connect(server);
     this.connections.set(server.name, connection);
+    this.errors.delete(server.name);
     for (const tool of connection.tools) {
       if (!tool.name.trim() || server.disabledTools.has(tool.name)) continue;
       registry.register({
-        name: `${server.name}__${tool.name}`,
+        name: mcpToolName(server.name, tool.name),
         description: tool.description ?? "",
         input_schema: tool.inputSchema ?? { type: "object", properties: {} },
         execute: async (input, context) => {

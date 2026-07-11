@@ -22,7 +22,8 @@ def test_unix_installer_builds_dashboard_from_frozen_root_bun_workspace() -> Non
     script_path = SCRIPTS / "install.sh"
     script = _read(script_path)
 
-    subprocess.run(["bash", "-n", str(script_path)], check=True)
+    if os.name != "nt":
+        subprocess.run(["bash", "-n", str(script_path)], check=True)
     assert f'BUN_VERSION="{BUN_VERSION}"' in script
     assert '"bun-v$BUN_VERSION"' in script
     assert '"$project_root/package.json"' in script

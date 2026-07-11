@@ -1,7 +1,6 @@
 import type { JsonObject, JsonValue } from "@lxe/protocol";
 import type { ChannelAdapter, InboundSink } from "../channel";
-import type { OutboundRequest } from "../models";
-import type { ResponseRoutePatch, ResponseRouteRecord } from "../worker-supervisor";
+import type { OutboundRequest, ResponseRoutePatch, ResponseRouteRecord } from "../models";
 import { FeishuCardKit, type FeishuRouteContext } from "./cardkit";
 import type { FeishuConfig } from "./config";
 import { FeishuInboundNormalizer, snapshotMessageEvent } from "./inbound";

@@ -22,7 +22,6 @@ from .requests_client import (
     local_service_requests_session,
     ocr_requests_session,
 )
-from .websocket_client import connect_websocket, websocket_connect_defaults
 
 
 async def close_all_network_clients() -> None:
@@ -38,7 +37,6 @@ __all__ = [
     "close_all_aiohttp_sessions",
     "close_all_network_clients",
     "close_all_requests_sessions",
-    "connect_websocket",
     "erp_http_session",
     "external_http_session",
     "external_requests_session",
@@ -49,5 +47,4 @@ __all__ = [
     "log_network_snapshot",
     "network_snapshot",
     "ocr_requests_session",
-    "websocket_connect_defaults",
 ]

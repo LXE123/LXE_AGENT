@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from openpyxl import Workbook, load_workbook
 
-from agent_runtime.tools.fba_shipment_tools import fill_shipment_template_payload
+from services.browser.workflows.amazon_fba_shipment_files import fill_shipment_template_payload
 
 
 def _write_consignment_excel(path: Path) -> None:

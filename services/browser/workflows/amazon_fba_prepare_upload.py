@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from agent_runtime.tools.fba_shipment_tools import (
+from services.browser.workflows.amazon_fba_shipment_files import (
     fill_shipment_template_payload,
     prepare_upload_local_consignment_excel_payload,
 )

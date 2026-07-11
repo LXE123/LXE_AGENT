@@ -13,8 +13,9 @@
 
 ## 运行要求
 
-- Python 固定使用 `3.12.10`，由 `uv` 管理。
-- Windows 一键安装脚本会准备 uv、Python、依赖、Playwright Chromium 和 WebUI。
+- Gateway、Runtime、Dashboard 和常驻任务统一运行在 Bun `1.3.14` 单进程中。
+- Python 固定使用 `3.12.10`，仅供按需启动、执行后退出的浏览器/ERP/Excel 工具脚本使用，由 `uv` 管理。
+- Windows 一键安装脚本会准备 Bun、uv、Python 工具依赖、Playwright Chromium 和 WebUI。
 - macOS 可按 `docs/py31210.md` 手工跑通开发环境。
 - 真实 `.env`、本机 `.env.local`、业务 Excel 模板和本地数据库不提交 Git。
 
@@ -62,8 +63,9 @@ LXE update
 ## 开发检查
 
 ```bash
-uv sync --frozen --all-groups --python 3.12.10
-uv run --frozen pytest
+bun install --frozen-lockfile
+bun run verify:migration
+bun run verify
 ```
 
 ## License

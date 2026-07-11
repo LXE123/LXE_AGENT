@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from shared.logging import get_logger
+from services.browser.store.agent_tool_state import load_tool_state
 
 
 logger = get_logger(__name__)
@@ -69,9 +70,9 @@ async def _execute(request: dict[str, Any]) -> dict[str, Any]:
     if tool_name not in _ALLOWED_TOOLS:
         return _response(call_id, ok=False, error={"code": "unknown_tool", "message": f"unsupported Python tool: {tool_name}"})
 
-    from agent_runtime.packs.browser.tools import browser_tool_names
-    from agent_runtime.tool_executor import ToolExecutionContext, clear_tool_context, make_browser_tool_handler, set_tool_context
     from services.browser.store.ziniao_config import ziniao_tool_config_status
+    from services.browser.tools import client as browser_client
+    from services.browser.tools.schema import browser_tool_names
 
     configured, reason = ziniao_tool_config_status()
     if not configured:
@@ -80,29 +81,39 @@ async def _execute(request: dict[str, Any]) -> dict[str, Any]:
         return _response(call_id, ok=False, error={"code": "unknown_tool", "message": f"unknown browser tool: {tool_name}"})
 
     session_data = dict(request.get("session") or {})
+    session_id = str(session_data.get("session_id") or "")
+    state_data = load_tool_state(session_id)
+    if state_data is None:
+        return _response(call_id, ok=False, error={
+            "code": "session_not_found",
+            "message": f"agent session not found: {session_id}",
+        })
     session = SimpleNamespace(
-        session_id=str(session_data.get("session_id") or ""),
+        session_id=session_id,
         source={},
-        state_data={},
+        state_data=state_data,
     )
-    context = ToolExecutionContext(
-        session=session,
-        state_data={},
-        turn_id=call_id,
-        response_route_id=str(session_data.get("response_route_id") or ""),
+    result = await browser_client.execute_browser_tool(
+        tool_name,
+        dict(request.get("arguments") or {}),
+        session,
     )
-    set_tool_context(context)
-    try:
-        result = await make_browser_tool_handler(tool_name)(**dict(request.get("arguments") or {}))
-    finally:
-        clear_tool_context()
+    if not result.success:
+        return _response(
+            call_id,
+            ok=False,
+            error={
+                "code": str(result.error_code or "browser_tool_failed"),
+                "message": str(result.error_message or f"{tool_name} execution failed"),
+            },
+        )
     content = [dict(item or {}) for item in list(result.content or [])]
     return _response(
         call_id,
         ok=True,
         content=content,
-        state_patch=dict(context.state_data or {}),
-        files=_files_from_content(content),
+        state_patch=dict(result.state_patch or {}),
+        files=list(result.files or _files_from_content(content)),
     )
 
 

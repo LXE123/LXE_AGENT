@@ -16,6 +16,7 @@ export interface CodingToolOptions {
   workspaceRoot: string;
   maxOutputChars?: number;
   sendFile?: (request: { path: string; session_id: string; response_route_id: string }) => Promise<void>;
+  onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
 }
 
 type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
@@ -25,6 +26,7 @@ interface ProcessEntry {
   command: string;
   cwd: string;
   sessionId: string;
+  responseRouteId: string;
   startedAt: number;
   endedAt?: number;
   process: ReturnType<typeof Bun.spawn>;
@@ -35,6 +37,7 @@ interface ProcessEntry {
   truncated: boolean;
   completion: Promise<void>;
   timeout?: ReturnType<typeof setTimeout>;
+  notifyOnExit: boolean;
 }
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
@@ -109,6 +112,7 @@ export class CodingProcessManager {
     command: string;
     cwd: string;
     sessionId: string;
+    responseRouteId: string;
     background: boolean;
     yieldMs: number;
     timeoutMs?: number;
@@ -131,6 +135,7 @@ export class CodingProcessManager {
       command: request.command,
       cwd: request.cwd,
       sessionId: request.sessionId,
+      responseRouteId: request.responseRouteId,
       startedAt: Date.now() / 1_000,
       process: child,
       status: "running" as ProcessStatus,
@@ -139,6 +144,7 @@ export class CodingProcessManager {
       pending: "",
       truncated: false,
       completion: Promise.resolve(),
+      notifyOnExit: request.background,
     };
     this.entries.set(id, entry);
     const append = (value: string): void => {
@@ -167,6 +173,7 @@ export class CodingProcessManager {
       entry.endedAt = Date.now() / 1_000;
       if (entry.status === "running") entry.status = exitCode === 0 ? "completed" : "failed";
       if (entry.timeout) clearTimeout(entry.timeout);
+      if (entry.notifyOnExit) await this.onComplete?.(this.snapshot(entry));
     })();
     if (!request.background && request.timeoutMs) {
       entry.timeout = setTimeout(() => {
@@ -185,6 +192,7 @@ export class CodingProcessManager {
     request.handle.signal.addEventListener("abort", abort, { once: true });
     try {
       await Promise.race([entry.completion, Bun.sleep(request.yieldMs)]);
+      if (entry.status === "running") entry.notifyOnExit = true;
       return this.snapshot(entry);
     } finally {
       request.handle.signal.removeEventListener("abort", abort);
@@ -238,6 +246,7 @@ export class CodingProcessManager {
       task_id: entry.id,
       session: entry.id,
       session_id: entry.sessionId,
+      response_route_id: entry.responseRouteId,
       session_title: "",
       origin_turn_id: "",
       card_id: "",
@@ -254,12 +263,15 @@ export class CodingProcessManager {
       output_tail: entry.output.slice(-2_000),
     };
   }
+
+  onComplete: ((snapshot: JsonObject) => Promise<void> | void) | undefined;
 }
 
 export function registerCodingTools(registry: ToolRegistry, options: CodingToolOptions): CodingProcessManager {
   const root = resolve(options.workspaceRoot);
   const limit = Math.max(1_000, Math.trunc(options.maxOutputChars ?? 200_000));
   const processes = new CodingProcessManager({ maxOutputChars: limit });
+  processes.onComplete = options.onProcessComplete;
   registry.register({
     name: "read",
     description: "Read a UTF-8 text file from the workspace.",
@@ -370,6 +382,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
         command,
         cwd: safePath(root, input.cwd ?? "."),
         sessionId: context.session_id,
+        responseRouteId: context.response_route_id ?? "",
         background: input.background === true,
         yieldMs: Math.max(1, Number(input.yield_ms ?? 10_000)),
         ...(input.timeout === undefined ? { timeoutMs: 120_000 } : { timeoutMs: Math.max(1, Number(input.timeout) * 1_000) }),

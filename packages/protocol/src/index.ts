@@ -7,7 +7,6 @@ export type {
   JsonValue,
   ToolStep,
   ToolStepStatus,
-  WorkerEnvelope,
 } from "./types";
 export {
   contractSchemas,
@@ -15,5 +14,4 @@ export {
   validateAgentJob,
   validateEmitRequest,
   validateInboundEvent,
-  validateWorkerEnvelope,
 } from "./validation";

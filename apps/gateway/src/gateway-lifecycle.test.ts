@@ -69,8 +69,8 @@ const makeLifecycle = (
     pollerStartFailure?: boolean;
     stateFailure?: boolean;
     statusWriteFailure?: boolean;
-    workerStartFailure?: boolean;
-    workerStopFailure?: boolean;
+    runtimeStartFailure?: boolean;
+    runtimeStopFailure?: boolean;
   } = {},
 ) => {
   const calls: string[] = [];
@@ -79,22 +79,21 @@ const makeLifecycle = (
   channels.failStart = options.channelFailure ?? false;
   channels.failStop = options.channelStopFailure ?? false;
   channels.startGate = options.channelStartGate;
-  const worker = {
+  const runtime = {
     isReady: false,
-    workerPid: 999,
     async start() {
-      calls.push("worker.start");
-      if (options.workerStartFailure) throw new Error("worker start failed");
+      calls.push("runtime.start");
+      if (options.runtimeStartFailure) throw new Error("runtime start failed");
       this.isReady = true;
     },
     failActiveRuns() {
-      calls.push("worker.fail-active");
+      calls.push("runtime.fail-active");
     },
     async stop() {
-      calls.push("worker.stop");
+      calls.push("runtime.stop");
       this.isReady = false;
-      if (options.workerStopFailure) {
-        throw new Error("worker stop failed");
+      if (options.runtimeStopFailure) {
+        throw new Error("runtime stop failed");
       }
     },
   };
@@ -136,7 +135,7 @@ const makeLifecycle = (
         }
       },
     },
-    worker,
+    runtime,
     scheduler: {
       setRuntimeReady(ready) {
         calls.push(`scheduler.ready:${ready}`);
@@ -164,11 +163,11 @@ const makeLifecycle = (
       ingested.push(event.message_id);
     },
   });
-  return { lifecycle, calls, channels, heartbeat, worker, ingested };
+  return { lifecycle, calls, channels, heartbeat, runtime, ingested };
 };
 
 describe("GatewayLifecycle", () => {
-  test("binds state and Dashboard and handshakes worker before channels", async () => {
+  test("binds state and Dashboard and starts the in-process Runtime before channels", async () => {
     const { lifecycle, calls, channels, ingested } = makeLifecycle();
     await lifecycle.start();
 
@@ -177,7 +176,7 @@ describe("GatewayLifecycle", () => {
       "status.write",
       "status.poll-start",
       "dashboard.start",
-      "worker.start",
+      "runtime.start",
       "heartbeat.start",
       "channels.wire",
       "channels.start",
@@ -194,13 +193,13 @@ describe("GatewayLifecycle", () => {
     const health = await lifecycle.healthSnapshot();
     expect(health.ready).toBe(false);
     expect(health.last_error).toContain("channel failed");
-    expect(calls).toContain("worker.stop");
+    expect(calls).toContain("runtime.stop");
   });
 
   test("does not connect channels if Dashboard binding fails", async () => {
     const { lifecycle, calls } = makeLifecycle({ dashboardBound: false });
     await expect(lifecycle.start()).rejects.toThrow("Dashboard");
-    expect(calls).not.toContain("worker.start");
+    expect(calls).not.toContain("runtime.start");
     expect(calls).not.toContain("channels.start");
     expect((await lifecycle.healthSnapshot()).ready).toBe(false);
   });
@@ -209,7 +208,7 @@ describe("GatewayLifecycle", () => {
     const { lifecycle, calls } = makeLifecycle({ stateFailure: true });
     await expect(lifecycle.start()).rejects.toThrow("state path is read-only");
     expect(calls).not.toContain("dashboard.start");
-    expect(calls).not.toContain("worker.start");
+    expect(calls).not.toContain("runtime.start");
     const health = await lifecycle.healthSnapshot();
     expect(health.ready).toBe(false);
     expect(health.state_storage_usable).toBe(false);
@@ -219,13 +218,13 @@ describe("GatewayLifecycle", () => {
     ["status", { statusWriteFailure: true }, "status write failed"],
     ["poller", { pollerStartFailure: true }, "poller start failed"],
     ["Dashboard", { dashboardStartFailure: true }, "dashboard start failed"],
-    ["worker", { workerStartFailure: true }, "worker start failed"],
+    ["runtime", { runtimeStartFailure: true }, "runtime start failed"],
     ["heartbeat", { heartbeatStartFailure: true }, "heartbeat start failed"],
     ["channel", { channelFailure: true }, "channel failed"],
   ] as const)("best-effort teardown preserves the original %s startup error", async (_label, options, message) => {
     const { lifecycle, calls } = makeLifecycle(options);
     await expect(lifecycle.start()).rejects.toThrow(message);
-    expect(calls).toContain("worker.stop");
+    expect(calls).toContain("runtime.stop");
     expect(calls).toContain("status.clear");
     if (!("statusWriteFailure" in options)) expect(calls).toContain("status.poll-stop");
     if ("dashboardStartFailure" in options) expect(calls).toContain("dashboard.stop");
@@ -242,10 +241,10 @@ describe("GatewayLifecycle", () => {
     expect(calls).toEqual([
       "channels.stop",
       "scheduler.ready:false",
-      "worker.fail-active",
+      "runtime.fail-active",
       "heartbeat.stop",
       "dashboard.stop",
-      "worker.stop",
+      "runtime.stop",
       "status.poll-stop",
       "status.clear",
     ]);
@@ -260,7 +259,7 @@ describe("GatewayLifecycle", () => {
       channelStopFailure: true,
       heartbeatStopFailure: true,
       dashboardStopFailure: true,
-      workerStopFailure: true,
+      runtimeStopFailure: true,
     });
     await lifecycle.start();
     calls.length = 0;
@@ -269,23 +268,23 @@ describe("GatewayLifecycle", () => {
     expect(calls).toEqual([
       "channels.stop",
       "scheduler.ready:false",
-      "worker.fail-active",
+      "runtime.fail-active",
       "heartbeat.stop",
       "dashboard.stop",
-      "worker.stop",
+      "runtime.stop",
       "status.poll-stop",
       "status.clear",
     ]);
     expect((await lifecycle.healthSnapshot()).last_error).toContain("channels stop failed");
   });
 
-  test("dynamic worker and channel health make readiness false and reject new ingress", async () => {
-    const { lifecycle, channels, worker } = makeLifecycle();
+  test("dynamic Runtime and channel health make readiness false and reject new ingress", async () => {
+    const { lifecycle, channels, runtime } = makeLifecycle();
     await lifecycle.start();
-    worker.isReady = false;
+    runtime.isReady = false;
     expect((await lifecycle.healthSnapshot()).ready).toBe(false);
     await expect(channels.sink!(inboundEvent())).rejects.toBeInstanceOf(IngressClosedError);
-    worker.isReady = true;
+    runtime.isReady = true;
     channels.health = { test: { ready: false, error: "offline" } };
     expect((await lifecycle.healthSnapshot()).ready).toBe(false);
   });

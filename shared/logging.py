@@ -42,16 +42,6 @@ def _short_context_value(value: str, *, limit: int = 8) -> str:
 
 def _display_logger_name(name: str) -> str:
     safe_name = str(name or "root").strip() or "root"
-    if safe_name.startswith("agent_runtime."):
-        first_segment = safe_name.removeprefix("agent_runtime.").split(".", 1)[0]
-        if first_segment.endswith("_logging"):
-            first_segment = first_segment[: -len("_logging")]
-        return f"agent.{first_segment or 'runtime'}"
-    if safe_name.startswith("platforms.feishu."):
-        first_segment = safe_name.removeprefix("platforms.feishu.").split(".", 1)[0]
-        if first_segment.endswith("_sender"):
-            first_segment = first_segment[: -len("_sender")]
-        return f"feishu.{first_segment or 'gateway'}"
     return safe_name
 
 

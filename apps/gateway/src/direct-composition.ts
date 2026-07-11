@@ -12,7 +12,7 @@ import { SessionRouter } from "./router";
 import { HeartbeatWakeQueue, RunHandle, SessionScheduler, type RuntimePort, type SteeringMessage } from "./scheduler";
 import { SessionBindingStore } from "./session-bindings";
 import { SessionRuntimeState } from "./session-state";
-import type { ResponseRoutePatch, ResponseRouteRecord } from "./worker-supervisor";
+import type { ResponseRoutePatch, ResponseRouteRecord } from "./models";
 
 export interface DirectRuntimeOutcome {
   status: "completed" | "cancelled" | "error";
@@ -170,7 +170,6 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   let runtimeReady = false;
   const runtimeLifecycle = {
     get isReady(): boolean { return runtimeReady; },
-    get workerPid(): undefined { return undefined; },
     start: async (): Promise<void> => {
       await options.runtime.start();
       runtimeReady = true;
@@ -190,7 +189,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     bootId: options.bootId ?? randomUUID().replaceAll("-", ""),
     state: bindings,
     dashboard: options.dashboard,
-    worker: runtimeLifecycle,
+    runtime: runtimeLifecycle,
     scheduler,
     heartbeat: heartbeatBridge,
     channels,

@@ -204,7 +204,7 @@ function Get-ProjectRoot {
 function Invoke-LauncherSetup {
     param(
         [Parameter(Mandatory = $true)][string]$ProjectRoot,
-        [Parameter(Mandatory = $true)][string]$UvPath
+        [Parameter(Mandatory = $true)][string]$BunPath
     )
     if ($NoPath) {
         $env:LXE_LAUNCHER_NO_PATH = "1"
@@ -212,7 +212,7 @@ function Invoke-LauncherSetup {
     else {
         $env:LXE_LAUNCHER_NO_PATH = "0"
     }
-    $launcherArgs = @("-ProjectRoot", $ProjectRoot, "-UvPath", $UvPath)
+    $launcherArgs = @("-ProjectRoot", $ProjectRoot, "-BunPath", $BunPath)
     if ($NoPath) {
         $launcherArgs += "-NoPath"
     }
@@ -253,11 +253,13 @@ catch {
 }
 
 $uv = Resolve-Uv -InstallIfMissing
+$bun = Resolve-Bun -Version "1.3.14" -InstallIfMissing
 $project = Get-ProjectRoot -GitPath $git
 $ProjectRoot = [string]$project["Path"]
 
 Set-Location $ProjectRoot
 Write-Host "Using uv: $uv"
+Write-Host "Using Bun 1.3.14: $bun"
 if (-not [string]::IsNullOrWhiteSpace($git)) {
     Write-Host "Using git: $git"
 }
@@ -269,13 +271,14 @@ Ensure-Python -UvPath $uv -Version $PythonVersion
 
 Invoke-NativeChecked -Label "uv sync" -FilePath $uv -Arguments @("sync", "--frozen", "--all-groups", "--python", $PythonVersion)
 Invoke-NativeChecked -Label "Playwright Chromium installation" -FilePath $uv -Arguments @("run", "--frozen", "python", "-m", "playwright", "install", "chromium")
+Invoke-NativeChecked -Label "Bun frozen workspace install" -FilePath $bun -Arguments @("install", "--frozen-lockfile")
 
 $webuiExit = Invoke-PowerShellFile -ScriptPath (Join-Path $ProjectRoot "scripts\webui.ps1") -Arguments @("-Build")
 if ($webuiExit -ne 0) {
     throw "Dashboard UI build failed with exit code $webuiExit."
 }
 
-Invoke-LauncherSetup -ProjectRoot $ProjectRoot -UvPath $uv
+Invoke-LauncherSetup -ProjectRoot $ProjectRoot -BunPath $bun
 
 $doctorExit = Invoke-PowerShellFile -ScriptPath (Join-Path $ProjectRoot "scripts\doctor.ps1")
 if ($doctorExit -ne 0) {

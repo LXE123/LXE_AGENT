@@ -68,24 +68,17 @@ def _read_payload(capsys) -> dict:
     return json.loads(output[-1])
 
 
-def _patch_file_delivery(monkeypatch, saved_markdowns: list[str]) -> list[tuple[str, Path, str]]:
-    sent_files: list[tuple[str, Path, str]] = []
-
+def _patch_artifact_store(monkeypatch, saved_markdowns: list[str]) -> None:
     def fake_save_artifacts(markdown: str, _name: str, _kind: str) -> Path:
         saved_markdowns.append(markdown)
         return Path(r"D:\fake\channel_pricing.md")
 
-    async def fake_send_file(session_id: str, path: Path, *, response_route_id: str = "") -> None:
-        sent_files.append((session_id, path, response_route_id))
-
     monkeypatch.setattr(cli, "save_artifacts", fake_save_artifacts)
-    monkeypatch.setattr(cli, "send_file_to_current_session", fake_send_file)
-    return sent_files
 
 
-def test_single_quote_uses_remote_api_and_sends_markdown(monkeypatch):
+def test_single_quote_uses_remote_api_and_returns_markdown_file(monkeypatch):
     saved_markdowns: list[str] = []
-    sent_files = _patch_file_delivery(monkeypatch, saved_markdowns)
+    _patch_artifact_store(monkeypatch, saved_markdowns)
     quote_calls: list[dict] = []
 
     def fake_load_boxes(consignment_no: str):
@@ -101,8 +94,6 @@ def test_single_quote_uses_remote_api_and_sends_markdown(monkeypatch):
 
     result = asyncio.run(
         cli._run_single_mode(
-            session_id="session-1",
-            response_route_id="route-1",
             shipment_no="FBAABCD1",
             consignment_no="SP001",
             destination_address="ONT8, CA 92551, US",
@@ -131,12 +122,12 @@ def test_single_quote_uses_remote_api_and_sends_markdown(monkeypatch):
     }
     assert len(saved_markdowns) == 1
     assert "Remote Channel FBAABCD1" in saved_markdowns[0]
-    assert sent_files == [("session-1", Path(r"D:\fake\channel_pricing.md"), "route-1")]
+    assert result["files"] == [r"D:\fake\channel_pricing.md"]
 
 
 def test_batch_quote_calls_remote_api_once_per_tsv_row(monkeypatch):
     saved_markdowns: list[str] = []
-    sent_files = _patch_file_delivery(monkeypatch, saved_markdowns)
+    _patch_artifact_store(monkeypatch, saved_markdowns)
     quote_calls: list[dict] = []
 
     def fake_load_boxes(consignment_no: str):
@@ -147,8 +138,6 @@ def test_batch_quote_calls_remote_api_once_per_tsv_row(monkeypatch):
         quote_calls.append(payload)
         return _quote_response(payload)
 
-    monkeypatch.setenv("LXE_AGENT_SESSION_ID", "session-2")
-    monkeypatch.setenv("LXE_RESPONSE_ROUTE_ID", "route-2")
     monkeypatch.setattr(cli, "load_pricing_boxes_from_local_excel", fake_load_boxes)
     monkeypatch.setattr(cli, "quote_pricing", fake_quote_pricing)
 
@@ -188,7 +177,7 @@ def test_batch_quote_calls_remote_api_once_per_tsv_row(monkeypatch):
     assert len(saved_markdowns) == 1
     assert "Remote Channel FBAABCD1" in saved_markdowns[0]
     assert "Remote Channel FBAABCD2" in saved_markdowns[0]
-    assert sent_files == [("session-2", Path(r"D:\fake\channel_pricing.md"), "route-2")]
+    assert result["files"] == [r"D:\fake\channel_pricing.md"]
 
 
 def test_remote_quote_failure_returns_cli_error(monkeypatch, capsys):
@@ -198,7 +187,6 @@ def test_remote_quote_failure_returns_cli_error(monkeypatch, capsys):
     async def fake_quote_pricing(_payload: dict) -> dict:
         raise RuntimeError("service rejected quote")
 
-    monkeypatch.setenv("LXE_AGENT_SESSION_ID", "session-3")
     monkeypatch.setattr(
         cli.sys,
         "argv",
@@ -213,7 +201,6 @@ def test_remote_quote_failure_returns_cli_error(monkeypatch, capsys):
         ],
     )
     monkeypatch.setattr(cli, "configure_utf8_stdio", lambda: None)
-    monkeypatch.setattr(cli, "_configure_emit", lambda: None)
     monkeypatch.setattr(cli, "load_pricing_boxes_from_local_excel", fake_load_boxes)
     monkeypatch.setattr(cli, "quote_pricing", fake_quote_pricing)
     monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
@@ -260,3 +247,12 @@ def test_batch_box_count_mismatch_does_not_call_remote_api(monkeypatch):
         asyncio.run(cli._run_async(args))
 
     assert quote_calls == []
+
+
+def test_logistics_skill_sends_each_returned_file_through_typescript_tool() -> None:
+    skill_path = Path(__file__).resolve().parents[1] / "skills" / "fba-logistics-select" / "SKILL.md"
+    text = skill_path.read_text(encoding="utf-8")
+
+    assert "`files`" in text
+    assert "`send_file`" in text
+    assert "不要重跑 CLI" in text

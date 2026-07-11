@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteRuntimeStore } from "../src/storage";
@@ -10,6 +10,46 @@ afterEach(() => {
 });
 
 describe("SqliteRuntimeStore", () => {
+  test("replays legacy tool messages, replacements, and session_messages fallback", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-runtime-legacy-store-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
+    await store.start();
+
+    mkdirSync(join(root, "session_messages"), { recursive: true });
+    writeFileSync(join(root, "session_messages", "fallback.jsonl"), [
+      JSON.stringify({ role: "assistant", content: [{ type: "tool_call", id: "call-1", name: "echo", arguments: { text: "hi" } }] }),
+      JSON.stringify({ role: "tool", content: [{ type: "tool_result", tool_call_id: "call-1", content: "ok" }] }),
+      "",
+    ].join("\n"), "utf8");
+    expect(await store.loadMessages("fallback")).toEqual([
+      { role: "assistant", content: [{ type: "tool_use", id: "call-1", name: "echo", input: { text: "hi" } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "call-1", content: "ok" }] },
+    ]);
+
+    mkdirSync(join(root, "session_transcripts"), { recursive: true });
+    writeFileSync(join(root, "session_transcripts", "replacement.jsonl"), [
+      JSON.stringify({ kind: "message", message: { role: "user", content: "discard me" } }),
+      JSON.stringify({
+        kind: "compaction",
+        replacement_history: [
+          { role: "user", content: "summary" },
+          { role: "assistant", content: [{ type: "tool_call", id: "call-2", name: "echo", arguments: {} }] },
+          { role: "tool", content: [{ type: "tool_result", tool_call_id: "call-2", content: "done" }] },
+        ],
+      }),
+      JSON.stringify({ kind: "message", message: { role: "user", content: "after" } }),
+      "",
+    ].join("\n"), "utf8");
+    expect(await store.loadMessages("replacement")).toEqual([
+      { role: "user", content: "summary" },
+      { role: "assistant", content: [{ type: "tool_use", id: "call-2", name: "echo", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "call-2", content: "done" }] },
+      { role: "user", content: "after" },
+    ]);
+    await store.stop();
+  });
+
   test("round-trips existing session, route, pending-event, and transcript shapes", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-store-"));
     roots.push(root);
@@ -30,11 +70,21 @@ describe("SqliteRuntimeStore", () => {
     ]);
     await store.appendMessage("s1", { role: "user", content: "hello" }, "turn_input");
     await store.appendMessage("s1", { role: "assistant", content: "world" }, "turn_output");
+    await store.patchSessionState("s1", { browser: { session_id: "remote-1", page: 1 } });
+    await store.patchSessionState("s1", { browser: { page: 2 }, amazon: { shipment_id: "FBA1" } });
     expect(await store.loadMessages("s1")).toEqual([
       { role: "user", content: "hello" },
       { role: "assistant", content: "world" },
     ]);
-    expect(await store.getSession("s1")).toEqual(expect.objectContaining({ session_id: "s1" }));
+    expect(await store.getSession("s1")).toEqual(expect.objectContaining({
+      session_id: "s1",
+      source: expect.objectContaining({
+        tool_state: {
+          browser: { session_id: "remote-1", page: 2 },
+          amazon: { shipment_id: "FBA1" },
+        },
+      }),
+    }));
     expect(await store.getResponseRoute("r1")).toEqual(expect.objectContaining({
       response_route_id: "r1",
       owner_user_id: "u1",

@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { JsonObject } from "@lxe/protocol";
 import { registerCodingTools } from "../src/coding-tools";
 import { ToolRegistry } from "../src/tools";
+import { registerToolSearch } from "../src/tool-search";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -49,7 +51,8 @@ describe("native coding tools", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-process-"));
     roots.push(root);
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const completed: JsonObject[] = [];
+    const processes = registerCodingTools(registry, { workspaceRoot: root, onProcessComplete: async (snapshot) => { completed.push(snapshot); } });
     const started = await registry.execute("exec", {
       command: "Start-Sleep -Milliseconds 80; Write-Output done",
       background: true,
@@ -62,8 +65,17 @@ describe("native coding tools", () => {
     const polled = JSON.parse(String((await registry.execute("process", { action: "poll", session: payload.session }, context())).content[0]?.text));
     expect(polled.status).toBe("completed");
     expect(polled.output).toContain("done");
+    expect(completed).toEqual([expect.objectContaining({ session: payload.session, status: "completed" })]);
     await registry.execute("process", { action: "remove", session: payload.session }, context());
     expect(processes.snapshots()).toHaveLength(0);
     await processes.stop();
+  });
+
+  test("tool search discovers tools by name, description, and parameters", async () => {
+    const registry = new ToolRegistry();
+    registry.register({ name: "inventory_lookup", description: "Find stock by SKU", input_schema: { type: "object", properties: { sku: { type: "string" } } }, execute: async () => ({ content: [] }) });
+    registerToolSearch(registry);
+    const found = await registry.execute("tool_search", { query: "stock sku" }, context());
+    expect(JSON.parse(String(found.content[0]?.text)).tools).toEqual([expect.objectContaining({ name: "inventory_lookup" })]);
   });
 });

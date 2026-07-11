@@ -132,25 +132,6 @@ if not (root / ".env").is_file():
     warn("Optional .env is missing; runtime will rely on system environment variables for secret/private values. LXE start may fail if required values are not configured.")
 
 try:
-    from platforms.feishu.config import feishu_missing_required_config
-
-    missing = feishu_missing_required_config()
-    if missing:
-        warn("Feishu runtime config missing: " + ", ".join(missing) + ". LXE start will fail until these values are configured.")
-except Exception as exc:
-    warn(f"Could not inspect Feishu runtime config: {exc}")
-
-try:
-    from shared.llm.agent_planner import active_agent_planner_descriptor
-
-    try:
-        active_agent_planner_descriptor()
-    except Exception as exc:
-        warn(f"Agent LLM runtime config warning: {exc}")
-except Exception as exc:
-    warn(f"Could not inspect agent LLM runtime config: {exc}")
-
-try:
     from services.mabang import config as mabang_config
 
     missing = [
@@ -184,7 +165,9 @@ except Exception as exc:
 
     Write-Host "Checking: runtime configuration warnings"
     $runtimeCheckPath = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-runtime-warning-check-" + [Guid]::NewGuid().ToString("N") + ".py")
+    $previousPythonPath = [string]$env:PYTHONPATH
     try {
+        $env:PYTHONPATH = if ([string]::IsNullOrWhiteSpace($previousPythonPath)) { $ProjectRoot } else { "$ProjectRoot$([System.IO.Path]::PathSeparator)$previousPythonPath" }
         Set-Content -LiteralPath $runtimeCheckPath -Value $runtimeCheck -Encoding UTF8
         $probeResult = Invoke-LxeNativeCapture -FilePath $UvPath -Arguments @(
             "run",
@@ -200,6 +183,7 @@ except Exception as exc:
         }
     }
     finally {
+        $env:PYTHONPATH = $previousPythonPath
         if (Test-Path -LiteralPath $runtimeCheckPath) {
             Remove-Item -LiteralPath $runtimeCheckPath -Force -ErrorAction SilentlyContinue
         }
@@ -207,8 +191,11 @@ except Exception as exc:
 }
 
 $uv = Resolve-Uv
+$bun = Resolve-Bun -Version "1.3.14"
 $powershell = Resolve-PowerShell
 
+Require-Path (Join-Path $ProjectRoot "package.json")
+Require-Path (Join-Path $ProjectRoot "bun.lock")
 Require-Path (Join-Path $ProjectRoot "pyproject.toml")
 Require-Path (Join-Path $ProjectRoot "uv.lock")
 Require-Path (Join-Path $ProjectRoot ".env.example")
@@ -219,6 +206,30 @@ Warn-LocalBusinessDataFile "data\export_tax\export_tax_products.xlsx"
 Warn-LocalBusinessDataFile "data\invoice_Template\invoice_Template.xlsx"
 Warn-LauncherStatus
 Warn-DwsStatus
+
+$bunVersion = Invoke-LxeNativeCapture -FilePath $bun -Arguments @("--version")
+if ($bunVersion.ExitCode -ne 0 -or (($bunVersion.Stdout -join "`n").Trim() -ne "1.3.14")) {
+    throw "Bun 1.3.14 is required. Found: $(($bunVersion.Stdout -join ' ').Trim())"
+}
+
+function Invoke-BunRuntimeWarningProbe {
+    param([Parameter(Mandatory = $true)][string]$BunPath)
+
+    Write-Host "Checking: Bun production runtime configuration"
+    $probeResult = Invoke-LxeNativeCapture -FilePath $BunPath -Arguments @(
+        "run",
+        "apps/gateway/src/check-runtime-config.ts"
+    )
+    $probeLines = @($probeResult.Stdout) + @($probeResult.Stderr)
+    Write-ProbeLines -Lines $probeLines
+    if ($probeResult.ExitCode -ne 0) {
+        Write-Warning "Bun production runtime configuration probe failed with exit code $($probeResult.ExitCode)."
+    }
+}
+Write-Host "Checking: Bun 1.3.14"
+Invoke-NativeChecked -Label "Bun frozen workspace install" -FilePath $bun -Arguments @("install", "--frozen-lockfile") -Verb "Checking"
+Invoke-NativeChecked -Label "Bun production boundary" -FilePath $bun -Arguments @("run", "check:ts-boundary") -Verb "Checking"
+Invoke-NativeChecked -Label "Bun workspace typecheck" -FilePath $bun -Arguments @("run", "typecheck") -Verb "Checking"
 
 Invoke-NativeChecked -Label "uv lock" -FilePath $uv -Arguments @("lock", "--check") -Verb "Checking"
 Invoke-NativeChecked -Label "uv sync" -FilePath $uv -Arguments @("sync", "--frozen", "--all-groups", "--python", $PythonVersion, "--check") -Verb "Checking"
@@ -236,7 +247,7 @@ Invoke-NativeChecked -Label "critical imports" -FilePath $uv -Arguments @(
     "--frozen",
     "python",
     "-c",
-    "import psycopg, pandas, playwright; print('imports ok')"
+    "import aiohttp, bs4, openpyxl, pandas, PIL, playwright, requests, selenium, urllib3, xlrd, yaml; print('tool imports ok')"
 ) -Verb "Checking"
 
 $playwrightCheck = @'
@@ -278,5 +289,6 @@ Invoke-NativeChecked -Label "Dashboard UI" -FilePath $powershell -Arguments @(
 ) -Verb "Checking"
 
 Invoke-RuntimeWarningProbe -UvPath $uv
+Invoke-BunRuntimeWarningProbe -BunPath $bun
 
 Write-Host "Doctor checks passed."

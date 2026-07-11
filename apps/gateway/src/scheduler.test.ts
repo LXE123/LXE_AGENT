@@ -82,12 +82,12 @@ describe("RunHandle", () => {
 });
 
 describe("SessionScheduler", () => {
-  test("keeps a rejected start active until the supervisor terminates it while unhealthy", async () => {
+  test("keeps a rejected start active until the Runtime terminates it while unhealthy", async () => {
     const startFailures: Array<{ runId: string; error: unknown }> = [];
     const runtime = new RecordingRuntime();
     runtime.startTurn = async (value: AgentJob): Promise<void> => {
       runtime.started.push(value);
-      if (value.job_id === "j1") throw new Error("worker exited");
+      if (value.job_id === "j1") throw new Error("runtime unavailable");
     };
     const scheduler = new SessionScheduler({
       runtime,
@@ -176,7 +176,7 @@ describe("SessionScheduler", () => {
     expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "j2"]);
   });
 
-  test("requeues non-cancelled remaining steering at the front with Python job semantics", async () => {
+  test("requeues non-cancelled remaining steering at the front with compatible job semantics", async () => {
     const runtime = new RecordingRuntime();
     const scheduler = new SessionScheduler({
       runtime,
@@ -339,7 +339,7 @@ describe("SessionScheduler", () => {
 });
 
 describe("HeartbeatWakeQueue", () => {
-  test("coalesces by session and creates scheduler jobs with Python fields", async () => {
+  test("coalesces by session and creates scheduler jobs with compatible fields", async () => {
     const runtime = new RecordingRuntime();
     const scheduler = new SessionScheduler({ runtime, maxConcurrency: 2 });
     const wakes = new HeartbeatWakeQueue({

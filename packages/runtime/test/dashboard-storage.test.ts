@@ -18,7 +18,11 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     await store.ensureSession({ session_id: "s-1", source: { platform: "feishu", chat_type: "p2p" } });
     await store.appendMessage("s-1", { role: "user", content: "hello" });
     await store.appendMessage("s-1", { role: "assistant", content: "world" });
-    await store.recordTurn("s-1", { input_tokens: 7, output_tokens: 3, tool_calls: 2, api_calls: 1 });
+    await store.recordTurn("s-1", {
+      turn_id: "turn-1", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 20,
+      input_tokens: 7, output_tokens: 3, tool_calls: 2, api_calls: 1,
+      tools: [{ name: "read", calls: 2, errors: 0, duration_ms: 5 }],
+    });
 
     const listed = store.listSessions({ limit: 20, offset: 0, query: "s-1" });
     expect(listed.total).toBe(1);
@@ -29,6 +33,8 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     expect(detail?.messages).toEqual([{ role: "assistant", content: "world" }]);
     expect(detail?.messages_page).toMatchObject({ total: 2, current_page: 2, total_pages: 2, has_previous: true, has_next: false });
     expect(await store.sessionDetail("missing", { limit: 10 })).toBeUndefined();
+    expect(store.usageOverview(30)).toMatchObject({ totals: { turns: 1, tool_calls: 2, llm_calls: 1, input_tokens: 7, output_tokens: 3 } });
+    expect(store.toolUsageStats(30)).toEqual([expect.objectContaining({ name: "read", calls: 2, errors: 0 })]);
     await store.stop();
   });
 });

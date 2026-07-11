@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import sys
 from typing import Any
 
@@ -21,7 +20,6 @@ from services.amazon.amazon_logistic.input.validator import (
 from services.amazon.amazon_logistic.remote_client import quote_pricing
 from services.amazon.amazon_logistic.sources.consignment_excel import load_pricing_boxes_from_local_excel
 from shared.infra.net import close_all_network_clients
-from shared.runtime_core.utils import send_file_to_current_session
 
 from . import defaults
 from shared.logging import setup_logging
@@ -32,12 +30,21 @@ class JsonArgumentParser(argparse.ArgumentParser):
         raise ValueError(str(message or "").strip() or "参数解析失败")
 
 
-def _result(*, success: bool, message: str, exception: str = "") -> dict[str, str | bool]:
-    return {
+def _result(
+    *,
+    success: bool,
+    message: str,
+    exception: str = "",
+    files: list[str] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "success": bool(success),
         "message": str(message or "").strip(),
         "exception": str(exception or "").strip(),
     }
+    if files:
+        payload["files"] = [str(path or "").strip() for path in files if str(path or "").strip()]
+    return payload
 
 
 def _exception_text(exc: Exception) -> str:
@@ -45,19 +52,7 @@ def _exception_text(exc: Exception) -> str:
     return message or exc.__class__.__name__
 
 
-def _resolve_agent_session_id() -> str:
-    return str(os.environ.get("LXE_AGENT_SESSION_ID") or "").strip()
-
-
-def _resolve_response_route_id() -> str:
-    return str(os.environ.get("LXE_RESPONSE_ROUTE_ID") or "").strip()
-
-
-def _configure_emit() -> None:
-    return None
-
-
-def _write_result(payload: dict[str, str | bool]) -> None:
+def _write_result(payload: dict[str, Any]) -> None:
     sys.stdout.write(json.dumps(dict(payload or {}), ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
@@ -198,8 +193,6 @@ def _parse_tsv_input(input_text: str) -> tuple[str, list[dict[str, str]]]:
 
 async def _run_single_mode(
     *,
-    session_id: str,
-    response_route_id: str,
     shipment_no: str,
     consignment_no: str,
     destination_address: str,
@@ -228,25 +221,19 @@ async def _run_single_mode(
         f"{shipment_no}_{consignment_no}",
         "channel_pricing",
     )
-    await send_file_to_current_session(
-        session_id,
-        markdown_path,
-        response_route_id=response_route_id,
-    )
     return _result(
         success=True,
-        message="已完成计算流程，文件已发送。",
+        message="已完成计算流程，文件已生成。",
         exception="",
+        files=[str(markdown_path)],
     )
 
 
 async def _run_batch_mode(
     *,
-    session_id: str,
-    response_route_id: str,
     consignment_no: str,
     rows: list[dict[str, str]],
-) -> dict[str, str | bool]:
+) -> dict[str, Any]:
     _, shared_boxes_payload = load_pricing_boxes_from_local_excel(consignment_no)
     if len(rows) != len(shared_boxes_payload):
         raise RuntimeError(
@@ -280,19 +267,15 @@ async def _run_batch_mode(
         f"batch_{consignment_no}",
         "channel_pricing",
     )
-    await send_file_to_current_session(
-        session_id,
-        markdown_path,
-        response_route_id=response_route_id,
-    )
     return _result(
         success=True,
-        message="已完成计算流程，文件已发送。",
+        message="已完成计算流程，文件已生成。",
         exception="",
+        files=[str(markdown_path)],
     )
 
 
-async def _run_async(args: argparse.Namespace) -> dict[str, str | bool]:
+async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
     input_text = str(getattr(args, "input_text", "") or "")
     shipment_no = str(getattr(args, "shipment_no", "") or "").strip()
     consignment_no = str(getattr(args, "consignment_no", "") or "").strip()
@@ -305,12 +288,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, str | bool]:
 
     if has_input_text:
         parsed_consignment_no, parsed_rows = _parse_tsv_input(input_text)
-        session_id = _resolve_agent_session_id()
-        if not session_id:
-            raise RuntimeError("缺少 LXE_AGENT_SESSION_ID")
         return await _run_batch_mode(
-            session_id=session_id,
-            response_route_id=_resolve_response_route_id(),
             consignment_no=parsed_consignment_no,
             rows=parsed_rows,
         )
@@ -321,13 +299,7 @@ async def _run_async(args: argparse.Namespace) -> dict[str, str | bool]:
         raise ValueError("consignment_no 参数不能为空")
     if not destination_address:
         raise ValueError("destination_address 参数不能为空")
-    session_id = _resolve_agent_session_id()
-    if not session_id:
-        raise RuntimeError("缺少 LXE_AGENT_SESSION_ID")
-
     return await _run_single_mode(
-        session_id=session_id,
-        response_route_id=_resolve_response_route_id(),
         shipment_no=shipment_no,
         consignment_no=consignment_no,
         destination_address=destination_address,
@@ -338,11 +310,10 @@ def main() -> int:
     configure_utf8_stdio()
     setup_logging()
     parser = build_parser()
-    result: dict[str, str | bool]
+    result: dict[str, Any]
 
     try:
         args = parser.parse_args()
-        _configure_emit()
         result = asyncio.run(_run_async(args))
     except Exception as exc:
         result = _result(

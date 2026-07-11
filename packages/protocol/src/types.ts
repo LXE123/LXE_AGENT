@@ -3,7 +3,6 @@ export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export interface JsonObject {
   [key: string]: JsonValue;
 }
-
 export interface InboundEvent {
   platform: string;
   event_type: string;
@@ -64,14 +63,4 @@ export interface EmitRequest {
   stream_type: string;
   state: string;
   seq: number;
-}
-
-export interface WorkerEnvelope<TPayload extends JsonObject = JsonObject> {
-  protocol_version: "1";
-  message_id: string;
-  reply_to: string | null;
-  run_id: string | null;
-  seq: number;
-  kind: string;
-  payload: TPayload;
 }

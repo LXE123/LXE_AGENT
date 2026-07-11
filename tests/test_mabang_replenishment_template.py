@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from agent_runtime.skill_index import load_skill_index
 from services.agent_cli.mabang import replenishment_template as cli
 from services.mabang.amazon.fba import replenishment_template as tmpl
 
@@ -644,15 +643,7 @@ def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> N
     assert payload["template_version"] == 2
 
 
-def test_skill_index_loads_replenishment_algorithm_config_manage() -> None:
-    skill_index = load_skill_index(force_reload=True)
-    manifest = skill_index.get("replenishment-algorithm-config-manage")
-
-    assert manifest is not None
-    assert manifest.name == "replenishment-algorithm-config-manage"
-    assert manifest.type == "amazon_replenish"
-    assert skill_index.get("replenishment-template-manage") is None
-
+def test_replenishment_algorithm_config_skill_contract() -> None:
     template_skill = Path("skills/replenishment-algorithm-config-manage/SKILL.md").read_text(encoding="utf-8")
     calculate_skill = Path("skills/replenishment-calculate/SKILL.md").read_text(encoding="utf-8")
     workflow_skill = Path("skills/replenishment-workflow-map/SKILL.md").read_text(encoding="utf-8")

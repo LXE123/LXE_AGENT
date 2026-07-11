@@ -3,11 +3,9 @@ import {
   validateEmitRequest,
   type EmitRequest,
   type JsonObject,
-  type WorkerEnvelope,
 } from "@lxe/protocol";
 import type { ChannelRegistry } from "./channel";
-import type { OutboundRequest } from "./models";
-import type { ResponseRouteRecord } from "./worker-supervisor";
+import type { OutboundRequest, ResponseRouteRecord } from "./models";
 
 interface EmitterRoutePort {
   getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject } | undefined>;
@@ -27,13 +25,6 @@ export class GatewayEmitter {
 
   constructor(private readonly options: GatewayEmitterOptions) {
     this.uuid = options.uuid ?? (() => randomUUID().replaceAll("-", ""));
-  }
-
-  async handleEmit(event: WorkerEnvelope): Promise<void> {
-    if (event.kind !== "runtime.emit" || !validateEmitRequest(event.payload)) {
-      throw new Error(`invalid runtime.emit payload: ${validateEmitRequest.errors?.[0]?.message ?? "wrong event kind"}`);
-    }
-    await this.emit(event.payload as unknown as EmitRequest);
   }
 
   async emit(emit: EmitRequest): Promise<void> {
@@ -71,23 +62,6 @@ export class GatewayEmitter {
     }
     await this.sendMessage(adapter, emit, context.platform);
     await this.sendFiles(adapter, emit, context.platform);
-  }
-
-  async handleTyping(event: WorkerEnvelope): Promise<void> {
-    const payload = event.payload;
-    const sessionId = safeText(payload.session_id);
-    const responseRouteId = safeText(payload.response_route_id);
-    const operation = safeText(payload.operation);
-    const emitId = safeText(payload.emit_id);
-    if (event.kind !== "runtime.typing" || !sessionId || !responseRouteId) {
-      throw new Error("invalid runtime.typing payload");
-    }
-    await this.typing({
-      session_id: sessionId,
-      response_route_id: responseRouteId,
-      operation,
-      emit_id: emitId,
-    });
   }
 
   async typing(payload: {

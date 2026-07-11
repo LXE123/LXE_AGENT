@@ -1,6 +1,5 @@
 import type { JsonObject, JsonValue } from "@lxe/protocol";
-import type { OutboundRequest } from "../models";
-import type { ResponseRoutePatch } from "../worker-supervisor";
+import type { OutboundRequest, ResponseRoutePatch } from "../models";
 
 export interface FeishuApiPort {
   request(method: string, path: string, body: JsonObject): Promise<JsonObject>;

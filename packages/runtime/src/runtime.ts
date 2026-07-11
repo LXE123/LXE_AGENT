@@ -91,6 +91,24 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     let apiCalls = 0;
     let toolCalls = 0;
     let typingStarted = false;
+    const startedAt = Date.now() / 1_000;
+    const toolUsage = new Map<string, { calls: number; errors: number; duration_ms: number }>();
+    let usageRecorded = false;
+    const recordUsage = async (status: TurnOutcome["status"]): Promise<void> => {
+      if (usageRecorded) return;
+      usageRecorded = true;
+      await this.options.store.recordTurn(job.session_id, {
+        turn_id: job.job_id,
+        started_at: startedAt,
+        status,
+        elapsed_ms: Math.max(0, Math.trunc((Date.now() / 1_000 - startedAt) * 1_000)),
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        tool_calls: toolCalls,
+        api_calls: apiCalls,
+        tools: [...toolUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
+      });
+    };
     try {
       if (job.job_kind === "turn" && job.response_route_id) {
         await this.options.emitter.typing({
@@ -110,8 +128,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       await this.options.store.appendMessage(job.session_id, userMessage, "turn_input");
 
       const maxSteps = Math.max(1, Math.trunc(this.options.maxSteps ?? 32));
+      let streamSequence = 0;
       for (let step = 0; step < maxSteps; step += 1) {
-        if (isCancelled(handle)) return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
+        if (isCancelled(handle)) {
+          await recordUsage("cancelled");
+          return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
+        }
         for (const steering of handle.drainSteering()) {
           const text = String(steering.text ?? "").trim();
           if (!text) continue;
@@ -121,11 +143,37 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
         const providerMessages = pruneMessages(messages, this.options.maxContextMessages ?? 200);
         validateToolCallClosure(providerMessages);
+        let streamedContent = "";
+        let streamedThinking = "";
+        const streamStartedAt = Date.now();
         const response = await this.options.provider.turn({
           system: this.options.systemPrompt,
           messages: providerMessages,
           tools: this.options.tools.schemas(),
           signal: handle.signal,
+          onDelta: async (delta) => {
+            if (isCancelled(handle) || !job.response_route_id) return;
+            streamedContent += String(delta.text ?? "");
+            streamedThinking += String(delta.thinking ?? "");
+            streamSequence += 1;
+            await this.options.emitter.emit({
+              session_id: job.session_id,
+              response_route_id: job.response_route_id,
+              content: streamedContent,
+              thinking: streamedThinking,
+              redacted_thinking_count: 0,
+              thinking_elapsed_ms: streamedThinking ? Date.now() - streamStartedAt : 0,
+              tool_pending: false,
+              tool_elapsed_ms: 0,
+              tool_steps: [],
+              files: [],
+              emit_kind: "stream",
+              emit_id: randomUUID().replaceAll("-", ""),
+              stream_type: "content_block_delta",
+              state: "running",
+              seq: streamSequence,
+            });
+          },
         });
         apiCalls += 1;
         inputTokens += Math.max(0, Math.trunc(response.usage.input_tokens));
@@ -136,32 +184,57 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const calls = toolUseBlocks(response.content);
         if (calls.length === 0) {
           const reply = textContent(response.content);
-          await this.options.store.recordTurn(job.session_id, {
-            input_tokens: inputTokens,
-            output_tokens: outputTokens,
-            tool_calls: toolCalls,
-            api_calls: apiCalls,
-          });
           if (reply && job.response_route_id) await this.options.emitter.emit(this.finalRequest(job, reply));
+          await recordUsage("completed");
           return this.outcome("completed", reply, inputTokens, outputTokens, toolCalls);
         }
 
         const results: ToolResultBlock[] = [];
         for (const call of calls) {
-          if (isCancelled(handle)) return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
+          if (isCancelled(handle)) {
+            await recordUsage("cancelled");
+            return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
+          }
           toolCalls += 1;
+          const startedToolAt = Date.now();
+          const usage = toolUsage.get(call.name) ?? { calls: 0, errors: 0, duration_ms: 0 };
+          usage.calls += 1;
+          toolUsage.set(call.name, usage);
           try {
             const result = await this.options.tools.execute(call.name, call.input, {
               handle,
               session_id: job.session_id,
               response_route_id: job.response_route_id,
             });
+            if (result.state_patch && Object.keys(result.state_patch).length > 0) {
+              await this.options.store.patchSessionState(job.session_id, result.state_patch);
+            }
+            if (result.files?.length && job.response_route_id) {
+              await this.options.emitter.emit({
+                session_id: job.session_id,
+                response_route_id: job.response_route_id,
+                content: "",
+                thinking: "",
+                redacted_thinking_count: 0,
+                thinking_elapsed_ms: 0,
+                tool_pending: false,
+                tool_elapsed_ms: Date.now() - startedToolAt,
+                tool_steps: [],
+                files: result.files,
+                emit_kind: "tool",
+                emit_id: randomUUID().replaceAll("-", ""),
+                stream_type: "tool_result",
+                state: "running",
+                seq: 1,
+              });
+            }
             results.push({
               type: "tool_result",
               tool_use_id: call.id,
               content: result.content,
             });
           } catch (cause) {
+            usage.errors += 1;
             const message = cause instanceof Error ? cause.message : String(cause);
             results.push({
               type: "tool_result",
@@ -169,6 +242,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               content: message,
               is_error: true,
             });
+          } finally {
+            usage.duration_ms += Date.now() - startedToolAt;
           }
         }
         const toolMessage: RuntimeMessage = { role: "user", content: results };
@@ -178,11 +253,13 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       throw new Error(`agent loop exceeded ${maxSteps} steps`);
     } catch (cause) {
       if (isCancelled(handle) || (cause instanceof DOMException && cause.name === "AbortError")) {
+        await recordUsage("cancelled");
         return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
       }
       const message = cause instanceof Error ? cause.message : String(cause);
       this.logger.error("turn failed", { session_id: job.session_id, run_id: job.job_id, error: cause });
       const reply = `执行失败: ${message}`;
+      await recordUsage("error");
       if (job.response_route_id) await this.options.emitter.emit(this.finalRequest(job, reply));
       return this.outcome("error", reply, inputTokens, outputTokens, toolCalls);
     } finally {

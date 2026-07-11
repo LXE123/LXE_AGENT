@@ -1,72 +1,33 @@
 # Event Loop Architecture
 
-This document describes the current event-loop model for `lxe-agent`.
+生产环境由一个 Bun `1.3.14` 进程承载 Gateway、Runtime、Dashboard、飞书通道和定时维护任务。
 
 ## Runtime Rules
 
-1. `main.py` owns the gateway process event loop with `asyncio.run(_run_gateway())`.
-2. The gateway does not start a separate worker process. Agent turns run as asyncio tasks scheduled by `SessionScheduler` on the gateway loop.
-3. Feishu SDK work is isolated in `FeishuStreamAdapter`'s `adapter:feishu` thread. Inbound events are posted back to the gateway loop with `asyncio.run_coroutine_threadsafe(...)`.
-4. Browser authentication is delegated to the `browser_auth_service` subprocess and is called from synchronous client code off the gateway loop.
-5. SQLite access stays synchronous internally. Async callers use `shared.db.client`, which offloads calls to a small thread pool.
-6. The process does not force a custom event-loop policy; it uses the platform default loop under Python 3.12.10.
+1. `apps/gateway/src/main.ts` 是唯一生产入口。
+2. `SessionScheduler` 直接调用同进程 `TypeScriptAgentRuntime.runTurn()`，不存在 worker 子进程或 NDJSON envelope。
+3. 同一 session 串行执行，不同 session 按 `AGENT_MAX_CONCURRENCY` 并发。
+4. turn 的 `AbortSignal` 统一传递给 LLM、MCP 和工具进程；停止时先关闭 ingress，再取消并等待活跃 turn。
+5. SQLite 通过 `bun:sqlite` 在同进程内访问，保留既有数据库、JSONL 和 `sessions.json` 格式。
+6. Python 仅通过 `py_tools.bridge` 按需启动一次性 CLI；stdout 只返回一份协议 JSON，日志写 stderr，执行完成后进程退出。
 
 ## Current Structure
 
 ```mermaid
 flowchart TD
-    A["main.py"] --> B["asyncio.run(_run_gateway())"]
-    B --> C["GatewayApp"]
-    C --> D["gateway asyncio loop"]
-
-    D --> E["AgentQueue"]
-    E --> F["SessionRouter"]
-    F --> G["SessionScheduler"]
-    G --> H["handle_unified_turn_job"]
-
-    C --> I["FeishuStreamAdapter"]
-    I --> J["adapter:feishu thread / SDK loop"]
-    J --> K["incoming Feishu event"]
-    K --> L["run_coroutine_threadsafe(...)"]
-    L --> E
-
-    C --> M["APScheduler thread"]
-    M --> N["ERP cookie refresh"]
-    M --> O["agent data snapshot sync"]
-
-    H --> P["shared.db.client"]
-    P --> Q["shared_state_db thread pool"]
-    Q --> R["SQLite sync storage"]
-
-    H --> S["clients/auth/browser_auth_client.py"]
-    S --> T["browser_auth_service subprocess"]
-
-    H --> U["shared.infra.net clients"]
-    C --> V["close_all_network_clients() on stop"]
-
-    classDef loop fill:#eaf3ff,stroke:#4a7dbb,color:#000;
-    classDef thread fill:#fff6df,stroke:#b88a2a,color:#000;
-    classDef io fill:#eaf7ea,stroke:#3d8a3d,color:#000;
-
-    class D,E,F,G,H,L loop;
-    class J,M,Q,T thread;
-    class R,S,U,V io;
+    A["Bun CLI"] --> B["Gateway lifecycle"]
+    B --> C["Dashboard"]
+    B --> D["Feishu adapter"]
+    B --> E["Session router"]
+    E --> F["Session scheduler"]
+    F --> G["TypeScript Agent Runtime"]
+    G --> H["Anthropic-compatible provider"]
+    G --> I["MCP manager"]
+    G --> J["Native TS tools"]
+    G --> K["One-shot Python tool bridge"]
+    G --> L["bun:sqlite storage"]
 ```
-
-## Inbound Flow
-
-Feishu inbound messages are accepted by the adapter thread, converted into `InboundEvent`, then published into `AgentQueue` on the gateway loop. The dispatcher drains the queue and asks `SessionRouter` to resolve or create the agent session before enqueueing an `AgentJob`.
-
-`SessionScheduler` keeps one active run per session while allowing different sessions to run concurrently up to `AGENT_MAX_CONCURRENCY`. Stop requests set both asyncio and thread cancellation flags on the active `RunHandle`.
-
-## Background Wake Flow
-
-Long-running tool or process notifications write completed events into `agent_session_pending_events` and request a heartbeat wake. `HeartbeatWakeManager` deduplicates wake requests, checks that pending events still exist, and only enqueues heartbeat jobs when the session is idle. Busy sessions are deferred and retried.
 
 ## Shutdown Policy
 
-Gateway shutdown stops heartbeat wake, session scheduler, dispatcher task, channel adapters, APScheduler, network clients, and the SQLite client wrapper in order. APScheduler jobs are limited to independent background maintenance, so adapter startup and shutdown stay owned by the gateway event loop.
-
-## Event Loop Policy
-
-Do not force `SelectorEventLoop` or `ProactorEventLoop` in project entrypoints. Let Python 3.12.10 choose the platform default. Historical Windows self-pipe errors should be investigated from logs, not handled by changing the global loop policy.
+关闭顺序为：停止 ingress、取消并等待 turn、停止 heartbeat/维护任务、停止飞书和 Dashboard、关闭 Runtime 服务并清理 status files。连续启动和停止不得遗留端口、SQLite lock、定时器或子进程。

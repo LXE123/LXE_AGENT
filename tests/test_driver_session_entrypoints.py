@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from agent_runtime.packs.browser import dispatcher, driver_session, executor
 from services.agent_cli._shared import browser_session as browser_session_module
+from services.browser.tools import dispatcher, driver_session, executor
 
 
 class _DriverContext:
@@ -90,8 +90,8 @@ def test_fba_cli_browser_session_selects_first_normal_tab(monkeypatch, tmp_path)
 
     monkeypatch.setattr(browser_session_module, "StoreSessionService", lambda: service)
     monkeypatch.setattr(
-        browser_session_module.shared_state_client,
-        "load_agent_session_state",
+        browser_session_module,
+        "_load_session_state",
         lambda session_id: SimpleNamespace(state_data={}),
     )
     monkeypatch.setattr(
@@ -122,8 +122,8 @@ def test_fba_cli_browser_session_passes_core_fields_to_attached_driver(monkeypat
 
     monkeypatch.setattr(browser_session_module, "StoreSessionService", lambda: service)
     monkeypatch.setattr(
-        browser_session_module.shared_state_client,
-        "load_agent_session_state",
+        browser_session_module,
+        "_load_session_state",
         lambda session_id: SimpleNamespace(state_data={}),
     )
     monkeypatch.setattr(

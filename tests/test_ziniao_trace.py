@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -121,11 +122,13 @@ def test_driver_resolution_failure_trace_includes_candidates(monkeypatch, tmp_pa
     records = _read_trace_records(trace_dir)
     failure = next(record for record in records if record["event"] == "driver.resolve.failure")
     assert failure["browserPath"] == str(browser_root)
-    assert failure["embedded_driver_candidate"] == str(browser_root / "webdriver")
+    embedded_driver = "webdriver.exe" if os.name == "nt" else "webdriver"
+    assert failure["embedded_driver_candidate"] == str(browser_root / embedded_driver)
     assert failure["embedded_driver_exists"] is False
     assert failure["core_type"] == "Chromium"
     assert failure["core_version"] == "146.0.9999.1"
-    assert failure["fallback_driver_candidate"] == str(driver_root / "chromedriver146")
+    fallback_driver = "chromedriver146.exe" if os.name == "nt" else "chromedriver146"
+    assert failure["fallback_driver_candidate"] == str(driver_root / fallback_driver)
     assert failure["fallback_driver_exists"] is False
     assert failure["available_chromedrivers"] == ["chromedriver138"]
     assert "secret-store" not in _trace_text(trace_dir)

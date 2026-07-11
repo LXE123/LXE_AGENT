@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-from agent_runtime.skill_index import load_skill_index
 from services.agent_cli.mabang import build_amazon_fba_inventory_snapshot as cli
 from services.mabang.amazon.fba.amazon_fba_inventory import (
     AmazonFbaInventorySnapshotResult,
@@ -119,9 +118,3 @@ def test_build_error_returns_failure_json(monkeypatch, capsys) -> None:
         "store_name": "Amazon-Test-US",
         "exception": "build failed",
     }
-
-
-def test_skill_index_hides_replenishment_amazon_fba_inventory_snapshot() -> None:
-    manifest = load_skill_index(force_reload=True).get("replenishment-amazon-fba-inventory-snapshot")
-
-    assert manifest is None

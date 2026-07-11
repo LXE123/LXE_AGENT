@@ -55,6 +55,8 @@ resolve_full_path() {
 
 test_lxe_project_root() {
   local path="$1"
+  [[ -f "$path/package.json" ]] || return 1
+  [[ -f "$path/bun.lock" ]] || return 1
   [[ -f "$path/pyproject.toml" ]] || return 1
   [[ -f "$path/uv.lock" ]] || return 1
   grep -Eq 'name[[:space:]]*=[[:space:]]*"lxe-agent"' "$path/pyproject.toml"
@@ -189,7 +191,7 @@ build_dashboard() {
 
 write_launcher() {
   local project_root="$1"
-  local uv_path="$2"
+  local bun_path="$2"
   mkdir -p "$LAUNCHER_DIR"
   cat > "$LAUNCHER_PATH" <<EOF
 #!/usr/bin/env bash
@@ -199,10 +201,14 @@ LXE_ROOT="$project_root"
 case "\${1:-}" in
   start)
     cd "\$LXE_ROOT"
-    "$uv_path" run --frozen python ./main.py
+    "$bun_path" run gateway:start
+    ;;
+  stop)
+    cd "\$LXE_ROOT"
+    "$bun_path" run gateway:stop
     ;;
   *)
-    echo "Usage: LXE <start>" >&2
+    echo "Usage: LXE <start|stop>" >&2
     exit 2
     ;;
 esac
@@ -241,7 +247,8 @@ ensure_python "$uv_path"
 "$uv_path" sync --frozen --all-groups --python "$PYTHON_VERSION"
 "$uv_path" run --frozen python -m playwright install chromium
 build_dashboard "$project_root"
-write_launcher "$project_root" "$uv_path"
+bun_path="$(command -v bun)"
+write_launcher "$project_root" "$bun_path"
 add_launcher_path
 
 echo "Install completed."

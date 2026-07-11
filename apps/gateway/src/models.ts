@@ -30,6 +30,27 @@ export interface OutboundRequest {
   event_id: string;
 }
 
+export interface ResponseRouteRecord {
+  response_route_id: string;
+  owner_user_id: string;
+  platform: string;
+  platform_message_id: string | null;
+  conversation_id: string | null;
+  conversation_type: string | null;
+  sender_nick: string | null;
+  extra_data: JsonObject;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ResponseRoutePatch {
+  patch?: JsonObject;
+  deliveryHandle?: {
+    platform?: string;
+    platform_message_id?: string;
+  };
+}
+
 export const laneKey = (
   platform: string,
   ownerId: string,

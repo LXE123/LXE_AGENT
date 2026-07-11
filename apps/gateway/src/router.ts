@@ -30,7 +30,7 @@ export interface StoragePort {
   ensureSession(request: JsonObject): Promise<void>;
   rebindSession(request: JsonObject): Promise<void>;
   upsertResponseRoute(request: JsonObject): Promise<void>;
-  /** Backed by the worker's default `dashboard.query: session.get` operation. */
+  /** Reads the session from the in-process Runtime store. */
   getSession(sessionId: string): Promise<StorageSessionRecord | undefined>;
   popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
@@ -275,8 +275,8 @@ export class SessionRouter {
           response_route_id: context.response_route_id,
         });
       } catch {
-        // Match the Python gateway: cancellation feedback must not depend on
-        // the advisory pending-event write succeeding.
+        // Cancellation feedback must not depend on the advisory pending-event
+        // write succeeding.
       }
       await this.sendFeedback(
         context,

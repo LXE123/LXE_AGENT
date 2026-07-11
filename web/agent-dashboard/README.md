@@ -44,13 +44,13 @@ http://127.0.0.1:8765
 所以调试 WebUI 前，需要先从项目根目录启动主程序或 Dashboard 后端：
 
 ```bash
-uv run --frozen python main.py
+bun run gateway:start
 ```
 
 Dashboard 后端默认优先使用 `127.0.0.1:8765`，端口冲突时可能动态 fallback 到其它端口。由于 Vite proxy 默认不会自动跟随动态端口，开发 WebUI 时建议临时固定 Dashboard 端口：
 
 ```bash
-AGENT_DASHBOARD_PORT=8765 AGENT_DASHBOARD_PORT_AUTO_FALLBACK=0 uv run --frozen python main.py
+AGENT_DASHBOARD_PORT=8765 AGENT_DASHBOARD_PORT_AUTO_FALLBACK=0 bun run gateway:start
 ```
 
 如果固定端口被占用，先停掉旧进程，或者手动调整 `vite.config.ts` 里的 proxy 目标后再调试。
@@ -135,7 +135,7 @@ bun --version
 建议先用固定端口启动后端：
 
 ```bash
-AGENT_DASHBOARD_PORT=8765 AGENT_DASHBOARD_PORT_AUTO_FALLBACK=0 uv run --frozen python main.py
+AGENT_DASHBOARD_PORT=8765 AGENT_DASHBOARD_PORT_AUTO_FALLBACK=0 bun run gateway:start
 ```
 
 ### 构建出现 Mermaid chunk size warning

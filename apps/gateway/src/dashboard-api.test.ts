@@ -22,6 +22,17 @@ describe("DashboardApi", () => {
       "  - path: references/help.md", "    description: Help", "---", "# Demo", "",
     ].join("\n"), "utf8");
     writeFileSync(join(root, "skills", "demo", "references", "help.md"), "# Help", "utf8");
+    mkdirSync(join(root, "packages", "runtime", "config", "providers"), { recursive: true });
+    writeFileSync(join(root, "packages", "runtime", "config", "providers", "kimi_coding.json"), JSON.stringify({
+      name: "kimi_coding",
+      label: "Kimi Coding",
+      api_style: "anthropic_messages",
+      default_model: "kimi-for-coding",
+      models: { "kimi-for-coding": { max_tokens: 4096, thinking_levels: ["off"] } },
+    }), "utf8");
+    writeFileSync(join(root, "packages", "runtime", "config", "auth-profiles.json"), JSON.stringify({
+      profiles: { kimi_coding: { env_names: ["KIMI_API_KEY"] } },
+    }), "utf8");
 
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
@@ -36,7 +47,7 @@ describe("DashboardApi", () => {
     });
     const api = new DashboardApi({
       projectRoot: root,
-      environment: {},
+      environment: { KIMI_API_KEY: "test-key" },
       store,
       tools,
       mcpConfig: { servers: [] },
@@ -62,6 +73,14 @@ describe("DashboardApi", () => {
     expect((await call("/api/tools/toolsets")).body).toMatchObject({ items: [{ name: "coding", tools: [{ name: "demo_tool" }] }] });
     expect((await call("/api/background-tasks")).body).toEqual({ items: [{ task_id: "task-1", status: "running" }], total: 1 });
     expect((await call("/api/stats/overview?days=7")).body).toMatchObject({ days: 7, totals: { turns: 0, input_tokens: 0 } });
+    expect((await call("/api/models")).body).toMatchObject({
+      items: [{ provider: "kimi_coding", model: "kimi-for-coding", configured: true }],
+    });
+    expect((await call("/api/models/current")).body).toMatchObject({ provider: "kimi_coding" });
+    expect((await call("/api/models/current", {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "kimi_coding", model: "kimi-for-coding" }),
+    })).body).toMatchObject({ provider: "kimi_coding", model: "kimi-for-coding" });
 
     const connectors = (await call("/api/connectors")).body as { total: number; items: Array<Record<string, unknown>> };
     expect(connectors.total).toBe(2);

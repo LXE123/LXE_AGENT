@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent_runtime.skill_index import load_skill_index
 from services.agent_cli.mabang import resolve_fba_store as cli
 from services.mabang.amazon.fba.store_resolver import (
     FbaStore,
@@ -194,11 +193,3 @@ def test_generic_error_returns_failure_json(monkeypatch, capsys) -> None:
         "query": "",
         "exception": "fetch failed",
     }
-
-
-def test_skill_index_loads_mabang_fba_store_resolve() -> None:
-    manifest = load_skill_index(force_reload=True).get("replenishment-store-resolve")
-
-    assert manifest is not None
-    assert manifest.name == "replenishment-store-resolve"
-    assert manifest.type == "amazon_replenish"

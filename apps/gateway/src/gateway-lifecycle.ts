@@ -27,9 +27,8 @@ export interface GatewayLifecycleOptions {
     start(): boolean | Promise<boolean>;
     stop(): void | Promise<void>;
   };
-  worker: {
+  runtime: {
     readonly isReady: boolean;
-    readonly workerPid: number | undefined;
     start(): Promise<void>;
     failActiveRuns(error: Error): void;
     stop(): Promise<void>;
@@ -103,9 +102,9 @@ export class GatewayLifecycle {
         this.dashboardBound = true;
       }
 
-      await this.options.worker.start();
+      await this.options.runtime.start();
       this.assertStartupActive(generation);
-      if (!this.options.worker.isReady) throw new Error("runtime worker is not ready");
+      if (!this.options.runtime.isReady) throw new Error("runtime is not ready");
       this.heartbeatAttempted = true;
       await this.options.heartbeat.start();
       this.assertStartupActive(generation);
@@ -163,7 +162,7 @@ export class GatewayLifecycle {
       this.dashboardBound &&
       this.channelsStarted &&
       channelsHealthy &&
-      this.options.worker.isReady,
+      this.options.runtime.isReady,
     );
     return {
       ready,
@@ -174,9 +173,8 @@ export class GatewayLifecycle {
         enabled: this.options.dashboard.enabled,
         bound: this.dashboardBound,
       },
-      worker: {
-        ready: this.options.worker.isReady,
-        ...(this.options.worker.workerPid ? { pid: this.options.worker.workerPid } : {}),
+      runtime: {
+        ready: this.options.runtime.isReady,
       },
       channels_started: this.channelsStarted,
       channels,
@@ -185,7 +183,7 @@ export class GatewayLifecycle {
   }
 
   private async acceptInbound(event: InboundEvent): Promise<void> {
-    if (!this.acceptingIngress || this.shutdownStarted || !this.options.worker.isReady) {
+    if (!this.acceptingIngress || this.shutdownStarted || !this.options.runtime.isReady) {
       throw new IngressClosedError();
     }
     await this.options.inbound(event);
@@ -223,7 +221,7 @@ export class GatewayLifecycle {
     );
     await this.runStopStep(
       "active runs",
-      () => this.options.worker.failActiveRuns(reason),
+      () => this.options.runtime.failActiveRuns(reason),
       errors,
     );
     if (this.heartbeatAttempted) {
@@ -235,7 +233,7 @@ export class GatewayLifecycle {
     }
     this.dashboardBound = false;
     if (!preserveAttempts) this.dashboardAttempted = false;
-    await this.runStopStep("worker", () => this.options.worker.stop(), errors);
+    await this.runStopStep("runtime", () => this.options.runtime.stop(), errors);
     if (this.pollingAttempted) {
       await this.runStopStep("planned-stop poller", () => this.options.status.stopPolling(), errors);
     }

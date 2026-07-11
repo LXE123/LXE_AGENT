@@ -32,7 +32,7 @@
 
 ## Runtime Skill 文档
 
-正式运行时 skill 文档在 `skills/*/SKILL.md`。这些文件由 `agent_runtime.skill_index` 加载，并且有测试覆盖。
+正式运行时 skill 文档在 `skills/*/SKILL.md`。这些文件由 TypeScript Runtime 的 skill index 加载，并且有测试覆盖。
 
 当前运行中 skill 摘要见 [Skill docs and catalog](harness/skill/README.md) 和 [Current skill catalog](harness/skill/current_skill_catalog.md)。
 

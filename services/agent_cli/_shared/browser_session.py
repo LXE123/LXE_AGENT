@@ -2,14 +2,23 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterator
 
 from shared.agent_state import ensure_agent_state
-from shared.db.sqlite import agent_state_client as shared_state_client
-from agent_runtime.packs.browser.driver_session import attached_driver, select_first_normal_tab
+from services.browser.store.agent_tool_state import load_tool_state
+from services.browser.tools.driver_session import attached_driver, select_first_normal_tab
 from services.browser.store.store_session_service import StoreSessionService
 from services.browser.store.ziniao_trace import trace_context, trace_event
 from services.browser.workflows.amazon_fba_common import WorkflowBrowserSession
+
+
+def _load_session_state(session_id: str) -> SimpleNamespace | None:
+    """Load the session state needed by a one-shot browser CLI."""
+    state_data = load_tool_state(session_id)
+    if state_data is None:
+        return None
+    return SimpleNamespace(session_id=session_id, state_data=state_data)
 
 
 @contextmanager
@@ -29,7 +38,7 @@ def browser_session(
         raise RuntimeError("context 缺少 store_id")
 
     with trace_context("agent_cli.browser_session", store_id=target_store_id):
-        session_state = shared_state_client.load_agent_session_state(safe_session_id)
+        session_state = _load_session_state(safe_session_id)
         if session_state is None:
             raise RuntimeError(f"agent session not found: {safe_session_id}")
 

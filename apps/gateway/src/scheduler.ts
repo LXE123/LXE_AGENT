@@ -355,9 +355,9 @@ export interface RuntimeSessionRecord {
 
 export interface HeartbeatOptions {
   scheduler: SessionScheduler;
-  /** Backed by the worker's default `dashboard.query: pending_events.has` operation. */
+  /** Reads pending events from the in-process Runtime store. */
   hasPendingEvents: (sessionId: string) => Promise<boolean>;
-  /** Backed by the worker's default `dashboard.query: session.get` operation. */
+  /** Reads the session from the in-process Runtime store. */
   loadSession: (sessionId: string) => Promise<RuntimeSessionRecord | undefined>;
   isSuspended: (sessionId: string) => boolean;
   id?: () => string;

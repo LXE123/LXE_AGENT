@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_runtime.emit_bus import reset_emit_handlers
 from services.agent_cli.browser.amazon_fba import _shared as fba_shared
 
 
@@ -110,7 +109,6 @@ def test_archive_selected_result_files_records_missing_source_without_runtime_em
     _configure_archive_root(monkeypatch, tmp_path)
     missing = tmp_path / "missing.xlsx"
 
-    reset_emit_handlers()
     result = fba_shared.archive_selected_result_files(
         _payload([{"key": "filled_template", "value": str(missing)}]),
         allowed_keys=("filled_template",),
@@ -133,7 +131,6 @@ def test_send_selected_result_files_compat_wrapper_archives_instead_of_emitting(
     source = tmp_path / "summary.xlsx"
     source.write_bytes(b"summary")
 
-    reset_emit_handlers()
     result = fba_shared.send_selected_result_files(
         _payload([{"key": "shipment_summary_excel", "value": str(source)}]),
         allowed_keys=("shipment_summary_excel",),

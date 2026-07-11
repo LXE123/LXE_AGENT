@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_runtime.packs.browser.driver_session import (
+from services.browser.tools.driver_session import (
     is_normal_tab_url,
     list_browser_tabs,
     select_first_normal_tab,

@@ -17,11 +17,11 @@ _TRACKED_LOGGERS = (
     "bot_logger",
     "browser_auth_service.service",
     "clients.auth.browser_auth_client",
-    "platforms.feishu",
+    "services.browser.tools",
     "services.mabang.auth_audit",
     "services.mabang.amazon.fba.wms",
     "services.mabang.auth",
-    "agent_runtime.stream_logging",
+    "services.mabang",
     "shared.other",
     "httpx",
     "httpcore",
@@ -122,14 +122,14 @@ def test_log_level_warning_tightens_console(monkeypatch) -> None:
 
 def test_setup_logging_applies_scoped_log_levels(monkeypatch) -> None:
     monkeypatch.setenv("LOG_LEVEL", "INFO")
-    monkeypatch.setenv("LOG_LEVELS", "platforms.feishu=DEBUG,agent_runtime.stream_logging=WARNING")
+    monkeypatch.setenv("LOG_LEVELS", "services.browser.tools=DEBUG,services.mabang=WARNING")
 
     setup_logging()
 
-    assert logging.getLogger("platforms.feishu.gateway").isEnabledFor(logging.DEBUG)
+    assert logging.getLogger("services.browser.tools.client").isEnabledFor(logging.DEBUG)
     assert not logging.getLogger("shared.other").isEnabledFor(logging.DEBUG)
-    assert not logging.getLogger("agent_runtime.stream_logging").isEnabledFor(logging.INFO)
-    assert logging.getLogger("agent_runtime.stream_logging").isEnabledFor(logging.WARNING)
+    assert not logging.getLogger("services.mabang.auth").isEnabledFor(logging.INFO)
+    assert logging.getLogger("services.mabang.auth").isEnabledFor(logging.WARNING)
 
 
 def test_legacy_bot_logger_is_caplog_compatible(caplog) -> None:
@@ -202,7 +202,7 @@ def test_console_and_runtime_file_use_separate_levels_and_formats(tmp_path, monk
     try:
         token = set_log_context(session_id="session-a-long", turn_id="turn-a-long")
         try:
-            target_logger = logging.getLogger("agent_runtime.loop")
+            target_logger = logging.getLogger("services.browser.tools.client")
             target_logger.debug("runtime detail")
             target_logger.info("console summary")
         finally:
@@ -214,7 +214,7 @@ def test_console_and_runtime_file_use_separate_levels_and_formats(tmp_path, monk
     console_output = stream.getvalue()
     assert "runtime detail" not in console_output
     assert "console summary" in console_output
-    assert re.search(r"^\d{2}:\d{2}:\d{2} INFO\s+\[agent\.loop\]", console_output)
+    assert re.search(r"^\d{2}:\d{2}:\d{2} INFO\s+\[services\.browser\.tools\.client\]", console_output)
     assert "➤" not in console_output
     assert "[ctx s=session- t=turn-a-l]" in console_output
 
@@ -223,7 +223,7 @@ def test_console_and_runtime_file_use_separate_levels_and_formats(tmp_path, monk
     assert "runtime detail" in runtime_output
     assert "console summary" in runtime_output
     assert re.search(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} DEBUG", runtime_output)
-    assert "[agent_runtime.loop]" in runtime_output
+    assert "[services.browser.tools.client]" in runtime_output
     assert "[ctx session=session-a-long turn=turn-a-long]" in runtime_output
 
 
@@ -313,16 +313,16 @@ def test_log_context_is_added_to_managed_output_only_when_present() -> None:
     try:
         token = set_log_context(session_id="session-a-long", turn_id="turn-a-long")
         try:
-            logging.getLogger("agent_runtime.loop").info("context message")
+            logging.getLogger("services.browser.tools.client").info("context message")
         finally:
             reset_log_context(token)
 
-        logging.getLogger("agent_runtime.loop").info("after reset")
+        logging.getLogger("services.browser.tools.client").info("after reset")
     finally:
         handler.setStream(old_stream)
 
     output = stream.getvalue()
-    assert "[agent.loop]" in output
+    assert "[services.browser.tools.client]" in output
     assert "[ctx s=session- t=turn-a-l]" in output
     assert "context message" in output
     assert "session=-" not in output
@@ -342,7 +342,7 @@ def test_log_context_is_isolated_between_async_tasks() -> None:
         token = set_log_context(session_id=session_id, turn_id=turn_id)
         try:
             await asyncio.sleep(0)
-            logging.getLogger("agent_runtime.loop").info(message)
+            logging.getLogger("services.browser.tools.client").info(message)
         finally:
             reset_log_context(token)
 
@@ -364,32 +364,22 @@ def test_log_context_is_isolated_between_async_tasks() -> None:
     assert not any("[ctx s=session- t=turn-b]" in line and "message-a" in line for line in lines)
 
 
-def test_managed_formatter_uses_short_display_names() -> None:
+def test_managed_formatter_uses_module_names() -> None:
     setup_logging()
     stream = io.StringIO()
     handler = _managed_handlers()[0]
     old_stream = handler.setStream(stream)
     try:
-        logging.getLogger("agent_runtime.stream_logging").info("agent stream")
-        logging.getLogger("platforms.feishu.cardkit_sender").info("feishu cardkit")
+        logging.getLogger("services.browser.tools.client").info("browser tool")
+        logging.getLogger("services.mabang.auth").info("mabang auth")
         logging.getLogger("shared.other").info("shared module")
     finally:
         handler.setStream(old_stream)
 
     output = stream.getvalue()
-    assert "[agent.stream]" in output
-    assert "[feishu.cardkit]" in output
+    assert "[services.browser.tools.client]" in output
+    assert "[services.mabang.auth]" in output
     assert "[shared.other]" in output
-
-
-def test_agent_loop_integrates_log_context_with_finally_reset() -> None:
-    text = (_PROJECT_ROOT / "agent_runtime" / "loop.py").read_text(encoding="utf-8")
-
-    assert "set_log_context(" in text
-    assert "reset_log_context(" in text
-    assert "finally:" in text
-
-
 def test_runtime_file_logging_requires_global_local_logs_switch(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(logging_config, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("LOG_FILE", "runtime.log")

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-from agent_runtime.skill_index import load_skill_index
 from services.agent_cli.mabang import analyze_store_msku_sales as cli
 from services.mabang.amazon.fba.store_msku_sales_analysis import StoreMskuSalesAnalysisResult
 
@@ -74,11 +73,3 @@ def test_analysis_error_returns_failure_json(monkeypatch, capsys) -> None:
         "store_name": "Amazon-Lerxiuer-FR",
         "exception": "analysis failed for Amazon-Lerxiuer-FR",
     }
-
-
-def test_skill_index_loads_mabang_fba_store_msku_sales_analyze() -> None:
-    manifest = load_skill_index(force_reload=True).get("replenishment-sales-analyze")
-
-    assert manifest is not None
-    assert manifest.name == "replenishment-sales-analyze"
-    assert manifest.type == "amazon_replenish"

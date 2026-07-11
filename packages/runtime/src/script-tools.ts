@@ -134,13 +134,30 @@ export class PythonScriptToolRunner {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",
-      timeout: Math.max(1, this.options.timeoutMs),
       maxBuffer: Math.max(1, this.options.maxOutputBytes),
-      signal,
       windowsHide: true,
     });
-    const onAbort = (): void => { void terminateTree(process.pid); };
+    let timedOut = false;
+    let termination: Promise<void> | undefined;
+    const terminate = (): Promise<void> => {
+      if (termination) return termination;
+      termination = (async () => {
+        await terminateTree(process.pid);
+        try {
+          process.kill();
+        } catch {
+          // The process tree already exited.
+        }
+        await process.exited.catch(() => undefined);
+      })();
+      return termination;
+    };
+    const onAbort = (): void => { void terminate(); };
     signal.addEventListener("abort", onAbort, { once: true });
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      void terminate();
+    }, Math.max(1, this.options.timeoutMs));
     try {
       process.stdin.write(`${JSON.stringify(request)}\n`);
       process.stdin.end();
@@ -149,6 +166,8 @@ export class PythonScriptToolRunner {
         readLimited(process.stderr, this.options.maxOutputBytes),
         process.exited,
       ]);
+      if (timedOut) throw new Error(`Python tool timed out after ${this.options.timeoutMs}ms`);
+      if (signal.aborted) throw new DOMException("Tool cancelled", "AbortError");
       const stderr = new TextDecoder().decode(stderrBytes);
       for (const line of stderr.split(/\r?\n/).filter(Boolean)) this.options.onStderr?.(line);
       const stdout = new TextDecoder().decode(stdoutBytes).trim();
@@ -160,9 +179,14 @@ export class PythonScriptToolRunner {
         throw new Error("invalid Python tool response");
       }
       return response;
+    } catch (error) {
+      await terminate();
+      if (timedOut) throw new Error(`Python tool timed out after ${this.options.timeoutMs}ms`);
+      if (signal.aborted) throw new DOMException("Tool cancelled", "AbortError");
+      throw error;
     } finally {
+      clearTimeout(timeout);
       signal.removeEventListener("abort", onAbort);
-      if (signal.aborted) await terminateTree(process.pid);
     }
   }
 }

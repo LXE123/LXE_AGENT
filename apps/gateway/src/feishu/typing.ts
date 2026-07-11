@@ -1,5 +1,5 @@
 import type { JsonObject } from "@lxe/protocol";
-import type { ResponseRoutePatch } from "../worker-supervisor";
+import type { ResponseRoutePatch } from "../models";
 
 export interface FeishuReactionPort {
   add(messageId: string, emoji: string): Promise<string>;

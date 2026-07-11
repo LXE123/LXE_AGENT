@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-from agent_runtime.skill_index import load_skill_index
 from services.agent_cli.mabang import download_store_msku_excel as cli
 from services.mabang.amazon.fba.store_msku import StoreMskuExcelResult
 
@@ -184,11 +183,3 @@ def test_download_error_returns_failure_json(monkeypatch, capsys) -> None:
         "exception": "download failed for 697456821",
     }
     assert close_calls == ["close"]
-
-
-def test_skill_index_loads_mabang_fba_store_msku_download() -> None:
-    manifest = load_skill_index(force_reload=True).get("replenishment-msku-download")
-
-    assert manifest is not None
-    assert manifest.name == "replenishment-msku-download"
-    assert manifest.type == "amazon_replenish"

@@ -37,6 +37,7 @@ export interface RuntimeProviderRequest {
   messages: RuntimeMessage[];
   tools: ToolSchema[];
   signal: AbortSignal;
+  onDelta?: (delta: { text?: string; thinking?: string }) => Promise<void> | void;
 }
 
 export interface RuntimeProvider {
@@ -61,6 +62,7 @@ export interface RuntimeStore {
   getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined>;
   loadMessages(sessionId: string): Promise<RuntimeMessage[]>;
   appendMessage(sessionId: string, message: RuntimeMessage, reason?: string): Promise<void>;
+  patchSessionState(sessionId: string, patch: JsonObject): Promise<void>;
   recordTurn(sessionId: string, metrics: JsonObject): Promise<void>;
 }
 

@@ -237,7 +237,7 @@ describe("SessionRouter permission and normal routes", () => {
     expect(state.isAutonomySuspended(sessionId)).toBe(false);
   });
 
-  test("recreates a missing Python session when a binding still exists", async () => {
+  test("recreates a missing persisted session when a binding still exists", async () => {
     const { router, storage } = setup();
     await router.routeMessage(event());
     storage.rebindMissing = true;

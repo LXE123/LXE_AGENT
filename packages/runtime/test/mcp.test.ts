@@ -27,16 +27,22 @@ describe("MCP manager", () => {
       "    enabled: false",
       "    type: streamable-http",
       "    url: http://127.0.0.1/mcp",
+      "  bad:",
+      "    enabled: true",
+      "    type: stdio",
+      "    command: missing-server",
       "",
     ].join("\n"), "utf8");
     const config = loadMcpConfig(path, {});
     expect(config.servers.map((server) => [server.name, server.enabled, server.transport])).toEqual([
+      ["bad", true, "stdio"],
       ["local", true, "stdio"],
       ["off", false, "streamable-http"],
     ]);
     const calls: string[] = [];
     const manager = new McpManager(config, {
       connect: async (server) => ({
+        ...(() => { if (server.name === "bad") throw new Error("cannot connect"); return {}; })(),
         tools: [
           { name: "echo", description: "echo", inputSchema: { type: "object" } },
           { name: "skip", description: "skip", inputSchema: { type: "object" } },
@@ -50,8 +56,8 @@ describe("MCP manager", () => {
     });
     const registry = new ToolRegistry();
     await manager.start(registry);
-    expect(registry.schemas().map((tool) => tool.name)).toEqual(["local__echo"]);
-    await registry.execute("local__echo", {}, {
+    expect(registry.schemas().map((tool) => tool.name)).toEqual(["mcp__local__echo"]);
+    await registry.execute("mcp__local__echo", {}, {
       session_id: "s1",
       handle: {
         signal: new AbortController().signal,
@@ -62,7 +68,7 @@ describe("MCP manager", () => {
     });
     await manager.setEnabled("local", false);
     await manager.setEnabled("off", true);
-    expect(registry.schemas().map((tool) => tool.name)).toEqual(["off__echo", "off__skip"]);
+    expect(registry.schemas().map((tool) => tool.name)).toEqual(["mcp__off__echo", "mcp__off__skip"]);
     setMcpServerEnabled(path, "off", true);
     expect(loadMcpConfig(path, {}).servers.find((server) => server.name === "off")?.enabled).toBe(true);
     await manager.stop();

@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import type { JsonObject } from "@lxe/protocol";
-import { envInteger, envText, type Environment } from "@lxe/core";
+import { envFlag, envInteger, envText, type Environment } from "@lxe/core";
 import type {
   RuntimeContentBlock,
   RuntimeProvider,
@@ -17,6 +17,10 @@ export interface ProviderDescriptor {
   apiKey: string;
   maxTokens: number;
   defaultHeaders: Record<string, string>;
+  thinkingStyle: string;
+  thinkingEnabled: boolean;
+  thinkingEffort: string;
+  thinkingDisplay: string;
 }
 
 interface AnthropicMessageLike {
@@ -30,7 +34,10 @@ export interface AnthropicClientPort {
     stream(
       parameters: Record<string, unknown>,
       options?: { signal?: AbortSignal },
-    ): { finalMessage(): Promise<AnthropicMessageLike> };
+    ): {
+      on?(event: "text" | "thinking", listener: (delta: string, snapshot: string) => void): unknown;
+      finalMessage(): Promise<AnthropicMessageLike>;
+    };
   };
 }
 
@@ -53,7 +60,7 @@ const stringRecord = (value: unknown): Record<string, string> => {
 };
 
 export function loadProviderDescriptor(projectRoot: string, env: Environment): ProviderDescriptor {
-  const providerDir = join(projectRoot, "shared", "llm", "providers");
+  const providerDir = join(projectRoot, "packages", "runtime", "config", "providers");
   const specs = readdirSync(providerDir)
     .filter((name) => name.endsWith(".json"))
     .map((name) => readObject(join(providerDir, name)));
@@ -76,7 +83,7 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
   if (modelSpec === null || typeof modelSpec !== "object" || Array.isArray(modelSpec)) {
     throw new Error(`unsupported LLM model: ${name}/${model}`);
   }
-  const authRoot = readObject(join(projectRoot, "shared", "llm", "auth_profiles.json"));
+  const authRoot = readObject(join(projectRoot, "packages", "runtime", "config", "auth-profiles.json"));
   const profiles = authRoot.profiles as Record<string, unknown> | undefined;
   const profile = profiles?.[name] as Record<string, unknown> | undefined;
   const envNames = Array.isArray(profile?.env_names) ? profile.env_names : [];
@@ -90,8 +97,39 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
     apiKey,
     maxTokens: configuredMax || Math.max(1, Number((modelSpec as Record<string, unknown>).max_tokens ?? 4096)),
     defaultHeaders: stringRecord(spec.default_headers),
+    thinkingStyle: String((modelSpec as Record<string, unknown>).thinking_request_style ?? "none").trim(),
+    thinkingEnabled: envFlag(env, "AGENT_LLM_THINKING_ENABLED", true),
+    thinkingEffort: envText(env, "AGENT_LLM_THINKING_EFFORT", "low").toLowerCase(),
+    thinkingDisplay: envText(env, "AGENT_LLM_THINKING_DISPLAY", "omitted").toLowerCase(),
   };
 }
+
+const thinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
+  const style = descriptor.thinkingStyle;
+  if (descriptor.name === "kimi_coding" && style === "anthropic-budget") {
+    if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off" || descriptor.maxTokens <= 1_024) {
+      return { thinking: { type: "disabled" } };
+    }
+    return { thinking: { type: "enabled", budget_tokens: Math.min(4_000, descriptor.maxTokens - 1_024) } };
+  }
+  if (style === "anthropic-effort") {
+    if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off") return { thinking: { type: "disabled" } };
+    const effort = ["xhigh", "max"].includes(descriptor.thinkingEffort) ? "max" : "high";
+    return { thinking: { type: "enabled" }, output_config: { effort } };
+  }
+  if (!descriptor.thinkingEnabled) return {};
+  if (style === "anthropic-adaptive") {
+    const effort = ["low", "medium", "high", "xhigh"].includes(descriptor.thinkingEffort) ? descriptor.thinkingEffort : "medium";
+    const display = ["omitted", "summarized"].includes(descriptor.thinkingDisplay) ? descriptor.thinkingDisplay : "omitted";
+    return { thinking: { type: "adaptive", display }, output_config: { effort } };
+  }
+  if (style === "anthropic-budget" && descriptor.maxTokens > 1_024) {
+    const budgets: Record<string, number> = { low: 4_000, medium: 8_000, high: 16_000, xhigh: 32_000 };
+    const budget = budgets[descriptor.thinkingEffort] ?? budgets.medium!;
+    return { thinking: { type: "enabled", budget_tokens: Math.min(budget, descriptor.maxTokens - 1_024) } };
+  }
+  return {};
+};
 
 const runtimeBlock = (block: Record<string, unknown>): RuntimeContentBlock | undefined => {
   if (block.type === "text") return { type: "text", text: String(block.text ?? "") };
@@ -134,8 +172,17 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       messages: request.messages,
       tools: request.tools,
       stream: true,
+      ...thinkingPayload(this.descriptor),
     }, { signal: request.signal });
+    let delivery = Promise.resolve();
+    const deliver = (delta: { text?: string; thinking?: string }): void => {
+      if (!request.onDelta) return;
+      delivery = delivery.then(() => request.onDelta?.(delta)).then(() => undefined);
+    };
+    stream.on?.("thinking", (thinking) => deliver({ thinking }));
+    stream.on?.("text", (text) => deliver({ text }));
     const message = await stream.finalMessage();
+    await delivery;
     return {
       content: message.content.map(runtimeBlock).filter((value): value is RuntimeContentBlock => Boolean(value)),
       stop_reason: String(message.stop_reason ?? ""),

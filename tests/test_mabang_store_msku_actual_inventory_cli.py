@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 
-from agent_runtime.skill_index import load_skill_index
 from services.agent_cli.mabang import export_store_msku_actual_inventory as cli
 from services.mabang.amazon.fba.store_msku_actual_inventory import ActualInventoryResult
 
@@ -108,11 +107,3 @@ def test_failure_returns_last_line_json(monkeypatch, capsys) -> None:
         "exception": "inventory failed for Amazon-Lerxiuer-FR",
     }
     assert close_calls == ["close"]
-
-
-def test_skill_index_loads_mabang_fba_store_actual_inventory() -> None:
-    manifest = load_skill_index(force_reload=True).get("replenishment-real-inventory-report")
-
-    assert manifest is not None
-    assert manifest.name == "replenishment-real-inventory-report"
-    assert manifest.type == "amazon_replenish"
