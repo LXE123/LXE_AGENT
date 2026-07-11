@@ -7,6 +7,7 @@ import type {
   RuntimeContentBlock,
   RuntimeProvider,
   RuntimeProviderRequest,
+  RuntimeStreamEvent,
   RuntimeTurnResponse,
 } from "./types";
 
@@ -21,12 +22,18 @@ export interface ProviderDescriptor {
   thinkingEnabled: boolean;
   thinkingEffort: string;
   thinkingDisplay: string;
+  contextWindowTokens: number;
 }
 
 interface AnthropicMessageLike {
   content: Array<Record<string, unknown>>;
   stop_reason: string | null;
-  usage: { input_tokens: number; output_tokens: number };
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
 }
 
 export interface AnthropicClientPort {
@@ -35,7 +42,7 @@ export interface AnthropicClientPort {
       parameters: Record<string, unknown>,
       options?: { signal?: AbortSignal },
     ): {
-      on?(event: "text" | "thinking", listener: (delta: string, snapshot: string) => void): unknown;
+      on?(event: string, listener: (...args: unknown[]) => void): unknown;
       finalMessage(): Promise<AnthropicMessageLike>;
     };
   };
@@ -101,6 +108,7 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
     thinkingEnabled: envFlag(env, "AGENT_LLM_THINKING_ENABLED", true),
     thinkingEffort: envText(env, "AGENT_LLM_THINKING_EFFORT", "low").toLowerCase(),
     thinkingDisplay: envText(env, "AGENT_LLM_THINKING_DISPLAY", "omitted").toLowerCase(),
+    contextWindowTokens: Math.max(0, Math.trunc(Number((modelSpec as Record<string, unknown>).context_window_tokens ?? 0))),
   };
 }
 
@@ -145,7 +153,14 @@ const runtimeBlock = (block: Record<string, unknown>): RuntimeContentBlock | und
     };
   }
   if (block.type === "thinking") {
-    return { type: "thinking", thinking: String(block.thinking ?? "") };
+    return {
+      type: "thinking",
+      thinking: String(block.thinking ?? ""),
+      signature: String(block.signature ?? ""),
+    };
+  }
+  if (block.type === "redacted_thinking") {
+    return { type: "redacted_thinking", data: String(block.data ?? "") };
   }
   return undefined;
 };
@@ -175,12 +190,17 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       ...thinkingPayload(this.descriptor),
     }, { signal: request.signal });
     let delivery = Promise.resolve();
-    const deliver = (delta: { text?: string; thinking?: string }): void => {
-      if (!request.onDelta) return;
-      delivery = delivery.then(() => request.onDelta?.(delta)).then(() => undefined);
+    const deliver = (event: RuntimeStreamEvent): void => {
+      if (!request.onEvent) return;
+      delivery = delivery.then(() => request.onEvent?.(event)).then(() => undefined);
     };
-    stream.on?.("thinking", (thinking) => deliver({ thinking }));
-    stream.on?.("text", (text) => deliver({ text }));
+    stream.on?.("thinking", (thinking) => deliver({ type: "thinking_delta", thinking: String(thinking ?? "") }));
+    stream.on?.("text", (text) => deliver({ type: "text_delta", text: String(text ?? "") }));
+    stream.on?.("contentBlock", (block) => {
+      if (block !== null && typeof block === "object" && (block as Record<string, unknown>).type === "redacted_thinking") {
+        deliver({ type: "redacted_thinking" });
+      }
+    });
     const message = await stream.finalMessage();
     await delivery;
     return {
@@ -189,6 +209,8 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       usage: {
         input_tokens: Math.max(0, Math.trunc(message.usage.input_tokens ?? 0)),
         output_tokens: Math.max(0, Math.trunc(message.usage.output_tokens ?? 0)),
+        cache_read_input_tokens: Math.max(0, Math.trunc(message.usage.cache_read_input_tokens ?? 0)),
+        cache_creation_input_tokens: Math.max(0, Math.trunc(message.usage.cache_creation_input_tokens ?? 0)),
       },
     };
   }

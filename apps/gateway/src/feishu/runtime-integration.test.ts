@@ -106,7 +106,7 @@ describe("Runtime to Feishu CardKit delivery", () => {
       emitter,
       provider: {
         turn: async (request) => {
-          await request.onDelta?.({ text: "done" });
+          await request.onEvent?.({ type: "text_delta", text: "done" });
           return {
             content: [{ type: "text", text: "done" }],
             stop_reason: "end_turn",

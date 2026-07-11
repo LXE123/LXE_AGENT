@@ -42,8 +42,10 @@ describe("protocol contracts", () => {
     expect(validateEmitRequest({ ...stream, state: "running" })).toBe(false);
     expect(validateEmitRequest({ ...stream, seq: 0 })).toBe(false);
 
-    const final = { ...stream, emit_kind: "final", stream_type: "", state: "", seq: 0 };
+    const { display_metrics: _displayMetrics, ...base } = stream;
+    const final = { ...base, emit_kind: "final", stream_type: "", state: "", seq: 0 };
     expect(validateEmitRequest(final)).toBe(true);
+    expect(validateEmitRequest({ ...final, display_metrics: validEmitRequest.display_metrics })).toBe(false);
     expect(validateEmitRequest({ ...final, stream_type: "final_answer", state: "final", seq: 1 })).toBe(false);
   });
 

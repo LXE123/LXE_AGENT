@@ -203,34 +203,41 @@ export function createProductionGateway(
   });
   const directRuntime =
     options.directRuntime ??
-    new TypeScriptAgentRuntime({
-      store: directStore as unknown as SqliteRuntimeStore,
-      provider: {
-        turn: (request) =>
-          new AnthropicRuntimeProvider(
-            loadProviderDescriptor(options.projectRoot, options.environment),
-          ).turn(request),
-      },
-      tools,
-      emitter: {
-        emit: async (request) => {
-          if (!gatewayEmitter)
-            throw new Error("Gateway emitter is not configured");
-          await gatewayEmitter.emit(request);
+    (() => {
+      const providerDescriptor = loadProviderDescriptor(options.projectRoot, options.environment);
+      return new TypeScriptAgentRuntime({
+        store: directStore as unknown as SqliteRuntimeStore,
+        provider: {
+          turn: (request) =>
+            new AnthropicRuntimeProvider(providerDescriptor).turn(request),
         },
-        typing: async (request) => {
-          if (!gatewayEmitter) return;
-          await gatewayEmitter.typing(request);
+        tools,
+        display: {
+          model: providerDescriptor.model,
+          contextWindowTokens: providerDescriptor.contextWindowTokens,
+          toolUseMode: feishu.cardDisplay.toolUseMode,
+          showFullPaths: feishu.cardDisplay.showFullPaths,
         },
-      },
-      systemPrompt: [
-        readFileSync(join(options.projectRoot, "SOUL.md"), "utf8"),
-        skillPrompt,
-      ]
-        .filter(Boolean)
-        .join("\n\n"),
-      services: runtimeServices,
-    });
+        emitter: {
+          emit: async (request) => {
+            if (!gatewayEmitter)
+              throw new Error("Gateway emitter is not configured");
+            await gatewayEmitter.emit(request);
+          },
+          typing: async (request) => {
+            if (!gatewayEmitter) return;
+            await gatewayEmitter.typing(request);
+          },
+        },
+        systemPrompt: [
+          readFileSync(join(options.projectRoot, "SOUL.md"), "utf8"),
+          skillPrompt,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        services: runtimeServices,
+      });
+    })();
   const directComposition = createDirectGatewayComposition({
     projectRoot: options.projectRoot,
     runtimeRoot: options.runtimeRoot ?? options.projectRoot,

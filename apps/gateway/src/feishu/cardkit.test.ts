@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { JsonObject } from "@lxe/protocol";
 import type { OutboundRequest } from "../models";
 import { FeishuCardKit, FeishuCardKitError, type FeishuRouteContext } from "./cardkit";
+import { loadFeishuConfig } from "./config";
 
 const route = (): FeishuRouteContext => ({
   response_route_id: "route-1",
@@ -30,7 +31,18 @@ const request = (state: "delta" | "final" | "error", seq: number, patch: JsonObj
     thinking_elapsed_ms: 2_100,
     tool_pending: false,
     tool_elapsed_ms: 800,
-    tool_steps: [{ id: "t1", name: "search", title: "Search", detail: "ok", status: "success", duration_ms: 700 }],
+    tool_steps: [{ id: "t1", name: "search", title: "Search", detail: "ok", icon_token: "search_outlined", status: "success", duration_ms: 700 }],
+    display_metrics: {
+      status: state === "error" ? "error" : state === "final" ? "completed" : "running",
+      elapsed_ms: 3200,
+      model: "model-1",
+      input_tokens: 10,
+      output_tokens: 5,
+      cache_read_input_tokens: 2,
+      cache_creation_input_tokens: 1,
+      context_tokens: 12,
+      context_window_tokens: 1000,
+    },
     ...patch,
   },
 });
@@ -90,7 +102,12 @@ const setup = () => {
       };
     },
   };
-  return { api, patches, get route() { return context; }, cardkit: new FeishuCardKit({ api, store }) };
+  return {
+    api,
+    patches,
+    get route() { return context; },
+    cardkit: new FeishuCardKit({ api, store, display: loadFeishuConfig({}).cardDisplay }),
+  };
 };
 
 describe("Feishu CardKit stream state", () => {
@@ -126,7 +143,7 @@ describe("Feishu CardKit stream state", () => {
     });
   });
 
-  test("does not send an empty or unchanged element-content update during thinking", async () => {
+  test("streams reasoning, switches structure for the answer, and skips unchanged content", async () => {
     const state = setup();
     await state.cardkit.handle(request("delta", 1, {
       content: "",
@@ -155,7 +172,9 @@ describe("Feishu CardKit stream state", () => {
 
     const contentUpdates = state.api.calls.filter((item) => item.operation === "cardElement.content");
     expect(contentUpdates).toHaveLength(1);
-    expect(contentUpdates[0]?.params.content).toBe("answer");
+    expect(String(contentUpdates[0]?.params.content)).toContain("reasoning");
+    const cardUpdates = state.api.calls.filter((item) => item.operation === "card.update");
+    expect(JSON.stringify(cardUpdates.at(-1)?.params.card)).toContain("answer");
   });
 
   test("final closes then replaces the card with thinking/tool/error semantics and cleans state", async () => {

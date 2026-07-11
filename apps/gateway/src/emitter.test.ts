@@ -57,7 +57,18 @@ describe("GatewayEmitter", () => {
       thinking_elapsed_ms: 123,
       tool_pending: true,
       tool_elapsed_ms: 42,
-      tool_steps: [{ id: "1", name: "web", title: "Search", detail: "", status: "running", duration_ms: 0 }],
+      tool_steps: [{ id: "1", name: "web", title: "Search", detail: "", icon_token: "search_outlined", status: "running", duration_ms: 0 }],
+      display_metrics: {
+        status: "running",
+        elapsed_ms: 123,
+        model: "model-1",
+        input_tokens: 1,
+        output_tokens: 2,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+        context_tokens: 1,
+        context_window_tokens: 100,
+      },
       stream_type: "final_answer",
       state: "delta",
       seq: 2,
@@ -65,7 +76,13 @@ describe("GatewayEmitter", () => {
     expect(channel.outbound).toEqual([expect.objectContaining({
       action: "stream_message",
       platform: "feishu",
-      payload: expect.objectContaining({ thinking: "reason", redacted_thinking_count: 1, tool_pending: true, seq: 2 }),
+      payload: expect.objectContaining({
+        thinking: "reason",
+        redacted_thinking_count: 1,
+        tool_pending: true,
+        seq: 2,
+        display_metrics: expect.objectContaining({ model: "model-1" }),
+      }),
     })]);
   });
 

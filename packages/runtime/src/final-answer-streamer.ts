@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
-import type { EmitRequest, ToolStep } from "@lxe/protocol";
+import type { DisplayMetrics, EmitRequest, ToolStep } from "@lxe/protocol";
 import { buildToolDisplayStep } from "./tool-display";
-import type { ToolUseBlock } from "./types";
+import type { RuntimeStreamEvent, ToolUseBlock } from "./types";
 
 interface StreamSnapshot {
   content: string;
   thinking: string;
+  redactedThinkingCount: number;
   thinkingElapsedMs: number;
   toolPending: boolean;
   toolElapsedMs: number;
   toolSteps: ToolStep[];
+  displayMetrics: DisplayMetrics;
 }
 
 export interface FinalAnswerStreamerOptions {
@@ -20,6 +22,10 @@ export interface FinalAnswerStreamerOptions {
   minIntervalMs?: number;
   now?: () => number;
   delay?: (milliseconds: number) => Promise<void>;
+  model?: string;
+  contextWindowTokens?: number;
+  toolUseMode?: "off" | "on" | "full";
+  showFullPaths?: boolean;
 }
 
 const cloneSteps = (steps: ToolStep[]): ToolStep[] => steps.map((step) => ({ ...step }));
@@ -31,10 +37,11 @@ export class FinalAnswerStreamer {
   private readonly delay: (milliseconds: number) => Promise<void>;
   private content = "";
   private thinking = "";
+  private redactedThinkingCount = 0;
   private thinkingStartedAt = 0;
   private thinkingElapsedMs = 0;
   private toolPending = false;
-  private toolStartedAt = 0;
+  private activeToolStartedAt = 0;
   private toolElapsedMs = 0;
   private toolSteps: ToolStep[] = [];
   private lastSent = "";
@@ -45,12 +52,45 @@ export class FinalAnswerStreamer {
   private deltaFailed = false;
   private terminal = false;
   private pending: Promise<void> | undefined;
+  private readonly startedAt: number;
+  private inputTokens = 0;
+  private outputTokens = 0;
+  private cacheReadInputTokens = 0;
+  private cacheCreationInputTokens = 0;
+  private contextTokens = 0;
+  private displayStatus: DisplayMetrics["status"] = "running";
 
   constructor(private readonly options: FinalAnswerStreamerOptions) {
     this.emitId = String(options.emitId ?? "").trim() || randomUUID().replaceAll("-", "");
     this.minIntervalMs = Math.max(0, Math.trunc(options.minIntervalMs ?? 150));
     this.now = options.now ?? Date.now;
     this.delay = options.delay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
+    this.startedAt = this.now();
+  }
+
+  async pushEvent(event: RuntimeStreamEvent): Promise<void> {
+    if (event.type === "text_delta") return this.pushDelta({ text: event.text });
+    if (event.type === "thinking_delta") return this.pushDelta({ thinking: event.thinking });
+    if (this.terminal) return;
+    this.redactedThinkingCount += 1;
+    if (!this.content && !this.thinkingStartedAt) this.thinkingStartedAt = this.now();
+    this.scheduleDelta();
+  }
+
+  updateUsage(usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  }): void {
+    const input = Math.max(0, Math.trunc(usage.input_tokens ?? 0));
+    const cacheRead = Math.max(0, Math.trunc(usage.cache_read_input_tokens ?? 0));
+    const cacheCreation = Math.max(0, Math.trunc(usage.cache_creation_input_tokens ?? 0));
+    this.inputTokens += input;
+    this.outputTokens += Math.max(0, Math.trunc(usage.output_tokens ?? 0));
+    this.cacheReadInputTokens += cacheRead;
+    this.cacheCreationInputTokens += cacheCreation;
+    this.contextTokens = input + cacheRead + cacheCreation;
   }
 
   async pushDelta(delta: { text?: string; thinking?: string }): Promise<void> {
@@ -67,40 +107,54 @@ export class FinalAnswerStreamer {
   }
 
   async startToolPending(): Promise<void> {
-    if (this.terminal || this.toolSteps.length > 0) return;
+    if (this.terminal || this.toolSteps.length > 0 || this.options.toolUseMode === "off") return;
     this.toolPending = true;
     this.scheduleDelta();
   }
 
   async pushToolStart(call: ToolUseBlock): Promise<void> {
-    if (this.terminal) return;
-    if (!this.toolStartedAt) this.toolStartedAt = this.now();
+    if (this.terminal || this.options.toolUseMode === "off") return;
+    this.activeToolStartedAt = this.now();
     this.toolPending = false;
     this.upsertTool(buildToolDisplayStep(call.id, call.name, call.input, "running", 0));
     this.scheduleDelta();
   }
 
-  async pushToolFinish(call: ToolUseBlock, status: "success" | "error", durationMs: number): Promise<void> {
-    if (this.terminal) return;
+  async pushToolFinish(
+    call: ToolUseBlock,
+    status: "success" | "error",
+    durationMs: number,
+    output?: { result?: unknown; error?: unknown },
+  ): Promise<void> {
+    if (this.terminal || this.options.toolUseMode === "off") return;
     this.toolPending = false;
-    this.toolElapsedMs = Math.max(this.toolElapsedMs, Math.max(0, Math.trunc(durationMs)));
-    this.upsertTool(buildToolDisplayStep(call.id, call.name, call.input, status, durationMs));
+    this.toolElapsedMs += Math.max(0, Math.trunc(durationMs));
+    this.activeToolStartedAt = 0;
+    this.upsertTool(buildToolDisplayStep(call.id, call.name, call.input, status, durationMs, {
+      ...(this.options.showFullPaths === undefined ? {} : { showFullPaths: this.options.showFullPaths }),
+      showResultDetails: this.options.toolUseMode === "full",
+      result: output?.result,
+      error: output?.error,
+    }));
     this.scheduleDelta();
   }
 
   async finish(content: string): Promise<boolean> {
     const finalContent = String(content ?? "").trim();
     if (finalContent && finalContent.length >= this.content.length) this.content = finalContent;
+    this.displayStatus = "completed";
     return this.close("final");
   }
 
   async fail(content: string): Promise<boolean> {
     if (!this.content) this.content = String(content ?? "").trim();
+    this.displayStatus = "error";
     return this.close("error");
   }
 
   async cancel(): Promise<boolean> {
     this.terminal = true;
+    this.displayStatus = "cancelled";
     await this.pending;
     if (!this.delivered) return false;
     this.content = this.lastSentContent;
@@ -146,7 +200,7 @@ export class FinalAnswerStreamer {
         response_route_id: this.options.responseRouteId,
         content: snapshot.content,
         thinking: snapshot.thinking,
-        redacted_thinking_count: 0,
+        redacted_thinking_count: snapshot.redactedThinkingCount,
         thinking_elapsed_ms: snapshot.thinkingElapsedMs,
         tool_pending: snapshot.toolPending,
         tool_elapsed_ms: snapshot.toolElapsedMs,
@@ -157,6 +211,7 @@ export class FinalAnswerStreamer {
         stream_type: "final_answer",
         state,
         seq: this.sequence,
+        display_metrics: { ...snapshot.displayMetrics },
       });
     } catch {
       ok = false;
@@ -171,14 +226,26 @@ export class FinalAnswerStreamer {
   }
 
   private snapshot(): StreamSnapshot {
-    const elapsed = this.toolStartedAt && !this.toolElapsedMs ? this.now() - this.toolStartedAt : this.toolElapsedMs;
+    const elapsed = this.toolElapsedMs + (this.activeToolStartedAt ? this.now() - this.activeToolStartedAt : 0);
     return {
       content: this.content,
       thinking: this.thinking,
+      redactedThinkingCount: this.redactedThinkingCount,
       thinkingElapsedMs: Math.max(0, Math.trunc(this.thinkingElapsedMs)),
       toolPending: this.toolPending && this.toolSteps.length === 0,
       toolElapsedMs: Math.max(0, Math.trunc(elapsed)),
       toolSteps: cloneSteps(this.toolSteps),
+      displayMetrics: {
+        status: this.displayStatus,
+        elapsed_ms: Math.max(0, Math.trunc(this.now() - this.startedAt)),
+        model: String(this.options.model ?? ""),
+        input_tokens: this.inputTokens,
+        output_tokens: this.outputTokens,
+        cache_read_input_tokens: this.cacheReadInputTokens,
+        cache_creation_input_tokens: this.cacheCreationInputTokens,
+        context_tokens: this.contextTokens,
+        context_window_tokens: Math.max(0, Math.trunc(this.options.contextWindowTokens ?? 0)),
+      },
     };
   }
 
@@ -196,8 +263,9 @@ export class FinalAnswerStreamer {
     if (this.thinkingStartedAt && !this.thinkingElapsedMs) {
       this.thinkingElapsedMs = Math.max(0, this.now() - this.thinkingStartedAt);
     }
-    if (this.toolStartedAt && !this.toolElapsedMs) {
-      this.toolElapsedMs = Math.max(0, this.now() - this.toolStartedAt);
+    if (this.activeToolStartedAt) {
+      this.toolElapsedMs += Math.max(0, this.now() - this.activeToolStartedAt);
+      this.activeToolStartedAt = 0;
     }
     this.toolPending = false;
   }

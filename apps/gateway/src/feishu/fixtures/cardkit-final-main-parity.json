@@ -1,0 +1,82 @@
+{
+  "schema": "2.0",
+  "config": {
+    "wide_screen_mode": true,
+    "update_multi": true,
+    "locales": ["zh_cn", "en_us"],
+    "summary": { "content": "最终答案" }
+  },
+  "body": {
+    "elements": [
+      {
+        "tag": "collapsible_panel",
+        "expanded": false,
+        "header": {
+          "title": {
+            "tag": "markdown",
+            "content": "💭 Thought for 17.4s",
+            "i18n_content": { "zh_cn": "💭 思考了 17.4s", "en_us": "💭 Thought for 17.4s" }
+          },
+          "vertical_align": "center",
+          "icon": { "tag": "standard_icon", "token": "down-small-ccm_outlined", "size": "16px 16px" },
+          "icon_position": "follow_text",
+          "icon_expanded_angle": -180
+        },
+        "border": { "color": "grey", "corner_radius": "5px" },
+        "vertical_spacing": "8px",
+        "padding": "8px 8px 8px 8px",
+        "elements": [{ "tag": "markdown", "content": "分析过程", "text_size": "notation" }]
+      },
+      {
+        "tag": "collapsible_panel",
+        "expanded": false,
+        "header": {
+          "title": {
+            "tag": "plain_text",
+            "content": "🛠️ Tool use for 14.7s · Show 1 step",
+            "i18n_content": {
+              "zh_cn": "🛠️ 执行耗时 14.7s · 查看 1 个步骤",
+              "en_us": "🛠️ Tool use for 14.7s · Show 1 step"
+            },
+            "text_color": "grey",
+            "text_size": "notation"
+          },
+          "vertical_align": "center",
+          "icon": {
+            "tag": "standard_icon",
+            "token": "down-small-ccm_outlined",
+            "color": "grey",
+            "size": "16px 16px"
+          },
+          "icon_position": "right",
+          "icon_expanded_angle": -180
+        },
+        "border": { "color": "grey", "corner_radius": "5px" },
+        "vertical_spacing": "4px",
+        "padding": "8px 8px 8px 8px",
+        "elements": [
+          {
+            "tag": "div",
+            "icon": { "tag": "standard_icon", "token": "setting_outlined", "color": "grey" },
+            "text": {
+              "tag": "lark_md",
+              "content": "**Run command** · <font color='green'>Succeeded</font>",
+              "text_size": "notation"
+            }
+          },
+          {
+            "tag": "div",
+            "margin": "0px 0px 0px 22px",
+            "text": {
+              "tag": "plain_text",
+              "content": "bun test",
+              "text_color": "grey",
+              "text_size": "notation"
+            }
+          }
+        ]
+      },
+      { "tag": "markdown", "element_id": "content", "content": "最终答案" }
+    ]
+  }
+}

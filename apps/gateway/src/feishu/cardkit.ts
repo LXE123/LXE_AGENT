@@ -5,9 +5,19 @@
  * CardKit API calls and streaming card shapes are adapted from openclaw-lark.
  */
 
-import type { JsonObject, JsonValue } from "@lxe/protocol";
+import type { DisplayMetrics, JsonObject, JsonValue, ToolStep } from "@lxe/protocol";
 import type { OutboundRequest, ResponseRoutePatch } from "../models";
+import {
+  buildFinalCard,
+  buildStreamingCard,
+  streamDisplayContent,
+  STREAMING_ELEMENT_ID,
+  type CardDisplayState,
+} from "./card-builder";
+import type { FeishuCardDisplayConfig } from "./config";
 import { parseFeishuEnvelope } from "./response";
+
+export { buildFinalCard, buildStreamingCard, STREAMING_ELEMENT_ID } from "./card-builder";
 
 export interface FeishuCardKitApi {
   createCardEntity(card: JsonObject): Promise<JsonObject>;
@@ -66,103 +76,77 @@ interface StreamWriter {
   thinkingElapsedMs: number;
   toolPending: boolean;
   toolElapsedMs: number;
-  toolSteps: JsonObject[];
+  toolSteps: ToolStep[];
   lastToolKey: string;
   lastStreamedContent: string;
+  displayMetrics: DisplayMetrics;
 }
 
 const asObject = (value: JsonValue | undefined): JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {};
 const stringValue = (value: JsonValue | undefined): string => String(value ?? "").trim();
 const integer = (value: JsonValue | undefined): number => Number.isInteger(value) ? Number(value) : 0;
-const toolSteps = (value: JsonValue | undefined): JsonObject[] =>
-  Array.isArray(value) ? value.filter((item): item is JsonObject => item !== null && typeof item === "object" && !Array.isArray(item)).map((item) => ({ ...item })) : [];
-const summary = (value: string, limit = 50): string => value.replace(/\s+/gu, " ").trim().slice(0, limit);
-export const STREAMING_ELEMENT_ID = "streaming_content";
-
-const toolPanel = (pending: boolean, steps: JsonObject[], elapsedMs: number, final: boolean): JsonObject | undefined => {
-  if (!pending && steps.length === 0) return undefined;
-  const content = steps.map((step) => {
-    const title = stringValue(step.title) || stringValue(step.name) || "Tool";
-    const detail = stringValue(step.detail);
-    const status = stringValue(step.status) || (pending ? "running" : "success");
-    return `- ${title} [${status}]${detail ? `: ${detail}` : ""}`;
-  }).join("\n") || "工具执行中...";
+const displayBlock = (value: JsonValue | undefined): { language: "json" | "text"; content: string } | undefined => {
+  const block = asObject(value);
+  const language = block.language === "json" ? "json" : block.language === "text" ? "text" : undefined;
+  const content = stringValue(block.content);
+  return language && content ? { language, content } : undefined;
+};
+const toolSteps = (value: JsonValue | undefined): ToolStep[] => Array.isArray(value)
+  ? value.filter((item): item is JsonObject => item !== null && typeof item === "object" && !Array.isArray(item)).map((item) => {
+    const resultBlock = displayBlock(item.result_block);
+    const errorBlock = displayBlock(item.error_block);
+    return {
+      id: stringValue(item.id),
+      name: stringValue(item.name) || "tool",
+      title: stringValue(item.title) || stringValue(item.name) || "Tool",
+      detail: stringValue(item.detail),
+      icon_token: stringValue(item.icon_token) || "setting-inter_outlined",
+      status: item.status === "running" || item.status === "error" ? item.status : "success",
+      duration_ms: Math.max(0, integer(item.duration_ms)),
+      ...(resultBlock ? { result_block: resultBlock } : {}),
+      ...(errorBlock ? { error_block: errorBlock } : {}),
+    };
+  })
+  : [];
+const displayMetrics = (value: JsonValue | undefined): DisplayMetrics => {
+  const metrics = asObject(value);
+  const status = metrics.status === "completed" || metrics.status === "error" || metrics.status === "cancelled"
+    ? metrics.status
+    : "running";
   return {
-    tag: "collapsible_panel",
-    expanded: !final && pending,
-    header: { title: { tag: "markdown", content: `工具${final ? "执行完成" : "调用中"} (${(elapsedMs / 1_000).toFixed(1)}s)` } },
-    elements: [{ tag: "markdown", content }],
+    status,
+    elapsed_ms: Math.max(0, integer(metrics.elapsed_ms)),
+    model: stringValue(metrics.model),
+    input_tokens: Math.max(0, integer(metrics.input_tokens)),
+    output_tokens: Math.max(0, integer(metrics.output_tokens)),
+    cache_read_input_tokens: Math.max(0, integer(metrics.cache_read_input_tokens)),
+    cache_creation_input_tokens: Math.max(0, integer(metrics.cache_creation_input_tokens)),
+    context_tokens: Math.max(0, integer(metrics.context_tokens)),
+    context_window_tokens: Math.max(0, integer(metrics.context_window_tokens)),
   };
 };
 
-export function buildStreamingCard(content: string, pending: boolean, steps: JsonObject[], elapsedMs: number): JsonObject {
-  const elements: JsonObject[] = [];
-  const panel = toolPanel(pending, steps, elapsedMs, false);
-  if (panel) elements.push(panel);
-  elements.push({
-    tag: "markdown",
-    content,
-    text_align: "left",
-    text_size: "normal_v2",
-    margin: "0px 0px 0px 0px",
-    element_id: STREAMING_ELEMENT_ID,
-  });
-  elements.push({
-    tag: "markdown",
-    content: " ",
-    icon: {
-      tag: "custom_icon",
-      img_key: "img_v3_02vb_496bec09-4b43-4773-ad6b-0cdd103cd2bg",
-      size: "16px 16px",
-    },
-    element_id: "loading_icon",
-  });
-  return {
-    schema: "2.0",
-    config: {
-      streaming_mode: true,
-      locales: ["zh_cn", "en_us"],
-      summary: {
-        content: "Processing...",
-        i18n_content: { zh_cn: "处理中...", en_us: "Processing..." },
-      },
-    },
-    body: { elements },
-  };
-}
-
-export function buildFinalCard(writer: StreamWriter, error: boolean): JsonObject {
-  const elements: JsonObject[] = [];
-  const thinking = [
-    writer.lastThinking,
-    ...(writer.redactedCount > 0 ? ["部分思考内容已被模型隐藏"] : []),
-  ].filter(Boolean).join("\n\n");
-  if (thinking) elements.push({
-    tag: "collapsible_panel",
-    expanded: false,
-    header: { title: { tag: "markdown", content: `思考过程 (${(writer.thinkingElapsedMs / 1_000).toFixed(1)}s)` } },
-    elements: [{ tag: "markdown", content: thinking }],
-  });
-  const panel = toolPanel(false, writer.toolSteps, writer.toolElapsedMs, true);
-  if (panel) elements.push(panel);
-  elements.push({ tag: "markdown", element_id: "content", content: writer.lastContent || " " });
-  const summaryText = summary(writer.lastContent || thinking);
-  return {
-    schema: "2.0",
-    config: {
-      wide_screen_mode: true,
-      summary: { content: error ? `生成失败: ${summaryText.slice(0, 40)}` : summaryText },
-    },
-    body: { elements },
-  };
-}
+const stateOf = (writer: StreamWriter): CardDisplayState => ({
+  content: writer.lastContent,
+  thinking: writer.lastThinking,
+  redactedCount: writer.redactedCount,
+  thinkingElapsedMs: writer.thinkingElapsedMs,
+  toolPending: writer.toolPending,
+  toolElapsedMs: writer.toolElapsedMs,
+  toolSteps: writer.toolSteps,
+  metrics: writer.displayMetrics,
+});
 
 export class FeishuCardKit {
   private readonly writers = new Map<string, StreamWriter>();
   private readonly queues = new Map<string, Promise<void>>();
 
-  constructor(private readonly options: { api: FeishuCardKitApi; store: FeishuRouteStore }) {}
+  constructor(private readonly options: {
+    api: FeishuCardKitApi;
+    store: FeishuRouteStore;
+    display: FeishuCardDisplayConfig;
+  }) {}
 
   handle(request: OutboundRequest, route: FeishuRouteContext): Promise<void> {
     const sessionId = String(request.session_id ?? "").trim();
@@ -202,6 +186,7 @@ export class FeishuCardKit {
         toolSteps: [],
         lastToolKey: "",
         lastStreamedContent: "",
+        displayMetrics: displayMetrics(payload.display_metrics),
       };
       this.writers.set(sessionId, writer);
     }
@@ -214,26 +199,34 @@ export class FeishuCardKit {
     writer.toolSteps = toolSteps(payload.tool_steps);
     writer.toolPending = payload.tool_pending === true && writer.toolSteps.length === 0;
     writer.toolElapsedMs = Math.max(0, integer(payload.tool_elapsed_ms));
+    writer.displayMetrics = displayMetrics(payload.display_metrics);
     if (writer.status === "dead") {
       if (frameState !== "delta") this.cleanup(sessionId);
       return;
     }
     await this.ensureCard(writer, request, route);
     if (frameState === "delta") {
-      const nextToolKey = JSON.stringify([writer.toolPending, writer.toolSteps, writer.toolElapsedMs]);
+      const displayContent = streamDisplayContent(stateOf(writer));
+      const nextToolKey = JSON.stringify([
+        writer.toolPending,
+        writer.toolSteps,
+        writer.toolElapsedMs,
+        Boolean(writer.lastContent),
+        this.options.display.toolUseMode,
+      ]);
       const replaceCard = nextToolKey !== writer.lastToolKey;
       const sendDelta = async (): Promise<void> => {
-        if (!replaceCard && writer.lastContent === writer.lastStreamedContent) return;
+        if (!replaceCard && displayContent === writer.lastStreamedContent) return;
         const sequence = ++writer.cardSeq;
         if (replaceCard) {
           await this.checked("update_card", this.options.api.updateCard({
             cardId: writer.cardId,
-            card: buildStreamingCard(writer.lastContent, writer.toolPending, writer.toolSteps, writer.toolElapsedMs),
+            card: buildStreamingCard(stateOf(writer), this.options.display),
             sequence,
           }), writer.cardId);
-          writer.lastStreamedContent = writer.lastContent;
+          writer.lastStreamedContent = displayContent;
         } else {
-          await this.updateContent(writer, sequence);
+          await this.updateContent(writer, sequence, displayContent);
         }
       };
       try {
@@ -244,8 +237,7 @@ export class FeishuCardKit {
       writer.lastToolKey = nextToolKey;
       return;
     }
-    const errorFinal = frameState === "error";
-    const finalCard = buildFinalCard(writer, errorFinal);
+    const finalCard = buildFinalCard(stateOf(writer), this.options.display);
     const finalize = async (): Promise<void> => {
       const closeSequence = ++writer.cardSeq;
       await this.checked("close_streaming_mode", this.options.api.setStreamingMode({
@@ -279,7 +271,7 @@ export class FeishuCardKit {
       const created = await this.checked(
         "create_stream_card",
         this.options.api.createCardEntity(
-          buildStreamingCard(writer.lastContent, writer.toolPending, writer.toolSteps, writer.toolElapsedMs),
+          buildStreamingCard(stateOf(writer), this.options.display),
         ),
       );
       writer.cardId = stringValue(asObject(created.data).card_id);
@@ -308,14 +300,14 @@ export class FeishuCardKit {
     });
   }
 
-  private async updateContent(writer: StreamWriter, sequence: number): Promise<void> {
+  private async updateContent(writer: StreamWriter, sequence: number, content: string): Promise<void> {
     await this.checked("stream_card_content", this.options.api.streamCardContent({
       cardId: writer.cardId,
       elementId: STREAMING_ELEMENT_ID,
-      content: writer.lastContent,
+      content,
       sequence,
     }), writer.cardId);
-    writer.lastStreamedContent = writer.lastContent;
+    writer.lastStreamedContent = content;
   }
 
   private async recoverOrFail(writer: StreamWriter, cause: unknown, retry: () => Promise<void>): Promise<void> {

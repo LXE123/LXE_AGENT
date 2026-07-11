@@ -15,6 +15,11 @@ describe("Feishu config", () => {
     expect(config.domain).toBe("lark");
     expect(config.autoRestartEnabled).toBe(false);
     expect(config.autoRestartIntervalMs).toBe(123_000);
+    expect(config.cardDisplay).toEqual({
+      toolUseMode: "on",
+      showFullPaths: false,
+      footer: { status: false, elapsed: false, tokens: false, cache: false, context: false, model: false },
+    });
     expect(config.health()).toEqual(expect.objectContaining({
       enabled: true,
       missing_required: [],
@@ -31,5 +36,20 @@ describe("Feishu config", () => {
     }));
     expect(JSON.stringify(config.health())).not.toContain("secret_");
     expect(() => config.validate()).toThrow("FEISHU_APP_SECRET");
+  });
+
+  test("loads tool detail and footer display switches", () => {
+    const config = loadFeishuConfig({
+      FEISHU_TOOL_USE_MODE: "full",
+      FEISHU_TOOL_USE_SHOW_FULL_PATHS: "1",
+      FEISHU_CARD_FOOTER_STATUS: "true",
+      FEISHU_CARD_FOOTER_MODEL: "yes",
+    });
+    expect(config.cardDisplay).toEqual({
+      toolUseMode: "full",
+      showFullPaths: true,
+      footer: { status: true, elapsed: false, tokens: false, cache: false, context: false, model: true },
+    });
+    expect(loadFeishuConfig({ FEISHU_TOOL_USE_MODE: "invalid" }).cardDisplay.toolUseMode).toBe("on");
   });
 });

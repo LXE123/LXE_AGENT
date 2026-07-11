@@ -21,6 +21,11 @@ export interface ToolResultBlock extends JsonObject {
 
 export type RuntimeContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | JsonObject;
 
+export type RuntimeStreamEvent =
+  | { type: "text_delta"; text: string }
+  | { type: "thinking_delta"; thinking: string }
+  | { type: "redacted_thinking" };
+
 export interface RuntimeMessage {
   role: "user" | "assistant";
   content: string | RuntimeContentBlock[];
@@ -29,7 +34,12 @@ export interface RuntimeMessage {
 export interface RuntimeTurnResponse {
   content: RuntimeContentBlock[];
   stop_reason: string;
-  usage: { input_tokens: number; output_tokens: number };
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
 }
 
 export interface RuntimeProviderRequest {
@@ -37,7 +47,7 @@ export interface RuntimeProviderRequest {
   messages: RuntimeMessage[];
   tools: ToolSchema[];
   signal: AbortSignal;
-  onDelta?: (delta: { text?: string; thinking?: string }) => Promise<void> | void;
+  onEvent?: (event: RuntimeStreamEvent) => Promise<void> | void;
 }
 
 export interface RuntimeProvider {

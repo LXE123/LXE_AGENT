@@ -38,13 +38,35 @@ export interface AgentJob {
 
 export type ToolStepStatus = "running" | "success" | "error";
 
+export interface ToolDisplayBlock extends JsonObject {
+  language: "json" | "text";
+  content: string;
+}
+
 export interface ToolStep {
   id: string;
   name: string;
   title: string;
   detail: string;
+  icon_token: string;
   status: ToolStepStatus;
   duration_ms: number;
+  result_block?: ToolDisplayBlock;
+  error_block?: ToolDisplayBlock;
+}
+
+export type TurnDisplayStatus = "running" | "completed" | "error" | "cancelled";
+
+export interface DisplayMetrics extends JsonObject {
+  status: TurnDisplayStatus;
+  elapsed_ms: number;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
+  context_tokens: number;
+  context_window_tokens: number;
 }
 
 interface EmitRequestPayload {
@@ -67,11 +89,13 @@ export type EmitRequest = EmitRequestPayload & (
       stream_type: "final_answer";
       state: "delta" | "final" | "error";
       seq: number;
+      display_metrics: DisplayMetrics;
     }
   | {
       emit_kind: "final" | "tool" | "progress";
       stream_type: "";
       state: "";
       seq: 0;
+      display_metrics?: never;
     }
 );

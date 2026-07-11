@@ -13,6 +13,7 @@
       "name": "inventory_lookup",
       "title": "Inventory lookup",
       "detail": "Completed",
+      "icon_token": "setting-inter_outlined",
       "status": "success",
       "duration_ms": 12
     }
@@ -22,5 +23,16 @@
   "emit_id": "emit_1",
   "stream_type": "final_answer",
   "state": "final",
-  "seq": 1
+  "seq": 1,
+  "display_metrics": {
+    "status": "completed",
+    "elapsed_ms": 3200,
+    "model": "kimi-for-coding",
+    "input_tokens": 100,
+    "output_tokens": 20,
+    "cache_read_input_tokens": 10,
+    "cache_creation_input_tokens": 2,
+    "context_tokens": 112,
+    "context_window_tokens": 262144
+  }
 }

@@ -21,7 +21,7 @@ describe("Anthropic-compatible provider", () => {
 
   test("uses SDK streaming and maps text and tool blocks into runtime types", async () => {
     let captured: Record<string, unknown> = {};
-    const listeners = new Map<string, (...args: string[]) => void>();
+    const listeners = new Map<string, (...args: unknown[]) => void>();
     const provider = new AnthropicRuntimeProvider(
       {
         name: "test",
@@ -34,15 +34,18 @@ describe("Anthropic-compatible provider", () => {
         thinkingEnabled: true,
         thinkingEffort: "max",
         thinkingDisplay: "omitted",
+        contextWindowTokens: 200_000,
       },
       {
         messages: {
           stream: (parameters) => {
             captured = parameters;
             const stream = {
-              on: (event: string, listener: (...args: string[]) => void) => { listeners.set(event, listener); return stream; },
+              on: (event: string, listener: (...args: unknown[]) => void) => { listeners.set(event, listener); return stream; },
               finalMessage: async () => ({
                 content: [
+                  { type: "thinking", thinking: "reason", signature: "signed-reason" },
+                  { type: "redacted_thinking", data: "encrypted-secret" },
                   { type: "text", text: "done" },
                   { type: "tool_use", id: "t1", name: "echo", input: { text: "hi" } },
                 ],
@@ -52,6 +55,7 @@ describe("Anthropic-compatible provider", () => {
             };
             queueMicrotask(() => {
               listeners.get("thinking")?.("reason", "reason");
+              listeners.get("contentBlock")?.({ type: "redacted_thinking", data: "encrypted-secret" });
               listeners.get("text")?.("done", "done");
             });
             return stream;
@@ -65,7 +69,7 @@ describe("Anthropic-compatible provider", () => {
       messages: [{ role: "user", content: "hello" }],
       tools: [{ name: "echo", description: "echo", input_schema: { type: "object" } }],
       signal: new AbortController().signal,
-      onDelta: async (delta) => { deltas.push(delta); },
+      onEvent: async (event) => { deltas.push(event); },
     });
     expect(captured).toEqual(expect.objectContaining({
       model: "model-1",
@@ -75,12 +79,19 @@ describe("Anthropic-compatible provider", () => {
     }));
     expect(result).toEqual({
       content: [
+        { type: "thinking", thinking: "reason", signature: "signed-reason" },
+        { type: "redacted_thinking", data: "encrypted-secret" },
         { type: "text", text: "done" },
         { type: "tool_use", id: "t1", name: "echo", input: { text: "hi" } },
       ],
       stop_reason: "tool_use",
-      usage: { input_tokens: 3, output_tokens: 4 },
+      usage: { input_tokens: 3, output_tokens: 4, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
     });
-    expect(deltas).toEqual([{ thinking: "reason" }, { text: "done" }]);
+    expect(deltas).toEqual([
+      { type: "thinking_delta", thinking: "reason" },
+      { type: "redacted_thinking" },
+      { type: "text_delta", text: "done" },
+    ]);
+    expect(JSON.stringify(deltas)).not.toContain("encrypted-secret");
   });
 });

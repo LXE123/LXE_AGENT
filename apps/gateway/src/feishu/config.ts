@@ -22,6 +22,20 @@ const mask = (value: string): string => {
 };
 
 export type FeishuDomain = "feishu" | "lark" | string;
+export type FeishuToolUseMode = "off" | "on" | "full";
+
+export interface FeishuCardDisplayConfig {
+  toolUseMode: FeishuToolUseMode;
+  showFullPaths: boolean;
+  footer: {
+    status: boolean;
+    elapsed: boolean;
+    tokens: boolean;
+    cache: boolean;
+    context: boolean;
+    model: boolean;
+  };
+}
 
 export interface FeishuConfig {
   appId: string;
@@ -33,6 +47,7 @@ export interface FeishuConfig {
   autoRestartRetryMs: number;
   apiHost: string;
   domain: FeishuDomain;
+  cardDisplay: FeishuCardDisplayConfig;
   missingRequired(): string[];
   validate(): void;
   health(): JsonObject;
@@ -54,6 +69,22 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
   const autoRestartIntervalMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS", 5_400);
   const autoRestartIdleCheckMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS", 30);
   const autoRestartRetryMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_RETRY_SECONDS", 60);
+  const requestedToolUseMode = envText(env, "FEISHU_TOOL_USE_MODE", "on").toLowerCase();
+  const toolUseMode: FeishuToolUseMode = requestedToolUseMode === "off" || requestedToolUseMode === "full"
+    ? requestedToolUseMode
+    : "on";
+  const cardDisplay: FeishuCardDisplayConfig = {
+    toolUseMode,
+    showFullPaths: envBoolean(env, "FEISHU_TOOL_USE_SHOW_FULL_PATHS", false),
+    footer: {
+      status: envBoolean(env, "FEISHU_CARD_FOOTER_STATUS", false),
+      elapsed: envBoolean(env, "FEISHU_CARD_FOOTER_ELAPSED", false),
+      tokens: envBoolean(env, "FEISHU_CARD_FOOTER_TOKENS", false),
+      cache: envBoolean(env, "FEISHU_CARD_FOOTER_CACHE", false),
+      context: envBoolean(env, "FEISHU_CARD_FOOTER_CONTEXT", false),
+      model: envBoolean(env, "FEISHU_CARD_FOOTER_MODEL", false),
+    },
+  };
   const missingRequired = (): string[] => [
     ...(!appId ? ["FEISHU_APP_ID"] : []),
     ...(!appSecret ? ["FEISHU_APP_SECRET"] : []),
@@ -68,6 +99,7 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
     autoRestartRetryMs,
     apiHost,
     domain: apiDomain(apiHost),
+    cardDisplay,
     missingRequired,
     validate: () => {
       const missing = missingRequired();
@@ -81,6 +113,7 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
       missing_required: missingRequired(),
       app_id_masked: mask(appId),
       api_host: apiHost,
+      tool_use_mode: cardDisplay.toolUseMode,
     }),
   };
 }

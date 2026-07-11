@@ -35,17 +35,20 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "name", "title", "detail", "status", "duration_ms"],
+        "required": ["id", "name", "title", "detail", "icon_token", "status", "duration_ms"],
         "properties": {
           "id": { "type": "string" },
           "name": { "type": "string", "minLength": 1 },
           "title": { "type": "string", "minLength": 1 },
           "detail": { "type": "string" },
+          "icon_token": { "type": "string", "minLength": 1 },
           "status": {
             "type": "string",
             "enum": ["running", "success", "error"]
           },
-          "duration_ms": { "type": "integer", "minimum": 0 }
+          "duration_ms": { "type": "integer", "minimum": 0 },
+          "result_block": { "$ref": "#/$defs/toolDisplayBlock" },
+          "error_block": { "$ref": "#/$defs/toolDisplayBlock" }
         }
       }
     },
@@ -57,7 +60,38 @@
     "emit_id": { "type": "string" },
     "stream_type": { "type": "string" },
     "state": { "type": "string" },
-    "seq": { "type": "integer", "minimum": 0 }
+    "seq": { "type": "integer", "minimum": 0 },
+    "display_metrics": { "$ref": "#/$defs/displayMetrics" }
+  },
+  "$defs": {
+    "toolDisplayBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "content"],
+      "properties": {
+        "language": { "enum": ["json", "text"] },
+        "content": { "type": "string" }
+      }
+    },
+    "displayMetrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status", "elapsed_ms", "model", "input_tokens", "output_tokens",
+        "cache_read_input_tokens", "cache_creation_input_tokens", "context_tokens", "context_window_tokens"
+      ],
+      "properties": {
+        "status": { "enum": ["running", "completed", "error", "cancelled"] },
+        "elapsed_ms": { "type": "integer", "minimum": 0 },
+        "model": { "type": "string" },
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 },
+        "cache_read_input_tokens": { "type": "integer", "minimum": 0 },
+        "cache_creation_input_tokens": { "type": "integer", "minimum": 0 },
+        "context_tokens": { "type": "integer", "minimum": 0 },
+        "context_window_tokens": { "type": "integer", "minimum": 0 }
+      }
+    }
   },
   "allOf": [
     {
@@ -66,7 +100,9 @@
         "required": ["emit_kind"]
       },
       "then": {
+        "required": ["display_metrics"],
         "properties": {
+          "display_metrics": { "$ref": "#/$defs/displayMetrics" },
           "stream_type": { "const": "final_answer" },
           "state": { "enum": ["delta", "final", "error"] },
           "seq": { "type": "integer", "minimum": 1 }
@@ -74,6 +110,7 @@
       },
       "else": {
         "properties": {
+          "display_metrics": false,
           "stream_type": { "const": "" },
           "state": { "const": "" },
           "seq": { "const": 0 }

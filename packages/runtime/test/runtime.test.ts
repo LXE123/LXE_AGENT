@@ -74,7 +74,7 @@ describe("TypeScriptAgentRuntime", () => {
       store,
       tools,
       provider: { turn: async (request) => {
-        if (responses.length === 1) await request.onDelta?.({ text: "done" });
+        if (responses.length === 1) await request.onEvent?.({ type: "text_delta", text: "done" });
         return responses.shift()!;
       } },
       emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
@@ -228,8 +228,8 @@ describe("TypeScriptAgentRuntime", () => {
       tools,
       provider: { turn: async (request) => {
         providerCalls += 1;
-        await request.onDelta?.({ text: "d" });
-        await request.onDelta?.({ text: "o" });
+        await request.onEvent?.({ type: "text_delta", text: "d" });
+        await request.onEvent?.({ type: "text_delta", text: "o" });
         if (providerCalls === 1) {
           return {
             content: [{ type: "tool_use", id: "tool-1", name: "noop", input: {} }],
@@ -237,7 +237,7 @@ describe("TypeScriptAgentRuntime", () => {
             usage: { input_tokens: 2, output_tokens: 1 },
           };
         }
-        await request.onDelta?.({ text: "ne" });
+        await request.onEvent?.({ type: "text_delta", text: "ne" });
         return {
           content: [{ type: "text", text: "done" }],
           stop_reason: "end_turn",

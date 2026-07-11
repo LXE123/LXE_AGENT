@@ -51,6 +51,7 @@ export class GatewayEmitter {
         tool_pending: emit.tool_pending,
         tool_elapsed_ms: emit.tool_elapsed_ms,
         tool_steps: emit.tool_steps.map((item) => ({ ...item })),
+        display_metrics: { ...emit.display_metrics },
       }));
       return;
     }

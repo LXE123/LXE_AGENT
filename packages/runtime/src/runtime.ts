@@ -25,6 +25,12 @@ export interface TypeScriptAgentRuntimeOptions {
   systemPrompt: string;
   maxSteps?: number;
   maxContextMessages?: number;
+  display?: {
+    model: string;
+    contextWindowTokens: number;
+    toolUseMode: "off" | "on" | "full";
+    showFullPaths: boolean;
+  };
   services?: Array<{
     start(registry: ToolRegistry): Promise<void>;
     stop(): Promise<void>;
@@ -91,6 +97,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           sessionId: job.session_id,
           responseRouteId: job.response_route_id,
           emit: (request) => this.emitBestEffort(request, "stream"),
+          ...(this.options.display ? {
+            model: this.options.display.model,
+            contextWindowTokens: this.options.display.contextWindowTokens,
+          } : {}),
+          toolUseMode: this.options.display?.toolUseMode ?? "on",
+          showFullPaths: this.options.display?.showFullPaths ?? false,
         })
       : undefined;
     this.active.add(handle);
@@ -156,13 +168,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           messages: providerMessages,
           tools: this.options.tools.schemas(),
           signal: handle.signal,
-          onDelta: async (delta) => {
-            if (!isCancelled(handle)) await finalAnswerStreamer?.pushDelta(delta);
+          onEvent: async (event) => {
+            if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
           },
         });
         apiCalls += 1;
         inputTokens += Math.max(0, Math.trunc(response.usage.input_tokens));
         outputTokens += Math.max(0, Math.trunc(response.usage.output_tokens));
+        finalAnswerStreamer?.updateUsage(response.usage);
         const assistant: RuntimeMessage = { role: "assistant", content: response.content };
         messages.push(assistant);
         await this.options.store.appendMessage(job.session_id, assistant, "assistant_response");
@@ -191,6 +204,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           toolUsage.set(call.name, usage);
           await finalAnswerStreamer?.pushToolStart(call);
           let toolStatus: "success" | "error" = "success";
+          let toolDisplayOutput: { result?: unknown; error?: unknown } | undefined;
           try {
             const result = await this.options.tools.execute(call.name, call.input, {
               handle,
@@ -224,10 +238,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               tool_use_id: call.id,
               content: result.content,
             });
+            toolDisplayOutput = { result: result.content };
           } catch (cause) {
             usage.errors += 1;
             toolStatus = "error";
             const message = cause instanceof Error ? cause.message : String(cause);
+            toolDisplayOutput = { error: message };
             results.push({
               type: "tool_result",
               tool_use_id: call.id,
@@ -237,7 +253,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           } finally {
             const durationMs = Date.now() - startedToolAt;
             usage.duration_ms += durationMs;
-            await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs);
+            await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs, toolDisplayOutput);
           }
         }
         const toolMessage: RuntimeMessage = { role: "user", content: results };
