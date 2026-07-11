@@ -25,6 +25,7 @@ class MemoryStore implements RuntimeStore {
   messages: RuntimeMessage[] = [];
   metrics: JsonObject[] = [];
   statePatches: JsonObject[] = [];
+  replacements: RuntimeMessage[][] = [];
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
   async getSession(): Promise<{ session_id: string; source: JsonObject }> {
@@ -32,9 +33,18 @@ class MemoryStore implements RuntimeStore {
   }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
   async appendMessage(_sessionId: string, message: RuntimeMessage): Promise<void> { this.messages.push(message); }
+  async replaceMessages(_sessionId: string, messages: RuntimeMessage[]): Promise<void> {
+    this.messages = structuredClone(messages);
+    this.replacements.push(structuredClone(messages));
+  }
   async patchSessionState(_sessionId: string, patch: JsonObject): Promise<void> { this.statePatches.push(patch); }
   async recordTurn(_sessionId: string, metrics: JsonObject): Promise<void> { this.metrics.push(metrics); }
 }
+
+const summarize = async () => ({
+  text: "context summary",
+  usage: { input_tokens: 0, output_tokens: 0 },
+});
 
 const handle = (): RuntimeHandle => {
   const controller = new AbortController();
@@ -73,7 +83,7 @@ describe("TypeScriptAgentRuntime", () => {
     const runtime = new TypeScriptAgentRuntime({
       store,
       tools,
-      provider: { turn: async (request) => {
+      provider: { summarize, turn: async (request) => {
         if (responses.length === 1) await request.onEvent?.({ type: "text_delta", text: "done" });
         return responses.shift()!;
       } },
@@ -145,7 +155,7 @@ describe("TypeScriptAgentRuntime", () => {
     const runtime = new TypeScriptAgentRuntime({
       store,
       tools,
-      provider: { turn: async () => responses.shift()! },
+      provider: { summarize, turn: async () => responses.shift()! },
       emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
       systemPrompt: "test",
     });
@@ -177,7 +187,7 @@ describe("TypeScriptAgentRuntime", () => {
     const runtime = new TypeScriptAgentRuntime({
       store,
       tools,
-      provider: { turn: async (request) => {
+      provider: { summarize, turn: async (request) => {
         providerCalls += 1;
         if (providerCalls === 1) {
           return {
@@ -226,7 +236,7 @@ describe("TypeScriptAgentRuntime", () => {
     const runtime = new TypeScriptAgentRuntime({
       store,
       tools,
-      provider: { turn: async (request) => {
+      provider: { summarize, turn: async (request) => {
         providerCalls += 1;
         await request.onEvent?.({ type: "text_delta", text: "d" });
         await request.onEvent?.({ type: "text_delta", text: "o" });
@@ -273,7 +283,7 @@ describe("TypeScriptAgentRuntime", () => {
     const runtime = new TypeScriptAgentRuntime({
       store,
       tools: new ToolRegistry(),
-      provider: { turn: async () => { throw new Error("provider offline"); } },
+      provider: { summarize, turn: async () => { throw new Error("provider offline"); } },
       emitter: {
         emit: async () => { throw new Error("delivery offline"); },
         typing: async () => undefined,
@@ -297,7 +307,7 @@ describe("TypeScriptAgentRuntime", () => {
     const runtime = new TypeScriptAgentRuntime({
       store,
       tools: new ToolRegistry(),
-      provider: { turn: async () => ({
+      provider: { summarize, turn: async () => ({
         content: [{ type: "text", text: "done" }],
         stop_reason: "end_turn",
         usage: { input_tokens: 1, output_tokens: 1 },
@@ -313,6 +323,151 @@ describe("TypeScriptAgentRuntime", () => {
     const outcome = await runtime.runTurn(job(), handle());
 
     expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "done" }));
+    await runtime.stop();
+  });
+
+  test("forces one compaction and retries once after provider context overflow", async () => {
+    const store = new MemoryStore();
+    store.messages = [
+      ...["old-1", "old-2", "old-3"].flatMap((label): RuntimeMessage[] => [
+        { role: "user", content: `${label} request ${"u".repeat(24_000)}` },
+        { role: "assistant", content: [{ type: "text", text: `${label} answer ${"a".repeat(24_000)}` }] },
+      ]),
+    ];
+    let providerCalls = 0;
+    let summaryCalls = 0;
+    let retriedMessages: RuntimeMessage[] = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      contextWindowTokens: 100_000,
+      provider: {
+        summarize: async () => {
+          summaryCalls += 1;
+          return { text: "preserved old decision", usage: { input_tokens: 20, output_tokens: 5 } };
+        },
+        turn: async (request) => {
+          providerCalls += 1;
+          if (providerCalls === 1) throw new Error("maximum context length exceeded");
+          retriedMessages = request.messages;
+          return {
+            content: [{ type: "text", text: "recovered" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 10, output_tokens: 2 },
+          };
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+    expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "recovered" }));
+    expect(providerCalls).toBe(2);
+    expect(summaryCalls).toBe(1);
+    expect(JSON.stringify(retriedMessages)).toContain("preserved old decision");
+    expect(store.replacements.some((messages) => JSON.stringify(messages).includes("preserved old decision"))).toBe(true);
+    expect(store.metrics.at(-1)).toEqual(expect.objectContaining({ api_calls: 3, input_tokens: 30, output_tokens: 7 }));
+    await runtime.stop();
+  });
+
+  test("fails explicitly without replacing history when summaries stay empty over the hard limit", async () => {
+    const store = new MemoryStore();
+    store.messages = ["old-1", "old-2", "old-3"].flatMap((label): RuntimeMessage[] => [
+      { role: "user", content: `${label} request ${"x".repeat(24_000)}` },
+      { role: "assistant", content: [{ type: "text", text: `${label} answer ${"y".repeat(24_000)}` }] },
+    ]);
+    let providerCalls = 0;
+    let summaryCalls = 0;
+    const original = structuredClone(store.messages);
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      contextWindowTokens: 1_000,
+      provider: {
+        summarize: async () => {
+          summaryCalls += 1;
+          return { text: "", usage: { input_tokens: 2, output_tokens: 0 } };
+        },
+        turn: async () => {
+          providerCalls += 1;
+          throw new Error("turn must not be called");
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+    expect(outcome.status).toBe("error");
+    expect(outcome.reply).toContain("无法安全完成压缩");
+    expect(summaryCalls).toBe(2);
+    expect(providerCalls).toBe(0);
+    expect(store.replacements).toHaveLength(0);
+    expect(store.messages.slice(0, original.length)).toEqual(original);
+    await runtime.stop();
+  });
+
+  test("stops explicitly at the soft threshold when summarization fails", async () => {
+    const store = new MemoryStore();
+    store.messages = [
+      { role: "user", content: `old request ${"x".repeat(464_000)}` },
+      { role: "assistant", content: [{ type: "text", text: `old answer ${"y".repeat(464_000)}` }] },
+      { role: "user", content: "recent request" },
+      { role: "assistant", content: [{ type: "text", text: "recent answer" }] },
+    ];
+    let providerCalls = 0;
+    let summaryCalls = 0;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      contextWindowTokens: 256_000,
+      provider: {
+        summarize: async () => {
+          summaryCalls += 1;
+          throw new Error("summary offline");
+        },
+        turn: async () => {
+          providerCalls += 1;
+          throw new Error("turn must not be called");
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+    expect(outcome.status).toBe("error");
+    expect(outcome.reply).toContain("无法安全完成压缩");
+    expect(summaryCalls).toBe(2);
+    expect(providerCalls).toBe(0);
+    expect(store.replacements).toHaveLength(0);
+    expect(store.metrics.at(-1)).toEqual(expect.objectContaining({ api_calls: 2 }));
+    await runtime.stop();
+  });
+
+  test("ages processed history images after a completed turn", async () => {
+    const store = new MemoryStore();
+    store.messages = [{
+      role: "user",
+      content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "secret-base64" } }],
+    }];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: { summarize, turn: async () => ({
+        content: [{ type: "text", text: "done" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }) },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+    expect(outcome.status).toBe("completed");
+    expect(JSON.stringify(store.messages)).toContain("already processed");
+    expect(JSON.stringify(store.messages)).not.toContain("secret-base64");
     await runtime.stop();
   });
 });

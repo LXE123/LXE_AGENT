@@ -358,6 +358,26 @@ export class SqliteRuntimeStore implements RuntimeStore {
     `).run(Date.now() / 1_000, text(sessionId));
   }
 
+  async replaceMessages(
+    sessionId: string,
+    messages: RuntimeMessage[],
+    replacementKind: "compaction" | "repair" | "history_limit" | "context_replacement",
+    metadata: JsonObject = {},
+  ): Promise<void> {
+    const safeSessionId = text(sessionId);
+    const path = this.transcriptPath(safeSessionId);
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, `${JSON.stringify({
+      ...metadata,
+      kind: "replacement",
+      replacement_kind: replacementKind,
+      replacement_history: messages,
+      ts: Date.now() / 1_000,
+    })}\n`, "utf8");
+    this.db().query("UPDATE agent_sessions SET last_active_at = ? WHERE session_id = ?")
+      .run(Date.now() / 1_000, safeSessionId);
+  }
+
   async patchSessionState(sessionId: string, patch: JsonObject): Promise<void> {
     const safeSessionId = text(sessionId);
     const transaction = this.db().transaction(() => {

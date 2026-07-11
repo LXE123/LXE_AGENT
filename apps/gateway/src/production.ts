@@ -205,13 +205,12 @@ export function createProductionGateway(
     options.directRuntime ??
     (() => {
       const providerDescriptor = loadProviderDescriptor(options.projectRoot, options.environment);
+      const provider = new AnthropicRuntimeProvider(providerDescriptor);
       return new TypeScriptAgentRuntime({
         store: directStore as unknown as SqliteRuntimeStore,
-        provider: {
-          turn: (request) =>
-            new AnthropicRuntimeProvider(providerDescriptor).turn(request),
-        },
+        provider,
         tools,
+        contextWindowTokens: providerDescriptor.contextWindowTokens,
         display: {
           model: providerDescriptor.model,
           contextWindowTokens: providerDescriptor.contextWindowTokens,

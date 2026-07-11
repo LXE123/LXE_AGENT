@@ -18,6 +18,9 @@ class IntegrationStore implements RuntimeStore {
   }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
   async appendMessage(_sessionId: string, message: RuntimeMessage): Promise<void> { this.messages.push(message); }
+  async replaceMessages(_sessionId: string, messages: RuntimeMessage[]): Promise<void> {
+    this.messages = structuredClone(messages);
+  }
   async patchSessionState(): Promise<void> {}
   async recordTurn(): Promise<void> {}
 }
@@ -105,6 +108,7 @@ describe("Runtime to Feishu CardKit delivery", () => {
       tools: new ToolRegistry(),
       emitter,
       provider: {
+        summarize: async () => ({ text: "summary", usage: { input_tokens: 0, output_tokens: 0 } }),
         turn: async (request) => {
           await request.onEvent?.({ type: "text_delta", text: "done" });
           return {

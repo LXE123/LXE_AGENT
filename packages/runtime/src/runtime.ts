@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
 import { createLogger } from "@lxe/core";
 import { ToolRegistry } from "./tools";
-import { pruneMessages, validateToolCallClosure } from "./context";
+import {
+  ContextCompactionError,
+  ContextOverflowError,
+  ContextPipeline,
+  isContextOverflowError,
+  trimToolResultBlocks,
+  type ContextCompactionResult,
+} from "./context";
 import { FinalAnswerStreamer } from "./final-answer-streamer";
 import type {
   AgentRuntime,
@@ -12,6 +19,8 @@ import type {
   RuntimeMessage,
   RuntimeProvider,
   RuntimeStore,
+  RuntimeStreamEvent,
+  RuntimeUsage,
   ToolResultBlock,
   ToolUseBlock,
   TurnOutcome,
@@ -24,7 +33,7 @@ export interface TypeScriptAgentRuntimeOptions {
   emitter: RuntimeEmitter;
   systemPrompt: string;
   maxSteps?: number;
-  maxContextMessages?: number;
+  contextWindowTokens?: number;
   display?: {
     model: string;
     contextWindowTokens: number;
@@ -53,6 +62,11 @@ const textContent = (content: RuntimeContentBlock[]): string =>
     .trim();
 
 const isCancelled = (handle: RuntimeHandle): boolean => handle.cancelled || handle.signal.aborted;
+
+const addUsage = (target: { input: number; output: number }, usage: RuntimeUsage): void => {
+  target.input += Math.max(0, Math.trunc(usage.input_tokens ?? 0));
+  target.output += Math.max(0, Math.trunc(usage.output_tokens ?? 0));
+};
 
 export class TypeScriptAgentRuntime implements AgentRuntime {
   private readonly logger = createLogger("runtime");
@@ -92,6 +106,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     if (!this.started) throw new Error("runtime is not started");
     const session = await this.options.store.getSession(job.session_id);
     if (!session) throw new Error(`session not found: ${job.session_id}`);
+    const contextWindowTokens = this.options.contextWindowTokens ?? this.options.display?.contextWindowTokens;
+    const contextPipeline = new ContextPipeline({
+      provider: this.options.provider,
+      store: this.options.store,
+      ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+    });
     const finalAnswerStreamer = job.response_route_id && String(session.source.platform ?? "").trim() === "feishu"
       ? new FinalAnswerStreamer({
           sessionId: job.session_id,
@@ -114,6 +134,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const startedAt = Date.now() / 1_000;
     const toolUsage = new Map<string, { calls: number; errors: number; duration_ms: number }>();
     let usageRecorded = false;
+    const accountContext = (result: ContextCompactionResult): void => {
+      const usage = { input: inputTokens, output: outputTokens };
+      addUsage(usage, result.usage);
+      inputTokens = usage.input;
+      outputTokens = usage.output;
+      apiCalls += result.apiCalls;
+      if (result.apiCalls > 0) finalAnswerStreamer?.updateUsage(result.usage);
+    };
     const recordUsage = async (status: TurnOutcome["status"]): Promise<void> => {
       if (usageRecorded) return;
       usageRecorded = true;
@@ -138,7 +166,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           emit_id: randomUUID().replaceAll("-", ""),
         }, "start");
       }
-      const messages = await this.options.store.loadMessages(job.session_id);
+      let messages = await this.options.store.loadMessages(job.session_id);
       const userContent: RuntimeMessage["content"] = job.user_content_blocks.length > 0
         ? job.user_content_blocks
         : job.user_input;
@@ -161,18 +189,55 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           messages.push(message);
           await this.options.store.appendMessage(job.session_id, message, "steering");
         }
-        const providerMessages = pruneMessages(messages, this.options.maxContextMessages ?? 200);
-        validateToolCallClosure(providerMessages);
-        const response = await this.options.provider.turn({
-          system: this.options.systemPrompt,
-          messages: providerMessages,
-          tools: this.options.tools.schemas(),
+        const toolSchemas = this.options.tools.schemas();
+        const prepared = await contextPipeline.prepare({
+          sessionId: job.session_id,
+          messages,
+          systemPrompt: this.options.systemPrompt,
+          toolSchemas,
           signal: handle.signal,
-          onEvent: async (event) => {
+          trigger: "pre_call",
+        });
+        accountContext(prepared);
+        messages = prepared.messages;
+        if (prepared.failureReason) {
+          throw new ContextCompactionError(prepared.failureReason, prepared.afterTokens);
+        }
+        if (prepared.hardLimitExceeded) {
+          throw new ContextOverflowError(prepared.afterTokens, contextPipeline.hardLimitTokens);
+        }
+        const providerRequest = () => ({
+          system: this.options.systemPrompt,
+          messages: structuredClone(messages) as RuntimeMessage[],
+          tools: toolSchemas,
+          signal: handle.signal,
+          onEvent: async (event: RuntimeStreamEvent) => {
             if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
           },
         });
-        apiCalls += 1;
+        let response;
+        try {
+          apiCalls += 1;
+          response = await this.options.provider.turn(providerRequest());
+        } catch (error) {
+          if (!isContextOverflowError(error)) throw error;
+          const overflow = await contextPipeline.prepare({
+            sessionId: job.session_id,
+            messages,
+            systemPrompt: this.options.systemPrompt,
+            toolSchemas,
+            signal: handle.signal,
+            trigger: "overflow",
+          });
+          accountContext(overflow);
+          messages = overflow.messages;
+          if (overflow.failureReason) {
+            throw new ContextCompactionError(overflow.failureReason, overflow.afterTokens);
+          }
+          if (!overflow.compacted || overflow.hardLimitExceeded) throw error;
+          apiCalls += 1;
+          response = await this.options.provider.turn(providerRequest());
+        }
         inputTokens += Math.max(0, Math.trunc(response.usage.input_tokens));
         outputTokens += Math.max(0, Math.trunc(response.usage.output_tokens));
         finalAnswerStreamer?.updateUsage(response.usage);
@@ -185,6 +250,32 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.finish(reply) : false;
           if (reply && job.response_route_id && !streamDelivered) {
             await this.emitBestEffort(this.finalRequest(job, reply), "final");
+          }
+          if (!isCancelled(handle)) {
+            try {
+              const postTurn = await contextPipeline.postTurn({
+                sessionId: job.session_id,
+                messages,
+                systemPrompt: this.options.systemPrompt,
+                signal: handle.signal,
+              });
+              accountContext(postTurn);
+              messages = postTurn.messages;
+              if (postTurn.failureReason) {
+                throw new ContextCompactionError(postTurn.failureReason, postTurn.afterTokens);
+              }
+              if (postTurn.hardLimitExceeded) {
+                this.logger.warn("post-turn context remains over hard limit", {
+                  session_id: job.session_id,
+                  estimated_tokens: postTurn.afterTokens,
+                });
+              }
+            } catch (error) {
+              if (!isCancelled(handle)) this.logger.warn("post-turn context maintenance failed", {
+                session_id: job.session_id,
+                error,
+              });
+            }
           }
           await recordUsage("completed");
           return this.outcome("completed", reply, inputTokens, outputTokens, toolCalls);
@@ -256,7 +347,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs, toolDisplayOutput);
           }
         }
-        const toolMessage: RuntimeMessage = { role: "user", content: results };
+        const trimmedResults = trimToolResultBlocks(results, contextPipeline.toolResultMaxTokens).results;
+        const toolMessage: RuntimeMessage = { role: "user", content: trimmedResults };
         messages.push(toolMessage);
         await this.options.store.appendMessage(job.session_id, toolMessage, "tool_results");
       }

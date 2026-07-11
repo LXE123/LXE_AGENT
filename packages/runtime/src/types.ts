@@ -31,15 +31,28 @@ export interface RuntimeMessage {
   content: string | RuntimeContentBlock[];
 }
 
+export interface RuntimeUsage {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_input_tokens?: number;
+  cache_creation_input_tokens?: number;
+}
+
 export interface RuntimeTurnResponse {
   content: RuntimeContentBlock[];
   stop_reason: string;
-  usage: {
-    input_tokens: number;
-    output_tokens: number;
-    cache_read_input_tokens?: number;
-    cache_creation_input_tokens?: number;
-  };
+  usage: RuntimeUsage;
+}
+
+export interface RuntimeSummaryRequest {
+  messages: RuntimeMessage[];
+  signal: AbortSignal;
+  kind: "history" | "midturn";
+}
+
+export interface RuntimeSummaryResult {
+  text: string;
+  usage: RuntimeUsage;
 }
 
 export interface RuntimeProviderRequest {
@@ -52,6 +65,7 @@ export interface RuntimeProviderRequest {
 
 export interface RuntimeProvider {
   turn(request: RuntimeProviderRequest): Promise<RuntimeTurnResponse>;
+  summarize(request: RuntimeSummaryRequest): Promise<RuntimeSummaryResult>;
 }
 
 export interface RuntimeHandle {
@@ -72,6 +86,12 @@ export interface RuntimeStore {
   getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined>;
   loadMessages(sessionId: string): Promise<RuntimeMessage[]>;
   appendMessage(sessionId: string, message: RuntimeMessage, reason?: string): Promise<void>;
+  replaceMessages(
+    sessionId: string,
+    messages: RuntimeMessage[],
+    replacementKind: "compaction" | "repair" | "history_limit" | "context_replacement",
+    metadata?: JsonObject,
+  ): Promise<void>;
   patchSessionState(sessionId: string, patch: JsonObject): Promise<void>;
   recordTurn(sessionId: string, metrics: JsonObject): Promise<void>;
 }

@@ -70,11 +70,23 @@ describe("SqliteRuntimeStore", () => {
     ]);
     await store.appendMessage("s1", { role: "user", content: "hello" }, "turn_input");
     await store.appendMessage("s1", { role: "assistant", content: "world" }, "turn_output");
+    await store.replaceMessages("s1", [
+      { role: "user", content: "The conversation history was compacted: important decision" },
+      { role: "assistant", content: "retained answer" },
+    ], "compaction", {
+      trigger: "pre_call",
+      summary_text: "important decision",
+      compacted_count: 2,
+      before_tokens: 1000,
+      after_tokens: 100,
+    });
+    await store.appendMessage("s1", { role: "user", content: "after compaction" }, "turn_input");
     await store.patchSessionState("s1", { browser: { session_id: "remote-1", page: 1 } });
     await store.patchSessionState("s1", { browser: { page: 2 }, amazon: { shipment_id: "FBA1" } });
     expect(await store.loadMessages("s1")).toEqual([
-      { role: "user", content: "hello" },
-      { role: "assistant", content: "world" },
+      { role: "user", content: "The conversation history was compacted: important decision" },
+      { role: "assistant", content: "retained answer" },
+      { role: "user", content: "after compaction" },
     ]);
     expect(await store.getSession("s1")).toEqual(expect.objectContaining({
       session_id: "s1",
@@ -91,5 +103,13 @@ describe("SqliteRuntimeStore", () => {
       conversation_id: "c1",
     }));
     await store.stop();
+    const reopened = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
+    await reopened.start();
+    expect(await reopened.loadMessages("s1")).toEqual([
+      { role: "user", content: "The conversation history was compacted: important decision" },
+      { role: "assistant", content: "retained answer" },
+      { role: "user", content: "after compaction" },
+    ]);
+    await reopened.stop();
   });
 });

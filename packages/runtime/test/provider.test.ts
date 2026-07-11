@@ -93,5 +93,22 @@ describe("Anthropic-compatible provider", () => {
       { type: "text_delta", text: "done" },
     ]);
     expect(JSON.stringify(deltas)).not.toContain("encrypted-secret");
+
+    const summary = await provider.summarize({
+      messages: [{ role: "user", content: "summarize this" }],
+      signal: new AbortController().signal,
+      kind: "history",
+    });
+    expect(captured).toEqual(expect.objectContaining({
+      model: "model-1",
+      max_tokens: 1024,
+      thinking: { type: "disabled" },
+      messages: [{ role: "user", content: "summarize this" }],
+    }));
+    expect(captured).not.toHaveProperty("tools");
+    expect(summary).toEqual({
+      text: "done",
+      usage: { input_tokens: 3, output_tokens: 4, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    });
   });
 });

@@ -7,9 +7,17 @@ import type {
   RuntimeContentBlock,
   RuntimeProvider,
   RuntimeProviderRequest,
+  RuntimeSummaryRequest,
+  RuntimeSummaryResult,
   RuntimeStreamEvent,
   RuntimeTurnResponse,
 } from "./types";
+
+const SUMMARY_SYSTEM_PROMPT = [
+  "You are a context summarization assistant.",
+  "Read the supplied conversation transcript and return only the requested structured checkpoint summary.",
+  "Do not continue the conversation or answer questions from it.",
+].join("\n");
 
 export interface ProviderDescriptor {
   name: string;
@@ -165,6 +173,13 @@ const runtimeBlock = (block: Record<string, unknown>): RuntimeContentBlock | und
   return undefined;
 };
 
+const runtimeUsage = (usage: AnthropicMessageLike["usage"]): RuntimeSummaryResult["usage"] => ({
+  input_tokens: Math.max(0, Math.trunc(usage.input_tokens ?? 0)),
+  output_tokens: Math.max(0, Math.trunc(usage.output_tokens ?? 0)),
+  cache_read_input_tokens: Math.max(0, Math.trunc(usage.cache_read_input_tokens ?? 0)),
+  cache_creation_input_tokens: Math.max(0, Math.trunc(usage.cache_creation_input_tokens ?? 0)),
+});
+
 export class AnthropicRuntimeProvider implements RuntimeProvider {
   private readonly client: AnthropicClientPort;
 
@@ -206,12 +221,25 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
     return {
       content: message.content.map(runtimeBlock).filter((value): value is RuntimeContentBlock => Boolean(value)),
       stop_reason: String(message.stop_reason ?? ""),
-      usage: {
-        input_tokens: Math.max(0, Math.trunc(message.usage.input_tokens ?? 0)),
-        output_tokens: Math.max(0, Math.trunc(message.usage.output_tokens ?? 0)),
-        cache_read_input_tokens: Math.max(0, Math.trunc(message.usage.cache_read_input_tokens ?? 0)),
-        cache_creation_input_tokens: Math.max(0, Math.trunc(message.usage.cache_creation_input_tokens ?? 0)),
-      },
+      usage: runtimeUsage(message.usage),
     };
+  }
+
+  async summarize(request: RuntimeSummaryRequest): Promise<RuntimeSummaryResult> {
+    const stream = this.client.messages.stream({
+      model: this.descriptor.model,
+      max_tokens: Math.min(32_768, this.descriptor.maxTokens),
+      system: SUMMARY_SYSTEM_PROMPT,
+      messages: request.messages,
+      stream: true,
+      ...(this.descriptor.thinkingStyle === "provider-managed" ? {} : { thinking: { type: "disabled" } }),
+    }, { signal: request.signal });
+    const message = await stream.finalMessage();
+    const text = message.content
+      .filter((block) => block.type === "text")
+      .map((block) => String(block.text ?? ""))
+      .join("")
+      .trim();
+    return { text, usage: runtimeUsage(message.usage) };
   }
 }
