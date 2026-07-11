@@ -1,17 +1,24 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
 import { createLogger } from "@lxe/core";
 import {
   AnthropicRuntimeProvider,
   McpManager,
+  MaintenanceScheduler,
   SqliteRuntimeStore,
   ToolRegistry,
   TypeScriptAgentRuntime,
   loadMcpConfig,
+  setMcpServerEnabled,
   loadProviderDescriptor,
+  registerCodingTools,
+  registerScriptTools,
+  PythonScriptToolRunner,
+  ZINIAO_SCRIPT_TOOL_DEFINITIONS,
 } from "@lxe/runtime";
 import { BunDashboardServer } from "./dashboard";
+import { DashboardApi } from "./dashboard-api";
 import { loadGatewayBootstrapSettings, type GatewayApplicationPort, type GatewayBootstrapSettings } from "./cli";
 import {
   createDirectGatewayComposition,
@@ -20,6 +27,7 @@ import {
   type DirectGatewayStorage,
 } from "./direct-composition";
 import { loadFeishuConfig } from "./feishu/config";
+import { createOfficialFeishuImToolApi, registerFeishuImTools } from "./feishu/tools";
 import {
   createGatewayComposition,
   type GatewayCompositionParts,
@@ -57,6 +65,7 @@ export function createProductionGateway(options: ProductionGatewayOptions): Prod
   }));
   const feishu = loadFeishuConfig(options.environment);
   let composition: ReturnType<typeof createGatewayComposition> | DirectGatewayComposition;
+  let dashboardApi: DashboardApi | undefined;
   const dashboard = new BunDashboardServer({
     enabled: settings.dashboardEnabled,
     host: settings.dashboardHost,
@@ -65,6 +74,7 @@ export function createProductionGateway(options: ProductionGatewayOptions): Prod
     projectRoot: options.projectRoot,
     health: () => composition.health(),
     channels: () => composition.parts.channels.healthSnapshot(),
+    api: async (request, url) => dashboardApi?.handle(request, url),
   });
   if (options.spawnWorker) {
     composition = createGatewayComposition({
@@ -90,8 +100,90 @@ export function createProductionGateway(options: ProductionGatewayOptions): Prod
     const directStore = options.directStorage ?? new SqliteRuntimeStore(databasePath) as unknown as DirectGatewayStorage;
     let gatewayEmitter: GatewayEmitter | undefined;
     const tools = new ToolRegistry();
+    const processes = registerCodingTools(tools, {
+      workspaceRoot: options.projectRoot,
+      sendFile: async ({ path, session_id, response_route_id }) => {
+        if (!gatewayEmitter) throw new Error("Gateway emitter is not configured");
+        if (!response_route_id) throw new Error("send_file requires a response route");
+        await gatewayEmitter.emit({
+          session_id,
+          response_route_id,
+          content: "",
+          thinking: "",
+          redacted_thinking_count: 0,
+          thinking_elapsed_ms: 0,
+          tool_pending: false,
+          tool_elapsed_ms: 0,
+          tool_steps: [],
+          files: [path],
+          emit_kind: "tool",
+          emit_id: crypto.randomUUID().replaceAll("-", ""),
+          stream_type: "tool_result",
+          state: "running",
+          seq: 1,
+        });
+      },
+    });
+    if (feishu.missingRequired().length === 0) {
+      registerFeishuImTools(tools, {
+        api: createOfficialFeishuImToolApi(feishu),
+        workspaceRoot: options.projectRoot,
+        sessionSource: async (sessionId) => (directStore as unknown as SqliteRuntimeStore).getSession(sessionId)
+          .then((session) => session?.source),
+      });
+    }
+    const python = process.platform === "win32"
+      ? join(options.projectRoot, ".venv", "Scripts", "python.exe")
+      : join(options.projectRoot, ".venv", "bin", "python");
+    const runtimeServices: Array<{ start(registry: ToolRegistry): Promise<void>; stop(): Promise<void> }> = [processes];
+    if (existsSync(python)) {
+      const scriptRunner = new PythonScriptToolRunner({
+        command: [python, "-m", "py_tools.bridge"],
+        cwd: options.projectRoot,
+        timeoutMs: 10 * 60_000,
+        maxOutputBytes: 10 * 1024 * 1024,
+        env: options.environment,
+        onStderr: (line) => logger.info("Python tool", { line }),
+      });
+      registerScriptTools(tools, {
+        runner: scriptRunner,
+        definitions: ZINIAO_SCRIPT_TOOL_DEFINITIONS,
+        session: async (sessionId) => {
+          const session = await (directStore as unknown as SqliteRuntimeStore).getSession(sessionId);
+          const source = session?.source ?? {};
+          return {
+            session_id: sessionId,
+            response_route_id: String(source.response_route_id ?? ""),
+            user_id: String(source.user_id_alt ?? source.user_id ?? ""),
+            conversation_id: String(source.chat_id ?? source.conversation_id ?? ""),
+          };
+        },
+      });
+      runtimeServices.push(new MaintenanceScheduler({
+        projectRoot: options.projectRoot,
+        environment: options.environment,
+        store: directStore as unknown as SqliteRuntimeStore,
+        gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
+        authRunner: scriptRunner,
+      }));
+    }
     const mcpConfigPath = String(options.environment.LXE_MCP_CONFIG_PATH ?? "").trim()
       || join(options.projectRoot, "config", "mcp_servers.local.yaml");
+    const mcpConfig = loadMcpConfig(mcpConfigPath, options.environment);
+    const mcpManager = new McpManager(mcpConfig);
+    runtimeServices.push(mcpManager);
+    dashboardApi = new DashboardApi({
+      projectRoot: options.projectRoot,
+      environment: options.environment,
+      store: directStore as unknown as SqliteRuntimeStore,
+      tools,
+      mcpConfig,
+      backgroundTasks: () => processes.snapshots(),
+      setMcpEnabled: async (serverName, enabled) => {
+        setMcpServerEnabled(mcpConfigPath, serverName, enabled);
+        await mcpManager.setEnabled(serverName, enabled);
+      },
+    });
     const directRuntime = options.directRuntime ?? new TypeScriptAgentRuntime({
       store: directStore as unknown as SqliteRuntimeStore,
       provider: new AnthropicRuntimeProvider(loadProviderDescriptor(options.projectRoot, options.environment)),
@@ -107,7 +199,7 @@ export function createProductionGateway(options: ProductionGatewayOptions): Prod
         },
       },
       systemPrompt: readFileSync(join(options.projectRoot, "SOUL.md"), "utf8"),
-      services: [new McpManager(loadMcpConfig(mcpConfigPath, options.environment))],
+      services: runtimeServices,
     });
     const directComposition = createDirectGatewayComposition({
       projectRoot: options.projectRoot,

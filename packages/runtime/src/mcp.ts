@@ -1,8 +1,9 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { parse } from "yaml";
+import { parse, stringify } from "yaml";
 import type { JsonObject } from "@lxe/protocol";
 import type { Environment } from "@lxe/core";
 import { ToolRegistry } from "./tools";
@@ -97,6 +98,22 @@ export function loadMcpConfig(path: string, env: Environment): McpConfig {
   };
 }
 
+export function setMcpServerEnabled(path: string, serverName: string, enabled: boolean): void {
+  const source = readFileSync(path, "utf8");
+  const root = mapping(parse(source));
+  const rootKey = root.mcpServers !== undefined ? "mcpServers" : "servers";
+  const servers = mapping(root[rootKey]);
+  const server = mapping(servers[serverName]);
+  if (Object.keys(server).length === 0) throw new Error(`MCP server not found: ${serverName}`);
+  server.enabled = enabled;
+  servers[serverName] = server;
+  root[rootKey] = servers;
+  mkdirSync(dirname(path), { recursive: true });
+  const temporary = `${path}.${process.pid}.tmp`;
+  writeFileSync(temporary, stringify(root), "utf8");
+  renameSync(temporary, path);
+}
+
 export class OfficialMcpConnector implements McpConnector {
   async connect(server: McpServerConfig): Promise<McpConnection> {
     const client = new Client({ name: "lxe-agent", version: "0.1.0" });
@@ -131,7 +148,8 @@ export class OfficialMcpConnector implements McpConnector {
 }
 
 export class McpManager {
-  private readonly connections: McpConnection[] = [];
+  private readonly connections = new Map<string, McpConnection>();
+  private registry: ToolRegistry | undefined;
 
   constructor(
     private readonly config: McpConfig,
@@ -139,27 +157,54 @@ export class McpManager {
   ) {}
 
   async start(registry: ToolRegistry): Promise<void> {
+    this.registry = registry;
     for (const server of this.config.servers) {
       if (!server.enabled) continue;
-      const connection = await this.connector.connect(server);
-      this.connections.push(connection);
-      for (const tool of connection.tools) {
-        if (!tool.name.trim() || server.disabledTools.has(tool.name)) continue;
-        registry.register({
-          name: `${server.name}__${tool.name}`,
-          description: tool.description ?? "",
-          input_schema: tool.inputSchema ?? { type: "object", properties: {} },
-          execute: async (input, context) => {
-            const result = await connection.callTool(tool.name, input, context.handle.signal);
-            return { content: result.content ?? [] };
-          },
-        });
-      }
+      await this.connect(server, registry);
     }
   }
 
+  async setEnabled(serverName: string, enabled: boolean): Promise<void> {
+    const server = this.config.servers.find((item) => item.name === serverName);
+    if (!server) throw new Error(`MCP server not found: ${serverName}`);
+    const registry = this.registry;
+    if (!registry) throw new Error("MCP manager is not started");
+    if (server.enabled === enabled && this.connections.has(serverName) === enabled) return;
+    server.enabled = enabled;
+    if (!enabled) {
+      registry.unregisterWhere((name) => name.startsWith(`${serverName}__`));
+      const connection = this.connections.get(serverName);
+      this.connections.delete(serverName);
+      await connection?.close();
+      return;
+    }
+    await this.connect(server, registry);
+  }
+
   async stop(): Promise<void> {
-    const connections = this.connections.splice(0).reverse();
-    await Promise.allSettled(connections.map((connection) => connection.close()));
+    const connections = [...this.connections.entries()].reverse();
+    this.connections.clear();
+    for (const [serverName] of connections) {
+      this.registry?.unregisterWhere((name) => name.startsWith(`${serverName}__`));
+    }
+    await Promise.allSettled(connections.map(([, connection]) => connection.close()));
+    this.registry = undefined;
+  }
+
+  private async connect(server: McpServerConfig, registry: ToolRegistry): Promise<void> {
+    const connection = await this.connector.connect(server);
+    this.connections.set(server.name, connection);
+    for (const tool of connection.tools) {
+      if (!tool.name.trim() || server.disabledTools.has(tool.name)) continue;
+      registry.register({
+        name: `${server.name}__${tool.name}`,
+        description: tool.description ?? "",
+        input_schema: tool.inputSchema ?? { type: "object", properties: {} },
+        execute: async (input, context) => {
+          const result = await connection.callTool(tool.name, input, context.handle.signal);
+          return { content: result.content ?? [] };
+        },
+      });
+    }
   }
 }

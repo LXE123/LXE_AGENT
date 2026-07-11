@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { McpManager, loadMcpConfig } from "../src/mcp";
+import { McpManager, loadMcpConfig, setMcpServerEnabled } from "../src/mcp";
 import { ToolRegistry } from "../src/tools";
 
 const roots: string[] = [];
@@ -60,7 +60,12 @@ describe("MCP manager", () => {
         registerProcess: () => () => undefined,
       },
     });
+    await manager.setEnabled("local", false);
+    await manager.setEnabled("off", true);
+    expect(registry.schemas().map((tool) => tool.name)).toEqual(["off__echo", "off__skip"]);
+    setMcpServerEnabled(path, "off", true);
+    expect(loadMcpConfig(path, {}).servers.find((server) => server.name === "off")?.enabled).toBe(true);
     await manager.stop();
-    expect(calls).toEqual(["echo", "close"]);
+    expect(calls).toEqual(["echo", "close", "close"]);
   });
 });

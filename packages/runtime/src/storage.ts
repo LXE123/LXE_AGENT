@@ -19,6 +19,17 @@ const parseObject = (value: unknown): JsonObject => {
 
 const text = (value: unknown): string => String(value ?? "").trim();
 
+export interface DashboardSessionListOptions {
+  limit: number;
+  offset: number;
+  query?: string;
+}
+
+export interface DashboardSessionPageOptions {
+  limit: number;
+  page?: number;
+}
+
 export class SqliteRuntimeStore implements RuntimeStore {
   private database: Database | undefined;
 
@@ -274,9 +285,103 @@ export class SqliteRuntimeStore implements RuntimeStore {
     );
   }
 
+  listSessions(options: DashboardSessionListOptions): {
+    items: JsonObject[];
+    limit: number;
+    offset: number;
+    total: number;
+    summary: JsonObject;
+  } {
+    const limit = Math.max(1, Math.min(Math.trunc(options.limit), 200));
+    const offset = Math.max(0, Math.trunc(options.offset));
+    const needle = text(options.query).toLowerCase();
+    const where = needle
+      ? "WHERE lower(coalesce(session_id, '')) LIKE ? OR lower(coalesce(title, '')) LIKE ? OR lower(coalesce(model, '')) LIKE ? OR lower(coalesce(source, '')) LIKE ?"
+      : "";
+    const whereArgs = needle ? Array(4).fill(`%${needle}%`) : [];
+    const totalRow = this.db().query(`SELECT COUNT(*) AS count FROM agent_sessions ${where}`)
+      .get(...whereArgs) as { count: number } | null;
+    const rows = this.db().query(`
+      SELECT session_id, source, model, model_config, created_at, last_active_at,
+             message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
+      FROM agent_sessions ${where}
+      ORDER BY last_active_at DESC, created_at DESC, session_id ASC LIMIT ? OFFSET ?
+    `).all(...whereArgs, limit, offset) as Array<Record<string, unknown>>;
+    const summary = this.db().query(`
+      SELECT COUNT(*) AS total_sessions, COALESCE(SUM(tool_call_count), 0) AS tool_call_count,
+             COALESCE(SUM(input_tokens + output_tokens), 0) AS token_count FROM agent_sessions
+    `).get() as Record<string, number> | null;
+    return {
+      items: rows.map((row) => this.sessionPayload(row)),
+      limit,
+      offset,
+      total: Number(totalRow?.count ?? 0),
+      summary: {
+        total_sessions: Number(summary?.total_sessions ?? 0),
+        tool_call_count: Number(summary?.tool_call_count ?? 0),
+        token_count: Number(summary?.token_count ?? 0),
+      },
+    };
+  }
+
+  async sessionDetail(sessionId: string, options: DashboardSessionPageOptions): Promise<JsonObject | undefined> {
+    const row = this.db().query(`
+      SELECT session_id, source, model, model_config, created_at, last_active_at,
+             message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
+      FROM agent_sessions WHERE session_id = ?
+    `).get(text(sessionId)) as Record<string, unknown> | null;
+    if (!row) return undefined;
+    const messages = await this.loadMessages(text(sessionId));
+    const limit = Math.max(1, Math.min(Math.trunc(options.limit), 200));
+    const total = messages.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const currentPage = options.page === undefined
+      ? totalPages
+      : Math.max(1, Math.min(Math.trunc(options.page), totalPages));
+    const start = Math.min(total, (currentPage - 1) * limit);
+    const end = Math.min(total, start + limit);
+    return {
+      session: this.sessionPayload(row),
+      messages: messages.slice(start, end) as unknown as JsonObject[],
+      messages_page: {
+        total,
+        raw_message_total: total,
+        start,
+        end,
+        limit,
+        current_page: currentPage,
+        total_pages: totalPages,
+        has_previous: currentPage > 1,
+        has_next: currentPage < totalPages,
+      },
+    };
+  }
+
   private db(): Database {
     if (!this.database) throw new Error("runtime store is not started");
     return this.database;
+  }
+
+  private sessionPayload(row: Record<string, unknown>): JsonObject {
+    const source = parseObject(row.source);
+    return {
+      session_id: text(row.session_id),
+      title: text(row.title),
+      source,
+      source_summary: {
+        platform: text(source.platform) || "unknown",
+        chat_type: text(source.chat_type),
+      },
+      model: text(row.model),
+      model_config: parseObject(row.model_config),
+      created_at: Number(row.created_at ?? 0),
+      last_active_at: Number(row.last_active_at ?? 0),
+      message_count: Number(row.message_count ?? 0),
+      tool_call_count: Number(row.tool_call_count ?? 0),
+      input_tokens: Number(row.input_tokens ?? 0),
+      output_tokens: Number(row.output_tokens ?? 0),
+      api_call_count: Number(row.api_call_count ?? 0),
+    };
   }
 
   private transcriptPath(sessionId: string): string {

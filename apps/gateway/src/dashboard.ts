@@ -10,6 +10,7 @@ export interface BunDashboardOptions {
   projectRoot: string;
   health: () => Promise<JsonObject>;
   channels: () => Promise<Record<string, JsonObject>>;
+  api?: (request: Request, url: URL) => Promise<Response | undefined>;
 }
 
 const json = (value: unknown, status = 200): Response =>
@@ -102,12 +103,20 @@ export class BunDashboardServer {
         },
       });
     }
-    if (request.method !== "GET") return json({ detail: "method not allowed" }, 405);
     if (url.pathname === "/api/health") {
+      if (request.method !== "GET") return json({ detail: "method not allowed" }, 405);
       return json({ status: "ok", gateway: await this.options.health() });
     }
-    if (url.pathname === "/api/channels/health") return json(await this.options.channels());
-    if (url.pathname.startsWith("/api/")) return json({ detail: "not implemented" }, 501);
+    if (url.pathname === "/api/channels/health") {
+      if (request.method !== "GET") return json({ detail: "method not allowed" }, 405);
+      const items = await this.options.channels();
+      return json({ items, total: Object.keys(items).length });
+    }
+    if (url.pathname.startsWith("/api/")) {
+      const response = await this.options.api?.(request, url);
+      return response ?? json({ detail: "not found" }, 404);
+    }
+    if (request.method !== "GET") return json({ detail: "method not allowed" }, 405);
     return this.staticResponse(url.pathname);
   }
 

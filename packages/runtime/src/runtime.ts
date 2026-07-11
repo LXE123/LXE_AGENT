@@ -154,6 +154,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             const result = await this.options.tools.execute(call.name, call.input, {
               handle,
               session_id: job.session_id,
+              response_route_id: job.response_route_id,
             });
             results.push({
               type: "tool_result",

@@ -24,6 +24,9 @@ describe("BunDashboardServer", () => {
       projectRoot: root,
       health: async () => ({ ready: true }),
       channels: async () => ({ feishu: { ready: true } }),
+      api: async (request, url) => url.pathname === "/api/example"
+        ? Response.json({ method: request.method })
+        : undefined,
     });
 
     expect(await dashboard.start()).toBe(true);
@@ -33,8 +36,14 @@ describe("BunDashboardServer", () => {
       gateway: { ready: true },
     });
     expect(await fetch(`${dashboard.url}/api/channels/health`).then((value) => value.json())).toEqual({
-      feishu: { ready: true },
+      items: { feishu: { ready: true } },
+      total: 1,
     });
+    expect(await fetch(`${dashboard.url}/api/example`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }).then((value) => value.json())).toEqual({ method: "PATCH" });
     expect(await fetch(dashboard.url).then((value) => value.text())).toContain("LXE");
     await dashboard.stop();
     expect(dashboard.state().running).toBe(false);
