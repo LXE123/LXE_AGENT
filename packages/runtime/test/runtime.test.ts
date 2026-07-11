@@ -470,4 +470,110 @@ describe("TypeScriptAgentRuntime", () => {
     expect(JSON.stringify(store.messages)).not.toContain("secret-base64");
     await runtime.stop();
   });
+
+  test("closes remaining tool calls when cancellation arrives between dispatches", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    const controller = new AbortController();
+    const runHandle: RuntimeHandle = {
+      signal: controller.signal,
+      cancelled: false,
+      drainSteering: () => [],
+      registerProcess: () => () => undefined,
+    };
+    tools.register({
+      name: "first", description: "first", input_schema: { type: "object", properties: {} },
+      execute: async () => {
+        controller.abort(new DOMException("Aborted", "AbortError"));
+        return { content: [{ type: "text", text: "first completed" }] };
+      },
+    });
+    tools.register({
+      name: "second", description: "second", input_schema: { type: "object", properties: {} },
+      execute: async () => { throw new Error("must not run"); },
+    });
+    const runtime = new TypeScriptAgentRuntime({
+      store, tools,
+      provider: { summarize, turn: async () => ({
+        content: [
+          { type: "tool_use", id: "t1", name: "first", input: {} },
+          { type: "tool_use", id: "t2", name: "second", input: {} },
+        ],
+        stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 },
+      }) },
+      emitter: { emit: async () => undefined, typing: async () => undefined }, systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), runHandle);
+    expect(outcome.status).toBe("cancelled");
+    expect(store.messages.at(-1)?.content).toEqual([
+      expect.objectContaining({ type: "tool_result", tool_use_id: "t1" }),
+      expect.objectContaining({ type: "tool_result", tool_use_id: "t2", is_error: true }),
+    ]);
+    await runtime.stop();
+  });
+
+  test("consumes steering before tool dispatch and asks the provider to reconsider", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    let toolCalls = 0;
+    let providerCalls = 0;
+    let drains = 0;
+    tools.register({
+      name: "dangerous", description: "dangerous", input_schema: { type: "object", properties: {} },
+      execute: async () => { toolCalls += 1; return { content: [] }; },
+    });
+    const runHandle: RuntimeHandle = {
+      signal: new AbortController().signal,
+      cancelled: false,
+      drainSteering: () => {
+        drains += 1;
+        return drains === 2 ? [{ text: "不要执行，改为解释" }] : [];
+      },
+      registerProcess: () => () => undefined,
+    };
+    const runtime = new TypeScriptAgentRuntime({
+      store, tools,
+      provider: { summarize, turn: async () => {
+        providerCalls += 1;
+        return providerCalls === 1
+          ? { content: [{ type: "tool_use", id: "t1", name: "dangerous", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } }
+          : { content: [{ type: "text", text: "已改为解释" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } };
+      } },
+      emitter: { emit: async () => undefined, typing: async () => undefined }, systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), runHandle);
+    expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "已改为解释" }));
+    expect(toolCalls).toBe(0);
+    expect(JSON.stringify(store.messages)).toContain("skipped because the user steered");
+    expect(JSON.stringify(store.messages)).toContain("不要执行");
+    await runtime.stop();
+  });
+
+  test("returns the compatible continuation message at the step limit", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "loop", description: "loop", input_schema: { type: "object", properties: {} },
+      execute: async () => ({ content: [{ type: "text", text: "again" }] }),
+    });
+    const runtime = new TypeScriptAgentRuntime({
+      store, tools, maxSteps: 1,
+      provider: { summarize, turn: async () => ({
+        content: [{ type: "tool_use", id: "t1", name: "loop", input: {} }],
+        stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 },
+      }) },
+      emitter: { emit: async () => undefined, typing: async () => undefined }, systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+    expect(outcome).toEqual(expect.objectContaining({
+      status: "completed", reply: "本轮已达到最大步骤，请发送下一条消息继续。",
+    }));
+    expect(store.messages.at(-1)).toEqual({
+      role: "assistant", content: [{ type: "text", text: "本轮已达到最大步骤，请发送下一条消息继续。" }],
+    });
+    await runtime.stop();
+  });
 });

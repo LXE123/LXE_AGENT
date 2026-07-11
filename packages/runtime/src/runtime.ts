@@ -174,7 +174,20 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       messages.push(userMessage);
       await this.options.store.appendMessage(job.session_id, userMessage, "turn_input");
 
-      const maxSteps = Math.max(1, Math.trunc(this.options.maxSteps ?? 32));
+      const appendSteering = async (steeringMessages = handle.drainSteering()): Promise<number> => {
+        let appended = 0;
+        for (const steering of steeringMessages) {
+          const text = String(steering.text ?? "").trim();
+          if (!text) continue;
+          const message: RuntimeMessage = { role: "user", content: text };
+          messages.push(message);
+          await this.options.store.appendMessage(job.session_id, message, "steering");
+          appended += 1;
+        }
+        return appended;
+      };
+
+      const maxSteps = Math.max(1, Math.trunc(this.options.maxSteps ?? 50));
       await finalAnswerStreamer?.startToolPending();
       for (let step = 0; step < maxSteps; step += 1) {
         if (isCancelled(handle)) {
@@ -182,13 +195,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           await recordUsage("cancelled");
           return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
         }
-        for (const steering of handle.drainSteering()) {
-          const text = String(steering.text ?? "").trim();
-          if (!text) continue;
-          const message: RuntimeMessage = { role: "user", content: text };
-          messages.push(message);
-          await this.options.store.appendMessage(job.session_id, message, "steering");
-        }
+        await appendSteering();
         const toolSchemas = this.options.tools.schemas();
         const prepared = await contextPipeline.prepare({
           sessionId: job.session_id,
@@ -282,8 +289,38 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
 
         const results: ToolResultBlock[] = [];
-        for (const call of calls) {
+        let interruptedBySteering = false;
+        for (let callIndex = 0; callIndex < calls.length; callIndex += 1) {
+          const call = calls[callIndex]!;
+          const steering = handle.drainSteering();
+          if (steering.some((item) => String(item.text ?? "").trim())) {
+            for (const pending of calls.slice(callIndex)) {
+              results.push({
+                type: "tool_result",
+                tool_use_id: pending.id,
+                content: "Tool execution skipped because the user steered the active turn before dispatch.",
+                is_error: true,
+              });
+            }
+            const steeredTools: RuntimeMessage = { role: "user", content: results };
+            messages.push(steeredTools);
+            await this.options.store.appendMessage(job.session_id, steeredTools, "tool_results_steered");
+            await appendSteering(steering);
+            interruptedBySteering = true;
+            break;
+          }
           if (isCancelled(handle)) {
+            for (const pending of calls.slice(callIndex)) {
+              results.push({
+                type: "tool_result",
+                tool_use_id: pending.id,
+                content: "Tool execution cancelled before dispatch.",
+                is_error: true,
+              });
+            }
+            const cancelledTools: RuntimeMessage = { role: "user", content: results };
+            messages.push(cancelledTools);
+            await this.options.store.appendMessage(job.session_id, cancelledTools, "tool_results_cancelled");
             await finalAnswerStreamer?.cancel();
             await recordUsage("cancelled");
             return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
@@ -301,6 +338,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               handle,
               session_id: job.session_id,
               response_route_id: job.response_route_id,
+              turn_id: job.job_id,
             });
             if (result.state_patch && Object.keys(result.state_patch).length > 0) {
               await this.options.store.patchSessionState(job.session_id, result.state_patch);
@@ -347,12 +385,20 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs, toolDisplayOutput);
           }
         }
+        if (interruptedBySteering) continue;
         const trimmedResults = trimToolResultBlocks(results, contextPipeline.toolResultMaxTokens).results;
         const toolMessage: RuntimeMessage = { role: "user", content: trimmedResults };
         messages.push(toolMessage);
         await this.options.store.appendMessage(job.session_id, toolMessage, "tool_results");
       }
-      throw new Error(`agent loop exceeded ${maxSteps} steps`);
+      const reply = "本轮已达到最大步骤，请发送下一条消息继续。";
+      const terminal: RuntimeMessage = { role: "assistant", content: [{ type: "text", text: reply }] };
+      messages.push(terminal);
+      await this.options.store.appendMessage(job.session_id, terminal, "assistant_max_steps");
+      const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.finish(reply) : false;
+      if (job.response_route_id && !streamDelivered) await this.emitBestEffort(this.finalRequest(job, reply), "final");
+      await recordUsage("completed");
+      return this.outcome("completed", reply, inputTokens, outputTokens, toolCalls);
     } catch (cause) {
       if (isCancelled(handle) || (cause instanceof DOMException && cause.name === "AbortError")) {
         await finalAnswerStreamer?.cancel();

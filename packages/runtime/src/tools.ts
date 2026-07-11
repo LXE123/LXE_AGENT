@@ -2,7 +2,12 @@ import type { JsonObject } from "@lxe/protocol";
 import type { RuntimeHandle, ToolExecutionResult, ToolSchema } from "./types";
 
 export interface ToolDefinition extends ToolSchema {
-  execute(input: JsonObject, context: { handle: RuntimeHandle; session_id: string; response_route_id?: string }): Promise<ToolExecutionResult>;
+  execute(input: JsonObject, context: {
+    handle: RuntimeHandle;
+    session_id: string;
+    response_route_id?: string;
+    turn_id?: string;
+  }): Promise<ToolExecutionResult>;
 }
 
 export class ToolRegistry {
@@ -31,7 +36,7 @@ export class ToolRegistry {
   async execute(
     name: string,
     input: JsonObject,
-    context: { handle: RuntimeHandle; session_id: string; response_route_id?: string },
+    context: { handle: RuntimeHandle; session_id: string; response_route_id?: string; turn_id?: string },
   ): Promise<ToolExecutionResult> {
     const definition = this.definitions.get(name.trim());
     if (!definition) throw new Error(`unknown tool: ${name}`);

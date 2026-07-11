@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
@@ -68,6 +68,47 @@ describe("native coding tools", () => {
     expect(completed).toEqual([expect.objectContaining({ session: payload.session, status: "completed" })]);
     await registry.execute("process", { action: "remove", session: payload.session }, context());
     expect(processes.snapshots()).toHaveLength(0);
+    await processes.stop();
+  });
+
+  test("requires a current read before modifying existing files and protects runtime state", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-safety-"));
+    roots.push(root);
+    writeFileSync(join(root, "existing.txt"), "v1\n", "utf8");
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    await expect(registry.execute("edit", {
+      file_path: "existing.txt", old_string: "v1", new_string: "v2",
+    }, context())).rejects.toThrow("先用 read");
+    await registry.execute("read", { path: "existing.txt" }, context());
+    writeFileSync(join(root, "existing.txt"), "external\n", "utf8");
+    await expect(registry.execute("write", {
+      file_path: "existing.txt", content: "blind overwrite\n",
+    }, context())).rejects.toThrow("重新 read");
+    await expect(registry.execute("write", { file_path: ".env", content: "SECRET=x" }, context()))
+      .rejects.toThrow("protected");
+    await expect(registry.execute("write", {
+      file_path: "user_session_db/sessions.json", content: "{}",
+    }, context())).rejects.toThrow("protected");
+    await processes.stop();
+  });
+
+  test("restores grep modes, find ordering, send boundaries, and business CLI guard", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-contract-"));
+    roots.push(root);
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    await registry.execute("write", { file_path: "src/a.py", content: "alpha\nbeta\nbeta\n" }, context());
+    const count = await registry.execute("grep", {
+      pattern: "beta", path: "src", output_mode: "count", type: "py",
+    }, context());
+    expect(String(count.content[0]?.text).replaceAll("\\", "/")).toContain("src/a.py:2");
+    await expect(registry.execute("send_file", { path: "src/a.py" }, context())).rejects.toThrow("artifacts");
+    await registry.execute("write", { file_path: "artifacts/a.txt", content: "ok" }, context());
+    expect((await registry.execute("send_file", { path: "artifacts/a.txt" }, context())).files).toHaveLength(1);
+    await expect(registry.execute("exec", {
+      command: "python -m services.agent_cli.mabang.resolve_fba_store",
+    }, context())).rejects.toThrow("JSON script bridge");
     await processes.stop();
   });
 
