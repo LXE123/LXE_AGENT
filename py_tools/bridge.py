@@ -10,11 +10,12 @@ from typing import Any
 
 from shared.logging import get_logger
 from services.browser.store.agent_tool_state import load_tool_state
+from py_tools.business import execute_module_json, load_catalog
 
 
 logger = get_logger(__name__)
 _PROTOCOL_VERSION = "1"
-_ALLOWED_TOOLS = {"ziniao_browser", "ziniao_page"}
+_CATALOG = load_catalog()
 
 
 def _response(call_id: str, *, ok: bool, content: list[dict[str, Any]] | None = None,
@@ -53,6 +54,9 @@ async def _execute(request: dict[str, Any]) -> dict[str, Any]:
     if str(request.get("protocol_version") or "") != _PROTOCOL_VERSION:
         return _response(call_id, ok=False, error={"code": "invalid_protocol", "message": "protocol_version must be 1"})
     tool_name = str(request.get("tool_name") or "").strip()
+    entry = _CATALOG.get(tool_name)
+    if entry is None:
+        return _response(call_id, ok=False, error={"code": "unknown_tool", "message": f"unsupported Python tool: {tool_name}"})
     if tool_name == "browser_auth_refresh":
         from clients.auth.browser_auth_client import ensure_auth
 
@@ -67,8 +71,16 @@ async def _execute(request: dict[str, Any]) -> dict[str, Any]:
             "type": "text",
             "text": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         }])
-    if tool_name not in _ALLOWED_TOOLS:
-        return _response(call_id, ok=False, error={"code": "unknown_tool", "message": f"unsupported Python tool: {tool_name}"})
+    if entry.get("module"):
+        ok, content, files, error = await asyncio.to_thread(
+            execute_module_json,
+            entry,
+            dict(request.get("arguments") or {}),
+            dict(request.get("session") or {}),
+        )
+        return _response(call_id, ok=ok, content=content, files=files, error=error)
+    if str(entry.get("handler") or "") != "browser":
+        return _response(call_id, ok=False, error={"code": "internal_only", "message": f"unsupported handler: {tool_name}"})
 
     from services.browser.store.ziniao_config import ziniao_tool_config_status
     from services.browser.tools import client as browser_client

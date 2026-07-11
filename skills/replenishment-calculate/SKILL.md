@@ -2,8 +2,8 @@
 name: replenishment-calculate
 description: 基于本地销量分析报告、真实库存（深圳仓库）报告和同日未关联货件快照生成马帮 Amazon 店铺 MSKU 备货建议。用户要求计算某个店铺的备货量、补货量、运输方式、链接备货汇总或“xxx店铺备货建议/补货建议”时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
-commands:
-  - services.agent_cli.mabang.calculate_store_msku_replenishment
+script_tools:
+  - mabang_calculate_store_msku_replenishment
 ---
 
 ## When to Use
@@ -14,7 +14,10 @@ commands:
 
 ## Hard Rules
 
-- 默认计算命令：`uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" [--template "<参数方案名>"]`
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+
+- 默认计算命令：`mabang_calculate_store_msku_replenishment --store-name "<店铺名>" [--template "<参数方案名>"]`
 - 本 skill 只负责调用计算 CLI；报表匹配、计算和写出都由 CLI 完成。
 - 销量分析报告和真实库存（深圳仓库）报告是必需输入；如果 CLI 提示缺少同源报表，路由到对应 skill。
 - 参数方案只决定理论算法结果：补货天数、理论补货量、运输方式、海运/同时空运拆分。
@@ -30,26 +33,26 @@ commands:
 
 如果店铺名不确定，先解析店铺：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store --store-name "<店铺名>"
+```text
+mabang_resolve_fba_store --store-name "<店铺名>"
 ```
 
 解析成功后，用规范 `store_name` 生成备货建议。不指定参数方案时使用 `默认`：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>"
+```text
+mabang_calculate_store_msku_replenishment --store-name "<店铺名>"
 ```
 
 如果用户指定参数方案：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" --template "<参数方案名>"
+```text
+mabang_calculate_store_msku_replenishment --store-name "<店铺名>" --template "<参数方案名>"
 ```
 
 如果用户明确要求使用亚马逊补充库存扣减字段：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.calculate_store_msku_replenishment --store-name "<店铺名>" --amazon-restock-inventory-snapshot "<亚马逊补充库存snapshot.xlsx>"
+```text
+mabang_calculate_store_msku_replenishment --store-name "<店铺名>" --amazon-restock-inventory-snapshot "<亚马逊补充库存snapshot.xlsx>"
 ```
 
 成功时：

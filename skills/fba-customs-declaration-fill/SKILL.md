@@ -2,13 +2,16 @@
 name: fba-customs-declaration-fill
 description: 根据用户上传的一个或多个备货 xlsx、本地 FBA 发货单 CSV 和本地 WMS 装箱数据填写报关资料模板，按 WMS 实际发货量生成申报要素、报关单明细、发票、箱单、合同和库存 SKU 数量校验报告。用户要求填写报关单、报关资料、报关文件时使用。
 type: amazon_fba
-commands:
-  - services.agent_cli.mabang.fill_customs_declaration
+script_tools:
+  - mabang_fill_customs_declaration
 ---
 
 # Customs Declaration Fill
 
 ## Hard Rules
+
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
 
 - 只使用固定 CLI。
 - 不要手动编辑用户上传的 xlsx 或 `data/customs_declaration/custom_declaration_documents.xlsx`。
@@ -33,14 +36,14 @@ commands:
 
 ## Command
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.fill_customs_declaration --input-xlsx <uploaded_xlsx_path>
+```text
+mabang_fill_customs_declaration --input-xlsx <uploaded_xlsx_path>
 ```
 
 多个备货单重复传参：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.fill_customs_declaration --input-xlsx <path_1> --input-xlsx <path_2>
+```text
+mabang_fill_customs_declaration --input-xlsx <path_1> --input-xlsx <path_2>
 ```
 
 只读取 CLI 输出的最后一行 JSON。

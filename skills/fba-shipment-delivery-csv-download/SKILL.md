@@ -2,13 +2,16 @@
 name: fba-shipment-delivery-csv-download
 description: 下载马帮 FBA 发货单 SKU 数据 CSV。用户要求获取、导出、下载 FBA 发货单、发货单 SKU 数据、发货单表格、SP 发货单 CSV 时使用；不要用于 WMS 装箱数据或托运单 Excel。
 type: amazon_fba
-commands:
-  - services.agent_cli.mabang.download_fba_delivery_csv
+script_tools:
+  - mabang_download_fba_delivery_csv
 ---
 
 # FBA Delivery CSV Download
 
 ## Hard Rules
+
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
 
 - 只使用固定 CLI。
 - 不要直接拼马帮 API 请求，不要手写、复用或展示 bearer/freeToken。
@@ -23,8 +26,8 @@ commands:
 
 ## Command
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.download_fba_delivery_csv --delivery-no <delivery_no>
+```text
+mabang_download_fba_delivery_csv --delivery-no <delivery_no>
 ```
 
 只读取 CLI 输出的最后一行 JSON。

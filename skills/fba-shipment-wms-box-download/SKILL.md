@@ -2,13 +2,16 @@
 name: fba-shipment-wms-box-download
 description: 下载马帮 WMS 托运单装箱数据 Excel。用户明确要求装箱数据、托运单 Excel、WMS 下载、原始装箱数据、不要拆分装箱数据，或为 Amazon FBA 创建货件准备装箱 Excel 时使用；不要用于 FBA 发货单、发货单 SKU 数据、发货单表格下载。
 type: amazon_fba
-commands:
-  - services.agent_cli.mabang.download_wms_consignment_excel
+script_tools:
+  - mabang_download_wms_consignment_excel
 ---
 
 # WMS Box Download
 
 ## Hard Rules
+
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
 
 - 只执行固定 CLI；不要调用 Python 内部函数。
 - 只在用户明确提到 WMS、装箱数据、托运单 Excel 或创建货件前置装箱文件时使用。
@@ -25,12 +28,12 @@ commands:
 
 ## Command
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.download_wms_consignment_excel --ship-no <ship_no> --split-mode auto
+```text
+mabang_download_wms_consignment_excel --ship-no <ship_no> --split-mode auto
 ```
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.download_wms_consignment_excel --ship-no <ship_no> --split-mode original
+```text
+mabang_download_wms_consignment_excel --ship-no <ship_no> --split-mode original
 ```
 
 只读取 CLI 输出的最后一行 JSON。

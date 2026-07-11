@@ -2,8 +2,8 @@
 name: replenishment-unlinked-shipment-download
 description: 按马帮 Amazon FBA 店铺名下载未关联货件原生导出文件，并基于本次下载文件生成未关联货件快照，覆盖 WMS待配货、WMS待装箱、待关联货件。用户要求测试下载未关联货件、下载未关联货件原始文件、检查备货缺失货件数据时使用。
 type: amazon_replenish
-commands:
-  - services.agent_cli.mabang.download_store_unlinked_shipments
+script_tools:
+  - mabang_download_store_unlinked_shipments
 ---
 
 ## When to Use
@@ -15,7 +15,10 @@ commands:
 
 ## Hard Rules
 
-- 只使用固定下载 CLI：`uv run --frozen python -m services.agent_cli.mabang.download_store_unlinked_shipments --store-name "<店铺名>"`
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+
+- 只使用固定下载 CLI：`mabang_download_store_unlinked_shipments --store-name "<店铺名>"`
 - 下载 CLI 会自动基于本次下载到的 raw 文件生成未关联货件快照。
 - 不要手动拼马帮 API 请求。
 - 不要手写、复用或展示 bearer/freeToken/cookie。
@@ -36,14 +39,14 @@ commands:
 
 如果店铺名不确定，先解析店铺：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store --store-name "<店铺名>"
+```text
+mabang_resolve_fba_store --store-name "<店铺名>"
 ```
 
 解析成功后，使用规范 `store_name` 下载未关联货件原生文件：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.download_store_unlinked_shipments --store-name "<店铺名>"
+```text
+mabang_download_store_unlinked_shipments --store-name "<店铺名>"
 ```
 
 - 导出任务通常需要几十秒；CLI 内部会轮询马帮任务中心。

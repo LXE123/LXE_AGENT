@@ -15,7 +15,7 @@ import {
   registerScriptTools,
   PythonScriptToolRunner,
   SkillCatalog,
-  ZINIAO_SCRIPT_TOOL_DEFINITIONS,
+  loadScriptToolCatalog,
   configureRuntimeTracing,
   registerToolSearch,
 } from "@lxe/runtime";
@@ -150,7 +150,8 @@ export function createProductionGateway(
     });
     registerScriptTools(tools, {
       runner: scriptRunner,
-      definitions: ZINIAO_SCRIPT_TOOL_DEFINITIONS,
+      definitions: loadScriptToolCatalog(join(options.projectRoot, "py_tools", "catalog.json")),
+      projectRoot: options.projectRoot,
       session: async (sessionId) => {
         const session = await (
           directStore as unknown as SqliteRuntimeStore

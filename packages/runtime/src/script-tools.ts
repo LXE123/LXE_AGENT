@@ -1,5 +1,7 @@
 import type { JsonObject } from "@lxe/protocol";
 import { randomUUID } from "node:crypto";
+import { readFileSync, realpathSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 import { ToolRegistry } from "./tools";
 
 export interface ScriptToolRequest {
@@ -35,7 +37,7 @@ export interface PythonScriptToolRunnerOptions {
 }
 
 export interface ScriptToolRunner {
-  execute(request: ScriptToolRequest, signal: AbortSignal): Promise<ScriptToolResponse>;
+  execute(request: ScriptToolRequest, signal: AbortSignal, timeoutMs?: number): Promise<ScriptToolResponse>;
 }
 
 export interface ScriptToolDefinition {
@@ -45,12 +47,71 @@ export interface ScriptToolDefinition {
   ownerSkills?: string[];
   connectorName?: string;
   timeoutMs?: number;
+  handler?: string;
+  module?: string;
+  exposed?: boolean;
 }
 
 export interface RegisterScriptToolsOptions {
   runner: ScriptToolRunner;
   definitions: ScriptToolDefinition[];
   session(sessionId: string): Promise<ScriptToolRequest["session"]>;
+  projectRoot?: string;
+}
+
+interface ScriptToolCatalogDocument {
+  protocol_version: "1";
+  entries: ScriptToolDefinition[];
+}
+
+export function loadScriptToolCatalog(path: string): ScriptToolDefinition[] {
+  const document = JSON.parse(readFileSync(path, "utf8")) as ScriptToolCatalogDocument;
+  if (document.protocol_version !== "1" || !Array.isArray(document.entries)) {
+    throw new Error("invalid script tool catalog protocol");
+  }
+  const entries = document.entries.map((entry) => {
+    const raw = entry as unknown as Record<string, unknown>;
+    return {
+      ...entry,
+      ownerSkills: Array.isArray(raw.owner_skills)
+        ? raw.owner_skills.map((item) => String(item))
+        : [...(entry.ownerSkills ?? [])],
+      timeoutMs: Number(raw.timeout_ms ?? entry.timeoutMs ?? 0),
+    };
+  });
+  const names = new Set<string>();
+  const modules = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.name?.trim() || !entry.input_schema || !Array.isArray(entry.ownerSkills ?? [])) {
+      throw new Error("invalid script tool catalog entry");
+    }
+    if (names.has(entry.name)) throw new Error(`duplicate script tool name: ${entry.name}`);
+    names.add(entry.name);
+    if (entry.module) {
+      if (modules.has(entry.module)) throw new Error(`duplicate script tool module: ${entry.module}`);
+      modules.add(entry.module);
+      const expected = entry.module === "services.agent_cli.amazon_logistic.run"
+        ? "amazon_logistic_quote"
+        : entry.module.startsWith("services.agent_cli.mabang.")
+          ? `mabang_${entry.module.split(".").at(-1)}`
+          : entry.module.startsWith("services.agent_cli.browser.amazon_fba.")
+            ? `amazon_fba_${entry.module.split(".").at(-1)}`
+            : "";
+      if (!expected || expected !== entry.name) throw new Error(`script tool naming mismatch: ${entry.module} -> ${entry.name}`);
+    } else if (!entry.handler) {
+      throw new Error(`script tool has no handler: ${entry.name}`);
+    }
+  }
+  return entries.filter((entry) => entry.exposed !== false).map((entry) => ({
+    name: entry.name,
+    description: entry.description || `Run the versioned ${entry.name} business workflow.`,
+    input_schema: structuredClone(entry.input_schema),
+    ownerSkills: [...(entry.ownerSkills ?? [])],
+    timeoutMs: entry.timeoutMs,
+    ...(entry.handler ? { handler: entry.handler } : {}),
+    ...(entry.module ? { module: entry.module } : {}),
+    exposed: true,
+  }));
 }
 
 export const ZINIAO_SCRIPT_TOOL_DEFINITIONS: ScriptToolDefinition[] = [
@@ -126,7 +187,7 @@ const terminateTree = async (pid: number): Promise<void> => {
 export class PythonScriptToolRunner {
   constructor(private readonly options: PythonScriptToolRunnerOptions) {}
 
-  async execute(request: ScriptToolRequest, signal: AbortSignal): Promise<ScriptToolResponse> {
+  async execute(request: ScriptToolRequest, signal: AbortSignal, timeoutMs?: number): Promise<ScriptToolResponse> {
     if (signal.aborted) throw new DOMException("Tool cancelled", "AbortError");
     const process = Bun.spawn(this.options.command, {
       cwd: this.options.cwd,
@@ -159,10 +220,11 @@ export class PythonScriptToolRunner {
     };
     const onAbort = (): void => { void terminate(); };
     signal.addEventListener("abort", onAbort, { once: true });
+    const effectiveTimeoutMs = Math.max(1, Math.trunc(timeoutMs ?? this.options.timeoutMs));
     const timeout = setTimeout(() => {
       timedOut = true;
       void terminate();
-    }, Math.max(1, this.options.timeoutMs));
+    }, effectiveTimeoutMs);
     try {
       process.stdin.write(`${JSON.stringify(request)}\n`);
       process.stdin.end();
@@ -171,7 +233,7 @@ export class PythonScriptToolRunner {
         readLimited(process.stderr, this.options.maxOutputBytes),
         process.exited,
       ]);
-      if (timedOut) throw new Error(`Python tool timed out after ${this.options.timeoutMs}ms`);
+      if (timedOut) throw new Error(`Python tool timed out after ${effectiveTimeoutMs}ms`);
       if (signal.aborted) throw new DOMException("Tool cancelled", "AbortError");
       const stderr = new TextDecoder().decode(stderrBytes);
       for (const line of stderr.split(/\r?\n/).filter(Boolean)) this.options.onStderr?.(line);
@@ -186,7 +248,7 @@ export class PythonScriptToolRunner {
       return response;
     } catch (error) {
       await terminate();
-      if (timedOut) throw new Error(`Python tool timed out after ${this.options.timeoutMs}ms`);
+      if (timedOut) throw new Error(`Python tool timed out after ${effectiveTimeoutMs}ms`);
       if (signal.aborted) throw new DOMException("Tool cancelled", "AbortError");
       throw error;
     } finally {
@@ -197,6 +259,19 @@ export class PythonScriptToolRunner {
 }
 
 export function registerScriptTools(registry: ToolRegistry, options: RegisterScriptToolsOptions): void {
+  const assertFileAllowed = (rawPath: string): string => {
+    if (!options.projectRoot) return rawPath;
+    const root = realpathSync(options.projectRoot);
+    const candidate = realpathSync(resolve(root, rawPath));
+    const relation = relative(root, candidate).replaceAll("\\", "/");
+    if (relation === ".." || relation.startsWith("../") || isAbsolute(relation)) {
+      throw new Error(`script tool file escapes project root: ${rawPath}`);
+    }
+    if (!relation.startsWith("artifacts/") && !/^skills\/[^/]+\/assets\//u.test(relation)) {
+      throw new Error(`script tool file is outside allowed artifact roots: ${rawPath}`);
+    }
+    return candidate;
+  };
   for (const definition of options.definitions) {
     registry.register({
       ...definition,
@@ -204,18 +279,22 @@ export function registerScriptTools(registry: ToolRegistry, options: RegisterScr
       exposure: "deferred",
       execute: async (arguments_, context) => {
         const callId = randomUUID();
+        const session = await options.session(context.session_id);
         const response = await options.runner.execute({
           protocol_version: "1",
           call_id: callId,
           tool_name: definition.name,
           arguments: arguments_,
-          session: await options.session(context.session_id),
-        }, context.handle.signal);
+          session: {
+            ...session,
+            response_route_id: context.response_route_id ?? session.response_route_id,
+          },
+        }, context.handle.signal, definition.timeoutMs);
         if (!response.ok) throw new Error(response.error?.message || `${definition.name} failed`);
         return {
           content: response.content,
           ...(response.state_patch ? { state_patch: response.state_patch } : {}),
-          ...(response.files ? { files: response.files } : {}),
+          ...(response.files ? { files: response.files.map(assertFileAllowed) } : {}),
         };
       },
     });

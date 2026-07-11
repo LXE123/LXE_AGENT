@@ -2,8 +2,8 @@
 name: replenishment-store-resolve
 description: 解析马帮 Amazon FBA 店铺名到可查询 ID，支持顶层 fbaWarehouseIds 区域/整组查询和欧洲区子站点 shopId 查询。用户要求查询马帮店铺 ID、确认店铺名、按店铺下载 MSKU 数据前需要解析店铺名，或店铺名不完整需要候选确认时使用（这里没有紫鸟店铺 ID）。
 type: amazon_replenish
-commands:
-  - services.agent_cli.mabang.resolve_fba_store
+script_tools:
+  - mabang_resolve_fba_store
 ---
 
 ## When to Use
@@ -15,7 +15,10 @@ commands:
 
 ## Hard Rules
 
-- 只使用固定 CLI：`uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store`
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+
+- 只使用固定 CLI：`mabang_resolve_fba_store`
 - 不要手动拼接马帮店铺列表请求。
 - 不要手写、复用或转述样例 Cookie/token。
 - 不要猜测店铺 ID；必须以 CLI 最后一行 JSON 的 `store_id`、`id_type` 为准。
@@ -27,14 +30,14 @@ commands:
 
 列出全部店铺：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store
+```text
+mabang_resolve_fba_store
 ```
 
 解析指定店铺：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store --store-name "<店铺名>"
+```text
+mabang_resolve_fba_store --store-name "<店铺名>"
 ```
 
 只读取 CLI 输出的最后一行 JSON。

@@ -15,6 +15,7 @@
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun test",
+    "test:py-tools": "uv run --frozen pytest -q",
     "dashboard:build": "bun run --cwd web/agent-dashboard build",
     "gateway:dev": "bun run --cwd apps/gateway dev",
     "gateway:watch": "bun run --cwd apps/gateway watch",
@@ -22,8 +23,8 @@
     "gateway:stop": "bun run --cwd apps/gateway stop",
     "gateway:build": "bun run --cwd apps/gateway build",
     "check:ts-boundary": "bun scripts/check-ts-production-boundary.ts",
-    "verify:migration": "bun run check:ts-boundary && bun run typecheck && bun test packages/core/test packages/protocol/test packages/runtime/test apps/gateway/src/env.test.ts apps/gateway/src/cli.test.ts apps/gateway/src/main.test.ts apps/gateway/src/dashboard.test.ts apps/gateway/src/production.test.ts apps/gateway/src/direct-composition.test.ts apps/gateway/src/permission-policy.test.ts apps/gateway/src/session-bindings.test.ts apps/gateway/src/router.test.ts apps/gateway/src/scheduler.test.ts apps/gateway/src/gateway-lifecycle.test.ts apps/gateway/src/emitter.test.ts apps/gateway/src/feishu && bun run gateway:build",
-    "verify": "bun run check:ts-boundary && bun run typecheck && bun run test && bun run dashboard:build && bun run gateway:build"
+    "verify:migration": "bun run check:ts-boundary && bun run typecheck && bun test packages/core/test packages/protocol/test packages/runtime/test apps/gateway/src/env.test.ts apps/gateway/src/cli.test.ts apps/gateway/src/main.test.ts apps/gateway/src/dashboard.test.ts apps/gateway/src/production.test.ts apps/gateway/src/direct-composition.test.ts apps/gateway/src/permission-policy.test.ts apps/gateway/src/session-bindings.test.ts apps/gateway/src/router.test.ts apps/gateway/src/scheduler.test.ts apps/gateway/src/gateway-lifecycle.test.ts apps/gateway/src/emitter.test.ts apps/gateway/src/feishu && bun run test:py-tools && bun run gateway:build",
+    "verify": "bun run check:ts-boundary && bun run typecheck && bun run test && bun run test:py-tools && bun run dashboard:build && bun run gateway:build"
   },
   "devDependencies": {
     "typescript": "7.0.2"

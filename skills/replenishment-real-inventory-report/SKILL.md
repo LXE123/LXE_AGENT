@@ -2,8 +2,8 @@
 name: replenishment-real-inventory-report
 description: 基于本地已下载的马帮 Amazon 店铺 MSKU 数据查询并生成真实库存（深圳仓库）报告。用户要求查看某个店铺 MSKU、本地SKU、组合SKU 或备货分析所需的真实库存（深圳仓库）数量时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
-commands:
-  - services.agent_cli.mabang.export_store_msku_actual_inventory
+script_tools:
+  - mabang_export_store_msku_actual_inventory
 ---
 
 ## When to Use
@@ -14,7 +14,10 @@ commands:
 
 ## Hard Rules
 
-- 只使用固定 CLI：`uv run --frozen python -m services.agent_cli.mabang.export_store_msku_actual_inventory --store-name "<店铺名>"`
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+
+- 只使用固定 CLI：`mabang_export_store_msku_actual_inventory --store-name "<店铺名>"`
 - 不要手动拼接马帮请求。
 - 不要手写、复用或转述样例 Cookie/token。
 - 不要自动下载店铺 MSKU 数据；本 skill 只分析本地已下载的店铺 MSKU 文件。
@@ -27,14 +30,14 @@ commands:
 
 如果店铺名不确定，先解析店铺：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store --store-name "<店铺名>"
+```text
+mabang_resolve_fba_store --store-name "<店铺名>"
 ```
 
 解析成功后，用规范 `store_name` 查询真实库存（深圳仓库）：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.export_store_msku_actual_inventory --store-name "<店铺名>"
+```text
+mabang_export_store_msku_actual_inventory --store-name "<店铺名>"
 ```
 
 成功时：

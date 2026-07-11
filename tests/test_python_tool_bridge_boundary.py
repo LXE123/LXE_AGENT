@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 from py_tools import bridge
+from py_tools.business import load_catalog
 from services.browser.tools import client
 from services.browser.tools.models import ExecuteToolResult, ToolExecutionResult
 
@@ -98,3 +99,37 @@ def test_python_bridge_calls_service_boundary_without_runtime_context(monkeypatc
     assert getattr(calls[0][2], "state_data") == {
         "browser": {"session_id": "remote-1"}
     }
+
+
+def test_catalog_covers_active_business_skills_and_bridge_dispatches_module(monkeypatch) -> None:
+    catalog = load_catalog()
+    assert catalog["amazon_logistic_quote"]["module"] == "services.agent_cli.amazon_logistic.run"
+    assert catalog["mabang_resolve_fba_store"]["owner_skills"]
+    assert catalog["browser_auth_refresh"]["exposed"] is False
+
+    calls: list[tuple[dict, dict, dict]] = []
+
+    def fake_execute(entry: dict, arguments: dict, session: dict):
+        calls.append((entry, arguments, session))
+        return True, [{"type": "text", "text": "ok"}], [], None
+
+    monkeypatch.setattr(bridge, "execute_module_json", fake_execute)
+    response = asyncio.run(
+        bridge._execute(
+            {
+                "protocol_version": "1",
+                "call_id": "business-1",
+                "tool_name": "mabang_resolve_fba_store",
+                "arguments": {"store_name": "Demo"},
+                "session": {
+                    "session_id": "session-1",
+                    "response_route_id": "route-current",
+                    "user_id": "user-1",
+                    "conversation_id": "conversation-1",
+                },
+            }
+        )
+    )
+    assert response["ok"] is True
+    assert calls[0][1] == {"store_name": "Demo"}
+    assert calls[0][2]["response_route_id"] == "route-current"

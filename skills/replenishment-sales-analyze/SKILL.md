@@ -2,8 +2,8 @@
 name: replenishment-sales-analyze
 description: 基于本地已下载的马帮 Amazon 店铺 MSKU 数据生成销量分析报告。用户要求分析某个店铺的链接销量、ASIN销量、MSKU销量趋势、补货前销量趋势报告或“xxx店铺销量分析报告”时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
-commands:
-  - services.agent_cli.mabang.analyze_store_msku_sales
+script_tools:
+  - mabang_analyze_store_msku_sales
 ---
 
 ## When to Use
@@ -14,7 +14,10 @@ commands:
 
 ## Hard Rules
 
-- 只使用固定 CLI：`uv run --frozen python -m services.agent_cli.mabang.analyze_store_msku_sales --store-name "<店铺名>"`
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+
+- 只使用固定 CLI：`mabang_analyze_store_msku_sales --store-name "<店铺名>"`
 - 不要手动读取或改写马帮接口请求。
 - 不要自动下载最新 MSKU 数据；本 skill 只分析本地已下载文件。
 - 如果本地没有店铺 MSKU 数据文件，提示用户先运行 `replenishment-msku-download`。
@@ -26,14 +29,14 @@ commands:
 
 如果店铺名不确定，先解析店铺：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store --store-name "<店铺名>"
+```text
+mabang_resolve_fba_store --store-name "<店铺名>"
 ```
 
 解析成功后，用规范 `store_name` 生成销量分析报告：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.analyze_store_msku_sales --store-name "<店铺名>"
+```text
+mabang_analyze_store_msku_sales --store-name "<店铺名>"
 ```
 
 成功时：

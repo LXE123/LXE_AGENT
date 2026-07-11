@@ -2,13 +2,16 @@
 name: fba-invoice-template-fill
 description: 根据用户上传的备货 xlsx、本地 FBA 发货单 CSV 和本地 WMS 装箱数据填写发票导入模板，按 WMS 实际发货量生成 invoice_Template 和数量校验报告。用户要求填写发票模板、生成发票导入表、把备货单写入 invoice_Template，或为 FBA 发票资料准备模板时使用。
 type: amazon_fba
-commands:
-  - services.agent_cli.mabang.fill_invoice_template
+script_tools:
+  - mabang_fill_invoice_template
 ---
 
 # Invoice Template Fill
 
 ## Hard Rules
+
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
 
 - 只使用固定 CLI。
 - 不要手动编辑用户备货单或 `data/invoice_Template/invoice_Template.xlsx`。
@@ -31,8 +34,8 @@ commands:
 
 ## Command
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.fill_invoice_template --input-xlsx <备货单.xlsx>
+```text
+mabang_fill_invoice_template --input-xlsx <备货单.xlsx>
 ```
 
 只读取 CLI 输出的最后一行 JSON。

@@ -2,13 +2,16 @@
 name: fba-logistics-select
 description: 用固定 CLI 执行 Amazon FBA 物流优选。用户提到物流优选、选物流、物流报价、算渠道价格，并提供 consignment_no、shipment_no、destination_address 三列 TSV 时使用。
 type: amazon_fba
-commands:
-  - services.agent_cli.amazon_logistic.run
+script_tools:
+  - amazon_logistic_quote
 ---
 
 # FBA Logistics Select
 
 ## Hard Rules
+
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
 
 - 只使用固定 CLI。
 - 不要从 `shipment_no` 自动查询地址。
@@ -36,11 +39,11 @@ commands:
 
 多行 TSV 固定用 PowerShell here-string，不要手工拼成一行：
 
-```powershell
+```text
 $inputText = @'
 <tsv_block>
 '@
-uv run --frozen python -m services.agent_cli.amazon_logistic.run --input-text $inputText
+amazon_logistic_quote --input-text $inputText
 ```
 
 ## Result Handling

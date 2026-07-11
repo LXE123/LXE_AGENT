@@ -44,6 +44,29 @@ for await (const path of new Bun.Glob("**/*.py").scan({ cwd: root, onlyFiles: tr
   if (pythonImports.test(read(path))) failures.push(`${path}: retained Python must not import gateway or agent_runtime`);
 }
 
+const scriptCatalog = JSON.parse(read("py_tools/catalog.json")) as {
+  protocol_version?: string;
+  entries?: Array<{ name?: string; exposed?: boolean; owner_skills?: string[] }>;
+};
+if (scriptCatalog.protocol_version !== "1") failures.push("py_tools/catalog.json: protocol_version must be 1");
+const scriptEntries = new Map((scriptCatalog.entries ?? []).map((entry) => [String(entry.name ?? ""), entry]));
+for await (const path of new Bun.Glob("skills/**/SKILL.md").scan({ cwd: root, onlyFiles: true })) {
+  const source = read(path);
+  const frontmatter = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "";
+  const skillName = frontmatter.match(/^name:\s*([^\r\n#]+)/m)?.[1]?.trim() ?? "";
+  const scriptBlock = frontmatter.match(/^script_tools:\s*\r?\n((?:\s+-[^\r\n]+\r?\n?)*)/m)?.[1] ?? "";
+  const scriptTools = [...scriptBlock.matchAll(/^\s+-\s*([^\s#]+)/gm)].map((match) => match[1] ?? "").filter(Boolean);
+  if (/\b(?:uv\s+run[^\r\n]*python|python(?:3)?\s+-m)\s+services\.agent_cli\b/i.test(source)) {
+    failures.push(`${path}: active skill must use a registered script tool instead of shelling out to a business CLI`);
+  }
+  if (/services\.agent_cli\./.test(source)) failures.push(`${path}: active skill must not reference business module paths`);
+  for (const toolName of scriptTools) {
+    const entry = scriptEntries.get(toolName);
+    if (!entry || entry.exposed === false) failures.push(`${path}: unknown or hidden script tool ${toolName}`);
+    else if (!entry.owner_skills?.includes(skillName)) failures.push(`${path}: script tool ${toolName} does not declare owner skill ${skillName}`);
+  }
+}
+
 if (failures.length > 0) {
   for (const failure of failures) console.error(failure);
   process.exit(1);

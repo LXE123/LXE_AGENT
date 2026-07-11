@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PythonScriptToolRunner, registerScriptTools } from "../src/script-tools";
+import { PythonScriptToolRunner, loadScriptToolCatalog, registerScriptTools } from "../src/script-tools";
 import { ToolRegistry } from "../src/tools";
 
 describe("Python JSON tool bridge", () => {
@@ -78,21 +78,47 @@ describe("Python JSON tool bridge", () => {
   test("registers script schemas and translates runtime context into one protocol request", async () => {
     const requests: unknown[] = [];
     const registry = new ToolRegistry();
+    const root = mkdtempSync(join(tmpdir(), "lxe-script-files-"));
+    mkdirSync(join(root, "artifacts"), { recursive: true });
+    writeFileSync(join(root, "artifacts", "result.txt"), "ok", "utf8");
     registerScriptTools(registry, {
-      definitions: [{ name: "py_demo", description: "demo", input_schema: { type: "object" } }],
+      definitions: [{ name: "py_demo", description: "demo", input_schema: { type: "object" }, timeoutMs: 1_234 }],
+      projectRoot: root,
       session: async (sessionId) => ({ session_id: sessionId, response_route_id: "route", user_id: "user", conversation_id: "chat" }),
       runner: {
-        execute: async (request) => {
-          requests.push(request);
-          return { protocol_version: "1", call_id: request.call_id, ok: true, content: [{ type: "text", text: "ok" }] };
+        execute: async (request, _signal, timeoutMs) => {
+          requests.push({ request, timeoutMs });
+          return {
+            protocol_version: "1", call_id: request.call_id, ok: true,
+            content: [{ type: "text", text: "ok" }], files: ["artifacts/result.txt"],
+          };
         },
       },
     });
     const output = await registry.execute("py_demo", { value: 1 }, {
       session_id: "session",
+      response_route_id: "route-current",
       handle: { signal: new AbortController().signal, cancelled: false, drainSteering: () => [], registerProcess: () => () => undefined },
     });
     expect(output.content[0]?.text).toBe("ok");
-    expect(requests[0]).toMatchObject({ protocol_version: "1", tool_name: "py_demo", arguments: { value: 1 }, session: { session_id: "session" } });
+    expect(output.files).toEqual([join(root, "artifacts", "result.txt")]);
+    expect(requests[0]).toMatchObject({
+      timeoutMs: 1_234,
+      request: {
+        protocol_version: "1", tool_name: "py_demo", arguments: { value: 1 },
+        session: { session_id: "session", response_route_id: "route-current" },
+      },
+    });
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("loads the shared versioned business catalog with stable names and owners", () => {
+    const entries = loadScriptToolCatalog(join(process.cwd(), "py_tools", "catalog.json"));
+    expect(entries.find((entry) => entry.name === "amazon_logistic_quote")).toMatchObject({
+      module: "services.agent_cli.amazon_logistic.run",
+      ownerSkills: ["fba-logistics-select"],
+      timeoutMs: 300_000,
+    });
+    expect(entries.some((entry) => entry.name === "browser_auth_refresh")).toBe(false);
   });
 });

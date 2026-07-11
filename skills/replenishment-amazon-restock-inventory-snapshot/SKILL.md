@@ -2,8 +2,8 @@
 name: replenishment-amazon-restock-inventory-snapshot
 description: 将用户从 Seller Central 手动下载的亚马逊补充库存 CSV 解析为备货可用的亚马逊补充库存 snapshot。用户要求使用亚马逊补充库存、解析补充库存 CSV、校验补充库存文件是否对应店铺、询问亚马逊库存报告怎么下载/哪里下载/下载路径/截图指引，或在备货建议中增加亚马逊补充库存扣减字段时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
-commands:
-  - services.agent_cli.mabang.build_amazon_restock_inventory_snapshot
+script_tools:
+  - mabang_build_amazon_restock_inventory_snapshot
 ---
 
 ## When to Use
@@ -15,7 +15,10 @@ commands:
 
 ## Hard Rules
 
-- 默认解析命令：`uv run --frozen python -m services.agent_cli.mabang.build_amazon_restock_inventory_snapshot --store-name "<店铺名>" --csv "<亚马逊补充库存CSV>"`
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+
+- 默认解析命令：`mabang_build_amazon_restock_inventory_snapshot --store-name "<店铺名>" --csv "<亚马逊补充库存CSV>"`
 - 本 skill 不登录 Seller Central，不自动下载亚马逊补充库存文件。
 - CSV 必须是 Seller Central 补充库存报告，并包含 `Merchant SKU` 和 `Total Units`。
 - CLI 会基于本地最新马帮原生 MSKU 数据做校验；如果本地没有店铺 MSKU 文件，先运行 `replenishment-msku-download`。
@@ -46,19 +49,19 @@ skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inv
 
 如果店铺名不确定，先解析店铺：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store --store-name "<店铺名>"
+```text
+mabang_resolve_fba_store --store-name "<店铺名>"
 ```
 
 解析成功后，生成亚马逊补充库存 snapshot：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.build_amazon_restock_inventory_snapshot --store-name "<店铺名>" --csv "<亚马逊补充库存CSV>"
+```text
+mabang_build_amazon_restock_inventory_snapshot --store-name "<店铺名>" --csv "<亚马逊补充库存CSV>"
 ```
 
 如果用户明确提供了马帮原生 MSKU 文件路径，可附加：
 
-```powershell
+```text
 --msku-xlsx "<马帮原生MSKU文件.xlsx>"
 ```
 

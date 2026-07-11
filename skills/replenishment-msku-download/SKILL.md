@@ -2,8 +2,8 @@
 name: replenishment-msku-download
 description: 按已解析的马帮 Amazon FBA 店铺 ID 下载该店铺 MSKU 数据 Excel。用户要求获取某个店铺、欧洲区整组或欧洲子站点的 MSKU 数据、店铺 MSKU 表、补货用 MSKU 数据时使用；如果用户只给店铺名，先使用 replenishment-store-resolve 解析 store_name、store_id 和 id_type。
 type: amazon_replenish
-commands:
-  - services.agent_cli.mabang.download_store_msku_excel
+script_tools:
+  - mabang_download_store_msku_excel
 ---
 
 ## When to Use
@@ -14,7 +14,10 @@ commands:
 
 ## Hard Rules
 
-- 只使用固定 CLI：`uv run --frozen python -m services.agent_cli.mabang.download_store_msku_excel`
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+
+- 只使用固定 CLI：`mabang_download_store_msku_excel`
 - 不要手动拼接马帮请求。
 - 不要手写、复用或转述样例 Cookie/token。
 - 不要猜测店铺 ID；如果缺少 `store_name`、`store_id` 或 `id_type`，先运行 `replenishment-store-resolve`。
@@ -32,14 +35,14 @@ commands:
 
 如果用户只给店铺名，先解析店铺：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.resolve_fba_store --store-name "<店铺名>"
+```text
+mabang_resolve_fba_store --store-name "<店铺名>"
 ```
 
 解析成功后，使用返回的 `store_id`、`id_type`、`store_name` 下载店铺 MSKU 数据：
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.download_store_msku_excel --store-id "<ID>" --id-type "<fbaWarehouseIds[]|shopId>" --store-name "<店铺名>"
+```text
+mabang_download_store_msku_excel --store-id "<ID>" --id-type "<fbaWarehouseIds[]|shopId>" --store-name "<店铺名>"
 ```
 
 只读取 CLI 输出的最后一行 JSON。

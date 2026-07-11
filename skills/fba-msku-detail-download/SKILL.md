@@ -2,13 +2,16 @@
 name: fba-msku-detail-download
 description: 根据 SP 单号从 FBA 发货单提取 MSKU，并下载马帮 MSKU 明细 Excel。用户要求获取 MSKU 详细数据、MSKU 明细、为发票填写准备 MSKU 数据文件时使用。
 type: amazon_fba
-commands:
-  - services.agent_cli.mabang.download_msku_detail_excel
+script_tools:
+  - mabang_download_msku_detail_excel
 ---
 
 # FBA MSKU Detail Download
 
 ## Hard Rules
+
+- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
+- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
 
 - 只使用固定 CLI。
 - 不要手动读取、编辑或生成 MSKU 明细 Excel。
@@ -25,8 +28,8 @@ commands:
 
 ## Command
 
-```powershell
-uv run --frozen python -m services.agent_cli.mabang.download_msku_detail_excel --delivery-no <SP单号>
+```text
+mabang_download_msku_detail_excel --delivery-no <SP单号>
 ```
 
 只读取 CLI 输出的最后一行 JSON。
