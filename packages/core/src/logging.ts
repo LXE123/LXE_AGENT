@@ -43,6 +43,13 @@ export interface LoggingStatus {
   readonly fileLevel: LogLevel;
 }
 
+export interface LogSanitizePolicy {
+  maxDepth?: number;
+  maxItems?: number;
+  maxString?: number;
+  maxStackString?: number;
+}
+
 export interface ConfigureLoggingOptions {
   projectRoot: string;
   environment: Environment;
@@ -72,6 +79,12 @@ const LOG_CONTEXT = new AsyncLocalStorage<Readonly<LogContext>>();
 const MAX_LOG_DEPTH = 8;
 const MAX_LOG_ITEMS = 100;
 const MAX_LOG_STRING = 8_000;
+const DEFAULT_SANITIZE_POLICY: Required<LogSanitizePolicy> = {
+  maxDepth: MAX_LOG_DEPTH,
+  maxItems: MAX_LOG_ITEMS,
+  maxString: MAX_LOG_STRING,
+  maxStackString: 16_000,
+};
 const SAFE_ERROR_FIELDS = new Set([
   "method", "path", "http_status", "api_code", "log_id", "operation", "card_id",
 ]);
@@ -107,44 +120,57 @@ const redactSensitiveText = (value: string): string => value
     "$1$2[redacted]",
   );
 
-const errorValue = (error: Error, depth: number, seen: WeakSet<object>): Record<string, unknown> => {
-  if (seen.has(error)) return { name: error.name, message: truncate(error.message), cause: "[recursive]" };
+const sanitizePolicy = (policy: LogSanitizePolicy = {}): Required<LogSanitizePolicy> => ({
+  maxDepth: Math.max(1, Math.trunc(policy.maxDepth ?? DEFAULT_SANITIZE_POLICY.maxDepth)),
+  maxItems: Math.max(1, Math.trunc(policy.maxItems ?? DEFAULT_SANITIZE_POLICY.maxItems)),
+  maxString: Math.max(64, Math.trunc(policy.maxString ?? DEFAULT_SANITIZE_POLICY.maxString)),
+  maxStackString: Math.max(64, Math.trunc(policy.maxStackString ?? DEFAULT_SANITIZE_POLICY.maxStackString)),
+});
+
+const errorValue = (
+  error: Error,
+  depth: number,
+  seen: WeakSet<object>,
+  policy: Required<LogSanitizePolicy>,
+): Record<string, unknown> => {
+  if (seen.has(error)) return { name: error.name, message: truncate(error.message, policy.maxString), cause: "[recursive]" };
   seen.add(error);
   const result: Record<string, unknown> = {
-    name: truncate(error.name),
-    message: truncate(redactSensitiveText(error.message)),
-    stack: truncate(redactSensitiveText(error.stack ?? ""), 16_000),
+    name: truncate(error.name, policy.maxString),
+    message: truncate(redactSensitiveText(error.message), policy.maxString),
+    stack: truncate(redactSensitiveText(error.stack ?? ""), policy.maxStackString),
   };
   try {
     for (const [key, value] of Object.entries(error)) {
       if (SAFE_ERROR_FIELDS.has(key) && ["string", "number", "boolean"].includes(typeof value)) {
-        result[key] = typeof value === "string" ? truncate(redactSensitiveText(value)) : value;
+        result[key] = typeof value === "string" ? truncate(redactSensitiveText(value), policy.maxString) : value;
       }
     }
   } catch {
     // Error extensions are optional diagnostics.
   }
-  if (depth < MAX_LOG_DEPTH && error.cause instanceof Error) {
-    result.cause = errorValue(error.cause, depth + 1, seen);
+  if (depth < policy.maxDepth && error.cause instanceof Error) {
+    result.cause = errorValue(error.cause, depth + 1, seen, policy);
   }
   return result;
 };
 
-export function sanitizeLogValue(
+const sanitizeValue = (
   value: unknown,
-  key = "",
-  depth = 0,
-  seen = new WeakSet<object>(),
-): unknown {
+  key: string,
+  depth: number,
+  seen: WeakSet<object>,
+  policy: Required<LogSanitizePolicy>,
+): unknown => {
   if (key && SENSITIVE_KEYS.has(normalizedKey(key))) return "***";
   if (value === null || value === undefined || typeof value === "boolean" || typeof value === "number") return value;
-  if (typeof value === "string") return truncate(redactSensitiveText(value));
+  if (typeof value === "string") return truncate(redactSensitiveText(value), policy.maxString);
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "symbol" || typeof value === "function") return String(value);
-  if (depth >= MAX_LOG_DEPTH) return "[max depth]";
-  if (value instanceof Error) return errorValue(value, depth, seen);
+  if (depth >= policy.maxDepth) return "[max depth]";
+  if (value instanceof Error) return errorValue(value, depth, seen, policy);
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? "Invalid Date" : value.toISOString();
-  if (value instanceof URL) return truncate(value.toString());
+  if (value instanceof URL) return truncate(value.toString(), policy.maxString);
   if (ArrayBuffer.isView(value)) {
     return `[${value.constructor.name} omitted: ${value.byteLength} bytes]`;
   }
@@ -154,26 +180,43 @@ export function sanitizeLogValue(
   seen.add(value);
   try {
     if (Array.isArray(value)) {
-      const items = value.slice(0, MAX_LOG_ITEMS).map((item) => sanitizeLogValue(item, "", depth + 1, seen));
-      if (value.length > MAX_LOG_ITEMS) items.push(`[${value.length - MAX_LOG_ITEMS} items omitted]`);
+      const items = value.slice(0, policy.maxItems).map((item) => sanitizeValue(item, "", depth + 1, seen, policy));
+      if (value.length > policy.maxItems) items.push(`[${value.length - policy.maxItems} items omitted]`);
       return items;
     }
     if (value instanceof Map) {
-      return sanitizeLogValue(Object.fromEntries([...value.entries()].slice(0, MAX_LOG_ITEMS)), key, depth + 1, seen);
+      return sanitizeValue(Object.fromEntries([...value.entries()].slice(0, policy.maxItems)), key, depth + 1, seen, policy);
     }
-    if (value instanceof Set) return sanitizeLogValue([...value].slice(0, MAX_LOG_ITEMS), key, depth + 1, seen);
+    if (value instanceof Set) return sanitizeValue([...value].slice(0, policy.maxItems), key, depth + 1, seen, policy);
     const entries = Object.entries(value as Record<string, unknown>);
     const result: Record<string, unknown> = {};
-    for (const [childKey, childValue] of entries.slice(0, MAX_LOG_ITEMS)) {
-      result[childKey] = sanitizeLogValue(childValue, childKey, depth + 1, seen);
+    for (const [childKey, childValue] of entries.slice(0, policy.maxItems)) {
+      result[childKey] = sanitizeValue(childValue, childKey, depth + 1, seen, policy);
     }
-    if (entries.length > MAX_LOG_ITEMS) result._omitted_fields = entries.length - MAX_LOG_ITEMS;
+    if (entries.length > policy.maxItems) result._omitted_fields = entries.length - policy.maxItems;
     return result;
   } catch (error) {
     return `[unserializable: ${truncate(error instanceof Error ? error.message : String(error), 500)}]`;
   } finally {
     seen.delete(value);
   }
+};
+
+export function sanitizeLogValue(
+  value: unknown,
+  key = "",
+  depth = 0,
+  seen = new WeakSet<object>(),
+): unknown {
+  return sanitizeValue(value, key, depth, seen, DEFAULT_SANITIZE_POLICY);
+}
+
+export function sanitizeLogValueWithPolicy(
+  value: unknown,
+  policy: LogSanitizePolicy,
+  key = "",
+): unknown {
+  return sanitizeValue(value, key, 0, new WeakSet<object>(), sanitizePolicy(policy));
 }
 
 const cleanedContext = (value: LogContext): LogContext => Object.fromEntries(

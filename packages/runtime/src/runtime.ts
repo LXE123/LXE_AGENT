@@ -20,7 +20,7 @@ import {
   normalizePendingSystemEvents,
   userContentWithSystemEvents,
 } from "./system-events";
-import type { RuntimeTraceControllerPort } from "./trace";
+import type { RuntimeTraceControllerPort, RuntimeWireTraceAttempt } from "./trace";
 import type {
   AgentRuntime,
   RuntimeContentBlock,
@@ -325,13 +325,16 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         if (prepared.hardLimitExceeded) {
           throw new ContextOverflowError(prepared.afterTokens, contextPipeline.hardLimitTokens);
         }
-        const providerRequest = (attemptObserver: ReturnType<RuntimeTurnObserver["providerAttempt"]>) => ({
+        const providerRequest = (
+          attemptObserver: ReturnType<RuntimeTurnObserver["providerAttempt"]>,
+          wireTrace?: RuntimeWireTraceAttempt,
+        ) => ({
           system: systemPrompt,
           messages: structuredClone(messages) as RuntimeMessage[],
           tools: toolSchemas,
           toolChoice: heartbeat || isLastStep ? "none" as const : "auto" as const,
           signal: handle.signal,
-          ...(trace ? { trace } : {}),
+          ...(wireTrace ? { wireTrace } : {}),
           onEvent: async (event: RuntimeStreamEvent) => {
             attemptObserver.stream(event);
             trace?.record("stream_event", {
@@ -342,19 +345,29 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
           },
         });
+        let providerAttemptOrdinal = 0;
         const invokeProvider = async (maximumAttempts = DEFAULT_PROVIDER_ATTEMPTS): Promise<RuntimeTurnResponse> => {
           let lastError: unknown;
           for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+            providerAttemptOrdinal += 1;
             apiCalls += 1;
             const attemptObserver = observer.providerAttempt(
               step + 1,
-              attempt,
+              providerAttemptOrdinal,
               descriptor?.name ?? "custom",
               descriptor?.model ?? this.options.display?.model ?? "",
             );
-            trace?.record("provider_attempt", { step: step + 1, attempt });
+            trace?.record("provider_attempt", { step: step + 1, attempt: providerAttemptOrdinal });
+            const wireTrace = trace?.startProviderAttempt({
+              step,
+              attempt: providerAttemptOrdinal,
+              provider: descriptor?.name ?? "custom",
+              model: descriptor?.model ?? this.options.display?.model ?? "",
+              endpoint: descriptor ? `${descriptor.baseURL.replace(/\/+$/u, "")}/v1/messages` : "",
+              timeoutMs: descriptor?.requestTimeoutMs ?? 0,
+            });
             try {
-              const response = await provider.turn(providerRequest(attemptObserver));
+              const response = await provider.turn(providerRequest(attemptObserver, wireTrace));
               attemptObserver.succeed(response);
               return response;
             } catch (error) {

@@ -63,6 +63,8 @@ Heartbeat drop/defer reasons are restricted to `autonomy_suspended`, `no_pending
 
 Logs must not include full user text, Provider request bodies, tool arguments or outputs, command text, process output, credentials, HTTP headers, cookies, or Axios request/response objects.
 
+The explicitly enabled `sse_wire_traces` surface is the single exception for sanitized Provider request and stream content. It uses main-compatible per-attempt files with flat `request_start`, `response_start`, `wire_event`, optional `parse_error`, and `request_end` records. It retains readable text, thinking, and tool JSON deltas while replacing credentials, signatures, `redacted_thinking.data`, and image base64.
+
 Core serialization:
 
 - redacts exact sensitive keys such as `authorization`, `cookie`, `token`, `secret`, `password`, and `signature`;

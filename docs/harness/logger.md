@@ -29,6 +29,14 @@ Reducing terminal noise must not remove useful runtime diagnostics. Conversely, 
 
 Local files are written below `logs/runtime/YYYYMMDD/` using the configured base name. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
 
+Wire traces use the main-compatible per-attempt layout:
+
+```text
+logs/sse_wire_traces/YYYYMMDD/HHMM_<session>/<turn>/step_<zero-based-step>_attempt_<attempt>.jsonl
+```
+
+Each successful attempt records `request_start`, `response_start`, every SDK `wire_event`, and one `request_end`. A failure before an HTTP response omits `response_start`. Existing legacy `provider.jsonl` files are retained, but new turns do not create them.
+
 `LOCAL_LOGS_ENABLED` governs local file writes only. Ordinary console logging remains available when local logs are disabled.
 The shipped runtime configuration leaves local file logging disabled. For development, copy the relevant values from
 `.env.local.example` into `.env.local`; effective logging state and the resolved runtime path are emitted during startup.
@@ -53,13 +61,13 @@ Use module-scoped logger names and stable event messages. Put high-cardinality I
 - `ERROR`: required operation failed or process health is compromised.
 - `DEBUG`: request IDs, routes, tool arguments summaries, timing internals, provider and adapter diagnostics.
 
-Successful health polling and repetitive stream updates should not dominate INFO output. Raw inbound content, credentials, cookies, headers, and complete tool payloads do not belong at any unsanitized level.
+Successful health polling and repetitive stream updates should not dominate INFO output. Raw inbound content, credentials, cookies, headers, and complete tool payloads do not belong at any unsanitized level. Explicitly enabled wire traces are the only surface allowed to retain sanitized Provider request and stream content.
 
 ## Sanitization
 
-Runtime tracing recursively redacts secret-like keys including authorization, API keys, tokens, passwords, cookies, signatures, and secret fields. It also replaces:
+Runtime tracing recursively redacts secret-like keys including authorization, API keys, tokens, passwords, cookies, signatures, and secret fields. Wire traces preserve readable `thinking_delta` content for protocol diagnosis, but replace:
 
-- encrypted or redacted thinking blocks;
+- signatures and encrypted `redacted_thinking.data`;
 - base64 and embedded media payloads;
 - absolute local paths;
 - strings beyond the trace size limit.

@@ -726,4 +726,68 @@ describe("TypeScriptAgentRuntime", () => {
     expect(fatal.calls).toBe(1);
     expect(fatal.outcome.reply).toBe("执行失败: Kimi Coding 认证失败，请检查 API Key。");
   });
+
+  test("creates distinct zero-based wire attempts for retries and later agent steps", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "echo",
+      description: "echo",
+      input_schema: { type: "object", properties: {} },
+      execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+    });
+    const attempts: Array<{ step: number; attempt: number }> = [];
+    let calls = 0;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      provider: {
+        summarize,
+        turn: async () => {
+          calls += 1;
+          if (calls === 1) {
+            throw new RuntimeProviderError("retry", "custom", "temporary", "retry", true, 503);
+          }
+          if (calls === 2) {
+            return {
+              content: [{ type: "tool_use", id: "tool-1", name: "echo", input: {} }],
+              stop_reason: "tool_use",
+              usage: { input_tokens: 1, output_tokens: 1 },
+            };
+          }
+          return {
+            content: [{ type: "text", text: "done" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        },
+      },
+      traceController: {
+        startTurn: () => ({
+          record: () => undefined,
+          startProviderAttempt: (context) => {
+            attempts.push({ step: context.step, attempt: context.attempt });
+            return {
+              requestStart: () => undefined,
+              responseStart: () => undefined,
+              event: () => undefined,
+              parseError: () => undefined,
+              end: () => undefined,
+            };
+          },
+        }),
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+    expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "done" }));
+    expect(attempts).toEqual([
+      { step: 0, attempt: 1 },
+      { step: 0, attempt: 2 },
+      { step: 1, attempt: 1 },
+    ]);
+    await runtime.stop();
+  });
 });

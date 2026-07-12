@@ -91,6 +91,8 @@ export interface AnthropicClientPort {
       options?: { signal?: AbortSignal },
     ): {
       on?(event: string, listener: (...args: unknown[]) => void): unknown;
+      readonly response?: Response | null | undefined;
+      readonly request_id?: string | null | undefined;
       finalMessage(): Promise<AnthropicMessageLike>;
     };
   };
@@ -391,6 +393,11 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
 
   async turn(request: RuntimeProviderRequest): Promise<RuntimeTurnResponse> {
     const timed = timedSignal(request.signal, this.descriptor.requestTimeoutMs);
+    let wireOk = false;
+    let wireError = "";
+    const wire = (operation: () => void): void => {
+      try { operation(); } catch { /* Diagnostics must not affect Provider execution. */ }
+    };
     try {
       const parameters = {
         model: this.descriptor.model,
@@ -403,11 +410,30 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         stream: true,
         ...thinkingPayload(this.descriptor),
       };
-      request.trace?.wire("request_start", {
-        provider: this.descriptor.name,
-        parameters: parameters as unknown as JsonObject,
-      });
+      wire(() => request.wireTrace?.requestStart({
+        ...this.descriptor.defaultHeaders,
+        "content-type": "application/json",
+        "x-api-key": this.descriptor.apiKey,
+      }, parameters as unknown as JsonObject));
       const stream = this.client.messages.stream(parameters, { signal: timed.signal });
+      const responseStart = (): void => wire(() => {
+        const response = stream.response;
+        if (!response) return;
+        request.wireTrace?.responseStart(
+          response.status,
+          Object.fromEntries(response.headers.entries()),
+        );
+      });
+      wire(() => { stream.on?.("connect", responseStart); });
+      wire(responseStart);
+      wire(() => {
+        stream.on?.("streamEvent", (event) => wire(() => {
+          const source = event !== null && typeof event === "object"
+            ? event as Record<string, unknown>
+            : {};
+          request.wireTrace?.event(String(source.type ?? "message"), event);
+        }));
+      });
       let delivery = Promise.resolve();
       const deliver = (event: RuntimeStreamEvent): void => {
         if (!request.onEvent) return;
@@ -422,18 +448,14 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       });
       const message = await stream.finalMessage();
       await delivery;
-      request.trace?.wire("request_end", {
-        ok: true,
-        stop_reason: String(message.stop_reason ?? ""),
-        usage: runtimeUsage(message.usage) as unknown as JsonObject,
-      });
+      wireOk = true;
       return {
         content: message.content.map(runtimeBlock).filter((value): value is RuntimeContentBlock => Boolean(value)),
         stop_reason: String(message.stop_reason ?? ""),
         usage: runtimeUsage(message.usage),
       };
     } catch (error) {
-      request.trace?.wire("request_end", { ok: false, error: String(error instanceof Error ? error.message : error) });
+      wireError = String(error instanceof Error ? error.message : error);
       if (request.signal.aborted) throw request.signal.reason ?? new DOMException("Aborted", "AbortError");
       if (timed.timedOut()) {
         throw new RuntimeProviderError(
@@ -446,6 +468,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       }
       throw normalizeProviderError(error, this.descriptor);
     } finally {
+      wire(() => request.wireTrace?.end(wireOk, wireError));
       timed.cleanup();
     }
   }

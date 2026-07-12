@@ -1,4 +1,5 @@
 import type { AgentJob, EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
+import type { RuntimeWireTraceAttempt } from "./trace";
 
 export interface TextBlock extends JsonObject {
   type: "text";
@@ -62,10 +63,7 @@ export interface RuntimeProviderRequest {
   toolChoice: "auto" | "none";
   signal: AbortSignal;
   onEvent?: (event: RuntimeStreamEvent) => Promise<void> | void;
-  trace?: {
-    record(kind: string, payload?: JsonObject): void;
-    wire(kind: string, payload?: JsonObject): void;
-  };
+  wireTrace?: RuntimeWireTraceAttempt;
 }
 
 export interface RuntimeProvider {

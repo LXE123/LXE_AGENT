@@ -114,6 +114,19 @@ describe("structured logger", () => {
     expect(lines[0]).not.toContain("another-private");
   });
 
+  test("supports a wider explicit sanitizer policy without changing logger defaults", () => {
+    const values = Array.from({ length: 150 }, (_, index) => ({ index }));
+    const defaults = logging.sanitizeLogValue(values) as unknown[];
+    const widened = logging.sanitizeLogValueWithPolicy(values, {
+      maxDepth: 16,
+      maxItems: 1_000,
+      maxString: 8_192,
+    }) as unknown[];
+    expect(defaults).toHaveLength(101);
+    expect(defaults.at(-1)).toBe("[50 items omitted]");
+    expect(widened).toHaveLength(150);
+  });
+
   test("contains custom writer failures", () => {
     const fallback = spyOn(console, "error").mockImplementation(() => undefined);
     try {

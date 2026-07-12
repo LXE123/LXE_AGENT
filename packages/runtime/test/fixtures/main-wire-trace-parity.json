@@ -1,0 +1,42 @@
+{
+  "frozen_from_main": "2026-07-12",
+  "context": {
+    "session_id": "fixture-session",
+    "turn_id": "fixture-turn",
+    "step": 0,
+    "attempt": 1,
+    "provider": "fixture-provider",
+    "model": "fixture-model",
+    "endpoint": "https://example.invalid/v1/messages",
+    "timeout_ms": 30000
+  },
+  "request_headers": {
+    "authorization": "Bearer fixture-secret",
+    "content-type": "application/json"
+  },
+  "request_payload": {
+    "model": "fixture-model",
+    "messages": [{ "role": "user", "content": "hello" }],
+    "tools": [{ "name": "echo", "input_schema": { "type": "object" } }],
+    "stream": true
+  },
+  "response": {
+    "status_code": 200,
+    "headers": { "content-type": "text/event-stream" }
+  },
+  "events": [
+    { "event": "message_start", "payload": { "type": "message_start", "message": { "id": "msg-1" } } },
+    { "event": "content_block_delta", "payload": { "type": "content_block_delta", "delta": { "type": "thinking_delta", "thinking": "reasoning" } } },
+    { "event": "content_block_delta", "payload": { "type": "content_block_delta", "delta": { "type": "input_json_delta", "partial_json": "{\"value\":1}" } } },
+    { "event": "message_stop", "payload": { "type": "message_stop" } }
+  ],
+  "expected_kinds": [
+    "request_start",
+    "response_start",
+    "wire_event",
+    "wire_event",
+    "wire_event",
+    "wire_event",
+    "request_end"
+  ]
+}
