@@ -2,16 +2,17 @@
 name: fba-export-tax-delivery-summary
 description: 统计 FBA 发货单出口退税 SKU 汇总。用户要求按 SP 发货单统计出口退税产品、汇总 SKU 发货量、生成退税产品 xlsx 时使用。
 type: amazon_fba
-script_tools:
-  - mabang_summarize_fba_delivery_tax_sku
+commands:
+  - lxeskill fba export-tax delivery-summary
 ---
 
 # Export Tax Delivery Summary
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只使用固定 CLI。
 - 不要自己解析 CSV，不要自己生成 xlsx。
@@ -27,10 +28,10 @@ script_tools:
 ## Command
 
 ```text
-mabang_summarize_fba_delivery_tax_sku --delivery-no <delivery_no>
+lxeskill fba export-tax delivery-summary --delivery-no <delivery_no>
 ```
 
-只读取 CLI 输出的最后一行 JSON。
+只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
 
 ## Result Handling
 

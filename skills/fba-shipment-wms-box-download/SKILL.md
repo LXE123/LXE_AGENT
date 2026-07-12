@@ -2,16 +2,17 @@
 name: fba-shipment-wms-box-download
 description: 下载马帮 WMS 托运单装箱数据 Excel。用户明确要求装箱数据、托运单 Excel、WMS 下载、原始装箱数据、不要拆分装箱数据，或为 Amazon FBA 创建货件准备装箱 Excel 时使用；不要用于 FBA 发货单、发货单 SKU 数据、发货单表格下载。
 type: amazon_fba
-script_tools:
-  - mabang_download_wms_consignment_excel
+commands:
+  - lxeskill fba shipment wms-box-download
 ---
 
 # WMS Box Download
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只执行固定 CLI；不要调用 Python 内部函数。
 - 只在用户明确提到 WMS、装箱数据、托运单 Excel 或创建货件前置装箱文件时使用。
@@ -29,14 +30,14 @@ script_tools:
 ## Command
 
 ```text
-mabang_download_wms_consignment_excel --ship-no <ship_no> --split-mode auto
+lxeskill fba shipment wms-box-download --ship-no <ship_no> --split-mode auto
 ```
 
 ```text
-mabang_download_wms_consignment_excel --ship-no <ship_no> --split-mode original
+lxeskill fba shipment wms-box-download --ship-no <ship_no> --split-mode original
 ```
 
-只读取 CLI 输出的最后一行 JSON。
+只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
 
 ## Result Handling
 

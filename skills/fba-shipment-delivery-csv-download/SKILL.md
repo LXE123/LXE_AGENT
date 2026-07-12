@@ -2,22 +2,23 @@
 name: fba-shipment-delivery-csv-download
 description: 下载马帮 FBA 发货单 SKU 数据 CSV。用户要求获取、导出、下载 FBA 发货单、发货单 SKU 数据、发货单表格、SP 发货单 CSV 时使用；不要用于 WMS 装箱数据或托运单 Excel。
 type: amazon_fba
-script_tools:
-  - mabang_download_fba_delivery_csv
+commands:
+  - lxeskill fba shipment delivery-csv-download
 ---
 
 # FBA Delivery CSV Download
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只使用固定 CLI。
 - 不要直接拼马帮 API 请求，不要手写、复用或展示 bearer/freeToken。
 - 当前 v1 交付马帮导出的 CSV，不要转换成 xlsx。
 - CLI 可能运行几十秒；命令仍在运行时不要频繁轮询或重复启动。
-- CLI 失败时只转述最后一行 JSON 的 `exception` 原文。
+- CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`。
 
 ## Required Input
 
@@ -27,10 +28,10 @@ script_tools:
 ## Command
 
 ```text
-mabang_download_fba_delivery_csv --delivery-no <delivery_no>
+lxeskill fba shipment delivery-csv-download --delivery-no <delivery_no>
 ```
 
-只读取 CLI 输出的最后一行 JSON。
+只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
 
 ## Result Handling
 

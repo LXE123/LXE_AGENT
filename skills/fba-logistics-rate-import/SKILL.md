@@ -3,16 +3,16 @@ name: fba-logistics-rate-import
 description: 导入物流报价或物流更新 Excel。用户要求导入物流报价表、运行物流更新脚本、ingest 物流 Excel、更新物流价格文件时使用。
 type: amazon_fba
 commands:
-  - scripts.logistics_update_ingest
+  - lxeskill fba logistics rates-import
 ---
 
 # Logistics Rate Import
 
 ## Hard Rules
 
-- 只使用当前仓库脚本，不要调用外部项目 CLI。
-- 不要现场拼接内联 Python，不要直接调用物流 API。
-- 只解析脚本输出的 JSON，不要从混杂日志猜测状态。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 Python 模块或物流 API。
+- 只解析 stdout 中的 lxeskill JSONL；诊断日志只会出现在 stderr。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message`。
 - `result.status` 即使是 `rejected` 或 `ignored`，也表示脚本执行成功，不当作脚本失败。
 
 ## Required Input
@@ -24,13 +24,8 @@ commands:
 
 ## Command
 
-```json
-{
-  "tool": "exec",
-  "args": {
-    "command": "uv run --frozen python -X utf8 -m scripts.logistics_update_ingest --file-path \"{file_path}\""
-  }
-}
+```bash
+lxeskill fba logistics rates-import --file-path "{file_path}"
 ```
 
 如果 `exec` 返回 `status="running"`，用 `process(action="poll", session="...")` 等待结束；需要完整输出时再读取日志。

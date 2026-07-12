@@ -2,8 +2,8 @@
 name: replenishment-unlinked-shipment-download
 description: 按马帮 Amazon FBA 店铺名下载未关联货件原生导出文件，并基于本次下载文件生成未关联货件快照，覆盖 WMS待配货、WMS待装箱、待关联货件。用户要求测试下载未关联货件、下载未关联货件原始文件、检查备货缺失货件数据时使用。
 type: amazon_replenish
-script_tools:
-  - mabang_download_store_unlinked_shipments
+commands:
+  - lxeskill replenish shipments unlinked-download
 ---
 
 ## When to Use
@@ -15,20 +15,21 @@ script_tools:
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
-- 只使用固定下载 CLI：`mabang_download_store_unlinked_shipments --store-name "<店铺名>"`
+- 只使用固定下载 CLI：`lxeskill replenish shipments unlinked-download --store-name "<店铺名>"`
 - 下载 CLI 会自动基于本次下载到的 raw 文件生成未关联货件快照。
 - 不要手动拼马帮 API 请求。
 - 不要手写、复用或展示 bearer/freeToken/cookie。
 - 不要手动解析下载文件。
-- 只以本次下载 CLI 最后一行 JSON 为准。
+- 只以本次下载 CLI 的 `type="result"` terminal 为准。
 - 不要自动接入或修改备货计算。
 - 如果店铺名不确定，先运行 `replenishment-store-resolve`，使用解析成功返回的规范 `store_name`。
-- 只读取 CLI 输出的最后一行 JSON。
-- 下载 CLI 失败时只转述最后一行 JSON 里的 `exception` 原文；如果是未找到店铺，可提示用户按候选店铺名重试。
-- 如果最后一行 JSON 中有 `download_result`，说明 raw 文件已下载成功，但快照生成失败。
+- 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
+- 下载 CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`；如果是未找到店铺，可提示用户按候选店铺名重试。
+- 如果`type="result"` terminal 中有 `download_result`，说明 raw 文件已下载成功，但快照生成失败。
 
 ## Required Input
 
@@ -40,19 +41,19 @@ script_tools:
 如果店铺名不确定，先解析店铺：
 
 ```text
-mabang_resolve_fba_store --store-name "<店铺名>"
+lxeskill replenish store resolve --store-name "<店铺名>"
 ```
 
 解析成功后，使用规范 `store_name` 下载未关联货件原生文件：
 
 ```text
-mabang_download_store_unlinked_shipments --store-name "<店铺名>"
+lxeskill replenish shipments unlinked-download --store-name "<店铺名>"
 ```
 
 - 导出任务通常需要几十秒；CLI 内部会轮询马帮任务中心。
 - 不要因为命令一时没有返回就重复启动。
 - 如果工具返回命令仍在运行/session running，等待最终完成，或隔较长时间再查看。
-- 只读取 CLI 输出的最后一行 JSON。
+- 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
 
 下载成功时：
 
@@ -127,7 +128,7 @@ mabang_download_store_unlinked_shipments --store-name "<店铺名>"
 - 对 `total > 0` 的状态，确认 `raw_file_path` 非空，并且本地文件存在。
 - 对 `total = 0` 的状态，确认 `task_id`、`file_name`、`raw_file_path` 为空；这不是失败。
 - 如果三个状态全部为 `total = 0`，下载流程仍算成功，不生成快照。
-- 如果存在 raw 文件，确认最后一行 JSON 中 `snapshot.snapshot_xlsx_path` 非空且文件存在。
+- 如果存在 raw 文件，确认`type="result"` terminal 中 `snapshot.snapshot_xlsx_path` 非空且文件存在。
 
 ## Result Handling
 

@@ -77,6 +77,25 @@ def test_legacy_alias_is_hidden_but_dispatches_same_command(monkeypatch, capsys)
     assert seen == ["mabang_resolve_fba_store"]
 
 
+def test_business_failure_preserves_payload_in_the_only_terminal(monkeypatch, capsys) -> None:
+    def fake_execute(entry, arguments, session, *, on_event, on_text):
+        return (
+            False,
+            [{"type": "text", "text": '{"success":false,"context":{"stage":"download"}}'}],
+            [],
+            {"code": "business_cli_failed", "message": "login expired"},
+        )
+
+    monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
+
+    assert lxeskill.main(["fba", "shipment", "delivery-csv-download", "--delivery-no", "SP1"]) == lxeskill.EXIT_BUSINESS
+    records = _records(capsys)
+    assert len(records) == 1
+    assert records[0]["ok"] is False
+    assert records[0]["data"]["context"] == {"stage": "download"}
+    assert records[0]["error"] == {"code": "business_cli_failed", "message": "login expired"}
+
+
 def test_output_file_must_be_under_artifacts_or_skill_assets(tmp_path) -> None:
     artifact = Path(lxeskill.PROJECT_ROOT) / "artifacts" / "lxeskill-test.txt"
     artifact.parent.mkdir(parents=True, exist_ok=True)

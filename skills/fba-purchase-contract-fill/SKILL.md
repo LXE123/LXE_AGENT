@@ -2,16 +2,17 @@
 name: fba-purchase-contract-fill
 description: 根据采购汇总表 xlsx 和用户提供的合同汇总模板 xlsx 填写采购合同。用户要求填写采购合同、根据采购汇总表生成合同、按公司/厂家模板生成合同文件时使用；不要用于生成采购汇总表、备货单、报关资料或 Amazon 创建货件。
 type: amazon_fba
-script_tools:
-  - mabang_fill_purchase_contracts
+commands:
+  - lxeskill fba purchase contracts-fill
 ---
 
 # FBA Purchase Contract Fill
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只使用固定 CLI。
 - 不要手工编辑合同模板，不要手工拆分 Excel。
@@ -28,10 +29,10 @@ script_tools:
 ## Command
 
 ```text
-mabang_fill_purchase_contracts --purchase-summary-xlsx "<采购汇总表.xlsx>" --contract-template-xlsx "<合同汇总模板.xlsx>"
+lxeskill fba purchase contracts-fill --purchase-summary-xlsx "<采购汇总表.xlsx>" --contract-template-xlsx "<合同汇总模板.xlsx>"
 ```
 
-只读取 CLI 输出的最后一行 JSON。
+只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
 
 ## Result Handling
 

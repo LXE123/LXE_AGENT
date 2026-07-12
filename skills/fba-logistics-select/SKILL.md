@@ -2,16 +2,17 @@
 name: fba-logistics-select
 description: 用固定 CLI 执行 Amazon FBA 物流优选。用户提到物流优选、选物流、物流报价、算渠道价格，并提供 consignment_no、shipment_no、destination_address 三列 TSV 时使用。
 type: amazon_fba
-script_tools:
-  - amazon_logistic_quote
+commands:
+  - lxeskill fba logistics quote
 ---
 
 # FBA Logistics Select
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只使用固定 CLI。
 - 不要从 `shipment_no` 自动查询地址。
@@ -43,7 +44,7 @@ script_tools:
 $inputText = @'
 <tsv_block>
 '@
-amazon_logistic_quote --input-text $inputText
+lxeskill fba logistics quote --input-text $inputText
 ```
 
 ## Result Handling

@@ -2,8 +2,8 @@
 name: replenishment-amazon-restock-inventory-snapshot
 description: 将用户从 Seller Central 手动下载的亚马逊补充库存 CSV 解析为备货可用的亚马逊补充库存 snapshot。用户要求使用亚马逊补充库存、解析补充库存 CSV、校验补充库存文件是否对应店铺、询问亚马逊库存报告怎么下载/哪里下载/下载路径/截图指引，或在备货建议中增加亚马逊补充库存扣减字段时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
-script_tools:
-  - mabang_build_amazon_restock_inventory_snapshot
+commands:
+  - lxeskill replenish inventory restock-snapshot-build
 ---
 
 ## When to Use
@@ -15,15 +15,16 @@ script_tools:
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
-- 默认解析命令：`mabang_build_amazon_restock_inventory_snapshot --store-name "<店铺名>" --csv "<亚马逊补充库存CSV>"`
+- 默认解析命令：`lxeskill replenish inventory restock-snapshot-build --store-name "<店铺名>" --csv "<亚马逊补充库存CSV>"`
 - 本 skill 不登录 Seller Central，不自动下载亚马逊补充库存文件。
 - CSV 必须是 Seller Central 补充库存报告，并包含 `Merchant SKU` 和 `Total Units`。
 - CLI 会基于本地最新马帮原生 MSKU 数据做校验；如果本地没有店铺 MSKU 文件，先运行 `replenishment-msku-download`。
-- 只读取 CLI 输出的最后一行 JSON。
-- CLI 失败时只转述最后一行 JSON 里的 `exception` 原文。
+- 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
+- CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`。
 
 ## Download Guide
 
@@ -50,13 +51,13 @@ skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inv
 如果店铺名不确定，先解析店铺：
 
 ```text
-mabang_resolve_fba_store --store-name "<店铺名>"
+lxeskill replenish store resolve --store-name "<店铺名>"
 ```
 
 解析成功后，生成亚马逊补充库存 snapshot：
 
 ```text
-mabang_build_amazon_restock_inventory_snapshot --store-name "<店铺名>" --csv "<亚马逊补充库存CSV>"
+lxeskill replenish inventory restock-snapshot-build --store-name "<店铺名>" --csv "<亚马逊补充库存CSV>"
 ```
 
 如果用户明确提供了马帮原生 MSKU 文件路径，可附加：

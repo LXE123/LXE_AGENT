@@ -2,16 +2,17 @@
 name: fba-purchase-summary-create
 description: 根据一批本地 FBA 发货单 CSV、用户提供的出口退税总表和毛利率，一次生成采购汇总表以及每个 SP 的备货单。用户要求按一批 SP 生成采购汇总、采购单、批量备货单、厂家分类采购表，或需要正飞按整批发货单统一均价时使用；不要用于 WMS 装箱数据、Amazon 创建货件、发票模板或报关资料。
 type: amazon_fba
-script_tools:
-  - mabang_generate_purchase_batch_workbooks
+commands:
+  - lxeskill fba purchase summary-create
 ---
 
 # FBA Purchase Summary Create
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只使用固定 CLI。
 - 不要手工解析 CSV，不要手工编辑 Excel。
@@ -32,16 +33,16 @@ script_tools:
 ## Command
 
 ```text
-mabang_generate_purchase_batch_workbooks --delivery-no <delivery_no> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
+lxeskill fba purchase summary-create --delivery-no <delivery_no> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
 ```
 
 一批多个发货单号时重复传入 `--delivery-no`：
 
 ```text
-mabang_generate_purchase_batch_workbooks --delivery-no <delivery_no_1> --delivery-no <delivery_no_2> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
+lxeskill fba purchase summary-create --delivery-no <delivery_no_1> --delivery-no <delivery_no_2> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
 ```
 
-只读取 CLI 输出的最后一行 JSON。
+只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
 
 ## Result Handling
 

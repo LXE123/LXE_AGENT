@@ -2,8 +2,8 @@
 name: replenishment-store-resolve
 description: 解析马帮 Amazon FBA 店铺名到可查询 ID，支持顶层 fbaWarehouseIds 区域/整组查询和欧洲区子站点 shopId 查询。用户要求查询马帮店铺 ID、确认店铺名、按店铺下载 MSKU 数据前需要解析店铺名，或店铺名不完整需要候选确认时使用（这里没有紫鸟店铺 ID）。
 type: amazon_replenish
-script_tools:
-  - mabang_resolve_fba_store
+commands:
+  - lxeskill replenish store resolve
 ---
 
 ## When to Use
@@ -15,32 +15,33 @@ script_tools:
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
-- 只使用固定 CLI：`mabang_resolve_fba_store`
+- 只使用固定 CLI：`lxeskill replenish store resolve`
 - 不要手动拼接马帮店铺列表请求。
 - 不要手写、复用或转述样例 Cookie/token。
-- 不要猜测店铺 ID；必须以 CLI 最后一行 JSON 的 `store_id`、`id_type` 为准。
+- 不要猜测店铺 ID；必须以 CLI terminal 的 `data.store_id`、`data.id_type` 为准。
 - `id_type` 本身就是后续马帮请求字段名，值只可能是 `fbaWarehouseIds[]` 或 `shopId`。
 - 不要把 `shopId` 当作 `fbaWarehouseIds[]` 使用；后续请求应把 `store_id` 填到 `id_type` 指定的字段中。
-- CLI 失败时只转述最后一行 JSON 里的 `exception` 原文。
+- CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`。
 
 ## How to Execute
 
 列出全部店铺：
 
 ```text
-mabang_resolve_fba_store
+lxeskill replenish store resolve
 ```
 
 解析指定店铺：
 
 ```text
-mabang_resolve_fba_store --store-name "<店铺名>"
+lxeskill replenish store resolve --store-name "<店铺名>"
 ```
 
-只读取 CLI 输出的最后一行 JSON。
+只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
 
 成功列出店铺时：
 

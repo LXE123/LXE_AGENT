@@ -2,24 +2,27 @@
 name: fba-shipment-create
 description: 用固定 CLI 完成 Amazon FBA 创建货件流程。用户要求创建货件、上传装箱数据、生成多包装箱 Excel、确认自己的承运人、输入追踪号，或继续 prepare_upload / prepare_multi_box_excel / confirm_own_carrier / enter_tracking_codes 任一阶段时使用。
 type: amazon_fba
-script_tools:
-  - amazon_fba_confirm_own_carrier
-  - amazon_fba_enter_tracking_codes
-  - amazon_fba_prepare_multi_box_excel
-  - amazon_fba_prepare_upload
+commands:
+  - lxeskill browser store
+  - lxeskill browser page
+  - lxeskill fba shipment confirm-own-carrier
+  - lxeskill fba shipment enter-tracking-codes
+  - lxeskill fba shipment prepare-multi-box
+  - lxeskill fba shipment prepare-upload
 ---
 
 # FBA Shipment Create
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只执行下方四段固定 CLI；不要手动操作 Seller Central 页面。
-- 执行前必须通过 `ziniao_browser.get_status` 获取真实 `store_id`。
+- 执行前必须通过 `lxeskill browser store --action get_status` 获取真实 `store_id`。
 - 店铺已打开时不要 `open_store`；重启店铺表示流程要从第一段重来。
-- 任一阶段失败时停止，只转述 CLI JSON 的 `exception` 和必要 `context`。
+- 任一阶段失败时停止，只转述 terminal 的 `error.message` 和 `data.context`。
 - 失败后不要刷新、截图诊断、重跑阶段、重启店铺或跨阶段补救，除非用户明确要求。
 - 唯一自动回退例外：第三阶段 `notice == "亚马逊店铺页面店铺出现bug，已返回第二步开头，请执行第二阶段CLI"` 时，直接执行第二阶段。
 - 后台命令仍在运行时只等待或读取该 session 结果，不重复启动同一阶段。
@@ -28,7 +31,7 @@ script_tools:
 
 必须明确：
 
-- `store_id`: 只接受 `ziniao_browser.get_status` 返回值。
+- `store_id`: 只接受 `lxeskill browser store --action get_status` 返回值。
 - `site`: `US`、`UK`、`DE`、`FR`、`IT`、`ES`、`CA`、`JP`、`AU` 等标准站点代码。
 - `consignment_no`: 托运单号。
 - `transport_mode`: 运输方式业务输入，后续 CLI 会原样回传。
@@ -56,10 +59,10 @@ script_tools:
 
 | Stage | 前置条件 | Command | 成功标志 | 附件行为 | 下一步 |
 |---|---|---|---|---|---|
-| 1 `prepare_upload` | context 已写好 | `amazon_fba_prepare_upload --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `finished=true` 且 notice 提示第一阶段完成 | 发送 `file_path` 中的附件 | 第二段 |
-| 2 `prepare_multi_box_excel` | 第一段成功 | `amazon_fba_prepare_multi_box_excel --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "第二阶段完成，已可选择自己的承运人，请执行第三阶段CLI。"` | 发送 `file_path` 中的附件 | 第三段 |
-| 3 `confirm_own_carrier` | 已到自己的承运人页面 | `amazon_fba_confirm_own_carrier --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "恭喜第三步完成，现在需要输入追踪编码，请运行第四阶段脚本"` | 发送 `file_path` 中的附件 | 第四段 |
-| 4 `enter_tracking_codes` | 第三段完成 | `amazon_fba_enter_tracking_codes --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "恭喜！创建货件流程完整结束！"` | 无附件要求 | 结束 |
+| 1 `prepare_upload` | context 已写好 | `lxeskill fba shipment prepare-upload --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `finished=true` 且 notice 提示第一阶段完成 | 发送 `file_path` 中的附件 | 第二段 |
+| 2 `prepare_multi_box_excel` | 第一段成功 | `lxeskill fba shipment prepare-multi-box --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "第二阶段完成，已可选择自己的承运人，请执行第三阶段CLI。"` | 发送 `file_path` 中的附件 | 第三段 |
+| 3 `confirm_own_carrier` | 已到自己的承运人页面 | `lxeskill fba shipment confirm-own-carrier --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "恭喜第三步完成，现在需要输入追踪编码，请运行第四阶段脚本"` | 发送 `file_path` 中的附件 | 第四段 |
+| 4 `enter_tracking_codes` | 第三段完成 | `lxeskill fba shipment enter-tracking-codes --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "恭喜！创建货件流程完整结束！"` | 无附件要求 | 结束 |
 
 ## Result Handling
 

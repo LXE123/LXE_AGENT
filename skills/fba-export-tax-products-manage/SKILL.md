@@ -2,16 +2,17 @@
 name: fba-export-tax-products-manage
 description: 维护出口退税产品白名单。用户要求把 SKU 加入出口退税产品列表、导入可出口退税 SKU、更新退税产品白名单时使用。
 type: amazon_fba
-script_tools:
-  - mabang_import_export_tax_products
+commands:
+  - lxeskill fba export-tax products-import
 ---
 
 # Export Tax Products Manage
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只使用固定 CLI。
 - 不要自己编辑 `data/export_tax/export_tax_products.xlsx`。
@@ -27,10 +28,10 @@ script_tools:
 ## Command
 
 ```text
-mabang_import_export_tax_products --sku <sku1> --sku <sku2>
+lxeskill fba export-tax products-import --sku <sku1> --sku <sku2>
 ```
 
-只读取 CLI 输出的最后一行 JSON。
+只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
 
 ## Result Handling
 

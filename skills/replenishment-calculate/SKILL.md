@@ -2,8 +2,8 @@
 name: replenishment-calculate
 description: 基于本地销量分析报告、真实库存（深圳仓库）报告和同日未关联货件快照生成马帮 Amazon 店铺 MSKU 备货建议。用户要求计算某个店铺的备货量、补货量、运输方式、链接备货汇总或“xxx店铺备货建议/补货建议”时使用；如果用户只给模糊店铺名，先使用 replenishment-store-resolve 获取规范 store_name。
 type: amazon_replenish
-script_tools:
-  - mabang_calculate_store_msku_replenishment
+commands:
+  - lxeskill replenish calculate
 ---
 
 ## When to Use
@@ -14,10 +14,11 @@ script_tools:
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
-- 默认计算命令：`mabang_calculate_store_msku_replenishment --store-name "<店铺名>" [--template "<参数方案名>"]`
+- 默认计算命令：`lxeskill replenish calculate --store-name "<店铺名>" [--template "<参数方案名>"]`
 - 本 skill 只负责调用计算 CLI；报表匹配、计算和写出都由 CLI 完成。
 - 销量分析报告和真实库存（深圳仓库）报告是必需输入；如果 CLI 提示缺少同源报表，路由到对应 skill。
 - 参数方案只决定理论算法结果：补货天数、理论补货量、运输方式、海运/同时空运拆分。
@@ -26,33 +27,33 @@ script_tools:
 - 亚马逊补充库存 snapshot 是可选对照增强；只有用户明确要求使用亚马逊侧 FBA 库存扣减时，先用 `replenishment-amazon-restock-inventory-snapshot` 生成 snapshot，再把路径传给计算 CLI。
 - 如果 CLI 返回未关联快照提醒，路由到 `replenishment-unlinked-shipment-download` 后重算。
 - 如果用户给的是模糊店铺名，先运行 `replenishment-store-resolve`，用解析成功返回的规范 `store_name` 再计算。
-- 只读取 CLI 输出的最后一行 JSON。
-- CLI 失败时只转述最后一行 JSON 里的 `exception` 原文。
+- 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
+- CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`。
 
 ## How to Execute
 
 如果店铺名不确定，先解析店铺：
 
 ```text
-mabang_resolve_fba_store --store-name "<店铺名>"
+lxeskill replenish store resolve --store-name "<店铺名>"
 ```
 
 解析成功后，用规范 `store_name` 生成备货建议。不指定参数方案时使用 `默认`：
 
 ```text
-mabang_calculate_store_msku_replenishment --store-name "<店铺名>"
+lxeskill replenish calculate --store-name "<店铺名>"
 ```
 
 如果用户指定参数方案：
 
 ```text
-mabang_calculate_store_msku_replenishment --store-name "<店铺名>" --template "<参数方案名>"
+lxeskill replenish calculate --store-name "<店铺名>" --template "<参数方案名>"
 ```
 
 如果用户明确要求使用亚马逊补充库存扣减字段：
 
 ```text
-mabang_calculate_store_msku_replenishment --store-name "<店铺名>" --amazon-restock-inventory-snapshot "<亚马逊补充库存snapshot.xlsx>"
+lxeskill replenish calculate --store-name "<店铺名>" --amazon-restock-inventory-snapshot "<亚马逊补充库存snapshot.xlsx>"
 ```
 
 成功时：

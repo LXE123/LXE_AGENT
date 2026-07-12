@@ -2,8 +2,8 @@
 name: replenishment-msku-download
 description: 按已解析的马帮 Amazon FBA 店铺 ID 下载该店铺 MSKU 数据 Excel。用户要求获取某个店铺、欧洲区整组或欧洲子站点的 MSKU 数据、店铺 MSKU 表、补货用 MSKU 数据时使用；如果用户只给店铺名，先使用 replenishment-store-resolve 解析 store_name、store_id 和 id_type。
 type: amazon_replenish
-script_tools:
-  - mabang_download_store_msku_excel
+commands:
+  - lxeskill replenish msku download
 ---
 
 ## When to Use
@@ -14,17 +14,18 @@ script_tools:
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
-- 只使用固定 CLI：`mabang_download_store_msku_excel`
+- 只使用固定 CLI：`lxeskill replenish msku download`
 - 不要手动拼接马帮请求。
 - 不要手写、复用或转述样例 Cookie/token。
 - 不要猜测店铺 ID；如果缺少 `store_name`、`store_id` 或 `id_type`，先运行 `replenishment-store-resolve`。
 - `id_type` 本身就是马帮请求字段名，值只允许是 `fbaWarehouseIds[]` 或 `shopId`。
 - 不要把 `shopId` 当作 `fbaWarehouseIds[]` 使用，也不要反过来使用。
 - 后续流程只使用 `xlsx_path`；CLI 已把 `.xls` 转成 `.xlsx` 并删除原始 `.xls`。
-- CLI 失败时只转述最后一行 JSON 里的 `exception` 原文。
+- CLI 失败时只转述 terminal 的 `error.message`；需要定位阶段时可读取 `data.context`。
 
 ## Required Input
 
@@ -36,16 +37,16 @@ script_tools:
 如果用户只给店铺名，先解析店铺：
 
 ```text
-mabang_resolve_fba_store --store-name "<店铺名>"
+lxeskill replenish store resolve --store-name "<店铺名>"
 ```
 
 解析成功后，使用返回的 `store_id`、`id_type`、`store_name` 下载店铺 MSKU 数据：
 
 ```text
-mabang_download_store_msku_excel --store-id "<ID>" --id-type "<fbaWarehouseIds[]|shopId>" --store-name "<店铺名>"
+lxeskill replenish msku download --store-id "<ID>" --id-type "<fbaWarehouseIds[]|shopId>" --store-name "<店铺名>"
 ```
 
-只读取 CLI 输出的最后一行 JSON。
+只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
 
 成功时：
 

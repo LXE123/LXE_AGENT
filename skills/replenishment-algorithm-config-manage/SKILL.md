@@ -2,16 +2,17 @@
 name: replenishment-algorithm-config-manage
 description: 管理马帮 Amazon 备货算法参数方案。用户要求查看备货公式参数、导出备货算法配置表给业务人员修改、校验配置表xlsx、导入/保存自定义参数方案、查看已有参数方案或准备用某套算法参数计算备货时使用。
 type: amazon_replenish
-script_tools:
-  - mabang_replenishment_template
+commands:
+  - lxeskill replenish template
 ---
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
-- 只使用固定 CLI：`mabang_replenishment_template ...`
+- 只使用固定 CLI：`lxeskill replenish template ...`
 - 不要手改正式参数方案库 JSON；必须通过 CLI 导入。
 - xlsx 只是人工编辑介质，正式计算读取参数方案库。
 - 参数方案只管理论算法参数：日销计算、空运补货天数、空运判断、海运进入条件、海运补货天数、海运同时空运、特殊 MSKU 规则。
@@ -33,49 +34,49 @@ script_tools:
 查看已有参数方案：
 
 ```text
-mabang_replenishment_template list
+lxeskill replenish template list
 ```
 
 查看可修改参数：
 
 ```text
-mabang_replenishment_template list-params
+lxeskill replenish template list-params
 ```
 
 导出给用户修改的备货算法配置表：
 
 ```text
-mabang_replenishment_template export --template "<参数方案名>"
+lxeskill replenish template export --template "<参数方案名>"
 ```
 
 校验用户改回来的备货算法配置表：
 
 ```text
-mabang_replenishment_template validate-file --xlsx "<备货算法配置表文件>"
+lxeskill replenish template validate-file --xlsx "<备货算法配置表文件>"
 ```
 
 导入为正式自定义参数方案：
 
 ```text
-mabang_replenishment_template import --xlsx "<备货算法配置表文件>" [--name "<参数方案名>"]
+lxeskill replenish template import --xlsx "<备货算法配置表文件>" [--name "<参数方案名>"]
 ```
 
 替换已有自定义参数方案：
 
 ```text
-mabang_replenishment_template replace --template "<已有参数方案名>" --xlsx "<备货算法配置表文件>"
+lxeskill replenish template replace --template "<已有参数方案名>" --xlsx "<备货算法配置表文件>"
 ```
 
 重命名已有自定义参数方案：
 
 ```text
-mabang_replenishment_template rename --template "<旧参数方案名>" --name "<新参数方案名>"
+lxeskill replenish template rename --template "<旧参数方案名>" --name "<新参数方案名>"
 ```
 
 查看参数方案详情：
 
 ```text
-mabang_replenishment_template show --template "<参数方案名>"
+lxeskill replenish template show --template "<参数方案名>"
 ```
 
 ## Workflow
@@ -93,6 +94,6 @@ mabang_replenishment_template show --template "<参数方案名>"
 
 ## Result Handling
 
-- 所有 CLI 都只读取最后一行 JSON。
+- 所有 CLI 都只读取`type="result"` terminal。
 - `success=true`：转述参数方案名、版本、`xlsx_path` 或 warnings。
 - `success=false`：只转述 `exception`，不要猜测参数方案内容。

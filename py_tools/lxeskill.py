@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from py_tools.business import execute_module_json, load_catalog
 from py_tools.lxeskill_browser import BrowserCliError, execute_browser_command
 from shared.infra.net import bootstrap_network_policy
@@ -58,6 +60,63 @@ def _public_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "input_schema": dict(entry.get("input_schema") or {}),
         "usage": f"lxeskill {_command_text(entry)} [options]",
     }
+
+
+def _skill_commands(path: Path) -> list[str]:
+    content = path.read_text(encoding="utf-8")
+    if not content.startswith("---"):
+        raise RuntimeError(f"skill is missing YAML frontmatter: {path}")
+    try:
+        frontmatter = content.split("---", 2)[1]
+    except IndexError as exc:
+        raise RuntimeError(f"skill has malformed YAML frontmatter: {path}") from exc
+    metadata = yaml.safe_load(frontmatter) or {}
+    if not isinstance(metadata, dict):
+        raise RuntimeError(f"skill frontmatter must be an object: {path}")
+    raw = metadata.get("commands", metadata.get("command", []))
+    values = raw if isinstance(raw, list) else [raw]
+    return [str(item or "").strip() for item in values if str(item or "").strip()]
+
+
+def _validate_skill_command_contract(catalog: dict[str, dict[str, Any]]) -> None:
+    expected: dict[str, set[str]] = {}
+    for entry in catalog.values():
+        if str(entry.get("visibility") or "") not in {"business", "browser"}:
+            continue
+        command = f"lxeskill {_command_text(entry)}"
+        owners = [str(owner) for owner in list(entry.get("owner_skills") or []) if str(owner).strip()]
+        if not owners:
+            raise RuntimeError(f"catalog command has no owner skill: {command}")
+        # The first owner is the command's canonical documentation owner.
+        # Additional owners only attribute usage when that command is invoked
+        # as a dependency of their workflow.
+        expected.setdefault(owners[0], set()).add(command)
+        for owner in owners:
+            if not (PROJECT_ROOT / "skills" / owner / "SKILL.md").is_file():
+                raise RuntimeError(f"catalog owner skill does not exist: {owner}")
+
+    declared_owners: dict[str, str] = {}
+    for skill_path in sorted((PROJECT_ROOT / "skills").glob("**/SKILL.md")):
+        skill_name = skill_path.parent.name
+        commands = _skill_commands(skill_path)
+        for command in commands:
+            if not command.startswith("lxeskill "):
+                continue
+            owner = declared_owners.get(command)
+            if owner and owner != skill_name:
+                raise RuntimeError(f"duplicate lxeskill command ownership: {command}: {owner}, {skill_name}")
+            declared_owners[command] = skill_name
+            if command not in expected.get(skill_name, set()):
+                raise RuntimeError(f"skill command is not owned by catalog: {skill_name}: {command}")
+
+    for skill_name, commands in expected.items():
+        skill_path = PROJECT_ROOT / "skills" / skill_name / "SKILL.md"
+        if not skill_path.is_file():
+            raise RuntimeError(f"catalog owner skill does not exist: {skill_name}")
+        declared = set(_skill_commands(skill_path))
+        missing = sorted(commands - declared)
+        if missing:
+            raise RuntimeError(f"skill is missing catalog commands: {skill_name}: {', '.join(missing)}")
 
 
 def _resolve_entry(argv: list[str], catalog: dict[str, dict[str, Any]]) -> tuple[dict[str, Any], list[str]]:
@@ -200,7 +259,20 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
         raw = str(content[0].get("text") or "{}") if content else "{}"
         data = json.loads(raw)
         if not ok:
-            raise LxeSkillError(str((error or {}).get("code") or "business_failed"), str((error or {}).get("message") or "business command failed"), exit_code=EXIT_BUSINESS)
+            _emit(
+                {
+                    "type": "result",
+                    "command": command,
+                    "ok": False,
+                    "data": data,
+                    "files": [],
+                    "error": {
+                        "code": str((error or {}).get("code") or "business_failed"),
+                        "message": str((error or {}).get("message") or "business command failed"),
+                    },
+                }
+            )
+            return EXIT_BUSINESS
     _emit({"type": "result", "command": command, "ok": True, "data": data, "files": files})
     return 0
 
@@ -210,6 +282,7 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging()
     arguments = list(sys.argv[1:] if argv is None else argv)
     catalog = load_catalog()
+    _validate_skill_command_contract(catalog)
     try:
         if not arguments or arguments[0] in {"-h", "--help", "help"}:
             _emit(

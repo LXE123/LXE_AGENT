@@ -2,16 +2,17 @@
 name: fba-restock-workbook-create
 description: 兼容入口：根据一个本地 FBA 发货单 CSV、用户提供的出口退税总表和毛利率独立生成单 SP 备货单。仅当用户明确要求单个 SP 独立生成且不需要一批 SP 的正飞统一均价时使用；日常一批 SP 的采购汇总表和备货单生成应使用 fba-purchase-summary-create。
 type: amazon_fba
-script_tools:
-  - mabang_generate_fba_restock_workbook
+commands:
+  - lxeskill fba restock workbook-create
 ---
 
 # FBA Restock Workbook Create
 
 ## Hard Rules
 
-- 必须直接调用 frontmatter script_tools 中声明的工具；禁止通过 exec、process、shell 或 python -m 启动对应业务模块。
-- 下方命令样式只表示工具名与参数，不是 shell 命令；调用时按工具 JSON schema 传参。
+- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行 python -m services.agent_cli 或对应业务模块。
+- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
+- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只使用固定 CLI。
 - 不要手工解析 CSV，不要手工编辑 Excel。
@@ -33,10 +34,10 @@ script_tools:
 ## Command
 
 ```text
-mabang_generate_fba_restock_workbook --delivery-no <delivery_no> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
+lxeskill fba restock workbook-create --delivery-no <delivery_no> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
 ```
 
-只读取 CLI 输出的最后一行 JSON。
+只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
 
 ## Result Handling
 
