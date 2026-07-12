@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { createLogger, runWithLogContext } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 import type { RuntimeHandle } from "./types";
+import { detectReadImageMime, ModelImageProcessor } from "./model-image";
 import { ToolRegistry } from "./tools";
 
 export interface CodingToolOptions {
@@ -57,9 +58,6 @@ const PROTECTED_ROOT_DIRECTORIES = new Set(["user_session_db"]);
 const SKIP_DIRECTORIES = new Set([
   ".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build",
 ]);
-const IMAGE_MEDIA_TYPES: Record<string, string> = {
-  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp",
-};
 const BINARY_EXTENSIONS = new Set([
   ".pyc", ".pyo", ".exe", ".dll", ".so", ".bin", ".zip", ".tar", ".gz", ".7z", ".rar", ".whl",
   ".pdf", ".xlsx", ".xlsm", ".xltx", ".xltm", ".xls", ".docx", ".docm", ".dotx", ".dotm",
@@ -487,6 +485,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   const toolOutputLimit = 10_000;
   const processOutputLimit = Math.max(1_000, Math.trunc(options.maxOutputChars ?? 200_000));
   const ledger = new FileReadLedger();
+  const imageProcessor = new ModelImageProcessor();
   const processes = new CodingProcessManager({
     maxOutputChars: processOutputLimit,
     maxPendingChars: 30_000,
@@ -501,23 +500,27 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     execute: async (input, context) => {
       const path = readablePath(root, input.path);
       if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`file not found: ${input.path}`);
-      const extension = extname(path).toLowerCase();
       if (basename(path).toLowerCase() === "skill.md") {
         await context.exposureState?.activateSkill(basename(dirname(path)));
       }
-      const mediaType = IMAGE_MEDIA_TYPES[extension];
-      if (mediaType) {
-        const data = readFileSync(path);
+      const data = readFileSync(path);
+      if (detectReadImageMime(data.subarray(0, 4_100))) {
+        const prepared = await imageProcessor.process(data, "read");
         ledger.record(context.session_id, path);
+        const scale = prepared.processed.width > 0 ? prepared.original.width / prepared.processed.width : 1;
         return {
           content: [
-            { type: "text", text: `MEDIA:${path}` },
-            { type: "image", source: { type: "base64", media_type: mediaType, data: data.toString("base64") } },
+            {
+              type: "text",
+              text: `Read image file [${prepared.mediaType}]\n[Image: original ${prepared.original.width}x${prepared.original.height}, displayed at ${prepared.processed.width}x${prepared.processed.height}. Multiply coordinates by ${scale.toFixed(2)} to map to original image.]`,
+            },
+            { type: "image", source: { type: "base64", media_type: prepared.mediaType, data: Buffer.from(prepared.bytes).toString("base64") } },
           ],
         };
       }
+      const extension = extname(path).toLowerCase();
       if (BINARY_EXTENSIONS.has(extension)) throw new Error(`binary file cannot be read as text: ${input.path}`);
-      const lines = readFileSync(path, "utf8").split(/\r?\n/);
+      const lines = data.toString("utf8").split(/\r?\n/);
       const start = Math.max(1, Number(input.offset ?? 1));
       const count = Math.max(1, Number(input.limit ?? lines.length));
       ledger.record(context.session_id, path);

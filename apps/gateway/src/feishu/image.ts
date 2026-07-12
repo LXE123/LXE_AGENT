@@ -1,5 +1,6 @@
 import { writeFileSync } from "node:fs";
 import type { JsonObject } from "@lxe/protocol";
+import { ModelImageError, ModelImageProcessor } from "@lxe/runtime";
 
 export const INBOUND_IMAGE_ERROR_CODES = [
   "ERR_IMAGE_TOO_MANY_PIXELS",
@@ -37,11 +38,11 @@ export interface InboundImageProcessResult {
   metadata: JsonObject;
 }
 
-const supportedInputFormats = new Set<Bun.Image.Format>(["jpeg", "png", "webp", "bmp", "gif"]);
 const knownErrorCodes = new Set<string>(INBOUND_IMAGE_ERROR_CODES);
 
 const errorCode = (cause: unknown, fallback: InboundImageErrorCode): InboundImageErrorCode => {
   if (cause instanceof InboundImageError) return cause.code;
+  if (cause instanceof ModelImageError && knownErrorCodes.has(cause.code)) return cause.code as InboundImageErrorCode;
   if (cause !== null && typeof cause === "object") {
     const code = String((cause as { code?: unknown }).code ?? "").trim();
     if (knownErrorCodes.has(code)) return code as InboundImageErrorCode;
@@ -60,63 +61,33 @@ const imageError = (
 };
 
 export class InboundImageProcessor {
+  private readonly processor = new ModelImageProcessor();
+
   async process(request: InboundImageProcessRequest): Promise<InboundImageProcessResult> {
-    if (request.bytes.byteLength === 0) {
-      throw new InboundImageError("ERR_IMAGE_UNKNOWN_FORMAT", "image input is empty");
-    }
-    const image = new Bun.Image(request.bytes, {
-      autoOrient: true,
-      maxPixels: 40_000_000,
-    });
-    let original: Bun.Image.Metadata;
+    let prepared;
     try {
-      original = await image.metadata();
+      prepared = await this.processor.process(request.bytes, "feishu");
     } catch (cause) {
-      throw imageError(cause, "ERR_IMAGE_DECODE_FAILED", "image metadata failed");
+      throw imageError(cause, "ERR_IMAGE_DECODE_FAILED", "inbound image processing failed");
     }
-    if (!supportedInputFormats.has(original.format)) {
-      throw new InboundImageError(
-        "ERR_IMAGE_FORMAT_UNSUPPORTED",
-        `unsupported inbound image format: ${original.format}`,
-      );
-    }
-    if (Math.max(original.width, original.height) > 1_024) {
-      image.resize(1_024, 1_024, {
-        fit: "inside",
-        withoutEnlargement: true,
-        filter: "lanczos3",
-      });
-    }
-    let bytes: Uint8Array;
-    try {
-      bytes = await image.jpeg({ quality: 60, progressive: false }).bytes();
-    } catch (cause) {
-      throw imageError(cause, "ERR_IMAGE_ENCODE_FAILED", "image JPEG encode failed");
-    }
-    let processed: Bun.Image.Metadata;
-    try {
-      processed = await new Bun.Image(bytes, { maxPixels: 40_000_000 }).metadata();
-    } catch (cause) {
-      throw imageError(cause, "ERR_IMAGE_ENCODE_FAILED", "encoded JPEG verification failed");
-    }
-    writeFileSync(request.outputPath, bytes);
+    writeFileSync(request.outputPath, prepared.bytes);
     const metadata: JsonObject = {
       ...request.resource,
       saved_path: request.outputPath,
       original: {
         mime: request.originalMime,
-        format: original.format,
-        width: original.width,
-        height: original.height,
+        format: prepared.original.format,
+        width: prepared.original.width,
+        height: prepared.original.height,
         size_bytes: request.bytes.byteLength,
         file_name: request.originalFileName,
       },
       processed: {
         mime: "image/jpeg",
-        format: processed.format,
-        width: processed.width,
-        height: processed.height,
-        size_bytes: bytes.byteLength,
+        format: prepared.processed.format,
+        width: prepared.processed.width,
+        height: prepared.processed.height,
+        size_bytes: prepared.bytes.byteLength,
         quality: 60,
         progressive: false,
       },
@@ -124,13 +95,13 @@ export class InboundImageProcessor {
       processing_status: "success",
     };
     return {
-      bytes,
+      bytes: prepared.bytes,
       modelBlock: {
         type: "image",
         source: {
           type: "base64",
           media_type: "image/jpeg",
-          data: Buffer.from(bytes).toString("base64"),
+          data: Buffer.from(prepared.bytes).toString("base64"),
         },
       },
       savedPath: request.outputPath,

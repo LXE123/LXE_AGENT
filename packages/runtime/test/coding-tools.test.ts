@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { deflateSync } from "node:zlib";
 import type { JsonObject } from "@lxe/protocol";
 import { registerCodingTools } from "../src/coding-tools";
 import { ToolRegistry } from "../src/tools";
@@ -24,6 +25,32 @@ const context = () => ({
     registerProcess: () => () => undefined,
   },
 });
+
+const onePixelPng = (): Uint8Array => {
+  const crcTable = Array.from({ length: 256 }, (_unused, index) => {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    return value >>> 0;
+  });
+  const chunk = (name: string, data: Uint8Array): Uint8Array => {
+    const type = new TextEncoder().encode(name);
+    const output = new Uint8Array(12 + data.byteLength);
+    const view = new DataView(output.buffer);
+    view.setUint32(0, data.byteLength);
+    output.set(type, 4);
+    output.set(data, 8);
+    let crc = 0xffffffff;
+    for (const byte of [...type, ...data]) crc = crcTable[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+    view.setUint32(8 + data.byteLength, (crc ^ 0xffffffff) >>> 0);
+    return output;
+  };
+  const header = new Uint8Array(13);
+  new DataView(header.buffer).setUint32(0, 1);
+  new DataView(header.buffer).setUint32(4, 1);
+  header.set([8, 6, 0, 0, 0], 8);
+  const chunks = [chunk("IHDR", header), chunk("IDAT", deflateSync(new Uint8Array(5))), chunk("IEND", new Uint8Array())];
+  return new Uint8Array(Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), ...chunks.map(Buffer.from)]));
+};
 
 describe("native coding tools", () => {
   test("exposes compatible coding schemas and keeps file operations inside the workspace", async () => {
@@ -98,6 +125,19 @@ describe("native coding tools", () => {
     await expect(registry.execute("write", {
       file_path: "user_session_db/sessions.json", content: "{}",
     }, context())).rejects.toThrow("protected");
+    await processes.stop();
+  });
+
+  test("reads images by content instead of extension and reports coordinate scaling", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-image-"));
+    roots.push(root);
+    writeFileSync(join(root, "screenshot.data"), onePixelPng());
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const result = await registry.execute("read", { path: "screenshot.data" }, context());
+    expect(result.content[0]?.text).toContain("Read image file [image/png]");
+    expect(result.content[0]?.text).toContain("Multiply coordinates");
+    expect(result.content[1]).toMatchObject({ type: "image", source: { media_type: "image/png" } });
     await processes.stop();
   });
 
