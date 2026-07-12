@@ -87,22 +87,37 @@ describe("native coding tools", () => {
       command: "Start-Sleep -Milliseconds 80; Write-Output done",
       background: true,
     }, context());
-    const payload = JSON.parse(String(started.content[0]?.text));
-    expect(payload.status).toBe("running");
-    expect(payload.session).toMatch(/^exec_/);
-    expect(payload.origin_turn_id).toBe("turn-1");
-    expect(JSON.parse(String((await registry.execute("process", { action: "list" }, context())).content[0]?.text)).items).toHaveLength(1);
+    const startedText = String(started.content[0]?.text);
+    expect(startedText).toContain("status: running");
+    const session = startedText.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
+    expect(session).toMatch(/^exec_/);
+    if (!session) throw new Error(`missing process session in: ${startedText}`);
+    const listed = String((await registry.execute("process", { action: "list" }, context())).content[0]?.text);
+    expect(listed).toContain(String(session));
     await Bun.sleep(180);
-    const polled = JSON.parse(String((await registry.execute("process", { action: "poll", session: payload.session }, context())).content[0]?.text));
-    expect(polled.status).toBe("completed");
-    expect(polled.output).toContain("done");
+    const polled = String((await registry.execute("process", { action: "poll", session }, context())).content[0]?.text);
+    expect(polled).toContain("status: completed");
+    expect(polled).toContain("done");
     expect(completed).toEqual([expect.objectContaining({
-      session: payload.session,
+      session,
       status: "completed",
       origin_turn_id: "turn-1",
     })]);
-    await registry.execute("process", { action: "remove", session: payload.session }, context());
+    await registry.execute("process", { action: "remove", session }, context());
     expect(processes.snapshots()).toHaveLength(0);
+
+    const completedText = String((await registry.execute("exec", {
+      command: "Write-Output ('x' * 3000)",
+    }, context())).content[0]?.text);
+    expect(completedText).toContain("status: completed");
+    expect(completedText).toContain("output:");
+    expect(completedText.length).toBeGreaterThan(2_000);
+
+    const failed = String((await registry.execute("exec", {
+      command: "Write-Error 'expected failure'",
+    }, context())).content[0]?.text);
+    expect(failed).toContain("status: failed");
+    expect(failed).toContain("expected failure");
     await processes.stop();
   });
 

@@ -14,6 +14,13 @@ import { createLogger, runWithLogContext } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 import type { RuntimeHandle } from "./types";
 import { detectReadImageMime, ModelImageProcessor } from "./model-image";
+import {
+  appendLimitedBytes,
+  appendTailBytes,
+  combineProcessStreams,
+  decodeProcessOutput,
+  formatCommandPayload,
+} from "./process-output";
 import { isProbablyBinary, WorkspaceSearchService } from "./workspace-search";
 import { ToolRegistry } from "./tools";
 
@@ -37,11 +44,15 @@ interface ProcessEntry {
   startedAt: number;
   endedAt?: number;
   process: ReturnType<typeof Bun.spawn>;
+  explicitBackground: boolean;
   status: ProcessStatus;
   exitCode: number | null;
-  output: string;
-  pending: string;
-  tail: string;
+  stdout: Uint8Array;
+  stderr: Uint8Array;
+  pendingStdout: Uint8Array;
+  pendingStderr: Uint8Array;
+  stdoutTail: Uint8Array;
+  stderrTail: Uint8Array;
   truncated: boolean;
   completion: Promise<void>;
   timeout?: ReturnType<typeof setTimeout>;
@@ -50,8 +61,14 @@ interface ProcessEntry {
 }
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
-const jsonResult = (payload: JsonObject) => ({ content: textBlock(JSON.stringify(payload, null, 2)) });
+const commandResult = (payload: JsonObject) => ({ content: textBlock(formatCommandPayload(payload)) });
 const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
+const processLines = (value: string): string[] => {
+  if (!value) return [];
+  const lines = value.split(/\r?\n/u);
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+};
 
 const PROTECTED_ROOT_FILES = new Set([
   ".env", ".env.local", ".envrc", ".env.development", ".env.production", ".env.test", ".env.staging",
@@ -169,6 +186,23 @@ const powershell = (): string => {
   return executable;
 };
 
+const powershellCommandBody = (executable: string, command: string): string => {
+  const parts = ["try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}"];
+  if (["pwsh", "pwsh.exe"].includes(basename(executable).toLowerCase())) {
+    parts.push("$PSStyle.OutputRendering = 'PlainText'");
+  }
+  if (command.trim()) parts.push(command.trim());
+  parts.push([
+    "$__lxe_success = $?;",
+    "$__lxe_last_exit_code = $global:LASTEXITCODE;",
+    "if (-not $__lxe_success) {",
+    "if ($__lxe_last_exit_code -is [int] -and $__lxe_last_exit_code -ne 0) { exit $__lxe_last_exit_code };",
+    "exit 1",
+    "}",
+  ].join(" "));
+  return parts.join("\n");
+};
+
 const quotePowerShell = (value: string): string => `'${value.replaceAll("'", "''")}'`;
 
 const normalizeProjectPythonCommand = (root: string, command: string): string => {
@@ -199,9 +233,9 @@ export class CodingProcessManager {
   private readonly logger = createLogger("runtime.coding_process");
 
   constructor(private readonly options: {
-    maxOutputChars: number;
-    maxPendingChars: number;
-    tailChars: number;
+    maxOutputBytes: number;
+    maxPendingBytes: number;
+    tailBytes: number;
     ttlSeconds: number;
   }) {}
 
@@ -233,25 +267,61 @@ export class CodingProcessManager {
   }): Promise<JsonObject> {
     this.sweep();
     const id = `exec_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
-    const child = Bun.spawn([
-      powershell(), "-NoProfile", "-NonInteractive", "-Command",
-      "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}; " + request.command,
-    ], {
-      cwd: request.cwd,
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      windowsHide: true,
-      env: {
-        ...process.env,
-        PYTHONIOENCODING: "utf-8",
-        PYTHONUTF8: "1",
-        LXE_AGENT_SESSION_ID: request.sessionId,
-        LXE_RESPONSE_ROUTE_ID: request.responseRouteId,
-        LXE_AGENT_TURN_ID: request.turnId ?? "",
-        LXE_EXEC_SESSION_ID: id,
-      },
-    });
+    let child: ReturnType<typeof Bun.spawn>;
+    try {
+      const executable = powershell();
+      child = Bun.spawn([
+        executable, "-NoProfile", "-NonInteractive", "-Command",
+        powershellCommandBody(executable, request.command),
+      ], {
+        cwd: request.cwd,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        windowsHide: true,
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: "utf-8",
+          PYTHONUTF8: "1",
+          LXE_AGENT_SESSION_ID: request.sessionId,
+          LXE_RESPONSE_ROUTE_ID: request.responseRouteId,
+          LXE_AGENT_TURN_ID: request.turnId ?? "",
+          LXE_EXEC_SESSION_ID: id,
+        },
+      });
+    } catch (error) {
+      runWithLogContext({
+        session_id: request.sessionId,
+        turn_id: request.turnId ?? "",
+        response_route_id: request.responseRouteId,
+        task_id: id,
+      }, () => this.logger.error("process_spawn_failed", {
+        task_id: id,
+        cwd: request.cwd,
+        error,
+      }));
+      return {
+        status: "failed",
+        session: id,
+        error: error instanceof Error && error.message ? `${error.name}: ${error.message}` : String(error),
+      };
+    }
+    const stdout = child.stdout;
+    const stderr = child.stderr;
+    if (!stdout || typeof stdout === "number" || !stderr || typeof stderr === "number") {
+      try { child.kill(); } catch { /* failed process has no usable stream to clean up */ }
+      runWithLogContext(this.logContext({
+        id,
+        sessionId: request.sessionId,
+        turnId: request.turnId ?? "",
+        responseRouteId: request.responseRouteId,
+      }), () => this.logger.error("process_spawn_failed", {
+        task_id: id,
+        cwd: request.cwd,
+        error: new Error("spawned process did not expose stdout/stderr pipes"),
+      }));
+      return { status: "failed", session: id, error: "spawned process did not expose stdout/stderr pipes" };
+    }
     const entry: ProcessEntry = {
       id,
       command: request.command,
@@ -261,11 +331,15 @@ export class CodingProcessManager {
       responseRouteId: request.responseRouteId,
       startedAt: Date.now() / 1_000,
       process: child,
+      explicitBackground: request.background,
       status: "running" as ProcessStatus,
       exitCode: null,
-      output: "",
-      pending: "",
-      tail: "",
+      stdout: new Uint8Array(),
+      stderr: new Uint8Array(),
+      pendingStdout: new Uint8Array(),
+      pendingStderr: new Uint8Array(),
+      stdoutTail: new Uint8Array(),
+      stderrTail: new Uint8Array(),
       truncated: false,
       completion: Promise.resolve(),
       notifyOnExit: request.background,
@@ -275,27 +349,33 @@ export class CodingProcessManager {
     runWithLogContext(this.logContext(entry), () => {
       this.logger.info("process_started", this.processFields(entry));
     });
-    const append = (value: string): void => {
-      const pending = truncateHeadTail(entry.pending + value, this.options.maxPendingChars);
-      entry.pending = pending.value;
-      const output = truncateHeadTail(entry.output + value, this.options.maxOutputChars);
-      entry.output = output.value;
-      entry.tail = (entry.tail + value).slice(-this.options.tailChars);
-      entry.truncated ||= pending.truncated || output.truncated;
+    const append = (value: Uint8Array, isStderr: boolean): void => {
+      if (isStderr) {
+        const output = appendLimitedBytes(entry.stderr, value, this.options.maxOutputBytes);
+        const pending = appendLimitedBytes(entry.pendingStderr, value, this.options.maxPendingBytes);
+        entry.stderr = output.bytes;
+        entry.pendingStderr = pending.bytes;
+        entry.stderrTail = appendTailBytes(entry.stderrTail, value, this.options.tailBytes);
+        entry.truncated ||= output.truncated || pending.truncated;
+        return;
+      }
+      const output = appendLimitedBytes(entry.stdout, value, this.options.maxOutputBytes);
+      const pending = appendLimitedBytes(entry.pendingStdout, value, this.options.maxPendingBytes);
+      entry.stdout = output.bytes;
+      entry.pendingStdout = pending.bytes;
+      entry.stdoutTail = appendTailBytes(entry.stdoutTail, value, this.options.tailBytes);
+      entry.truncated ||= output.truncated || pending.truncated;
     };
-    const pump = async (stream: ReadableStream<Uint8Array>, stderr: boolean): Promise<void> => {
+    const pump = async (stream: ReadableStream<Uint8Array>, isStderr: boolean): Promise<void> => {
       const reader = stream.getReader();
-      const decoder = new TextDecoder();
       while (true) {
         const chunk = await reader.read();
         if (chunk.done) break;
-        append(`${stderr ? "[stderr] " : ""}${decoder.decode(chunk.value, { stream: true })}`);
+        append(chunk.value, isStderr);
       }
-      const tail = decoder.decode();
-      if (tail) append(`${stderr ? "[stderr] " : ""}${tail}`);
     };
-    const stdoutTask = pump(child.stdout, false);
-    const stderrTask = pump(child.stderr, true);
+    const stdoutTask = pump(stdout, false);
+    const stderrTask = pump(stderr, true);
     entry.completion = runWithLogContext(this.logContext(entry), async () => {
       const exitCode = await child.exited;
       await Promise.allSettled([stdoutTask, stderrTask]);
@@ -326,7 +406,7 @@ export class CodingProcessManager {
       runWithLogContext(this.logContext(entry), () => {
         this.logger.info("process_yielded_to_background", this.processFields(entry));
       });
-      return this.snapshot(entry);
+      return this.runningPayload(entry);
     }
 
     const unregister = request.handle.registerProcess({
@@ -346,7 +426,7 @@ export class CodingProcessManager {
           this.logger.info("process_yielded_to_background", this.processFields(entry));
         });
       }
-      return this.snapshot(entry);
+      return entry.status === "running" ? this.runningPayload(entry) : this.completedPayload(entry);
     } finally {
       request.handle.signal.removeEventListener("abort", abort);
       unregister();
@@ -355,42 +435,121 @@ export class CodingProcessManager {
 
   async process(input: JsonObject): Promise<JsonObject> {
     const action = inputText(input, "action").trim();
-    if (action === "list") return { items: this.snapshots(), total: this.entries.size };
+    if (action === "list") {
+      this.sweep();
+      const sessions = [...this.entries.values()]
+        .sort((left, right) => right.startedAt - left.startedAt)
+        .map((entry) => ({
+          session: entry.id,
+          command: entry.command.slice(0, 100),
+          status: entry.status,
+          pid: entry.process.pid,
+          duration_sec: this.duration(entry),
+        }));
+      return { sessions, message: sessions.length === 0 ? "没有活跃或最近的会话。" : "" };
+    }
     const id = inputText(input, "session").trim();
     const entry = this.entries.get(id);
-    if (!entry) throw new Error(`exec session not found: ${id}`);
+    if (!id) return { error: "需要指定 session 参数。" };
+    if (!entry) return { error: `会话 ${id} 不存在。` };
     if (action === "poll") {
-      if (entry.status === "running" && !entry.pending) {
+      if (entry.status === "running" && entry.pendingStdout.byteLength === 0 && entry.pendingStderr.byteLength === 0) {
         await Promise.race([entry.completion, Bun.sleep(5_000)]);
       }
-      const output = entry.pending;
-      entry.pending = "";
-      return { ...this.snapshot(entry), output };
+      const payload: JsonObject = {
+        session: entry.id,
+        status: entry.status,
+        new_output: combineProcessStreams(entry.pendingStdout, entry.pendingStderr) || "(no new output)",
+      };
+      entry.pendingStdout = new Uint8Array();
+      entry.pendingStderr = new Uint8Array();
+      if (entry.status !== "running") {
+        payload.exit_code = entry.exitCode;
+        payload.duration_sec = this.duration(entry);
+      }
+      if (entry.truncated) payload.truncated = true;
+      return payload;
     }
     if (action === "log") {
-      const lines = entry.output.split(/\r?\n/);
-      const offset = Math.max(1, Number(input.offset ?? 1));
+      const stdoutLines = processLines(decodeProcessOutput(entry.stdout));
+      const stderrLines = processLines(decodeProcessOutput(entry.stderr));
+      const offset = Math.max(0, Number(input.offset ?? 1) - 1);
       const limit = Math.max(1, Math.min(Number(input.limit ?? 2_000), 10_000));
-      return { ...this.snapshot(entry), output: lines.slice(offset - 1, offset - 1 + limit).join("\n"), offset, limit };
+      const totalLines = Math.max(stdoutLines.length, stderrLines.length);
+      const showingEnd = Math.min(totalLines, offset + limit);
+      const output = combineProcessStreams(
+        new TextEncoder().encode(stdoutLines.slice(offset, offset + limit).join("\n")),
+        new TextEncoder().encode(stderrLines.slice(offset, offset + limit).join("\n")),
+      ) || "(no output)";
+      const payload: JsonObject = {
+        session: entry.id,
+        total_lines: totalLines,
+        showing: totalLines ? `${offset + 1}-${showingEnd}` : "0-0",
+        output,
+      };
+      if (showingEnd < totalLines) payload.message = `还有 ${totalLines - showingEnd} 行。用 offset=${showingEnd + 1} 继续。`;
+      if (entry.truncated) payload.truncated = true;
+      return payload;
     }
     if (action === "write") {
-      if (entry.status !== "running") throw new Error(`exec session is not running: ${id}`);
+      const text = inputText(input, "text");
+      if (!text) return { error: "write 操作需要 text 参数。" };
+      if (entry.status !== "running") return { error: `会话 ${id} 已结束，无法写入。` };
       const stdin = entry.process.stdin;
-      if (!stdin || typeof stdin === "number") throw new Error(`exec session stdin is unavailable: ${id}`);
-      stdin.write(`${inputText(input, "text")}\n`);
-      return this.snapshot(entry);
+      if (!stdin || typeof stdin === "number") return { error: `会话 ${id} 不支持写入。` };
+      try {
+        stdin.write(`${text}\n`);
+        return { status: "ok", session: id, message: `已写入 ${Buffer.byteLength(`${text}\n`)} 字节。` };
+      } catch (error) {
+        return { error: `写入失败: ${error instanceof Error ? error.message : String(error)}` };
+      }
     }
-    if (action === "kill" || action === "remove") {
+    if (action === "kill") {
+      if (entry.status !== "running") return { message: `会话 ${id} 已经结束（${entry.status}）。` };
+      entry.status = "killed";
+      await this.terminateObserved(entry, "process_killed");
+      await entry.completion;
+      return { status: "killed", session: id };
+    }
+    if (action === "remove") {
       if (entry.status === "running") {
         entry.status = "killed";
         await this.terminateObserved(entry, "process_killed");
         await entry.completion;
       }
-      const payload = this.snapshot(entry);
-      if (action === "remove") this.entries.delete(id);
-      return payload;
+      this.entries.delete(id);
+      return { status: "removed", session: id };
     }
-    throw new Error(`unsupported process action: ${action}`);
+    return { error: `未知 action: ${action}` };
+  }
+
+  private duration(entry: ProcessEntry): number {
+    return Math.max(0, (entry.endedAt ?? Date.now() / 1_000) - entry.startedAt);
+  }
+
+  private completedPayload(entry: ProcessEntry): JsonObject {
+    return {
+      status: entry.status,
+      session: entry.id,
+      exit_code: entry.exitCode,
+      output: combineProcessStreams(entry.stdout, entry.stderr).trim() || "(no output)",
+      duration_sec: this.duration(entry),
+      ...(entry.truncated ? { truncated: true } : {}),
+    };
+  }
+
+  private runningPayload(entry: ProcessEntry): JsonObject {
+    const message = entry.explicitBackground
+      ? `命令仍在运行。除非用户明确要求，否则不要用 process(action='poll', session='${entry.id}') 查看进度。`
+      : `命令仍在运行，完成后会自动通知你，请继续处理其他工作，不要轮询等待。只有需要查看中间进度时才用 process(action='poll', session='${entry.id}')。`;
+    return {
+      status: entry.status,
+      session: entry.id,
+      pid: entry.process.pid,
+      message,
+      tail: combineProcessStreams(entry.stdoutTail, entry.stderrTail) || "(暂无输出)",
+      ...(entry.truncated ? { truncated: true } : {}),
+    };
   }
 
   private snapshot(entry: ProcessEntry): JsonObject {
@@ -409,11 +568,11 @@ export class CodingProcessManager {
       cwd: entry.cwd,
       started_at: entry.startedAt,
       ended_at: endedAt,
-      duration_sec: (endedAt ?? Date.now() / 1_000) - entry.startedAt,
+      duration_sec: this.duration(entry),
       background: entry.status === "running",
       exit_code: entry.exitCode,
       truncated: entry.truncated,
-      output_tail: entry.tail,
+      output_tail: combineProcessStreams(entry.stdoutTail, entry.stderrTail),
     };
   }
 
@@ -424,7 +583,7 @@ export class CodingProcessManager {
     }
   }
 
-  private logContext(entry: ProcessEntry) {
+  private logContext(entry: Pick<ProcessEntry, "sessionId" | "turnId" | "responseRouteId" | "id">) {
     return {
       session_id: entry.sessionId,
       turn_id: entry.turnId,
@@ -469,9 +628,9 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   const imageProcessor = new ModelImageProcessor();
   const search = new WorkspaceSearchService(root, options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath });
   const processes = new CodingProcessManager({
-    maxOutputChars: processOutputLimit,
-    maxPendingChars: 30_000,
-    tailChars: 2_000,
+    maxOutputBytes: processOutputLimit,
+    maxPendingBytes: 30_000,
+    tailBytes: 2_000,
     ttlSeconds: 1_800,
   });
   processes.onComplete = options.onProcessComplete;
@@ -641,15 +800,14 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
         handle: context.handle,
         ...(context.turn_id === undefined ? {} : { turnId: context.turn_id }),
       });
-      if (payload.status === "failed" || payload.status === "timeout") throw new Error(`command ${payload.status}: ${payload.output_tail ?? ""}`);
-      return jsonResult(payload);
+      return commandResult(payload);
     },
   });
   registry.register({
     name: "process",
     description: "Manage exec sessions: list, poll, log, write, kill, or remove.",
     input_schema: { type: "object", properties: { action: { type: "string", enum: ["list", "poll", "log", "write", "kill", "remove"] }, session: { type: "string" }, text: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["action"], additionalProperties: false },
-    execute: async (input) => jsonResult(await processes.process(input)),
+    execute: async (input) => commandResult(await processes.process(input)),
   });
   return processes;
 }
