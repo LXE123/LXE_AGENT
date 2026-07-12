@@ -33,6 +33,7 @@ interface DashboardApiOptions {
   mcpStatus?: (serverName: string) => {
     connected: boolean;
     error: string;
+    toolCount?: number;
     tools?: Array<{ rawName: string; modelName: string }>;
   };
   providerManager?: RuntimeProviderManager;
@@ -230,6 +231,7 @@ export class DashboardApi {
       name: manifest.name,
       type: manifest.type,
       description: manifest.description,
+      commands: manifest.commands,
       enabled: true,
       location: manifest.location,
       references: manifest.references,
@@ -335,8 +337,9 @@ export class DashboardApi {
   }
 
   private mcpServer(server: McpConfig["servers"][number]): JsonObject {
-    const toolCount = this.options.tools.schemas().filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).length;
     const live = this.options.mcpStatus?.(server.name);
+    const toolCount = live?.toolCount
+      ?? this.options.tools.definitionsSnapshot().filter((tool) => tool.name.startsWith(mcpServerPrefix(server.name))).length;
     return {
       name: server.name,
       enabled: server.enabled,
@@ -344,8 +347,10 @@ export class DashboardApi {
       status: !server.enabled ? "disabled" : live?.connected ? "ready" : live?.error ? "error" : "configured",
       tool_count: toolCount,
       error: live?.error ?? "",
-      server_title: server.name,
-      connector_name: server.name,
+      server_title: server.connectorName,
+      connector_id: server.connectorId,
+      connector_name: server.connectorName,
+      connector_description: server.connectorDescription,
       exposure: server.exposure,
       tools: live?.tools ?? [],
     };

@@ -39,6 +39,8 @@ def load_catalog() -> dict[str, dict[str, Any]]:
             expected = (
                 "amazon_logistic_quote"
                 if module == "services.agent_cli.amazon_logistic.run"
+                else "logistics_rate_import"
+                if module == "scripts.logistics_update_ingest"
                 else f"mabang_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.mabang.")
                 else f"amazon_fba_{module.rsplit('.', 1)[-1]}"

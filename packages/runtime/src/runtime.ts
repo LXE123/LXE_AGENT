@@ -80,6 +80,10 @@ const addUsage = (target: { input: number; output: number }, usage: RuntimeUsage
   target.output += Math.max(0, Math.trunc(usage.output_tokens ?? 0));
 };
 
+export const DEFAULT_MAX_STEPS = 50;
+export const DEFAULT_PROVIDER_ATTEMPTS = 3;
+export const MAX_STEP_REPLY = "本轮已达到最大步骤，请发送下一条消息继续。";
+
 export class TypeScriptAgentRuntime implements AgentRuntime {
   private readonly logger = createLogger("runtime");
   private readonly active = new Set<RuntimeHandle>();
@@ -248,7 +252,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         return appended;
       };
 
-      const maxSteps = Math.max(1, Math.trunc(this.options.maxSteps ?? 50));
+      const maxSteps = Math.max(1, Math.trunc(this.options.maxSteps ?? DEFAULT_MAX_STEPS));
       await finalAnswerStreamer?.startToolPending();
       for (let step = 0; step < maxSteps; step += 1) {
         if (isCancelled(handle)) {
@@ -291,7 +295,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
           },
         });
-        const invokeProvider = async (maximumAttempts = 3): Promise<RuntimeTurnResponse> => {
+        const invokeProvider = async (maximumAttempts = DEFAULT_PROVIDER_ATTEMPTS): Promise<RuntimeTurnResponse> => {
           let lastError: unknown;
           for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
             apiCalls += 1;
@@ -350,7 +354,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         finalAnswerStreamer?.updateUsage(response.usage);
         const calls = toolUseBlocks(response.content);
         const forcedLastStepReply = isLastStep && calls.length > 0
-          ? textContent(response.content) || "本轮已达到最大步骤，请发送下一条消息继续。"
+          ? textContent(response.content) || MAX_STEP_REPLY
           : "";
         const assistantContent: RuntimeContentBlock[] = forcedLastStepReply
           ? [{ type: "text", text: forcedLastStepReply }]
@@ -510,7 +514,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         messages.push(toolMessage);
         await this.options.store.appendMessage(job.session_id, toolMessage, "tool_results");
       }
-      const reply = "本轮已达到最大步骤，请发送下一条消息继续。";
+      const reply = MAX_STEP_REPLY;
       const terminal: RuntimeMessage = { role: "assistant", content: [{ type: "text", text: reply }] };
       messages.push(terminal);
       await this.options.store.appendMessage(job.session_id, terminal, "assistant_max_steps");

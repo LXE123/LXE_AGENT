@@ -5,6 +5,7 @@ import { createLogger } from "@lxe/core";
 import {
   AtomicRuntimeProviderManager,
   McpManager,
+  OfficialMcpConnector,
   MaintenanceScheduler,
   SqliteRuntimeStore,
   ToolRegistry,
@@ -182,7 +183,7 @@ export function createProductionGateway(
     String(options.environment.LXE_MCP_CONFIG_PATH ?? "").trim() ||
     join(options.projectRoot, "config", "mcp_servers.local.yaml");
   const mcpConfig = loadMcpConfig(mcpConfigPath, options.environment);
-  const mcpManager = new McpManager(mcpConfig);
+  const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(options.environment));
   runtimeServices.push(mcpManager);
   const permissionKey = policy.botIdToKey.get(feishu.appId);
   const allowedSkillTypes = permissionKey

@@ -18,7 +18,7 @@ describe("DashboardApi", () => {
     writeFileSync(join(root, "docs", "guide.md"), "# Guide\n\nstatus: ready\n", "utf8");
     mkdirSync(join(root, "skills", "demo", "references"), { recursive: true });
     writeFileSync(join(root, "skills", "demo", "SKILL.md"), [
-      "---", "name: demo", "description: Demo skill", "type: default", "references:",
+      "---", "name: demo", "description: Demo skill", "type: default", "commands: [scripts.demo]", "references:",
       "  - path: references/help.md", "    description: Help", "---", "# Demo", "",
     ].join("\n"), "utf8");
     writeFileSync(join(root, "skills", "demo", "references", "help.md"), "# Help", "utf8");
@@ -76,7 +76,15 @@ describe("DashboardApi", () => {
       environment: { KIMI_API_KEY: "test-key" },
       store,
       tools,
-      mcpConfig: { servers: [] },
+      mcpConfig: { servers: [{
+        name: "inventory", enabled: true, transport: "streamable-http", command: "", args: [], env: {}, cwd: "",
+        url: "https://mcp.example.test", headers: { Authorization: "secret-static" },
+        envHeaders: { "X-Secret": "MCP_SECRET" }, bearerTokenEnvVar: "MCP_BEARER",
+        connectorId: "inventory-connector", connectorName: "Inventory Connector",
+        connectorDescription: "Reads inventory", startupTimeoutMs: 10_000, toolTimeoutMs: 60_000,
+        enabledTools: new Set(), disabledTools: new Set(), exposure: "deferred",
+      }] },
+      mcpStatus: () => ({ connected: true, error: "", toolCount: 7, tools: [{ rawName: "read", modelName: "mcp__inventory__read" }] }),
       connectorStatePath: join(root, "config", "connectors.json"),
       backgroundTasks: () => [{ task_id: "task-1", status: "running" }],
       providerManager,
@@ -94,10 +102,19 @@ describe("DashboardApi", () => {
     expect((await call("/api/project-docs")).body).toMatchObject({ items: [{ path: "guide.md", title: "Guide" }], total: 1 });
     expect((await call("/api/project-docs/guide.md")).body).toMatchObject({ path: "guide.md", content: "# Guide\n\nstatus: ready\n" });
     expect((await call("/api/project-docs/%2e%2e%2FSOUL.md")).status).toBe(404);
-    expect((await call("/api/skills")).body).toMatchObject({ items: [{ name: "demo", references: [{ path: "references/help.md" }] }] });
+    expect((await call("/api/skills")).body).toMatchObject({ items: [{ name: "demo", commands: ["scripts.demo"], references: [{ path: "references/help.md" }] }] });
     expect((await call("/api/skills/demo/content")).body).toMatchObject({ name: "demo", content: expect.stringContaining("# Demo") });
     expect((await call("/api/skills/demo/references/references%2Fhelp.md")).body).toMatchObject({ skill_name: "demo", content: "# Help" });
-    expect((await call("/api/tools/toolsets")).body).toMatchObject({ items: [{ name: "coding", tools: [{ name: "demo_tool" }] }] });
+    const toolsets = (await call("/api/tools/toolsets")).body as { items: Array<Record<string, unknown>> };
+    expect(toolsets.items.find((item) => item.name === "coding")).toMatchObject({ tools: [{ name: "demo_tool" }] });
+    const mcp = (await call("/api/mcp/servers")).body as Record<string, unknown>;
+    expect(mcp).toMatchObject({
+      items: [{ connector_id: "inventory-connector", connector_name: "Inventory Connector", connector_description: "Reads inventory", tool_count: 7 }],
+      tool_total: 7,
+    });
+    expect(JSON.stringify(mcp)).not.toContain("secret-static");
+    expect(JSON.stringify(mcp)).not.toContain("MCP_SECRET");
+    expect(JSON.stringify(mcp)).not.toContain("MCP_BEARER");
     expect((await call("/api/background-tasks")).body).toEqual({ items: [{ task_id: "task-1", status: "running" }], total: 1 });
     expect((await call("/api/stats/overview?days=7")).body).toMatchObject({ days: 7, totals: { turns: 0, input_tokens: 0 } });
     expect((await call("/api/models")).body).toMatchObject({

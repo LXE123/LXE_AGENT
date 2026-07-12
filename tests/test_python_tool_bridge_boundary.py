@@ -107,6 +107,7 @@ def test_python_bridge_calls_service_boundary_without_runtime_context(monkeypatc
 def test_catalog_covers_active_business_skills_and_bridge_dispatches_module(monkeypatch) -> None:
     catalog = load_catalog()
     assert catalog["amazon_logistic_quote"]["module"] == "services.agent_cli.amazon_logistic.run"
+    assert catalog["logistics_rate_import"]["owner_skills"] == ["fba-logistics-rate-import"]
     assert catalog["mabang_resolve_fba_store"]["owner_skills"]
     assert catalog["browser_auth_refresh"]["exposed"] is False
 

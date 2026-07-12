@@ -51,4 +51,25 @@ describe("skill context", () => {
     ].join("\n"), "utf8");
     expect(() => catalog.list()).toThrow("skill reference escapes its root");
   });
+
+  test("reads plural commands, accepts legacy command, and rejects duplicate ownership", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-skill-commands-"));
+    roots.push(root);
+    mkdirSync(join(root, "skills", "plural"), { recursive: true });
+    mkdirSync(join(root, "skills", "legacy"), { recursive: true });
+    writeFileSync(join(root, "skills", "plural", "SKILL.md"), [
+      "---", "name: plural", "commands:", "  - scripts.one", "  - scripts.two", "---", "",
+    ].join("\n"), "utf8");
+    writeFileSync(join(root, "skills", "legacy", "SKILL.md"), [
+      "---", "name: legacy", "command: scripts.legacy", "---", "",
+    ].join("\n"), "utf8");
+    const catalog = new SkillCatalog(root, join(root, "missing-user"));
+    expect(catalog.get("plural")?.commands).toEqual(["scripts.one", "scripts.two"]);
+    expect(catalog.get("legacy")?.commands).toEqual(["scripts.legacy"]);
+    mkdirSync(join(root, "skills", "conflict"), { recursive: true });
+    writeFileSync(join(root, "skills", "conflict", "SKILL.md"), [
+      "---", "name: conflict", "commands: [scripts.two]", "---", "",
+    ].join("\n"), "utf8");
+    expect(() => catalog.list()).toThrow("duplicate skill command scripts.two");
+  });
 });

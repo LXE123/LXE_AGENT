@@ -18,7 +18,7 @@ export interface SkillManifest {
   name: string;
   type: string;
   description: string;
-  command: string;
+  commands: string[];
   location: string;
   root: string;
   source: "repository" | "user";
@@ -84,11 +84,20 @@ const parseManifest = (path: string, source: SkillManifest["source"]): SkillMani
     const referencePath = safeReference(root, String(item.path ?? "").trim());
     return { path: referencePath, description: String(item.description ?? "").trim() };
   }) : [];
+  const rawCommands = Array.isArray(metadata.commands)
+    ? metadata.commands
+    : metadata.commands !== undefined
+      ? [metadata.commands]
+      : metadata.command !== undefined ? [metadata.command] : [];
+  const commands = rawCommands.map((value) => String(value ?? "").trim()).filter(Boolean);
+  if (new Set(commands).size !== commands.length) {
+    throw new SkillCatalogError(`duplicate command within skill ${name}`);
+  }
   return {
     name,
     type: String(metadata.type ?? "default").trim() || "default",
     description: String(metadata.description ?? "").trim().replaceAll(/\s+/g, " "),
-    command: String(metadata.command ?? "").trim(),
+    commands,
     location: resolve(path),
     root: resolve(root),
     source,
@@ -163,10 +172,11 @@ export class SkillCatalog {
     }
     const commands = new Map<string, string>();
     for (const manifest of byName.values()) {
-      if (!manifest.command) continue;
-      const owner = commands.get(manifest.command);
-      if (owner) throw new SkillCatalogError(`duplicate skill command ${manifest.command}: ${owner}, ${manifest.name}`);
-      commands.set(manifest.command, manifest.name);
+      for (const command of manifest.commands) {
+        const owner = commands.get(command);
+        if (owner) throw new SkillCatalogError(`duplicate skill command ${command}: ${owner}, ${manifest.name}`);
+        commands.set(command, manifest.name);
+      }
     }
     this.manifests = [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
     this.signature = signature;

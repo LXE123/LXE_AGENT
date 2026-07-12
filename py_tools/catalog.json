@@ -58,6 +58,12 @@
       "input_schema": {"type": "object", "properties": {"input_text": {"type": "string"}, "shipment_no": {"type": "string"}, "consignment_no": {"type": "string"}, "destination_address": {"type": "string"}}, "additionalProperties": false}
     },
     {
+      "name": "logistics_rate_import",
+      "module": "scripts.logistics_update_ingest",
+      "owner_skills": ["fba-logistics-rate-import"], "timeout_ms": 600000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"file_path": {"type": "string"}, "job_id": {"type": "string"}}, "oneOf": [{"required": ["file_path"]}, {"required": ["job_id"]}], "additionalProperties": false}
+    },
+    {
       "name": "mabang_download_msku_detail_excel", "module": "services.agent_cli.mabang.download_msku_detail_excel",
       "owner_skills": ["fba-msku-detail-download"], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "delivery_no": {"type": "string"}}, "additionalProperties": false}

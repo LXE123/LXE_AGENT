@@ -20,6 +20,11 @@ export interface McpServerConfig {
   cwd: string;
   url: string;
   headers: Record<string, string>;
+  envHeaders: Record<string, string>;
+  bearerTokenEnvVar: string;
+  connectorId: string;
+  connectorName: string;
+  connectorDescription: string;
   startupTimeoutMs: number;
   toolTimeoutMs: number;
   enabledTools: Set<string>;
@@ -39,8 +44,15 @@ export interface McpRemoteTool {
 
 export interface McpConnection {
   tools: McpRemoteTool[];
-  callTool(name: string, arguments_: JsonObject, signal?: AbortSignal): Promise<{ content?: JsonObject[] }>;
+  callTool(name: string, arguments_: JsonObject, signal?: AbortSignal): Promise<McpCallResult>;
   close(): Promise<void>;
+}
+
+export interface McpCallResult {
+  content: JsonObject[];
+  structuredContent?: JsonObject;
+  meta?: JsonObject;
+  isError: boolean;
 }
 
 export interface McpConnector {
@@ -134,8 +146,7 @@ export function loadMcpConfig(path: string, env: Environment): McpConfig {
       const transport: McpTransportKind = ["http", "streamable-http"].includes(rawTransport)
         ? "streamable-http"
         : rawTransport === "stdio" ? "stdio" : (() => { throw new Error(`unsupported MCP transport: ${rawTransport}`); })();
-      const headers = Object.fromEntries(Object.entries(stringMapping(config.headers))
-        .map(([key, value]) => [key, resolvePlaceholders(value, env, `${name}.headers.${key}`)]));
+      const headers = stringMapping(config.headers);
       const exposure = String(config.exposure ?? "deferred").trim().toLowerCase();
       if (!["deferred", "direct", "auto"].includes(exposure)) throw new Error(`invalid MCP exposure for ${name}: ${exposure}`);
       return {
@@ -151,6 +162,11 @@ export function loadMcpConfig(path: string, env: Environment): McpConfig {
         cwd: resolvePlaceholders(String(config.cwd ?? "").trim(), env, `${name}.cwd`),
         url: resolvePlaceholders(String(config.url ?? "").trim(), env, `${name}.url`),
         headers,
+        envHeaders: stringMapping(config.env_headers ?? config.envHeaders),
+        bearerTokenEnvVar: String(config.bearer_token_env_var ?? config.bearerTokenEnvVar ?? "").trim(),
+        connectorId: String(config.connector_id ?? config.connectorId ?? name).trim() || name,
+        connectorName: String(config.connector_name ?? config.connectorName ?? name).trim() || name,
+        connectorDescription: String(config.connector_description ?? config.connectorDescription ?? "").trim(),
         startupTimeoutMs: seconds(config.startup_timeout_s ?? config.startupTimeoutS, 10),
         toolTimeoutMs: seconds(config.tool_timeout_s ?? config.toolTimeoutS, 60),
         enabledTools: stringSet(config.enabled_tools ?? config.enabledTools),
@@ -177,9 +193,42 @@ export function setMcpServerEnabled(path: string, serverName: string, enabled: b
   renameSync(temporary, path);
 }
 
+export const resolveMcpHttpHeaders = (server: McpServerConfig, env: Environment): Record<string, string> => {
+  const headers = Object.fromEntries(Object.entries(server.headers).map(([key, value]) => [
+    key,
+    resolvePlaceholders(value, env, `${server.name}.headers.${key}`),
+  ]));
+  for (const [header, envName] of Object.entries(server.envHeaders)) {
+    const value = String(env[envName] ?? "").trim();
+    if (!value) throw new Error(`missing environment variable ${envName} for MCP ${server.name}.envHeaders.${header}`);
+    headers[header] = value;
+  }
+  if (server.bearerTokenEnvVar) {
+    const token = String(env[server.bearerTokenEnvVar] ?? "").trim();
+    if (!token) throw new Error(`missing environment variable ${server.bearerTokenEnvVar} for MCP ${server.name}.bearerTokenEnvVar`);
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+};
+
+interface McpSdkClientPort {
+  connect(transport: unknown): Promise<void>;
+  close(): Promise<void>;
+  listTools(params?: { cursor?: string }, options?: { signal?: AbortSignal }): Promise<{
+    tools: Array<{ name: string; description?: string; inputSchema?: JsonObject }>;
+    nextCursor?: string;
+  }>;
+  callTool(params: { name: string; arguments: JsonObject }, schema?: unknown, options?: { signal?: AbortSignal }): Promise<unknown>;
+}
+
 export class OfficialMcpConnector implements McpConnector {
+  constructor(
+    private readonly environment: Environment = process.env,
+    private readonly clientFactory: () => McpSdkClientPort = () => new Client({ name: "lxe-agent", version: "0.1.0" }) as unknown as McpSdkClientPort,
+  ) {}
+
   async connect(server: McpServerConfig, signal?: AbortSignal): Promise<McpConnection> {
-    const client = new Client({ name: "lxe-agent", version: "0.1.0" });
+    const client = this.clientFactory();
     const closeOnAbort = (): void => { void client.close(); };
     signal?.addEventListener("abort", closeOnAbort, { once: true });
     const transport = server.transport === "stdio"
@@ -190,37 +239,90 @@ export class OfficialMcpConnector implements McpConnector {
         ...(server.cwd ? { cwd: server.cwd } : {}),
       })
       : new StreamableHTTPClientTransport(new URL(server.url), {
-        requestInit: { headers: server.headers },
+        requestInit: { headers: resolveMcpHttpHeaders(server, this.environment) },
       });
     try {
-      await client.connect(transport as unknown as Parameters<typeof client.connect>[0]);
+      await client.connect(transport);
       if (signal?.aborted) throw signal.reason;
     } finally {
       signal?.removeEventListener("abort", closeOnAbort);
     }
-    const listed = await client.listTools(undefined, signal ? { signal } : undefined);
-    return {
-      tools: listed.tools.map((tool) => ({
+    const tools: McpRemoteTool[] = [];
+    const cursors = new Set<string>();
+    let cursor = "";
+    do {
+      const listed = await client.listTools(cursor ? { cursor } : undefined, signal ? { signal } : undefined);
+      tools.push(...listed.tools.map((tool) => ({
         name: tool.name,
         ...(tool.description ? { description: tool.description } : {}),
-        inputSchema: tool.inputSchema as JsonObject,
-      })),
+        inputSchema: (tool.inputSchema ?? { type: "object", properties: {} }) as JsonObject,
+      })));
+      const next = String(listed.nextCursor ?? "").trim();
+      if (!next) break;
+      if (cursors.has(next)) throw new Error(`MCP server ${server.name} repeated tools cursor`);
+      cursors.add(next);
+      cursor = next;
+    } while (true);
+    return {
+      tools,
       callTool: async (name, arguments_, signal) => {
-        const result = await client.callTool({ name, arguments: arguments_ }, undefined, signal ? { signal } : {});
+        const result = mapping(await client.callTool({ name, arguments: arguments_ }, undefined, signal ? { signal } : {}));
         const content = Array.isArray(result.content)
-          ? result.content.filter((item): item is JsonObject => item !== null && typeof item === "object" && !Array.isArray(item)) as JsonObject[]
+          ? result.content.map(mapping).filter((item) => Object.keys(item).length > 0) as JsonObject[]
           : [];
-        return { content };
+        return {
+          content,
+          ...(Object.keys(mapping(result.structuredContent)).length > 0
+            ? { structuredContent: mapping(result.structuredContent) as JsonObject }
+            : {}),
+          ...(Object.keys(mapping(result._meta)).length > 0 ? { meta: mapping(result._meta) as JsonObject } : {}),
+          isError: result.isError === true,
+        };
       },
       close: () => client.close(),
     };
   }
 }
 
+const safeMcpContent = (result: McpCallResult): JsonObject[] => {
+  const content = result.content.map((raw): JsonObject => {
+    const block = mapping(raw);
+    const type = String(block.type ?? "").trim();
+    if (type === "text") return { type: "text", text: String(block.text ?? "") };
+    if (type === "image" && typeof block.data === "string") {
+      return {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: String(block.mimeType ?? block.mime_type ?? "application/octet-stream"),
+          data: block.data,
+        },
+      };
+    }
+    if (type === "resource") {
+      const resource = mapping(block.resource);
+      if (typeof resource.text === "string") return { type: "text", text: resource.text };
+      return { type: "text", text: `[MCP resource: ${String(resource.uri ?? "unknown")}]` };
+    }
+    if (type === "audio") {
+      return { type: "text", text: `[MCP audio: ${String(block.mimeType ?? "unknown")}, ${String(block.data ?? "").length} base64 chars]` };
+    }
+    if (type === "resource_link") {
+      return { type: "text", text: `[MCP resource link: ${String(block.name ?? block.uri ?? "unknown")}] ${String(block.uri ?? "")}`.trim() };
+    }
+    return { type: "text", text: `[MCP ${type || "unknown"} block] ${JSON.stringify(block).slice(0, 8_000)}` };
+  });
+  if (result.structuredContent) {
+    content.push({ type: "text", text: `[MCP structured content]\n${JSON.stringify(result.structuredContent)}` });
+  }
+  return content;
+};
+
 export class McpManager {
   private readonly connections = new Map<string, McpConnection>();
   private readonly errors = new Map<string, string>();
   private readonly toolNames = new Map<string, Array<{ rawName: string; modelName: string }>>();
+  private readonly discoveredToolCounts = new Map<string, number>();
   private registry: ToolRegistry | undefined;
 
   constructor(
@@ -246,6 +348,7 @@ export class McpManager {
     if (!enabled) {
       registry.unregisterWhere((name) => name.startsWith(mcpServerPrefix(serverName)));
       this.toolNames.delete(serverName);
+      this.discoveredToolCounts.delete(serverName);
       const connection = this.connections.get(serverName);
       this.connections.delete(serverName);
       await connection?.close();
@@ -258,10 +361,11 @@ export class McpManager {
     }
   }
 
-  status(serverName: string): { connected: boolean; error: string; tools: Array<{ rawName: string; modelName: string }> } {
+  status(serverName: string): { connected: boolean; error: string; toolCount: number; tools: Array<{ rawName: string; modelName: string }> } {
     return {
       connected: this.connections.has(serverName),
       error: this.errors.get(serverName) ?? "",
+      toolCount: this.discoveredToolCounts.get(serverName) ?? 0,
       tools: structuredClone(this.toolNames.get(serverName) ?? []),
     };
   }
@@ -271,6 +375,7 @@ export class McpManager {
     this.connections.clear();
     this.errors.clear();
     this.toolNames.clear();
+    this.discoveredToolCounts.clear();
     for (const [serverName] of connections) {
       this.registry?.unregisterWhere((name) => name.startsWith(mcpServerPrefix(serverName)));
     }
@@ -285,6 +390,7 @@ export class McpManager {
       `MCP server ${server.name} startup`,
     );
     this.connections.set(server.name, connection);
+    this.discoveredToolCounts.set(server.name, connection.tools.length);
     this.errors.delete(server.name);
     const used = new Set(registry.definitionsSnapshot().map((definition) => definition.name));
     const names: Array<{ rawName: string; modelName: string }> = [];
@@ -310,7 +416,11 @@ export class McpManager {
               `MCP tool ${server.name}/${tool.name}`,
               context.handle.signal,
             );
-            return { content: result.content ?? [] };
+            if (result.isError) {
+              const preview = safeMcpContent(result).map((block) => String(block.text ?? "")).filter(Boolean).join("\n").slice(0, 2_000);
+              throw new Error(preview || `MCP tool ${server.name}/${tool.name} returned isError=true`);
+            }
+            return { content: safeMcpContent(result) };
           } catch (error) {
             this.errors.set(server.name, error instanceof Error ? error.message : String(error));
             throw error;

@@ -104,6 +104,7 @@ export type ConversationRenderItem =
 export type SkillReferencePayload = {
   path: string;
   description: string;
+  commands: string[];
 };
 
 export type SkillPayload = {

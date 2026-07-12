@@ -121,6 +121,11 @@ describe("Python JSON tool bridge", () => {
       ownerSkills: ["fba-logistics-select"],
       timeoutMs: 300_000,
     });
+    expect(entries.find((entry) => entry.name === "logistics_rate_import")).toMatchObject({
+      module: "scripts.logistics_update_ingest",
+      ownerSkills: ["fba-logistics-rate-import"],
+      timeoutMs: 600_000,
+    });
     expect(entries.some((entry) => entry.name === "browser_auth_refresh")).toBe(false);
   });
 });

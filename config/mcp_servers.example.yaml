@@ -1,14 +1,13 @@
 # Copy this file to config/mcp_servers.local.yaml or set LXE_MCP_CONFIG_PATH.
-# Do not commit local secrets. Header values may reference environment variables
-# with ${ENV_NAME}; missing variables leave the server in an error state.
+# Do not commit local secrets. Static header placeholders, env_headers and bearer
+# tokens are resolved only while connecting; missing variables keep the server unhealthy.
 
 mcpServers:
   lxe-saihu:
     enabled: false
     type: streamable-http
     url: "http://127.0.0.1:8000/mcp/"
-    headers:
-      Authorization: "Bearer ${LXE_DATA_SERVER_API_KEY}"
+    bearer_token_env_var: LXE_DATA_SERVER_API_KEY
     startup_timeout_s: 10
     tool_timeout_s: 60
     exposure: deferred

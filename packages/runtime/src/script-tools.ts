@@ -92,6 +92,8 @@ export function loadScriptToolCatalog(path: string): ScriptToolDefinition[] {
       modules.add(entry.module);
       const expected = entry.module === "services.agent_cli.amazon_logistic.run"
         ? "amazon_logistic_quote"
+        : entry.module === "scripts.logistics_update_ingest"
+          ? "logistics_rate_import"
         : entry.module.startsWith("services.agent_cli.mabang.")
           ? `mabang_${entry.module.split(".").at(-1)}`
           : entry.module.startsWith("services.agent_cli.browser.amazon_fba.")
