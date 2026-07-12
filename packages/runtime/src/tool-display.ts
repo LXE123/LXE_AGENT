@@ -1,5 +1,6 @@
 import { basename, isAbsolute } from "node:path";
 import type { JsonObject, ToolDisplayBlock, ToolStep } from "@lxe/protocol";
+import { matchLxeSkillInvocation } from "./lxeskill-command";
 
 const DETAIL_LIMIT = 240;
 const RESULT_LIMIT = 4_000;
@@ -91,7 +92,12 @@ export function buildToolDisplayStep(
   } = {},
 ): ToolStep {
   const safeName = String(name || "tool").trim() || "tool";
-  const descriptor = descriptors[safeName.toLowerCase()] ?? {
+  const businessInvocation = safeName.toLowerCase() === "exec"
+    ? matchLxeSkillInvocation(input.command)
+    : undefined;
+  const descriptor = businessInvocation
+    ? { title: `业务技能：${businessInvocation.commandId}`, icon: "setting_outlined", keys: [] }
+    : descriptors[safeName.toLowerCase()] ?? {
     title: humanize(safeName),
     icon: "setting-inter_outlined",
     keys: ["action", "path", "file_path", "command", "query", "url", "description", "target"],

@@ -125,7 +125,7 @@ def test_replenishment_amazon_restock_inventory_snapshot_skill_contract() -> Non
     text = Path("skills/replenishment-amazon-restock-inventory-snapshot/SKILL.md").read_text(encoding="utf-8")
     assert "send_file" in text
     assert "不要读取、不要解析、不要复述截图内容" in text
-    assert "mabang_build_amazon_restock_inventory_snapshot" in text
+    assert "lxeskill replenish inventory restock-snapshot-build" in text
     assert "services.agent_cli" not in text
     assert "skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg" in text
     assert "skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_2_report_menu.jpg" in text

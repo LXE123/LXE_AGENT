@@ -64,6 +64,36 @@ interface ScriptToolCatalogDocument {
   entries: ScriptToolDefinition[];
 }
 
+export interface LxeSkillCommandDefinition {
+  command: string;
+  name: string;
+  visibility: "business" | "browser" | "maintenance" | "internal";
+  ownerSkills: string[];
+}
+
+export function loadLxeSkillCommandCatalog(path: string): LxeSkillCommandDefinition[] {
+  const document = JSON.parse(readFileSync(path, "utf8")) as ScriptToolCatalogDocument;
+  if (document.protocol_version !== "1" || !Array.isArray(document.entries)) {
+    throw new Error("invalid script tool catalog protocol");
+  }
+  return document.entries.map((entry) => {
+    const raw = entry as unknown as Record<string, unknown>;
+    const commandPath = Array.isArray(raw.command_path)
+      ? raw.command_path.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+    const visibility = String(raw.visibility ?? "internal") as LxeSkillCommandDefinition["visibility"];
+    if (commandPath.length === 0 || !["business", "browser", "maintenance", "internal"].includes(visibility)) {
+      throw new Error(`invalid lxeskill catalog entry: ${entry.name}`);
+    }
+    return {
+      command: `lxeskill ${commandPath.join(" ")}`,
+      name: entry.name,
+      visibility,
+      ownerSkills: Array.isArray(raw.owner_skills) ? raw.owner_skills.map((item) => String(item)) : [],
+    };
+  });
+}
+
 export function loadScriptToolCatalog(path: string): ScriptToolDefinition[] {
   const document = JSON.parse(readFileSync(path, "utf8")) as ScriptToolCatalogDocument;
   if (document.protocol_version !== "1" || !Array.isArray(document.entries)) {

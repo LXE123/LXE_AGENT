@@ -26,10 +26,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class LxeSkillError(RuntimeError):
-    def __init__(self, code: str, message: str, *, exit_code: int = EXIT_INTERNAL) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        exit_code: int = EXIT_INTERNAL,
+        recovery: dict[str, str] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.exit_code = exit_code
+        self.recovery = dict(recovery or {})
 
 
 def _configure_stdio() -> None:
@@ -231,20 +239,37 @@ def _execute_auth(arguments: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def _recovery_for_auth_failure(code: str, message: str) -> dict[str, str] | None:
+    text = f"{code} {message}".lower()
+    if not any(marker in text for marker in ("auth", "cookie", "login", "登录", "401", "403", "认证")):
+        return None
+    return {"command": "lxeskill auth refresh --scope fba --force"}
+
+
 def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
     command = _command_text(entry)
     arguments, session_id = _input_arguments(entry, argv)
     if str(entry.get("session_mode") or "none") == "lxe_session" and not session_id:
         raise LxeSkillError("session_required", f"{command} requires an LXE session", exit_code=EXIT_ENVIRONMENT)
     if str(entry.get("visibility") or "") == "maintenance":
-        data = _execute_auth(arguments)
+        try:
+            data = _execute_auth(arguments)
+        except ValueError as exc:
+            raise LxeSkillError("auth_environment_invalid", str(exc), exit_code=EXIT_ENVIRONMENT) from exc
+        except RuntimeError as exc:
+            raise LxeSkillError("auth_refresh_failed", str(exc), exit_code=EXIT_BUSINESS) from exc
         files: list[str] = []
     elif str(entry.get("handler") or "") == "browser":
         try:
             data, files = asyncio.run(execute_browser_command(entry, arguments, session_id))
         except BrowserCliError as exc:
             exit_code = EXIT_ENVIRONMENT if exc.code in {"session_required", "session_not_found", "session_busy"} else EXIT_BUSINESS
-            raise LxeSkillError(exc.code, str(exc), exit_code=exit_code) from exc
+            raise LxeSkillError(
+                exc.code,
+                str(exc),
+                exit_code=exit_code,
+                recovery=_recovery_for_auth_failure(exc.code, str(exc)),
+            ) from exc
     else:
         if session_id:
             os.environ["LXE_AGENT_SESSION_ID"] = session_id
@@ -259,8 +284,7 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
         raw = str(content[0].get("text") or "{}") if content else "{}"
         data = json.loads(raw)
         if not ok:
-            _emit(
-                {
+            failure: dict[str, Any] = {
                     "type": "result",
                     "command": command,
                     "ok": False,
@@ -271,7 +295,10 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
                         "message": str((error or {}).get("message") or "business command failed"),
                     },
                 }
-            )
+            recovery = _recovery_for_auth_failure(failure["error"]["code"], failure["error"]["message"])
+            if recovery:
+                failure["recovery"] = recovery
+            _emit(failure)
             return EXIT_BUSINESS
     _emit({"type": "result", "command": command, "ok": True, "data": data, "files": files})
     return 0
@@ -281,9 +308,9 @@ def main(argv: list[str] | None = None) -> int:
     _configure_stdio()
     setup_logging()
     arguments = list(sys.argv[1:] if argv is None else argv)
-    catalog = load_catalog()
-    _validate_skill_command_contract(catalog)
     try:
+        catalog = load_catalog()
+        _validate_skill_command_contract(catalog)
         if not arguments or arguments[0] in {"-h", "--help", "help"}:
             _emit(
                 {
@@ -317,7 +344,17 @@ def main(argv: list[str] | None = None) -> int:
         entry, remaining = _resolve_entry(arguments, catalog)
         return _run_entry(entry, remaining)
     except LxeSkillError as exc:
-        _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": exc.code, "message": str(exc)}})
+        failure: dict[str, Any] = {
+            "type": "result",
+            "command": " ".join(arguments),
+            "ok": False,
+            "data": {},
+            "files": [],
+            "error": {"code": exc.code, "message": str(exc)},
+        }
+        if exc.recovery:
+            failure["recovery"] = exc.recovery
+        _emit(failure)
         return exc.exit_code
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_arguments", "message": str(exc)}})

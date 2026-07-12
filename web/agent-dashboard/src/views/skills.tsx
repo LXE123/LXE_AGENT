@@ -1,18 +1,20 @@
 import { useState } from "react";
-import { ChevronRight, Sparkles } from "lucide-react";
+import { ChevronRight, Sparkles, TerminalSquare } from "lucide-react";
 
 import { EmptyState, successRateText } from "../components";
 import { formatNumber, groupSkillsByType } from "../format";
 import { useUiText } from "../i18n";
-import type { SkillPayload } from "../payloads";
+import type { CliCommandPayload, SkillPayload } from "../payloads";
 import { SKILL_BADGE_STATS_DAYS, useSkillUsageStats } from "./stats";
 import type { DetailTarget } from "../ui/detail-target";
 
 export function SkillsView({
   skills,
+  commands,
   onOpen
 }: {
   skills: SkillPayload[];
+  commands: CliCommandPayload[];
   onOpen: (target: DetailTarget) => void;
 }) {
   const t = useUiText();
@@ -23,8 +25,31 @@ export function SkillsView({
     return <EmptyState label={t.skills.empty} />;
   }
   const groups = groupSkillsByType(skills, t);
+  const maintenanceCommands = commands.filter((command) => command.visibility === "maintenance");
   return (
     <div className="toolset-stack">
+      {maintenanceCommands.length ? (
+        <section className="toolset-section">
+          <div className="section-title-row">
+            <div>
+              <h2>{t.skills.maintenanceCommands}</h2>
+              <p>{t.common.countItems(formatNumber(maintenanceCommands.length), t.skills.commandUnit)}</p>
+            </div>
+            <span className="status-dot on" />
+          </div>
+          <div className="grid-list">
+            {maintenanceCommands.map((command) => (
+              <article className="item-card" key={command.command}>
+                <div className="item-heading">
+                  <div className="item-icon"><TerminalSquare size={18} /></div>
+                  <div><h3>{command.command}</h3></div>
+                </div>
+                <p className="description">{t.skills.maintenanceNote}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {groups.map((group) => {
         const expanded = expandedSkillGroups[group.type] ?? false;
         return (
@@ -63,8 +88,11 @@ export function SkillsView({
                         <ChevronRight className="chevron" size={18} />
                       </div>
                       <p className="description">{skill.description}</p>
-                      {skill.references.length || usageStats ? (
+                      {skill.commands.length || skill.references.length || usageStats ? (
                         <div className="pill-row">
+                          {skill.commands.length ? (
+                            <span className="pill">{t.skills.commands(formatNumber(skill.commands.length))}</span>
+                          ) : null}
                           {skill.references.length ? (
                             <span className="pill">{t.skills.refs(formatNumber(skill.references.length))}</span>
                           ) : null}

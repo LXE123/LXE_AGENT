@@ -128,6 +128,18 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
   return (
     <div className="modal-content">
       <p>{skill.description}</p>
+      {skill.commands.length ? (
+        <div className="schema-block">
+          <div className="schema-title">{t.skillModal.commands}</div>
+          <div className="reference-list">
+            {skill.commands.map((command) => (
+              <div className="reference-button" key={command}>
+                <span className="mono">{command}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="schema-block">
         <div className="schema-title">{t.skillModal.references}</div>
         {references.length ? (

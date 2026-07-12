@@ -190,6 +190,10 @@ export const ZH_TEXT = {
     itemUnit: "个技能",
     empty: "当前 agent 暂无可用 skill。",
     refs: (count: string) => `${count} 个引用`,
+    commands: (count: string) => `${count} 个命令`,
+    commandUnit: "个命令",
+    maintenanceCommands: "维护命令",
+    maintenanceNote: "由 Bun Maintenance 自动调度，也可手动执行；它不是模型 Tool。",
     defaultGroup: "默认",
     uncategorized: "未分类"
   },
@@ -254,6 +258,7 @@ export const ZH_TEXT = {
   skillModal: {
     location: "位置",
     references: "引用文件",
+    commands: "业务命令",
     loadingReference: "加载中...",
     noReferences: "无引用文件。",
     copySource: "复制原文",
@@ -488,6 +493,10 @@ export const UI_TEXT: Record<Language, UiText> = {
       itemUnit: "skills",
       empty: "No skills are available for the current agent.",
       refs: (count: string) => `${count} refs`,
+      commands: (count: string) => `${count} commands`,
+      commandUnit: "commands",
+      maintenanceCommands: "Maintenance commands",
+      maintenanceNote: "Scheduled by Bun Maintenance and available for manual use; this is not a model Tool.",
       defaultGroup: "Default",
       uncategorized: "Uncategorized"
     },
@@ -552,6 +561,7 @@ export const UI_TEXT: Record<Language, UiText> = {
     skillModal: {
       location: "Location",
       references: "References",
+      commands: "Business commands",
       loadingReference: "loading...",
       noReferences: "No references.",
       copySource: "Copy source",

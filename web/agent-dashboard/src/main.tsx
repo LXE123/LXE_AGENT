@@ -51,6 +51,7 @@ import type {
   ApiList,
   BackgroundTaskPayload,
   ChannelHealthList,
+  CliCommandPayload,
   ConnectorPayload,
   DocsContentMode,
   ModelPayload,
@@ -115,6 +116,7 @@ const EMPTY_CHANNEL_HEALTH: ChannelHealthList = {
 
 type DashboardData = {
   skills: ApiList<SkillPayload>;
+  commands: ApiList<CliCommandPayload>;
   connectors: ApiList<ConnectorPayload>;
   toolsets: ApiList<ToolsetPayload>;
   backgroundTasks: ApiList<BackgroundTaskPayload>;
@@ -227,8 +229,9 @@ function App() {
     let cancelled = false;
     async function load() {
       try {
-        const [skills, connectors, toolsets, backgroundTasks, models, currentModel] = await Promise.all([
+        const [skills, commands, connectors, toolsets, backgroundTasks, models, currentModel] = await Promise.all([
           fetchJson<ApiList<SkillPayload>>("/api/skills"),
+          fetchJson<ApiList<CliCommandPayload>>("/api/commands"),
           fetchJson<ApiList<ConnectorPayload>>("/api/connectors"),
           fetchJson<ApiList<ToolsetPayload>>("/api/tools/toolsets"),
           fetchJson<ApiList<BackgroundTaskPayload>>("/api/background-tasks"),
@@ -243,7 +246,7 @@ function App() {
           nextChannelHealthError = err instanceof Error ? err.message : String(err);
         }
         if (!cancelled) {
-          setData({ skills, connectors, toolsets, backgroundTasks, models, currentModel, channelHealth });
+          setData({ skills, commands, connectors, toolsets, backgroundTasks, models, currentModel, channelHealth });
           setChannelHealthError(nextChannelHealthError);
           setError("");
         }
@@ -946,7 +949,9 @@ function App() {
                     onToggleServer={toggleMcpServer}
                   />
                 ) : null}
-                {activeTab === "skills" ? <SkillsView skills={data.skills.items} onOpen={setDetailTarget} /> : null}
+                {activeTab === "skills" ? (
+                  <SkillsView skills={data.skills.items} commands={data.commands.items} onOpen={setDetailTarget} />
+                ) : null}
                 {activeTab === "connectors" ? (
                   <ConnectorsView
                     connectors={data.connectors.items}

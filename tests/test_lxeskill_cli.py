@@ -94,6 +94,17 @@ def test_business_failure_preserves_payload_in_the_only_terminal(monkeypatch, ca
     assert records[0]["ok"] is False
     assert records[0]["data"]["context"] == {"stage": "download"}
     assert records[0]["error"] == {"code": "business_cli_failed", "message": "login expired"}
+    assert records[0]["recovery"] == {"command": "lxeskill auth refresh --scope fba --force"}
+
+
+def test_catalog_failure_still_writes_one_internal_terminal(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(lxeskill, "load_catalog", lambda: (_ for _ in ()).throw(RuntimeError("broken catalog")))
+
+    assert lxeskill.main(["list"]) == lxeskill.EXIT_INTERNAL
+
+    records = _records(capsys)
+    assert len(records) == 1
+    assert records[0]["error"] == {"code": "RuntimeError", "message": "broken catalog"}
 
 
 def test_output_file_must_be_under_artifacts_or_skill_assets(tmp_path) -> None:

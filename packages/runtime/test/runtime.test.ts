@@ -68,6 +68,57 @@ const handle = (): RuntimeHandle => {
 };
 
 describe("TypeScriptAgentRuntime", () => {
+  test("attributes a classified lxeskill exec to its activated skill", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "read",
+      description: "read skill",
+      input_schema: { type: "object" },
+      execute: async (_input, context) => {
+        await context.exposureState?.activateSkill("replenishment-store-resolve");
+        return { content: [{ type: "text", text: "skill loaded" }] };
+      },
+    });
+    tools.register({
+      name: "exec",
+      description: "exec",
+      input_schema: { type: "object" },
+      classifyInvocation: () => ({
+        usageName: "lxeskill:replenish store resolve",
+        commandId: "replenish store resolve",
+        ownerSkills: ["replenishment-store-resolve"],
+      }),
+      execute: async () => ({ content: [{ type: "text", text: "done" }] }),
+    });
+    const responses: RuntimeTurnResponse[] = [
+      { content: [{ type: "tool_use", id: "read-1", name: "read", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [{ type: "tool_use", id: "exec-1", name: "exec", input: { command: "lxeskill replenish store resolve --store-name Demo" } }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [{ type: "text", text: "complete" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
+    ];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      provider: { summarize, turn: async () => responses.shift()! },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    await runtime.stop();
+
+    expect(store.metrics[0]?.tools).toContainEqual(expect.objectContaining({
+      name: "lxeskill:replenish store resolve",
+      calls: 1,
+    }));
+    expect(store.metrics[0]?.skills).toEqual([expect.objectContaining({
+      name: "replenishment-store-resolve",
+      module: "lxeskill:replenish store resolve",
+      calls: 1,
+    })]);
+  });
+
   test("completes an empty heartbeat without loading history or calling the provider", async () => {
     const store = new MemoryStore();
     store.messages.push({ role: "user", content: "private history" });

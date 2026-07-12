@@ -7,6 +7,11 @@ export interface ToolDefinition extends ToolSchema {
   ownerSkills?: string[];
   connectorName?: string;
   rawName?: string;
+  classifyInvocation?: (input: JsonObject) => {
+    usageName?: string;
+    commandId?: string;
+    ownerSkills?: string[];
+  } | undefined;
   execute(input: JsonObject, context: {
     handle: RuntimeHandle;
     session_id: string;

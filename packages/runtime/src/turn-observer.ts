@@ -190,15 +190,21 @@ export class RuntimeTurnObserver {
     return new RuntimeProviderAttemptObserver(this, step, attempt);
   }
 
-  toolStarted(step: number, name: string, toolUseId: string): void {
+  toolStarted(step: number, name: string, toolUseId: string, commandId?: string): void {
     this.steps = Math.max(this.steps, step);
     this.tools.add(name);
-    this.logger.info("tool_started", { step, tool: name, tool_use_id: toolUseId });
+    this.logger.info("tool_started", {
+      step,
+      tool: name,
+      tool_use_id: toolUseId,
+      ...(commandId ? { command_id: commandId } : {}),
+    });
   }
 
-  toolCompleted(step: number, name: string, toolUseId: string, status: "success" | "error", durationMs: number): void {
+  toolCompleted(step: number, name: string, toolUseId: string, status: "success" | "error", durationMs: number, commandId?: string): void {
     this.logger.info("tool_completed", {
       step, tool: name, tool_use_id: toolUseId, status, duration_ms: Math.max(0, durationMs),
+      ...(commandId ? { command_id: commandId } : {}),
     });
   }
 

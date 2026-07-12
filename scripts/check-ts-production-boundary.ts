@@ -23,7 +23,8 @@ forbidText("scripts/install.sh", /main\.py|agent_runtime\.worker/, "macOS launch
 forbidText("package.json", /main\.py|agent_runtime\.worker/, "workspace scripts must not start Python production code");
 forbidText("apps/gateway/src/main.ts", /main\.py|agent_runtime\.worker/, "Bun CLI must not fall back to Python");
 requireText("apps/gateway/src/production.ts", /new TypeScriptAgentRuntime/, "production must assemble the TypeScript Runtime");
-requireText("apps/gateway/src/production.ts", /py_tools\.bridge/, "Python execution must cross the one-shot py_tools bridge");
+requireText("apps/gateway/src/production.ts", /py_tools\.lxeskill/, "business maintenance must cross the one-shot lxeskill CLI");
+requireText("apps/gateway/src/production.ts", /LXE_SCRIPT_TOOL_BRIDGE_ENABLED[\s\S]*?\?\?\s*"0"/, "the diagnostic script-tool bridge must default off");
 
 forbidPath("main.py", "the legacy Python production entrypoint must be deleted");
 forbidPath("gateway", "the legacy Python Gateway must be deleted");
@@ -46,24 +47,56 @@ for await (const path of new Bun.Glob("**/*.py").scan({ cwd: root, onlyFiles: tr
 
 const scriptCatalog = JSON.parse(read("py_tools/catalog.json")) as {
   protocol_version?: string;
-  entries?: Array<{ name?: string; exposed?: boolean; owner_skills?: string[] }>;
+  entries?: Array<{
+    name?: string;
+    exposed?: boolean;
+    owner_skills?: string[];
+    command_path?: string[];
+    visibility?: string;
+  }>;
 };
 if (scriptCatalog.protocol_version !== "1") failures.push("py_tools/catalog.json: protocol_version must be 1");
-const scriptEntries = new Map((scriptCatalog.entries ?? []).map((entry) => [String(entry.name ?? ""), entry]));
+const commandEntries = new Map((scriptCatalog.entries ?? []).map((entry) => [
+  `lxeskill ${(entry.command_path ?? []).map(String).join(" ")}`.trim(),
+  entry,
+]));
+const declaredCommands = new Map<string, string>();
 for await (const path of new Bun.Glob("skills/**/SKILL.md").scan({ cwd: root, onlyFiles: true })) {
   const source = read(path);
   const frontmatter = source.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/)?.[1] ?? "";
   const skillName = frontmatter.match(/^name:\s*([^\r\n#]+)/m)?.[1]?.trim() ?? "";
-  const scriptBlock = frontmatter.match(/^script_tools:\s*\r?\n((?:\s+-[^\r\n]+\r?\n?)*)/m)?.[1] ?? "";
-  const scriptTools = [...scriptBlock.matchAll(/^\s+-\s*([^\s#]+)/gm)].map((match) => match[1] ?? "").filter(Boolean);
+  if (/^script_tools:/m.test(frontmatter)) failures.push(`${path}: script_tools metadata is retired; use commands`);
+  const commandBlock = frontmatter.match(/^commands:\s*\r?\n((?:\s+-[^\r\n]+\r?\n?)*)/m)?.[1] ?? "";
+  const commands = [...commandBlock.matchAll(/^\s+-\s*([^#\r\n]+?)\s*$/gm)]
+    .map((match) => match[1]?.trim() ?? "")
+    .filter(Boolean);
   if (/\b(?:uv\s+run[^\r\n]*python|python(?:3)?\s+-m)\s+services\.agent_cli\b/i.test(source)) {
-    failures.push(`${path}: active skill must use a registered script tool instead of shelling out to a business CLI`);
+    failures.push(`${path}: active skill must use lxeskill instead of shelling out to a business Python module`);
   }
   if (/services\.agent_cli\./.test(source)) failures.push(`${path}: active skill must not reference business module paths`);
-  for (const toolName of scriptTools) {
-    const entry = scriptEntries.get(toolName);
-    if (!entry || entry.exposed === false) failures.push(`${path}: unknown or hidden script tool ${toolName}`);
-    else if (!entry.owner_skills?.includes(skillName)) failures.push(`${path}: script tool ${toolName} does not declare owner skill ${skillName}`);
+  for (const command of commands.filter((value) => value.startsWith("lxeskill "))) {
+    const entry = commandEntries.get(command);
+    if (!entry || !["business", "browser"].includes(String(entry.visibility ?? ""))) {
+      failures.push(`${path}: unknown or non-business lxeskill command ${command}`);
+      continue;
+    }
+    const canonicalOwner = entry.owner_skills?.[0] ?? "";
+    if (canonicalOwner !== skillName) {
+      failures.push(`${path}: lxeskill command ${command} is canonically owned by ${canonicalOwner || "nobody"}`);
+    }
+    const existingOwner = declaredCommands.get(command);
+    if (existingOwner && existingOwner !== skillName) {
+      failures.push(`${path}: duplicate lxeskill command ownership ${command}: ${existingOwner}, ${skillName}`);
+    }
+    declaredCommands.set(command, skillName);
+  }
+}
+for (const [command, entry] of commandEntries) {
+  if (!["business", "browser"].includes(String(entry.visibility ?? ""))) continue;
+  const canonicalOwner = entry.owner_skills?.[0] ?? "";
+  if (!canonicalOwner) failures.push(`py_tools/catalog.json: ${command} has no canonical owner skill`);
+  else if (declaredCommands.get(command) !== canonicalOwner) {
+    failures.push(`py_tools/catalog.json: ${command} is missing from canonical owner skill ${canonicalOwner}`);
   }
 }
 

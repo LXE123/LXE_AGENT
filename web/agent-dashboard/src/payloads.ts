@@ -104,16 +104,23 @@ export type ConversationRenderItem =
 export type SkillReferencePayload = {
   path: string;
   description: string;
-  commands: string[];
 };
 
 export type SkillPayload = {
   name: string;
   type: string;
   description: string;
+  commands: string[];
   enabled: boolean;
   location: string;
   references: SkillReferencePayload[];
+};
+
+export type CliCommandPayload = {
+  command: string;
+  name: string;
+  visibility: "business" | "browser" | "maintenance" | "internal";
+  ownerSkills: string[];
 };
 
 export type SkillStatPayload = {

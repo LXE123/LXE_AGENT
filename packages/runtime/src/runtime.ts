@@ -498,12 +498,15 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           }
           toolCalls += 1;
           const startedToolAt = Date.now();
-          const usage = toolUsage.get(call.name) ?? { calls: 0, errors: 0, duration_ms: 0 };
-          const ownerSkills = (this.options.tools.definition(call.name)?.ownerSkills ?? [])
+          const definition = this.options.tools.definition(call.name);
+          const invocation = definition?.classifyInvocation?.(call.input);
+          const usageName = invocation?.usageName || call.name;
+          const usage = toolUsage.get(usageName) ?? { calls: 0, errors: 0, duration_ms: 0 };
+          const ownerSkills = (invocation?.ownerSkills ?? definition?.ownerSkills ?? [])
             .filter((name) => skillUsage.has(name));
           usage.calls += 1;
-          toolUsage.set(call.name, usage);
-          observer.toolStarted(step + 1, call.name, call.id);
+          toolUsage.set(usageName, usage);
+          observer.toolStarted(step + 1, call.name, call.id, invocation?.commandId);
           trace?.record("tool_start", { step: step + 1, tool: call.name, tool_use_id: call.id, input: call.input });
           await finalAnswerStreamer?.pushToolStart(call);
           let toolStatus: "success" | "error" = "success";
@@ -562,12 +565,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             for (const skillName of ownerSkills) {
               const skill = skillUsage.get(skillName);
               if (!skill) continue;
-              skill.module = call.name;
+              skill.module = usageName;
               skill.duration_ms += durationMs;
               if (toolStatus === "error") skill.errors += 1;
             }
             trace?.record("tool_end", { step: step + 1, tool: call.name, tool_use_id: call.id, status: toolStatus, duration_ms: durationMs });
-            observer.toolCompleted(step + 1, call.name, call.id, toolStatus, durationMs);
+            observer.toolCompleted(step + 1, call.name, call.id, toolStatus, durationMs, invocation?.commandId);
             await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs, toolDisplayOutput);
           }
         }

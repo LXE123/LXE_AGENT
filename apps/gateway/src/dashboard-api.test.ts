@@ -87,6 +87,7 @@ describe("DashboardApi", () => {
       mcpStatus: () => ({ connected: true, error: "", toolCount: 7, tools: [{ rawName: "read", modelName: "mcp__inventory__read" }] }),
       connectorStatePath: join(root, "config", "connectors.json"),
       backgroundTasks: () => [{ task_id: "task-1", status: "running" }],
+      cliCommands: [{ command: "lxeskill auth refresh", name: "browser_auth_refresh", visibility: "maintenance", ownerSkills: [] }],
       providerManager,
     });
     const call = async (path: string, init?: RequestInit) => {
@@ -103,6 +104,10 @@ describe("DashboardApi", () => {
     expect((await call("/api/project-docs/guide.md")).body).toMatchObject({ path: "guide.md", content: "# Guide\n\nstatus: ready\n" });
     expect((await call("/api/project-docs/%2e%2e%2FSOUL.md")).status).toBe(404);
     expect((await call("/api/skills")).body).toMatchObject({ items: [{ name: "demo", commands: ["scripts.demo"], references: [{ path: "references/help.md" }] }] });
+    expect((await call("/api/commands")).body).toEqual({
+      items: [{ command: "lxeskill auth refresh", name: "browser_auth_refresh", visibility: "maintenance", ownerSkills: [] }],
+      total: 1,
+    });
     expect((await call("/api/skills/demo/content")).body).toMatchObject({ name: "demo", content: expect.stringContaining("# Demo") });
     expect((await call("/api/skills/demo/references/references%2Fhelp.md")).body).toMatchObject({ skill_name: "demo", content: "# Help" });
     const toolsets = (await call("/api/tools/toolsets")).body as { items: Array<Record<string, unknown>> };

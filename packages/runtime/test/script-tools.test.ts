@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { PythonScriptToolRunner, loadScriptToolCatalog, registerScriptTools } from "../src/script-tools";
+import { PythonScriptToolRunner, loadLxeSkillCommandCatalog, loadScriptToolCatalog, registerScriptTools } from "../src/script-tools";
 import { ToolRegistry } from "../src/tools";
 
 describe("Python JSON tool bridge", () => {
@@ -115,7 +115,8 @@ describe("Python JSON tool bridge", () => {
   });
 
   test("loads the shared versioned business catalog with stable names and owners", () => {
-    const entries = loadScriptToolCatalog(join(process.cwd(), "py_tools", "catalog.json"));
+    const catalogPath = join(process.cwd(), "py_tools", "catalog.json");
+    const entries = loadScriptToolCatalog(catalogPath);
     expect(entries.find((entry) => entry.name === "amazon_logistic_quote")).toMatchObject({
       module: "services.agent_cli.amazon_logistic.run",
       ownerSkills: ["fba-logistics-select"],
@@ -127,5 +128,11 @@ describe("Python JSON tool bridge", () => {
       timeoutMs: 600_000,
     });
     expect(entries.some((entry) => entry.name === "browser_auth_refresh")).toBe(false);
+    expect(loadLxeSkillCommandCatalog(catalogPath).find((entry) => entry.name === "browser_auth_refresh")).toEqual({
+      command: "lxeskill auth refresh",
+      name: "browser_auth_refresh",
+      visibility: "maintenance",
+      ownerSkills: [],
+    });
   });
 });

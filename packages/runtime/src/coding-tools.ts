@@ -22,6 +22,7 @@ import {
   formatCommandPayload,
 } from "./process-output";
 import { isProbablyBinary, WorkspaceSearchService } from "./workspace-search";
+import { classifyLxeSkillInput } from "./lxeskill-command";
 import { ToolRegistry } from "./tools";
 
 export interface CodingToolOptions {
@@ -30,6 +31,7 @@ export interface CodingToolOptions {
   sendFile?: (request: { path: string; session_id: string; response_route_id: string }) => Promise<void>;
   onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
   ripgrepPath?: string | null;
+  businessCommands?: ReadonlyMap<string, string>;
 }
 
 type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
@@ -207,7 +209,7 @@ const quotePowerShell = (value: string): string => `'${value.replaceAll("'", "''
 
 const normalizeProjectPythonCommand = (root: string, command: string): string => {
   if (/\b(?:services\.agent_cli|browser_auth_service\.main)\b/iu.test(command)) {
-    throw new Error("registered business Python modules must be called through the JSON script bridge");
+    throw new Error("registered business Python modules must be called through lxeskill");
   }
   const python = process.platform === "win32"
     ? join(root, ".venv", "Scripts", "python.exe")
@@ -786,6 +788,15 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     name: "exec",
     description: "Execute a PowerShell command; long-running commands become process sessions.",
     input_schema: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" }, timeout: { type: "number" }, background: { type: "boolean" }, yield_ms: { type: "number" } }, required: ["command"], additionalProperties: false },
+    classifyInvocation: (input) => {
+      const invocation = classifyLxeSkillInput(input, options.businessCommands ?? new Map());
+      if (!invocation) return undefined;
+      return {
+        usageName: `lxeskill:${invocation.commandId}`,
+        commandId: invocation.commandId,
+        ...(invocation.ownerSkill ? { ownerSkills: [invocation.ownerSkill] } : {}),
+      };
+    },
     execute: async (input, context) => {
       const command = normalizeProjectPythonCommand(root, inputText(input, "command").trim());
       if (!command) throw new Error("command 不能为空");

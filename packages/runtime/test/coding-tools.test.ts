@@ -57,7 +57,10 @@ describe("native coding tools", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-"));
     roots.push(root);
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const processes = registerCodingTools(registry, {
+      workspaceRoot: root,
+      businessCommands: new Map([["lxeskill replenish store resolve", "replenishment-store-resolve"]]),
+    });
     expect(registry.schemas().map((item) => item.name)).toEqual([
       "read", "write", "edit", "grep", "find", "ls", "send_file", "exec", "process",
     ]);
@@ -170,7 +173,10 @@ describe("native coding tools", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-contract-"));
     roots.push(root);
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const processes = registerCodingTools(registry, {
+      workspaceRoot: root,
+      businessCommands: new Map([["lxeskill replenish store resolve", "replenishment-store-resolve"]]),
+    });
     await registry.execute("write", { file_path: "src/a.py", content: "alpha\nbeta\nbeta\n" }, context());
     const count = await registry.execute("grep", {
       pattern: "beta", path: "src", output_mode: "count", type: "py",
@@ -181,7 +187,15 @@ describe("native coding tools", () => {
     expect((await registry.execute("send_file", { path: "artifacts/a.txt" }, context())).files).toHaveLength(1);
     await expect(registry.execute("exec", {
       command: "python -m services.agent_cli.mabang.resolve_fba_store",
-    }, context())).rejects.toThrow("JSON script bridge");
+    }, context())).rejects.toThrow("through lxeskill");
+    const classified = registry.definition("exec")?.classifyInvocation?.({
+      command: "lxeskill replenish store resolve --store-name Demo --token secret",
+    });
+    expect(classified).toEqual({
+      usageName: "lxeskill:replenish store resolve",
+      commandId: "replenish store resolve",
+      ownerSkills: ["replenishment-store-resolve"],
+    });
     await processes.stop();
   });
 

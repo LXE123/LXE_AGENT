@@ -13,6 +13,7 @@ import {
   mcpServerPrefix,
   SkillCatalog,
   type McpConfig,
+  type LxeSkillCommandDefinition,
   type RuntimeProviderManager,
   type SkillManifest,
   type SqliteRuntimeStore,
@@ -39,6 +40,7 @@ interface DashboardApiOptions {
   providerManager?: RuntimeProviderManager;
   skillCatalog?: SkillCatalog;
   allowedSkillTypes?: ReadonlySet<string>;
+  cliCommands?: LxeSkillCommandDefinition[];
 }
 
 const connectorDefinitions = [
@@ -136,6 +138,7 @@ export class DashboardApi {
     if (request.method === "GET" && path === "/api/sessions") return json(this.sessions(url));
     if (request.method === "GET" && path.startsWith("/api/sessions/")) return this.session(path, url);
     if (request.method === "GET" && path === "/api/skills") return json(this.listPayload(this.skills()));
+    if (request.method === "GET" && path === "/api/commands") return json(this.listPayload(this.options.cliCommands ?? []));
     if (request.method === "GET" && path.startsWith("/api/skills/")) return this.skill(path);
     if (request.method === "GET" && path === "/api/project-docs") return json(this.listPayload(this.docs()));
     if (request.method === "GET" && path.startsWith("/api/project-docs/")) return this.doc(path);
