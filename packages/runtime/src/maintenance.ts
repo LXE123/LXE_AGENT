@@ -9,6 +9,20 @@ import type { SqliteRuntimeStore } from "./storage";
 
 type Environment = Record<string, string | undefined>;
 
+export interface MaintenanceClock {
+  setInterval(callback: () => void, delayMs: number): unknown;
+  clearInterval(id: unknown): void;
+}
+
+const systemClock: MaintenanceClock = {
+  setInterval: (callback, delayMs) => {
+    const timer = setInterval(callback, delayMs);
+    timer.unref?.();
+    return timer;
+  },
+  clearInterval: (id) => clearInterval(id as ReturnType<typeof setInterval>),
+};
+
 interface MaintenanceSchedulerOptions {
   projectRoot: string;
   environment: Environment;
@@ -16,6 +30,8 @@ interface MaintenanceSchedulerOptions {
   gatewayId: string;
   authRunner: ScriptToolRunner;
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  clock?: MaintenanceClock;
+  stopTimeoutMs?: number;
 }
 
 const envText = (env: Environment, name: string, fallback = ""): string => String(env[name] ?? fallback).trim();
@@ -33,40 +49,62 @@ const envInteger = (env: Environment, name: string, fallback: number, minimum: n
 export class MaintenanceScheduler {
   private readonly logger = createLogger("maintenance");
   private readonly fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-  private readonly timers: Array<ReturnType<typeof setInterval>> = [];
+  private readonly clock: MaintenanceClock;
+  private readonly timers: unknown[] = [];
   private readonly active = new Set<Promise<unknown>>();
   private readonly controllers = new Set<AbortController>();
+  private readonly flights = new Map<"auth" | "data", { running?: Promise<void>; rerun: boolean }>();
   private stopped = true;
 
   constructor(private readonly options: MaintenanceSchedulerOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
+    this.clock = options.clock ?? systemClock;
   }
 
   async start(): Promise<void> {
     if (!this.stopped) return;
     this.stopped = false;
     if (envBoolean(this.options.environment, "LXE_MAINTENANCE_AUTH_ENABLED", true)) {
-      await this.track(this.refreshAuth());
+      await this.requestSingleFlight("auth", () => this.refreshAuth());
       if (this.stopped) return;
-      const authTimer = setInterval(() => this.track(this.refreshAuth()), 2 * 60 * 60_000);
-      authTimer.unref?.();
+      const authTimer = this.clock.setInterval(
+        () => { void this.requestSingleFlight("auth", () => this.refreshAuth()); },
+        2 * 60 * 60_000,
+      );
       this.timers.push(authTimer);
     }
     if (envBoolean(this.options.environment, "LXE_DATA_SERVER_ENABLED")) {
-      await this.track(this.syncDataServer());
+      await this.requestSingleFlight("data", () => this.syncDataServer());
       if (this.stopped) return;
       const interval = envInteger(this.options.environment, "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS", 10_800, 30) * 1_000;
-      const syncTimer = setInterval(() => this.track(this.syncDataServer()), interval);
-      syncTimer.unref?.();
+      const syncTimer = this.clock.setInterval(
+        () => { void this.requestSingleFlight("data", () => this.syncDataServer()); },
+        interval,
+      );
       this.timers.push(syncTimer);
     }
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
-    for (const timer of this.timers.splice(0)) clearInterval(timer);
+    for (const timer of this.timers.splice(0)) this.clock.clearInterval(timer);
+    for (const flight of this.flights.values()) flight.rerun = false;
     for (const controller of this.controllers) controller.abort(new Error("maintenance stopped"));
-    await Promise.allSettled([...this.active]);
+    const active = Promise.allSettled([...this.active]);
+    const timeoutMs = Math.max(1, Math.trunc(this.options.stopTimeoutMs ?? 5_000));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const completed = await Promise.race([
+      active.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    if (!completed) this.logger.warn("maintenance stop timed out", {
+      timeout_ms: timeoutMs,
+      active_tasks: this.active.size,
+    });
   }
 
   async syncDataServer(): Promise<JsonObject> {
@@ -165,12 +203,37 @@ export class MaintenanceScheduler {
     return machineId;
   }
 
-  private track(task: Promise<unknown>): Promise<void> {
+  private requestSingleFlight(
+    kind: "auth" | "data",
+    operation: () => Promise<unknown>,
+  ): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+    const state = this.flights.get(kind) ?? { rerun: false };
+    this.flights.set(kind, state);
+    if (state.running) {
+      state.rerun = true;
+      return state.running;
+    }
+    const runOnce = async (): Promise<void> => {
+      try {
+        await operation();
+      } catch (error) {
+        this.logger.warn("scheduled maintenance failed", { task: kind, error });
+      }
+    };
     let tracked: Promise<void>;
-    tracked = task
-      .then(() => undefined)
-      .catch((error) => this.logger.warn("scheduled maintenance failed", { error }))
-      .finally(() => this.active.delete(tracked));
+    tracked = (async () => {
+      await runOnce();
+      if (!this.stopped && state.rerun) {
+        state.rerun = false;
+        await runOnce();
+      }
+    })().finally(() => {
+      state.rerun = false;
+      if (state.running === tracked) delete state.running;
+      this.active.delete(tracked);
+    });
+    state.running = tracked;
     this.active.add(tracked);
     return tracked;
   }

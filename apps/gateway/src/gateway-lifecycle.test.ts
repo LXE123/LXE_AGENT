@@ -3,6 +3,7 @@ import type { InboundEvent, JsonObject } from "@lxe/protocol";
 import {
   GatewayLifecycle,
   IngressClosedError,
+  type GatewayLifecycleOptions,
   type LifecycleChannelsPort,
 } from "./gateway-lifecycle";
 
@@ -28,6 +29,7 @@ class FakeChannels implements LifecycleChannelsPort {
   failStop = false;
   live = false;
   startGate: Promise<void> | undefined;
+  stopGate: Promise<void> | undefined;
   health: Record<string, JsonObject> = { test: { ready: true } };
 
   constructor(private readonly calls: string[]) {}
@@ -46,6 +48,7 @@ class FakeChannels implements LifecycleChannelsPort {
 
   async stopAll(): Promise<void> {
     this.calls.push("channels.stop");
+    await this.stopGate;
     this.live = false;
     if (this.failStop) throw new Error("channels stop failed");
   }
@@ -59,6 +62,7 @@ const makeLifecycle = (
   options: {
     channelFailure?: boolean;
     channelStartGate?: Promise<void>;
+    channelStopGate?: Promise<void>;
     channelStopFailure?: boolean;
     dashboardStartFailure?: boolean;
     dashboardBound?: boolean;
@@ -71,6 +75,7 @@ const makeLifecycle = (
     statusWriteFailure?: boolean;
     runtimeStartFailure?: boolean;
     runtimeStopFailure?: boolean;
+    shutdownTimeouts?: GatewayLifecycleOptions["shutdownTimeouts"];
   } = {},
 ) => {
   const calls: string[] = [];
@@ -79,6 +84,7 @@ const makeLifecycle = (
   channels.failStart = options.channelFailure ?? false;
   channels.failStop = options.channelStopFailure ?? false;
   channels.startGate = options.channelStartGate;
+  channels.stopGate = options.channelStopGate;
   const runtime = {
     isReady: false,
     async start() {
@@ -162,6 +168,7 @@ const makeLifecycle = (
     inbound: async (event) => {
       ingested.push(event.message_id);
     },
+    ...(options.shutdownTimeouts ? { shutdownTimeouts: options.shutdownTimeouts } : {}),
   });
   return { lifecycle, calls, channels, heartbeat, runtime, ingested };
 };
@@ -240,11 +247,11 @@ describe("GatewayLifecycle", () => {
 
     expect(calls).toEqual([
       "channels.stop",
+      "heartbeat.stop",
       "scheduler.ready:false",
       "runtime.fail-active",
-      "heartbeat.stop",
-      "dashboard.stop",
       "runtime.stop",
+      "dashboard.stop",
       "status.poll-stop",
       "status.clear",
     ]);
@@ -267,15 +274,42 @@ describe("GatewayLifecycle", () => {
 
     expect(calls).toEqual([
       "channels.stop",
+      "heartbeat.stop",
       "scheduler.ready:false",
       "runtime.fail-active",
-      "heartbeat.stop",
-      "dashboard.stop",
       "runtime.stop",
+      "dashboard.stop",
       "status.poll-stop",
       "status.clear",
     ]);
     expect((await lifecycle.healthSnapshot()).last_error).toContain("channels stop failed");
+  });
+
+  test("times out a permanently hanging component and continues every later cleanup step", async () => {
+    const never = new Promise<void>(() => undefined);
+    const { lifecycle, calls } = makeLifecycle({
+      channelStopGate: never,
+      shutdownTimeouts: {
+        channelsMs: 5,
+        heartbeatMs: 5,
+        schedulerMs: 5,
+        activeRunsMs: 5,
+        runtimeMs: 5,
+        dashboardMs: 5,
+        statusMs: 5,
+        startupMs: 5,
+      },
+    });
+    await lifecycle.start();
+    calls.length = 0;
+    const started = Date.now();
+    await lifecycle.stop();
+    expect(Date.now() - started).toBeLessThan(200);
+    expect(calls).toContain("heartbeat.stop");
+    expect(calls).toContain("runtime.stop");
+    expect(calls).toContain("dashboard.stop");
+    expect(calls).toContain("status.clear");
+    expect((await lifecycle.healthSnapshot()).last_error).toContain("channels: timed out");
   });
 
   test("dynamic Runtime and channel health make readiness false and reject new ingress", async () => {

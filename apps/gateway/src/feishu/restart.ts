@@ -15,6 +15,7 @@ export interface FeishuIdleRestartOptions {
   intervalMs: number;
   idleCheckMs: number;
   retryMs: number;
+  stopTimeoutMs?: number;
   hasInflight(): boolean | Promise<boolean>;
   hasQueued(): boolean | Promise<boolean>;
   restart(): Promise<void>;
@@ -48,7 +49,18 @@ export class FeishuIdleRestart {
     this.generation += 1;
     if (this.timer !== undefined) this.clock.clearTimeout(this.timer);
     this.timer = undefined;
-    await this.attemptTask?.catch(() => undefined);
+    const task = this.attemptTask;
+    if (!task) return;
+    const timeoutMs = Math.max(1, Math.trunc(this.options.stopTimeoutMs ?? 3_000));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      task.catch(() => undefined),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+        timer.unref?.();
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
   }
 
   health(): JsonObject {

@@ -1,4 +1,5 @@
 import type { InboundEvent, JsonObject } from "@lxe/protocol";
+import { createLogger } from "@lxe/core";
 
 export class IngressClosedError extends Error {
   constructor() {
@@ -30,7 +31,8 @@ export interface GatewayLifecycleOptions {
   runtime: {
     readonly isReady: boolean;
     start(): Promise<void>;
-    failActiveRuns(error: Error): void;
+    failActiveRuns(error: Error): void | Promise<void>;
+    forceActiveRuns?(): void | Promise<void>;
     stop(): Promise<void>;
   };
   scheduler: { setRuntimeReady(ready: boolean): void };
@@ -46,9 +48,34 @@ export interface GatewayLifecycleOptions {
     stopPolling(): void;
   };
   inbound: (event: InboundEvent) => Promise<void>;
+  shutdownTimeouts?: Partial<GatewayShutdownTimeouts>;
 }
 
+export interface GatewayShutdownTimeouts {
+  heartbeatMs: number;
+  schedulerMs: number;
+  activeRunsMs: number;
+  channelsMs: number;
+  dashboardMs: number;
+  runtimeMs: number;
+  statusMs: number;
+  startupMs: number;
+}
+
+const DEFAULT_SHUTDOWN_TIMEOUTS: GatewayShutdownTimeouts = {
+  heartbeatMs: 3_000,
+  schedulerMs: 3_000,
+  activeRunsMs: 3_000,
+  channelsMs: 8_000,
+  dashboardMs: 3_000,
+  runtimeMs: 5_000,
+  statusMs: 3_000,
+  startupMs: 3_000,
+};
+
 export class GatewayLifecycle {
+  private readonly logger = createLogger("gateway.lifecycle");
+  private readonly shutdownTimeouts: GatewayShutdownTimeouts;
   private stateUsable = false;
   private dashboardBound = false;
   private dashboardAttempted = false;
@@ -65,7 +92,9 @@ export class GatewayLifecycle {
   private stopPromise: Promise<void> | undefined;
   private lastError = "";
 
-  constructor(private readonly options: GatewayLifecycleOptions) {}
+  constructor(private readonly options: GatewayLifecycleOptions) {
+    this.shutdownTimeouts = { ...DEFAULT_SHUTDOWN_TIMEOUTS, ...options.shutdownTimeouts };
+  }
 
   start(): Promise<void> {
     if (this.started) return Promise.resolve();
@@ -195,7 +224,12 @@ export class GatewayLifecycle {
       inFlightStart !== undefined,
     );
     if (inFlightStart) {
-      await inFlightStart.catch(() => undefined);
+      await this.runStopStep(
+        "startup completion",
+        () => inFlightStart.catch(() => undefined),
+        errors,
+        this.shutdownTimeouts.startupMs,
+      );
       errors.push(...await this.teardown(new Error("Gateway shutdown finalized after startup abort")));
     }
     if (errors.length > 0) this.lastError = errors.join("; ");
@@ -210,32 +244,42 @@ export class GatewayLifecycle {
   private async teardown(reason: Error, preserveAttempts = false): Promise<string[]> {
     const errors: string[] = [];
     if (this.channelsAttempted) {
-      await this.runStopStep("channels", () => this.options.channels.stopAll(), errors);
+      await this.runStopStep("channels", () => this.options.channels.stopAll(), errors, this.shutdownTimeouts.channelsMs);
     }
     this.channelsStarted = false;
     if (!preserveAttempts) this.channelsAttempted = false;
+    if (this.heartbeatAttempted) {
+      await this.runStopStep("heartbeat", () => this.options.heartbeat.stop(), errors, this.shutdownTimeouts.heartbeatMs);
+    }
+    if (!preserveAttempts) this.heartbeatAttempted = false;
     await this.runStopStep(
       "scheduler",
       () => this.options.scheduler.setRuntimeReady(false),
       errors,
+      this.shutdownTimeouts.schedulerMs,
     );
     await this.runStopStep(
       "active runs",
       () => this.options.runtime.failActiveRuns(reason),
       errors,
+      this.shutdownTimeouts.activeRunsMs,
     );
-    if (this.heartbeatAttempted) {
-      await this.runStopStep("heartbeat", () => this.options.heartbeat.stop(), errors);
+    if (this.options.runtime.forceActiveRuns) {
+      await this.runStopStep(
+        "active child processes",
+        () => this.options.runtime.forceActiveRuns?.(),
+        errors,
+        this.shutdownTimeouts.activeRunsMs,
+      );
     }
-    if (!preserveAttempts) this.heartbeatAttempted = false;
+    await this.runStopStep("runtime", () => this.options.runtime.stop(), errors, this.shutdownTimeouts.runtimeMs);
     if (this.options.dashboard.enabled && this.dashboardAttempted) {
-      await this.runStopStep("Dashboard", () => this.options.dashboard.stop(), errors);
+      await this.runStopStep("Dashboard", () => this.options.dashboard.stop(), errors, this.shutdownTimeouts.dashboardMs);
     }
     this.dashboardBound = false;
     if (!preserveAttempts) this.dashboardAttempted = false;
-    await this.runStopStep("runtime", () => this.options.runtime.stop(), errors);
     if (this.pollingAttempted) {
-      await this.runStopStep("planned-stop poller", () => this.options.status.stopPolling(), errors);
+      await this.runStopStep("planned-stop poller", () => this.options.status.stopPolling(), errors, this.shutdownTimeouts.statusMs);
     }
     if (!preserveAttempts) this.pollingAttempted = false;
     if (this.statusWriteAttempted) {
@@ -243,6 +287,7 @@ export class GatewayLifecycle {
         "gateway status",
         () => this.options.status.clearStatus(this.options.bootId),
         errors,
+        this.shutdownTimeouts.statusMs,
       );
     }
     if (!preserveAttempts) this.statusWriteAttempted = false;
@@ -254,12 +299,28 @@ export class GatewayLifecycle {
     label: string,
     action: () => void | Promise<void>,
     errors: string[],
+    timeoutMs: number,
   ): Promise<void> {
+    const task = Promise.resolve().then(action);
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      await action();
+      await Promise.race([
+        task,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`timed out after ${Math.max(1, Math.trunc(timeoutMs))}ms`)),
+            Math.max(1, Math.trunc(timeoutMs)),
+          );
+          timer.unref?.();
+        }),
+      ]);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       errors.push(`${label}: ${message}`);
+      this.logger.warn("shutdown component failed", { component: label, timeout_ms: timeoutMs, error: cause });
+    } finally {
+      if (timer) clearTimeout(timer);
+      void task.catch(() => undefined);
     }
   }
 }

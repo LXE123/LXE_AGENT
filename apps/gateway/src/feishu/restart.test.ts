@@ -82,4 +82,25 @@ describe("Feishu idle restart", () => {
     expect(clock.timers.size).toBe(0);
     expect(restart.health()).toEqual(expect.objectContaining({ running: false, restart_in_progress: false }));
   });
+
+  test("stop is bounded when the active restart never returns", async () => {
+    const clock = new ManualClock();
+    const restart = new FeishuIdleRestart({
+      clock,
+      intervalMs: 100,
+      idleCheckMs: 10,
+      retryMs: 20,
+      stopTimeoutMs: 5,
+      hasInflight: () => false,
+      hasQueued: () => false,
+      restart: () => new Promise<void>(() => undefined),
+    });
+    restart.start();
+    await clock.fire();
+    const started = Date.now();
+    await restart.stop();
+    expect(Date.now() - started).toBeLessThan(200);
+    expect(clock.timers.size).toBe(0);
+    expect(restart.health()).toEqual(expect.objectContaining({ running: false, restart_in_progress: true }));
+  });
 });

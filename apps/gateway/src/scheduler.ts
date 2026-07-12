@@ -92,6 +92,11 @@ export class RunHandle {
     if (!this.signal.aborted) this.abortController.abort();
     await Promise.allSettled([...this.processes].map((process) => Promise.resolve(process.kill())));
   }
+
+  async forceAbort(): Promise<void> {
+    if (!this.signal.aborted) this.abortController.abort();
+    await Promise.allSettled([...this.processes].map((process) => Promise.resolve(process.forceKill())));
+  }
 }
 
 export interface RuntimePort {

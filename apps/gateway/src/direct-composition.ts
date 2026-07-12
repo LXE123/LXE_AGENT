@@ -184,6 +184,10 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     },
     failActiveRuns: async (): Promise<void> => {
       await Promise.allSettled([...active.values()].map(({ handle }) => handle.abort()));
+      await Promise.allSettled([...active.values()].map(({ promise }) => promise));
+    },
+    forceActiveRuns: async (): Promise<void> => {
+      await Promise.allSettled([...active.values()].map(({ handle }) => handle.forceAbort()));
     },
   };
   const lifecycle = new GatewayLifecycle({

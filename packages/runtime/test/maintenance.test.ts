@@ -4,6 +4,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteRuntimeStore } from "../src/storage";
 import { MaintenanceScheduler } from "../src/maintenance";
+import type { MaintenanceClock } from "../src/maintenance";
+
+class ManualMaintenanceClock implements MaintenanceClock {
+  readonly intervals: Array<() => void> = [];
+  setInterval(callback: () => void): unknown {
+    this.intervals.push(callback);
+    return callback;
+  }
+  clearInterval(id: unknown): void {
+    const index = this.intervals.indexOf(id as () => void);
+    if (index >= 0) this.intervals.splice(index, 1);
+  }
+  async fire(index = 0): Promise<void> {
+    this.intervals[index]?.();
+    await Bun.sleep(0);
+  }
+}
 
 const roots: string[] = [];
 afterEach(() => {
@@ -11,6 +28,80 @@ afterEach(() => {
 });
 
 describe("MaintenanceScheduler", () => {
+  test("coalesces repeated auth ticks into one non-overlapping rerun", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-single-flight-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    const clock = new ManualMaintenanceClock();
+    let calls = 0;
+    let active = 0;
+    let maxActive = 0;
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const secondEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const scheduler = new MaintenanceScheduler({
+      projectRoot: root,
+      environment: { LXE_MAINTENANCE_AUTH_ENABLED: "1" },
+      store,
+      gatewayId: "gateway-one",
+      clock,
+      authRunner: { execute: async (request) => {
+        calls += 1;
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        if (calls === 2) {
+          entered();
+          await gate;
+        }
+        active -= 1;
+        return { protocol_version: "1", call_id: request.call_id, ok: true, content: [] };
+      } },
+    });
+    await scheduler.start();
+    expect(calls).toBe(1);
+    await clock.fire();
+    await secondEntered;
+    await clock.fire();
+    await clock.fire();
+    expect(calls).toBe(2);
+    release();
+    for (let attempt = 0; attempt < 20 && calls < 3; attempt += 1) await Bun.sleep(0);
+    expect(calls).toBe(3);
+    expect(maxActive).toBe(1);
+    await scheduler.stop();
+    expect(clock.intervals).toHaveLength(0);
+    await store.stop();
+  });
+
+  test("stop remains bounded when an aborted maintenance runner never settles", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-timeout-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    let entered!: () => void;
+    const runnerEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const scheduler = new MaintenanceScheduler({
+      projectRoot: root,
+      environment: { LXE_MAINTENANCE_AUTH_ENABLED: "1" },
+      store,
+      gatewayId: "gateway-one",
+      stopTimeoutMs: 5,
+      authRunner: { execute: async () => {
+        entered();
+        return new Promise(() => undefined);
+      } },
+    });
+    const starting = scheduler.start();
+    void starting.catch(() => undefined);
+    await runnerEntered;
+    const started = Date.now();
+    await scheduler.stop();
+    expect(Date.now() - started).toBeLessThan(200);
+    await store.stop();
+  });
+
   test("aborts an in-flight auth refresh when stopped during startup", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-cancel-"));
     roots.push(root);

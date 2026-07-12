@@ -77,6 +77,8 @@ describe("RunHandle", () => {
     expect(handle.signal.aborted).toBe(true);
     expect(handle.cancelled).toBe(true);
     expect(calls).toEqual(["kill"]);
+    await handle.forceAbort();
+    expect(calls).toEqual(["kill", "force"]);
     unregister();
   });
 });
