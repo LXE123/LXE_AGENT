@@ -6,6 +6,7 @@ import {
   AtomicRuntimeProviderManager,
   loadProviderDescriptor,
   normalizeProviderError,
+  ProviderIdleWatchdog,
 } from "../src/provider";
 
 describe("Anthropic-compatible provider", () => {
@@ -22,7 +23,7 @@ describe("Anthropic-compatible provider", () => {
       baseURL: "https://api.kimi.com/coding/",
       apiKey: "secret-key",
       maxTokens: 32768,
-      requestTimeoutMs: 30_000,
+      requestIdleTimeoutMs: 30_000,
     }));
   });
 
@@ -43,7 +44,7 @@ describe("Anthropic-compatible provider", () => {
         thinkingEffort: "max",
         thinkingDisplay: "omitted",
         contextWindowTokens: 200_000,
-        requestTimeoutMs: 30_000,
+        requestIdleTimeoutMs: 30_000,
       },
       {
         messages: {
@@ -177,9 +178,48 @@ describe("Anthropic-compatible provider", () => {
     expect(JSON.stringify(adapted)).not.toContain("base64-secret");
     expect(JSON.stringify(adapted)).toContain("DeepSeek Anthropic API does not support");
     expect(normalizeProviderError({ status: 401, message: "Invalid Authentication" }, descriptor))
-      .toEqual(expect.objectContaining({ retryable: false, category: "认证错误" }));
+      .toEqual(expect.objectContaining({ retryable: false, category: "认证失败" }));
     expect(normalizeProviderError({ status: 503, message: "Server overloaded" }, descriptor))
-      .toEqual(expect.objectContaining({ retryable: true, category: "服务暂时异常" }));
+      .toEqual(expect.objectContaining({ retryable: true, category: "服务器繁忙" }));
+  });
+
+  test("resets the idle watchdog on activity without imposing a total duration limit", async () => {
+    const parent = new AbortController();
+    const watchdog = new ProviderIdleWatchdog(parent.signal, 30);
+    for (let index = 0; index < 5; index += 1) {
+      await Bun.sleep(15);
+      expect(watchdog.signal.aborted).toBe(false);
+      watchdog.activity();
+    }
+    expect(watchdog.signal.aborted).toBe(false);
+    await Bun.sleep(45);
+    expect(watchdog.signal.aborted).toBe(true);
+    expect(watchdog.timedOut()).toBe(true);
+    watchdog.cleanup();
+  });
+
+  test("keeps parent cancellation distinct from an idle timeout", () => {
+    const parent = new AbortController();
+    const watchdog = new ProviderIdleWatchdog(parent.signal, 1_000);
+    parent.abort(new DOMException("cancelled", "AbortError"));
+    expect(watchdog.signal.aborted).toBe(true);
+    expect(watchdog.timedOut()).toBe(false);
+    watchdog.cleanup();
+  });
+
+  test("uses provider-specific body classification instead of a generic status regex", () => {
+    const projectRoot = resolve(import.meta.dir, "../../..");
+    const kimi = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "kimi-for-coding",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
+    expect(normalizeProviderError({ status: 402, error: { message: "membership benefits exhausted" } }, kimi))
+      .toEqual(expect.objectContaining({ retryable: false, category: "会员权益异常" }));
+    expect(normalizeProviderError({ status: 429, body: { message: "kimi monthly usage limit" } }, kimi))
+      .toEqual(expect.objectContaining({ retryable: true, category: "限流与配额" }));
+    expect(normalizeProviderError({ status: 400, body: { message: "input is too long" } }, kimi))
+      .toEqual(expect.objectContaining({ retryable: false, contextOverflow: true }));
   });
 
   test("closes wire attempts on transport failure without letting diagnostics replace the Provider error", async () => {
@@ -197,7 +237,7 @@ describe("Anthropic-compatible provider", () => {
         thinkingEffort: "low",
         thinkingDisplay: "omitted",
         contextWindowTokens: 200_000,
-        requestTimeoutMs: 30_000,
+        requestIdleTimeoutMs: 30_000,
       },
       { messages: { stream: () => { throw new Error("transport failed token=private"); } } },
     );
@@ -223,7 +263,7 @@ describe("Anthropic-compatible provider", () => {
       {
         name: "test", model: "model-1", baseURL: "https://example.invalid", apiKey: "key",
         maxTokens: 1024, defaultHeaders: {}, thinkingStyle: "none", thinkingEnabled: false,
-        thinkingEffort: "low", thinkingDisplay: "omitted", contextWindowTokens: 200_000, requestTimeoutMs: 30_000,
+        thinkingEffort: "low", thinkingDisplay: "omitted", contextWindowTokens: 200_000, requestIdleTimeoutMs: 30_000,
       },
       { messages: { stream: () => ({
         on: (event: string) => {

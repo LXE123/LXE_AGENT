@@ -62,7 +62,7 @@ describe("DashboardApi", () => {
             name: patch.provider ?? "kimi_coding", model: patch.model ?? "kimi-for-coding",
             baseURL: "", apiKey: "", maxTokens: 4096, defaultHeaders: {}, thinkingStyle: "none",
             thinkingEnabled: patch.thinkingEnabled ?? false, thinkingEffort: patch.thinkingEffort ?? "off",
-            thinkingDisplay: "omitted", contextWindowTokens: 200_000, requestTimeoutMs: 30_000,
+            thinkingDisplay: "omitted", contextWindowTokens: 200_000, requestIdleTimeoutMs: 30_000,
           },
           provider: {
             summarize: async () => ({ text: "", usage: { input_tokens: 0, output_tokens: 0 } }),

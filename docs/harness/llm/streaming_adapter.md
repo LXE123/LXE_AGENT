@@ -32,7 +32,7 @@ Partial JSON tool arguments are buffered until they form the final tool-call inp
 
 The caller supplies an abort signal. Cancellation must close the provider stream promptly and surface as turn cancellation, not as a generic provider failure.
 
-`LLM_REQUEST_TIMEOUT_S` bounds a request independently of gateway job cancellation. Timeout errors are classified so the turn loop can apply bounded retry policy. Cleanup must run even when the stream ends before yielding content.
+`LLM_REQUEST_TIMEOUT_S` bounds Provider inactivity independently of gateway job cancellation. The watchdog resets on connection and every stream event, so an active long-running response is not treated as timed out. Timeout errors are classified so the turn loop can apply bounded retry policy. Cleanup must run even when the stream ends before yielding content.
 
 ## Retry And Overflow
 

@@ -364,7 +364,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               provider: descriptor?.name ?? "custom",
               model: descriptor?.model ?? this.options.display?.model ?? "",
               endpoint: descriptor ? `${descriptor.baseURL.replace(/\/+$/u, "")}/v1/messages` : "",
-              timeoutMs: descriptor?.requestTimeoutMs ?? 0,
+              timeoutMs: descriptor?.requestIdleTimeoutMs ?? 0,
             });
             try {
               const response = await provider.turn(providerRequest(attemptObserver, wireTrace));

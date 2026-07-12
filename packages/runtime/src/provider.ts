@@ -13,6 +13,8 @@ import type {
   RuntimeStreamEvent,
   RuntimeTurnResponse,
 } from "./types";
+import { classifyProviderError, RuntimeProviderError } from "./provider-errors";
+export { RuntimeProviderError } from "./provider-errors";
 
 const SUMMARY_SYSTEM_PROMPT = [
   "You are a context summarization assistant.",
@@ -32,7 +34,7 @@ export interface ProviderDescriptor {
   thinkingEffort: string;
   thinkingDisplay: string;
   contextWindowTokens: number;
-  requestTimeoutMs: number;
+  requestIdleTimeoutMs: number;
 }
 
 export interface ProviderConfigPatch {
@@ -54,23 +56,6 @@ export interface RuntimeProviderManager {
     patch: ProviderConfigPatch,
     persist?: (environmentPatch: Record<string, string>) => Promise<void> | void,
   ): Promise<RuntimeProviderSnapshot>;
-}
-
-export class RuntimeProviderError extends Error {
-  readonly contextOverflow: boolean;
-  constructor(
-    message: string,
-    readonly provider: string,
-    readonly category: string,
-    readonly userMessage: string,
-    readonly retryable: boolean,
-    readonly statusCode?: number,
-    contextOverflow = false,
-  ) {
-    super(message);
-    this.name = "RuntimeProviderError";
-    this.contextOverflow = contextOverflow;
-  }
 }
 
 interface AnthropicMessageLike {
@@ -159,44 +144,16 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
     thinkingEffort: envText(env, "AGENT_LLM_THINKING_EFFORT", "low").toLowerCase(),
     thinkingDisplay: envText(env, "AGENT_LLM_THINKING_DISPLAY", "omitted").toLowerCase(),
     contextWindowTokens: Math.max(0, Math.trunc(Number((modelSpec as Record<string, unknown>).context_window_tokens ?? 0))),
-    requestTimeoutMs: envInteger(env, "LLM_REQUEST_TIMEOUT_S", 30, { min: 10, max: 3_600 }) * 1_000,
+    requestIdleTimeoutMs: envInteger(env, "LLM_REQUEST_TIMEOUT_S", 30, { min: 10, max: 3_600 }) * 1_000,
   };
+}
+
+export function normalizeProviderError(error: unknown, descriptor: ProviderDescriptor): RuntimeProviderError {
+  return classifyProviderError(error, descriptor);
 }
 
 const errorObject = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-
-const errorStatus = (error: unknown): number | undefined => {
-  const source = errorObject(error);
-  const response = errorObject(source.response);
-  for (const raw of [source.status, source.statusCode, source.status_code, response.status]) {
-    const value = Number(raw);
-    if (Number.isInteger(value) && value > 0) return value;
-  }
-  return undefined;
-};
-
-export function normalizeProviderError(error: unknown, descriptor: ProviderDescriptor): RuntimeProviderError {
-  if (error instanceof RuntimeProviderError) return error;
-  const message = String(error instanceof Error ? error.message : error ?? "provider request failed").trim();
-  const lower = message.toLowerCase();
-  const status = errorStatus(error);
-  const overflow = ["context overflow", "context window", "maximum context", "context length", "too many tokens", "prompt is too long"]
-    .some((value) => lower.includes(value));
-  const auth = status === 401 || status === 403 || /auth|api key|unauthor/iu.test(message);
-  const rateLimit = status === 429 || /rate.?limit|too many requests/iu.test(message);
-  const retryable = !auth && !overflow && (rateLimit || status === undefined || status >= 500 || /timeout|timed out|connect|reset|overload|temporar/iu.test(message));
-  const label = descriptor.name === "deepseek" ? "DeepSeek" : descriptor.name === "kimi_coding" ? "Kimi Coding" : descriptor.name;
-  const category = overflow ? "上下文超限" : auth ? "认证错误" : rateLimit ? "限流" : retryable ? "服务暂时异常" : "请求错误";
-  const userMessage = overflow
-    ? `${label} 上下文超过模型限制，请压缩后重试。`
-    : auth
-      ? `${label} 认证失败，请检查 API Key 是否正确或已过期。`
-      : retryable
-        ? `${label} 服务暂时异常，请稍后重试。`
-        : `${label} 请求失败：${message}`;
-  return new RuntimeProviderError(message, descriptor.name, category, userMessage, retryable, status, overflow);
-}
 
 const deepseekText = (value: unknown): string => {
   if (typeof value === "string") return value;
@@ -310,31 +267,51 @@ const runtimeUsage = (usage: AnthropicMessageLike["usage"]): RuntimeSummaryResul
   cache_creation_input_tokens: Math.max(0, Math.trunc(usage.cache_creation_input_tokens ?? 0)),
 });
 
-const timedSignal = (parent: AbortSignal, timeoutMs: number): {
-  signal: AbortSignal;
-  cleanup(): void;
-  timedOut(): boolean;
-} => {
-  const controller = new AbortController();
-  let timeoutReached = false;
-  const abort = (): void => controller.abort(parent.reason ?? new DOMException("Aborted", "AbortError"));
-  if (parent.aborted) abort();
-  else parent.addEventListener("abort", abort, { once: true });
-  const safeTimeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, timeoutMs) : 30_000;
-  const timeout = setTimeout(() => {
-    timeoutReached = true;
-    controller.abort(new DOMException("Provider request timed out", "TimeoutError"));
-  }, safeTimeoutMs);
-  timeout.unref?.();
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      clearTimeout(timeout);
-      parent.removeEventListener("abort", abort);
-    },
-    timedOut: () => timeoutReached,
+export class ProviderIdleWatchdog {
+  private readonly controller = new AbortController();
+  private readonly timeoutMs: number;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private timeoutReached = false;
+  private closed = false;
+  private readonly abortFromParent = (): void => {
+    this.controller.abort(this.parent.reason ?? new DOMException("Aborted", "AbortError"));
+    this.clearTimer();
   };
-};
+
+  constructor(private readonly parent: AbortSignal, timeoutMs: number) {
+    this.timeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, timeoutMs) : 30_000;
+    if (parent.aborted) this.abortFromParent();
+    else {
+      parent.addEventListener("abort", this.abortFromParent, { once: true });
+      this.activity();
+    }
+  }
+
+  get signal(): AbortSignal { return this.controller.signal; }
+  timedOut(): boolean { return this.timeoutReached; }
+
+  activity(): void {
+    if (this.closed || this.controller.signal.aborted) return;
+    this.clearTimer();
+    this.timer = setTimeout(() => {
+      this.timeoutReached = true;
+      this.controller.abort(new DOMException("Provider request idle timeout", "TimeoutError"));
+    }, this.timeoutMs);
+    this.timer.unref?.();
+  }
+
+  cleanup(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.clearTimer();
+    this.parent.removeEventListener("abort", this.abortFromParent);
+  }
+
+  private clearTimer(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = undefined;
+  }
+}
 
 type RuntimeProviderFactory = (descriptor: ProviderDescriptor) => RuntimeProvider;
 
@@ -392,7 +369,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
   }
 
   async turn(request: RuntimeProviderRequest): Promise<RuntimeTurnResponse> {
-    const timed = timedSignal(request.signal, this.descriptor.requestTimeoutMs);
+    const watchdog = new ProviderIdleWatchdog(request.signal, this.descriptor.requestIdleTimeoutMs);
     let wireOk = false;
     let wireError = "";
     const wire = (operation: () => void): void => {
@@ -415,33 +392,40 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         "content-type": "application/json",
         "x-api-key": this.descriptor.apiKey,
       }, parameters as unknown as JsonObject));
-      const stream = this.client.messages.stream(parameters, { signal: timed.signal });
-      const responseStart = (): void => wire(() => {
-        const response = stream.response;
-        if (!response) return;
-        request.wireTrace?.responseStart(
-          response.status,
-          Object.fromEntries(response.headers.entries()),
-        );
-      });
+      const stream = this.client.messages.stream(parameters, { signal: watchdog.signal });
+      const responseStart = (): void => {
+        watchdog.activity();
+        wire(() => {
+          const response = stream.response;
+          if (!response) return;
+          request.wireTrace?.responseStart(
+            response.status,
+            Object.fromEntries(response.headers.entries()),
+          );
+        });
+      };
       wire(() => { stream.on?.("connect", responseStart); });
       wire(responseStart);
       wire(() => {
-        stream.on?.("streamEvent", (event) => wire(() => {
-          const source = event !== null && typeof event === "object"
-            ? event as Record<string, unknown>
-            : {};
-          request.wireTrace?.event(String(source.type ?? "message"), event);
-        }));
+        stream.on?.("streamEvent", (event) => {
+          watchdog.activity();
+          wire(() => {
+            const source = event !== null && typeof event === "object"
+              ? event as Record<string, unknown>
+              : {};
+            request.wireTrace?.event(String(source.type ?? "message"), event);
+          });
+        });
       });
       let delivery = Promise.resolve();
       const deliver = (event: RuntimeStreamEvent): void => {
         if (!request.onEvent) return;
         delivery = delivery.then(() => request.onEvent?.(event)).then(() => undefined);
       };
-      stream.on?.("thinking", (thinking) => deliver({ type: "thinking_delta", thinking: String(thinking ?? "") }));
-      stream.on?.("text", (text) => deliver({ type: "text_delta", text: String(text ?? "") }));
+      stream.on?.("thinking", (thinking) => { watchdog.activity(); deliver({ type: "thinking_delta", thinking: String(thinking ?? "") }); });
+      stream.on?.("text", (text) => { watchdog.activity(); deliver({ type: "text_delta", text: String(text ?? "") }); });
       stream.on?.("contentBlock", (block) => {
+        watchdog.activity();
         if (block !== null && typeof block === "object" && (block as Record<string, unknown>).type === "redacted_thinking") {
           deliver({ type: "redacted_thinking" });
         }
@@ -457,9 +441,9 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
     } catch (error) {
       wireError = String(error instanceof Error ? error.message : error);
       if (request.signal.aborted) throw request.signal.reason ?? new DOMException("Aborted", "AbortError");
-      if (timed.timedOut()) {
+      if (watchdog.timedOut()) {
         throw new RuntimeProviderError(
-          `provider request timed out after ${this.descriptor.requestTimeoutMs}ms`,
+          `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
           this.descriptor.name,
           "请求超时",
           `${this.descriptor.name} 请求超时，请稍后重试。`,
@@ -469,12 +453,12 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       throw normalizeProviderError(error, this.descriptor);
     } finally {
       wire(() => request.wireTrace?.end(wireOk, wireError));
-      timed.cleanup();
+      watchdog.cleanup();
     }
   }
 
   async summarize(request: RuntimeSummaryRequest): Promise<RuntimeSummaryResult> {
-    const timed = timedSignal(request.signal, this.descriptor.requestTimeoutMs);
+    const watchdog = new ProviderIdleWatchdog(request.signal, this.descriptor.requestIdleTimeoutMs);
     try {
       const stream = this.client.messages.stream({
         model: this.descriptor.model,
@@ -483,7 +467,14 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         messages: adaptMessagesForProvider(request.messages, this.descriptor),
         stream: true,
         ...(this.descriptor.thinkingStyle === "provider-managed" ? {} : { thinking: { type: "disabled" } }),
-      }, { signal: timed.signal });
+      }, { signal: watchdog.signal });
+      try {
+        stream.on?.("connect", () => watchdog.activity());
+        stream.on?.("streamEvent", () => watchdog.activity());
+        stream.on?.("thinking", () => watchdog.activity());
+        stream.on?.("text", () => watchdog.activity());
+        stream.on?.("contentBlock", () => watchdog.activity());
+      } catch { /* SDK diagnostics/activity hooks must not replace Provider behavior. */ }
       const message = await stream.finalMessage();
       const text = message.content
         .filter((block) => block.type === "text")
@@ -493,9 +484,18 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       return { text, usage: runtimeUsage(message.usage) };
     } catch (error) {
       if (request.signal.aborted) throw request.signal.reason ?? new DOMException("Aborted", "AbortError");
+      if (watchdog.timedOut()) {
+        throw new RuntimeProviderError(
+          `provider request idle timed out after ${this.descriptor.requestIdleTimeoutMs}ms`,
+          this.descriptor.name,
+          "请求超时",
+          `${this.descriptor.name} 请求超时，请稍后重试。`,
+          true,
+        );
+      }
       throw normalizeProviderError(error, this.descriptor);
     } finally {
-      timed.cleanup();
+      watchdog.cleanup();
     }
   }
 }
