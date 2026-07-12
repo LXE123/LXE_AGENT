@@ -16,3 +16,4 @@ export * from "./tool-search";
 export * from "./trace";
 export * from "./turn-observer";
 export * from "./types";
+export * from "./workspace-search";

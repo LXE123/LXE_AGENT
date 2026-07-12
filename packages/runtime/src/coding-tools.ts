@@ -14,6 +14,7 @@ import { createLogger, runWithLogContext } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 import type { RuntimeHandle } from "./types";
 import { detectReadImageMime, ModelImageProcessor } from "./model-image";
+import { isProbablyBinary, WorkspaceSearchService } from "./workspace-search";
 import { ToolRegistry } from "./tools";
 
 export interface CodingToolOptions {
@@ -21,6 +22,7 @@ export interface CodingToolOptions {
   maxOutputChars?: number;
   sendFile?: (request: { path: string; session_id: string; response_route_id: string }) => Promise<void>;
   onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
+  ripgrepPath?: string | null;
 }
 
 type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
@@ -55,9 +57,6 @@ const PROTECTED_ROOT_FILES = new Set([
   ".env", ".env.local", ".envrc", ".env.development", ".env.production", ".env.test", ".env.staging",
 ]);
 const PROTECTED_ROOT_DIRECTORIES = new Set(["user_session_db"]);
-const SKIP_DIRECTORIES = new Set([
-  ".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build",
-]);
 const BINARY_EXTENSIONS = new Set([
   ".pyc", ".pyo", ".exe", ".dll", ".so", ".bin", ".zip", ".tar", ".gz", ".7z", ".rar", ".whl",
   ".pdf", ".xlsx", ".xlsm", ".xltx", ".xltm", ".xls", ".docx", ".docm", ".dotx", ".dotm",
@@ -113,24 +112,6 @@ const assertWritable = (root: string, path: string): void => {
     throw new Error(`write denied for protected workspace directory: ${parts[0]}/`);
   }
 };
-
-const walk = (root: string, current = root): string[] => {
-  const results: string[] = [];
-  for (const entry of readdirSync(current, { withFileTypes: true })) {
-    if (SKIP_DIRECTORIES.has(entry.name)) continue;
-    const path = join(current, entry.name);
-    if (entry.isDirectory()) results.push(...walk(root, path));
-    else if (entry.isFile()) results.push(relative(root, path));
-  }
-  return results;
-};
-
-const globRegex = (pattern: string): RegExp => new RegExp(`^${pattern
-  .replaceAll(/[.+^${}()|[\]\\]/g, "\\$&")
-  .replaceAll("**", "\0")
-  .replaceAll("*", "[^/\\\\]*")
-  .replaceAll("\0", ".*")
-  .replaceAll("?", ".")}$`, "i");
 
 const truncateHeadTail = (value: string, limit: number): { value: string; truncated: boolean } => {
   if (value.length <= limit) return { value, truncated: false };
@@ -486,6 +467,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   const processOutputLimit = Math.max(1_000, Math.trunc(options.maxOutputChars ?? 200_000));
   const ledger = new FileReadLedger();
   const imageProcessor = new ModelImageProcessor();
+  const search = new WorkspaceSearchService(root, options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath });
   const processes = new CodingProcessManager({
     maxOutputChars: processOutputLimit,
     maxPendingChars: 30_000,
@@ -520,6 +502,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       }
       const extension = extname(path).toLowerCase();
       if (BINARY_EXTENSIONS.has(extension)) throw new Error(`binary file cannot be read as text: ${input.path}`);
+      if (isProbablyBinary(data)) throw new Error(`binary file cannot be read as text: ${input.path}`);
       const lines = data.toString("utf8").split(/\r?\n/);
       const start = Math.max(1, Number(input.offset ?? 1));
       const count = Math.max(1, Number(input.limit ?? lines.length));
@@ -578,55 +561,27 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       case_insensitive: { type: "boolean" }, context: { type: "integer" }, before_context: { type: "integer" },
       after_context: { type: "integer" }, multiline: { type: "boolean" }, head_limit: { type: "integer" },
     }, required: ["pattern"], additionalProperties: false },
-    execute: async (input) => {
+    execute: async (input, context) => {
       const base = safePath(root, input.path ?? ".");
       const pattern = inputText(input, "pattern");
       if (!pattern) throw new Error("pattern 不能为空");
-      const flags = `${input.case_insensitive ? "i" : ""}${input.multiline ? "s" : ""}u`;
-      const regex = new RegExp(pattern, flags);
-      const files = statSync(base).isFile() ? [relative(root, base)] : walk(root, base);
-      const matches: string[] = [];
       const maxLines = Math.max(1, Number(input.head_limit ?? 100));
       const mode = String(input.output_mode ?? "files_with_matches");
-      const glob = inputText(input, "glob");
-      const globMatcher = glob ? globRegex(glob.replace(/^!/u, "")) : undefined;
-      const excludedGlob = glob.startsWith("!");
-      const typeExtensions: Record<string, string[]> = { py: [".py"], ts: [".ts", ".tsx"], js: [".js", ".jsx"], json: [".json"], md: [".md"] };
-      const requestedType = inputText(input, "type");
-      if (requestedType && !typeExtensions[requestedType]) throw new Error(`未知 type: ${requestedType}`);
-      for (const file of files) {
-        const normalized = file.replaceAll("\\", "/");
-        if (globMatcher && globMatcher.test(normalized) === excludedGlob) continue;
-        if (requestedType && !typeExtensions[requestedType]!.includes(extname(file).toLowerCase())) continue;
-        const absolute = safePath(root, file);
-        let source: string;
-        try { source = readFileSync(absolute, "utf8"); } catch { continue; }
-        const lines = source.split(/\r?\n/);
-        const matchingLines: number[] = [];
-        if (input.multiline) {
-          for (const match of source.matchAll(new RegExp(pattern, `${flags.includes("i") ? "i" : ""}gsu`))) {
-            matchingLines.push(source.slice(0, match.index).split(/\r?\n/).length - 1);
-          }
-        } else lines.forEach((line, index) => { regex.lastIndex = 0; if (regex.test(line)) matchingLines.push(index); });
-        if (matchingLines.length === 0) continue;
-        if (mode === "files_with_matches") matches.push(file);
-        else if (mode === "count") matches.push(`${file}:${matchingLines.length}`);
-        else {
-          const common = Math.max(0, Number(input.context ?? 0));
-          const before = Math.max(0, Number(input.before_context ?? common));
-          const after = Math.max(0, Number(input.after_context ?? common));
-          const emitted = new Set<number>();
-          for (const lineIndex of matchingLines) {
-            for (let current = Math.max(0, lineIndex - before); current <= Math.min(lines.length - 1, lineIndex + after); current += 1) {
-              if (emitted.has(current)) continue;
-              emitted.add(current);
-              matches.push(`${file}${current === lineIndex ? ":" : "-"}${current + 1}${current === lineIndex ? ":" : "-"}${lines[current]}`);
-            }
-          }
-        }
-        if (matches.length >= maxLines) break;
-      }
-      const output = matches.length === 0 ? "No matches found." : matches.slice(0, maxLines).join("\n");
+      if (!["files_with_matches", "content", "count"].includes(mode)) throw new Error(`未知 output_mode: ${mode}`);
+      const output = await search.grep({
+        pattern,
+        searchPath: base,
+        outputMode: mode as "files_with_matches" | "content" | "count",
+        glob: inputText(input, "glob"),
+        fileType: inputText(input, "type"),
+        caseInsensitive: input.case_insensitive === true,
+        ...(input.context === undefined ? {} : { context: Math.max(0, Number(input.context)) }),
+        ...(input.before_context === undefined ? {} : { beforeContext: Math.max(0, Number(input.before_context)) }),
+        ...(input.after_context === undefined ? {} : { afterContext: Math.max(0, Number(input.after_context)) }),
+        multiline: input.multiline === true,
+        limit: maxLines,
+        signal: context.handle.signal,
+      });
       return { content: textBlock(truncateHeadTail(output, toolOutputLimit).value) };
     },
   });
@@ -634,16 +589,13 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     name: "find",
     description: "Find workspace files by glob-like pattern.",
     input_schema: { type: "object", properties: { pattern: { type: "string" }, path: { type: "string" }, head_limit: { type: "integer" } }, required: ["pattern"], additionalProperties: false },
-    execute: async (input) => {
+    execute: async (input, context) => {
       const base = safePath(root, input.path ?? ".");
-      const regex = globRegex(inputText(input, "pattern"));
+      const pattern = inputText(input, "pattern");
+      if (!pattern) throw new Error("pattern 不能为空");
       const max = Math.max(1, Number(input.head_limit ?? 200));
-      const files = walk(base).filter((path) => regex.test(path.replaceAll("\\", "/")) || regex.test(basename(path)))
-        .map((path) => ({ path, mtime: statSync(join(base, path)).mtimeMs }))
-        .sort((left, right) => right.mtime - left.mtime || left.path.localeCompare(right.path));
-      const selected = files.slice(0, max).map((item) => item.path);
-      if (files.length > max) selected.push(`... showing first ${max} of ${files.length}`);
-      return { content: textBlock(truncateHeadTail(selected.join("\n"), toolOutputLimit).value) };
+      const output = await search.find({ pattern, searchPath: base, limit: max, signal: context.handle.signal });
+      return { content: textBlock(truncateHeadTail(output, toolOutputLimit).value) };
     },
   });
   registry.register({

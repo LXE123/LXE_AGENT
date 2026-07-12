@@ -141,6 +141,16 @@ describe("native coding tools", () => {
     await processes.stop();
   });
 
+  test("rejects unknown-extension binary files by content", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-binary-"));
+    roots.push(root);
+    writeFileSync(join(root, "payload.unknown"), new Uint8Array([1, 2, 0, 3, 4]));
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, { workspaceRoot: root, ripgrepPath: null });
+    await expect(registry.execute("read", { path: "payload.unknown" }, context())).rejects.toThrow("binary file");
+    await processes.stop();
+  });
+
   test("restores grep modes, find ordering, send boundaries, and business CLI guard", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-contract-"));
     roots.push(root);
