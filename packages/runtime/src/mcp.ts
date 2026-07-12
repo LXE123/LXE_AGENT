@@ -5,7 +5,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { parse, stringify } from "yaml";
 import type { JsonObject } from "@lxe/protocol";
-import type { Environment } from "@lxe/core";
+import { createLogger, type Environment } from "@lxe/core";
 import { ToolRegistry } from "./tools";
 
 export type McpTransportKind = "stdio" | "streamable-http";
@@ -322,6 +322,7 @@ const safeMcpContent = (result: McpCallResult): JsonObject[] => {
 };
 
 export class McpManager {
+  private readonly logger = createLogger("runtime.mcp");
   private readonly connections = new Map<string, McpConnection>();
   private readonly errors = new Map<string, string>();
   private readonly toolNames = new Map<string, Array<{ rawName: string; modelName: string }>>();
@@ -335,9 +336,18 @@ export class McpManager {
 
   async start(registry: ToolRegistry): Promise<void> {
     this.registry = registry;
-    await Promise.all(this.config.servers.filter((server) => server.enabled).map(async (server) => {
-      try { await this.connect(server, registry); }
-      catch (error) { this.errors.set(server.name, error instanceof Error ? error.message : String(error)); }
+    await Promise.all(this.config.servers.map(async (server) => {
+      if (!server.enabled) {
+        this.logger.info("mcp_disabled", this.serverFields(server));
+        return;
+      }
+      this.logger.info("mcp_enabled", this.serverFields(server));
+      try {
+        await this.connect(server, registry);
+      } catch (error) {
+        this.errors.set(server.name, error instanceof Error ? error.message : String(error));
+        this.logger.warn("mcp_startup_failed", { ...this.serverFields(server), error });
+      }
     }));
   }
 
@@ -355,12 +365,15 @@ export class McpManager {
       const connection = this.connections.get(serverName);
       this.connections.delete(serverName);
       await connection?.close();
+      this.logger.info("mcp_disabled", this.serverFields(server));
       return;
     }
+    this.logger.info("mcp_enabled", this.serverFields(server));
     try {
       await this.connect(server, registry);
     } catch (error) {
       this.errors.set(server.name, error instanceof Error ? error.message : String(error));
+      this.logger.warn("mcp_startup_failed", { ...this.serverFields(server), error });
     }
   }
 
@@ -382,7 +395,15 @@ export class McpManager {
     for (const [serverName] of connections) {
       this.registry?.unregisterWhere((name) => name.startsWith(mcpServerPrefix(serverName)));
     }
-    await Promise.allSettled(connections.map(([, connection]) => connection.close()));
+    const results = await Promise.allSettled(connections.map(([, connection]) => connection.close()));
+    connections.forEach(([serverName], index) => {
+      const result = results[index];
+      if (result?.status === "rejected") {
+        this.logger.warn("mcp_disconnect_failed", { server_name: serverName, error: result.reason });
+      } else {
+        this.logger.info("mcp_disconnected", { server_name: serverName });
+      }
+    });
     this.registry = undefined;
   }
 
@@ -432,5 +453,19 @@ export class McpManager {
       });
     }
     this.toolNames.set(server.name, names);
+    this.logger.info("mcp_connected", {
+      ...this.serverFields(server),
+      tool_count: connection.tools.length,
+      registered_tool_count: names.length,
+    });
+  }
+
+  private serverFields(server: McpServerConfig): JsonObject {
+    return {
+      server_name: server.name,
+      transport: server.transport,
+      connector_id: server.connectorId,
+      connector_name: server.connectorName,
+    };
   }
 }

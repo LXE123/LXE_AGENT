@@ -100,19 +100,25 @@ const truncate = (value: string, limit = MAX_LOG_STRING): string => {
   const head = Math.floor(available / 2);
   return `${value.slice(0, head)}${marker}${value.slice(-(available - head))}`;
 };
+const redactSensitiveText = (value: string): string => value
+  .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [redacted]")
+  .replace(
+    /\b(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|cookie|password|signature)\b(\s*[:=]\s*)([^\s,;]+)/gi,
+    "$1$2[redacted]",
+  );
 
 const errorValue = (error: Error, depth: number, seen: WeakSet<object>): Record<string, unknown> => {
   if (seen.has(error)) return { name: error.name, message: truncate(error.message), cause: "[recursive]" };
   seen.add(error);
   const result: Record<string, unknown> = {
     name: truncate(error.name),
-    message: truncate(error.message),
-    stack: truncate(error.stack ?? "", 16_000),
+    message: truncate(redactSensitiveText(error.message)),
+    stack: truncate(redactSensitiveText(error.stack ?? ""), 16_000),
   };
   try {
     for (const [key, value] of Object.entries(error)) {
       if (SAFE_ERROR_FIELDS.has(key) && ["string", "number", "boolean"].includes(typeof value)) {
-        result[key] = typeof value === "string" ? truncate(value) : value;
+        result[key] = typeof value === "string" ? truncate(redactSensitiveText(value)) : value;
       }
     }
   } catch {
@@ -132,7 +138,7 @@ export function sanitizeLogValue(
 ): unknown {
   if (key && SENSITIVE_KEYS.has(normalizedKey(key))) return "***";
   if (value === null || value === undefined || typeof value === "boolean" || typeof value === "number") return value;
-  if (typeof value === "string") return truncate(value);
+  if (typeof value === "string") return truncate(redactSensitiveText(value));
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "symbol" || typeof value === "function") return String(value);
   if (depth >= MAX_LOG_DEPTH) return "[max depth]";

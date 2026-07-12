@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
-import { createLogger } from "@lxe/core";
+import { createLogger, runWithLogContext } from "@lxe/core";
 import {
   AtomicRuntimeProviderManager,
   McpManager,
@@ -108,21 +108,39 @@ export function createProductionGateway(
       const sessionId = String(snapshot.session_id ?? "").trim();
       if (!sessionId) return;
       const responseRouteId = String(snapshot.response_route_id ?? "").trim();
-      const eventId = crypto.randomUUID().replaceAll("-", "");
-      await directStore.appendPendingEvent(
-        sessionId,
-        {
-          event_id: eventId,
-          job_id: String(snapshot.task_id ?? ""),
-          created_at: Math.trunc(Date.now() / 1_000),
-          text: `后台命令已结束：status=${String(snapshot.status ?? "")}\n${String(snapshot.output_tail ?? "")}`.trim(),
-          ...(responseRouteId ? { response_route_id: responseRouteId } : {}),
-        },
-      );
-      heartbeatWake?.({
+      const taskId = String(snapshot.task_id ?? "").trim();
+      const turnId = String(snapshot.origin_turn_id ?? "").trim();
+      await runWithLogContext({
         session_id: sessionId,
+        turn_id: turnId,
         response_route_id: responseRouteId,
-        reason: "exec-event",
+        task_id: taskId,
+      }, async () => {
+        const eventId = crypto.randomUUID().replaceAll("-", "");
+        await directStore.appendPendingEvent(
+          sessionId,
+          {
+            event_id: eventId,
+            job_id: taskId,
+            created_at: Math.trunc(Date.now() / 1_000),
+            text: `后台命令已结束：status=${String(snapshot.status ?? "")}\n${String(snapshot.output_tail ?? "")}`.trim(),
+            ...(responseRouteId ? { response_route_id: responseRouteId } : {}),
+          },
+        );
+        logger.info("process_notification_enqueued", {
+          event_id: eventId,
+          status: String(snapshot.status ?? ""),
+        });
+        if (heartbeatWake) {
+          heartbeatWake({
+            session_id: sessionId,
+            response_route_id: responseRouteId,
+            reason: "exec-event",
+          });
+          logger.info("process_wake_requested", { reason: "exec-event" });
+        } else {
+          logger.warn("process_wake_unavailable", { reason: "gateway_not_ready" });
+        }
       });
     },
   });

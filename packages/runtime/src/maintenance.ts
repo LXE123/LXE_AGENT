@@ -47,7 +47,7 @@ const envInteger = (env: Environment, name: string, fallback: number, minimum: n
 };
 
 export class MaintenanceScheduler {
-  private readonly logger = createLogger("maintenance");
+  private readonly logger = createLogger("runtime.maintenance");
   private readonly fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   private readonly clock: MaintenanceClock;
   private readonly timers: unknown[] = [];
@@ -64,22 +64,31 @@ export class MaintenanceScheduler {
   async start(): Promise<void> {
     if (!this.stopped) return;
     this.stopped = false;
-    if (envBoolean(this.options.environment, "LXE_MAINTENANCE_AUTH_ENABLED", true)) {
+    const authEnabled = envBoolean(this.options.environment, "LXE_MAINTENANCE_AUTH_ENABLED", true);
+    const dataEnabled = envBoolean(this.options.environment, "LXE_DATA_SERVER_ENABLED");
+    const authIntervalMs = 2 * 60 * 60_000;
+    const dataIntervalMs = envInteger(this.options.environment, "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS", 10_800, 30) * 1_000;
+    this.logger.info("maintenance_configured", {
+      auth_enabled: authEnabled,
+      auth_interval_ms: authIntervalMs,
+      data_sync_enabled: dataEnabled,
+      data_sync_interval_ms: dataIntervalMs,
+    });
+    if (authEnabled) {
       await this.requestSingleFlight("auth", () => this.refreshAuth());
       if (this.stopped) return;
       const authTimer = this.clock.setInterval(
         () => { void this.requestSingleFlight("auth", () => this.refreshAuth()); },
-        2 * 60 * 60_000,
+        authIntervalMs,
       );
       this.timers.push(authTimer);
     }
-    if (envBoolean(this.options.environment, "LXE_DATA_SERVER_ENABLED")) {
+    if (dataEnabled) {
       await this.requestSingleFlight("data", () => this.syncDataServer());
       if (this.stopped) return;
-      const interval = envInteger(this.options.environment, "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS", 10_800, 30) * 1_000;
       const syncTimer = this.clock.setInterval(
         () => { void this.requestSingleFlight("data", () => this.syncDataServer()); },
-        interval,
+        dataIntervalMs,
       );
       this.timers.push(syncTimer);
     }
@@ -101,7 +110,7 @@ export class MaintenanceScheduler {
       }),
     ]);
     if (timer) clearTimeout(timer);
-    if (!completed) this.logger.warn("maintenance stop timed out", {
+    if (!completed) this.logger.warn("maintenance_stop_timed_out", {
       timeout_ms: timeoutMs,
       active_tasks: this.active.size,
     });
@@ -110,7 +119,10 @@ export class MaintenanceScheduler {
   async syncDataServer(): Promise<JsonObject> {
     const serverUrl = envText(this.options.environment, "LXE_DATA_SERVER_URL").replace(/\/+$/, "");
     const apiKey = envText(this.options.environment, "LXE_DATA_SERVER_API_KEY");
-    if (!serverUrl || !apiKey) return { uploaded: false, skipped_reason: "missing_config" };
+    if (!serverUrl || !apiKey) {
+      this.logger.info("data_sync_skipped", { reason: "missing_config" });
+      return { uploaded: false, skipped_reason: "missing_config" };
+    }
     const sessionLimit = envInteger(this.options.environment, "LXE_DATA_SERVER_SESSION_LIMIT", 1_000, 1);
     const usageDays = envInteger(this.options.environment, "LXE_DATA_SERVER_USAGE_DAYS", 30, 1);
     const sessions: JsonObject[] = [];
@@ -130,7 +142,10 @@ export class MaintenanceScheduler {
       }
       if (listed.items.length < 200) break;
     }
-    if (sessions.length === 0) return { uploaded: false, skipped_reason: "no_sessions" };
+    if (sessions.length === 0) {
+      this.logger.info("data_sync_skipped", { reason: "no_sessions" });
+      return { uploaded: false, skipped_reason: "no_sessions" };
+    }
     const snapshot: JsonObject = {
       machine_id: this.machineId(),
       gateway_id: this.options.gatewayId,
@@ -152,11 +167,20 @@ export class MaintenanceScheduler {
       });
       if (!response.ok) throw new Error(`data server returned HTTP ${response.status}`);
       const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-      return {
+      const result: JsonObject = {
         uploaded: true,
         sessions_received: Number(payload.sessions_received ?? sessions.length),
         messages_received: Number(payload.messages_received ?? 0),
       };
+      this.logger.info("data_sync_uploaded", {
+        session_count: sessions.length,
+        usage_turn_count: Array.isArray((snapshot.turn_usage as JsonObject).turns)
+          ? ((snapshot.turn_usage as JsonObject).turns as unknown[]).length
+          : 0,
+        sessions_received: result.sessions_received,
+        messages_received: result.messages_received,
+      });
+      return result;
     } finally {
       clearTimeout(timeout);
       this.controllers.delete(controller);
@@ -175,9 +199,8 @@ export class MaintenanceScheduler {
         arguments: { scope: "erp" },
         session: { session_id: "maintenance", response_route_id: "", user_id: "", conversation_id: "" },
       }, controller.signal);
-      if (!response.ok) this.logger.warn("browser auth refresh failed", { error: response.error?.message ?? "unknown" });
-    } catch (error) {
-      this.logger.warn("browser auth refresh failed", { error });
+      if (!response.ok) throw new Error(response.error?.message ?? "browser auth refresh failed");
+      this.logger.info("auth_refresh_succeeded", { scope: "erp" });
     } finally {
       this.controllers.delete(controller);
     }
@@ -193,7 +216,7 @@ export class MaintenanceScheduler {
         if (existing) return existing;
       }
     } catch (error) {
-      this.logger.warn("machine identity unreadable", { path, error });
+      this.logger.warn("machine_identity_unreadable", { path, error });
     }
     const machineId = randomUUID().replaceAll("-", "");
     mkdirSync(dirname(path), { recursive: true });
@@ -211,14 +234,27 @@ export class MaintenanceScheduler {
     const state = this.flights.get(kind) ?? { rerun: false };
     this.flights.set(kind, state);
     if (state.running) {
+      if (!state.rerun) this.logger.debug("maintenance_single_flight_coalesced", { task: kind });
       state.rerun = true;
       return state.running;
     }
     const runOnce = async (): Promise<void> => {
+      const startedAt = Date.now();
+      this.logger.info("maintenance_task_started", { task: kind });
       try {
         await operation();
+        this.logger.info("maintenance_task_completed", {
+          task: kind,
+          status: "completed",
+          duration_ms: Date.now() - startedAt,
+        });
       } catch (error) {
-        this.logger.warn("scheduled maintenance failed", { task: kind, error });
+        this.logger.warn(kind === "auth" ? "auth_refresh_failed" : "data_sync_failed", { error });
+        this.logger.info("maintenance_task_completed", {
+          task: kind,
+          status: "failed",
+          duration_ms: Date.now() - startedAt,
+        });
       }
     };
     let tracked: Promise<void>;
@@ -226,6 +262,7 @@ export class MaintenanceScheduler {
       await runOnce();
       if (!this.stopped && state.rerun) {
         state.rerun = false;
+        this.logger.debug("maintenance_single_flight_rerun", { task: kind });
         await runOnce();
       }
     })().finally(() => {

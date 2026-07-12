@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "n
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parse } from "yaml";
+import { createLogger } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 
 export interface SkillPromptOptions {
@@ -107,6 +108,7 @@ const parseManifest = (path: string, source: SkillManifest["source"]): SkillMani
 };
 
 export class SkillCatalog {
+  private readonly logger = createLogger("runtime.skills");
   private signature = "";
   private manifests: SkillManifest[] = [];
 
@@ -157,13 +159,21 @@ export class SkillCatalog {
     if (signature === this.signature) return;
     const parsed = paths.map(({ path, source }) => parseManifest(path, source));
     const byName = new Map<string, SkillManifest>();
+    let externalSkipped = 0;
     for (const manifest of parsed) {
       const existing = byName.get(manifest.name);
       if (!existing) {
         byName.set(manifest.name, manifest);
         continue;
       }
-      if (existing.source === "repository" && manifest.source === "user") continue;
+      if (existing.source === "repository" && manifest.source === "user") {
+        externalSkipped += 1;
+        this.logger.debug("skill_external_skipped", {
+          skill_name: manifest.name,
+          reason: "repository_precedence",
+        });
+        continue;
+      }
       if (existing.source === "user" && manifest.source === "repository") {
         byName.set(manifest.name, manifest);
         continue;
@@ -180,6 +190,13 @@ export class SkillCatalog {
     }
     this.manifests = [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
     this.signature = signature;
+    this.logger.info("skill_catalog_loaded", {
+      skill_count: this.manifests.length,
+      repository_skill_count: parsed.filter((manifest) => manifest.source === "repository").length,
+      user_skill_count: parsed.filter((manifest) => manifest.source === "user").length,
+      external_skipped_count: externalSkipped,
+      source_root_count: Number(existsSync(repositoryRoot)) + Number(existsSync(this.userSkillsRoot)),
+    });
   }
 }
 

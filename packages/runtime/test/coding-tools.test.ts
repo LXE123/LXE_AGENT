@@ -15,6 +15,8 @@ afterEach(() => {
 
 const context = () => ({
   session_id: "s1",
+  turn_id: "turn-1",
+  response_route_id: "route-1",
   handle: {
     signal: new AbortController().signal,
     cancelled: false,
@@ -61,12 +63,17 @@ describe("native coding tools", () => {
     const payload = JSON.parse(String(started.content[0]?.text));
     expect(payload.status).toBe("running");
     expect(payload.session).toMatch(/^exec_/);
+    expect(payload.origin_turn_id).toBe("turn-1");
     expect(JSON.parse(String((await registry.execute("process", { action: "list" }, context())).content[0]?.text)).items).toHaveLength(1);
     await Bun.sleep(180);
     const polled = JSON.parse(String((await registry.execute("process", { action: "poll", session: payload.session }, context())).content[0]?.text));
     expect(polled.status).toBe("completed");
     expect(polled.output).toContain("done");
-    expect(completed).toEqual([expect.objectContaining({ session: payload.session, status: "completed" })]);
+    expect(completed).toEqual([expect.objectContaining({
+      session: payload.session,
+      status: "completed",
+      origin_turn_id: "turn-1",
+    })]);
     await registry.execute("process", { action: "remove", session: payload.session }, context());
     expect(processes.snapshots()).toHaveLength(0);
     await processes.stop();

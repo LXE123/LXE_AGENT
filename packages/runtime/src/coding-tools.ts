@@ -10,6 +10,7 @@ import {
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { createLogger, runWithLogContext } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 import type { RuntimeHandle } from "./types";
 import { ToolRegistry } from "./tools";
@@ -28,6 +29,7 @@ interface ProcessEntry {
   command: string;
   cwd: string;
   sessionId: string;
+  turnId: string;
   responseRouteId: string;
   startedAt: number;
   endedAt?: number;
@@ -41,6 +43,7 @@ interface ProcessEntry {
   completion: Promise<void>;
   timeout?: ReturnType<typeof setTimeout>;
   notifyOnExit: boolean;
+  terminationEvents: Set<"process_killed" | "process_force_killed">;
 }
 
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
@@ -214,6 +217,7 @@ const normalizeProjectPythonCommand = (root: string, command: string): string =>
 
 export class CodingProcessManager {
   private readonly entries = new Map<string, ProcessEntry>();
+  private readonly logger = createLogger("runtime.coding_process");
 
   constructor(private readonly options: {
     maxOutputChars: number;
@@ -225,7 +229,10 @@ export class CodingProcessManager {
   async start(): Promise<void> {}
 
   async stop(): Promise<void> {
-    await Promise.allSettled([...this.entries.values()].filter((entry) => entry.status === "running").map((entry) => terminateTree(entry)));
+    await Promise.allSettled([...this.entries.values()].filter((entry) => entry.status === "running").map((entry) => {
+      entry.status = "killed";
+      return this.terminateObserved(entry, "process_force_killed");
+    }));
     await Promise.allSettled([...this.entries.values()].map((entry) => entry.completion));
   }
 
@@ -271,6 +278,7 @@ export class CodingProcessManager {
       command: request.command,
       cwd: request.cwd,
       sessionId: request.sessionId,
+      turnId: request.turnId ?? "",
       responseRouteId: request.responseRouteId,
       startedAt: Date.now() / 1_000,
       process: child,
@@ -282,8 +290,12 @@ export class CodingProcessManager {
       truncated: false,
       completion: Promise.resolve(),
       notifyOnExit: request.background,
+      terminationEvents: new Set(),
     };
     this.entries.set(id, entry);
+    runWithLogContext(this.logContext(entry), () => {
+      this.logger.info("process_started", this.processFields(entry));
+    });
     const append = (value: string): void => {
       const pending = truncateHeadTail(entry.pending + value, this.options.maxPendingChars);
       entry.pending = pending.value;
@@ -305,33 +317,56 @@ export class CodingProcessManager {
     };
     const stdoutTask = pump(child.stdout, false);
     const stderrTask = pump(child.stderr, true);
-    entry.completion = (async () => {
+    entry.completion = runWithLogContext(this.logContext(entry), async () => {
       const exitCode = await child.exited;
       await Promise.allSettled([stdoutTask, stderrTask]);
       entry.exitCode = exitCode;
       entry.endedAt = Date.now() / 1_000;
       if (entry.status === "running") entry.status = exitCode === 0 ? "completed" : "failed";
       if (entry.timeout) clearTimeout(entry.timeout);
-      if (entry.notifyOnExit) await this.onComplete?.(this.snapshot(entry));
-    })();
+      this.logger.info("process_completed", this.processFields(entry));
+      if (entry.notifyOnExit && this.onComplete) {
+        try {
+          await this.onComplete(this.snapshot(entry));
+        } catch (error) {
+          this.logger.warn("process_notification_failed", { ...this.processFields(entry), error });
+        }
+      }
+    });
     if (!request.background && request.timeoutMs) {
       entry.timeout = setTimeout(() => {
         if (entry.status !== "running") return;
         entry.status = "timeout";
-        void terminateTree(entry);
+        void runWithLogContext(this.logContext(entry), async () => {
+          this.logger.warn("process_timeout", this.processFields(entry));
+          await terminateTree(entry);
+        });
       }, request.timeoutMs);
     }
-    if (request.background) return this.snapshot(entry);
+    if (request.background) {
+      runWithLogContext(this.logContext(entry), () => {
+        this.logger.info("process_yielded_to_background", this.processFields(entry));
+      });
+      return this.snapshot(entry);
+    }
 
     const unregister = request.handle.registerProcess({
-      kill: () => terminateTree(entry),
-      forceKill: () => terminateTree(entry),
+      kill: () => this.terminateObserved(entry, "process_killed"),
+      forceKill: () => this.terminateObserved(entry, "process_force_killed"),
     });
-    const abort = (): void => { entry.status = "killed"; void terminateTree(entry); };
+    const abort = (): void => {
+      entry.status = "killed";
+      void this.terminateObserved(entry, "process_killed");
+    };
     request.handle.signal.addEventListener("abort", abort, { once: true });
     try {
       await Promise.race([entry.completion, Bun.sleep(request.yieldMs)]);
-      if (entry.status === "running") entry.notifyOnExit = true;
+      if (entry.status === "running") {
+        entry.notifyOnExit = true;
+        runWithLogContext(this.logContext(entry), () => {
+          this.logger.info("process_yielded_to_background", this.processFields(entry));
+        });
+      }
       return this.snapshot(entry);
     } finally {
       request.handle.signal.removeEventListener("abort", abort);
@@ -369,7 +404,7 @@ export class CodingProcessManager {
     if (action === "kill" || action === "remove") {
       if (entry.status === "running") {
         entry.status = "killed";
-        await terminateTree(entry);
+        await this.terminateObserved(entry, "process_killed");
         await entry.completion;
       }
       const payload = this.snapshot(entry);
@@ -387,7 +422,7 @@ export class CodingProcessManager {
       session_id: entry.sessionId,
       response_route_id: entry.responseRouteId,
       session_title: "",
-      origin_turn_id: "",
+      origin_turn_id: entry.turnId,
       card_id: "",
       status: entry.status,
       pid: entry.process.pid,
@@ -408,6 +443,40 @@ export class CodingProcessManager {
     for (const [id, entry] of this.entries) {
       if (entry.status !== "running" && (entry.endedAt ?? Number.POSITIVE_INFINITY) < cutoff) this.entries.delete(id);
     }
+  }
+
+  private logContext(entry: ProcessEntry) {
+    return {
+      session_id: entry.sessionId,
+      turn_id: entry.turnId,
+      response_route_id: entry.responseRouteId,
+      task_id: entry.id,
+    };
+  }
+
+  private processFields(entry: ProcessEntry): JsonObject {
+    return {
+      pid: entry.process.pid,
+      task_id: entry.id,
+      status: entry.status,
+      duration_ms: Math.max(0, Math.round(((entry.endedAt ?? Date.now() / 1_000) - entry.startedAt) * 1_000)),
+      exit_code: entry.exitCode,
+      truncated: entry.truncated,
+      cwd: entry.cwd,
+    };
+  }
+
+  private terminateObserved(
+    entry: ProcessEntry,
+    event: "process_killed" | "process_force_killed",
+  ): Promise<void> {
+    return runWithLogContext(this.logContext(entry), async () => {
+      if (!entry.terminationEvents.has(event)) {
+        entry.terminationEvents.add(event);
+        this.logger.warn(event, this.processFields(entry));
+      }
+      await terminateTree(entry);
+    });
   }
 
   onComplete: ((snapshot: JsonObject) => Promise<void> | void) | undefined;

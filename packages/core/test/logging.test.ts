@@ -98,6 +98,7 @@ describe("structured logger", () => {
       count: 123n,
       bytes: new Uint8Array([1, 2, 3]),
       long: "x".repeat(9_000),
+      transport_error: "authorization: Bearer transport-private token=another-private",
       headers: { authorization: "Bearer private", cookie: "secret-cookie", accept: "json" },
     })).not.toThrow();
 
@@ -109,6 +110,8 @@ describe("structured logger", () => {
     expect(record.headers).toEqual({ authorization: "***", cookie: "***", accept: "json" });
     expect(lines[0]).not.toContain("Bearer private");
     expect(lines[0]).not.toContain("secret-cookie");
+    expect(lines[0]).not.toContain("transport-private");
+    expect(lines[0]).not.toContain("another-private");
   });
 
   test("contains custom writer failures", () => {
