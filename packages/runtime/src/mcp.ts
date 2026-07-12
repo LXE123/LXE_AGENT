@@ -244,43 +244,46 @@ export class OfficialMcpConnector implements McpConnector {
     try {
       await client.connect(transport);
       if (signal?.aborted) throw signal.reason;
+      const tools: McpRemoteTool[] = [];
+      const cursors = new Set<string>();
+      let cursor = "";
+      do {
+        const listed = await client.listTools(cursor ? { cursor } : undefined, signal ? { signal } : undefined);
+        tools.push(...listed.tools.map((tool) => ({
+          name: tool.name,
+          ...(tool.description ? { description: tool.description } : {}),
+          inputSchema: (tool.inputSchema ?? { type: "object", properties: {} }) as JsonObject,
+        })));
+        const next = String(listed.nextCursor ?? "").trim();
+        if (!next) break;
+        if (cursors.has(next)) throw new Error(`MCP server ${server.name} repeated tools cursor`);
+        cursors.add(next);
+        cursor = next;
+      } while (true);
+      return {
+        tools,
+        callTool: async (name, arguments_, signal) => {
+          const result = mapping(await client.callTool({ name, arguments: arguments_ }, undefined, signal ? { signal } : {}));
+          const content = Array.isArray(result.content)
+            ? result.content.map(mapping).filter((item) => Object.keys(item).length > 0) as JsonObject[]
+            : [];
+          return {
+            content,
+            ...(Object.keys(mapping(result.structuredContent)).length > 0
+              ? { structuredContent: mapping(result.structuredContent) as JsonObject }
+              : {}),
+            ...(Object.keys(mapping(result._meta)).length > 0 ? { meta: mapping(result._meta) as JsonObject } : {}),
+            isError: result.isError === true,
+          };
+        },
+        close: () => client.close(),
+      };
+    } catch (error) {
+      await client.close().catch(() => undefined);
+      throw error;
     } finally {
       signal?.removeEventListener("abort", closeOnAbort);
     }
-    const tools: McpRemoteTool[] = [];
-    const cursors = new Set<string>();
-    let cursor = "";
-    do {
-      const listed = await client.listTools(cursor ? { cursor } : undefined, signal ? { signal } : undefined);
-      tools.push(...listed.tools.map((tool) => ({
-        name: tool.name,
-        ...(tool.description ? { description: tool.description } : {}),
-        inputSchema: (tool.inputSchema ?? { type: "object", properties: {} }) as JsonObject,
-      })));
-      const next = String(listed.nextCursor ?? "").trim();
-      if (!next) break;
-      if (cursors.has(next)) throw new Error(`MCP server ${server.name} repeated tools cursor`);
-      cursors.add(next);
-      cursor = next;
-    } while (true);
-    return {
-      tools,
-      callTool: async (name, arguments_, signal) => {
-        const result = mapping(await client.callTool({ name, arguments: arguments_ }, undefined, signal ? { signal } : {}));
-        const content = Array.isArray(result.content)
-          ? result.content.map(mapping).filter((item) => Object.keys(item).length > 0) as JsonObject[]
-          : [];
-        return {
-          content,
-          ...(Object.keys(mapping(result.structuredContent)).length > 0
-            ? { structuredContent: mapping(result.structuredContent) as JsonObject }
-            : {}),
-          ...(Object.keys(mapping(result._meta)).length > 0 ? { meta: mapping(result._meta) as JsonObject } : {}),
-          isError: result.isError === true,
-        };
-      },
-      close: () => client.close(),
-    };
   }
 }
 
