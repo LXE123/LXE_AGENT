@@ -71,6 +71,7 @@ export interface DisplayMetrics extends JsonObject {
 
 interface EmitRequestPayload {
   session_id: string;
+  turn_id: string;
   response_route_id: string;
   content: string;
   thinking: string;

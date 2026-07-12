@@ -146,6 +146,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const finalAnswerStreamer = job.response_route_id && String(session.source.platform ?? "").trim() === "feishu"
       ? new FinalAnswerStreamer({
           sessionId: job.session_id,
+          turnId: job.job_id,
           responseRouteId: job.response_route_id,
           emit: (request) => this.emitBestEffort(request, "stream"),
           ...(this.options.display ? {
@@ -201,6 +202,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       if (job.job_kind === "turn" && job.response_route_id) {
         typingStarted = await this.typingBestEffort({
           session_id: job.session_id,
+          turn_id: job.job_id,
           response_route_id: job.response_route_id,
           operation: "start",
           emit_id: randomUUID().replaceAll("-", ""),
@@ -427,6 +429,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             if (result.files?.length && job.response_route_id) {
               await this.options.emitter.emit({
                 session_id: job.session_id,
+                turn_id: job.job_id,
                 response_route_id: job.response_route_id,
                 content: "",
                 thinking: "",
@@ -507,6 +510,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       if (typingStarted) {
         await this.typingBestEffort({
           session_id: job.session_id,
+          turn_id: job.job_id,
           response_route_id: job.response_route_id,
           operation: "stop",
           emit_id: randomUUID().replaceAll("-", ""),
@@ -524,7 +528,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       this.logger.warn("outbound delivery failed", {
         phase,
         session_id: request.session_id,
+        turn_id: request.turn_id,
         response_route_id: request.response_route_id,
+        emit_id: request.emit_id,
         error,
       });
       return false;
@@ -542,7 +548,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       this.logger.warn("typing delivery failed", {
         phase,
         session_id: request.session_id,
+        turn_id: request.turn_id,
         response_route_id: request.response_route_id,
+        emit_id: request.emit_id,
         error,
       });
       return false;
@@ -562,6 +570,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
   private finalRequest(job: AgentJob, content: string): EmitRequest {
     return {
       session_id: job.session_id,
+      turn_id: job.job_id,
       response_route_id: job.response_route_id,
       content,
       thinking: "",

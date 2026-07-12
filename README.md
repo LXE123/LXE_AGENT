@@ -74,7 +74,9 @@ bun run gateway:dev
 bun run gateway:stop
 ```
 
-当天 Bun 与一次性工具日志位于 `logs/runtime/YYYYMMDD/`；`LOCAL_LOGS_ENABLED=1` 且 `LOG_FILE` 非空时写入 runtime JSONL。
+正式配置默认只保留控制台日志，不写本地文件。开发排障可从 `.env.local.example` 复制所需设置到 `.env.local`。
+开启后，当天 Bun JSONL 位于 `logs/runtime/YYYYMMDD/runtime.log`，Python 一次性工具文件日志位于同目录的
+`python-tools.log`，飞书原始事件位于 `logs/feishu_raw_events/YYYYMMDD.jsonl`。
 
 完整检查：
 

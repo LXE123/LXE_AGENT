@@ -5,6 +5,7 @@ import {
   type JsonObject,
 } from "@lxe/protocol";
 import type { ChannelRegistry } from "./channel";
+import { createLogger } from "@lxe/core";
 import type { OutboundRequest, ResponseRouteRecord } from "./models";
 
 interface EmitterRoutePort {
@@ -22,6 +23,7 @@ const safeText = (value: unknown): string => String(value ?? "").trim();
 
 export class GatewayEmitter {
   private readonly uuid: () => string;
+  private readonly logger = createLogger("gateway.emitter");
 
   constructor(private readonly options: GatewayEmitterOptions) {
     this.uuid = options.uuid ?? (() => randomUUID().replaceAll("-", ""));
@@ -35,11 +37,20 @@ export class GatewayEmitter {
     if (!context) throw new Error("response context unexpectedly unavailable");
     const adapter = this.options.registry.get(context.platform);
     const kind = safeText(emit.emit_kind);
+    const logger = this.logger.child({
+      session_id: emit.session_id,
+      turn_id: emit.turn_id,
+      response_route_id: emit.response_route_id,
+      emit_id: emit.emit_id,
+      emit_kind: kind,
+      platform: context.platform,
+    });
     if (kind === "progress") return;
     if (kind === "stream") {
       const content = safeText(emit.content);
       const thinking = safeText(emit.thinking);
       if (!content && !thinking && emit.redacted_thinking_count <= 0 && !emit.tool_pending && emit.tool_steps.length === 0) return;
+      logger.debug("outbound dispatch", { action: "stream_message", state: emit.state, seq: emit.seq });
       await adapter.handleOutbound(this.request(emit, context.platform, "stream_message", {
         stream_type: safeText(emit.stream_type),
         state: safeText(emit.state),
@@ -53,6 +64,7 @@ export class GatewayEmitter {
         tool_steps: emit.tool_steps.map((item) => ({ ...item })),
         display_metrics: { ...emit.display_metrics },
       }));
+      logger.debug("outbound completed", { action: "stream_message", state: emit.state, seq: emit.seq });
       return;
     }
     if (!new Set(["tool", "final"]).has(kind)) throw new Error(`unsupported emit_kind: ${kind}`);
@@ -67,15 +79,17 @@ export class GatewayEmitter {
 
   async typing(payload: {
     session_id: string;
+    turn_id: string;
     response_route_id: string;
     operation: string;
     emit_id?: string;
   }): Promise<void> {
     const sessionId = safeText(payload.session_id);
+    const turnId = safeText(payload.turn_id);
     const responseRouteId = safeText(payload.response_route_id);
     const operation = safeText(payload.operation);
     const emitId = safeText(payload.emit_id);
-    if (!sessionId || !responseRouteId) throw new Error("invalid runtime.typing payload");
+    if (!sessionId || !turnId || !responseRouteId) throw new Error("invalid runtime.typing payload");
     if (!new Set(["start", "stop"]).has(operation)) throw new Error(`unsupported typing operation: ${operation}`);
     const context = await this.resolve(sessionId, responseRouteId, true);
     if (!context || context.platform !== "feishu") return;
@@ -84,6 +98,7 @@ export class GatewayEmitter {
       platform: context.platform,
       payload: { operation },
       session_id: sessionId,
+      turn_id: turnId,
       response_route_id: responseRouteId,
       event_id: emitId || this.uuid(),
     });
@@ -113,6 +128,7 @@ export class GatewayEmitter {
       platform,
       payload,
       session_id: emit.session_id,
+      turn_id: emit.turn_id,
       response_route_id: emit.response_route_id,
       event_id: emit.emit_id,
     };

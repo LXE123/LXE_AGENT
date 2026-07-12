@@ -6,6 +6,7 @@
   "additionalProperties": false,
   "required": [
     "session_id",
+    "turn_id",
     "response_route_id",
     "content",
     "thinking",
@@ -23,6 +24,7 @@
   ],
   "properties": {
     "session_id": { "type": "string", "minLength": 1 },
+    "turn_id": { "type": "string", "minLength": 1 },
     "response_route_id": { "type": "string" },
     "content": { "type": "string" },
     "thinking": { "type": "string" },

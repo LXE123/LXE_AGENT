@@ -30,6 +30,15 @@ Reducing terminal noise must not remove useful runtime diagnostics. Conversely, 
 Local files are written below `logs/runtime/YYYYMMDD/` using the configured base name. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
 
 `LOCAL_LOGS_ENABLED` governs local file writes only. Ordinary console logging remains available when local logs are disabled.
+The shipped runtime configuration leaves local file logging disabled. For development, copy the relevant values from
+`.env.local.example` into `.env.local`; effective logging state and the resolved runtime path are emitted during startup.
+
+File responsibilities are intentionally separate:
+
+- Bun structured runtime records: `logs/runtime/YYYYMMDD/runtime.log`.
+- One-shot Python tool file logs: `logs/runtime/YYYYMMDD/python-tools.log`.
+- Feishu raw events: `logs/feishu_raw_events/YYYYMMDD.jsonl`.
+- Provider traces: `logs/agent_traces/` and `logs/sse_wire_traces/`.
 
 ## Record Shape And Context
 

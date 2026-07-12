@@ -5,6 +5,7 @@ import { GatewayEmitter } from "./emitter";
 
 const emit = (patch: Record<string, unknown> = {}): EmitRequest => ({
   session_id: "session-1",
+  turn_id: "turn-1",
   response_route_id: "route-1",
   content: "hello",
   thinking: "",
@@ -104,6 +105,7 @@ describe("GatewayEmitter", () => {
     await emitter.emit(emit({ content: "direct" }));
     await emitter.typing({
       session_id: "session-1",
+      turn_id: "turn-1",
       response_route_id: "route-1",
       operation: "start",
       emit_id: "typing-direct",
@@ -115,6 +117,7 @@ describe("GatewayEmitter", () => {
     const { channel, emitter } = setup();
     await emitter.typing({
       session_id: "session-1",
+      turn_id: "turn-1",
       response_route_id: "route-1",
       operation: "start",
       emit_id: "typing-1",
@@ -122,6 +125,7 @@ describe("GatewayEmitter", () => {
     expect(channel.outbound[0]).toEqual(expect.objectContaining({ action: "typing_indicator", event_id: "typing-1" }));
     await expect(emitter.typing({
       session_id: "session-1",
+      turn_id: "turn-1",
       response_route_id: "route-1",
       operation: "pulse",
     })).rejects.toThrow("operation");

@@ -80,6 +80,19 @@ export async function main(arguments_: readonly string[] = Bun.argv.slice(2)): P
   const projectRoot = resolve(import.meta.dir, "../../..");
   const environment = loadProjectEnv({ projectRoot });
   const logging = configureLogging({ projectRoot, environment });
+  const loggingEvent = {
+    project_root: projectRoot,
+    local_file_enabled: logging.status.localFileEnabled,
+    runtime_log_path: logging.status.filePath ?? "",
+    disabled_reason: logging.status.disabledReason ?? "",
+    console_level: logging.status.consoleLevel,
+    file_level: logging.status.fileLevel,
+  };
+  if (logging.status.disabledReason === "missing_log_file") {
+    logger.warn("logging configured with no runtime log file", loggingEvent);
+  } else {
+    logger.info("logging configured", loggingEvent);
+  }
   const onUnhandledRejection = (cause: unknown): void => {
     const error = cause instanceof Error ? cause : new Error(String(cause));
     logger.error("unhandled rejection", { error });

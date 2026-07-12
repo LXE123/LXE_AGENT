@@ -43,6 +43,7 @@ import {
   type PermissionPolicy,
 } from "./permission-policy";
 import type { GatewayEmitter } from "./emitter";
+import { DirectGatewayStorageAdapter } from "./storage-adapter";
 
 export interface ProductionGatewayOptions {
   projectRoot: string;
@@ -88,9 +89,10 @@ export function createProductionGateway(
   const databasePath =
     String(options.environment.LXE_SQLITE_DB_PATH ?? "").trim() ||
     join(options.projectRoot, "user_session_db", "local_agent.sqlite3");
-  const directStore =
-    options.directStorage ??
-    (new SqliteRuntimeStore(databasePath) as unknown as DirectGatewayStorage);
+  const sqliteStore = options.directStorage ? undefined : new SqliteRuntimeStore(databasePath);
+  const defaultDirectStore = sqliteStore ? new DirectGatewayStorageAdapter(sqliteStore) : undefined;
+  const directStore = options.directStorage ?? defaultDirectStore;
+  if (!directStore) throw new Error("Gateway storage is not configured");
   const providerManager = options.directRuntime
     ? undefined
     : new AtomicRuntimeProviderManager(options.projectRoot, options.environment);
@@ -105,7 +107,7 @@ export function createProductionGateway(
       if (!sessionId) return;
       const responseRouteId = String(snapshot.response_route_id ?? "").trim();
       const eventId = crypto.randomUUID().replaceAll("-", "");
-      await (directStore as unknown as SqliteRuntimeStore).appendPendingEvent(
+      await directStore.appendPendingEvent(
         sessionId,
         {
           event_id: eventId,
@@ -126,9 +128,7 @@ export function createProductionGateway(
       api: createOfficialFeishuImToolApi(feishu),
       workspaceRoot: options.projectRoot,
       sessionSource: async (sessionId) =>
-        (directStore as unknown as SqliteRuntimeStore)
-          .getSession(sessionId)
-          .then((session) => session?.source),
+        directStore.getSession(sessionId).then((session) => session?.source),
     });
   }
   const python =
@@ -145,7 +145,7 @@ export function createProductionGateway(
       cwd: options.projectRoot,
       timeoutMs: 10 * 60_000,
       maxOutputBytes: 10 * 1024 * 1024,
-      env: options.environment,
+      env: { ...options.environment, LOG_FILE: "python-tools.log" },
       onStderr: (line) => logger.info("Python tool", { line }),
     });
     registerScriptTools(tools, {
@@ -153,9 +153,7 @@ export function createProductionGateway(
       definitions: loadScriptToolCatalog(join(options.projectRoot, "py_tools", "catalog.json")),
       projectRoot: options.projectRoot,
       session: async (sessionId) => {
-        const session = await (
-          directStore as unknown as SqliteRuntimeStore
-        ).getSession(sessionId);
+        const session = await directStore.getSession(sessionId);
         const source = session?.source ?? {};
         return {
           session_id: sessionId,
@@ -167,11 +165,11 @@ export function createProductionGateway(
         };
       },
     });
-    runtimeServices.push(
+    if (sqliteStore) runtimeServices.push(
       new MaintenanceScheduler({
         projectRoot: options.projectRoot,
         environment: options.environment,
-        store: directStore as unknown as SqliteRuntimeStore,
+        store: sqliteStore,
         gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
         authRunner: scriptRunner,
       }),
@@ -188,10 +186,10 @@ export function createProductionGateway(
   const allowedSkillTypes = permissionKey
     ? policy.botSkillPolicy.get(permissionKey)
     : undefined;
-  dashboardApi = new DashboardApi({
+  if (sqliteStore) dashboardApi = new DashboardApi({
     projectRoot: options.projectRoot,
     environment: options.environment,
-    store: directStore as unknown as SqliteRuntimeStore,
+    store: sqliteStore,
     tools,
     mcpConfig,
     backgroundTasks: () => processes.snapshots(),
@@ -214,9 +212,10 @@ export function createProductionGateway(
     options.directRuntime ??
     (() => {
       if (!providerManager) throw new Error("provider manager is not configured");
+      if (!sqliteStore) throw new Error("SQLite Runtime store is not configured");
       const providerDescriptor = providerManager.acquire().descriptor;
       return new TypeScriptAgentRuntime({
-        store: directStore as unknown as SqliteRuntimeStore,
+        store: sqliteStore,
         providerManager,
         traceController: configureRuntimeTracing({ projectRoot: options.projectRoot, environment: options.environment }),
         tools,

@@ -20,6 +20,7 @@ describe("protocol contracts", () => {
     expect(validateInboundEvent(validInboundEvent)).toBe(true);
     expect(validateAgentJob(validAgentJob)).toBe(true);
     expect(validateEmitRequest(validEmitRequest)).toBe(true);
+    expect(validateEmitRequest({ ...validEmitRequest, turn_id: "" })).toBe(false);
   });
 
   test("rejects a payload with the wrong field shape", async () => {

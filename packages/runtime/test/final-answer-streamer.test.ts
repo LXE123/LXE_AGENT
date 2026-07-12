@@ -8,6 +8,7 @@ describe("FinalAnswerStreamer display contract", () => {
     const emitted: EmitRequest[] = [];
     const streamer = new FinalAnswerStreamer({
       sessionId: "s1",
+      turnId: "turn-1",
       responseRouteId: "r1",
       emitId: "emit-1",
       minIntervalMs: 0,
@@ -74,12 +75,14 @@ describe("FinalAnswerStreamer display contract", () => {
     expect(terminal.tool_steps[0]?.result_block?.content.length).toBeLessThanOrEqual(4_000);
     expect(terminal.tool_steps[1]?.error_block?.content.length).toBeLessThanOrEqual(2_000);
     expect(emitted.map((frame) => frame.seq)).toEqual(emitted.map((_, index) => index + 1));
+    expect(emitted.every((frame) => frame.turn_id === "turn-1")).toBe(true);
   });
 
   test("reports cancelled without creating a stream when no frame was delivered", async () => {
     const emitted: EmitRequest[] = [];
     const streamer = new FinalAnswerStreamer({
       sessionId: "s1",
+      turnId: "turn-1",
       responseRouteId: "r1",
       toolUseMode: "off",
       minIntervalMs: 0,
@@ -87,5 +90,23 @@ describe("FinalAnswerStreamer display contract", () => {
     });
     expect(await streamer.cancel()).toBe(false);
     expect(emitted).toEqual([]);
+  });
+
+  test("reports a failed terminal frame even after an earlier delta was delivered", async () => {
+    const emitted: EmitRequest[] = [];
+    const streamer = new FinalAnswerStreamer({
+      sessionId: "s1",
+      turnId: "turn-1",
+      responseRouteId: "r1",
+      minIntervalMs: 0,
+      emit: async (request) => {
+        emitted.push(request);
+        return request.state !== "final";
+      },
+    });
+    await streamer.pushEvent({ type: "text_delta", text: "partial" });
+    expect(await streamer.finish("complete")).toBe(false);
+    expect(emitted.some((frame) => frame.state === "delta")).toBe(true);
+    expect(emitted.at(-1)?.state).toBe("final");
   });
 });

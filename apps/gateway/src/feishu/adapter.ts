@@ -1,6 +1,6 @@
 import type { JsonObject, JsonValue } from "@lxe/protocol";
 import { appendFileSync, mkdirSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { createLogger } from "@lxe/core";
 import type { ChannelAdapter, InboundSink } from "../channel";
 import type { OutboundRequest, ResponseRoutePatch, ResponseRouteRecord } from "../models";
@@ -329,9 +329,10 @@ export class FeishuAdapter implements ChannelAdapter {
     try {
       const now = new Date();
       const day = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
-      const directory = join(this.options.projectRoot, "logs", "runtime", day);
+      const configured = this.options.config.rawEventDumpDir;
+      const directory = resolve(isAbsolute(configured) ? configured : join(this.options.projectRoot, configured));
       mkdirSync(directory, { recursive: true });
-      appendFileSync(join(directory, "feishu_raw_events.jsonl"), `${JSON.stringify({
+      appendFileSync(join(directory, `${day}.jsonl`), `${JSON.stringify({
         timestamp: now.toISOString(),
         event: data,
       })}\n`, "utf8");

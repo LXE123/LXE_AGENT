@@ -309,11 +309,13 @@ export class SessionRouter {
 
   private async sendFeedback(context: SessionContext, sessionId: string, markdown: string): Promise<void> {
     await this.options.storage.upsertResponseRoute(responseRoutePayload(context));
+    const turnId = this.id();
     await this.options.channels.get(context.platform).handleOutbound({
       action: "send_message",
       platform: context.platform,
       payload: { markdown },
       session_id: clean(sessionId),
+      turn_id: turnId,
       response_route_id: context.response_route_id,
       event_id: this.id(),
     });

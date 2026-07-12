@@ -5,6 +5,8 @@
  * CardKit API calls and streaming card shapes are adapted from openclaw-lark.
  */
 
+import { createHash } from "node:crypto";
+import { createLogger, type Logger } from "@lxe/core";
 import type { DisplayMetrics, JsonObject, JsonValue, ToolStep } from "@lxe/protocol";
 import type { OutboundRequest, ResponseRoutePatch } from "../models";
 import {
@@ -52,13 +54,22 @@ export interface FeishuRouteContext {
 }
 
 export class FeishuCardKitError extends Error {
+  readonly api_code: number;
+  readonly card_id: string;
+  readonly log_id: string;
+
   constructor(
     readonly operation: string,
     readonly code: number,
     readonly cardId = "",
     readonly detail = "",
+    logId = "",
   ) {
     super(`Feishu CardKit ${operation} failed with code ${code}${detail ? `: ${detail}` : ""}`);
+    this.name = "FeishuCardKitError";
+    this.api_code = code;
+    this.card_id = cardId;
+    this.log_id = logId;
   }
 }
 
@@ -66,6 +77,8 @@ interface StreamWriter {
   sourceSeq: number;
   cardSeq: number;
   status: "active" | "dead" | "finalized";
+  origin: "none" | "route" | "created" | "memory";
+  deadError?: Error;
   reopenCount: number;
   cardId: string;
   emitId: string;
@@ -86,6 +99,17 @@ const asObject = (value: JsonValue | undefined): JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {};
 const stringValue = (value: JsonValue | undefined): string => String(value ?? "").trim();
 const integer = (value: JsonValue | undefined): number => Number.isInteger(value) ? Number(value) : 0;
+const errorValue = (cause: unknown): Error => cause instanceof Error ? cause : new Error(String(cause));
+const cardLogFields = (cardId: string): JsonObject => {
+  const value = String(cardId ?? "");
+  const masked = value.length <= 12 ? "*".repeat(value.length) : `${value.slice(0, 6)}...${value.slice(-6)}`;
+  return {
+    card_id_type: "string",
+    card_id_length: value.length,
+    card_id_masked: masked,
+    card_id_fingerprint: value ? createHash("sha256").update(value).digest("hex").slice(0, 12) : "",
+  };
+};
 const displayBlock = (value: JsonValue | undefined): { language: "json" | "text"; content: string } | undefined => {
   const block = asObject(value);
   const language = block.language === "json" ? "json" : block.language === "text" ? "text" : undefined;
@@ -141,25 +165,40 @@ const stateOf = (writer: StreamWriter): CardDisplayState => ({
 export class FeishuCardKit {
   private readonly writers = new Map<string, StreamWriter>();
   private readonly queues = new Map<string, Promise<void>>();
+  private readonly logger: Logger;
 
   constructor(private readonly options: {
     api: FeishuCardKitApi;
     store: FeishuRouteStore;
     display: FeishuCardDisplayConfig;
-  }) {}
+    logger?: Logger;
+  }) {
+    this.logger = options.logger ?? createLogger("gateway.feishu.cardkit");
+  }
 
   handle(request: OutboundRequest, route: FeishuRouteContext): Promise<void> {
     const sessionId = String(request.session_id ?? "").trim();
     if (!sessionId) return Promise.reject(new Error("missing session_id for Feishu stream"));
+    const logger = this.logger.child({
+      session_id: sessionId,
+      turn_id: request.turn_id,
+      response_route_id: request.response_route_id,
+      emit_id: request.event_id,
+    });
     const previous = this.queues.get(sessionId) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(() => this.handleLocked(sessionId, request, route));
+    const current = previous.catch(() => undefined).then(() => this.handleLocked(sessionId, request, route, logger));
     this.queues.set(sessionId, current);
     return current.finally(() => {
       if (this.queues.get(sessionId) === current) this.queues.delete(sessionId);
     });
   }
 
-  private async handleLocked(sessionId: string, request: OutboundRequest, route: FeishuRouteContext): Promise<void> {
+  private async handleLocked(
+    sessionId: string,
+    request: OutboundRequest,
+    route: FeishuRouteContext,
+    logger: Logger,
+  ): Promise<void> {
     const payload = request.payload;
     const streamType = stringValue(payload.stream_type);
     const frameState = stringValue(payload.state);
@@ -173,6 +212,9 @@ export class FeishuCardKit {
         sourceSeq: 0,
         cardSeq: 0,
         status: "active",
+        origin: stringValue(route.extra_data.cardkit_card_id) && stringValue(route.extra_data.cardkit_emit_id)
+          ? "route"
+          : "none",
         reopenCount: 0,
         cardId: stringValue(route.extra_data.cardkit_card_id),
         emitId: stringValue(route.extra_data.cardkit_emit_id),
@@ -201,10 +243,29 @@ export class FeishuCardKit {
     writer.toolElapsedMs = Math.max(0, integer(payload.tool_elapsed_ms));
     writer.displayMetrics = displayMetrics(payload.display_metrics);
     if (writer.status === "dead") {
+      const failure = writer.deadError ?? new Error("Feishu CardKit writer is dead");
       if (frameState !== "delta") this.cleanup(sessionId);
-      return;
+      throw failure;
     }
-    await this.ensureCard(writer, request, route);
+    try {
+      await this.ensureCard(writer, request, route, logger);
+    } catch (cause) {
+      this.markDead(writer, cause, logger);
+      if (writer.cardId) {
+        try {
+          await this.options.store.patchResponseRoute(request.response_route_id, {
+            patch: { cardkit_card_id: "", cardkit_emit_id: "" },
+          });
+        } catch (cleanupError) {
+          logger.info("card_route_cleanup_failed", {
+            ...cardLogFields(writer.cardId),
+            error_message: errorValue(cleanupError).message,
+          });
+        }
+      }
+      this.cleanup(sessionId);
+      throw cause;
+    }
     if (frameState === "delta") {
       const displayContent = streamDisplayContent(stateOf(writer));
       const nextToolKey = JSON.stringify([
@@ -223,16 +284,16 @@ export class FeishuCardKit {
             cardId: writer.cardId,
             card: buildStreamingCard(stateOf(writer), this.options.display),
             sequence,
-          }), writer.cardId);
+          }), logger, writer.cardId);
           writer.lastStreamedContent = displayContent;
         } else {
-          await this.updateContent(writer, sequence, displayContent);
+          await this.updateContent(writer, sequence, displayContent, logger);
         }
       };
       try {
         await sendDelta();
       } catch (error) {
-        await this.recoverOrFail(writer, error, sendDelta);
+        await this.recoverOrFail(writer, error, sendDelta, logger);
       }
       writer.lastToolKey = nextToolKey;
       return;
@@ -244,43 +305,73 @@ export class FeishuCardKit {
         cardId: writer.cardId,
         streamingMode: false,
         sequence: closeSequence,
-      }), writer.cardId);
+      }), logger, writer.cardId);
       const updateSequence = ++writer.cardSeq;
       await this.checked("update_card", this.options.api.updateCard({
         cardId: writer.cardId,
         card: finalCard,
         sequence: updateSequence,
-      }), writer.cardId);
+      }), logger, writer.cardId);
     };
     try {
       await finalize();
     } catch (error) {
-      await this.recoverOrFail(writer, error, finalize);
+      try {
+        await this.recoverOrFail(writer, error, finalize, logger);
+      } catch (cause) {
+        this.cleanup(sessionId);
+        throw cause;
+      }
     }
     writer.status = "finalized";
     await this.options.store.patchResponseRoute(request.response_route_id, {
       patch: { cardkit_card_id: "", cardkit_emit_id: "" },
     });
+    logger.info("card_finalized", cardLogFields(writer.cardId));
     this.cleanup(sessionId);
   }
 
-  private async ensureCard(writer: StreamWriter, request: OutboundRequest, route: FeishuRouteContext): Promise<void> {
+  private async ensureCard(
+    writer: StreamWriter,
+    request: OutboundRequest,
+    route: FeishuRouteContext,
+    logger: Logger,
+  ): Promise<void> {
     const emitId = String(request.event_id ?? "").trim();
     const reuse = Boolean(writer.cardId) && writer.emitId === emitId;
+    if (reuse) {
+      logger.debug(writer.origin === "route" ? "card_recovered_route" : "card_reused_memory", {
+        ...cardLogFields(writer.cardId),
+        platform_message_id: writer.platformMessageId,
+      });
+      writer.origin = "memory";
+    } else if (writer.cardId) {
+      logger.debug("card_reuse_rejected_emit_mismatch", {
+        ...cardLogFields(writer.cardId),
+        stored_emit_id: writer.emitId,
+        requested_emit_id: emitId,
+      });
+    }
     if (!reuse) {
       const created = await this.checked(
         "create_stream_card",
         this.options.api.createCardEntity(
           buildStreamingCard(stateOf(writer), this.options.display),
         ),
+        logger,
       );
-      writer.cardId = stringValue(asObject(created.data).card_id);
-      if (!writer.cardId) throw new Error("Feishu create_stream_card missing card_id");
+      const rawCardId = asObject(created.data).card_id;
+      if (typeof rawCardId !== "string" || !rawCardId.trim()) {
+        throw new Error(`Feishu create_stream_card returned invalid card_id type: ${typeof rawCardId}`);
+      }
+      writer.cardId = rawCardId.trim();
       writer.emitId = emitId;
       writer.platformMessageId = "";
+      writer.origin = "created";
       await this.options.store.patchResponseRoute(request.response_route_id, {
         patch: { cardkit_card_id: writer.cardId, cardkit_emit_id: emitId },
       });
+      logger.info("card_created", cardLogFields(writer.cardId));
     }
     if (writer.platformMessageId) return;
     const sourceMessageId = stringValue(route.extra_data.source_message_id) || route.message_id;
@@ -291,6 +382,7 @@ export class FeishuCardKit {
         sourceMessageId,
         cardId: writer.cardId,
       }),
+      logger,
       writer.cardId,
     );
     writer.platformMessageId = stringValue(asObject(result.data).message_id);
@@ -298,22 +390,31 @@ export class FeishuCardKit {
     await this.options.store.patchResponseRoute(request.response_route_id, {
       deliveryHandle: { platform: "feishu", platform_message_id: writer.platformMessageId },
     });
+    logger.info("card_send_completed", {
+      ...cardLogFields(writer.cardId),
+      platform_message_id: writer.platformMessageId,
+    });
   }
 
-  private async updateContent(writer: StreamWriter, sequence: number, content: string): Promise<void> {
+  private async updateContent(writer: StreamWriter, sequence: number, content: string, logger: Logger): Promise<void> {
     await this.checked("stream_card_content", this.options.api.streamCardContent({
       cardId: writer.cardId,
       elementId: STREAMING_ELEMENT_ID,
       content,
       sequence,
-    }), writer.cardId);
+    }), logger, writer.cardId);
     writer.lastStreamedContent = content;
   }
 
-  private async recoverOrFail(writer: StreamWriter, cause: unknown, retry: () => Promise<void>): Promise<void> {
+  private async recoverOrFail(
+    writer: StreamWriter,
+    cause: unknown,
+    retry: () => Promise<void>,
+    logger: Logger,
+  ): Promise<void> {
     const error = cause instanceof FeishuCardKitError ? cause : undefined;
     if (!error || error.code !== 200850 || writer.reopenCount > 0 || !writer.cardId) {
-      writer.status = "dead";
+      this.markDead(writer, cause, logger);
       throw cause;
     }
     writer.reopenCount += 1;
@@ -322,11 +423,12 @@ export class FeishuCardKit {
       cardId: writer.cardId,
       streamingMode: true,
       sequence,
-    }), writer.cardId);
+    }), logger, writer.cardId);
+    logger.info("card_reopened", { ...cardLogFields(writer.cardId), sequence });
     try {
       await retry();
     } catch (retryError) {
-      writer.status = "dead";
+      this.markDead(writer, retryError, logger);
       throw retryError;
     }
   }
@@ -334,12 +436,32 @@ export class FeishuCardKit {
   private async checked(
     operation: string,
     request: Promise<JsonObject>,
+    logger: Logger,
     cardId = "",
   ): Promise<JsonObject> {
     const result = await request;
     const envelope = parseFeishuEnvelope(result, operation);
-    if (envelope.code !== 0) throw new FeishuCardKitError(operation, envelope.code, cardId, envelope.msg);
-    return { code: envelope.code, msg: envelope.msg, data: envelope.data };
+    if (envelope.code !== 0) {
+      throw new FeishuCardKitError(operation, envelope.code, cardId, envelope.msg, envelope.logId);
+    }
+    logger.debug("card_operation_completed", {
+      operation,
+      api_code: envelope.code,
+      log_id: envelope.logId,
+      ...(cardId ? cardLogFields(cardId) : {}),
+    });
+    return { code: envelope.code, msg: envelope.msg, data: envelope.data, log_id: envelope.logId };
+  }
+
+  private markDead(writer: StreamWriter, cause: unknown, logger: Logger): void {
+    const failure = errorValue(cause);
+    writer.status = "dead";
+    writer.deadError = failure;
+    logger.info("card_dead", {
+      ...cardLogFields(writer.cardId),
+      error_name: failure.name,
+      error_message: failure.message,
+    });
   }
 
   private cleanup(sessionId: string): void {

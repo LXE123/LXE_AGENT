@@ -116,6 +116,7 @@ export interface RuntimeEmitter {
   emit(request: EmitRequest): Promise<void>;
   typing(request: {
     session_id: string;
+    turn_id: string;
     response_route_id: string;
     operation: "start" | "stop";
     emit_id: string;

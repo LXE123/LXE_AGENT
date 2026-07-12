@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { loadFeishuConfig } from "./config";
 import { createOfficialFeishuSdk, FEISHU_EVENT_TYPES } from "./sdk";
+import { FeishuApiHttpError } from "./response";
 
 describe("official Feishu SDK factory", () => {
   test("constructs Client/WSClient/EventDispatcher and registers required events", async () => {
@@ -94,6 +95,7 @@ describe("official Feishu SDK factory", () => {
       code: 0,
       msg: "success",
       data: { message_id: "om-raw" },
+      log_id: "",
     });
     apiResponse = { data: { message_id: "missing-code" } };
     await expect(sdk.api.request("POST", "/im/v1/messages/om-source/reply", {})).rejects.toThrow("malformed Feishu response");
@@ -102,12 +104,21 @@ describe("official Feishu SDK factory", () => {
       code: "ERR_BAD_REQUEST",
       response: {
         status: 400,
-        data: { code: 200000, msg: "invalid card data token=private" },
+        data: { code: 200000, msg: "invalid card data token=private", log_id: "log-http-1" },
       },
     });
     await expect(sdk.api.request("POST", "/im/v1/messages/om-source/reply", {})).rejects.toThrow(
       "Feishu API POST /im/v1/messages/om-source/reply failed: HTTP 400, code 200000: invalid card data token=[redacted]",
     );
+    const structured = await sdk.api.request("POST", "/im/v1/messages/om-source/reply", {}).catch((error) => error);
+    expect(structured).toBeInstanceOf(FeishuApiHttpError);
+    expect(structured).toEqual(expect.objectContaining({
+      method: "POST",
+      http_status: 400,
+      api_code: 200000,
+      log_id: "log-http-1",
+      operation: "api_request",
+    }));
     apiError = undefined;
 
     const card = { schema: "2.0", config: { streaming_mode: true }, body: { elements: [] } };
@@ -115,6 +126,7 @@ describe("official Feishu SDK factory", () => {
       code: 0,
       msg: "success",
       data: { card_id: "card-typed" },
+      log_id: "",
     });
     await sdk.cardkit.streamCardContent({
       cardId: "card-typed",
@@ -143,21 +155,29 @@ describe("official Feishu SDK factory", () => {
       {
         operation: "cardElement.content",
         payload: {
-          data: { content: "hello", sequence: 1 },
+          data: { content: "hello", sequence: 1, uuid: "stream_card-typed_1" },
           path: { card_id: "card-typed", element_id: "streaming_content" },
         },
       },
       {
         operation: "card.update",
         payload: {
-          data: { card: { type: "card_json", data: JSON.stringify(card) }, sequence: 2 },
+          data: {
+            card: { type: "card_json", data: JSON.stringify(card) },
+            sequence: 2,
+            uuid: "update_card-typed_2",
+          },
           path: { card_id: "card-typed" },
         },
       },
       {
         operation: "card.settings",
         payload: {
-          data: { settings: JSON.stringify({ streaming_mode: false }), sequence: 3 },
+          data: {
+            settings: JSON.stringify({ config: { streaming_mode: false } }),
+            sequence: 3,
+            uuid: "close_card-typed_3",
+          },
           path: { card_id: "card-typed" },
         },
       },

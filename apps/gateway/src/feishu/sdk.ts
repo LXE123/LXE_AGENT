@@ -94,6 +94,7 @@ const apiResponse = (value: unknown): JsonObject => {
     code,
     msg: String(response.msg ?? "").trim(),
     data: jsonObject(response.data),
+    log_id: String(response.log_id ?? "").trim(),
   };
 };
 
@@ -162,7 +163,7 @@ export function createOfficialFeishuSdk(
         });
         return apiResponse(response);
       } catch (cause) {
-        throw normalizeFeishuTransportError(method, path, cause);
+        throw normalizeFeishuTransportError(method, path, cause, "api_request");
       }
     },
     upload: async (path, kind) => {
@@ -221,11 +222,17 @@ export function createOfficialFeishuSdk(
           fileName,
         };
       } catch (cause) {
-        throw normalizeFeishuTransportError("GET", `/im/v1/messages/${messageId}/resources/${fileKey}`, cause);
+        throw normalizeFeishuTransportError(
+          "GET",
+          `/im/v1/messages/${messageId}/resources/${fileKey}`,
+          cause,
+          "download_message_resource",
+        );
       }
     },
   };
   const invokeCardKit = async (
+    operationName: string,
     method: string,
     path: string,
     operation: () => Promise<unknown>,
@@ -233,41 +240,49 @@ export function createOfficialFeishuSdk(
     try {
       return apiResponse(await operation());
     } catch (cause) {
-      throw normalizeFeishuTransportError(method, path, cause);
+      throw normalizeFeishuTransportError(method, path, cause, operationName);
     }
   };
   const cardkit: FeishuCardKitApi = {
-    createCardEntity: async (card) => invokeCardKit("POST", "/cardkit/v1/cards", () =>
+    createCardEntity: async (card) => invokeCardKit("create_stream_card", "POST", "/cardkit/v1/cards", () =>
       client.cardkit.v1.card.create({
         data: { type: "card_json", data: JSON.stringify(card) },
       })),
     streamCardContent: async ({ cardId, elementId, content, sequence }) =>
-      invokeCardKit("PUT", `/cardkit/v1/cards/${cardId}/elements/${elementId}/content`, () =>
+      invokeCardKit("stream_card_content", "PUT", `/cardkit/v1/cards/${cardId}/elements/${elementId}/content`, () =>
         client.cardkit.v1.cardElement.content({
-          data: { content, sequence },
+          data: { content, sequence, uuid: `stream_${cardId}_${sequence}` },
           path: { card_id: cardId, element_id: elementId },
         })),
     updateCard: async ({ cardId, card, sequence }) =>
-      invokeCardKit("PUT", `/cardkit/v1/cards/${cardId}`, () =>
+      invokeCardKit("update_card", "PUT", `/cardkit/v1/cards/${cardId}`, () =>
         client.cardkit.v1.card.update({
-          data: { card: { type: "card_json", data: JSON.stringify(card) }, sequence },
+          data: {
+            card: { type: "card_json", data: JSON.stringify(card) },
+            sequence,
+            uuid: `update_${cardId}_${sequence}`,
+          },
           path: { card_id: cardId },
         })),
     setStreamingMode: async ({ cardId, streamingMode, sequence }) =>
-      invokeCardKit("PATCH", `/cardkit/v1/cards/${cardId}/settings`, () =>
+      invokeCardKit(streamingMode ? "reopen_streaming_mode" : "close_streaming_mode", "PATCH", `/cardkit/v1/cards/${cardId}/settings`, () =>
         client.cardkit.v1.card.settings({
-          data: { settings: JSON.stringify({ streaming_mode: streamingMode }), sequence },
+          data: {
+            settings: JSON.stringify({ config: { streaming_mode: streamingMode } }),
+            sequence,
+            uuid: `${streamingMode ? "reopen" : "close"}_${cardId}_${sequence}`,
+          },
           path: { card_id: cardId },
         })),
     sendCardByReference: async ({ conversationId, sourceMessageId, cardId }) => {
       const content = JSON.stringify({ type: "card", data: { card_id: cardId } });
       return sourceMessageId
-        ? invokeCardKit("POST", `/im/v1/messages/${sourceMessageId}/reply`, () =>
+        ? invokeCardKit("send_stream_card_reply", "POST", `/im/v1/messages/${sourceMessageId}/reply`, () =>
             client.im.v1.message.reply({
               path: { message_id: sourceMessageId },
               data: { msg_type: "interactive", content },
             }))
-        : invokeCardKit("POST", "/im/v1/messages?receive_id_type=chat_id", () =>
+        : invokeCardKit("send_stream_card", "POST", "/im/v1/messages?receive_id_type=chat_id", () =>
             client.im.v1.message.create({
               params: { receive_id_type: "chat_id" },
               data: { receive_id: conversationId, msg_type: "interactive", content },

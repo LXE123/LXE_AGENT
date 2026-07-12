@@ -48,6 +48,7 @@ export interface FeishuConfig {
   apiHost: string;
   domain: FeishuDomain;
   rawEventDumpEnabled: boolean;
+  rawEventDumpDir: string;
   cardDisplay: FeishuCardDisplayConfig;
   missingRequired(): string[];
   validate(): void;
@@ -72,6 +73,7 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
   const autoRestartRetryMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_RETRY_SECONDS", 60);
   const rawEventDumpEnabled = envBoolean(env, "LOCAL_LOGS_ENABLED", false)
     && envBoolean(env, "FEISHU_RAW_EVENT_DUMP_ENABLED", true);
+  const rawEventDumpDir = envText(env, "FEISHU_RAW_EVENT_DUMP_DIR", "logs/feishu_raw_events");
   const requestedToolUseMode = envText(env, "FEISHU_TOOL_USE_MODE", "on").toLowerCase();
   const toolUseMode: FeishuToolUseMode = requestedToolUseMode === "off" || requestedToolUseMode === "full"
     ? requestedToolUseMode
@@ -103,6 +105,7 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
     apiHost,
     domain: apiDomain(apiHost),
     rawEventDumpEnabled,
+    rawEventDumpDir,
     cardDisplay,
     missingRequired,
     validate: () => {
@@ -117,8 +120,9 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
       missing_required: missingRequired(),
       app_id_masked: mask(appId),
       api_host: apiHost,
-      tool_use_mode: cardDisplay.toolUseMode,
       raw_event_dump_enabled: rawEventDumpEnabled,
+      raw_event_dump_dir: rawEventDumpDir,
+      tool_use_mode: cardDisplay.toolUseMode,
     }),
   };
 }

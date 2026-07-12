@@ -8,6 +8,7 @@ import { ToolRegistry } from "../src/tools";
 import { registerToolSearch } from "../src/tool-search";
 
 const roots: string[] = [];
+const powershellTest = Bun.which("pwsh") || Bun.which("powershell") ? test : test.skip;
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -47,7 +48,7 @@ describe("native coding tools", () => {
     await processes.stop();
   });
 
-  test("background exec sessions can be listed, polled, logged, and removed", async () => {
+  powershellTest("background exec sessions can be listed, polled, logged, and removed", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-process-"));
     roots.push(root);
     const registry = new ToolRegistry();

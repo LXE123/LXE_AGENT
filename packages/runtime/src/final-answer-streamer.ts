@@ -16,6 +16,7 @@ interface StreamSnapshot {
 
 export interface FinalAnswerStreamerOptions {
   sessionId: string;
+  turnId: string;
   responseRouteId: string;
   emit(request: EmitRequest): Promise<boolean>;
   emitId?: string;
@@ -158,8 +159,7 @@ export class FinalAnswerStreamer {
     await this.pending;
     if (!this.delivered) return false;
     this.content = this.lastSentContent;
-    await this.emitFrame("final");
-    return this.delivered;
+    return this.emitFrame("final");
   }
 
   private async close(state: "final" | "error"): Promise<boolean> {
@@ -169,8 +169,7 @@ export class FinalAnswerStreamer {
     await this.pending;
     if (!this.deltaFailed && this.snapshotKey() !== this.lastSent) await this.emitFrame("delta");
     if (this.deltaFailed && !this.delivered) return false;
-    await this.emitFrame(state);
-    return this.delivered;
+    return this.emitFrame(state);
   }
 
   private scheduleDelta(): void {
@@ -188,7 +187,7 @@ export class FinalAnswerStreamer {
     });
   }
 
-  private async emitFrame(state: "delta" | "final" | "error"): Promise<void> {
+  private async emitFrame(state: "delta" | "final" | "error"): Promise<boolean> {
     const snapshot = this.snapshot();
     const key = JSON.stringify(snapshot);
     this.sequence += 1;
@@ -197,6 +196,7 @@ export class FinalAnswerStreamer {
     try {
       ok = await this.options.emit({
         session_id: this.options.sessionId,
+        turn_id: this.options.turnId,
         response_route_id: this.options.responseRouteId,
         content: snapshot.content,
         thinking: snapshot.thinking,
@@ -218,11 +218,12 @@ export class FinalAnswerStreamer {
     }
     if (!ok) {
       if (state === "delta") this.deltaFailed = true;
-      return;
+      return false;
     }
     this.delivered = true;
     this.lastSent = key;
     this.lastSentContent = snapshot.content;
+    return true;
   }
 
   private snapshot(): StreamSnapshot {

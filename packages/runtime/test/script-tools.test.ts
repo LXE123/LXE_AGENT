@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PythonScriptToolRunner, loadScriptToolCatalog, registerScriptTools } from "../src/script-tools";
@@ -101,7 +101,9 @@ describe("Python JSON tool bridge", () => {
       handle: { signal: new AbortController().signal, cancelled: false, drainSteering: () => [], registerProcess: () => () => undefined },
     });
     expect(output.content[0]?.text).toBe("ok");
-    expect(output.files).toEqual([join(root, "artifacts", "result.txt")]);
+    const outputFiles = output.files ?? [];
+    expect(outputFiles).toHaveLength(1);
+    expect(realpathSync(outputFiles[0]!)).toBe(realpathSync(join(root, "artifacts", "result.txt")));
     expect(requests[0]).toMatchObject({
       timeoutMs: 1_234,
       request: {

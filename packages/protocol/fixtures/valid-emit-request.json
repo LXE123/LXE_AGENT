@@ -1,5 +1,6 @@
 {
   "session_id": "session_1",
+  "turn_id": "turn_1",
   "response_route_id": "route_1",
   "content": "Inventory checked.",
   "thinking": "",

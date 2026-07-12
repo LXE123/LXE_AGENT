@@ -6,6 +6,13 @@ import * as logging from "../src/logging";
 
 interface LoggingController {
   readonly filePath?: string;
+  readonly status: {
+    localFileEnabled: boolean;
+    filePath?: string;
+    disabledReason?: string;
+    consoleLevel: string;
+    fileLevel: string;
+  };
   flush(): Promise<void>;
   close(): Promise<void>;
 }
@@ -25,7 +32,16 @@ describe("structured logger", () => {
       write: (line) => lines.push(line),
       now: () => "2026-07-11T00:00:00.000Z",
     }).child({ boot_id: "boot-1" });
-    logger.error("startup failed", { error: new Error("boom"), secret: undefined });
+    const cause = Object.assign(new Error("boom"), {
+      method: "POST",
+      path: "/open-apis/cardkit/v1/cards",
+      http_status: 400,
+      api_code: 230099,
+      log_id: "log-1",
+      operation: "create_stream_card",
+      authorization: "Bearer private",
+    });
+    logger.error("startup failed", { error: cause, secret: undefined });
     expect(lines).toHaveLength(1);
     expect(JSON.parse(lines[0]!)).toEqual(expect.objectContaining({
       timestamp: "2026-07-11T00:00:00.000Z",
@@ -35,6 +51,13 @@ describe("structured logger", () => {
       boot_id: "boot-1",
       error: expect.objectContaining({ name: "Error", message: "boom" }),
     }));
+    expect(JSON.parse(lines[0]!).error).toEqual(expect.objectContaining({
+      method: "POST",
+      http_status: 400,
+      api_code: 230099,
+      log_id: "log-1",
+    }));
+    expect(lines[0]).not.toContain("Bearer private");
   });
 
   test("configures a pre-created logger to append debug JSON to the dated runtime log", async () => {
@@ -64,6 +87,12 @@ describe("structured logger", () => {
     await controller.flush();
 
     expect(controller.filePath).toMatch(/logs[\\/]runtime[\\/]\d{8}[\\/]runtime\.log$/);
+    expect(controller.status).toEqual(expect.objectContaining({
+      localFileEnabled: true,
+      filePath: controller.filePath,
+      consoleLevel: "error",
+      fileLevel: "debug",
+    }));
     const records = readFileSync(controller.filePath!, "utf8").trim().split(/\r?\n/).map((line) => JSON.parse(line));
     expect(records).toContainEqual(expect.objectContaining({
       level: "debug",
@@ -112,5 +141,20 @@ describe("structured logger", () => {
     });
     controllers.push(disabled);
     expect(disabled.filePath).toBeUndefined();
+    expect(disabled.status).toEqual(expect.objectContaining({
+      localFileEnabled: false,
+      disabledReason: "disabled_by_config",
+    }));
+
+    await disabled.close();
+    const missingFile = logging.configureLogging({
+      projectRoot: root,
+      environment: { LOCAL_LOGS_ENABLED: "1", LOG_FILE: "" },
+    });
+    controllers.push(missingFile);
+    expect(missingFile.status).toEqual(expect.objectContaining({
+      localFileEnabled: false,
+      disabledReason: "missing_log_file",
+    }));
   });
 });

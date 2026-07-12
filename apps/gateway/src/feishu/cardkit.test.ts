@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createLogger, type Logger } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 import type { OutboundRequest } from "../models";
 import { FeishuCardKit, FeishuCardKitError, type FeishuRouteContext } from "./cardkit";
@@ -19,6 +20,7 @@ const request = (state: "delta" | "final" | "error", seq: number, patch: JsonObj
   action: "stream_message",
   platform: "feishu",
   session_id: "session-1",
+  turn_id: "turn-1",
   response_route_id: "route-1",
   event_id: "emit-1",
   payload: {
@@ -88,7 +90,7 @@ class FakeApi {
   }
 }
 
-const setup = () => {
+const setup = (options: { logger?: Logger } = {}) => {
   const api = new FakeApi();
   let context = route();
   const patches: JsonObject[] = [];
@@ -106,7 +108,12 @@ const setup = () => {
     api,
     patches,
     get route() { return context; },
-    cardkit: new FeishuCardKit({ api, store, display: loadFeishuConfig({}).cardDisplay }),
+    cardkit: new FeishuCardKit({
+      api,
+      store,
+      display: loadFeishuConfig({}).cardDisplay,
+      ...(options.logger ? { logger: options.logger } : {}),
+    }),
   };
 };
 
@@ -203,7 +210,7 @@ describe("Feishu CardKit stream state", () => {
 
     state.api.failNext = new FeishuCardKitError("stream_card_content", 500, "card-1");
     await expect(state.cardkit.handle(request("delta", 3), state.route)).rejects.toThrow("500");
-    await state.cardkit.handle(request("final", 4), state.route);
+    await expect(state.cardkit.handle(request("final", 4), state.route)).rejects.toThrow("500");
   });
 
   test("reports malformed and nonzero API envelopes with the Feishu message", async () => {
@@ -214,6 +221,47 @@ describe("Feishu CardKit stream state", () => {
     const malformed = setup();
     malformed.api.returnNext = { data: { card_id: "card-1" } };
     await expect(malformed.cardkit.handle(request("delta", 1), malformed.route)).rejects.toThrow("malformed Feishu response");
+  });
+
+  test("rejects non-string card ids before send and does not retain a ghost writer", async () => {
+    const state = setup();
+    state.api.returnNext = { code: 0, data: { card_id: 123 } };
+    await expect(state.cardkit.handle(request("delta", 1), state.route)).rejects.toThrow("invalid card_id type: number");
+    expect(state.api.calls.filter((item) => item.operation === "im.message.sendCardByReference")).toHaveLength(0);
+
+    await state.cardkit.handle(request("delta", 2), state.route);
+    expect(state.api.calls.filter((item) => item.operation === "card.create")).toHaveLength(2);
+    expect(state.api.calls.filter((item) => item.operation === "im.message.sendCardByReference")).toHaveLength(1);
+  });
+
+  test("recovers only a matching route card and emits correlated reuse logs", async () => {
+    const lines: string[] = [];
+    const logger = createLogger("test.cardkit", { write: (line) => lines.push(line) });
+    const recovered = setup({ logger });
+    recovered.route.extra_data.cardkit_card_id = "card-route";
+    recovered.route.extra_data.cardkit_emit_id = "emit-1";
+    recovered.route.platform_message_id = "om-route";
+    await recovered.cardkit.handle(request("delta", 1), recovered.route);
+    expect(recovered.api.calls.filter((item) => item.operation === "card.create")).toHaveLength(0);
+    const records = lines.map((line) => JSON.parse(line));
+    expect(records).toContainEqual(expect.objectContaining({
+      message: "card_recovered_route",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      emit_id: "emit-1",
+    }));
+
+    const mismatched = setup({ logger });
+    mismatched.route.extra_data.cardkit_card_id = "card-stale";
+    mismatched.route.extra_data.cardkit_emit_id = "emit-old";
+    mismatched.route.platform_message_id = "om-stale";
+    await mismatched.cardkit.handle(request("delta", 1), mismatched.route);
+    expect(mismatched.api.calls.filter((item) => item.operation === "card.create")).toHaveLength(1);
+    expect(lines.map((line) => JSON.parse(line))).toContainEqual(expect.objectContaining({
+      message: "card_reuse_rejected_emit_mismatch",
+      requested_emit_id: "emit-1",
+    }));
   });
 
   test("retries terminal close/finalize once after a recoverable reopen", async () => {

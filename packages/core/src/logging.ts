@@ -20,8 +20,17 @@ export interface Logger {
 
 export interface LoggingController {
   readonly filePath?: string;
+  readonly status: LoggingStatus;
   flush(): Promise<void>;
   close(): Promise<void>;
+}
+
+export interface LoggingStatus {
+  readonly localFileEnabled: boolean;
+  readonly filePath?: string;
+  readonly disabledReason?: "disabled_by_config" | "missing_log_file";
+  readonly consoleLevel: LogLevel;
+  readonly fileLevel: LogLevel;
 }
 
 export interface ConfigureLoggingOptions {
@@ -37,9 +46,36 @@ interface ProcessLoggingSink {
 const LEVEL_RANK: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 let processSink: ProcessLoggingSink | undefined;
 
+const SAFE_ERROR_FIELDS = new Set([
+  "method",
+  "path",
+  "http_status",
+  "api_code",
+  "log_id",
+  "operation",
+  "card_id",
+]);
+
+const errorValue = (error: Error, seen = new Set<Error>()): Record<string, unknown> => {
+  if (seen.has(error)) return { name: error.name, message: error.message, cause: "[recursive]" };
+  seen.add(error);
+  const result: Record<string, unknown> = {
+    name: error.name,
+    message: error.message,
+    stack: error.stack ?? "",
+  };
+  for (const [key, value] of Object.entries(error)) {
+    if (SAFE_ERROR_FIELDS.has(key) && ["string", "number", "boolean"].includes(typeof value)) {
+      result[key] = value;
+    }
+  }
+  if (error.cause instanceof Error) result.cause = errorValue(error.cause, seen);
+  return result;
+};
+
 const jsonValue = (value: unknown): unknown => {
   if (value instanceof Error) {
-    return { name: value.name, message: value.message, stack: value.stack ?? "" };
+    return errorValue(value);
   }
   return value;
 };
@@ -172,8 +208,16 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
     },
   };
   processSink = sink;
+  const status: LoggingStatus = {
+    localFileEnabled: Boolean(filePath),
+    ...(filePath ? { filePath } : {}),
+    ...(!filePath ? { disabledReason: enabled ? "missing_log_file" as const : "disabled_by_config" as const } : {}),
+    consoleLevel,
+    fileLevel,
+  };
   return {
     ...(filePath ? { filePath } : {}),
+    status,
     flush: async () => undefined,
     close: async () => sink.close(),
   };

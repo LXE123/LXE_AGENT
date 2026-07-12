@@ -16,6 +16,7 @@ describe("Feishu config", () => {
     expect(config.autoRestartEnabled).toBe(false);
     expect(config.autoRestartIntervalMs).toBe(123_000);
     expect(config.rawEventDumpEnabled).toBe(false);
+    expect(config.rawEventDumpDir).toBe("logs/feishu_raw_events");
     expect(config.cardDisplay).toEqual({
       toolUseMode: "on",
       showFullPaths: false,
@@ -54,5 +55,6 @@ describe("Feishu config", () => {
     expect(loadFeishuConfig({ FEISHU_TOOL_USE_MODE: "invalid" }).cardDisplay.toolUseMode).toBe("on");
     expect(loadFeishuConfig({ LOCAL_LOGS_ENABLED: "1" }).rawEventDumpEnabled).toBe(true);
     expect(loadFeishuConfig({ LOCAL_LOGS_ENABLED: "1", FEISHU_RAW_EVENT_DUMP_ENABLED: "0" }).rawEventDumpEnabled).toBe(false);
+    expect(loadFeishuConfig({ FEISHU_RAW_EVENT_DUMP_DIR: "/tmp/feishu-events" }).rawEventDumpDir).toBe("/tmp/feishu-events");
   });
 });

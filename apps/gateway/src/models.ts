@@ -26,6 +26,7 @@ export interface OutboundRequest {
   platform: string;
   payload: JsonObject;
   session_id: string;
+  turn_id: string;
   response_route_id: string;
   event_id: string;
 }

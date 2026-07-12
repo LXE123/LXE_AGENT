@@ -117,7 +117,8 @@ def test_project_local_config_upsert_preserves_existing_content(tmp_path: Path) 
 
 def test_runtime_config_keeps_private_values_out_of_git_tracked_defaults() -> None:
     root = Path(__file__).resolve().parents[1]
-    runtime_keys = _env_keys(root / "config" / "runtime.env")
+    runtime_path = root / "config" / "runtime.env"
+    runtime_keys = _env_keys(runtime_path)
     example_keys = _env_keys(root / ".env.example")
 
     assert PRIVATE_ENV_KEYS.isdisjoint(runtime_keys)
@@ -135,3 +136,4 @@ def test_runtime_config_keeps_private_values_out_of_git_tracked_defaults() -> No
         "MABANG_PASSWORD",
         "ZINIAO_PASSWORD",
     }.issubset(example_keys)
+    assert "LOCAL_LOGS_ENABLED=0" in runtime_path.read_text(encoding="utf-8").splitlines()

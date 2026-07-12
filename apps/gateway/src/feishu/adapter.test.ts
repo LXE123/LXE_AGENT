@@ -29,6 +29,7 @@ const outbound = (action: string, payload: JsonObject): OutboundRequest => ({
   platform: "feishu",
   payload,
   session_id: "session-1",
+  turn_id: "turn-1",
   response_route_id: "route-1",
   event_id: "emit-1",
 });
@@ -202,8 +203,8 @@ describe("FeishuAdapter lifecycle and delivery", () => {
         chat_id: "oc_chat", create_time: String(Date.now()), message_id: "om_raw",
       },
     });
-    const days = await readdir(join(root, "logs", "runtime"));
-    const raw = await readFile(join(root, "logs", "runtime", days[0]!, "feishu_raw_events.jsonl"), "utf8");
+    const days = await readdir(join(root, "logs", "feishu_raw_events"));
+    const raw = await readFile(join(root, "logs", "feishu_raw_events", days[0]!), "utf8");
     expect(raw).toContain("om_raw");
     expect(raw.trim().split(/\r?\n/)).toHaveLength(1);
     await state.adapter.stop();
