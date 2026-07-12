@@ -60,6 +60,24 @@ def test_windows_dependency_helper_installs_and_verifies_exact_bun() -> None:
     assert 'throw "Bun installation finished, but Bun $Version is not available.' in helper
 
 
+def test_windows_dependency_helper_installs_pinned_ripgrep_sidecar() -> None:
+    helper = _read(SCRIPTS / "_dependencies.ps1")
+    install = _read(SCRIPTS / "install.ps1")
+    update = _read(SCRIPTS / "update.ps1")
+    doctor = _read(SCRIPTS / "doctor.ps1")
+
+    assert "function Resolve-LxeRipgrep" in helper
+    assert "function Test-LxeRipgrepBinary" in helper
+    assert "ripgrep-15.1.0-x86_64-pc-windows-msvc.zip" in helper
+    assert "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a" in helper
+    assert "decdd4992f3f1b9a5ef9898f1b40ab16886d579d6516b4efd3d5eaa19364e408" in helper
+    assert '".lxe\\tools\\ripgrep\\$Version\\win32-x64\\rg.exe"' in helper
+    assert "Move-Item -LiteralPath $stagedExecutable -Destination $destination -Force" in helper
+    assert 'Resolve-LxeRipgrep -Version "15.1.0" -InstallIfMissing' in install
+    assert 'Resolve-LxeRipgrep -Version "15.1.0" -InstallIfMissing' in update
+    assert 'Resolve-LxeRipgrep -Version "15.1.0"' in doctor
+
+
 def test_windows_resolver_prefers_exact_install_candidate_over_older_path() -> None:
     powershell = (
         os.environ.get("LXE_TEST_POWERSHELL")

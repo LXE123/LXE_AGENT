@@ -411,6 +411,130 @@ function Resolve-Bun {
     throw "Bun installation finished, but Bun $Version is not available."
 }
 
+function Get-LxeRipgrepPath {
+    param([Parameter(Mandatory = $true)][string]$Version)
+
+    return Join-Path (Get-LxeUserHome) ".lxe\tools\ripgrep\$Version\win32-x64\rg.exe"
+}
+
+function Get-LxeFileSha256 {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return ""
+    }
+    return ([string](Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash).Trim().ToLowerInvariant()
+}
+
+function Test-LxeRipgrepBinary {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][string]$ExpectedSha256
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return $false
+    }
+    $actualHash = Get-LxeFileSha256 -Path $Path
+    if (-not [string]::Equals($actualHash, $ExpectedSha256, [StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+    $versionResult = Invoke-LxeNativeCapture -FilePath $Path -Arguments @("--version")
+    if ($versionResult.ExitCode -ne 0) {
+        return $false
+    }
+    $firstLine = @($versionResult.Stdout | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -First 1)
+    if ($firstLine.Count -eq 0) {
+        return $false
+    }
+    return [string]::Equals(([string]$firstLine[0]).Trim(), "ripgrep $Version", [StringComparison]::Ordinal)
+}
+
+function Resolve-LxeRipgrep {
+    param(
+        [string]$Version = "15.1.0",
+        [switch]$InstallIfMissing
+    )
+
+    if (-not [string]::Equals($Version, "15.1.0", [StringComparison]::Ordinal)) {
+        throw "Unsupported pinned ripgrep version: $Version"
+    }
+    if ($env:OS -ne "Windows_NT") {
+        $command = Get-Command rg -ErrorAction SilentlyContinue
+        if ($null -ne $command) {
+            return $command.Source
+        }
+        throw "The managed ripgrep sidecar is only required on Windows x64. Install rg with the system package manager or use the Runtime fallback."
+    }
+    if (-not [Environment]::Is64BitOperatingSystem) {
+        throw "The managed ripgrep sidecar requires Windows x64."
+    }
+
+    $zipUrl = "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-pc-windows-msvc.zip"
+    $expectedZipSha256 = "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a"
+    $expectedExeSha256 = "decdd4992f3f1b9a5ef9898f1b40ab16886d579d6516b4efd3d5eaa19364e408"
+    $destination = Get-LxeRipgrepPath -Version $Version
+    if (Test-LxeRipgrepBinary -Path $destination -Version $Version -ExpectedSha256 $expectedExeSha256) {
+        return $destination
+    }
+    if (-not $InstallIfMissing) {
+        throw "Pinned ripgrep $Version is missing, damaged, or has an unexpected version: $destination"
+    }
+
+    Write-Host "Installing pinned ripgrep $Version sidecar..."
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-ripgrep-" + [Guid]::NewGuid().ToString("N"))
+    $zipPath = Join-Path $tempRoot "ripgrep.zip"
+    $extractRoot = Join-Path $tempRoot "extract"
+    $destinationDirectory = Split-Path -Parent $destination
+    $stagedExecutable = Join-Path $destinationDirectory ("rg.exe.new-" + [Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Path $tempRoot, $extractRoot -Force | Out-Null
+    try {
+        Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
+        $zipHash = Get-LxeFileSha256 -Path $zipPath
+        if (-not [string]::Equals($zipHash, $expectedZipSha256, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "ripgrep archive SHA-256 mismatch. Expected $expectedZipSha256, found $zipHash."
+        }
+        Expand-Archive -LiteralPath $zipPath -DestinationPath $extractRoot
+        $candidate = Get-ChildItem -LiteralPath $extractRoot -Filter "rg.exe" -File -Recurse | Select-Object -First 1
+        if ($null -eq $candidate) {
+            throw "ripgrep archive did not contain rg.exe."
+        }
+        $candidateHash = Get-LxeFileSha256 -Path $candidate.FullName
+        if (-not [string]::Equals($candidateHash, $expectedExeSha256, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "ripgrep executable SHA-256 mismatch. Expected $expectedExeSha256, found $candidateHash."
+        }
+        if (-not (Test-LxeRipgrepBinary -Path $candidate.FullName -Version $Version -ExpectedSha256 $expectedExeSha256)) {
+            throw "Downloaded ripgrep executable failed its version probe."
+        }
+
+        New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+        Copy-Item -LiteralPath $candidate.FullName -Destination $stagedExecutable -Force
+        $releaseRoot = $candidate.Directory.FullName
+        foreach ($licenseName in @("LICENSE-MIT", "UNLICENSE")) {
+            $licensePath = Join-Path $releaseRoot $licenseName
+            if (Test-Path -LiteralPath $licensePath -PathType Leaf) {
+                Copy-Item -LiteralPath $licensePath -Destination (Join-Path $destinationDirectory $licenseName) -Force
+            }
+        }
+        Move-Item -LiteralPath $stagedExecutable -Destination $destination -Force
+    }
+    finally {
+        if (Test-Path -LiteralPath $stagedExecutable) {
+            Remove-Item -LiteralPath $stagedExecutable -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $tempRoot) {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    if (-not (Test-LxeRipgrepBinary -Path $destination -Version $Version -ExpectedSha256 $expectedExeSha256)) {
+        throw "ripgrep installation finished, but the pinned executable is not valid: $destination"
+    }
+    return $destination
+}
+
 function Find-LxeGit {
     $command = Get-Command git -ErrorAction SilentlyContinue
     if ($null -ne $command) {

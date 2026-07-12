@@ -79,6 +79,11 @@ if ($untrackedFiles.Count -gt 0) {
 }
 
 Invoke-NativeChecked -Label "git pull" -FilePath $git -Arguments @("pull", "--ff-only")
+$ripgrep = ""
+if ($env:OS -eq "Windows_NT") {
+    $ripgrep = Resolve-LxeRipgrep -Version "15.1.0" -InstallIfMissing
+    Write-Host "Using ripgrep 15.1.0 sidecar: $ripgrep"
+}
 Invoke-DwsSetup
 Invoke-NativeChecked -Label "launcher setup" -FilePath $powershell -Arguments @(
     "-ExecutionPolicy",

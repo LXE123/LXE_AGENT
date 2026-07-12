@@ -254,12 +254,19 @@ catch {
 
 $uv = Resolve-Uv -InstallIfMissing
 $bun = Resolve-Bun -Version "1.3.14" -InstallIfMissing
+$ripgrep = ""
+if ($env:OS -eq "Windows_NT") {
+    $ripgrep = Resolve-LxeRipgrep -Version "15.1.0" -InstallIfMissing
+}
 $project = Get-ProjectRoot -GitPath $git
 $ProjectRoot = [string]$project["Path"]
 
 Set-Location $ProjectRoot
 Write-Host "Using uv: $uv"
 Write-Host "Using Bun 1.3.14: $bun"
+if ($ripgrep) {
+    Write-Host "Using ripgrep 15.1.0 sidecar: $ripgrep"
+}
 if (-not [string]::IsNullOrWhiteSpace($git)) {
     Write-Host "Using git: $git"
 }

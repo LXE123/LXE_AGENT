@@ -25,3 +25,14 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## ripgrep
+
+Windows x64 installations download the official ripgrep 15.1.0 executable from
+the BurntSushi/ripgrep GitHub release and install it as a versioned sidecar at
+`~/.lxe/tools/ripgrep/15.1.0/win32-x64/rg.exe`. The executable is not committed
+to this repository and is not added to PATH.
+
+ripgrep is dual-licensed under the Unlicense and MIT licenses. The installer
+copies the upstream `LICENSE-MIT` and `UNLICENSE` files beside the executable.
+Upstream source and release artifacts: https://github.com/BurntSushi/ripgrep

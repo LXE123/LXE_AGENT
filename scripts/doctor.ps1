@@ -193,6 +193,10 @@ except Exception as exc:
 $uv = Resolve-Uv
 $bun = Resolve-Bun -Version "1.3.14"
 $powershell = Resolve-PowerShell
+$ripgrep = ""
+if ($env:OS -eq "Windows_NT") {
+    $ripgrep = Resolve-LxeRipgrep -Version "15.1.0"
+}
 
 Require-Path (Join-Path $ProjectRoot "package.json")
 Require-Path (Join-Path $ProjectRoot "bun.lock")
@@ -227,6 +231,9 @@ function Invoke-BunRuntimeWarningProbe {
     }
 }
 Write-Host "Checking: Bun 1.3.14"
+if ($ripgrep) {
+    Write-Host "Checking: ripgrep 15.1.0 sidecar at $ripgrep"
+}
 Invoke-NativeChecked -Label "Bun frozen workspace install" -FilePath $bun -Arguments @("install", "--frozen-lockfile") -Verb "Checking"
 Invoke-NativeChecked -Label "Bun production boundary" -FilePath $bun -Arguments @("run", "check:ts-boundary") -Verb "Checking"
 Invoke-NativeChecked -Label "Bun workspace typecheck" -FilePath $bun -Arguments @("run", "typecheck") -Verb "Checking"
