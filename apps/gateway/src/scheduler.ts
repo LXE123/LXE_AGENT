@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentJob, JsonObject, JsonValue } from "@lxe/protocol";
+import { createLogger, runWithLogContext } from "@lxe/core";
 import { SessionSource } from "./session-bindings";
 
 export interface SteeringMessage {
@@ -126,6 +127,7 @@ const objectValue = (value: JsonValue | undefined): JsonObject | undefined =>
     : undefined;
 
 export class SessionScheduler {
+  private readonly logger = createLogger("gateway.scheduler");
   private readonly runtime: RuntimePort;
   private readonly maxConcurrency: number;
   private readonly id: () => string;
@@ -150,6 +152,7 @@ export class SessionScheduler {
   setRuntimeReady(ready: boolean): void {
     const wasReady = this.runtimeReady;
     this.runtimeReady = ready;
+    this.logger.debug("scheduler_runtime_readiness_changed", { ready });
     if (!wasReady && ready) this.drain();
   }
 
@@ -161,6 +164,7 @@ export class SessionScheduler {
     handle.closing = true;
     this.activeByRun.delete(handle.runId);
     this.activeBySession.delete(handle.sessionId);
+    this.logger.warn("scheduler_run_terminated", { session_id: handle.sessionId, turn_id: handle.jobId });
     this.markReady(handle.sessionId);
     this.drain();
     return true;
@@ -173,6 +177,13 @@ export class SessionScheduler {
     if (options.front) queue.unshift(job);
     else queue.push(job);
     this.pending.set(sessionId, queue);
+    this.logger.debug("scheduler_job_enqueued", {
+      session_id: sessionId,
+      turn_id: job.job_id,
+      queue_depth: queue.length,
+      front: Boolean(options.front),
+      active_runs: this.activeBySession.size,
+    });
     this.markReady(sessionId);
     this.drain();
   }
@@ -199,6 +210,7 @@ export class SessionScheduler {
     for (let index = this.ready.length - 1; index >= 0; index -= 1) {
       if (this.ready[index] === safe) this.ready.splice(index, 1);
     }
+    if (cleared > 0) this.logger.info("scheduler_pending_cleared", { session_id: safe, cleared });
     return cleared;
   }
 
@@ -211,6 +223,7 @@ export class SessionScheduler {
       .then(() => this.runtime.cancelTurn(handle))
       .then(() => {
         handle.cancelRequested = true;
+        this.logger.info("scheduler_stop_requested", { session_id: handle.sessionId, turn_id: handle.jobId });
         return true;
       })
       .catch((error: unknown) => {
@@ -241,6 +254,11 @@ export class SessionScheduler {
       throw error;
     }
     handle.pushSteering(safeMessage);
+    this.logger.info("scheduler_steering_accepted", {
+      session_id: handle.sessionId,
+      turn_id: handle.jobId,
+      steering_chars: safeMessage.text.length,
+    });
     return true;
   }
 
@@ -267,6 +285,13 @@ export class SessionScheduler {
     const cancelled = clean(event.payload.status) === "cancelled" || handle.cancelRequested;
     if (!cancelled) this.requeueRemainingSteering(handle, event.payload.remaining_steering);
     this.markReady(handle.sessionId);
+    this.logger.debug("scheduler_job_released", {
+      session_id: handle.sessionId,
+      turn_id: handle.jobId,
+      status: clean(event.payload.status) || "unknown",
+      cancelled,
+      active_runs: this.activeBySession.size,
+    });
     this.drain();
     return true;
   }
@@ -304,6 +329,12 @@ export class SessionScheduler {
     const queue = this.pending.get(handle.sessionId) ?? [];
     queue.unshift(requeued);
     this.pending.set(handle.sessionId, queue);
+    this.logger.info("scheduler_steering_requeued", {
+      session_id: handle.sessionId,
+      turn_id: requeued.job_id,
+      message_count: messages.length,
+      queue_depth: queue.length,
+    });
   }
 
   private markReady(sessionId: string): void {
@@ -328,7 +359,18 @@ export class SessionScheduler {
         const handle = new RunHandle(next, this.now);
         this.activeBySession.set(sessionId, handle);
         this.activeByRun.set(handle.runId, handle);
-        void this.runtime.startTurn(next, handle).then(
+        this.logger.debug("scheduler_job_dispatched", {
+          session_id: handle.sessionId,
+          turn_id: handle.jobId,
+          queue_depth: queue?.length ?? 0,
+          active_runs: this.activeBySession.size,
+        });
+        void runWithLogContext({
+          session_id: handle.sessionId,
+          turn_id: handle.jobId,
+          response_route_id: handle.responseRouteId,
+          message_id: next.message_id,
+        }, () => this.runtime.startTurn(next, handle)).then(
           () => this.handleStartAcknowledged(handle.runId),
           (error: unknown) => this.handleStartFailed(handle, error),
         );
@@ -341,6 +383,11 @@ export class SessionScheduler {
   private handleStartFailed(handle: RunHandle, error: unknown): void {
     if (this.activeByRun.get(handle.runId) !== handle) return;
     handle.startError = error;
+    this.logger.error("scheduler_job_start_failed", {
+      session_id: handle.sessionId,
+      turn_id: handle.jobId,
+      error,
+    });
     this.onStartFailure?.(handle, error);
   }
 }
@@ -371,6 +418,7 @@ export interface HeartbeatOptions {
 const wakePriority = (reason: string): number => (reason === "exec-event" ? 1 : 0);
 
 export class HeartbeatWakeQueue {
+  private readonly logger = createLogger("gateway.heartbeat");
   private readonly pending = new Map<string, Required<HeartbeatWakeRequest>>();
   private flushing = false;
   private readonly id: () => string;
@@ -396,9 +444,19 @@ export class HeartbeatWakeQueue {
       response_route_id: clean(request.response_route_id),
     };
     const previous = this.pending.get(sessionId);
+    this.logger.debug("heartbeat_requested", {
+      session_id: sessionId,
+      heartbeat_reason: next.reason,
+      pending_count: this.pending.size,
+    });
     if (!previous || wakePriority(next.reason) >= wakePriority(previous.reason)) {
       if (!next.response_route_id) next.response_route_id = previous?.response_route_id ?? "";
       this.pending.set(sessionId, next);
+      if (previous) this.logger.debug("heartbeat_deduplicated", {
+        session_id: sessionId,
+        previous_reason: previous.reason,
+        next_reason: next.reason,
+      });
     }
   }
 
@@ -424,21 +482,33 @@ export class HeartbeatWakeQueue {
   }
 
   private async process(wake: Required<HeartbeatWakeRequest>): Promise<void> {
-    if (this.options.isSuspended(wake.session_id)) return;
-    if (!(await this.options.hasPendingEvents(wake.session_id))) return;
+    if (this.options.isSuspended(wake.session_id)) {
+      this.logger.debug("heartbeat_dropped", { session_id: wake.session_id, reason: "autonomy_suspended" });
+      return;
+    }
+    if (!(await this.options.hasPendingEvents(wake.session_id))) {
+      this.logger.debug("heartbeat_dropped", { session_id: wake.session_id, reason: "no_pending_events" });
+      return;
+    }
     if (this.options.scheduler.hasInflightWork(wake.session_id)) {
+      this.logger.debug("heartbeat_deferred", { session_id: wake.session_id, reason: "session_busy" });
       this.request({ ...wake, reason: "retry" });
       return;
     }
     const session = await this.options.loadSession(wake.session_id);
-    if (!session) return;
+    if (!session) {
+      this.logger.warn("heartbeat_dropped", { session_id: wake.session_id, reason: "session_missing" });
+      return;
+    }
     const source = SessionSource.from(session.source);
     let sessionKey: string;
     try {
       sessionKey = source.sessionKey;
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith("session source ")) return;
-      if (error instanceof Error && error.message.startsWith("group session source ")) return;
+      if (error instanceof Error && (error.message.startsWith("session source ") || error.message.startsWith("group session source "))) {
+        this.logger.warn("heartbeat_dropped", { session_id: wake.session_id, reason: "invalid_source", error });
+        return;
+      }
       throw error;
     }
     const job: AgentJob = {
@@ -461,6 +531,15 @@ export class HeartbeatWakeQueue {
       },
       user_content_blocks: [],
     };
-    await this.options.scheduler.enqueue(job);
+    await runWithLogContext({
+      session_id: job.session_id,
+      turn_id: job.job_id,
+      response_route_id: job.response_route_id,
+    }, () => this.options.scheduler.enqueue(job));
+    this.logger.info("heartbeat_enqueued", {
+      session_id: job.session_id,
+      turn_id: job.job_id,
+      heartbeat_reason: wake.reason,
+    });
   }
 }

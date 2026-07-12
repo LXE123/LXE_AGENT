@@ -39,11 +39,19 @@ const normalizer = () => new FeishuInboundNormalizer({
   }),
 });
 
+const normalizeEvent = async (
+  instance: FeishuInboundNormalizer,
+  snapshot: Parameters<FeishuInboundNormalizer["normalize"]>[0],
+) => {
+  const decision = await instance.normalize(snapshot);
+  return decision.accepted ? decision.event : null;
+};
+
 describe("Feishu inbound normalization", () => {
   test("snapshots p2p identity, thread, quote and union fields", async () => {
     const snapshot = snapshotMessageEvent(baseEvent());
     expect(snapshot).not.toBeNull();
-    const event = await normalizer().normalize(snapshot!);
+    const event = await normalizeEvent(normalizer(), snapshot!);
     expect(event).toEqual({
       platform: "feishu",
       event_type: "agent_message",
@@ -90,7 +98,7 @@ describe("Feishu inbound normalization", () => {
 
   test("requires and strips the bot mention in groups", async () => {
     const withoutMention = snapshotMessageEvent(baseEvent({ chat_type: "group", message_id: "om_2" }))!;
-    expect(await normalizer().normalize(withoutMention)).toBeNull();
+    expect(await normalizeEvent(normalizer(), withoutMention)).toBeNull();
 
     const withMention = snapshotMessageEvent(baseEvent({
       chat_type: "group",
@@ -98,7 +106,7 @@ describe("Feishu inbound normalization", () => {
       content: JSON.stringify({ text: "@_user_1 restock now" }),
       mentions: [{ key: "@_user_1", name: "LXE", id: { open_id: "ou_bot" } }],
     }))!;
-    const event = await normalizer().normalize(withMention);
+    const event = await normalizeEvent(normalizer(), withMention);
     expect(event?.is_group).toBe(true);
     expect(event?.user_input).toBe("restock now");
   });
@@ -115,7 +123,7 @@ describe("Feishu inbound normalization", () => {
         resourceMetadata: [{ type: "image", file_key: "img-parent", saved_path: "/tmp/parent.jpg" }],
       }),
     });
-    const event = await instance.normalize(snapshotMessageEvent(baseEvent({ message_id: "om_quote" }))!);
+    const event = await normalizeEvent(instance, snapshotMessageEvent(baseEvent({ message_id: "om_quote" }))!);
     expect(event?.user_input).toContain("Alice: quoted image");
     expect(event?.user_content_blocks[0]).toMatchObject({ type: "text", text: expect.stringContaining("quoted image") });
     expect(event?.user_content_blocks[1]).toMatchObject({ type: "image" });
@@ -131,14 +139,14 @@ describe("Feishu inbound normalization", () => {
       message_type: "post",
       content: JSON.stringify({ zh_cn: { title: "Report", content: [[{ tag: "text", text: "Ready" }]] } }),
     }))!;
-    expect((await normalizer().normalize(post))?.user_input).toBe("**Report**\n\nReady");
+    expect((await normalizeEvent(normalizer(), post))?.user_input).toBe("**Report**\n\nReady");
 
     const image = snapshotMessageEvent(baseEvent({
       message_id: "om_image",
       message_type: "image",
       content: JSON.stringify({ image_key: "img_1" }),
     }))!;
-    const imageEvent = await normalizer().normalize(image);
+    const imageEvent = await normalizeEvent(normalizer(), image);
     expect(imageEvent?.user_content_blocks).toEqual([
       { type: "text", text: "[image:img_1]" },
       { type: "image", file_key: "img_1" },
@@ -150,7 +158,7 @@ describe("Feishu inbound normalization", () => {
       message_type: "file",
       content: JSON.stringify({ file_key: "file_1", file_name: "补货.xlsx" }),
     }))!;
-    expect((await normalizer().normalize(file))?.user_content_blocks).toEqual([
+    expect((await normalizeEvent(normalizer(), file))?.user_content_blocks).toEqual([
       { type: "text", text: "[file:补货.xlsx]" },
       { type: "file", file_key: "file_1" },
     ]);
@@ -180,7 +188,7 @@ describe("Feishu inbound normalization", () => {
       { type: "image", file_key: "img-inline", file_name: "", message_id: "om_rich" },
       { type: "file", file_key: "file-inline", file_name: "补货 表.xlsx", message_id: "om_rich" },
     ]);
-    const event = await normalizer().normalize(snapshot);
+    const event = await normalizeEvent(normalizer(), snapshot);
     expect(event?.user_content_blocks[0]).toMatchObject({ type: "text", text: expect.stringContaining("Ready") });
     expect(event?.user_content_blocks[1]).toMatchObject({ type: "image", file_key: "img-inline" });
   });
@@ -282,20 +290,50 @@ describe("Feishu inbound normalization", () => {
       uuid: () => "route",
     });
     const fresh = snapshotMessageEvent(baseEvent({ message_id: "om_dedupe" }))!;
-    expect(await instance.normalize(fresh)).not.toBeNull();
-    expect(await instance.normalize(fresh)).toBeNull();
+    expect(await normalizeEvent(instance, fresh)).not.toBeNull();
+    expect(await normalizeEvent(instance, fresh)).toBeNull();
     mono = 12 * 60 * 60 * 1000 + 1;
-    expect(await instance.normalize(fresh)).not.toBeNull();
+    expect(await normalizeEvent(instance, fresh)).not.toBeNull();
 
     const stale = snapshotMessageEvent(baseEvent({ message_id: "om_stale", create_time: "699999" }))!;
-    expect(await instance.normalize(stale)).toBeNull();
+    expect(await normalizeEvent(instance, stale)).toBeNull();
   });
 
   test("accepts invalid/missing timestamps but rejects missing sender open id", async () => {
-    expect(await normalizer().normalize(snapshotMessageEvent(baseEvent({ message_id: "om_bad", create_time: "bad" }))!)).not.toBeNull();
-    expect(await normalizer().normalize(snapshotMessageEvent(baseEvent({ message_id: "om_none", create_time: "" }))!)).not.toBeNull();
+    expect(await normalizeEvent(normalizer(), snapshotMessageEvent(baseEvent({ message_id: "om_bad", create_time: "bad" }))!)).not.toBeNull();
+    expect(await normalizeEvent(normalizer(), snapshotMessageEvent(baseEvent({ message_id: "om_none", create_time: "" }))!)).not.toBeNull();
     const missing = baseEvent({ message_id: "om_missing" });
     (missing.event.sender.sender_id as Record<string, string>).open_id = "";
-    expect(await normalizer().normalize(snapshotMessageEvent(missing)!)).toBeNull();
+    expect(await normalizeEvent(normalizer(), snapshotMessageEvent(missing)!)).toBeNull();
+  });
+
+  test("returns stable rejection reasons instead of an unexplained null", async () => {
+    const duplicateNormalizer = normalizer();
+    const duplicate = snapshotMessageEvent(baseEvent({ message_id: "om_reason_duplicate" }))!;
+    expect((await duplicateNormalizer.normalize(duplicate)).accepted).toBe(true);
+    expect(await duplicateNormalizer.normalize(duplicate)).toMatchObject({ accepted: false, reason: "duplicate" });
+
+    expect(await normalizer().normalize(snapshotMessageEvent(baseEvent({
+      message_id: "om_reason_stale", create_time: "699999",
+    }))!)).toMatchObject({ accepted: false, reason: "stale" });
+
+    const noIdentity = new FeishuInboundNormalizer({ nowMs: () => 1_000_000, monotonicMs: () => 100 });
+    expect(await noIdentity.normalize(snapshotMessageEvent(baseEvent({
+      message_id: "om_reason_identity", chat_type: "group",
+    }))!)).toMatchObject({ accepted: false, reason: "group_bot_identity_missing" });
+
+    expect(await normalizer().normalize(snapshotMessageEvent(baseEvent({
+      message_id: "om_reason_mention", chat_type: "group",
+    }))!)).toMatchObject({ accepted: false, reason: "group_without_bot_mention" });
+
+    const missingSender = baseEvent({ message_id: "om_reason_sender" });
+    (missingSender.event.sender.sender_id as Record<string, string>).open_id = "";
+    expect(await normalizer().normalize(snapshotMessageEvent(missingSender)!)).toMatchObject({
+      accepted: false, reason: "missing_sender_open_id",
+    });
+
+    expect(await normalizer().normalize(snapshotMessageEvent(baseEvent({
+      message_id: "om_reason_empty", content: JSON.stringify({ text: "" }),
+    }))!)).toMatchObject({ accepted: false, reason: "empty_content" });
   });
 });

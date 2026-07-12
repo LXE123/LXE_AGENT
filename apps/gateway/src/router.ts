@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentJob, InboundEvent, JsonObject } from "@lxe/protocol";
+import { createLogger, runWithLogContext } from "@lxe/core";
 import type { ChannelRegistry } from "./channel";
 import {
   canUserAccessBot,
@@ -105,6 +106,7 @@ export function contextFromEvent(
 }
 
 export class SessionRouter {
+  private readonly logger = createLogger("gateway.router");
   private readonly state: SessionRuntimeState;
   private readonly id: () => string;
   private readonly nowSeconds: () => number;
@@ -119,7 +121,23 @@ export class SessionRouter {
     const source = sourceFromEvent(event);
     const sessionKey = source.sessionKey;
     const context = contextFromEvent(event, source, sessionKey, this.id);
+    return runWithLogContext({
+      response_route_id: context.response_route_id,
+      message_id: context.message_id,
+    }, () => this.routeContext(event, context));
+  }
+
+  private async routeContext(event: InboundEvent, context: SessionContext): Promise<RouteDecision> {
+    const sessionKey = context.session_key;
     const lane = laneKey(context.platform, sessionKey, "agent");
+    this.logger.info("inbound_received", {
+      platform: context.platform,
+      event_type: event.event_type,
+      conversation_id: context.conversation_id,
+      chat_type: context.is_group ? "group" : "p2p",
+      user_input_chars: context.user_input.length,
+      attachment_count: context.user_content_blocks.length,
+    });
     const denied = await this.checkPermission(event, context, lane);
     if (denied) return denied;
 
@@ -131,6 +149,10 @@ export class SessionRouter {
           ? binding
           : undefined;
       await this.handleControl(command, entry, context);
+      this.logger.info("control_completed", {
+        command,
+        session_id: entry?.session_id ?? "",
+      });
       return { route_kind: "agent_control", lane_key: lane, platform: context.platform };
     }
 
@@ -138,6 +160,7 @@ export class SessionRouter {
     await this.options.storage.upsertResponseRoute(responseRoutePayload(context));
     this.state.resumeAutonomy(entry.session_id);
     if (await this.trySteer(entry.session_id, context)) {
+      this.logger.info("message_steered", { session_id: entry.session_id });
       return { route_kind: "agent_steer", lane_key: lane, platform: context.platform };
     }
     const pendingEvents = await this.options.storage.popPendingEvents(entry.session_id);
@@ -163,7 +186,14 @@ export class SessionRouter {
       raw_data: rawData,
       user_content_blocks: context.user_content_blocks.map((block) => ({ ...block })),
     };
-    await this.options.scheduler.enqueue(job);
+    await runWithLogContext({ session_id: job.session_id, turn_id: job.job_id }, async () => {
+      await this.options.scheduler.enqueue(job);
+      this.logger.info("message_queued", {
+        platform: context.platform,
+        attachment_count: context.user_content_blocks.length,
+        pending_event_count: pendingEvents.length,
+      });
+    });
     return { route_kind: "agent_message", lane_key: lane, platform: context.platform };
   }
 
@@ -174,11 +204,13 @@ export class SessionRouter {
   ): Promise<RouteDecision | undefined> {
     const botId = resolveBotId(event, this.options.feishuAppId);
     if (!isKnownBotId(this.options.policy, botId)) {
+      this.logger.warn("permission_denied", { reason: "unknown_bot", platform: context.platform, bot_id: botId });
       await this.sendFeedback(context, "", "当前 Bot 未授权接入 Agent。");
       return { route_kind: "permission_denied", lane_key: lane, platform: context.platform };
     }
     const userId = resolvePermissionUserId(event);
     if (!canUserAccessBot(this.options.policy, userId, botId)) {
+      this.logger.warn("permission_denied", { reason: "user_not_allowed", platform: context.platform, bot_id: botId, user_id: userId });
       await this.sendFeedback(context, "", "你没有权限使用当前 Agent。");
       return { route_kind: "permission_denied", lane_key: lane, platform: context.platform };
     }
@@ -193,6 +225,7 @@ export class SessionRouter {
           session_id: existing.session_id,
           source: { ...context.source },
         });
+        this.logger.debug("session_rebound", { session_id: existing.session_id, session_key: context.session_key });
       } catch (error) {
         if (!(error instanceof SessionNotFoundError)) throw error;
         await this.options.storage.ensureSession({
@@ -200,6 +233,7 @@ export class SessionRouter {
           source: { ...context.source },
           entry_text: context.user_input,
         });
+        this.logger.info("session_created", { session_id: existing.session_id, session_key: context.session_key, recovered_binding: true });
       }
       return existing;
     }
@@ -209,6 +243,7 @@ export class SessionRouter {
       source: { ...context.source },
       entry_text: context.user_input,
     });
+    this.logger.info("session_created", { session_id: entry.session_id, session_key: context.session_key, recovered_binding: false });
     return entry;
   }
 
@@ -272,9 +307,10 @@ export class SessionRouter {
           text: "用户已通过 /stop 叫停当前任务。之前未完成的计划已作废，不要继续执行或重试，除非用户重新明确要求。",
           response_route_id: context.response_route_id,
         });
-      } catch {
+      } catch (error) {
         // Cancellation feedback must not depend on the advisory pending-event
         // write succeeding.
+        this.logger.warn("stop_pending_event_failed", { session_id: entry.session_id, error });
       }
       await this.sendFeedback(
         context,

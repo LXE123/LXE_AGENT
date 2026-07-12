@@ -1,4 +1,5 @@
 import type { JsonObject } from "@lxe/protocol";
+import { createLogger } from "@lxe/core";
 
 export interface RestartClock {
   setTimeout(callback: () => void, delayMs: number): number;
@@ -22,6 +23,7 @@ export interface FeishuIdleRestartOptions {
 }
 
 export class FeishuIdleRestart {
+  private readonly logger = createLogger("gateway.feishu.restart");
   private readonly clock: RestartClock;
   private running = false;
   private generation = 0;
@@ -60,6 +62,7 @@ export class FeishuIdleRestart {
         timer.unref?.();
       }),
     ]);
+    if (this.attemptTask === task) this.logger.warn("feishu_restart_stop_timed_out", { timeout_ms: timeoutMs });
     if (timer) clearTimeout(timer);
   }
 
@@ -77,6 +80,10 @@ export class FeishuIdleRestart {
   private schedule(delayMs: number, generation: number): void {
     if (!this.running || generation !== this.generation) return;
     if (this.timer !== undefined) this.clock.clearTimeout(this.timer);
+    this.logger.debug("feishu_restart_scheduled", {
+      delay_ms: Math.max(1, Math.trunc(delayMs)),
+      retry: delayMs === this.options.retryMs,
+    });
     this.timer = this.clock.setTimeout(() => {
       this.timer = undefined;
       void this.attempt(generation);
@@ -87,24 +94,30 @@ export class FeishuIdleRestart {
     if (this.attemptTask) return this.attemptTask;
     const task = (async () => {
       if (!this.running || generation !== this.generation) return;
-      const busy = await this.options.hasInflight() || await this.options.hasQueued();
+      const inflight = await this.options.hasInflight();
+      const queued = inflight ? false : await this.options.hasQueued();
+      const busy = inflight || queued;
       if (!this.running || generation !== this.generation) return;
       if (busy) {
         this.deferred = true;
+        this.logger.info("feishu_restart_deferred", { reason: inflight ? "active_agent_jobs" : "queued_inbound_events" });
         this.schedule(this.options.idleCheckMs, generation);
         return;
       }
       this.deferred = false;
       try {
+        this.logger.info("feishu_restart_started");
         await this.options.restart();
         if (!this.running || generation !== this.generation) return;
         this.restartCount += 1;
         this.lastRestartAt = new Date().toISOString();
         this.lastError = "";
+        this.logger.info("feishu_restart_completed", { restart_count: this.restartCount });
         this.schedule(this.options.intervalMs, generation);
       } catch (cause) {
         if (!this.running || generation !== this.generation) return;
         this.lastError = cause instanceof Error ? cause.message : String(cause);
+        this.logger.warn("feishu_restart_failed", { retry_ms: this.options.retryMs, error: cause });
         this.schedule(this.options.retryMs, generation);
       }
     })().finally(() => {

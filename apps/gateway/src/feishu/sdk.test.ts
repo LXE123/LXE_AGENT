@@ -10,6 +10,8 @@ describe("official Feishu SDK factory", () => {
     const closes: unknown[] = [];
     const typedCalls: Array<{ operation: string; payload: unknown }> = [];
     let clientOptions: Record<string, unknown> = {};
+    let dispatcherOptions: Record<string, unknown> = {};
+    let wsOptions: Record<string, unknown> = {};
     let apiResponse: unknown = { code: 0, msg: "success", data: { message_id: "om-raw" } };
     let apiError: unknown;
     let typedApiError: unknown;
@@ -61,14 +63,14 @@ describe("official Feishu SDK factory", () => {
       }
     }
     class EventDispatcher {
-      constructor(readonly options: unknown) {}
+      constructor(readonly options: unknown) { dispatcherOptions = options as Record<string, unknown>; }
       register(handlers: Record<string, (value: unknown) => unknown>) {
         Object.assign(registered, handlers);
         return this;
       }
     }
     class WSClient {
-      constructor(readonly options: unknown) {}
+      constructor(readonly options: unknown) { wsOptions = options as Record<string, unknown>; }
       async start(value: unknown) { starts.push(value); }
       close(value?: unknown) { closes.push(value); }
       getConnectionStatus() { return { state: "connected", reconnectAttempts: 0 }; }
@@ -87,6 +89,9 @@ describe("official Feishu SDK factory", () => {
 
     expect(Object.keys(registered).sort()).toEqual([...FEISHU_EVENT_TYPES].sort());
     expect(clientOptions.loggerLevel).toBe(0);
+    expect(dispatcherOptions.loggerLevel).toBe(0);
+    expect(wsOptions.loggerLevel).toBe(0);
+    expect(clientOptions.logger).toBe(wsOptions.logger);
     await registered["im.message.receive_v1"]?.({});
     await registered["im.message.reaction.created_v1"]?.({});
     await registered["im.message.reaction.deleted_v1"]?.({});

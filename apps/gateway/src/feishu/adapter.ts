@@ -1,7 +1,7 @@
 import type { JsonObject, JsonValue } from "@lxe/protocol";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
-import { createLogger } from "@lxe/core";
+import { createLogger, runWithLogContext } from "@lxe/core";
 import type { ChannelAdapter, InboundSink } from "../channel";
 import type { OutboundRequest, ResponseRoutePatch, ResponseRouteRecord } from "../models";
 import { FeishuCardKit, type FeishuRouteContext } from "./cardkit";
@@ -135,6 +135,11 @@ export class FeishuAdapter implements ChannelAdapter {
     this.options.config.validate();
     this.connectionState = "starting";
     this.lastError = "";
+    const configHealth = this.options.config.health();
+    this.logger.info("feishu_connection_starting", {
+      app_id: configHealth.app_id_masked,
+      api_host: configHealth.api_host,
+    });
     const sdkFactory = this.options.sdkFactory ?? createOfficialFeishuSdkFactory(this.options.config);
     const sdk = sdkFactory({
       onMessage: (data) => this.handleMessage(data),
@@ -145,23 +150,27 @@ export class FeishuAdapter implements ChannelAdapter {
         this.ready = true;
         this.connectionState = "connected";
         this.lastConnectedAt = new Date().toISOString();
+        this.logger.info("feishu_connected", { connection_state: this.connectionState });
       },
       onError: (error) => {
         this.ready = false;
         this.connectionState = "failed";
         this.lastError = error.message;
         this.lastDisconnectedAt = new Date().toISOString();
+        this.logger.error("feishu_connection_failed", { connection_state: this.connectionState, error });
       },
       onReconnecting: () => {
         this.ready = false;
         this.connectionState = "reconnecting";
         this.lastDisconnectedAt = new Date().toISOString();
+        this.logger.info("feishu_reconnecting", { connection_state: this.connectionState });
       },
       onReconnected: () => {
         if (!this.desiredStarted) return;
         this.ready = true;
         this.connectionState = "connected";
         this.lastConnectedAt = new Date().toISOString();
+        this.logger.info("feishu_reconnected", { connection_state: this.connectionState });
       },
     });
     this.sdk = sdk;
@@ -175,8 +184,13 @@ export class FeishuAdapter implements ChannelAdapter {
     let identity = { openId: "", name: "" };
     try {
       identity = await sdk.probeBotIdentity();
-    } catch {
+      this.logger.info("feishu_bot_identity_ready", {
+        bot_open_id_available: Boolean(identity.openId),
+        bot_name_available: Boolean(identity.name),
+      });
+    } catch (error) {
       // Direct messages remain available when the optional identity probe fails.
+      this.logger.warn("feishu_bot_identity_failed", { error });
     }
     const resourceResolver = sdk.resources && this.options.projectRoot
       ? createFeishuInboundResourceResolver({ projectRoot: this.options.projectRoot, api: sdk.resources })
@@ -260,6 +274,7 @@ export class FeishuAdapter implements ChannelAdapter {
         this.ready = true;
         this.connectionState = "connected";
         this.lastConnectedAt = new Date().toISOString();
+        this.logger.info("feishu_connected", { connection_state: this.connectionState, source: "start_returned" });
       }
       if (this.options.config.autoRestartEnabled) {
         this.restart = new FeishuIdleRestart({
@@ -277,6 +292,7 @@ export class FeishuAdapter implements ChannelAdapter {
       this.ready = false;
       this.connectionState = "failed";
       this.lastError = cause instanceof Error ? cause.message : String(cause);
+      this.logger.error("feishu_connection_failed", { connection_state: this.connectionState, error: cause });
       await sdk.connection.stop(true).catch(() => undefined);
       throw cause;
     }
@@ -288,6 +304,7 @@ export class FeishuAdapter implements ChannelAdapter {
     const sdk = this.sdk;
     if (!sdk) {
       this.connectionState = "stopped";
+      this.logger.info("feishu_connection_stopped", { forced: false, connection_state: this.connectionState });
       return;
     }
     const graceful = sdk.connection.stop(false);
@@ -322,6 +339,7 @@ export class FeishuAdapter implements ChannelAdapter {
     this.typing = undefined;
     this.media = undefined;
     this.normalizer = undefined;
+    this.logger.info("feishu_connection_stopped", { forced: !completed, connection_state: this.connectionState });
   }
 
   private async restartConnection(): Promise<void> {
@@ -341,15 +359,42 @@ export class FeishuAdapter implements ChannelAdapter {
   private async handleMessage(data: unknown): Promise<void> {
     this.dumpRawEvent(data);
     const snapshot = snapshotMessageEvent(data);
+    if (!snapshot) {
+      this.logger.debug("feishu_inbound_discarded", { reason: "missing_message_payload" });
+      return;
+    }
+    return runWithLogContext({ message_id: snapshot.message_id }, () => this.handleSnapshot(snapshot));
+  }
+
+  private async handleSnapshot(snapshot: NonNullable<ReturnType<typeof snapshotMessageEvent>>): Promise<void> {
     try {
       const normalizer = this.normalizer;
       const sink = this.inboundSink;
-      if (!snapshot || !normalizer || !sink || !this.desiredStarted) return;
-      const event = await normalizer.normalize(snapshot);
-      if (event) await sink(event);
+      if (!normalizer || !sink || !this.desiredStarted) return;
+      const decision = await normalizer.normalize(snapshot);
+      if (!decision.accepted) {
+        const fields = { reason: decision.reason, ...decision.metadata };
+        if (["missing_sender_open_id", "empty_content", "group_bot_identity_missing"].includes(decision.reason)) {
+          this.logger.warn("feishu_inbound_discarded", fields);
+        } else {
+          this.logger.debug("feishu_inbound_discarded", fields);
+        }
+        return;
+      }
+      const event = decision.event;
+      await runWithLogContext({ response_route_id: event.response_route_id }, async () => {
+        this.logger.info("feishu_inbound_normalized", {
+          message_type: snapshot.message_type,
+          chat_id: snapshot.chat_id,
+          resource_count: Array.isArray(event.raw_data.resources) ? event.raw_data.resources.length : 0,
+          content_block_count: event.user_content_blocks.length,
+        });
+        await sink(event);
+        this.logger.debug("feishu_inbound_sink_completed");
+      });
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
-      this.logger.warn("Feishu inbound message failed", {
+      this.logger.warn("feishu_inbound_failed", {
         message_id: snapshot?.message_id ?? "",
         message_type: snapshot?.message_type ?? "",
         chat_id: snapshot?.chat_id ?? "",

@@ -109,12 +109,15 @@ export class GatewayLifecycle {
   }
 
   private async startOnce(generation: number): Promise<void> {
+    this.logger.info("gateway_starting", { boot_id: this.options.bootId });
     try {
       await this.options.state.ensureUsable();
+      this.logger.debug("startup_component_ready", { component: "state" });
       this.assertStartupActive(generation);
       this.stateUsable = true;
       this.statusWriteAttempted = true;
       this.options.status.writeStatus(this.options.bootId);
+      this.logger.debug("startup_component_ready", { component: "gateway status" });
       this.assertStartupActive(generation);
       this.pollingAttempted = true;
       this.options.status.startPolling(this.options.bootId, () => {
@@ -127,6 +130,7 @@ export class GatewayLifecycle {
         this.dashboardBound = await this.options.dashboard.start();
         this.assertStartupActive(generation);
         if (!this.dashboardBound) throw new Error("Dashboard listener failed to bind");
+        this.logger.debug("startup_component_ready", { component: "Dashboard" });
       } else {
         this.dashboardBound = true;
       }
@@ -134,17 +138,24 @@ export class GatewayLifecycle {
       await this.options.runtime.start();
       this.assertStartupActive(generation);
       if (!this.options.runtime.isReady) throw new Error("runtime is not ready");
+      this.logger.debug("startup_component_ready", { component: "runtime" });
       this.heartbeatAttempted = true;
       await this.options.heartbeat.start();
+      this.logger.debug("startup_component_ready", { component: "heartbeat" });
       this.assertStartupActive(generation);
       this.options.channels.wireInbound((event) => this.acceptInbound(event));
       this.acceptingIngress = true;
       this.channelsAttempted = true;
       this.channelsStarted = true;
       await this.options.channels.startAll();
+      this.logger.debug("startup_component_ready", { component: "channels" });
       this.assertStartupActive(generation);
       this.started = true;
       this.lastError = "";
+      this.logger.info("gateway_ready", {
+        boot_id: this.options.bootId,
+        dashboard_enabled: this.options.dashboard.enabled,
+      });
     } catch (cause) {
       this.acceptingIngress = false;
       if (this.shutdownStarted || generation !== this.startupGeneration) {
@@ -156,6 +167,7 @@ export class GatewayLifecycle {
       this.lastError = cleanupErrors.length > 0
         ? `${original}; cleanup: ${cleanupErrors.join("; ")}`
         : original;
+      this.logger.error("gateway_start_failed", { boot_id: this.options.bootId, error: cause, cleanup_errors: cleanupErrors });
       throw cause;
     }
   }
@@ -163,6 +175,7 @@ export class GatewayLifecycle {
   async stop(): Promise<void> {
     if (this.stopPromise) return this.stopPromise;
     this.shutdownStarted = true;
+    this.logger.info("gateway_stopping", { boot_id: this.options.bootId });
     this.acceptingIngress = false;
     this.startupGeneration += 1;
     const inFlightStart = this.startTask;
@@ -233,6 +246,10 @@ export class GatewayLifecycle {
       errors.push(...await this.teardown(new Error("Gateway shutdown finalized after startup abort")));
     }
     if (errors.length > 0) this.lastError = errors.join("; ");
+    this.logger.info("gateway_stopped", {
+      boot_id: this.options.bootId,
+      error_count: errors.length,
+    });
   }
 
   private assertStartupActive(generation: number): void {
@@ -301,6 +318,7 @@ export class GatewayLifecycle {
     errors: string[],
     timeoutMs: number,
   ): Promise<void> {
+    this.logger.debug("shutdown_component_stopping", { component: label, timeout_ms: timeoutMs });
     const task = Promise.resolve().then(action);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -314,6 +332,7 @@ export class GatewayLifecycle {
           timer.unref?.();
         }),
       ]);
+      this.logger.debug("shutdown_component_stopped", { component: label });
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       errors.push(`${label}: ${message}`);

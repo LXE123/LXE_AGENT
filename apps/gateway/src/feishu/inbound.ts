@@ -57,6 +57,18 @@ export interface FeishuInboundOptions {
   }>;
 }
 
+export type FeishuInboundRejectReason =
+  | "duplicate"
+  | "stale"
+  | "group_bot_identity_missing"
+  | "group_without_bot_mention"
+  | "missing_sender_open_id"
+  | "empty_content";
+
+export type FeishuNormalizeDecision =
+  | { accepted: true; event: InboundEvent }
+  | { accepted: false; reason: FeishuInboundRejectReason; metadata: JsonObject };
+
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -473,17 +485,19 @@ export class FeishuInboundNormalizer {
     this.uuid = options.uuid ?? (() => randomUUID().replaceAll("-", ""));
   }
 
-  async normalize(snapshot: FeishuMessageSnapshot): Promise<InboundEvent | null> {
-    if (!this.accept(snapshot)) return null;
+  async normalize(snapshot: FeishuMessageSnapshot): Promise<FeishuNormalizeDecision> {
+    const rejected = this.rejectionReason(snapshot);
+    if (rejected) return this.rejected(snapshot, rejected);
     const botOpenId = text(this.options.botOpenId);
     const mentions = snapshot.mentions;
     let { message, resources } = await convertFeishuMessage(snapshot, this.options.converterContext);
     if (snapshot.chat_type === "group") {
-      if (!botOpenId || !mentions.some((item) => mentionOpenId(item) === botOpenId)) return null;
+      if (!botOpenId) return this.rejected(snapshot, "group_bot_identity_missing");
+      if (!mentions.some((item) => mentionOpenId(item) === botOpenId)) return this.rejected(snapshot, "group_without_bot_mention");
       message = stripBotMention(message, mentions, botOpenId);
     }
     const userId = text(snapshot.sender_open_id);
-    if (!userId) return null;
+    if (!userId) return this.rejected(snapshot, "missing_sender_open_id");
     let blocks: JsonObject[] = [];
     let resourceMetadata: JsonObject[] = [];
     if (resources.length > 0) {
@@ -516,7 +530,7 @@ export class FeishuInboundNormalizer {
         ...blocks.filter((block) => block.type !== "text"),
       ];
     }
-    if (!message && blocks.length === 0) return null;
+    if (!message && blocks.length === 0) return this.rejected(snapshot, "empty_content", resources.length);
 
     const unionId = text(snapshot.sender_union_id);
     const senderNick = text(snapshot.sender_user_id) || unionId || userId;
@@ -564,7 +578,7 @@ export class FeishuInboundNormalizer {
       resources: resourceMetadata,
     };
     if (quotedMessage) rawData.quoted_message = quotedMessage;
-    return {
+    return { accepted: true, event: {
       platform: "feishu",
       event_type: "agent_message",
       user_input: message,
@@ -578,21 +592,39 @@ export class FeishuInboundNormalizer {
       source,
       raw_data: rawData,
       user_content_blocks: blocks,
-    };
+    } };
   }
 
-  private accept(snapshot: FeishuMessageSnapshot): boolean {
+  private rejectionReason(snapshot: FeishuMessageSnapshot): FeishuInboundRejectReason | undefined {
     const messageId = snapshot.message_id;
     const now = this.monotonicMs();
     const cutoff = now - 12 * 60 * 60 * 1000;
     for (const [id, recordedAt] of this.seen) if (recordedAt < cutoff) this.seen.delete(id);
-    if (messageId && this.seen.has(messageId)) return false;
+    if (messageId && this.seen.has(messageId)) return "duplicate";
     if (messageId) this.seen.set(messageId, now);
-    if (!snapshot.create_time) return true;
-    if (!/^\d+$/u.test(snapshot.create_time)) return true;
+    if (!snapshot.create_time) return undefined;
+    if (!/^\d+$/u.test(snapshot.create_time)) return undefined;
     const createdAt = Number(snapshot.create_time);
-    if (!Number.isFinite(createdAt)) return true;
-    return this.nowMs() - createdAt <= 5 * 60 * 1000;
+    if (!Number.isFinite(createdAt)) return undefined;
+    return this.nowMs() - createdAt > 5 * 60 * 1000 ? "stale" : undefined;
+  }
+
+  private rejected(
+    snapshot: FeishuMessageSnapshot,
+    reason: FeishuInboundRejectReason,
+    resourceCount = 0,
+  ): FeishuNormalizeDecision {
+    return {
+      accepted: false,
+      reason,
+      metadata: {
+        message_id: snapshot.message_id,
+        message_type: snapshot.message_type,
+        chat_id: snapshot.chat_id,
+        chat_type: snapshot.chat_type,
+        resource_count: resourceCount,
+      },
+    };
   }
 
   private nonEmpty(values: Record<string, string>): JsonObject {
