@@ -15,6 +15,7 @@ import {
   registerCodingTools,
   registerScriptTools,
   PythonScriptToolRunner,
+  OneShotCliRunner,
   SkillCatalog,
   loadScriptToolCatalog,
   configureRuntimeTracing,
@@ -202,7 +203,14 @@ export function createProductionGateway(
         environment: options.environment,
         store: sqliteStore,
         gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
-        authRunner: scriptRunner,
+        authRunner: new OneShotCliRunner({
+          command: [python, "-m", "py_tools.lxeskill"],
+          cwd: options.projectRoot,
+          timeoutMs: 3 * 60_000,
+          maxOutputBytes: 10 * 1024 * 1024,
+          env: { ...options.environment, LOG_FILE: String(options.environment.LOG_FILE ?? "").trim() || "runtime.log" },
+          onStderr: (line) => logger.info("Python tool", { line }),
+        }),
       }),
     );
   }

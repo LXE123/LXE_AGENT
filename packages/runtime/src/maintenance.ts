@@ -4,7 +4,7 @@ import { hostname } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createLogger } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
-import type { ScriptToolRunner } from "./script-tools";
+import type { OneShotCliRunnerPort } from "./one-shot-cli";
 import type { SqliteRuntimeStore } from "./storage";
 
 type Environment = Record<string, string | undefined>;
@@ -28,7 +28,7 @@ interface MaintenanceSchedulerOptions {
   environment: Environment;
   store: SqliteRuntimeStore;
   gatewayId: string;
-  authRunner: ScriptToolRunner;
+  authRunner: OneShotCliRunnerPort;
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   clock?: MaintenanceClock;
   stopTimeoutMs?: number;
@@ -188,17 +188,13 @@ export class MaintenanceScheduler {
   }
 
   private async refreshAuth(): Promise<void> {
-    const callId = randomUUID();
     const controller = new AbortController();
     this.controllers.add(controller);
     try {
-      const response = await this.options.authRunner.execute({
-        protocol_version: "1",
-        call_id: callId,
-        tool_name: "browser_auth_refresh",
-        arguments: { scope: "erp" },
-        session: { session_id: "maintenance", response_route_id: "", user_id: "", conversation_id: "" },
-      }, controller.signal);
+      const response = await this.options.authRunner.execute(
+        ["auth", "refresh", "--scope", "erp"],
+        controller.signal,
+      );
       if (!response.ok) throw new Error(response.error?.message ?? "browser auth refresh failed");
       this.logger.info("auth_refresh_succeeded", { scope: "erp" });
     } finally {

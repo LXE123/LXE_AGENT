@@ -2,6 +2,7 @@ export * from "./context";
 export * from "./coding-tools";
 export * from "./mcp";
 export * from "./maintenance";
+export * from "./one-shot-cli";
 export * from "./model-image";
 export * from "./runtime";
 export * from "./final-answer-streamer";

@@ -5,6 +5,16 @@ import { join } from "node:path";
 import { SqliteRuntimeStore } from "../src/storage";
 import { MaintenanceScheduler } from "../src/maintenance";
 import type { MaintenanceClock } from "../src/maintenance";
+import type { CliTerminalResult } from "../src/one-shot-cli";
+
+const cliSuccess = (): CliTerminalResult => ({
+  protocol_version: "1",
+  type: "result",
+  command: "auth refresh",
+  ok: true,
+  data: {},
+  files: [],
+});
 
 class ManualMaintenanceClock implements MaintenanceClock {
   readonly intervals: Array<() => void> = [];
@@ -47,7 +57,7 @@ describe("MaintenanceScheduler", () => {
       store,
       gatewayId: "gateway-one",
       clock,
-      authRunner: { execute: async (request) => {
+      authRunner: { execute: async () => {
         calls += 1;
         active += 1;
         maxActive = Math.max(maxActive, active);
@@ -56,7 +66,7 @@ describe("MaintenanceScheduler", () => {
           await gate;
         }
         active -= 1;
-        return { protocol_version: "1", call_id: request.call_id, ok: true, content: [] };
+        return cliSuccess();
       } },
     });
     await scheduler.start();
@@ -115,14 +125,14 @@ describe("MaintenanceScheduler", () => {
       environment: { LXE_MAINTENANCE_AUTH_ENABLED: "1" },
       store,
       gatewayId: "gateway-one",
-      authRunner: { execute: async (_request, signal) => {
+      authRunner: { execute: async (_arguments, signal) => {
         capturedSignal = signal;
         entered?.();
         await Promise.race([
           new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true })),
           Bun.sleep(100),
         ]);
-        return { protocol_version: "1", call_id: "cancel", ok: true, content: [] };
+        return cliSuccess();
       } },
     });
 
@@ -180,9 +190,9 @@ describe("MaintenanceScheduler", () => {
       },
       store,
       gatewayId: "gateway-one",
-      authRunner: { execute: async (request) => {
-        authCalls.push(request);
-        return { protocol_version: "1", call_id: request.call_id, ok: true, content: [] };
+      authRunner: { execute: async (arguments_) => {
+        authCalls.push(arguments_);
+        return cliSuccess();
       } },
       fetch: async (url, init) => {
         uploads.push({ url: String(url), ...(init ? { init } : {}) });
@@ -191,7 +201,7 @@ describe("MaintenanceScheduler", () => {
     });
 
     await scheduler.start();
-    expect(authCalls[0]).toMatchObject({ tool_name: "browser_auth_refresh", arguments: { scope: "erp" } });
+    expect(authCalls[0]).toEqual(["auth", "refresh", "--scope", "erp"]);
     expect(uploads[0]?.url).toBe("https://data.example/base/api/v1/agent-data/snapshots");
     expect(new Headers(uploads[0]?.init?.headers).get("authorization")).toBe("Bearer secret");
     const snapshot = JSON.parse(String(uploads[0]?.init?.body));
