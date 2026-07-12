@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -11,6 +13,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from shared.logging import get_logger
+from shared.process_lock import interprocess_lock
 from services.mabang.auth_constants import PRIVATE_AMZ_HOST, PRIVATE_AMZ_REQUIRED_COOKIE_NAMES
 from services.mabang import config as mabang_settings
 
@@ -35,6 +38,9 @@ FBA_LOGISTICS_WMS_ENTRY_TEXT = "马帮WMS系统"
 PRIVATE_AMZ_COOKIE_REFRESH_URL = "https://private.mabangerp.com/index.php?mod=stock.list&searchStatus=3"
 DINGTALK_STATE_DOMAIN = "dingtalk.com"
 KNOWN_LOGIN_HOSTS: set[str] = set()
+AUTH_REFRESH_METADATA_KEY = "_lxe_auth_refresh"
+AUTH_FORCE_REFRESH_METADATA_KEY = "_lxe_auth_force_refresh"
+AUTH_REFRESH_LOCK_NAME = ".refresh.lock"
 
 
 def ensure_auth(
@@ -49,40 +55,62 @@ def ensure_auth(
 
     resolved_account, password = _resolve_credentials(normalized_scope, account)
     state_file = _state_file(resolved_account)
-    payload = _load_storage_state_payload(state_file)
-    phpsessid_status = _get_phpsessid_status(payload)
     logger.info(
         f"[BrowserAuth] ensure start: scope={normalized_scope}, account={_mask_account(resolved_account)}, "
         f"require_wms_cookie_header={bool(require_wms_cookie_header)}, force_refresh={bool(force_refresh)}, "
         f"state_exists={state_file.exists()}"
     )
 
-    if normalized_scope == "erp":
-        result = _ensure_erp_auth(
-            account=resolved_account,
-            password=password,
-            state_file=state_file,
-            payload=payload,
-            phpsessid_status=phpsessid_status,
-        )
-    elif normalized_scope == "private_amz":
-        result = _ensure_private_amz_auth(
-            account=resolved_account,
-            password=password,
-            state_file=state_file,
-            payload=payload,
-            phpsessid_status=phpsessid_status,
-        )
-    else:
-        result = _ensure_fba_auth(
-            account=resolved_account,
-            password=password,
-            state_file=state_file,
-            payload=payload,
-            phpsessid_status=phpsessid_status,
+    lock_file = state_file.with_name(AUTH_REFRESH_LOCK_NAME)
+    with interprocess_lock(
+        lock_file,
+        timeout_seconds=auth_settings.BROWSER_AUTH_LOCK_TIMEOUT_SECONDS,
+    ):
+        # Every caller reloads after acquiring the account lock. This is what
+        # collapses queued normal refreshes into the result written by the
+        # process that held the lock first.
+        payload = _load_storage_state_payload(state_file)
+        phpsessid_status = _get_phpsessid_status(payload)
+        effective_force = bool(force_refresh)
+        if effective_force and _can_coalesce_force_refresh(
+            payload,
+            normalized_scope,
             require_wms_cookie_header=require_wms_cookie_header,
-            force_refresh=force_refresh,
-        )
+        ):
+            effective_force = False
+            logger.info(
+                f"[BrowserAuth] force refresh coalesced: scope={normalized_scope}, "
+                f"account={_mask_account(resolved_account)}"
+            )
+
+        if normalized_scope == "erp":
+            result = _ensure_erp_auth(
+                account=resolved_account,
+                password=password,
+                state_file=state_file,
+                payload=payload,
+                phpsessid_status=phpsessid_status,
+                force_refresh=effective_force,
+            )
+        elif normalized_scope == "private_amz":
+            result = _ensure_private_amz_auth(
+                account=resolved_account,
+                password=password,
+                state_file=state_file,
+                payload=payload,
+                phpsessid_status=phpsessid_status,
+                force_refresh=effective_force,
+            )
+        else:
+            result = _ensure_fba_auth(
+                account=resolved_account,
+                password=password,
+                state_file=state_file,
+                payload=payload,
+                phpsessid_status=phpsessid_status,
+                require_wms_cookie_header=require_wms_cookie_header,
+                force_refresh=effective_force,
+            )
     _log_ensure_result(result)
     return result
 
@@ -192,10 +220,26 @@ def _remove_dingtalk_storage_state(payload: dict[str, Any]) -> tuple[int, int]:
 
 
 def _save_storage_state(context, state_file: Path, extra_fields: dict[str, Any] | None = None) -> dict[str, Any]:
-    context.storage_state(path=str(state_file))
-    payload = _load_storage_state_payload(state_file)
+    existing_payload = _load_storage_state_payload(state_file)
+    storage_payload = context.storage_state()
+    if not isinstance(storage_payload, dict):
+        raise RuntimeError("Playwright storage_state response must be an object")
+    payload = {
+        key: value
+        for key, value in existing_payload.items()
+        if key not in {"cookies", "origins"}
+    }
+    payload.update(storage_payload)
     if extra_fields:
-        payload.update(dict(extra_fields))
+        for key, value in dict(extra_fields).items():
+            if key in {AUTH_REFRESH_METADATA_KEY, AUTH_FORCE_REFRESH_METADATA_KEY}:
+                current = payload.get(key)
+                merged = dict(current) if isinstance(current, dict) else {}
+                if isinstance(value, dict):
+                    merged.update(value)
+                payload[key] = merged
+            else:
+                payload[key] = value
     removed_cookies, removed_origins = _remove_dingtalk_storage_state(payload)
     if removed_cookies or removed_origins:
         logger.info(
@@ -206,6 +250,7 @@ def _save_storage_state(context, state_file: Path, extra_fields: dict[str, Any] 
 
 
 def _write_storage_state_payload(state_file: Path, payload: dict[str, Any]) -> None:
+    temporary_path: Path | None = None
     try:
         cookies = payload.get("cookies")
         if isinstance(cookies, list):
@@ -225,9 +270,28 @@ def _write_storage_state_payload(state_file: Path, payload: dict[str, Any]) -> N
                     local_storage.sort(key=lambda item: str(item.get("name") or ""))
             payload["origins"] = origins
 
-        state_file.write_text(json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True), encoding="utf-8")
+        state_file.parent.mkdir(parents=True, exist_ok=True)
+        serialized = json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=state_file.parent,
+            prefix=f".{state_file.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(serialized)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, state_file)
+        temporary_path = None
     except Exception as exc:
-        logger.warning(f"[BrowserAuth] storage_state 格式化失败: file={state_file}, error={exc}")
+        logger.warning(f"[BrowserAuth] storage_state 原子写入失败: file={state_file}, error={exc}")
+        raise
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _is_cookie_domain_match(cookie_domain: str, host: str) -> bool:
@@ -593,6 +657,71 @@ def _is_fba_refresh_fresh(last_refreshed_at: int | None, ttl_seconds: int = FBA_
     return (time.time() - int(last_refreshed_at)) < max(0, int(ttl_seconds or 0))
 
 
+def _refresh_metadata(
+    scope: str,
+    refreshed_at: int | None = None,
+    *,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    timestamp = int(refreshed_at if refreshed_at is not None else time.time())
+    metadata: dict[str, Any] = {AUTH_REFRESH_METADATA_KEY: {str(scope): timestamp}}
+    if force_refresh:
+        metadata[AUTH_FORCE_REFRESH_METADATA_KEY] = {str(scope): timestamp}
+    return metadata
+
+
+def _last_scope_refresh_at(payload: dict[str, Any], scope: str) -> int | None:
+    metadata = payload.get(AUTH_FORCE_REFRESH_METADATA_KEY)
+    if not isinstance(metadata, dict):
+        return None
+    return _coerce_refresh_timestamp(metadata.get(scope))
+
+
+def _scope_state_is_valid(
+    payload: dict[str, Any],
+    scope: str,
+    *,
+    require_wms_cookie_header: bool,
+) -> bool:
+    phpsessid_valid = bool(_get_phpsessid_status(payload).get("valid"))
+    if scope == "erp":
+        return phpsessid_valid
+    if scope == "private_amz":
+        return phpsessid_valid and _has_private_amz_cookie_bundle(payload)
+    if scope != "fba":
+        return False
+    token = _storage_lookup_token(
+        payload,
+        FBA_LOGISTICS_TOKEN_ORIGIN,
+        FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY,
+    )
+    wms_cookies = _storage_lookup_domain_cookies(payload, FBA_LOGISTICS_WMS_HOST)
+    return bool(
+        _is_fba_refresh_fresh(_storage_lookup_last_refreshed_at(payload))
+        and token
+        and (not require_wms_cookie_header or wms_cookies)
+    )
+
+
+def _can_coalesce_force_refresh(
+    payload: dict[str, Any],
+    scope: str,
+    *,
+    require_wms_cookie_header: bool,
+) -> bool:
+    cooldown = max(0, int(auth_settings.BROWSER_AUTH_FORCE_COOLDOWN_SECONDS))
+    last_refreshed_at = _last_scope_refresh_at(payload, scope)
+    if cooldown <= 0 or last_refreshed_at is None:
+        return False
+    if time.time() - last_refreshed_at >= cooldown:
+        return False
+    return _scope_state_is_valid(
+        payload,
+        scope,
+        require_wms_cookie_header=require_wms_cookie_header,
+    )
+
+
 def _build_cookie_header(cookies: list[dict[str, Any]]) -> str:
     ordered: dict[str, str] = {}
     for item in cookies:
@@ -719,8 +848,9 @@ def _ensure_erp_auth(
     state_file: Path,
     payload: dict[str, Any],
     phpsessid_status: dict[str, Any],
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
-    if phpsessid_status.get("valid"):
+    if phpsessid_status.get("valid") and not force_refresh:
         return {
             "success": True,
             "scope": "erp",
@@ -738,7 +868,11 @@ def _ensure_erp_auth(
             page = context.new_page()
             _perform_login(page, account, password)
             page.wait_for_timeout(1000)
-            saved_payload = _save_storage_state(context, state_file)
+            saved_payload = _save_storage_state(
+                context,
+                state_file,
+                extra_fields=_refresh_metadata("erp", force_refresh=force_refresh),
+            )
         finally:
             context.close()
             browser.close()
@@ -758,8 +892,9 @@ def _ensure_private_amz_auth(
     state_file: Path,
     payload: dict[str, Any],
     phpsessid_status: dict[str, Any],
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
-    if phpsessid_status.get("valid") and _has_private_amz_cookie_bundle(payload):
+    if phpsessid_status.get("valid") and _has_private_amz_cookie_bundle(payload) and not force_refresh:
         return {
             "success": True,
             "scope": "private_amz",
@@ -788,7 +923,11 @@ def _ensure_private_amz_auth(
                 used_relogin = True
                 _visit_private_amz_cookie_refresh_page(page)
 
-            saved_payload = _save_storage_state(context, state_file)
+            saved_payload = _save_storage_state(
+                context,
+                state_file,
+                extra_fields=_refresh_metadata("private_amz", force_refresh=force_refresh),
+            )
         finally:
             context.close()
             browser.close()
@@ -918,7 +1057,10 @@ def _ensure_fba_auth(
             saved_payload = _save_storage_state(
                 context,
                 state_file,
-                extra_fields={"last_refreshed_at": refreshed_at},
+                extra_fields={
+                    "last_refreshed_at": refreshed_at,
+                    **_refresh_metadata("fba", refreshed_at, force_refresh=force_refresh),
+                },
             )
         finally:
             context.close()
