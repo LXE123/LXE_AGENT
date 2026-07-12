@@ -149,7 +149,7 @@ def test_third_party_loggers_default_to_warning(monkeypatch) -> None:
 
     setup_logging()
 
-    for name in ("httpx", "httpcore", "lark_oapi", "aiohttp"):
+    for name in ("httpx", "httpcore", "lark_oapi", "aiohttp", "asyncio"):
         assert logging.getLogger(name).level == logging.WARNING
 
 
@@ -218,13 +218,34 @@ def test_console_and_runtime_file_use_separate_levels_and_formats(tmp_path, monk
     assert "➤" not in console_output
     assert "[ctx s=session- t=turn-a-l]" in console_output
 
-    runtime_path = next((tmp_path / "logs" / "runtime").glob("*/runtime.log"))
+    runtime_path = next((tmp_path / "logs" / "runtime").glob("*/runtime-py.log"))
     runtime_output = runtime_path.read_text(encoding="utf-8")
     assert "runtime detail" in runtime_output
     assert "console summary" in runtime_output
     assert re.search(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} DEBUG", runtime_output)
     assert "[services.browser.tools.client]" in runtime_output
     assert "[ctx session=session-a-long turn=turn-a-long]" in runtime_output
+
+
+def test_runtime_log_file_gets_python_suffix_to_stay_apart_from_bun_jsonl(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(logging_config, "_repo_root", lambda: tmp_path)
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
+    monkeypatch.setenv("LOG_FILE", "runtime.log")
+
+    setup_logging()
+    runtime_handler = next(
+        handler
+        for handler in _managed_handlers()
+        if isinstance(handler, logging.FileHandler)
+    )
+
+    assert Path(runtime_handler.baseFilename).name == "runtime-py.log"
+
+
+def test_python_log_file_name_derivation_is_idempotent() -> None:
+    assert logging_config._python_log_file_name("runtime.log") == "runtime-py.log"
+    assert logging_config._python_log_file_name("runtime-py.log") == "runtime-py.log"
+    assert logging_config._python_log_file_name("runtime") == "runtime-py"
 
 
 def test_runtime_log_level_defaults_to_debug_and_can_be_overridden(tmp_path, monkeypatch) -> None:
@@ -283,7 +304,7 @@ def test_successful_dashboard_health_access_is_runtime_only(tmp_path, monkeypatc
     assert 'GET /api/channels/health HTTP/1.1" 503' in console_output
     assert 'GET /api/sessions HTTP/1.1" 200' in console_output
 
-    runtime_path = next((tmp_path / "logs" / "runtime").glob("*/runtime.log"))
+    runtime_path = next((tmp_path / "logs" / "runtime").glob("*/runtime-py.log"))
     runtime_output = runtime_path.read_text(encoding="utf-8")
     assert 'GET /api/channels/health HTTP/1.1" 200' in runtime_output
     assert 'GET /api/channels/health HTTP/1.1" 503' in runtime_output
@@ -402,7 +423,7 @@ def test_runtime_file_logging_requires_global_local_logs_switch(tmp_path, monkey
     for handler in logging.getLogger().handlers:
         handler.flush()
 
-    matches = list((tmp_path / "logs" / "runtime").glob("*/runtime.log"))
+    matches = list((tmp_path / "logs" / "runtime").glob("*/runtime-py.log"))
     assert len(matches) == 1
     assert "enabled runtime file log" in matches[0].read_text(encoding="utf-8")
     assert "disabled runtime file log" not in matches[0].read_text(encoding="utf-8")

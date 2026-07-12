@@ -166,7 +166,9 @@ export function createProductionGateway(
       cwd: options.projectRoot,
       timeoutMs: 10 * 60_000,
       maxOutputBytes: 10 * 1024 * 1024,
-      env: { ...options.environment, LOG_FILE: "python-tools.log" },
+      // Python derives "<stem>-py.log" from LOG_FILE, so bridge logs land in
+      // runtime-py.log beside the Bun JSONL file instead of mixing formats.
+      env: { ...options.environment, LOG_FILE: String(options.environment.LOG_FILE ?? "").trim() || "runtime.log" },
       onStderr: (line) => logger.info("Python tool", { line }),
     });
     registerScriptTools(tools, {

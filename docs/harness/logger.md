@@ -19,6 +19,7 @@ Reducing terminal noise must not remove useful runtime diagnostics. Conversely, 
 ## Configuration
 
 - `LOG_LEVEL` controls the terminal threshold.
+- `LOG_CONSOLE_FORMAT` selects the Bun terminal rendering: `pretty` (default, aligned human-readable lines with compact context) or `json` (raw JSONL, for machine consumers of stdout). Managed files always receive JSONL regardless of this setting.
 - `RUNTIME_LOG_LEVEL` controls the managed runtime-file threshold.
 - `LOG_LEVELS` applies longest-prefix logger overrides for noisy or important modules.
 - `LOCAL_LOGS_ENABLED=1` enables local file writers.
@@ -43,8 +44,8 @@ The shipped runtime configuration leaves local file logging disabled. For develo
 
 File responsibilities are intentionally separate:
 
-- Bun structured runtime records: `logs/runtime/YYYYMMDD/runtime.log`.
-- One-shot Python tool file logs: `logs/runtime/YYYYMMDD/python-tools.log`.
+- Bun structured runtime records (JSONL): `logs/runtime/YYYYMMDD/runtime.log`.
+- Python text logs (bridge tools and standalone scripts): `logs/runtime/YYYYMMDD/runtime-py.log`. Python derives the name from `LOG_FILE` by appending `-py` to the stem, so the two formats never share a file.
 - Feishu raw events: `logs/feishu_raw_events/YYYYMMDD.jsonl`.
 - Provider traces: `logs/agent_traces/` and `logs/sse_wire_traces/`.
 

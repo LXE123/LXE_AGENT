@@ -13,7 +13,7 @@ from shared.log_config import local_logs_enabled
 _MANAGED_HANDLER_ATTR = "_lxe_agent_logging_handler"
 _CONSOLE_FORMAT = "%(asctime)s %(levelname)-8s [%(display_name)s]%(log_context)s %(message)s"
 _RUNTIME_FORMAT = "%(asctime)s %(levelname)-8s [%(name)s]%(runtime_log_context)s %(message)s"
-_THIRD_PARTY_LOGGERS = ("httpx", "httpcore", "lark_oapi", "aiohttp")
+_THIRD_PARTY_LOGGERS = ("httpx", "httpcore", "lark_oapi", "aiohttp", "asyncio")
 _BROWSER_AUTH_LOGGER_PREFIXES = (
     "browser_auth_service",
     "clients.auth.browser_auth_client",
@@ -195,6 +195,13 @@ def _build_stderr_handler() -> logging.Handler:
     return handler
 
 
+def _python_log_file_name(file_name: str) -> str:
+    path = Path(file_name)
+    if path.stem.endswith("-py"):
+        return file_name
+    return f"{path.stem}-py{path.suffix}" if path.suffix else f"{file_name}-py"
+
+
 def _runtime_log_path() -> Path | None:
     raw = env_text("LOG_FILE", "")
     if not raw:
@@ -203,7 +210,9 @@ def _runtime_log_path() -> Path | None:
     if not file_name or file_name in {".", ".."}:
         return None
     day = datetime.now().strftime("%Y%m%d")
-    return (_repo_root() / "logs" / "runtime" / day / file_name).resolve()
+    # LOG_FILE is shared with the Bun gateway, which owns the plain name as a
+    # JSONL sink. Python text logs get a "-py" suffix so the formats never mix.
+    return (_repo_root() / "logs" / "runtime" / day / _python_log_file_name(file_name)).resolve()
 
 
 def _browser_auth_log_path() -> Path | None:

@@ -237,6 +237,89 @@ describe("structured logger", () => {
     }));
   });
 
+  test("renders a human-readable console line with compact context and error trailer", () => {
+    const line = logging.formatConsoleLine({
+      timestamp: "2026-07-12T04:05:06.000Z",
+      level: "error",
+      logger: "gateway.feishu.cardkit",
+      message: "card send failed",
+      session_id: "session-1234567890",
+      turn_id: "turn-abcdef",
+      card_id: "card-42",
+      error: { name: "FeishuCardKitError", message: "cardid is invalid", stack: "FeishuCardKitError: cardid is invalid\n    at send (cardkit.ts:1)\n    at run (runtime.ts:2)" },
+    }, false);
+    const [head, ...trailers] = line.split("\n");
+    expect(head).toContain("ERROR");
+    expect(head).toContain("gateway.feishu.cardkit");
+    expect(head).toContain("card send failed");
+    expect(head).toContain("s=session-");
+    expect(head).toContain("t=turn-abc");
+    expect(head).toContain("card_id=card-42");
+    expect(head).toContain("error=FeishuCardKitError: cardid is invalid");
+    expect(head).toMatch(/^\d{2}:\d{2}:\d{2}\s\s/);
+    expect(head).not.toContain("{");
+    expect(head).not.toContain("[");
+    expect(trailers.length).toBeGreaterThan(0);
+    expect(trailers[0]).toContain("at send (cardkit.ts:1)");
+  });
+
+  test("keeps info console lines single-line and flattens multi-line values", () => {
+    const line = logging.formatConsoleLine({
+      timestamp: "2026-07-12T04:05:06.000Z",
+      level: "info",
+      logger: "runtime.turn",
+      message: "turn completed",
+      reply: "first\nsecond",
+      long: "x".repeat(500),
+    }, false);
+    expect(line).not.toContain("\n");
+    expect(line).toContain("reply=first ⏎ second");
+    expect(line).toContain("…");
+    expect(line.length).toBeLessThan(400);
+  });
+
+  test("pretty console output replaces JSON while the file sink stays JSONL", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-logging-pretty-"));
+    roots.push(root);
+    const environment = {
+      LOCAL_LOGS_ENABLED: "1",
+      LOG_FILE: "runtime.log",
+      LOG_LEVEL: "INFO",
+      RUNTIME_LOG_LEVEL: "DEBUG",
+    };
+    const printed: string[] = [];
+    const consoleSpy = spyOn(console, "log").mockImplementation((line: string) => { printed.push(String(line)); });
+    try {
+      const controller = logging.configureLogging({ projectRoot: root, environment });
+      controllers.push(controller);
+      logging.createLogger("gateway.pretty").info("pretty line", { session_id: "session-42" });
+      expect(printed.length).toBeGreaterThan(0);
+      const consoleLine = printed.at(-1)!;
+      expect(() => JSON.parse(consoleLine)).toThrow();
+      expect(consoleLine).toContain("INFO");
+      expect(consoleLine).toContain("pretty line");
+      expect(consoleLine).toContain("s=session-");
+      const fileLine = readFileSync(controller.filePath!, "utf8").trim().split(/\r?\n/).at(-1)!;
+      expect(JSON.parse(fileLine)).toEqual(expect.objectContaining({
+        logger: "gateway.pretty",
+        message: "pretty line",
+        session_id: "session-42",
+      }));
+
+      await controller.close();
+      printed.length = 0;
+      const jsonController = logging.configureLogging({
+        projectRoot: root,
+        environment: { ...environment, LOG_CONSOLE_FORMAT: "json" },
+      });
+      controllers.push(jsonController);
+      logging.createLogger("gateway.pretty").info("json line");
+      expect(JSON.parse(printed.at(-1)!)).toEqual(expect.objectContaining({ message: "json line" }));
+    } finally {
+      consoleSpy.mockRestore();
+    }
+  });
+
   test("disables a failed file sink once and exposes the effective status", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-logging-failure-"));
     roots.push(root);

@@ -56,9 +56,11 @@ export interface ConfigureLoggingOptions {
 }
 
 interface ProcessLoggingSink {
-  write(level: LogLevel, logger: string, line: string): void;
+  write(level: LogLevel, logger: string, record: Record<string, unknown>, line: string): void;
   close(): void;
 }
+
+export type ConsoleLogFormat = "pretty" | "json";
 
 interface MutableLoggingStatus {
   localFileEnabled: boolean;
@@ -340,6 +342,105 @@ const cleanupRetention = (projectRoot: string, environment: Environment, today =
   return result;
 };
 
+const ANSI = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  cyan: "\x1b[36m",
+  gray: "\x1b[90m",
+} as const;
+
+const LEVEL_LABELS: Record<LogLevel, string> = { debug: "DEBUG", info: "INFO ", warn: "WARN ", error: "ERROR" };
+const LEVEL_TINTS: Record<LogLevel, string> = {
+  debug: ANSI.gray,
+  info: ANSI.green,
+  warn: ANSI.yellow,
+  error: ANSI.red,
+};
+const CONSOLE_CONTEXT_KEYS: ReadonlyArray<[key: string, label: string]> = [
+  ["session_id", "s"],
+  ["turn_id", "t"],
+  ["response_route_id", "r"],
+  ["message_id", "m"],
+  ["task_id", "task"],
+];
+const CONSOLE_LOGGER_WIDTH = 26;
+const CONSOLE_VALUE_LIMIT = 120;
+const CONSOLE_STACK_LINES = 4;
+
+const consoleTime = (timestamp: unknown): string => {
+  const value = new Date(String(timestamp ?? ""));
+  if (Number.isNaN(value.getTime())) return "--:--:--";
+  const pad = (part: number): string => String(part).padStart(2, "0");
+  return `${pad(value.getHours())}:${pad(value.getMinutes())}:${pad(value.getSeconds())}`;
+};
+
+const consoleLoggerName = (name: string): string => {
+  if (name.length <= CONSOLE_LOGGER_WIDTH) return name.padEnd(CONSOLE_LOGGER_WIDTH);
+  return `…${name.slice(-(CONSOLE_LOGGER_WIDTH - 1))}`;
+};
+
+const consoleScalar = (value: unknown): string => {
+  const raw = typeof value === "string" ? value : (() => {
+    try {
+      return JSON.stringify(value) ?? String(value);
+    } catch {
+      return String(value);
+    }
+  })();
+  const flat = raw.replaceAll(/\s*\r?\n\s*/gu, " ⏎ ");
+  if (flat.length <= CONSOLE_VALUE_LIMIT) return flat;
+  const tail = Math.floor(CONSOLE_VALUE_LIMIT / 3);
+  return `${flat.slice(0, CONSOLE_VALUE_LIMIT - tail - 1)}…${flat.slice(-tail)}`;
+};
+
+const looksLikeErrorValue = (value: unknown): value is { name: string; message: string; stack?: string } => {
+  if (value === null || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.name === "string" && typeof candidate.message === "string";
+};
+
+export function formatConsoleLine(record: Record<string, unknown>, useColors: boolean): string {
+  const paint = (text: string, ...codes: string[]): string =>
+    useColors && text ? `${codes.join("")}${text}${ANSI.reset}` : text;
+  const level = (["debug", "info", "warn", "error"] as const).includes(record.level as LogLevel)
+    ? record.level as LogLevel
+    : "info";
+  const context: string[] = [];
+  const fields: string[] = [];
+  const trailers: string[] = [];
+  for (const [key, label] of CONSOLE_CONTEXT_KEYS) {
+    const value = String(record[key] ?? "").trim();
+    if (value) context.push(`${label}=${value.slice(0, 8)}`);
+  }
+  const skip = new Set(["timestamp", "level", "logger", "message", ...CONSOLE_CONTEXT_KEYS.map(([key]) => key)]);
+  for (const [key, value] of Object.entries(record)) {
+    if (skip.has(key) || value === undefined) continue;
+    if (looksLikeErrorValue(value)) {
+      fields.push(`${key}=${consoleScalar(`${value.name}: ${value.message}`)}`);
+      const stack = String(value.stack ?? "").split(/\r?\n/u).slice(1, 1 + CONSOLE_STACK_LINES);
+      if ((level === "warn" || level === "error") && stack.length > 0) {
+        trailers.push(...stack.map((line) => paint(`          │ ${line.trim()}`, ANSI.dim)));
+      }
+      continue;
+    }
+    fields.push(`${key}=${consoleScalar(value)}`);
+  }
+  const parts = [
+    paint(consoleTime(record.timestamp), ANSI.dim),
+    paint(LEVEL_LABELS[level], LEVEL_TINTS[level], level === "error" ? ANSI.bold : ""),
+    paint(consoleLoggerName(String(record.logger ?? "")), ANSI.cyan),
+    level === "error" ? paint(String(record.message ?? ""), ANSI.bold) : String(record.message ?? ""),
+  ];
+  const suffix = [...context, ...fields];
+  if (suffix.length > 0) parts.push(paint(suffix.join(" "), ANSI.dim));
+  const head = parts.filter(Boolean).join("  ");
+  return trailers.length > 0 ? `${head}\n${trailers.join("\n")}` : head;
+}
+
 const statusSnapshot = (status: MutableLoggingStatus): LoggingStatus => ({
   localFileEnabled: status.localFileEnabled,
   ...(status.filePath ? { filePath: status.filePath } : {}),
@@ -376,14 +477,22 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
     consoleLevel,
     fileLevel,
   };
+  const consoleFormat: ConsoleLogFormat =
+    envText(environment, "LOG_CONSOLE_FORMAT", "pretty").toLowerCase() === "json" ? "json" : "pretty";
+  const consoleColors = consoleFormat === "pretty"
+    && Boolean(process.stdout?.isTTY)
+    && !envText(environment, "NO_COLOR")
+    && !envText(environment, "CI");
   let closed = false;
   let fileUsable = Boolean(filePath);
   let sinkFailureReported = false;
   const sink: ProcessLoggingSink = {
-    write(level, logger, line) {
+    write(level, logger, record, line) {
       if (closed) return;
       const override = overrideLevel(logger, overrides);
-      if (shouldWrite(level, consoleLevel, override)) safeConsole("log", line);
+      if (shouldWrite(level, consoleLevel, override)) {
+        safeConsole("log", consoleFormat === "json" ? line : formatConsoleLine(record, consoleColors));
+      }
       if (filePath && fileUsable && shouldWrite(level, fileLevel, override)) {
         try {
           appendFileSync(filePath, `${line}\n`, "utf8");
@@ -444,7 +553,7 @@ export function createLogger(name: string, options: LoggerOptions = {}, context:
       const line = JSON.stringify(record);
       if (options.write) {
         try { options.write(line); } catch (error) { logFallback(name, message, error); }
-      } else if (processSink) processSink.write(level, name, line);
+      } else if (processSink) processSink.write(level, name, record, line);
       else safeConsole("log", line);
     } catch (error) {
       logFallback(name, message, error);
