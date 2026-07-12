@@ -397,7 +397,9 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         max_tokens: this.descriptor.maxTokens,
         system: systemPayload(request.system),
         messages: adaptMessagesForProvider(request.messages, this.descriptor),
-        ...(request.tools.length > 0 ? { tools: request.tools, tool_choice: { type: "auto" } } : {}),
+        ...(request.toolChoice === "auto" && request.tools.length > 0
+          ? { tools: request.tools, tool_choice: { type: "auto" } }
+          : {}),
         stream: true,
         ...thinkingPayload(this.descriptor),
       };

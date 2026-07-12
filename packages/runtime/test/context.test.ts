@@ -26,6 +26,7 @@ class MemoryStore implements RuntimeStore {
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
   async getSession(): Promise<{ session_id: string; source: JsonObject }> { return { session_id: "s1", source: {} }; }
+  async popPendingEvents(): Promise<JsonObject[]> { return []; }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
   async appendMessage(_sessionId: string, message: RuntimeMessage): Promise<void> { this.messages.push(message); }
   async replaceMessages(_sessionId: string, messages: RuntimeMessage[], kind: "compaction" | "repair" | "history_limit" | "context_replacement", metadata: JsonObject = {}): Promise<void> {

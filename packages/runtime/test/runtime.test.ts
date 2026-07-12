@@ -3,7 +3,13 @@ import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../src/runtime";
 import { RuntimeProviderError } from "../src/provider";
 import { ToolRegistry } from "../src/tools";
-import type { RuntimeHandle, RuntimeMessage, RuntimeStore, RuntimeTurnResponse } from "../src/types";
+import type {
+  RuntimeHandle,
+  RuntimeMessage,
+  RuntimeProviderRequest,
+  RuntimeStore,
+  RuntimeTurnResponse,
+} from "../src/types";
 
 const job = (): AgentJob => ({
   job_id: "j1",
@@ -24,6 +30,7 @@ const job = (): AgentJob => ({
 
 class MemoryStore implements RuntimeStore {
   messages: RuntimeMessage[] = [];
+  pendingEvents: JsonObject[] = [];
   metrics: JsonObject[] = [];
   statePatches: JsonObject[] = [];
   replacements: RuntimeMessage[][] = [];
@@ -31,6 +38,9 @@ class MemoryStore implements RuntimeStore {
   async stop(): Promise<void> {}
   async getSession(): Promise<{ session_id: string; source: JsonObject }> {
     return { session_id: "s1", source: { platform: "feishu" } };
+  }
+  async popPendingEvents(): Promise<JsonObject[]> {
+    return this.pendingEvents.splice(0);
   }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
   async appendMessage(_sessionId: string, message: RuntimeMessage): Promise<void> { this.messages.push(message); }
@@ -58,6 +68,110 @@ const handle = (): RuntimeHandle => {
 };
 
 describe("TypeScriptAgentRuntime", () => {
+  test("completes an empty heartbeat without loading history or calling the provider", async () => {
+    const store = new MemoryStore();
+    store.messages.push({ role: "user", content: "private history" });
+    let calls = 0;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async () => {
+          calls += 1;
+          throw new Error("provider must not be called");
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn({ ...job(), job_kind: "heartbeat", user_input: "" }, handle());
+    expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "" }));
+    expect(calls).toBe(0);
+    expect(store.messages).toEqual([{ role: "user", content: "private history" }]);
+  });
+
+  test("reports heartbeat events without history or tools", async () => {
+    const store = new MemoryStore();
+    store.messages.push({ role: "user", content: "private history" });
+    store.pendingEvents.push({
+      event_id: "event-1",
+      job_id: "background-1",
+      created_at: 1_700_000_000,
+      text: "refresh completed",
+    });
+    let captured: RuntimeProviderRequest | undefined;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async (request) => {
+          captured = request;
+          return {
+            content: [{ type: "text", text: "刷新已完成。" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 3, output_tokens: 2 },
+          };
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn({ ...job(), job_kind: "heartbeat", user_input: "" }, handle());
+    expect(outcome.reply).toBe("刷新已完成。");
+    expect(captured?.tools).toEqual([]);
+    expect(captured?.toolChoice).toBe("none");
+    expect(captured?.messages).toHaveLength(1);
+    expect(JSON.stringify(captured?.messages)).not.toContain("private history");
+    expect(store.pendingEvents).toEqual([]);
+  });
+
+  test("disables tools on the last step and ignores a violating tool call", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    let executed = false;
+    tools.register({
+      name: "danger",
+      description: "must not execute",
+      input_schema: { type: "object" },
+      execute: async () => {
+        executed = true;
+        return { content: [{ type: "text", text: "bad" }] };
+      },
+    });
+    const requests: Array<{ tools: unknown[]; toolChoice: string }> = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      maxSteps: 1,
+      provider: {
+        summarize,
+        turn: async (request) => {
+          requests.push({ tools: request.tools, toolChoice: request.toolChoice });
+          return {
+            content: [
+              { type: "text", text: "Here is the available result." },
+              { type: "tool_use", id: "late", name: "danger", input: {} },
+            ],
+            stop_reason: "tool_use",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    const outcome = await runtime.runTurn(job(), handle());
+    expect(requests).toEqual([{ tools: [], toolChoice: "none" }]);
+    expect(executed).toBe(false);
+    expect(outcome.reply).toBe("Here is the available result.");
+    expect(store.messages.at(-1)?.content).toEqual([{ type: "text", text: "Here is the available result." }]);
+  });
+
   test("closes a tool call, persists canonical messages, and emits the final answer", async () => {
     const responses: RuntimeTurnResponse[] = [
       {

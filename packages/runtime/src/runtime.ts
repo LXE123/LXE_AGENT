@@ -12,6 +12,11 @@ import {
 } from "./context";
 import { FinalAnswerStreamer } from "./final-answer-streamer";
 import { RuntimeProviderError, type RuntimeProviderManager } from "./provider";
+import {
+  heartbeatPrompt,
+  normalizePendingSystemEvents,
+  userContentWithSystemEvents,
+} from "./system-events";
 import type { RuntimeTraceControllerPort } from "./trace";
 import type {
   AgentRuntime,
@@ -22,6 +27,7 @@ import type {
   RuntimeProvider,
   RuntimeStore,
   RuntimeStreamEvent,
+  SystemPromptContext,
   RuntimeTurnResponse,
   RuntimeUsage,
   ToolResultBlock,
@@ -37,7 +43,7 @@ export interface TypeScriptAgentRuntimeOptions {
   tools: ToolRegistry;
   toolExposure?: ToolExposureOptions | (() => ToolExposureOptions);
   emitter: RuntimeEmitter;
-  systemPrompt: string | (() => string);
+  systemPrompt: string | ((context: SystemPromptContext) => string);
   maxSteps?: number;
   contextWindowTokens?: number;
   display?: {
@@ -126,10 +132,15 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         await exposureOptions?.onSkillActivated?.(name);
       },
     });
-    const systemPrompt = typeof this.options.systemPrompt === "function"
-      ? this.options.systemPrompt()
-      : this.options.systemPrompt;
     const descriptor = providerSnapshot?.descriptor;
+    const systemPromptContext: SystemPromptContext = {
+      platform: String(session.source.platform ?? "").trim(),
+      provider: descriptor?.name ?? "custom",
+      model: descriptor?.model ?? this.options.display?.model ?? "",
+    };
+    const systemPrompt = typeof this.options.systemPrompt === "function"
+      ? this.options.systemPrompt(systemPromptContext)
+      : this.options.systemPrompt;
     const trace = this.options.traceController?.startTurn(job.session_id, job.job_id);
     trace?.record("turn_start", {
       session_id: job.session_id,
@@ -208,13 +219,21 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           emit_id: randomUUID().replaceAll("-", ""),
         }, "start");
       }
-      let messages = await this.options.store.loadMessages(job.session_id);
-      const userContent: RuntimeMessage["content"] = job.user_content_blocks.length > 0
-        ? job.user_content_blocks
-        : job.user_input;
+      const heartbeat = job.job_kind === "heartbeat";
+      const pendingEvents = normalizePendingSystemEvents(heartbeat
+        ? await this.options.store.popPendingEvents(job.session_id)
+        : job.raw_data.system_events);
+      if (heartbeat && pendingEvents.length === 0) {
+        await recordUsage("completed");
+        return this.outcome("completed", "", inputTokens, outputTokens, toolCalls);
+      }
+      let messages = heartbeat ? [] : await this.options.store.loadMessages(job.session_id);
+      const userContent: RuntimeMessage["content"] = heartbeat
+        ? heartbeatPrompt(pendingEvents)
+        : userContentWithSystemEvents(job.user_input, job.user_content_blocks, pendingEvents);
       const userMessage: RuntimeMessage = { role: "user", content: userContent };
       messages.push(userMessage);
-      await this.options.store.appendMessage(job.session_id, userMessage, "turn_input");
+      await this.options.store.appendMessage(job.session_id, userMessage, heartbeat ? "heartbeat" : "turn_input");
 
       const appendSteering = async (steeringMessages = handle.drainSteering()): Promise<number> => {
         let appended = 0;
@@ -238,7 +257,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
         }
         await appendSteering();
-        const toolSchemas = toolExposure.schemas();
+        const isLastStep = step === maxSteps - 1;
+        const toolSchemas = heartbeat || isLastStep ? [] : toolExposure.schemas();
         const prepared = await contextPipeline.prepare({
           sessionId: job.session_id,
           messages,
@@ -259,6 +279,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           system: systemPrompt,
           messages: structuredClone(messages) as RuntimeMessage[],
           tools: toolSchemas,
+          toolChoice: heartbeat || isLastStep ? "none" as const : "auto" as const,
           signal: handle.signal,
           ...(trace ? { trace } : {}),
           onEvent: async (event: RuntimeStreamEvent) => {
@@ -327,17 +348,23 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         inputTokens += Math.max(0, Math.trunc(response.usage.input_tokens));
         outputTokens += Math.max(0, Math.trunc(response.usage.output_tokens));
         finalAnswerStreamer?.updateUsage(response.usage);
-        const assistant: RuntimeMessage = { role: "assistant", content: response.content };
+        const calls = toolUseBlocks(response.content);
+        const forcedLastStepReply = isLastStep && calls.length > 0
+          ? textContent(response.content) || "本轮已达到最大步骤，请发送下一条消息继续。"
+          : "";
+        const assistantContent: RuntimeContentBlock[] = forcedLastStepReply
+          ? [{ type: "text", text: forcedLastStepReply }]
+          : response.content;
+        const assistant: RuntimeMessage = { role: "assistant", content: assistantContent };
         messages.push(assistant);
         await this.options.store.appendMessage(job.session_id, assistant, "assistant_response");
-        const calls = toolUseBlocks(response.content);
-        if (calls.length === 0) {
-          const reply = textContent(response.content);
+        if (calls.length === 0 || isLastStep) {
+          const reply = forcedLastStepReply || textContent(response.content);
           const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.finish(reply) : false;
           if (reply && job.response_route_id && !streamDelivered) {
             await this.emitBestEffort(this.finalRequest(job, reply), "final");
           }
-          if (!isCancelled(handle)) {
+          if (!heartbeat && !isCancelled(handle)) {
             try {
               const postTurn = await contextPipeline.postTurn({
                 sessionId: job.session_id,

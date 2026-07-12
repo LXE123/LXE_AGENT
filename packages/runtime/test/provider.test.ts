@@ -76,6 +76,7 @@ describe("Anthropic-compatible provider", () => {
       system: "system",
       messages: [{ role: "user", content: "hello" }],
       tools: [{ name: "echo", description: "echo", input_schema: { type: "object" } }],
+      toolChoice: "auto",
       signal: new AbortController().signal,
       onEvent: async (event) => { deltas.push(event); },
     });

@@ -313,6 +313,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
 
   async appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
     const now = new Date().toISOString();
+    const createdAt = Math.trunc(Date.now() / 1_000);
     this.db().query(`
       INSERT OR IGNORE INTO agent_session_pending_events
         (session_id, event_id, job_id, created_at, text, queued_at)
@@ -321,7 +322,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
       text(sessionId),
       text(event.event_id) || randomUUID().replaceAll("-", ""),
       text(event.job_id),
-      text(event.created_at) || now,
+      text(event.created_at) || String(createdAt),
       text(event.text),
       now,
     );

@@ -36,6 +36,14 @@ export interface AgentJob {
   user_content_blocks: JsonObject[];
 }
 
+export interface PendingSystemEvent extends JsonObject {
+  event_id: string;
+  job_id: string;
+  created_at: number;
+  text: string;
+  response_route_id?: string;
+}
+
 export type ToolStepStatus = "running" | "success" | "error";
 
 export interface ToolDisplayBlock extends JsonObject {

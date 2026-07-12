@@ -59,6 +59,7 @@ export interface RuntimeProviderRequest {
   system: string;
   messages: RuntimeMessage[];
   tools: ToolSchema[];
+  toolChoice: "auto" | "none";
   signal: AbortSignal;
   onEvent?: (event: RuntimeStreamEvent) => Promise<void> | void;
   trace?: {
@@ -88,6 +89,7 @@ export interface RuntimeStore {
   start(): Promise<void>;
   stop(): Promise<void>;
   getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined>;
+  popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   loadMessages(sessionId: string): Promise<RuntimeMessage[]>;
   appendMessage(sessionId: string, message: RuntimeMessage, reason?: string): Promise<void>;
   replaceMessages(
@@ -98,6 +100,12 @@ export interface RuntimeStore {
   ): Promise<void>;
   patchSessionState(sessionId: string, patch: JsonObject): Promise<void>;
   recordTurn(sessionId: string, metrics: JsonObject): Promise<void>;
+}
+
+export interface SystemPromptContext {
+  platform: string;
+  provider: string;
+  model: string;
 }
 
 export interface ToolSchema {

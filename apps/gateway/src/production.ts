@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
 import { createLogger } from "@lxe/core";
@@ -18,6 +18,7 @@ import {
   loadScriptToolCatalog,
   configureRuntimeTracing,
   registerToolSearch,
+  buildSystemPrompt,
 } from "@lxe/runtime";
 import { BunDashboardServer } from "./dashboard";
 import { DashboardApi } from "./dashboard-api";
@@ -112,8 +113,9 @@ export function createProductionGateway(
         {
           event_id: eventId,
           job_id: String(snapshot.task_id ?? ""),
-          created_at: new Date().toISOString(),
+          created_at: Math.trunc(Date.now() / 1_000),
           text: `后台命令已结束：status=${String(snapshot.status ?? "")}\n${String(snapshot.output_tail ?? "")}`.trim(),
+          ...(responseRouteId ? { response_route_id: responseRouteId } : {}),
         },
       );
       heartbeatWake?.({
@@ -241,11 +243,13 @@ export function createProductionGateway(
             await gatewayEmitter.typing(request);
           },
         },
-        systemPrompt: () => [
-          readFileSync(join(options.projectRoot, "SOUL.md"), "utf8"),
-          "<<system-prompt-cache-breakpoint>>",
-          skillCatalog.buildPrompt(skillOptions()),
-        ].filter(Boolean).join("\n\n"),
+        systemPrompt: (context) => buildSystemPrompt({
+          projectRoot: options.projectRoot,
+          platform: context.platform,
+          provider: context.provider,
+          model: context.model,
+          skillPrompt: skillCatalog.buildPrompt(skillOptions()),
+        }),
         services: runtimeServices,
       });
     })();
