@@ -7,7 +7,7 @@ import io
 import json
 from pathlib import Path
 import sys
-from typing import Any
+from typing import Any, Callable
 
 from shared.logging import get_logger
 
@@ -23,6 +23,10 @@ def load_catalog() -> dict[str, dict[str, Any]]:
         raise RuntimeError("invalid script tool catalog protocol")
     entries: dict[str, dict[str, Any]] = {}
     modules: set[str] = set()
+    command_paths: set[tuple[str, ...]] = set()
+    legacy_aliases: set[str] = set()
+    allowed_visibilities = {"business", "browser", "maintenance", "internal"}
+    allowed_session_modes = {"none", "lxe_session"}
     for raw in list(document.get("entries") or []):
         entry = dict(raw or {})
         name = str(entry.get("name") or "").strip()
@@ -32,6 +36,23 @@ def load_catalog() -> dict[str, dict[str, Any]]:
             raise RuntimeError(f"duplicate or empty script tool name: {name}")
         if not module and not handler:
             raise RuntimeError(f"script tool has no handler: {name}")
+        command_path = tuple(str(item).strip() for item in list(entry.get("command_path") or []))
+        if not command_path or any(not item for item in command_path):
+            raise RuntimeError(f"lxeskill command path is empty: {name}")
+        if command_path in command_paths:
+            raise RuntimeError(f"duplicate lxeskill command path: {' '.join(command_path)}")
+        command_paths.add(command_path)
+        visibility = str(entry.get("visibility") or "").strip()
+        if visibility not in allowed_visibilities:
+            raise RuntimeError(f"invalid lxeskill visibility for {name}: {visibility}")
+        session_mode = str(entry.get("session_mode") or "").strip()
+        if session_mode not in allowed_session_modes:
+            raise RuntimeError(f"invalid lxeskill session mode for {name}: {session_mode}")
+        for alias_value in list(entry.get("legacy_aliases") or []):
+            alias = str(alias_value).strip()
+            if not alias or alias in legacy_aliases or alias in entries:
+                raise RuntimeError(f"duplicate or empty lxeskill legacy alias: {alias}")
+            legacy_aliases.add(alias)
         if module:
             if module in modules:
                 raise RuntimeError(f"duplicate script tool module: {module}")
@@ -74,12 +95,15 @@ def _argv(arguments: dict[str, Any], positional: list[str]) -> list[str]:
     return output
 
 
-def _allowed_file(raw_path: str) -> Path:
+def allowed_output_file(raw_path: str) -> Path:
     path = Path(raw_path).expanduser()
     if not path.is_absolute():
         path = _PROJECT_ROOT / path
     resolved = path.resolve()
-    relation = resolved.relative_to(_PROJECT_ROOT).as_posix()
+    try:
+        relation = resolved.relative_to(_PROJECT_ROOT).as_posix()
+    except ValueError as exc:
+        raise ValueError(f"business CLI returned a file outside allowed artifact roots: {raw_path}") from exc
     if not (
         relation.startswith("artifacts/")
         or relation.startswith("skills/") and "/assets/" in f"/{relation}"
@@ -120,7 +144,7 @@ def _collect_files(value: Any, *, key: str = "") -> list[str]:
             candidates.extend(_collect_files(child, key=key))
     output: list[str] = []
     for candidate in candidates:
-        path = str(_allowed_file(candidate))
+        path = str(allowed_output_file(candidate))
         if path not in output:
             output.append(path)
     return output
@@ -130,6 +154,9 @@ def execute_module_json(
     entry: dict[str, Any],
     arguments: dict[str, Any],
     _session: dict[str, Any],
+    *,
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+    on_text: Callable[[str], None] | None = None,
 ) -> tuple[bool, list[dict[str, Any]], list[str], dict[str, str] | None]:
     module_name = str(entry.get("module") or "").strip()
     module = importlib.import_module(module_name)
@@ -154,6 +181,18 @@ def execute_module_json(
     lines = [line.strip() for line in stdout.getvalue().splitlines() if line.strip()]
     if not lines:
         raise RuntimeError(f"business CLI returned no JSON: {module_name}")
+    for line in lines[:-1]:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            if on_text is not None:
+                on_text(line)
+            continue
+        if isinstance(event, dict) and str(event.get("type") or "") == "progress":
+            if on_event is not None:
+                on_event(dict(event))
+        elif on_text is not None:
+            on_text(line)
     try:
         payload = json.loads(lines[-1])
     except json.JSONDecodeError as exc:
@@ -171,4 +210,4 @@ def execute_module_json(
     return False, content, [], {"code": "business_cli_failed", "message": message}
 
 
-__all__ = ["execute_module_json", "load_catalog"]
+__all__ = ["allowed_output_file", "execute_module_json", "load_catalog"]

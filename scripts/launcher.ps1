@@ -12,6 +12,7 @@ Set-StrictMode -Version Latest
 
 $NewLauncherDir = Join-Path $env:USERPROFILE ".lxe\bin"
 $NewLauncherPath = Join-Path $NewLauncherDir "LXE.cmd"
+$NewSkillLauncherPath = Join-Path $NewLauncherDir "lxeskill.cmd"
 $NewPowerShellLauncherPath = Join-Path $NewLauncherDir "LXE.launcher.ps1"
 $LegacyPowerShellLauncherPath = Join-Path $NewLauncherDir "LXE.ps1"
 $OldLauncherDir = Join-Path $env:USERPROFILE ".lxefba\bin"
@@ -128,6 +129,14 @@ function Invoke-LxeUpdate {
     Exit-LxeNativeCommand
 }
 
+function Invoke-LxeSkill {
+    param([string[]]`$SkillArguments)
+    Set-Location -LiteralPath `$LxeRoot
+    `$PythonPath = Join-Path `$LxeRoot ".venv\Scripts\python.exe"
+    & `$PythonPath -m py_tools.lxeskill @SkillArguments
+    Exit-LxeNativeCommand
+}
+
 `$Command = ""
 if (`$args.Count -gt 0) {
     `$Command = [string]`$args[0]
@@ -138,13 +147,24 @@ switch (`$Command.ToLowerInvariant()) {
     "stop" { Invoke-LxeStop }
     "doctor" { Invoke-LxeDoctor }
     "update" { Invoke-LxeUpdate }
+    "skill" {
+        `$SkillArguments = if (`$args.Count -gt 1) { @(`$args[1..(`$args.Count - 1)]) } else { @() }
+        Invoke-LxeSkill -SkillArguments `$SkillArguments
+    }
     default {
-        Write-Host "Usage: LXE <start|stop|doctor|update>"
+        Write-Host "Usage: LXE <start|stop|doctor|update|skill>"
         exit 2
     }
 }
 "@
     Set-Content -LiteralPath $NewLauncherPath -Value $cmdContent -Encoding ASCII
+    $skillCmdContent = @"
+@echo off
+setlocal
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0LXE.launcher.ps1" skill %*
+exit /b %ERRORLEVEL%
+"@
+    Set-Content -LiteralPath $NewSkillLauncherPath -Value $skillCmdContent -Encoding ASCII
     Write-Utf8BomFile -Path $NewPowerShellLauncherPath -Value $psContent
     if (Test-Path -LiteralPath $LegacyPowerShellLauncherPath -PathType Leaf) {
         Remove-Item -LiteralPath $LegacyPowerShellLauncherPath -Force

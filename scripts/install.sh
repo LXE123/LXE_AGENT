@@ -10,6 +10,7 @@ BUN_VERSION="1.3.14"
 PROJECT_NAME="lxe-agent"
 LAUNCHER_DIR="$HOME/.lxe/bin"
 LAUNCHER_PATH="$LAUNCHER_DIR/LXE"
+SKILL_LAUNCHER_PATH="$LAUNCHER_DIR/lxeskill"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -207,13 +208,26 @@ case "\${1:-}" in
     cd "\$LXE_ROOT"
     "$bun_path" run gateway:stop
     ;;
+  skill)
+    shift
+    cd "\$LXE_ROOT"
+    "\$LXE_ROOT/.venv/bin/python" -m py_tools.lxeskill "\$@"
+    ;;
   *)
-    echo "Usage: LXE <start|stop>" >&2
+    echo "Usage: LXE <start|stop|skill>" >&2
     exit 2
     ;;
 esac
 EOF
   chmod +x "$LAUNCHER_PATH"
+  cat > "$SKILL_LAUNCHER_PATH" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+LXE_ROOT="$project_root"
+cd "\$LXE_ROOT"
+exec "\$LXE_ROOT/.venv/bin/python" -m py_tools.lxeskill "\$@"
+EOF
+  chmod +x "$SKILL_LAUNCHER_PATH"
 }
 
 add_launcher_path() {

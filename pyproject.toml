@@ -18,6 +18,9 @@ dependencies = [
     "xlrd>=2.0.0",
 ]
 
+[project.scripts]
+lxeskill = "py_tools.lxeskill:main"
+
 [dependency-groups]
 dev = [
     "pytest",

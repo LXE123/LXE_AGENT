@@ -54,6 +54,7 @@ function Warn-LauncherStatus {
     }
     $launcherDir = Join-Path $userHome ".lxe\bin"
     $launcherPath = Join-Path $launcherDir "LXE.cmd"
+    $skillLauncherPath = Join-Path $launcherDir "lxeskill.cmd"
     $powerShellLauncherPath = Join-Path $launcherDir "LXE.launcher.ps1"
     $legacyPowerShellLauncherPath = Join-Path $launcherDir "LXE.ps1"
     if (-not (Test-Path -LiteralPath $launcherPath -PathType Leaf)) {
@@ -71,6 +72,9 @@ function Warn-LauncherStatus {
     }
     if (-not (Test-Path -LiteralPath $powerShellLauncherPath -PathType Leaf)) {
         Write-Warning "LXE PowerShell launcher is missing: $powerShellLauncherPath. Run scripts\launcher.ps1 from the project root to repair it."
+    }
+    if (-not (Test-Path -LiteralPath $skillLauncherPath -PathType Leaf)) {
+        Write-Warning "lxeskill launcher is missing: $skillLauncherPath. Run scripts\launcher.ps1 from the project root to repair it."
     }
     if (Test-Path -LiteralPath $legacyPowerShellLauncherPath -PathType Leaf) {
         Write-Warning "Legacy LXE PowerShell launcher may shadow LXE.cmd in PowerShell: $legacyPowerShellLauncherPath. Run scripts\launcher.ps1 from the project root to repair it."
@@ -255,6 +259,15 @@ Invoke-NativeChecked -Label "critical imports" -FilePath $uv -Arguments @(
     "python",
     "-c",
     "import aiohttp, bs4, openpyxl, pandas, PIL, playwright, requests, selenium, urllib3, xlrd, yaml; print('tool imports ok')"
+) -Verb "Checking"
+
+Invoke-NativeChecked -Label "lxeskill command registry" -FilePath $uv -Arguments @(
+    "run",
+    "--frozen",
+    "python",
+    "-m",
+    "py_tools.lxeskill",
+    "list"
 ) -Verb "Checking"
 
 $playwrightCheck = @'
