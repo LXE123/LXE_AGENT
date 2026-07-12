@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
-import { createLogger, runWithLogContext } from "@lxe/core";
+import { createLogger, runWithLogContext, type Logger } from "@lxe/core";
 import {
   AtomicRuntimeProviderManager,
   McpManager,
@@ -22,6 +22,10 @@ import {
   buildSystemPrompt,
 } from "@lxe/runtime";
 import { BunDashboardServer } from "./dashboard";
+import {
+  BunDashboardBrowserOpener,
+  type DashboardBrowserOpener,
+} from "./dashboard-browser";
 import { DashboardApi } from "./dashboard-api";
 import {
   loadGatewayBootstrapSettings,
@@ -54,6 +58,8 @@ export interface ProductionGatewayOptions {
   policy?: PermissionPolicy;
   directRuntime?: DirectAgentRuntime;
   directStorage?: DirectGatewayStorage;
+  dashboardBrowserOpener?: DashboardBrowserOpener;
+  logger?: Logger;
 }
 
 export interface ProductionGatewayApplication extends GatewayApplicationPort {
@@ -65,8 +71,9 @@ export interface ProductionGatewayApplication extends GatewayApplicationPort {
 export function createProductionGateway(
   options: ProductionGatewayOptions,
 ): ProductionGatewayApplication {
-  const logger = createLogger("gateway");
+  const logger = options.logger ?? createLogger("gateway");
   const settings = loadGatewayBootstrapSettings(options.environment);
+  const dashboardBrowserOpener = options.dashboardBrowserOpener ?? new BunDashboardBrowserOpener();
   const policy =
     options.policy ??
     loadPermissionPolicy(
@@ -87,6 +94,7 @@ export function createProductionGateway(
     health: () => composition.health(),
     channels: () => composition.parts.channels.healthSnapshot(),
     api: async (request, url) => dashboardApi?.handle(request, url),
+    logger: logger.child({ component: "dashboard" }),
   });
   const databasePath =
     String(options.environment.LXE_SQLITE_DB_PATH ?? "").trim() ||
@@ -301,11 +309,59 @@ export function createProductionGateway(
   heartbeatWake = (payload) =>
     directComposition.parts.heartbeatBridge.handle(payload);
   composition = directComposition;
+  let browserOpenAttempted = false;
+  const start = async (): Promise<void> => {
+    await composition.start();
+    if (!settings.dashboardEnabled) {
+      logger.debug("dashboard_browser_skipped", { reason: "dashboard_disabled" });
+      return;
+    }
+    logger.info("dashboard_available", {
+      url: dashboard.url,
+      host: dashboard.host,
+      port: dashboard.port,
+      requested_port: dashboard.requestedPort,
+      port_fallback: dashboard.usedPortFallback,
+      browser_auto_open: settings.dashboardOpenBrowser,
+    });
+    if (!settings.dashboardOpenBrowser) {
+      logger.debug("dashboard_browser_skipped", {
+        reason: "disabled_by_config",
+        url: dashboard.url,
+      });
+      return;
+    }
+    if (browserOpenAttempted) {
+      logger.debug("dashboard_browser_skipped", {
+        reason: "already_attempted",
+        url: dashboard.url,
+      });
+      return;
+    }
+    browserOpenAttempted = true;
+    try {
+      const opened = await dashboardBrowserOpener.open(dashboard.url);
+      if (opened) {
+        logger.info("dashboard_browser_opened", { url: dashboard.url });
+      } else {
+        logger.warn("dashboard_browser_open_failed", {
+          url: dashboard.url,
+          reason: "non_zero_exit",
+        });
+      }
+    } catch (error) {
+      logger.warn("dashboard_browser_open_failed", {
+        url: dashboard.url,
+        reason: "opener_error",
+        error,
+      });
+    }
+  };
   return {
     settings,
     parts: composition.parts,
     dashboard,
-    start: () => composition.start(),
+    start,
     stop: () => composition.stop(),
     health: () => composition.health() as Promise<JsonObject>,
   };

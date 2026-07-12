@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { extname, join, normalize, relative } from "node:path";
+import { createLogger, type Logger } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 
 export interface BunDashboardOptions {
@@ -11,6 +12,7 @@ export interface BunDashboardOptions {
   health: () => Promise<JsonObject>;
   channels: () => Promise<Record<string, JsonObject>>;
   api?: (request: Request, url: URL) => Promise<Response | undefined>;
+  logger?: Logger;
 }
 
 const json = (value: unknown, status = 200): Response =>
@@ -26,15 +28,33 @@ const contentType = (path: string): string => {
   return "application/octet-stream";
 };
 
+const errorText = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
+export function dashboardAccessUrl(host: string, port: number): string {
+  const configured = String(host || "127.0.0.1").trim() || "127.0.0.1";
+  const accessible = ["0.0.0.0", "::", "[::]"].includes(configured)
+    ? "127.0.0.1"
+    : configured;
+  const unwrapped = accessible.startsWith("[") && accessible.endsWith("]")
+    ? accessible.slice(1, -1)
+    : accessible;
+  const urlHost = unwrapped.includes(":") ? `[${unwrapped}]` : unwrapped;
+  return `http://${urlHost}:${port}`;
+}
+
 export class BunDashboardServer {
   private server: ReturnType<typeof Bun.serve> | undefined;
   private error = "";
-  private readonly requestedPort: number;
+  private readonly logger: Logger;
+  private fallbackUsed = false;
+  readonly requestedPort: number;
   port: number;
 
   constructor(private readonly options: BunDashboardOptions) {
     this.requestedPort = options.port;
     this.port = options.port;
+    this.logger = options.logger ?? createLogger("gateway.dashboard");
   }
 
   get enabled(): boolean {
@@ -42,28 +62,54 @@ export class BunDashboardServer {
   }
 
   get url(): string {
-    return `http://${this.options.host}:${this.port}`;
+    return dashboardAccessUrl(this.options.host, this.port);
+  }
+
+  get host(): string {
+    return this.options.host;
+  }
+
+  get usedPortFallback(): boolean {
+    return this.fallbackUsed;
   }
 
   async start(): Promise<boolean> {
     if (!this.enabled) return true;
     if (this.server) return true;
     this.error = "";
+    this.fallbackUsed = false;
+    let requestedPortError = "";
     try {
       this.server = this.serve(this.requestedPort);
     } catch (cause) {
+      requestedPortError = errorText(cause);
       if (!this.options.autoFallback || this.requestedPort === 0) {
-        this.error = cause instanceof Error ? cause.message : String(cause);
+        this.error = requestedPortError;
         return false;
       }
       try {
         this.server = this.serve(0);
+        this.fallbackUsed = true;
       } catch (fallbackCause) {
-        this.error = fallbackCause instanceof Error ? fallbackCause.message : String(fallbackCause);
+        this.error = errorText(fallbackCause);
         return false;
       }
     }
     this.port = this.server.port ?? this.requestedPort;
+    if (this.fallbackUsed) {
+      this.logger.warn("dashboard_port_fallback", {
+        requested_port: this.requestedPort,
+        actual_port: this.port,
+        reason: requestedPortError,
+      });
+    }
+    this.logger.info("dashboard_listening", {
+      url: this.url,
+      host: this.options.host,
+      port: this.port,
+      requested_port: this.requestedPort,
+      port_fallback: this.fallbackUsed,
+    });
     return true;
   }
 

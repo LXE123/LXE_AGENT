@@ -8,6 +8,7 @@ export interface GatewayBootstrapSettings {
   dashboardHost: string;
   dashboardPort: number;
   dashboardPortAutoFallback: boolean;
+  dashboardOpenBrowser: boolean;
   maxConcurrency: number;
 }
 
@@ -35,6 +36,7 @@ export function loadGatewayBootstrapSettings(env: Environment): GatewayBootstrap
     dashboardHost: envText(env, "AGENT_DASHBOARD_HOST", "127.0.0.1") || "127.0.0.1",
     dashboardPort: envInteger(env, "AGENT_DASHBOARD_PORT", 8765, { min: 0, max: 65535 }),
     dashboardPortAutoFallback: envFlag(env, "AGENT_DASHBOARD_PORT_AUTO_FALLBACK", true),
+    dashboardOpenBrowser: envFlag(env, "AGENT_DASHBOARD_OPEN_BROWSER", true),
     maxConcurrency: Math.max(1, envInteger(env, "AGENT_MAX_CONCURRENCY", 2)),
   };
 }

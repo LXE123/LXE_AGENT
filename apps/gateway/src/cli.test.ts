@@ -15,6 +15,7 @@ describe("Gateway production CLI", () => {
       AGENT_DASHBOARD_HOST: " 0.0.0.0 ",
       AGENT_DASHBOARD_PORT: "9000",
       AGENT_DASHBOARD_PORT_AUTO_FALLBACK: "false",
+      AGENT_DASHBOARD_OPEN_BROWSER: "0",
       AGENT_MAX_CONCURRENCY: "4",
     });
     expect(settings).toEqual({
@@ -22,8 +23,13 @@ describe("Gateway production CLI", () => {
       dashboardHost: "0.0.0.0",
       dashboardPort: 9000,
       dashboardPortAutoFallback: false,
+      dashboardOpenBrowser: false,
       maxConcurrency: 4,
     });
+  });
+
+  test("enables Dashboard browser opening by default", () => {
+    expect(loadGatewayBootstrapSettings({}).dashboardOpenBrowser).toBe(true);
   });
 
   test("stop requests the running gateway without constructing a new application", async () => {

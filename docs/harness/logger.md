@@ -64,6 +64,19 @@ Use module-scoped logger names and stable event messages. Put high-cardinality I
 
 Successful health polling and repetitive stream updates should not dominate INFO output. Raw inbound content, credentials, cookies, headers, and complete tool payloads do not belong at any unsanitized level. Explicitly enabled wire traces are the only surface allowed to retain sanitized Provider request and stream content.
 
+## Dashboard Lifecycle Events
+
+| Event | Level | Meaning |
+| --- | --- | --- |
+| `dashboard_listening` | `INFO` | Dashboard bound successfully; `url` and `port` are the actual listener values. |
+| `dashboard_port_fallback` | `WARN` | The requested fixed port failed and a dynamic port was selected. |
+| `dashboard_available` | `INFO` | Gateway, Runtime, channels, and Dashboard are ready for use. |
+| `dashboard_browser_opened` | `INFO` | The URL was handed to the operating system's default browser. |
+| `dashboard_browser_open_failed` | `WARN` | Browser launch failed or timed out; Gateway remains ready. |
+| `dashboard_browser_skipped` | `DEBUG` | Dashboard or automatic browser opening is disabled, or opening was already attempted. |
+
+`gateway_ready` includes `dashboard_url` when the Dashboard is enabled. Browser-opening failures are optional integration failures and must never change Gateway health.
+
 ## Sanitization
 
 Runtime tracing recursively redacts secret-like keys including authorization, API keys, tokens, passwords, cookies, signatures, and secret fields. Wire traces preserve readable `thinking_delta` content for protocol diagnosis, but replace:

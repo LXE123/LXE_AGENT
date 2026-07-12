@@ -55,8 +55,9 @@ LXE update
 - 飞书应用需开通 `im:message.reactions:write_only`，用于 best-effort 的 `Typing` 回复中状态；权限缺失只会影响该状态提示，不阻塞正常回复。
 - Windows 安装/更新会尝试安装 `dws`；首次使用钉钉能力前需手动运行 `dws auth login`。
 - 如需 FBA 模板文件，按 `data/README.md` 准备本机业务数据。
-- 启动时默认自动打开 Dashboard；如需关闭，设置 `AGENT_DASHBOARD_OPEN_BROWSER=0`。
+- 启动时默认自动打开 Dashboard；如需关闭，设置 `AGENT_DASHBOARD_OPEN_BROWSER=0`。无桌面会话的 headless/service 环境建议显式关闭。
 - Dashboard 默认使用 `AGENT_DASHBOARD_PORT=8765`；如果端口被占用，会自动切换到一个空闲端口并在日志里输出实际 URL。
+- 自动打开时使用绑定后的实际 URL，因此端口回退不会打开失效的原端口。
 - 如需严格固定端口，设置 `AGENT_DASHBOARD_PORT_AUTO_FALLBACK=0`；如需每次都动态分配端口，设置 `AGENT_DASHBOARD_PORT=0`。
 - 如需上传使用统计，配置 `LXE_DATA_SERVER_ENABLED`、`LXE_DATA_SERVER_URL` 和 `LXE_DATA_SERVER_API_KEY`。
 

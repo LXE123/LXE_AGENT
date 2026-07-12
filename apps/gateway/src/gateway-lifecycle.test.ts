@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { InboundEvent, JsonObject } from "@lxe/protocol";
+import { createLogger } from "@lxe/core";
 import {
   GatewayLifecycle,
   IngressClosedError,
@@ -79,6 +80,7 @@ const makeLifecycle = (
   } = {},
 ) => {
   const calls: string[] = [];
+  const logs: Array<Record<string, unknown>> = [];
   const ingested: string[] = [];
   const channels = new FakeChannels(calls);
   channels.failStart = options.channelFailure ?? false;
@@ -129,6 +131,7 @@ const makeLifecycle = (
     },
     dashboard: {
       enabled: true,
+      url: "http://127.0.0.1:8765",
       async start() {
         calls.push("dashboard.start");
         if (options.dashboardStartFailure) throw new Error("dashboard start failed");
@@ -168,14 +171,17 @@ const makeLifecycle = (
     inbound: async (event) => {
       ingested.push(event.message_id);
     },
+    logger: createLogger("gateway.lifecycle", {
+      write: (line) => logs.push(JSON.parse(line) as Record<string, unknown>),
+    }),
     ...(options.shutdownTimeouts ? { shutdownTimeouts: options.shutdownTimeouts } : {}),
   });
-  return { lifecycle, calls, channels, heartbeat, runtime, ingested };
+  return { lifecycle, calls, channels, heartbeat, runtime, ingested, logs };
 };
 
 describe("GatewayLifecycle", () => {
   test("binds state and Dashboard and starts the in-process Runtime before channels", async () => {
-    const { lifecycle, calls, channels, ingested } = makeLifecycle();
+    const { lifecycle, calls, channels, ingested, logs } = makeLifecycle();
     await lifecycle.start();
 
     expect(calls).toEqual([
@@ -191,6 +197,11 @@ describe("GatewayLifecycle", () => {
     await channels.sink!(inboundEvent());
     expect(ingested).toEqual(["message"]);
     expect((await lifecycle.healthSnapshot()).ready).toBe(true);
+    expect(logs).toContainEqual(expect.objectContaining({
+      message: "gateway_ready",
+      dashboard_enabled: true,
+      dashboard_url: "http://127.0.0.1:8765",
+    }));
   });
 
   test("rejects ingress and remains unhealthy when a required channel fails", async () => {

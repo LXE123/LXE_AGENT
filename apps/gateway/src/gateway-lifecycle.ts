@@ -1,5 +1,5 @@
 import type { InboundEvent, JsonObject } from "@lxe/protocol";
-import { createLogger } from "@lxe/core";
+import { createLogger, type Logger } from "@lxe/core";
 
 export class IngressClosedError extends Error {
   constructor() {
@@ -25,6 +25,7 @@ export interface GatewayLifecycleOptions {
   state: { ensureUsable(): void | Promise<void> };
   dashboard: {
     enabled: boolean;
+    readonly url: string;
     start(): boolean | Promise<boolean>;
     stop(): void | Promise<void>;
   };
@@ -48,6 +49,7 @@ export interface GatewayLifecycleOptions {
     stopPolling(): void;
   };
   inbound: (event: InboundEvent) => Promise<void>;
+  logger?: Logger;
   shutdownTimeouts?: Partial<GatewayShutdownTimeouts>;
 }
 
@@ -74,7 +76,7 @@ const DEFAULT_SHUTDOWN_TIMEOUTS: GatewayShutdownTimeouts = {
 };
 
 export class GatewayLifecycle {
-  private readonly logger = createLogger("gateway.lifecycle");
+  private readonly logger: Logger;
   private readonly shutdownTimeouts: GatewayShutdownTimeouts;
   private stateUsable = false;
   private dashboardBound = false;
@@ -93,6 +95,7 @@ export class GatewayLifecycle {
   private lastError = "";
 
   constructor(private readonly options: GatewayLifecycleOptions) {
+    this.logger = options.logger ?? createLogger("gateway.lifecycle");
     this.shutdownTimeouts = { ...DEFAULT_SHUTDOWN_TIMEOUTS, ...options.shutdownTimeouts };
   }
 
@@ -155,6 +158,7 @@ export class GatewayLifecycle {
       this.logger.info("gateway_ready", {
         boot_id: this.options.bootId,
         dashboard_enabled: this.options.dashboard.enabled,
+        dashboard_url: this.options.dashboard.enabled ? this.options.dashboard.url : "",
       });
     } catch (cause) {
       this.acceptingIngress = false;

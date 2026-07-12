@@ -66,7 +66,7 @@ describe("direct Gateway composition", () => {
       storage,
       runtime,
       channels: [channel],
-      dashboard: { enabled: false, start: async () => true, stop: async () => undefined },
+      dashboard: { enabled: false, url: "", start: async () => true, stop: async () => undefined },
     });
 
     await composition.start();
