@@ -134,6 +134,23 @@ export type SkillStatPayload = {
   last_used_at: number;
 };
 
+export type SkillUsageDetailPayload = {
+  name: string;
+  days: number;
+  daily: Array<{
+    day: string;
+    activations: number;
+    executions: number;
+    failures: number;
+  }>;
+  recent_failures: Array<{
+    turn_id: string;
+    session_id: string;
+    started_at: number;
+    command: string;
+  }>;
+};
+
 export type ToolStatPayload = {
   name: string;
   calls: number;

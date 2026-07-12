@@ -158,7 +158,7 @@ export class DashboardApi {
     if (request.method === "GET" && path.startsWith("/api/stats/skills/")) {
       const name = decodeURIComponent(path.slice("/api/stats/skills/".length));
       const days = this.days(url);
-      return json({ name, days, items: this.options.store.skillUsageStats(days, name) });
+      return json({ ...this.options.store.skillUsageDetail(name, days), days });
     }
     if (request.method === "GET" && path === "/api/stats/tools") {
       const days = this.days(url);

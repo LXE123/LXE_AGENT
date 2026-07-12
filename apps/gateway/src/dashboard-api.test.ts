@@ -38,6 +38,12 @@ describe("DashboardApi", () => {
     await store.start();
     await store.ensureSession({ session_id: "session-one", source: { platform: "feishu", chat_type: "p2p" } });
     await store.appendMessage("session-one", { role: "user", content: "hello" });
+    await store.recordTurn("session-one", {
+      turn_id: "turn-one", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 15,
+      input_tokens: 3, output_tokens: 2, tool_calls: 1, api_calls: 1, tools: [],
+      activations: [{ skill: "demo", module: "default" }],
+      executions: [{ skill: "demo", module: "default", command: "scripts.demo", success: false, duration_ms: 12 }],
+    });
     const tools = new ToolRegistry();
     tools.register({
       name: "demo_tool",
@@ -121,7 +127,24 @@ describe("DashboardApi", () => {
     expect(JSON.stringify(mcp)).not.toContain("MCP_SECRET");
     expect(JSON.stringify(mcp)).not.toContain("MCP_BEARER");
     expect((await call("/api/background-tasks")).body).toEqual({ items: [{ task_id: "task-1", status: "running" }], total: 1 });
-    expect((await call("/api/stats/overview?days=7")).body).toMatchObject({ days: 7, totals: { turns: 0, input_tokens: 0 } });
+    expect((await call("/api/stats/overview?days=7")).body).toMatchObject({
+      days: 7,
+      totals: { turns: 1, input_tokens: 3, skill_executions: 1, skill_failures: 1 },
+      modules: [{ module: "default", skills: 1, turns: 1, executions: 1, failures: 1, duration_ms: 12 }],
+    });
+    expect((await call("/api/stats/skills?days=7")).body).toMatchObject({
+      days: 7,
+      total: 1,
+      items: [{
+        name: "demo", module: "default", activations: 1, executions: 1, failures: 1,
+        execution_turns: 1, duration_ms: 12,
+      }],
+    });
+    expect((await call("/api/stats/skills/demo?days=7")).body).toMatchObject({
+      name: "demo", days: 7,
+      daily: [{ activations: 1, executions: 1, failures: 1 }],
+      recent_failures: [{ turn_id: "turn-one", session_id: "session-one", command: "scripts.demo" }],
+    });
     expect((await call("/api/models")).body).toMatchObject({
       items: [{ provider: "kimi_coding", model: "kimi-for-coding", configured: true }],
     });
