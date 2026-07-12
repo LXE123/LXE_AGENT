@@ -103,13 +103,35 @@ describe("Feishu inbound normalization", () => {
     expect(event?.user_input).toBe("restock now");
   });
 
+  test("injects quoted content and resource metadata produced by the shared converter path", async () => {
+    const instance = new FeishuInboundNormalizer({
+      nowMs: () => 1_000_000,
+      monotonicMs: () => 100,
+      uuid: () => "route-quote",
+      loadQuote: async () => ({
+        text: "[Replying to message_id=om_parent]\nAlice: quoted image",
+        metadata: { message_id: "om_parent", message_type: "image", available: true },
+        userContentBlocks: [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: "abc" } }],
+        resourceMetadata: [{ type: "image", file_key: "img-parent", saved_path: "/tmp/parent.jpg" }],
+      }),
+    });
+    const event = await instance.normalize(snapshotMessageEvent(baseEvent({ message_id: "om_quote" }))!);
+    expect(event?.user_input).toContain("Alice: quoted image");
+    expect(event?.user_content_blocks[0]).toMatchObject({ type: "text", text: expect.stringContaining("quoted image") });
+    expect(event?.user_content_blocks[1]).toMatchObject({ type: "image" });
+    expect(event?.raw_data.quoted_message).toMatchObject({ message_type: "image", available: true });
+    expect(event?.raw_data.resources).toEqual([
+      { type: "image", file_key: "img-parent", saved_path: "/tmp/parent.jpg", quoted: true },
+    ]);
+  });
+
   test("normalizes post text and image/file resources", async () => {
     const post = snapshotMessageEvent(baseEvent({
       message_id: "om_post",
       message_type: "post",
       content: JSON.stringify({ zh_cn: { title: "Report", content: [[{ tag: "text", text: "Ready" }]] } }),
     }))!;
-    expect((await normalizer().normalize(post))?.user_input).toBe("Report\nReady");
+    expect((await normalizer().normalize(post))?.user_input).toBe("**Report**\n\nReady");
 
     const image = snapshotMessageEvent(baseEvent({
       message_id: "om_image",
@@ -117,8 +139,11 @@ describe("Feishu inbound normalization", () => {
       content: JSON.stringify({ image_key: "img_1" }),
     }))!;
     const imageEvent = await normalizer().normalize(image);
-    expect(imageEvent?.user_content_blocks).toEqual([{ type: "image", file_key: "img_1" }]);
-    expect(imageEvent?.raw_data.resources).toEqual([{ type: "image", file_key: "img_1", file_name: "" }]);
+    expect(imageEvent?.user_content_blocks).toEqual([
+      { type: "text", text: "[image:img_1]" },
+      { type: "image", file_key: "img_1" },
+    ]);
+    expect(imageEvent?.raw_data.resources).toEqual([{ type: "image", file_key: "img_1", file_name: "", message_id: "om_image" }]);
 
     const file = snapshotMessageEvent(baseEvent({
       message_id: "om_file",
@@ -126,11 +151,96 @@ describe("Feishu inbound normalization", () => {
       content: JSON.stringify({ file_key: "file_1", file_name: "补货.xlsx" }),
     }))!;
     expect((await normalizer().normalize(file))?.user_content_blocks).toEqual([
+      { type: "text", text: "[file:补货.xlsx]" },
       { type: "file", file_key: "file_1" },
     ]);
   });
 
-  test("converts the complete rich-message registry and preserves unknown messages", () => {
+  test("preserves rich post Markdown, mentions, images and media resources", async () => {
+    const snapshot = snapshotMessageEvent(baseEvent({
+      message_id: "om_rich",
+      message_type: "post",
+      mentions: [{ key: "@_user_2", name: "Alice", id: { open_id: "ou_alice" } }],
+      content: JSON.stringify({ zh_cn: {
+        title: "Status",
+        content: [[
+          { tag: "text", text: "Ready", style: ["bold", "italic"] },
+          { tag: "a", text: " docs", href: "https://example.test/docs" },
+          { tag: "at", user_id: "ou_alice" },
+          { tag: "img", image_key: "img-inline" },
+          { tag: "media", file_key: "file-inline", file_name: "补货 表.xlsx" },
+        ]],
+      } }),
+    }))!;
+    const converted = await convertFeishuMessage(snapshot);
+    expect(converted.message).toContain("***Ready***");
+    expect(converted.message).toContain("[docs](https://example.test/docs)");
+    expect(converted.message).toContain("@_user_2");
+    expect(converted.resources).toEqual([
+      { type: "image", file_key: "img-inline", file_name: "", message_id: "om_rich" },
+      { type: "file", file_key: "file-inline", file_name: "补货 表.xlsx", message_id: "om_rich" },
+    ]);
+    const event = await normalizer().normalize(snapshot);
+    expect(event?.user_content_blocks[0]).toMatchObject({ type: "text", text: expect.stringContaining("Ready") });
+    expect(event?.user_content_blocks[1]).toMatchObject({ type: "image", file_key: "img-inline" });
+  });
+
+  test("expands merged forwards through the API while retaining hierarchy, sender and resources", async () => {
+    const snapshot = snapshotMessageEvent(baseEvent({
+      message_id: "om_forward",
+      message_type: "merge_forward",
+      content: JSON.stringify({ title: "History" }),
+    }))!;
+    const converted = await convertFeishuMessage(snapshot, {
+      fetchSubMessages: async () => [
+        {
+          message_id: "om_child",
+          upper_message_id: "om_forward",
+          msg_type: "text",
+          create_time: "1700000000000",
+          sender: { id: "ou_alice", sender_type: "user" },
+          body: { content: JSON.stringify({ text: "first" }) },
+        },
+        {
+          message_id: "om_nested",
+          upper_message_id: "om_child",
+          msg_type: "image",
+          create_time: "1700000001000",
+          sender: { id: "ou_bob", sender_type: "user" },
+          body: { content: JSON.stringify({ image_key: "img-nested" }) },
+        },
+      ],
+      resolveUserName: (id) => ({ ou_alice: "Alice", ou_bob: "Bob" })[id],
+    });
+    expect(converted.message).toContain("<forwarded_messages title=\"History\">");
+    expect(converted.message).toContain("Alice:");
+    expect(converted.message).toContain("first");
+    expect(converted.message).toContain("Bob:");
+    expect(converted.resources).toEqual([
+      { type: "image", file_key: "img-nested", file_name: "", message_id: "om_nested" },
+    ]);
+  });
+
+  test("recursively extracts interactive headers, columns and actions", async () => {
+    const snapshot = snapshotMessageEvent(baseEvent({
+      message_id: "om_card",
+      message_type: "interactive",
+      content: JSON.stringify({
+        header: { title: { tag: "plain_text", content: "Inventory alert" }, subtitle: { content: "Shenzhen" } },
+        body: { elements: [
+          { tag: "column_set", columns: [{ tag: "column", elements: [{ tag: "markdown", content: "**Low stock**" }] }] },
+          { tag: "actions", actions: [{ tag: "button", text: { content: "Open report" } }] },
+        ] },
+      }),
+    }))!;
+    const converted = await convertFeishuMessage(snapshot);
+    expect(converted.message).toContain("Inventory alert");
+    expect(converted.message).toContain("Shenzhen");
+    expect(converted.message).toContain("**Low stock**");
+    expect(converted.message).toContain("[button] Open report");
+  });
+
+  test("converts the complete rich-message registry and preserves unknown messages", async () => {
     const fixtures: Record<string, Record<string, unknown>> = {
       location: { name: "Warehouse", address: "Shenzhen", latitude: "22.5", longitude: "114.0" },
       sticker: { file_key: "sticker-1" },
@@ -152,15 +262,15 @@ describe("Feishu inbound normalization", () => {
         message_type: messageType,
         content: JSON.stringify(content),
       }))!;
-      const converted = convertFeishuMessage(snapshot);
+      const converted = await convertFeishuMessage(snapshot);
       expect(converted.message || converted.resources.length > 0).toBeTruthy();
     }
     expect(FEISHU_CONVERTER_TYPES).toEqual(expect.arrayContaining(Object.keys(fixtures)));
     const unknown = snapshotMessageEvent(baseEvent({
       message_id: "om_unknown", message_type: "future_type", content: JSON.stringify({ text: "future payload" }),
     }))!;
-    expect(convertFeishuMessage(unknown).message).toContain("Unsupported Feishu message: future_type");
-    expect(convertFeishuMessage(unknown).message).toContain("future payload");
+    expect((await convertFeishuMessage(unknown)).message).toContain("Unsupported Feishu message: future_type");
+    expect((await convertFeishuMessage(unknown)).message).toContain("future payload");
   });
 
   test("deduplicates for 12 hours and rejects messages older than five minutes", async () => {

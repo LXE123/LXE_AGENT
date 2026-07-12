@@ -1,7 +1,8 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { basename, extname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { basename, join, parse, resolve } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
 import type { FeishuInboundResource, FeishuMessageSnapshot, ResolvedResources } from "./inbound";
+import { InboundImageError, InboundImageProcessor } from "./image";
 
 export interface FeishuInboundResourceApi {
   download(
@@ -15,11 +16,18 @@ export interface FeishuInboundResourceApi {
 const safePart = (value: string, fallback: string): string =>
   value.trim().replaceAll(/[<>:"/\\|?*\x00-\x1f]/g, "_").replaceAll(/^\.+$/g, "") || fallback;
 
-const imageMediaType = (contentType: string): "image/png" | "image/jpeg" | "image/gif" | "image/webp" | undefined => {
-  const normalized = contentType.split(";", 1)[0]?.trim().toLowerCase();
-  return ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(normalized ?? "")
-    ? normalized as "image/png" | "image/jpeg" | "image/gif" | "image/webp"
-    : undefined;
+const normalizedMime = (contentType: string): string =>
+  contentType.split(";", 1)[0]?.trim().toLowerCase() || "application/octet-stream";
+
+const collisionSafePath = (directory: string, requestedName: string): string => {
+  const parsed = parse(requestedName);
+  const stem = safePart(parsed.name, "resource");
+  const extension = safePart(parsed.ext, "");
+  let candidate = join(directory, `${stem}${extension}`);
+  for (let suffix = 2; existsSync(candidate); suffix += 1) {
+    candidate = join(directory, `${stem}_${suffix}${extension}`);
+  }
+  return candidate;
 };
 
 export function createFeishuInboundResourceResolver(options: {
@@ -27,15 +35,17 @@ export function createFeishuInboundResourceResolver(options: {
   api: FeishuInboundResourceApi;
   signal?: AbortSignal;
 }): (resources: FeishuInboundResource[], snapshot: FeishuMessageSnapshot) => Promise<ResolvedResources> {
+  const imageProcessor = new InboundImageProcessor();
   return async (resources, snapshot) => {
     const userInput: string[] = [];
     const userContentBlocks: JsonObject[] = [];
     const resourceMetadata: JsonObject[] = [];
     for (const resource of resources) {
       const requestedType = resource.type === "image" ? "image" : "file";
+      const sourceMessageId = String(resource.message_id ?? snapshot.message_id).trim() || snapshot.message_id;
       try {
         const downloaded = await options.api.download(
-          snapshot.message_id,
+          sourceMessageId,
           resource.file_key,
           requestedType,
           options.signal,
@@ -45,29 +55,51 @@ export function createFeishuInboundResourceResolver(options: {
           "artifacts",
           "feishu",
           "inbound",
-          safePart(snapshot.message_id, "message"),
+          safePart(sourceMessageId, "message"),
         );
         mkdirSync(directory, { recursive: true });
-        const mediaType = imageMediaType(downloaded.contentType);
-        const fallbackName = `${safePart(resource.type, "resource")}_${safePart(resource.file_key, "file")}${mediaType === "image/png" ? ".png" : ""}`;
+        const mime = normalizedMime(downloaded.contentType);
+        const fallbackName = `${safePart(resource.type, "resource")}_${safePart(resource.file_key, "file")}`;
         const fileName = safePart(basename(downloaded.fileName || resource.file_name || fallbackName), fallbackName);
-        let path = join(directory, fileName);
-        if (!extname(path) && mediaType === "image/png") path += ".png";
-        writeFileSync(path, downloaded.data);
-        resourceMetadata.push({
-          ...resource,
-          saved_path: path,
-          content_type: downloaded.contentType,
-          size_bytes: downloaded.data.byteLength,
-          download_status: "success",
-        });
-        if (requestedType === "image" && mediaType) {
-          userInput.push(`[Image: ${fileName}]`);
-          userContentBlocks.push({
-            type: "image",
-            source: { type: "base64", media_type: mediaType, data: Buffer.from(downloaded.data).toString("base64") },
-          });
+        if (requestedType === "image") {
+          const imageName = `${safePart(parse(fileName).name, "image")}.jpg`;
+          const path = collisionSafePath(directory, imageName);
+          try {
+            const processed = await imageProcessor.process({
+              bytes: downloaded.data,
+              originalMime: mime,
+              originalFileName: fileName,
+              outputPath: path,
+              resource: { ...resource },
+            });
+            userInput.push(`[Image: ${basename(processed.savedPath)}]`);
+            userContentBlocks.push(processed.modelBlock);
+            resourceMetadata.push(processed.metadata);
+          } catch (cause) {
+            const error = cause instanceof InboundImageError
+              ? cause
+              : new InboundImageError("ERR_IMAGE_DECODE_FAILED", cause instanceof Error ? cause.message : String(cause));
+            const placeholder = `[Unable to process Feishu image: ${fileName} (${error.code})]`;
+            userInput.push(placeholder);
+            userContentBlocks.push({ type: "text", text: placeholder });
+            resourceMetadata.push({
+              ...resource,
+              original: { mime, size_bytes: downloaded.data.byteLength, file_name: fileName },
+              download_status: "success",
+              processing_status: "error",
+              error: { code: error.code, message: error.message.slice(0, 500), stage: "image_prepare" },
+            });
+          }
         } else {
+          const path = collisionSafePath(directory, fileName);
+          writeFileSync(path, downloaded.data);
+          resourceMetadata.push({
+            ...resource,
+            saved_path: path,
+            content_type: mime,
+            size_bytes: downloaded.data.byteLength,
+            download_status: "success",
+          });
           const label = resource.type === "audio" ? "Audio" : resource.type === "video" ? "Video" : resource.type === "folder" ? "Folder" : "File";
           const description = `[${label}: ${fileName}] Saved to ${path}`;
           userInput.push(description);

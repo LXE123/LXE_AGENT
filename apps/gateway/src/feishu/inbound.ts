@@ -30,6 +30,7 @@ export interface FeishuInboundResource extends JsonObject {
   type: string;
   file_key: string;
   file_name: string;
+  message_id?: string;
 }
 
 export interface ResolvedResources {
@@ -47,7 +48,13 @@ export interface FeishuInboundOptions {
   monotonicMs?: () => number;
   uuid?: () => string;
   resolveResources?: (resources: FeishuInboundResource[], snapshot: FeishuMessageSnapshot) => Promise<ResolvedResources>;
-  loadQuote?: (parentId: string, chatId: string) => Promise<{ text: string; metadata: JsonObject }>;
+  converterContext?: FeishuMessageConverterContext;
+  loadQuote?: (parentId: string, chatId: string) => Promise<{
+    text: string;
+    metadata: JsonObject;
+    userContentBlocks?: JsonObject[];
+    resourceMetadata?: JsonObject[];
+  }>;
 }
 
 const record = (value: unknown): Record<string, unknown> =>
@@ -102,29 +109,24 @@ const parseJson = (content: string): unknown => {
   }
 };
 
-const postText = (value: unknown): string => {
-  const root = record(value);
-  const locale = record(root.zh_cn ?? root.en_us ?? Object.values(root)[0]);
-  const lines: string[] = [];
-  const title = text(locale.title);
-  if (title) lines.push(title);
-  for (const row of array(locale.content)) {
-    const line = array(row).map((node) => {
-      const item = record(node);
-      if (text(item.tag) === "a") return text(item.text) || text(item.href);
-      return text(item.text);
-    }).filter(Boolean).join("");
-    if (line) lines.push(line);
-  }
-  return lines.join("\n").trim();
-};
-
 export interface FeishuInboundConversion {
   message: string;
   resources: FeishuInboundResource[];
 }
 
-export type FeishuMessageConverter = (content: Record<string, unknown>, snapshot: FeishuMessageSnapshot) => FeishuInboundConversion;
+export interface FeishuMessageConverterContext {
+  resolveResources?: (resources: FeishuInboundResource[], snapshot: FeishuMessageSnapshot) => Promise<ResolvedResources>;
+  fetchSubMessages?: (messageId: string) => Promise<Record<string, unknown>[]>;
+  resolveUserName?: (userId: string) => string | undefined | Promise<string | undefined>;
+  maxDepth?: number;
+}
+
+export type FeishuMessageConverter = (
+  content: Record<string, unknown>,
+  snapshot: FeishuMessageSnapshot,
+  context: FeishuMessageConverterContext,
+  depth: number,
+) => Promise<FeishuInboundConversion>;
 
 const none = (message: string): FeishuInboundConversion => ({ message: message.trim(), resources: [] });
 const readableJson = (value: unknown): string => JSON.stringify(value, null, 2).slice(0, 4_000);
@@ -135,87 +137,314 @@ const firstText = (value: unknown): string => {
   return text(item.text) || text(item.title) || text(item.name) || text(item.summary) || text(item.content);
 };
 
+const resource = (
+  snapshot: FeishuMessageSnapshot,
+  type: string,
+  fileKey: string,
+  fileName = "",
+): FeishuInboundResource => ({
+  type,
+  file_key: fileKey,
+  file_name: fileName,
+  ...(snapshot.message_id ? { message_id: snapshot.message_id } : {}),
+});
+
+const applyStyle = (value: string, styles: unknown[]): string => {
+  const names = new Set(styles.map((style) => text(style)));
+  let result = value;
+  if (names.has("bold")) result = `**${result}**`;
+  if (names.has("italic")) result = `*${result}*`;
+  if (names.has("lineThrough")) result = `~~${result}~~`;
+  if (names.has("codeInline")) result = `\`${result}\``;
+  return result;
+};
+
+const mentionName = async (
+  item: Record<string, unknown>,
+  snapshot: FeishuMessageSnapshot,
+  context: FeishuMessageConverterContext,
+): Promise<string> => {
+  const userId = text(item.user_id);
+  if (userId === "all") return "@all";
+  const mention = snapshot.mentions.find((candidate) =>
+    candidate.id.open_id === userId || candidate.key === text(item.key));
+  if (mention) return mention.key || `@${mention.name || mention.id.open_id}`;
+  const resolved = userId && context.resolveUserName ? await context.resolveUserName(userId) : undefined;
+  return resolved ? `@${resolved}` : text(item.user_name) ? `@${text(item.user_name)}` : userId ? `@${userId}` : "";
+};
+
+const convertPost = async (
+  content: Record<string, unknown>,
+  snapshot: FeishuMessageSnapshot,
+  context: FeishuMessageConverterContext,
+): Promise<FeishuInboundConversion> => {
+  const locale = record(content.title !== undefined || content.content !== undefined
+    ? content
+    : content.zh_cn ?? content.en_us ?? content.ja_jp ?? Object.values(content)[0]);
+  const resources: FeishuInboundResource[] = [];
+  const lines: string[] = [];
+  const title = text(locale.title);
+  if (title) lines.push(`**${title}**`, "");
+  for (const row of array(locale.content)) {
+    const parts: string[] = [];
+    for (const node of array(row)) {
+      const item = record(node);
+      const tag = text(item.tag).toLowerCase();
+      if (tag === "text") parts.push(applyStyle(String(item.text ?? ""), array(item.style)));
+      else if (tag === "md") parts.push(String(item.text ?? ""));
+      else if (tag === "a") {
+        const href = text(item.href);
+        const label = text(item.text) || href;
+        parts.push(href && label !== href ? `[${label}](${href})` : label);
+      } else if (tag === "at") parts.push(await mentionName(item, snapshot, context));
+      else if (tag === "img") {
+        const key = text(item.image_key);
+        if (key) {
+          resources.push(resource(snapshot, "image", key));
+          parts.push(`![image](${key})`);
+        }
+      } else if (tag === "media" || tag === "file") {
+        const key = text(item.file_key);
+        const name = text(item.file_name) || text(item.title) || text(item.text);
+        if (key) {
+          resources.push(resource(snapshot, "file", key, name));
+          parts.push(`<file key="${key}"${name ? ` name="${name}"` : ""}/>`);
+        }
+      } else if (tag === "code_block") {
+        parts.push(`\n\`\`\`${text(item.language)}\n${String(item.text ?? "")}\n\`\`\`\n`);
+      } else if (tag === "hr") parts.push("\n---\n");
+      else parts.push(String(item.text ?? ""));
+    }
+    const line = parts.join("").trim();
+    if (line) lines.push(line);
+  }
+  return { message: lines.join("\n").trim() || (resources.length ? "" : "[rich text message]"), resources };
+};
+
+const cardText = (value: unknown): string => {
+  if (typeof value === "string") return value.trim();
+  const item = record(value);
+  const property = record(item.property);
+  for (const candidate of [property.content, item.content, property.text, item.text, property.title, item.title,
+    property.value, item.value, property.label, item.label, property.placeholder, item.placeholder, property.name, item.name]) {
+    const nested = record(candidate);
+    const scalar = typeof candidate === "string" || typeof candidate === "number"
+      ? candidate
+      : nested.content ?? nested.text ?? nested.title ?? nested.value ?? nested.label ?? nested.name;
+    const result = text(scalar);
+    if (result) return result;
+  }
+  return "";
+};
+
+const renderInteractive = (
+  value: unknown,
+  snapshot: FeishuMessageSnapshot,
+  resources: FeishuInboundResource[],
+): string[] => {
+  if (Array.isArray(value)) return value.flatMap((item) => renderInteractive(item, snapshot, resources));
+  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+  const item = record(value);
+  if (Object.keys(item).length === 0) return [];
+  const property = record(item.property);
+  const tag = text(item.tag).toLowerCase();
+  if (["img", "image", "avatar"].includes(tag)) {
+    const key = text(item.image_key) || text(property.image_key);
+    if (key) resources.push(resource(snapshot, "image", key, cardText(item.alt) || cardText(property.alt)));
+    return [`[image] ${cardText(item.alt) || cardText(property.alt)}`.trim()];
+  }
+  if (tag === "button") return [`[button] ${cardText(item.text) || cardText(property.text) || cardText(item)}`.trim()];
+  if (["link", "a"].includes(tag)) {
+    const label = cardText(item.text) || cardText(property.text) || cardText(item.title);
+    const href = text(item.href) || text(property.href) || text(item.url) || text(property.url);
+    return [label && href ? `[${label}](${href})` : label || href].filter(Boolean);
+  }
+  if (["at", "person", "person_v1"].includes(tag)) {
+    const name = cardText(item.name) || cardText(property.name) || text(property.user_id);
+    return name ? [`@${name}`] : [];
+  }
+  if (tag === "at_all") return ["@all"];
+  if (tag === "heading") return cardText(item) ? [`### ${cardText(item)}`] : [];
+  if (tag === "blockquote") return cardText(item) ? [`> ${cardText(item)}`] : [];
+  if (["code_block", "code_span"].includes(tag)) {
+    const code = cardText(item);
+    return code ? [tag === "code_span" ? `\`${code}\`` : `\`\`\`\n${code}\n\`\`\``] : [];
+  }
+  const lines: string[] = [];
+  const own = cardText(item);
+  if (own) lines.push(own);
+  for (const child of [item.title, item.subtitle, item.text, item.header, item.body, item.elements, item.columns, item.actions, item.items, item.fields,
+    property.body, property.elements, property.columns, property.actions, property.items, property.fields]) {
+    lines.push(...renderInteractive(child, snapshot, resources));
+  }
+  return lines.filter((line, index, all) => line && all.indexOf(line) === index);
+};
+
+const itemSnapshot = (item: Record<string, unknown>, parent: FeishuMessageSnapshot): FeishuMessageSnapshot => {
+  const sender = record(item.sender);
+  const body = record(item.body);
+  return {
+    ...parent,
+    message_type: text(item.msg_type) || text(item.message_type) || "unknown",
+    content: typeof item.content === "string" ? item.content : String(body.content ?? "{}"),
+    message_id: text(item.message_id),
+    parent_id: text(item.upper_message_id),
+    create_time: text(item.create_time),
+    sender_type: text(sender.sender_type),
+    sender_open_id: text(sender.id) || text(sender.open_id),
+    sender_user_id: text(sender.user_id),
+    sender_union_id: text(sender.union_id),
+    mentions: array(item.mentions).map((raw): FeishuMention => {
+      const mention = record(raw);
+      const id = record(mention.id);
+      return { key: text(mention.key), name: text(mention.name), id: { open_id: text(id.open_id) || text(mention.open_id), union_id: text(id.union_id) } };
+    }),
+  };
+};
+
+const formattedTimestamp = (value: string): string => {
+  const milliseconds = Number(value);
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return "unknown";
+  return new Date(milliseconds).toLocaleString("sv-SE", { hour12: false });
+};
+
+const convertMerged = async (
+  content: Record<string, unknown>,
+  snapshot: FeishuMessageSnapshot,
+  context: FeishuMessageConverterContext,
+  depth: number,
+): Promise<FeishuInboundConversion> => {
+  if (depth >= Math.max(1, context.maxDepth ?? 8)) return none("<forwarded_messages depth_limit=\"true\"/>");
+  let items = array(content.messages).map(record);
+  if (items.length === 0 && context.fetchSubMessages) {
+    try { items = (await context.fetchSubMessages(snapshot.message_id)).map(record); } catch { return none("<forwarded_messages/>"); }
+  }
+  if (items.length === 0) return none("<forwarded_messages/>");
+  const children = new Map<string, Record<string, unknown>[]>();
+  for (const item of items) {
+    const messageId = text(item.message_id);
+    const upper = text(item.upper_message_id);
+    if (messageId === snapshot.message_id && !upper) continue;
+    const parentId = upper || snapshot.message_id;
+    const bucket = children.get(parentId) ?? [];
+    bucket.push(item);
+    children.set(parentId, bucket);
+  }
+  for (const bucket of children.values()) bucket.sort((left, right) => Number(left.create_time ?? 0) - Number(right.create_time ?? 0));
+  const resources: FeishuInboundResource[] = [];
+  const formatTree = async (parentId: string, level: number): Promise<string> => {
+    const parts: string[] = [];
+    for (const item of children.get(parentId) ?? []) {
+      const child = itemSnapshot(item, snapshot);
+      const sender = record(item.sender);
+      const senderId = text(sender.id) || text(sender.open_id) || child.sender_open_id || "unknown";
+      const resolved = context.resolveUserName ? await context.resolveUserName(senderId) : undefined;
+      const senderName = text(sender.name) || resolved || senderId;
+      let converted: FeishuInboundConversion;
+      if (child.message_type === "merge_forward" && child.message_id && children.has(child.message_id)) {
+        converted = { message: await formatTree(child.message_id, level + 1), resources: [] };
+      } else {
+        converted = await convertFeishuMessage(child, context, depth + 1);
+      }
+      resources.push(...converted.resources);
+      const nested = child.message_type !== "merge_forward" && child.message_id && children.has(child.message_id)
+        ? await formatTree(child.message_id, level + 1)
+        : "";
+      const body = [converted.message || "[empty]", nested].filter(Boolean).join("\n");
+      const indent = "    ".repeat(level + 1);
+      parts.push(`[${formattedTimestamp(child.create_time)}] ${senderName}:\n${body.split(/\r?\n/u).map((line) => `${indent}${line}`).join("\n")}`);
+    }
+    return parts.join("\n");
+  };
+  const body = await formatTree(snapshot.message_id, 0);
+  const title = firstText(content.title);
+  return { message: `<forwarded_messages${title ? ` title="${title}"` : ""}>\n${body}\n</forwarded_messages>`, resources };
+};
+
 const converters: Readonly<Record<string, FeishuMessageConverter>> = {
-  text: (content) => none(text(content.text)),
-  post: (content) => none(postText(content)),
-  image: (content) => {
+  text: async (content) => none(text(content.text)),
+  post: convertPost,
+  image: async (content, snapshot) => {
     const key = text(content.image_key);
-    return { message: "", resources: key ? [{ type: "image", file_key: key, file_name: "" }] : [] };
+    return { message: "", resources: key ? [resource(snapshot, "image", key)] : [] };
   },
-  file: (content) => {
+  file: async (content, snapshot) => {
     const key = text(content.file_key);
-    return { message: "", resources: key ? [{ type: "file", file_key: key, file_name: text(content.file_name) }] : [] };
+    return { message: "", resources: key ? [resource(snapshot, "file", key, text(content.file_name))] : [] };
   },
-  audio: (content) => {
+  audio: async (content, snapshot) => {
     const key = text(content.file_key);
-    return { message: "[Audio message]", resources: key ? [{ type: "audio", file_key: key, file_name: text(content.file_name) }] : [] };
+    return { message: "[Audio message]", resources: key ? [resource(snapshot, "audio", key, text(content.file_name))] : [] };
   },
-  video: (content) => {
+  video: async (content, snapshot) => {
     const key = text(content.file_key);
     const imageKey = text(content.image_key);
     return {
       message: "[Video message]",
       resources: [
-        ...(key ? [{ type: "video", file_key: key, file_name: text(content.file_name) }] : []),
-        ...(imageKey ? [{ type: "image", file_key: imageKey, file_name: "video-cover" }] : []),
+        ...(key ? [resource(snapshot, "video", key, text(content.file_name))] : []),
+        ...(imageKey ? [resource(snapshot, "image", imageKey, "video-cover")] : []),
       ],
     };
   },
-  location: (content) => none([
+  location: async (content) => none([
     `[Location] ${text(content.name) || text(content.address) || "Shared location"}`,
     text(content.address),
     text(content.latitude) && text(content.longitude) ? `${text(content.latitude)}, ${text(content.longitude)}` : "",
   ].filter(Boolean).join("\n")),
-  sticker: (content) => {
+  sticker: async (content, snapshot) => {
     const key = text(content.file_key) || text(content.image_key);
-    return { message: "[Sticker]", resources: key ? [{ type: "image", file_key: key, file_name: "sticker" }] : [] };
+    return { message: "[Sticker]", resources: key ? [resource(snapshot, "image", key, "sticker")] : [] };
   },
-  calendar: (content) => none([
+  calendar: async (content) => none([
     `[Calendar] ${firstText(content.summary) || firstText(content.title) || "Shared event"}`,
     text(content.start_time), text(content.end_time), text(content.event_id),
   ].filter(Boolean).join("\n")),
-  share_chat: (content) => none(`[Shared chat] ${text(content.chat_name) || text(content.chat_id) || "Unknown chat"}`),
-  share_user: (content) => none(`[Shared contact] ${text(content.user_name) || text(content.user_id) || "Unknown user"}`),
-  share: (content) => none(`[Shared item] ${firstText(content) || readableJson(content)}`),
-  folder: (content) => {
+  share_chat: async (content) => none(`[Shared chat] ${text(content.chat_name) || text(content.chat_id) || "Unknown chat"}`),
+  share_user: async (content) => none(`[Shared contact] ${text(content.user_name) || text(content.user_id) || "Unknown user"}`),
+  share: async (content) => none(`[Shared item] ${firstText(content) || readableJson(content)}`),
+  folder: async (content, snapshot) => {
     const key = text(content.file_key);
     return {
       message: `[Shared folder] ${text(content.file_name) || text(content.name) || key || "Unknown folder"}`,
-      resources: key ? [{ type: "folder", file_key: key, file_name: text(content.file_name) || text(content.name) }] : [],
+      resources: key ? [resource(snapshot, "folder", key, text(content.file_name) || text(content.name))] : [],
     };
   },
-  todo: (content) => none([
+  todo: async (content) => none([
     `[Todo] ${firstText(content.summary) || firstText(content.title) || "Shared task"}`,
     text(content.due_time), text(content.task_id) || text(content.todo_id),
   ].filter(Boolean).join("\n")),
-  vote: (content) => none([
+  vote: async (content) => none([
     `[Vote] ${firstText(content.topic) || firstText(content.title) || "Shared vote"}`,
     ...array(content.options).map(firstText).filter(Boolean),
   ].join("\n")),
-  video_chat: (content) => none([
+  video_chat: async (content) => none([
     `[Video meeting] ${firstText(content.topic) || firstText(content.title) || "Shared meeting"}`,
     text(content.start_time), text(content.meeting_id),
   ].filter(Boolean).join("\n")),
-  merge_forward: (content) => none([
-    `[Merged forward] ${firstText(content.title)}`.trim(),
-    ...array(content.messages).map((item) => {
-      const message = record(item);
-      const nestedType = text(message.message_type, "unknown") || "unknown";
-      const nestedContent = record(typeof message.content === "string" ? parseJson(message.content) : message.content);
-      const converted = converters[nestedType]?.(nestedContent, {} as FeishuMessageSnapshot);
-      return converted?.message || firstText(nestedContent) || `[${nestedType}]`;
-    }),
-  ].filter(Boolean).join("\n\n")),
-  interactive: (content) => none(`[Interactive card]\n${firstText(content) || readableJson(content)}`),
-  system: (content) => none(`[System message] ${firstText(content) || readableJson(content)}`),
+  merge_forward: convertMerged,
+  interactive: async (content, snapshot) => {
+    const resources: FeishuInboundResource[] = [];
+    const lines = [
+      ...renderInteractive(content.header, snapshot, resources),
+      ...renderInteractive(content.body, snapshot, resources),
+      ...renderInteractive(content.elements, snapshot, resources),
+    ].filter((line, index, all) => line && all.indexOf(line) === index);
+    return { message: `[Interactive card]\n${lines.join("\n") || firstText(content) || readableJson(content)}`, resources };
+  },
+  system: async (content) => none(`[System message] ${firstText(content) || readableJson(content)}`),
 };
 
 export const FEISHU_CONVERTER_TYPES = Object.freeze(Object.keys(converters));
 
-export const convertFeishuMessage = (snapshot: FeishuMessageSnapshot): FeishuInboundConversion => {
+export const convertFeishuMessage = async (
+  snapshot: FeishuMessageSnapshot,
+  context: FeishuMessageConverterContext = {},
+  depth = 0,
+): Promise<FeishuInboundConversion> => {
   const parsed = record(parseJson(snapshot.content));
   const converter = converters[snapshot.message_type];
-  if (converter) return converter(parsed, snapshot);
+  if (converter) return converter(parsed, snapshot, context, depth);
   const fallback = firstText(parsed);
   return none(`[Unsupported Feishu message: ${snapshot.message_type}]${fallback ? `\n${fallback}` : ""}`);
 };
@@ -248,7 +477,7 @@ export class FeishuInboundNormalizer {
     if (!this.accept(snapshot)) return null;
     const botOpenId = text(this.options.botOpenId);
     const mentions = snapshot.mentions;
-    let { message, resources } = convertFeishuMessage(snapshot);
+    let { message, resources } = await convertFeishuMessage(snapshot, this.options.converterContext);
     if (snapshot.chat_type === "group") {
       if (!botOpenId || !mentions.some((item) => mentionOpenId(item) === botOpenId)) return null;
       message = stripBotMention(message, mentions, botOpenId);
@@ -258,8 +487,9 @@ export class FeishuInboundNormalizer {
     let blocks: JsonObject[] = [];
     let resourceMetadata: JsonObject[] = [];
     if (resources.length > 0) {
-      const resolved = this.options.resolveResources
-        ? await this.options.resolveResources(resources, snapshot)
+      const resolver = this.options.converterContext?.resolveResources ?? this.options.resolveResources;
+      const resolved = resolver
+        ? await resolver(resources, snapshot)
         : {
             userInput: resources.map((item) => `[${item.type}:${item.file_name || item.file_key}]`).join("\n"),
             userContentBlocks: resources.map((item) => ({ ...item })),
@@ -274,6 +504,17 @@ export class FeishuInboundNormalizer {
       const quote = await this.options.loadQuote(snapshot.parent_id, snapshot.chat_id);
       quotedMessage = { ...quote.metadata };
       if (quote.text.trim()) message = `${quote.text.trim()}\n\n${message}`.trim();
+      if (quote.userContentBlocks?.length) blocks = [...quote.userContentBlocks.map((item) => ({ ...item })), ...blocks];
+      if (quote.resourceMetadata?.length) resourceMetadata = [
+        ...quote.resourceMetadata.map((item) => ({ ...item, quoted: true })),
+        ...resourceMetadata,
+      ];
+    }
+    if (blocks.length > 0 && message.trim()) {
+      blocks = [
+        { type: "text", text: message.trim() },
+        ...blocks.filter((block) => block.type !== "text"),
+      ];
     }
     if (!message && blocks.length === 0) return null;
 

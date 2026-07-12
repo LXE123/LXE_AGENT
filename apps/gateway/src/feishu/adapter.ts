@@ -178,23 +178,30 @@ export class FeishuAdapter implements ChannelAdapter {
     } catch {
       // Direct messages remain available when the optional identity probe fails.
     }
+    const resourceResolver = sdk.resources && this.options.projectRoot
+      ? createFeishuInboundResourceResolver({ projectRoot: this.options.projectRoot, api: sdk.resources })
+      : undefined;
+    const fetchMessageItems = async (messageId: string): Promise<Record<string, unknown>[]> => {
+      const response = await sdk.api.request("GET", `/im/v1/messages/${encodeURIComponent(messageId)}`, {});
+      const data = object(response.data);
+      return (Array.isArray(data?.items) ? data.items : []).map((item) => object(item as JsonValue | undefined) ?? {});
+    };
+    const converterContext = {
+      ...(resourceResolver ? { resolveResources: resourceResolver } : {}),
+      fetchSubMessages: fetchMessageItems,
+      resolveUserName: (userId: string) => userId,
+    };
     this.normalizer = new FeishuInboundNormalizer({
       botOpenId: identity.openId,
       botName: identity.name,
       appId: this.options.config.appId,
       botIdSource: identity.openId ? "probe" : "",
-      ...(sdk.resources && this.options.projectRoot ? {
-        resolveResources: createFeishuInboundResourceResolver({
-          projectRoot: this.options.projectRoot,
-          api: sdk.resources,
-        }),
-      } : {}),
+      ...(resourceResolver ? { resolveResources: resourceResolver } : {}),
+      converterContext,
       loadQuote: async (parentId, chatId) => {
         try {
-          const response = await sdk.api.request("GET", `/im/v1/messages/${encodeURIComponent(parentId)}`, {});
-          const data = object(response.data);
-          const items = Array.isArray(data?.items) ? data.items : [];
-          const item = object(items[0] as JsonValue | undefined) ?? data ?? {};
+          const items = await fetchMessageItems(parentId);
+          const item = items.find((candidate) => text(candidate.message_id as JsonValue | undefined) === parentId) ?? items[0] ?? {};
           const body = object(item.body as JsonValue | undefined) ?? {};
           const quotedSnapshot = snapshotMessageEvent({
             sender: item.sender ?? {},
@@ -206,14 +213,31 @@ export class FeishuAdapter implements ChannelAdapter {
               message_id: parentId,
             },
           });
-          const converted = quotedSnapshot ? convertFeishuMessage(quotedSnapshot) : { message: "", resources: [] };
+          const converted = quotedSnapshot
+            ? await convertFeishuMessage(quotedSnapshot, converterContext)
+            : { message: "", resources: [] };
+          const resolved = quotedSnapshot && converted.resources.length > 0 && resourceResolver
+            ? await resourceResolver(converted.resources, quotedSnapshot)
+            : { userInput: "", userContentBlocks: [], resourceMetadata: [] };
+          const sender = object(item.sender as JsonValue | undefined) ?? {};
+          const senderName = text(sender.name as JsonValue | undefined)
+            || text(sender.id as JsonValue | undefined)
+            || text(sender.open_id as JsonValue | undefined)
+            || "unknown";
+          const content = [converted.message, resolved.userInput].filter(Boolean).join("\n").trim() || "<empty>";
           return {
-            text: converted.message ? `[Quoted message]\n${converted.message}` : `[Quoted message: ${parentId}]`,
+            text: `[Replying to message_id=${parentId}]\n${senderName}: ${content}`,
             metadata: {
               message_id: parentId,
+              available: true,
               message_type: quotedSnapshot?.message_type ?? "unknown",
               chat_id: chatId,
+              sender_name: senderName,
+              content,
+              resources: resolved.resourceMetadata,
             },
+            userContentBlocks: resolved.userContentBlocks,
+            resourceMetadata: resolved.resourceMetadata,
           };
         } catch (cause) {
           return {
@@ -317,11 +341,21 @@ export class FeishuAdapter implements ChannelAdapter {
   private async handleMessage(data: unknown): Promise<void> {
     this.dumpRawEvent(data);
     const snapshot = snapshotMessageEvent(data);
-    const normalizer = this.normalizer;
-    const sink = this.inboundSink;
-    if (!snapshot || !normalizer || !sink || !this.desiredStarted) return;
-    const event = await normalizer.normalize(snapshot);
-    if (event) await sink(event);
+    try {
+      const normalizer = this.normalizer;
+      const sink = this.inboundSink;
+      if (!snapshot || !normalizer || !sink || !this.desiredStarted) return;
+      const event = await normalizer.normalize(snapshot);
+      if (event) await sink(event);
+    } catch (error) {
+      this.lastError = error instanceof Error ? error.message : String(error);
+      this.logger.warn("Feishu inbound message failed", {
+        message_id: snapshot?.message_id ?? "",
+        message_type: snapshot?.message_type ?? "",
+        chat_id: snapshot?.chat_id ?? "",
+        error,
+      });
+    }
   }
 
   private dumpRawEvent(data: unknown): void {

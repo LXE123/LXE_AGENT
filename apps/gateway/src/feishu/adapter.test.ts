@@ -209,4 +209,19 @@ describe("FeishuAdapter lifecycle and delivery", () => {
     expect(raw.trim().split(/\r?\n/)).toHaveLength(1);
     await state.adapter.stop();
   });
+
+  test("contains inbound normalization or sink failures and exposes them through health", async () => {
+    const state = setup();
+    state.adapter.setInboundSink(async () => { throw new Error("sink offline"); });
+    await state.adapter.start();
+    await expect(state.callbacks.onMessage({
+      sender: { sender_type: "user", sender_id: { open_id: "ou_user" } },
+      message: {
+        message_type: "text", content: JSON.stringify({ text: "hello" }), chat_type: "p2p",
+        chat_id: "oc_chat", create_time: String(Date.now()), message_id: "om_failed",
+      },
+    })).resolves.toBeUndefined();
+    expect(await state.adapter.health()).toEqual(expect.objectContaining({ last_error: "sink offline" }));
+    await state.adapter.stop();
+  });
 });
