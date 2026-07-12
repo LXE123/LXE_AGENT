@@ -1,16 +1,17 @@
 exec 用来做什么的，目的是什么？
 - exec 是 shell 命令执行器。
+- Windows 使用 PowerShell；macOS/Linux 使用 `/bin/sh -c`，不会加载用户 shell profile。
+- Python、pip 和 lxeskill 固定使用项目 `.venv`，不依赖启动 Gateway 时的用户 PATH。
 - shell 命令就是终端输入的命令。
 - 通过 exec 启动的任何东西都是进程。
 - exec 启动的进程会进入两种 map，这两种 map，一种是存放运行中的进程，一种是存放已完成的进程
 
 // execSchema 的参数
 command   // 任意 shell 命令
-workdir   // 工作目录
-env       // 注入环境变量
-yieldMs   // 等 N 毫秒后自动转后台（默认 10000ms = 10秒）
+cwd       // 工作目录
+yield_ms  // 等 N 毫秒后自动转后台（默认 10000ms = 10秒）
 background // 立刻转后台，不等
-timeout   // N秒后强制杀死进程
+timeout   // 前台超时秒数，默认 120，允许 1-3600；background=true 时不启用计时器
 
 exec 的工具介绍：
 Execute shell commands with background continuation for work that starts now.

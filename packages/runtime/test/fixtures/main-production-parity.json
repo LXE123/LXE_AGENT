@@ -1,5 +1,5 @@
 {
-  "frozen_from_main": "2026-07-12",
+  "frozen_from_main": "2026-07-13",
   "coding": {
     "protected_root_files": [
       ".env",
@@ -24,6 +24,8 @@
       "build"
     ],
     "read_before_modify": true,
+    "windows_shell": "powershell",
+    "posix_shell": "/bin/sh",
     "default_yield_ms": 10000,
     "default_timeout_seconds": 120,
     "process_output_chars": 200000,

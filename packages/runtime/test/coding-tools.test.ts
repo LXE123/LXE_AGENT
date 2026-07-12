@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { deflateSync } from "node:zlib";
 import type { JsonObject } from "@lxe/protocol";
 import { registerCodingTools } from "../src/coding-tools";
@@ -9,7 +9,7 @@ import { ToolRegistry } from "../src/tools";
 import { registerToolSearch } from "../src/tool-search";
 
 const roots: string[] = [];
-const powershellTest = Bun.which("pwsh") || Bun.which("powershell") ? test : test.skip;
+const projectRoot = resolve(import.meta.dir, "../../..");
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -80,14 +80,16 @@ describe("native coding tools", () => {
     await processes.stop();
   });
 
-  powershellTest("background exec sessions can be listed, polled, logged, and removed", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-process-"));
-    roots.push(root);
+  test("exec sessions run cross-platform shell commands and lxeskill without PowerShell on Unix", async () => {
+    mkdirSync(join(projectRoot, "tmp"), { recursive: true });
+    const cwd = mkdtempSync(join(projectRoot, "tmp", "exec 中文 (space)-"));
+    roots.push(cwd);
     const registry = new ToolRegistry();
     const completed: JsonObject[] = [];
-    const processes = registerCodingTools(registry, { workspaceRoot: root, onProcessComplete: async (snapshot) => { completed.push(snapshot); } });
+    const processes = registerCodingTools(registry, { workspaceRoot: projectRoot, onProcessComplete: async (snapshot) => { completed.push(snapshot); } });
     const started = await registry.execute("exec", {
-      command: "Start-Sleep -Milliseconds 80; Write-Output done",
+      command: "python -c \"import time; time.sleep(0.08); print('done')\"",
+      cwd,
       background: true,
     }, context());
     const startedText = String(started.content[0]?.text);
@@ -110,17 +112,105 @@ describe("native coding tools", () => {
     expect(processes.snapshots()).toHaveLength(0);
 
     const completedText = String((await registry.execute("exec", {
-      command: "Write-Output ('x' * 3000)",
+      command: "python -c \"print('x' * 3000)\"",
     }, context())).content[0]?.text);
     expect(completedText).toContain("status: completed");
     expect(completedText).toContain("output:");
     expect(completedText.length).toBeGreaterThan(2_000);
 
     const failed = String((await registry.execute("exec", {
-      command: "Write-Error 'expected failure'",
+      command: "python -c \"import sys; print('expected failure', file=sys.stderr); raise SystemExit(3)\"",
     }, context())).content[0]?.text);
     expect(failed).toContain("status: failed");
     expect(failed).toContain("expected failure");
+
+    const skillList = String((await registry.execute("exec", {
+      command: "lxeskill list",
+    }, context())).content[0]?.text);
+    expect(skillList).toContain("status: completed");
+    expect(skillList).toContain("type: result");
+    expect(skillList).toContain("command: list");
+    await processes.stop();
+  });
+
+  test("terminates the complete exec process tree", async () => {
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, { workspaceRoot: projectRoot });
+    const startTree = async (): Promise<{ session: string; childPid: number }> => {
+      const started = String((await registry.execute("exec", {
+        command: "python -c \"import subprocess,sys,time; child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); print(child.pid, flush=True); time.sleep(60)\"",
+        background: true,
+      }, context())).content[0]?.text);
+      const session = started.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
+      await Bun.sleep(100);
+      const polled = session
+        ? String((await registry.execute("process", { action: "poll", session }, context())).content[0]?.text)
+        : "";
+      const childPid = Number(`${started}\n${polled}`.match(/(?:tail|new_output):\s*(\d+)/u)?.[1]);
+      expect(session).toMatch(/^exec_/);
+      expect(childPid).toBeGreaterThan(0);
+      if (!session || !childPid) throw new Error(`missing process identifiers in: ${started}`);
+      return { session, childPid };
+    };
+    const expectDead = async (pid: number): Promise<void> => {
+      let alive = true;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        try { process.kill(pid, 0); } catch { alive = false; break; }
+        await Bun.sleep(50);
+      }
+      expect(alive).toBe(false);
+    };
+
+    const killed = await startTree();
+    await registry.execute("process", { action: "kill", session: killed.session }, context());
+    await expectDead(killed.childPid);
+
+    const forceKilled = await startTree();
+    await processes.stop();
+    await expectDead(forceKilled.childPid);
+  });
+
+  test("uses timeout seconds and ignores the timer for explicit background work", async () => {
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, { workspaceRoot: projectRoot });
+    const timedOut = String((await registry.execute("exec", {
+      command: "python -c \"import time; time.sleep(60)\"",
+      timeout: 1,
+      yield_ms: 2_000,
+    }, context())).content[0]?.text);
+    expect(timedOut).toContain("status: timeout");
+
+    const background = String((await registry.execute("exec", {
+      command: "python -c \"import time; time.sleep(0.05); print('background done')\"",
+      timeout: 1,
+      background: true,
+    }, context())).content[0]?.text);
+    const session = background.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
+    expect(session).toMatch(/^exec_/);
+    await Bun.sleep(100);
+    const polled = session
+      ? String((await registry.execute("process", { action: "poll", session }, context())).content[0]?.text)
+      : "";
+    expect(polled).toContain("status: completed");
+    expect(polled).toContain("background done");
+
+    const controller = new AbortController();
+    const cancellation = registry.execute("exec", {
+      command: "python -c \"import time; time.sleep(60)\"",
+      timeout: 10,
+      yield_ms: 2_000,
+    }, {
+      ...context(),
+      handle: {
+        signal: controller.signal,
+        cancelled: false,
+        drainSteering: () => [],
+        registerProcess: () => () => undefined,
+      },
+    });
+    await Bun.sleep(100);
+    controller.abort();
+    expect(String((await cancellation).content[0]?.text)).toContain("status: killed");
     await processes.stop();
   });
 
@@ -195,6 +285,14 @@ describe("native coding tools", () => {
       usageName: "lxeskill:replenish store resolve",
       commandId: "replenish store resolve",
       ownerSkills: ["replenishment-store-resolve"],
+    });
+    await expect(registry.execute("exec", {
+      command: "lxeskill replenish store resolve",
+      timeout: 120_000,
+    }, context())).rejects.toThrow("between 1 and 3600 seconds");
+    expect(registry.definition("exec")?.input_schema.properties).toMatchObject({
+      timeout: { type: "number", minimum: 1, maximum: 3_600, default: 120 },
+      yield_ms: { type: "number", minimum: 1, default: 10_000 },
     });
     await processes.stop();
   });

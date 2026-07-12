@@ -21,6 +21,12 @@ import {
   decodeProcessOutput,
   formatCommandPayload,
 } from "./process-output";
+import {
+  DEFAULT_EXEC_TIMEOUT_SECONDS,
+  DEFAULT_EXEC_YIELD_MS,
+  ExecShellAdapter,
+  MAX_EXEC_TIMEOUT_SECONDS,
+} from "./exec-shell";
 import { isProbablyBinary, WorkspaceSearchService } from "./workspace-search";
 import { classifyLxeSkillInput } from "./lxeskill-command";
 import { ToolRegistry } from "./tools";
@@ -32,6 +38,7 @@ export interface CodingToolOptions {
   onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
   ripgrepPath?: string | null;
   businessCommands?: ReadonlyMap<string, string>;
+  execShell?: ExecShellAdapter;
 }
 
 type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
@@ -168,68 +175,6 @@ class FileReadLedger {
   }
 }
 
-const terminateTree = async (entry: ProcessEntry): Promise<void> => {
-  if (process.platform === "win32") {
-    const taskkill = Bun.which("taskkill");
-    if (taskkill) {
-      const killer = Bun.spawn([taskkill, "/PID", String(entry.process.pid), "/T", "/F"], {
-        stdout: "ignore", stderr: "ignore", windowsHide: true,
-      });
-      await killer.exited;
-      return;
-    }
-  }
-  entry.process.kill("SIGKILL");
-};
-
-const powershell = (): string => {
-  const executable = Bun.which("pwsh") ?? Bun.which("powershell");
-  if (!executable) throw new Error("PowerShell is unavailable");
-  return executable;
-};
-
-const powershellCommandBody = (executable: string, command: string): string => {
-  const parts = ["try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}"];
-  if (["pwsh", "pwsh.exe"].includes(basename(executable).toLowerCase())) {
-    parts.push("$PSStyle.OutputRendering = 'PlainText'");
-  }
-  if (command.trim()) parts.push(command.trim());
-  parts.push([
-    "$__lxe_success = $?;",
-    "$__lxe_last_exit_code = $global:LASTEXITCODE;",
-    "if (-not $__lxe_success) {",
-    "if ($__lxe_last_exit_code -is [int] -and $__lxe_last_exit_code -ne 0) { exit $__lxe_last_exit_code };",
-    "exit 1",
-    "}",
-  ].join(" "));
-  return parts.join("\n");
-};
-
-const quotePowerShell = (value: string): string => `'${value.replaceAll("'", "''")}'`;
-
-const normalizeProjectPythonCommand = (root: string, command: string): string => {
-  if (/\b(?:services\.agent_cli|browser_auth_service\.main)\b/iu.test(command)) {
-    throw new Error("registered business Python modules must be called through lxeskill");
-  }
-  const python = process.platform === "win32"
-    ? join(root, ".venv", "Scripts", "python.exe")
-    : join(root, ".venv", "bin", "python");
-  const pip = process.platform === "win32"
-    ? join(root, ".venv", "Scripts", "pip.exe")
-    : join(root, ".venv", "bin", "pip");
-  const leading = command.match(/^\s*(python3?|py)(?=\s|$)/iu);
-  if (leading) {
-    if (!existsSync(python)) throw new Error(`project Python is unavailable: ${python}`);
-    return command.replace(leading[0], `${leading[0].match(/^\s*/u)?.[0] ?? ""}${quotePowerShell(python)}`);
-  }
-  const leadingPip = command.match(/^\s*pip3?(?=\s|$)/iu);
-  if (leadingPip) {
-    if (!existsSync(pip)) throw new Error(`project pip is unavailable: ${pip}`);
-    return command.replace(leadingPip[0], `${leadingPip[0].match(/^\s*/u)?.[0] ?? ""}${quotePowerShell(pip)}`);
-  }
-  return command;
-};
-
 export class CodingProcessManager {
   private readonly entries = new Map<string, ProcessEntry>();
   private readonly logger = createLogger("runtime.coding_process");
@@ -239,6 +184,8 @@ export class CodingProcessManager {
     maxPendingBytes: number;
     tailBytes: number;
     ttlSeconds: number;
+    workspaceRoot: string;
+    shell: ExecShellAdapter;
   }) {}
 
   async start(): Promise<void> {}
@@ -271,25 +218,20 @@ export class CodingProcessManager {
     const id = `exec_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
     let child: ReturnType<typeof Bun.spawn>;
     try {
-      const executable = powershell();
-      child = Bun.spawn([
-        executable, "-NoProfile", "-NonInteractive", "-Command",
-        powershellCommandBody(executable, request.command),
-      ], {
+      const spawn = this.options.shell.spawnSpec(request.command);
+      child = Bun.spawn(spawn.argv, {
         cwd: request.cwd,
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
+        detached: spawn.detached,
         windowsHide: true,
-        env: {
-          ...process.env,
-          PYTHONIOENCODING: "utf-8",
-          PYTHONUTF8: "1",
-          LXE_AGENT_SESSION_ID: request.sessionId,
-          LXE_RESPONSE_ROUTE_ID: request.responseRouteId,
-          LXE_AGENT_TURN_ID: request.turnId ?? "",
-          LXE_EXEC_SESSION_ID: id,
-        },
+        env: this.options.shell.childEnvironment(this.options.workspaceRoot, {
+          sessionId: request.sessionId,
+          responseRouteId: request.responseRouteId,
+          turnId: request.turnId ?? "",
+          execSessionId: id,
+        }),
       });
     } catch (error) {
       runWithLogContext({
@@ -400,7 +342,7 @@ export class CodingProcessManager {
         entry.status = "timeout";
         void runWithLogContext(this.logContext(entry), async () => {
           this.logger.warn("process_timeout", this.processFields(entry));
-          await terminateTree(entry);
+          await this.options.shell.terminate(entry.process, false);
         });
       }, request.timeoutMs);
     }
@@ -615,7 +557,7 @@ export class CodingProcessManager {
         entry.terminationEvents.add(event);
         this.logger.warn(event, this.processFields(entry));
       }
-      await terminateTree(entry);
+      await this.options.shell.terminate(entry.process, event === "process_force_killed");
     });
   }
 
@@ -629,11 +571,14 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   const ledger = new FileReadLedger();
   const imageProcessor = new ModelImageProcessor();
   const search = new WorkspaceSearchService(root, options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath });
+  const execShell = options.execShell ?? new ExecShellAdapter();
   const processes = new CodingProcessManager({
     maxOutputBytes: processOutputLimit,
     maxPendingBytes: 30_000,
     tailBytes: 2_000,
     ttlSeconds: 1_800,
+    workspaceRoot: root,
+    shell: execShell,
   });
   processes.onComplete = options.onProcessComplete;
   registry.register({
@@ -786,8 +731,25 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   });
   registry.register({
     name: "exec",
-    description: "Execute a PowerShell command; long-running commands become process sessions.",
-    input_schema: { type: "object", properties: { command: { type: "string" }, cwd: { type: "string" }, timeout: { type: "number" }, background: { type: "boolean" }, yield_ms: { type: "number" } }, required: ["command"], additionalProperties: false },
+    description: "Execute shell commands with background continuation. Windows uses PowerShell; macOS/Linux use /bin/sh without loading user profiles. Python, pip, and lxeskill use this project's .venv.",
+    input_schema: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "Shell command string." },
+        cwd: { type: "string", description: "Working directory inside the workspace; defaults to the workspace root." },
+        timeout: {
+          type: "number", minimum: 1, maximum: MAX_EXEC_TIMEOUT_SECONDS, default: DEFAULT_EXEC_TIMEOUT_SECONDS,
+          description: "Foreground timeout in seconds (default 120, maximum 3600). Ignored when background=true.",
+        },
+        background: { type: "boolean", default: false, description: "Start in the background immediately." },
+        yield_ms: {
+          type: "number", minimum: 1, default: DEFAULT_EXEC_YIELD_MS,
+          description: "Milliseconds to wait before a still-running foreground command moves to the background.",
+        },
+      },
+      required: ["command"],
+      additionalProperties: false,
+    },
     classifyInvocation: (input) => {
       const invocation = classifyLxeSkillInput(input, options.businessCommands ?? new Map());
       if (!invocation) return undefined;
@@ -798,16 +760,24 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       };
     },
     execute: async (input, context) => {
-      const command = normalizeProjectPythonCommand(root, inputText(input, "command").trim());
-      if (!command) throw new Error("command 不能为空");
+      const rawCommand = inputText(input, "command");
+      if (!rawCommand.trim()) throw new Error("command 不能为空");
+      const background = input.background === true;
+      const timeoutSeconds = Number(input.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS);
+      if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_EXEC_TIMEOUT_SECONDS) {
+        throw new Error(`timeout must be between 1 and ${MAX_EXEC_TIMEOUT_SECONDS} seconds`);
+      }
+      const yieldMs = Number(input.yield_ms ?? DEFAULT_EXEC_YIELD_MS);
+      if (!Number.isFinite(yieldMs) || yieldMs < 1) throw new Error("yield_ms must be a positive number of milliseconds");
+      const command = execShell.normalizeCommand(root, rawCommand);
       const payload = await processes.execute({
         command,
         cwd: safePath(root, input.cwd ?? "."),
         sessionId: context.session_id,
         responseRouteId: context.response_route_id ?? "",
-        background: input.background === true,
-        yieldMs: Math.max(1, Number(input.yield_ms ?? 10_000)),
-        ...(input.timeout === undefined ? { timeoutMs: 120_000 } : { timeoutMs: Math.max(1, Number(input.timeout) * 1_000) }),
+        background,
+        yieldMs,
+        ...(!background ? { timeoutMs: timeoutSeconds * 1_000 } : {}),
         handle: context.handle,
         ...(context.turn_id === undefined ? {} : { turnId: context.turn_id }),
       });

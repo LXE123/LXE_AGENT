@@ -8,6 +8,7 @@ import { loadMcpConfig } from "../src/mcp";
 import { DEFAULT_MAX_STEPS, DEFAULT_PROVIDER_ATTEMPTS, MAX_STEP_REPLY } from "../src/runtime";
 import { normalizePendingSystemEvents, sanitizeSystemPrefixedText } from "../src/system-events";
 import { configureRuntimeTracing } from "../src/trace";
+import { DEFAULT_EXEC_TIMEOUT_SECONDS, DEFAULT_EXEC_YIELD_MS, ExecShellAdapter } from "../src/exec-shell";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -23,6 +24,19 @@ describe("frozen main production parity", () => {
     expect(normalizePendingSystemEvents([{
       event_id: "event", job_id: "job", created_at: parity.runtime.legacy_event_time, text: "done",
     }])[0]?.created_at).toBe(parity.runtime.legacy_event_unix);
+  });
+
+  test("feeds coding shell and timing defaults through the real exec adapter", () => {
+    expect(new ExecShellAdapter({ platform: "darwin" }).spawnSpec("true").argv[0]).toBe(parity.coding.posix_shell);
+    expect(new ExecShellAdapter({
+      platform: "win32",
+      environment: { SystemRoot: "C:\\Windows" },
+      fileExists: (path) => path.endsWith("powershell.exe"),
+      which: () => null,
+      powerShellMajor: () => undefined,
+    }).spawnSpec("Write-Output ok").argv[0]?.toLowerCase()).toContain(parity.coding.windows_shell);
+    expect(DEFAULT_EXEC_TIMEOUT_SECONDS).toBe(parity.coding.default_timeout_seconds);
+    expect(DEFAULT_EXEC_YIELD_MS).toBe(parity.coding.default_yield_ms);
   });
 
   test("feeds MCP defaults through the real YAML loader", () => {

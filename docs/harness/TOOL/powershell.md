@@ -1,3 +1,5 @@
+本文件只描述 Windows exec 的 PowerShell 实现。macOS/Linux 使用 `/bin/sh -c`，不需要安装 PowerShell。
+
 目前该 agent 系统在 windows 系统上使用 exec 工具时，基本上都是基于 powershell 来运行。
 ---
 powershell 可执行终端命令时，返回的数据可能是文本，可能是对象。取决于终端命令种类。
@@ -104,4 +106,3 @@ stderr=asyncio.subprocess.STDOUT
 一个潜在问题：
 - 退出码语义会变简单，但可能丢失 native 程序的精确退出码
 回答：这个问题不用担心
-
