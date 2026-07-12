@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,6 +58,69 @@ describe("structured logger", () => {
       log_id: "log-1",
     }));
     expect(lines[0]).not.toContain("Bearer private");
+  });
+
+  test("isolates async log context and prevents call sites from replacing correlation ids", async () => {
+    const lines: string[] = [];
+    const logger = logging.createLogger("runtime.concurrent", {
+      write: (line) => lines.push(line),
+    }).child({ session_id: "child-session", component: "test" });
+
+    await Promise.all([
+      logging.runWithLogContext({ session_id: "session-a", turn_id: "turn-a" }, async () => {
+        await Bun.sleep(0);
+        logger.info("context_a", { session_id: "call-session", value: "a" });
+      }),
+      logging.runWithLogContext({ session_id: "session-b", turn_id: "turn-b" }, async () => {
+        await Bun.sleep(0);
+        logger.info("context_b", { value: "b" });
+      }),
+    ]);
+
+    const records = lines.map((line) => JSON.parse(line));
+    expect(records).toContainEqual(expect.objectContaining({
+      message: "context_a", session_id: "session-a", turn_id: "turn-a", value: "a",
+    }));
+    expect(records).toContainEqual(expect.objectContaining({
+      message: "context_b", session_id: "session-b", turn_id: "turn-b", value: "b",
+    }));
+    expect(logging.currentLogContext()).toEqual({});
+  });
+
+  test("sanitizes recursive, binary, bigint, oversized, and credential fields without throwing", () => {
+    const lines: string[] = [];
+    const logger = logging.createLogger("runtime.safe", { write: (line) => lines.push(line) });
+    const recursive: Record<string, unknown> = { value: 1 };
+    recursive.self = recursive;
+
+    expect(() => logger.info("safe_record", {
+      recursive,
+      count: 123n,
+      bytes: new Uint8Array([1, 2, 3]),
+      long: "x".repeat(9_000),
+      headers: { authorization: "Bearer private", cookie: "secret-cookie", accept: "json" },
+    })).not.toThrow();
+
+    const record = JSON.parse(lines[0]!);
+    expect(record.recursive.self).toBe("[recursive]");
+    expect(record.count).toBe("123");
+    expect(record.bytes).toContain("3 bytes");
+    expect(record.long.length).toBeLessThanOrEqual(8_000);
+    expect(record.headers).toEqual({ authorization: "***", cookie: "***", accept: "json" });
+    expect(lines[0]).not.toContain("Bearer private");
+    expect(lines[0]).not.toContain("secret-cookie");
+  });
+
+  test("contains custom writer failures", () => {
+    const fallback = spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const logger = logging.createLogger("runtime.writer", { write: () => { throw new Error("writer broke"); } });
+      expect(() => logger.warn("writer_failure")).not.toThrow();
+      expect(fallback).toHaveBeenCalledTimes(1);
+      expect(String(fallback.mock.calls[0]?.[0])).toContain("logging_record_failed");
+    } finally {
+      fallback.mockRestore();
+    }
   });
 
   test("configures a pre-created logger to append debug JSON to the dated runtime log", async () => {
@@ -156,5 +219,37 @@ describe("structured logger", () => {
       localFileEnabled: false,
       disabledReason: "missing_log_file",
     }));
+  });
+
+  test("disables a failed file sink once and exposes the effective status", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-logging-failure-"));
+    roots.push(root);
+    const controller = logging.configureLogging({
+      projectRoot: root,
+      environment: {
+        LOCAL_LOGS_ENABLED: "1",
+        LOG_FILE: "runtime.log",
+        LOG_LEVEL: "ERROR",
+        RUNTIME_LOG_LEVEL: "DEBUG",
+      },
+    });
+    controllers.push(controller);
+    const directory = join(root, "logs", "runtime", controller.filePath!.split(/[\\/]/u).at(-2)!);
+    rmSync(directory, { recursive: true, force: true });
+    writeFileSync(directory, "blocks directory recreation", "utf8");
+    const fallback = spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const logger = logging.createLogger("runtime");
+      expect(() => logger.warn("first_write")).not.toThrow();
+      expect(() => logger.warn("second_write")).not.toThrow();
+      expect(fallback.mock.calls.filter((call) => String(call[0]).includes("logging_sink_failed"))).toHaveLength(1);
+      expect(controller.status).toEqual(expect.objectContaining({
+        localFileEnabled: false,
+        disabledReason: "sink_failed",
+        lastError: expect.any(String),
+      }));
+    } finally {
+      fallback.mockRestore();
+    }
   });
 });
