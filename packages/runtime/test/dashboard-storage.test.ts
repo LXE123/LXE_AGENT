@@ -22,6 +22,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       turn_id: "turn-1", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 20,
       input_tokens: 7, output_tokens: 3, tool_calls: 2, api_calls: 1,
       tools: [{ name: "read", calls: 2, errors: 0, duration_ms: 5 }],
+      activations: [], executions: [],
     });
 
     const listed = store.listSessions({ limit: 20, offset: 0, query: "s-1" });

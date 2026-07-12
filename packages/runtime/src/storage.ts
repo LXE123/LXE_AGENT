@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
 import type { JsonObject, JsonValue } from "@lxe/protocol";
-import type { RuntimeMessage, RuntimeSessionRecord, RuntimeStore } from "./types";
+import type { RuntimeMessage, RuntimeSessionRecord, RuntimeStore, RuntimeTurnUsageRecord } from "./types";
 
 const parseObject = (value: unknown): JsonObject => {
   if (value !== null && typeof value === "object" && !Array.isArray(value)) return value as JsonObject;
@@ -499,12 +499,13 @@ export class SqliteRuntimeStore implements RuntimeStore {
     transaction();
   }
 
-  async recordTurn(sessionId: string, metrics: JsonObject): Promise<void> {
+  async recordTurn(sessionId: string, metrics: RuntimeTurnUsageRecord): Promise<void> {
     const safeSessionId = text(sessionId);
     const turnId = text(metrics.turn_id) || randomUUID().replaceAll("-", "");
     const startedAt = Number(metrics.started_at ?? Date.now() / 1_000);
     const tools = Array.isArray(metrics.tools) ? metrics.tools.map(parseObject) : [];
-    const skills = Array.isArray(metrics.skills) ? metrics.skills.map(parseObject) : [];
+    const activations = Array.isArray(metrics.activations) ? metrics.activations.map(parseObject) : [];
+    const executions = Array.isArray(metrics.executions) ? metrics.executions.map(parseObject) : [];
     this.db().transaction(() => {
       this.db().query(`
         UPDATE agent_sessions SET
@@ -538,16 +539,27 @@ export class SqliteRuntimeStore implements RuntimeStore {
           Number(tool.errors ?? 0), Number(tool.duration_ms ?? 0),
         );
       }
-      for (const skill of skills) {
-        const name = text(skill.name);
+      for (const activation of activations) {
+        const name = text(activation.skill);
         if (!name) continue;
         this.db().query(`
           INSERT INTO turn_usage_items
             (turn_id, session_id, started_at, kind, name, module, calls, errors, duration_ms, detail)
-          VALUES (?, ?, ?, 'skill', ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, 'skill_activation', ?, ?, 1, 0, 0, '')
         `).run(
-          turnId, safeSessionId, startedAt, name, text(skill.module), Number(skill.calls ?? 1),
-          Number(skill.errors ?? 0), Number(skill.duration_ms ?? 0), text(skill.detail),
+          turnId, safeSessionId, startedAt, name, text(activation.module),
+        );
+      }
+      for (const execution of executions) {
+        const name = text(execution.skill);
+        if (!name) continue;
+        this.db().query(`
+          INSERT INTO turn_usage_items
+            (turn_id, session_id, started_at, kind, name, module, calls, errors, duration_ms, detail)
+          VALUES (?, ?, ?, 'skill_execution', ?, ?, 1, ?, ?, ?)
+        `).run(
+          turnId, safeSessionId, startedAt, name, text(execution.module), execution.success === true ? 0 : 1,
+          Number(execution.duration_ms ?? 0), text(execution.command),
         );
       }
     })();
@@ -563,25 +575,29 @@ export class SqliteRuntimeStore implements RuntimeStore {
              COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS error_turns
       FROM turn_usage WHERE started_at >= ?
     `).get(cutoff) as Record<string, number>;
-    const daily = this.db().query(`
+    const dailyTurns = this.db().query(`
       SELECT date(started_at, 'unixepoch', 'localtime') AS day, COUNT(*) AS turns,
-             COALESCE(SUM(tool_calls), 0) AS tool_calls,
-             (SELECT COALESCE(SUM(i.calls), 0) FROM turn_usage_items i
-              WHERE i.kind = 'skill' AND date(i.started_at, 'unixepoch', 'localtime') = date(t.started_at, 'unixepoch', 'localtime')) AS executions,
-             (SELECT COALESCE(SUM(i.errors), 0) FROM turn_usage_items i
-              WHERE i.kind = 'skill' AND date(i.started_at, 'unixepoch', 'localtime') = date(t.started_at, 'unixepoch', 'localtime')) AS failures
-      FROM turn_usage t WHERE started_at >= ? GROUP BY day ORDER BY day ASC
+             COALESCE(SUM(tool_calls), 0) AS tool_calls
+      FROM turn_usage WHERE started_at >= ? GROUP BY day ORDER BY day ASC
+    `).all(cutoff) as Array<Record<string, unknown>>;
+    const dailyExecutions = this.db().query(`
+      SELECT date(started_at, 'unixepoch', 'localtime') AS day,
+             COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures
+      FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
+      GROUP BY day ORDER BY day ASC
     `).all(cutoff) as Array<Record<string, unknown>>;
     const skillTotals = this.db().query(`
       SELECT COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures
-      FROM turn_usage_items WHERE kind = 'skill' AND started_at >= ?
+      FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
     `).get(cutoff) as Record<string, number> | null;
     const modules = this.db().query(`
-      SELECT module, COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures,
+      SELECT module, COUNT(DISTINCT name) AS skills, COUNT(DISTINCT turn_id) AS turns,
+             COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures,
              COALESCE(SUM(duration_ms), 0) AS duration_ms
-      FROM turn_usage_items WHERE kind = 'skill' AND started_at >= ?
+      FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
       GROUP BY module ORDER BY executions DESC, module ASC
     `).all(cutoff) as Array<Record<string, unknown>>;
+    const executionsByDay = new Map(dailyExecutions.map((row) => [text(row.day), row]));
     return {
       days: safeDays,
       totals: {
@@ -591,13 +607,17 @@ export class SqliteRuntimeStore implements RuntimeStore {
         skill_executions: Number(skillTotals?.executions ?? 0), skill_failures: Number(skillTotals?.failures ?? 0),
       },
       modules: modules.map((row) => ({
-        module: text(row.module), executions: Number(row.executions ?? 0), failures: Number(row.failures ?? 0),
+        module: text(row.module), skills: Number(row.skills ?? 0), turns: Number(row.turns ?? 0),
+        executions: Number(row.executions ?? 0), failures: Number(row.failures ?? 0),
         duration_ms: Number(row.duration_ms ?? 0),
       })),
-      daily: daily.map((row) => ({
-        day: text(row.day), turns: Number(row.turns ?? 0), tool_calls: Number(row.tool_calls ?? 0),
-        executions: Number(row.executions ?? 0), failures: Number(row.failures ?? 0),
-      })),
+      daily: dailyTurns.map((row) => {
+        const execution = executionsByDay.get(text(row.day));
+        return {
+          day: text(row.day), turns: Number(row.turns ?? 0), tool_calls: Number(row.tool_calls ?? 0),
+          executions: Number(execution?.executions ?? 0), failures: Number(execution?.failures ?? 0),
+        };
+      }),
     };
   }
 
@@ -620,17 +640,55 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
     const skillName = text(name);
     const rows = this.db().query(`
-      SELECT name, module, COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures,
-             COALESCE(SUM(duration_ms), 0) AS duration_ms, COUNT(DISTINCT turn_id) AS turns,
+      SELECT name, MAX(module) AS module,
+             COALESCE(SUM(CASE WHEN kind = 'skill_activation' THEN calls ELSE 0 END), 0) AS activations,
+             COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN calls ELSE 0 END), 0) AS executions,
+             COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN errors ELSE 0 END), 0) AS failures,
+             COUNT(DISTINCT CASE WHEN kind = 'skill_execution' THEN turn_id END) AS execution_turns,
+             COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN duration_ms ELSE 0 END), 0) AS duration_ms,
              MAX(started_at) AS last_used_at
-      FROM turn_usage_items WHERE kind = 'skill' AND started_at >= ? AND (? = '' OR name = ?)
-      GROUP BY name, module ORDER BY executions DESC, name ASC
+      FROM turn_usage_items
+      WHERE kind IN ('skill_activation', 'skill_execution') AND started_at >= ? AND (? = '' OR name = ?)
+      GROUP BY name ORDER BY executions DESC, activations DESC, name ASC
     `).all(cutoff, skillName, skillName) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
-      name: text(row.name), module: text(row.module), executions: Number(row.executions ?? 0),
+      name: text(row.name), module: text(row.module), activations: Number(row.activations ?? 0),
+      executions: Number(row.executions ?? 0),
       failures: Number(row.failures ?? 0), duration_ms: Number(row.duration_ms ?? 0),
-      turns: Number(row.turns ?? 0), last_used_at: Number(row.last_used_at ?? 0),
+      execution_turns: Number(row.execution_turns ?? 0), last_used_at: Number(row.last_used_at ?? 0),
     }));
+  }
+
+  skillUsageDetail(name: string, days: number, failureLimit = 10): JsonObject {
+    const skillName = text(name);
+    const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
+    const safeFailureLimit = Math.max(1, Math.min(Math.trunc(failureLimit), 50));
+    const daily = this.db().query(`
+      SELECT date(started_at, 'unixepoch', 'localtime') AS day,
+             COALESCE(SUM(CASE WHEN kind = 'skill_activation' THEN calls ELSE 0 END), 0) AS activations,
+             COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN calls ELSE 0 END), 0) AS executions,
+             COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN errors ELSE 0 END), 0) AS failures
+      FROM turn_usage_items
+      WHERE name = ? AND kind IN ('skill_activation', 'skill_execution') AND started_at >= ?
+      GROUP BY day ORDER BY day ASC
+    `).all(skillName, cutoff) as Array<Record<string, unknown>>;
+    const failures = this.db().query(`
+      SELECT turn_id, session_id, started_at, detail
+      FROM turn_usage_items
+      WHERE name = ? AND kind = 'skill_execution' AND errors > 0 AND started_at >= ?
+      ORDER BY started_at DESC LIMIT ?
+    `).all(skillName, cutoff, safeFailureLimit) as Array<Record<string, unknown>>;
+    return {
+      name: skillName,
+      daily: daily.map((row) => ({
+        day: text(row.day), activations: Number(row.activations ?? 0),
+        executions: Number(row.executions ?? 0), failures: Number(row.failures ?? 0),
+      })),
+      recent_failures: failures.map((row) => ({
+        turn_id: text(row.turn_id), session_id: text(row.session_id), started_at: Number(row.started_at ?? 0),
+        command: text(row.detail),
+      })),
+    };
   }
 
   exportTurnUsage(days: number, limit = 5_000): JsonObject[] {
@@ -649,7 +707,9 @@ export class SqliteRuntimeStore implements RuntimeStore {
     if (turns.length > 0) {
       const items = this.db().query(`
         SELECT turn_id, kind, name, module, calls, errors, duration_ms, detail
-        FROM turn_usage_items WHERE started_at >= ? ORDER BY item_id ASC
+        FROM turn_usage_items
+        WHERE started_at >= ? AND kind IN ('tool', 'skill_activation', 'skill_execution')
+        ORDER BY item_id ASC
       `).all(cutoff) as Array<Record<string, unknown>>;
       for (const row of items) {
         byId.get(text(row.turn_id))?.items.push({

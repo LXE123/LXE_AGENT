@@ -31,6 +31,8 @@ import type {
   RuntimeStore,
   RuntimeStreamEvent,
   SystemPromptContext,
+  SkillActivationUsage,
+  SkillExecutionUsage,
   RuntimeTurnResponse,
   RuntimeUsage,
   ToolResultBlock,
@@ -45,6 +47,7 @@ export interface TypeScriptAgentRuntimeOptions {
   traceController?: RuntimeTraceControllerPort;
   tools: ToolRegistry;
   toolExposure?: ToolExposureOptions | (() => ToolExposureOptions);
+  resolveSkillMetadata?: (skillName: string) => { module: string } | undefined;
   emitter: RuntimeEmitter;
   systemPrompt: string | ((context: SystemPromptContext) => string);
   maxSteps?: number;
@@ -138,14 +141,16 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const providerSnapshot = this.options.providerManager?.acquire();
     const provider = providerSnapshot?.provider ?? this.options.provider;
     if (!provider) throw new Error("runtime provider is not configured");
-    const skillUsage = new Map<string, { module: string; calls: number; errors: number; duration_ms: number }>();
+    const skillActivations = new Map<string, SkillActivationUsage>();
+    const skillExecutions: SkillExecutionUsage[] = [];
+    const skillModule = (name: string): string => this.options.resolveSkillMetadata?.(name)?.module.trim() ?? "";
     const exposureOptions = typeof this.options.toolExposure === "function"
       ? this.options.toolExposure()
       : this.options.toolExposure;
     const toolExposure = this.options.tools.createExposureState({
       ...exposureOptions,
       onSkillActivated: async (name) => {
-        skillUsage.set(name, { module: "", calls: 1, errors: 0, duration_ms: 0 });
+        skillActivations.set(name, { skill: name, module: skillModule(name) });
         await exposureOptions?.onSkillActivated?.(name);
       },
     });
@@ -220,7 +225,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           tool_calls: toolCalls,
           api_calls: apiCalls,
           tools: [...toolUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
-          skills: [...skillUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
+          activations: [...skillActivations.values()],
+          executions: skillExecutions,
         });
       } catch (cause) {
         this.logger.warn("turn_usage_persist_failed", { error: cause });
@@ -501,12 +507,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           const definition = this.options.tools.definition(call.name);
           const invocation = definition?.classifyInvocation?.(call.input);
           const usageName = invocation?.usageName || call.name;
+          const commandId = invocation?.commandId?.trim() ?? "";
           const usage = toolUsage.get(usageName) ?? { calls: 0, errors: 0, duration_ms: 0 };
-          const ownerSkills = (invocation?.ownerSkills ?? definition?.ownerSkills ?? [])
-            .filter((name) => skillUsage.has(name));
+          const executionOwners = commandId
+            ? [...new Set((invocation?.ownerSkills ?? []).map((name) => name.trim()).filter(Boolean))]
+            : [];
           usage.calls += 1;
           toolUsage.set(usageName, usage);
-          observer.toolStarted(step + 1, call.name, call.id, invocation?.commandId);
+          observer.toolStarted(step + 1, call.name, call.id, commandId || undefined);
           trace?.record("tool_start", { step: step + 1, tool: call.name, tool_use_id: call.id, input: call.input });
           await finalAnswerStreamer?.pushToolStart(call);
           let toolStatus: "success" | "error" = "success";
@@ -562,15 +570,17 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           } finally {
             const durationMs = Date.now() - startedToolAt;
             usage.duration_ms += durationMs;
-            for (const skillName of ownerSkills) {
-              const skill = skillUsage.get(skillName);
-              if (!skill) continue;
-              skill.module = usageName;
-              skill.duration_ms += durationMs;
-              if (toolStatus === "error") skill.errors += 1;
+            for (const skillName of executionOwners) {
+              skillExecutions.push({
+                skill: skillName,
+                module: skillModule(skillName),
+                command: commandId,
+                success: toolStatus === "success",
+                duration_ms: durationMs,
+              });
             }
             trace?.record("tool_end", { step: step + 1, tool: call.name, tool_use_id: call.id, status: toolStatus, duration_ms: durationMs });
-            observer.toolCompleted(step + 1, call.name, call.id, toolStatus, durationMs, invocation?.commandId);
+            observer.toolCompleted(step + 1, call.name, call.id, toolStatus, durationMs, commandId || undefined);
             await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs, toolDisplayOutput);
           }
         }

@@ -177,7 +177,16 @@ describe("MaintenanceScheduler", () => {
     await store.start();
     await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
     await store.appendMessage("s1", { role: "user", content: "hello" });
-    await store.recordTurn("s1", { turn_id: "t1", status: "completed", started_at: Date.now() / 1_000, api_calls: 1 });
+    await store.recordTurn("s1", {
+      turn_id: "t1", status: "completed", started_at: Date.now() / 1_000,
+      elapsed_ms: 1, input_tokens: 0, output_tokens: 0, tool_calls: 1, api_calls: 1,
+      tools: [{ name: "lxeskill:replenish store resolve", calls: 1, errors: 0, duration_ms: 4 }],
+      activations: [{ skill: "replenishment-store-resolve", module: "amazon_replenish" }],
+      executions: [{
+        skill: "replenishment-store-resolve", module: "amazon_replenish",
+        command: "replenish store resolve", success: true, duration_ms: 4,
+      }],
+    });
     const authCalls: unknown[] = [];
     const uploads: Array<{ url: string; init?: RequestInit }> = [];
     const scheduler = new MaintenanceScheduler({
@@ -207,6 +216,14 @@ describe("MaintenanceScheduler", () => {
     const snapshot = JSON.parse(String(uploads[0]?.init?.body));
     expect(snapshot).toMatchObject({ gateway_id: "gateway-one", sessions: [{ session_id: "s1", messages: [{ role: "user", content: "hello" }] }] });
     expect(snapshot.turn_usage.turns).toEqual([expect.objectContaining({ turn_id: "t1", status: "completed" })]);
+    expect(snapshot.turn_usage.turns[0].items).toEqual([
+      expect.objectContaining({ kind: "tool", name: "lxeskill:replenish store resolve" }),
+      expect.objectContaining({ kind: "skill_activation", name: "replenishment-store-resolve", module: "amazon_replenish" }),
+      expect.objectContaining({
+        kind: "skill_execution", name: "replenishment-store-resolve", module: "amazon_replenish",
+        detail: "replenish store resolve", calls: 1, errors: 0,
+      }),
+    ]);
     await scheduler.stop();
     await store.stop();
   });

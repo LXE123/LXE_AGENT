@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { SqliteRuntimeStore } from "../src/storage";
 
 const roots: string[] = [];
@@ -141,10 +142,11 @@ describe("SqliteRuntimeStore", () => {
     await store.stop();
   });
 
-  test("resets context and records skill usage in explicit lifecycle transactions", async () => {
+  test("resets context and records independent skill activation and execution usage", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-lifecycle-store-"));
     roots.push(root);
-    const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
+    const databasePath = join(root, "local_agent.sqlite3");
+    const store = new SqliteRuntimeStore(databasePath);
     await store.start();
     await store.ensureSession({ session_id: "s1", source: { tool_state: { browser: { page: 1 } } } });
     await store.appendPendingEvent("s1", { event_id: "e1", text: "pending" });
@@ -152,14 +154,67 @@ describe("SqliteRuntimeStore", () => {
     await store.appendMessage("s1", { role: "user", content: "keep until reset" }, "turn_input");
     await store.resetContext("s1");
     expect(await store.loadMessages("s1")).toEqual([]);
+    const startedAt = Date.now() / 1_000;
     await store.recordTurn("s1", {
-      turn_id: "turn-1", started_at: Date.now() / 1_000, status: "completed",
-      skills: [{ name: "demo", module: "mabang_demo", calls: 1, errors: 0, duration_ms: 25 }],
+      turn_id: "turn-1", started_at: startedAt, status: "completed", elapsed_ms: 40,
+      input_tokens: 1, output_tokens: 1, tool_calls: 2, api_calls: 1, tools: [],
+      activations: [{ skill: "demo", module: "amazon_replenish" }],
+      executions: [
+        { skill: "demo", module: "amazon_replenish", command: "replenish store resolve", success: true, duration_ms: 10 },
+        { skill: "demo", module: "amazon_replenish", command: "replenish store resolve", success: false, duration_ms: 20 },
+      ],
     });
-    expect(store.skillUsageStats(30, "demo")).toEqual([
-      expect.objectContaining({ name: "demo", module: "mabang_demo", executions: 1, failures: 0, duration_ms: 25 }),
-    ]);
-    expect(store.usageOverview(30).totals).toEqual(expect.objectContaining({ skill_executions: 1, skill_failures: 0 }));
+    await store.recordTurn("s1", {
+      turn_id: "turn-2", started_at: startedAt + 1, status: "completed", elapsed_ms: 30,
+      input_tokens: 1, output_tokens: 1, tool_calls: 1, api_calls: 1, tools: [], activations: [],
+      executions: [
+        { skill: "demo", module: "amazon_replenish", command: "replenish store resolve", success: true, duration_ms: 30 },
+      ],
+    });
+    await store.recordTurn("s1", {
+      turn_id: "turn-3", started_at: startedAt + 2, status: "completed", elapsed_ms: 1,
+      input_tokens: 0, output_tokens: 0, tool_calls: 0, api_calls: 0, tools: [],
+      activations: [{ skill: "activation-only", module: "amazon_fba" }], executions: [],
+    });
+
+    const legacy = new Database(databasePath);
+    legacy.query(`
+      INSERT INTO turn_usage_items
+        (turn_id, session_id, started_at, kind, name, module, calls, errors, duration_ms, detail)
+      VALUES ('turn-1', 's1', ?, 'skill', 'legacy', 'legacy_module', 99, 99, 999, 'legacy command')
+    `).run(startedAt);
+    legacy.close(false);
+
+    expect(store.skillUsageStats(30, "demo")).toEqual([{
+      name: "demo", module: "amazon_replenish", activations: 1, executions: 3,
+      failures: 1, execution_turns: 2, duration_ms: 60, last_used_at: startedAt + 1,
+    }]);
+    expect(store.skillUsageStats(30, "activation-only")).toEqual([expect.objectContaining({
+      name: "activation-only", module: "amazon_fba", activations: 1, executions: 0,
+      failures: 0, execution_turns: 0, duration_ms: 0,
+    })]);
+    expect(store.skillUsageStats(30, "legacy")).toEqual([]);
+    expect(store.usageOverview(30)).toMatchObject({
+      totals: { skill_executions: 3, skill_failures: 1 },
+      modules: [{
+        module: "amazon_replenish", skills: 1, turns: 2, executions: 3, failures: 1, duration_ms: 60,
+      }],
+      daily: [expect.objectContaining({ executions: 3, failures: 1 })],
+    });
+    expect(store.skillUsageDetail("demo", 30)).toMatchObject({
+      name: "demo",
+      daily: [expect.objectContaining({ activations: 1, executions: 3, failures: 1 })],
+      recent_failures: [{
+        turn_id: "turn-1", session_id: "s1", started_at: startedAt, command: "replenish store resolve",
+      }],
+    });
+    const exported = store.exportTurnUsage(30);
+    expect(exported.flatMap((turn) => Array.isArray(turn.items) ? turn.items : [])).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "skill_activation", name: "demo", module: "amazon_replenish" }),
+      expect.objectContaining({ kind: "skill_execution", name: "demo", detail: "replenish store resolve" }),
+    ]));
+    expect(JSON.stringify(exported)).not.toContain('"kind":"skill"');
+    expect(JSON.stringify(exported)).not.toContain("legacy command");
     store.clearSessionRuntimeState("s1");
     expect((await store.getSession("s1"))?.source.tool_state).toBeUndefined();
     await store.stop();

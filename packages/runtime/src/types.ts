@@ -83,6 +83,40 @@ export interface RuntimeSessionRecord {
   source: JsonObject;
 }
 
+export interface ToolTurnUsage extends JsonObject {
+  name: string;
+  calls: number;
+  errors: number;
+  duration_ms: number;
+}
+
+export interface SkillActivationUsage extends JsonObject {
+  skill: string;
+  module: string;
+}
+
+export interface SkillExecutionUsage extends JsonObject {
+  skill: string;
+  module: string;
+  command: string;
+  success: boolean;
+  duration_ms: number;
+}
+
+export interface RuntimeTurnUsageRecord extends JsonObject {
+  turn_id: string;
+  started_at: number;
+  status: string;
+  elapsed_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  tool_calls: number;
+  api_calls: number;
+  tools: ToolTurnUsage[];
+  activations: SkillActivationUsage[];
+  executions: SkillExecutionUsage[];
+}
+
 export interface RuntimeStore {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -97,7 +131,7 @@ export interface RuntimeStore {
     metadata?: JsonObject,
   ): Promise<void>;
   patchSessionState(sessionId: string, patch: JsonObject): Promise<void>;
-  recordTurn(sessionId: string, metrics: JsonObject): Promise<void>;
+  recordTurn(sessionId: string, metrics: RuntimeTurnUsageRecord): Promise<void>;
 }
 
 export interface SystemPromptContext {

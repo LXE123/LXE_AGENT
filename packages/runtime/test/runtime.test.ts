@@ -68,7 +68,7 @@ const handle = (): RuntimeHandle => {
 };
 
 describe("TypeScriptAgentRuntime", () => {
-  test("attributes a classified lxeskill exec to its activated skill", async () => {
+  test("records skill activation once and attributes every later lxeskill execution independently", async () => {
     const store = new MemoryStore();
     const tools = new ToolRegistry();
     tools.register({
@@ -89,16 +89,85 @@ describe("TypeScriptAgentRuntime", () => {
         commandId: "replenish store resolve",
         ownerSkills: ["replenishment-store-resolve"],
       }),
-      execute: async () => ({ content: [{ type: "text", text: "done" }] }),
+      execute: async (input) => {
+        if (input.fail === true) throw new Error("command failed");
+        return { content: [{ type: "text", text: "done" }] };
+      },
     });
     const responses: RuntimeTurnResponse[] = [
-      { content: [{ type: "tool_use", id: "read-1", name: "read", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
-      { content: [{ type: "tool_use", id: "exec-1", name: "exec", input: { command: "lxeskill replenish store resolve --store-name Demo" } }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [
+        { type: "tool_use", id: "read-1", name: "read", input: {} },
+        { type: "tool_use", id: "read-2", name: "read", input: {} },
+      ], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [{ type: "text", text: "complete" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [
+        { type: "tool_use", id: "exec-1", name: "exec", input: { command: "lxeskill replenish store resolve --store-name Demo" } },
+        { type: "tool_use", id: "exec-2", name: "exec", input: { command: "lxeskill replenish store resolve --store-name Demo", fail: true } },
+      ], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
       { content: [{ type: "text", text: "complete" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
     ];
     const runtime = new TypeScriptAgentRuntime({
       store,
       tools,
+      provider: { summarize, turn: async () => responses.shift()! },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+      resolveSkillMetadata: (name) => name === "replenishment-store-resolve"
+        ? { module: "amazon_replenish" }
+        : undefined,
+    });
+
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    await runtime.runTurn({ ...job(), job_id: "j2", message_id: "m2" }, handle());
+    await runtime.stop();
+
+    expect(store.metrics[0]?.activations).toEqual([{
+      skill: "replenishment-store-resolve",
+      module: "amazon_replenish",
+    }]);
+    expect(store.metrics[0]?.executions).toEqual([]);
+    expect(store.metrics[1]?.tools).toContainEqual(expect.objectContaining({
+      name: "lxeskill:replenish store resolve",
+      calls: 2,
+      errors: 1,
+    }));
+    expect(store.metrics[1]?.activations).toEqual([]);
+    expect(store.metrics[1]?.executions).toEqual([
+      expect.objectContaining({
+        skill: "replenishment-store-resolve",
+        module: "amazon_replenish",
+        command: "replenish store resolve",
+        success: true,
+      }),
+      expect.objectContaining({
+        skill: "replenishment-store-resolve",
+        module: "amazon_replenish",
+        command: "replenish store resolve",
+        success: false,
+      }),
+    ]);
+    expect(JSON.stringify(store.metrics[1]?.executions)).not.toContain("--store-name");
+  });
+
+  test("does not count static tool ownership as a skill execution", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "owned_tool",
+      description: "owned without a stable command",
+      input_schema: { type: "object" },
+      ownerSkills: ["demo-skill"],
+      execute: async () => ({ content: [{ type: "text", text: "done" }] }),
+    });
+    const responses: RuntimeTurnResponse[] = [
+      { content: [{ type: "tool_use", id: "tool-1", name: "owned_tool", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [{ type: "text", text: "complete" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
+    ];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      toolExposure: { allowedSkills: new Set(["demo-skill"]) },
       provider: { summarize, turn: async () => responses.shift()! },
       emitter: { emit: async () => undefined, typing: async () => undefined },
       systemPrompt: "test",
@@ -108,15 +177,7 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.runTurn(job(), handle());
     await runtime.stop();
 
-    expect(store.metrics[0]?.tools).toContainEqual(expect.objectContaining({
-      name: "lxeskill:replenish store resolve",
-      calls: 1,
-    }));
-    expect(store.metrics[0]?.skills).toEqual([expect.objectContaining({
-      name: "replenishment-store-resolve",
-      module: "lxeskill:replenish store resolve",
-      calls: 1,
-    })]);
+    expect(store.metrics[0]?.executions).toEqual([]);
   });
 
   test("completes an empty heartbeat without loading history or calling the provider", async () => {

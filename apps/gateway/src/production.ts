@@ -281,6 +281,10 @@ export function createProductionGateway(
         environment: options.environment,
         traceController: configureRuntimeTracing({ projectRoot: options.projectRoot, environment: options.environment }),
         tools,
+        resolveSkillMetadata: (skillName) => {
+          const skill = skillCatalog.get(skillName);
+          return skill ? { module: skill.type } : undefined;
+        },
         toolExposure: () => ({
           allowedSkills: new Set(skillCatalog.list(skillOptions()).map((skill) => skill.name)),
           disabledConnectors: dashboardApi?.disabledConnectorIds() ?? new Set<string>(),
