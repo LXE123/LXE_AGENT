@@ -1,17 +1,20 @@
 import { randomUUID } from "node:crypto";
 import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
-import { createLogger } from "@lxe/core";
+import { createLogger, runWithLogContext, type Environment } from "@lxe/core";
 import { ToolRegistry, type ToolExposureOptions } from "./tools";
 import {
   ContextCompactionError,
   ContextOverflowError,
   ContextPipeline,
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
+  estimateTokens,
   isContextOverflowError,
   trimToolResultBlocks,
   type ContextCompactionResult,
 } from "./context";
 import { FinalAnswerStreamer } from "./final-answer-streamer";
 import { RuntimeProviderError, type RuntimeProviderManager } from "./provider";
+import { RuntimeTurnObserver } from "./turn-observer";
 import {
   heartbeatPrompt,
   normalizePendingSystemEvents,
@@ -46,6 +49,7 @@ export interface TypeScriptAgentRuntimeOptions {
   systemPrompt: string | ((context: SystemPromptContext) => string);
   maxSteps?: number;
   contextWindowTokens?: number;
+  environment?: Environment;
   display?: {
     model: string;
     contextWindowTokens: number;
@@ -119,6 +123,15 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
   }
 
   async runTurn(job: AgentJob, handle: RuntimeHandle): Promise<TurnOutcome> {
+    return runWithLogContext({
+      session_id: job.session_id,
+      turn_id: job.job_id,
+      response_route_id: job.response_route_id,
+      message_id: job.message_id,
+    }, () => this.runTurnInContext(job, handle));
+  }
+
+  private async runTurnInContext(job: AgentJob, handle: RuntimeHandle): Promise<TurnOutcome> {
     if (!this.started) throw new Error("runtime is not started");
     const session = await this.options.store.getSession(job.session_id);
     if (!session) throw new Error(`session not found: ${job.session_id}`);
@@ -145,6 +158,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const systemPrompt = typeof this.options.systemPrompt === "function"
       ? this.options.systemPrompt(systemPromptContext)
       : this.options.systemPrompt;
+    const observer = new RuntimeTurnObserver({
+      ...(this.options.environment ? { environment: this.options.environment } : {}),
+    });
     const trace = this.options.traceController?.startTurn(job.session_id, job.job_id);
     trace?.record("turn_start", {
       session_id: job.session_id,
@@ -189,29 +205,35 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       apiCalls += result.apiCalls;
       if (result.apiCalls > 0) finalAnswerStreamer?.updateUsage(result.usage);
     };
-    const recordUsage = async (status: TurnOutcome["status"]): Promise<void> => {
+    const recordUsage = async (status: TurnOutcome["status"], error?: unknown): Promise<void> => {
       if (usageRecorded) return;
       usageRecorded = true;
-      await this.options.store.recordTurn(job.session_id, {
-        turn_id: job.job_id,
-        started_at: startedAt,
-        status,
-        elapsed_ms: Math.max(0, Math.trunc((Date.now() / 1_000 - startedAt) * 1_000)),
-        input_tokens: inputTokens,
-        output_tokens: outputTokens,
-        tool_calls: toolCalls,
-        api_calls: apiCalls,
-        tools: [...toolUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
-        skills: [...skillUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
-      });
+      const elapsedMs = Math.max(0, Math.trunc((Date.now() / 1_000 - startedAt) * 1_000));
+      try {
+        await this.options.store.recordTurn(job.session_id, {
+          turn_id: job.job_id,
+          started_at: startedAt,
+          status,
+          elapsed_ms: elapsedMs,
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          tool_calls: toolCalls,
+          api_calls: apiCalls,
+          tools: [...toolUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
+          skills: [...skillUsage.entries()].map(([name, usage]) => ({ name, ...usage })),
+        });
+      } catch (cause) {
+        this.logger.warn("turn_usage_persist_failed", { error: cause });
+      }
       trace?.record("turn_end", {
         status,
-        elapsed_ms: Math.max(0, Math.trunc((Date.now() / 1_000 - startedAt) * 1_000)),
+        elapsed_ms: elapsedMs,
         input_tokens: inputTokens,
         output_tokens: outputTokens,
         tool_calls: toolCalls,
         api_calls: apiCalls,
       });
+      observer.complete({ status, inputTokens, outputTokens, toolCalls, apiCalls, ...(error === undefined ? {} : { error }) });
     };
     try {
       if (job.job_kind === "turn" && job.response_route_id) {
@@ -227,7 +249,20 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       const pendingEvents = normalizePendingSystemEvents(heartbeat
         ? await this.options.store.popPendingEvents(job.session_id)
         : job.raw_data.system_events);
+      if (heartbeat) observer.pendingEvents("popped", pendingEvents.length);
+      else if (pendingEvents.length > 0) observer.pendingEvents("attached", pendingEvents.length);
       if (heartbeat && pendingEvents.length === 0) {
+        observer.start({
+          jobKind: "heartbeat",
+          provider: descriptor?.name ?? "custom",
+          model: descriptor?.model ?? this.options.display?.model ?? "",
+          messageTurns: 0,
+          systemTokens: estimateTokens(systemPrompt),
+          messageTokens: 0,
+          contextCapacity: contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
+          pendingEventCount: 0,
+        });
+        observer.pendingEvents("noop", 0);
         await recordUsage("completed");
         return this.outcome("completed", "", inputTokens, outputTokens, toolCalls);
       }
@@ -237,6 +272,16 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         : userContentWithSystemEvents(job.user_input, job.user_content_blocks, pendingEvents);
       const userMessage: RuntimeMessage = { role: "user", content: userContent };
       messages.push(userMessage);
+      observer.start({
+        jobKind: heartbeat ? "heartbeat" : "turn",
+        provider: descriptor?.name ?? "custom",
+        model: descriptor?.model ?? this.options.display?.model ?? "",
+        messageTurns: messages.filter((message) => message.role === "user").length,
+        systemTokens: estimateTokens(systemPrompt),
+        messageTokens: estimateTokens(messages),
+        contextCapacity: contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
+        pendingEventCount: pendingEvents.length,
+      });
       await this.options.store.appendMessage(job.session_id, userMessage, heartbeat ? "heartbeat" : "turn_input");
 
       const appendSteering = async (steeringMessages = handle.drainSteering()): Promise<number> => {
@@ -272,6 +317,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           trigger: "pre_call",
         });
         accountContext(prepared);
+        observer.context(prepared);
         messages = prepared.messages;
         if (prepared.failureReason) {
           throw new ContextCompactionError(prepared.failureReason, prepared.afterTokens);
@@ -279,7 +325,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         if (prepared.hardLimitExceeded) {
           throw new ContextOverflowError(prepared.afterTokens, contextPipeline.hardLimitTokens);
         }
-        const providerRequest = () => ({
+        const providerRequest = (attemptObserver: ReturnType<RuntimeTurnObserver["providerAttempt"]>) => ({
           system: systemPrompt,
           messages: structuredClone(messages) as RuntimeMessage[],
           tools: toolSchemas,
@@ -287,6 +333,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           signal: handle.signal,
           ...(trace ? { trace } : {}),
           onEvent: async (event: RuntimeStreamEvent) => {
+            attemptObserver.stream(event);
             trace?.record("stream_event", {
               type: event.type,
               ...(event.type === "text_delta" ? { chars: event.text.length } : {}),
@@ -299,30 +346,29 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           let lastError: unknown;
           for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
             apiCalls += 1;
-            this.logger.debug("provider attempt", {
-              session_id: job.session_id,
-              turn_id: job.job_id,
-              step: step + 1,
+            const attemptObserver = observer.providerAttempt(
+              step + 1,
               attempt,
-              provider: descriptor?.name ?? "custom",
-              model: descriptor?.model ?? this.options.display?.model ?? "",
-            });
+              descriptor?.name ?? "custom",
+              descriptor?.model ?? this.options.display?.model ?? "",
+            );
             trace?.record("provider_attempt", { step: step + 1, attempt });
             try {
-              return await provider.turn(providerRequest());
+              const response = await provider.turn(providerRequest(attemptObserver));
+              attemptObserver.succeed(response);
+              return response;
             } catch (error) {
-              if (isCancelled(handle) || (error instanceof DOMException && error.name === "AbortError")) throw error;
-              if (isContextOverflowError(error)) throw error;
+              if (isCancelled(handle) || (error instanceof DOMException && error.name === "AbortError")) {
+                attemptObserver.cancel();
+                throw error;
+              }
+              if (isContextOverflowError(error)) {
+                attemptObserver.fail(error, false);
+                throw error;
+              }
               const retryable = error instanceof RuntimeProviderError ? error.retryable : true;
               lastError = error;
-              this.logger.warn("provider attempt failed", {
-                session_id: job.session_id,
-                turn_id: job.job_id,
-                step: step + 1,
-                attempt,
-                retryable,
-                error,
-              });
+              attemptObserver.fail(error, retryable && attempt < maximumAttempts);
               if (!retryable || attempt >= maximumAttempts) throw error;
             }
           }
@@ -342,6 +388,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             trigger: "overflow",
           });
           accountContext(overflow);
+          observer.context(overflow);
           messages = overflow.messages;
           if (overflow.failureReason) {
             throw new ContextCompactionError(overflow.failureReason, overflow.afterTokens);
@@ -377,6 +424,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 signal: handle.signal,
               });
               accountContext(postTurn);
+              observer.context(postTurn);
               messages = postTurn.messages;
               if (postTurn.failureReason) {
                 throw new ContextCompactionError(postTurn.failureReason, postTurn.afterTokens);
@@ -442,6 +490,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             .filter((name) => skillUsage.has(name));
           usage.calls += 1;
           toolUsage.set(call.name, usage);
+          observer.toolStarted(step + 1, call.name, call.id);
           trace?.record("tool_start", { step: step + 1, tool: call.name, tool_use_id: call.id, input: call.input });
           await finalAnswerStreamer?.pushToolStart(call);
           let toolStatus: "success" | "error" = "success";
@@ -505,6 +554,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               if (toolStatus === "error") skill.errors += 1;
             }
             trace?.record("tool_end", { step: step + 1, tool: call.name, tool_use_id: call.id, status: toolStatus, duration_ms: durationMs });
+            observer.toolCompleted(step + 1, call.name, call.id, toolStatus, durationMs);
             await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs, toolDisplayOutput);
           }
         }
@@ -531,9 +581,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       const message = cause instanceof RuntimeProviderError
         ? cause.userMessage
         : cause instanceof Error ? cause.message : String(cause);
-      this.logger.error("turn failed", { session_id: job.session_id, run_id: job.job_id, error: cause });
       const reply = `执行失败: ${message}`;
-      await recordUsage("error");
+      await recordUsage("error", cause);
       const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.fail(reply) : false;
       if (job.response_route_id && !streamDelivered) await this.emitBestEffort(this.finalRequest(job, reply), "error");
       return this.outcome("error", reply, inputTokens, outputTokens, toolCalls);

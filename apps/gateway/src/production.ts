@@ -220,6 +220,7 @@ export function createProductionGateway(
       return new TypeScriptAgentRuntime({
         store: sqliteStore,
         providerManager,
+        environment: options.environment,
         traceController: configureRuntimeTracing({ projectRoot: options.projectRoot, environment: options.environment }),
         tools,
         toolExposure: () => ({

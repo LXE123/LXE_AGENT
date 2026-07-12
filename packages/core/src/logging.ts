@@ -78,7 +78,7 @@ const SAFE_ERROR_FIELDS = new Set([
 const SENSITIVE_KEYS = new Set([
   "authorization", "proxyauthorization", "cookie", "setcookie", "token", "accesstoken",
   "refreshtoken", "sessiontoken", "apikey", "xapikey", "secret", "appsecret", "clientsecret",
-  "password", "signature",
+  "password", "signature", "redactedthinking",
 ]);
 
 let processSink: ProcessLoggingSink | undefined;

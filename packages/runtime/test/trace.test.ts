@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configureRuntimeTracing, sanitizeTraceValue } from "../src/trace";
@@ -44,5 +44,28 @@ describe("runtime traces", () => {
     const value: Record<string, unknown> = { text: "ok" };
     value.self = value;
     expect(sanitizeTraceValue(value)).toEqual({ text: "ok", self: "[recursive]" });
+  });
+
+  test("contains trace initialization and write failures", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-trace-failure-"));
+    roots.push(root);
+    const blocked = join(root, "logs", "agent_traces");
+    mkdirSync(join(root, "logs"), { recursive: true });
+    writeFileSync(blocked, "not a directory", "utf8");
+    const controller = configureRuntimeTracing({
+      projectRoot: root,
+      environment: {
+        LOCAL_LOGS_ENABLED: "1",
+        AGENT_STREAM_TRACE_ENABLED: "1",
+        AGENT_SSE_WIRE_TRACE_ENABLED: "0",
+      },
+    });
+    expect(() => controller.startTurn("session", "turn").record("event", { ok: true })).not.toThrow();
+
+    rmSync(blocked, { force: true });
+    const writable = controller.startTurn("session", "turn-2");
+    rmSync(blocked, { recursive: true, force: true });
+    expect(() => writable.record("event", { ok: true })).not.toThrow();
+    expect(() => writable.record("event-again", { ok: true })).not.toThrow();
   });
 });

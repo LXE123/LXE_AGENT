@@ -13,4 +13,5 @@ export * from "./storage";
 export * from "./tools";
 export * from "./tool-search";
 export * from "./trace";
+export * from "./turn-observer";
 export * from "./types";
