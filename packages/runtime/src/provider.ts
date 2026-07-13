@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import type { JsonObject } from "@lxe/protocol";
-import { envFlag, envInteger, envText, type Environment } from "@lxe/core";
+import { createLogger, envFlag, envInteger, envText, type Environment } from "@lxe/core";
 import type {
   RuntimeContentBlock,
   RuntimeMessage,
@@ -15,6 +15,12 @@ import type {
 } from "./types";
 import { classifyProviderError, RuntimeProviderError } from "./provider-errors";
 export { RuntimeProviderError } from "./provider-errors";
+
+const logger = createLogger("runtime.provider");
+const warnedThinkingNormalizations = new Set<string>();
+const KIMI_CODING_USER_AGENT = "claude-code/0.1.0";
+const DEEPSEEK_IMAGE_PLACEHOLDER = "[image omitted: DeepSeek Anthropic API does not support image content]";
+const DEEPSEEK_REDACTED_THINKING_PLACEHOLDER = "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]";
 
 const SUMMARY_SYSTEM_PROMPT = [
   "You are a context summarization assistant.",
@@ -132,19 +138,23 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
   const apiKey = envNames.map((envName) => envText(env, String(envName))).find(Boolean) ?? "";
   if (!apiKey && profile?.required !== false) throw new Error(`missing API key for provider: ${name}`);
   const configuredMax = envInteger(env, "AGENT_LLM_MAX_TOKENS", 0, { min: 0 });
+  const defaultHeaders = stringRecord(spec.default_headers);
+  if (name === "kimi_coding" && !Object.keys(defaultHeaders).some((key) => key.toLowerCase() === "user-agent")) {
+    defaultHeaders["User-Agent"] = KIMI_CODING_USER_AGENT;
+  }
   return {
     name,
     model,
     baseURL: String(spec.base_url ?? "").trim(),
     apiKey,
     maxTokens: configuredMax || Math.max(1, Number((modelSpec as Record<string, unknown>).max_tokens ?? 4096)),
-    defaultHeaders: stringRecord(spec.default_headers),
+    defaultHeaders,
     thinkingStyle: String((modelSpec as Record<string, unknown>).thinking_request_style ?? "none").trim(),
     thinkingEnabled: envFlag(env, "AGENT_LLM_THINKING_ENABLED", true),
     thinkingEffort: envText(env, "AGENT_LLM_THINKING_EFFORT", "low").toLowerCase(),
     thinkingDisplay: envText(env, "AGENT_LLM_THINKING_DISPLAY", "omitted").toLowerCase(),
     contextWindowTokens: Math.max(0, Math.trunc(Number((modelSpec as Record<string, unknown>).context_window_tokens ?? 0))),
-    requestIdleTimeoutMs: envInteger(env, "LLM_REQUEST_TIMEOUT_S", 30, { min: 10, max: 3_600 }) * 1_000,
+    requestIdleTimeoutMs: envInteger(env, "LLM_REQUEST_TIMEOUT_S", 120, { min: 1, max: 3_600 }) * 1_000,
   };
 }
 
@@ -156,20 +166,39 @@ const errorObject = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
 const deepseekText = (value: unknown): string => {
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return value.trim();
   if (!Array.isArray(value)) return String(value ?? "");
   return value.map((raw) => {
     const block = errorObject(raw);
     if (block.type === "text") return String(block.text ?? "");
-    if (block.type === "image") return "[image omitted: DeepSeek Anthropic API does not support image content]";
+    if (block.type === "image") return DEEPSEEK_IMAGE_PLACEHOLDER;
     return "";
-  }).filter(Boolean).join("\n");
+  }).filter(Boolean).join("\n").trim();
+};
+
+const providerImageBlock = (block: Record<string, unknown>): JsonObject => {
+  const source = errorObject(block.source);
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: String(source.media_type ?? source.mimeType ?? block.mimeType ?? ""),
+      data: String(source.data ?? block.data ?? ""),
+    },
+  };
 };
 
 const providerToolResultContent = (value: unknown, deepseek: boolean): string | JsonObject[] => {
   if (deepseek) return deepseekText(value);
-  if (!Array.isArray(value)) return String(value ?? "");
-  return value.map((item) => structuredClone(errorObject(item)) as JsonObject);
+  if (!Array.isArray(value)) return String(value ?? "").trim();
+  const blocks = value.map((raw): JsonObject | undefined => {
+    const block = errorObject(raw);
+    if (block.type === "text") return { type: "text", text: String(block.text ?? "") };
+    if (block.type === "image") return providerImageBlock(block);
+    return undefined;
+  }).filter((block): block is JsonObject => Boolean(block));
+  if (blocks.length === 1 && blocks[0]?.type === "text") return String(blocks[0].text ?? "").trim();
+  return blocks;
 };
 
 export interface ProviderMessage {
@@ -179,13 +208,28 @@ export interface ProviderMessage {
 
 const providerUserContent = (content: RuntimeMessage["content"], deepseek: boolean): string | JsonObject[] => {
   if (!Array.isArray(content)) return String(content ?? "");
-  return content.map((raw) => {
+  const textParts: string[] = [];
+  const blocks: JsonObject[] = [];
+  let hasImage = false;
+  for (const raw of content) {
     const block = errorObject(raw);
-    if (deepseek && block.type === "image") {
-      return { type: "text", text: "[image omitted: DeepSeek Anthropic API does not support image content]" };
+    if (block.type === "text") {
+      const text = String(block.text ?? "");
+      textParts.push(text);
+      blocks.push({ type: "text", text });
+      continue;
     }
-    return structuredClone(block) as JsonObject;
-  });
+    if (block.type !== "image") continue;
+    hasImage = true;
+    if (deepseek) {
+      textParts.push(DEEPSEEK_IMAGE_PLACEHOLDER);
+      blocks.push({ type: "text", text: DEEPSEEK_IMAGE_PLACEHOLDER });
+    } else {
+      blocks.push(providerImageBlock(block));
+    }
+  }
+  if (hasImage) return blocks;
+  return textParts.join("\n").trim();
 };
 
 export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor: ProviderDescriptor): ProviderMessage[] {
@@ -218,13 +262,17 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
           return {
             type: "thinking",
             thinking: String(block.thinking ?? ""),
-            signature: deepseek ? "" : String(block.signature ?? ""),
+            ...(deepseek ? {} : { signature: String(block.signature ?? "") }),
           };
         }
         if (block.type === "redacted_thinking" && deepseek) {
-          return { type: "text", text: "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]" };
+          return { type: "text", text: DEEPSEEK_REDACTED_THINKING_PLACEHOLDER };
         }
-        return structuredClone(block) as JsonObject;
+        if (block.type === "redacted_thinking") {
+          return { type: "redacted_thinking", data: String(block.data ?? "") };
+        }
+        if (block.type === "text") return { type: "text", text: String(block.text ?? "") };
+        return undefined;
       }).filter((block): block is JsonObject => Boolean(block));
       adapted.push({ role: "assistant", content });
       continue;
@@ -245,7 +293,7 @@ export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor:
   return adapted;
 }
 
-const systemPayload = (system: string): string | JsonObject[] => {
+export const buildSystemPayload = (system: string): string | JsonObject[] => {
   const marker = "\n\n<<system-prompt-cache-breakpoint>>\n\n";
   if (!system.includes(marker)) return system.trim();
   const [stable, ...rest] = system.split(marker);
@@ -256,17 +304,41 @@ const systemPayload = (system: string): string | JsonObject[] => {
   ];
 };
 
-const thinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
+const warnThinkingNormalization = (descriptor: ProviderDescriptor, normalized: string): void => {
+  const key = `${descriptor.name}:${descriptor.thinkingEffort}:${normalized}`;
+  if (warnedThinkingNormalizations.has(key)) return;
+  warnedThinkingNormalizations.add(key);
+  logger.warn("provider_thinking_effort_normalized", {
+    provider: descriptor.name,
+    configured_effort: descriptor.thinkingEffort,
+    normalized_effort: normalized,
+  });
+};
+
+const safeBudgetTokens = (budget: number, maxTokens: number): number | undefined => {
+  if (maxTokens <= 1_024) return undefined;
+  if (budget < maxTokens) return budget;
+  return Math.max(1_024, maxTokens - 1_024);
+};
+
+export const buildThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
   const style = descriptor.thinkingStyle;
   if (descriptor.name === "kimi_coding" && style === "anthropic-budget") {
-    if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off" || descriptor.maxTokens <= 1_024) {
+    const budgetTokens = safeBudgetTokens(4_000, descriptor.maxTokens);
+    if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off" || budgetTokens === undefined) {
       return { thinking: { type: "disabled" } };
     }
-    return { thinking: { type: "enabled", budget_tokens: Math.min(4_000, descriptor.maxTokens - 1_024) } };
+    if (descriptor.thinkingEffort !== "low") warnThinkingNormalization(descriptor, "low");
+    return { thinking: { type: "enabled", budget_tokens: budgetTokens } };
   }
   if (style === "anthropic-effort") {
     if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off") return { thinking: { type: "disabled" } };
-    const effort = ["xhigh", "max"].includes(descriptor.thinkingEffort) ? "max" : "high";
+    const effort = ["xhigh", "max"].includes(descriptor.thinkingEffort)
+      ? "max"
+      : "high";
+    if (!["low", "medium", "high", "xhigh", "max"].includes(descriptor.thinkingEffort)) {
+      warnThinkingNormalization(descriptor, effort);
+    }
     return { thinking: { type: "enabled" }, output_config: { effort } };
   }
   if (!descriptor.thinkingEnabled) return {};
@@ -278,10 +350,31 @@ const thinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown
   if (style === "anthropic-budget" && descriptor.maxTokens > 1_024) {
     const budgets: Record<string, number> = { low: 4_000, medium: 8_000, high: 16_000, xhigh: 32_000 };
     const budget = budgets[descriptor.thinkingEffort] ?? budgets.medium!;
-    return { thinking: { type: "enabled", budget_tokens: Math.min(budget, descriptor.maxTokens - 1_024) } };
+    const budgetTokens = safeBudgetTokens(budget, descriptor.maxTokens);
+    return budgetTokens === undefined ? {} : { thinking: { type: "enabled", budget_tokens: budgetTokens } };
   }
   return {};
 };
+
+export function buildProviderRequest(
+  descriptor: ProviderDescriptor,
+  request: Pick<RuntimeProviderRequest, "system" | "messages" | "tools" | "toolChoice">,
+): Record<string, unknown> {
+  return {
+    model: descriptor.model,
+    max_tokens: descriptor.maxTokens,
+    system: buildSystemPayload(request.system),
+    messages: adaptMessagesForProvider(request.messages, descriptor),
+    ...(request.tools.length > 0 ? { tools: request.tools } : {}),
+    ...(request.toolChoice === "none"
+      ? { tool_choice: { type: "none" } }
+      : request.tools.length > 0
+        ? { tool_choice: { type: "auto" } }
+        : {}),
+    stream: true,
+    ...buildThinkingPayload(descriptor),
+  };
+}
 
 const runtimeBlock = (block: Record<string, unknown>): RuntimeContentBlock | undefined => {
   if (block.type === "text") return { type: "text", text: String(block.text ?? "") };
@@ -328,7 +421,7 @@ export class ProviderIdleWatchdog {
   };
 
   constructor(private readonly parent: AbortSignal, timeoutMs: number) {
-    this.timeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, timeoutMs) : 30_000;
+    this.timeoutMs = Number.isFinite(timeoutMs) ? Math.max(1, timeoutMs) : 120_000;
     if (parent.aborted) this.abortFromParent();
     else {
       parent.addEventListener("abort", this.abortFromParent, { once: true });
@@ -425,17 +518,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       try { operation(); } catch { /* Diagnostics must not affect Provider execution. */ }
     };
     try {
-      const parameters = {
-        model: this.descriptor.model,
-        max_tokens: this.descriptor.maxTokens,
-        system: systemPayload(request.system),
-        messages: adaptMessagesForProvider(request.messages, this.descriptor),
-        ...(request.toolChoice === "auto" && request.tools.length > 0
-          ? { tools: request.tools, tool_choice: { type: "auto" } }
-          : {}),
-        stream: true,
-        ...thinkingPayload(this.descriptor),
-      };
+      const parameters = buildProviderRequest(this.descriptor, request);
       wire(() => request.wireTrace?.requestStart({
         ...this.descriptor.defaultHeaders,
         "content-type": "application/json",

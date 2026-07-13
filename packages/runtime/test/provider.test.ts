@@ -4,6 +4,9 @@ import {
   adaptMessagesForProvider,
   AnthropicRuntimeProvider,
   AtomicRuntimeProviderManager,
+  buildProviderRequest,
+  buildSystemPayload,
+  buildThinkingPayload,
   loadProviderDescriptor,
   normalizeProviderError,
   ProviderIdleWatchdog,
@@ -23,8 +26,70 @@ describe("Anthropic-compatible provider", () => {
       baseURL: "https://api.kimi.com/coding/",
       apiKey: "secret-key",
       maxTokens: 32768,
-      requestIdleTimeoutMs: 30_000,
+      defaultHeaders: expect.objectContaining({ "User-Agent": "claude-code/0.1.0" }),
+      requestIdleTimeoutMs: 120_000,
     }));
+  });
+
+  test("restores main-compatible Kimi and DeepSeek request controls", () => {
+    const projectRoot = resolve(import.meta.dir, "../../..");
+    const kimi = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "kimi-for-coding",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
+    expect(buildThinkingPayload({ ...kimi, thinkingEnabled: false })).toEqual({ thinking: { type: "disabled" } });
+    expect(buildThinkingPayload({ ...kimi, thinkingEffort: "off" })).toEqual({ thinking: { type: "disabled" } });
+    expect(buildThinkingPayload({ ...kimi, maxTokens: 1_024 })).toEqual({ thinking: { type: "disabled" } });
+    expect(buildThinkingPayload({ ...kimi, maxTokens: 4_096 })).toEqual({
+      thinking: { type: "enabled", budget_tokens: 4_000 },
+    });
+    expect(buildThinkingPayload({ ...kimi, maxTokens: 3_000 })).toEqual({
+      thinking: { type: "enabled", budget_tokens: 1_976 },
+    });
+    expect(buildThinkingPayload({ ...kimi, thinkingEffort: "wild" })).toEqual({
+      thinking: { type: "enabled", budget_tokens: 4_000 },
+    });
+
+    const deepseek = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "deepseek",
+      AGENT_LLM_MODEL: "deepseek-v4-pro",
+      DEEPSEEK_API: "secret-key",
+    });
+    for (const [configured, expected] of [
+      ["low", "high"], ["medium", "high"], ["high", "high"],
+      ["xhigh", "max"], ["max", "max"], ["wild", "high"],
+    ] as const) {
+      expect(buildThinkingPayload({ ...deepseek, thinkingEffort: configured })).toEqual({
+        thinking: { type: "enabled" },
+        output_config: { effort: expected },
+      });
+    }
+    expect(buildThinkingPayload({ ...deepseek, thinkingEffort: "off" })).toEqual({ thinking: { type: "disabled" } });
+
+    expect(buildProviderRequest(deepseek, {
+      system: " stable \n\n<<system-prompt-cache-breakpoint>>\n\n volatile ",
+      messages: [{ role: "user", content: "hello" }],
+      tools: [],
+      toolChoice: "none",
+    })).toEqual(expect.objectContaining({
+      system: [
+        { type: "text", text: "stable", cache_control: { type: "ephemeral" } },
+        { type: "text", text: "volatile" },
+      ],
+      messages: [{ role: "user", content: "hello" }],
+      tool_choice: { type: "none" },
+      thinking: { type: "enabled" },
+      output_config: { effort: "high" },
+      stream: true,
+    }));
+    expect(buildProviderRequest(deepseek, {
+      system: "system",
+      messages: [],
+      tools: [],
+      toolChoice: "none",
+    })).not.toHaveProperty("tools");
+    expect(buildSystemPayload(" system ")).toBe("system");
   });
 
   test("uses SDK streaming and maps text and tool blocks into runtime types", async () => {
@@ -168,15 +233,57 @@ describe("Anthropic-compatible provider", () => {
       content: [
         { type: "thinking", thinking: "private", signature: "provider-signature" },
         { type: "redacted_thinking", data: "encrypted" },
+        { type: "text", text: "answer" },
+        { type: "unknown-provider-block", secret: "must-not-cross" },
       ],
     }, {
       role: "user",
-      content: [{ type: "image", source: { type: "base64", data: "base64-secret" } }],
+      content: [
+        { type: "text", text: "see attached" },
+        { type: "image", source: { type: "base64", media_type: "image/png", data: "base64-secret" } },
+        { type: "document", data: "unsupported-document" },
+      ],
+    }, {
+      role: "tool",
+      content: [{
+        type: "tool_result",
+        tool_call_id: "tool-1",
+        content: [
+          { type: "text", text: "ok" },
+          { type: "image", source: { type: "base64", media_type: "image/png", data: "tool-image" } },
+          { type: "document", data: "tool-document" },
+        ],
+      }],
     }], descriptor);
-    expect(JSON.stringify(adapted)).not.toContain("provider-signature");
-    expect(JSON.stringify(adapted)).not.toContain("encrypted");
-    expect(JSON.stringify(adapted)).not.toContain("base64-secret");
-    expect(JSON.stringify(adapted)).toContain("DeepSeek Anthropic API does not support");
+    expect(adapted).toEqual([
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "private" },
+          { type: "text", text: "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]" },
+          { type: "text", text: "answer" },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "see attached" },
+          { type: "text", text: "[image omitted: DeepSeek Anthropic API does not support image content]" },
+        ],
+      },
+      {
+        role: "user",
+        content: [{
+          type: "tool_result",
+          tool_use_id: "tool-1",
+          content: "ok\n[image omitted: DeepSeek Anthropic API does not support image content]",
+        }],
+      },
+    ]);
+    expect(JSON.stringify(adapted)).not.toContain("signature");
+    expect(JSON.stringify(adapted)).not.toContain("must-not-cross");
+    expect(JSON.stringify(adapted)).not.toContain("unsupported-document");
+    expect(JSON.stringify(adapted)).not.toContain("tool-document");
     expect(normalizeProviderError({ status: 401, message: "Invalid Authentication" }, descriptor))
       .toEqual(expect.objectContaining({ retryable: false, category: "认证失败" }));
     expect(normalizeProviderError({ status: 503, message: "Server overloaded" }, descriptor))
