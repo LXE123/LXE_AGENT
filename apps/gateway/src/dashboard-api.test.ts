@@ -38,6 +38,15 @@ describe("DashboardApi", () => {
     await store.start();
     await store.ensureSession({ session_id: "session-one", source: { platform: "feishu", chat_type: "p2p" } });
     await store.appendMessage("session-one", { role: "user", content: "hello" });
+    await store.appendMessage("session-one", {
+      role: "assistant",
+      content: [{ type: "tool_call", id: "call-1", name: "demo_tool", arguments: {} }],
+    });
+    await store.appendMessage("session-one", {
+      role: "tool",
+      content: [{ type: "tool_result", tool_call_id: "call-1", content: "ok" }],
+    });
+    await store.appendMessage("session-one", { role: "assistant", content: "done" });
     await store.recordTurn("session-one", {
       turn_id: "turn-one", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 15,
       input_tokens: 3, output_tokens: 2, tool_calls: 1, api_calls: 1, tools: [],
@@ -103,8 +112,10 @@ describe("DashboardApi", () => {
     };
 
     expect((await call("/api/sessions?q=session-one")).body).toMatchObject({ total: 1, summary: { total_sessions: 1 } });
-    expect((await call("/api/sessions/session-one?message_limit=10")).body).toMatchObject({
-      session: { session_id: "session-one" }, messages: [{ role: "user", content: "hello" }],
+    expect((await call("/api/sessions/session-one?message_limit=1&message_page=2")).body).toMatchObject({
+      session: { session_id: "session-one" },
+      messages: [{ role: "assistant" }, { role: "tool" }, { role: "assistant" }],
+      messages_page: { total: 2, raw_message_total: 4, current_page: 2 },
     });
     expect((await call("/api/project-docs")).body).toMatchObject({ items: [{ path: "guide.md", title: "Guide" }], total: 1 });
     expect((await call("/api/project-docs/guide.md")).body).toMatchObject({ path: "guide.md", content: "# Guide\n\nstatus: ready\n" });

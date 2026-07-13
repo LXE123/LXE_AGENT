@@ -23,6 +23,7 @@ SQLite stores indexed mutable state that needs transactional reads and updates. 
 This split supports two access paths:
 
 - full session loading replays the transcript and reconstructs model-visible state;
+- Dashboard display reads immutable transcript events, inserts lifecycle markers, and pages contiguous assistant/tool chains without applying model-context replacements;
 - lightweight session-record loading reads metadata without transcript replay for hot paths such as routing, wake checks, emitter checks, and persistence guards.
 
 Code must choose the light path only when message content is not required.
