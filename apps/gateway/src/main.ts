@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { configureLogging, createLogger } from "@lxe/core";
 import { runGatewayCli, type GatewayApplicationPort } from "./cli";
 import { loadProjectEnv } from "./env";
+import { startEventLoopLagMonitor } from "./event-loop-lag";
 import { GatewayStatusFiles } from "./planned-stop";
 import { createProductionGateway } from "./production";
 
@@ -110,6 +111,7 @@ export async function main(arguments_: readonly string[] = Bun.argv.slice(2)): P
   };
   process.on("unhandledRejection", onUnhandledRejection);
   process.on("uncaughtExceptionMonitor", onUncaughtException);
+  const lagMonitor = startEventLoopLagMonitor({ logger: createLogger("gateway.event_loop") });
   try {
     return await runGatewayCli(arguments_, {
       createApp: () => createProductionGateway({ projectRoot, environment }),
@@ -121,6 +123,7 @@ export async function main(arguments_: readonly string[] = Bun.argv.slice(2)): P
     logger.error("fatal", { error });
     throw error;
   } finally {
+    lagMonitor.stop();
     process.off("unhandledRejection", onUnhandledRejection);
     process.off("uncaughtExceptionMonitor", onUncaughtException);
     await logging.flush();

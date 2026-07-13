@@ -62,6 +62,8 @@ Use module-scoped logger names and stable event messages. Put high-cardinality I
 - `ERROR`: required operation failed or process health is compromised.
 - `DEBUG`: request IDs, routes, tool arguments summaries, timing internals, provider and adapter diagnostics.
 
+`gateway.event_loop` samples timer lateness every 500ms and emits an `event_loop_lag` warning when a sample fires 500ms late or more. Sustained records mean synchronous work is starving the event loop — WebSocket pings, card streaming, and heartbeats stall together — so treat them as a performance signal, not noise.
+
 Successful health polling and repetitive stream updates should not dominate INFO output. Raw inbound content, credentials, cookies, headers, and complete tool payloads do not belong at any unsanitized level. Explicitly enabled wire traces are the only surface allowed to retain sanitized Provider request and stream content.
 
 ## Dashboard Lifecycle Events
