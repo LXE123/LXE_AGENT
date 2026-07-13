@@ -2,13 +2,25 @@ from __future__ import annotations
 
 import socket
 import json
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from sqlite3 import Row
 from typing import Any
 
 from shared.db.shared_state_dto import ZiniaoStoreSessionState
 
+from .bootstrap import ensure_ziniao_schema
 from .engine import connection_scope
+
+
+@contextmanager
+def _sessions_connection():
+    # ziniao_store_sessions is the only Python-owned table: the Bun gateway
+    # bootstraps every table it owns, but standalone lxeskill processes reach
+    # this one directly, so each access ensures the schema idempotently.
+    with connection_scope() as conn:
+        ensure_ziniao_schema(conn)
+        yield conn
 
 
 def _utc_now() -> datetime:
@@ -105,7 +117,7 @@ def _to_state(row: Row | None, *, host_id: str) -> ZiniaoStoreSessionState | Non
 def load_store_session(browser_oauth: str, *, host_id: str | None = None) -> ZiniaoStoreSessionState | None:
     safe_host_id = browser_host_id(host_id)
     safe_browser_oauth = _safe_browser_oauth(browser_oauth)
-    with connection_scope() as conn:
+    with _sessions_connection() as conn:
         row = conn.execute(
             """
             SELECT * FROM ziniao_store_sessions
@@ -118,7 +130,7 @@ def load_store_session(browser_oauth: str, *, host_id: str | None = None) -> Zin
 
 def list_store_sessions(*, host_id: str | None = None) -> list[ZiniaoStoreSessionState]:
     safe_host_id = browser_host_id(host_id)
-    with connection_scope() as conn:
+    with _sessions_connection() as conn:
         rows = conn.execute(
             """
             SELECT * FROM ziniao_store_sessions
@@ -153,7 +165,7 @@ def upsert_store_session(
     safe_core_version = str(core_version or "").strip()
     now = _datetime_to_storage(_utc_now())
 
-    with connection_scope() as conn:
+    with _sessions_connection() as conn:
         conn.execute(
             """
             INSERT INTO ziniao_store_sessions (
@@ -210,7 +222,7 @@ def upsert_store_session(
 def delete_store_session(browser_oauth: str, *, host_id: str | None = None) -> bool:
     safe_host_id = browser_host_id(host_id)
     safe_browser_oauth = _safe_browser_oauth(browser_oauth)
-    with connection_scope() as conn:
+    with _sessions_connection() as conn:
         result = conn.execute(
             """
             DELETE FROM ziniao_store_sessions
@@ -223,7 +235,7 @@ def delete_store_session(browser_oauth: str, *, host_id: str | None = None) -> b
 
 def clear_store_sessions(*, host_id: str | None = None) -> int:
     safe_host_id = browser_host_id(host_id)
-    with connection_scope() as conn:
+    with _sessions_connection() as conn:
         result = conn.execute(
             "DELETE FROM ziniao_store_sessions WHERE host_id = ?",
             (safe_host_id,),

@@ -60,6 +60,16 @@ def _create_pending_events(conn) -> None:
     )
 
 
+def ensure_ziniao_schema(conn) -> None:
+    """Create the Python-owned ziniao session table on demand.
+
+    The Bun gateway bootstraps every table it owns; this is the only table
+    owned by the Python side, so standalone CLI entrypoints must be able to
+    create it without running the legacy full init_schema().
+    """
+    _create_ziniao_sessions(conn)
+
+
 def _create_ziniao_sessions(conn) -> None:
     conn.execute(
         """
