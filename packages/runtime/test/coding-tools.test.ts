@@ -59,7 +59,7 @@ describe("native coding tools", () => {
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {
       workspaceRoot: root,
-      businessCommands: new Map([["lxeskill replenish store resolve", "replenishment-store-resolve"]]),
+      businessCommands: new Map([["lxeskill replenish store resolve", ["replenishment-store-resolve"]]]),
     });
     expect(registry.schemas().map((item) => item.name)).toEqual([
       "read", "write", "edit", "grep", "find", "ls", "send_file", "exec", "process",
@@ -124,12 +124,27 @@ describe("native coding tools", () => {
     expect(failed).toContain("status: failed");
     expect(failed).toContain("expected failure");
 
-    const skillList = String((await registry.execute("exec", {
+    // Commands outside the attribution map still run: the CLI owns
+    // authorization and list is always known to it.
+    const lxeskillList = String((await registry.execute("exec", {
       command: "lxeskill list",
     }, context())).content[0]?.text);
-    expect(skillList).toContain("status: completed");
-    expect(skillList).toContain("type: result");
-    expect(skillList).toContain("command: list");
+    expect(lxeskillList).toContain("status: completed");
+    await processes.stop();
+  });
+
+  test("exec forwards host env so lxeskill enforces the injected skill scope", async () => {
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {
+      workspaceRoot: projectRoot,
+      execEnv: () => ({ LXESKILL_SKILL_SCOPE: "replenishment-store-resolve" }),
+    });
+    const listed = String((await registry.execute("exec", {
+      command: "lxeskill list",
+    }, context())).content[0]?.text);
+    expect(listed).toContain("replenish store resolve");
+    expect(listed).not.toContain("fba customs fill");
+    expect(listed).toContain("auth refresh");
     await processes.stop();
   });
 
@@ -265,7 +280,7 @@ describe("native coding tools", () => {
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {
       workspaceRoot: root,
-      businessCommands: new Map([["lxeskill replenish store resolve", "replenishment-store-resolve"]]),
+      businessCommands: new Map([["lxeskill replenish store resolve", ["replenishment-store-resolve"]]]),
     });
     await registry.execute("write", { file_path: "src/a.py", content: "alpha\nbeta\nbeta\n" }, context());
     const count = await registry.execute("grep", {
@@ -277,7 +292,22 @@ describe("native coding tools", () => {
     expect((await registry.execute("send_file", { path: "artifacts/a.txt" }, context())).files).toHaveLength(1);
     await expect(registry.execute("exec", {
       command: "python -m services.agent_cli.mabang.resolve_fba_store",
-    }, context())).rejects.toThrow("through lxeskill");
+    }, context())).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(registry.execute("exec", {
+      command: "python -m py_tools.lxeskill replenish store resolve",
+    }, context())).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(registry.execute("exec", {
+      command: "echo lxeskill replenish store resolve",
+    }, context())).rejects.toMatchObject({ code: "unsupported_invocation" });
+    await expect(registry.execute("exec", {
+      command: "lxeskill replenish store resolve && echo done",
+    }, context())).rejects.toMatchObject({ code: "unsupported_invocation" });
+    // Unknown commands pass through: authorization belongs to the CLI, which
+    // rejects them with a structured error. Here the temp root has no .venv,
+    // so normalization fails before any spawn.
+    await expect(registry.execute("exec", {
+      command: "lxeskill unknown command",
+    }, context())).rejects.toThrow("project Python is unavailable");
     const classified = registry.definition("exec")?.classifyInvocation?.({
       command: "lxeskill replenish store resolve --store-name Demo --token secret",
     });

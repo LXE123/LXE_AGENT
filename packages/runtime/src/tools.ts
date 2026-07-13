@@ -27,6 +27,13 @@ export interface ToolExposureOptions {
   onSkillActivated?: (skillName: string) => Promise<void> | void;
 }
 
+export class ToolExecutionError extends Error {
+  constructor(readonly code: "permission_denied" | "unsupported_invocation", message: string) {
+    super(message);
+    this.name = "ToolExecutionError";
+  }
+}
+
 const schemaOf = ({ name, description, input_schema }: ToolDefinition): ToolSchema => ({
   name,
   description,
@@ -84,6 +91,12 @@ export class ToolExposureState {
   isExposed(name: string): boolean {
     const definition = this.registry.definition(name);
     return Boolean(definition && this.exposed.has(definition.name) && this.allowed(definition));
+  }
+
+  allowsInvocation(ownerSkills: readonly string[]): boolean {
+    const owners = [...new Set(ownerSkills.map((name) => name.trim()).filter(Boolean))];
+    if (owners.length === 0 || !this.options.allowedSkills) return true;
+    return owners.some((name) => this.options.allowedSkills?.has(name));
   }
 
   private allowed(definition: NormalizedToolDefinition): boolean {
@@ -155,6 +168,16 @@ export class ToolRegistry {
     if (!definition) throw new Error(`unknown tool: ${name}`);
     if (context.exposureState && !context.exposureState.isExposed(name)) {
       throw new Error(`tool is not exposed for this turn: ${name}`);
+    }
+    const invocation = definition.classifyInvocation?.(input);
+    const invocationOwners = invocation?.ownerSkills ?? [];
+    if (context.exposureState && invocation && (
+      invocationOwners.length === 0 || !context.exposureState.allowsInvocation(invocationOwners)
+    )) {
+      throw new ToolExecutionError(
+        "permission_denied",
+        `command owner skill is not allowed for this bot: ${invocationOwners.join(", ") || "missing owner"}`,
+      );
     }
     if (context.handle.signal.aborted) throw new DOMException("Turn cancelled", "AbortError");
     return definition.execute(input, context);

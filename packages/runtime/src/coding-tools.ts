@@ -29,7 +29,7 @@ import {
 } from "./exec-shell";
 import { isProbablyBinary, WorkspaceSearchService } from "./workspace-search";
 import { classifyLxeSkillInput } from "./lxeskill-command";
-import { ToolRegistry } from "./tools";
+import { ToolExecutionError, ToolRegistry } from "./tools";
 
 export interface CodingToolOptions {
   workspaceRoot: string;
@@ -37,8 +37,9 @@ export interface CodingToolOptions {
   sendFile?: (request: { path: string; session_id: string; response_route_id: string }) => Promise<void>;
   onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
   ripgrepPath?: string | null;
-  businessCommands?: ReadonlyMap<string, string>;
+  businessCommands?: ReadonlyMap<string, readonly string[]>;
   execShell?: ExecShellAdapter;
+  execEnv?: () => Record<string, string>;
 }
 
 type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
@@ -213,6 +214,7 @@ export class CodingProcessManager {
     timeoutMs?: number;
     handle: RuntimeHandle;
     turnId?: string;
+    env?: Record<string, string>;
   }): Promise<JsonObject> {
     this.sweep();
     const id = `exec_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
@@ -226,12 +228,15 @@ export class CodingProcessManager {
         stderr: "pipe",
         detached: spawn.detached,
         windowsHide: true,
-        env: this.options.shell.childEnvironment(this.options.workspaceRoot, {
-          sessionId: request.sessionId,
-          responseRouteId: request.responseRouteId,
-          turnId: request.turnId ?? "",
-          execSessionId: id,
-        }),
+        env: {
+          ...this.options.shell.childEnvironment(this.options.workspaceRoot, {
+            sessionId: request.sessionId,
+            responseRouteId: request.responseRouteId,
+            turnId: request.turnId ?? "",
+            execSessionId: id,
+          }),
+          ...request.env,
+        },
       });
     } catch (error) {
       runWithLogContext({
@@ -756,12 +761,27 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       return {
         usageName: `lxeskill:${invocation.commandId}`,
         commandId: invocation.commandId,
-        ...(invocation.ownerSkill ? { ownerSkills: [invocation.ownerSkill] } : {}),
+        ...(invocation.ownerSkills?.length ? { ownerSkills: invocation.ownerSkills } : {}),
       };
     },
     execute: async (input, context) => {
       const rawCommand = inputText(input, "command");
       if (!rawCommand.trim()) throw new Error("command 不能为空");
+      if (/\b(?:services\.agent_cli|browser_auth_service\.main|py_tools\.lxeskill)\b/iu.test(rawCommand)) {
+        throw new ToolExecutionError("permission_denied", "registered business Python modules must be called through lxeskill");
+      }
+      // The standalone/composition rules keep lxeskill invocations parseable for
+      // usage attribution and card display; command authorization itself belongs
+      // to the CLI, which rejects unknown or out-of-scope commands with a
+      // structured error.
+      const hasLxeSkillToken = /\blxeskill(?:\.cmd)?\b/iu.test(rawCommand);
+      const directLxeSkill = /^lxeskill(?:\.cmd)?(?:\s|$)/iu.test(rawCommand.trim());
+      if (hasLxeSkillToken && !directLxeSkill) {
+        throw new ToolExecutionError("unsupported_invocation", "lxeskill must be invoked as a standalone command");
+      }
+      if (directLxeSkill && /[\r\n]|&&|\|\||[;|`]|\$\(/u.test(rawCommand)) {
+        throw new ToolExecutionError("unsupported_invocation", "lxeskill must be invoked as a standalone command without shell composition");
+      }
       const background = input.background === true;
       const timeoutSeconds = Number(input.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS);
       if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_EXEC_TIMEOUT_SECONDS) {
@@ -780,6 +800,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
         ...(!background ? { timeoutMs: timeoutSeconds * 1_000 } : {}),
         handle: context.handle,
         ...(context.turn_id === undefined ? {} : { turnId: context.turn_id }),
+        ...(options.execEnv ? { env: options.execEnv() } : {}),
       });
       return commandResult(payload);
     },

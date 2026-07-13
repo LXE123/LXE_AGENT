@@ -116,16 +116,21 @@ export function createProductionGateway(
   const cliCommands = existsSync(commandCatalogPath)
     ? loadLxeSkillCommandCatalog(commandCatalogPath)
     : [];
-  const businessCommands = new Map<string, string>();
-  for (const skill of skillCatalog.list()) {
-    if (skill.source !== "repository") continue;
-    for (const command of skill.commands) {
-      if (command.startsWith("lxeskill ")) businessCommands.set(command, skill.name);
-    }
-  }
+  const businessCommands = new Map(
+    cliCommands
+      .filter((entry) => ["business", "browser"].includes(entry.visibility) || (
+        entry.visibility === "maintenance" && entry.ownerSkills.length > 0
+      ))
+      .map((entry) => [entry.command, entry.ownerSkills] as const),
+  );
+  // Mirrors prompt-level skill visibility into lxeskill: the CLI reads
+  // LXESKILL_SKILL_SCOPE and hides or rejects business commands whose owner
+  // skill this bot cannot see. Assigned after the permission policy resolves.
+  let lxeskillScope: () => string = () => "";
   const processes = registerCodingTools(tools, {
     workspaceRoot: options.projectRoot,
     businessCommands,
+    execEnv: () => ({ LXESKILL_SKILL_SCOPE: lxeskillScope() }),
     onProcessComplete: async (snapshot) => {
       const sessionId = String(snapshot.session_id ?? "").trim();
       if (!sessionId) return;
@@ -269,6 +274,7 @@ export function createProductionGateway(
       : { allowedTypes: new Set<string>() }),
     disabledNames: dashboardApi?.disabledSkillNames() ?? new Set<string>(),
   });
+  lxeskillScope = () => skillCatalog.list(skillOptions()).map((skill) => skill.name).join(",");
   const directRuntime =
     options.directRuntime ??
     (() => {
