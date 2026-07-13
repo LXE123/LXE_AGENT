@@ -7,7 +7,7 @@ import type {
   RuntimeUsage,
   ToolResultBlock,
   ToolSchema,
-  ToolUseBlock,
+  ToolCallBlock,
 } from "./types";
 
 export const IMAGE_TOKEN_ESTIMATE = 1_600;
@@ -99,11 +99,11 @@ const text = (value: unknown): string => String(value ?? "");
 const blocks = (message: RuntimeMessage): Array<Record<string, unknown>> =>
   Array.isArray(message.content) ? message.content.map(object) : [];
 
-const isToolUse = (value: Record<string, unknown>): value is ToolUseBlock =>
-  value.type === "tool_use" && typeof value.id === "string";
+const isToolCall = (value: Record<string, unknown>): value is ToolCallBlock =>
+  value.type === "tool_call" && typeof value.id === "string";
 
 const isToolResult = (value: Record<string, unknown>): value is ToolResultBlock =>
-  value.type === "tool_result" && typeof value.tool_use_id === "string";
+  value.type === "tool_result" && typeof value.tool_call_id === "string";
 
 const isImageBlock = (value: unknown): boolean => object(value).type === "image";
 
@@ -168,21 +168,21 @@ const cleanBlock = (raw: unknown, role: RuntimeMessage["role"]): JsonObject | un
   if (type === "redacted_thinking" && role === "assistant") {
     return { type, data: text(block.data) };
   }
-  if (type === "tool_use" && role === "assistant") {
+  if (type === "tool_call" && role === "assistant") {
     const id = text(block.id).trim();
     const name = text(block.name).trim();
     if (!id || !name) return undefined;
-    return { type, id, name, input: jsonObject(block.input) };
+    return { type, id, name, arguments: jsonObject(block.arguments) };
   }
-  if (type === "tool_result" && role === "user") {
-    const toolUseId = text(block.tool_use_id ?? block.tool_call_id).trim();
-    if (!toolUseId) return undefined;
+  if (type === "tool_result" && role === "tool") {
+    const toolCallId = text(block.tool_call_id).trim();
+    if (!toolCallId) return undefined;
     const content = Array.isArray(block.content)
       ? block.content.map((item) => jsonObject(item))
       : text(block.content);
     return {
       type,
-      tool_use_id: toolUseId,
+      tool_call_id: toolCallId,
       content,
       ...(block.is_error === true ? { is_error: true } : {}),
     };
@@ -194,8 +194,16 @@ export function cleanCanonicalMessages(messages: readonly RuntimeMessage[]): Run
   const cleaned: RuntimeMessage[] = [];
   for (const raw of messages) {
     const role = raw?.role;
-    if (role !== "user" && role !== "assistant") continue;
+    if (role !== "user" && role !== "assistant" && role !== "tool" && role !== "system") continue;
+    if (role === "system") {
+      const content = Array.isArray(raw.content)
+        ? raw.content.map((block) => text(object(block).text)).filter(Boolean).join("\n")
+        : text(raw.content);
+      cleaned.push({ role, content });
+      continue;
+    }
     if (!Array.isArray(raw.content)) {
+      if (role === "tool") continue;
       cleaned.push(role === "assistant"
         ? { role, content: [{ type: "text", text: text(raw.content) }] }
         : { role, content: text(raw.content) });
@@ -211,17 +219,17 @@ export function validateToolCallClosure(messages: readonly RuntimeMessage[]): vo
   const pending = new Set<string>();
   for (const message of messages) {
     for (const block of blocks(message)) {
-      if (isToolUse(block)) {
-        if (message.role !== "assistant") throw new Error(`tool_use must be assistant content: ${block.id}`);
+      if (isToolCall(block)) {
+        if (message.role !== "assistant") throw new Error(`tool_call must be assistant content: ${block.id}`);
         pending.add(block.id);
       }
       if (isToolResult(block)) {
-        if (message.role !== "user") throw new Error(`tool_result must be user content: ${block.tool_use_id}`);
-        if (!pending.delete(block.tool_use_id)) throw new Error(`orphaned tool_result: ${block.tool_use_id}`);
+        if (message.role !== "tool") throw new Error(`tool_result must be tool content: ${block.tool_call_id}`);
+        if (!pending.delete(block.tool_call_id)) throw new Error(`orphaned tool_result: ${block.tool_call_id}`);
       }
     }
   }
-  if (pending.size > 0) throw new Error(`unclosed tool_use: ${[...pending].join(", ")}`);
+  if (pending.size > 0) throw new Error(`unclosed tool_call: ${[...pending].join(", ")}`);
 }
 
 export function sanitizeMessagesForProvider(messages: readonly RuntimeMessage[]): {
@@ -235,7 +243,11 @@ export function sanitizeMessagesForProvider(messages: readonly RuntimeMessage[])
 
   for (const message of cleaned) {
     if (message.role === "assistant") {
-      for (const block of blocks(message)) if (isToolUse(block)) pending.add(block.id);
+      for (const block of blocks(message)) if (isToolCall(block)) pending.add(block.id);
+      repaired.push(message);
+      continue;
+    }
+    if (message.role !== "tool") {
       repaired.push(message);
       continue;
     }
@@ -246,11 +258,11 @@ export function sanitizeMessagesForProvider(messages: readonly RuntimeMessage[])
     const content = message.content.filter((rawBlock) => {
       const block = object(rawBlock);
       if (!isToolResult(block)) return true;
-      if (!pending.has(block.tool_use_id)) return false;
-      pending.delete(block.tool_use_id);
+      if (!pending.has(block.tool_call_id)) return false;
+      pending.delete(block.tool_call_id);
       return true;
     });
-    if (content.length > 0) repaired.push({ role: "user", content });
+    if (content.length > 0) repaired.push({ role: "tool", content });
   }
 
   if (pending.size > 0) {
@@ -259,15 +271,15 @@ export function sanitizeMessagesForProvider(messages: readonly RuntimeMessage[])
       closed.push(message);
       if (message.role !== "assistant") continue;
       const missing = blocks(message)
-        .filter(isToolUse)
+        .filter(isToolCall)
         .filter((block) => pending.delete(block.id))
         .map((block): ToolResultBlock => ({
           type: "tool_result",
-          tool_use_id: block.id,
+          tool_call_id: block.id,
           content: MISSING_TOOL_RESULT_STUB,
           is_error: true,
         }));
-      if (missing.length > 0) closed.push({ role: "user", content: missing });
+      if (missing.length > 0) closed.push({ role: "tool", content: missing });
     }
     validateToolCallClosure(closed);
     return { messages: closed, changed: JSON.stringify(closed) !== original };
@@ -378,8 +390,7 @@ export function pruneProcessedHistoryImages(messages: readonly RuntimeMessage[])
   return { messages: next, changed };
 }
 
-const startsWithToolResult = (message: RuntimeMessage): boolean => blocks(message).some(isToolResult);
-const isConversationUser = (message: RuntimeMessage): boolean => message.role === "user" && !startsWithToolResult(message);
+const isConversationUser = (message: RuntimeMessage): boolean => message.role === "user";
 
 const turnSpans = (messages: readonly RuntimeMessage[]): Array<[number, number]> => {
   if (messages.length === 0) return [];
@@ -486,7 +497,7 @@ const renderSummaryTranscript = (messages: readonly RuntimeMessage[]): string =>
   turnSpans(messages).forEach(([start, end], turnIndex) => {
     lines.push(`### Turn ${turnIndex + 1}`);
     for (const message of messages.slice(start, end)) {
-      if (message.role === "user" && !startsWithToolResult(message)) {
+      if (message.role === "user") {
         const value = userText(message.content);
         if (value) lines.push(`User: ${value}`);
         continue;
@@ -501,7 +512,7 @@ const renderSummaryTranscript = (messages: readonly RuntimeMessage[]): string =>
           if (block.type === "thinking") lines.push(`Assistant Thinking: ${THINKING_SUMMARY_PLACEHOLDER}`);
           else if (block.type === "redacted_thinking") lines.push(`Assistant Thinking: ${REDACTED_THINKING_SUMMARY_PLACEHOLDER}`);
           else if (block.type === "text" && text(block.text).trim()) textParts.push(text(block.text).trim());
-          else if (isToolUse(block)) lines.push(`Assistant Tool Call: ${block.name} ${JSON.stringify(block.input)}`);
+          else if (isToolCall(block)) lines.push(`Assistant Tool Call: ${block.name} ${JSON.stringify(block.arguments)}`);
         }
         if (textParts.length > 0) lines.push(`Assistant: ${textParts.join(" ")}`);
         continue;

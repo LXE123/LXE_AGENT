@@ -62,7 +62,7 @@ Artifact delivery 与工具业务执行分离。发送失败会报告 delivery e
 
 ## Result closure
 
-成功 result 使用原 `tool_use_id`。异常转换为 `is_error=true` 和可读错误文本。多个调用的 results 作为一个 user message append；cancel 或 steering 会为尚未执行的调用生成 closure stub。
+成功 result 使用原 `tool_call_id`。异常转换为 `is_error=true` 和可读错误文本。多个调用的 results 作为一个 tool message append；cancel 或 steering 会为尚未执行的调用生成 closure stub。Anthropic 的 `tool_use_id` 只存在于 Provider adapter 生成的 wire request。
 
 Oversized content 在 append 前由 ContextPipeline 以总文本 10k token 预算裁剪。Image block 保留给当前 turn，并单独计 token。
 

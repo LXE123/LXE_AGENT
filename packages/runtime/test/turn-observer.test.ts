@@ -21,7 +21,11 @@ describe("RuntimeTurnObserver", () => {
     const attempt = observer.providerAttempt(1, 1, "anthropic", "model");
     now += 10;
     attempt.stream({ type: "text_delta", text: "secret reply" });
-    attempt.succeed({ content: [{ type: "text", text: "done" }], stop_reason: "end_turn", usage: { input_tokens: 4, output_tokens: 2 } });
+    attempt.succeed({
+      content: [{ type: "tool_call", id: "tool-1", name: "read", arguments: {} }],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 4, output_tokens: 2 },
+    });
     observer.toolStarted(1, "read", "tool-1");
     observer.toolCompleted(1, "read", "tool-1", "success", 15);
     now += 25;
@@ -33,6 +37,9 @@ describe("RuntimeTurnObserver", () => {
     expect(records.filter((record) => record.message === "turn_completed")).toHaveLength(1);
     expect(records).toContainEqual(expect.objectContaining({
       message: "provider_stream_heartbeat", event_count: 1, text_chars: 12,
+    }));
+    expect(records).toContainEqual(expect.objectContaining({
+      message: "provider_attempt_completed", tool_use_count: 1,
     }));
     expect(records).toContainEqual(expect.objectContaining({
       message: "turn_completed", status: "completed", context_delta_tokens: -5, compacted: true,

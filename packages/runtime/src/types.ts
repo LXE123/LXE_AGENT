@@ -6,21 +6,21 @@ export interface TextBlock extends JsonObject {
   text: string;
 }
 
-export interface ToolUseBlock extends JsonObject {
-  type: "tool_use";
+export interface ToolCallBlock extends JsonObject {
+  type: "tool_call";
   id: string;
   name: string;
-  input: JsonObject;
+  arguments: JsonObject;
 }
 
 export interface ToolResultBlock extends JsonObject {
   type: "tool_result";
-  tool_use_id: string;
+  tool_call_id: string;
   content: string | JsonObject[];
   is_error?: boolean;
 }
 
-export type RuntimeContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | JsonObject;
+export type RuntimeContentBlock = TextBlock | ToolCallBlock | ToolResultBlock | JsonObject;
 
 export type RuntimeStreamEvent =
   | { type: "text_delta"; text: string }
@@ -28,7 +28,7 @@ export type RuntimeStreamEvent =
   | { type: "redacted_thinking" };
 
 export interface RuntimeMessage {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "tool" | "system";
   content: string | RuntimeContentBlock[];
 }
 

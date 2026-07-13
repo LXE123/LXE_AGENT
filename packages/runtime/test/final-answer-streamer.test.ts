@@ -31,16 +31,16 @@ describe("FinalAnswerStreamer display contract", () => {
       cache_creation_input_tokens: 2,
     });
     const call = {
-      type: "tool_use" as const,
+      type: "tool_call" as const,
       id: "tool-1",
       name: "exec",
-      input: { command: "run C:\\Users\\Alice\\secret.txt --token=raw-secret" },
+      arguments: { command: "run C:\\Users\\Alice\\secret.txt --token=raw-secret" },
     };
     await streamer.pushToolStart(call);
     await streamer.pushToolFinish(call, "success", 1_400, {
       result: { path: "C:\\Users\\Alice\\result.json", token: "raw-secret", output: "x".repeat(5_000) },
     });
-    const failedCall = { ...call, id: "tool-2", input: { command: "curl https://user:pass@example.test/private?token=raw-secret" } };
+    const failedCall = { ...call, id: "tool-2", arguments: { command: "curl https://user:pass@example.test/private?token=raw-secret" } };
     await streamer.pushToolStart(failedCall);
     await streamer.pushToolFinish(failedCall, "error", 600, {
       error: `failed at C:\\Users\\Alice\\private.log token=raw-secret ${"e".repeat(2_500)}`,

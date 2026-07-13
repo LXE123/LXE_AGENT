@@ -24,8 +24,8 @@ describe("SqliteRuntimeStore", () => {
       "",
     ].join("\n"), "utf8");
     expect(await store.loadMessages("fallback")).toEqual([
-      { role: "assistant", content: [{ type: "tool_use", id: "call-1", name: "echo", input: { text: "hi" } }] },
-      { role: "user", content: [{ type: "tool_result", tool_use_id: "call-1", content: "ok" }] },
+      { role: "assistant", content: [{ type: "tool_call", id: "call-1", name: "echo", arguments: { text: "hi" } }] },
+      { role: "tool", content: [{ type: "tool_result", tool_call_id: "call-1", content: "ok" }] },
     ]);
 
     mkdirSync(join(root, "session_transcripts"), { recursive: true });
@@ -44,10 +44,28 @@ describe("SqliteRuntimeStore", () => {
     ].join("\n"), "utf8");
     expect(await store.loadMessages("replacement")).toEqual([
       { role: "user", content: "summary" },
-      { role: "assistant", content: [{ type: "tool_use", id: "call-2", name: "echo", input: {} }] },
-      { role: "user", content: [{ type: "tool_result", tool_use_id: "call-2", content: "done" }] },
+      { role: "assistant", content: [{ type: "tool_call", id: "call-2", name: "echo", arguments: {} }] },
+      { role: "tool", content: [{ type: "tool_result", tool_call_id: "call-2", content: "done" }] },
       { role: "user", content: "after" },
     ]);
+
+    writeFileSync(join(root, "session_transcripts", "early-bun.jsonl"), [
+      JSON.stringify({
+        kind: "message",
+        message: { role: "assistant", content: [{ type: "tool_use", id: "old-1", name: "exec", input: {} }] },
+      }),
+      JSON.stringify({
+        kind: "message",
+        message: { role: "user", content: [{ type: "tool_result", tool_use_id: "old-1", content: "done" }] },
+      }),
+      "",
+    ].join("\n"), "utf8");
+    expect(await store.loadMessages("early-bun")).toEqual([
+      { role: "assistant", content: [{ type: "tool_call", id: "old-1", name: "exec", arguments: {} }] },
+      { role: "tool", content: [{ type: "tool_result", tool_call_id: "old-1", content: "done" }] },
+    ]);
+    expect((await store.loadTranscriptDisplayPage("early-bun", { limit: 10 })).messages)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ role: "user" })]));
     await store.stop();
   });
 

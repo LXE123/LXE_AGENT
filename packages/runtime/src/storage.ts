@@ -66,22 +66,22 @@ const normalizeLegacyBlock = (value: unknown): JsonObject | undefined => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const block = { ...(value as JsonObject) };
   const type = text(block.type);
-  if (type === "tool_call") {
+  if (type === "tool_call" || type === "tool_use") {
     return {
-      type: "tool_use",
+      type: "tool_call",
       id: text(block.id),
       name: text(block.name),
-      input: parseObject(block.arguments),
+      arguments: parseObject(type === "tool_call" ? block.arguments : block.input),
     };
   }
   if (type === "tool_result") {
-    const toolUseId = text(block.tool_use_id) || text(block.tool_call_id);
+    const toolCallId = text(block.tool_call_id) || text(block.tool_use_id);
     const normalized: JsonObject = {
       ...block,
       type: "tool_result",
-      tool_use_id: toolUseId,
+      tool_call_id: toolCallId,
     };
-    delete normalized.tool_call_id;
+    delete normalized.tool_use_id;
     return normalized;
   }
   return block;
@@ -91,12 +91,18 @@ const normalizeLegacyMessage = (value: unknown): RuntimeMessage | undefined => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const candidate = value as { role?: unknown; content?: unknown };
   const legacyRole = text(candidate.role);
-  if (!new Set(["user", "assistant", "tool"]).has(legacyRole)) return undefined;
-  const role: RuntimeMessage["role"] = legacyRole === "tool" ? "user" : legacyRole as RuntimeMessage["role"];
+  if (!new Set(["user", "assistant", "tool", "system"]).has(legacyRole)) return undefined;
+  let role = legacyRole as RuntimeMessage["role"];
   if (!Array.isArray(candidate.content)) return { role, content: String(candidate.content ?? "") };
+  const content = candidate.content.map(normalizeLegacyBlock).filter((block): block is JsonObject => Boolean(block));
+  // Early Bun transcripts persisted Anthropic wire messages directly. Recover
+  // them only for model replay; the immutable display reader preserves disk semantics.
+  if (role === "user" && content.length > 0 && content.every((block) => block.type === "tool_result")) {
+    role = "tool";
+  }
   return {
     role,
-    content: candidate.content.map(normalizeLegacyBlock).filter((block): block is JsonObject => Boolean(block)),
+    content,
   };
 };
 
@@ -112,6 +118,95 @@ const replacementKinds = new Set([
   "history_limit",
   "context_replacement",
 ]);
+
+interface TranscriptDisplayPage {
+  messages: JsonObject[];
+  page: JsonObject;
+}
+
+const replacementKind = (event: JsonObject): string =>
+  text(event.kind) === "replacement" ? text(event.replacement_kind) : text(event.kind);
+
+const displayReplacement = (kind: string, event: JsonObject): JsonObject | undefined => {
+  if (kind === "compaction") {
+    const count = Math.max(0, Math.trunc(Number(event.compacted_count ?? 0)));
+    return { role: "system", content: `[上下文已压缩：${count} 条消息 → 摘要]` };
+  }
+  if (kind === "context_reset") return { role: "system", content: "[上下文已重置]" };
+  if (kind === "memory_clear") return { role: "system", content: "[上下文记忆已清空]" };
+  return undefined;
+};
+
+const transcriptDisplayPage = (
+  events: JsonObject[],
+  options: DashboardSessionPageOptions,
+): TranscriptDisplayPage => {
+  const ranges: Array<[number, number]> = [];
+  let pendingStart: number | undefined;
+  let pendingEnd = 0;
+  const flushPending = (): void => {
+    if (pendingStart === undefined) return;
+    ranges.push([pendingStart, pendingEnd]);
+    pendingStart = undefined;
+    pendingEnd = 0;
+  };
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index]!;
+    if (text(event.kind) === "message") {
+      const message = parseObject(event.message);
+      const role = text(message.role).toLowerCase();
+      if (role === "assistant" || role === "tool") {
+        pendingStart ??= index;
+        pendingEnd = index + 1;
+      } else {
+        flushPending();
+        ranges.push([index, index + 1]);
+      }
+      continue;
+    }
+    if (!displayReplacement(replacementKind(event), event)) continue;
+    flushPending();
+    ranges.push([index, index + 1]);
+  }
+  flushPending();
+
+  const limit = Math.max(1, Math.min(Math.trunc(options.limit), 200));
+  const total = ranges.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const currentPage = options.page === undefined
+    ? totalPages
+    : Math.max(1, Math.min(Math.trunc(options.page), totalPages));
+  const start = Math.min(total, (currentPage - 1) * limit);
+  const end = Math.min(total, start + limit);
+  const selected = ranges.slice(start, end);
+  const selectedEvents = selected.length > 0
+    ? events.slice(selected[0]![0], selected.at(-1)![1])
+    : [];
+  const messages: JsonObject[] = [];
+  for (const event of selectedEvents) {
+    if (text(event.kind) === "message") {
+      const message = parseObject(event.message);
+      if (text(message.role)) messages.push(structuredClone(message));
+      continue;
+    }
+    const marker = displayReplacement(replacementKind(event), event);
+    if (marker) messages.push(marker);
+  }
+  return {
+    messages,
+    page: {
+      total,
+      raw_message_total: events.filter((event) => text(event.kind) === "message").length,
+      start,
+      end,
+      limit,
+      current_page: currentPage,
+      total_pages: totalPages,
+      has_previous: currentPage > 1,
+      has_next: currentPage < totalPages,
+    },
+  };
+};
 
 export interface DashboardSessionListOptions {
   limit: number;
@@ -441,6 +536,25 @@ export class SqliteRuntimeStore implements RuntimeStore {
     return structuredClone(messages);
   }
 
+  async loadTranscriptDisplayPage(
+    sessionId: string,
+    options: DashboardSessionPageOptions,
+  ): Promise<TranscriptDisplayPage> {
+    const path = this.transcriptPath(text(sessionId));
+    let raw: string;
+    try {
+      raw = readFileSync(path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return transcriptDisplayPage([], options);
+      throw error;
+    }
+    const events = raw.split(/\r?\n/u)
+      .filter((line) => line.trim())
+      .map(parseObject)
+      .filter((event) => text(event.kind));
+    return transcriptDisplayPage(events, options);
+  }
+
   async appendMessage(sessionId: string, message: RuntimeMessage, reason = "runtime"): Promise<void> {
     const safeSessionId = text(sessionId);
     const path = this.transcriptPath(safeSessionId);
@@ -767,29 +881,11 @@ export class SqliteRuntimeStore implements RuntimeStore {
       FROM agent_sessions WHERE session_id = ?
     `).get(text(sessionId)) as Record<string, unknown> | null;
     if (!row) return undefined;
-    const messages = await this.loadMessages(text(sessionId));
-    const limit = Math.max(1, Math.min(Math.trunc(options.limit), 200));
-    const total = messages.length;
-    const totalPages = Math.max(1, Math.ceil(total / limit));
-    const currentPage = options.page === undefined
-      ? totalPages
-      : Math.max(1, Math.min(Math.trunc(options.page), totalPages));
-    const start = Math.min(total, (currentPage - 1) * limit);
-    const end = Math.min(total, start + limit);
+    const display = await this.loadTranscriptDisplayPage(text(sessionId), options);
     return {
       session: this.sessionPayload(row),
-      messages: messages.slice(start, end) as unknown as JsonObject[],
-      messages_page: {
-        total,
-        raw_message_total: total,
-        start,
-        end,
-        limit,
-        current_page: currentPage,
-        total_pages: totalPages,
-        has_previous: currentPage > 1,
-        has_next: currentPage < totalPages,
-      },
+      messages: display.messages,
+      messages_page: display.page,
     };
   }
 

@@ -36,7 +36,7 @@ import type {
   RuntimeTurnResponse,
   RuntimeUsage,
   ToolResultBlock,
-  ToolUseBlock,
+  ToolCallBlock,
   TurnOutcome,
 } from "./types";
 
@@ -65,12 +65,12 @@ export interface TypeScriptAgentRuntimeOptions {
   }>;
 }
 
-const toolUseBlocks = (content: RuntimeContentBlock[]): ToolUseBlock[] =>
-  content.filter((block): block is ToolUseBlock =>
-    block.type === "tool_use" &&
+const toolCallBlocks = (content: RuntimeContentBlock[]): ToolCallBlock[] =>
+  content.filter((block): block is ToolCallBlock =>
+    block.type === "tool_call" &&
     typeof block.id === "string" &&
     typeof block.name === "string" &&
-    block.input !== null && typeof block.input === "object" && !Array.isArray(block.input));
+    block.arguments !== null && typeof block.arguments === "object" && !Array.isArray(block.arguments));
 
 const textContent = (content: RuntimeContentBlock[]): string =>
   content
@@ -418,7 +418,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         inputTokens += Math.max(0, Math.trunc(response.usage.input_tokens));
         outputTokens += Math.max(0, Math.trunc(response.usage.output_tokens));
         finalAnswerStreamer?.updateUsage(response.usage);
-        const calls = toolUseBlocks(response.content);
+        const calls = toolCallBlocks(response.content);
         const forcedLastStepReply = isLastStep && calls.length > 0
           ? textContent(response.content) || MAX_STEP_REPLY
           : "";
@@ -474,12 +474,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             for (const pending of calls.slice(callIndex)) {
               results.push({
                 type: "tool_result",
-                tool_use_id: pending.id,
+                tool_call_id: pending.id,
                 content: "Tool execution skipped because the user steered the active turn before dispatch.",
                 is_error: true,
               });
             }
-            const steeredTools: RuntimeMessage = { role: "user", content: results };
+            const steeredTools: RuntimeMessage = { role: "tool", content: results };
             messages.push(steeredTools);
             await this.options.store.appendMessage(job.session_id, steeredTools, "tool_results_steered");
             await appendSteering(steering);
@@ -490,12 +490,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             for (const pending of calls.slice(callIndex)) {
               results.push({
                 type: "tool_result",
-                tool_use_id: pending.id,
+                tool_call_id: pending.id,
                 content: "Tool execution cancelled before dispatch.",
                 is_error: true,
               });
             }
-            const cancelledTools: RuntimeMessage = { role: "user", content: results };
+            const cancelledTools: RuntimeMessage = { role: "tool", content: results };
             messages.push(cancelledTools);
             await this.options.store.appendMessage(job.session_id, cancelledTools, "tool_results_cancelled");
             await finalAnswerStreamer?.cancel();
@@ -505,7 +505,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           toolCalls += 1;
           const startedToolAt = Date.now();
           const definition = this.options.tools.definition(call.name);
-          const invocation = definition?.classifyInvocation?.(call.input);
+          const invocation = definition?.classifyInvocation?.(call.arguments);
           const usageName = invocation?.usageName || call.name;
           const commandId = invocation?.commandId?.trim() ?? "";
           const usage = toolUsage.get(usageName) ?? { calls: 0, errors: 0, duration_ms: 0 };
@@ -515,12 +515,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           usage.calls += 1;
           toolUsage.set(usageName, usage);
           observer.toolStarted(step + 1, call.name, call.id, commandId || undefined);
-          trace?.record("tool_start", { step: step + 1, tool: call.name, tool_use_id: call.id, input: call.input });
+          trace?.record("tool_start", { step: step + 1, tool: call.name, tool_use_id: call.id, input: call.arguments });
           await finalAnswerStreamer?.pushToolStart(call);
           let toolStatus: "success" | "error" = "success";
           let toolDisplayOutput: { result?: unknown; error?: unknown } | undefined;
           try {
-            const result = await this.options.tools.execute(call.name, call.input, {
+            const result = await this.options.tools.execute(call.name, call.arguments, {
               handle,
               session_id: job.session_id,
               response_route_id: job.response_route_id,
@@ -552,7 +552,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             }
             results.push({
               type: "tool_result",
-              tool_use_id: call.id,
+              tool_call_id: call.id,
               content: result.content,
             });
             toolDisplayOutput = { result: result.content };
@@ -563,7 +563,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             toolDisplayOutput = { error: message };
             results.push({
               type: "tool_result",
-              tool_use_id: call.id,
+              tool_call_id: call.id,
               content: message,
               is_error: true,
             });
@@ -586,7 +586,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }
         if (interruptedBySteering) continue;
         const trimmedResults = trimToolResultBlocks(results, contextPipeline.toolResultMaxTokens).results;
-        const toolMessage: RuntimeMessage = { role: "user", content: trimmedResults };
+        const toolMessage: RuntimeMessage = { role: "tool", content: trimmedResults };
         messages.push(toolMessage);
         await this.options.store.appendMessage(job.session_id, toolMessage, "tool_results");
       }

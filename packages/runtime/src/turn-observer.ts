@@ -90,7 +90,7 @@ export class RuntimeProviderAttemptObserver {
   succeed(response: RuntimeTurnResponse): void {
     if (this.completed) return;
     this.completed = true;
-    this.snapshot.toolUseCount = response.content.filter((block) => block.type === "tool_use").length;
+    this.snapshot.toolUseCount = response.content.filter((block) => block.type === "tool_call").length;
     this.owner.logger.debug("provider_attempt_completed", {
       step: this.step,
       attempt: this.attempt,

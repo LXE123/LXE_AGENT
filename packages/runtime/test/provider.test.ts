@@ -110,7 +110,7 @@ describe("Anthropic-compatible provider", () => {
         { type: "thinking", thinking: "reason", signature: "signed-reason" },
         { type: "redacted_thinking", data: "encrypted-secret" },
         { type: "text", text: "done" },
-        { type: "tool_use", id: "t1", name: "echo", input: { text: "hi" } },
+        { type: "tool_call", id: "t1", name: "echo", arguments: { text: "hi" } },
       ],
       stop_reason: "tool_use",
       usage: { input_tokens: 3, output_tokens: 4, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
@@ -181,6 +181,36 @@ describe("Anthropic-compatible provider", () => {
       .toEqual(expect.objectContaining({ retryable: false, category: "认证失败" }));
     expect(normalizeProviderError({ status: 503, message: "Server overloaded" }, descriptor))
       .toEqual(expect.objectContaining({ retryable: true, category: "服务器繁忙" }));
+  });
+
+  test("maps canonical tool and system messages only at the Provider boundary", () => {
+    const projectRoot = resolve(import.meta.dir, "../../..");
+    const descriptor = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "kimi-for-coding",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
+    expect(adaptMessagesForProvider([
+      { role: "system", content: "background event" },
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "call-1", name: "exec", arguments: { command: "pwd" } }],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool_result", tool_call_id: "call-1", content: "ok", is_error: true }],
+      },
+    ], descriptor)).toEqual([
+      { role: "user", content: "[System Message]\nbackground event" },
+      {
+        role: "assistant",
+        content: [{ type: "tool_use", id: "call-1", name: "exec", input: { command: "pwd" } }],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: "call-1", content: "ok", is_error: true }],
+      },
+    ]);
   });
 
   test("resets the idle watchdog on activity without imposing a total duration limit", async () => {

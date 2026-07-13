@@ -9,6 +9,8 @@ import { DEFAULT_MAX_STEPS, DEFAULT_PROVIDER_ATTEMPTS, MAX_STEP_REPLY } from "..
 import { normalizePendingSystemEvents, sanitizeSystemPrefixedText } from "../src/system-events";
 import { configureRuntimeTracing } from "../src/trace";
 import { DEFAULT_EXEC_TIMEOUT_SECONDS, DEFAULT_EXEC_YIELD_MS, ExecShellAdapter } from "../src/exec-shell";
+import { adaptMessagesForProvider, type ProviderDescriptor, type ProviderMessage } from "../src/provider";
+import type { RuntimeMessage } from "../src/types";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -24,6 +26,18 @@ describe("frozen main production parity", () => {
     expect(normalizePendingSystemEvents([{
       event_id: "event", job_id: "job", created_at: parity.runtime.legacy_event_time, text: "done",
     }])[0]?.created_at).toBe(parity.runtime.legacy_event_unix);
+  });
+
+  test("maps the frozen main canonical tool exchange only at the Provider boundary", () => {
+    const descriptor: ProviderDescriptor = {
+      name: "kimi_coding", model: "fixture", baseURL: "", apiKey: "", maxTokens: 1,
+      defaultHeaders: {}, thinkingStyle: "none", thinkingEnabled: false, thinkingEffort: "off",
+      thinkingDisplay: "omitted", contextWindowTokens: 1, requestIdleTimeoutMs: 1,
+    };
+    expect(adaptMessagesForProvider(
+      parity.runtime.canonical_tool_exchange as RuntimeMessage[],
+      descriptor,
+    )).toEqual(parity.runtime.provider_tool_exchange as ProviderMessage[]);
   });
 
   test("feeds coding shell and timing defaults through the real exec adapter", () => {

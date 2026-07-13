@@ -73,12 +73,12 @@ describe("token-aware runtime context", () => {
 
   test("repairs closure while preserving signed and redacted canonical thinking", () => {
     const messages: RuntimeMessage[] = [
-      { role: "user", content: [{ type: "tool_result", tool_use_id: "orphan", content: "drop" }] },
+      { role: "tool", content: [{ type: "tool_result", tool_call_id: "orphan", content: "drop" }] },
       { role: "user", content: "run" },
       { role: "assistant", content: [
         { type: "thinking", thinking: "reason", signature: "signed" },
         { type: "redacted_thinking", data: "encrypted" },
-        { type: "tool_use", id: "t1", name: "exec", input: { command: "date" } },
+        { type: "tool_call", id: "t1", name: "exec", arguments: { command: "date" } },
       ] },
     ];
     const repaired = sanitizeMessagesForProvider(messages);
@@ -87,10 +87,10 @@ describe("token-aware runtime context", () => {
     expect(JSON.stringify(repaired.messages)).toContain("encrypted");
     expect(JSON.stringify(repaired.messages)).not.toContain("orphan");
     expect(repaired.messages.at(-1)).toEqual({
-      role: "user",
+      role: "tool",
       content: [{
         type: "tool_result",
-        tool_use_id: "t1",
+        tool_call_id: "t1",
         content: "[Result unavailable — see context summary above]",
         is_error: true,
       }],
@@ -137,7 +137,7 @@ describe("token-aware runtime context", () => {
     const image = { type: "image", source: { type: "base64", media_type: "image/png", data: "A".repeat(1_000) } };
     const results: ToolResultBlock[] = [{
       type: "tool_result",
-      tool_use_id: "t1",
+      tool_call_id: "t1",
       content: [{ type: "text", text: source }, image, { type: "text", text: source }],
     }];
     const blocks = trimToolResultBlocks(results, 1_000);
@@ -204,8 +204,8 @@ describe("token-aware runtime context", () => {
     const messages: RuntimeMessage[] = [{ role: "user", content: "original request" }];
     for (let index = 0; index < 4; index += 1) {
       messages.push(
-        { role: "assistant", content: [{ type: "tool_use", id: `t${index}`, name: "exec", input: { command: "x".repeat(500) } }] },
-        { role: "user", content: [{ type: "tool_result", tool_use_id: `t${index}`, content: "y".repeat(500) }] },
+        { role: "assistant", content: [{ type: "tool_call", id: `t${index}`, name: "exec", arguments: { command: "x".repeat(500) } }] },
+        { role: "tool", content: [{ type: "tool_result", tool_call_id: `t${index}`, content: "y".repeat(500) }] },
       );
     }
     const result = await pipeline.prepare({

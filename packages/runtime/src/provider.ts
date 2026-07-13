@@ -166,34 +166,83 @@ const deepseekText = (value: unknown): string => {
   }).filter(Boolean).join("\n");
 };
 
-export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor: ProviderDescriptor): RuntimeMessage[] {
-  if (descriptor.name !== "deepseek") return structuredClone(messages);
-  return messages.map((message): RuntimeMessage => {
-    if (!Array.isArray(message.content)) return { role: message.role, content: message.content };
-    if (message.role === "assistant") {
-      return {
-        role: "assistant",
-        content: message.content.map((raw) => {
-          const block = errorObject(raw);
-          if (block.type === "thinking") return { type: "thinking", thinking: String(block.thinking ?? ""), signature: "" };
-          if (block.type === "redacted_thinking") return { type: "text", text: "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]" };
-          return structuredClone(block) as JsonObject;
-        }),
-      };
+const providerToolResultContent = (value: unknown, deepseek: boolean): string | JsonObject[] => {
+  if (deepseek) return deepseekText(value);
+  if (!Array.isArray(value)) return String(value ?? "");
+  return value.map((item) => structuredClone(errorObject(item)) as JsonObject);
+};
+
+export interface ProviderMessage {
+  role: "user" | "assistant";
+  content: string | JsonObject[];
+}
+
+const providerUserContent = (content: RuntimeMessage["content"], deepseek: boolean): string | JsonObject[] => {
+  if (!Array.isArray(content)) return String(content ?? "");
+  return content.map((raw) => {
+    const block = errorObject(raw);
+    if (deepseek && block.type === "image") {
+      return { type: "text", text: "[image omitted: DeepSeek Anthropic API does not support image content]" };
     }
-    return {
-      role: "user",
-      content: message.content.map((raw) => {
-        const block = errorObject(raw);
-        if (block.type === "image") return { type: "text", text: "[image omitted: DeepSeek Anthropic API does not support image content]" };
-        if (block.type === "tool_result") return {
-          ...structuredClone(block),
-          content: deepseekText(block.content),
-        } as JsonObject;
-        return structuredClone(block) as JsonObject;
-      }),
-    };
+    return structuredClone(block) as JsonObject;
   });
+};
+
+export function adaptMessagesForProvider(messages: RuntimeMessage[], descriptor: ProviderDescriptor): ProviderMessage[] {
+  const adapted: ProviderMessage[] = [];
+  const deepseek = descriptor.name === "deepseek";
+  for (const message of messages) {
+    if (message.role === "user") {
+      adapted.push({ role: "user", content: providerUserContent(message.content, deepseek) });
+      continue;
+    }
+    if (message.role === "system") {
+      adapted.push({ role: "user", content: `[System Message]\n${String(message.content ?? "")}` });
+      continue;
+    }
+    if (message.role === "assistant") {
+      const source = Array.isArray(message.content)
+        ? message.content
+        : [{ type: "text", text: String(message.content ?? "") }];
+      const content = source.map((raw): JsonObject | undefined => {
+        const block = errorObject(raw);
+        if (block.type === "tool_call") {
+          return {
+            type: "tool_use",
+            id: String(block.id ?? ""),
+            name: String(block.name ?? ""),
+            input: structuredClone(errorObject(block.arguments)) as JsonObject,
+          };
+        }
+        if (block.type === "thinking") {
+          return {
+            type: "thinking",
+            thinking: String(block.thinking ?? ""),
+            signature: deepseek ? "" : String(block.signature ?? ""),
+          };
+        }
+        if (block.type === "redacted_thinking" && deepseek) {
+          return { type: "text", text: "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]" };
+        }
+        return structuredClone(block) as JsonObject;
+      }).filter((block): block is JsonObject => Boolean(block));
+      adapted.push({ role: "assistant", content });
+      continue;
+    }
+    const source = Array.isArray(message.content) ? message.content : [];
+    const content = source.map((raw): JsonObject | undefined => {
+      const block = errorObject(raw);
+      if (block.type !== "tool_result") return undefined;
+      return {
+        type: "tool_result",
+        tool_use_id: String(block.tool_call_id ?? ""),
+        content: providerToolResultContent(block.content, deepseek),
+        ...(block.is_error === true ? { is_error: true } : {}),
+      };
+    }).filter((block): block is JsonObject => Boolean(block));
+    if (content.length > 0) adapted.push({ role: "user", content });
+  }
+  return adapted;
 }
 
 const systemPayload = (system: string): string | JsonObject[] => {
@@ -241,10 +290,10 @@ const runtimeBlock = (block: Record<string, unknown>): RuntimeContentBlock | und
       ? block.input as JsonObject
       : {};
     return {
-      type: "tool_use",
+      type: "tool_call",
       id: String(block.id ?? ""),
       name: String(block.name ?? ""),
-      input,
+      arguments: input,
     };
   }
   if (block.type === "thinking") {

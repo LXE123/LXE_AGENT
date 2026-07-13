@@ -8,20 +8,20 @@ Canonical message 是 storage、ContextPipeline、provider 和 tool loop 共享�
 
 ## Message 形态
 
-消息 role 为 `user` 或 `assistant`。content 可以是字符串或 block 列表，主要 block 包括：
+消息 role 为 `user`、`assistant`、`tool` 或 `system`。content 可以是字符串或 block 列表，主要 block 包括：
 
 - `text`
 - `thinking`，可带 signature
 - `redacted_thinking`，只保存 opaque data
-- `tool_use`，包含 id、name 和 object input
-- `tool_result`，包含对应 `tool_use_id`、content 和可选 `is_error`
+- `tool_call`，包含 id、name 和 object arguments
+- `tool_result`，包含对应 `tool_call_id`、content 和可选 `is_error`
 - `image`，本轮可携带 provider 支持的 source
 
-Tool result 位于 user message 中，与 Anthropic-compatible message 形态一致。Runtime 不持久化独立 tool role。
+Tool result 位于独立 `tool` message。只有 Provider adapter 会将它转换为 Anthropic-compatible 的 `user + tool_result/tool_use_id` wire message；Provider 响应中的 `tool_use/input` 也必须先还原成 canonical `tool_call/arguments` 才能进入 Runtime 和 transcript。
 
 ## Tool closure
 
-每个有效 `tool_use.id` 必须最多匹配一个 result。provider request 前 sanitizer：
+每个有效 `tool_call.id` 必须最多匹配一个 result。provider request 前 sanitizer：
 
 1. 丢弃没有对应 tool use 的 orphan result。
 2. 忽略 duplicate result，只保留第一个有效闭合。
@@ -47,7 +47,7 @@ Runtime 正常路径会在 tool dispatch 后立即写结果；sanitizer 主要�
 
 ## Legacy replay
 
-Storage replay 会归一化历史兼容形态，包括旧 tool call、tool role 和 replacement/compaction JSONL。兼容只发生在读取边界，不要求迁移已有用户数据库，也不允许新写入继续生成旧格式。
+Storage 的模型 replay 会归一化历史兼容形态，包括早期 Bun 写入的 `user + tool_use/tool_result` 和 main 的 tool role。兼容只发生在模型读取边界，不改写 JSONL；Dashboard 的 immutable transcript 视图不会重解释旧 Bun 记录。
 
 无法识别的安全文本应尽量保留；结构损坏、越界对象或无法闭合的 tool metadata 转换为明确占位，不能导致整个 session 无法读取。
 

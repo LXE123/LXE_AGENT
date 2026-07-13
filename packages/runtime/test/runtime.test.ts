@@ -96,13 +96,13 @@ describe("TypeScriptAgentRuntime", () => {
     });
     const responses: RuntimeTurnResponse[] = [
       { content: [
-        { type: "tool_use", id: "read-1", name: "read", input: {} },
-        { type: "tool_use", id: "read-2", name: "read", input: {} },
+        { type: "tool_call", id: "read-1", name: "read", arguments: {} },
+        { type: "tool_call", id: "read-2", name: "read", arguments: {} },
       ], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
       { content: [{ type: "text", text: "complete" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
       { content: [
-        { type: "tool_use", id: "exec-1", name: "exec", input: { command: "lxeskill replenish store resolve --store-name Demo" } },
-        { type: "tool_use", id: "exec-2", name: "exec", input: { command: "lxeskill replenish store resolve --store-name Demo", fail: true } },
+        { type: "tool_call", id: "exec-1", name: "exec", arguments: { command: "lxeskill replenish store resolve --store-name Demo" } },
+        { type: "tool_call", id: "exec-2", name: "exec", arguments: { command: "lxeskill replenish store resolve --store-name Demo", fail: true } },
       ], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
       { content: [{ type: "text", text: "complete" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
     ];
@@ -161,7 +161,7 @@ describe("TypeScriptAgentRuntime", () => {
       execute: async () => ({ content: [{ type: "text", text: "done" }] }),
     });
     const responses: RuntimeTurnResponse[] = [
-      { content: [{ type: "tool_use", id: "tool-1", name: "owned_tool", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [{ type: "tool_call", id: "tool-1", name: "owned_tool", arguments: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
       { content: [{ type: "text", text: "complete" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
     ];
     const runtime = new TypeScriptAgentRuntime({
@@ -266,7 +266,7 @@ describe("TypeScriptAgentRuntime", () => {
           return {
             content: [
               { type: "text", text: "Here is the available result." },
-              { type: "tool_use", id: "late", name: "danger", input: {} },
+              { type: "tool_call", id: "late", name: "danger", arguments: {} },
             ],
             stop_reason: "tool_use",
             usage: { input_tokens: 1, output_tokens: 1 },
@@ -287,7 +287,7 @@ describe("TypeScriptAgentRuntime", () => {
   test("closes a tool call, persists canonical messages, and emits the final answer", async () => {
     const responses: RuntimeTurnResponse[] = [
       {
-        content: [{ type: "tool_use", id: "tool-1", name: "echo", input: { text: "hi" } }],
+        content: [{ type: "tool_call", id: "tool-1", name: "echo", arguments: { text: "hi" } }],
         stop_reason: "tool_use",
         usage: { input_tokens: 10, output_tokens: 2 },
       },
@@ -325,10 +325,10 @@ describe("TypeScriptAgentRuntime", () => {
     const outcome = await runtime.runTurn(job(), handle());
     expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "done" }));
     expect(store.messages.map((message) => message.role)).toEqual([
-      "user", "assistant", "user", "assistant",
+      "user", "assistant", "tool", "assistant",
     ]);
     expect(store.messages[2]?.content).toEqual([
-      expect.objectContaining({ type: "tool_result", tool_use_id: "tool-1" }),
+      expect.objectContaining({ type: "tool_result", tool_call_id: "tool-1" }),
     ]);
     const streamFrames = emitted.filter((request) => request.emit_kind === "stream");
     expect(streamFrames.at(-1)).toEqual(expect.objectContaining({
@@ -356,7 +356,7 @@ describe("TypeScriptAgentRuntime", () => {
   test("persists tool state patches and emits returned files through the gateway", async () => {
     const responses: RuntimeTurnResponse[] = [
       {
-        content: [{ type: "tool_use", id: "tool-1", name: "bridge", input: {} }],
+        content: [{ type: "tool_call", id: "tool-1", name: "bridge", arguments: {} }],
         stop_reason: "tool_use",
         usage: { input_tokens: 1, output_tokens: 1 },
       },
@@ -418,7 +418,7 @@ describe("TypeScriptAgentRuntime", () => {
         providerCalls += 1;
         if (providerCalls === 1) {
           return {
-            content: [{ type: "tool_use", id: "tool-1", name: "report", input: {} }],
+            content: [{ type: "tool_call", id: "tool-1", name: "report", arguments: {} }],
             stop_reason: "tool_use",
             usage: { input_tokens: 1, output_tokens: 1 },
           };
@@ -443,7 +443,7 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.runTurn(job(), handle());
 
     expect(secondRequestMessages.at(-1)?.content).toEqual([
-      expect.objectContaining({ type: "tool_result", tool_use_id: "tool-1", is_error: true }),
+      expect.objectContaining({ type: "tool_result", tool_call_id: "tool-1", is_error: true }),
     ]);
     await runtime.stop();
   });
@@ -469,7 +469,7 @@ describe("TypeScriptAgentRuntime", () => {
         await request.onEvent?.({ type: "text_delta", text: "o" });
         if (providerCalls === 1) {
           return {
-            content: [{ type: "tool_use", id: "tool-1", name: "noop", input: {} }],
+            content: [{ type: "tool_call", id: "tool-1", name: "noop", arguments: {} }],
             stop_reason: "tool_use",
             usage: { input_tokens: 2, output_tokens: 1 },
           };
@@ -723,8 +723,8 @@ describe("TypeScriptAgentRuntime", () => {
       store, tools,
       provider: { summarize, turn: async () => ({
         content: [
-          { type: "tool_use", id: "t1", name: "first", input: {} },
-          { type: "tool_use", id: "t2", name: "second", input: {} },
+          { type: "tool_call", id: "t1", name: "first", arguments: {} },
+          { type: "tool_call", id: "t2", name: "second", arguments: {} },
         ],
         stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 },
       }) },
@@ -734,8 +734,8 @@ describe("TypeScriptAgentRuntime", () => {
     const outcome = await runtime.runTurn(job(), runHandle);
     expect(outcome.status).toBe("cancelled");
     expect(store.messages.at(-1)?.content).toEqual([
-      expect.objectContaining({ type: "tool_result", tool_use_id: "t1" }),
-      expect.objectContaining({ type: "tool_result", tool_use_id: "t2", is_error: true }),
+      expect.objectContaining({ type: "tool_result", tool_call_id: "t1" }),
+      expect.objectContaining({ type: "tool_result", tool_call_id: "t2", is_error: true }),
     ]);
     await runtime.stop();
   });
@@ -764,7 +764,7 @@ describe("TypeScriptAgentRuntime", () => {
       provider: { summarize, turn: async () => {
         providerCalls += 1;
         return providerCalls === 1
-          ? { content: [{ type: "tool_use", id: "t1", name: "dangerous", input: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } }
+          ? { content: [{ type: "tool_call", id: "t1", name: "dangerous", arguments: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } }
           : { content: [{ type: "text", text: "已改为解释" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } };
       } },
       emitter: { emit: async () => undefined, typing: async () => undefined }, systemPrompt: "test",
@@ -788,7 +788,7 @@ describe("TypeScriptAgentRuntime", () => {
     const runtime = new TypeScriptAgentRuntime({
       store, tools, maxSteps: 1,
       provider: { summarize, turn: async () => ({
-        content: [{ type: "tool_use", id: "t1", name: "loop", input: {} }],
+        content: [{ type: "tool_call", id: "t1", name: "loop", arguments: {} }],
         stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 },
       }) },
       emitter: { emit: async () => undefined, typing: async () => undefined }, systemPrompt: "test",
@@ -862,7 +862,7 @@ describe("TypeScriptAgentRuntime", () => {
           }
           if (calls === 2) {
             return {
-              content: [{ type: "tool_use", id: "tool-1", name: "echo", input: {} }],
+              content: [{ type: "tool_call", id: "tool-1", name: "echo", arguments: {} }],
               stop_reason: "tool_use",
               usage: { input_tokens: 1, output_tokens: 1 },
             };

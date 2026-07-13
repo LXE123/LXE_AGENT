@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DisplayMetrics, EmitRequest, ToolStep } from "@lxe/protocol";
 import { buildToolDisplayStep } from "./tool-display";
-import type { RuntimeStreamEvent, ToolUseBlock } from "./types";
+import type { RuntimeStreamEvent, ToolCallBlock } from "./types";
 
 interface StreamSnapshot {
   content: string;
@@ -113,16 +113,16 @@ export class FinalAnswerStreamer {
     this.scheduleDelta();
   }
 
-  async pushToolStart(call: ToolUseBlock): Promise<void> {
+  async pushToolStart(call: ToolCallBlock): Promise<void> {
     if (this.terminal || this.options.toolUseMode === "off") return;
     this.activeToolStartedAt = this.now();
     this.toolPending = false;
-    this.upsertTool(buildToolDisplayStep(call.id, call.name, call.input, "running", 0));
+    this.upsertTool(buildToolDisplayStep(call.id, call.name, call.arguments, "running", 0));
     this.scheduleDelta();
   }
 
   async pushToolFinish(
-    call: ToolUseBlock,
+    call: ToolCallBlock,
     status: "success" | "error",
     durationMs: number,
     output?: { result?: unknown; error?: unknown },
@@ -131,7 +131,7 @@ export class FinalAnswerStreamer {
     this.toolPending = false;
     this.toolElapsedMs += Math.max(0, Math.trunc(durationMs));
     this.activeToolStartedAt = 0;
-    this.upsertTool(buildToolDisplayStep(call.id, call.name, call.input, status, durationMs, {
+    this.upsertTool(buildToolDisplayStep(call.id, call.name, call.arguments, status, durationMs, {
       ...(this.options.showFullPaths === undefined ? {} : { showFullPaths: this.options.showFullPaths }),
       showResultDetails: this.options.toolUseMode === "full",
       result: output?.result,
