@@ -261,13 +261,13 @@ Invoke-NativeChecked -Label "critical imports" -FilePath $uv -Arguments @(
     "import aiohttp, bs4, openpyxl, pandas, PIL, playwright, requests, selenium, urllib3, xlrd, yaml; print('tool imports ok')"
 ) -Verb "Checking"
 
-Invoke-NativeChecked -Label "lxeskill command registry" -FilePath $uv -Arguments @(
+Invoke-NativeChecked -Label "lxeskill Skill contract" -FilePath $uv -Arguments @(
     "run",
     "--frozen",
     "python",
     "-m",
     "py_tools.lxeskill",
-    "list"
+    "doctor"
 ) -Verb "Checking"
 
 $playwrightCheck = @'

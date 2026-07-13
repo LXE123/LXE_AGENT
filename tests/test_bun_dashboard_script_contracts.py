@@ -78,6 +78,15 @@ def test_windows_dependency_helper_installs_pinned_ripgrep_sidecar() -> None:
     assert 'Resolve-LxeRipgrep -Version "15.1.0"' in doctor
 
 
+def test_windows_doctor_runs_explicit_lxeskill_contract_check() -> None:
+    doctor = _read(SCRIPTS / "doctor.ps1")
+
+    assert 'Invoke-NativeChecked -Label "lxeskill Skill contract"' in doctor
+    assert '"py_tools.lxeskill"' in doctor
+    assert '"doctor"' in doctor
+    assert '"lxeskill command registry"' not in doctor
+
+
 def test_windows_resolver_prefers_exact_install_candidate_over_older_path() -> None:
     powershell = (
         os.environ.get("LXE_TEST_POWERSHELL")

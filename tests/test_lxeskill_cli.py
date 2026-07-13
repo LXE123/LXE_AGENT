@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -38,6 +39,95 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
     assert len(records) == 1
     assert records[0]["data"]["command"] == "fba customs fill"
     assert records[0]["data"]["input_schema"]["required"] == ["input_xlsx"]
+
+
+def test_normal_commands_do_not_load_skill_contract_or_yaml(tmp_path, monkeypatch, capsys) -> None:
+    broken_skill = tmp_path / "skills" / "unrelated" / "SKILL.md"
+    broken_skill.parent.mkdir(parents=True)
+    broken_skill.write_text("---\ncommands: [\n---\n", encoding="utf-8")
+    monkeypatch.setattr(lxeskill, "PROJECT_ROOT", tmp_path)
+
+    assert lxeskill.main(["list"]) == 0
+    records = _records(capsys)
+    assert records[-1]["ok"] is True
+
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import py_tools.lxeskill; "
+                "assert 'py_tools.lxeskill_contract' not in sys.modules; "
+                "assert 'yaml' not in sys.modules"
+            ),
+        ],
+        cwd=Path(__file__).parents[1],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert probe.returncode == 0, probe.stderr
+
+
+def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys) -> None:
+    assert lxeskill.main(["doctor"]) == 0
+    records = _records(capsys)
+    assert records == [
+        {
+            "protocol_version": "1",
+            "type": "result",
+            "command": "doctor",
+            "ok": True,
+            "data": {
+                "catalog_commands": 28,
+                "business_commands": 27,
+                "skill_files": 54,
+                "owner_skills": 22,
+                "command_declarations": 27,
+            },
+            "files": [],
+        }
+    ]
+
+    assert lxeskill.main(["list"]) == 0
+    records = _records(capsys)
+    assert all(item["command"] != "doctor" for item in records[-1]["data"]["commands"])
+
+
+def test_doctor_failure_is_an_environment_error_with_one_terminal(monkeypatch, capsys) -> None:
+    from py_tools import lxeskill_contract
+
+    report = lxeskill_contract.SkillContractReport(
+        catalog_commands=1,
+        business_commands=1,
+        skill_files=1,
+        owner_skills=1,
+        command_declarations=0,
+        violations=(
+            lxeskill_contract.SkillContractViolation(
+                "skill_command_missing",
+                "skills/demo/SKILL.md",
+                "Canonical owner does not declare catalog command: lxeskill demo run",
+            ),
+        ),
+    )
+    monkeypatch.setattr(lxeskill_contract, "validate_skill_command_contract", lambda catalog, *, project_root: report)
+
+    assert lxeskill.main(["doctor"]) == lxeskill.EXIT_ENVIRONMENT
+    records = _records(capsys)
+    assert len(records) == 1
+    assert records[0]["ok"] is False
+    assert records[0]["error"] == {
+        "code": "skill_contract_invalid",
+        "message": "Skill command contract has 1 violation(s)",
+    }
+    assert records[0]["data"]["violations"] == [
+        {
+            "code": "skill_command_missing",
+            "path": "skills/demo/SKILL.md",
+            "message": "Canonical owner does not declare catalog command: lxeskill demo run",
+        }
+    ]
 
 
 def test_stdin_json_normalizes_progress_and_terminal_result(monkeypatch, capsys) -> None:
