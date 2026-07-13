@@ -11,10 +11,12 @@ Each call receives a stable step snapshot:
 - system instructions and canonical conversation messages;
 - provider-visible tool definitions;
 - selected provider, model, thinking level, and output limit;
+- explicit tool choice, including the provider-level `none` value;
 - cancellation signal and request timeout;
 - turn/session identifiers used only for scoped diagnostics.
 
 Context assembly and tool exposure happen before the adapter is called. The adapter must not discover skills, execute tools, or persist messages.
+Before transport, it applies the selected provider's history whitelist and thinking-field rules; unsupported blocks never pass through unchanged.
 
 ## Event Normalization
 
@@ -28,6 +30,8 @@ Provider stream events are accumulated into a runtime assistant message. The nor
 
 Partial JSON tool arguments are buffered until they form the final tool-call input. A completed step returns either final assistant content or tool calls for the runtime loop; it does not execute those calls itself.
 
+The SDK's raw `streamEvent` supplies non-empty initial content from `content_block_start`. SDK high-level callbacks continue to supply subsequent text and thinking deltas. Redacted-thinking blocks are emitted once even when both callback layers observe the same block. Listener or conversion failures are isolated as wire `parse_error` diagnostics and cannot terminate an otherwise healthy provider stream.
+
 ## Cancellation And Timeouts
 
 The caller supplies an abort signal. Cancellation must close the provider stream promptly and surface as turn cancellation, not as a generic provider failure.
@@ -37,6 +41,7 @@ The caller supplies an abort signal. Cancellation must close the provider stream
 ## Retry And Overflow
 
 Ordinary transient requests use bounded attempts; the current turn policy allows up to three normal attempts. Authentication, invalid-request, and permission errors are not retried blindly.
+HTTP errors and SSE error events share the same provider classifier. Nested status fields such as `error.error.status_code` are retained before category and retryability are decided.
 
 Context overflow is a separate path:
 
@@ -61,6 +66,7 @@ Console INFO output should summarize request lifecycle and outcome. Detailed eve
 ## Invariants
 
 - The persisted canonical transcript is not replaced by a provider-repaired request view.
+- DeepSeek thinking history is replayed without signature fields; unsupported image, redacted, and unknown blocks are replaced or dropped according to its provider contract.
 - Tool calls returned from a stream have stable IDs and valid object arguments.
 - A failed stream cannot masquerade as a successful empty assistant response.
 - Cancellation and timeout always release stream resources.

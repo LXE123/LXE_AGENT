@@ -3,6 +3,7 @@
 Frozen from `main` on 2026-07-13. These values describe externally relevant behavior, but tests must feed them into the real Bun/TypeScript implementation; a fixture must never be tested only against itself.
 
 - `runtime`: Agent loop defaults, trusted-event compatibility, user `System:` prefix sanitization, and the canonical main tool exchange mapped to Anthropic wire messages.
+- `provider`: Kimi/DeepSeek thinking matrices, DeepSeek canonical history, initial stream blocks, and nested SSE error status semantics consumed by the real TS Provider implementation.
 - `mcp`: configured timeout and exposure defaults consumed by `loadMcpConfig()`.
 - `coding`: workspace protection, platform shell, timeout, and process defaults exercised by the native coding-tool and shell-adapter tests.
 - `storage`: transcript image redaction exercised by the SQLite Runtime store tests.

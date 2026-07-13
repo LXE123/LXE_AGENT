@@ -376,6 +376,50 @@ export function buildProviderRequest(
   };
 }
 
+export class ProviderStreamNormalizer {
+  private pendingRedactedCompletions = 0;
+
+  constructor(private readonly emit: (event: RuntimeStreamEvent) => void) {}
+
+  streamEvent(value: unknown): void {
+    const event = errorObject(value);
+    if (event.type !== "content_block_start") return;
+    const block = errorObject(event.content_block);
+    if (block.type === "text") {
+      const text = String(block.text ?? "");
+      if (text) this.emit({ type: "text_delta", text });
+      return;
+    }
+    if (block.type === "thinking") {
+      const thinking = String(block.thinking ?? "");
+      if (thinking) this.emit({ type: "thinking_delta", thinking });
+      return;
+    }
+    if (block.type === "redacted_thinking") {
+      this.pendingRedactedCompletions += 1;
+      this.emit({ type: "redacted_thinking" });
+    }
+  }
+
+  contentBlock(value: unknown): void {
+    const block = errorObject(value);
+    if (block.type !== "redacted_thinking") return;
+    if (this.pendingRedactedCompletions > 0) {
+      this.pendingRedactedCompletions -= 1;
+      return;
+    }
+    this.emit({ type: "redacted_thinking" });
+  }
+}
+
+const rawEventText = (value: unknown): string => {
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
+  }
+};
+
 const runtimeBlock = (block: Record<string, unknown>): RuntimeContentBlock | undefined => {
   if (block.type === "text") return { type: "text", text: String(block.text ?? "") };
   if (block.type === "tool_use") {
@@ -524,6 +568,12 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         "content-type": "application/json",
         "x-api-key": this.descriptor.apiKey,
       }, parameters as unknown as JsonObject));
+      let delivery = Promise.resolve();
+      const deliver = (event: RuntimeStreamEvent): void => {
+        if (!request.onEvent) return;
+        delivery = delivery.then(() => request.onEvent?.(event)).then(() => undefined);
+      };
+      const normalizer = new ProviderStreamNormalizer(deliver);
       const stream = this.client.messages.stream(parameters, { signal: watchdog.signal });
       const responseStart = (): void => {
         watchdog.activity();
@@ -541,27 +591,36 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
       wire(() => {
         stream.on?.("streamEvent", (event) => {
           watchdog.activity();
-          wire(() => {
+          let eventName = "message";
+          try {
             const source = event !== null && typeof event === "object"
               ? event as Record<string, unknown>
               : {};
-            request.wireTrace?.event(String(source.type ?? "message"), event);
-          });
+            eventName = String(source.type ?? eventName);
+            wire(() => request.wireTrace?.event(eventName, event));
+            normalizer.streamEvent(event);
+          } catch (error) {
+            wire(() => request.wireTrace?.parseError(eventName, rawEventText(event), error));
+          }
         });
       });
-      let delivery = Promise.resolve();
-      const deliver = (event: RuntimeStreamEvent): void => {
-        if (!request.onEvent) return;
-        delivery = delivery.then(() => request.onEvent?.(event)).then(() => undefined);
-      };
-      stream.on?.("thinking", (thinking) => { watchdog.activity(); deliver({ type: "thinking_delta", thinking: String(thinking ?? "") }); });
-      stream.on?.("text", (text) => { watchdog.activity(); deliver({ type: "text_delta", text: String(text ?? "") }); });
-      stream.on?.("contentBlock", (block) => {
+      const normalizeHighLevel = (eventName: string, value: unknown, operation: () => void): void => {
         watchdog.activity();
-        if (block !== null && typeof block === "object" && (block as Record<string, unknown>).type === "redacted_thinking") {
-          deliver({ type: "redacted_thinking" });
+        try {
+          operation();
+        } catch (error) {
+          wire(() => request.wireTrace?.parseError(eventName, rawEventText(value), error));
         }
-      });
+      };
+      wire(() => stream.on?.("thinking", (thinking) => normalizeHighLevel("thinking_delta", thinking, () => {
+        deliver({ type: "thinking_delta", thinking: String(thinking ?? "") });
+      })));
+      wire(() => stream.on?.("text", (text) => normalizeHighLevel("text_delta", text, () => {
+        deliver({ type: "text_delta", text: String(text ?? "") });
+      })));
+      wire(() => stream.on?.("contentBlock", (block) => {
+        normalizeHighLevel("content_block_stop", block, () => normalizer.contentBlock(block));
+      }));
       const message = await stream.finalMessage();
       await delivery;
       wireOk = true;

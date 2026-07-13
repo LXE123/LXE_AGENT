@@ -22,12 +22,28 @@ const objectValue = (value: unknown): Record<string, unknown> =>
     ? value as Record<string, unknown>
     : {};
 
-const statusCode = (error: unknown): number | undefined => {
-  const source = objectValue(error);
-  const response = objectValue(source.response);
-  for (const raw of [source.status, source.statusCode, source.status_code, response.status]) {
-    const value = Number(raw);
-    if (Number.isInteger(value) && value > 0) return value;
+const STATUS_KEYS = ["status", "statusCode", "status_code", "http_status"] as const;
+const STATUS_CONTAINERS = ["response", "body", "error", "data"] as const;
+
+export const providerErrorStatusCode = (error: unknown): number | undefined => {
+  const queue: Array<{ value: unknown; depth: number }> = [{ value: error, depth: 0 }];
+  const seen = new Set<object>();
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const source = objectValue(current.value);
+    if (seen.has(source)) continue;
+    seen.add(source);
+    for (const key of STATUS_KEYS) {
+      const value = Number(source[key]);
+      if (Number.isInteger(value) && value > 0) return value;
+    }
+    if (current.depth >= 3) continue;
+    for (const key of STATUS_CONTAINERS) {
+      const child = source[key];
+      if (child !== null && typeof child === "object" && !Array.isArray(child)) {
+        queue.push({ value: child, depth: current.depth + 1 });
+      }
+    }
   }
   return undefined;
 };
@@ -161,7 +177,7 @@ const genericClassification = (status: number, text: string, label: string): Cla
 
 export function classifyProviderError(error: unknown, descriptor: ProviderDescriptor): RuntimeProviderError {
   if (error instanceof RuntimeProviderError) return error;
-  const status = statusCode(error) ?? 0;
+  const status = providerErrorStatusCode(error) ?? 0;
   const rawMessage = errorText(error);
   const text = rawMessage.toLowerCase();
   const classification = descriptor.name === "kimi_coding"

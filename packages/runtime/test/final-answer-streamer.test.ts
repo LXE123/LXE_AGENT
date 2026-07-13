@@ -52,6 +52,7 @@ describe("FinalAnswerStreamer display contract", () => {
     expect(terminal?.emit_kind).toBe("stream");
     if (terminal?.emit_kind !== "stream") throw new Error("terminal stream frame expected");
     expect(terminal.state).toBe("final");
+    expect(terminal.thinking).toBe("checking");
     expect(terminal.redacted_thinking_count).toBe(1);
     expect(terminal.display_metrics).toEqual(expect.objectContaining({
       status: "completed",

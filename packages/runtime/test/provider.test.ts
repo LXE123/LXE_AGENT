@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
+import parity from "./fixtures/main-production-parity.json";
 import {
   adaptMessagesForProvider,
   AnthropicRuntimeProvider,
@@ -10,7 +11,10 @@ import {
   loadProviderDescriptor,
   normalizeProviderError,
   ProviderIdleWatchdog,
+  type ProviderMessage,
 } from "../src/provider";
+import { providerErrorStatusCode } from "../src/provider-errors";
+import type { RuntimeContentBlock, RuntimeMessage, RuntimeStreamEvent } from "../src/types";
 
 describe("Anthropic-compatible provider", () => {
   test("loads the existing provider catalog and auth profile without changing env names", () => {
@@ -359,6 +363,111 @@ describe("Anthropic-compatible provider", () => {
       .toEqual(expect.objectContaining({ retryable: false, contextOverflow: true }));
   });
 
+  test("consumes frozen main Kimi and DeepSeek request and error fixtures", () => {
+    const projectRoot = resolve(import.meta.dir, "../../..");
+    const kimi = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding", AGENT_LLM_MODEL: "kimi-for-coding", KIMI_CODE_API_KEY: "secret-key",
+    });
+    const deepseek = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "deepseek", AGENT_LLM_MODEL: "deepseek-v4-pro", DEEPSEEK_API: "secret-key",
+    });
+    for (const fixture of parity.provider.kimi_thinking_cases) {
+      expect(buildThinkingPayload({
+        ...kimi,
+        thinkingEnabled: fixture.enabled,
+        thinkingEffort: fixture.effort,
+        maxTokens: fixture.max_tokens,
+      })).toEqual(fixture.expected);
+    }
+    for (const fixture of parity.provider.deepseek_effort_cases) {
+      expect(buildThinkingPayload({ ...deepseek, thinkingEffort: fixture.configured })).toEqual({
+        thinking: { type: "enabled" }, output_config: { effort: fixture.expected },
+      });
+    }
+    expect(adaptMessagesForProvider(
+      parity.provider.deepseek_history.canonical as RuntimeMessage[],
+      deepseek,
+    )).toEqual(parity.provider.deepseek_history.expected as ProviderMessage[]);
+    for (const fixture of parity.provider.nested_error_cases) {
+      const descriptor = fixture.provider === "deepseek" ? deepseek : kimi;
+      const source = { error: { type: "error", error: { message: "request failed", status_code: fixture.status } } };
+      expect(providerErrorStatusCode(source)).toBe(fixture.status);
+      expect(normalizeProviderError(source, descriptor)).toEqual(expect.objectContaining({
+        statusCode: fixture.status,
+        category: fixture.category,
+        retryable: fixture.retryable,
+      }));
+    }
+    for (const fixture of parity.provider.context_error_cases) {
+      const descriptor = fixture.provider === "deepseek" ? deepseek : kimi;
+      expect(normalizeProviderError({
+        error: { error: { status_code: fixture.status, message: fixture.message } },
+      }, descriptor)).toEqual(expect.objectContaining({
+        statusCode: fixture.status,
+        category: fixture.category,
+        contextOverflow: true,
+        retryable: false,
+      }));
+    }
+  });
+
+  test("restores initial stream blocks without duplicating redacted thinking", async () => {
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    const fixture = parity.provider.stream;
+    const parseErrors: unknown[] = [];
+    const runtimeEvents: RuntimeStreamEvent[] = [];
+    const provider = new AnthropicRuntimeProvider(
+      {
+        name: "kimi_coding", model: "fixture", baseURL: "https://example.invalid", apiKey: "secret",
+        maxTokens: 4_096, defaultHeaders: {}, thinkingStyle: "anthropic-budget", thinkingEnabled: true,
+        thinkingEffort: "low", thinkingDisplay: "omitted", contextWindowTokens: 256_000, requestIdleTimeoutMs: 120_000,
+      },
+      { messages: { stream: () => {
+        const stream = {
+          on: (event: string, listener: (...args: unknown[]) => void) => { listeners.set(event, listener); return stream; },
+          finalMessage: async () => fixture.final_message,
+        };
+        queueMicrotask(() => {
+          for (const event of fixture.events) {
+            listeners.get("streamEvent")?.(event, {});
+            if (event.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
+              listeners.get("thinking")?.(event.delta.thinking, event.delta.thinking);
+            }
+            if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+              listeners.get("text")?.(event.delta.text, event.delta.text);
+            }
+            if (event.type === "content_block_stop" && event.index === 2) {
+              listeners.get("contentBlock")?.(fixture.redacted_completion);
+            }
+          }
+        });
+        return stream;
+      } } },
+    );
+    const response = await provider.turn({
+      system: "system", messages: [{ role: "user", content: "hello" }], tools: [], toolChoice: "none",
+      signal: new AbortController().signal,
+      onEvent: (event) => { runtimeEvents.push(event); },
+      wireTrace: {
+        requestStart: () => undefined,
+        responseStart: () => undefined,
+        event: () => undefined,
+        parseError: (...values) => { parseErrors.push(values); },
+        end: () => undefined,
+      },
+    });
+
+    expect(runtimeEvents).toEqual(fixture.expected_runtime_events as RuntimeStreamEvent[]);
+    expect(runtimeEvents.filter((event) => event.type === "redacted_thinking")).toHaveLength(1);
+    expect(JSON.stringify(runtimeEvents)).not.toContain("fixture-encrypted-thinking");
+    expect(parseErrors).toEqual([]);
+    expect(response).toEqual({
+      content: fixture.expected_runtime_content as RuntimeContentBlock[],
+      stop_reason: "tool_use",
+      usage: { input_tokens: 3, output_tokens: 7, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    });
+  });
+
   test("closes wire attempts on transport failure without letting diagnostics replace the Provider error", async () => {
     const terminal: Array<{ ok: boolean; error?: string }> = [];
     const provider = new AnthropicRuntimeProvider(
@@ -429,6 +538,49 @@ describe("Anthropic-compatible provider", () => {
       },
     });
     expect(result.content).toEqual([{ type: "text", text: "done" }]);
+  });
+
+  test("isolates stream event conversion failures as wire parse errors", async () => {
+    const listeners = new Map<string, (...args: unknown[]) => void>();
+    const parseErrors: Array<{ event: string; error: unknown }> = [];
+    const provider = new AnthropicRuntimeProvider(
+      {
+        name: "test", model: "model-1", baseURL: "https://example.invalid", apiKey: "key",
+        maxTokens: 1_024, defaultHeaders: {}, thinkingStyle: "none", thinkingEnabled: false,
+        thinkingEffort: "low", thinkingDisplay: "omitted", contextWindowTokens: 200_000, requestIdleTimeoutMs: 30_000,
+      },
+      { messages: { stream: () => {
+        const stream = {
+          on: (event: string, listener: (...args: unknown[]) => void) => { listeners.set(event, listener); return stream; },
+          finalMessage: async () => ({
+            content: [{ type: "text", text: "done" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+        };
+        queueMicrotask(() => listeners.get("streamEvent")?.({
+          type: "content_block_start",
+          get content_block() { throw new Error("malformed block"); },
+        }));
+        return stream;
+      } } },
+    );
+    const result = await provider.turn({
+      system: "system", messages: [{ role: "user", content: "hello" }], tools: [], toolChoice: "none",
+      signal: new AbortController().signal,
+      wireTrace: {
+        requestStart: () => undefined,
+        responseStart: () => undefined,
+        event: () => undefined,
+        parseError: (event, _data, error) => { parseErrors.push({ event, error }); },
+        end: () => undefined,
+      },
+    });
+
+    expect(result.content).toEqual([{ type: "text", text: "done" }]);
+    expect(parseErrors).toHaveLength(1);
+    expect(parseErrors[0]?.event).toBe("content_block_start");
+    expect(String(parseErrors[0]?.error)).toContain("malformed block");
   });
 
   test("atomically reconfigures the provider for the next turn", async () => {

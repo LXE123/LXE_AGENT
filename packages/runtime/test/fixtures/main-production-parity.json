@@ -67,6 +67,116 @@
       { "role": "assistant", "content": [{ "type": "text", "text": "done" }] }
     ]
   },
+  "provider": {
+    "kimi_thinking_cases": [
+      { "enabled": false, "effort": "low", "max_tokens": 4096, "expected": { "thinking": { "type": "disabled" } } },
+      { "enabled": true, "effort": "off", "max_tokens": 4096, "expected": { "thinking": { "type": "disabled" } } },
+      { "enabled": true, "effort": "low", "max_tokens": 1024, "expected": { "thinking": { "type": "disabled" } } },
+      { "enabled": true, "effort": "low", "max_tokens": 4096, "expected": { "thinking": { "type": "enabled", "budget_tokens": 4000 } } },
+      { "enabled": true, "effort": "low", "max_tokens": 3000, "expected": { "thinking": { "type": "enabled", "budget_tokens": 1976 } } },
+      { "enabled": true, "effort": "wild", "max_tokens": 32768, "expected": { "thinking": { "type": "enabled", "budget_tokens": 4000 } } }
+    ],
+    "deepseek_effort_cases": [
+      { "configured": "low", "expected": "high" },
+      { "configured": "medium", "expected": "high" },
+      { "configured": "high", "expected": "high" },
+      { "configured": "xhigh", "expected": "max" },
+      { "configured": "max", "expected": "max" },
+      { "configured": "wild", "expected": "high" }
+    ],
+    "deepseek_history": {
+      "canonical": [
+        {
+          "role": "assistant",
+          "content": [
+            { "type": "thinking", "thinking": "reasoning", "signature": "must-not-cross" },
+            { "type": "text", "text": "calling tool" },
+            { "type": "tool_call", "id": "call-1", "name": "exec", "arguments": { "command": "pwd" } },
+            { "type": "unsupported", "data": "must-not-cross" }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": [{ "type": "tool_result", "tool_call_id": "call-1", "content": "ok" }]
+        }
+      ],
+      "expected": [
+        {
+          "role": "assistant",
+          "content": [
+            { "type": "thinking", "thinking": "reasoning" },
+            { "type": "text", "text": "calling tool" },
+            { "type": "tool_use", "id": "call-1", "name": "exec", "input": { "command": "pwd" } }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [{ "type": "tool_result", "tool_use_id": "call-1", "content": "ok" }]
+        }
+      ]
+    },
+    "stream": {
+      "events": [
+        { "type": "message_start", "message": { "id": "msg-1", "model": "kimi-for-coding", "usage": { "input_tokens": 3, "output_tokens": 0 } } },
+        { "type": "content_block_start", "index": 0, "content_block": { "type": "thinking", "thinking": "plan" } },
+        { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "thinking": " more" } },
+        { "type": "content_block_start", "index": 1, "content_block": { "type": "text", "text": "Hello" } },
+        { "type": "content_block_delta", "index": 1, "delta": { "type": "text_delta", "text": " world" } },
+        { "type": "content_block_start", "index": 2, "content_block": { "type": "redacted_thinking", "data": "fixture-encrypted-thinking" } },
+        { "type": "content_block_stop", "index": 2 },
+        { "type": "content_block_start", "index": 3, "content_block": { "type": "tool_use", "id": "tool-1", "name": "read", "input": { "path": "a.txt" } } },
+        { "type": "content_block_delta", "index": 3, "delta": { "type": "input_json_delta", "partial_json": "{\"limit\":1}" } },
+        { "type": "content_block_stop", "index": 3 },
+        { "type": "message_delta", "delta": { "stop_reason": "tool_use" }, "usage": { "output_tokens": 7 } },
+        { "type": "message_stop" }
+      ],
+      "redacted_completion": { "type": "redacted_thinking", "data": "fixture-encrypted-thinking" },
+      "expected_runtime_events": [
+        { "type": "thinking_delta", "thinking": "plan" },
+        { "type": "thinking_delta", "thinking": " more" },
+        { "type": "text_delta", "text": "Hello" },
+        { "type": "text_delta", "text": " world" },
+        { "type": "redacted_thinking" }
+      ],
+      "final_message": {
+        "content": [
+          { "type": "thinking", "thinking": "plan more", "signature": "fixture-signature" },
+          { "type": "text", "text": "Hello world" },
+          { "type": "redacted_thinking", "data": "fixture-encrypted-thinking" },
+          { "type": "tool_use", "id": "tool-1", "name": "read", "input": { "path": "a.txt", "limit": 1 } }
+        ],
+        "stop_reason": "tool_use",
+        "usage": { "input_tokens": 3, "output_tokens": 7 }
+      },
+      "expected_runtime_content": [
+        { "type": "thinking", "thinking": "plan more", "signature": "fixture-signature" },
+        { "type": "text", "text": "Hello world" },
+        { "type": "redacted_thinking", "data": "fixture-encrypted-thinking" },
+        { "type": "tool_call", "id": "tool-1", "name": "read", "arguments": { "path": "a.txt", "limit": 1 } }
+      ]
+    },
+    "nested_error_cases": [
+      { "provider": "kimi_coding", "status": 400, "category": "请求格式错误", "retryable": false },
+      { "provider": "kimi_coding", "status": 401, "category": "认证错误", "retryable": false },
+      { "provider": "kimi_coding", "status": 402, "category": "会员权益异常", "retryable": false },
+      { "provider": "kimi_coding", "status": 403, "category": "权限错误", "retryable": false },
+      { "provider": "kimi_coding", "status": 404, "category": "资源未找到", "retryable": false },
+      { "provider": "kimi_coding", "status": 429, "category": "限流与配额", "retryable": true },
+      { "provider": "deepseek", "status": 400, "category": "格式错误", "retryable": false },
+      { "provider": "deepseek", "status": 401, "category": "认证失败", "retryable": false },
+      { "provider": "deepseek", "status": 402, "category": "余额不足", "retryable": false },
+      { "provider": "deepseek", "status": 403, "category": "请求失败", "retryable": false },
+      { "provider": "deepseek", "status": 404, "category": "请求失败", "retryable": false },
+      { "provider": "deepseek", "status": 422, "category": "参数错误", "retryable": false },
+      { "provider": "deepseek", "status": 429, "category": "请求速率达到上限", "retryable": true },
+      { "provider": "deepseek", "status": 500, "category": "服务器故障", "retryable": true },
+      { "provider": "deepseek", "status": 503, "category": "服务器繁忙", "retryable": true }
+    ],
+    "context_error_cases": [
+      { "provider": "kimi_coding", "status": 400, "message": "input is too long", "category": "请求格式错误" },
+      { "provider": "deepseek", "status": 400, "message": "maximum context length exceeded", "category": "格式错误" }
+    ]
+  },
   "mcp": {
     "startup_timeout_seconds": 10,
     "tool_timeout_seconds": 60,
