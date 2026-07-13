@@ -51,6 +51,8 @@ Each Runtime turn has exactly one `turn_started` and exactly one terminal `turn_
 | Heartbeat | `heartbeat_requested`, `heartbeat_deduplicated`, `heartbeat_deferred`, `heartbeat_dropped`, `heartbeat_enqueued` |
 | Feishu ingress | `feishu_inbound_rejected`, `feishu_inbound_normalized`, `feishu_inbound_sink_completed`, `feishu_inbound_failed` |
 | Feishu connection | `feishu_connection_starting`, `feishu_connected`, `feishu_reconnecting`, `feishu_reconnected`, `feishu_connection_failed`, `feishu_connection_stopped` |
+| CardKit delivery | `card_created`, `card_reference_retry_scheduled`, `card_reference_retry_succeeded`, `card_reference_retry_exhausted`, `card_send_completed`, `card_dead`, `card_finalized` |
+| Stream fallback | `stream_fallback_started`, `stream_fallback_completed`, `stream_fallback_failed` |
 | Idle restart | `feishu_restart_scheduled`, `feishu_restart_deferred`, `feishu_restart_started`, `feishu_restart_completed`, `feishu_restart_failed`, `feishu_restart_stop_timed_out` |
 | Background process | `process_started`, `process_yielded_to_background`, `process_completed`, `process_timeout`, `process_killed`, `process_force_killed`, `process_notification_enqueued`, `process_wake_requested`, `process_wake_unavailable` |
 | Maintenance | `maintenance_configured`, `maintenance_task_started`, `maintenance_task_completed`, `maintenance_single_flight_coalesced`, `maintenance_single_flight_rerun`, `auth_refresh_succeeded`, `auth_refresh_failed`, `data_sync_uploaded`, `data_sync_skipped`, `data_sync_failed` |
@@ -75,4 +77,4 @@ Core serialization:
 
 Logger writers, trace writers, retention cleanup, and local-file sinks must never change a business result. A local sink is disabled after its first write failure, reports `logging_sink_failed` once, and exposes `disabledReason="sink_failed"` plus a safe `lastError` through logging status.
 
-The official Feishu SDK is restricted to fatal logging and receives the project's safe adapter. CardKit records operation/state decisions; the Runtime remains the only owner of the final outbound-delivery warning.
+The official Feishu SDK logger is suppressed because it emits duplicate Axios diagnostics. The adapter records connection lifecycle, CardKit records operation/state decisions, and the Runtime remains the only owner of the final outbound-delivery warning.

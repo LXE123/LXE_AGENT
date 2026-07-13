@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
-import { createLogger, runWithLogContext, type Environment } from "@lxe/core";
+import { createLogger, runWithLogContext, type Environment, type Logger } from "@lxe/core";
 import { ToolRegistry, type ToolExposureOptions } from "./tools";
 import {
   ContextCompactionError,
@@ -53,6 +53,7 @@ export interface TypeScriptAgentRuntimeOptions {
   maxSteps?: number;
   contextWindowTokens?: number;
   environment?: Environment;
+  logger?: Logger;
   display?: {
     model: string;
     contextWindowTokens: number;
@@ -92,11 +93,13 @@ export const DEFAULT_PROVIDER_ATTEMPTS = 3;
 export const MAX_STEP_REPLY = "本轮已达到最大步骤，请发送下一条消息继续。";
 
 export class TypeScriptAgentRuntime implements AgentRuntime {
-  private readonly logger = createLogger("runtime");
+  private readonly logger: Logger;
   private readonly active = new Set<RuntimeHandle>();
   private started = false;
 
-  constructor(private readonly options: TypeScriptAgentRuntimeOptions) {}
+  constructor(private readonly options: TypeScriptAgentRuntimeOptions) {
+    this.logger = options.logger ?? createLogger("runtime");
+  }
 
   async start(): Promise<void> {
     if (this.started) return;
@@ -432,7 +435,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           const reply = forcedLastStepReply || textContent(response.content);
           const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.finish(reply) : false;
           if (reply && job.response_route_id && !streamDelivered) {
-            await this.emitBestEffort(this.finalRequest(job, reply), "final");
+            if (finalAnswerStreamer) await this.emitStreamFallback(job, reply, "final");
+            else await this.emitBestEffort(this.finalRequest(job, reply), "final");
           }
           if (!heartbeat && !isCancelled(handle)) {
             try {
@@ -595,7 +599,10 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       messages.push(terminal);
       await this.options.store.appendMessage(job.session_id, terminal, "assistant_max_steps");
       const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.finish(reply) : false;
-      if (job.response_route_id && !streamDelivered) await this.emitBestEffort(this.finalRequest(job, reply), "final");
+      if (job.response_route_id && !streamDelivered) {
+        if (finalAnswerStreamer) await this.emitStreamFallback(job, reply, "final");
+        else await this.emitBestEffort(this.finalRequest(job, reply), "final");
+      }
       await recordUsage("completed");
       return this.outcome("completed", reply, inputTokens, outputTokens, toolCalls);
     } catch (cause) {
@@ -610,7 +617,10 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       const reply = `执行失败: ${message}`;
       await recordUsage("error", cause);
       const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.fail(reply) : false;
-      if (job.response_route_id && !streamDelivered) await this.emitBestEffort(this.finalRequest(job, reply), "error");
+      if (job.response_route_id && !streamDelivered) {
+        if (finalAnswerStreamer) await this.emitStreamFallback(job, reply, "error");
+        else await this.emitBestEffort(this.finalRequest(job, reply), "error");
+      }
       return this.outcome("error", reply, inputTokens, outputTokens, toolCalls);
     } finally {
       if (typingStarted) {
@@ -639,6 +649,26 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         emit_id: request.emit_id,
         error,
       });
+      return false;
+    }
+  }
+
+  private async emitStreamFallback(job: AgentJob, content: string, phase: "final" | "error"): Promise<boolean> {
+    const request = this.finalRequest(job, content);
+    const fields = {
+      phase,
+      session_id: request.session_id,
+      turn_id: request.turn_id,
+      response_route_id: request.response_route_id,
+      emit_id: request.emit_id,
+    };
+    this.logger.info("stream_fallback_started", fields);
+    try {
+      await this.options.emitter.emit(request);
+      this.logger.info("stream_fallback_completed", fields);
+      return true;
+    } catch (error) {
+      this.logger.warn("stream_fallback_failed", { ...fields, error });
       return false;
     }
   }

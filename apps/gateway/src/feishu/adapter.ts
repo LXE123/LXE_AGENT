@@ -178,6 +178,7 @@ export class FeishuAdapter implements ChannelAdapter {
       api: sdk.cardkit,
       store: this.options.store,
       display: this.options.config.cardDisplay,
+      delay: this.delay,
     });
     this.typing = new FeishuTyping({ reactions: sdk.reactions, store: this.options.store });
     this.media = new FeishuMedia({ api: sdk.api });

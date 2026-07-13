@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createLogger } from "@lxe/core";
 import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../src/runtime";
 import { RuntimeProviderError } from "../src/provider";
@@ -450,6 +451,7 @@ describe("TypeScriptAgentRuntime", () => {
 
   test("stops stream retries after the first delivery failure and preserves the completed turn", async () => {
     const store = new MemoryStore();
+    const logLines: string[] = [];
     let streamAttempts = 0;
     let finalAttempts = 0;
     let providerCalls = 0;
@@ -490,6 +492,7 @@ describe("TypeScriptAgentRuntime", () => {
         typing: async () => undefined,
       },
       systemPrompt: "test",
+      logger: createLogger("test.runtime", { write: (line) => logLines.push(line) }),
     });
 
     await runtime.start();
@@ -502,6 +505,11 @@ describe("TypeScriptAgentRuntime", () => {
       role: "assistant",
       content: [{ type: "text", text: "done" }],
     });
+    const records = logLines.map((line) => JSON.parse(line));
+    expect(records.filter((record) => record.message === "stream_fallback_started")).toHaveLength(1);
+    expect(records.filter((record) => record.message === "stream_fallback_failed")).toHaveLength(1);
+    expect(records.filter((record) => record.message === "outbound delivery failed" && record.phase === "final"))
+      .toHaveLength(0);
     await runtime.stop();
   });
 

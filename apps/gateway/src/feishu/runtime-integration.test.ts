@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { createLogger } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 import { ToolRegistry, TypeScriptAgentRuntime } from "@lxe/runtime";
 import type { RuntimeHandle, RuntimeMessage, RuntimeStore } from "@lxe/runtime";
@@ -161,6 +162,7 @@ describe("Runtime to Feishu CardKit delivery", () => {
 
   test("falls back to exactly one ordinary final when the initial CardKit reference is rejected", async () => {
     const calls: Array<{ operation: string; params: JsonObject }> = [];
+    const logLines: string[] = [];
     let route: ResponseRouteRecord = {
       response_route_id: "route-1",
       owner_user_id: "ou-user",
@@ -203,9 +205,10 @@ describe("Runtime to Feishu CardKit delivery", () => {
             path: "/im/v1/messages/om-source/reply",
             httpStatus: 400,
             apiCode: 230099,
+            apiSubcode: 11310,
             logId: "log-11310",
             operation: "send_stream_card_reply",
-            message: "cardid is invalid",
+            message: "Failed to create card content, ext=ErrCode: 11310; ErrMsg: cardid is invalid;",
           });
         },
       },
@@ -221,6 +224,7 @@ describe("Runtime to Feishu CardKit delivery", () => {
       config: loadFeishuConfig({ FEISHU_APP_ID: "cli-test", FEISHU_APP_SECRET: "secret" }),
       store: routeStore,
       sdkFactory,
+      delay: async () => undefined,
     });
     const registry = new ChannelRegistry();
     registry.register(adapter);
@@ -246,6 +250,7 @@ describe("Runtime to Feishu CardKit delivery", () => {
         },
       },
       systemPrompt: "test",
+      logger: createLogger("test.runtime", { write: (line) => logLines.push(line) }),
     });
     const controller = new AbortController();
     await runtime.start();
@@ -272,10 +277,22 @@ describe("Runtime to Feishu CardKit delivery", () => {
     });
 
     expect(outcome.status).toBe("completed");
-    expect(calls.filter((call) => call.operation === "card.reply")).toHaveLength(1);
+    expect(calls.filter((call) => call.operation === "card.reply")).toHaveLength(3);
     expect(calls.filter((call) => call.operation === "ordinary.reply")).toHaveLength(1);
     expect(JSON.stringify(calls.find((call) => call.operation === "ordinary.reply")?.params)).not.toContain("card-rejected");
     expect(route.extra_data).toEqual(expect.objectContaining({ cardkit_card_id: "", cardkit_emit_id: "" }));
+    const records = logLines.map((line) => JSON.parse(line));
+    expect(records).toContainEqual(expect.objectContaining({
+      message: "stream_fallback_started",
+      phase: "final",
+      session_id: "session-1",
+      turn_id: "job-fallback",
+    }));
+    expect(records).toContainEqual(expect.objectContaining({
+      message: "stream_fallback_completed",
+      phase: "final",
+    }));
+    expect(records.filter((record) => record.message === "stream_fallback_failed")).toHaveLength(0);
     await runtime.stop();
     await registry.stopAll();
   });

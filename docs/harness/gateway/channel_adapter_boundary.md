@@ -61,6 +61,8 @@ CardKit state 由 adapter 内部维护，按 session/emit 串行化更新：
 - sequence 必须单调增加，过期帧被拒绝或忽略。
 - thinking、tool 和 answer 复用同一张卡。
 - final/error 关闭 streaming mode，再替换最终结构并清理内存状态。
+- 新建卡片首次被 IM 引用时，只有精确的 `230099/11310/cardid is invalid` 会使用同一卡片按 1 秒间隔重试两次；恢复卡、更新操作和其它错误不重试。
+- 新卡引用三次均失败时终止当前 CardKit stream，Runtime 在 turn 结束后只发送一次普通 final。
 - API code `200850` 只允许重开一次；重复或其它错误终止当前 stream。
 
 encrypted thinking data 永远不进入卡片、日志或异常文本。

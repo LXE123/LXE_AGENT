@@ -88,7 +88,7 @@ const DEFAULT_SANITIZE_POLICY: Required<LogSanitizePolicy> = {
   maxStackString: 16_000,
 };
 const SAFE_ERROR_FIELDS = new Set([
-  "method", "path", "http_status", "api_code", "log_id", "operation", "card_id",
+  "method", "path", "http_status", "api_code", "api_subcode", "log_id", "operation", "card_id",
 ]);
 const SENSITIVE_KEYS = new Set([
   "authorization", "proxyauthorization", "cookie", "setcookie", "token", "accesstoken",

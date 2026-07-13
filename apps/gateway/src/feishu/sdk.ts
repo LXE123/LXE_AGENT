@@ -2,7 +2,6 @@ import { readFile } from "node:fs/promises";
 import { basename, extname } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { JsonObject } from "@lxe/protocol";
-import { createLogger } from "@lxe/core";
 import type { FeishuCardKitApi } from "./cardkit";
 import type { FeishuConfig } from "./config";
 import type { FeishuMediaApi } from "./media";
@@ -116,28 +115,11 @@ const officialConstructors: Constructors = {
   WSClient: Lark.WSClient as unknown as Constructors["WSClient"],
 };
 
-const sdkLog = createLogger("gateway.feishu.sdk");
-const redactSdkText = (value: string): string => value
-  .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer [redacted]")
-  .replace(
-    /\b(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|cookie|signature)\b(\s*[:=]\s*)([^\s,;]+)/gi,
-    "$1$2[redacted]",
-  );
-const sdkArgument = (value: unknown): unknown => {
-  if (value instanceof Error) {
-    return { name: value.name, message: redactSdkText(value.message) };
-  }
-  if (typeof value === "string") return redactSdkText(value);
-  if (["number", "boolean"].includes(typeof value)) return value;
-  const source = object(value);
-  return Object.fromEntries(["code", "msg", "message", "log_id", "type", "state"].flatMap((key) =>
-    source[key] === undefined
-      ? []
-      : [[key, typeof source[key] === "string" ? redactSdkText(source[key]) : source[key]]]));
-};
 const sdkLogger = {
-  error: (...values: unknown[]) => sdkLog.error("feishu_sdk_error", { sdk_args: values.map(sdkArgument) }),
-  warn: (...values: unknown[]) => sdkLog.warn("feishu_sdk_warning", { sdk_args: values.map(sdkArgument) }),
+  // Connection lifecycle and terminal API failures are logged by the adapter
+  // and Runtime respectively. Suppress the SDK's duplicate Axios diagnostics.
+  error: () => undefined,
+  warn: () => undefined,
   info: () => undefined,
   debug: () => undefined,
   trace: () => undefined,

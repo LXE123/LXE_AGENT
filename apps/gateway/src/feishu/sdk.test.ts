@@ -121,7 +121,27 @@ describe("official Feishu SDK factory", () => {
       method: "POST",
       http_status: 400,
       api_code: 200000,
+      api_subcode: -1,
       log_id: "log-http-1",
+      operation: "api_request",
+    }));
+    apiError = Object.assign(new Error("Request failed with status code 400"), {
+      name: "AxiosError",
+      response: {
+        status: 400,
+        data: {
+          code: 230099,
+          msg: "Failed to create card content, ext=ErrCode: 11310; ErrMsg: cardid is invalid;",
+          error: { log_id: "log-nested-11310" },
+        },
+      },
+    });
+    const nestedStructured = await sdk.api.request("POST", "/im/v1/messages/om-source/reply", {}).catch((error) => error);
+    expect(nestedStructured).toEqual(expect.objectContaining({
+      http_status: 400,
+      api_code: 230099,
+      api_subcode: 11310,
+      log_id: "log-nested-11310",
       operation: "api_request",
     }));
     apiError = undefined;

@@ -37,6 +37,7 @@ describe("structured logger", () => {
       path: "/open-apis/cardkit/v1/cards",
       http_status: 400,
       api_code: 230099,
+      api_subcode: 11310,
       log_id: "log-1",
       operation: "create_stream_card",
       authorization: "Bearer private",
@@ -55,6 +56,7 @@ describe("structured logger", () => {
       method: "POST",
       http_status: 400,
       api_code: 230099,
+      api_subcode: 11310,
       log_id: "log-1",
     }));
     expect(lines[0]).not.toContain("Bearer private");

@@ -4,6 +4,7 @@ import type { JsonObject } from "@lxe/protocol";
 import type { OutboundRequest } from "../models";
 import { FeishuCardKit, FeishuCardKitError, type FeishuRouteContext } from "./cardkit";
 import { loadFeishuConfig } from "./config";
+import { FeishuApiHttpError } from "./response";
 
 const route = (): FeishuRouteContext => ({
   response_route_id: "route-1",
@@ -51,7 +52,8 @@ const request = (state: "delta" | "final" | "error", seq: number, patch: JsonObj
 
 class FakeApi {
   readonly calls: Array<{ operation: string; params: JsonObject }> = [];
-  failNext: FeishuCardKitError | undefined;
+  readonly sendFailures: Error[] = [];
+  failNext: Error | undefined;
   returnNext: JsonObject | undefined;
 
   private async execute(operation: string, params: JsonObject, fallback: JsonObject): Promise<JsonObject> {
@@ -86,11 +88,16 @@ class FakeApi {
   }
 
   async sendCardByReference(params: { conversationId: string; sourceMessageId: string; cardId: string }): Promise<JsonObject> {
+    const queuedFailure = this.sendFailures.shift();
+    if (queuedFailure) {
+      this.calls.push({ operation: "im.message.sendCardByReference", params });
+      throw queuedFailure;
+    }
     return this.execute("im.message.sendCardByReference", params, { code: 0, data: { message_id: "om_card" } });
   }
 }
 
-const setup = (options: { logger?: Logger } = {}) => {
+const setup = (options: { logger?: Logger; delay?: (milliseconds: number) => Promise<void> } = {}) => {
   const api = new FakeApi();
   let context = route();
   const patches: JsonObject[] = [];
@@ -113,9 +120,22 @@ const setup = (options: { logger?: Logger } = {}) => {
       store,
       display: loadFeishuConfig({}).cardDisplay,
       ...(options.logger ? { logger: options.logger } : {}),
+      ...(options.delay ? { delay: options.delay } : {}),
     }),
   };
 };
+
+const invalidFreshCardReference = (message = "cardid is invalid"): FeishuApiHttpError =>
+  new FeishuApiHttpError({
+    method: "POST",
+    path: "/im/v1/messages/om_source/reply",
+    httpStatus: 400,
+    apiCode: 230099,
+    apiSubcode: 11310,
+    logId: "log-11310",
+    operation: "send_stream_card_reply",
+    message: `Failed to create card content, ext=ErrCode: 11310; ErrMsg: ${message};`,
+  });
 
 describe("Feishu CardKit stream state", () => {
   test("creates/replies once, rejects stale frames and uses monotonic card sequences", async () => {
@@ -221,6 +241,96 @@ describe("Feishu CardKit stream state", () => {
     const malformed = setup();
     malformed.api.returnNext = { data: { card_id: "card-1" } };
     await expect(malformed.cardkit.handle(request("delta", 1), malformed.route)).rejects.toThrow("malformed Feishu response");
+  });
+
+  test("retries a fresh card reference twice at one-second intervals and keeps the same card", async () => {
+    const lines: string[] = [];
+    const delays: number[] = [];
+    const logger = createLogger("test.cardkit", { write: (line) => lines.push(line) });
+    const state = setup({ logger, delay: async (milliseconds) => { delays.push(milliseconds); } });
+    state.api.sendFailures.push(invalidFreshCardReference(), invalidFreshCardReference());
+
+    await state.cardkit.handle(request("delta", 1), state.route);
+
+    const sends = state.api.calls.filter((item) => item.operation === "im.message.sendCardByReference");
+    expect(state.api.calls.filter((item) => item.operation === "card.create")).toHaveLength(1);
+    expect(sends).toHaveLength(3);
+    expect(new Set(sends.map((item) => item.params.cardId))).toEqual(new Set(["card-1"]));
+    expect(delays).toEqual([1_000, 1_000]);
+    const records = lines.map((line) => JSON.parse(line));
+    expect(records.filter((record) => record.message === "card_reference_retry_scheduled").map((record) => record.attempt))
+      .toEqual([2, 3]);
+    expect(records).toContainEqual(expect.objectContaining({
+      message: "card_reference_retry_succeeded",
+      attempt: 3,
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      emit_id: "emit-1",
+      platform_message_id: "om_card",
+    }));
+  });
+
+  test("continues streaming when the first fresh-card retry succeeds", async () => {
+    const delays: number[] = [];
+    const state = setup({ delay: async (milliseconds) => { delays.push(milliseconds); } });
+    state.api.sendFailures.push(invalidFreshCardReference());
+
+    await state.cardkit.handle(request("delta", 1), state.route);
+    await state.cardkit.handle(request("final", 2), state.route);
+
+    expect(state.api.calls.filter((item) => item.operation === "card.create")).toHaveLength(1);
+    expect(state.api.calls.filter((item) => item.operation === "im.message.sendCardByReference")).toHaveLength(2);
+    expect(delays).toEqual([1_000]);
+    expect(state.api.calls.some((item) => item.operation === "card.settings")).toBe(true);
+    expect(state.api.calls.some((item) => item.operation === "card.update")).toBe(true);
+  });
+
+  test("marks a fresh reference dead only after exhausting both retries", async () => {
+    const lines: string[] = [];
+    const delays: number[] = [];
+    const logger = createLogger("test.cardkit", { write: (line) => lines.push(line) });
+    const state = setup({ logger, delay: async (milliseconds) => { delays.push(milliseconds); } });
+    state.api.sendFailures.push(
+      invalidFreshCardReference(),
+      invalidFreshCardReference(),
+      invalidFreshCardReference(),
+    );
+
+    await expect(state.cardkit.handle(request("delta", 1), state.route)).rejects.toThrow("cardid is invalid");
+
+    expect(state.api.calls.filter((item) => item.operation === "card.create")).toHaveLength(1);
+    expect(state.api.calls.filter((item) => item.operation === "im.message.sendCardByReference")).toHaveLength(3);
+    expect(delays).toEqual([1_000, 1_000]);
+    expect(state.patches.at(-1)).toEqual({ patch: { cardkit_card_id: "", cardkit_emit_id: "" } });
+    const records = lines.map((line) => JSON.parse(line));
+    expect(records).toContainEqual(expect.objectContaining({
+      message: "card_reference_retry_exhausted",
+      attempts: 3,
+      api_code: 230099,
+      api_subcode: 11310,
+      log_id: "log-11310",
+    }));
+    expect(records.filter((record) => record.message === "card_dead")).toHaveLength(1);
+  });
+
+  test("does not retry recovered cards or unrelated 230099/11310 failures", async () => {
+    const recoveredDelays: number[] = [];
+    const recovered = setup({ delay: async (milliseconds) => { recoveredDelays.push(milliseconds); } });
+    recovered.route.extra_data.cardkit_card_id = "card-route";
+    recovered.route.extra_data.cardkit_emit_id = "emit-1";
+    recovered.api.sendFailures.push(invalidFreshCardReference());
+    await expect(recovered.cardkit.handle(request("delta", 1), recovered.route)).rejects.toThrow("cardid is invalid");
+    expect(recovered.api.calls.filter((item) => item.operation === "card.create")).toHaveLength(0);
+    expect(recovered.api.calls.filter((item) => item.operation === "im.message.sendCardByReference")).toHaveLength(1);
+    expect(recoveredDelays).toEqual([]);
+
+    const tableLimitDelays: number[] = [];
+    const tableLimit = setup({ delay: async (milliseconds) => { tableLimitDelays.push(milliseconds); } });
+    tableLimit.api.sendFailures.push(invalidFreshCardReference("card table number over limit"));
+    await expect(tableLimit.cardkit.handle(request("delta", 1), tableLimit.route)).rejects.toThrow("table number over limit");
+    expect(tableLimit.api.calls.filter((item) => item.operation === "im.message.sendCardByReference")).toHaveLength(1);
+    expect(tableLimitDelays).toEqual([]);
   });
 
   test("rejects non-string card ids before send and does not retain a ghost writer", async () => {

@@ -17,7 +17,7 @@ import {
   type CardDisplayState,
 } from "./card-builder";
 import type { FeishuCardDisplayConfig } from "./config";
-import { parseFeishuEnvelope } from "./response";
+import { FeishuApiHttpError, parseFeishuEnvelope } from "./response";
 
 export { buildFinalCard, buildStreamingCard, STREAMING_ELEMENT_ID } from "./card-builder";
 
@@ -100,6 +100,15 @@ const asObject = (value: JsonValue | undefined): JsonObject =>
 const stringValue = (value: JsonValue | undefined): string => String(value ?? "").trim();
 const integer = (value: JsonValue | undefined): number => Number.isInteger(value) ? Number(value) : 0;
 const errorValue = (cause: unknown): Error => cause instanceof Error ? cause : new Error(String(cause));
+const CARD_REFERENCE_MAX_ATTEMPTS = 3;
+const CARD_REFERENCE_RETRY_DELAY_MS = 1_000;
+const isRetryableFreshCardReferenceError = (cause: unknown): cause is FeishuApiHttpError =>
+  cause instanceof FeishuApiHttpError
+  && cause.http_status === 400
+  && cause.api_code === 230099
+  && cause.api_subcode === 11310
+  && new Set(["send_stream_card_reply", "send_stream_card"]).has(cause.operation)
+  && /cardid\s+is\s+invalid/i.test(cause.message);
 const cardLogFields = (cardId: string): JsonObject => {
   const value = String(cardId ?? "");
   const masked = value.length <= 12 ? "*".repeat(value.length) : `${value.slice(0, 6)}...${value.slice(-6)}`;
@@ -166,14 +175,17 @@ export class FeishuCardKit {
   private readonly writers = new Map<string, StreamWriter>();
   private readonly queues = new Map<string, Promise<void>>();
   private readonly logger: Logger;
+  private readonly delay: (milliseconds: number) => Promise<void>;
 
   constructor(private readonly options: {
     api: FeishuCardKitApi;
     store: FeishuRouteStore;
     display: FeishuCardDisplayConfig;
     logger?: Logger;
+    delay?: (milliseconds: number) => Promise<void>;
   }) {
     this.logger = options.logger ?? createLogger("gateway.feishu.cardkit");
+    this.delay = options.delay ?? Bun.sleep;
   }
 
   handle(request: OutboundRequest, route: FeishuRouteContext): Promise<void> {
@@ -375,15 +387,16 @@ export class FeishuCardKit {
     }
     if (writer.platformMessageId) return;
     const sourceMessageId = stringValue(route.extra_data.source_message_id) || route.message_id;
-    const result = await this.checked(
-      sourceMessageId ? "send_stream_card_reply" : "send_stream_card",
-      this.options.api.sendCardByReference({
+    const operation = sourceMessageId ? "send_stream_card_reply" : "send_stream_card";
+    const result = await this.sendCardReferenceWithRetry(
+      writer,
+      operation,
+      () => this.options.api.sendCardByReference({
         conversationId: route.conversation_id,
         sourceMessageId,
         cardId: writer.cardId,
       }),
       logger,
-      writer.cardId,
     );
     writer.platformMessageId = stringValue(asObject(result.data).message_id);
     if (!writer.platformMessageId) throw new Error("Feishu stream send missing message_id");
@@ -394,6 +407,59 @@ export class FeishuCardKit {
       ...cardLogFields(writer.cardId),
       platform_message_id: writer.platformMessageId,
     });
+  }
+
+  private async sendCardReferenceWithRetry(
+    writer: StreamWriter,
+    operation: "send_stream_card_reply" | "send_stream_card",
+    send: () => Promise<JsonObject>,
+    logger: Logger,
+  ): Promise<JsonObject> {
+    const startedAt = Date.now();
+    for (let attempt = 1; attempt <= CARD_REFERENCE_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const result = await this.checked(operation, send(), logger, writer.cardId);
+        if (attempt > 1) {
+          logger.info("card_reference_retry_succeeded", {
+            ...cardLogFields(writer.cardId),
+            attempt,
+            max_attempts: CARD_REFERENCE_MAX_ATTEMPTS,
+            elapsed_ms: Math.max(0, Date.now() - startedAt),
+            platform_message_id: stringValue(asObject(result.data).message_id),
+          });
+        }
+        return result;
+      } catch (cause) {
+        const retryable = writer.origin === "created"
+          && !writer.platformMessageId
+          && isRetryableFreshCardReferenceError(cause);
+        if (!retryable) throw cause;
+        if (attempt >= CARD_REFERENCE_MAX_ATTEMPTS) {
+          logger.warn("card_reference_retry_exhausted", {
+            ...cardLogFields(writer.cardId),
+            attempts: attempt,
+            elapsed_ms: Math.max(0, Date.now() - startedAt),
+            api_code: cause.api_code,
+            api_subcode: cause.api_subcode,
+            log_id: cause.log_id,
+            error_name: cause.name,
+            error_message: cause.message,
+          });
+          throw cause;
+        }
+        logger.warn("card_reference_retry_scheduled", {
+          ...cardLogFields(writer.cardId),
+          attempt: attempt + 1,
+          max_attempts: CARD_REFERENCE_MAX_ATTEMPTS,
+          delay_ms: CARD_REFERENCE_RETRY_DELAY_MS,
+          api_code: cause.api_code,
+          api_subcode: cause.api_subcode,
+          log_id: cause.log_id,
+        });
+        await this.delay(CARD_REFERENCE_RETRY_DELAY_MS);
+      }
+    }
+    throw new Error("unreachable CardKit reference retry state");
   }
 
   private async updateContent(writer: StreamWriter, sequence: number, content: string, logger: Logger): Promise<void> {

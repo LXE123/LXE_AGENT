@@ -43,6 +43,7 @@ export class FeishuApiHttpError extends Error {
   readonly path: string;
   readonly http_status: number;
   readonly api_code: number;
+  readonly api_subcode: number;
   readonly log_id: string;
   readonly operation: string;
 
@@ -51,6 +52,7 @@ export class FeishuApiHttpError extends Error {
     path: string;
     httpStatus: number;
     apiCode: number;
+    apiSubcode?: number;
     logId: string;
     operation: string;
     message: string;
@@ -62,6 +64,7 @@ export class FeishuApiHttpError extends Error {
     this.path = options.path;
     this.http_status = options.httpStatus;
     this.api_code = options.apiCode;
+    this.api_subcode = options.apiSubcode ?? -1;
     this.log_id = options.logId;
     this.operation = options.operation;
   }
@@ -76,6 +79,7 @@ export function normalizeFeishuTransportError(
   const source = record(cause);
   const response = record(source.response);
   const payload = record(response.data);
+  const errorDetail = record(payload.error);
   const status = Number(response.status);
   if (!Number.isInteger(status) || status <= 0) {
     return cause instanceof Error ? cause : new Error(String(cause));
@@ -85,7 +89,9 @@ export function normalizeFeishuTransportError(
     ? Number(rawCode)
     : Number.NaN;
   const message = safeFeishuMessage(String(payload.msg ?? payload.message ?? ""));
-  const logId = String(payload.log_id ?? "").trim();
+  const subcodeMatch = /ErrCode:\s*(\d+)/i.exec(message);
+  const apiSubcode = subcodeMatch ? Number(subcodeMatch[1]) : -1;
+  const logId = String(payload.log_id ?? errorDetail.log_id ?? "").trim();
   const details = [
     `HTTP ${status}`,
     ...(Number.isFinite(code) ? [`code ${code}`] : []),
@@ -95,6 +101,7 @@ export function normalizeFeishuTransportError(
     path,
     httpStatus: status,
     apiCode: Number.isFinite(code) ? code : -1,
+    apiSubcode: Number.isInteger(apiSubcode) ? apiSubcode : -1,
     logId,
     operation,
     message: `Feishu API ${String(method).toUpperCase()} ${path} failed: ${details}${message ? `: ${message}` : ""}`,
