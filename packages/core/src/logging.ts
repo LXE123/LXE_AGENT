@@ -290,10 +290,10 @@ const cleanupRetention = (projectRoot: string, environment: Environment, today =
   const retentionDays = envInteger(environment, "LOCAL_LOG_RETENTION_DAYS", 7, { min: 1 });
   const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (retentionDays - 1)).getTime();
   const directoryRoots = [
-    resolveConfiguredPath(envText(environment, "AGENT_STREAM_TRACE_DIR"), "logs/agent_traces", projectRoot),
-    resolveConfiguredPath(envText(environment, "AGENT_SSE_WIRE_TRACE_DIR"), "logs/sse_wire_traces", projectRoot),
-    resolve(projectRoot, "logs", "feishu_msg"),
-    resolve(projectRoot, "logs", "runtime"),
+    resolveConfiguredPath(envText(environment, "AGENT_STREAM_TRACE_DIR"), "var/logs/agent_traces", projectRoot),
+    resolveConfiguredPath(envText(environment, "AGENT_SSE_WIRE_TRACE_DIR"), "var/logs/sse_wire_traces", projectRoot),
+    resolve(projectRoot, "var", "logs", "feishu_msg"),
+    resolve(projectRoot, "var", "logs", "runtime"),
   ];
   for (const root of directoryRoots) {
     if (!existsSync(root)) continue;
@@ -318,7 +318,7 @@ const cleanupRetention = (projectRoot: string, environment: Environment, today =
       }
     }
   }
-  const rawEventRoot = resolveConfiguredPath(envText(environment, "FEISHU_RAW_EVENT_DUMP_DIR"), "logs/feishu_raw_events", projectRoot);
+  const rawEventRoot = resolveConfiguredPath(envText(environment, "FEISHU_RAW_EVENT_DUMP_DIR"), "var/logs/feishu_raw_events", projectRoot);
   if (!existsSync(rawEventRoot)) return result;
   let names: string[];
   try {
@@ -460,7 +460,7 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
   const enabled = envFlag(environment, "LOCAL_LOGS_ENABLED", false);
   const fileName = basename(envText(environment, "LOG_FILE"));
   const filePath = enabled && fileName && ![".", ".."].includes(fileName)
-    ? resolve(projectRoot, "logs", "runtime", localDay(), fileName)
+    ? resolve(projectRoot, "var", "logs", "runtime", localDay(), fileName)
     : undefined;
   const retention = enabled ? cleanupRetention(projectRoot, environment) : { deleted: [], failures: [] };
   if (filePath) {

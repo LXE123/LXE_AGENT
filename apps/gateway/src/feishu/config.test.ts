@@ -16,7 +16,7 @@ describe("Feishu config", () => {
     expect(config.autoRestartEnabled).toBe(false);
     expect(config.autoRestartIntervalMs).toBe(123_000);
     expect(config.rawEventDumpEnabled).toBe(false);
-    expect(config.rawEventDumpDir).toBe("logs/feishu_raw_events");
+    expect(config.rawEventDumpDir).toBe("var/logs/feishu_raw_events");
     expect(config.cardDisplay).toEqual({
       toolUseMode: "on",
       showFullPaths: false,

@@ -86,7 +86,7 @@ describe("frozen main production parity", () => {
 
     const date = new Date();
     const day = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
-    const rootDirectory = join(root, "logs", "sse_wire_traces", day);
+    const rootDirectory = join(root, "var", "logs", "sse_wire_traces", day);
     const sessionDirectory = readdirSync(rootDirectory)[0]!;
     const path = join(rootDirectory, sessionDirectory, wireParity.context.turn_id, "step_0_attempt_1.jsonl");
     const text = readFileSync(path, "utf8");

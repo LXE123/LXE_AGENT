@@ -186,8 +186,8 @@ describe("structured logger", () => {
   test("honors logger overrides, disabled files, and retention", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-logging-policy-"));
     roots.push(root);
-    const expired = join(root, "logs", "runtime", "20000101");
-    const unrelated = join(root, "logs", "runtime", "manual");
+    const expired = join(root, "var", "logs", "runtime", "20000101");
+    const unrelated = join(root, "var", "logs", "runtime", "manual");
     mkdirSync(expired, { recursive: true });
     mkdirSync(unrelated, { recursive: true });
     writeFileSync(join(expired, "runtime.log"), "expired", "utf8");
@@ -335,7 +335,7 @@ describe("structured logger", () => {
       },
     });
     controllers.push(controller);
-    const directory = join(root, "logs", "runtime", controller.filePath!.split(/[\\/]/u).at(-2)!);
+    const directory = join(root, "var", "logs", "runtime", controller.filePath!.split(/[\\/]/u).at(-2)!);
     rmSync(directory, { recursive: true, force: true });
     writeFileSync(directory, "blocks directory recreation", "utf8");
     const fallback = spyOn(console, "error").mockImplementation(() => undefined);

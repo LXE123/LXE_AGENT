@@ -317,8 +317,8 @@ export function configureRuntimeTracing(options: {
   const enabled = envFlag(options.environment, "LOCAL_LOGS_ENABLED", false);
   const traceEnabled = enabled && envFlag(options.environment, "AGENT_STREAM_TRACE_ENABLED", true);
   const wireEnabled = enabled && envFlag(options.environment, "AGENT_SSE_WIRE_TRACE_ENABLED", true);
-  const traceRoot = resolve(options.projectRoot, envText(options.environment, "AGENT_STREAM_TRACE_DIR", "logs/agent_traces"));
-  const wireRoot = resolve(options.projectRoot, envText(options.environment, "AGENT_SSE_WIRE_TRACE_DIR", "logs/sse_wire_traces"));
+  const traceRoot = resolve(options.projectRoot, envText(options.environment, "AGENT_STREAM_TRACE_DIR", "var/logs/agent_traces"));
+  const wireRoot = resolve(options.projectRoot, envText(options.environment, "AGENT_SSE_WIRE_TRACE_DIR", "var/logs/sse_wire_traces"));
   return {
     startTurn: (sessionId, turnId) => {
       const now = new Date();

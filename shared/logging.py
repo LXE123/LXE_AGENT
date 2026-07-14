@@ -212,7 +212,7 @@ def _runtime_log_path() -> Path | None:
     day = datetime.now().strftime("%Y%m%d")
     # LOG_FILE is shared with the Bun gateway, which owns the plain name as a
     # JSONL sink. Python text logs get a "-py" suffix so the formats never mix.
-    return (_repo_root() / "logs" / "runtime" / day / _python_log_file_name(file_name)).resolve()
+    return (_repo_root() / "var" / "logs" / "runtime" / day / _python_log_file_name(file_name)).resolve()
 
 
 def _browser_auth_log_path() -> Path | None:
@@ -223,7 +223,7 @@ def _browser_auth_log_path() -> Path | None:
     if not file_name or file_name in {".", ".."}:
         return None
     day = datetime.now().strftime("%Y%m%d")
-    return (_repo_root() / "logs" / "browser_auth_service" / day / file_name).resolve()
+    return (_repo_root() / "var" / "logs" / "browser_auth_service" / day / file_name).resolve()
 
 
 def _build_runtime_file_handler(path: Path) -> logging.Handler:

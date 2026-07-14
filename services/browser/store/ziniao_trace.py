@@ -32,8 +32,8 @@ def _trace_enabled() -> bool:
 
 
 def _trace_dir() -> Path:
-    raw = env_path("ZINIAO_DIAGNOSTIC_TRACE_DIR", "logs/ziniao_traces")
-    path = Path(raw or "logs/ziniao_traces").expanduser()
+    raw = env_path("ZINIAO_DIAGNOSTIC_TRACE_DIR", "var/logs/ziniao_traces")
+    path = Path(raw or "var/logs/ziniao_traces").expanduser()
     if not path.is_absolute():
         path = (internal_root() / path).resolve()
     return path

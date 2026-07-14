@@ -68,14 +68,14 @@ describe("runtime traces", () => {
     attempt!.end(false, "duplicate terminal");
     attempt!.event("after_end", { text: "ignored" });
 
-    const traceRoot = join(root, "logs", "agent_traces", day());
+    const traceRoot = join(root, "var", "logs", "agent_traces", day());
     const sessionDir = readdirSync(traceRoot)[0]!;
     const turnTrace = readFileSync(join(traceRoot, sessionDir, "turn-1.jsonl"), "utf8");
     expect(turnTrace).toContain("tool_start");
     expect(turnTrace).not.toContain("Bearer secret");
     expect(turnTrace).not.toContain("Administrator");
 
-    const wireDirectory = join(root, "logs", "sse_wire_traces", day(), sessionDir, "turn-1");
+    const wireDirectory = join(root, "var", "logs", "sse_wire_traces", day(), sessionDir, "turn-1");
     expect(readdirSync(wireDirectory)).toEqual(["step_0_attempt_1.jsonl"]);
     expect(existsSync(join(wireDirectory, "provider.jsonl"))).toBe(false);
     const wireText = readFileSync(join(wireDirectory, "step_0_attempt_1.jsonl"), "utf8");
@@ -140,7 +140,7 @@ describe("runtime traces", () => {
     })!;
     attempt.requestStart({}, { model: "model" });
     attempt.end(false, "connection failed");
-    const wireDayRoot = join(root, "logs", "sse_wire_traces", day());
+    const wireDayRoot = join(root, "var", "logs", "sse_wire_traces", day());
     const sessionDirectory = readdirSync(wireDayRoot)[0]!;
     const records = readFileSync(join(wireDayRoot, sessionDirectory, "turn", "step_0_attempt_1.jsonl"), "utf8")
       .trim().split(/\r?\n/u).map((line) => JSON.parse(line));
@@ -151,8 +151,8 @@ describe("runtime traces", () => {
   test("contains trace initialization and write failures", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-trace-failure-"));
     roots.push(root);
-    const blocked = join(root, "logs", "agent_traces");
-    mkdirSync(join(root, "logs"), { recursive: true });
+    const blocked = join(root, "var", "logs", "agent_traces");
+    mkdirSync(join(root, "var", "logs"), { recursive: true });
     writeFileSync(blocked, "not a directory", "utf8");
     const controller = configureRuntimeTracing({
       projectRoot: root,
@@ -173,7 +173,7 @@ describe("runtime traces", () => {
       endpoint: "https://example.invalid/v1/messages",
       timeoutMs: 1_000,
     })!;
-    const wireDayRoot = join(root, "logs", "sse_wire_traces", day());
+    const wireDayRoot = join(root, "var", "logs", "sse_wire_traces", day());
     const wireSession = readdirSync(wireDayRoot)[0]!;
     const turnDirectory = join(wireDayRoot, wireSession, "turn-2");
     rmSync(turnDirectory, { recursive: true, force: true });
@@ -194,6 +194,6 @@ describe("runtime traces", () => {
     expect(trace.startProviderAttempt({
       step: 0, attempt: 1, provider: "demo", model: "model", endpoint: "", timeoutMs: 0,
     })).toBeUndefined();
-    expect(existsSync(join(root, "logs", "sse_wire_traces"))).toBe(false);
+    expect(existsSync(join(root, "var", "logs", "sse_wire_traces"))).toBe(false);
   });
 });

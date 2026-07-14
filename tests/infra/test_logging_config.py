@@ -218,7 +218,7 @@ def test_console_and_runtime_file_use_separate_levels_and_formats(tmp_path, monk
     assert "➤" not in console_output
     assert "[ctx s=session- t=turn-a-l]" in console_output
 
-    runtime_path = next((tmp_path / "logs" / "runtime").glob("*/runtime-py.log"))
+    runtime_path = next((tmp_path / "var" / "logs" / "runtime").glob("*/runtime-py.log"))
     runtime_output = runtime_path.read_text(encoding="utf-8")
     assert "runtime detail" in runtime_output
     assert "console summary" in runtime_output
@@ -304,7 +304,7 @@ def test_successful_dashboard_health_access_is_runtime_only(tmp_path, monkeypatc
     assert 'GET /api/channels/health HTTP/1.1" 503' in console_output
     assert 'GET /api/sessions HTTP/1.1" 200' in console_output
 
-    runtime_path = next((tmp_path / "logs" / "runtime").glob("*/runtime-py.log"))
+    runtime_path = next((tmp_path / "var" / "logs" / "runtime").glob("*/runtime-py.log"))
     runtime_output = runtime_path.read_text(encoding="utf-8")
     assert 'GET /api/channels/health HTTP/1.1" 200' in runtime_output
     assert 'GET /api/channels/health HTTP/1.1" 503' in runtime_output
@@ -405,7 +405,7 @@ def test_runtime_file_logging_requires_global_local_logs_switch(tmp_path, monkey
     monkeypatch.setattr(logging_config, "_repo_root", lambda: tmp_path)
     monkeypatch.setenv("LOG_FILE", "runtime.log")
     monkeypatch.setenv("LOCAL_LOG_RETENTION_DAYS", "7")
-    old_runtime_dir = tmp_path / "logs" / "runtime" / "20000101"
+    old_runtime_dir = tmp_path / "var" / "logs" / "runtime" / "20000101"
     old_runtime_dir.mkdir(parents=True)
     (old_runtime_dir / "runtime.log").write_text("old", encoding="utf-8")
 
@@ -415,7 +415,7 @@ def test_runtime_file_logging_requires_global_local_logs_switch(tmp_path, monkey
     logging.getLogger("gateway.app").warning("disabled runtime file log")
 
     assert not old_runtime_dir.exists()
-    assert list((tmp_path / "logs" / "runtime").glob("*/runtime.log")) == []
+    assert list((tmp_path / "var" / "logs" / "runtime").glob("*/runtime.log")) == []
 
     monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
     setup_logging()
@@ -423,7 +423,7 @@ def test_runtime_file_logging_requires_global_local_logs_switch(tmp_path, monkey
     for handler in logging.getLogger().handlers:
         handler.flush()
 
-    matches = list((tmp_path / "logs" / "runtime").glob("*/runtime-py.log"))
+    matches = list((tmp_path / "var" / "logs" / "runtime").glob("*/runtime-py.log"))
     assert len(matches) == 1
     assert "enabled runtime file log" in matches[0].read_text(encoding="utf-8")
     assert "disabled runtime file log" not in matches[0].read_text(encoding="utf-8")
@@ -444,7 +444,7 @@ def test_browser_auth_file_logging_filters_dedicated_modules(tmp_path, monkeypat
     for handler in logging.getLogger().handlers:
         handler.flush()
 
-    matches = list((tmp_path / "logs" / "browser_auth_service").glob("*/browser_auth_service.log"))
+    matches = list((tmp_path / "var" / "logs" / "browser_auth_service").glob("*/browser_auth_service.log"))
     assert len(matches) == 1
     text = matches[0].read_text(encoding="utf-8")
     assert "browser auth detail" in text
@@ -465,7 +465,7 @@ def test_browser_auth_file_logging_requires_explicit_file_env(tmp_path, monkeypa
     for handler in logging.getLogger().handlers:
         handler.flush()
 
-    assert list((tmp_path / "logs" / "browser_auth_service").glob("*/*.log")) == []
+    assert list((tmp_path / "var" / "logs" / "browser_auth_service").glob("*/*.log")) == []
 
 
 def test_production_modules_do_not_import_legacy_global_logger() -> None:

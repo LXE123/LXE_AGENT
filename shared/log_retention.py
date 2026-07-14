@@ -68,16 +68,16 @@ def _parse_date_jsonl_name(value: str) -> date | None:
 
 def _date_dir_roots(*, repo_root: Path) -> tuple[Path, ...]:
     return (
-        _resolve_log_path("AGENT_STREAM_TRACE_DIR", "logs/agent_traces", repo_root=repo_root),
-        _resolve_log_path("AGENT_SSE_WIRE_TRACE_DIR", "logs/sse_wire_traces", repo_root=repo_root),
-        (repo_root / "logs" / "feishu_msg").resolve(),
-        (repo_root / "logs" / "runtime").resolve(),
+        _resolve_log_path("AGENT_STREAM_TRACE_DIR", "var/logs/agent_traces", repo_root=repo_root),
+        _resolve_log_path("AGENT_SSE_WIRE_TRACE_DIR", "var/logs/sse_wire_traces", repo_root=repo_root),
+        (repo_root / "var" / "logs" / "feishu_msg").resolve(),
+        (repo_root / "var" / "logs" / "runtime").resolve(),
     )
 
 
 def _date_jsonl_roots(*, repo_root: Path) -> tuple[Path, ...]:
     return (
-        _resolve_log_path("FEISHU_RAW_EVENT_DUMP_DIR", "logs/feishu_raw_events", repo_root=repo_root),
+        _resolve_log_path("FEISHU_RAW_EVENT_DUMP_DIR", "var/logs/feishu_raw_events", repo_root=repo_root),
     )
 
 

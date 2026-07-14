@@ -73,7 +73,7 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
   const autoRestartRetryMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_RETRY_SECONDS", 60);
   const rawEventDumpEnabled = envBoolean(env, "LOCAL_LOGS_ENABLED", false)
     && envBoolean(env, "FEISHU_RAW_EVENT_DUMP_ENABLED", true);
-  const rawEventDumpDir = envText(env, "FEISHU_RAW_EVENT_DUMP_DIR", "logs/feishu_raw_events");
+  const rawEventDumpDir = envText(env, "FEISHU_RAW_EVENT_DUMP_DIR", "var/logs/feishu_raw_events");
   const requestedToolUseMode = envText(env, "FEISHU_TOOL_USE_MODE", "on").toLowerCase();
   const toolUseMode: FeishuToolUseMode = requestedToolUseMode === "off" || requestedToolUseMode === "full"
     ? requestedToolUseMode

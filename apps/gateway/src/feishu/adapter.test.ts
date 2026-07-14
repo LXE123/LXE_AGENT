@@ -203,8 +203,8 @@ describe("FeishuAdapter lifecycle and delivery", () => {
         chat_id: "oc_chat", create_time: String(Date.now()), message_id: "om_raw",
       },
     });
-    const days = await readdir(join(root, "logs", "feishu_raw_events"));
-    const raw = await readFile(join(root, "logs", "feishu_raw_events", days[0]!), "utf8");
+    const days = await readdir(join(root, "var", "logs", "feishu_raw_events"));
+    const raw = await readFile(join(root, "var", "logs", "feishu_raw_events", days[0]!), "utf8");
     expect(raw).toContain("om_raw");
     expect(raw.trim().split(/\r?\n/)).toHaveLength(1);
     await state.adapter.stop();
