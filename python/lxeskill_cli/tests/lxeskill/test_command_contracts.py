@@ -198,7 +198,7 @@ FAILURE_CASES = {
 }
 
 FAILURE_CASE_PARAMS = tuple(
-    (command, index, case)
+    pytest.param(command, case, id=f"{command}-{index}")
     for command, cases in FAILURE_CASES.items()
     for index, case in enumerate(cases, start=1)
 )
@@ -251,17 +251,14 @@ def test_catalog_module_contract_parameterization_is_complete() -> None:
 
 
 @pytest.mark.parametrize(
-    ("command", "case_index", "case"),
+    ("command", "case"),
     FAILURE_CASE_PARAMS,
-    ids=[f"{command}-{index}" for command, index, _case in FAILURE_CASE_PARAMS],
 )
 def test_command_failure_contract(
     command: str,
-    case_index: int,
     case: FailureCase,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    del case_index
     entries_by_command = {_command(entry): entry for entry in MODULE_ENTRIES}
     entry = entries_by_command[command]
     module = importlib.import_module(str(entry["module"]))
