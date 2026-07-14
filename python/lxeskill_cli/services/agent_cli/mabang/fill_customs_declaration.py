@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import copy
 import re
 import shutil
@@ -10,12 +9,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang.restock_workbook import (
     SUMMARY_HEADERS,
     SUMMARY_WORKSHEET_NAME,
@@ -27,7 +21,6 @@ from services.amazon.amazon_logistic.sources.consignment_excel import (
     find_consignment_excel,
     resolve_column,
 )
-from shared.logging import setup_logging
 from shared.workspace import artifact_path, bundled_path
 
 SOURCE = "customs_declaration_fill"
@@ -1871,37 +1864,19 @@ def fill_customs_declaration(
     return payload
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.fill_customs_declaration"
-    )
-    parser.add_argument("--input-xlsx", required=True, action="append")
-    parser.add_argument("--template-xlsx", default=str(DEFAULT_TEMPLATE_PATH))
-    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
-    parser.add_argument("--consignment-excel", default="")
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
     try:
-        args = build_parser().parse_args(argv)
-        payload = fill_customs_declaration(
-            getattr(args, "input_xlsx", ""),
-            template_xlsx=getattr(args, "template_xlsx", ""),
-            output_dir=getattr(args, "output_dir", ""),
-            consignment_excel=getattr(args, "consignment_excel", ""),
+        raw_inputs = arguments.get("input_xlsx")
+        input_xlsx = [raw_inputs] if isinstance(raw_inputs, str) else list(raw_inputs or [])
+        return fill_customs_declaration(
+            input_xlsx,
+            template_xlsx=str(arguments.get("template_xlsx") or DEFAULT_TEMPLATE_PATH),
+            output_dir=str(arguments.get("output_dir") or DEFAULT_OUTPUT_DIR),
+            consignment_excel=str(arguments.get("consignment_excel") or ""),
         )
-    except Exception as exc:
-        payload = {
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return {
             "success": False,
             "exception": _exception_text(exc),
         }
-
-    _write_json(payload)
-    return 0 if bool(payload.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

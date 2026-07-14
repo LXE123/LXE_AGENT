@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import copy
 from collections import OrderedDict
@@ -10,12 +9,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang import shipment_quantity_validation as quantity_validation
 from services.agent_cli.mabang.fill_customs_declaration import (
     SourceDeclarationRow,
@@ -46,8 +40,6 @@ from services.mabang.stock_sku_export import (
     export_stock_sku_names,
     normalize_sku_key,
 )
-from shared.infra.net import close_all_network_clients
-from shared.logging import setup_logging
 from shared.workspace import artifact_path, bundled_path
 
 SOURCE = "invoice_template_fill"
@@ -900,47 +892,19 @@ async def fill_invoice_template(
     return payload
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.fill_invoice_template"
-    )
-    parser.add_argument("--input-xlsx", default="")
-    parser.add_argument("--delivery-csv", default="")
-    parser.add_argument("--consignment-excel", default="")
-    return parser
-
-
-async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
-    input_xlsx = str(getattr(args, "input_xlsx", "") or "").strip()
-    if not input_xlsx:
-        raise ValueError("input_xlsx 不能为空")
-    return await fill_invoice_template(
-        input_xlsx,
-        delivery_csv=str(getattr(args, "delivery_csv", "") or "").strip() or None,
-        consignment_excel=str(getattr(args, "consignment_excel", "") or "").strip() or None,
-    )
-
-
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
     try:
-        args = build_parser().parse_args(argv)
-        payload = asyncio.run(_run_async(args))
-    except Exception as exc:
-        payload = {
+        input_xlsx = str(arguments.get("input_xlsx") or "").strip()
+        if not input_xlsx:
+            raise ValueError("input_xlsx 不能为空")
+        return asyncio.run(fill_invoice_template(
+            input_xlsx,
+            delivery_csv=str(arguments.get("delivery_csv") or "").strip() or None,
+            consignment_excel=str(arguments.get("consignment_excel") or "").strip() or None,
+        ))
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return {
             "success": False,
             "exception": _exception_text(exc),
         }
-    finally:
-        try:
-            asyncio.run(close_all_network_clients())
-        except Exception:
-            pass
-
-    _write_json(payload)
-    return 0 if bool(payload.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

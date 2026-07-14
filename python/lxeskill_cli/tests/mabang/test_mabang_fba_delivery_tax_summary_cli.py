@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 from collections import OrderedDict
 from decimal import Decimal
@@ -29,12 +28,6 @@ def _write_delivery_csv(path: Path, rows: list[str], *, include_column: bool = T
     path.write_text("\n".join(lines), encoding="utf-8-sig")
 
 
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
 def _write_tax_products(path: Path, rows: list[dict[str, str]], *, columns: list[str] | None = None) -> None:
     import pandas as pd
 
@@ -46,17 +39,9 @@ def _write_tax_products(path: Path, rows: list[dict[str, str]], *, columns: list
     pd.DataFrame(frame_rows, columns=columns).to_excel(path, sheet_name="Sheet1", index=False)
 
 
-async def _noop_close_all_network_clients() -> None:
-    return None
-
-
 def test_missing_delivery_no_returns_failure_json(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({})
     assert payload == {
         "success": False,
         "delivery_no": "",
@@ -65,12 +50,8 @@ def test_missing_delivery_no_returns_failure_json(monkeypatch, capsys):
 
 
 def test_invalid_delivery_no_returns_failure_json(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main(["--delivery-no", "FBA123"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"delivery_no": "FBA123"})
     assert payload == {
         "success": False,
         "delivery_no": "FBA123",
@@ -261,7 +242,6 @@ def test_write_summary_xlsx_keeps_empty_sheet_headers(tmp_path):
 
 
 def test_main_success_generates_xlsx_with_unmatched_product_names(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
     csv_dir = tmp_path / "csv"
     output_dir = tmp_path / "out"
     csv_dir.mkdir()
@@ -286,10 +266,7 @@ def test_main_success_generates_xlsx_with_unmatched_product_names(monkeypatch, t
 
     monkeypatch.setattr(cli, "export_stock_sku_names", fake_export_stock_sku_names)
 
-    exit_code = cli.main(["--delivery-no", "SP260508022"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"delivery_no": "SP260508022"})
     assert payload["success"] is True
     assert payload["delivery_no"] == "SP260508022"
     assert payload["sku_count"] == 2

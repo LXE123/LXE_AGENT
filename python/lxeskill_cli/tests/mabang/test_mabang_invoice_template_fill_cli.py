@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import csv
-import json
 from collections import OrderedDict
 from io import BytesIO
 from pathlib import Path
@@ -11,16 +10,6 @@ from types import SimpleNamespace
 import pytest
 
 from services.agent_cli.mabang import fill_invoice_template as cli
-
-
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
-async def _noop_close_all_network_clients() -> None:
-    return None
 
 
 def _write_input_workbook(
@@ -274,12 +263,8 @@ def _read_summary_comparison_rows(path: str | Path) -> list[dict[str, object]]:
 
 
 def test_main_missing_input_returns_failure_json(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({})
     assert payload == {
         "success": False,
         "exception": "input_xlsx 不能为空",

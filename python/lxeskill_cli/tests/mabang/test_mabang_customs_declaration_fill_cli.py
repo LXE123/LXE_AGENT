@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import csv
 from decimal import Decimal
 from pathlib import Path
@@ -503,12 +502,6 @@ def _patch_consignment_lookup(monkeypatch, mapping: dict[str, Path]) -> None:
         return mapping[sp_no]
 
     monkeypatch.setattr(cli, "find_consignment_excel", fake_find_consignment_excel)
-
-
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
 
 
 def test_extract_sp_no_missing_fails():
@@ -2254,21 +2247,7 @@ def test_main_accepts_repeated_input_xlsx(monkeypatch, tmp_path, capsys):
     _write_input_workbook(input_path_2, [_valid_source_row(SKU="SKU-2")])
     _write_template(template_path, customs_detail_blocks=2)
 
-    exit_code = cli.main(
-        [
-            "--input-xlsx",
-            str(input_path_1),
-            "--input-xlsx",
-            str(input_path_2),
-            "--template-xlsx",
-            str(template_path),
-            "--output-dir",
-            str(output_dir),
-        ]
-    )
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"input_xlsx": [str(input_path_1), str(input_path_2)], "template_xlsx": str(template_path), "output_dir": str(output_dir)})
     assert payload["success"] is True
     assert payload["sp_nos"] == ["SP260414001", "SP260422010"]
     assert payload["row_count"] == 2
@@ -2289,21 +2268,7 @@ def test_main_returns_failure_json_when_customs_detail_capacity_is_insufficient(
     )
     _write_template(template_path, customs_detail_blocks=1)
 
-    exit_code = cli.main(
-        [
-            "--input-xlsx",
-            str(input_path),
-            "--template-xlsx",
-            str(template_path),
-            "--output-dir",
-            str(output_dir),
-            "--consignment-excel",
-            str(consignment_path),
-        ]
-    )
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"input_xlsx": str(input_path), "template_xlsx": str(template_path), "output_dir": str(output_dir), "consignment_excel": str(consignment_path)})
     assert payload["success"] is False
     assert "报关单明细区容量不足" in payload["exception"]
 
@@ -2316,21 +2281,7 @@ def test_main_success_outputs_json(tmp_path, capsys):
     _write_input_workbook(input_path, [_valid_source_row(品名="TPU保护壳", 商品名称="手表保护套")])
     _write_template(template_path)
 
-    exit_code = cli.main(
-        [
-            "--input-xlsx",
-            str(input_path),
-            "--template-xlsx",
-            str(template_path),
-            "--output-dir",
-            str(output_dir),
-            "--consignment-excel",
-            str(consignment_path),
-        ]
-    )
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"input_xlsx": str(input_path), "template_xlsx": str(template_path), "output_dir": str(output_dir), "consignment_excel": str(consignment_path)})
     assert payload["success"] is True
     assert payload["sp_no"] == "SP260414001"
     assert payload["destination_country"] == "美国"
@@ -2341,9 +2292,6 @@ def test_main_success_outputs_json(tmp_path, capsys):
 
 
 def test_main_failure_outputs_json(capsys):
-    exit_code = cli.main(["--input-xlsx", "missing-sp.xlsx"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"input_xlsx": "missing-sp.xlsx"})
     assert payload["success"] is False
     assert "文件名中缺少 SP 单号" in payload["exception"]
