@@ -64,7 +64,7 @@ def test_normal_commands_do_not_load_skill_contract_or_yaml(tmp_path, monkeypatc
                 "assert 'yaml' not in sys.modules"
             ),
         ],
-        cwd=Path(__file__).parents[1],
+        cwd=Path(__file__).parents[2],
         check=False,
         capture_output=True,
         text=True,

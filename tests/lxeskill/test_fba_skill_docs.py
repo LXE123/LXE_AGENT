@@ -5,7 +5,7 @@ from pathlib import Path
 from lxeskill.business import load_catalog
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _skill_text(name: str) -> str:

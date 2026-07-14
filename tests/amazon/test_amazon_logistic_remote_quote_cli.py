@@ -250,7 +250,7 @@ def test_batch_box_count_mismatch_does_not_call_remote_api(monkeypatch):
 
 
 def test_logistics_skill_sends_each_returned_file_through_typescript_tool() -> None:
-    skill_path = Path(__file__).resolve().parents[1] / "skills" / "fba-logistics-select" / "SKILL.md"
+    skill_path = Path(__file__).resolve().parents[2] / "skills" / "fba-logistics-select" / "SKILL.md"
     text = skill_path.read_text(encoding="utf-8")
 
     assert "`files`" in text

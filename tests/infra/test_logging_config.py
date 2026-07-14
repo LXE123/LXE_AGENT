@@ -28,7 +28,7 @@ _TRACKED_LOGGERS = (
     "lark_oapi",
     "aiohttp",
 )
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(autouse=True)

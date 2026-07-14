@@ -200,7 +200,7 @@ def test_archive_selected_result_files_keeps_safe_fallback_for_unknown_allowed_k
 
 
 def test_fba_shipment_create_skill_requires_parent_send_file():
-    skill_path = Path(__file__).resolve().parents[1] / "skills" / "fba-shipment-create" / "SKILL.md"
+    skill_path = Path(__file__).resolve().parents[2] / "skills" / "fba-shipment-create" / "SKILL.md"
     text = skill_path.read_text(encoding="utf-8")
 
     assert "terminal `files` 非空" in text

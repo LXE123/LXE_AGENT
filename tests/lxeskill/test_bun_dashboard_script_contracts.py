@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 
-ROOT = Path(__file__).parents[1]
+ROOT = Path(__file__).parents[2]
 SCRIPTS = ROOT / "scripts"
 BUN_VERSION = "1.3.14"
 

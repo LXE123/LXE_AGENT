@@ -7,7 +7,7 @@ from pathlib import Path
 from shared.permission_policy_loader import load_permission_policy
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "permission_policy_admin.py"
 
 

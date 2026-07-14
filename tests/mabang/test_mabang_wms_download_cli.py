@@ -66,7 +66,7 @@ def _read_payload(capsys) -> dict:
 
 
 def test_relative_wms_dirs_resolve_from_workspace_root():
-    workspace_root = Path(__file__).resolve().parents[1]
+    workspace_root = Path(__file__).resolve().parents[2]
     expected = workspace_root / "artifacts" / "mabang_wms_consignment"
 
     assert consignment_source.resolve_consignment_excel_dir() == expected
