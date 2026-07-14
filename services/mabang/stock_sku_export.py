@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from shared.infra.net import erp_http_session, external_http_session
+from shared.workspace import artifact_path
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME, PRIVATE_HOST
 
@@ -19,7 +20,7 @@ from .errors import MabangAuthError, MabangBusinessError, MabangRequestError
 DEFAULT_STOCK_EXPORT_URL = "https://private.mabangerp.com/index.php?mod=export.doStockExportFile"
 DEFAULT_STOCK_EXPORT_ORIGIN = "https://private.mabangerp.com"
 DEFAULT_STOCK_EXPORT_REFERER = "https://private.mabangerp.com/"
-DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_stock_sku"
+DEFAULT_OUTPUT_DIR = artifact_path("mabang_stock_sku")
 MAX_SKUS_PER_BATCH = 3000
 STOCK_SKU_COLUMN = "库存SKU"
 STOCK_SKU_NAME_COLUMN = "库存SKU中文名称"

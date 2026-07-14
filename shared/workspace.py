@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from threading import RLock
+
+from shared.logging import get_logger
+
+
+logger = get_logger(__name__)
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_LOCK = RLock()
+_workspace_root = _PROJECT_ROOT
+_internal_root = _PROJECT_ROOT
+_artifact_root = _PROJECT_ROOT / "artifacts"
+
+
+def activate_project_workspace() -> Path:
+    """Use the repository root and preserve the historical artifacts/** layout."""
+    global _workspace_root, _internal_root, _artifact_root
+    with _LOCK:
+        _workspace_root = _PROJECT_ROOT
+        _internal_root = _PROJECT_ROOT
+        _artifact_root = _PROJECT_ROOT / "artifacts"
+    return _workspace_root
+
+
+def activate_external_workspace(cwd: str | os.PathLike[str] | None = None) -> Path:
+    """Use a private .lxeskill directory without changing the caller's Git config."""
+    global _workspace_root, _internal_root, _artifact_root
+    caller_root = Path(cwd or Path.cwd()).expanduser().resolve()
+    internal_root = caller_root / ".lxeskill"
+    internal_root.mkdir(parents=True, exist_ok=True)
+    gitignore = internal_root / ".gitignore"
+    if not gitignore.exists():
+        gitignore.write_text("*\n", encoding="utf-8")
+    with _LOCK:
+        _workspace_root = caller_root
+        _internal_root = internal_root
+        _artifact_root = internal_root / "artifacts"
+    logger.debug("Activated external lxeskill workspace: %s", internal_root)
+    return internal_root
+
+
+def workspace_root() -> Path:
+    return _workspace_root
+
+
+def internal_root() -> Path:
+    return _internal_root
+
+
+def artifact_root() -> Path:
+    return _artifact_root
+
+
+def artifact_path(*parts: str | os.PathLike[str]) -> Path:
+    return _artifact_root.joinpath(*(Path(part) for part in parts))
+
+
+def resolve_workspace_input(raw_path: str | os.PathLike[str]) -> Path:
+    path = Path(raw_path).expanduser()
+    return path.resolve() if path.is_absolute() else (_workspace_root / path).resolve()
+
+
+def project_root() -> Path:
+    """Return the immutable package/project root used for bundled read-only assets."""
+    return _PROJECT_ROOT
+
+
+def bundled_path(*parts: str | os.PathLike[str]) -> Path:
+    return _PROJECT_ROOT.joinpath(*(Path(part) for part in parts))
+
+
+__all__ = [
+    "activate_external_workspace",
+    "activate_project_workspace",
+    "artifact_path",
+    "artifact_root",
+    "bundled_path",
+    "internal_root",
+    "project_root",
+    "resolve_workspace_input",
+    "workspace_root",
+]

@@ -4,19 +4,14 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from shared.workspace import artifact_path
+
 from services.browser.browser.actions import execute_browser_action
 from services.browser.browser.snapshot import build_page_snapshot
 
 
 def workflow_output_dir(session_id: str) -> Path:
-    return (
-        Path(__file__).resolve().parents[3]
-        / "services"
-        / "browser"
-        / "artifacts"
-        / "workflows"
-        / str(session_id or "unknown")
-    )
+    return artifact_path("browser", "workflows", str(session_id or "unknown"))
 
 
 class WorkflowBrowserSession:

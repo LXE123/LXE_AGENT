@@ -5,13 +5,13 @@ import contextlib
 import json
 import os
 import sys
-from pathlib import Path
 from typing import Any
 
 from py_tools.business import execute_module_json, load_catalog
 from py_tools.lxeskill_browser import BrowserCliError, execute_browser_command
 from shared.infra.net import bootstrap_network_policy
 from shared.logging import get_logger, setup_logging
+from shared.workspace import activate_external_workspace, activate_project_workspace, project_root, resolve_workspace_input
 
 
 logger = get_logger(__name__)
@@ -20,7 +20,7 @@ EXIT_USAGE = 2
 EXIT_ENVIRONMENT = 3
 EXIT_BUSINESS = 4
 EXIT_INTERNAL = 5
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = project_root()
 
 
 class LxeSkillError(RuntimeError):
@@ -158,7 +158,7 @@ def _input_arguments(entry: dict[str, Any], argv: list[str]) -> tuple[dict[str, 
     if input_path and stdin_json:
         raise LxeSkillError("invalid_arguments", "choose only one of --input-json or --stdin-json", exit_code=EXIT_USAGE)
     if input_path:
-        payload = json.loads(Path(input_path).expanduser().read_text(encoding="utf-8"))
+        payload = json.loads(resolve_workspace_input(input_path).read_text(encoding="utf-8"))
     elif stdin_json:
         payload = json.loads(sys.stdin.read())
     else:
@@ -272,6 +272,16 @@ def _run_doctor(catalog: dict[str, dict[str, Any]]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    activate_project_workspace()
+    return _main(argv)
+
+
+def standalone_main(argv: list[str] | None = None) -> int:
+    activate_external_workspace()
+    return _main(argv)
+
+
+def _main(argv: list[str] | None = None) -> int:
     _configure_stdio()
     setup_logging()
     arguments = list(sys.argv[1:] if argv is None else argv)

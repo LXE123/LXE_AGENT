@@ -11,12 +11,12 @@ from py_tools.business import allowed_output_file
 from shared.agent_state import merge_agent_state
 from shared.db.sqlite.engine import connection_scope
 from shared.logging import get_logger
+from shared.workspace import internal_root
 from shared.process_lock import InterProcessLockTimeout, interprocess_lock
 from services.browser.store.agent_tool_state import load_tool_state
 
 
 logger = get_logger(__name__)
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class BrowserCliError(RuntimeError):
@@ -27,7 +27,7 @@ class BrowserCliError(RuntimeError):
 
 def _session_lock_path(session_id: str) -> Path:
     digest = sha256(session_id.encode("utf-8")).hexdigest()[:24]
-    return PROJECT_ROOT / "tmp" / "lxeskill" / f"session-{digest}.lock"
+    return internal_root() / "tmp" / "lxeskill" / f"session-{digest}.lock"
 
 
 def _patch_session_state(session_id: str, patch: dict[str, Any]) -> None:

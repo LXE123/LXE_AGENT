@@ -9,6 +9,7 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 from shared.infra.net import erp_http_session
+from shared.workspace import artifact_path
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
@@ -22,7 +23,7 @@ from ...errors import MabangAuthError, MabangBusinessError, MabangParseError, Ma
 
 DEFAULT_STORE_LIST_URL = "https://private-amz.mabangerp.com/index.php"
 DEFAULT_PRIVATE_AMZ_REFERER = "https://private-amz.mabangerp.com/"
-DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_fba_store_resolver"
+DEFAULT_OUTPUT_DIR = artifact_path("mabang_fba_store_resolver")
 AUTH_FAIL_STATUS = {401, 403}
 SOURCE = "mabang_fba_store_resolver"
 WHITESPACE_PATTERN = re.compile(r"\s+")

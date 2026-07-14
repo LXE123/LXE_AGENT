@@ -28,10 +28,11 @@ from services.amazon.amazon_logistic.sources.consignment_excel import (
     resolve_column,
 )
 from shared.logging import setup_logging
+from shared.workspace import artifact_path, bundled_path
 
 SOURCE = "customs_declaration_fill"
-DEFAULT_TEMPLATE_PATH = Path("data") / "customs_declaration" / "custom_declaration_documents.xlsx"
-DEFAULT_OUTPUT_DIR = Path("artifacts") / "customs_declaration"
+DEFAULT_TEMPLATE_PATH = bundled_path("data", "customs_declaration", "custom_declaration_documents.xlsx")
+DEFAULT_OUTPUT_DIR = artifact_path("customs_declaration")
 SOURCE_WORKSHEET_NAME = SUMMARY_WORKSHEET_NAME
 INPUT_HEADERS = SUMMARY_HEADERS
 TARGET_HEADERS = (

@@ -19,13 +19,13 @@ from services.browser.workflows.amazon_fba_common import selected_store as _sele
 from services.browser.workflows.amazon_fba_common import workflow_output_dir as _workflow_output_dir
 from shared.infra.net import close_all_network_clients
 from shared.logging import get_logger
+from shared.workspace import artifact_path, workspace_root
 
 logger = get_logger(__name__)
 
 
 FixedFlowRunner = Callable[..., dict[str, Any]]
-_PROJECT_ROOT = Path(__file__).resolve().parents[4]
-_ATTACHMENTS_ROOT = _PROJECT_ROOT / "artifacts" / "amazon_fba" / "attachments"
+_ATTACHMENTS_ROOT = artifact_path("amazon_fba", "attachments")
 _ATTACHMENT_SHORT_NAME_SUFFIXES = {
     "consignment_excel": "consignment",
     "filled_template": "upload",
@@ -133,7 +133,7 @@ def _resolve_attachment_source(path: str) -> Path:
 
 def _relative_workspace_path(path: Path) -> str:
     try:
-        return path.resolve().relative_to(_PROJECT_ROOT).as_posix()
+        return path.resolve().relative_to(workspace_root()).as_posix()
     except Exception:
         return str(path.resolve())
 

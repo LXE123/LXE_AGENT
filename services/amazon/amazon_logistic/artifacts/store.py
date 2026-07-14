@@ -5,11 +5,12 @@ from pathlib import Path
 
 from shared.infra.artifact_io import build_timestamped_path, write_text
 from shared.logging import get_logger
+from shared.workspace import artifact_path
 
 logger = get_logger(__name__)
 
 
-_DATA_DIR = Path("artifacts") / "amazon_fba_logistics"
+_DATA_DIR = artifact_path("amazon_fba_logistics")
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 

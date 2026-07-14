@@ -20,8 +20,9 @@ from services.agent_cli._shared.json_cli import (
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
 from shared.infra.net import close_all_network_clients
 from shared.logging import setup_logging
+from shared.workspace import artifact_path
 
-OUTPUT_DIR = Path("artifacts") / "mabang_purchase_contracts"
+OUTPUT_DIR = artifact_path("mabang_purchase_contracts")
 SOURCE = "fba_purchase_contract_fill"
 
 PURCHASE_SUMMARY_SHEET = purchase_summary.SUMMARY_SHEET_NAME

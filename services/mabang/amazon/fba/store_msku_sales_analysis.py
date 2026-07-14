@@ -5,12 +5,14 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+
+from shared.workspace import artifact_path
 from typing import Any
 
 from services.mabang import config as mabang_settings
 
-DEFAULT_INPUT_DIR = Path("artifacts") / "mabang_store_msku"
-DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_store_msku_analysis"
+DEFAULT_INPUT_DIR = artifact_path("mabang_store_msku")
+DEFAULT_OUTPUT_DIR = artifact_path("mabang_store_msku_analysis")
 SOURCE = "mabang_store_msku_sales_analysis"
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15

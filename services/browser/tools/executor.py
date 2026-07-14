@@ -7,6 +7,7 @@ from typing import Any, Iterator
 
 from shared.agent_state import ensure_agent_state, runtime_patch_from_state
 from shared.logging import get_logger
+from shared.workspace import artifact_path
 
 from services.browser.tools.dispatcher import dispatch_ziniao_browser, dispatch_ziniao_page
 from services.browser.tools.driver_session import attached_driver, select_first_normal_tab
@@ -20,14 +21,7 @@ logger = get_logger(__name__)
 
 
 def _artifacts_dir(session_id: str) -> Path:
-    return (
-        Path(__file__).resolve().parents[3]
-        / "services"
-        / "browser"
-        / "artifacts"
-        / "amazon_store_agent"
-        / str(session_id or "unknown")
-    )
+    return artifact_path("browser", "amazon_store_agent", str(session_id or "unknown"))
 
 
 def _tool_target_text(tool_call) -> str:

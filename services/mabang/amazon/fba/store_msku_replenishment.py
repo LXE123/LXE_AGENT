@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
+
+from shared.workspace import artifact_path
 from typing import Any
 
 from services.mabang import config as mabang_settings
@@ -45,9 +47,9 @@ from services.mabang.amazon.fba.store_msku_actual_inventory import (
 )
 
 AMAZON_FBA_INVENTORY_SNAPSHOT_DATE_TOLERANCE_DAYS = 1
-DEFAULT_SALES_ANALYSIS_DIR = Path("artifacts") / "mabang_store_msku_analysis"
-DEFAULT_ACTUAL_INVENTORY_DIR = Path("artifacts") / "mabang_store_msku_inventory"
-DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_store_msku_replenishment"
+DEFAULT_SALES_ANALYSIS_DIR = artifact_path("mabang_store_msku_analysis")
+DEFAULT_ACTUAL_INVENTORY_DIR = artifact_path("mabang_store_msku_inventory")
+DEFAULT_OUTPUT_DIR = artifact_path("mabang_store_msku_replenishment")
 SOURCE = "mabang_store_msku_replenishment"
 SOURCE_FBA_TOTAL_COLUMN = "FBA总库存"
 MABANG_FBA_TOTAL_COLUMN = "FBA 总库存（马帮数据）"

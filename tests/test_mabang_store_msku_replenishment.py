@@ -1193,6 +1193,7 @@ def test_custom_template_changes_replenishment_result(tmp_path, monkeypatch) -> 
         json.dumps({"templates": [custom_params]}, ensure_ascii=False),
         encoding="utf-8",
     )
+    monkeypatch.setattr(tmpl, "DEFAULT_CUSTOM_TEMPLATE_STORE", store_path)
     monkeypatch.chdir(tmp_path)
 
     result = repl.calculate_store_msku_replenishment(

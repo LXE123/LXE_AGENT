@@ -10,6 +10,7 @@ from typing import Any
 
 from shared.infra.net import erp_http_session, external_http_session
 from shared.logging import get_logger
+from shared.workspace import artifact_path
 from services.mabang import config as mabang_settings
 
 from ...auth import get_fba_free_token
@@ -25,7 +26,7 @@ DEFAULT_TASK_LIST_URL = "https://api-private.mabangerp.com/fba/api/v1/taskreport
 DEFAULT_TASK_DOWNLOAD_URL = "https://api-private.mabangerp.com/fba/api/v1/taskreport/download"
 DEFAULT_ORIGIN = "https://amz1-private.mabangerp.com"
 DEFAULT_REFERER = "https://amz1-private.mabangerp.com/"
-DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_fba_delivery"
+DEFAULT_OUTPUT_DIR = artifact_path("mabang_fba_delivery")
 SIMPLE_TASK_CONFIG_ID = "amz-fba-batch-delivery"
 AUTH_FAIL_STATUS = {401, 403}
 PENDING_TASK_STATUS_CODES = {0, 1}

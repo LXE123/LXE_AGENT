@@ -611,6 +611,9 @@ def test_cli_list_and_list_params(capsys) -> None:
 
 
 def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> None:
+    template_root = tmp_path / "artifacts" / "mabang_replenishment_templates"
+    monkeypatch.setattr(tmpl, "DEFAULT_CUSTOM_TEMPLATE_STORE", template_root / "templates.json")
+    monkeypatch.setattr(tmpl, "DEFAULT_EDITABLE_OUTPUT_DIR", template_root / "editable")
     monkeypatch.chdir(tmp_path)
 
     assert cli.main(["show", "--template", "默认"]) == 0

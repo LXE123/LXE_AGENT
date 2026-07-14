@@ -29,8 +29,9 @@ from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
 )
 from shared.infra.net import close_all_network_clients
 from shared.logging import setup_logging
+from shared.workspace import artifact_path
 
-OUTPUT_DIR = Path("artifacts") / "mabang_purchase_summary"
+OUTPUT_DIR = artifact_path("mabang_purchase_summary")
 SOURCE = "fba_purchase_summary"
 
 MASTER_REQUIRED_HEADERS = ("库存sku", "产品名称", "型号", "原价", "厂家", "备用厂家")

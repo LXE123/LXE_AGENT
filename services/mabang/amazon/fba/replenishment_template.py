@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+from shared.workspace import artifact_path
 from typing import Any
 
 DEFAULT_TEMPLATE_NAME = "默认"
@@ -31,8 +33,8 @@ BUILTIN_TEMPLATE_NAMES = (
     DE_GROUP_1_TEMPLATE_NAME,
     US_LIN_MEIQI_GROUP_2_TEMPLATE_NAME,
 )
-DEFAULT_CUSTOM_TEMPLATE_STORE = Path("artifacts") / "mabang_replenishment_templates" / "templates.json"
-DEFAULT_EDITABLE_OUTPUT_DIR = Path("artifacts") / "mabang_replenishment_templates" / "editable"
+DEFAULT_CUSTOM_TEMPLATE_STORE = artifact_path("mabang_replenishment_templates", "templates.json")
+DEFAULT_EDITABLE_OUTPUT_DIR = artifact_path("mabang_replenishment_templates", "editable")
 
 SOURCE_DEFAULT = "default"
 SOURCE_CUSTOM = "custom"

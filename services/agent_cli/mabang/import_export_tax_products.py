@@ -25,9 +25,10 @@ from services.agent_cli.mabang.validate_export_tax_products import validate_expo
 from services.mabang.stock_sku_export import export_stock_sku_names
 from shared.infra.net import close_all_network_clients
 from shared.logging import setup_logging
+from shared.workspace import artifact_path
 
 SOURCE = "export_tax_products_import"
-DEFAULT_BACKUP_DIR = Path("artifacts") / "export_tax_products_backup"
+DEFAULT_BACKUP_DIR = artifact_path("export_tax_products_backup")
 SKU_TOKEN_SPLIT_PATTERN = re.compile(r"[\s,，;；]+")
 WHITESPACE_PATTERN = re.compile(r"\s+")
 

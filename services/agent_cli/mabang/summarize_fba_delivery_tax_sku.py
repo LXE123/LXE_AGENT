@@ -20,11 +20,12 @@ from services.mabang.amazon.fba import download_fba_delivery_csv
 from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
 from shared.infra.net import close_all_network_clients
 from shared.logging import setup_logging
+from shared.workspace import artifact_path, bundled_path
 
-DELIVERY_CSV_DIR = Path("artifacts") / "mabang_fba_delivery"
-OUTPUT_DIR = Path("artifacts") / "mabang_fba_tax_summary"
-STOCK_SKU_OUTPUT_DIR = Path("artifacts") / "mabang_stock_sku"
-EXPORT_TAX_PRODUCTS_PATH = Path("data") / "export_tax" / "export_tax_products.xlsx"
+DELIVERY_CSV_DIR = artifact_path("mabang_fba_delivery")
+OUTPUT_DIR = artifact_path("mabang_fba_tax_summary")
+STOCK_SKU_OUTPUT_DIR = artifact_path("mabang_stock_sku")
+EXPORT_TAX_PRODUCTS_PATH = bundled_path("data", "export_tax", "export_tax_products.xlsx")
 EXPORT_TAX_PRODUCTS_SHEET = "Sheet1"
 SKU_SHIP_QTY_COLUMN = "SKU发货量"
 TAX_PRODUCT_SKU_COLUMN = "sku"

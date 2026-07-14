@@ -17,9 +17,10 @@ from services.agent_cli._shared.json_cli import (
 )
 from services.agent_cli.mabang import generate_restock_workbook as _purchase
 from shared.logging import setup_logging
+from shared.workspace import artifact_path
 
 DELIVERY_CSV_DIR = _purchase.DELIVERY_CSV_DIR
-OUTPUT_DIR = Path("artifacts") / "mabang_restock_workbook"
+OUTPUT_DIR = artifact_path("mabang_restock_workbook")
 SOURCE = "fba_restock_workbook"
 RESTOCK_SHEET_NAME = "备货单"
 COUNTRY_COLUMN = "国家"

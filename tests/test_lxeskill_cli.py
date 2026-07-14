@@ -8,6 +8,7 @@ from pathlib import Path
 
 from py_tools import lxeskill
 from py_tools.business import allowed_output_file, load_catalog
+from shared.workspace import activate_external_workspace, activate_project_workspace, artifact_root, internal_root, workspace_root
 
 
 def _records(capsys) -> list[dict]:
@@ -213,3 +214,33 @@ def test_output_file_must_be_under_artifacts_or_skill_assets(tmp_path) -> None:
             raise AssertionError("outside file should have been rejected")
     finally:
         artifact.unlink(missing_ok=True)
+
+
+def test_external_workspace_is_private_and_does_not_modify_caller_gitignore(tmp_path) -> None:
+    caller_gitignore = tmp_path / ".gitignore"
+    caller_gitignore.write_text("keep-me\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    before_status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    try:
+        assert activate_external_workspace(tmp_path) == (tmp_path / ".lxeskill").resolve()
+        assert workspace_root() == tmp_path.resolve()
+        assert internal_root() == (tmp_path / ".lxeskill").resolve()
+        assert artifact_root() == (tmp_path / ".lxeskill" / "artifacts").resolve()
+        assert (tmp_path / ".lxeskill" / ".gitignore").read_text(encoding="utf-8") == "*\n"
+        assert caller_gitignore.read_text(encoding="utf-8") == "keep-me\n"
+        after_status = subprocess.run(
+            ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        assert after_status == before_status
+    finally:
+        activate_project_workspace()

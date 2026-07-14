@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from shared.infra.net import erp_http_session, external_http_session
+from shared.workspace import artifact_path
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
@@ -23,8 +24,8 @@ from ...auth import get_auth_context
 from ...cookies import build_cookie_header, extract_named_cookies
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
 
-DEFAULT_STORE_MSKU_DIR = Path("artifacts") / "mabang_store_msku"
-DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_store_msku_inventory"
+DEFAULT_STORE_MSKU_DIR = artifact_path("mabang_store_msku")
+DEFAULT_OUTPUT_DIR = artifact_path("mabang_store_msku_inventory")
 DEFAULT_COMBO_EXPORT_URL = "https://private.mabangerp.com/index.php?mod=combosku.doExportFileNew"
 DEFAULT_COMBO_LIST_URL = "https://private-amz.mabangerp.com/index.php?mod=combosku.getCombosSkuList"
 DEFAULT_COMBO_EXPORT_TEMPLATE_URL = "https://private.mabangerp.com/index.php"

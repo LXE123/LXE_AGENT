@@ -72,6 +72,23 @@ describe("ExecShellAdapter", () => {
     );
   });
 
+  test("puts the project venv ahead of a fake system lxeskill", () => {
+    const shell = new ExecShellAdapter({
+      platform: "darwin",
+      environment: { PATH: "/fake/system/bin:/usr/bin" },
+      fileExists: () => true,
+    });
+    expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(
+      "'/work/project/.venv/bin/python' -m py_tools.lxeskill list",
+    );
+    expect(shell.childEnvironment("/work/project", {
+      sessionId: "s1",
+      turnId: "t1",
+      responseRouteId: "r1",
+      execSessionId: "e1",
+    }).PATH).toBe("/work/project/.venv/bin:/fake/system/bin:/usr/bin");
+  });
+
   test("rejects direct business modules and unsupported Python launcher versions", () => {
     const shell = new ExecShellAdapter({ platform: "darwin", fileExists: () => true });
     expect(() => shell.normalizeCommand("/work", "python -m services.agent_cli.demo"))

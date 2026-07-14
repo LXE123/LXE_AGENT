@@ -12,6 +12,7 @@ from typing import Any, Iterator
 
 from shared.env_config import env_flag, env_path
 from shared.logging import get_logger
+from shared.workspace import internal_root
 
 
 logger = get_logger(__name__)
@@ -26,10 +27,6 @@ _SECRET_KEY_PARTS = ("password", "username", "company")
 _ERROR_TEXT_KEYS = {"error", "message", "failure", "failure_reason"}
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
 def _trace_enabled() -> bool:
     return env_flag("ZINIAO_DIAGNOSTIC_TRACE_ENABLED", False)
 
@@ -38,7 +35,7 @@ def _trace_dir() -> Path:
     raw = env_path("ZINIAO_DIAGNOSTIC_TRACE_DIR", "logs/ziniao_traces")
     path = Path(raw or "logs/ziniao_traces").expanduser()
     if not path.is_absolute():
-        path = (_repo_root() / path).resolve()
+        path = (internal_root() / path).resolve()
     return path
 
 

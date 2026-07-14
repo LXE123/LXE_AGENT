@@ -20,8 +20,8 @@ def _configure_archive_root(monkeypatch, tmp_path: Path) -> Path:
     project_root = tmp_path / "workspace"
     attachments_root = project_root / "artifacts" / "amazon_fba" / "attachments"
     project_root.mkdir()
-    monkeypatch.setattr(fba_shared, "_PROJECT_ROOT", project_root)
     monkeypatch.setattr(fba_shared, "_ATTACHMENTS_ROOT", attachments_root)
+    monkeypatch.setattr(fba_shared, "workspace_root", lambda: project_root)
     return project_root
 
 

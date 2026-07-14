@@ -30,7 +30,7 @@ def _insert_session(session_id: str, source: dict) -> None:
 
 def test_browser_command_persists_state_patch_and_restores_it_next_call(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "runtime.sqlite3"))
-    monkeypatch.setattr(lxeskill_browser, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(lxeskill_browser, "internal_root", lambda: tmp_path)
     init_schema()
     _insert_session(
         "session-1",
@@ -92,7 +92,7 @@ def test_browser_command_reports_session_required_as_environment_error(capsys, m
 
 
 def test_browser_command_reports_busy_session(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(lxeskill_browser, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(lxeskill_browser, "internal_root", lambda: tmp_path)
     monkeypatch.setattr(
         lxeskill_browser,
         "interprocess_lock",

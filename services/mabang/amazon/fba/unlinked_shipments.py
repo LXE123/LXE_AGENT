@@ -10,6 +10,7 @@ from typing import Any
 
 from shared.infra.net import erp_http_session, external_http_session
 from shared.logging import get_logger
+from shared.workspace import artifact_path
 from services.mabang import config as mabang_settings
 
 from ...auth import get_fba_free_token
@@ -30,8 +31,8 @@ from .batch_delivery import (
 logger = get_logger(__name__)
 
 DEFAULT_SHOP_COUNTRY_URL = "https://api-private.mabangerp.com/fba/api/v1/shop/shopCountry"
-DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_fba_unlinked_shipments"
-DEFAULT_SNAPSHOT_DIR = Path("artifacts") / "mabang_fba_unlinked_shipments_snapshots"
+DEFAULT_OUTPUT_DIR = artifact_path("mabang_fba_unlinked_shipments")
+DEFAULT_SNAPSHOT_DIR = artifact_path("mabang_fba_unlinked_shipments_snapshots")
 SOURCE = "mabang_fba_unlinked_shipments"
 SNAPSHOT_SOURCE = "mabang_fba_unlinked_shipments_snapshot"
 UNLINKED_SHIPMENTS_SNAPSHOT_FILE_SUFFIX = "未关联货件快照"

@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from shared.infra.net import erp_http_session, external_http_session
+from shared.workspace import artifact_path
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
@@ -30,8 +31,8 @@ DEFAULT_PRIVATE_AMZ_ORIGIN = "https://private-amz.mabangerp.com"
 DEFAULT_PRIVATE_AMZ_REFERER = "https://private-amz.mabangerp.com/"
 DEFAULT_PRIVATE_ORIGIN = "https://private.mabangerp.com"
 DEFAULT_PRIVATE_REFERER = "https://private.mabangerp.com/"
-DEFAULT_OUTPUT_DIR = Path("artifacts") / "mabang_msku_detail"
-DEFAULT_DELIVERY_FILE_DIR = Path("artifacts") / "mabang_fba_delivery"
+DEFAULT_OUTPUT_DIR = artifact_path("mabang_msku_detail")
+DEFAULT_DELIVERY_FILE_DIR = artifact_path("mabang_fba_delivery")
 AUTH_FAIL_STATUS = {401, 403}
 SOURCE = "mabang_msku_detail"
 MSKU_COLUMN = "MSKU"

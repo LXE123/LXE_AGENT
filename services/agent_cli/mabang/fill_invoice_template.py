@@ -60,11 +60,12 @@ from services.mabang.stock_sku_export import (
 )
 from shared.infra.net import close_all_network_clients
 from shared.logging import setup_logging
+from shared.workspace import artifact_path, bundled_path
 
 SOURCE = "invoice_template_fill"
-DEFAULT_TEMPLATE_PATH = Path("data") / "invoice_Template" / "invoice_Template.xlsx"
-DEFAULT_OUTPUT_DIR = Path("artifacts") / "invoice_template"
-STOCK_SKU_OUTPUT_DIR = Path("artifacts") / "mabang_stock_sku"
+DEFAULT_TEMPLATE_PATH = bundled_path("data", "invoice_Template", "invoice_Template.xlsx")
+DEFAULT_OUTPUT_DIR = artifact_path("invoice_template")
+STOCK_SKU_OUTPUT_DIR = artifact_path("mabang_stock_sku")
 INVOICE_TEMPLATE_SHEET = "WS-通用发票导入模版"
 STOCK_SKU_IMAGE_COLUMN = "库存sku图片"
 IMAGE_MAX_WIDTH = 80

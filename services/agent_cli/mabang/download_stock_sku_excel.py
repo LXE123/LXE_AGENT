@@ -19,9 +19,10 @@ from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
 from services.mabang.stock_sku_export import export_stock_sku_names
 from shared.infra.net import close_all_network_clients
 from shared.logging import setup_logging
+from shared.workspace import artifact_path
 
-DELIVERY_CSV_DIR = Path("artifacts") / "mabang_fba_delivery"
-STOCK_SKU_OUTPUT_DIR = Path("artifacts") / "mabang_stock_sku"
+DELIVERY_CSV_DIR = artifact_path("mabang_fba_delivery")
+STOCK_SKU_OUTPUT_DIR = artifact_path("mabang_stock_sku")
 SKU_SHIP_QTY_COLUMN = "SKU发货量"
 SOURCE = "mabang_stock_sku_download"
 ITEM_SPLIT_PATTERN = re.compile(r"[，,\r\n;；]+")

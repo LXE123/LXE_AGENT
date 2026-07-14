@@ -8,12 +8,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
+
+from shared.workspace import artifact_path
 from typing import Any
 
 from services.agent_cli.mabang.restock_workbook import MERGE_DETAIL_HEADERS, clean_cell, find_merge_detail_sheet
 from services.amazon.amazon_logistic.sources.consignment_excel import resolve_column
 
-DELIVERY_CSV_DIR = Path("artifacts") / "mabang_fba_delivery"
+DELIVERY_CSV_DIR = artifact_path("mabang_fba_delivery")
 DELIVERY_MSKU_COLUMN = "MSKU"
 MSKU_SHIP_QTY_COLUMN = "MSKU发货量"
 SKU_SHIP_QTY_COLUMN = "SKU发货量"
