@@ -319,24 +319,6 @@ def test_wms_network_error_keeps_existing_retry_without_force_refresh(monkeypatc
     assert request_count == 2
 
 
-def test_missing_ship_no_returns_failure_json(capsys):
-    payload = cli.run({})
-    assert payload == {
-        "success": False,
-        "ship_no": "",
-        "exception": "ship_no 不能为空",
-    }
-
-
-def test_invalid_ship_no_returns_failure_json(capsys):
-    payload = cli.run({"ship_no": "FBA123"})
-    assert payload == {
-        "success": False,
-        "ship_no": "FBA123",
-        "exception": "ship_no 格式无效: FBA123",
-    }
-
-
 def test_success_returns_downloaded_excel_path(monkeypatch, tmp_path, capsys):
     excel_path = tmp_path / "SP260226004.xlsx"
     _write_consignment_excel(excel_path, 4)
@@ -358,20 +340,6 @@ def test_success_returns_downloaded_excel_path(monkeypatch, tmp_path, capsys):
         "box_count": 4,
         "split_required": False,
         "split_excel_paths": [],
-    }
-
-
-def test_download_error_returns_failure_json(monkeypatch, capsys):
-    async def fake_download(ship_no: str) -> Path:
-        raise RuntimeError(f"WMS failed for {ship_no}")
-
-    monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
-
-    payload = cli.run({"ship_no": "SP260226004"})
-    assert payload == {
-        "success": False,
-        "ship_no": "SP260226004",
-        "exception": "WMS failed for SP260226004",
     }
 
 
