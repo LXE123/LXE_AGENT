@@ -2,7 +2,7 @@
 
 这里是本地 Agent Dashboard 的前端工程。它使用 React、TypeScript 和 Vite 构建，生产构建产物由同一 Bun Gateway 进程中的 `BunDashboardServer` 静态托管。
 
-这个 README 只说明 WebUI 子项目怎么安装、开发、打包和排查常见问题。完整项目安装、Python 环境和业务配置仍以根目录 `README.md`、`docs/py31210.md` 为准。
+这个 README 只说明 WebUI 子项目怎么安装、开发、打包和排查常见问题。完整项目安装、Python 环境和业务配置仍以根目录 `README.md`、`docs/record/20260428-python-3.12.10-uv.md` 为准。
 
 ## 环境要求
 

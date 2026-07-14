@@ -69,7 +69,7 @@ dated record 文档：
 Current candidates：
 
 - `README.md`
-- `docs/py31210.md`
+- `docs/record/20260428-python-3.12.10-uv.md`
 - `docs/database/local_agent.md`
 - `docs/eventloop.md`
 - `docs/harness/runtime/README.md`
