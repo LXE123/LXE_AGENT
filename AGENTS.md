@@ -4,19 +4,3 @@
 
 ## Editing Safety
 - On Windows, do **not** use ad-hoc whole-file PowerShell rewrites on Python files that contain Chinese, emoji, or other non-ASCII text. They can corrupt encoding and break strings/docstrings.
-- Prefer `apply_patch` or a fully controlled file replacement when editing those files.
-- After structural or batch edits, run a small compile check early instead of waiting until the end.
-
-## Before Every Task
-1. State your plan in a short bullet list (in chat, not a file)
-2. Identify the root cause — no band-aids
-
-## Logging
-- New Python modules should use `from shared.logging import get_logger` and define `logger = get_logger(__name__)`.
-- Do not import the legacy global `logger` in new modules; it exists only for gradual migration compatibility.
-
----
-
-关于运行环境相关说明：
-该项目的运行环境是 3.12.10 版本的 python，并且是在虚拟环境的情况下运行。
-这个文档可以看到我是如何搭建虚拟环境的：docs/record/20260428-python-3.12.10-uv.md。
