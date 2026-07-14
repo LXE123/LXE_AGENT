@@ -1,26 +1,27 @@
 from __future__ import annotations
 
-import math
 import csv
+import math
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from services.mabang import config as mabang_settings
+from services.mabang.export_common import clean_text as _clean_text
+from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session, external_http_session
 from shared.logging import get_logger
 from shared.workspace import artifact_path
-from services.mabang import config as mabang_settings
 
 from ...auth import get_fba_free_token
 from ...errors import MabangBusinessError, MabangRequestError
 from .batch_delivery import (
-    BatchDeliveryApiAuthError,
     DEFAULT_BATCH_DELIVERY_LIST_URL,
     DEFAULT_TASK_PUSH_URL,
     SIMPLE_TASK_CONFIG_ID,
-    _configured_text,
+    BatchDeliveryApiAuthError,
     _int_value,
     _read_api_json,
     _request_headers,
@@ -158,10 +159,6 @@ UNLINKED_SHIPMENT_STATUS_SPECS = (
         params={"status": 10, "is_batch_create": 1},
     ),
 )
-
-
-def _clean_text(value: Any) -> str:
-    return str(value or "").strip()
 
 
 def normalize_store_name(value: Any) -> str:
