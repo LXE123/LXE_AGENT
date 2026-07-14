@@ -3,18 +3,18 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
-    MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
-)
-from services.mabang.auth_constants import (
+    MABANG_MEMCACHE_COOKIE_NAME,
     PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
 )
 from services.mabang.export_common import (
     ExportPipelineSpec,
+    PrivateAmzExportAuth,
     build_private_amz_headers,
     run_export_pipeline,
 )
@@ -37,7 +37,6 @@ from shared.infra.net import erp_http_session, external_http_session
 from shared.workspace import artifact_path
 
 from ...auth import get_auth_context
-from ...cookies import extract_named_cookies
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
 from .store_resolver import ID_TYPE_FBA_WAREHOUSE, ID_TYPE_SHOP
 
@@ -140,13 +139,6 @@ class StoreMskuDownloadAuthError(StoreMskuDownloadError, MabangAuthError):
 
 
 @dataclass(frozen=True)
-class StoreMskuAuth:
-    private_amz_cookie_header: str
-    private_cookie_header: str
-    memcache_key: str
-
-
-@dataclass(frozen=True)
 class StoreMskuExcelResult:
     store_name: str
     store_id: str
@@ -244,25 +236,15 @@ async def _read_store_msku_json(resp: Any, *, action: str) -> dict[str, Any]:
     return data
 
 
-async def resolve_store_msku_auth() -> StoreMskuAuth:
+async def resolve_store_msku_auth() -> PrivateAmzExportAuth:
     context = await get_auth_context(scope="private_amz", purpose="store_msku_download")
-    headers = build_private_amz_headers(
+    return build_private_amz_headers(
         context,
         required_names=PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
         extra_cookies={"mabang_lite_rowsPerPage": "100"},
         private_extra_cookies={"exportv2": "2"},
+        memcache_cookie_name=MABANG_MEMCACHE_COOKIE_NAME,
         error_type=StoreMskuDownloadAuthError,
-    )
-
-    values = extract_named_cookies(context.cookies_by_domain, (MEMCACHE_COOKIE_NAME,))
-    memcache_key = _clean_text(values.get(MEMCACHE_COOKIE_NAME))
-    if not memcache_key:
-        raise StoreMskuDownloadAuthError(f"缺少关键 Cookie: {MEMCACHE_COOKIE_NAME}")
-
-    return StoreMskuAuth(
-        private_amz_cookie_header=headers.private_amz_cookie_header,
-        private_cookie_header=headers.private_cookie_header,
-        memcache_key=memcache_key,
     )
 
 
@@ -528,42 +510,11 @@ async def download_store_msku_excel(
     store_name: str = "",
     output_dir: str | Path | None = None,
 ) -> StoreMskuExcelResult:
-    def prepare() -> tuple[str, str, str]:
-        return (
-            normalize_store_id(store_id),
-            normalize_id_type(id_type),
-            normalize_store_name(store_name),
-        )
+    clean_store_id = normalize_store_id(store_id)
+    clean_id_type = normalize_id_type(id_type)
+    clean_store_name = normalize_store_name(store_name)
 
-    async def request_export(
-        prepared: tuple[str, str, str], auth: StoreMskuAuth
-    ) -> tuple[list[str], str]:
-        clean_store_id, clean_id_type, _clean_store_name = prepared
-        ids = await fetch_store_msku_ids(
-            clean_store_id,
-            clean_id_type,
-            cookie_header=auth.private_amz_cookie_header,
-        )
-        file_url = await export_store_msku_file_url(
-            ids,
-            cookie_header=auth.private_cookie_header,
-            memcache_key=auth.memcache_key,
-        )
-        return ids, file_url
-
-    async def download_file(prepared: tuple[str, str, str], file_url: str) -> Path:
-        clean_store_id, _clean_id_type, clean_store_name = prepared
-        return await download_store_msku_excel_from_url(
-            file_url,
-            store_id=clean_store_id,
-            store_name=clean_store_name,
-            output_dir=output_dir,
-        )
-
-    def transform_result(
-        prepared: tuple[str, str, str], ids: list[str], excel_path: Path
-    ) -> StoreMskuExcelResult:
-        clean_store_id, clean_id_type, clean_store_name = prepared
+    def transform_result(ids: list[str], excel_path: Path) -> StoreMskuExcelResult:
         xlsx_path, converted, raw_excel_deleted = normalize_store_msku_excel(excel_path)
         validate_store_msku_excel_headers(xlsx_path)
         return StoreMskuExcelResult(
@@ -578,10 +529,16 @@ async def download_store_msku_excel(
 
     return await run_export_pipeline(
         ExportPipelineSpec(
-            prepare=prepare,
             authorize=resolve_store_msku_auth,
-            request_export=request_export,
-            download_file=download_file,
+            fetch_ids=fetch_store_msku_ids,
+            fetch_args=(clean_store_id, clean_id_type),
+            request_file_url=export_store_msku_file_url,
+            download_file=partial(
+                download_store_msku_excel_from_url,
+                store_id=clean_store_id,
+                store_name=clean_store_name,
+                output_dir=output_dir,
+            ),
             transform_result=transform_result,
         )
     )
@@ -596,7 +553,6 @@ __all__ = [
     "STORE_MSKU_EXPORT_FIELDS",
     "STORE_MSKU_EXPORT_FIELD_DEFS",
     "STORE_MSKU_FIELDLABELS",
-    "StoreMskuAuth",
     "StoreMskuDownloadAuthError",
     "StoreMskuDownloadError",
     "StoreMskuExcelResult",

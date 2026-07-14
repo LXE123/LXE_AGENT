@@ -2,52 +2,53 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from inspect import isawaitable
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Generic, Iterable, TypeVar, cast
+from typing import Any, Awaitable, Callable, Generic, Iterable, TypeVar
 from urllib.parse import urlsplit
 
 from services.mabang import config as mabang_settings
 from services.mabang.auth import MabangAuthContext
 from services.mabang.auth_constants import PRIVATE_AMZ_HOST, PRIVATE_HOST
-from services.mabang.cookies import build_cookie_header, list_cookie_names
+from services.mabang.cookies import (
+    build_cookie_header,
+    extract_named_cookies,
+    list_cookie_names,
+)
 
-PreparedT = TypeVar("PreparedT")
-AuthT = TypeVar("AuthT")
-ExportT = TypeVar("ExportT")
 FileT = TypeVar("FileT")
 ResultT = TypeVar("ResultT")
 
 
 @dataclass(frozen=True)
-class PrivateAmzHeaders:
+class PrivateAmzExportAuth:
     private_amz_cookie_header: str
     private_cookie_header: str
+    memcache_key: str
 
 
 @dataclass(frozen=True)
-class ExportPipelineSpec(Generic[PreparedT, AuthT, ExportT, FileT, ResultT]):
-    prepare: Callable[[], PreparedT | Awaitable[PreparedT]]
-    authorize: Callable[[], Awaitable[AuthT]]
-    request_export: Callable[[PreparedT, AuthT], Awaitable[tuple[ExportT, str]]]
-    download_file: Callable[[PreparedT, str], Awaitable[FileT]]
-    transform_result: Callable[[PreparedT, ExportT, FileT], ResultT | Awaitable[ResultT]]
+class ExportPipelineSpec(Generic[FileT, ResultT]):
+    authorize: Callable[[], Awaitable[PrivateAmzExportAuth]]
+    fetch_ids: Callable[..., Awaitable[list[str]]]
+    request_file_url: Callable[..., Awaitable[str]]
+    download_file: Callable[[str], Awaitable[FileT]]
+    transform_result: Callable[[list[str], FileT], ResultT]
+    fetch_args: tuple[Any, ...] = ()
 
 
-async def _resolve(value: ResultT | Awaitable[ResultT]) -> ResultT:
-    if isawaitable(value):
-        return await cast(Awaitable[ResultT], value)
-    return value
-
-
-async def run_export_pipeline(
-    spec: ExportPipelineSpec[PreparedT, AuthT, ExportT, FileT, ResultT],
-) -> ResultT:
-    prepared = await _resolve(spec.prepare())
+async def run_export_pipeline(spec: ExportPipelineSpec[FileT, ResultT]) -> ResultT:
     auth = await spec.authorize()
-    exported, file_url = await spec.request_export(prepared, auth)
-    downloaded = await spec.download_file(prepared, file_url)
-    return await _resolve(spec.transform_result(prepared, exported, downloaded))
+    ids = await spec.fetch_ids(
+        *spec.fetch_args,
+        cookie_header=auth.private_amz_cookie_header,
+    )
+    file_url = await spec.request_file_url(
+        ids,
+        cookie_header=auth.private_cookie_header,
+        memcache_key=auth.memcache_key,
+    )
+    downloaded = await spec.download_file(file_url)
+    return spec.transform_result(ids, downloaded)
 
 
 def configured_text(name: str, default: str) -> str:
@@ -95,8 +96,9 @@ def build_private_amz_headers(
     required_names: Iterable[str],
     extra_cookies: dict[str, str],
     private_extra_cookies: dict[str, str],
+    memcache_cookie_name: str,
     error_type: type[Exception],
-) -> PrivateAmzHeaders:
+) -> PrivateAmzExportAuth:
     private_amz_cookie_header = build_cookie_header(
         context.cookies_by_domain,
         request_host=PRIVATE_AMZ_HOST,
@@ -124,21 +126,13 @@ def build_private_amz_headers(
     if not private_cookie_header:
         raise error_type("未获取到 private.mabangerp.com Cookie")
 
-    return PrivateAmzHeaders(
+    values = extract_named_cookies(context.cookies_by_domain, (memcache_cookie_name,))
+    memcache_key = clean_text(values.get(memcache_cookie_name))
+    if not memcache_key:
+        raise error_type(f"缺少关键 Cookie: {memcache_cookie_name}")
+
+    return PrivateAmzExportAuth(
         private_amz_cookie_header=private_amz_cookie_header,
         private_cookie_header=private_cookie_header,
+        memcache_key=memcache_key,
     )
-
-
-__all__ = [
-    "ExportPipelineSpec",
-    "PrivateAmzHeaders",
-    "build_private_amz_headers",
-    "clean_cell",
-    "clean_text",
-    "configured_text",
-    "excel_suffix_from_url",
-    "request_headers",
-    "run_export_pipeline",
-    "safe_store_msku_file_part",
-]

@@ -7,6 +7,7 @@ from aiohttp import web
 from services.mabang.auth import MabangAuthContext
 from services.mabang.export_common import (
     ExportPipelineSpec,
+    PrivateAmzExportAuth,
     build_private_amz_headers,
     clean_cell,
     clean_text,
@@ -44,6 +45,7 @@ def _headers(context: MabangAuthContext):
         required_names=("PHPSESSID", "signed"),
         extra_cookies={"mabang_lite_rowsPerPage": "100"},
         private_extra_cookies={"exportv2": "2"},
+        memcache_cookie_name="memcache",
         error_type=_DomainAuthError,
     )
 
@@ -74,6 +76,7 @@ def test_private_amz_headers_use_specific_cookie_and_preserve_extras() -> None:
                     {"name": "PHPSESSID", "value": "broad", "domain": ".mabangerp.com"},
                     {"name": "signed", "value": "signed-value", "domain": ".mabangerp.com"},
                     {"name": "exportv2", "value": "old", "domain": ".mabangerp.com"},
+                    {"name": "memcache", "value": "memcache-key", "domain": ".mabangerp.com"},
                 ],
                 "private-amz.mabangerp.com": [
                     {
@@ -87,9 +90,13 @@ def test_private_amz_headers_use_specific_cookie_and_preserve_extras() -> None:
     )
 
     assert headers.private_amz_cookie_header == (
-        "signed=signed-value; exportv2=old; PHPSESSID=specific; mabang_lite_rowsPerPage=100"
+        "signed=signed-value; exportv2=old; memcache=memcache-key; "
+        "PHPSESSID=specific; mabang_lite_rowsPerPage=100"
     )
-    assert headers.private_cookie_header == "PHPSESSID=broad; signed=signed-value; exportv2=2"
+    assert headers.private_cookie_header == (
+        "PHPSESSID=broad; signed=signed-value; exportv2=2; memcache=memcache-key"
+    )
+    assert headers.memcache_key == "memcache-key"
 
 
 def test_private_amz_headers_raise_the_domain_error_type() -> None:
@@ -109,6 +116,7 @@ def test_private_amz_cookie_header_round_trips_through_stateless_session() -> No
                 ".mabangerp.com": [
                     {"name": "PHPSESSID", "value": "fresh", "domain": ".mabangerp.com"},
                     {"name": "signed", "value": "signed-value", "domain": ".mabangerp.com"},
+                    {"name": "memcache", "value": "memcache-key", "domain": ".mabangerp.com"},
                 ]
             }
         )
@@ -148,32 +156,35 @@ def test_private_amz_cookie_header_round_trips_through_stateless_session() -> No
 def test_export_pipeline_runs_stages_in_contract_order() -> None:
     events: list[str] = []
 
-    def prepare() -> str:
-        events.append("prepare")
-        return "prepared"
-
-    async def authorize() -> str:
+    async def authorize() -> PrivateAmzExportAuth:
         events.append("authorize")
-        return "auth"
+        return PrivateAmzExportAuth("amz-cookie", "private-cookie", "memcache-key")
 
-    async def request_export(prepared: str, auth: str) -> tuple[str, str]:
-        events.append(f"request:{prepared}:{auth}")
-        return "metadata", "https://files.example/export.xlsx"
+    async def fetch_ids(value: str, *, cookie_header: str) -> list[str]:
+        events.append(f"fetch:{value}:{cookie_header}")
+        return ["123"]
 
-    async def download_file(prepared: str, file_url: str) -> str:
-        events.append(f"download:{prepared}:{file_url}")
+    async def request_file_url(
+        ids: list[str], *, cookie_header: str, memcache_key: str
+    ) -> str:
+        events.append(f"request:{ids}:{cookie_header}:{memcache_key}")
+        return "https://files.example/export.xlsx"
+
+    async def download_file(file_url: str) -> str:
+        events.append(f"download:{file_url}")
         return "/tmp/export.xlsx"
 
-    def transform_result(prepared: str, metadata: str, file_path: str) -> dict[str, str]:
-        events.append(f"transform:{prepared}:{metadata}:{file_path}")
+    def transform_result(ids: list[str], file_path: str) -> dict[str, str]:
+        events.append(f"transform:{ids}:{file_path}")
         return {"file_path": file_path}
 
     result = asyncio.run(
         run_export_pipeline(
             ExportPipelineSpec(
-                prepare=prepare,
                 authorize=authorize,
-                request_export=request_export,
+                fetch_ids=fetch_ids,
+                fetch_args=("prepared",),
+                request_file_url=request_file_url,
                 download_file=download_file,
                 transform_result=transform_result,
             )
@@ -182,9 +193,9 @@ def test_export_pipeline_runs_stages_in_contract_order() -> None:
 
     assert result == {"file_path": "/tmp/export.xlsx"}
     assert events == [
-        "prepare",
         "authorize",
-        "request:prepared:auth",
-        "download:prepared:https://files.example/export.xlsx",
-        "transform:prepared:metadata:/tmp/export.xlsx",
+        "fetch:prepared:amz-cookie",
+        "request:['123']:private-cookie:memcache-key",
+        "download:https://files.example/export.xlsx",
+        "transform:['123']:/tmp/export.xlsx",
     ]
