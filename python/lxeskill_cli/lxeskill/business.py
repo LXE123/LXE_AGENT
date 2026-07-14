@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import contextlib
 import importlib
-import inspect
-import io
 import json
 import os
 from pathlib import Path
 import re
-import sys
 from typing import Any, Callable
 
 from shared.logging import get_logger
@@ -88,27 +85,6 @@ def load_catalog() -> dict[str, dict[str, Any]]:
                 raise RuntimeError(f"script tool naming mismatch: {module} -> {name}")
         entries[name] = entry
     return entries
-
-
-def _argv(arguments: dict[str, Any], positional: list[str]) -> list[str]:
-    output: list[str] = []
-    for key in positional:
-        value = arguments.get(key)
-        if value is None or str(value).strip() == "":
-            raise ValueError(f"missing positional argument: {key}")
-        output.append(str(value))
-    for key, value in arguments.items():
-        if key in positional or value is None or value is False:
-            continue
-        flag = f"--{str(key).replace('_', '-')}"
-        if value is True:
-            output.append(flag)
-        elif isinstance(value, list):
-            for item in value:
-                output.extend((flag, str(item)))
-        else:
-            output.extend((flag, str(value)))
-    return output
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -204,76 +180,35 @@ def execute_module_json(
 ) -> tuple[bool, list[dict[str, Any]], list[str], dict[str, str] | None]:
     module_name = str(entry.get("module") or "").strip()
     module = importlib.import_module(module_name)
-    # Preferred contract: run(arguments) -> payload dict. The catalog
-    # input_schema is the argument contract; no argv round-trip, no stdout
-    # capture. main(argv) stays as the legacy fallback until every business
-    # module is converted.
+    # The one business contract: run(arguments) -> payload dict, with the
+    # catalog input_schema as the argument source. No argv round-trips and
+    # no stdout capture.
     run = getattr(module, "run", None)
-    if callable(run):
-        try:
-            payload = run(dict(arguments or {}))
-        except Exception as exc:  # noqa: BLE001 — business failures become envelopes
-            payload = {"success": False, "exception": f"{type(exc).__name__}: {exc}"}
-        finally:
-            _close_network_clients_best_effort()
-        if not isinstance(payload, dict):
-            raise RuntimeError(f"business run() must return an object: {module_name}")
-        return _finalize_payload(entry, module_name, payload, exit_code=None)
-    main = getattr(module, "main", None)
-    if not callable(main):
-        raise RuntimeError(f"business CLI has no callable run() or main(): {module_name}")
-    stdout = io.StringIO()
-    argv = _argv(dict(arguments or {}), [str(item) for item in list(entry.get("positional") or [])])
-    with contextlib.redirect_stdout(stdout):
-        try:
-            if len(inspect.signature(main).parameters) == 0:
-                original_argv = sys.argv
-                try:
-                    sys.argv = [module_name, *argv]
-                    exit_code = int(main() or 0)
-                finally:
-                    sys.argv = original_argv
-            else:
-                exit_code = int(main(argv) or 0)
-        except SystemExit as exc:
-            exit_code = int(exc.code or 0)
-    lines = [line.strip() for line in stdout.getvalue().splitlines() if line.strip()]
-    if not lines:
-        raise RuntimeError(f"business CLI returned no JSON: {module_name}")
-    for line in lines[:-1]:
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            if on_text is not None:
-                on_text(line)
-            continue
-        if isinstance(event, dict) and str(event.get("type") or "") == "progress":
-            if on_event is not None:
-                on_event(dict(event))
-        elif on_text is not None:
-            on_text(line)
+    if not callable(run):
+        raise RuntimeError(f"business module has no callable run(): {module_name}")
     try:
-        payload = json.loads(lines[-1])
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"business CLI returned malformed JSON: {module_name}") from exc
+        payload = run(dict(arguments or {}))
+    except Exception as exc:  # noqa: BLE001 — business failures become envelopes
+        payload = {"success": False, "exception": f"{type(exc).__name__}: {exc}"}
+    finally:
+        _close_network_clients_best_effort()
     if not isinstance(payload, dict):
-        raise RuntimeError(f"business CLI response must be an object: {module_name}")
-    return _finalize_payload(entry, module_name, payload, exit_code=exit_code)
+        raise RuntimeError(f"business run() must return an object: {module_name}")
+    return _finalize_payload(entry, module_name, payload)
 
 
 def _finalize_payload(
     entry: dict[str, Any],
     module_name: str,
     payload: dict[str, Any],
-    *,
-    exit_code: int | None,
 ) -> tuple[bool, list[dict[str, Any]], list[str], dict[str, str] | None]:
     if "success" in payload:
         success = bool(payload.get("success"))
+    elif "ok" in payload:
+        # The logistics ingest family reports via "ok" instead of "success".
+        success = bool(payload.get("ok"))
     else:
-        # run() modules signal failure via the payload; only the legacy
-        # main(argv) path carries an exit code to fall back on.
-        success = True if exit_code is None else exit_code == 0
+        success = True
     if "finished" in payload:
         success = success and bool(payload.get("finished"))
     files = collect_declared_artifacts(entry, payload) if success else []

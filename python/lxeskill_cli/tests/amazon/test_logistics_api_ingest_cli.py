@@ -1,18 +1,7 @@
 from __future__ import annotations
 
-import json
 
 from services.agent_cli.amazon_logistic import logistics_update_ingest as cli
-
-
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
-async def _noop_close_all_network_clients() -> None:
-    return None
 
 
 async def _noop_sleep(_seconds: float) -> None:
@@ -23,7 +12,6 @@ def _patch_fast_polling(monkeypatch, *, max_polls: int = 6) -> None:
     monkeypatch.setattr(cli.logistics_settings, "LOGISTICS_IMPORT_POLL_INTERVAL_SECONDS", 0)
     monkeypatch.setattr(cli.logistics_settings, "LOGISTICS_IMPORT_MAX_POLLS", max_polls)
     monkeypatch.setattr(cli.asyncio, "sleep", _noop_sleep)
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
 
 def test_local_file_is_uploaded_before_import_job(monkeypatch, tmp_path, capsys):
@@ -41,10 +29,7 @@ def test_local_file_is_uploaded_before_import_job(monkeypatch, tmp_path, capsys)
     monkeypatch.setattr(cli, "upload_import_file", fake_upload_import_file)
     monkeypatch.setattr(cli, "create_import_job", fake_create_import_job)
 
-    exit_code = cli.main(["--file-path", str(source_file)])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"file_path": str(source_file)})
     assert payload["file_path"] == str(source_file)
     assert payload["status"] == "succeeded"
 
@@ -74,10 +59,7 @@ def test_import_job_succeeds_after_poll(monkeypatch, capsys):
     monkeypatch.setattr(cli, "upload_import_file", fake_upload_import_file)
     monkeypatch.setattr(cli, "get_import_job", fake_get_import_job)
 
-    exit_code = cli.main(["--file-path", r"D:\agentTemp\logistics_uploads\quote.xlsx"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"file_path": r"D:\agentTemp\logistics_uploads\quote.xlsx"})
     assert seen["gets"] == 1
     assert payload["ok"] is True
     assert payload["job_id"] == "imp_1"
@@ -97,10 +79,7 @@ def test_import_job_failed_status_returns_error(monkeypatch, capsys):
     monkeypatch.setattr(cli, "create_import_job", fake_create_import_job)
     monkeypatch.setattr(cli, "get_import_job", fake_get_import_job)
 
-    exit_code = cli.main(["--file-path", r"D:\agentTemp\logistics_uploads\bad.xlsx"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 3
+    payload = cli.run({"file_path": r"D:\agentTemp\logistics_uploads\bad.xlsx"})
     assert payload == {
         "ok": False,
         "job_id": "imp_2",
@@ -124,10 +103,7 @@ def test_import_job_still_running_after_max_polls(monkeypatch, capsys):
     monkeypatch.setattr(cli, "create_import_job", fake_create_import_job)
     monkeypatch.setattr(cli, "get_import_job", fake_get_import_job)
 
-    exit_code = cli.main(["--file-path", r"D:\agentTemp\logistics_uploads\slow.xlsx"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"file_path": r"D:\agentTemp\logistics_uploads\slow.xlsx"})
     assert seen["gets"] == 2
     assert payload["ok"] is True
     assert payload["job_id"] == "imp_3"
@@ -143,10 +119,7 @@ def test_import_job_api_error_returns_failure_json(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "create_import_job", fake_create_import_job)
 
-    exit_code = cli.main(["--file-path", r"D:\agentTemp\logistics_uploads\quote.xlsx"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 3
+    payload = cli.run({"file_path": r"D:\agentTemp\logistics_uploads\quote.xlsx"})
     assert payload["ok"] is False
     assert payload["file_path"] == r"D:\agentTemp\logistics_uploads\quote.xlsx"
     assert payload["error"] == "connection refused"
@@ -166,10 +139,7 @@ def test_upload_failure_returns_failure_json(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr(cli, "upload_import_file", fake_upload_import_file)
     monkeypatch.setattr(cli, "create_import_job", fake_create_import_job)
 
-    exit_code = cli.main(["--file-path", str(source_file)])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 3
+    payload = cli.run({"file_path": str(source_file)})
     assert payload["ok"] is False
     assert payload["file_path"] == str(source_file)
     assert payload["error"] == "upload endpoint returned 404"
@@ -188,9 +158,6 @@ def test_query_job_does_not_upload_import_file(monkeypatch, capsys):
     monkeypatch.setattr(cli, "get_import_job", fake_get_import_job)
     monkeypatch.setattr(cli, "upload_import_file", fake_upload_import_file)
 
-    exit_code = cli.main(["--job-id", "imp_query"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"job_id": "imp_query"})
     assert payload["ok"] is True
     assert payload["job_id"] == "imp_query"

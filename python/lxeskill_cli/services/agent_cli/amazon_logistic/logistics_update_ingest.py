@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import json
 from pathlib import Path
@@ -8,33 +7,11 @@ from typing import Any
 
 from services.amazon.amazon_logistic.remote_client import create_import_job, get_import_job, upload_import_file
 from services.amazon.amazon_logistic import config as logistics_settings
-from shared.infra.net import close_all_network_clients
 
 
 TERMINAL_SUCCESS_STATUS = "succeeded"
 TERMINAL_FAILED_STATUS = "failed"
 PENDING_STATUSES = {"queued", "running"}
-
-
-class JsonArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
-        raise ValueError(str(message or "").strip() or "参数解析失败")
-
-
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = JsonArgumentParser(
-        description="Submit or query a logistics pricing import job through the logistics API."
-    )
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(
-        "--file-path",
-        help="Path to a workbook named 公司名-线路-YYYY.MM.DD.xlsx on the logistics service machine.",
-    )
-    group.add_argument(
-        "--job-id",
-        help="Existing logistics import job id to query.",
-    )
-    return parser.parse_args(argv)
 
 
 def _error_text(error: BaseException) -> str:
@@ -168,30 +145,21 @@ def _exit_code(payload: dict[str, Any], *, exception: BaseException | None = Non
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    safe_file_path = ""
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
+    from types import SimpleNamespace
+
+    file_path = str(arguments.get("file_path") or "").strip()
+    job_id = str(arguments.get("job_id") or "").strip()
     try:
-        args = parse_args(argv)
-        safe_file_path = str(getattr(args, "file_path", "") or "").strip()
-        payload = asyncio.run(_run_async(args))
-        exit_code = _exit_code(payload)
-    except Exception as error:
+        if bool(file_path) == bool(job_id):
+            raise ValueError("file_path 与 job_id 必须二选一")
+        payload = asyncio.run(_run_async(SimpleNamespace(file_path=file_path, job_id=job_id)))
+    except Exception as error:  # noqa: BLE001 — failure context belongs in the payload
         payload = {
             "ok": False,
-            "file_path": str(Path(safe_file_path)) if safe_file_path else "",
+            "file_path": str(Path(file_path)) if file_path else "",
             "error": _error_text(error),
             "error_type": error.__class__.__name__,
         }
-        exit_code = _exit_code(payload, exception=error)
-    finally:
-        try:
-            asyncio.run(close_all_network_clients())
-        except Exception:
-            pass
-
-    _print_json(payload)
-    return exit_code
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    return payload

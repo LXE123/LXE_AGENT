@@ -188,28 +188,15 @@ def test_remote_quote_failure_returns_cli_error(monkeypatch, capsys):
     async def fake_quote_pricing(_payload: dict) -> dict:
         raise RuntimeError("service rejected quote")
 
-    monkeypatch.setattr(
-        cli.sys,
-        "argv",
-        [
-            "amazon_logistic",
-            "--shipment-no",
-            "FBAABCD1",
-            "--consignment-no",
-            "SP001",
-            "--destination-address",
-            "ONT8, CA 92551, US",
-        ],
-    )
-    monkeypatch.setattr(cli, "configure_utf8_stdio", lambda: None)
     monkeypatch.setattr(cli, "load_pricing_boxes_from_local_excel", fake_load_boxes)
     monkeypatch.setattr(cli, "quote_pricing", fake_quote_pricing)
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main()
+    payload = cli.run({
+        "shipment_no": "FBAABCD1",
+        "consignment_no": "SP001",
+        "destination_address": "ONT8, CA 92551, US",
+    })
 
-    payload = _read_payload(capsys)
-    assert exit_code == 1
     assert payload == {
         "success": False,
         "message": "物流优选流程失败",

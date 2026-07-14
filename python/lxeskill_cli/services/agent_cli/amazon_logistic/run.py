@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
-import json
-import sys
 from typing import Any
 
-from services.agent_cli._shared.json_output import configure_utf8_stdio
 from services.amazon.amazon_logistic.artifacts.renderer import (
     build_multi_channel_pricing_markdown,
     build_single_channel_pricing_markdown,
@@ -19,15 +15,8 @@ from services.amazon.amazon_logistic.input.validator import (
 )
 from services.amazon.amazon_logistic.remote_client import quote_pricing
 from services.amazon.amazon_logistic.sources.consignment_excel import load_pricing_boxes_from_local_excel
-from shared.infra.net import close_all_network_clients
 
 from . import defaults
-from shared.logging import setup_logging
-
-
-class JsonArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
-        raise ValueError(str(message or "").strip() or "参数解析失败")
 
 
 def _result(
@@ -50,20 +39,6 @@ def _result(
 def _exception_text(exc: Exception) -> str:
     message = str(exc or "").strip()
     return message or exc.__class__.__name__
-
-
-def _write_result(payload: dict[str, Any]) -> None:
-    sys.stdout.write(json.dumps(dict(payload or {}), ensure_ascii=False) + "\n")
-    sys.stdout.flush()
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(prog="python -m services.agent_cli.amazon_logistic.run")
-    parser.add_argument("--input-text")
-    parser.add_argument("--shipment-no")
-    parser.add_argument("--consignment-no")
-    parser.add_argument("--destination-address")
-    return parser
 
 
 def _normalize_destination_address(value: Any) -> str:
@@ -306,30 +281,21 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
-def main() -> int:
-    configure_utf8_stdio()
-    setup_logging()
-    parser = build_parser()
-    result: dict[str, Any]
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
+    from types import SimpleNamespace
 
     try:
-        args = parser.parse_args()
-        result = asyncio.run(_run_async(args))
-    except Exception as exc:
-        result = _result(
+        args = SimpleNamespace(
+            input_text=str(arguments.get("input_text") or ""),
+            shipment_no=str(arguments.get("shipment_no") or ""),
+            consignment_no=str(arguments.get("consignment_no") or ""),
+            destination_address=str(arguments.get("destination_address") or ""),
+        )
+        return asyncio.run(_run_async(args))
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return _result(
             success=False,
             message="物流优选流程失败",
             exception=_exception_text(exc),
         )
-    finally:
-        try:
-            asyncio.run(close_all_network_clients())
-        except Exception:
-            pass
-
-    _write_result(result)
-    return 0 if bool(result.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
