@@ -14,9 +14,12 @@ from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
 )
 from services.mabang.auth_constants import (
-    PRIVATE_AMZ_HOST,
     PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
-    PRIVATE_HOST,
+)
+from services.mabang.export_common import (
+    ExportPipelineSpec,
+    build_private_amz_headers,
+    run_export_pipeline,
 )
 from services.mabang.export_common import clean_cell as _clean_cell
 from services.mabang.export_common import configured_text as _configured_text
@@ -28,7 +31,7 @@ from shared.infra.net import erp_http_session, external_http_session
 from shared.workspace import artifact_path
 
 from ...auth import get_auth_context
-from ...cookies import build_cookie_header, extract_named_cookies, list_cookie_names
+from ...cookies import extract_named_cookies
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
 from .batch_delivery import download_fba_delivery_csv
 
@@ -308,35 +311,13 @@ async def _read_msku_json(resp: Any, *, action: str) -> dict[str, Any]:
 
 async def resolve_msku_detail_auth() -> MskuDetailAuth:
     context = await get_auth_context(scope="private_amz", purpose="msku_detail_download")
-    private_amz_cookie_header = build_cookie_header(
-        context.cookies_by_domain,
-        request_host=PRIVATE_AMZ_HOST,
+    headers = build_private_amz_headers(
+        context,
+        required_names=PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
         extra_cookies={"mabang_lite_rowsPerPage": "100"},
+        private_extra_cookies={"exportv2": "2"},
+        error_type=MskuDetailDownloadAuthError,
     )
-    if not private_amz_cookie_header:
-        raise MskuDetailDownloadAuthError("未获取到 private-amz.mabangerp.com Cookie")
-    private_amz_cookie_names = set(
-        list_cookie_names(
-            context.cookies_by_domain,
-            request_host=PRIVATE_AMZ_HOST,
-            extra_cookies={"mabang_lite_rowsPerPage": "100"},
-        )
-    )
-    missing_private_amz = [
-        name for name in PRIVATE_AMZ_REQUIRED_COOKIE_NAMES if name not in private_amz_cookie_names
-    ]
-    if missing_private_amz:
-        raise MskuDetailDownloadAuthError(
-            f"缺少 private-amz 关键 Cookie: {', '.join(missing_private_amz)}"
-        )
-
-    private_cookie_header = build_cookie_header(
-        context.cookies_by_domain,
-        request_host=PRIVATE_HOST,
-        extra_cookies={"exportv2": "2"},
-    )
-    if not private_cookie_header:
-        raise MskuDetailDownloadAuthError("未获取到 private.mabangerp.com Cookie")
 
     values = extract_named_cookies(context.cookies_by_domain, (MEMCACHE_COOKIE_NAME,))
     memcache_key = str(values.get(MEMCACHE_COOKIE_NAME) or "").strip()
@@ -344,8 +325,8 @@ async def resolve_msku_detail_auth() -> MskuDetailAuth:
         raise MskuDetailDownloadAuthError(f"缺少关键 Cookie: {MEMCACHE_COOKIE_NAME}")
 
     return MskuDetailAuth(
-        private_amz_cookie_header=private_amz_cookie_header,
-        private_cookie_header=private_cookie_header,
+        private_amz_cookie_header=headers.private_amz_cookie_header,
+        private_cookie_header=headers.private_cookie_header,
         memcache_key=memcache_key,
     )
 
@@ -684,38 +665,70 @@ async def download_msku_detail_excel(
     *,
     output_dir: str | Path | None = None,
 ) -> MskuDetailExcelResult:
-    normalized = _require_ship_no(ship_no)
-    delivery_file_path, delivery_file_source = await resolve_delivery_file(normalized)
-    delivery_source = load_msku_source_from_delivery_file(delivery_file_path)
-    auth = await resolve_msku_detail_auth()
-    ids = await fetch_msku_detail_ids(delivery_source.mskus, cookie_header=auth.private_amz_cookie_header)
-    file_url = await export_msku_detail_file_url(
-        ids,
-        cookie_header=auth.private_cookie_header,
-        memcache_key=auth.memcache_key,
-    )
-    excel_path = await download_msku_detail_excel_from_url(
-        file_url,
-        ship_no=normalized,
-        output_dir=output_dir,
-    )
-    xlsx_path, converted = normalize_msku_detail_excel(excel_path)
-    validate_msku_detail_excel_headers(xlsx_path)
-    shop_split = split_msku_detail_by_delivery_shop(xlsx_path, delivery_source.msku_shop_pairs)
-    raw_excel_deleted = delete_raw_msku_detail_xls(excel_path)
-    return MskuDetailExcelResult(
-        ship_no=normalized,
-        delivery_file_path=str(delivery_file_path),
-        delivery_file_source=delivery_file_source,
-        msku_count=len(delivery_source.mskus),
-        id_count=len(ids),
-        excel_path=str(excel_path),
-        xlsx_path=str(xlsx_path),
-        converted=converted,
-        raw_excel_deleted=raw_excel_deleted,
-        matched_detail_count=shop_split.matched_detail_count,
-        shop_mismatch_count=shop_split.shop_mismatch_count,
-        shop_mismatch_sheet=shop_split.shop_mismatch_sheet,
+    async def prepare() -> tuple[str, Path, str, DeliveryMskuSource]:
+        normalized = _require_ship_no(ship_no)
+        delivery_file_path, delivery_file_source = await resolve_delivery_file(normalized)
+        delivery_source = load_msku_source_from_delivery_file(delivery_file_path)
+        return normalized, delivery_file_path, delivery_file_source, delivery_source
+
+    async def request_export(
+        prepared: tuple[str, Path, str, DeliveryMskuSource], auth: MskuDetailAuth
+    ) -> tuple[list[str], str]:
+        _normalized, _delivery_file_path, _delivery_file_source, delivery_source = prepared
+        ids = await fetch_msku_detail_ids(
+            delivery_source.mskus,
+            cookie_header=auth.private_amz_cookie_header,
+        )
+        file_url = await export_msku_detail_file_url(
+            ids,
+            cookie_header=auth.private_cookie_header,
+            memcache_key=auth.memcache_key,
+        )
+        return ids, file_url
+
+    async def download_file(
+        prepared: tuple[str, Path, str, DeliveryMskuSource], file_url: str
+    ) -> Path:
+        normalized, _delivery_file_path, _delivery_file_source, _delivery_source = prepared
+        return await download_msku_detail_excel_from_url(
+            file_url,
+            ship_no=normalized,
+            output_dir=output_dir,
+        )
+
+    def transform_result(
+        prepared: tuple[str, Path, str, DeliveryMskuSource],
+        ids: list[str],
+        excel_path: Path,
+    ) -> MskuDetailExcelResult:
+        normalized, delivery_file_path, delivery_file_source, delivery_source = prepared
+        xlsx_path, converted = normalize_msku_detail_excel(excel_path)
+        validate_msku_detail_excel_headers(xlsx_path)
+        shop_split = split_msku_detail_by_delivery_shop(xlsx_path, delivery_source.msku_shop_pairs)
+        raw_excel_deleted = delete_raw_msku_detail_xls(excel_path)
+        return MskuDetailExcelResult(
+            ship_no=normalized,
+            delivery_file_path=str(delivery_file_path),
+            delivery_file_source=delivery_file_source,
+            msku_count=len(delivery_source.mskus),
+            id_count=len(ids),
+            excel_path=str(excel_path),
+            xlsx_path=str(xlsx_path),
+            converted=converted,
+            raw_excel_deleted=raw_excel_deleted,
+            matched_detail_count=shop_split.matched_detail_count,
+            shop_mismatch_count=shop_split.shop_mismatch_count,
+            shop_mismatch_sheet=shop_split.shop_mismatch_sheet,
+        )
+
+    return await run_export_pipeline(
+        ExportPipelineSpec(
+            prepare=prepare,
+            authorize=resolve_msku_detail_auth,
+            request_export=request_export,
+            download_file=download_file,
+            transform_result=transform_result,
+        )
     )
 
 
