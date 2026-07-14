@@ -7,16 +7,16 @@
   },
   "workspaces": [
     "apps/gateway",
-    "packages/core",
-    "packages/protocol",
-    "packages/runtime",
-    "web/agent-dashboard"
+    "apps/dashboard",
+    "packages/foundation/core",
+    "packages/foundation/protocol",
+    "packages/agent/runtime"
   ],
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun test",
     "test:py-tools": "uv run --frozen pytest -q python/lxeskill_cli/tests skills",
-    "dashboard:build": "bun run --cwd web/agent-dashboard build",
+    "dashboard:build": "bun run --cwd apps/dashboard build",
     "gateway:dev": "bun run --cwd apps/gateway dev",
     "gateway:watch": "bun run --cwd apps/gateway watch",
     "gateway:start": "bun run --cwd apps/gateway start",
@@ -24,7 +24,7 @@
     "gateway:build": "bun run --cwd apps/gateway build",
     "gateway:image-compile-smoke": "bun scripts/smoke-compiled-image.ts",
     "check:ts-boundary": "bun scripts/check-ts-production-boundary.ts",
-    "verify:migration": "bun run check:ts-boundary && bun run typecheck && bun test packages/core/test packages/protocol/test packages/runtime/test apps/gateway/src/env.test.ts apps/gateway/src/cli.test.ts apps/gateway/src/main.test.ts apps/gateway/src/dashboard.test.ts apps/gateway/src/production.test.ts apps/gateway/src/direct-composition.test.ts apps/gateway/src/permission-policy.test.ts apps/gateway/src/session-bindings.test.ts apps/gateway/src/router.test.ts apps/gateway/src/scheduler.test.ts apps/gateway/src/gateway-lifecycle.test.ts apps/gateway/src/emitter.test.ts apps/gateway/src/feishu && bun run test:py-tools && bun run gateway:build",
+    "verify:migration": "bun run check:ts-boundary && bun run typecheck && bun test packages/foundation/core/test packages/foundation/protocol/test packages/agent/runtime/test apps/gateway/test && bun run test:py-tools && bun run gateway:build",
     "verify": "bun run check:ts-boundary && bun run typecheck && bun run test && bun run test:py-tools && bun run dashboard:build && bun run gateway:build"
   },
   "devDependencies": {

@@ -22,9 +22,9 @@ requireText("scripts/install.sh", /run gateway:stop/, "macOS launcher must stop 
 forbidText("scripts/install.sh", /main\.py|agent_runtime\.worker/, "macOS launcher must not start Python production code");
 forbidText("package.json", /main\.py|agent_runtime\.worker/, "workspace scripts must not start Python production code");
 forbidText("apps/gateway/src/main.ts", /main\.py|agent_runtime\.worker/, "Bun CLI must not fall back to Python");
-requireText("apps/gateway/src/production.ts", /new TypeScriptAgentRuntime/, "production must assemble the TypeScript Runtime");
-requireText("apps/gateway/src/production.ts", /"-m",\s*"lxeskill"/, "business maintenance must cross the one-shot lxeskill CLI");
-requireText("apps/gateway/src/production.ts", /LXE_SCRIPT_TOOL_BRIDGE_ENABLED[\s\S]*?\?\?\s*"0"/, "the diagnostic script-tool bridge must default off");
+requireText("apps/gateway/src/orchestration/production.ts", /new TypeScriptAgentRuntime/, "production must assemble the TypeScript Runtime");
+requireText("apps/gateway/src/orchestration/production.ts", /"-m",\s*"lxeskill"/, "business maintenance must cross the one-shot lxeskill CLI");
+requireText("apps/gateway/src/orchestration/production.ts", /LXE_SCRIPT_TOOL_BRIDGE_ENABLED[\s\S]*?\?\?\s*"0"/, "the diagnostic script-tool bridge must default off");
 
 forbidPath("main.py", "the legacy Python production entrypoint must be deleted");
 for (const path of [
@@ -40,15 +40,15 @@ for (const path of [
 ]) {
   forbidPath(path, "legacy top-level Python directory must be deleted");
 }
-forbidPath("apps/gateway/src/gateway-composition.ts", "the worker Gateway composition must be deleted");
-forbidPath("apps/gateway/src/worker-client.ts", "the worker client must be deleted");
-forbidPath("apps/gateway/src/worker-process.ts", "the worker process launcher must be deleted");
-forbidPath("apps/gateway/src/worker-supervisor.ts", "the worker supervisor must be deleted");
-forbidPath("packages/protocol/schemas/worker-envelope.schema.json", "the worker envelope contract must be deleted");
-forbidText("apps/gateway/src/production.ts", /spawnWorker|WorkerProcess|createGatewayComposition/, "production must not retain a worker fallback");
-forbidText("packages/protocol/src/types.ts", /WorkerEnvelope/, "protocol types must not expose a worker envelope");
+forbidPath("apps/gateway/src/orchestration/gateway-composition.ts", "the worker Gateway composition must be deleted");
+forbidPath("apps/gateway/src/orchestration/worker-client.ts", "the worker client must be deleted");
+forbidPath("apps/gateway/src/orchestration/worker-process.ts", "the worker process launcher must be deleted");
+forbidPath("apps/gateway/src/orchestration/worker-supervisor.ts", "the worker supervisor must be deleted");
+forbidPath("packages/foundation/protocol/schemas/worker-envelope.schema.json", "the worker envelope contract must be deleted");
+forbidText("apps/gateway/src/orchestration/production.ts", /spawnWorker|WorkerProcess|createGatewayComposition/, "production must not retain a worker fallback");
+forbidText("packages/foundation/protocol/src/types.ts", /WorkerEnvelope/, "protocol types must not expose a worker envelope");
 forbidText("scripts/doctor.ps1", /platforms\.feishu|shared\.llm|agent_runtime|main\.py/, "doctor must not inspect deleted Python production modules");
-requireText("scripts/doctor.ps1", /check-runtime-config\.ts/, "doctor must inspect Bun-owned Feishu and LLM configuration");
+requireText("scripts/doctor.ps1", /bootstrap[\\/]runtime-config\.ts/, "doctor must inspect Bun-owned Feishu and LLM configuration");
 
 const pythonImports = /(?:^|\n)\s*(?:from|import)\s+(?:gateway|agent_runtime)(?:\.|\s|$)/m;
 for await (const path of new Bun.Glob("**/*.py").scan({ cwd: root, onlyFiles: true })) {
@@ -113,7 +113,7 @@ for (const [command, entry] of commandEntries) {
 }
 
 const staleArchitectureDocs = /main\.py|agent_runtime|gateway\/[A-Za-z0-9_/-]+\.py|Python\s+(?:Gateway|Runtime|Dashboard|backend)/i;
-for (const pattern of ["README.md", "web/**/*.md", "docs/harness/**/*.md", "docs/database/**/*.md"]) {
+for (const pattern of ["README.md", "apps/dashboard/**/*.md", "docs/harness/**/*.md", "docs/database/**/*.md"]) {
   for await (const path of new Bun.Glob(pattern).scan({ cwd: root, onlyFiles: true })) {
     if (staleArchitectureDocs.test(read(path))) {
       failures.push(`${path}: documentation must describe the Bun-only production architecture`);

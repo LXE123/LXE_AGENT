@@ -223,7 +223,7 @@ function Invoke-BunRuntimeWarningProbe {
     Write-Host "Checking: Bun production runtime configuration"
     $probeResult = Invoke-LxeNativeCapture -FilePath $BunPath -Arguments @(
         "run",
-        "apps/gateway/src/check-runtime-config.ts"
+        "apps/gateway/src/bootstrap/runtime-config.ts"
     )
     $probeLines = @($probeResult.Stdout) + @($probeResult.Stderr)
     Write-ProbeLines -Lines $probeLines

@@ -11,7 +11,7 @@ Set-StrictMode -Version Latest
 
 $BunVersion = "1.3.14"
 $ProjectRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$DashboardDir = Join-Path $ProjectRoot "web\agent-dashboard"
+$DashboardDir = Join-Path $ProjectRoot "apps\dashboard"
 $DistIndexPath = Join-Path $DashboardDir "dist\index.html"
 
 function Test-DashboardSource {
