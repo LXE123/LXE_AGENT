@@ -5,8 +5,6 @@ import re
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-
-from shared.workspace import artifact_path
 from typing import Any
 
 from services.mabang import config as mabang_settings
@@ -18,10 +16,6 @@ from services.mabang.amazon.fba.amazon_restock_inventory import (
     AMAZON_RESTOCK_TOTAL_COLUMN,
     load_amazon_restock_inventory_snapshot,
 )
-from services.mabang.amazon.fba.unlinked_shipments import (
-    DEFAULT_SNAPSHOT_DIR as DEFAULT_UNLINKED_SHIPMENTS_SNAPSHOT_DIR,
-    load_unlinked_shipment_quantities,
-)
 from services.mabang.amazon.fba.replenishment_template import (
     DEFAULT_TEMPLATE_NAME,
     ReplenishmentTemplate,
@@ -31,8 +25,8 @@ from services.mabang.amazon.fba.replenishment_template import (
     replenishment_days_from_template,
     sea_companion_air_day_candidates_from_template,
     sea_companion_air_enabled_from_template,
-    sea_day_candidates_from_template,
     sea_daily_sales_meets_min_from_template,
+    sea_day_candidates_from_template,
     sea_enabled_from_template,
     sea_min_daily_sales_inclusive_from_template,
     sea_min_net_quantity_from_template,
@@ -45,6 +39,15 @@ from services.mabang.amazon.fba.store_msku_actual_inventory import (
     COMBO_ACTUAL_INVENTORY_SHEET,
     STOCK_ACTUAL_INVENTORY_SHEET,
 )
+from services.mabang.amazon.fba.unlinked_shipments import (
+    DEFAULT_SNAPSHOT_DIR as DEFAULT_UNLINKED_SHIPMENTS_SNAPSHOT_DIR,
+)
+from services.mabang.amazon.fba.unlinked_shipments import (
+    load_unlinked_shipment_quantities,
+)
+from services.mabang.export_common import clean_text as _clean_text
+from services.mabang.export_common import safe_store_msku_file_part as _safe_file_part
+from shared.workspace import artifact_path
 
 AMAZON_FBA_INVENTORY_SNAPSHOT_DATE_TOLERANCE_DAYS = 1
 DEFAULT_SALES_ANALYSIS_DIR = artifact_path("mabang_store_msku_analysis")
@@ -490,16 +493,6 @@ class StoreMskuReplenishmentResult:
         if self.amazon_fba_inventory_validation:
             payload["amazon_fba_inventory_validation"] = self.amazon_fba_inventory_validation
         return payload
-
-
-def _clean_text(value: Any) -> str:
-    return str(value or "").strip()
-
-
-def _safe_file_part(value: Any) -> str:
-    text = _clean_text(value)
-    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
-    return text.strip("._-") or "store_msku"
 
 
 def _safe_unlinked_snapshot_store_part(value: Any) -> str:
