@@ -8,23 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _form_value, _form_values, _sheet_names
+from mabang_test_helpers import _form_value, _form_values, _sheet_names, _xlsx_bytes
 from services.mabang.amazon.fba import store_msku_actual_inventory as inv
 from services.mabang.auth import MabangAuthContext
-
-
-def _xlsx_bytes(rows: list[dict], *, columns: list[str]) -> bytes:
-    from openpyxl import Workbook
-
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.append(columns)
-    for row in rows:
-        worksheet.append([row.get(column, "") for column in columns])
-    buffer = BytesIO()
-    workbook.save(buffer)
-    workbook.close()
-    return buffer.getvalue()
 
 
 def _write_xlsx(path: Path, rows: list[dict], *, columns: list[str]) -> Path:

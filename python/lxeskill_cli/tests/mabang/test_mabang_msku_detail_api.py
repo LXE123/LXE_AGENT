@@ -10,28 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _form_value, _form_values
+from mabang_test_helpers import _form_value, _form_values, _xlsx_bytes
 from services.mabang.amazon.fba import msku_detail as msku
 from services.mabang.auth import MabangAuthContext
 
 
-def _xlsx_bytes(rows: list[dict[str, str]], *, columns: list[str] | None = None) -> bytes:
-    from openpyxl import Workbook
-
-    if columns is None:
-        columns = list(msku.EXPECTED_DETAIL_HEADERS)
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.append(columns)
-    for row in rows:
-        worksheet.append([row.get(column, "") for column in columns])
-    buffer = BytesIO()
-    workbook.save(buffer)
-    return buffer.getvalue()
-
-
 def _write_xlsx(path: Path, rows: list[dict[str, str]], *, columns: list[str] | None = None) -> Path:
-    path.write_bytes(_xlsx_bytes(rows, columns=columns))
+    path.write_bytes(_xlsx_bytes(rows, columns=columns or list(msku.EXPECTED_DETAIL_HEADERS)))
     return path
 
 
@@ -210,7 +195,8 @@ def test_download_msku_detail_excel_posts_forms_and_validates_headers(monkeypatc
                     [
                         {"MSKU": "MSKU-A", "店铺名称": "Shop-A"},
                         {"MSKU": "MSKU-A", "店铺名称": "Shop-B"},
-                    ]
+                    ],
+                    columns=list(msku.EXPECTED_DETAIL_HEADERS),
                 )
             ),
         ]

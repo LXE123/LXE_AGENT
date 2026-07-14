@@ -6,6 +6,13 @@ from pathlib import Path
 import pytest
 
 from services.mabang.amazon.fba import store_resolver as stores
+
+def _form_value(call: dict, name: str) -> str:
+    for key, value in call.get("params", []):
+        if key == name:
+            return value
+    raise AssertionError(f"missing param: {name}")
+
 from services.mabang.auth import MabangAuthContext
 
 
@@ -65,13 +72,6 @@ async def _fake_auth_context(*args, **kwargs) -> MabangAuthContext:
         wms_cookie_header="",
         raw={},
     )
-
-
-def _form_value(call: dict, name: str) -> str:
-    for key, value in call.get("params", []):
-        if key == name:
-            return value
-    raise AssertionError(f"missing param: {name}")
 
 
 def test_parse_fba_store_options_skips_incomplete_items_and_dedupes() -> None:

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+from mabang_test_helpers import _sheet_names
+
 import pytest
 
 from services.agent_cli.mabang import generate_restock_workbook as cli
@@ -210,16 +212,6 @@ def _sheet_values(path: Path, sheet_name: str) -> list[tuple[object, ...]]:
     try:
         worksheet = workbook[sheet_name]
         return list(worksheet.iter_rows(values_only=True))
-    finally:
-        workbook.close()
-
-
-def _sheet_names(path: Path) -> list[str]:
-    from openpyxl import load_workbook
-
-    workbook = load_workbook(path, data_only=True)
-    try:
-        return list(workbook.sheetnames)
     finally:
         workbook.close()
 

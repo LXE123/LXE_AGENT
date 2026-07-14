@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _write_mabang_msku
+from mabang_test_helpers import _write_mabang_msku
 from services.mabang.amazon.fba import amazon_restock_inventory as inv
 
 

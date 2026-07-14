@@ -9,25 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _form_value, _form_values
+from mabang_test_helpers import _form_value, _form_values, _xlsx_bytes
 from services.mabang.amazon.fba import store_msku as msku
 from services.mabang.auth import MabangAuthContext
-
-
-def _xlsx_bytes(rows: list[dict[str, str]], *, columns: list[str] | None = None) -> bytes:
-    from openpyxl import Workbook
-
-    if columns is None:
-        columns = ["店铺名称", "MSKU", "ASIN", "本地SKU"]
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.append(columns)
-    for row in rows:
-        worksheet.append([row.get(column, "") for column in columns])
-    buffer = BytesIO()
-    workbook.save(buffer)
-    workbook.close()
-    return buffer.getvalue()
 
 
 def _write_xlsx(path: Path, *, columns: list[str] | None = None) -> Path:
@@ -218,7 +202,7 @@ def test_download_store_msku_excel_downloads_xlsx(monkeypatch, tmp_path) -> None
         [
             _FakeResponse({"success": True, "id": "1001,1002,1003"}),
             _FakeResponse({"success": True, "gourl": "https://upload.example.test/store.xlsx"}),
-            _FakeResponse(body=_xlsx_bytes([{"店铺名称": "Amazon-Lerxiuer-FR", "MSKU": "MSKU-A"}])),
+            _FakeResponse(body=_xlsx_bytes([{"店铺名称": "Amazon-Lerxiuer-FR", "MSKU": "MSKU-A"}], columns=["店铺名称", "MSKU", "ASIN", "本地SKU"])),
         ]
     )
     monkeypatch.setattr(msku, "get_auth_context", _fake_auth_context)
@@ -259,7 +243,7 @@ def test_download_store_msku_excel_requires_store_name() -> None:
 def test_download_store_msku_excel_overwrites_same_minute_file(monkeypatch, tmp_path) -> None:
     target_path = tmp_path / "202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx"
     target_path.write_bytes(b"old-file")
-    new_body = _xlsx_bytes([{"店铺名称": "Amazon-Lerxiuer-FR", "MSKU": "MSKU-NEW"}])
+    new_body = _xlsx_bytes([{"店铺名称": "Amazon-Lerxiuer-FR", "MSKU": "MSKU-NEW"}], columns=["店铺名称", "MSKU", "ASIN", "本地SKU"])
     fake_session = _FakeSession(
         [
             _FakeResponse({"success": True, "id": "1001"}),

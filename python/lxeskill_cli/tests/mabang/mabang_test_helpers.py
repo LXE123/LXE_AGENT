@@ -49,3 +49,19 @@ def _write_mabang_msku(
     finally:
         workbook.close()
     return path
+
+
+def _xlsx_bytes(rows: list[dict], *, columns: list[str]) -> bytes:
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(columns)
+    for row in rows:
+        worksheet.append([row.get(column, "") for column in columns])
+    buffer = BytesIO()
+    workbook.save(buffer)
+    workbook.close()
+    return buffer.getvalue()

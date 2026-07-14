@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from mabang_test_helpers import _sheet_names
+
 import pytest
 
 from services.agent_cli.mabang import replenishment_template as cli
@@ -52,16 +54,6 @@ def _find_row_by_first_cell(path: Path, sheet_name: str, value: str) -> int:
     finally:
         workbook.close()
     raise AssertionError(f"row not found: {sheet_name} {value}")
-
-
-def _sheet_names(path: Path) -> list[str]:
-    from openpyxl import load_workbook
-
-    workbook = load_workbook(path, read_only=True, data_only=True)
-    try:
-        return list(workbook.sheetnames)
-    finally:
-        workbook.close()
 
 
 def test_default_template_loads_current_algorithm() -> None:

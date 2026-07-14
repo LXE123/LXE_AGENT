@@ -66,7 +66,6 @@ REMOVED_SYMBOLS = {
         "reset_local_log_retention_once_for_tests",
     ),
     "python/lxeskill_cli/lxeskill/cli.py": ("standalone_main",),
-    "python/lxeskill_cli/services/agent_cli/_shared/json_output.py": ("write_progress_event",),
     "python/lxeskill_cli/services/agent_cli/amazon_logistic/defaults.py": ("DEFAULT_QUOTE_BOXES",),
     "python/lxeskill_cli/services/agent_cli/browser/amazon_common/own_carrier.py": (
         "_open_phase_3_1_carrier_dropdown",

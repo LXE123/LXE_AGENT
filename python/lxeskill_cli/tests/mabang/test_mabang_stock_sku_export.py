@@ -7,24 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _form_value, _form_values
+from mabang_test_helpers import _form_value, _form_values, _xlsx_bytes
 from services.mabang.auth import MabangAuthContext
 from services.mabang import stock_sku_export as stock
-
-
-def _xlsx_bytes(rows: list[dict[str, str]], *, columns: list[str] | None = None) -> bytes:
-    from openpyxl import Workbook
-
-    if columns is None:
-        columns = ["库存SKU", "库存SKU中文名称"]
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.append(columns)
-    for row in rows:
-        worksheet.append([row.get(column, "") for column in columns])
-    buffer = BytesIO()
-    workbook.save(buffer)
-    return buffer.getvalue()
 
 
 class _FakeResponse:
@@ -114,7 +99,7 @@ def test_export_stock_sku_names_runs_subtask_step2_and_parses_xlsx(monkeypatch, 
         ],
         _FakeResponse({"async": True, "taskId": "task-1", "success": True}),
         _FakeResponse({"success": True, "file_url": "https://cos.example.test/stock.xlsx", "state": 1}),
-        _FakeResponse(body=_xlsx_bytes([{"库存SKU": "SKU-A", "库存SKU中文名称": "产品A"}])),
+        _FakeResponse(body=_xlsx_bytes([{"库存SKU": "SKU-A", "库存SKU中文名称": "产品A"}], columns=["库存SKU", "库存SKU中文名称"])),
     ]
     fake_session = _FakeSession(responses)
     monkeypatch.setattr(stock, "erp_http_session", fake_session)
@@ -154,8 +139,8 @@ def test_export_stock_sku_names_runs_subtask_step2_and_parses_xlsx(monkeypatch, 
 
 
 def test_export_stock_sku_names_splits_batches_over_3000(monkeypatch, tmp_path):
-    first_file = _xlsx_bytes([{"库存SKU": "SKU-0001", "库存SKU中文名称": "产品1"}])
-    second_file = _xlsx_bytes([{"库存SKU": "SKU-3001", "库存SKU中文名称": "产品3001"}])
+    first_file = _xlsx_bytes([{"库存SKU": "SKU-0001", "库存SKU中文名称": "产品1"}], columns=["库存SKU", "库存SKU中文名称"])
+    second_file = _xlsx_bytes([{"库存SKU": "SKU-3001", "库存SKU中文名称": "产品3001"}], columns=["库存SKU", "库存SKU中文名称"])
     responses = []
     for batch_index in range(1, 3):
         responses.extend(

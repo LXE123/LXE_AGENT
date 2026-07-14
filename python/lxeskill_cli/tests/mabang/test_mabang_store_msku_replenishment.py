@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _sheet_names
+from mabang_test_helpers import _sheet_names
 from services.mabang.amazon.fba import amazon_fba_inventory as amazon_inv
 from services.mabang.amazon.fba import amazon_restock_inventory as restock_inv
 from services.mabang.amazon.fba import store_msku_replenishment as repl
