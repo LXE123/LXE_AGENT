@@ -22,59 +22,6 @@ def test_state_file_uses_lxeskill_database_root(tmp_path, monkeypatch) -> None:
     assert state_file.parent.is_dir()
 
 
-def test_state_file_copies_legacy_state_without_deleting_source(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(service, "repository_root", lambda: tmp_path)
-    legacy_state_file = (
-        tmp_path
-        / "browser_auth_service"
-        / "auth_data"
-        / "mabang_erp"
-        / "account-1"
-        / "state.json"
-    )
-    legacy_state_file.parent.mkdir(parents=True)
-    legacy_state_file.write_text('{"source": "legacy"}', encoding="utf-8")
-
-    state_file = service._state_file("account-1")
-
-    assert state_file.read_text(encoding="utf-8") == '{"source": "legacy"}'
-    assert legacy_state_file.read_text(encoding="utf-8") == '{"source": "legacy"}'
-
-
-def test_state_file_does_not_overwrite_existing_new_state(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(service, "repository_root", lambda: tmp_path)
-    legacy_state_file = (
-        tmp_path
-        / "browser_auth_service"
-        / "auth_data"
-        / "mabang_erp"
-        / "account-1"
-        / "state.json"
-    )
-    legacy_state_file.parent.mkdir(parents=True)
-    legacy_state_file.write_text('{"source": "legacy"}', encoding="utf-8")
-    state_file = (
-        tmp_path
-        / "var"
-        / "db"
-        / "lxeskill"
-        / "browser_auth_service"
-        / "mabang_erp"
-        / "account-1"
-        / "state.json"
-    )
-    state_file.parent.mkdir(parents=True)
-    state_file.write_text('{"source": "current"}', encoding="utf-8")
-
-    resolved_state_file = service._state_file("account-1")
-
-    assert resolved_state_file == state_file
-    assert state_file.read_text(encoding="utf-8") == '{"source": "current"}'
-
-
 def test_remove_dingtalk_storage_state_removes_only_dingtalk_entries() -> None:
     payload = {
         "cookies": [

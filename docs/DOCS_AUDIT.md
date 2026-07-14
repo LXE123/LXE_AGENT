@@ -16,15 +16,15 @@ Current 文档最近校准：2026-07-11
 
 本批新增索引和审计报告之前，Git 跟踪的 docs 基线：
 
-- `docs/` 下 76 个 tracked 文件
-- 75 个 tracked Markdown 文件
-- 1 个 tracked 非 Markdown 文件：`docs/harness/skill/reference/ziniao-webdriver-doc/_meta.json`
+- `docs/` 下 93 个 tracked 文件
+- 92 个 tracked Markdown 文件
+- 1 个 tracked 非 Markdown 文件：`docs/harness/skill/reference/ziniao-webdriver-doc-1.0.0/_meta.json`
 
-本地文件系统中的 docs：
+本地文件系统中的 docs（2026-07-14 迁移残留清理后）：
 
-- `docs/` 下 78 个文件
-- `docs/` 下 76 个 Markdown 文件
-- ignored 本地文件：`docs/.DS_Store`、`docs/sidecar_soak.md`
+- `docs/` 下 97 个文件
+- `docs/` 下 92 个 Markdown 文件
+- ignored 本地文件：4 个 `.DS_Store`
 
 tracked Markdown 的质量信号：
 
@@ -138,4 +138,3 @@ Draft or archive：
 
 - `skills/*/SKILL.md` 是运行时 skill 的事实来源。`docs/` 应该链接它们，而不是复制提示词内容。
 - `docs/harness/skill/archive/` 和 `docs/harness/skill/reference/` 保存历史材料和外部资料，不代表当前 runtime skill。
-- `docs/sidecar_soak.md` 被 Git 忽略，本批先视为本地 PoC 文档。

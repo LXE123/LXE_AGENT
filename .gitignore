@@ -13,11 +13,6 @@ build/
 .venv*/
 venv/
 env/
-services/browser/artifacts/
-
-
-
-services/test_file/
 
 # IDE
 .vscode/
@@ -31,18 +26,6 @@ services/test_file/
 .codex/
 .superpowers/
 .worktrees/
-
-# Sidecar/soak PoC local artifacts
-sidecars/
-docs/sidecar_soak.md
-scripts/soak_prepare_fixtures.py
-scripts/soak_runner.py
-tests/**/test_sidecar_soak.py
-/sidecars/**/target/
-/sidecars/**/.runtime/
-/sidecars/**/node_modules/
-/sidecars/**/*.log
-/artifacts/soak/
 
 # Lint/Format cache
 .ruff_cache/
@@ -69,7 +52,6 @@ debug_data/
 downloads/
 auth_data/
 tasks/
-shared/config.py
 
 # Logs
 *.log

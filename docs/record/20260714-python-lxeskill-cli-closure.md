@@ -42,9 +42,8 @@ LXE Skill CLI 是仓库内独立闭包，不是可脱离仓库分发的独立产
 ## 状态迁移
 
 browser auth 的 Playwright storage state 属于 LXE Skill CLI 持久状态，默认改为
-`var/db/lxeskill/browser_auth_service/mabang_erp/`。首次访问某账号且新文件不存在时，
-从旧 `browser_auth_service/auth_data/mabang_erp/` 兼容复制；不覆盖新状态，
-不自动删除旧敏感文件。
+`var/db/lxeskill/browser_auth_service/mabang_erp/`。TypeScript 版本晋升为 `main` 后，
+旧源码目录中的状态已一次性迁入该位置并完成校验；运行时不再读取旧路径。
 
 ## 兼容与验证边界
 

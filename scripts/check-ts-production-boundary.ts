@@ -27,8 +27,19 @@ requireText("apps/gateway/src/production.ts", /"-m",\s*"lxeskill"/, "business ma
 requireText("apps/gateway/src/production.ts", /LXE_SCRIPT_TOOL_BRIDGE_ENABLED[\s\S]*?\?\?\s*"0"/, "the diagnostic script-tool bridge must default off");
 
 forbidPath("main.py", "the legacy Python production entrypoint must be deleted");
-forbidPath("gateway", "the legacy Python Gateway must be deleted");
-forbidPath("agent_runtime", "the legacy Python Runtime must be deleted");
+for (const path of [
+  "agent_runtime",
+  "browser_auth_service",
+  "clients",
+  "gateway",
+  "lxeskill",
+  "platforms",
+  "services",
+  "shared",
+  "tests",
+]) {
+  forbidPath(path, "legacy top-level Python directory must be deleted");
+}
 forbidPath("apps/gateway/src/gateway-composition.ts", "the worker Gateway composition must be deleted");
 forbidPath("apps/gateway/src/worker-client.ts", "the worker client must be deleted");
 forbidPath("apps/gateway/src/worker-process.ts", "the worker process launcher must be deleted");

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import tempfile
 import time
 from copy import deepcopy
@@ -154,44 +153,9 @@ def _storage_root() -> Path:
     return root
 
 
-def _legacy_storage_root() -> Path:
-    return repository_root() / "browser_auth_service" / "auth_data" / "mabang_erp"
-
-
-def _copy_legacy_state_if_missing(state_file: Path, account: str) -> None:
-    if state_file.exists():
-        return
-
-    legacy_state_file = _legacy_storage_root() / account / "state.json"
-    if not legacy_state_file.is_file():
-        return
-
-    created = False
-    try:
-        with legacy_state_file.open("rb") as source, state_file.open("xb") as target:
-            created = True
-            shutil.copyfileobj(source, target)
-        shutil.copystat(legacy_state_file, state_file)
-        logger.info(
-            "[BrowserAuth] copied legacy storage state without deleting source: "
-            f"account={_mask_account(account)}"
-        )
-    except FileExistsError:
-        # A concurrent process created the new state after our initial check.
-        return
-    except OSError as exc:
-        if created:
-            state_file.unlink(missing_ok=True)
-        logger.warning(
-            "[BrowserAuth] legacy storage state copy failed; continuing without migration: "
-            f"account={_mask_account(account)}, error_type={type(exc).__name__}"
-        )
-
-
 def _state_file(account: str) -> Path:
     state_file = _storage_root() / account / "state.json"
     state_file.parent.mkdir(parents=True, exist_ok=True)
-    _copy_legacy_state_if_missing(state_file, account)
     return state_file
 
 
