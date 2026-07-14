@@ -498,7 +498,7 @@ def fill_multi_box_step2_template(consignment_excel_path: str | Path, template_p
     worksheet = _select_target_sheet(workbook)
     total_boxes = _find_box_total(worksheet)
     header_row, box_columns = _find_box_header_row(worksheet)
-    expected_box_numbers = _validate_box_columns(box_columns, total_boxes)
+    _validate_box_columns(box_columns, total_boxes)
     spec_rows = _find_box_spec_rows(worksheet)
     sku_header_row, sku_col = _find_sku_header_cell(worksheet, header_row)
     data_end_row = min(spec.row for spec in spec_rows.values()) - 1

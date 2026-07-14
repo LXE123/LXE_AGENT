@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from services.amazon.amazon_logistic.input.validator import normalize_consignment_no
 from services.amazon.amazon_logistic.sources.consignment_excel import (
-    ensure_consignment_excel_ready,
     find_consignment_excel,
     resolve_column,
     resolve_consignment_excel_dir,
@@ -407,17 +405,6 @@ def _sync_fill_shipment_template(template_path: str, consignment_excel_path: str
     return payload
 
 
-def prepare_consignment_excel_payload(consignment_no: str) -> dict[str, Any]:
-    normalized = normalize_consignment_no(consignment_no)
-    if not normalized:
-        raise RuntimeError("consignment_no 不能为空")
-    try:
-        excel_path = asyncio.run(ensure_consignment_excel_ready(normalized))
-    except Exception as exc:
-        raise RuntimeError(f"托运单数据准备失败: {exc}") from exc
-    return _build_download_consignment_payload(normalized, excel_path)
-
-
 def prepare_local_consignment_excel_payload(consignment_no: str) -> dict[str, Any]:
     normalized = normalize_consignment_no(consignment_no)
     if not normalized:
@@ -453,7 +440,6 @@ def fill_shipment_template_payload(
 
 __all__ = [
     "fill_shipment_template_payload",
-    "prepare_consignment_excel_payload",
     "prepare_local_consignment_excel_payload",
     "prepare_upload_local_consignment_excel_payload",
 ]

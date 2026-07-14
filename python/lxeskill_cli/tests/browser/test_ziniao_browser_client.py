@@ -136,8 +136,13 @@ def test_open_client_api_available_does_not_prepare_or_launch(monkeypatch, tmp_p
     )
     monkeypatch.setattr(
         ziniao_browser_client.ZiniaoLifecycleManager,
-        "register_client",
-        staticmethod(lambda **kwargs: calls.append(("register_client", dict(kwargs))) or 1234),
+        "resolve_client_pid",
+        staticmethod(
+            lambda control_port, preferred_pid=0: calls.append(
+                ("resolve_client_pid", control_port, preferred_pid)
+            )
+            or 1234
+        ),
     )
 
     client = ziniao_browser_client.ZiniaoBrowserClient()
@@ -148,16 +153,7 @@ def test_open_client_api_available_does_not_prepare_or_launch(monkeypatch, tmp_p
     assert client.open_client() is True
 
     assert fake_client.calls == ["get_browser_list"]
-    assert calls == [
-        (
-            "register_client",
-            {
-                "control_port": 19000,
-                "client_path": _client_path(tmp_path),
-                "client_pid": 0,
-            },
-        )
-    ]
+    assert calls == [("resolve_client_pid", 19000, 0)]
 
 
 def test_open_client_api_unavailable_prepares_launches_and_polls(monkeypatch, tmp_path):
@@ -179,15 +175,15 @@ def test_open_client_api_unavailable_prepares_launches_and_polls(monkeypatch, tm
         calls.append(("popen", list(cmd), dict(kwargs)))
         return SimpleNamespace(pid=4321)
 
-    def fake_register_client(**kwargs):
-        calls.append(("register_client", dict(kwargs)))
+    def fake_resolve_client_pid(control_port, preferred_pid=0):
+        calls.append(("resolve_client_pid", control_port, preferred_pid))
         return 4321
 
     monkeypatch.setattr(ziniao_browser_client.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(
         ziniao_browser_client.ZiniaoLifecycleManager,
-        "register_client",
-        staticmethod(fake_register_client),
+        "resolve_client_pid",
+        staticmethod(fake_resolve_client_pid),
     )
 
     client = ziniao_browser_client.ZiniaoBrowserClient()
@@ -215,8 +211,7 @@ def test_open_client_api_unavailable_prepares_launches_and_polls(monkeypatch, tm
             },
         ),
     ]
-    assert calls[-1][0] == "register_client"
-    assert calls[-1][1]["client_pid"] == 4321
+    assert calls[-1] == ("resolve_client_pid", 19000, 4321)
     assert client._client_pid == 4321
 
 
@@ -235,8 +230,8 @@ def test_client_ready_prevents_repeated_prepare_across_api_methods(monkeypatch, 
     )
     monkeypatch.setattr(
         ziniao_browser_client.ZiniaoLifecycleManager,
-        "register_client",
-        staticmethod(lambda **kwargs: 1234),
+        "resolve_client_pid",
+        staticmethod(lambda _control_port, preferred_pid=0: preferred_pid or 1234),
     )
 
     client = ziniao_browser_client.ZiniaoBrowserClient()

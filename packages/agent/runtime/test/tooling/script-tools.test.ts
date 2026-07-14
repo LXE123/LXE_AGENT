@@ -135,6 +135,12 @@ describe("Python JSON tool bridge", () => {
       visibility: "maintenance",
       ownerSkills: ["ziniao-browser"],
     });
+    expect(loadLxeSkillCommandCatalog(catalogPath).find((entry) => entry.name === "mabang_download_fba_delivery_csv"))
+      .toMatchObject({
+        command: "lxeskill fba shipment delivery-csv-download",
+        module: "services.agent_cli.mabang.download_fba_delivery_csv",
+        ownerSkills: ["fba-shipment-delivery-csv-download"],
+      });
     expect(loadLxeSkillCommandCatalog(catalogPath).find((entry) => entry.name === "ziniao_page"))
       .toMatchObject({
         ownerSkills: ["ziniao-browser"],

@@ -27,10 +27,49 @@ export interface ToolExposureOptions {
   onSkillActivated?: (skillName: string) => Promise<void> | void;
 }
 
+export type LxeSkillInvocationViolation =
+  | "direct_business_module"
+  | "python_module_wrapper"
+  | "not_standalone"
+  | "shell_composition";
+
+export interface LxeSkillInvocationErrorDetails extends JsonObject {
+  type: "lxeskill_invocation_error";
+  violations: LxeSkillInvocationViolation[];
+  required_command_shape: "lxeskill <command> [options]";
+  use_exec_cwd: true;
+  canonical_command_path?: string;
+  owner_skills?: string[];
+  describe_command?: string;
+  discovery_command?: "lxeskill list";
+}
+
 export class ToolExecutionError extends Error {
-  constructor(readonly code: "permission_denied" | "unsupported_invocation", message: string) {
+  constructor(
+    readonly code: "permission_denied" | "unsupported_invocation",
+    message: string,
+    readonly details?: JsonObject,
+    readonly recoveryGroup?: string,
+  ) {
     super(message);
     this.name = "ToolExecutionError";
+  }
+
+  modelContent(attempt?: number): string {
+    if (!this.details) return this.message;
+    const retryable = attempt === undefined || attempt <= 1;
+    return JSON.stringify({
+      ...structuredClone(this.details),
+      code: this.code,
+      message: this.message,
+      ...(attempt === undefined ? {} : {
+        attempt,
+        retryable,
+        next_action: retryable
+          ? "read_owner_skill_or_run_standalone_describe_then_retry_once"
+          : "stop_retrying_shell_variations_and_report",
+      }),
+    }, null, 2);
   }
 }
 
@@ -91,6 +130,11 @@ export class ToolExposureState {
   isExposed(name: string): boolean {
     const definition = this.registry.definition(name);
     return Boolean(definition && this.exposed.has(definition.name) && this.allowed(definition));
+  }
+
+  allowsSkill(name: string): boolean {
+    const skillName = name.trim();
+    return Boolean(skillName) && (!this.options.allowedSkills || this.options.allowedSkills.has(skillName));
   }
 
   private allowed(definition: NormalizedToolDefinition): boolean {

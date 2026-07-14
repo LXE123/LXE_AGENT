@@ -7,9 +7,7 @@ import pytest
 
 from shared.log_retention import (
     cleanup_local_logs,
-    ensure_local_log_retention_once,
     local_log_retention_days,
-    reset_local_log_retention_once_for_tests,
 )
 
 
@@ -123,19 +121,3 @@ def test_local_log_retention_days_clamps_to_at_least_one(monkeypatch) -> None:
     monkeypatch.setenv("LOCAL_LOG_RETENTION_DAYS", "0")
 
     assert local_log_retention_days() == 1
-
-
-def test_ensure_local_log_retention_once_runs_only_once(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("AGENT_STREAM_TRACE_DIR", str(tmp_path / "var" / "logs" / "agent_traces"))
-    monkeypatch.setenv("AGENT_SSE_WIRE_TRACE_DIR", str(tmp_path / "var" / "logs" / "sse_wire_traces"))
-    monkeypatch.setenv("FEISHU_RAW_EVENT_DUMP_DIR", str(tmp_path / "var" / "logs" / "feishu_raw_events"))
-    monkeypatch.setenv("LOCAL_LOG_RETENTION_DAYS", "7")
-    reset_local_log_retention_once_for_tests()
-    try:
-        first = ensure_local_log_retention_once()
-        second = ensure_local_log_retention_once()
-    finally:
-        reset_local_log_retention_once_for_tests()
-
-    assert first is not None
-    assert second is None

@@ -99,10 +99,6 @@ class HttpSessionProxy:
         return getattr(HttpSessionRegistry.get(self._purpose), name)
 
 
-def get_aiohttp_session(purpose: HttpSessionPurpose | str) -> aiohttp.ClientSession:
-    return HttpSessionRegistry.get(purpose)
-
-
 erp_http_session = HttpSessionProxy(HttpSessionPurpose.ERP)
 external_http_session = HttpSessionProxy(HttpSessionPurpose.EXTERNAL)
 
@@ -118,5 +114,4 @@ __all__ = [
     "close_all_aiohttp_sessions",
     "erp_http_session",
     "external_http_session",
-    "get_aiohttp_session",
 ]

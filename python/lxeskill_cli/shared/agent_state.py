@@ -10,7 +10,6 @@ MESSAGES_KEY = "messages"
 RUNTIME_ALLOWED_KEYS = {
     "session_activity_at",
 }
-_COMPACTION_SUMMARY_PREFIX = "The conversation history before this point was compacted into the following summary: "
 
 
 def _clean_inline_content_blocks(value: Any) -> list[dict[str, Any]]:
@@ -142,83 +141,6 @@ def _clean_context_messages(value: Any) -> list[dict[str, Any]]:
     return messages
 
 
-def _legacy_history_message_to_canonical(value: dict[str, Any] | None) -> dict[str, Any] | None:
-    message = dict(value or {})
-    role = str(message.get("role") or "").strip()
-    content = message.get("content")
-
-    if role in {"user", "system"}:
-        return {"role": role, "content": str(content or "")}
-
-    if role == "assistant":
-        if isinstance(content, list):
-            return {
-                "role": "assistant",
-                "content": _clean_assistant_content_blocks(content, allow_tool_use_alias=True),
-            }
-        return {"role": "assistant", "content": [{"type": "text", "text": str(content or "")}]}
-
-    if role == "toolResult":
-        blocks: list[dict[str, Any]] = []
-        if isinstance(content, list):
-            for raw_block in list(content or []):
-                block = dict(raw_block or {})
-                if str(block.get("type") or "").strip() != "tool_result":
-                    continue
-                block_content = block.get("content")
-                cleaned_block: dict[str, Any] = {
-                    "type": "tool_result",
-                    "tool_call_id": str(block.get("tool_call_id") or block.get("tool_use_id") or uuid4().hex).strip(),
-                    "content": (
-                        _clean_inline_content_blocks(block_content)
-                        if isinstance(block_content, list)
-                        else str(block_content or "")
-                    ),
-                }
-                if bool(block.get("is_error")):
-                    cleaned_block["is_error"] = True
-                blocks.append(cleaned_block)
-        return {"role": "tool", "content": blocks}
-
-    return None
-
-
-def migrate_legacy_context_data(value: dict[str, Any] | None) -> dict[str, Any]:
-    raw = dict(value or {})
-    if isinstance(raw.get(MESSAGES_KEY), list):
-        return {MESSAGES_KEY: _clean_context_messages(raw.get(MESSAGES_KEY))}
-
-    messages: list[dict[str, Any]] = []
-    session_memory = dict(raw.get("session_memory") or {})
-    summary = str(session_memory.get("history_summary") or "").strip()
-    if summary:
-        messages.append({"role": "user", "content": _COMPACTION_SUMMARY_PREFIX + summary})
-
-    for raw_turn in list(raw.get("history_turns") or []):
-        turn = dict(raw_turn or {})
-        for raw_message in list(turn.get("messages") or []):
-            cleaned = _legacy_history_message_to_canonical(raw_message if isinstance(raw_message, dict) else {})
-            if cleaned is not None:
-                messages.append(cleaned)
-
-    return {MESSAGES_KEY: _clean_context_messages(messages)}
-
-
-def empty_context_state() -> dict[str, Any]:
-    return {
-        MESSAGES_KEY: [],
-    }
-
-
-def empty_runtime_state() -> dict[str, Any]:
-    return {}
-
-
-def is_nested_agent_state(state_data: dict[str, Any] | None) -> bool:
-    state = dict(state_data or {})
-    return isinstance(state.get(RUNTIME_KEY), dict) and isinstance(state.get(CONTEXT_KEY), dict)
-
-
 def ensure_agent_state(state_data: dict[str, Any] | None) -> dict[str, Any]:
     state = dict(state_data or {})
     runtime = dict(state.get(RUNTIME_KEY) or {})
@@ -227,15 +149,6 @@ def ensure_agent_state(state_data: dict[str, Any] | None) -> dict[str, Any]:
     return {
         RUNTIME_KEY: runtime,
         CONTEXT_KEY: context,
-    }
-
-
-def _legacy_clean_runtime(runtime: dict[str, Any] | None) -> dict[str, Any]:
-    runtime_values = dict(runtime or {})
-    return {
-        key: runtime_values[key]
-        for key in RUNTIME_ALLOWED_KEYS
-        if key in runtime_values
     }
 
 
@@ -250,45 +163,8 @@ def _validate_runtime_keys(runtime: dict[str, Any] | None, *, context: str) -> d
     return runtime_values
 
 
-def split_agent_state_for_storage(
-    full_state: dict[str, Any] | None,
-    *,
-    allow_legacy_runtime: bool = False,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    state = ensure_agent_state(full_state)
-    runtime = (
-        _legacy_clean_runtime(state.get(RUNTIME_KEY))
-        if allow_legacy_runtime
-        else _validate_runtime_keys(state.get(RUNTIME_KEY), context="storage state")
-    )
-    return (
-        {
-            RUNTIME_KEY: runtime,
-        },
-        dict(state.get(CONTEXT_KEY) or {}),
-    )
-
-
-def compose_agent_state(
-    session_runtime_state: dict[str, Any] | None,
-    context_data: dict[str, Any] | None,
-) -> dict[str, Any]:
-    raw_runtime = dict(session_runtime_state or {})
-    runtime = raw_runtime.get(RUNTIME_KEY) if isinstance(raw_runtime.get(RUNTIME_KEY), dict) else raw_runtime
-    return ensure_agent_state(
-        {
-            RUNTIME_KEY: dict(runtime or {}),
-            CONTEXT_KEY: dict(context_data or {}),
-        }
-    )
-
-
 def runtime_state(state_data: dict[str, Any] | None) -> dict[str, Any]:
     return dict(ensure_agent_state(state_data).get(RUNTIME_KEY) or {})
-
-
-def context_state(state_data: dict[str, Any] | None) -> dict[str, Any]:
-    return dict(ensure_agent_state(state_data).get(CONTEXT_KEY) or {})
 
 
 def runtime_patch(runtime_values: dict[str, Any] | None) -> dict[str, Any]:
@@ -300,58 +176,6 @@ def runtime_patch(runtime_values: dict[str, Any] | None) -> dict[str, Any]:
 def runtime_patch_from_state(state_data: dict[str, Any] | None) -> dict[str, Any]:
     runtime = runtime_state(state_data)
     return runtime_patch(runtime)
-
-
-def context_patch(context_values: dict[str, Any] | None) -> dict[str, Any]:
-    return {
-        CONTEXT_KEY: dict(context_values or {}),
-    }
-
-
-def replace_runtime_state(
-    state_data: dict[str, Any] | None,
-    runtime_patch: dict[str, Any] | None,
-) -> dict[str, Any]:
-    state = ensure_agent_state(state_data)
-    runtime = _validate_runtime_keys(runtime_patch, context="replacement")
-    state[RUNTIME_KEY] = runtime
-    return state
-
-
-def replace_context_state(
-    state_data: dict[str, Any] | None,
-    context_patch: dict[str, Any] | None,
-) -> dict[str, Any]:
-    state = ensure_agent_state(state_data)
-    context = empty_context_state()
-    context[MESSAGES_KEY] = _clean_context_messages(dict(context_patch or {}).get(MESSAGES_KEY))
-    state[CONTEXT_KEY] = context
-    return state
-
-
-def update_runtime_state(
-    state_data: dict[str, Any] | None,
-    runtime_patch: dict[str, Any] | None,
-) -> dict[str, Any]:
-    state = ensure_agent_state(state_data)
-    runtime = dict(state.get(RUNTIME_KEY) or {})
-    runtime.update(_validate_runtime_keys(runtime_patch, context="patch"))
-    runtime = _validate_runtime_keys(runtime, context="merged state")
-    state[RUNTIME_KEY] = runtime
-    return state
-
-
-def update_context_state(
-    state_data: dict[str, Any] | None,
-    context_patch: dict[str, Any] | None,
-) -> dict[str, Any]:
-    state = ensure_agent_state(state_data)
-    context = dict(state.get(CONTEXT_KEY) or {})
-    raw_patch = dict(context_patch or {})
-    if MESSAGES_KEY in raw_patch:
-        context[MESSAGES_KEY] = _clean_context_messages(raw_patch.get(MESSAGES_KEY))
-    state[CONTEXT_KEY] = context
-    return state
 
 
 def merge_agent_state(
@@ -379,57 +203,8 @@ def merge_agent_state(
     }
 
 
-def build_initial_agent_state(
-    *,
-    entry_text: str = "",
-) -> dict[str, Any]:
-    runtime = empty_runtime_state()
-    _ = entry_text
-    context = empty_context_state()
-    return {
-        RUNTIME_KEY: runtime,
-        CONTEXT_KEY: context,
-    }
-
-
-def reset_context_only(
-    state_data: dict[str, Any] | None,
-    *,
-    keep_runtime_keys: set[str] | None = None,
-) -> dict[str, Any]:
-    state = ensure_agent_state(state_data)
-    runtime = dict(state.get(RUNTIME_KEY) or {})
-    if keep_runtime_keys is not None:
-        runtime = {key: value for key, value in runtime.items() if key in keep_runtime_keys}
-    runtime = _legacy_clean_runtime(runtime)
-    return {
-        RUNTIME_KEY: runtime,
-        CONTEXT_KEY: empty_context_state(),
-    }
-
-
 __all__ = [
-    "CONTEXT_KEY",
-    "MESSAGES_KEY",
-    "RUNTIME_KEY",
-    "RUNTIME_ALLOWED_KEYS",
-    "build_initial_agent_state",
-    "compose_agent_state",
-    "context_patch",
-    "context_state",
-    "empty_context_state",
-    "empty_runtime_state",
     "ensure_agent_state",
-    "is_nested_agent_state",
     "merge_agent_state",
-    "migrate_legacy_context_data",
-    "replace_context_state",
-    "replace_runtime_state",
-    "reset_context_only",
-    "runtime_patch",
     "runtime_patch_from_state",
-    "runtime_state",
-    "split_agent_state_for_storage",
-    "update_context_state",
-    "update_runtime_state",
 ]

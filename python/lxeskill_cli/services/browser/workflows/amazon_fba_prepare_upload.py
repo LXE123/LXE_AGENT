@@ -60,7 +60,6 @@ def run_prepare_upload_workflow(
                 transport_mode=str(payload.get("transport_mode") or "").strip(),
             ),
         )
-    runtime_session_id = str(workflow_session.session_id or "").strip()
     site = str(payload.get("site") or "").strip()
     consignment_no = str(payload.get("consignment_no") or "").strip()
     transport_mode = str(payload.get("transport_mode") or "").strip()

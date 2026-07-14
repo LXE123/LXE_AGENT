@@ -14,13 +14,23 @@ describe("skill context", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-skills-"));
     roots.push(root);
     mkdirSync(join(root, "skills", "demo"), { recursive: true });
-    writeFileSync(join(root, "skills", "demo", "SKILL.md"), "---\nname: demo\ntype: default\ndescription: Demo workflow\n---\n# Demo\n", "utf8");
+    writeFileSync(join(root, "skills", "demo", "SKILL.md"), [
+      "---", "name: demo", "type: default", "description: Demo workflow",
+      "commands:", "  - lxeskill demo run", "---", "# Demo", "",
+    ].join("\n"), "utf8");
     mkdirSync(join(root, "skills", "blocked"), { recursive: true });
-    writeFileSync(join(root, "skills", "blocked", "SKILL.md"), "---\nname: blocked\ntype: internal\ndescription: Hidden\n---\n", "utf8");
+    writeFileSync(join(root, "skills", "blocked", "SKILL.md"), [
+      "---", "name: blocked", "type: internal", "description: Hidden",
+      "commands:", "  - lxeskill hidden run", "---", "",
+    ].join("\n"), "utf8");
     const prompt = buildSkillIndexPrompt(root, { allowedTypes: new Set(["default"]) });
     expect(prompt).toContain("demo");
     expect(prompt).toContain("skills/demo/SKILL.md");
+    expect(prompt).toContain("Commands: lxeskill demo run");
+    expect(prompt).toContain("## lxeskill invocation contract");
+    expect(prompt).toContain("exec.cwd instead");
     expect(prompt).not.toContain("blocked");
+    expect(prompt).not.toContain("lxeskill hidden run");
   });
 
   test("prefers repository skills, refreshes by signature, and validates references", () => {

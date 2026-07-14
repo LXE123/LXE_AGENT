@@ -56,10 +56,6 @@ def resolve_agent_session_id() -> str:
     return str(os.environ.get("LXE_AGENT_SESSION_ID") or "").strip()
 
 
-def resolve_response_route_id() -> str:
-    return str(os.environ.get("LXE_RESPONSE_ROUTE_ID") or "").strip()
-
-
 def result_with_details(
     *,
     params_ready: bool,
@@ -205,15 +201,6 @@ def archive_selected_result_files(
     return safe_payload
 
 
-def send_selected_result_files(
-    payload: dict[str, Any] | None,
-    *,
-    allowed_keys: tuple[str, ...],
-    stage: str = "unknown",
-) -> dict[str, Any]:
-    return archive_selected_result_files(payload, allowed_keys=allowed_keys, stage=stage)
-
-
 def run_direct_fba_workflow(
     *,
     context: dict[str, str],
@@ -281,6 +268,5 @@ __all__ = [
     "result_with_details",
     "run_direct_fba_workflow",
     "archive_selected_result_files",
-    "send_selected_result_files",
     "validate_args",
 ]

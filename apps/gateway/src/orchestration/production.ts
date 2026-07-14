@@ -136,6 +136,7 @@ export function createProductionGateway(
   const processes = registerCodingTools(tools, {
     workspaceRoot: options.projectRoot,
     businessCommands,
+    businessCommandCatalog: cliCommands,
     execEnv: () => ({ LXESKILL_SKILL_SCOPE: lxeskillScope() }),
     onProcessComplete: async (snapshot) => {
       const sessionId = String(snapshot.session_id ?? "").trim();

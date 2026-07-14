@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
 import { createLogger, runWithLogContext, type Environment, type Logger } from "@lxe/core";
-import { ToolRegistry, type ToolExposureOptions } from "../tooling/registry";
+import { ToolExecutionError, ToolRegistry, type ToolExposureOptions } from "../tooling/registry";
 import {
   ContextCompactionError,
   ContextOverflowError,
@@ -204,6 +204,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     let typingStarted = false;
     const startedAt = Date.now() / 1_000;
     const toolUsage = new Map<string, { calls: number; errors: number; duration_ms: number }>();
+    const toolRecoveryAttempts = new Map<string, number>();
     let usageRecorded = false;
     const accountContext = (result: ContextCompactionResult): void => {
       const usage = { input: inputTokens, output: outputTokens };
@@ -564,11 +565,17 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             usage.errors += 1;
             toolStatus = "error";
             const message = cause instanceof Error ? cause.message : String(cause);
+            let modelMessage = message;
+            if (cause instanceof ToolExecutionError && cause.recoveryGroup) {
+              const attempt = (toolRecoveryAttempts.get(cause.recoveryGroup) ?? 0) + 1;
+              toolRecoveryAttempts.set(cause.recoveryGroup, attempt);
+              modelMessage = cause.modelContent(attempt);
+            }
             toolDisplayOutput = { error: message };
             results.push({
               type: "tool_result",
               tool_call_id: call.id,
-              content: message,
+              content: modelMessage,
               is_error: true,
             });
           } finally {

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import re
 from collections import OrderedDict
 from dataclasses import dataclass

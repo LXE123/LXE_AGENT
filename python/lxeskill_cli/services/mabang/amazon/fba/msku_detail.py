@@ -246,10 +246,6 @@ def load_mskus_from_delivery_file(delivery_file_path: str | Path) -> list[str]:
     return load_msku_source_from_delivery_file(delivery_file_path).mskus
 
 
-def load_mskus_from_consignment_excel(excel_path: str | Path) -> list[str]:
-    return load_mskus_from_delivery_file(excel_path)
-
-
 def find_latest_delivery_file(
     ship_no: str,
     *,
@@ -766,7 +762,6 @@ __all__ = [
     "find_latest_delivery_file",
     "load_msku_source_from_delivery_file",
     "load_mskus_from_delivery_file",
-    "load_mskus_from_consignment_excel",
     "normalize_ship_no",
     "parse_export_gourl",
     "parse_listsearch_ids",

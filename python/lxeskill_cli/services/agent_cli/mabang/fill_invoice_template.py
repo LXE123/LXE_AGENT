@@ -25,28 +25,16 @@ from services.agent_cli.mabang.fill_customs_declaration import (
     extract_sp_no_from_filename,
 )
 from services.agent_cli.mabang.restock_workbook import (
-    MERGE_DETAIL_HEADERS,
+    MERGE_DETAIL_HEADERS as MERGE_DETAIL_HEADERS,
     SUMMARY_HEADERS,
-    find_merge_detail_sheet,
     find_summary_sheet,
     summary_column_indexes,
 )
 from services.agent_cli.mabang.shipment_quantity_validation import (
-    CONSIGNMENT_BOX_ALIASES,
-    CONSIGNMENT_GROSS_WEIGHT_ALIASES,
-    CONSIGNMENT_HEIGHT_ALIASES,
-    CONSIGNMENT_LENGTH_ALIASES,
-    CONSIGNMENT_MSKU_COLUMN,
-    CONSIGNMENT_QUANTITY_COLUMN,
-    CONSIGNMENT_WIDTH_ALIASES,
-    DELIVERY_CSV_DIR,
-    DELIVERY_MSKU_COLUMN,
-    ITEM_SPLIT_PATTERN,
-    SKU_SHIP_QTY_COLUMN,
-    SKU_QTY_PATTERN,
+    DELIVERY_MSKU_COLUMN as DELIVERY_MSKU_COLUMN,
+    SKU_SHIP_QTY_COLUMN as SKU_SHIP_QTY_COLUMN,
     ConsignmentBoxInfo,
     ConsignmentMskuRow,
-    find_latest_delivery_csv,
     read_consignment_msku_rows,
     resolve_delivery_csv_path,
 )
@@ -491,20 +479,6 @@ def build_actual_invoice_box_rows(
         actual_quantities=actual_quantities,
         quantity_issues=issues,
     )
-
-
-def build_invoice_box_rows(
-    source_rows: list[InvoiceSourceRow],
-    stock_sku_merge_infos: OrderedDict[str, StockSkuMergeInfo],
-    delivery_components: OrderedDict[str, OrderedDict[str, Decimal]],
-    consignment_rows: list[ConsignmentMskuRow],
-) -> list[InvoiceBoxRow]:
-    return build_actual_invoice_box_rows(
-        source_rows,
-        stock_sku_merge_infos,
-        delivery_components,
-        consignment_rows,
-    ).invoice_rows
 
 
 def translate_commodity_name(row: InvoiceSourceRow) -> str:

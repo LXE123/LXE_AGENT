@@ -91,7 +91,6 @@ SEA_SHEET = "海运"
 NO_SHIP_SHEET = "暂不建议发货"
 SAMPLE_INSUFFICIENT_SHEET = "样本不足"
 CLEARANCE_KEYWORD = "清货"
-INVENTORY_SHEETS = (COMBO_ACTUAL_INVENTORY_SHEET, STOCK_ACTUAL_INVENTORY_SHEET)
 INVENTORY_SHEET_GROUPS = (
     ((COMBO_ACTUAL_INVENTORY_SHEET, LEGACY_COMBO_ACTUAL_INVENTORY_SHEET), "组合sku"),
     ((STOCK_ACTUAL_INVENTORY_SHEET, LEGACY_STOCK_ACTUAL_INVENTORY_SHEET), "库存sku"),
@@ -945,22 +944,6 @@ def load_sales_details(xlsx_path: str | Path) -> dict[tuple[str, str, str, str],
     return details
 
 
-def trend_group(trend: str) -> str | None:
-    return trend_group_from_template(trend, get_template(DEFAULT_TEMPLATE_NAME))
-
-
-def replenishment_days(weighted_daily_sales: float, mapped_trend: str) -> int:
-    return replenishment_days_from_template(
-        weighted_daily_sales,
-        mapped_trend,
-        get_template(DEFAULT_TEMPLATE_NAME).params,
-    )
-
-
-def _sea_day_candidates(weighted_daily_sales: float) -> list[int]:
-    return sea_day_candidates_from_template(weighted_daily_sales, get_template(DEFAULT_TEMPLATE_NAME).params)
-
-
 def _safe_unlinked_quantity(value: float | int | None) -> float:
     try:
         quantity = float(value or 0)
@@ -1809,9 +1792,7 @@ __all__ = [
     "load_sales_details",
     "normalize_store_name",
     "parse_weight_grams",
-    "replenishment_days",
     "summarize_links",
-    "trend_group",
     "validate_amazon_fba_inventory_snapshot_date",
     "validate_unlinked_shipments_snapshot_same_day",
     "write_replenishment_report",

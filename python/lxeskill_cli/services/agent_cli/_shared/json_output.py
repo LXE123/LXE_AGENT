@@ -18,24 +18,6 @@ def _write_event(payload: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
-def write_progress_event(
-    *,
-    step: str,
-    status: str,
-    message: str,
-    data: dict[str, Any] | None = None,
-) -> None:
-    _write_event(
-        {
-            "type": "progress",
-            "step": str(step or "").strip(),
-            "status": str(status or "").strip(),
-            "message": str(message or "").strip(),
-            "data": dict(data or {}),
-        }
-    )
-
-
 def write_result_event(payload: dict[str, Any]) -> None:
     event = dict(payload or {})
     event["type"] = "result"
@@ -44,6 +26,5 @@ def write_result_event(payload: dict[str, Any]) -> None:
 
 __all__ = [
     "configure_utf8_stdio",
-    "write_progress_event",
     "write_result_event",
 ]

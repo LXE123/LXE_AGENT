@@ -50,13 +50,6 @@ class ConsignmentMskuRow:
 
 
 @dataclass(frozen=True)
-class ConsignmentMskuQuantityRow:
-    row_number: int
-    msku: str
-    quantity: Decimal
-
-
-@dataclass(frozen=True)
 class DeliveryMskuInfo:
     msku: str
     components: OrderedDict[str, Decimal]
@@ -115,11 +108,6 @@ def _normalize_sku_key(value: Any) -> str:
 def _normalized_price_key(value: Any, *, row_context: str) -> Decimal:
     price = _parse_decimal(value, field_name="单价", row_context=row_context)
     return price.quantize(MERGE_PRICE_QUANTIZE, rounding=ROUND_HALF_UP)
-
-
-def _merge_key_text(merge_key: tuple[str, Decimal]) -> str:
-    model, price = merge_key
-    return f"规则型号={model}, 单价={_decimal_text(price)}"
 
 
 def find_latest_delivery_csv(sp_no: str, *, csv_dir: str | Path | None = None) -> Path | None:
@@ -237,13 +225,6 @@ def read_delivery_msku_infos(csv_path: str | Path) -> OrderedDict[str, DeliveryM
             ),
         )
         for msku, msku_components in components.items()
-    )
-
-
-def read_delivery_msku_components(csv_path: str | Path) -> OrderedDict[str, OrderedDict[str, Decimal]]:
-    return OrderedDict(
-        (msku, info.components)
-        for msku, info in read_delivery_msku_infos(csv_path).items()
     )
 
 

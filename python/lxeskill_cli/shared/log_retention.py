@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 import shutil
-import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -16,8 +15,6 @@ logger = get_logger(__name__)
 
 _DATE_NAME = re.compile(r"^\d{8}$")
 _DATE_JSONL_NAME = re.compile(r"^\d{8}\.jsonl$")
-_RETENTION_LOCK = threading.Lock()
-_RETENTION_RAN = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,28 +147,8 @@ def cleanup_local_logs(
     )
 
 
-def ensure_local_log_retention_once() -> LocalLogRetentionResult | None:
-    global _RETENTION_RAN
-    if _RETENTION_RAN:
-        return None
-    with _RETENTION_LOCK:
-        if _RETENTION_RAN:
-            return None
-        result = cleanup_local_logs()
-        _RETENTION_RAN = True
-        return result
-
-
-def reset_local_log_retention_once_for_tests() -> None:
-    global _RETENTION_RAN
-    with _RETENTION_LOCK:
-        _RETENTION_RAN = False
-
-
 __all__ = [
     "LocalLogRetentionResult",
     "cleanup_local_logs",
-    "ensure_local_log_retention_once",
     "local_log_retention_days",
-    "reset_local_log_retention_once_for_tests",
 ]

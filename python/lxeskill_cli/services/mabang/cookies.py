@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from .errors import MabangAuthError
-
-
 def _normalize_domain(value: str) -> str:
     return str(value or "").strip().lstrip(".").lower()
 
@@ -122,10 +119,3 @@ def extract_named_cookies(
             if name in wanted and value and name not in found:
                 found[name] = value
     return found
-
-
-def require_cookie_values(cookie_values: dict[str, str], required_names: tuple[str, ...] | list[str]) -> dict[str, str]:
-    missing = [name for name in required_names if not str(cookie_values.get(name) or "").strip()]
-    if missing:
-        raise MabangAuthError(f"缺少关键 Cookie: {', '.join(missing)}")
-    return cookie_values

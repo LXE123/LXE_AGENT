@@ -78,24 +78,6 @@ class FbaStore:
     parent_store_id: str = ""
     parent_id_type: str = ""
 
-    @property
-    def query_field(self) -> str:
-        if self.id_type == ID_TYPE_SHOP:
-            return QUERY_FIELD_SHOP
-        return QUERY_FIELD_FBA_WAREHOUSE
-
-    @property
-    def warehouse_id(self) -> str:
-        if self.id_type == ID_TYPE_FBA_WAREHOUSE:
-            return self.store_id
-        return ""
-
-    @property
-    def shop_id(self) -> str:
-        if self.id_type == ID_TYPE_SHOP:
-            return self.store_id
-        return ""
-
     def to_payload(self) -> dict[str, str]:
         payload = {
             "store_name": self.store_name,

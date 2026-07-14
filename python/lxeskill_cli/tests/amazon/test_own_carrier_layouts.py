@@ -104,11 +104,6 @@ def test_phase_3_1_selects_date_updates_and_skips_transport_mode(monkeypatch) ->
         lambda _driver, selected_date, **_kwargs: calls.append(f"select_date:{selected_date.isoformat()}"),
     )
     monkeypatch.setattr(own_carrier, "_click_delivery_window_modal_confirm_button", lambda _driver: calls.append("update") or True)
-    monkeypatch.setattr(
-        own_carrier,
-        "_open_phase_3_1_carrier_dropdown",
-        lambda _driver: pytest.fail("phase_3_1 should not open carrier dropdown"),
-    )
     monkeypatch.setattr(own_carrier, "_select_phase_3_1_other_carrier", lambda _driver: calls.append("select_other") or True)
     own_carrier._select_pickup_date_for_layout(
         driver,
@@ -479,11 +474,6 @@ def test_select_phase_3_2_ship_date_ignores_default_selected_day_until_value_com
     monkeypatch.setattr(own_carrier.time, "time", lambda: clock["now"])
     monkeypatch.setattr(own_carrier.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + float(seconds)))
     monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_calendar_visible", lambda _driver: True)
-    monkeypatch.setattr(
-        own_carrier,
-        "_phase_3_2_ship_date_calendar_day_selected",
-        lambda _driver, _ship_date: pytest.fail("ship date must not use calendar selected as completion"),
-    )
     monkeypatch.setattr(own_carrier, "_click_phase_3_2_ship_date_calendar_day", lambda _driver, _ship_date: calls.append("click_day") or True)
     monkeypatch.setattr(own_carrier, "_phase_3_2_ship_date_completed", lambda _driver, _ship_date: calls.append("completed") or completed["value"])
     monkeypatch.setattr(own_carrier, "_read_phase_3_2_ship_date_calendar_month_label", lambda _driver: pytest.fail("clicked target should retry completion"))
@@ -636,45 +626,6 @@ def test_phase_3_2_carrier_mode_partial_failure_messages() -> None:
 
     with pytest.raises(RuntimeError, match="非合作承运人未选择为 其他"):
         own_carrier._raise_phase_3_2_carrier_mode_selection_error(True, False, "空运")
-
-
-def test_select_phase_3_2_dropdown_value_clicks_option_and_waits(monkeypatch) -> None:
-    calls: list[str] = []
-    driver = object()
-
-    def fake_wait_for_click(step_name, clicker, **_kwargs):
-        calls.append(f"wait_click:{step_name}")
-        assert clicker() is True
-
-    monkeypatch.setattr(own_carrier, "_wait_for_click", fake_wait_for_click)
-    monkeypatch.setattr(
-        own_carrier,
-        "_select_dropdown_option_by_value",
-        lambda _driver, selector, value, **kwargs: calls.append(f"select_option:{selector}:{value}:{kwargs['option_text']}") or True,
-    )
-    monkeypatch.setattr(
-        own_carrier,
-        "_wait_for_dropdown_value",
-        lambda _driver, **kwargs: calls.append(f"value:{kwargs['dropdown_selector']}:{kwargs['expected_value']}"),
-    )
-    monkeypatch.setattr(own_carrier, "_wait_phase_3_2_refresh_after_selection", lambda: calls.append("refresh_wait"))
-
-    own_carrier._select_phase_3_2_dropdown_value(
-        driver,
-        dropdown_selector="[data-testid='example']",
-        option_value="OTHER",
-        option_text="其他",
-        step_name="非合作承运人",
-        value_label="非合作承运人",
-        timeout_seconds=60,
-    )
-
-    assert calls == [
-        "wait_click:非合作承运人选项",
-        "select_option:[data-testid='example']:OTHER:其他",
-        "value:[data-testid='example']:OTHER",
-        "refresh_wait",
-    ]
 
 
 def test_select_dropdown_option_prefers_dropdown_scope_then_global_dom(monkeypatch) -> None:

@@ -987,9 +987,6 @@ def generate_restock_workbook(
     }
 
 
-generate_purchase_summary_workbook = generate_restock_workbook
-
-
 def build_parser(
     *,
     prog: str = "python -m services.agent_cli.mabang.generate_restock_workbook",

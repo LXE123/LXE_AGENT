@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from lxeskill.business import load_catalog
 from shared.repository import repository_root
 

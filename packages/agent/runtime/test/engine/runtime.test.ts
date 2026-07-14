@@ -3,7 +3,7 @@ import { createLogger } from "@lxe/core";
 import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../../src/engine/runtime";
 import { RuntimeProviderError } from "../../src/providers/provider";
-import { ToolRegistry } from "../../src/tooling/registry";
+import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
 import type {
   RuntimeHandle,
   RuntimeMessage,
@@ -68,7 +68,153 @@ const handle = (): RuntimeHandle => {
   };
 };
 
+const lxeSkillInvocationError = (details: JsonObject = {
+  type: "lxeskill_invocation_error",
+  violations: ["shell_composition"],
+  required_command_shape: "lxeskill <command> [options]",
+  use_exec_cwd: true,
+  canonical_command_path: "lxeskill fba shipment delivery-csv-download",
+  owner_skills: ["fba-shipment-delivery-csv-download"],
+  describe_command: "lxeskill describe fba shipment delivery-csv-download",
+}): ToolExecutionError => new ToolExecutionError(
+  "unsupported_invocation",
+  "Invalid lxeskill invocation: use one standalone lxeskill command.",
+  details,
+  "lxeskill_invocation",
+);
+
 describe("TypeScriptAgentRuntime", () => {
+  test("sends structured lxeskill recovery to the model while keeping tool display concise", async () => {
+    const store = new MemoryStore();
+    const emitted: EmitRequest[] = [];
+    const commands: string[] = [];
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "exec",
+      description: "exec",
+      input_schema: { type: "object" },
+      execute: async (input) => {
+        const command = String(input.command ?? "");
+        commands.push(command);
+        if (command !== "lxeskill fba shipment delivery-csv-download --delivery-no SP260703001") {
+          throw lxeSkillInvocationError({
+            type: "lxeskill_invocation_error",
+            violations: ["direct_business_module", "shell_composition"],
+            required_command_shape: "lxeskill <command> [options]",
+            use_exec_cwd: true,
+            discovery_command: "lxeskill list",
+          });
+        }
+        return { content: [{ type: "text", text: "downloaded" }] };
+      },
+    });
+    let providerCalls = 0;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      provider: { summarize, turn: async (request) => {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return {
+            content: [{
+              type: "tool_call", id: "bad", name: "exec",
+              arguments: {
+                command: "cd /Users/llxx/Projects/github/LXE_AGENT_LOCAL_FBA && uv run --frozen python -m services.agent_cli.mabang.download_shipment_delivery --delivery-no SP260703001",
+              },
+            }],
+            stop_reason: "tool_use",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        }
+        if (providerCalls === 2) {
+          const last = request.messages.at(-1)?.content;
+          const block = Array.isArray(last) ? last[0] : undefined;
+          const payload = JSON.parse(String(block?.content ?? "{}"));
+          expect(payload).toMatchObject({
+            type: "lxeskill_invocation_error",
+            attempt: 1,
+            retryable: true,
+            discovery_command: "lxeskill list",
+            next_action: "read_owner_skill_or_run_standalone_describe_then_retry_once",
+          });
+          return {
+            content: [{
+              type: "tool_call", id: "good", name: "exec",
+              arguments: { command: "lxeskill fba shipment delivery-csv-download --delivery-no SP260703001" },
+            }],
+            stop_reason: "tool_use",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        }
+        return {
+          content: [{ type: "text", text: "complete" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        };
+      } },
+      emitter: {
+        emit: async (request) => { emitted.push(request); },
+        typing: async () => undefined,
+      },
+      systemPrompt: "test",
+    });
+
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    await runtime.stop();
+
+    expect(commands).toEqual([
+      "cd /Users/llxx/Projects/github/LXE_AGENT_LOCAL_FBA && uv run --frozen python -m services.agent_cli.mabang.download_shipment_delivery --delivery-no SP260703001",
+      "lxeskill fba shipment delivery-csv-download --delivery-no SP260703001",
+    ]);
+    const display = JSON.stringify(emitted);
+    expect(display).toContain("Invalid lxeskill invocation");
+    expect(display).not.toContain("canonical_command_path");
+    expect(display).not.toContain("violations");
+  });
+
+  test("limits lxeskill invocation recovery per turn and resets it for the next turn", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "exec",
+      description: "exec",
+      input_schema: { type: "object" },
+      execute: async () => { throw lxeSkillInvocationError(); },
+    });
+    const responses: RuntimeTurnResponse[] = [
+      { content: [{ type: "tool_call", id: "bad-1", name: "exec", arguments: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [{ type: "tool_call", id: "bad-2", name: "exec", arguments: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [{ type: "text", text: "stopped" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [{ type: "tool_call", id: "bad-3", name: "exec", arguments: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } },
+      { content: [{ type: "text", text: "stopped" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } },
+    ];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      provider: { summarize, turn: async () => responses.shift()! },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    await runtime.runTurn({ ...job(), job_id: "j2", message_id: "m2" }, handle());
+    await runtime.stop();
+
+    const recoveries = store.messages.flatMap((message) =>
+      message.role === "tool" && Array.isArray(message.content)
+        ? message.content.filter((block) => block.type === "tool_result")
+        : []
+    ).map((block) => JSON.parse(String(block.content)));
+    expect(recoveries.map((payload) => ({ attempt: payload.attempt, retryable: payload.retryable }))).toEqual([
+      { attempt: 1, retryable: true },
+      { attempt: 2, retryable: false },
+      { attempt: 1, retryable: true },
+    ]);
+    expect(recoveries[1]?.next_action).toBe("stop_retrying_shell_variations_and_report");
+  });
+
   test("records skill activation once and attributes every later lxeskill execution independently", async () => {
     const store = new MemoryStore();
     const tools = new ToolRegistry();

@@ -494,107 +494,6 @@ def resolve_modal_confirmation_aid(snapshot: dict[str, Any], target_text: str) -
     return ""
 
 
-def seller_central_home_favorite_links(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    seen: set[tuple[str, str, str]] = set()
-    for raw_item in list(dict(snapshot or {}).get("favorite_links") or []):
-        item = dict(raw_item or {})
-        label = str(item.get("label") or item.get("text") or "").strip()
-        href = str(item.get("href") or "").strip()
-        aid = str(item.get("aid") or "").strip()
-        key = (label, href, aid)
-        if not label or key in seen:
-            continue
-        seen.add(key)
-        items.append(
-            {
-                "aid": aid,
-                "label": label,
-                "text": label,
-                "href": href,
-            }
-        )
-    return items
-
-
-def seller_central_summary_lines(snapshot: dict[str, Any], *, safe_text) -> list[str]:
-    data = dict(snapshot or {})
-    lines: list[str] = []
-
-    sendtoamazon_controls = [
-        safe_text(dict(item or {}).get("label") or dict(item or {}).get("text"), 30)
-        for item in list(data.get("sendtoamazon_controls") or [])
-    ]
-    sendtoamazon_controls = [item for item in sendtoamazon_controls if item]
-    if sendtoamazon_controls:
-        lines.append(f"货件创建控件: {' | '.join(sendtoamazon_controls[:5])}")
-        return lines
-
-    favorite_links = [
-        safe_text(dict(item or {}).get("label") or dict(item or {}).get("text"), 24)
-        for item in seller_central_home_favorite_links(data)
-    ]
-    favorite_links = [item for item in favorite_links if item]
-    if favorite_links:
-        lines.append(f"首页快捷导航: {' | '.join(favorite_links[:10])}")
-        return lines
-
-    inventory_items = [safe_text(dict(item or {}).get("label") or dict(item or {}).get("text"), 40) for item in list(data.get("inventory_flows") or [])]
-    inventory_items = [item for item in inventory_items if item]
-    if inventory_items:
-        lines.append(f"库存/搜索路径: {' | '.join(inventory_items[:6])}")
-
-    row_actions = []
-    for item in list(data.get("row_action_menus") or [])[:3]:
-        entry = dict(item or {})
-        row_hint = safe_text(entry.get("row_hint"), 40)
-        labels = [
-            safe_text(dict(action or {}).get('label') or dict(action or {}).get('text'), 24)
-            for action in list(entry.get("actions") or [])[:3]
-        ]
-        labels = [label for label in labels if label]
-        if row_hint and labels:
-            row_actions.append(f"{row_hint}: {' / '.join(labels)}")
-    if row_actions:
-        lines.append(f"行操作菜单: {' | '.join(row_actions[:3])}")
-
-    upload_dialogs = [safe_text(dict(item or {}).get("title") or dict(item or {}).get("text"), 50) for item in list(data.get("upload_dialogs") or [])]
-    upload_dialogs = [item for item in upload_dialogs if item]
-    if upload_dialogs:
-        lines.append(f"上传对话框: {' | '.join(upload_dialogs[:3])}")
-
-    modal_confirmations = [safe_text(dict(item or {}).get("title") or dict(item or {}).get("text"), 50) for item in list(data.get("modal_confirmations") or [])]
-    modal_confirmations = [item for item in modal_confirmations if item]
-    if modal_confirmations:
-        lines.append(f"确认弹窗: {' | '.join(modal_confirmations[:3])}")
-
-    return lines
-
-
-def seller_central_landmarks(snapshot: dict[str, Any], *, safe_text, limit: int = 8) -> list[str]:
-    items: list[str] = []
-    for item in list(dict(snapshot or {}).get("sendtoamazon_controls") or []):
-        text = safe_text(dict(item or {}).get("label") or dict(item or {}).get("text"), 80)
-        if text and text not in items:
-            items.append(text)
-        if len(items) >= limit:
-            return items[:limit]
-    for item in seller_central_home_favorite_links(snapshot):
-        text = safe_text(dict(item or {}).get("label") or dict(item or {}).get("text"), 80)
-        if text and text not in items:
-            items.append(text)
-        if len(items) >= limit:
-            return items[:limit]
-    for key in ("favorite_links", "inventory_flows", "top_nav", "side_nav", "upload_dialogs", "modal_confirmations"):
-        for item in list(dict(snapshot or {}).get(key) or []):
-            text = safe_text(dict(item or {}).get("label") or dict(item or {}).get("title") or dict(item or {}).get("text"), 80)
-            if text and text not in items:
-                items.append(text)
-            if len(items) >= limit:
-                return items[:limit]
-    return items[:limit]
-
-
 __all__ = [
     "SELLER_CENTRAL_EXTRACTION_JS",
     "resolve_inventory_search_aid",
@@ -602,7 +501,4 @@ __all__ = [
     "resolve_row_action_aid",
     "resolve_sendtoamazon_aid",
     "resolve_upload_aid",
-    "seller_central_home_favorite_links",
-    "seller_central_landmarks",
-    "seller_central_summary_lines",
 ]

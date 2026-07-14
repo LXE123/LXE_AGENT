@@ -28,8 +28,19 @@ import {
   MAX_EXEC_TIMEOUT_SECONDS,
 } from "./exec-shell";
 import { isProbablyBinary, WorkspaceSearchService } from "./workspace-search";
-import { classifyLxeSkillInput } from "./lxeskill-command";
-import { ToolExecutionError, ToolRegistry } from "./registry";
+import { classifyLxeSkillInput, matchLxeSkillInvocation } from "./lxeskill-command";
+import {
+  ToolExecutionError,
+  ToolRegistry,
+  type LxeSkillInvocationErrorDetails,
+  type LxeSkillInvocationViolation,
+} from "./registry";
+
+export interface LxeSkillRecoveryCommand {
+  command: string;
+  module?: string;
+  ownerSkills: readonly string[];
+}
 
 export interface CodingToolOptions {
   workspaceRoot: string;
@@ -38,6 +49,7 @@ export interface CodingToolOptions {
   onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
   ripgrepPath?: string | null;
   businessCommands?: ReadonlyMap<string, readonly string[]>;
+  businessCommandCatalog?: readonly LxeSkillRecoveryCommand[];
   execShell?: ExecShellAdapter;
   execEnv?: () => Record<string, string>;
 }
@@ -73,6 +85,66 @@ interface ProcessEntry {
 const textBlock = (text: string): JsonObject[] => [{ type: "text", text }];
 const commandResult = (payload: JsonObject) => ({ content: textBlock(formatCommandPayload(payload)) });
 const inputText = (input: JsonObject, key: string): string => String(input[key] ?? "");
+
+const BUSINESS_MODULE_PATTERN = /\b(?:services\.agent_cli(?:\.[A-Za-z_]\w*)+|browser_auth_service\.main)\b/giu;
+const LXESKILL_TOKEN_PATTERN = /\blxeskill(?:\.cmd)?\b/iu;
+const LXESKILL_MODULE_WRAPPER_PATTERN = /-m\s+lxeskill\b/iu;
+const SHELL_COMPOSITION_PATTERN = /[\r\n]|&&|\|\||[;|`<>]|\$\(/u;
+
+const lxeSkillInvocationError = (
+  rawCommand: string,
+  knownCommands: ReadonlyMap<string, readonly string[]>,
+  commandCatalog: readonly LxeSkillRecoveryCommand[],
+): ToolExecutionError | undefined => {
+  const violations: LxeSkillInvocationViolation[] = [];
+  const modules = [...rawCommand.matchAll(BUSINESS_MODULE_PATTERN)].map((match) => String(match[0] ?? ""));
+  const hasBusinessModule = modules.length > 0;
+  const hasPythonModuleWrapper = LXESKILL_MODULE_WRAPPER_PATTERN.test(rawCommand);
+  const hasLxeSkillToken = LXESKILL_TOKEN_PATTERN.test(rawCommand);
+  const directLxeSkill = /^lxeskill(?:\.cmd)?(?:\s|$)/iu.test(rawCommand.trim());
+  const concernsLxeSkill = hasBusinessModule || hasPythonModuleWrapper || hasLxeSkillToken;
+
+  if (hasBusinessModule) violations.push("direct_business_module");
+  if (hasPythonModuleWrapper) violations.push("python_module_wrapper");
+  if (hasLxeSkillToken && !directLxeSkill) violations.push("not_standalone");
+  if (concernsLxeSkill && SHELL_COMPOSITION_PATTERN.test(rawCommand)) violations.push("shell_composition");
+  if (violations.length === 0) return undefined;
+
+  const embeddedCommand = rawCommand.match(/\blxeskill(?:\.cmd)?\b[\s\S]*/iu)?.[0];
+  const invocation = embeddedCommand
+    ? matchLxeSkillInvocation(embeddedCommand, knownCommands)
+    : undefined;
+  const moduleEntry = modules
+    .map((module) => commandCatalog.find((entry) => entry.module?.toLowerCase() === module.toLowerCase()))
+    .find((entry): entry is LxeSkillRecoveryCommand => Boolean(entry));
+  const catalogEntry = invocation
+    ? commandCatalog.find((entry) => entry.command.toLowerCase() === invocation.command.toLowerCase())
+    : moduleEntry;
+  const canonicalCommand = invocation?.command ?? catalogEntry?.command;
+  const ownerSkills = invocation?.ownerSkills?.length
+    ? invocation.ownerSkills
+    : catalogEntry?.ownerSkills.length ? [...catalogEntry.ownerSkills] : undefined;
+  const details: LxeSkillInvocationErrorDetails = {
+    type: "lxeskill_invocation_error",
+    violations,
+    required_command_shape: "lxeskill <command> [options]",
+    use_exec_cwd: true,
+    ...(canonicalCommand ? {
+      canonical_command_path: canonicalCommand,
+      describe_command: canonicalCommand.replace(/^lxeskill\s+/iu, "lxeskill describe "),
+    } : { discovery_command: "lxeskill list" }),
+    ...(ownerSkills?.length ? { owner_skills: [...ownerSkills] } : {}),
+  };
+  const code = hasBusinessModule || hasPythonModuleWrapper
+    ? "permission_denied"
+    : "unsupported_invocation";
+  return new ToolExecutionError(
+    code,
+    "Invalid lxeskill invocation: exec.command must contain exactly one standalone lxeskill command; use exec.cwd for the working directory and do not use uv, python -m, cd, pipes, redirects, or shell operators.",
+    details,
+    "lxeskill_invocation",
+  );
+};
 const processLines = (value: string): string[] => {
   if (!value) return [];
   const lines = value.split(/\r?\n/u);
@@ -583,6 +655,10 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   const imageProcessor = new ModelImageProcessor();
   const search = new WorkspaceSearchService(root, options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath });
   const execShell = options.execShell ?? new ExecShellAdapter();
+  const commandCatalog = options.businessCommandCatalog ?? [];
+  const businessCommands = options.businessCommands ?? new Map(
+    commandCatalog.map((entry) => [entry.command, [...entry.ownerSkills]] as const),
+  );
   const processes = new CodingProcessManager({
     maxOutputBytes: processOutputLimit,
     maxPendingBytes: 30_000,
@@ -742,11 +818,14 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   });
   registry.register({
     name: "exec",
-    description: "Execute shell commands with background continuation. Windows uses PowerShell; macOS/Linux use /bin/sh without loading user profiles. Python, pip, and lxeskill use this project's .venv.",
+    description: "Execute shell commands with background continuation. Windows uses PowerShell; macOS/Linux use /bin/sh without loading user profiles. Python, pip, and lxeskill use this project's .venv. A lxeskill invocation must be the only command in command; use cwd instead of cd and do not wrap it with uv, python -m, pipes, redirects, or shell operators.",
     input_schema: {
       type: "object",
       properties: {
-        command: { type: "string", description: "Shell command string." },
+        command: {
+          type: "string",
+          description: "Shell command string. For lxeskill, provide exactly one standalone `lxeskill <command> [options]`; do not use uv, python -m, cd, newlines, pipes, redirects, &&, ||, semicolons, backticks, or $(). Use cwd for the working directory. Help/list/describe commands follow the same rule.",
+        },
         cwd: { type: "string", description: "Working directory inside the workspace; defaults to the workspace root." },
         timeout: {
           type: "number", minimum: 1, maximum: MAX_EXEC_TIMEOUT_SECONDS, default: DEFAULT_EXEC_TIMEOUT_SECONDS,
@@ -762,7 +841,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       additionalProperties: false,
     },
     classifyInvocation: (input) => {
-      const invocation = classifyLxeSkillInput(input, options.businessCommands ?? new Map());
+      const invocation = classifyLxeSkillInput(input, businessCommands);
       if (!invocation) return undefined;
       return {
         usageName: `lxeskill:${invocation.commandId}`,
@@ -773,21 +852,20 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     execute: async (input, context) => {
       const rawCommand = inputText(input, "command");
       if (!rawCommand.trim()) throw new Error("command 不能为空");
-      if (/\b(?:services\.agent_cli|browser_auth_service\.main)\b|-m\s+lxeskill\b/iu.test(rawCommand)) {
-        throw new ToolExecutionError("permission_denied", "business Python modules and the lxeskill module must be invoked via the standalone lxeskill command");
-      }
       // The standalone/composition rules keep lxeskill invocations parseable for
       // usage attribution and card display; command authorization itself belongs
       // to the CLI, which rejects unknown or out-of-scope commands with a
       // structured error.
-      const hasLxeSkillToken = /\blxeskill(?:\.cmd)?\b/iu.test(rawCommand);
-      const directLxeSkill = /^lxeskill(?:\.cmd)?(?:\s|$)/iu.test(rawCommand.trim());
-      if (hasLxeSkillToken && !directLxeSkill) {
-        throw new ToolExecutionError("unsupported_invocation", "lxeskill must be invoked as a standalone command");
-      }
-      if (directLxeSkill && /[\r\n]|&&|\|\||[;|`]|\$\(/u.test(rawCommand)) {
-        throw new ToolExecutionError("unsupported_invocation", "lxeskill must be invoked as a standalone command without shell composition");
-      }
+      const ownerIsVisible = (ownerSkills: readonly string[]): boolean =>
+        ownerSkills.length === 0
+        || !context.exposureState
+        || ownerSkills.some((owner) => context.exposureState?.allowsSkill(owner));
+      const recoveryCommands = new Map(
+        [...businessCommands].filter(([, ownerSkills]) => ownerIsVisible(ownerSkills)),
+      );
+      const recoveryCatalog = commandCatalog.filter((entry) => ownerIsVisible(entry.ownerSkills));
+      const invocationError = lxeSkillInvocationError(rawCommand, recoveryCommands, recoveryCatalog);
+      if (invocationError) throw invocationError;
       const background = input.background === true;
       const timeoutSeconds = Number(input.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS);
       if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_EXEC_TIMEOUT_SECONDS) {

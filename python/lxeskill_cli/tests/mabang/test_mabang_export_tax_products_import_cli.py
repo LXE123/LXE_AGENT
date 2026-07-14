@@ -6,8 +6,6 @@ from collections import OrderedDict
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 from services.agent_cli.mabang import import_export_tax_products as cli
 
 

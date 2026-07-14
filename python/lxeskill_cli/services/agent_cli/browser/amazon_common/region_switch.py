@@ -5,15 +5,11 @@ import time
 from typing import Any
 
 from services.agent_cli.browser.amazon_common.login_verify import verify_seller_central_login
-from services.agent_cli.browser.amazon_common.seller_central_url import (
-    DEFAULT_SELLER_CENTRAL_ORIGIN,
-    build_seller_central_url,
-)
+from services.agent_cli.browser.amazon_common.seller_central_url import build_seller_central_url
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
 
 
 MARKETPLACE_SWITCHER_PATH = "/account-switcher/default/merchantMarketplace"
-MARKETPLACE_SWITCHER_URL = f"{DEFAULT_SELLER_CENTRAL_ORIGIN}{MARKETPLACE_SWITCHER_PATH}"
 _LOGIN_VERIFY_PATHS = {"/ap/signin", "/ap/mfa"}
 
 _SITE_ALIASES: dict[str, tuple[str, ...]] = {
@@ -420,7 +416,6 @@ def switch_region(session: Any, site: str, *, timeout_seconds: int = 60) -> dict
 
 __all__ = [
     "MARKETPLACE_SWITCHER_PATH",
-    "MARKETPLACE_SWITCHER_URL",
     "normalize_site_code",
     "site_aliases",
     "switch_region",

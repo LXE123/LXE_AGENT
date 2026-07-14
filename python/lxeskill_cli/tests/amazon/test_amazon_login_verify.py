@@ -6,7 +6,6 @@ import pytest
 
 from services.agent_cli.browser.amazon_common import login_verify
 from services.browser.workflows import amazon_fba_login_verify
-from services.browser.workflows import registry
 from services.browser.workflows.amazon_fba_common import WorkflowBrowserSession
 
 
@@ -211,7 +210,3 @@ def test_run_login_verify_workflow_returns_not_ready_without_selected_store() ->
     assert result["params_ready"] is False
     assert result["finished"] is False
     assert result["exception"] == "当前没有明确选中的店铺"
-
-
-def test_login_verify_workflow_is_registered() -> None:
-    assert registry._BROWSER_FLOW_RUNNERS["amazon_fba.login_verify"] is amazon_fba_login_verify.run_login_verify_workflow

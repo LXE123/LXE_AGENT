@@ -73,6 +73,7 @@ interface ScriptToolCatalogDocument {
 export interface LxeSkillCommandDefinition {
   command: string;
   name: string;
+  module?: string;
   visibility: "business" | "browser" | "maintenance" | "internal";
   ownerSkills: string[];
   artifactPaths?: ArtifactPathDeclaration[];
@@ -112,6 +113,7 @@ export function loadLxeSkillCommandCatalog(path: string): LxeSkillCommandDefinit
     return {
       command: `lxeskill ${commandPath.join(" ")}`,
       name: entry.name,
+      ...(String(raw.module ?? "").trim() ? { module: String(raw.module).trim() } : {}),
       visibility,
       ownerSkills: Array.isArray(raw.owner_skills) ? raw.owner_skills.map((item) => String(item)) : [],
       ...(artifactPaths.length ? { artifactPaths } : {}),

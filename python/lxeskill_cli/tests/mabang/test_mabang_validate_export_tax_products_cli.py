@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from services.agent_cli.mabang import validate_export_tax_products as cli
 
 

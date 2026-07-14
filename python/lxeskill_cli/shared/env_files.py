@@ -87,68 +87,9 @@ def _valid_env_name(name: str) -> bool:
     return bool(name) and name.replace("_", "").isalnum() and not name[0].isdigit()
 
 
-def _assignment_name(line: str) -> tuple[str, bool] | None:
-    stripped = line.strip()
-    if not stripped or stripped.startswith("#"):
-        return None
-    export_prefix = False
-    if stripped.startswith("export "):
-        stripped = stripped[len("export ") :].strip()
-        export_prefix = True
-    if "=" not in stripped:
-        return None
-    raw_name, _ = stripped.split("=", 1)
-    name = raw_name.strip()
-    if not _valid_env_name(name):
-        return None
-    return name, export_prefix
-
-
-def _upsert_env_values(values: dict[str, str], path: Path) -> None:
-    pending: dict[str, str] = {}
-    for raw_name, raw_value in dict(values or {}).items():
-        name = str(raw_name or "").strip()
-        value = str(raw_value)
-        if not _valid_env_name(name):
-            raise ValueError(f"Invalid env name: {raw_name!r}")
-        if "\n" in value or "\r" in value:
-            raise ValueError(f"Invalid env value for {name}: newlines are not supported")
-        pending[name] = value
-
-    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-    updated_lines: list[str] = []
-    for line in lines:
-        assignment = _assignment_name(line)
-        if assignment is None:
-            updated_lines.append(line)
-            continue
-        name, export_prefix = assignment
-        if name not in pending:
-            updated_lines.append(line)
-            continue
-        prefix = "export " if export_prefix else ""
-        updated_lines.append(f"{prefix}{name}={pending.pop(name)}")
-
-    for name, value in pending.items():
-        updated_lines.append(f"{name}={value}")
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(updated_lines).rstrip("\n") + "\n", encoding="utf-8")
-
-
-def upsert_project_env_values(values: dict[str, str], path: str | Path | None = None) -> None:
-    _upsert_env_values(values, project_env_path(path))
-
-
-def upsert_project_local_config_values(values: dict[str, str], path: str | Path | None = None) -> None:
-    _upsert_env_values(values, project_local_config_path(path))
-
-
 __all__ = [
     "load_project_env",
     "project_env_path",
     "project_local_config_path",
     "project_runtime_config_path",
-    "upsert_project_env_values",
-    "upsert_project_local_config_values",
 ]

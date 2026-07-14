@@ -71,9 +71,6 @@ class SeleniumRunner:
         except Exception:
             return False
 
-    def detach(self, driver: webdriver.Chrome | None) -> None:
-        self.quit(driver)
-
     def quit(self, driver: webdriver.Chrome | None) -> None:
         if driver is None:
             return

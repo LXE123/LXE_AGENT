@@ -90,11 +90,6 @@ def ziniao_tool_config_status() -> tuple[bool, str]:
     return not reasons, "; ".join(reasons)
 
 
-def is_ziniao_tool_configured() -> bool:
-    configured, _ = ziniao_tool_config_status()
-    return configured
-
-
 __all__ = [
     "ZINIAO_BROWSER_VERSION",
     "ZINIAO_CLIENT_PATH",
@@ -104,7 +99,6 @@ __all__ = [
     "ZINIAO_SOCKET_PORT",
     "ZINIAO_USERNAME",
     "ZINIAO_WEBDRIVER_PATH",
-    "is_ziniao_tool_configured",
     "is_ziniao_planner_tools_enabled",
     "ziniao_tool_config_status",
 ]

@@ -7,14 +7,7 @@ from browser_auth_service.client import ensure_auth
 from services.mabang import config as mabang_settings
 
 from . import auth_audit
-from .cookies import extract_named_cookies, require_cookie_values
 from .errors import MabangAuthError
-
-ERP_COOKIE_NAMES = (
-    "PHPSESSID",
-    "MABANG_ERP_PRO_MEMBERINFO_LOGIN_PLUS",
-    "memberInfo",
-)
 
 
 @dataclass(frozen=True)
@@ -107,15 +100,6 @@ async def get_auth_context(
         free_token=str(payload.get("free_token") or "").strip(),
         wms_cookie_header=wms_cookie_header,
         raw=payload,
-    )
-
-
-async def get_erp_cookie_bundle(account: str = "") -> dict[str, str]:
-    context = await get_auth_context(scope="erp", account=account)
-    values = extract_named_cookies(context.cookies_by_domain, ERP_COOKIE_NAMES)
-    return require_cookie_values(
-        values,
-        ("PHPSESSID", "MABANG_ERP_PRO_MEMBERINFO_LOGIN_PLUS"),
     )
 
 

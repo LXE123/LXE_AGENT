@@ -71,7 +71,6 @@ def test_relative_wms_dirs_resolve_from_workspace_root():
     expected = workspace_root / "artifacts" / "mabang_wms_consignment"
 
     assert consignment_source.resolve_consignment_excel_dir() == expected
-    assert consignment_source.resolve_test_file_dir() == expected
     assert wms_module._resolve_excel_dir() == expected
 
 

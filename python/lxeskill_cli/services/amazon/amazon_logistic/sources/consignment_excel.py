@@ -21,11 +21,6 @@ def resolve_consignment_excel_dir() -> Path:
     return resolve_wms_consignment_dir()
 
 
-def resolve_test_file_dir() -> Path:
-    """兼容旧命名：解析本地托运单 Excel 缓存目录。"""
-    return resolve_consignment_excel_dir()
-
-
 def find_consignment_excel(consignment_no: str) -> Path:
     """按托运单号查找本地 Excel。"""
     base_dir = resolve_consignment_excel_dir()

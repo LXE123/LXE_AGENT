@@ -40,8 +40,4 @@ def connection_scope() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def dispose() -> None:
-    return None
-
-
-__all__ = ["connect", "connection_scope", "database_path", "dispose"]
+__all__ = ["connect", "connection_scope", "database_path"]

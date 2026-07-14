@@ -854,7 +854,7 @@ def test_summary_merge_key_duplicate_fails(tmp_path):
     source_rows = cli.read_invoice_source_rows(input_path)
     merge_infos = cli.read_stock_sku_merge_infos(input_path)
     with pytest.raises(ValueError, match="汇总表同一个规则型号存在多个代表 SKU"):
-        cli.build_invoice_box_rows(source_rows, merge_infos, OrderedDict(), [])
+        cli.build_actual_invoice_box_rows(source_rows, merge_infos, OrderedDict(), [])
 
 
 def test_summary_same_model_duplicate_same_sku_fails(tmp_path):
@@ -870,7 +870,7 @@ def test_summary_same_model_duplicate_same_sku_fails(tmp_path):
     source_rows = cli.read_invoice_source_rows(input_path)
     merge_infos = cli.read_stock_sku_merge_infos(input_path)
     with pytest.raises(ValueError, match="汇总表同一个规则型号存在多个代表 SKU"):
-        cli.build_invoice_box_rows(source_rows, merge_infos, OrderedDict(), [])
+        cli.build_actual_invoice_box_rows(source_rows, merge_infos, OrderedDict(), [])
 
 
 def test_merge_detail_duplicate_same_sku_model_price_is_summed(tmp_path):
@@ -926,7 +926,7 @@ def test_split_sku_missing_merge_info_fails(tmp_path):
         )
     ]
     with pytest.raises(ValueError, match="不在备货单第一个表格中"):
-        cli.build_invoice_box_rows(source_rows, merge_infos, delivery_components, consignment_rows)
+        cli.build_actual_invoice_box_rows(source_rows, merge_infos, delivery_components, consignment_rows)
 
 
 def test_fill_invoice_template_uses_actual_quantity_when_summary_expected_differs(monkeypatch, tmp_path):
@@ -1176,7 +1176,7 @@ def test_fill_invoice_template_rejects_actual_model_without_summary_representati
     ]
 
     with pytest.raises(ValueError, match="型号组在汇总表中没有代表 SKU"):
-        cli.build_invoice_box_rows(source_rows, merge_infos, delivery_components, consignment_rows)
+        cli.build_actual_invoice_box_rows(source_rows, merge_infos, delivery_components, consignment_rows)
 
 
 def test_fill_invoice_template_rejects_wms_msku_missing_from_delivery_csv(tmp_path):
@@ -1195,7 +1195,7 @@ def test_fill_invoice_template_rejects_wms_msku_missing_from_delivery_csv(tmp_pa
     ]
 
     with pytest.raises(ValueError, match="WMS 装箱数据 MSKU 在发货单 CSV 中不存在"):
-        cli.build_invoice_box_rows(source_rows, merge_infos, delivery_components, consignment_rows)
+        cli.build_actual_invoice_box_rows(source_rows, merge_infos, delivery_components, consignment_rows)
 
 
 def test_fill_invoice_template_requires_local_delivery_csv(tmp_path):

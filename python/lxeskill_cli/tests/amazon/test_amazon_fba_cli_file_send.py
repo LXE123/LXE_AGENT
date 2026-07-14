@@ -81,7 +81,6 @@ def test_archive_selected_result_files_works_without_agent_session(monkeypatch, 
     source = tmp_path / "filled.xlsx"
     source.write_bytes(b"filled")
     monkeypatch.delenv("LXE_AGENT_SESSION_ID", raising=False)
-    monkeypatch.delenv("LXE_RESPONSE_ROUTE_ID", raising=False)
 
     result = fba_shared.archive_selected_result_files(
         _payload([{"key": "filled_template", "value": str(source)}]),
@@ -122,35 +121,6 @@ def test_archive_selected_result_files_records_missing_source_without_runtime_em
     assert "file path missing" in result["notice"]
     assert "runtime emit handler not configured" not in result["notice"]
     assert "发送到群里失败" not in result["notice"]
-
-
-def test_send_selected_result_files_compat_wrapper_archives_instead_of_emitting(
-    monkeypatch,
-    tmp_path: Path,
-):
-    project_root = _configure_archive_root(monkeypatch, tmp_path)
-    source = tmp_path / "summary.xlsx"
-    source.write_bytes(b"summary")
-
-    result = fba_shared.send_selected_result_files(
-        _payload([{"key": "shipment_summary_excel", "value": str(source)}]),
-        allowed_keys=("shipment_summary_excel",),
-        stage="confirm_own_carrier",
-    )
-
-    assert result["file_path"] == [
-        {
-            "key": "shipment_summary_excel",
-            "value": "artifacts/amazon_fba/attachments/SP260516028/confirm_own_carrier/"
-            "SP260516028_summary.xlsx",
-        }
-    ]
-    assert (
-        project_root
-        / "artifacts/amazon_fba/attachments/SP260516028/confirm_own_carrier/"
-        "SP260516028_summary.xlsx"
-    ).read_bytes() == b"summary"
-    assert "runtime emit handler not configured" not in result["notice"]
 
 
 def test_archive_selected_result_files_uses_short_step2_file_name(monkeypatch, tmp_path: Path):

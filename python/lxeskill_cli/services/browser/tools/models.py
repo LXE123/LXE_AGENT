@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -18,10 +18,6 @@ class ExecuteToolResult:
     clicked_element: dict[str, Any] = field(default_factory=dict)
     latency_ms: int = 0
     state_data: dict[str, Any] = field(default_factory=dict)
-
-    def payload_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
 
 @dataclass(frozen=True)
 class ToolExecutionResult:

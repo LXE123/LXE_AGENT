@@ -120,10 +120,9 @@ class ZiniaoBrowserClient:
         kill_process(browser_version)
 
     def _mark_client_ready(self, *, client_pid: int = 0) -> None:
-        resolved_pid = ZiniaoLifecycleManager.register_client(
-            control_port=self.control_port,
-            client_path=self.client_path,
-            client_pid=client_pid or self._client_pid,
+        resolved_pid = ZiniaoLifecycleManager.resolve_client_pid(
+            self.control_port,
+            preferred_pid=client_pid or self._client_pid,
         )
         if resolved_pid > 0:
             self._client_pid = resolved_pid
@@ -183,14 +182,6 @@ class ZiniaoBrowserClient:
     def start_browser(self, browser_oauth: str) -> dict[str, Any]:
         self.open_client()
         result = self._client.start_browser(str(browser_oauth or "").strip())
-        browser_ref = str(result.get("browserOauth") or browser_oauth or "").strip()
-        if browser_ref:
-            ZiniaoLifecycleManager.register_store(
-                control_port=self.control_port,
-                browser_ref=browser_ref,
-                client_path=self.client_path,
-                client_pid=self._client_pid,
-            )
         return dict(result or {})
 
     def stop_browser(self, browser_oauth: str) -> None:

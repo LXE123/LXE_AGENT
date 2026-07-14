@@ -4,10 +4,7 @@ import os
 import time
 from typing import Any
 
-from services.agent_cli.browser.amazon_common.seller_central_url import (
-    DEFAULT_SELLER_CENTRAL_ORIGIN,
-    build_seller_central_url,
-)
+from services.agent_cli.browser.amazon_common.seller_central_url import build_seller_central_url
 from services.browser.browser.actions import (
     _download_dir_from_path,
     _snapshot_download_dir,
@@ -17,7 +14,6 @@ from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
 
 
 SEND_TO_AMAZON_PATH = "/fba/sendtoamazon?ref=fbacentral_nav_fba"
-SEND_TO_AMAZON_URL = f"{DEFAULT_SELLER_CENTRAL_ORIGIN}{SEND_TO_AMAZON_PATH}"
 
 _START_NEW_SELECTORS = (
     '[data-testid="start-new-button"]',
@@ -463,7 +459,6 @@ def upload_filled_template(session: Any, filled_template_path: str, *, timeout_s
 
 __all__ = [
     "SEND_TO_AMAZON_PATH",
-    "SEND_TO_AMAZON_URL",
     "build_send_to_amazon_url",
     "download_template",
     "open_send_to_amazon_upload_mode",

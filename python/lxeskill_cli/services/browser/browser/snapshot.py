@@ -5,12 +5,7 @@ from urllib.parse import urlparse
 
 from selenium.webdriver.remote.webdriver import WebDriver
 
-from services.browser.browser.seller_central_adapters import (
-    SELLER_CENTRAL_EXTRACTION_JS,
-    seller_central_home_favorite_links,
-    seller_central_landmarks,
-    seller_central_summary_lines,
-)
+from services.browser.browser.seller_central_adapters import SELLER_CENTRAL_EXTRACTION_JS
 from services.browser.browser.shadow_dom import SHADOW_DOM_HELPERS_JS
 
 
@@ -162,12 +157,6 @@ def _format_element_line(index: int, item: dict[str, Any]) -> str:
 
     parts.extend(attribute_parts)
     return " ".join(part for part in parts if part).strip()
-
-
-def _format_navigation_item(item: dict[str, Any]) -> str:
-    entry = dict(item or {})
-    label = _safe_text(entry.get("label") or entry.get("text"), 80)
-    return label
 
 
 def _execute_page_snapshot(driver: WebDriver, *, element_limit: int, text_limit: int) -> dict[str, Any]:
@@ -561,46 +550,6 @@ def format_element_details(element_details: dict[str, Any]) -> str:
     return "\n".join(lines) if lines else "没有找到目标元素的详细信息。"
 
 
-def summarize_page_landmarks(page_snapshot: dict[str, Any], *, limit: int = 8) -> list[str]:
-    snapshot = dict(page_snapshot or {})
-    favorite_links = seller_central_home_favorite_links(snapshot)
-    if favorite_links:
-        home_items = seller_central_landmarks(snapshot, safe_text=_safe_text, limit=limit)
-        return home_items[:limit]
-    items: list[str] = []
-    for value in list(snapshot.get("headings") or []):
-        text = _safe_text(value, 80)
-        if text and text not in items:
-            items.append(text)
-        if len(items) >= limit:
-            return items[:limit]
-    for value in list(snapshot.get("breadcrumbs") or []):
-        text = _safe_text(value, 80)
-        if text and text not in items:
-            items.append(text)
-        if len(items) >= limit:
-            return items[:limit]
-    for text in seller_central_landmarks(snapshot, safe_text=_safe_text, limit=limit):
-        if text and text not in items:
-            items.append(text)
-        if len(items) >= limit:
-            return items[:limit]
-    for dialog in list(snapshot.get("dialogs") or []):
-        for key in ("title", "text"):
-            text = _safe_text(dict(dialog or {}).get(key), 80)
-            if text and text not in items:
-                items.append(text)
-            if len(items) >= limit:
-                return items[:limit]
-    for value in list(snapshot.get("text_lines") or []):
-        text = _safe_text(value, 80)
-        if text and text not in items:
-            items.append(text)
-        if len(items) >= limit:
-            return items[:limit]
-    return items[:limit]
-
-
 def get_element_details(driver: WebDriver, aid: str) -> dict[str, Any]:
     return dict(
         driver.execute_script(
@@ -670,5 +619,4 @@ __all__ = [
     "format_element_details",
     "get_element_index_map",
     "get_element_details",
-    "summarize_page_landmarks",
 ]

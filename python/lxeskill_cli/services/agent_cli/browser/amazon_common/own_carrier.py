@@ -1101,10 +1101,6 @@ def _open_carrier_dropdown(driver: Any) -> bool:
     return _click_select_header(driver, index=1)
 
 
-def _open_phase_3_1_carrier_dropdown(driver: Any) -> bool:
-    return _click_dropdown_by_selector(driver, _SHIPPING_CARRIER_NON_PCP_DROPDOWN_SELECTOR)
-
-
 def _select_phase_3_1_other_carrier(driver: Any) -> bool:
     return _select_dropdown_option_by_value(
         driver,
@@ -1515,32 +1511,6 @@ def _phase_3_ca_date_completed(driver: Any, date_kind: str, target_date: date) -
     return _date_picker_value_matches(str(raw_value or ""), target_date)
 
 
-def _read_phase_3_2_ship_date_value(driver: Any) -> str:
-    raw_value = _execute_phase_3_2_ship_date_script(
-        driver,
-        """
-const picker = getShipDatePicker();
-if (!picker) return '';
-
-for (const value of [picker.value, picker.getAttribute('value')]) {
-  if (value === undefined || value === null) continue;
-  const text = String(value).trim();
-  if (text) return text;
-}
-
-const input = scopedQuerySelector('input', picker);
-if (!input) return '';
-for (const value of [input.value, input.getAttribute('value')]) {
-  if (value === undefined || value === null) continue;
-  const text = String(value).trim();
-  if (text) return text;
-}
-return '';
-""",
-    )
-    return str(raw_value or "").strip()
-
-
 def _phase_3_2_ship_date_completed(driver: Any, ship_date: date) -> bool:
     raw_payload = _execute_phase_3_2_ship_date_script(
         driver,
@@ -1645,30 +1615,6 @@ for (const button of scopedQuerySelectorAll('button[aria-label]', calendar)) {
   if (!labelPrefix || !label.startsWith(labelPrefix)) continue;
   if (isDisabledDay(button)) continue;
   if (clickElement(button)) return true;
-}
-return false;
-""",
-            label_prefix,
-        )
-    )
-
-
-def _phase_3_2_ship_date_calendar_day_selected(driver: Any, target_date: date) -> bool:
-    label_prefix = f"{target_date.year}年{target_date.month}月{target_date.day}日"
-    return bool(
-        _execute_phase_3_2_ship_date_script(
-            driver,
-            """
-const labelPrefix = String(arguments[2] || '').trim();
-const calendar = getScopedCalendar();
-if (!calendar) return false;
-for (const button of scopedQuerySelectorAll('button[aria-label]', calendar)) {
-  const label = String(button.getAttribute('aria-label') || '').trim();
-  if (!labelPrefix || !label.startsWith(labelPrefix)) continue;
-  const cell = deepClosest(button, 'td') || button.parentElement;
-  if (button.getAttribute('aria-pressed') === 'true') return true;
-  if (button.classList && button.classList.contains('selected')) return true;
-  if (cell && cell.classList && cell.classList.contains('selected')) return true;
 }
 return false;
 """,
@@ -2130,38 +2076,6 @@ def _wait_for_dropdown_value(
     _raise_if_returned_to_step2_start(driver)
     current_value = _read_dropdown_value(driver, dropdown_selector)
     raise RuntimeError(f"{label}未选择为 {expected_value}，当前值: {current_value or '空'}")
-
-
-def _select_phase_3_2_dropdown_value(
-    driver: Any,
-    *,
-    dropdown_selector: str,
-    option_value: str,
-    option_text: str,
-    step_name: str,
-    value_label: str,
-    timeout_seconds: int,
-) -> None:
-    safe_timeout = min(timeout_seconds, 10)
-    _wait_for_click(
-        f"{step_name}选项",
-        lambda: _select_dropdown_option_by_value(
-            driver,
-            dropdown_selector,
-            option_value,
-            option_text=option_text,
-        ),
-        timeout_seconds=safe_timeout,
-        driver=driver,
-    )
-    _wait_for_dropdown_value(
-        driver,
-        dropdown_selector=dropdown_selector,
-        expected_value=option_value,
-        label=value_label,
-        timeout_seconds=safe_timeout,
-    )
-    _wait_phase_3_2_refresh_after_selection()
 
 
 def _phase_3_2_dropdown_display_selected(driver: Any, dropdown_selector: str, expected_value: str, expected_text: str) -> bool:

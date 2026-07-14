@@ -131,10 +131,6 @@ _TOOL_SCHEMA_MAP = {
 }
 
 
-def browser_planner_tool_schemas() -> list[dict[str, Any]]:
-    return [dict(schema) for schema in _BROWSER_TOOL_SCHEMAS]
-
-
 def browser_tool_names() -> tuple[str, ...]:
     return tuple(_TOOL_SCHEMA_MAP.keys())
 
@@ -267,21 +263,7 @@ def build_browser_tool_call(
     )
 
 
-def browser_tool_reply_kind(tool_name: str, arguments: dict[str, Any] | None = None) -> str:
-    safe_name = _clean_text(tool_name, 60)
-    safe_args = dict(arguments or {})
-    if safe_name == "ziniao_page":
-        action = _clean_text(safe_args.get("action"), 40)
-        if action == "browser_snapshot":
-            return "observation"
-        if action == "browser_vision":
-            return "content"
-    return "action"
-
-
 __all__ = [
-    "browser_planner_tool_schemas",
     "browser_tool_names",
-    "browser_tool_reply_kind",
     "build_browser_tool_call",
 ]

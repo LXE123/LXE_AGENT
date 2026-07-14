@@ -116,10 +116,6 @@ class RequestsSessionProxy:
         return getattr(RequestsSessionRegistry.get(self._purpose), name)
 
 
-def get_requests_session(purpose: RequestsPurpose | str) -> ManagedRequestsSession:
-    return RequestsSessionRegistry.get(purpose)
-
-
 llm_requests_session = RequestsSessionProxy(RequestsPurpose.LLM)
 ocr_requests_session = RequestsSessionProxy(RequestsPurpose.OCR)
 external_requests_session = RequestsSessionProxy(RequestsPurpose.EXTERNAL)
@@ -136,7 +132,6 @@ __all__ = [
     "RequestsSessionRegistry",
     "close_all_requests_sessions",
     "external_requests_session",
-    "get_requests_session",
     "llm_requests_session",
     "local_service_requests_session",
     "ocr_requests_session",

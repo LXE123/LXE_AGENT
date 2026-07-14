@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from shared.workspace import artifact_path
 
@@ -54,24 +53,6 @@ class WorkflowBrowserSession:
 
     def open_url(self, url: str) -> dict[str, Any]:
         return self.execute_action({"action": "open_url", "url": str(url or "").strip()})
-
-    def wait_for_snapshot(
-        self,
-        predicate: Callable[[dict[str, Any]], bool],
-        *,
-        timeout_seconds: int,
-        description: str,
-        interval_seconds: float = 1.0,
-        text_limit: int = 4000,
-    ) -> dict[str, Any]:
-        deadline = time.time() + max(1, int(timeout_seconds or 0))
-        while time.time() < deadline:
-            snapshot = self.snapshot(text_limit=text_limit)
-            if bool(predicate(snapshot)):
-                return snapshot
-            time.sleep(max(0.2, float(interval_seconds or 1.0)))
-        raise RuntimeError(f"{description} 超时")
-
 
 def resolve_workflow_session(
     *,

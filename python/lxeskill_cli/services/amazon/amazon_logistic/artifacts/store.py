@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-
 from shared.infra.artifact_io import build_timestamped_path, write_text
 from shared.logging import get_logger
 from shared.workspace import artifact_path

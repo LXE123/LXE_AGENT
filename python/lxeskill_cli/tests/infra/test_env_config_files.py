@@ -93,29 +93,6 @@ def test_project_env_custom_path_uses_adjacent_local_and_runtime_defaults(monkey
     assert project_env.os.environ["CUSTOM_FROM_RUNTIME"] == "runtime"
 
 
-def test_project_local_config_upsert_preserves_existing_content(tmp_path: Path) -> None:
-    local_path = tmp_path / ".env.local"
-    local_path.write_text(
-        "# local runtime overrides\n"
-        "export AGENT_LLM_THINKING_ENABLED=0\n",
-        encoding="utf-8",
-    )
-
-    project_env.upsert_project_local_config_values(
-        {
-            "AGENT_LLM_THINKING_ENABLED": "1",
-            "AGENT_LLM_THINKING_EFFORT": "low",
-        },
-        path=local_path,
-    )
-
-    assert local_path.read_text(encoding="utf-8") == (
-        "# local runtime overrides\n"
-        "export AGENT_LLM_THINKING_ENABLED=1\n"
-        "AGENT_LLM_THINKING_EFFORT=low\n"
-    )
-
-
 def test_runtime_config_keeps_private_values_out_of_git_tracked_defaults() -> None:
     root = repository_root()
     runtime_path = root / "config" / "runtime.env"

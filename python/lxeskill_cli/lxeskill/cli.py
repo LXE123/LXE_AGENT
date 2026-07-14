@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import os
 import sys
@@ -11,7 +10,7 @@ from lxeskill.business import ArtifactPathError, execute_module_json, load_catal
 from lxeskill.browser import BrowserCliError, execute_browser_command
 from shared.infra.net import bootstrap_network_policy
 from shared.logging import get_logger, setup_logging
-from shared.workspace import activate_external_workspace, activate_project_workspace, project_root, resolve_workspace_input
+from shared.workspace import activate_project_workspace, project_root, resolve_workspace_input
 
 
 logger = get_logger(__name__)
@@ -308,11 +307,6 @@ def _run_doctor(catalog: dict[str, dict[str, Any]]) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     activate_project_workspace()
-    return _main(argv)
-
-
-def standalone_main(argv: list[str] | None = None) -> int:
-    activate_external_workspace()
     return _main(argv)
 
 

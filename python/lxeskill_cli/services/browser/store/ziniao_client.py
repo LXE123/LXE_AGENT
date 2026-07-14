@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
 import uuid
 from typing import Any
 
@@ -86,17 +85,6 @@ class ZiniaoClient:
                 error=str(exc),
             )
             raise ZiniaoClientError(f"failed to call Ziniao local HTTP control: {exc}") from exc
-
-    def update_core(self) -> None:
-        data = {"action": "updateCore", "requestId": str(uuid.uuid4()), **self._user_info}
-        while True:
-            result = self._send(data)
-            status_code = result.get("statusCode")
-            if status_code == 0:
-                return
-            if status_code == -10003:
-                raise ZiniaoClientError("current Ziniao client version does not support updateCore")
-            time.sleep(2)
 
     def get_browser_list(self) -> list[dict[str, Any]]:
         result = self._send({"action": "getBrowserList", "requestId": str(uuid.uuid4()), **self._user_info})

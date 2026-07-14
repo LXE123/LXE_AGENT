@@ -6,7 +6,7 @@ import { deflateSync } from "node:zlib";
 import type { JsonObject } from "@lxe/protocol";
 import { repositoryRoot } from "@lxe/core";
 import { registerCodingTools } from "../../src/tooling/coding-tools";
-import { ToolRegistry } from "../../src/tooling/registry";
+import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
 import { registerToolSearch } from "../../src/tooling/tool-search";
 
 const roots: string[] = [];
@@ -284,7 +284,22 @@ describe("native coding tools", () => {
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {
       workspaceRoot: root,
-      businessCommands: new Map([["lxeskill replenish store resolve", ["replenishment-store-resolve"]]]),
+      businessCommands: new Map([
+        ["lxeskill replenish store resolve", ["replenishment-store-resolve"]],
+        ["lxeskill fba shipment delivery-csv-download", ["fba-shipment-delivery-csv-download"]],
+      ]),
+      businessCommandCatalog: [
+        {
+          command: "lxeskill replenish store resolve",
+          module: "services.agent_cli.mabang.resolve_fba_store",
+          ownerSkills: ["replenishment-store-resolve"],
+        },
+        {
+          command: "lxeskill fba shipment delivery-csv-download",
+          module: "services.agent_cli.mabang.download_fba_delivery_csv",
+          ownerSkills: ["fba-shipment-delivery-csv-download"],
+        },
+      ],
     });
     await registry.execute("write", { file_path: "src/a.py", content: "alpha\nbeta\nbeta\n" }, context());
     const count = await registry.execute("grep", {
@@ -294,23 +309,76 @@ describe("native coding tools", () => {
     await expect(registry.execute("send_file", { path: "src/a.py" }, context())).rejects.toThrow("artifacts");
     await registry.execute("write", { file_path: "artifacts/a.txt", content: "ok" }, context());
     expect((await registry.execute("send_file", { path: "artifacts/a.txt" }, context())).files).toHaveLength(1);
-    await expect(registry.execute("exec", {
-      command: "python -m services.agent_cli.mabang.resolve_fba_store",
-    }, context())).rejects.toMatchObject({ code: "permission_denied" });
-    await expect(registry.execute("exec", {
-      command: "python -m lxeskill replenish store resolve",
-    }, context())).rejects.toMatchObject({ code: "permission_denied" });
-    await expect(registry.execute("exec", {
-      command: "echo lxeskill replenish store resolve",
-    }, context())).rejects.toMatchObject({ code: "unsupported_invocation" });
-    await expect(registry.execute("exec", {
-      command: "lxeskill replenish store resolve && echo done",
-    }, context())).rejects.toMatchObject({ code: "unsupported_invocation" });
+    const rejected = async (
+      command: string,
+      executionContext: Parameters<ToolRegistry["execute"]>[2] = context(),
+    ): Promise<ToolExecutionError> => {
+      try {
+        await registry.execute("exec", { command }, executionContext);
+      } catch (error) {
+        expect(error).toBeInstanceOf(ToolExecutionError);
+        return error as ToolExecutionError;
+      }
+      throw new Error(`expected command to be rejected: ${command}`);
+    };
+    const directModule = await rejected("python -m services.agent_cli.mabang.resolve_fba_store");
+    expect(directModule.code).toBe("permission_denied");
+    expect(directModule.recoveryGroup).toBe("lxeskill_invocation");
+    expect(directModule.details).toMatchObject({
+      type: "lxeskill_invocation_error",
+      violations: ["direct_business_module"],
+      canonical_command_path: "lxeskill replenish store resolve",
+      owner_skills: ["replenishment-store-resolve"],
+      describe_command: "lxeskill describe replenish store resolve",
+    });
+    const deliveryModule = await rejected("python -m services.agent_cli.mabang.download_fba_delivery_csv");
+    expect(deliveryModule.details).toMatchObject({
+      canonical_command_path: "lxeskill fba shipment delivery-csv-download",
+      owner_skills: ["fba-shipment-delivery-csv-download"],
+      describe_command: "lxeskill describe fba shipment delivery-csv-download",
+    });
+    const pythonWrapper = await rejected("python -m lxeskill replenish store resolve");
+    expect(pythonWrapper.code).toBe("permission_denied");
+    expect(pythonWrapper.details).toMatchObject({ violations: ["python_module_wrapper", "not_standalone"] });
+    const embedded = await rejected("echo lxeskill replenish store resolve");
+    expect(embedded.code).toBe("unsupported_invocation");
+    expect(embedded.details).toMatchObject({ violations: ["not_standalone"] });
+    expect((await rejected("lxeskill replenish store resolve && echo done")).details)
+      .toMatchObject({ violations: ["shell_composition"] });
+    expect((await rejected("lxeskill replenish store resolve > result.txt")).details)
+      .toMatchObject({ violations: ["shell_composition"] });
+    expect((await rejected("lxeskill replenish store resolve\necho done")).details)
+      .toMatchObject({ violations: ["shell_composition"] });
+    const polluted = await rejected(
+      "cd /work && uv run --frozen lxeskill replenish store resolve --store-name Demo --token raw-secret 2>/dev/null | head || python -m services.agent_cli.mabang.resolve_fba_store",
+    );
+    expect(polluted.code).toBe("permission_denied");
+    expect(polluted.details).toMatchObject({
+      violations: ["direct_business_module", "not_standalone", "shell_composition"],
+      canonical_command_path: "lxeskill replenish store resolve",
+      owner_skills: ["replenishment-store-resolve"],
+    });
+    const recovery = polluted.modelContent(1);
+    expect(recovery).toContain('"retryable": true');
+    expect(recovery).not.toContain("raw-secret");
+    expect(recovery).not.toContain("/work");
+    const unknownLegacy = await rejected("python -m services.agent_cli.mabang.removed_old_module");
+    expect(unknownLegacy.details).toMatchObject({ discovery_command: "lxeskill list" });
+    const hiddenSkills = registry.createExposureState({ allowedSkills: new Set(["another-skill"]) });
+    const hiddenCommand = await rejected(
+      "python -m services.agent_cli.mabang.download_fba_delivery_csv",
+      { ...context(), exposureState: hiddenSkills },
+    );
+    expect(hiddenCommand.details).toMatchObject({ discovery_command: "lxeskill list" });
+    expect(hiddenCommand.modelContent(1)).not.toContain("fba-shipment-delivery-csv-download");
     // Unknown commands pass through: authorization belongs to the CLI, which
     // rejects them with a structured error. Here the temp root has no .venv,
     // so normalization fails before any spawn.
     await expect(registry.execute("exec", {
       command: "lxeskill unknown command",
+    }, context())).rejects.toThrow("project Python is unavailable");
+    await expect(registry.execute("exec", {
+      command: "lxeskill.cmd unknown command",
     }, context())).rejects.toThrow("project Python is unavailable");
     const classified = registry.definition("exec")?.classifyInvocation?.({
       command: "lxeskill replenish store resolve --store-name Demo --token secret",
@@ -325,6 +393,7 @@ describe("native coding tools", () => {
       timeout: 120_000,
     }, context())).rejects.toThrow("between 1 and 3600 seconds");
     expect(registry.definition("exec")?.input_schema.properties).toMatchObject({
+      command: { description: expect.stringContaining("exactly one standalone") },
       timeout: { type: "number", minimum: 1, maximum: 3_600, default: 120 },
       yield_ms: { type: "number", minimum: 1, default: 10_000 },
     });
