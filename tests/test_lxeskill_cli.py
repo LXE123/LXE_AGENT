@@ -6,8 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from py_tools import lxeskill
-from py_tools.business import allowed_output_file, load_catalog
+from py_tools.business import ArtifactPathError, allowed_output_file, collect_declared_artifacts, load_catalog
 from shared.workspace import activate_external_workspace, activate_project_workspace, artifact_root, internal_root, workspace_root
 
 
@@ -198,6 +200,21 @@ def test_catalog_failure_still_writes_one_internal_terminal(monkeypatch, capsys)
     assert records[0]["error"] == {"code": "RuntimeError", "message": "broken catalog"}
 
 
+def test_invalid_declared_artifact_is_a_structured_business_error(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        lxeskill,
+        "execute_module_json",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ArtifactPathError("missing output.xlsx")),
+    )
+
+    assert lxeskill.main(["fba", "restock", "workbook-create", "--delivery-no", "SP1", "--master-xlsx", "m.xlsx", "--gross-margin", "0.2"]) == lxeskill.EXIT_BUSINESS
+    record = _records(capsys)[0]
+    assert record["error"] == {
+        "code": "invalid_artifact_path",
+        "message": "missing output.xlsx",
+    }
+
+
 def test_output_file_must_be_under_artifacts_or_skill_assets(tmp_path) -> None:
     artifact = Path(lxeskill.PROJECT_ROOT) / "artifacts" / "lxeskill-test.txt"
     artifact.parent.mkdir(parents=True, exist_ok=True)
@@ -242,5 +259,53 @@ def test_external_workspace_is_private_and_does_not_modify_caller_gitignore(tmp_
             text=True,
         ).stdout
         assert after_status == before_status
+    finally:
+        activate_project_workspace()
+
+
+def test_declared_artifacts_filter_roles_nested_fields_and_duplicates(tmp_path, monkeypatch) -> None:
+    try:
+        activate_external_workspace(tmp_path)
+        first = artifact_root() / "out" / "Report.XLSX"
+        duplicate = artifact_root() / "out" / "report.xlsx"
+        second = artifact_root() / "out" / "diagnostic.json"
+        first.parent.mkdir(parents=True)
+        first.write_text("report", encoding="utf-8")
+        duplicate.write_text("report", encoding="utf-8")
+        second.write_text("debug", encoding="utf-8")
+        entry = {
+            "owner_skills": ["demo"],
+            "artifact_paths": [
+                {"field": "output_files[].path", "role": "deliverable"},
+                {"field": "diagnostic_path", "role": "diagnostic"},
+            ],
+        }
+        monkeypatch.setattr("py_tools.business.os.path.normcase", lambda value: value.lower())
+
+        assert collect_declared_artifacts(
+            entry,
+            {
+                "output_files": [{"path": str(first)}, {"path": str(duplicate)}],
+                "diagnostic_path": str(second),
+            },
+        ) == [str(first.resolve())]
+    finally:
+        activate_project_workspace()
+
+
+def test_declared_artifact_rejects_missing_and_symlink_escape(tmp_path) -> None:
+    try:
+        activate_external_workspace(tmp_path)
+        entry = {"artifact_paths": [{"field": "output", "role": "deliverable"}]}
+        with pytest.raises(ArtifactPathError, match="missing file"):
+            collect_declared_artifacts(entry, {"output": str(artifact_root() / "missing.xlsx")})
+
+        outside = tmp_path / "outside.xlsx"
+        outside.write_text("outside", encoding="utf-8")
+        link = artifact_root() / "escaped.xlsx"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(outside)
+        with pytest.raises(ArtifactPathError, match="outside allowed artifact roots"):
+            collect_declared_artifacts(entry, {"output": str(link)})
     finally:
         activate_project_workspace()

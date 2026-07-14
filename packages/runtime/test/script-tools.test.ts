@@ -121,6 +121,7 @@ describe("Python JSON tool bridge", () => {
       module: "services.agent_cli.amazon_logistic.run",
       ownerSkills: ["fba-logistics-select"],
       timeoutMs: 300_000,
+      artifactPaths: [{ field: "files[]", role: "deliverable" }],
     });
     expect(entries.find((entry) => entry.name === "logistics_rate_import")).toMatchObject({
       module: "scripts.logistics_update_ingest",

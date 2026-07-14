@@ -179,12 +179,14 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
     )
     if split_mode == SPLIT_MODE_ORIGINAL and int(split_payload.get("box_count") or 0) > BOX_SPLIT_SIZE:
         split_payload["split_skipped_reason"] = "用户选择使用原始装箱数据，已跳过超过 5 箱自动拆分。"
+    deliverable_excel_paths = list(split_payload.get("split_excel_paths") or []) or [str(Path(excel_path))]
     return {
         "success": True,
         "ship_no": ship_no,
         "excel_path": str(Path(excel_path)),
         "source": "wms",
         "split_mode": split_mode,
+        "deliverable_excel_paths": deliverable_excel_paths,
         **split_payload,
     }
 

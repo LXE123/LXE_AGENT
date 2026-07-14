@@ -72,6 +72,7 @@ def _success_payload_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "template_name": template.name,
             "template_version": template.version,
             "xlsx_path": str(xlsx_path),
+            "deliverable_xlsx_path": str(xlsx_path),
             "source": template_service.SOURCE,
         }
     if command == "validate-file":

@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import json
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -34,19 +33,6 @@ def _response(call_id: str, *, ok: bool, content: list[dict[str, Any]] | None = 
     if error:
         payload["error"] = dict(error)
     return payload
-
-
-def _files_from_content(content: list[dict[str, Any]]) -> list[str]:
-    files: list[str] = []
-    for block in content:
-        if str(block.get("type") or "") != "text":
-            continue
-        text = str(block.get("text") or "").strip()
-        if text.startswith("MEDIA:"):
-            path = str(Path(text.removeprefix("MEDIA:").strip()).resolve())
-            if path not in files:
-                files.append(path)
-    return files
 
 
 async def _execute(request: dict[str, Any]) -> dict[str, Any]:
@@ -125,7 +111,6 @@ async def _execute(request: dict[str, Any]) -> dict[str, Any]:
         ok=True,
         content=content,
         state_patch=dict(result.state_patch or {}),
-        files=list(result.files or _files_from_content(content)),
     )
 
 

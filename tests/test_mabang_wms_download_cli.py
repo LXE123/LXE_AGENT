@@ -370,6 +370,7 @@ def test_success_returns_downloaded_excel_path(monkeypatch, tmp_path, capsys):
         "excel_path": str(excel_path),
         "source": "wms",
         "split_mode": "auto",
+        "deliverable_excel_paths": [str(excel_path)],
         "box_count": 4,
         "split_required": False,
         "split_excel_paths": [],

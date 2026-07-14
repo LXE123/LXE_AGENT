@@ -7,7 +7,7 @@ import os
 import sys
 from typing import Any
 
-from py_tools.business import execute_module_json, load_catalog
+from py_tools.business import ArtifactPathError, execute_module_json, load_catalog
 from py_tools.lxeskill_browser import BrowserCliError, execute_browser_command
 from shared.infra.net import bootstrap_network_policy
 from shared.logging import get_logger, setup_logging
@@ -63,6 +63,7 @@ def _public_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "visibility": str(entry.get("visibility") or "business"),
         "session_mode": str(entry.get("session_mode") or "none"),
         "owner_skills": list(entry.get("owner_skills") or []),
+        "artifact_paths": list(entry.get("artifact_paths") or []),
         "input_schema": dict(entry.get("input_schema") or {}),
         "usage": f"lxeskill {_command_text(entry)} [options]",
     }
@@ -340,6 +341,9 @@ def _main(argv: list[str] | None = None) -> int:
             failure["recovery"] = exc.recovery
         _emit(failure)
         return exc.exit_code
+    except ArtifactPathError as exc:
+        _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_artifact_path", "message": str(exc)}})
+        return EXIT_BUSINESS
     except (ValueError, TypeError, json.JSONDecodeError) as exc:
         _emit({"type": "result", "command": " ".join(arguments), "ok": False, "data": {}, "files": [], "error": {"code": "invalid_arguments", "message": str(exc)}})
         return EXIT_USAGE

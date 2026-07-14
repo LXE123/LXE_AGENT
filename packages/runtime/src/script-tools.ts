@@ -50,6 +50,12 @@ export interface ScriptToolDefinition {
   handler?: string;
   module?: string;
   exposed?: boolean;
+  artifactPaths?: ArtifactPathDeclaration[];
+}
+
+export interface ArtifactPathDeclaration {
+  field: string;
+  role: "deliverable" | "model_input" | "diagnostic";
 }
 
 export interface RegisterScriptToolsOptions {
@@ -69,7 +75,24 @@ export interface LxeSkillCommandDefinition {
   name: string;
   visibility: "business" | "browser" | "maintenance" | "internal";
   ownerSkills: string[];
+  artifactPaths?: ArtifactPathDeclaration[];
 }
+
+const artifactPathsOf = (raw: Record<string, unknown>, entryName: string): ArtifactPathDeclaration[] => {
+  const declarations = Array.isArray(raw.artifact_paths) ? raw.artifact_paths : [];
+  return declarations.map((value) => {
+    const item = value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+    const field = String(item.field ?? "").trim();
+    const role = String(item.role ?? "").trim() as ArtifactPathDeclaration["role"];
+    if (!/^[A-Za-z_]\w*(?:\[\])?(?:\.[A-Za-z_]\w*(?:\[\])?)*$/u.test(field)
+      || !["deliverable", "model_input", "diagnostic"].includes(role)) {
+      throw new Error(`invalid artifact path declaration: ${entryName}`);
+    }
+    return { field, role };
+  });
+};
 
 export function loadLxeSkillCommandCatalog(path: string): LxeSkillCommandDefinition[] {
   const document = JSON.parse(readFileSync(path, "utf8")) as ScriptToolCatalogDocument;
@@ -85,11 +108,13 @@ export function loadLxeSkillCommandCatalog(path: string): LxeSkillCommandDefinit
     if (commandPath.length === 0 || !["business", "browser", "maintenance", "internal"].includes(visibility)) {
       throw new Error(`invalid lxeskill catalog entry: ${entry.name}`);
     }
+    const artifactPaths = artifactPathsOf(raw, entry.name);
     return {
       command: `lxeskill ${commandPath.join(" ")}`,
       name: entry.name,
       visibility,
       ownerSkills: Array.isArray(raw.owner_skills) ? raw.owner_skills.map((item) => String(item)) : [],
+      ...(artifactPaths.length ? { artifactPaths } : {}),
     };
   });
 }
@@ -101,12 +126,14 @@ export function loadScriptToolCatalog(path: string): ScriptToolDefinition[] {
   }
   const entries = document.entries.map((entry) => {
     const raw = entry as unknown as Record<string, unknown>;
+    const artifactPaths = artifactPathsOf(raw, entry.name);
     return {
       ...entry,
       ownerSkills: Array.isArray(raw.owner_skills)
         ? raw.owner_skills.map((item) => String(item))
         : [...(entry.ownerSkills ?? [])],
       timeoutMs: Number(raw.timeout_ms ?? entry.timeoutMs ?? 0),
+      ...(artifactPaths.length ? { artifactPaths } : {}),
     };
   });
   const names = new Set<string>();

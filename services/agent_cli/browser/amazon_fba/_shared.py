@@ -195,6 +195,7 @@ def archive_selected_result_files(
             archived_entries.append({"key": key, "value": _relative_workspace_path(target_path)})
         except Exception as exc:
             failed_files.append(f"{raw_path} ({exception_text(exc)})")
+            archived_entries.append({"key": key, "value": raw_path})
 
     safe_payload["file_path"] = archived_entries
     if failed_files:

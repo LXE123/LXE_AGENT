@@ -5,15 +5,23 @@ import importlib
 import inspect
 import io
 import json
+import os
 from pathlib import Path
+import re
 import sys
 from typing import Any, Callable
 
 from shared.logging import get_logger
+from shared.workspace import artifact_root, project_root, resolve_workspace_input
 
 
 logger = get_logger(__name__)
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_ARTIFACT_ROLES = {"deliverable", "model_input", "diagnostic"}
+_SELECTOR_PART = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\[\])?$")
+
+
+class ArtifactPathError(ValueError):
+    pass
 
 
 def load_catalog() -> dict[str, dict[str, Any]]:
@@ -48,6 +56,14 @@ def load_catalog() -> dict[str, dict[str, Any]]:
         session_mode = str(entry.get("session_mode") or "").strip()
         if session_mode not in allowed_session_modes:
             raise RuntimeError(f"invalid lxeskill session mode for {name}: {session_mode}")
+        for declaration in list(entry.get("artifact_paths") or []):
+            item = dict(declaration or {})
+            selector = str(item.get("field") or "").strip()
+            role = str(item.get("role") or "").strip()
+            if not selector or any(not _SELECTOR_PART.fullmatch(part) for part in selector.split(".")):
+                raise RuntimeError(f"invalid artifact path selector for {name}: {selector}")
+            if role not in _ARTIFACT_ROLES:
+                raise RuntimeError(f"invalid artifact path role for {name}: {role}")
         for alias_value in list(entry.get("legacy_aliases") or []):
             alias = str(alias_value).strip()
             if not alias or alias in legacy_aliases or alias in entries:
@@ -95,59 +111,78 @@ def _argv(arguments: dict[str, Any], positional: list[str]) -> list[str]:
     return output
 
 
-def allowed_output_file(raw_path: str) -> Path:
+def _is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
+
+def allowed_output_file(raw_path: str, *, owner_skills: list[str] | tuple[str, ...] = ()) -> Path:
     path = Path(raw_path).expanduser()
     if not path.is_absolute():
-        path = _PROJECT_ROOT / path
-    resolved = path.resolve()
+        path = resolve_workspace_input(path)
     try:
-        relation = resolved.relative_to(_PROJECT_ROOT).as_posix()
-    except ValueError as exc:
-        raise ValueError(f"business CLI returned a file outside allowed artifact roots: {raw_path}") from exc
-    if not (
-        relation.startswith("artifacts/")
-        or relation.startswith("skills/") and "/assets/" in f"/{relation}"
-    ):
-        raise ValueError(f"business CLI returned a file outside allowed artifact roots: {raw_path}")
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ArtifactPathError(f"business CLI returned a missing file: {raw_path}") from exc
     if not resolved.is_file():
-        raise ValueError(f"business CLI returned a missing file: {raw_path}")
+        raise ArtifactPathError(f"business CLI returned a path that is not a regular file: {raw_path}")
+    roots = [artifact_root().resolve()]
+    roots.extend((project_root() / "skills" / skill / "assets").resolve() for skill in owner_skills)
+    if not any(_is_within(resolved, root) for root in roots):
+        raise ArtifactPathError(f"business CLI returned a file outside allowed artifact roots: {raw_path}")
     return resolved
 
 
-def _collect_files(value: Any, *, key: str = "") -> list[str]:
-    candidates: list[str] = []
-    if isinstance(value, dict):
-        for child_key, child in value.items():
-            normalized = str(child_key).lower()
-            if normalized == "files" and isinstance(child, list):
-                candidates.extend(str(item) for item in child if str(item).strip())
-            elif (
-                normalized in {"file", "file_path", "xlsx_path", "csv_path", "markdown_path"}
-                or normalized.endswith("_file_path")
-                or normalized.startswith(("output_", "result_", "validation_report_"))
-                and normalized.endswith(("_xlsx", "_csv", "_file"))
-            ):
-                if isinstance(child, str) and child.strip():
-                    candidates.append(child)
-                elif isinstance(child, list):
-                    for item in child:
-                        if isinstance(item, str) and item.strip():
-                            candidates.append(item)
-                        elif isinstance(item, dict):
-                            raw_value = str(item.get("value") or item.get("path") or "").strip()
-                            if raw_value:
-                                candidates.append(raw_value)
+def _select_artifact_values(payload: Any, selector: str) -> list[Any]:
+    values = [payload]
+    for raw_part in selector.split("."):
+        is_array = raw_part.endswith("[]")
+        key = raw_part[:-2] if is_array else raw_part
+        selected: list[Any] = []
+        for value in values:
+            if not isinstance(value, dict) or key not in value:
+                continue
+            child = value[key]
+            if is_array:
+                if child is None:
+                    continue
+                if not isinstance(child, list):
+                    raise ArtifactPathError(f"declared artifact field is not an array: {selector}")
+                selected.extend(child)
             else:
-                candidates.extend(_collect_files(child, key=normalized))
-    elif isinstance(value, list):
-        for child in value:
-            candidates.extend(_collect_files(child, key=key))
-    output: list[str] = []
-    for candidate in candidates:
-        path = str(allowed_output_file(candidate))
-        if path not in output:
-            output.append(path)
-    return output
+                selected.append(child)
+        values = selected
+    return values
+
+
+def collect_declared_artifacts(entry: dict[str, Any], payload: dict[str, Any]) -> list[str]:
+    owners = tuple(str(item) for item in list(entry.get("owner_skills") or []) if str(item).strip())
+    deliverables: list[str] = []
+    validated: dict[str, str] = {}
+    delivered: set[str] = set()
+    for declaration in list(entry.get("artifact_paths") or []):
+        item = dict(declaration or {})
+        selector = str(item.get("field") or "").strip()
+        role = str(item.get("role") or "").strip()
+        for raw_value in _select_artifact_values(payload, selector):
+            if raw_value in (None, ""):
+                continue
+            if not isinstance(raw_value, (str, os.PathLike)):
+                raise ArtifactPathError(f"declared artifact path is not a string: {selector}")
+            raw_text = str(raw_value)
+            provisional_key = os.path.normcase(str(Path(raw_text).expanduser()))
+            resolved = validated.get(provisional_key)
+            if resolved is None:
+                resolved = str(allowed_output_file(raw_text, owner_skills=owners))
+                validated[provisional_key] = resolved
+            key = os.path.normcase(resolved)
+            if role == "deliverable" and key not in delivered:
+                delivered.add(key)
+                deliverables.append(resolved)
+    return deliverables
 
 
 def execute_module_json(
@@ -202,7 +237,7 @@ def execute_module_json(
     success = bool(payload.get("success")) if "success" in payload else exit_code == 0
     if "finished" in payload:
         success = success and bool(payload.get("finished"))
-    files = _collect_files(payload) if success else []
+    files = collect_declared_artifacts(entry, payload) if success else []
     content = [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}]
     if success:
         return True, content, files, None
@@ -210,4 +245,10 @@ def execute_module_json(
     return False, content, [], {"code": "business_cli_failed", "message": message}
 
 
-__all__ = ["allowed_output_file", "execute_module_json", "load_catalog"]
+__all__ = [
+    "ArtifactPathError",
+    "allowed_output_file",
+    "collect_declared_artifacts",
+    "execute_module_json",
+    "load_catalog",
+]
