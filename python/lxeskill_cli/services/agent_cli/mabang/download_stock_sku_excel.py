@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import csv
 import re
@@ -9,16 +8,9 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
 from services.mabang.stock_sku_export import export_stock_sku_names
-from shared.infra.net import close_all_network_clients
-from shared.logging import setup_logging
 from shared.workspace import artifact_path
 
 DELIVERY_CSV_DIR = artifact_path("mabang_fba_delivery")
@@ -146,42 +138,16 @@ async def download_stock_sku_excel(
     }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.download_stock_sku_excel"
-    )
-    parser.add_argument("--delivery-no", default="")
-    return parser
-
-
-async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
-    delivery_no = _require_delivery_no(getattr(args, "delivery_no", ""))
-    return await download_stock_sku_excel(delivery_no)
-
-
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
     delivery_no = ""
     try:
-        args = build_parser().parse_args(argv)
-        delivery_no = normalize_delivery_no(getattr(args, "delivery_no", ""))
-        payload = asyncio.run(_run_async(args))
-    except Exception as exc:
-        payload = {
+        raw = str(arguments.get("delivery_no") or "")
+        delivery_no = normalize_delivery_no(raw)
+        return asyncio.run(download_stock_sku_excel(raw))
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return {
             "success": False,
             "delivery_no": delivery_no,
             "exception": _exception_text(exc),
         }
-    finally:
-        try:
-            asyncio.run(close_all_network_clients())
-        except Exception:
-            pass
-
-    _write_json(payload)
-    return 0 if bool(payload.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -1,20 +1,9 @@
 from __future__ import annotations
 
-import json
 import os
 from types import SimpleNamespace
 
 from services.agent_cli.mabang import download_stock_sku_excel as cli
-
-
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
-async def _noop_close_all_network_clients() -> None:
-    return None
 
 
 def _write_delivery_csv(path, rows: list[dict[str, str]], *, columns: list[str] | None = None) -> None:
@@ -30,12 +19,9 @@ def _write_delivery_csv(path, rows: list[dict[str, str]], *, columns: list[str] 
 
 
 def test_missing_delivery_no_returns_failure_json(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main([])
+    payload = cli.run({})
 
-    payload = _read_payload(capsys)
-    assert exit_code == 1
     assert payload == {
         "success": False,
         "delivery_no": "",
@@ -44,12 +30,9 @@ def test_missing_delivery_no_returns_failure_json(monkeypatch, capsys):
 
 
 def test_invalid_delivery_no_returns_failure_json(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main(["--delivery-no", "FBA123"])
+    payload = cli.run({"delivery_no": "FBA123"})
 
-    payload = _read_payload(capsys)
-    assert exit_code == 1
     assert payload == {
         "success": False,
         "delivery_no": "FBA123",
@@ -69,7 +52,6 @@ def test_find_latest_delivery_csv_picks_newest_file(tmp_path):
 
 
 def test_missing_local_delivery_csv_does_not_export(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
     monkeypatch.setattr(cli, "DELIVERY_CSV_DIR", tmp_path)
 
     async def fail_export(*args, **kwargs):
@@ -77,10 +59,8 @@ def test_missing_local_delivery_csv_does_not_export(monkeypatch, tmp_path, capsy
 
     monkeypatch.setattr(cli, "export_stock_sku_names", fail_export)
 
-    exit_code = cli.main(["--delivery-no", "SP260508022"])
+    payload = cli.run({"delivery_no": "SP260508022"})
 
-    payload = _read_payload(capsys)
-    assert exit_code == 1
     assert payload["success"] is False
     assert payload["delivery_no"] == "SP260508022"
     assert "本地未找到发货单 CSV" in payload["exception"]
@@ -157,7 +137,6 @@ def test_extract_stock_skus_rejects_unparseable_item(tmp_path):
 
 
 def test_success_exports_stock_sku_excel(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
     monkeypatch.setattr(cli, "DELIVERY_CSV_DIR", tmp_path)
     stock_output_dir = tmp_path / "stock"
     monkeypatch.setattr(cli, "STOCK_SKU_OUTPUT_DIR", stock_output_dir)
@@ -178,10 +157,8 @@ def test_success_exports_stock_sku_excel(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(cli, "export_stock_sku_names", fake_export_stock_sku_names)
 
-    exit_code = cli.main(["--delivery-no", "sp260508022"])
+    payload = cli.run({"delivery_no": "sp260508022"})
 
-    payload = _read_payload(capsys)
-    assert exit_code == 0
     assert payload == {
         "success": True,
         "delivery_no": "SP260508022",

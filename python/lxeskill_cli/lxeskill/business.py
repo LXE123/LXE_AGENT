@@ -185,6 +185,15 @@ def collect_declared_artifacts(entry: dict[str, Any], payload: dict[str, Any]) -
     return deliverables
 
 
+def _close_network_clients_best_effort() -> None:
+    import asyncio
+
+    from shared.infra.net import close_all_network_clients
+
+    with contextlib.suppress(Exception):
+        asyncio.run(close_all_network_clients())
+
+
 def execute_module_json(
     entry: dict[str, Any],
     arguments: dict[str, Any],
@@ -195,9 +204,24 @@ def execute_module_json(
 ) -> tuple[bool, list[dict[str, Any]], list[str], dict[str, str] | None]:
     module_name = str(entry.get("module") or "").strip()
     module = importlib.import_module(module_name)
+    # Preferred contract: run(arguments) -> payload dict. The catalog
+    # input_schema is the argument contract; no argv round-trip, no stdout
+    # capture. main(argv) stays as the legacy fallback until every business
+    # module is converted.
+    run = getattr(module, "run", None)
+    if callable(run):
+        try:
+            payload = run(dict(arguments or {}))
+        except Exception as exc:  # noqa: BLE001 — business failures become envelopes
+            payload = {"success": False, "exception": f"{type(exc).__name__}: {exc}"}
+        finally:
+            _close_network_clients_best_effort()
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"business run() must return an object: {module_name}")
+        return _finalize_payload(entry, module_name, payload, exit_code=None)
     main = getattr(module, "main", None)
     if not callable(main):
-        raise RuntimeError(f"business CLI has no callable main(): {module_name}")
+        raise RuntimeError(f"business CLI has no callable run() or main(): {module_name}")
     stdout = io.StringIO()
     argv = _argv(dict(arguments or {}), [str(item) for item in list(entry.get("positional") or [])])
     with contextlib.redirect_stdout(stdout):
@@ -234,7 +258,22 @@ def execute_module_json(
         raise RuntimeError(f"business CLI returned malformed JSON: {module_name}") from exc
     if not isinstance(payload, dict):
         raise RuntimeError(f"business CLI response must be an object: {module_name}")
-    success = bool(payload.get("success")) if "success" in payload else exit_code == 0
+    return _finalize_payload(entry, module_name, payload, exit_code=exit_code)
+
+
+def _finalize_payload(
+    entry: dict[str, Any],
+    module_name: str,
+    payload: dict[str, Any],
+    *,
+    exit_code: int | None,
+) -> tuple[bool, list[dict[str, Any]], list[str], dict[str, str] | None]:
+    if "success" in payload:
+        success = bool(payload.get("success"))
+    else:
+        # run() modules signal failure via the payload; only the legacy
+        # main(argv) path carries an exit code to fall back on.
+        success = True if exit_code is None else exit_code == 0
     if "finished" in payload:
         success = success and bool(payload.get("finished"))
     files = collect_declared_artifacts(entry, payload) if success else []
