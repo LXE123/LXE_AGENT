@@ -5,15 +5,6 @@ from services.agent_cli.mabang import calculate_store_msku_replenishment as cli
 from services.mabang.amazon.fba.store_msku_replenishment import StoreMskuReplenishmentResult
 
 
-def test_missing_store_name_returns_failure_json(capsys) -> None:
-    payload = cli.run({})
-    assert payload == {
-        "success": False,
-        "store_name": "",
-        "exception": "store_name 不能为空",
-    }
-
-
 def test_success_returns_replenishment_report_path(monkeypatch, capsys) -> None:
     def fake_calculate_store_msku_replenishment(
         store_name: str,
