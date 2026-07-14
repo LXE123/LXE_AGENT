@@ -6,11 +6,13 @@ import pytest
 from aiohttp import web
 from services.mabang.auth import MabangAuthContext
 from services.mabang.export_common import (
+    ExportPipelineSpec,
     build_private_amz_headers,
     clean_cell,
     clean_text,
     excel_suffix_from_url,
     request_headers,
+    run_export_pipeline,
     safe_store_msku_file_part,
 )
 from shared.infra.net.aiohttp_client import (
@@ -141,3 +143,48 @@ def test_private_amz_cookie_header_round_trips_through_stateless_session() -> No
     asyncio.run(run())
 
     assert received_cookie_headers == [headers.private_amz_cookie_header]
+
+
+def test_export_pipeline_runs_stages_in_contract_order() -> None:
+    events: list[str] = []
+
+    def prepare() -> str:
+        events.append("prepare")
+        return "prepared"
+
+    async def authorize() -> str:
+        events.append("authorize")
+        return "auth"
+
+    async def request_export(prepared: str, auth: str) -> tuple[str, str]:
+        events.append(f"request:{prepared}:{auth}")
+        return "metadata", "https://files.example/export.xlsx"
+
+    async def download_file(prepared: str, file_url: str) -> str:
+        events.append(f"download:{prepared}:{file_url}")
+        return "/tmp/export.xlsx"
+
+    def transform_result(prepared: str, metadata: str, file_path: str) -> dict[str, str]:
+        events.append(f"transform:{prepared}:{metadata}:{file_path}")
+        return {"file_path": file_path}
+
+    result = asyncio.run(
+        run_export_pipeline(
+            ExportPipelineSpec(
+                prepare=prepare,
+                authorize=authorize,
+                request_export=request_export,
+                download_file=download_file,
+                transform_result=transform_result,
+            )
+        )
+    )
+
+    assert result == {"file_path": "/tmp/export.xlsx"}
+    assert events == [
+        "prepare",
+        "authorize",
+        "request:prepared:auth",
+        "download:prepared:https://files.example/export.xlsx",
+        "transform:prepared:metadata:/tmp/export.xlsx",
+    ]

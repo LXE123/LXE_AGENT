@@ -11,9 +11,12 @@ from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
 )
 from services.mabang.auth_constants import (
-    PRIVATE_AMZ_HOST,
     PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
-    PRIVATE_HOST,
+)
+from services.mabang.export_common import (
+    ExportPipelineSpec,
+    build_private_amz_headers,
+    run_export_pipeline,
 )
 from services.mabang.export_common import (
     clean_text as _clean_text,
@@ -34,7 +37,7 @@ from shared.infra.net import erp_http_session, external_http_session
 from shared.workspace import artifact_path
 
 from ...auth import get_auth_context
-from ...cookies import build_cookie_header, extract_named_cookies, list_cookie_names
+from ...cookies import extract_named_cookies
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
 from .store_resolver import ID_TYPE_FBA_WAREHOUSE, ID_TYPE_SHOP
 
@@ -243,36 +246,13 @@ async def _read_store_msku_json(resp: Any, *, action: str) -> dict[str, Any]:
 
 async def resolve_store_msku_auth() -> StoreMskuAuth:
     context = await get_auth_context(scope="private_amz", purpose="store_msku_download")
-    private_amz_cookie_header = build_cookie_header(
-        context.cookies_by_domain,
-        request_host=PRIVATE_AMZ_HOST,
+    headers = build_private_amz_headers(
+        context,
+        required_names=PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
         extra_cookies={"mabang_lite_rowsPerPage": "100"},
+        private_extra_cookies={"exportv2": "2"},
+        error_type=StoreMskuDownloadAuthError,
     )
-    if not private_amz_cookie_header:
-        raise StoreMskuDownloadAuthError("未获取到 private-amz.mabangerp.com Cookie")
-
-    private_amz_cookie_names = set(
-        list_cookie_names(
-            context.cookies_by_domain,
-            request_host=PRIVATE_AMZ_HOST,
-            extra_cookies={"mabang_lite_rowsPerPage": "100"},
-        )
-    )
-    missing_private_amz = [
-        name for name in PRIVATE_AMZ_REQUIRED_COOKIE_NAMES if name not in private_amz_cookie_names
-    ]
-    if missing_private_amz:
-        raise StoreMskuDownloadAuthError(
-            f"缺少 private-amz 关键 Cookie: {', '.join(missing_private_amz)}"
-        )
-
-    private_cookie_header = build_cookie_header(
-        context.cookies_by_domain,
-        request_host=PRIVATE_HOST,
-        extra_cookies={"exportv2": "2"},
-    )
-    if not private_cookie_header:
-        raise StoreMskuDownloadAuthError("未获取到 private.mabangerp.com Cookie")
 
     values = extract_named_cookies(context.cookies_by_domain, (MEMCACHE_COOKIE_NAME,))
     memcache_key = _clean_text(values.get(MEMCACHE_COOKIE_NAME))
@@ -280,8 +260,8 @@ async def resolve_store_msku_auth() -> StoreMskuAuth:
         raise StoreMskuDownloadAuthError(f"缺少关键 Cookie: {MEMCACHE_COOKIE_NAME}")
 
     return StoreMskuAuth(
-        private_amz_cookie_header=private_amz_cookie_header,
-        private_cookie_header=private_cookie_header,
+        private_amz_cookie_header=headers.private_amz_cookie_header,
+        private_cookie_header=headers.private_cookie_header,
         memcache_key=memcache_key,
     )
 
@@ -548,37 +528,62 @@ async def download_store_msku_excel(
     store_name: str = "",
     output_dir: str | Path | None = None,
 ) -> StoreMskuExcelResult:
-    clean_store_id = normalize_store_id(store_id)
-    clean_id_type = normalize_id_type(id_type)
-    clean_store_name = normalize_store_name(store_name)
+    def prepare() -> tuple[str, str, str]:
+        return (
+            normalize_store_id(store_id),
+            normalize_id_type(id_type),
+            normalize_store_name(store_name),
+        )
 
-    auth = await resolve_store_msku_auth()
-    ids = await fetch_store_msku_ids(
-        clean_store_id,
-        clean_id_type,
-        cookie_header=auth.private_amz_cookie_header,
-    )
-    file_url = await export_store_msku_file_url(
-        ids,
-        cookie_header=auth.private_cookie_header,
-        memcache_key=auth.memcache_key,
-    )
-    excel_path = await download_store_msku_excel_from_url(
-        file_url,
-        store_id=clean_store_id,
-        store_name=clean_store_name,
-        output_dir=output_dir,
-    )
-    xlsx_path, converted, raw_excel_deleted = normalize_store_msku_excel(excel_path)
-    validate_store_msku_excel_headers(xlsx_path)
-    return StoreMskuExcelResult(
-        store_name=clean_store_name,
-        store_id=clean_store_id,
-        id_type=clean_id_type,
-        id_count=len(ids),
-        xlsx_path=str(xlsx_path),
-        converted=converted,
-        raw_excel_deleted=raw_excel_deleted,
+    async def request_export(
+        prepared: tuple[str, str, str], auth: StoreMskuAuth
+    ) -> tuple[list[str], str]:
+        clean_store_id, clean_id_type, _clean_store_name = prepared
+        ids = await fetch_store_msku_ids(
+            clean_store_id,
+            clean_id_type,
+            cookie_header=auth.private_amz_cookie_header,
+        )
+        file_url = await export_store_msku_file_url(
+            ids,
+            cookie_header=auth.private_cookie_header,
+            memcache_key=auth.memcache_key,
+        )
+        return ids, file_url
+
+    async def download_file(prepared: tuple[str, str, str], file_url: str) -> Path:
+        clean_store_id, _clean_id_type, clean_store_name = prepared
+        return await download_store_msku_excel_from_url(
+            file_url,
+            store_id=clean_store_id,
+            store_name=clean_store_name,
+            output_dir=output_dir,
+        )
+
+    def transform_result(
+        prepared: tuple[str, str, str], ids: list[str], excel_path: Path
+    ) -> StoreMskuExcelResult:
+        clean_store_id, clean_id_type, clean_store_name = prepared
+        xlsx_path, converted, raw_excel_deleted = normalize_store_msku_excel(excel_path)
+        validate_store_msku_excel_headers(xlsx_path)
+        return StoreMskuExcelResult(
+            store_name=clean_store_name,
+            store_id=clean_store_id,
+            id_type=clean_id_type,
+            id_count=len(ids),
+            xlsx_path=str(xlsx_path),
+            converted=converted,
+            raw_excel_deleted=raw_excel_deleted,
+        )
+
+    return await run_export_pipeline(
+        ExportPipelineSpec(
+            prepare=prepare,
+            authorize=resolve_store_msku_auth,
+            request_export=request_export,
+            download_file=download_file,
+            transform_result=transform_result,
+        )
     )
 
 

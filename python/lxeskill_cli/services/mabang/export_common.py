@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from inspect import isawaitable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Awaitable, Callable, Generic, Iterable, TypeVar, cast
 from urllib.parse import urlsplit
 
 from services.mabang import config as mabang_settings
@@ -11,11 +12,42 @@ from services.mabang.auth import MabangAuthContext
 from services.mabang.auth_constants import PRIVATE_AMZ_HOST, PRIVATE_HOST
 from services.mabang.cookies import build_cookie_header, list_cookie_names
 
+PreparedT = TypeVar("PreparedT")
+AuthT = TypeVar("AuthT")
+ExportT = TypeVar("ExportT")
+FileT = TypeVar("FileT")
+ResultT = TypeVar("ResultT")
+
 
 @dataclass(frozen=True)
 class PrivateAmzHeaders:
     private_amz_cookie_header: str
     private_cookie_header: str
+
+
+@dataclass(frozen=True)
+class ExportPipelineSpec(Generic[PreparedT, AuthT, ExportT, FileT, ResultT]):
+    prepare: Callable[[], PreparedT | Awaitable[PreparedT]]
+    authorize: Callable[[], Awaitable[AuthT]]
+    request_export: Callable[[PreparedT, AuthT], Awaitable[tuple[ExportT, str]]]
+    download_file: Callable[[PreparedT, str], Awaitable[FileT]]
+    transform_result: Callable[[PreparedT, ExportT, FileT], ResultT | Awaitable[ResultT]]
+
+
+async def _resolve(value: ResultT | Awaitable[ResultT]) -> ResultT:
+    if isawaitable(value):
+        return await cast(Awaitable[ResultT], value)
+    return value
+
+
+async def run_export_pipeline(
+    spec: ExportPipelineSpec[PreparedT, AuthT, ExportT, FileT, ResultT],
+) -> ResultT:
+    prepared = await _resolve(spec.prepare())
+    auth = await spec.authorize()
+    exported, file_url = await spec.request_export(prepared, auth)
+    downloaded = await spec.download_file(prepared, file_url)
+    return await _resolve(spec.transform_result(prepared, exported, downloaded))
 
 
 def configured_text(name: str, default: str) -> str:
@@ -99,6 +131,7 @@ def build_private_amz_headers(
 
 
 __all__ = [
+    "ExportPipelineSpec",
     "PrivateAmzHeaders",
     "build_private_amz_headers",
     "clean_cell",
@@ -106,5 +139,6 @@ __all__ = [
     "configured_text",
     "excel_suffix_from_url",
     "request_headers",
+    "run_export_pipeline",
     "safe_store_msku_file_part",
 ]
