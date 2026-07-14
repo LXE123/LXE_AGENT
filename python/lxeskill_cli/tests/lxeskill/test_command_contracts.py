@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import inspect
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -79,6 +80,130 @@ KNOWN_REQUIRED_FAILURE_FLAGS = {
 }
 
 
+@dataclass(frozen=True)
+class FailureCase:
+    arguments: dict[str, Any]
+    expected_context: dict[str, Any]
+    exception_fragment: str
+    patch_target: str | None = None
+    patch_exception: str | None = None
+
+
+FAILURE_CASES = {
+    "fba stock-sku download": (
+        FailureCase({}, {"delivery_no": ""}, "delivery_no 不能为空"),
+        FailureCase(
+            {"delivery_no": "FBA123"},
+            {"delivery_no": "FBA123"},
+            "delivery_no 格式无效: FBA123",
+        ),
+    ),
+    "fba shipment delivery-csv-download": (
+        FailureCase({}, {"delivery_no": ""}, "delivery_no 不能为空"),
+        FailureCase(
+            {"delivery_no": "FBA123"},
+            {"delivery_no": "FBA123"},
+            "delivery_no 格式无效: FBA123",
+        ),
+        FailureCase(
+            {"delivery_no": "SP260508022"},
+            {"delivery_no": "SP260508022"},
+            "download failed for SP260508022",
+            "download_fba_delivery_csv",
+            "download failed for SP260508022",
+        ),
+    ),
+    "fba export-tax delivery-summary": (
+        FailureCase({}, {"delivery_no": ""}, "delivery_no 不能为空"),
+        FailureCase(
+            {"delivery_no": "FBA123"},
+            {"delivery_no": "FBA123"},
+            "delivery_no 格式无效: FBA123",
+        ),
+    ),
+    "fba msku detail-download": (
+        FailureCase({}, {"ship_no": ""}, "ship_no 不能为空"),
+        FailureCase(
+            {"ship_no": "FBA123"},
+            {"ship_no": "FBA123"},
+            "ship_no 格式无效: FBA123",
+        ),
+        FailureCase(
+            {"ship_no": "SP260414001"},
+            {"ship_no": "SP260414001"},
+            "download failed for SP260414001",
+            "download_msku_detail_excel",
+            "download failed for SP260414001",
+        ),
+    ),
+    "fba shipment wms-box-download": (
+        FailureCase({}, {"ship_no": ""}, "ship_no 不能为空"),
+        FailureCase(
+            {"ship_no": "FBA123"},
+            {"ship_no": "FBA123"},
+            "ship_no 格式无效: FBA123",
+        ),
+        FailureCase(
+            {"ship_no": "SP260226004"},
+            {"ship_no": "SP260226004"},
+            "WMS failed for SP260226004",
+            "download_consignment_excel_from_wms",
+            "WMS failed for SP260226004",
+        ),
+    ),
+    "replenish inventory restock-snapshot-build": (
+        FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
+    ),
+    "replenish msku download": (
+        FailureCase(
+            {"store_id": "697456821", "id_type": "shopId"},
+            {"store_name": "", "store_id": "697456821", "id_type": "shopId"},
+            "store_name 不能为空",
+        ),
+        FailureCase(
+            {
+                "store_id": "697456821",
+                "id_type": "shopId",
+                "store_name": "Amazon-Lerxiuer-FR",
+            },
+            {
+                "store_name": "Amazon-Lerxiuer-FR",
+                "store_id": "697456821",
+                "id_type": "shopId",
+            },
+            "download failed for 697456821",
+            "download_store_msku_excel",
+            "download failed for 697456821",
+        ),
+    ),
+    "replenish calculate": (
+        FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
+    ),
+    "replenish sales analyze": (
+        FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
+    ),
+    "replenish inventory actual-export": (
+        FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
+    ),
+    "replenish shipments unlinked-download": (
+        FailureCase({}, {"store_name": ""}, "store_name 不能为空"),
+        FailureCase(
+            {"store_name": "Amazon-Test-US"},
+            {"store_name": "Amazon-Test-US"},
+            "download failed for Amazon-Test-US",
+            "download_store_unlinked_shipments",
+            "download failed for Amazon-Test-US",
+        ),
+    ),
+}
+
+FAILURE_CASE_PARAMS = tuple(
+    (command, index, case)
+    for command, cases in FAILURE_CASES.items()
+    for index, case in enumerate(cases, start=1)
+)
+
+
 @pytest.mark.parametrize("entry", MODULE_ENTRIES, ids=_command)
 def test_catalog_module_exposes_exact_run_contract(entry: dict[str, Any]) -> None:
     module = importlib.import_module(str(entry["module"]))
@@ -123,3 +248,35 @@ def test_catalog_module_contract_parameterization_is_complete() -> None:
         if str(entry.get("module") or "").strip()
     }
     assert catalog_module_commands <= PARAMETERIZED_MODULE_COMMANDS
+
+
+@pytest.mark.parametrize(
+    ("command", "case_index", "case"),
+    FAILURE_CASE_PARAMS,
+    ids=[f"{command}-{index}" for command, index, _case in FAILURE_CASE_PARAMS],
+)
+def test_command_failure_contract(
+    command: str,
+    case_index: int,
+    case: FailureCase,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del case_index
+    entries_by_command = {_command(entry): entry for entry in MODULE_ENTRIES}
+    entry = entries_by_command[command]
+    module = importlib.import_module(str(entry["module"]))
+    if case.patch_target:
+        error_message = case.patch_exception or case.exception_fragment
+
+        async def fail_download(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError(error_message)
+
+        monkeypatch.setattr(module, case.patch_target, fail_download)
+
+    result = module.run(dict(case.arguments))
+
+    assert isinstance(result, dict)
+    assert result.get("success") is False
+    for key, expected in case.expected_context.items():
+        assert result.get(key) == expected
+    assert case.exception_fragment in str(result.get("exception") or "")
