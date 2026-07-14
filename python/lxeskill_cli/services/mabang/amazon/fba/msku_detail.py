@@ -1,24 +1,31 @@
 from __future__ import annotations
 
+import csv
 import json
 import re
-import csv
 import shutil
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
-from shared.infra.net import erp_http_session, external_http_session
-from shared.workspace import artifact_path
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
+)
+from services.mabang.auth_constants import (
     PRIVATE_AMZ_HOST,
     PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
     PRIVATE_HOST,
 )
+from services.mabang.export_common import clean_cell as _clean_cell
+from services.mabang.export_common import configured_text as _configured_text
+from services.mabang.export_common import (
+    excel_suffix_from_url as _excel_suffix_from_url,
+)
+from services.mabang.export_common import request_headers as _request_headers
+from shared.infra.net import erp_http_session, external_http_session
+from shared.workspace import artifact_path
 
 from ...auth import get_auth_context
 from ...cookies import build_cookie_header, extract_named_cookies, list_cookie_names
@@ -116,17 +123,6 @@ class MskuDetailExcelResult:
         }
 
 
-def _configured_text(name: str, default: str) -> str:
-    return mabang_settings.configured_text(name, default)
-
-
-def _clean_cell(value: Any) -> str:
-    text = str(value or "").strip()
-    if text.lower() == "nan":
-        return ""
-    return text
-
-
 def normalize_ship_no(value: Any) -> str:
     return str(value or "").strip().upper()
 
@@ -161,13 +157,6 @@ def _resolve_delivery_file_dir(delivery_file_dir: str | Path | None = None) -> P
         return Path(delivery_file_dir)
     configured = str(mabang_settings.FBA_DELIVERY_CSV_DIR or "").strip()
     return Path(configured) if configured else DEFAULT_DELIVERY_FILE_DIR
-
-
-def _excel_suffix_from_url(file_url: str) -> str:
-    suffix = Path(urlsplit(str(file_url or "")).path).suffix.lower()
-    if suffix in {".xls", ".xlsx"}:
-        return suffix
-    return ".xls"
 
 
 def _delivery_msku_source_from_rows(headers: list[str], rows: list[dict[str, Any]]) -> DeliveryMskuSource:
@@ -279,17 +268,6 @@ async def resolve_delivery_file(
     if not csv_path.is_file():
         raise MskuDetailDownloadError(f"下载完成但找不到发货单文件: {csv_path}")
     return csv_path.resolve(), "downloaded"
-
-
-def _request_headers(cookie_header: str, *, origin: str, referer: str) -> dict[str, str]:
-    return {
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "Origin": origin,
-        "Referer": referer,
-        "Cookie": cookie_header,
-    }
 
 
 def _listsearch_url() -> str:
