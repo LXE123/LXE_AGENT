@@ -1,24 +1,17 @@
 from __future__ import annotations
 
-import argparse
 import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
     EXPORT_TAX_PRODUCTS_PATH,
     EXPORT_TAX_PRODUCTS_SHEET,
     TAX_PRODUCT_NAME_COLUMN,
     TAX_PRODUCT_SKU_COLUMN,
 )
-from shared.logging import setup_logging
 
 SOURCE = "export_tax_products_validation"
 WHITESPACE_PATTERN = re.compile(r"\s+")
@@ -111,32 +104,14 @@ def validate_export_tax_products(products_path: str | Path | None = None) -> dic
     }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.validate_export_tax_products"
-    )
-    parser.add_argument("--path", default=str(EXPORT_TAX_PRODUCTS_PATH))
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
-    products_path = ""
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
+    products_path = str(arguments.get("path") or EXPORT_TAX_PRODUCTS_PATH).strip()
     try:
-        args = build_parser().parse_args(argv)
-        products_path = str(getattr(args, "path", "") or "").strip()
-        payload = validate_export_tax_products(products_path)
-    except Exception as exc:
-        payload = {
+        return validate_export_tax_products(products_path)
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return {
             "success": False,
             "products_path": products_path,
             "exception": _exception_text(exc),
         }
-
-    _write_json(payload)
-    return 0 if bool(payload.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import re
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.mabang.amazon.fba.store_resolver import (
     FbaStore,
     STORE_CANDIDATES_FILE_PREFIX,
@@ -18,8 +12,6 @@ from services.mabang.amazon.fba.store_resolver import (
     resolve_fba_store,
     write_fba_stores_xlsx,
 )
-from shared.infra.net import close_all_network_clients
-from shared.logging import setup_logging
 
 CANDIDATE_JSON_LIMIT = 10
 
@@ -56,21 +48,6 @@ def _candidate_payloads(candidates: list[dict[str, Any]]) -> list[dict[str, str]
     return [store.to_payload() for store in _candidate_stores_from_payloads(candidates)]
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.resolve_fba_store"
-    )
-    parser.add_argument("--store-name", default="")
-    return parser
-
-
-async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
-    store_name = str(getattr(args, "store_name", "") or "").strip()
-    if store_name:
-        return (await resolve_fba_store(store_name)).to_payload()
-    return (await list_fba_stores()).to_payload()
-
-
 def _augment_error_payload(payload: dict[str, Any], exc: Exception) -> dict[str, Any]:
     candidates = getattr(exc, "candidates", None)
     if candidates is not None:
@@ -92,30 +69,21 @@ def _augment_error_payload(payload: dict[str, Any], exc: Exception) -> dict[str,
     return payload
 
 
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
-    store_name = ""
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
+    store_name = str(arguments.get("store_name") or "").strip()
+
+    async def _resolve() -> dict[str, Any]:
+        if store_name:
+            return (await resolve_fba_store(store_name)).to_payload()
+        return (await list_fba_stores()).to_payload()
+
     try:
-        args = build_parser().parse_args(argv)
-        store_name = str(getattr(args, "store_name", "") or "").strip()
-        payload = asyncio.run(_run_async(args))
-    except Exception as exc:
+        return asyncio.run(_resolve())
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
         payload = {
             "success": False,
             "query": store_name,
             "exception": _exception_text(exc),
         }
-        payload = _augment_error_payload(payload, exc)
-    finally:
-        try:
-            asyncio.run(close_all_network_clients())
-        except Exception:
-            pass
-
-    _write_json(payload)
-    return 0 if bool(payload.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+        return _augment_error_payload(payload, exc)

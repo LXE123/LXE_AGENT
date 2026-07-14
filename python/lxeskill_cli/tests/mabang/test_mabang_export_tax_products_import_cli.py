@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections import OrderedDict
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,23 +36,9 @@ def _read_rows(path: Path) -> list[tuple]:
     return list(worksheet.iter_rows(values_only=True))
 
 
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
-async def _noop_close_all_network_clients() -> None:
-    return None
-
-
 def test_missing_sku_returns_failure_json(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({})
     assert payload == {"success": False, "exception": "sku 不能为空"}
 
 
@@ -177,22 +162,9 @@ def test_main_success_outputs_json(monkeypatch, tmp_path, capsys):
         return SimpleNamespace(names_by_key=OrderedDict([("SKU-NEW", "新产品")]), xlsx_paths=[])
 
     monkeypatch.setattr(cli, "export_stock_sku_names", fake_export_stock_sku_names)
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
     monkeypatch.setattr(cli, "_timestamp", lambda: "20260512_120000")
 
-    exit_code = cli.main(
-        [
-            "--sku",
-            "SKU-NEW",
-            "--products-path",
-            str(products_path),
-            "--backup-dir",
-            str(backup_dir),
-        ]
-    )
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"sku": "SKU-NEW", "products_path": str(products_path), "backup_dir": str(backup_dir)})
     assert payload["success"] is True
     assert payload["products_path"] == str(products_path)
     assert payload["backup_path"] == str(backup_dir / "products_20260512_120000.xlsx")
@@ -202,11 +174,7 @@ def test_main_success_outputs_json(monkeypatch, tmp_path, capsys):
 def test_main_validation_failure_returns_failure_json(monkeypatch, tmp_path, capsys):
     products_path = tmp_path / "products.xlsx"
     _write_products(products_path, [{"sku": "SKU-A"}], columns=["sku"])
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main(["--sku", "SKU-NEW", "--products-path", str(products_path)])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"sku": "SKU-NEW", "products_path": str(products_path)})
     assert payload["success"] is False
     assert "缺少列: 产品名称" in payload["exception"]

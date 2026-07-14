@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import re
 import shutil
@@ -9,12 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
     EXPORT_TAX_PRODUCTS_PATH,
     EXPORT_TAX_PRODUCTS_SHEET,
@@ -23,8 +17,6 @@ from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
 )
 from services.agent_cli.mabang.validate_export_tax_products import validate_export_tax_products
 from services.mabang.stock_sku_export import export_stock_sku_names
-from shared.infra.net import close_all_network_clients
-from shared.logging import setup_logging
 from shared.workspace import artifact_path
 
 SOURCE = "export_tax_products_import"
@@ -192,44 +184,18 @@ async def import_export_tax_products(
     }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.import_export_tax_products"
-    )
-    parser.add_argument("--sku", action="append", default=[])
-    parser.add_argument("--products-path", default=str(EXPORT_TAX_PRODUCTS_PATH))
-    parser.add_argument("--backup-dir", default=str(DEFAULT_BACKUP_DIR))
-    return parser
-
-
-async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
-    return await import_export_tax_products(
-        list(getattr(args, "sku", []) or []),
-        products_path=getattr(args, "products_path", ""),
-        backup_dir=getattr(args, "backup_dir", ""),
-    )
-
-
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
     try:
-        args = build_parser().parse_args(argv)
-        payload = asyncio.run(_run_async(args))
-    except Exception as exc:
-        payload = {
+        raw_skus = arguments.get("sku")
+        skus = [raw_skus] if isinstance(raw_skus, str) else list(raw_skus or [])
+        return asyncio.run(import_export_tax_products(
+            skus,
+            products_path=str(arguments.get("products_path") or EXPORT_TAX_PRODUCTS_PATH),
+            backup_dir=str(arguments.get("backup_dir") or DEFAULT_BACKUP_DIR),
+        ))
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return {
             "success": False,
             "exception": _exception_text(exc),
         }
-    finally:
-        try:
-            asyncio.run(close_all_network_clients())
-        except Exception:
-            pass
-
-    _write_json(payload)
-    return 0 if bool(payload.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

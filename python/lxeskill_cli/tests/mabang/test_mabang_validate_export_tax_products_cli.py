@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from services.agent_cli.mabang import validate_export_tax_products as cli
@@ -21,17 +20,8 @@ def _write_products(
     pd.DataFrame(frame_rows, columns=columns).to_excel(path, sheet_name=sheet_name, index=False)
 
 
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
 def test_main_missing_file_returns_failure_json(capsys):
-    exit_code = cli.main(["--path", "missing.xlsx"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"path": "missing.xlsx"})
     assert payload["success"] is False
     assert payload["products_path"] == "missing.xlsx"
     assert "找不到出口退税产品表" in payload["exception"]
@@ -41,10 +31,7 @@ def test_main_missing_sheet_returns_failure_json(tmp_path, capsys):
     products_path = tmp_path / "products.xlsx"
     _write_products(products_path, [{"sku": "SKU-A", "产品名称": "产品A"}], sheet_name="Other")
 
-    exit_code = cli.main(["--path", str(products_path)])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"path": str(products_path)})
     assert payload["success"] is False
     assert "缺少 sheet: Sheet1" in payload["exception"]
 
@@ -53,10 +40,7 @@ def test_main_missing_columns_returns_failure_json(tmp_path, capsys):
     products_path = tmp_path / "products.xlsx"
     _write_products(products_path, [{"sku": "SKU-A"}], columns=["sku"])
 
-    exit_code = cli.main(["--path", str(products_path)])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"path": str(products_path)})
     assert payload["success"] is False
     assert "缺少列: 产品名称" in payload["exception"]
 
@@ -65,10 +49,7 @@ def test_main_empty_sku_returns_failure_json(tmp_path, capsys):
     products_path = tmp_path / "products.xlsx"
     _write_products(products_path, [{"sku": "", "产品名称": "产品A"}])
 
-    exit_code = cli.main(["--path", str(products_path)])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"path": str(products_path)})
     assert payload["success"] is False
     assert "存在空 sku" in payload["exception"]
 
@@ -108,10 +89,7 @@ def test_main_success_outputs_json(tmp_path, capsys):
         ],
     )
 
-    exit_code = cli.main(["--path", str(products_path)])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"path": str(products_path)})
     assert payload["success"] is True
     assert payload["products_path"] == str(products_path)
     assert payload["sheet_name"] == "Sheet1"

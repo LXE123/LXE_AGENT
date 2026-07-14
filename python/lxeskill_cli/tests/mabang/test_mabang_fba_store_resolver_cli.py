@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from services.agent_cli.mabang import resolve_fba_store as cli
@@ -12,18 +11,7 @@ from services.mabang.amazon.fba.store_resolver import (
 )
 
 
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
-async def _noop_close_all_network_clients() -> None:
-    return None
-
-
 def test_list_stores_returns_json(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
     async def fake_list_fba_stores():
         return FbaStoreListResult(
@@ -36,10 +24,7 @@ def test_list_stores_returns_json(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(cli, "list_fba_stores", fake_list_fba_stores)
 
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({})
     assert payload == {
         "success": True,
         "store_count": 2,
@@ -52,7 +37,6 @@ def test_list_stores_returns_json(monkeypatch, capsys) -> None:
 
 
 def test_resolve_store_returns_json(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
     async def fake_resolve_fba_store(store_name: str):
         assert store_name == "JP"
@@ -64,10 +48,7 @@ def test_resolve_store_returns_json(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(cli, "resolve_fba_store", fake_resolve_fba_store)
 
-    exit_code = cli.main(["--store-name", "JP"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"store_name": "JP"})
     assert payload == {
         "success": True,
         "query": "JP",
@@ -81,7 +62,6 @@ def test_resolve_store_returns_json(monkeypatch, capsys) -> None:
 
 
 def test_ambiguous_error_returns_candidates(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
     async def fake_resolve_fba_store(store_name: str):
         raise FbaStoreAmbiguousError(
@@ -105,10 +85,7 @@ def test_ambiguous_error_returns_candidates(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(cli, "resolve_fba_store", fake_resolve_fba_store)
 
-    exit_code = cli.main(["--store-name", "Store"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"store_name": "Store"})
     assert payload == {
         "success": False,
         "query": "Store",
@@ -131,7 +108,6 @@ def test_ambiguous_error_returns_candidates(monkeypatch, capsys) -> None:
 
 
 def test_large_ambiguous_error_returns_candidates_xlsx(monkeypatch, tmp_path, capsys) -> None:
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
     captured_stores: list[FbaStore] = []
 
     def fake_write_fba_stores_xlsx(stores, *, filename_prefix="", **kwargs):
@@ -159,10 +135,7 @@ def test_large_ambiguous_error_returns_candidates_xlsx(monkeypatch, tmp_path, ca
     monkeypatch.setattr(cli, "write_fba_stores_xlsx", fake_write_fba_stores_xlsx)
     monkeypatch.setattr(cli, "resolve_fba_store", fake_resolve_fba_store)
 
-    exit_code = cli.main(["--store-name", "Amazon"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"store_name": "Amazon"})
     assert payload == {
         "success": False,
         "query": "Amazon",
@@ -177,17 +150,13 @@ def test_large_ambiguous_error_returns_candidates_xlsx(monkeypatch, tmp_path, ca
 
 
 def test_generic_error_returns_failure_json(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
     async def fake_list_fba_stores():
         raise RuntimeError("fetch failed")
 
     monkeypatch.setattr(cli, "list_fba_stores", fake_list_fba_stores)
 
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({})
     assert payload == {
         "success": False,
         "query": "",
