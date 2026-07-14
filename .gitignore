@@ -47,11 +47,11 @@ target/
 config/config.py
 config/connector-states.local.json
 config/mcp_servers.local.yaml
-debug_data/
+/debug_data/
 /artifacts/
-downloads/
-auth_data/
-tasks/
+/downloads/
+/auth_data/
+/tasks/
 
 # Logs
 *.log
