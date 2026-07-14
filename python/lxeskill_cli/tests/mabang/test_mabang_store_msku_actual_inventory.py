@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import _form_value, _form_values, _sheet_names
 from services.mabang.amazon.fba import store_msku_actual_inventory as inv
 from services.mabang.auth import MabangAuthContext
 
@@ -124,17 +125,6 @@ async def _fake_auth_context(*args, **kwargs) -> MabangAuthContext:
     )
 
 
-def _form_value(call: dict, name: str) -> str:
-    for key, value in call.get("data", []):
-        if key == name:
-            return value
-    raise AssertionError(f"missing form field: {name}")
-
-
-def _form_values(call: dict, name: str) -> list[str]:
-    return [value for key, value in call.get("data", []) if key == name]
-
-
 def _load_records(path: Path, sheet_name: str = "真实库存（深圳仓库）-库存sku") -> list[dict]:
     from openpyxl import load_workbook
 
@@ -143,16 +133,6 @@ def _load_records(path: Path, sheet_name: str = "真实库存（深圳仓库）-
         worksheet = workbook[sheet_name]
         headers = [cell.value for cell in worksheet[1]]
         return [dict(zip(headers, values, strict=False)) for values in worksheet.iter_rows(min_row=2, values_only=True)]
-    finally:
-        workbook.close()
-
-
-def _sheet_names(path: Path) -> list[str]:
-    from openpyxl import load_workbook
-
-    workbook = load_workbook(path, read_only=True)
-    try:
-        return list(workbook.sheetnames)
     finally:
         workbook.close()
 

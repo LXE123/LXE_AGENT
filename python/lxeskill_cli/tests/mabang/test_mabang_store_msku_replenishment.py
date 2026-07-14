@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import _sheet_names
 from services.mabang.amazon.fba import amazon_fba_inventory as amazon_inv
 from services.mabang.amazon.fba import amazon_restock_inventory as restock_inv
 from services.mabang.amazon.fba import store_msku_replenishment as repl
@@ -81,16 +82,6 @@ def _assert_standard_dimensions(path: Path, sheet_names: list[str]) -> None:
                 assert worksheet.row_dimensions[row_index].height == 15
             for column_index in range(1, worksheet.max_column + 1):
                 assert worksheet.column_dimensions[get_column_letter(column_index)].width == 15
-    finally:
-        workbook.close()
-
-
-def _sheet_names(path: Path) -> list[str]:
-    from openpyxl import load_workbook
-
-    workbook = load_workbook(path, read_only=True)
-    try:
-        return list(workbook.sheetnames)
     finally:
         workbook.close()
 

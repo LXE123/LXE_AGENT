@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import _write_mabang_msku
 from services.mabang.amazon.fba import amazon_fba_inventory as inv
 
 
@@ -47,27 +48,6 @@ def _amazon_row(sku: str, supply: int, *, marketplace: str = "US") -> dict:
         "asin": f"ASIN-{sku}",
         "product-name": f"Product {sku}",
     }
-
-
-def _write_mabang_msku(path: Path, mskus: list[str], *, site: str = "美国站", include_site: bool = True) -> Path:
-    from openpyxl import Workbook
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    workbook = Workbook()
-    try:
-        worksheet = workbook.active
-        worksheet.title = "mskulist"
-        headers = ["店铺名称", "MSKU"]
-        if include_site:
-            headers.insert(1, "站点")
-        worksheet.append(headers)
-        for msku in mskus:
-            row = {"店铺名称": "Amazon-Test-US", "站点": site, "MSKU": msku}
-            worksheet.append([row.get(header, "") for header in headers])
-        workbook.save(path)
-    finally:
-        workbook.close()
-    return path
 
 
 def test_build_amazon_fba_inventory_snapshot_validates_and_writes_snapshot(tmp_path) -> None:

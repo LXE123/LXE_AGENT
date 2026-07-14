@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import _form_value, _form_values
 from services.mabang.amazon.fba import store_msku as msku
 from services.mabang.auth import MabangAuthContext
 
@@ -113,17 +114,6 @@ async def _fake_auth_context(*args, **kwargs) -> MabangAuthContext:
         wms_cookie_header="",
         raw={},
     )
-
-
-def _form_value(call: dict, name: str) -> str:
-    for key, value in call.get("data", []):
-        if key == name:
-            return value
-    raise AssertionError(f"missing form field: {name}")
-
-
-def _form_values(call: dict, name: str) -> list[str]:
-    return [value for key, value in call.get("data", []) if key == name]
 
 
 def test_fetch_store_msku_ids_posts_fba_warehouse_form(monkeypatch) -> None:
