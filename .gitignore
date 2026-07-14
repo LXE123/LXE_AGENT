@@ -57,8 +57,10 @@ node_modules/
 # Rust
 target/
 
+# Runtime state (logs, tmp, sqlite DB) all live under var/
+/var/
+
 # Project specific
-user_session_db
 config/config.py
 config/connector-states.local.json
 config/mcp_servers.local.yaml
@@ -66,13 +68,11 @@ debug_data/
 /artifacts/
 downloads/
 auth_data/
-tmp/
 tasks/
 shared/config.py
 
 # Logs
 *.log
-logs/
 
 # Environment variables
 .env

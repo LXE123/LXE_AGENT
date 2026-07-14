@@ -79,7 +79,7 @@ export class GatewayStatusFiles {
   private writeCounter = 0;
 
   constructor(options: GatewayStatusFilesOptions) {
-    this.runtimeDir = join(options.projectRoot, "tmp", "gateway");
+    this.runtimeDir = join(options.projectRoot, "var", "tmp", "gateway");
     this.statusPath = join(this.runtimeDir, "gateway-status.json");
     this.markerPath = join(this.runtimeDir, "gateway-planned-stop.json");
     this.pid = Math.trunc(options.pid ?? process.pid);

@@ -103,10 +103,10 @@ describe("production Gateway application", () => {
     }));
     expect(application.settings.maxConcurrency).toBe(3);
     expect(browserOpenCalls).toBe(0);
-    expect(existsSync(join(runtimeRoot, "tmp", "gateway", "gateway-status.json"))).toBe(true);
+    expect(existsSync(join(runtimeRoot, "var", "tmp", "gateway", "gateway-status.json"))).toBe(true);
     await application.stop();
     expect(calls).toEqual(["runtime:start", "runtime:stop"]);
-    expect(existsSync(join(runtimeRoot, "tmp", "gateway", "gateway-status.json"))).toBe(false);
+    expect(existsSync(join(runtimeRoot, "var", "tmp", "gateway", "gateway-status.json"))).toBe(false);
   });
 
   test("opens the actual Dashboard URL only after readiness and only once", async () => {

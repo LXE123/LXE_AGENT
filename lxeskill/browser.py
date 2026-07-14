@@ -27,7 +27,7 @@ class BrowserCliError(RuntimeError):
 
 def _session_lock_path(session_id: str) -> Path:
     digest = sha256(session_id.encode("utf-8")).hexdigest()[:24]
-    return internal_root() / "tmp" / "lxeskill" / f"session-{digest}.lock"
+    return internal_root() / "var" / "tmp" / "lxeskill" / f"session-{digest}.lock"
 
 
 def _patch_session_state(session_id: str, patch: dict[str, Any]) -> None:

@@ -83,8 +83,8 @@ const processLines = (value: string): string[] => {
 const PROTECTED_ROOT_FILES = new Set([
   ".env", ".env.local", ".envrc", ".env.development", ".env.production", ".env.test", ".env.staging",
 ]);
-// Program-managed state the model must never write into. var/tmp and
-// var/artifacts stay writable (scratch and the send_file output surface).
+// Program-managed state the model must never write into. var/tmp stays
+// writable (scratch), as does the root artifacts/ send_file output surface.
 const PROTECTED_PATH_PREFIXES = ["var/db", "var/logs"];
 const BINARY_EXTENSIONS = new Set([
   ".pyc", ".pyo", ".exe", ".dll", ".so", ".bin", ".zip", ".tar", ".gz", ".7z", ".rar", ".whl",
