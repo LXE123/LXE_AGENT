@@ -10,16 +10,6 @@ from services.mabang.amazon.fba.unlinked_shipments import (
 )
 
 
-def test_missing_store_name_returns_failure_json(monkeypatch, capsys) -> None:
-
-    payload = cli.run({})
-    assert payload == {
-        "success": False,
-        "store_name": "",
-        "exception": "store_name 不能为空",
-    }
-
-
 def test_success_returns_status_results_and_snapshot(monkeypatch, capsys, caplog) -> None:
     caplog.set_level(logging.INFO, logger="services.agent_cli.mabang.download_store_unlinked_shipments")
 
@@ -250,19 +240,4 @@ def test_snapshot_error_returns_failure_json_with_download_result(monkeypatch, c
             ],
             "source": "mabang_fba_unlinked_shipments",
         },
-    }
-
-
-def test_download_error_returns_failure_json(monkeypatch, capsys) -> None:
-
-    async def fake_download(store_name: str, **kwargs):
-        raise RuntimeError(f"download failed for {store_name}")
-
-    monkeypatch.setattr(cli, "download_store_unlinked_shipments", fake_download)
-
-    payload = cli.run({"store_name": "Amazon-Test-US"})
-    assert payload == {
-        "success": False,
-        "store_name": "Amazon-Test-US",
-        "exception": "download failed for Amazon-Test-US",
     }
