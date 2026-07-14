@@ -70,7 +70,7 @@ Get-Content -Wait "logs\browser_auth_service\$(Get-Date -Format yyyyMMdd)\browse
 只跑 browser auth 相关单测：
 
 ```bash
-.venv/bin/python -m pytest -q tests/test_browser_auth_service_storage_state.py tests/test_browser_auth_service_fba_token.py
+.venv/bin/python -m pytest -q tests/auth/test_browser_auth_service_storage_state.py tests/auth/test_browser_auth_service_fba_token.py
 ```
 
 编译检查：

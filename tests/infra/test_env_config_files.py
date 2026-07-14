@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import shared.env as project_env
+import shared.env_files as project_env
 
 
 PRIVATE_ENV_KEYS = {

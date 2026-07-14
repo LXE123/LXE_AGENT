@@ -7,7 +7,7 @@ def _reload_config(monkeypatch):
     monkeypatch.delenv("LOGISTICS_USE_REMOTE_API", raising=False)
     monkeypatch.delenv("LOGISTICS_REMOTE_API_BASE_URL", raising=False)
     monkeypatch.delenv("LOGISTICS_LOCAL_API_BASE_URL", raising=False)
-    import shared.env as env_module
+    import shared.env_files as env_module
 
     monkeypatch.setattr(env_module, "_ENV_LOADED", True)
 

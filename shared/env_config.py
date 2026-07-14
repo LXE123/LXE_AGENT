@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from shared.env import load_project_env
+from shared.env_files import load_project_env
 
 load_project_env()
 
