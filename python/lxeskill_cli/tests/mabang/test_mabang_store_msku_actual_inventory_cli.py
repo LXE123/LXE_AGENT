@@ -1,43 +1,21 @@
 from __future__ import annotations
 
-import json
 
 from services.agent_cli.mabang import export_store_msku_actual_inventory as cli
 from services.mabang.amazon.fba.store_msku_actual_inventory import ActualInventoryResult
 
 
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
 def test_missing_store_name_returns_failure_json(monkeypatch, capsys) -> None:
-    close_calls: list[str] = []
 
-    async def fake_close_all_network_clients() -> None:
-        close_calls.append("close")
-
-    monkeypatch.setattr(cli, "close_all_network_clients", fake_close_all_network_clients)
-
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({})
     assert payload == {
         "success": False,
         "store_name": "",
         "exception": "store_name 不能为空",
     }
-    assert close_calls == ["close"]
 
 
 def test_success_returns_actual_inventory_path(monkeypatch, capsys) -> None:
-    close_calls: list[str] = []
-
-    async def fake_close_all_network_clients() -> None:
-        close_calls.append("close")
-
     async def fake_export_store_msku_actual_inventory(store_name: str):
         assert store_name == "Amazon-Lerxiuer-FR"
         return ActualInventoryResult(
@@ -54,13 +32,9 @@ def test_success_returns_actual_inventory_path(monkeypatch, capsys) -> None:
             missing_warehouse_inventory_msku_row_count=2,
         )
 
-    monkeypatch.setattr(cli, "close_all_network_clients", fake_close_all_network_clients)
     monkeypatch.setattr(cli, "export_store_msku_actual_inventory", fake_export_store_msku_actual_inventory)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR"})
     assert payload == {
         "success": True,
         "store_name": "Amazon-Lerxiuer-FR",
@@ -82,28 +56,17 @@ def test_success_returns_actual_inventory_path(monkeypatch, capsys) -> None:
     assert "stock_sku_count" not in payload
     assert "xlsx_path" not in payload
     assert "source" not in payload
-    assert close_calls == ["close"]
 
 
 def test_failure_returns_last_line_json(monkeypatch, capsys) -> None:
-    close_calls: list[str] = []
-
-    async def fake_close_all_network_clients() -> None:
-        close_calls.append("close")
-
     async def fake_export_store_msku_actual_inventory(store_name: str):
         raise RuntimeError(f"inventory failed for {store_name}")
 
-    monkeypatch.setattr(cli, "close_all_network_clients", fake_close_all_network_clients)
     monkeypatch.setattr(cli, "export_store_msku_actual_inventory", fake_export_store_msku_actual_inventory)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR"})
     assert payload == {
         "success": False,
         "store_name": "Amazon-Lerxiuer-FR",
         "exception": "inventory failed for Amazon-Lerxiuer-FR",
     }
-    assert close_calls == ["close"]

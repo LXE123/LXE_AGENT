@@ -26,15 +26,15 @@ Discovery is not the same as model activation.
 3. Connector state can hide optional connector-owned skills.
 4. The prompt receives compact metadata for only the available skills.
 5. The model reads a skill's `SKILL.md` when it chooses that workflow.
-6. Tool ownership from the activated skill becomes available on the next step.
+6. Owner-gated deferred tools from the activated skill become available on the next step.
 
 This keeps the base prompt bounded while preserving detailed workflow contracts on demand.
 
-## Script Tools
+## Business Commands
 
-Business skills use registered script tools from `python/lxeskill_cli/lxeskill/catalog.json`. Catalog protocol version 1 records the tool name, schema, handler/module, owner skills, timeout, and exposure policy.
+Business skills declare versioned `lxeskill ...` commands from `python/lxeskill_cli/lxeskill/catalog.json`. Catalog protocol version 1 records the command path, schema, handler/module, owner skills, timeout, visibility and artifact declarations.
 
-Runtime skills must invoke their owned tools through the tool registry. They must not instruct the model to shell out directly to internal command modules. This boundary keeps validation, cancellation, JSON protocol handling, logging, and permission checks centralized.
+Runtime skills invoke their owned command through native `exec` as one standalone `lxeskill ...` call. They must not instruct the model to invoke internal Python modules or compose the command with shell operators. Runtime owns process control, while the CLI owns authorization, parameter validation, JSONL output and business dispatch.
 
 ## Usage Tracking
 
@@ -54,7 +54,7 @@ When adding or renaming a skill:
 
 1. keep `name`, `type`, description, and allowed tools precise;
 2. make all references relative and contained inside the skill root;
-3. register any script tool with explicit ownership and schema;
+3. register each business command in the catalog with explicit ownership and schema;
 4. update workflow-map routing when the user intent changes;
 5. update catalog/count tests and this inventory if categories change;
 6. test permission and connector filtering where applicable;

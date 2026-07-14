@@ -61,7 +61,7 @@ Router ensure/rebind session，保存 response route，并把 pending events 与
 
 ## Tool 数据流
 
-`ToolExposureState` 在 turn 内持续存在。direct 工具最初可见；deferred 工具通过 `tool_search` 暴露；读取允许的 `SKILL.md` 会激活 owner script tools。新 exposure 从下一 provider step 使用。
+`ToolExposureState` 在 turn 内持续存在。direct 工具最初可见；deferred 工具通过 `tool_search` 暴露；读取允许的 `SKILL.md` 会激活 owner-gated tools。新 exposure 从下一 provider step 使用。
 
 Tool execute context 包含 handle、session、route、turn 和 exposure state。工具可以返回 model-visible content、artifact files 与受控 session state patch。Runtime 先写 state patch/发送 artifact，再把 tool result 放入 canonical history；错误转换成 `is_error` result，不让模型看见未闭合 tool use。
 
@@ -75,7 +75,7 @@ Tool execute context 包含 handle、session、route、turn 和 exposure state�
 
 ## Cancel 与失败
 
-RunHandle 的 signal 同时中断 provider、summary、MCP、script 和 process。取消发生在多个 tool use 中间时，剩余调用写 cancelled stub。Provider retryable failure 在 step 内重试；context overflow 走一次强制 compaction；结构性错误或重复 overflow 终止 turn。
+RunHandle 的 signal 同时中断 provider、summary、MCP 和 process。取消发生在多个 tool use 中间时，剩余调用写 cancelled stub。Provider retryable failure 在 step 内重试；context overflow 走一次强制 compaction；结构性错误或重复 overflow 终止 turn。
 
 Runtime 返回 `completed|cancelled|error` outcome，Scheduler 释放 active slot。平台发送是独立 delivery 边界：发送失败不回滚已持久化 outcome，也不重放工具。
 
@@ -83,6 +83,6 @@ Runtime 返回 `completed|cancelled|error` outcome，Scheduler 释放 active slo
 
 turn_start/end、provider attempt、stream event、tool start/end、context checkpoint、usage 和 delivery failure 写入结构化日志或 trace。日志中的 token、authorization、cookie、base64、绝对敏感路径和 encrypted thinking data会被脱敏。
 
-## 一次性脚本边界
+## 一次性业务命令边界
 
-业务脚本由 `python/lxeskill_cli/lxeskill/catalog.json` 注册，Runtime 通过 JSON bridge 启动 `.venv` 子进程。stdout 只允许协议响应，stderr 用于日志；Runtime 负责 timeout、最大输出、abort、Windows 进程树终止和 artifact 路径校验。
+业务命令由 `python/lxeskill_cli/lxeskill/catalog.json` 注册，模型通过 native `exec` 启动独立的 `lxeskill ...` 进程。Gateway 注入允许的 skill scope，CLI 负责授权与 dispatch；Runtime process manager 负责 timeout、最大输出、abort 和 Windows 进程树终止。常驻 Bun 进程不加载 Python 业务 module。

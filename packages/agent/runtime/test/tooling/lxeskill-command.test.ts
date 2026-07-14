@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { matchLxeSkillInvocation } from "../../src/tooling/lxeskill-command";
+import { join } from "node:path";
+import {
+  loadLxeSkillCommandCatalog,
+  matchLxeSkillInvocation,
+} from "../../src/tooling/lxeskill-command";
 import { buildToolDisplayStep } from "../../src/tooling/tool-display";
 
 describe("lxeskill command recognition", () => {
@@ -34,5 +38,27 @@ describe("lxeskill command recognition", () => {
     expect(step.detail).toBe("");
     expect(JSON.stringify(step)).not.toContain("raw-secret");
     expect(JSON.stringify(step)).not.toContain("secret.json");
+  });
+
+  test("loads stable commands, owners, modules, and artifact declarations", () => {
+    const catalogPath = join(process.cwd(), "python", "lxeskill_cli", "lxeskill", "catalog.json");
+    const entries = loadLxeSkillCommandCatalog(catalogPath);
+
+    expect(entries.find((entry) => entry.name === "browser_auth_refresh")).toEqual({
+      command: "lxeskill auth refresh",
+      name: "browser_auth_refresh",
+      visibility: "maintenance",
+      ownerSkills: ["ziniao-browser"],
+    });
+    expect(entries.find((entry) => entry.name === "mabang_download_fba_delivery_csv"))
+      .toMatchObject({
+        command: "lxeskill fba shipment delivery-csv-download",
+        module: "services.agent_cli.mabang.download_fba_delivery_csv",
+        ownerSkills: ["fba-shipment-delivery-csv-download"],
+      });
+    expect(entries.find((entry) => entry.name === "ziniao_page")).toMatchObject({
+      ownerSkills: ["ziniao-browser"],
+      artifactPaths: [{ field: "screenshot_path", role: "model_input" }],
+    });
   });
 });

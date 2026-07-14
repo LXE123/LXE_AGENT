@@ -6,7 +6,7 @@ const definition = (name: string, exposure: "direct" | "deferred" = "direct") =>
   name,
   description: `${name} capability`,
   input_schema: { type: "object" },
-  source: exposure === "direct" ? "native" as const : "script" as const,
+  source: "native" as const,
   exposure,
   execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
 });

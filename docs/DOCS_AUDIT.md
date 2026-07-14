@@ -121,7 +121,7 @@ Draft or archive：
 - `docs/harness/runtime/tools/tool_schema.md`：已从 context 文档中拆出，作为 runtime tools 下的 current tool schema 文档。
 - `docs/harness/runtime/tools/tool_execution.md`：已补 runtime tool execution 生命周期，覆盖 registry lookup、`ToolExecutionContext`、handler 调用、`ToolResult`、取消、final answer stream 工具状态和 canonical `tool_result` 写回。
 - `docs/harness/skill/` 敏感旧记录第一批：删除 1 个真正空占位文件，保留 7 篇脱敏旧 skill 流程记录；保留业务流程、关键 endpoint/selector 思路和字段说明，不把它们提升为当前运行时 skill 文档。
-- `docs/harness/skill/README.md` 和 `docs/harness/skill/current_skill_catalog.md`：已按当前 27 个 repository skills 重建 discovery、校验、权限/connector 过滤、按需激活、script tool ownership 和三类业务目录。
+- `docs/harness/skill/README.md` 和 `docs/harness/skill/current_skill_catalog.md`：已按当前 27 个 repository skills 重建 discovery、校验、权限/connector 过滤、按需激活、command ownership 和三类业务目录。
 - `docs/harness/logger.md`：已补终端/文件/trace 三层输出、级别覆盖、async context、敏感信息脱敏和本地保留策略。
 - `docs/database/local_agent.md`：已补 SQLite 与 JSONL transcript 分工、light/full load path、replacement checkpoint、本地状态安全和备份恢复边界。
 - `docs/harness/skill/` 物理规范化：旧草稿、阶段记录、脱敏流程记录和紫鸟参考资料已分流到 `archive/` 和 `reference/`，归档目录已对齐当前 runtime skill slug，并统一标题、状态头和 truth source 说明；未修改 `/skills/*/SKILL.md`。

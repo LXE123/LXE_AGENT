@@ -14,7 +14,7 @@ Registry definition 包含：
 - `rawName`：可选原始 MCP 名称。
 - `description`：用途、输入前提和结果说明。
 - `input_schema`：JSON Schema object。
-- `source`：native、MCP 或 script 等来源。
+- `source`：native 或 MCP 来源。
 - `exposure`：direct 或 deferred。
 - `connectorName`：可选 connector/server identity。
 - `ownerSkills`：允许激活该工具的 skill names。
@@ -26,7 +26,7 @@ Provider 只接收 name、description 和 input schema；handler、source metada
 
 所有 model name 在一个 registry 中全局唯一。重复注册直接抛错。MCP 名称先规范化 server/tool，再检查冲突并生成稳定唯一名；Dashboard 同时保留 raw/model mapping 便于诊断。
 
-Script tool name 来自版本化 catalog，不能从 skill 文本临时创造。Skill frontmatter 的 `script_tools` 必须引用 catalog 中 exposed 且 owner 包含该 skill 的 entry。
+`lxeskill` 业务命令不是独立 `ToolDefinition`；它们的 command path 来自版本化 catalog。Skill frontmatter 的 `commands` 必须引用 catalog 中归属于该 skill 的业务命令，模型统一通过 native `exec` 调用。
 
 ## JSON Schema
 
@@ -74,4 +74,4 @@ Provider request 使用当前 step 的 snapshot。更新 schema 不迁移 transc
 
 ## 验证
 
-Tests 覆盖重复 name、direct/deferred exposure、skill activation、MCP naming、script catalog ownership、connector filter 和 schema snapshot 时机。
+Tests 覆盖重复 name、direct/deferred exposure、skill activation、MCP naming、command catalog ownership、connector filter 和 schema snapshot 时机。

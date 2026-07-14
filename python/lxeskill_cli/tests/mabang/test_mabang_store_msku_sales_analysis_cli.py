@@ -1,22 +1,12 @@
 from __future__ import annotations
 
-import json
 
 from services.agent_cli.mabang import analyze_store_msku_sales as cli
 from services.mabang.amazon.fba.store_msku_sales_analysis import StoreMskuSalesAnalysisResult
 
 
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
 def test_missing_store_name_returns_failure_json(capsys) -> None:
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({})
     assert payload == {
         "success": False,
         "store_name": "",
@@ -40,10 +30,7 @@ def test_success_returns_sales_analysis_report_path(monkeypatch, capsys) -> None
 
     monkeypatch.setattr(cli, "analyze_store_msku_sales", fake_analyze_store_msku_sales)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR"})
     assert payload == {
         "success": True,
         "store_name": "Amazon-Lerxiuer-FR",
@@ -64,10 +51,7 @@ def test_analysis_error_returns_failure_json(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(cli, "analyze_store_msku_sales", fake_analyze_store_msku_sales)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR"})
     assert payload == {
         "success": False,
         "store_name": "Amazon-Lerxiuer-FR",

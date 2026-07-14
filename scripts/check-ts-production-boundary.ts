@@ -24,7 +24,12 @@ forbidText("package.json", /main\.py|agent_runtime\.worker/, "workspace scripts 
 forbidText("apps/gateway/src/main.ts", /main\.py|agent_runtime\.worker/, "Bun CLI must not fall back to Python");
 requireText("apps/gateway/src/orchestration/production.ts", /new TypeScriptAgentRuntime/, "production must assemble the TypeScript Runtime");
 requireText("apps/gateway/src/orchestration/production.ts", /"-m",\s*"lxeskill"/, "business maintenance must cross the one-shot lxeskill CLI");
-requireText("apps/gateway/src/orchestration/production.ts", /LXE_SCRIPT_TOOL_BRIDGE_ENABLED[\s\S]*?\?\?\s*"0"/, "the diagnostic script-tool bridge must default off");
+forbidText(
+  "apps/gateway/src/orchestration/production.ts",
+  /LXE_SCRIPT_TOOL_BRIDGE_ENABLED|PythonScriptToolRunner|registerScriptTools|loadScriptToolCatalog|lxeskill\.bridge/,
+  "production must not retain the retired script-tool bridge",
+);
+forbidText("config/runtime.env", /LXE_SCRIPT_TOOL_BRIDGE_ENABLED/, "runtime configuration must not restore the retired bridge gate");
 
 forbidPath("main.py", "the legacy Python production entrypoint must be deleted");
 for (const path of [
@@ -45,6 +50,8 @@ forbidPath("apps/gateway/src/orchestration/worker-client.ts", "the worker client
 forbidPath("apps/gateway/src/orchestration/worker-process.ts", "the worker process launcher must be deleted");
 forbidPath("apps/gateway/src/orchestration/worker-supervisor.ts", "the worker supervisor must be deleted");
 forbidPath("packages/foundation/protocol/schemas/worker-envelope.schema.json", "the worker envelope contract must be deleted");
+forbidPath("packages/agent/runtime/src/tooling/script-tools.ts", "the retired script-tool runner must be deleted");
+forbidPath("python/lxeskill_cli/lxeskill/bridge.py", "the retired Python bridge entrypoint must be deleted");
 forbidText("apps/gateway/src/orchestration/production.ts", /spawnWorker|WorkerProcess|createGatewayComposition/, "production must not retain a worker fallback");
 forbidText("packages/foundation/protocol/src/types.ts", /WorkerEnvelope/, "protocol types must not expose a worker envelope");
 forbidText("scripts/doctor.ps1", /platforms\.feishu|shared\.llm|agent_runtime|main\.py/, "doctor must not inspect deleted Python production modules");

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+from pathlib import Path
 
 from shared.repository import repository_root
 
@@ -150,11 +151,22 @@ def _repository_paths() -> list[str]:
     return [path for path in output.split("\0") if path]
 
 
+def _is_git_ignored(path: Path) -> bool:
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", "--", path.name],
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    if result.returncode not in {0, 1}:
+        result.check_returncode()
+    return result.returncode == 0
+
+
 def _repository_top_level_directories() -> set[str]:
     return {
-        path.split("/", 1)[0]
-        for path in _repository_paths()
-        if "/" in path
+        path.name
+        for path in REPO_ROOT.iterdir()
+        if path.is_dir() and path.name != ".git" and not _is_git_ignored(path)
     }
 
 

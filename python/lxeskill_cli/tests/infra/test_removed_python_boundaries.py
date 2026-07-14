@@ -7,6 +7,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 
 REMOVED_PATHS = (
+    "python/lxeskill_cli/lxeskill/bridge.py",
     "python/lxeskill_cli/shared/db/sqlite/_agent_storage.py",
     "python/lxeskill_cli/shared/db/sqlite/response_route_state.py",
     "python/lxeskill_cli/shared/db/sqlite/session_messages.py",

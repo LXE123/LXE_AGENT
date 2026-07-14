@@ -13,13 +13,13 @@ Runtime 负责单个 turn 内的模型调用、上下文预算、工具执行、
 - `runtime.ts`：turn 与 step 状态机。
 - `context.ts`：canonical message、token 估算、裁剪、修复和摘要压缩。
 - `provider.ts`：provider catalog、streaming、retry 和热切换。
-- `tools.ts`、`coding-tools.ts`、`script-tools.ts`、`mcp.ts`：工具注册与执行。
+- `registry.ts`、`coding-tools.ts`、`lxeskill-command.ts`、`mcp.ts`：工具注册、命令边界与执行。
 - `skills.ts`：skill discovery、过滤与 prompt。
 - `storage.ts`：SQLite、JSONL transcript 和 usage。
 - `final-answer-streamer.ts`：统一 final stream 状态。
 - `trace.ts`：turn/provider/tool trace 与脱敏。
 
-生产进程没有 worker fallback。浏览器、ERP 和表格业务代码只能通过 `lxeskill.bridge` 作为一次性子进程运行；它们不是 Runtime service，也不能被 skill 通过 shell 绕过。
+生产进程没有 worker fallback。浏览器、ERP 和表格业务代码只能通过 native `exec` 调用 catalog 注册的独立 `lxeskill ...` 命令；它们不是 Runtime service，skill 也不能直接调用内部 Python module 绕过 CLI。
 
 ## 专题导航
 
@@ -27,7 +27,7 @@ Runtime 负责单个 turn 内的模型调用、上下文预算、工具执行、
 - [Turn Execution](turn_execution.md)：turn snapshot、step loop、provider、tool 和 final outcome。
 - [Turn Step Lifecycle](turn_step_lifecycle.md)：单 step 的固定顺序与闭合条件。
 - [Context](context/README.md)：canonical history、组装、持久化和 compaction。
-- [Tools](tools/README.md)：native、deferred、MCP、skill-owned 和 script tools。
+- [Tools](tools/README.md)：native、deferred、MCP、skill-owned 与 `lxeskill` command boundary。
 
 ## 生命周期
 

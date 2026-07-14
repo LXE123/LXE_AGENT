@@ -13,12 +13,9 @@ import {
   loadMcpConfig,
   setMcpServerEnabled,
   registerCodingTools,
-  registerScriptTools,
-  PythonScriptToolRunner,
   OneShotCliRunner,
   SkillCatalog,
   loadLxeSkillCommandCatalog,
-  loadScriptToolCatalog,
   configureRuntimeTracing,
   registerToolSearch,
   buildSystemPrompt,
@@ -195,41 +192,6 @@ export function createProductionGateway(
     stop(): Promise<void>;
   }> = [processes];
   if (existsSync(python)) {
-    const scriptBridgeEnabled = ["1", "true", "yes", "on"].includes(
-      String(options.environment.LXE_SCRIPT_TOOL_BRIDGE_ENABLED ?? "0").trim().toLowerCase(),
-    );
-    if (scriptBridgeEnabled) {
-      const scriptRunner = new PythonScriptToolRunner({
-        command: [python, "-m", "lxeskill.bridge"],
-        cwd: options.projectRoot,
-        timeoutMs: 10 * 60_000,
-        maxOutputBytes: 10 * 1024 * 1024,
-        // Python derives "<stem>-py.log" from LOG_FILE, so bridge logs land in
-        // runtime-py.log beside the Bun JSONL file instead of mixing formats.
-        env: { ...options.environment, LOG_FILE: String(options.environment.LOG_FILE ?? "").trim() || "runtime.log" },
-        onStderr: (line) => logger.info("Python tool", { line }),
-      });
-      registerScriptTools(tools, {
-        runner: scriptRunner,
-        definitions: loadScriptToolCatalog(commandCatalogPath),
-        projectRoot: options.projectRoot,
-        session: async (sessionId) => {
-          const session = await directStore.getSession(sessionId);
-          const source = session?.source ?? {};
-          return {
-            session_id: sessionId,
-            response_route_id: String(source.response_route_id ?? ""),
-            user_id: String(source.user_id_alt ?? source.user_id ?? ""),
-            conversation_id: String(
-              source.chat_id ?? source.conversation_id ?? "",
-            ),
-          };
-        },
-      });
-      logger.warn("script_tool_bridge_enabled", { reason: "diagnostic_fallback" });
-    } else {
-      logger.info("script_tool_bridge_disabled", { business_command_count: businessCommands.size });
-    }
     if (sqliteStore) runtimeServices.push(
       new MaintenanceScheduler({
         projectRoot: options.projectRoot,

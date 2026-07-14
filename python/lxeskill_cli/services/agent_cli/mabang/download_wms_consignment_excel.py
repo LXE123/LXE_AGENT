@@ -1,20 +1,12 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.mabang.amazon.fba import download_consignment_excel_from_wms
-from shared.infra.net import close_all_network_clients
-from shared.logging import setup_logging
 
 PREFERRED_SHEET_NAME = "FBA装箱任务"
 BOX_SPLIT_SIZE = 5
@@ -153,22 +145,13 @@ def split_consignment_excel_by_box(
     }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.download_wms_consignment_excel"
-    )
-    parser.add_argument("--ship-no", default="")
-    parser.add_argument("--split-mode", choices=SPLIT_MODES, default=SPLIT_MODE_AUTO)
-    return parser
-
-
-async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
-    ship_no = _normalize_ship_no(getattr(args, "ship_no", ""))
+async def _download_and_split(raw_ship_no: Any, raw_split_mode: Any) -> dict[str, Any]:
+    ship_no = _normalize_ship_no(raw_ship_no)
     if not ship_no:
         raise ValueError("ship_no 不能为空")
     if not ship_no.startswith("SP"):
         raise ValueError(f"ship_no 格式无效: {ship_no}")
-    split_mode = str(getattr(args, "split_mode", SPLIT_MODE_AUTO) or SPLIT_MODE_AUTO).strip().lower()
+    split_mode = str(raw_split_mode or SPLIT_MODE_AUTO).strip().lower()
     if split_mode not in SPLIT_MODES:
         raise ValueError(f"split_mode 格式无效: {split_mode}")
 
@@ -191,29 +174,15 @@ async def _run_async(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
     ship_no = ""
     try:
-        args = build_parser().parse_args(argv)
-        ship_no = _normalize_ship_no(getattr(args, "ship_no", ""))
-        payload = asyncio.run(_run_async(args))
-    except Exception as exc:
-        payload = {
+        ship_no = _normalize_ship_no(arguments.get("ship_no") or "")
+        return asyncio.run(_download_and_split(arguments.get("ship_no") or "", arguments.get("split_mode")))
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return {
             "success": False,
             "ship_no": ship_no,
             "exception": _exception_text(exc),
         }
-    finally:
-        try:
-            asyncio.run(close_all_network_clients())
-        except Exception:
-            pass
-
-    _write_json(payload)
-    return 0 if bool(payload.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

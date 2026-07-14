@@ -1,28 +1,13 @@
 from __future__ import annotations
 
-import json
 
 from services.agent_cli.mabang import download_fba_delivery_csv as cli
 from services.mabang.amazon.fba.batch_delivery import BatchDeliveryCsvResult
 
 
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
-async def _noop_close_all_network_clients() -> None:
-    return None
-
-
 def test_missing_delivery_no_returns_failure_json(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({})
     assert payload == {
         "success": False,
         "delivery_no": "",
@@ -31,12 +16,8 @@ def test_missing_delivery_no_returns_failure_json(monkeypatch, capsys):
 
 
 def test_invalid_delivery_no_returns_failure_json(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main(["--delivery-no", "FBA123"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"delivery_no": 'FBA123'})
     assert payload == {
         "success": False,
         "delivery_no": "FBA123",
@@ -45,7 +26,6 @@ def test_invalid_delivery_no_returns_failure_json(monkeypatch, capsys):
 
 
 def test_success_returns_downloaded_csv_path(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
     async def fake_download(delivery_no: str, *, timeout_sec: float, poll_interval_sec: float):
         assert delivery_no == "SP260508022"
@@ -62,10 +42,7 @@ def test_success_returns_downloaded_csv_path(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "download_fba_delivery_csv", fake_download)
 
-    exit_code = cli.main(["--delivery-no", "sp260508022"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"delivery_no": 'sp260508022'})
     assert payload == {
         "success": True,
         "delivery_no": "SP260508022",
@@ -79,7 +56,6 @@ def test_success_returns_downloaded_csv_path(monkeypatch, capsys):
 
 
 def test_success_preserves_explicit_poll_interval(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
     async def fake_download(delivery_no: str, *, timeout_sec: float, poll_interval_sec: float):
         assert delivery_no == "SP260508022"
@@ -96,25 +72,18 @@ def test_success_preserves_explicit_poll_interval(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "download_fba_delivery_csv", fake_download)
 
-    exit_code = cli.main(["--delivery-no", "sp260508022", "--poll-interval-sec", "15"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"delivery_no": 'sp260508022', "poll_interval_sec": '15'})
     assert payload["success"] is True
 
 
 def test_download_error_returns_failure_json(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
     async def fake_download(delivery_no: str, *, timeout_sec: float, poll_interval_sec: float):
         raise RuntimeError(f"download failed for {delivery_no}")
 
     monkeypatch.setattr(cli, "download_fba_delivery_csv", fake_download)
 
-    exit_code = cli.main(["--delivery-no", "SP260508022"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"delivery_no": 'SP260508022'})
     assert payload == {
         "success": False,
         "delivery_no": "SP260508022",

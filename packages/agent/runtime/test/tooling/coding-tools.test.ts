@@ -82,8 +82,8 @@ describe("native coding tools", () => {
   });
 
   test("exec sessions run cross-platform shell commands and lxeskill without PowerShell on Unix", async () => {
-    mkdirSync(join(projectRoot, "tmp"), { recursive: true });
-    const cwd = mkdtempSync(join(projectRoot, "tmp", "exec 中文 (space)-"));
+    mkdirSync(join(projectRoot, "var", "tmp"), { recursive: true });
+    const cwd = mkdtempSync(join(projectRoot, "var", "tmp", "exec 中文 (space)-"));
     roots.push(cwd);
     const registry = new ToolRegistry();
     const completed: JsonObject[] = [];

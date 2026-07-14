@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger } from "@lxe/core";
@@ -44,33 +44,6 @@ const fakeRuntime = (calls: string[]) => ({
 });
 
 describe("production Gateway application", () => {
-  test("keeps the diagnostic script-tool bridge disabled by default", async () => {
-    const runtimeRoot = mkdtempSync(join(tmpdir(), "lxe-production-bridge-default-"));
-    roots.push(runtimeRoot);
-    const python = join(runtimeRoot, ".venv", "bin", "python");
-    mkdirSync(join(runtimeRoot, ".venv", "bin"), { recursive: true });
-    writeFileSync(python, "", "utf8");
-    const logs: Array<Record<string, unknown>> = [];
-    const application = createProductionGateway({
-      projectRoot: runtimeRoot,
-      runtimeRoot,
-      environment: { AGENT_DASHBOARD_ENABLED: "0", FEISHU_GATEWAY_ENABLED: "0" },
-      policy: policy(),
-      directRuntime: fakeRuntime([]),
-      directStorage: fakeStorage(),
-      logger: createLogger("gateway", {
-        write: (line) => logs.push(JSON.parse(line) as Record<string, unknown>),
-      }),
-    });
-
-    await application.start();
-    expect(logs).toContainEqual(expect.objectContaining({
-      message: "script_tool_bridge_disabled",
-      business_command_count: 0,
-    }));
-    await application.stop();
-  });
-
   test("assembles only the in-process TypeScript Runtime", async () => {
     const runtimeRoot = mkdtempSync(join(tmpdir(), "lxe-production-"));
     roots.push(runtimeRoot);

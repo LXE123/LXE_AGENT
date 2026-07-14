@@ -37,7 +37,7 @@ Runtime unhealthy 时 scheduler 保留 queued job，不继续 dispatch。start �
 - 当前登记的 child process/process tree。
 - start failure 和 closing/terminal 状态。
 
-Provider、summary、MCP、script tool 和 coding process 都接收同一个 abort signal。工具启动的进程必须登记到 handle，取消时由 Runtime/process manager 有界终止；Windows 使用进程树语义。
+Provider、summary、MCP 和 coding process 都接收同一个 abort signal。工具启动的进程必须登记到 handle，取消时由 Runtime/process manager 有界终止；Windows 使用进程树语义。
 
 ## Completion 校验
 

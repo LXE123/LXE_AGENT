@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 import pytest
@@ -58,12 +57,6 @@ def _read_excel(path: str | Path):
     import pandas as pd
 
     return pd.read_excel(path, sheet_name="FBA装箱任务")
-
-
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
 
 
 def test_relative_wms_dirs_resolve_from_workspace_root():
@@ -327,10 +320,7 @@ def test_wms_network_error_keeps_existing_retry_without_force_refresh(monkeypatc
 
 
 def test_missing_ship_no_returns_failure_json(capsys):
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({})
     assert payload == {
         "success": False,
         "ship_no": "",
@@ -339,10 +329,7 @@ def test_missing_ship_no_returns_failure_json(capsys):
 
 
 def test_invalid_ship_no_returns_failure_json(capsys):
-    exit_code = cli.main(["--ship-no", "FBA123"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"ship_no": "FBA123"})
     assert payload == {
         "success": False,
         "ship_no": "FBA123",
@@ -360,10 +347,7 @@ def test_success_returns_downloaded_excel_path(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    exit_code = cli.main(["--ship-no", "sp260226004"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"ship_no": "sp260226004"})
     assert payload == {
         "success": True,
         "ship_no": "SP260226004",
@@ -383,10 +367,7 @@ def test_download_error_returns_failure_json(monkeypatch, capsys):
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    exit_code = cli.main(["--ship-no", "SP260226004"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"ship_no": "SP260226004"})
     assert payload == {
         "success": False,
         "ship_no": "SP260226004",
@@ -461,10 +442,7 @@ def test_cli_success_returns_split_payload(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    exit_code = cli.main(["--ship-no", "SP260226004"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"ship_no": "SP260226004"})
     assert payload["split_mode"] == "auto"
     assert payload["box_count"] == 6
     assert payload["split_required"] is True
@@ -484,10 +462,7 @@ def test_cli_auto_split_mode_returns_split_payload(monkeypatch, tmp_path, capsys
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    exit_code = cli.main(["--ship-no", "SP260226004", "--split-mode", "auto"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"ship_no": "SP260226004", "split_mode": "auto"})
     assert payload["split_mode"] == "auto"
     assert payload["box_count"] == 6
     assert payload["split_required"] is True
@@ -507,10 +482,7 @@ def test_cli_original_split_mode_skips_split_over_five_boxes(monkeypatch, tmp_pa
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    exit_code = cli.main(["--ship-no", "SP260226004", "--split-mode", "original"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"ship_no": "SP260226004", "split_mode": "original"})
     assert payload["split_mode"] == "original"
     assert payload["box_count"] == 6
     assert payload["split_required"] is False
@@ -530,10 +502,7 @@ def test_cli_original_split_mode_without_over_limit_has_no_skip_reason(monkeypat
 
     monkeypatch.setattr(cli, "download_consignment_excel_from_wms", fake_download)
 
-    exit_code = cli.main(["--ship-no", "SP260226004", "--split-mode", "original"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"ship_no": "SP260226004", "split_mode": "original"})
     assert payload["split_mode"] == "original"
     assert payload["box_count"] == 4
     assert payload["split_required"] is False

@@ -28,7 +28,7 @@ Bun CLI
   -> Feishu CardKit / message / file / typing
 ```
 
-Gateway、Runtime、Dashboard、scheduler、channel adapter 和常驻维护任务运行在一个 Bun 进程中。生产路径没有 worker supervisor、NDJSON worker envelope 或其它 runtime fallback。Python 只存在于版本化的一次性业务脚本 bridge 后方，执行完成即退出。
+Gateway、Runtime、Dashboard、scheduler、channel adapter 和常驻维护任务运行在一个 Bun 进程中。生产路径没有 worker supervisor、NDJSON worker envelope 或其它 runtime fallback。Python 业务能力只通过 native `exec` 调用版本化的独立 `lxeskill ...` 命令，执行完成即退出。
 
 ## 专题导航
 

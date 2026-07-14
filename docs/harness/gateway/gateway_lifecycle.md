@@ -20,13 +20,13 @@ Gateway lifecycle 负责把配置、持久化、Runtime、Dashboard、scheduler 
 
 1. `SqliteRuntimeStore`，默认位于 `user_session_db/local_agent.sqlite3`。
 2. `AtomicRuntimeProviderManager`，负责当前 provider generation。
-3. `ToolRegistry`、coding tools、script tools、MCP manager 和 `SkillCatalog`。
+3. `ToolRegistry`、coding tools、MCP manager 和 `SkillCatalog`。
 4. `TypeScriptAgentRuntime`，通过 emitter port 与 Gateway 解耦。
 5. `DashboardApi` 与 `BunDashboardServer`。
 6. `SessionBindingStore`、`SessionRouter`、`SessionScheduler` 和 `HeartbeatBridge`。
 7. 可选 `FeishuAdapter`；缺少必要配置时不注册飞书 channel。
 
-业务脚本通过 `.venv` 中的解释器执行 `lxeskill.bridge`。Gateway 只看到版本化 catalog 和 JSON 请求/响应，不把脚本模块加载进常驻进程。
+业务能力由模型通过 native `exec` 调用版本化的独立 `lxeskill ...` 命令。Gateway 用 catalog 做命令归属与展示，并把允许的 skill scope 注入 CLI；Bun 常驻进程不注册 Python tool，也不加载业务模块。
 
 ## 启动顺序
 
@@ -63,7 +63,7 @@ Gateway lifecycle 负责把配置、持久化、Runtime、Dashboard、scheduler 
 1. 停止 planned-stop/status controller。
 2. 停止 heartbeat，等待正在进行的 flush。
 3. 停止 scheduler 接收新 job，并取消 active run。
-4. abort Runtime 中登记的 provider、MCP、脚本和 process 工作。
+4. abort Runtime 中登记的 provider、MCP 和 process 工作。
 5. 停止 Runtime services。
 6. 逆序停止 channel adapters。
 7. 停止 Dashboard。

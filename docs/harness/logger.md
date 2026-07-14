@@ -45,7 +45,7 @@ The shipped runtime configuration leaves local file logging disabled. For develo
 File responsibilities are intentionally separate:
 
 - Bun structured runtime records (JSONL): `var/logs/runtime/YYYYMMDD/runtime.log`.
-- Python text logs (bridge tools and standalone scripts): `var/logs/runtime/YYYYMMDD/runtime-py.log`. Python derives the name from `LOG_FILE` by appending `-py` to the stem, so the two formats never share a file.
+- Python text logs (standalone `lxeskill` commands): `var/logs/runtime/YYYYMMDD/runtime-py.log`. Python derives the name from `LOG_FILE` by appending `-py` to the stem, so the two formats never share a file.
 - Feishu raw events: `var/logs/feishu_raw_events/YYYYMMDD.jsonl`.
 - Provider traces: `var/logs/agent_traces/` and `var/logs/sse_wire_traces/`.
 

@@ -5,7 +5,6 @@ import sys
 from types import ModuleType
 from types import SimpleNamespace
 
-from lxeskill import bridge
 from lxeskill.business import load_catalog
 from lxeskill.business import execute_module_json
 from services.browser.tools import client
@@ -76,95 +75,12 @@ def test_browser_vision_returns_a_path_without_base64(tmp_path, monkeypatch) -> 
     assert all(item.get("type") != "image" for item in result.content)
 
 
-def test_python_bridge_calls_service_boundary_without_runtime_context(monkeypatch) -> None:
-    calls: list[tuple[str, dict, object]] = []
-
-    async def fake_execute(tool_name: str, arguments: dict, session: object) -> ToolExecutionResult:
-        calls.append((tool_name, arguments, session))
-        return ToolExecutionResult(
-            tool_name=tool_name,
-            success=True,
-            content=[{"type": "text", "text": "MEDIA:D:/artifacts/browser.png"}],
-            state_patch={"browser": {"store_id": "store-1"}},
-            files=["D:/artifacts/browser.png"],
-        )
-
-    monkeypatch.setattr(client, "execute_browser_tool", fake_execute)
-    monkeypatch.setattr(
-        bridge,
-        "load_tool_state",
-        lambda session_id: {"browser": {"session_id": "remote-1"}},
-    )
-    monkeypatch.setattr(
-        "services.browser.store.ziniao_config.ziniao_tool_config_status",
-        lambda: (True, ""),
-    )
-
-    response = asyncio.run(
-        bridge._execute(
-            {
-                "protocol_version": "1",
-                "call_id": "call-1",
-                "tool_name": "ziniao_browser",
-                "arguments": {"action": "get_status"},
-                "session": {
-                    "session_id": "session-1",
-                    "response_route_id": "route-1",
-                    "user_id": "user-1",
-                    "conversation_id": "conversation-1",
-                },
-            }
-        )
-    )
-
-    assert response == {
-        "protocol_version": "1",
-        "call_id": "call-1",
-        "ok": True,
-        "content": [{"type": "text", "text": "MEDIA:D:/artifacts/browser.png"}],
-        "state_patch": {"browser": {"store_id": "store-1"}},
-    }
-    assert len(calls) == 1
-    assert calls[0][0:2] == ("ziniao_browser", {"action": "get_status"})
-    assert getattr(calls[0][2], "session_id") == "session-1"
-    assert getattr(calls[0][2], "state_data") == {
-        "browser": {"session_id": "remote-1"}
-    }
-
-
-def test_catalog_covers_active_business_skills_and_bridge_dispatches_module(monkeypatch) -> None:
+def test_catalog_covers_active_business_skills() -> None:
     catalog = load_catalog()
     assert catalog["amazon_logistic_quote"]["module"] == "services.agent_cli.amazon_logistic.run"
     assert catalog["logistics_rate_import"]["owner_skills"] == ["fba-logistics-rate-import"]
     assert catalog["mabang_resolve_fba_store"]["owner_skills"]
     assert catalog["browser_auth_refresh"]["exposed"] is False
-
-    calls: list[tuple[dict, dict, dict]] = []
-
-    def fake_execute(entry: dict, arguments: dict, session: dict):
-        calls.append((entry, arguments, session))
-        return True, [{"type": "text", "text": "ok"}], [], None
-
-    monkeypatch.setattr(bridge, "execute_module_json", fake_execute)
-    response = asyncio.run(
-        bridge._execute(
-            {
-                "protocol_version": "1",
-                "call_id": "business-1",
-                "tool_name": "mabang_resolve_fba_store",
-                "arguments": {"store_name": "Demo"},
-                "session": {
-                    "session_id": "session-1",
-                    "response_route_id": "route-current",
-                    "user_id": "user-1",
-                    "conversation_id": "conversation-1",
-                },
-            }
-        )
-    )
-    assert response["ok"] is True
-    assert calls[0][1] == {"store_name": "Demo"}
-    assert calls[0][2]["response_route_id"] == "route-current"
 
 
 def test_business_adapter_supports_legacy_zero_argument_main(monkeypatch) -> None:

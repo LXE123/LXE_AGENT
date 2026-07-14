@@ -76,7 +76,7 @@ steering 是 session 级开关。启用时，纯文本消息优先注入 active 
 Bot 的 allowed skill types 和本地 connector enabled state 共同影响：
 
 - Runtime system prompt 中可见 skill。
-- skill activation 后可暴露的 owner script tools。
+- 当前 bot skill scope 内允许执行的 catalog business commands。
 - Dashboard skill catalog 与 connector 控件。
 
 这些变化从下一 turn 生效；正在运行的 turn 使用启动时固定的 exposure snapshot。

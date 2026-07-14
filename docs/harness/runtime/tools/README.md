@@ -11,9 +11,9 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 - Native direct tools：Runtime 内置的 read/write/edit/grep/find/exec/process 等能力。
 - Native Feishu tools：由 Gateway 注入 API port，读取当前会话或下载资源。
 - MCP tools：从 enabled server 动态发现，可 direct 或 deferred。
-- Script tools：由 `python/lxeskill_cli/lxeskill/catalog.json` 注册，通过一次性 JSON bridge 执行业务脚本。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：搜索 deferred definition 并更新 exposure state。
+- Business commands：不是独立 model tool；由 native `exec` 执行 catalog 注册的独立 `lxeskill ...` 命令。
 
 ## 专题导航
 
@@ -24,7 +24,7 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 
 - [`tools.ts`](/packages/agent/runtime/src/tooling/registry.ts)：registry 与 exposure state。
 - [`coding-tools.ts`](/packages/agent/runtime/src/tooling/coding-tools.ts)：文件和 process 工具。
-- [`script-tools.ts`](/packages/agent/runtime/src/tooling/script-tools.ts)：业务脚本 bridge。
+- [`lxeskill-command.ts`](/packages/agent/runtime/src/tooling/lxeskill-command.ts)：catalog 命令、owner 与 artifact 声明解析。
 - [`mcp.ts`](/packages/agent/runtime/src/tooling/mcp.ts)：MCP config、连接和工具注册。
 - [`skills.ts`](/packages/agent/runtime/src/tooling/skills.ts)：skill catalog 与 prompt。
 
@@ -51,7 +51,7 @@ Exposure state 在 turn 内持久，schema 每 step 重新捕获。新暴露的�
 
 ## Cancel 与 process
 
-所有 handler 接收当前 `RunHandle`。长运行 native/MCP/script/process 必须监听 abort。后台 process 登记 session、turn、route 和 task id，允许 list/poll/log/remove；完成事件先持久化 pending event，再由 heartbeat 回到正常 turn。
+所有 handler 接收当前 `RunHandle`。长运行 native/MCP/process 必须监听 abort。后台 process 登记 session、turn、route 和 task id，允许 list/poll/log/remove；完成事件先持久化 pending event，再由 heartbeat 回到正常 turn。
 
 ## Model-visible result
 

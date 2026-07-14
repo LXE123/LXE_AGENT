@@ -37,18 +37,17 @@ Process stdout/stderr 有大小限制，cancel 会终止登记的进程树。
 
 Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更新 MCP status 并返回 tool error。Enable/disable 会注册或移除该 server definition，不在 Dashboard PATCH 时隐式调用模型。
 
-## Script tools
+## lxeskill 业务命令
 
-`PythonScriptToolRunner` 使用固定 command 启动 `lxeskill.bridge`，发送单个 JSON request并等待单个 JSON response：
+业务能力不注册为独立 model tool。模型通过 native `exec` 执行一条独立的 `lxeskill ...` 命令：
 
-- catalog 决定 name、schema、module、owner skills 和 exposure。
-- cwd 固定为项目根目录。
-- 默认业务 timeout 为 10 分钟，最大 output 10 MiB。
-- stdout 只允许协议 JSON；日志必须写 stderr。
-- abort/timeout 终止子进程和 Windows process tree。
-- 非零退出、额外 stdout、非法 JSON 或 payload shape 都是明确错误。
+- `catalog.json` 决定稳定 command path、owner skill、业务 module 和 artifact 声明。
+- `exec.command` 只允许一条独立的 `lxeskill` 调用；拒绝 `python -m`、内部业务 module、管道、重定向和 shell 拼接。
+- Gateway 注入 `LXESKILL_SKILL_SCOPE`，CLI 负责命令授权、参数校验和业务 dispatch。
+- `.venv` 解析、cwd、timeout、background、output limit、abort 和 Windows process tree 由 native process manager 处理。
+- CLI 保留版本化 JSONL/result/artifact 合同，Runtime 将 stdout/stderr 作为受控 process output 返回。
 
-脚本返回 artifact paths 前必须通过 project/runtime boundary 校验。Skill 不能用 coding exec 直接启动业务模块绕过 catalog。
+Skill 只能调用自己声明且由 catalog 归属的命令；生成文件仍需经过 workspace/artifact boundary 才能发送。
 
 ## State patch 与 artifact
 
@@ -87,9 +86,9 @@ Runtime 按 tool name 记录 calls、errors、duration；当前已激活 owner s
 - Abort 不继续 dispatch 剩余调用。
 - Background completion 通过 pending event/heartbeat 汇报。
 - MCP/server failure 隔离到对应 connector。
-- Script protocol failure不接受部分结果。
+- `lxeskill` 非零退出或非法调用不接受为成功结果。
 - Artifact send failure 不改变 canonical tool result 已执行事实。
 
 ## 验证
 
-Tests 覆盖 file safety、read-before-edit、process lifecycle、tool search、MCP timeout/disable、script bridge framing、skill ownership、result trimming、cancel closure 和 artifact ordering。
+Tests 覆盖 file safety、read-before-edit、process lifecycle、tool search、MCP timeout/disable、独立 `lxeskill` 命令约束、skill ownership、result trimming、cancel closure 和 artifact ordering。

@@ -328,7 +328,7 @@ export class DashboardApi {
     });
     const native = this.options.tools.definitionsSnapshot().filter((tool) => tool.source !== "mcp");
     const groups: JsonObject[] = native.length ? [{
-      name: "coding", label: "Native and script tools", enabled: true, tools: native.map(payload),
+      name: "coding", label: "Native tools", enabled: true, tools: native.map(payload),
     }] : [];
     for (const server of this.options.mcpConfig.servers) {
       const tools = this.options.tools.definitionsSnapshot()

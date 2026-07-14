@@ -2,7 +2,7 @@ import type { JsonObject } from "@lxe/protocol";
 import type { RuntimeHandle, ToolExecutionResult, ToolSchema } from "../engine/types";
 
 export interface ToolDefinition extends ToolSchema {
-  source?: "native" | "mcp" | "script";
+  source?: "native" | "mcp";
   exposure?: "direct" | "deferred";
   ownerSkills?: string[];
   connectorName?: string;
@@ -147,7 +147,7 @@ export class ToolExposureState {
 }
 
 export interface NormalizedToolDefinition extends ToolDefinition {
-  source: "native" | "mcp" | "script";
+  source: "native" | "mcp";
   exposure: "direct" | "deferred";
   ownerSkills: string[];
 }

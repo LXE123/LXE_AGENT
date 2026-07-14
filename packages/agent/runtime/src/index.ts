@@ -8,7 +8,6 @@ export * from "./providers/model-image";
 export * from "./providers/config-paths";
 export * from "./engine/runtime";
 export * from "./engine/final-answer-streamer";
-export * from "./tooling/script-tools";
 export * from "./tooling/skills";
 export * from "./engine/system-events";
 export * from "./engine/system-prompt";
