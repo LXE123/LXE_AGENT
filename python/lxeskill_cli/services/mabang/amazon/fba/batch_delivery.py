@@ -8,10 +8,11 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from services.mabang import config as mabang_settings
+from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session, external_http_session
 from shared.logging import get_logger
 from shared.workspace import artifact_path
-from services.mabang import config as mabang_settings
 
 from ...auth import get_fba_free_token
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
@@ -86,10 +87,6 @@ class BatchDeliveryCsvResult:
             "csv_path": self.csv_path,
             "source": self.source,
         }
-
-
-def _configured_text(name: str, default: str) -> str:
-    return mabang_settings.configured_text(name, default)
 
 
 def _authorization_value(token: str) -> str:
