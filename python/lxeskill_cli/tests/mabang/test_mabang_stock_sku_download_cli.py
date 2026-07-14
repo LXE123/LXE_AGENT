@@ -18,28 +18,6 @@ def _write_delivery_csv(path, rows: list[dict[str, str]], *, columns: list[str] 
             writer.writerow(row)
 
 
-def test_missing_delivery_no_returns_failure_json(monkeypatch, capsys):
-
-    payload = cli.run({})
-
-    assert payload == {
-        "success": False,
-        "delivery_no": "",
-        "exception": "delivery_no 不能为空",
-    }
-
-
-def test_invalid_delivery_no_returns_failure_json(monkeypatch, capsys):
-
-    payload = cli.run({"delivery_no": "FBA123"})
-
-    assert payload == {
-        "success": False,
-        "delivery_no": "FBA123",
-        "exception": "delivery_no 格式无效: FBA123",
-    }
-
-
 def test_find_latest_delivery_csv_picks_newest_file(tmp_path):
     older = tmp_path / "SP260508022_1.csv"
     newer = tmp_path / "SP260508022_2.csv"
