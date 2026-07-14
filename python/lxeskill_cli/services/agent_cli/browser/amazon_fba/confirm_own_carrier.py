@@ -31,39 +31,11 @@ def run_confirm_own_carrier(
     )
 
 
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
-    try:
-        parser = build_parser("confirm_own_carrier")
-        args = parser.parse_args(argv)
-        raw_context = context_payload()
-
-        try:
-            context, timeout_sec = validate_args(args)
-            raw_context = merge_context_payloads(context)
-        except Exception as exc:
-            payload = not_ready_result(
-                context=raw_context,
-                exception=exception_text(exc),
-            )
-            write_result_event(payload)
-            return 1
-
-        payload = run_confirm_own_carrier(
-            context=context,
-            timeout_sec=timeout_sec,
-        )
-        payload = archive_selected_result_files(
-            payload,
-            allowed_keys=("shipment_summary_excel",),
-            stage="confirm_own_carrier",
-        )
-        write_result_event(payload)
-        return 0 if bool(payload.get("finished")) else 1
-    finally:
-        finalize_fba_cli_process()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
+    return run_stage(
+        arguments,
+        run_confirm_own_carrier,
+        archive_keys=("shipment_summary_excel",),
+        stage='confirm_own_carrier',
+    )

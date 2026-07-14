@@ -30,39 +30,11 @@ def run_prepare_multi_box_excel(
     )
 
 
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
-    try:
-        parser = build_parser("prepare_multi_box_excel")
-        args = parser.parse_args(argv)
-        raw_context = context_payload()
-
-        try:
-            context, timeout_sec = validate_args(args)
-            raw_context = merge_context_payloads(context)
-        except Exception as exc:
-            payload = not_ready_result(
-                context=raw_context,
-                exception=exception_text(exc),
-            )
-            write_result_event(payload)
-            return 1
-
-        payload = run_prepare_multi_box_excel(
-            context=context,
-            timeout_sec=timeout_sec,
-        )
-        payload = archive_selected_result_files(
-            payload,
-            allowed_keys=("step2_filled",),
-            stage="prepare_multi_box_excel",
-        )
-        write_result_event(payload)
-        return 0 if bool(payload.get("finished")) else 1
-    finally:
-        finalize_fba_cli_process()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
+    return run_stage(
+        arguments,
+        run_prepare_multi_box_excel,
+        archive_keys=("step2_filled",),
+        stage='prepare_multi_box_excel',
+    )

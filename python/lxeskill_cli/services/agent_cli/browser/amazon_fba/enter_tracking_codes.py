@@ -30,34 +30,11 @@ def run_enter_tracking_codes(
     )
 
 
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
-    try:
-        parser = build_parser("enter_tracking_codes")
-        args = parser.parse_args(argv)
-        raw_context = context_payload()
-
-        try:
-            context, timeout_sec = validate_args(args)
-            raw_context = merge_context_payloads(context)
-        except Exception as exc:
-            payload = not_ready_result(
-                context=raw_context,
-                exception=exception_text(exc),
-            )
-            write_result_event(payload)
-            return 1
-
-        payload = run_enter_tracking_codes(
-            context=context,
-            timeout_sec=timeout_sec,
-        )
-        write_result_event(payload)
-        return 0 if bool(payload.get("finished")) else 1
-    finally:
-        finalize_fba_cli_process()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
+    return run_stage(
+        arguments,
+        run_enter_tracking_codes,
+        archive_keys=(),
+        stage='',
+    )

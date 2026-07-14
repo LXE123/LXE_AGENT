@@ -6,7 +6,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Callable
 
 from services.agent_cli._shared.browser_session import browser_session
 from services.agent_cli._shared.context_json import (
@@ -86,6 +86,34 @@ def not_ready_result(
         exception=exception,
         context=context,
     )
+
+
+def run_stage(
+    arguments: dict[str, Any],
+    runner: Callable[..., dict[str, Any]],
+    *,
+    archive_keys: tuple[str, ...] = (),
+    stage: str = "",
+) -> dict[str, Any]:
+    """Shared run() body for the shipment stage CLIs.
+
+    The catalog input_schema is the argument contract; context validation
+    failures come back as not-ready payloads instead of raising.
+    """
+    raw_context = context_payload()
+    try:
+        try:
+            context = parse_context_file_argument(str(arguments.get("context_file") or ""))
+            timeout_sec = max(30, int(arguments.get("timeout_sec") or 180))
+            raw_context = merge_context_payloads(context)
+        except Exception as exc:  # noqa: BLE001 — reported through the payload
+            return not_ready_result(context=raw_context, exception=exception_text(exc))
+        payload = runner(context=context, timeout_sec=timeout_sec)
+        if archive_keys:
+            payload = archive_selected_result_files(payload, allowed_keys=archive_keys, stage=stage)
+        return payload
+    finally:
+        finalize_fba_cli_process()
 
 
 def normalize_result(
