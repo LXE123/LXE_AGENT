@@ -1,53 +1,13 @@
 from __future__ import annotations
 
-import argparse
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.mabang.amazon.fba import replenishment_template as template_service
-from shared.logging import setup_logging
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.replenishment_template"
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    subparsers.add_parser("list")
-    subparsers.add_parser("list-params")
-
-    show_parser = subparsers.add_parser("show")
-    show_parser.add_argument("--template", default=template_service.DEFAULT_TEMPLATE_NAME)
-
-    export_parser = subparsers.add_parser("export")
-    export_parser.add_argument("--template", default=template_service.DEFAULT_TEMPLATE_NAME)
-
-    validate_parser = subparsers.add_parser("validate-file")
-    validate_parser.add_argument("--xlsx", required=True)
-
-    import_parser = subparsers.add_parser("import")
-    import_parser.add_argument("--xlsx", required=True)
-    import_parser.add_argument("--name", default="")
-
-    replace_parser = subparsers.add_parser("replace")
-    replace_parser.add_argument("--template", required=True)
-    replace_parser.add_argument("--xlsx", required=True)
-
-    rename_parser = subparsers.add_parser("rename")
-    rename_parser.add_argument("--template", required=True)
-    rename_parser.add_argument("--name", required=True)
-
-    return parser
-
-
-def _success_payload_for_args(args: argparse.Namespace) -> dict[str, Any]:
-    command = str(getattr(args, "command", "") or "")
+def _success_payload(arguments: dict[str, Any]) -> dict[str, Any]:
+    command = str(arguments.get("command") or "")
     if command == "list":
         return template_service.templates_payload()
     if command == "list-params":
@@ -57,14 +17,16 @@ def _success_payload_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "source": template_service.SOURCE,
         }
     if command == "show":
-        template = template_service.get_template(getattr(args, "template", ""))
+        template = template_service.get_template(
+            str(arguments.get("template") or template_service.DEFAULT_TEMPLATE_NAME)
+        )
         return {
             "success": True,
             "template": template.to_payload(),
             "source": template_service.SOURCE,
         }
     if command == "export":
-        template_name = str(getattr(args, "template", "") or "").strip()
+        template_name = str(arguments.get("template") or template_service.DEFAULT_TEMPLATE_NAME).strip()
         template = template_service.get_template(template_name)
         xlsx_path = template_service.export_template_xlsx(template_name)
         return {
@@ -76,7 +38,7 @@ def _success_payload_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "source": template_service.SOURCE,
         }
     if command == "validate-file":
-        xlsx_path = str(getattr(args, "xlsx", "") or "").strip()
+        xlsx_path = str(arguments.get("xlsx") or "").strip()
         result = template_service.validate_template_xlsx(xlsx_path)
         return {
             "success": True,
@@ -87,8 +49,8 @@ def _success_payload_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "source": template_service.SOURCE,
         }
     if command == "import":
-        xlsx_path = str(getattr(args, "xlsx", "") or "").strip()
-        result = template_service.import_template_xlsx(xlsx_path, name=getattr(args, "name", ""))
+        xlsx_path = str(arguments.get("xlsx") or "").strip()
+        result = template_service.import_template_xlsx(xlsx_path, name=str(arguments.get("name") or ""))
         return {
             "success": True,
             "template_name": result.template.name,
@@ -98,8 +60,8 @@ def _success_payload_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "source": template_service.SOURCE,
         }
     if command == "replace":
-        xlsx_path = str(getattr(args, "xlsx", "") or "").strip()
-        template_name = str(getattr(args, "template", "") or "").strip()
+        xlsx_path = str(arguments.get("xlsx") or "").strip()
+        template_name = str(arguments.get("template") or "").strip()
         result, old_version = template_service.replace_template_xlsx(xlsx_path, template_name=template_name)
         return {
             "success": True,
@@ -111,8 +73,8 @@ def _success_payload_for_args(args: argparse.Namespace) -> dict[str, Any]:
             "source": template_service.SOURCE,
         }
     if command == "rename":
-        old_name = str(getattr(args, "template", "") or "").strip()
-        new_name = str(getattr(args, "name", "") or "").strip()
+        old_name = str(arguments.get("template") or "").strip()
+        new_name = str(arguments.get("name") or "").strip()
         result = template_service.rename_template(old_name, new_name=new_name)
         return {
             "success": True,
@@ -124,24 +86,14 @@ def _success_payload_for_args(args: argparse.Namespace) -> dict[str, Any]:
     raise ValueError(f"未知命令: {command}")
 
 
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
-    command = ""
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
+    command = str(arguments.get("command") or "")
     try:
-        args = build_parser().parse_args(argv)
-        command = str(getattr(args, "command", "") or "")
-        payload = _success_payload_for_args(args)
-    except Exception as exc:
-        payload = {
+        return _success_payload(arguments)
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return {
             "success": False,
             "command": command,
             "exception": _exception_text(exc),
         }
-
-    _write_json(payload)
-    return 0 if bool(payload.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

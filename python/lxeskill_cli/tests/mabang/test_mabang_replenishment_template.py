@@ -9,12 +9,6 @@ from services.agent_cli.mabang import replenishment_template as cli
 from services.mabang.amazon.fba import replenishment_template as tmpl
 
 
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
 def _cell_value(path: Path, sheet_name: str, row: int, column: int):
     from openpyxl import load_workbook
 
@@ -582,8 +576,7 @@ def test_special_rule_applies_msku_overrides() -> None:
 
 
 def test_cli_list_and_list_params(capsys) -> None:
-    assert cli.main(["list"]) == 0
-    payload = _read_payload(capsys)
+    payload = cli.run({"command": "list"})
     assert payload["templates"][0]["name"] == "默认"
     assert [item["name"] for item in payload["templates"][:4]] == [
         "默认",
@@ -592,8 +585,7 @@ def test_cli_list_and_list_params(capsys) -> None:
         "DE-一组",
     ]
 
-    assert cli.main(["list-params"]) == 0
-    payload = _read_payload(capsys)
+    payload = cli.run({"command": "list-params"})
     assert payload["groups"][0]["group"] == "日销计算"
     assert [group["group"] for group in payload["groups"][:6]] == [
         "日销计算",
@@ -616,31 +608,25 @@ def test_cli_show_export_validate_and_import(monkeypatch, tmp_path, capsys) -> N
     monkeypatch.setattr(tmpl, "DEFAULT_EDITABLE_OUTPUT_DIR", template_root / "editable")
     monkeypatch.chdir(tmp_path)
 
-    assert cli.main(["show", "--template", "默认"]) == 0
-    payload = _read_payload(capsys)
+    payload = cli.run({"command": "show", "template": "默认"})
     assert payload["template"]["name"] == "默认"
 
-    assert cli.main(["export", "--template", "默认"]) == 0
-    payload = _read_payload(capsys)
+    payload = cli.run({"command": "export", "template": "默认"})
     exported_path = Path(payload["xlsx_path"])
     assert exported_path.is_file()
 
-    assert cli.main(["validate-file", "--xlsx", str(exported_path)]) == 0
-    payload = _read_payload(capsys)
+    payload = cli.run({"command": "validate-file", "xlsx": str(exported_path)})
     assert payload["template_name"] == "默认"
 
-    assert cli.main(["import", "--xlsx", str(exported_path), "--name", "CLI方案"]) == 0
-    payload = _read_payload(capsys)
+    payload = cli.run({"command": "import", "xlsx": str(exported_path), "name": "CLI方案"})
     assert payload["template_name"] == "CLI方案"
 
-    assert cli.main(["replace", "--template", "CLI方案", "--xlsx", str(exported_path)]) == 0
-    payload = _read_payload(capsys)
+    payload = cli.run({"command": "replace", "template": "CLI方案", "xlsx": str(exported_path)})
     assert payload["template_name"] == "CLI方案"
     assert payload["old_version"] == 1
     assert payload["new_version"] == 2
 
-    assert cli.main(["rename", "--template", "CLI方案", "--name", "CLI重命名方案"]) == 0
-    payload = _read_payload(capsys)
+    payload = cli.run({"command": "rename", "template": "CLI方案", "name": "CLI重命名方案"})
     assert payload["old_name"] == "CLI方案"
     assert payload["new_name"] == "CLI重命名方案"
     assert payload["template_version"] == 2
