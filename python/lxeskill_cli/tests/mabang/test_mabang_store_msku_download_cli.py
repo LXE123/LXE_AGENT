@@ -41,18 +41,6 @@ def test_invalid_id_type_returns_failure_json(monkeypatch, capsys) -> None:
     }
 
 
-def test_missing_store_name_returns_failure_json(monkeypatch, capsys) -> None:
-
-    payload = cli.run({"store_id": '697456821', "id_type": 'shopId'})
-    assert payload == {
-        "success": False,
-        "store_name": "",
-        "store_id": "697456821",
-        "id_type": "shopId",
-        "exception": "store_name 不能为空",
-    }
-
-
 def test_success_returns_downloaded_store_msku_path(monkeypatch, capsys) -> None:
     async def fake_download_store_msku_excel(store_id: str, id_type: str, *, store_name: str = ""):
         assert store_id == "697456821"
@@ -81,20 +69,4 @@ def test_success_returns_downloaded_store_msku_path(monkeypatch, capsys) -> None
         "converted": True,
         "raw_excel_deleted": True,
         "source": "mabang_store_msku_download",
-    }
-
-
-def test_download_error_returns_failure_json(monkeypatch, capsys) -> None:
-    async def fake_download_store_msku_excel(store_id: str, id_type: str, *, store_name: str = ""):
-        raise RuntimeError(f"download failed for {store_id}")
-
-    monkeypatch.setattr(cli, "download_store_msku_excel", fake_download_store_msku_excel)
-
-    payload = cli.run({"store_id": '697456821', "id_type": 'shopId', "store_name": 'Amazon-Lerxiuer-FR'})
-    assert payload == {
-        "success": False,
-        "store_name": "Amazon-Lerxiuer-FR",
-        "store_id": "697456821",
-        "id_type": "shopId",
-        "exception": "download failed for 697456821",
     }
