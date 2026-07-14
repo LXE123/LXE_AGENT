@@ -44,6 +44,7 @@ lxeskill fba invoice fill --input-xlsx <备货单.xlsx>
 ## Result Handling
 
 - `success=true`：告诉用户发票模板已生成，并提供 `output_xlsx`。
+- terminal `files` 中只有正式发票；非空时逐个调用 `send_file`。校验报告和库存 SKU 中间文件不主动发送。
 - 确认 `quantity_basis=actual`。
 - 如果有 `validation_report_xlsx`，告诉用户数量校验报告也已生成，包含 `数量校验`、`汇总表计算前后对比`、`数据来源`。
 - 可简要转述 `invoice_row_count`、`box_count`、`image_missing_count`。

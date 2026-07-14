@@ -38,19 +38,24 @@ commands:
 
 ## Command
 
-多行 TSV 固定用 PowerShell here-string，不要手工拼成一行：
+多行 TSV 写入 JSON 文件，避免 shell 引号和换行改变业务输入。用 `write` 创建 `artifacts/amazon_fba/logistics_quote_<consignment_no>.json`：
+
+```json
+{
+  "input_text": "<保留 Tab 与换行的 tsv_block>"
+}
+```
+
+再执行：
 
 ```text
-$inputText = @'
-<tsv_block>
-'@
-lxeskill fba logistics quote --input-text $inputText
+lxeskill fba logistics quote --input-json "artifacts/amazon_fba/logistics_quote_<consignment_no>.json"
 ```
 
 ## Result Handling
 
 - 只按 CLI 返回内容解释物流优选结果。
-- 成功且返回的 `files` 非空时，逐个调用 TS `send_file` 工具发送文件。
+- 成功且 terminal `files` 非空时，逐个调用 TS `send_file` 工具发送文件。
 - `send_file` 失败时报告发送失败，不要重跑 CLI。
 - 不要把本地 md 文件路径作为普通文本回复给用户。
 - 失败时只转述 CLI 错误原文。

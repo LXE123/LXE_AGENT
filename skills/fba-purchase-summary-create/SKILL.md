@@ -47,6 +47,7 @@ lxeskill fba purchase summary-create --delivery-no <delivery_no_1> --delivery-no
 ## Result Handling
 
 - `success=true`：告诉用户采购汇总表和各 SP 备货单已生成，并提供 `purchase_summary_xlsx` 和 `restock_xlsx_paths`。
+- terminal `files` 非空时逐个调用 `send_file`；本地 CSV 输入不作为附件发送。
 - 可简要转述 `sku_count`、`sku_source_count`、`matched_sku_count`、`unmatched_sku_count`、`restock_matched_sku_count`、`restock_unmatched_sku_count`、`manufacturer_count`、`contract_mapping_count`。
 - 如果 `warnings` 非空，必须转述给用户；例如出口退税总表存在完全相同的重复库存 SKU 且已自动去重、存在 `库存sku` 为空的行且已忽略，或 `供应商合同信息` sheet 的 `供货方` 映射缺失/冲突。
 - 说明第一个 sheet 是 `采购汇总`，第二个 sheet 是 `未匹配`，后续 sheet 是厂家分类。

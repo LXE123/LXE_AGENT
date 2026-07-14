@@ -36,4 +36,26 @@ describe("tool registry exposure", () => {
     expect(exposure.schemas().map((tool) => tool.name)).toContain("owner_report");
     expect(activated).toEqual(["reports"]);
   });
+
+  test("does not authorize classified invocations: the CLI owns command scope", async () => {
+    const registry = new ToolRegistry();
+    registry.register({
+      ...definition("exec"),
+      classifyInvocation: () => ({ ownerSkills: ["ziniao-browser"] }),
+    });
+    const outOfScope = registry.createExposureState({ allowedSkills: new Set(["fba-shipment-create"]) });
+    const context = {
+      session_id: "session",
+      exposureState: outOfScope,
+      handle: {
+        signal: new AbortController().signal,
+        cancelled: false,
+        drainSteering: () => [],
+        registerProcess: () => () => undefined,
+      },
+    };
+
+    await expect(registry.execute("exec", { command: "lxeskill browser page" }, context))
+      .resolves.toMatchObject({ content: [{ text: "ok" }] });
+  });
 });

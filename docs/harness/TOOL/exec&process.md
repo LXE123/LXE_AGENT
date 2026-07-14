@@ -2,6 +2,7 @@ exec 用来做什么的，目的是什么？
 - exec 是 shell 命令执行器。
 - Windows 使用 PowerShell；macOS/Linux 使用 `/bin/sh -c`，不会加载用户 shell profile。
 - Python、pip 和 lxeskill 固定使用项目 `.venv`，不依赖启动 Gateway 时的用户 PATH。
+- Gateway 会向 exec 子进程注入 `LXESKILL_SKILL_SCOPE`（当前 bot 可见的 skill 名单，与系统提示层可见性同源）。lxeskill 据此在 list/describe/执行时隐藏或拒绝（`skill_not_in_scope`）越界业务命令；maintenance 类基础设施命令（如 `auth refresh`）不受 scope 限制，保证认证失败的自愈提示对所有 bot 有效。外部宿主没有这个变量时 CLI 不设限。
 - shell 命令就是终端输入的命令。
 - 通过 exec 启动的任何东西都是进程。
 - exec 启动的进程会进入两种 map，这两种 map，一种是存放运行中的进程，一种是存放已完成的进程
@@ -54,14 +55,3 @@ Do not use process polling to emulate timers or reminders
 
 ---
 
-我目前的问题是什么？
-- AI 喜欢乱调用工具，特别是乱用 process，疯狂查询
-- 还有一个偏离主题的，AI 也很喜欢毫无理由的调用飞书工具
-
-我目前的目的是什么？
-- 运行超过 10s 的 exec 进程，就不该一直查询了，放心让它进入后台才对。
-
-
----
-
-目前 exec 遇到了一个问题

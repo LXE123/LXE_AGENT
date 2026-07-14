@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { SkillCatalog } from "@lxe/runtime";
 import {
   PermissionPolicyError,
   buildPermissionPolicy,
@@ -29,6 +30,21 @@ const valid = () => ({
 });
 
 describe("permission policy", () => {
+  test("shows Ziniao only to FBA and wildcard bots", () => {
+    const projectRoot = join(import.meta.dir, "..", "..", "..");
+    const policy = loadPermissionPolicy(join(projectRoot, "config", "permission_policy.yaml"));
+    const catalog = new SkillCatalog(projectRoot, join(projectRoot, "missing-user-skills"));
+    const namesForBot = (appId: string): Set<string> => {
+      const key = policy.botIdToKey.get(appId);
+      const allowedTypes = key ? policy.botSkillPolicy.get(key) : undefined;
+      return new Set(catalog.list({ allowedTypes: allowedTypes ?? new Set() }).map((skill) => skill.name));
+    };
+
+    expect(namesForBot("cli_a97ac28237781bd8").has("ziniao-browser")).toBe(true);
+    expect(namesForBot("cli_aa9d657db5385cdd").has("ziniao-browser")).toBe(false);
+    expect(namesForBot("cli_a93d57dc47385cc0").has("ziniao-browser")).toBe(true);
+  });
+
   test("allows aliases through shared keys, wildcard users, and denies unknown bots", () => {
     const policy = buildPermissionPolicy(valid(), "policy.yaml");
     expect(canUserAccessBot(policy, "union-1", "app-2")).toBe(true);

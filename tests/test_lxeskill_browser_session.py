@@ -68,6 +68,39 @@ def test_browser_command_persists_state_patch_and_restores_it_next_call(tmp_path
     assert source["tool_state"]["runtime"]["session_activity_at"] == "2026-07-12T08:00:00Z"
 
 
+def test_browser_vision_exposes_model_input_path_but_not_terminal_file(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "runtime.sqlite3"))
+    monkeypatch.setattr(lxeskill_browser, "internal_root", lambda: tmp_path)
+    init_schema()
+    _insert_session("session-vision", {"tool_state": {"runtime": {}, "context": {"messages": []}}})
+    screenshot = tmp_path / "artifacts" / "browser" / "shot.png"
+    screenshot.parent.mkdir(parents=True)
+    screenshot.write_bytes(b"png")
+
+    async def fake_execute(tool_name, arguments, session):
+        return ToolExecutionResult(
+            tool_name=tool_name,
+            success=True,
+            content=[{"type": "text", "text": "captured"}],
+            state_patch={"runtime": {}, "context": {"messages": []}},
+            files=[str(screenshot)],
+        )
+
+    monkeypatch.setattr(browser_client, "execute_browser_tool", fake_execute)
+    monkeypatch.setattr(lxeskill_browser, "allowed_output_file", lambda path, **kwargs: screenshot.resolve())
+    data, files = asyncio.run(lxeskill_browser.execute_browser_command(
+        {"name": "ziniao_page", "owner_skills": ["ziniao-browser"]},
+        {"action": "browser_vision", "store_id": "store-1"},
+        "session-vision",
+    ))
+
+    assert data == {
+        "content": [{"type": "text", "text": "captured"}],
+        "screenshot_path": str(screenshot.resolve()),
+    }
+    assert files == []
+
+
 def test_browser_session_resolution_prefers_explicit_id(monkeypatch) -> None:
     monkeypatch.setenv("LXE_AGENT_SESSION_ID", "environment-session")
     entry = {"input_schema": {"type": "object", "properties": {"action": {"type": "string"}}}}
@@ -109,3 +142,25 @@ def test_browser_command_reports_busy_session(tmp_path, monkeypatch) -> None:
         )
 
     assert captured.value.code == "session_busy"
+
+
+def test_store_sessions_work_on_a_fresh_db_without_init_schema(tmp_path, monkeypatch) -> None:
+    # Regression: the Bun gateway only bootstraps TS-owned tables, so a fresh
+    # deployment hit "no such table: ziniao_store_sessions" on the first
+    # standalone `lxeskill browser store --action get_status`.
+    monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "fresh.sqlite3"))
+    from shared.db.sqlite import store_sessions
+
+    assert store_sessions.list_store_sessions(host_id="host-1") == []
+    state = store_sessions.upsert_store_session(
+        browser_oauth="oauth-1",
+        browser_id=7,
+        browser_name="demo",
+        debugging_port=9222,
+        download_path=str(tmp_path / "downloads"),
+        browser_path=str(tmp_path / "browser.exe"),
+        host_id="host-1",
+    )
+    assert state.browser_id == 7
+    loaded = store_sessions.load_store_session("oauth-1", host_id="host-1")
+    assert loaded is not None and loaded.debugging_port == 9222

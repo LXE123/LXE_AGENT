@@ -47,6 +47,35 @@ def test_browser_client_exposes_async_tool_boundary(monkeypatch) -> None:
     assert result.files == []
 
 
+def test_browser_vision_returns_a_path_without_base64(tmp_path, monkeypatch) -> None:
+    screenshot = tmp_path / "page.png"
+    screenshot.write_bytes(b"not-decoded-by-client")
+    session = SimpleNamespace(session_id="session-1", state_data={})
+
+    def fake_execute(runtime, *, tool_name: str, arguments: dict):
+        return ExecuteToolResult(
+            tool_name="ziniao_page",
+            success=True,
+            summary="captured",
+            screenshot_path=str(screenshot),
+            payload={"action": "browser_vision"},
+            state_data={},
+        )
+
+    monkeypatch.setattr(client.browser_executor, "execute_browser_tool", fake_execute)
+    result = asyncio.run(client.execute_browser_tool(
+        "ziniao_page",
+        {"action": "browser_vision", "store_id": "store-1"},
+        session,
+    ))
+
+    assert result.files == [str(screenshot.resolve())]
+    assert result.content == [
+        {"type": "text", "text": f"Screenshot saved for model reading: {screenshot.resolve()}"}
+    ]
+    assert all(item.get("type") != "image" for item in result.content)
+
+
 def test_python_bridge_calls_service_boundary_without_runtime_context(monkeypatch) -> None:
     calls: list[tuple[str, dict, object]] = []
 
@@ -94,7 +123,6 @@ def test_python_bridge_calls_service_boundary_without_runtime_context(monkeypatc
         "ok": True,
         "content": [{"type": "text", "text": "MEDIA:D:/artifacts/browser.png"}],
         "state_patch": {"browser": {"store_id": "store-1"}},
-        "files": ["D:/artifacts/browser.png"],
     }
     assert len(calls) == 1
     assert calls[0][0:2] == ("ziniao_browser", {"action": "get_status"})

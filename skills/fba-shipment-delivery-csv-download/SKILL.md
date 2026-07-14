@@ -36,5 +36,5 @@ lxeskill fba shipment delivery-csv-download --delivery-no <delivery_no>
 ## Result Handling
 
 - `success=true`：告诉用户 FBA 发货单 CSV 已下载完成，并提供 `csv_path`。
-- 用户要求发送文件时，调用 `send_file` 发送 `csv_path`；该路径应位于 `artifacts/mabang_fba_delivery/`。
+- terminal `files` 非空时逐个调用 `send_file`；不要直接发送未经校验的 `data.csv_path`。
 - `success=false`：只转述 `exception`。

@@ -38,5 +38,6 @@ lxeskill fba msku detail-download --delivery-no <SP单号>
 ## Result Handling
 
 - `success=true`：告诉用户 MSKU 明细 Excel 已下载完成，并提供 `xlsx_path`。
+- terminal `files` 非空时逐个调用 `send_file`。
 - `shop_mismatch_count > 0`：说明存在店铺不一致的 MSKU 明细，已放在 `店铺不一致` sheet。
 - `success=false`：只转述 `exception`。

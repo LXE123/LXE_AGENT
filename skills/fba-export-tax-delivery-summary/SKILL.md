@@ -36,6 +36,7 @@ lxeskill fba export-tax delivery-summary --delivery-no <delivery_no>
 ## Result Handling
 
 - `success=true`：告诉用户出口退税 SKU 汇总 xlsx 已生成，并提供 `xlsx_path`。
+- terminal `files` 非空时逐个调用 `send_file`；库存 SKU 中间文件不主动发送。
 - 说明结果包含 `可出口退税` 和 `不可出口退税` 两个 sheet。
 - 可简要转述 `matched_sku_count`、`unmatched_sku_count`、`stock_name_missing_count`。
 - `success=false`：只转述 `exception`。

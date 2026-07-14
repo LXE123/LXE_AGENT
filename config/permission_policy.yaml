@@ -5,24 +5,28 @@ bots:
     app_id: cli_a97ac28237781bd8
     skill_types:
       - amazon_fba
+      - ziniao_browser
       - default
   AMAZON_FBA_MACHINE_2:
     key: AMAZON_FBA
     app_id: cli_aaa5e081aa211bee
     skill_types:
       - amazon_fba
+      - ziniao_browser
       - default
   AMAZON_FBA_MACHINE_3:
     key: AMAZON_FBA
     app_id: cli_aace5ce849b9dbcd
     skill_types:
       - amazon_fba
+      - ziniao_browser
       - default
   AMAZON_FBA_MACHINE_4:
     key: AMAZON_FBA
     app_id: cli_aac1e80571789ce4
     skill_types:
       - amazon_fba
+      - ziniao_browser
       - default
   AMAZON_REPLENISH:
     key: Amazon_备货一组

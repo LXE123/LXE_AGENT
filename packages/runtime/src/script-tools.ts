@@ -169,46 +169,10 @@ export function loadScriptToolCatalog(path: string): ScriptToolDefinition[] {
     timeoutMs: entry.timeoutMs,
     ...(entry.handler ? { handler: entry.handler } : {}),
     ...(entry.module ? { module: entry.module } : {}),
+    ...(entry.artifactPaths?.length ? { artifactPaths: structuredClone(entry.artifactPaths) } : {}),
     exposed: true,
   }));
 }
-
-export const ZINIAO_SCRIPT_TOOL_DEFINITIONS: ScriptToolDefinition[] = [
-  {
-    name: "ziniao_browser",
-    description: "Manage Ziniao store lifecycle. Reuse a running store when possible.",
-    input_schema: {
-      type: "object",
-      properties: {
-        action: { type: "string", enum: ["open_store", "get_status", "exit_store"] },
-        store_id: { type: "string" },
-      },
-      required: ["action"],
-      additionalProperties: false,
-    },
-    ownerSkills: ["fba-shipment-create"],
-  },
-  {
-    name: "ziniao_page",
-    description: "Observe and control one Ziniao store page.",
-    input_schema: {
-      type: "object",
-      properties: {
-        action: { type: "string", enum: ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"] },
-        store_id: { type: "string" },
-        full: { type: "boolean" },
-        url: { type: "string" },
-        ref: { type: "string" },
-        text: { type: "string" },
-        direction: { type: "string", enum: ["up", "down"] },
-        pixels: { type: "integer", minimum: 100, maximum: 4_000 },
-      },
-      required: ["action", "store_id"],
-      additionalProperties: false,
-    },
-    ownerSkills: ["fba-shipment-create"],
-  },
-];
 
 const readLimited = async (stream: ReadableStream<Uint8Array>, limit: number): Promise<Uint8Array> => {
   const reader = stream.getReader();

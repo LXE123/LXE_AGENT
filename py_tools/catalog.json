@@ -8,10 +8,10 @@
       "visibility": "browser",
       "session_mode": "lxe_session",
       "handler": "browser",
-      "owner_skills": ["fba-shipment-create"],
+      "owner_skills": ["ziniao-browser"],
       "timeout_ms": 600000,
       "exposed": true,
-      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_store", "get_status", "exit_store"]}, "store_id": {"type": "string"}}, "required": ["action"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_store", "get_status", "exit_store"], "description": "店铺生命周期操作。先 get_status；仅在未启动时 open_store；只在明确结束时 exit_store。"}, "store_id": {"type": "string", "minLength": 1, "description": "紫鸟店铺 ID；open_store 必填，禁止凭空猜测。"}}, "required": ["action"], "additionalProperties": false}
     },
     {
       "name": "ziniao_page",
@@ -20,10 +20,11 @@
       "visibility": "browser",
       "session_mode": "lxe_session",
       "handler": "browser",
-      "owner_skills": ["fba-shipment-create"],
+      "owner_skills": ["ziniao-browser"],
       "timeout_ms": 600000,
       "exposed": true,
-      "input_schema": {"type": "object", "properties": {"action": {"type": "string"}, "store_id": {"type": "string"}, "full": {"type": "boolean"}, "url": {"type": "string"}, "ref": {"type": "string"}, "text": {"type": "string"}, "direction": {"type": "string"}, "pixels": {"type": "integer"}}, "required": ["action", "store_id"], "additionalProperties": false}
+      "artifact_paths": [{"field": "screenshot_path", "role": "model_input"}],
+      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "页面操作；交互前先 snapshot，截图仅用于模型读取。"}, "store_id": {"type": "string", "minLength": 1, "description": "已启动且与当前会话绑定的紫鸟店铺 ID。"}, "full": {"type": "boolean", "description": "browser_vision 是否截取完整页面。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action", "store_id"], "additionalProperties": false}
     },
     {
       "name": "browser_auth_refresh",
@@ -32,7 +33,7 @@
       "visibility": "maintenance",
       "session_mode": "none",
       "handler": "internal",
-      "owner_skills": [],
+      "owner_skills": ["ziniao-browser"],
       "timeout_ms": 180000,
       "exposed": false,
       "input_schema": {"type": "object", "properties": {"scope": {"type": "string", "enum": ["erp", "fba", "private_amz"]}, "account": {"type": "string"}, "require_wms_cookie_header": {"type": "boolean"}, "force": {"type": "boolean"}, "force_refresh": {"type": "boolean"}}, "additionalProperties": false}

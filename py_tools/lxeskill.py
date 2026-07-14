@@ -188,8 +188,42 @@ def _recovery_for_auth_failure(code: str, message: str) -> dict[str, str] | None
     return {"command": "lxeskill auth refresh --scope fba --force"}
 
 
+def _skill_scope() -> set[str] | None:
+    """Host-injected visibility scope; None means unrestricted (external hosts)."""
+    raw = os.environ.get("LXESKILL_SKILL_SCOPE")
+    if raw is None:
+        return None
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _scope_allows(entry: dict[str, Any], scope: set[str] | None) -> bool:
+    if scope is None:
+        return True
+    if str(entry.get("visibility") or "") in {"maintenance", "internal"}:
+        # Infrastructure commands stay reachable regardless of scope: recovery
+        # hints tell any business bot to run `lxeskill auth refresh` after an
+        # auth failure, and that self-healing path must not depend on which
+        # business skills the bot can see.
+        return True
+    owners = [str(owner).strip() for owner in list(entry.get("owner_skills") or []) if str(owner).strip()]
+    if not owners:
+        return True
+    return any(owner in scope for owner in owners)
+
+
+def _require_in_scope(entry: dict[str, Any]) -> None:
+    if _scope_allows(entry, _skill_scope()):
+        return
+    raise LxeSkillError(
+        "skill_not_in_scope",
+        f"{_command_text(entry)} is outside this agent's skill scope",
+        exit_code=EXIT_ENVIRONMENT,
+    )
+
+
 def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
     command = _command_text(entry)
+    _require_in_scope(entry)
     arguments, session_id = _input_arguments(entry, argv)
     if str(entry.get("session_mode") or "none") == "lxe_session" and not session_id:
         raise LxeSkillError("session_required", f"{command} requires an LXE session", exit_code=EXIT_ENVIRONMENT)
@@ -311,13 +345,19 @@ def _main(argv: list[str] | None = None) -> int:
                 )
             return _run_doctor(catalog)
         if arguments[0] == "list":
-            entries = [_public_entry(entry) for entry in catalog.values() if str(entry.get("visibility") or "") != "internal"]
+            scope = _skill_scope()
+            entries = [
+                _public_entry(entry)
+                for entry in catalog.values()
+                if str(entry.get("visibility") or "") != "internal" and _scope_allows(entry, scope)
+            ]
             _emit({"type": "result", "command": "list", "ok": True, "data": {"commands": entries}, "files": []})
             return 0
         if arguments[0] == "describe":
             entry, remaining = _resolve_entry(arguments[1:], catalog)
             if remaining:
                 raise LxeSkillError("invalid_arguments", f"unexpected arguments: {' '.join(remaining)}", exit_code=EXIT_USAGE)
+            _require_in_scope(entry)
             _emit({"type": "result", "command": "describe", "ok": True, "data": _public_entry(entry), "files": []})
             return 0
         if arguments[-1] in {"-h", "--help"}:

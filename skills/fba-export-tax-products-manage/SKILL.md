@@ -37,4 +37,5 @@ lxeskill fba export-tax products-import --sku <sku1> --sku <sku2>
 
 - `success=true`：告诉用户 `imported_count`、`skipped_duplicate_count`、`skipped_not_found_count`。
 - `backup_path` 非空：说明导入前已自动备份。
+- `backup_path` 是诊断备份，不属于正式交付文件，不主动调用 `send_file`。
 - `success=false`：只转述 `exception`。

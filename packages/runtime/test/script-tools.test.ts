@@ -133,7 +133,12 @@ describe("Python JSON tool bridge", () => {
       command: "lxeskill auth refresh",
       name: "browser_auth_refresh",
       visibility: "maintenance",
-      ownerSkills: [],
+      ownerSkills: ["ziniao-browser"],
     });
+    expect(loadLxeSkillCommandCatalog(catalogPath).find((entry) => entry.name === "ziniao_page"))
+      .toMatchObject({
+        ownerSkills: ["ziniao-browser"],
+        artifactPaths: [{ field: "screenshot_path", role: "model_input" }],
+      });
   });
 });

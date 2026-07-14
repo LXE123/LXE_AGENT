@@ -84,8 +84,8 @@ def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys
             "data": {
                 "catalog_commands": 28,
                 "business_commands": 27,
-                "skill_files": 54,
-                "owner_skills": 22,
+                "skill_files": 55,
+                "owner_skills": 23,
                 "command_declarations": 27,
             },
             "files": [],
@@ -309,3 +309,41 @@ def test_declared_artifact_rejects_missing_and_symlink_escape(tmp_path) -> None:
             collect_declared_artifacts(entry, {"output": str(link)})
     finally:
         activate_project_workspace()
+
+
+def test_skill_scope_filters_list_and_blocks_out_of_scope_commands(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "replenishment-store-resolve")
+    assert lxeskill.main(["list"]) == 0
+    (record,) = _records(capsys)
+    commands = {item["command"] for item in record["data"]["commands"]}
+    assert "replenish store resolve" in commands
+    # Infrastructure commands stay reachable so auth-failure recovery hints
+    # keep working for every business bot.
+    assert "auth refresh" in commands
+    assert all(not command.startswith("fba ") for command in commands)
+
+    assert lxeskill.main(["describe", "fba", "customs", "fill"]) == lxeskill.EXIT_ENVIRONMENT
+    (denied,) = _records(capsys)
+    assert denied["ok"] is False
+    assert denied["error"]["code"] == "skill_not_in_scope"
+
+    assert lxeskill.main(["fba", "customs", "fill"]) == lxeskill.EXIT_ENVIRONMENT
+    (blocked,) = _records(capsys)
+    assert blocked["error"]["code"] == "skill_not_in_scope"
+
+
+def test_empty_skill_scope_denies_business_commands_but_keeps_infrastructure(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("LXESKILL_SKILL_SCOPE", "")
+    assert lxeskill.main(["list"]) == 0
+    (record,) = _records(capsys)
+    commands = {item["command"] for item in record["data"]["commands"]}
+    assert commands == {"auth refresh"}
+
+
+def test_absent_skill_scope_is_unrestricted(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("LXESKILL_SKILL_SCOPE", raising=False)
+    assert lxeskill.main(["list"]) == 0
+    (record,) = _records(capsys)
+    catalog = load_catalog()
+    visible = [entry for entry in catalog.values() if str(entry.get("visibility") or "") != "internal"]
+    assert len(record["data"]["commands"]) == len(visible)

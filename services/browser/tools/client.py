@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
-import mimetypes
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from shared.agent_state import ensure_agent_state
-from shared.media.image_processing import compress_image_bytes
 
 from services.browser.tools import executor as browser_executor
 from services.browser.tools.models import ExecuteToolResult, ToolExecutionResult
@@ -38,24 +35,8 @@ def _image_content(path_text: str) -> tuple[list[dict[str, Any]], list[str]]:
     path = Path(str(path_text or "").strip()).expanduser().resolve()
     if not path.is_file():
         raise RuntimeError(f"截图文件不存在: {path}")
-    image_bytes = path.read_bytes()
-    media_type = str(mimetypes.guess_type(str(path))[0] or "").strip() or "image/png"
-    compressed_bytes, compressed_media_type = compress_image_bytes(image_bytes)
-    if compressed_bytes and compressed_media_type:
-        image_bytes = compressed_bytes
-        media_type = compressed_media_type
     return (
-        [
-            {"type": "text", "text": f"MEDIA:{path}"},
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": media_type,
-                    "data": base64.b64encode(image_bytes).decode("ascii"),
-                },
-            },
-        ],
+        [{"type": "text", "text": f"Screenshot saved for model reading: {path}"}],
         [str(path)],
     )
 

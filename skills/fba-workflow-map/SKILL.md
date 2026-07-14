@@ -71,7 +71,7 @@ flowchart TD
 | Subflow | Skills |
 |---|---|
 | 发货单数据 | `fba-shipment-delivery-csv-download` |
-| 装箱与货件创建 | `fba-shipment-wms-box-download` -> `fba-shipment-create` |
+| 装箱与货件创建 | `fba-shipment-wms-box-download` -> `ziniao-browser` -> `fba-shipment-create` |
 | 发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill` |
 | 报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill` |
 | 采购汇总表与批量备货单生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-purchase-summary-create` |

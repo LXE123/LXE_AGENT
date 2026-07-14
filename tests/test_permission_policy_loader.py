@@ -44,7 +44,7 @@ def test_load_default_permission_policy() -> None:
         "AMAZON_FBA_MACHINE_2",
     }
     assert policy.user_agent_policy["on_d73c763c561e81ed7e554dd59e286095"] == {"AMAZON_FBA"}
-    assert policy.bot_skill_policy["AMAZON_FBA"] == {"amazon_fba", "default"}
+    assert policy.bot_skill_policy["AMAZON_FBA"] == {"amazon_fba", "ziniao_browser", "default"}
 
     assert policy.bot_alias_to_app_id["AMAZON_FBA_MACHINE_3"] == "cli_aace5ce849b9dbcd"
     assert policy.bot_alias_to_key["AMAZON_FBA_MACHINE_3"] == "AMAZON_FBA"

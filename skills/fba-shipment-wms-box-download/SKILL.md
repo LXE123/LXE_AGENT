@@ -48,6 +48,7 @@ lxeskill fba shipment wms-box-download --ship-no <ship_no> --split-mode original
 | `split_mode=auto` 且 `split_required=false` | 未超过拆分阈值 | 原始 `ship_no` |
 
 - `success=true`：告诉用户托运单 Excel 已准备好，并保留 `excel_path`。
+- terminal `files` 已按拆分结果选择正式交付文件，非空时逐个调用 `send_file`；不要额外发送诊断用原始文件。
 - 如有 `split_excel_paths`，列出这些拆分文件供后续创建货件使用。
 - 如有 `split_skipped_reason`，简要转述。
 - `success=false`：只转述 `exception` 原文。

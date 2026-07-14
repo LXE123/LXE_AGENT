@@ -115,7 +115,7 @@ def test_archive_selected_result_files_records_missing_source_without_runtime_em
         stage="prepare_upload",
     )
 
-    assert result["file_path"] == []
+    assert result["file_path"] == [{"key": "filled_template", "value": str(missing)}]
     assert "base notice" in result["notice"]
     assert "文件已生成记录存在，但归档附件失败" in result["notice"]
     assert "file path missing" in result["notice"]
@@ -203,6 +203,24 @@ def test_fba_shipment_create_skill_requires_parent_send_file():
     skill_path = Path(__file__).resolve().parents[1] / "skills" / "fba-shipment-create" / "SKILL.md"
     text = skill_path.read_text(encoding="utf-8")
 
-    assert "如果 `file_path` 非空" in text
+    assert "terminal `files` 非空" in text
     assert "send_file" in text
     assert "不重跑 CLI" in text
+
+
+def test_all_four_fba_shipment_stages_declare_the_same_deliverable_selector():
+    catalog = __import__("py_tools.business", fromlist=["load_catalog"]).load_catalog()
+    stage_names = {
+        "amazon_fba_prepare_upload",
+        "amazon_fba_prepare_multi_box_excel",
+        "amazon_fba_confirm_own_carrier",
+        "amazon_fba_enter_tracking_codes",
+    }
+
+    assert {
+        name: catalog[name]["artifact_paths"]
+        for name in stage_names
+    } == {
+        name: [{"field": "file_path[].value", "role": "deliverable"}]
+        for name in stage_names
+    }
