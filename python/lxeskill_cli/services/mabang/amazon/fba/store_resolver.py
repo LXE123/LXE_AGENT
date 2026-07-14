@@ -7,19 +7,27 @@ from pathlib import Path
 from typing import Any
 
 from bs4 import BeautifulSoup
-
-from shared.infra.net import erp_http_session
-from shared.workspace import artifact_path
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
+)
+from services.mabang.auth_constants import (
     PRIVATE_AMZ_HOST,
     PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
 )
+from services.mabang.export_common import clean_text as _clean_text
+from services.mabang.export_common import configured_text as _configured_text
+from shared.infra.net import erp_http_session
+from shared.workspace import artifact_path
 
 from ...auth import get_auth_context
 from ...cookies import build_cookie_header, extract_named_cookies, list_cookie_names
-from ...errors import MabangAuthError, MabangBusinessError, MabangParseError, MabangRequestError
+from ...errors import (
+    MabangAuthError,
+    MabangBusinessError,
+    MabangParseError,
+    MabangRequestError,
+)
 
 DEFAULT_STORE_LIST_URL = "https://private-amz.mabangerp.com/index.php"
 DEFAULT_PRIVATE_AMZ_REFERER = "https://private-amz.mabangerp.com/"
@@ -138,14 +146,6 @@ class FbaStoreResolveResult:
 class FbaStoreResolverAuth:
     cookie_header: str
     c_m_key: str
-
-
-def _configured_text(name: str, default: str) -> str:
-    return mabang_settings.configured_text(name, default)
-
-
-def _clean_text(value: Any) -> str:
-    return str(value or "").strip()
 
 
 def _safe_file_part(value: Any) -> str:
