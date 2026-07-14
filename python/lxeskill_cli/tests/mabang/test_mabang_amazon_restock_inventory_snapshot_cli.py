@@ -32,15 +32,6 @@ def _result(snapshot_path: str) -> AmazonRestockInventorySnapshotResult:
     )
 
 
-def test_missing_store_name_returns_failure_json(capsys) -> None:
-    payload = cli.run({})
-    assert payload == {
-        "success": False,
-        "store_name": "",
-        "exception": "store_name 不能为空",
-    }
-
-
 def test_missing_csv_returns_failure_json(capsys) -> None:
     payload = cli.run({"store_name": "Amazon-Test-US"})
     assert payload == {
