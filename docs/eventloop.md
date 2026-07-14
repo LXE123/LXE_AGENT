@@ -9,7 +9,7 @@
 3. 同一 session 串行执行，不同 session 按 `AGENT_MAX_CONCURRENCY` 并发。
 4. turn 的 `AbortSignal` 统一传递给 LLM、MCP 和工具进程；停止时先关闭 ingress，再取消并等待活跃 turn。
 5. SQLite 通过 `bun:sqlite` 在同进程内访问，保留既有数据库、JSONL 和 `sessions.json` 格式。
-6. Python 仅通过 `py_tools.bridge` 按需启动一次性 CLI；stdout 只返回一份协议 JSON，日志写 stderr，执行完成后进程退出。
+6. Python 仅通过 `lxeskill.bridge` 按需启动一次性 CLI；stdout 只返回一份协议 JSON，日志写 stderr，执行完成后进程退出。
 
 ## Current Structure
 

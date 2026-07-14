@@ -115,7 +115,7 @@ describe("Python JSON tool bridge", () => {
   });
 
   test("loads the shared versioned business catalog with stable names and owners", () => {
-    const catalogPath = join(process.cwd(), "py_tools", "catalog.json");
+    const catalogPath = join(process.cwd(), "lxeskill", "catalog.json");
     const entries = loadScriptToolCatalog(catalogPath);
     expect(entries.find((entry) => entry.name === "amazon_logistic_quote")).toMatchObject({
       module: "services.agent_cli.amazon_logistic.run",

@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from py_tools import lxeskill
-from py_tools.business import ArtifactPathError, allowed_output_file, collect_declared_artifacts, load_catalog
+from lxeskill import cli as lxeskill
+from lxeskill.business import ArtifactPathError, allowed_output_file, collect_declared_artifacts, load_catalog
 from shared.workspace import activate_external_workspace, activate_project_workspace, artifact_root, internal_root, workspace_root
 
 
@@ -59,8 +59,8 @@ def test_normal_commands_do_not_load_skill_contract_or_yaml(tmp_path, monkeypatc
             sys.executable,
             "-c",
             (
-                "import sys; import py_tools.lxeskill; "
-                "assert 'py_tools.lxeskill_contract' not in sys.modules; "
+                "import sys; import lxeskill; "
+                "assert 'lxeskill.contract' not in sys.modules; "
                 "assert 'yaml' not in sys.modules"
             ),
         ],
@@ -98,7 +98,7 @@ def test_doctor_reports_repository_contract_without_adding_a_list_command(capsys
 
 
 def test_doctor_failure_is_an_environment_error_with_one_terminal(monkeypatch, capsys) -> None:
-    from py_tools import lxeskill_contract
+    from lxeskill import contract as lxeskill_contract
 
     report = lxeskill_contract.SkillContractReport(
         catalog_commands=1,
@@ -280,7 +280,7 @@ def test_declared_artifacts_filter_roles_nested_fields_and_duplicates(tmp_path, 
                 {"field": "diagnostic_path", "role": "diagnostic"},
             ],
         }
-        monkeypatch.setattr("py_tools.business.os.path.normcase", lambda value: value.lower())
+        monkeypatch.setattr("lxeskill.business.os.path.normcase", lambda value: value.lower())
 
         assert collect_declared_artifacts(
             entry,

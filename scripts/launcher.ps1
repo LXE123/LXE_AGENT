@@ -133,7 +133,7 @@ function Invoke-LxeSkill {
     param([string[]]`$SkillArguments)
     Set-Location -LiteralPath `$LxeRoot
     `$PythonPath = Join-Path `$LxeRoot ".venv\Scripts\python.exe"
-    & `$PythonPath -m py_tools.lxeskill @SkillArguments
+    & `$PythonPath -m lxeskill @SkillArguments
     Exit-LxeNativeCommand
 }
 

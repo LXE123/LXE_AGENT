@@ -23,7 +23,7 @@ forbidText("scripts/install.sh", /main\.py|agent_runtime\.worker/, "macOS launch
 forbidText("package.json", /main\.py|agent_runtime\.worker/, "workspace scripts must not start Python production code");
 forbidText("apps/gateway/src/main.ts", /main\.py|agent_runtime\.worker/, "Bun CLI must not fall back to Python");
 requireText("apps/gateway/src/production.ts", /new TypeScriptAgentRuntime/, "production must assemble the TypeScript Runtime");
-requireText("apps/gateway/src/production.ts", /py_tools\.lxeskill/, "business maintenance must cross the one-shot lxeskill CLI");
+requireText("apps/gateway/src/production.ts", /"-m",\s*"lxeskill"/, "business maintenance must cross the one-shot lxeskill CLI");
 requireText("apps/gateway/src/production.ts", /LXE_SCRIPT_TOOL_BRIDGE_ENABLED[\s\S]*?\?\?\s*"0"/, "the diagnostic script-tool bridge must default off");
 
 forbidPath("main.py", "the legacy Python production entrypoint must be deleted");
@@ -45,7 +45,7 @@ for await (const path of new Bun.Glob("**/*.py").scan({ cwd: root, onlyFiles: tr
   if (pythonImports.test(read(path))) failures.push(`${path}: retained Python must not import gateway or agent_runtime`);
 }
 
-const scriptCatalog = JSON.parse(read("py_tools/catalog.json")) as {
+const scriptCatalog = JSON.parse(read("lxeskill/catalog.json")) as {
   protocol_version?: string;
   entries?: Array<{
     name?: string;
@@ -55,7 +55,7 @@ const scriptCatalog = JSON.parse(read("py_tools/catalog.json")) as {
     visibility?: string;
   }>;
 };
-if (scriptCatalog.protocol_version !== "1") failures.push("py_tools/catalog.json: protocol_version must be 1");
+if (scriptCatalog.protocol_version !== "1") failures.push("lxeskill/catalog.json: protocol_version must be 1");
 const commandEntries = new Map((scriptCatalog.entries ?? []).map((entry) => [
   `lxeskill ${(entry.command_path ?? []).map(String).join(" ")}`.trim(),
   entry,
@@ -94,9 +94,9 @@ for await (const path of new Bun.Glob("skills/**/SKILL.md").scan({ cwd: root, on
 for (const [command, entry] of commandEntries) {
   if (!["business", "browser"].includes(String(entry.visibility ?? ""))) continue;
   const canonicalOwner = entry.owner_skills?.[0] ?? "";
-  if (!canonicalOwner) failures.push(`py_tools/catalog.json: ${command} has no canonical owner skill`);
+  if (!canonicalOwner) failures.push(`lxeskill/catalog.json: ${command} has no canonical owner skill`);
   else if (declaredCommands.get(command) !== canonicalOwner) {
-    failures.push(`py_tools/catalog.json: ${command} is missing from canonical owner skill ${canonicalOwner}`);
+    failures.push(`lxeskill/catalog.json: ${command} is missing from canonical owner skill ${canonicalOwner}`);
   }
 }
 

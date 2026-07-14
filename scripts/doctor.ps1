@@ -266,7 +266,7 @@ Invoke-NativeChecked -Label "lxeskill Skill contract" -FilePath $uv -Arguments @
     "--frozen",
     "python",
     "-m",
-    "py_tools.lxeskill",
+    "lxeskill",
     "doctor"
 ) -Verb "Checking"
 

@@ -39,7 +39,7 @@ Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更
 
 ## Script tools
 
-`PythonScriptToolRunner` 使用固定 command 启动 `py_tools.bridge`，发送单个 JSON request并等待单个 JSON response：
+`PythonScriptToolRunner` 使用固定 command 启动 `lxeskill.bridge`，发送单个 JSON request并等待单个 JSON response：
 
 - catalog 决定 name、schema、module、owner skills 和 exposure。
 - cwd 固定为项目根目录。

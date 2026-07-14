@@ -7,8 +7,8 @@ import os
 import sys
 from typing import Any
 
-from py_tools.business import ArtifactPathError, execute_module_json, load_catalog
-from py_tools.lxeskill_browser import BrowserCliError, execute_browser_command
+from lxeskill.business import ArtifactPathError, execute_module_json, load_catalog
+from lxeskill.browser import BrowserCliError, execute_browser_command
 from shared.infra.net import bootstrap_network_policy
 from shared.logging import get_logger, setup_logging
 from shared.workspace import activate_external_workspace, activate_project_workspace, project_root, resolve_workspace_input
@@ -281,7 +281,7 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
 
 
 def _run_doctor(catalog: dict[str, dict[str, Any]]) -> int:
-    from py_tools.lxeskill_contract import validate_skill_command_contract
+    from lxeskill.contract import validate_skill_command_contract
 
     report = validate_skill_command_contract(catalog, project_root=PROJECT_ROOT)
     if report.ok:

@@ -63,12 +63,12 @@ describe("ExecShellAdapter", () => {
       "'/work/demo/.venv/bin/python' -m pip install demo",
     );
     expect(posix.normalizeCommand("/work/demo", "lxeskill fba purchase contracts-fill --input-json args.json")).toBe(
-      "'/work/demo/.venv/bin/python' -m py_tools.lxeskill fba purchase contracts-fill --input-json args.json",
+      "'/work/demo/.venv/bin/python' -m lxeskill fba purchase contracts-fill --input-json args.json",
     );
 
     const windows = new ExecShellAdapter({ platform: "win32", fileExists: () => true });
     expect(windows.normalizeCommand("C:\\Work O'Brien", "lxeskill list")).toBe(
-      "'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' -m py_tools.lxeskill list",
+      "'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' -m lxeskill list",
     );
   });
 
@@ -79,7 +79,7 @@ describe("ExecShellAdapter", () => {
       fileExists: () => true,
     });
     expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(
-      "'/work/project/.venv/bin/python' -m py_tools.lxeskill list",
+      "'/work/project/.venv/bin/python' -m lxeskill list",
     );
     expect(shell.childEnvironment("/work/project", {
       sessionId: "s1",

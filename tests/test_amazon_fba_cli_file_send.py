@@ -209,7 +209,7 @@ def test_fba_shipment_create_skill_requires_parent_send_file():
 
 
 def test_all_four_fba_shipment_stages_declare_the_same_deliverable_selector():
-    catalog = __import__("py_tools.business", fromlist=["load_catalog"]).load_catalog()
+    catalog = __import__("lxeskill.business", fromlist=["load_catalog"]).load_catalog()
     stage_names = {
         "amazon_fba_prepare_upload",
         "amazon_fba_prepare_multi_box_excel",

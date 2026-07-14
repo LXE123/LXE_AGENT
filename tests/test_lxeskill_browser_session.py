@@ -6,8 +6,8 @@ import time
 
 import pytest
 
-from py_tools import lxeskill
-from py_tools import lxeskill_browser
+from lxeskill import cli as lxeskill
+from lxeskill import browser as lxeskill_browser
 from services.browser.tools import client as browser_client
 from services.browser.tools.models import ToolExecutionResult
 from shared.db.sqlite.bootstrap import init_schema

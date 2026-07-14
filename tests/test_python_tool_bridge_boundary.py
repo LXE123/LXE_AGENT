@@ -5,9 +5,9 @@ import sys
 from types import ModuleType
 from types import SimpleNamespace
 
-from py_tools import bridge
-from py_tools.business import load_catalog
-from py_tools.business import execute_module_json
+from lxeskill import bridge
+from lxeskill.business import load_catalog
+from lxeskill.business import execute_module_json
 from services.browser.tools import client
 from services.browser.tools.models import ExecuteToolResult, ToolExecutionResult
 

@@ -141,7 +141,7 @@ def validate_skill_command_contract(
             violations.append(
                 SkillContractViolation(
                     "catalog_command_owner_missing",
-                    "py_tools/catalog.json",
+                    "lxeskill/catalog.json",
                     f"Catalog command has no owner Skill: {command}",
                 )
             )

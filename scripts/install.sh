@@ -211,7 +211,7 @@ case "\${1:-}" in
   skill)
     shift
     cd "\$LXE_ROOT"
-    "\$LXE_ROOT/.venv/bin/python" -m py_tools.lxeskill "\$@"
+    "\$LXE_ROOT/.venv/bin/python" -m lxeskill "\$@"
     ;;
   *)
     echo "Usage: LXE <start|stop|skill>" >&2
@@ -225,7 +225,7 @@ EOF
 set -euo pipefail
 LXE_ROOT="$project_root"
 cd "\$LXE_ROOT"
-exec "\$LXE_ROOT/.venv/bin/python" -m py_tools.lxeskill "\$@"
+exec "\$LXE_ROOT/.venv/bin/python" -m lxeskill "\$@"
 EOF
   chmod +x "$SKILL_LAUNCHER_PATH"
 }

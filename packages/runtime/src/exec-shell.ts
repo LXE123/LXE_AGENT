@@ -164,7 +164,7 @@ export class ExecShellAdapter {
     const skill = command.match(/^lxeskill(?:\.cmd)?(?=\s|$)([\s\S]*)$/iu);
     if (skill) {
       if (!fileExists(python)) throw new Error(`project Python is unavailable: ${python}`);
-      return `${quote(python)} -m py_tools.lxeskill${String(skill[1] ?? "")}`;
+      return `${quote(python)} -m lxeskill${String(skill[1] ?? "")}`;
     }
     return command;
   }

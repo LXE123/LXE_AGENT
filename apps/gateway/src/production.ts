@@ -112,7 +112,7 @@ export function createProductionGateway(
   let heartbeatWake: ((payload: JsonObject) => void) | undefined;
   const tools = new ToolRegistry();
   const skillCatalog = new SkillCatalog(options.projectRoot);
-  const commandCatalogPath = join(options.projectRoot, "py_tools", "catalog.json");
+  const commandCatalogPath = join(options.projectRoot, "lxeskill", "catalog.json");
   const cliCommands = existsSync(commandCatalogPath)
     ? loadLxeSkillCommandCatalog(commandCatalogPath)
     : [];
@@ -193,7 +193,7 @@ export function createProductionGateway(
     );
     if (scriptBridgeEnabled) {
       const scriptRunner = new PythonScriptToolRunner({
-        command: [python, "-m", "py_tools.bridge"],
+        command: [python, "-m", "lxeskill.bridge"],
         cwd: options.projectRoot,
         timeoutMs: 10 * 60_000,
         maxOutputBytes: 10 * 1024 * 1024,
@@ -230,7 +230,7 @@ export function createProductionGateway(
         store: sqliteStore,
         gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
         authRunner: new OneShotCliRunner({
-          command: [python, "-m", "py_tools.lxeskill"],
+          command: [python, "-m", "lxeskill"],
           cwd: options.projectRoot,
           timeoutMs: 3 * 60_000,
           maxOutputBytes: 10 * 1024 * 1024,

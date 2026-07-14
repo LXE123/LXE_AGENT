@@ -19,7 +19,7 @@ Runtime 负责单个 turn 内的模型调用、上下文预算、工具执行、
 - `final-answer-streamer.ts`：统一 final stream 状态。
 - `trace.ts`：turn/provider/tool trace 与脱敏。
 
-生产进程没有 worker fallback。浏览器、ERP 和表格业务代码只能通过 `py_tools.bridge` 作为一次性子进程运行；它们不是 Runtime service，也不能被 skill 通过 shell 绕过。
+生产进程没有 worker fallback。浏览器、ERP 和表格业务代码只能通过 `lxeskill.bridge` 作为一次性子进程运行；它们不是 Runtime service，也不能被 skill 通过 shell 绕过。
 
 ## 专题导航
 

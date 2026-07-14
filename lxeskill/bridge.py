@@ -9,7 +9,7 @@ from typing import Any
 
 from shared.logging import get_logger
 from services.browser.store.agent_tool_state import load_tool_state
-from py_tools.business import execute_module_json, load_catalog
+from lxeskill.business import execute_module_json, load_catalog
 
 
 logger = get_logger(__name__)

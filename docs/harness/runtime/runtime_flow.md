@@ -85,4 +85,4 @@ turn_start/end、provider attempt、stream event、tool start/end、context chec
 
 ## 一次性脚本边界
 
-业务脚本由 `py_tools/catalog.json` 注册，Runtime 通过 JSON bridge 启动 `.venv` 子进程。stdout 只允许协议响应，stderr 用于日志；Runtime 负责 timeout、最大输出、abort、Windows 进程树终止和 artifact 路径校验。
+业务脚本由 `lxeskill/catalog.json` 注册，Runtime 通过 JSON bridge 启动 `.venv` 子进程。stdout 只允许协议响应，stderr 用于日志；Runtime 负责 timeout、最大输出、abort、Windows 进程树终止和 artifact 路径校验。

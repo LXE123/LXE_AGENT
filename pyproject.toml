@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-lxeskill = "py_tools.lxeskill:main"
+lxeskill = "lxeskill.cli:main"
 
 [dependency-groups]
 dev = [

@@ -294,7 +294,7 @@ describe("native coding tools", () => {
       command: "python -m services.agent_cli.mabang.resolve_fba_store",
     }, context())).rejects.toMatchObject({ code: "permission_denied" });
     await expect(registry.execute("exec", {
-      command: "python -m py_tools.lxeskill replenish store resolve",
+      command: "python -m lxeskill replenish store resolve",
     }, context())).rejects.toMatchObject({ code: "permission_denied" });
     await expect(registry.execute("exec", {
       command: "echo lxeskill replenish store resolve",

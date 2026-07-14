@@ -26,7 +26,7 @@ Gateway lifecycle 负责把配置、持久化、Runtime、Dashboard、scheduler 
 6. `SessionBindingStore`、`SessionRouter`、`SessionScheduler` 和 `HeartbeatBridge`。
 7. 可选 `FeishuAdapter`；缺少必要配置时不注册飞书 channel。
 
-业务脚本通过 `.venv` 中的解释器执行 `py_tools.bridge`。Gateway 只看到版本化 catalog 和 JSON 请求/响应，不把脚本模块加载进常驻进程。
+业务脚本通过 `.venv` 中的解释器执行 `lxeskill.bridge`。Gateway 只看到版本化 catalog 和 JSON 请求/响应，不把脚本模块加载进常驻进程。
 
 ## 启动顺序
 

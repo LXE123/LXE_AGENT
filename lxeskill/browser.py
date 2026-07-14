@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from py_tools.business import allowed_output_file
+from lxeskill.business import allowed_output_file
 from shared.agent_state import merge_agent_state
 from shared.db.sqlite.engine import connection_scope
 from shared.logging import get_logger

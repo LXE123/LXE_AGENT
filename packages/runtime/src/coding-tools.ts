@@ -767,8 +767,8 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     execute: async (input, context) => {
       const rawCommand = inputText(input, "command");
       if (!rawCommand.trim()) throw new Error("command 不能为空");
-      if (/\b(?:services\.agent_cli|browser_auth_service\.main|py_tools\.lxeskill)\b/iu.test(rawCommand)) {
-        throw new ToolExecutionError("permission_denied", "registered business Python modules must be called through lxeskill");
+      if (/\b(?:services\.agent_cli|browser_auth_service\.main)\b|-m\s+lxeskill\b/iu.test(rawCommand)) {
+        throw new ToolExecutionError("permission_denied", "business Python modules and the lxeskill module must be invoked via the standalone lxeskill command");
       }
       // The standalone/composition rules keep lxeskill invocations parseable for
       // usage attribution and card display; command authorization itself belongs

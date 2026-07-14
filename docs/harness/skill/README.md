@@ -32,7 +32,7 @@ This keeps the base prompt bounded while preserving detailed workflow contracts 
 
 ## Script Tools
 
-Business skills use registered script tools from `py_tools/catalog.json`. Catalog protocol version 1 records the tool name, schema, handler/module, owner skills, timeout, and exposure policy.
+Business skills use registered script tools from `lxeskill/catalog.json`. Catalog protocol version 1 records the tool name, schema, handler/module, owner skills, timeout, and exposure policy.
 
 Runtime skills must invoke their owned tools through the tool registry. They must not instruct the model to shell out directly to internal command modules. This boundary keeps validation, cancellation, JSON protocol handling, logging, and permission checks centralized.
 

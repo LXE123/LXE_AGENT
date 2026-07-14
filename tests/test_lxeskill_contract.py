@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
-from py_tools.lxeskill_contract import validate_skill_command_contract
+from lxeskill.contract import validate_skill_command_contract
 
 
 def _entry(command: str, owners: list[str]) -> dict[str, object]:
