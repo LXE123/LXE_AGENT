@@ -5,11 +5,12 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-
-from shared.workspace import artifact_path
 from typing import Any
 
 from services.mabang import config as mabang_settings
+from services.mabang.export_common import clean_text as _clean_text
+from services.mabang.export_common import safe_store_msku_file_part as _safe_file_part
+from shared.workspace import artifact_path
 
 DEFAULT_INPUT_DIR = artifact_path("mabang_store_msku")
 DEFAULT_OUTPUT_DIR = artifact_path("mabang_store_msku_analysis")
@@ -78,16 +79,6 @@ class StoreMskuSalesAnalysisResult:
             "report_xlsx_path": self.report_xlsx_path,
             "source": self.source,
         }
-
-
-def _clean_text(value: Any) -> str:
-    return str(value or "").strip()
-
-
-def _safe_file_part(value: Any) -> str:
-    text = _clean_text(value)
-    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
-    return text.strip("._-") or "store_msku"
 
 
 def normalize_store_name(value: Any) -> str:
