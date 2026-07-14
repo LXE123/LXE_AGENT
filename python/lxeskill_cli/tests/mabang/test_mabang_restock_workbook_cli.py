@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import date
 from pathlib import Path
 
@@ -272,16 +271,6 @@ def _sheet_dimensions(path: Path, sheet_name: str) -> tuple[list[float | None], 
         return widths, heights
     finally:
         workbook.close()
-
-
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
-async def _noop_close_all_network_clients() -> None:
-    return None
 
 
 def test_generate_restock_workbook_groups_by_manufacturer(tmp_path):
@@ -1379,12 +1368,8 @@ def test_main_outputs_success_json(monkeypatch, tmp_path, capsys):
     )
     monkeypatch.setattr(cli, "DELIVERY_CSV_DIR", csv_dir)
     monkeypatch.setattr(cli, "OUTPUT_DIR", tmp_path / "out")
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main(["--delivery-no", "SP260508022", "--master-xlsx", str(master_path)])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"delivery_no": "SP260508022", "master_xlsx": str(master_path)})
     assert payload["success"] is True
     assert payload["source"] == "fba_purchase_summary"
     assert Path(payload["output_xlsx"]).is_file()
@@ -2133,14 +2118,8 @@ def test_fba_restock_main_outputs_success_json(monkeypatch, tmp_path, capsys):
     )
     monkeypatch.setattr(restock_cli, "DELIVERY_CSV_DIR", csv_dir)
     monkeypatch.setattr(restock_cli, "OUTPUT_DIR", tmp_path / "out")
-    monkeypatch.setattr(restock_cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = restock_cli.main(
-        ["--delivery-no", "SP260508022", "--master-xlsx", str(master_path), "--gross-margin", "0.3"]
-    )
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = restock_cli.run({"delivery_no": "SP260508022", "master_xlsx": str(master_path), "gross_margin": "0.3"})
     assert payload["success"] is True
     assert payload["source"] == "fba_restock_workbook"
     assert payload["gross_margin"] == "0.3"
@@ -2150,14 +2129,8 @@ def test_fba_restock_main_outputs_success_json(monkeypatch, tmp_path, capsys):
 
 
 def test_fba_restock_main_outputs_failure_json_for_invalid_gross_margin(monkeypatch, tmp_path, capsys):
-    monkeypatch.setattr(restock_cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = restock_cli.main(
-        ["--delivery-no", "SP260508022", "--master-xlsx", str(tmp_path / "missing.xlsx"), "--gross-margin", "0.9"]
-    )
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = restock_cli.run({"delivery_no": "SP260508022", "master_xlsx": str(tmp_path / "missing.xlsx"), "gross_margin": "0.9"})
     assert payload["success"] is False
     assert payload["gross_margin"] == "0.9"
     assert payload["exception"] == "毛利率必须是 0.2～0.5 之间的数字"

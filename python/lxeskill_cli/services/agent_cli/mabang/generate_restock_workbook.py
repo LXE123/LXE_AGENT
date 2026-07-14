@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import re
 from collections import OrderedDict
@@ -9,12 +8,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
     DELIVERY_CSV_DIR,
     ITEM_SPLIT_PATTERN,
@@ -27,8 +21,6 @@ from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
     _sku_match_key,
     find_latest_delivery_csv,
 )
-from shared.infra.net import close_all_network_clients
-from shared.logging import setup_logging
 from shared.workspace import artifact_path
 
 OUTPUT_DIR = artifact_path("mabang_purchase_summary")
@@ -987,47 +979,20 @@ def generate_restock_workbook(
     }
 
 
-def build_parser(
-    *,
-    prog: str = "python -m services.agent_cli.mabang.generate_restock_workbook",
-) -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(prog=prog)
-    parser.add_argument("--delivery-no", action="append", default=[])
-    parser.add_argument("--master-xlsx", required=True)
-    return parser
-
-
-def main(
-    argv: list[str] | None = None,
-    *,
-    prog: str = "python -m services.agent_cli.mabang.generate_restock_workbook",
-) -> int:
-    configure_utf8_stdio()
-    setup_logging()
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
     delivery_nos: list[str] = []
     master_xlsx = ""
     try:
-        args = build_parser(prog=prog).parse_args(argv)
-        delivery_nos = list(getattr(args, "delivery_no", []) or [])
-        master_xlsx = str(getattr(args, "master_xlsx", "") or "")
-        payload = generate_restock_workbook(delivery_nos, master_xlsx=master_xlsx)
-    except Exception as exc:
-        payload = {
+        raw = arguments.get("delivery_no")
+        delivery_nos = [raw] if isinstance(raw, str) else list(raw or [])
+        master_xlsx = str(arguments.get("master_xlsx") or "")
+        return generate_restock_workbook(delivery_nos, master_xlsx=master_xlsx)
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return {
             "success": False,
             "delivery_nos": delivery_nos,
             "master_xlsx": master_xlsx,
             "exception": _exception_text(exc),
             "source": SOURCE,
         }
-    finally:
-        try:
-            asyncio.run(close_all_network_clients())
-        except Exception:
-            pass
-
-    _write_json(payload)
-    return 0 if bool(payload.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

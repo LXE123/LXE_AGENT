@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import re
 from collections import OrderedDict
@@ -11,15 +10,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
-from shared.infra.net import close_all_network_clients
-from shared.logging import setup_logging
 from shared.workspace import artifact_path
 
 OUTPUT_DIR = artifact_path("mabang_purchase_contracts")
@@ -821,50 +813,20 @@ def fill_purchase_contracts(
     }
 
 
-def build_parser(
-    *,
-    prog: str = "python -m services.agent_cli.mabang.fill_purchase_contracts",
-) -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(prog=prog)
-    parser.add_argument("--purchase-summary-xlsx", required=True)
-    parser.add_argument("--contract-template-xlsx", required=True)
-    return parser
-
-
-def main(
-    argv: list[str] | None = None,
-    *,
-    prog: str = "python -m services.agent_cli.mabang.fill_purchase_contracts",
-) -> int:
-    configure_utf8_stdio()
-    setup_logging()
-    purchase_summary_xlsx = ""
-    contract_template_xlsx = ""
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
+    purchase_summary_xlsx = str(arguments.get("purchase_summary_xlsx") or "")
+    contract_template_xlsx = str(arguments.get("contract_template_xlsx") or "")
     try:
-        args = build_parser(prog=prog).parse_args(argv)
-        purchase_summary_xlsx = str(getattr(args, "purchase_summary_xlsx", "") or "")
-        contract_template_xlsx = str(getattr(args, "contract_template_xlsx", "") or "")
-        payload = fill_purchase_contracts(
+        return fill_purchase_contracts(
             purchase_summary_xlsx=purchase_summary_xlsx,
             contract_template_xlsx=contract_template_xlsx,
         )
-    except Exception as exc:
-        payload = {
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return {
             "success": False,
             "purchase_summary_xlsx": purchase_summary_xlsx,
             "contract_template_xlsx": contract_template_xlsx,
             "exception": _exception_text(exc),
             "source": SOURCE,
         }
-    finally:
-        try:
-            asyncio.run(close_all_network_clients())
-        except Exception:
-            pass
-
-    _write_json(payload)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

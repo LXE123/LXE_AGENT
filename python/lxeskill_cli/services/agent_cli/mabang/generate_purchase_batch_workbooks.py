@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 from collections import OrderedDict
 from datetime import date
@@ -8,19 +7,12 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from services.agent_cli._shared.json_cli import (
-    JsonArgumentParser,
-    configure_utf8_stdio,
-    exception_text as _exception_text,
-    write_json as _write_json,
-)
+from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang import generate_fba_restock_workbook as restock_workbook
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
-from shared.logging import setup_logging
 
 SOURCE = "fba_purchase_batch_workbooks"
 
-close_all_network_clients = purchase_summary.close_all_network_clients
 
 
 def _single_delivery_summary_from_csv(
@@ -151,34 +143,23 @@ def generate_purchase_batch_workbooks(
     }
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = JsonArgumentParser(
-        prog="python -m services.agent_cli.mabang.generate_purchase_batch_workbooks"
-    )
-    parser.add_argument("--delivery-no", action="append", default=[])
-    parser.add_argument("--master-xlsx", required=True)
-    parser.add_argument("--gross-margin", required=True)
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    configure_utf8_stdio()
-    setup_logging()
+def run(arguments: dict[str, Any]) -> dict[str, Any]:
+    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
     delivery_nos: list[str] = []
     master_xlsx = ""
     gross_margin = ""
     try:
-        args = build_parser().parse_args(argv)
-        delivery_nos = list(getattr(args, "delivery_no", []) or [])
-        master_xlsx = str(getattr(args, "master_xlsx", "") or "")
-        gross_margin = str(getattr(args, "gross_margin", "") or "")
-        payload = generate_purchase_batch_workbooks(
+        raw = arguments.get("delivery_no")
+        delivery_nos = [raw] if isinstance(raw, str) else list(raw or [])
+        master_xlsx = str(arguments.get("master_xlsx") or "")
+        gross_margin = str(arguments.get("gross_margin") or "")
+        return generate_purchase_batch_workbooks(
             delivery_nos,
             master_xlsx=master_xlsx,
             gross_margin=gross_margin,
         )
-    except Exception as exc:
-        payload = {
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        return {
             "success": False,
             "delivery_nos": delivery_nos,
             "master_xlsx": master_xlsx,
@@ -186,15 +167,3 @@ def main(argv: list[str] | None = None) -> int:
             "exception": _exception_text(exc),
             "source": SOURCE,
         }
-    finally:
-        try:
-            asyncio.run(close_all_network_clients())
-        except Exception:
-            pass
-
-    _write_json(payload)
-    return 0 if bool(payload.get("success")) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

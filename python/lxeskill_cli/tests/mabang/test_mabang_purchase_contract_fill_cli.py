@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -265,16 +264,6 @@ def _single_row_merged_ranges(path: Path, sheet_name: str, row_index: int) -> li
         )
     finally:
         workbook.close()
-
-
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
-async def _noop_close_all_network_clients() -> None:
-    return None
 
 
 def test_fill_purchase_contracts_generates_one_file_per_manufacturer(tmp_path):
@@ -748,19 +737,8 @@ def test_fill_purchase_contracts_main_outputs_success_json(monkeypatch, tmp_path
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template(template_path, ["厂家A"])
     monkeypatch.setattr(cli, "OUTPUT_DIR", tmp_path / "out")
-    monkeypatch.setattr(cli, "close_all_network_clients", _noop_close_all_network_clients)
 
-    exit_code = cli.main(
-        [
-            "--purchase-summary-xlsx",
-            str(purchase_path),
-            "--contract-template-xlsx",
-            str(template_path),
-        ]
-    )
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"purchase_summary_xlsx": str(purchase_path), "contract_template_xlsx": str(template_path)})
     assert payload["success"] is True
     assert payload["source"] == "fba_purchase_contract_fill"
     assert payload["generated_count"] == 1

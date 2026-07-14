@@ -1,22 +1,12 @@
 from __future__ import annotations
 
-import json
 
 from services.agent_cli.mabang import calculate_store_msku_replenishment as cli
 from services.mabang.amazon.fba.store_msku_replenishment import StoreMskuReplenishmentResult
 
 
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
-
-
 def test_missing_store_name_returns_failure_json(capsys) -> None:
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({})
     assert payload == {
         "success": False,
         "store_name": "",
@@ -58,10 +48,7 @@ def test_success_returns_replenishment_report_path(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(cli, "calculate_store_msku_replenishment", fake_calculate_store_msku_replenishment)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR"})
     assert payload == {
         "success": True,
         "store_name": "Amazon-Lerxiuer-FR",
@@ -117,10 +104,7 @@ def test_template_argument_passes_to_service(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(cli, "calculate_store_msku_replenishment", fake_calculate_store_msku_replenishment)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR", "--template", "老王大件方案"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR", "template": "老王大件方案"})
     assert payload["template_name"] == "老王大件方案"
     assert payload["template_version"] == 2
 
@@ -160,10 +144,7 @@ def test_unlinked_shipments_snapshot_warning_is_returned(monkeypatch, capsys) ->
 
     monkeypatch.setattr(cli, "calculate_store_msku_replenishment", fake_calculate_store_msku_replenishment)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR"})
     assert payload["unlinked_shipments_snapshot_warning"] == "未找到与备货数据同日的未关联货件快照，本次未扣减未关联货件"
 
 
@@ -202,10 +183,7 @@ def test_unlinked_shipments_snapshot_argument_passes_to_service(monkeypatch, cap
 
     monkeypatch.setattr(cli, "calculate_store_msku_replenishment", fake_calculate_store_msku_replenishment)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR", "--unlinked-shipments-snapshot", "snapshot.xlsx"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR", "unlinked_shipments_snapshot": "snapshot.xlsx"})
     assert payload["unlinked_shipments_snapshot_path"] == "snapshot.xlsx"
 
 
@@ -253,10 +231,7 @@ def test_amazon_restock_inventory_snapshot_argument_passes_to_service(monkeypatc
 
     monkeypatch.setattr(cli, "calculate_store_msku_replenishment", fake_calculate_store_msku_replenishment)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR", "--amazon-restock-inventory-snapshot", "restock_snapshot.xlsx"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR", "amazon_restock_inventory_snapshot": "restock_snapshot.xlsx"})
     assert payload["amazon_restock_inventory_snapshot_path"] == "restock_snapshot.xlsx"
     assert payload["amazon_restock_inventory_validation"]["country"] == "US"
 
@@ -305,10 +280,7 @@ def test_amazon_fba_inventory_snapshot_argument_passes_to_service(monkeypatch, c
 
     monkeypatch.setattr(cli, "calculate_store_msku_replenishment", fake_calculate_store_msku_replenishment)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR", "--amazon-fba-inventory-snapshot", "amazon_snapshot.xlsx"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR", "amazon_fba_inventory_snapshot": "amazon_snapshot.xlsx"})
     assert payload["amazon_fba_inventory_snapshot_path"] == "amazon_snapshot.xlsx"
     assert payload["amazon_fba_inventory_validation"]["marketplace"] == "US"
 
@@ -326,10 +298,7 @@ def test_failure_returns_last_line_json(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(cli, "calculate_store_msku_replenishment", fake_calculate_store_msku_replenishment)
 
-    exit_code = cli.main(["--store-name", "Amazon-Lerxiuer-FR"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"store_name": "Amazon-Lerxiuer-FR"})
     assert payload == {
         "success": False,
         "store_name": "Amazon-Lerxiuer-FR",

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from services.agent_cli.mabang import build_amazon_restock_inventory_snapshot as cli
@@ -8,12 +7,6 @@ from services.mabang.amazon.fba.amazon_restock_inventory import (
     AmazonRestockInventorySnapshotResult,
     AmazonRestockInventoryValidationSummary,
 )
-
-
-def _read_payload(capsys) -> dict:
-    output = capsys.readouterr().out.strip().splitlines()
-    assert output
-    return json.loads(output[-1])
 
 
 def _result(snapshot_path: str) -> AmazonRestockInventorySnapshotResult:
@@ -40,10 +33,7 @@ def _result(snapshot_path: str) -> AmazonRestockInventorySnapshotResult:
 
 
 def test_missing_store_name_returns_failure_json(capsys) -> None:
-    exit_code = cli.main([])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({})
     assert payload == {
         "success": False,
         "store_name": "",
@@ -52,10 +42,7 @@ def test_missing_store_name_returns_failure_json(capsys) -> None:
 
 
 def test_missing_csv_returns_failure_json(capsys) -> None:
-    exit_code = cli.main(["--store-name", "Amazon-Test-US"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"store_name": "Amazon-Test-US"})
     assert payload == {
         "success": False,
         "store_name": "Amazon-Test-US",
@@ -84,21 +71,7 @@ def test_success_returns_snapshot_payload(monkeypatch, capsys, tmp_path) -> None
 
     monkeypatch.setattr(cli, "build_amazon_restock_inventory_snapshot", fake_build_amazon_restock_inventory_snapshot)
 
-    exit_code = cli.main(
-        [
-            "--store-name",
-            "Amazon-Test-US",
-            "--csv",
-            str(csv_path),
-            "--output-dir",
-            str(tmp_path),
-            "--msku-xlsx",
-            str(msku_path),
-        ]
-    )
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
+    payload = cli.run({"store_name": "Amazon-Test-US", "csv": str(csv_path), "output_dir": str(tmp_path), "msku_xlsx": str(msku_path)})
     assert payload["snapshot_xlsx_path"] == str(tmp_path / "snapshot.xlsx")
     assert payload["amazon_restock_inventory_validation"]["top_inventory_matched_count"] == 8
     assert payload["source"] == "amazon_restock_inventory_snapshot"
@@ -110,10 +83,7 @@ def test_build_error_returns_failure_json(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(cli, "build_amazon_restock_inventory_snapshot", fake_build_amazon_restock_inventory_snapshot)
 
-    exit_code = cli.main(["--store-name", "Amazon-Test-US", "--csv", "restock.csv"])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 1
+    payload = cli.run({"store_name": "Amazon-Test-US", "csv": "restock.csv"})
     assert payload == {
         "success": False,
         "store_name": "Amazon-Test-US",
