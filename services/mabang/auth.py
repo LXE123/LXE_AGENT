@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from clients.auth.browser_auth_client import ensure_auth
+from browser_auth_service.client import ensure_auth
 from services.mabang import config as mabang_settings
 
 from . import auth_audit

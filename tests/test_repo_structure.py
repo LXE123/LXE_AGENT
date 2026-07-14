@@ -23,7 +23,6 @@ ALLOWED_TOP_LEVEL_DIRECTORIES = {
     "web",
     # Python world (planned to consolidate under python/ in a later batch)
     "browser_auth_service",
-    "clients",
     "lxeskill",
     "services",
     "shared",

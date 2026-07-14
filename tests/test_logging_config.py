@@ -16,7 +16,7 @@ _MANAGED_HANDLER_ATTR = "_lxe_agent_logging_handler"
 _TRACKED_LOGGERS = (
     "bot_logger",
     "browser_auth_service.service",
-    "clients.auth.browser_auth_client",
+    "browser_auth_service.client",
     "services.browser.tools",
     "services.mabang.auth_audit",
     "services.mabang.amazon.fba.wms",
@@ -437,7 +437,7 @@ def test_browser_auth_file_logging_filters_dedicated_modules(tmp_path, monkeypat
 
     setup_logging()
     logging.getLogger("browser_auth_service.service").info("browser auth detail")
-    logging.getLogger("clients.auth.browser_auth_client").info("client detail")
+    logging.getLogger("browser_auth_service.client").info("client detail")
     logging.getLogger("services.mabang.auth_audit").info("auth audit detail")
     logging.getLogger("services.mabang.amazon.fba.wms").info("wms detail")
     logging.getLogger("gateway.app").info("gateway detail")

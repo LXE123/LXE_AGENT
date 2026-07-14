@@ -44,7 +44,7 @@ async def _execute(request: dict[str, Any]) -> dict[str, Any]:
     if entry is None:
         return _response(call_id, ok=False, error={"code": "unknown_tool", "message": f"unsupported Python tool: {tool_name}"})
     if tool_name == "browser_auth_refresh":
-        from clients.auth.browser_auth_client import ensure_auth
+        from browser_auth_service.client import ensure_auth
 
         arguments = dict(request.get("arguments") or {})
         payload = await ensure_auth(

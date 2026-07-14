@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from clients.auth import browser_auth_client
+from browser_auth_service import client as browser_auth_client
 
 
 def test_ensure_auth_sync_passes_force_refresh_to_cli(monkeypatch) -> None:

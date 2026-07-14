@@ -16,7 +16,7 @@ _RUNTIME_FORMAT = "%(asctime)s %(levelname)-8s [%(name)s]%(runtime_log_context)s
 _THIRD_PARTY_LOGGERS = ("httpx", "httpcore", "lark_oapi", "aiohttp", "asyncio")
 _BROWSER_AUTH_LOGGER_PREFIXES = (
     "browser_auth_service",
-    "clients.auth.browser_auth_client",
+    "browser_auth_service.client",
     "services.mabang.auth",
     "services.mabang.auth_audit",
     "services.mabang.amazon.fba.wms",

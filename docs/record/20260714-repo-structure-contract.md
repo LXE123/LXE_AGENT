@@ -6,7 +6,7 @@ Status: `Current`
 
 ## 三条原则
 
-1. **按运行时世界分区**：目录第一层只回答"属于哪个世界"——Bun 常驻进程（`apps`/`packages`）、前端（`web`）、Python lxeskill 闭包（`lxeskill`/`services`/`shared`/`browser_auth_service`/`clients`/`tests`）、技能资产（`skills`）、配置与装配（`config`/`scripts`/`data`）、文档（`docs`）。世界内部再按领域分。
+1. **按运行时世界分区**：目录第一层只回答"属于哪个世界"——Bun 常驻进程（`apps`/`packages`）、前端（`web`）、Python lxeskill 闭包（`lxeskill`/`services`/`shared`/`browser_auth_service`/`tests`）、技能资产（`skills`）、配置与装配（`config`/`scripts`/`data`）、文档（`docs`）。世界内部再按领域分。
 2. **代码、配置、状态、文档四分离**：运行时状态（logs、tmp、artifacts、user_session_db）不属于代码树，后续批次统一收拢进 `var/` 并整目录 gitignore。
 3. **规范必须有校验器兜底**：约定不写进测试就必然漂移。
 
