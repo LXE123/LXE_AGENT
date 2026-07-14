@@ -6,18 +6,21 @@ import re
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal, InvalidOperation, ROUND_FLOOR, ROUND_HALF_UP
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from shared.infra.net import erp_http_session, external_http_session
-from shared.workspace import artifact_path
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
+)
+from services.mabang.auth_constants import (
     PRIVATE_AMZ_HOST,
     PRIVATE_HOST,
 )
+from services.mabang.export_common import configured_text as _configured_text
+from shared.infra.net import erp_http_session, external_http_session
+from shared.workspace import artifact_path
 
 from ...auth import get_auth_context
 from ...cookies import build_cookie_header, extract_named_cookies
@@ -221,10 +224,6 @@ class ActualInventoryResult:
             "shenzhen_warehouse_inventory_report_xlsx_path": self.shenzhen_warehouse_inventory_report_xlsx_path,
             "result_source": self.result_source,
         }
-
-
-def _configured_text(name: str, default: str) -> str:
-    return mabang_settings.configured_text(name, default)
 
 
 def _clean_text(value: Any) -> str:
