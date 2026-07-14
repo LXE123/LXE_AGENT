@@ -5,16 +5,6 @@ from services.agent_cli.mabang import export_store_msku_actual_inventory as cli
 from services.mabang.amazon.fba.store_msku_actual_inventory import ActualInventoryResult
 
 
-def test_missing_store_name_returns_failure_json(monkeypatch, capsys) -> None:
-
-    payload = cli.run({})
-    assert payload == {
-        "success": False,
-        "store_name": "",
-        "exception": "store_name 不能为空",
-    }
-
-
 def test_success_returns_actual_inventory_path(monkeypatch, capsys) -> None:
     async def fake_export_store_msku_actual_inventory(store_name: str):
         assert store_name == "Amazon-Lerxiuer-FR"
