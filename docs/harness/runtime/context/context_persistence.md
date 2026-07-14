@@ -6,7 +6,7 @@
 
 Context persistence 让进程重启、turn 中断和 summary compaction 后仍能重建模型实际看见的 history，同时保留 append-only 审计轨迹。它区分原始 transcript 与当前 model-visible replacement，不用整文件重写来“压缩历史”。
 
-事实来源是 [`packages/runtime/src/storage.ts`](/packages/runtime/src/storage.ts)。
+事实来源是 [`packages/agent/runtime/src/state/storage.ts`](/packages/agent/runtime/src/state/storage.ts)。
 
 ## 存储组成
 

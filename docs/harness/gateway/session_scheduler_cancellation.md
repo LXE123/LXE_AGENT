@@ -6,7 +6,7 @@
 
 `SessionScheduler` 把来自用户、heartbeat 和控制面的 job 转换成有序 turn。它保证同 session 串行、跨 session 有界并发，并把 cancel、steering、active process 和 Runtime completion 聚合到一个 `RunHandle`。
 
-事实来源是 [`apps/gateway/src/scheduler.ts`](/apps/gateway/src/scheduler.ts) 及其测试。
+事实来源是 [`apps/gateway/src/orchestration/scheduler.ts`](/apps/gateway/src/orchestration/scheduler.ts) 及其测试。
 
 ## 数据结构
 

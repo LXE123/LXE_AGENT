@@ -8,10 +8,10 @@ Session Router 是平台事件进入调度器前的控制面。它验证 bot/use
 
 ## 事实来源
 
-- [`router.ts`](/apps/gateway/src/router.ts)：消息路由和控制命令。
-- [`permission-policy.ts`](/apps/gateway/src/permission-policy.ts)：bot alias、permission key 与用户授权。
-- [`session-bindings.ts`](/apps/gateway/src/session-bindings.ts)：稳定 source-to-session 映射。
-- [`session-state.ts`](/apps/gateway/src/session-state.ts)：进程内 autonomy/steering 状态。
+- [`router.ts`](/apps/gateway/src/orchestration/router.ts)：消息路由和控制命令。
+- [`permission-policy.ts`](/apps/gateway/src/security/permission-policy.ts)：bot alias、permission key 与用户授权。
+- [`session-bindings.ts`](/apps/gateway/src/state/session-bindings.ts)：稳定 source-to-session 映射。
+- [`session-state.ts`](/apps/gateway/src/state/session-state.ts)：进程内 autonomy/steering 状态。
 
 ## 权限模型
 

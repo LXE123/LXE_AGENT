@@ -2,7 +2,7 @@
 
 Status: `Current`
 
-The catalog turns repository-owned provider descriptors into validated runtime configuration. The source of truth is `packages/runtime/config/providers/`, loaded by `packages/runtime/src/provider.ts`.
+The catalog turns repository-owned provider descriptors into validated runtime configuration. The source of truth is `config/llm/providers/`, loaded by `packages/agent/runtime/src/providers/provider.ts`.
 
 ## Descriptor Contract
 
@@ -43,7 +43,7 @@ These repairs apply to the provider request view. They must not silently rewrite
 
 ## Adding A Provider Or Model
 
-1. Add or update a descriptor under `packages/runtime/config/providers/`.
+1. Add or update a descriptor under `config/llm/providers/`.
 2. Use an environment-variable name for authentication; never place a key in the descriptor.
 3. Record accurate context, output, and thinking capabilities.
 4. Add catalog tests for parsing, model lookup, and invalid configuration.

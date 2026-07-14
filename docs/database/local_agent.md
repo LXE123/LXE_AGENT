@@ -2,7 +2,7 @@
 
 Status: `Current`
 
-The Bun runtime owns local agent state through `packages/runtime/src/storage.ts` and `bun:sqlite`. The default database is `local_agent.sqlite3`; conversation transcripts are stored separately as append-only JSONL.
+The Bun runtime owns local agent state through `packages/agent/runtime/src/state/storage.ts` and `bun:sqlite`. The default database is `local_agent.sqlite3`; conversation transcripts are stored separately as append-only JSONL.
 
 ## Ownership Boundary
 

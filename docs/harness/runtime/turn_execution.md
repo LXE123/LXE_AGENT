@@ -6,7 +6,7 @@
 
 Turn 是 Runtime 的一次用户可观察执行单元。它从一个 `AgentJob` 开始，以 `TurnOutcome` 和闭合 transcript 结束。本文描述 snapshot、step retry、tool dispatch、cancel、final streaming 和 usage 记录。
 
-事实来源是 [`packages/runtime/src/runtime.ts`](/packages/runtime/src/runtime.ts) 与对应测试。
+事实来源是 [`packages/agent/runtime/src/engine/runtime.ts`](/packages/agent/runtime/src/engine/runtime.ts) 与对应测试。
 
 ## Turn snapshot
 

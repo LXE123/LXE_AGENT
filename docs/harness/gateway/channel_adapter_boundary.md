@@ -8,7 +8,7 @@ Channel adapter 隔离平台 SDK 与 Agent 核心。Gateway 只接受统一 `Inb
 
 ## 统一接口
 
-[`ChannelAdapter`](/apps/gateway/src/channel.ts) 暴露最小端口：
+[`ChannelAdapter`](/apps/gateway/src/channels/registry.ts) 暴露最小端口：
 
 - `platform`：稳定平台 key，用于 registry 和 response route。
 - `setInboundSink()`：注册统一入站回调。
@@ -20,7 +20,7 @@ Channel adapter 隔离平台 SDK 与 Agent 核心。Gateway 只接受统一 `Inb
 
 ## 入站链路
 
-飞书 SDK callback 先被 [`feishu/inbound.ts`](/apps/gateway/src/feishu/inbound.ts) 快照化和归一化，再进入 Router：
+飞书 SDK callback 先被 [`feishu/inbound.ts`](/apps/gateway/src/channels/feishu/inbound.ts) 快照化和归一化，再进入 Router：
 
 ```text
 Lark event callback
@@ -38,7 +38,7 @@ Normalizer 支持 text、post、image、file、audio、video，以及 location�
 
 ## 资源处理
 
-[`feishu/resources.ts`](/apps/gateway/src/feishu/resources.ts) 下载 image/file 等资源到受控本地路径。单个资源失败会替换成包含错误信息的文本占位，其它文本和资源仍进入同一消息；平台下载失败不能使整条用户消息消失。
+[`feishu/resources.ts`](/apps/gateway/src/channels/feishu/resources.ts) 下载 image/file 等资源到受控本地路径。单个资源失败会替换成包含错误信息的文本占位，其它文本和资源仍进入同一消息；平台下载失败不能使整条用户消息消失。
 
 资源路径只作为 canonical user block 交给 Runtime。adapter 不调用业务 skill，也不自行读取附件内容。
 

@@ -10,9 +10,31 @@ from lxeskill import cli as lxeskill
 from lxeskill import browser as lxeskill_browser
 from services.browser.tools import client as browser_client
 from services.browser.tools.models import ToolExecutionResult
-from shared.db.sqlite.bootstrap import init_schema
 from shared.db.sqlite.engine import connection_scope
 from shared.process_lock import InterProcessLockTimeout
+
+
+def _create_bun_agent_sessions_table() -> None:
+    """Create the Bun-owned table needed by this cross-runtime integration test."""
+    with connection_scope() as conn:
+        conn.execute(
+            """
+            CREATE TABLE agent_sessions (
+                session_id TEXT PRIMARY KEY,
+                source TEXT NOT NULL DEFAULT '{}',
+                model TEXT NOT NULL DEFAULT '',
+                model_config TEXT NOT NULL DEFAULT '{}',
+                created_at REAL NOT NULL,
+                last_active_at REAL NOT NULL,
+                message_count INTEGER NOT NULL DEFAULT 0,
+                tool_call_count INTEGER NOT NULL DEFAULT 0,
+                input_tokens INTEGER NOT NULL DEFAULT 0,
+                output_tokens INTEGER NOT NULL DEFAULT 0,
+                title TEXT NOT NULL DEFAULT '',
+                api_call_count INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
 
 
 def _insert_session(session_id: str, source: dict) -> None:
@@ -31,7 +53,7 @@ def _insert_session(session_id: str, source: dict) -> None:
 def test_browser_command_persists_state_patch_and_restores_it_next_call(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "runtime.sqlite3"))
     monkeypatch.setattr(lxeskill_browser, "internal_root", lambda: tmp_path)
-    init_schema()
+    _create_bun_agent_sessions_table()
     _insert_session(
         "session-1",
         {"tool_state": {"runtime": {}, "context": {"messages": []}}, "binding": "kept"},
@@ -71,7 +93,7 @@ def test_browser_command_persists_state_patch_and_restores_it_next_call(tmp_path
 def test_browser_vision_exposes_model_input_path_but_not_terminal_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "runtime.sqlite3"))
     monkeypatch.setattr(lxeskill_browser, "internal_root", lambda: tmp_path)
-    init_schema()
+    _create_bun_agent_sessions_table()
     _insert_session("session-vision", {"tool_state": {"runtime": {}, "context": {"messages": []}}})
     screenshot = tmp_path / "artifacts" / "browser" / "shot.png"
     screenshot.parent.mkdir(parents=True)

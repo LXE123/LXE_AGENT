@@ -22,11 +22,11 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 
 ## 事实来源
 
-- [`tools.ts`](/packages/runtime/src/tools.ts)：registry 与 exposure state。
-- [`coding-tools.ts`](/packages/runtime/src/coding-tools.ts)：文件和 process 工具。
-- [`script-tools.ts`](/packages/runtime/src/script-tools.ts)：业务脚本 bridge。
-- [`mcp.ts`](/packages/runtime/src/mcp.ts)：MCP config、连接和工具注册。
-- [`skills.ts`](/packages/runtime/src/skills.ts)：skill catalog 与 prompt。
+- [`tools.ts`](/packages/agent/runtime/src/tooling/registry.ts)：registry 与 exposure state。
+- [`coding-tools.ts`](/packages/agent/runtime/src/tooling/coding-tools.ts)：文件和 process 工具。
+- [`script-tools.ts`](/packages/agent/runtime/src/tooling/script-tools.ts)：业务脚本 bridge。
+- [`mcp.ts`](/packages/agent/runtime/src/tooling/mcp.ts)：MCP config、连接和工具注册。
+- [`skills.ts`](/packages/agent/runtime/src/tooling/skills.ts)：skill catalog 与 prompt。
 
 ## Exposure 模型
 

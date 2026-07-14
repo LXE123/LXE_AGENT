@@ -1,3 +1,1 @@
-from .bootstrap import init_schema
-
-__all__ = ["init_schema"]
+"""SQLite helpers for Python-owned business state."""

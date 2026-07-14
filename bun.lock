@@ -8,6 +8,26 @@
         "typescript": "7.0.2",
       },
     },
+    "apps/dashboard": {
+      "name": "agent-dashboard",
+      "version": "0.1.0",
+      "dependencies": {
+        "lucide-react": "^0.562.0",
+        "mermaid": "^11.15.0",
+        "react": "^19.2.3",
+        "react-dom": "^19.2.3",
+        "react-markdown": "^10.1.0",
+        "remark-gfm": "^4.0.1",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.14",
+        "@types/react": "^19.2.7",
+        "@types/react-dom": "^19.2.3",
+        "@vitejs/plugin-react": "^5.1.2",
+        "typescript": "7.0.2",
+        "vite": "^7.3.0",
+      },
+    },
     "apps/gateway": {
       "name": "@lxe/gateway",
       "version": "0.1.0",
@@ -23,26 +43,7 @@
         "typescript": "7.0.2",
       },
     },
-    "packages/core": {
-      "name": "@lxe/core",
-      "version": "0.1.0",
-      "devDependencies": {
-        "@types/bun": "1.3.14",
-        "typescript": "7.0.2",
-      },
-    },
-    "packages/protocol": {
-      "name": "@lxe/protocol",
-      "version": "0.1.0",
-      "dependencies": {
-        "ajv": "8.20.0",
-      },
-      "devDependencies": {
-        "@types/bun": "1.3.14",
-        "typescript": "7.0.2",
-      },
-    },
-    "packages/runtime": {
+    "packages/agent/runtime": {
       "name": "@lxe/runtime",
       "version": "0.1.0",
       "dependencies": {
@@ -58,23 +59,23 @@
         "typescript": "7.0.2",
       },
     },
-    "web/agent-dashboard": {
-      "name": "agent-dashboard",
+    "packages/foundation/core": {
+      "name": "@lxe/core",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "1.3.14",
+        "typescript": "7.0.2",
+      },
+    },
+    "packages/foundation/protocol": {
+      "name": "@lxe/protocol",
       "version": "0.1.0",
       "dependencies": {
-        "lucide-react": "^0.562.0",
-        "mermaid": "^11.15.0",
-        "react": "^19.2.3",
-        "react-dom": "^19.2.3",
-        "react-markdown": "^10.1.0",
-        "remark-gfm": "^4.0.1",
+        "ajv": "8.20.0",
       },
       "devDependencies": {
-        "@types/react": "^19.2.7",
-        "@types/react-dom": "^19.2.3",
-        "@vitejs/plugin-react": "^5.1.2",
+        "@types/bun": "1.3.14",
         "typescript": "7.0.2",
-        "vite": "^7.3.0",
       },
     },
   },
@@ -197,13 +198,13 @@
 
     "@larksuiteoapi/node-sdk": ["@larksuiteoapi/node-sdk@1.70.0", "", { "dependencies": { "axios": "~1.13.3", "lodash.identity": "^3.0.0", "lodash.merge": "^4.6.2", "lodash.pickby": "^4.6.0", "protobufjs": "^7.2.6", "qs": "^6.14.2", "ws": "^8.19.0" } }, "sha512-CzVfMbh2MO+cVWQgQGeYN9KkFdX6mofYYTsIjImU0hQqlxaXKzHcUEwG6mrpsmU2LWqYYtIGwCSIZjYQRjD6kw=="],
 
-    "@lxe/core": ["@lxe/core@workspace:packages/core"],
+    "@lxe/core": ["@lxe/core@workspace:packages/foundation/core"],
 
     "@lxe/gateway": ["@lxe/gateway@workspace:apps/gateway"],
 
-    "@lxe/protocol": ["@lxe/protocol@workspace:packages/protocol"],
+    "@lxe/protocol": ["@lxe/protocol@workspace:packages/foundation/protocol"],
 
-    "@lxe/runtime": ["@lxe/runtime@workspace:packages/runtime"],
+    "@lxe/runtime": ["@lxe/runtime@workspace:packages/agent/runtime"],
 
     "@mermaid-js/parser": ["@mermaid-js/parser@1.2.0", "", { "dependencies": { "@chevrotain/types": "~11.1.2" } }, "sha512-oYPyv8A4As1yH5Bx+04iQEQxXuIQDe0GKCNSRgao6z8AM9jixXIfP0vsppRLvGf+nKIOb9/LdpWA4YuJiVvESA=="],
 
@@ -425,7 +426,7 @@
 
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 
-    "agent-dashboard": ["agent-dashboard@workspace:web/agent-dashboard"],
+    "agent-dashboard": ["agent-dashboard@workspace:apps/dashboard"],
 
     "ajv": ["ajv@8.20.0", "", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA=="],
 

@@ -176,7 +176,7 @@ ensure_bun() {
 
 build_dashboard() {
   local project_root="$1"
-  local dashboard_dir="$project_root/web/agent-dashboard"
+  local dashboard_dir="$project_root/apps/dashboard"
   [[ -f "$project_root/package.json" ]] || { echo "Root package.json missing: $project_root" >&2; exit 1; }
   [[ -f "$project_root/bun.lock" ]] || { echo "Root bun.lock missing: $project_root" >&2; exit 1; }
   [[ -f "$dashboard_dir/package.json" ]] || { echo "Dashboard package.json missing: $dashboard_dir" >&2; exit 1; }

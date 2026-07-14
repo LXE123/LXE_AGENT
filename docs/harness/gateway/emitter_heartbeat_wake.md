@@ -6,7 +6,7 @@
 
 本专题说明 Runtime 如何在不了解平台 SDK 的前提下发送 stream、final、tool artifact 和 typing，以及后台命令完成事件如何重新进入正常 session 调度。
 
-事实来源：[`emitter.ts`](/apps/gateway/src/emitter.ts)、[`heartbeat-bridge.ts`](/apps/gateway/src/heartbeat-bridge.ts) 和 [`scheduler.ts`](/apps/gateway/src/scheduler.ts)。
+事实来源：[`emitter.ts`](/apps/gateway/src/channels/emitter.ts)、[`heartbeat-bridge.ts`](/apps/gateway/src/orchestration/heartbeat-bridge.ts) 和 [`scheduler.ts`](/apps/gateway/src/orchestration/scheduler.ts)。
 
 ## Emitter 边界
 

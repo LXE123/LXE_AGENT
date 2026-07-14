@@ -28,16 +28,16 @@ Gateway 与 Runtime 是同一 Bun 进程内的直接函数调用。平台 callba
 
 | 边界 | 状态与职责 | 当前实现 |
 | --- | --- | --- |
-| Bootstrap | env、policy、store、provider、tools、Dashboard、channels | [`production.ts`](/apps/gateway/src/production.ts) |
-| Inbound | 飞书事件、资源与统一消息 | [`feishu/inbound.ts`](/apps/gateway/src/feishu/inbound.ts) |
-| Routing | 权限、binding、route、控制命令 | [`router.ts`](/apps/gateway/src/router.ts) |
-| Scheduling | queue、active run、abort、steering | [`scheduler.ts`](/apps/gateway/src/scheduler.ts) |
-| Turn | provider/context/tool loop 与 outcome | [`runtime.ts`](/packages/runtime/src/runtime.ts) |
-| Context | canonical history、预算与 compaction | [`context.ts`](/packages/runtime/src/context.ts) |
-| Provider | catalog、SDK stream、retry、usage | [`provider.ts`](/packages/runtime/src/provider.ts) |
-| Tools | native、MCP、script、skill exposure | [`tools.ts`](/packages/runtime/src/tools.ts) |
-| Storage | session、route、JSONL、usage | [`storage.ts`](/packages/runtime/src/storage.ts) |
-| Outbound | emit validation、route resolution、platform action | [`emitter.ts`](/apps/gateway/src/emitter.ts) |
+| Bootstrap | env、policy、store、provider、tools、Dashboard、channels | [`production.ts`](/apps/gateway/src/orchestration/production.ts) |
+| Inbound | 飞书事件、资源与统一消息 | [`feishu/inbound.ts`](/apps/gateway/src/channels/feishu/inbound.ts) |
+| Routing | 权限、binding、route、控制命令 | [`router.ts`](/apps/gateway/src/orchestration/router.ts) |
+| Scheduling | queue、active run、abort、steering | [`scheduler.ts`](/apps/gateway/src/orchestration/scheduler.ts) |
+| Turn | provider/context/tool loop 与 outcome | [`runtime.ts`](/packages/agent/runtime/src/engine/runtime.ts) |
+| Context | canonical history、预算与 compaction | [`context.ts`](/packages/agent/runtime/src/engine/context.ts) |
+| Provider | catalog、SDK stream、retry、usage | [`provider.ts`](/packages/agent/runtime/src/providers/provider.ts) |
+| Tools | native、MCP、script、skill exposure | [`tools.ts`](/packages/agent/runtime/src/tooling/registry.ts) |
+| Storage | session、route、JSONL、usage | [`storage.ts`](/packages/agent/runtime/src/state/storage.ts) |
+| Outbound | emit validation、route resolution、platform action | [`emitter.ts`](/apps/gateway/src/channels/emitter.ts) |
 
 ## Turn 建立
 

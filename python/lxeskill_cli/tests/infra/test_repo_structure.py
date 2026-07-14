@@ -1,7 +1,7 @@
 """Repository structure contracts.
 
 The top-level layout answers one question per directory: which runtime world
-does this belong to (Bun process / Python lxeskill closure / frontend /
+does this belong to (TypeScript apps/packages / Python lxeskill closure /
 assets / state)? These tests freeze that layout and the env naming rule so
 drift shows up in review instead of months later.
 
@@ -21,7 +21,6 @@ ALLOWED_TOP_LEVEL_DIRECTORIES = {
     # TS world
     "apps",
     "packages",
-    "web",
     # Python world
     "python",
     # Assets and supporting material
@@ -31,6 +30,38 @@ ALLOWED_TOP_LEVEL_DIRECTORIES = {
     "docs",
     "scripts",
 }
+
+ALLOWED_APP_DIRECTORIES = {"dashboard", "gateway"}
+ALLOWED_PACKAGE_DIRECTORIES = {"agent", "foundation"}
+ALLOWED_FOUNDATION_PACKAGE_DIRECTORIES = {"core", "protocol"}
+ALLOWED_AGENT_PACKAGE_DIRECTORIES = {"runtime"}
+ALLOWED_GATEWAY_SOURCE_DIRECTORIES = {
+    "bootstrap",
+    "channels",
+    "dashboard",
+    "orchestration",
+    "security",
+    "smoke",
+    "state",
+}
+ALLOWED_GATEWAY_TEST_DIRECTORIES = {
+    "bootstrap",
+    "channels",
+    "dashboard",
+    "orchestration",
+    "security",
+    "state",
+}
+ALLOWED_RUNTIME_SOURCE_DIRECTORIES = {
+    "engine",
+    "operations",
+    "providers",
+    "state",
+    "tooling",
+}
+ALLOWED_RUNTIME_TEST_DIRECTORIES = ALLOWED_RUNTIME_SOURCE_DIRECTORIES | {"fixtures"}
+ALLOWED_DASHBOARD_SOURCE_DIRECTORIES = {"api", "features", "shared"}
+ALLOWED_DASHBOARD_TEST_DIRECTORIES = {"architecture", "features", "shared"}
 
 ALLOWED_PYTHON_DIRECTORIES = {"lxeskill_cli"}
 ALLOWED_LXESKILL_CLI_DIRECTORIES = {
@@ -109,9 +140,9 @@ LEGACY_RUNTIME_ENV_KEYS = {
 }
 
 
-def _tracked_paths() -> list[str]:
+def _repository_paths() -> list[str]:
     output = subprocess.run(
-        ["git", "ls-files", "-z"],
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=REPO_ROOT,
         check=True,
         capture_output=True,
@@ -119,18 +150,18 @@ def _tracked_paths() -> list[str]:
     return [path for path in output.split("\0") if path]
 
 
-def _tracked_top_level_directories() -> set[str]:
+def _repository_top_level_directories() -> set[str]:
     return {
         path.split("/", 1)[0]
-        for path in _tracked_paths()
+        for path in _repository_paths()
         if "/" in path
     }
 
 
-def _tracked_directories_below(prefix: str) -> set[str]:
+def _repository_directories_below(prefix: str) -> set[str]:
     normalized_prefix = prefix.rstrip("/") + "/"
     directories: set[str] = set()
-    for path in _tracked_paths():
+    for path in _repository_paths():
         if not path.startswith(normalized_prefix):
             continue
         relative_path = path[len(normalized_prefix) :]
@@ -149,7 +180,7 @@ def _runtime_env_keys() -> set[str]:
 
 
 def test_top_level_directories_stay_in_the_frozen_set() -> None:
-    unexpected = _tracked_top_level_directories() - ALLOWED_TOP_LEVEL_DIRECTORIES
+    unexpected = _repository_top_level_directories() - ALLOWED_TOP_LEVEL_DIRECTORIES
     assert unexpected == set(), (
         "new top-level directories need a structure decision in docs/record "
         f"before extending the frozen set: {sorted(unexpected)}"
@@ -157,13 +188,56 @@ def test_top_level_directories_stay_in_the_frozen_set() -> None:
 
 
 def test_python_world_contains_only_the_lxeskill_cli_closure() -> None:
-    assert _tracked_directories_below("python") == ALLOWED_PYTHON_DIRECTORIES
+    assert _repository_directories_below("python") == ALLOWED_PYTHON_DIRECTORIES
 
 
 def test_lxeskill_cli_closure_contains_only_frozen_domains() -> None:
     assert (
-        _tracked_directories_below("python/lxeskill_cli")
+        _repository_directories_below("python/lxeskill_cli")
         == ALLOWED_LXESKILL_CLI_DIRECTORIES
+    )
+
+
+def test_typescript_workspaces_follow_domain_layout() -> None:
+    assert _repository_directories_below("apps") == ALLOWED_APP_DIRECTORIES
+    assert _repository_directories_below("packages") == ALLOWED_PACKAGE_DIRECTORIES
+    assert (
+        _repository_directories_below("packages/foundation")
+        == ALLOWED_FOUNDATION_PACKAGE_DIRECTORIES
+    )
+    assert (
+        _repository_directories_below("packages/agent")
+        == ALLOWED_AGENT_PACKAGE_DIRECTORIES
+    )
+
+
+def test_large_typescript_workspaces_use_frozen_source_domains() -> None:
+    assert (
+        _repository_directories_below("apps/gateway/src")
+        == ALLOWED_GATEWAY_SOURCE_DIRECTORIES
+    )
+    assert (
+        _repository_directories_below("packages/agent/runtime/src")
+        == ALLOWED_RUNTIME_SOURCE_DIRECTORIES
+    )
+    assert (
+        _repository_directories_below("apps/dashboard/src")
+        == ALLOWED_DASHBOARD_SOURCE_DIRECTORIES
+    )
+
+
+def test_typescript_tests_mirror_source_domains() -> None:
+    assert (
+        _repository_directories_below("apps/gateway/test")
+        == ALLOWED_GATEWAY_TEST_DIRECTORIES
+    )
+    assert (
+        _repository_directories_below("packages/agent/runtime/test")
+        == ALLOWED_RUNTIME_TEST_DIRECTORIES
+    )
+    assert (
+        _repository_directories_below("apps/dashboard/test")
+        == ALLOWED_DASHBOARD_TEST_DIRECTORIES
     )
 
 
@@ -180,4 +254,19 @@ def test_new_runtime_env_keys_use_the_lxe_prefix() -> None:
     assert offenders == [], (
         "new runtime env keys must use the LXE_ prefix "
         f"(legacy prefixes are frozen): {offenders}"
+    )
+
+
+def test_runtime_docs_do_not_reference_legacy_root_log_paths() -> None:
+    legacy_path = re.compile(
+        r"(?<!var/)logs/(?:runtime|feishu_raw_events|agent_traces|sse_wire_traces)"
+    )
+    offenders: list[str] = []
+    for relative_path in ("README.md", "docs/harness/logger.md"):
+        text = (REPO_ROOT / relative_path).read_text("utf-8")
+        if legacy_path.search(text):
+            offenders.append(relative_path)
+    assert offenders == [], (
+        "runtime documentation must keep logs under var/logs: "
+        f"{offenders}"
     )

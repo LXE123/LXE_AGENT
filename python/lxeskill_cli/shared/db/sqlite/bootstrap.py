@@ -1,71 +1,11 @@
 from __future__ import annotations
 
-from .engine import connection_scope, dispose
-
-
-def _create_response_routes(conn) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS response_routes (
-            response_route_id TEXT PRIMARY KEY,
-            owner_user_id TEXT NOT NULL,
-            platform TEXT NOT NULL DEFAULT 'feishu',
-            platform_message_id TEXT,
-            conversation_id TEXT,
-            conversation_type TEXT,
-            sender_nick TEXT,
-            extra_data TEXT NOT NULL DEFAULT '{}',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-
-
-def _create_agent_sessions(conn) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS agent_sessions (
-            session_id TEXT PRIMARY KEY,
-            source TEXT NOT NULL DEFAULT '{}',
-            model TEXT NOT NULL DEFAULT '',
-            model_config TEXT NOT NULL DEFAULT '{}',
-            created_at REAL NOT NULL,
-            last_active_at REAL NOT NULL,
-            message_count INTEGER NOT NULL DEFAULT 0,
-            tool_call_count INTEGER NOT NULL DEFAULT 0,
-            input_tokens INTEGER NOT NULL DEFAULT 0,
-            output_tokens INTEGER NOT NULL DEFAULT 0,
-            title TEXT NOT NULL DEFAULT '',
-            api_call_count INTEGER NOT NULL DEFAULT 0
-        )
-        """
-    )
-
-
-def _create_pending_events(conn) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS agent_session_pending_events (
-            queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT NOT NULL,
-            event_id TEXT NOT NULL UNIQUE,
-            job_id TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            text TEXT NOT NULL,
-            queued_at TEXT NOT NULL,
-            FOREIGN KEY(session_id) REFERENCES agent_sessions(session_id) ON DELETE CASCADE
-        )
-        """
-    )
-
-
 def ensure_ziniao_schema(conn) -> None:
     """Create the Python-owned ziniao session table on demand.
 
     The Bun gateway bootstraps every table it owns; this is the only table
-    owned by the Python side, so standalone CLI entrypoints must be able to
-    create it without running the legacy full init_schema().
+    owned by the Python side, so standalone CLI entrypoints create it on
+    demand without touching Bun-owned runtime tables.
     """
     _create_ziniao_sessions(conn)
 
@@ -101,83 +41,3 @@ def _ensure_column(conn, table_name: str, column_name: str, column_sql: str) -> 
     if column_name in existing:
         return
     conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
-
-
-def _create_turn_usage(conn) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS turn_usage (
-            turn_id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            started_at REAL NOT NULL,
-            status TEXT NOT NULL DEFAULT '',
-            elapsed_ms INTEGER NOT NULL DEFAULT 0,
-            llm_calls INTEGER NOT NULL DEFAULT 0,
-            tool_calls INTEGER NOT NULL DEFAULT 0,
-            input_tokens INTEGER NOT NULL DEFAULT 0,
-            output_tokens INTEGER NOT NULL DEFAULT 0
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS turn_usage_items (
-            item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            turn_id TEXT NOT NULL,
-            session_id TEXT NOT NULL,
-            started_at REAL NOT NULL,
-            kind TEXT NOT NULL,
-            name TEXT NOT NULL,
-            module TEXT NOT NULL DEFAULT '',
-            calls INTEGER NOT NULL DEFAULT 1,
-            errors INTEGER NOT NULL DEFAULT 0,
-            duration_ms INTEGER NOT NULL DEFAULT 0,
-            detail TEXT NOT NULL DEFAULT ''
-        )
-        """
-    )
-
-
-def _create_indexes(conn) -> None:
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_response_routes_platform_message_id "
-        "ON response_routes (platform_message_id)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_response_routes_owner_user_id "
-        "ON response_routes (owner_user_id)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_response_routes_platform "
-        "ON response_routes (platform)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_agent_sessions_last_active_at "
-        "ON agent_sessions (last_active_at)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_agent_sessions_model "
-        "ON agent_sessions (model)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_turn_usage_started_at "
-        "ON turn_usage (started_at)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_turn_usage_items_kind_name "
-        "ON turn_usage_items (kind, name, started_at)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_turn_usage_items_turn_id "
-        "ON turn_usage_items (turn_id)"
-    )
-
-
-def init_schema() -> None:
-    with connection_scope() as conn:
-        _create_response_routes(conn)
-        _create_ziniao_sessions(conn)
-        _create_agent_sessions(conn)
-        _create_pending_events(conn)
-        _create_turn_usage(conn)
-        _create_indexes(conn)

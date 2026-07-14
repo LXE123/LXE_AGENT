@@ -8,7 +8,6 @@ import pytest
 
 from services.agent_cli.mabang import generate_restock_workbook as cli
 from services.agent_cli.mabang import generate_fba_restock_workbook as restock_cli
-from services.agent_cli.mabang import generate_purchase_summary_workbook as purchase_cli
 from services.agent_cli.mabang import generate_purchase_batch_workbooks as batch_cli
 
 PURCHASE_COLUMNS = (
@@ -1388,29 +1387,6 @@ def test_main_outputs_success_json(monkeypatch, tmp_path, capsys):
     assert exit_code == 0
     assert payload["success"] is True
     assert payload["source"] == "fba_purchase_summary"
-    assert Path(payload["output_xlsx"]).is_file()
-
-
-def test_purchase_summary_main_outputs_success_json(monkeypatch, tmp_path, capsys):
-    csv_dir = tmp_path / "csv"
-    csv_dir.mkdir()
-    _write_delivery_csv(csv_dir / "SP260508022_1.csv", ["SKU-A × 1"])
-    master_path = tmp_path / "export_tax.xlsx"
-    _write_master_xlsx(
-        master_path,
-        [{"库存sku": "SKU-A", "产品名称": "产品A", "型号": "M-A", "原价": 2, "厂家": "厂家A"}],
-    )
-    monkeypatch.setattr(purchase_cli, "DELIVERY_CSV_DIR", csv_dir)
-    monkeypatch.setattr(purchase_cli, "OUTPUT_DIR", tmp_path / "out")
-    monkeypatch.setattr(purchase_cli, "close_all_network_clients", _noop_close_all_network_clients)
-
-    exit_code = purchase_cli.main(["--delivery-no", "SP260508022", "--master-xlsx", str(master_path)])
-
-    payload = _read_payload(capsys)
-    assert exit_code == 0
-    assert payload["success"] is True
-    assert payload["source"] == "fba_purchase_summary"
-    assert Path(payload["output_xlsx"]).name == "SP260508022_purchase_summary.xlsx"
     assert Path(payload["output_xlsx"]).is_file()
 
 

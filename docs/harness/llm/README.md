@@ -2,7 +2,7 @@
 
 Status: `Current`
 
-This directory documents the model-provider boundary used by the Bun runtime. The implementation truth source is `packages/runtime/src/provider.ts`; provider descriptors live under `packages/runtime/config/providers/`.
+This directory documents the model-provider boundary used by the Bun runtime. The implementation truth source is `packages/agent/runtime/src/providers/provider.ts`; provider descriptors live under `config/llm/providers/`.
 
 ## Responsibilities
 

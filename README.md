@@ -77,8 +77,8 @@ bun run gateway:stop
 
 正式配置默认只保留控制台日志，不写本地文件。开发排障可从 `.env.local.example` 复制所需设置到 `.env.local`。
 终端输出默认是对齐的人读格式（`LOG_CONSOLE_FORMAT=json` 可切回 JSONL）。开启本地文件后，当天 Bun JSONL 位于
-`logs/runtime/YYYYMMDD/runtime.log`，全部 Python 文本日志（桥接工具与独立脚本）位于同目录的
-`runtime-py.log`，飞书原始事件位于 `logs/feishu_raw_events/YYYYMMDD.jsonl`。
+`var/logs/runtime/YYYYMMDD/runtime.log`，全部 Python 文本日志（桥接工具与独立脚本）位于同目录的
+`runtime-py.log`，飞书原始事件位于 `var/logs/feishu_raw_events/YYYYMMDD.jsonl`。
 
 完整检查：
 

@@ -1,10 +1,9 @@
-import { resolve } from "node:path";
-import { configureLogging, createLogger } from "@lxe/core";
-import { runGatewayCli, type GatewayApplicationPort } from "./cli";
-import { loadProjectEnv } from "./env";
-import { startEventLoopLagMonitor } from "./event-loop-lag";
-import { GatewayStatusFiles } from "./planned-stop";
-import { createProductionGateway } from "./production";
+import { configureLogging, createLogger, repositoryRoot } from "@lxe/core";
+import { runGatewayCli, type GatewayApplicationPort } from "./bootstrap/cli";
+import { loadProjectEnv } from "./bootstrap/env";
+import { startEventLoopLagMonitor } from "./bootstrap/event-loop-lag";
+import { GatewayStatusFiles } from "./bootstrap/planned-stop";
+import { createProductionGateway } from "./orchestration/production";
 
 const logger = createLogger("gateway.main");
 
@@ -78,7 +77,7 @@ async function waitForShutdown(app: GatewayApplicationPort): Promise<void> {
 }
 
 export async function main(arguments_: readonly string[] = Bun.argv.slice(2)): Promise<number> {
-  const projectRoot = resolve(import.meta.dir, "../../..");
+  const projectRoot = repositoryRoot(import.meta.dir);
   const environment = loadProjectEnv({ projectRoot });
   const logging = configureLogging({ projectRoot, environment });
   const loggingEvent = {

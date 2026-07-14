@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-from shared.db.sqlite import bootstrap as _sqlite_bootstrap
 from shared.db.sqlite import store_sessions as _store_sessions
-
-
-def init_schema() -> None:
-    _sqlite_bootstrap.init_schema()
 
 
 def load_ziniao_store_session_state(browser_oauth: str, *, host_id: str | None = None):
@@ -54,7 +49,6 @@ def clear_ziniao_store_session_states(*, host_id: str | None = None):
 __all__ = [
     "clear_ziniao_store_session_states",
     "delete_ziniao_store_session_state",
-    "init_schema",
     "list_ziniao_store_session_states",
     "load_ziniao_store_session_state",
     "upsert_ziniao_store_session_state",

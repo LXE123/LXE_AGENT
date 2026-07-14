@@ -2,7 +2,7 @@
 
 Status: `Current`
 
-The streaming adapter converts one runtime step into an Anthropic-compatible Messages stream and converts provider events back into runtime deltas. Its implementation is centered in `packages/runtime/src/provider.ts`.
+The streaming adapter converts one runtime step into an Anthropic-compatible Messages stream and converts provider events back into runtime deltas. Its implementation is centered in `packages/agent/runtime/src/providers/provider.ts`.
 
 ## Inputs
 

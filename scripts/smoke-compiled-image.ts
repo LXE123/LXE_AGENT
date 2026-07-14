@@ -7,7 +7,7 @@ const executable = join(root, process.platform === "win32" ? "image-smoke.exe" :
 const output = join(root, "处理结果.jpg");
 const fixture = resolve(
   import.meta.dir,
-  "../skills/replenishment-amazon-fba-inventory-snapshot/assets/amazon_fba_inventory_download_step_1_menu.jpg",
+    "../skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg",
 );
 
 try {
@@ -15,7 +15,7 @@ try {
     process.execPath,
     "build",
     "--compile",
-    resolve(import.meta.dir, "../apps/gateway/src/image-compile-smoke.ts"),
+    resolve(import.meta.dir, "../apps/gateway/src/smoke/image-compile.ts"),
     "--outfile",
     executable,
   ], { stdout: "inherit", stderr: "inherit" });
