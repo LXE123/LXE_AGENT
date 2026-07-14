@@ -7,9 +7,10 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-
-from shared.workspace import artifact_path
 from typing import Any
+
+from services.mabang.export_common import clean_text as _clean_text
+from shared.workspace import artifact_path
 
 DEFAULT_TEMPLATE_NAME = "默认"
 US_GROUP_1_TEMPLATE_NAME = "US-一组"
@@ -129,10 +130,6 @@ class TemplateValidationResult:
             "warnings": list(self.warnings),
             "source": SOURCE,
         }
-
-
-def _clean_text(value: Any) -> str:
-    return str(value or "").strip()
 
 
 def _number(value: Any, *, default: float | None = None) -> float | None:
