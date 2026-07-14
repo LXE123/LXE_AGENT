@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from shared.logging import get_logger, setup_logging
+from shared.logging import get_logger
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.mabang.amazon.fba.unlinked_shipments import (
     StoreUnlinkedShipmentDownloadResult,

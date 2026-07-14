@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from collections import OrderedDict
 from datetime import date
 from decimal import Decimal
