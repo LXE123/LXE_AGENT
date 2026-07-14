@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
+
+import pytest
 from types import ModuleType
 from types import SimpleNamespace
 
@@ -83,16 +85,15 @@ def test_catalog_covers_active_business_skills() -> None:
     assert catalog["browser_auth_refresh"]["exposed"] is False
 
 
-def test_business_adapter_supports_legacy_zero_argument_main(monkeypatch) -> None:
-    module_name = "tests.fake_zero_argument_business_cli"
+def test_business_adapter_requires_the_run_contract(monkeypatch) -> None:
+    module_name = "tests.fake_run_contract_business_cli"
     module = ModuleType(module_name)
 
-    def main() -> int:
-        assert sys.argv == [module_name, "--store-name", "Demo"]
-        print('{"success":true,"message":"ok"}')
-        return 0
+    def run(arguments: dict) -> dict:
+        assert arguments == {"store_name": "Demo"}
+        return {"success": True, "message": "ok"}
 
-    module.main = main  # type: ignore[attr-defined]
+    module.run = run  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, module_name, module)
     ok, content, files, error = execute_module_json(
         {"module": module_name},
@@ -103,3 +104,9 @@ def test_business_adapter_supports_legacy_zero_argument_main(monkeypatch) -> Non
     assert content == [{"type": "text", "text": '{"success":true,"message":"ok"}'}]
     assert files == []
     assert error is None
+
+    legacy = ModuleType("tests.fake_legacy_main_cli")
+    legacy.main = lambda: 0  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tests.fake_legacy_main_cli", legacy)
+    with pytest.raises(RuntimeError, match="no callable run"):
+        execute_module_json({"module": "tests.fake_legacy_main_cli"}, {}, {"session_id": "session"})

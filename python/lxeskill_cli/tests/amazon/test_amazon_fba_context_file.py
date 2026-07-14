@@ -5,7 +5,7 @@ import json
 import pytest
 
 from services.agent_cli._shared.context_json import parse_context_file_argument
-from services.agent_cli.browser.amazon_fba._shared import build_parser, validate_args
+from services.agent_cli.browser.amazon_fba._shared import run_stage
 
 
 def _context_payload() -> dict[str, str]:
@@ -69,22 +69,25 @@ def test_parse_context_file_argument_rejects_missing_required_field(tmp_path):
         parse_context_file_argument(str(path))
 
 
-def test_fba_shared_parser_accepts_context_file(tmp_path):
+def test_run_stage_parses_context_file_and_clamps_timeout(tmp_path):
     path = tmp_path / "context.json"
     path.write_text(json.dumps(_context_payload(), ensure_ascii=False), encoding="utf-8")
-    parser = build_parser("prepare_upload")
+    seen: dict = {}
 
-    args = parser.parse_args(["--context-file", str(path), "--timeout-sec", "45"])
-    context, timeout_sec = validate_args(args)
+    def fake_runner(*, context: dict, timeout_sec: int) -> dict:
+        seen.update({"context": context, "timeout_sec": timeout_sec})
+        return {"params_ready": True, "finished": True}
 
-    assert context["consignment_no"] == "SP260408007"
-    assert timeout_sec == 45
+    payload = run_stage({"context_file": str(path), "timeout_sec": 45}, fake_runner)
+
+    assert payload["finished"] is True
+    assert seen["context"]["consignment_no"] == "SP260408007"
+    assert seen["timeout_sec"] == 45
 
 
-def test_fba_shared_parser_rejects_legacy_context_argument():
-    parser = build_parser("prepare_upload")
+def test_run_stage_returns_not_ready_for_missing_context_file(tmp_path):
+    payload = run_stage({"context_file": str(tmp_path / "absent.json")}, lambda **_: {"finished": True})
 
-    with pytest.raises(SystemExit) as exc_info:
-        parser.parse_args(["--context", "{}"])
-
-    assert exc_info.value.code == 2
+    assert payload["params_ready"] is False
+    assert payload["finished"] is False
+    assert payload["exception"]

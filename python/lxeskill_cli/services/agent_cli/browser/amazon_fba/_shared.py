@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import asyncio
 import os
 import re
@@ -32,19 +31,6 @@ _ATTACHMENT_SHORT_NAME_SUFFIXES = {
     "step2_filled": "multi_box",
     "shipment_summary_excel": "summary",
 }
-
-
-def build_parser(prog: str) -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog=prog, allow_abbrev=False)
-    parser.add_argument("--context-file")
-    parser.add_argument("--timeout-sec", type=int, default=180)
-    return parser
-
-
-def validate_args(args: argparse.Namespace) -> tuple[dict[str, str], int]:
-    context = parse_context_file_argument(getattr(args, "context_file", ""))
-    timeout_sec = max(30, int(getattr(args, "timeout_sec", 180) or 180))
-    return context, timeout_sec
 
 
 def exception_text(exc: Exception) -> str:
