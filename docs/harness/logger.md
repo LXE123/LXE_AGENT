@@ -2,7 +2,7 @@
 
 Status: `Current`
 
-The shared logging implementation is `packages/core/src/logging.ts`. Runtime trace sanitization and trace-file layout are implemented by `packages/runtime/src/trace.ts`.
+The shared logging implementation is `packages/foundation/core/src/logging.ts`. Runtime trace sanitization and trace-file layout are implemented by `packages/agent/runtime/src/providers/trace.ts`.
 
 ## Logging Surfaces
 
@@ -28,12 +28,12 @@ Reducing terminal noise must not remove useful runtime diagnostics. Conversely, 
 - `AGENT_STREAM_TRACE_ENABLED` enables normalized stream traces.
 - `AGENT_SSE_WIRE_TRACE_ENABLED` enables lower-level provider wire traces.
 
-Local files are written below `logs/runtime/YYYYMMDD/` using the configured base name. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
+Local files are written below `var/logs/runtime/YYYYMMDD/` using the configured base name. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
 
 Wire traces use the main-compatible per-attempt layout:
 
 ```text
-logs/sse_wire_traces/YYYYMMDD/HHMM_<session>/<turn>/step_<zero-based-step>_attempt_<attempt>.jsonl
+var/logs/sse_wire_traces/YYYYMMDD/HHMM_<session>/<turn>/step_<zero-based-step>_attempt_<attempt>.jsonl
 ```
 
 Each successful attempt records `request_start`, `response_start`, every SDK `wire_event`, and one `request_end`. A failure before an HTTP response omits `response_start`. Existing legacy `provider.jsonl` files are retained, but new turns do not create them.
@@ -44,10 +44,10 @@ The shipped runtime configuration leaves local file logging disabled. For develo
 
 File responsibilities are intentionally separate:
 
-- Bun structured runtime records (JSONL): `logs/runtime/YYYYMMDD/runtime.log`.
-- Python text logs (bridge tools and standalone scripts): `logs/runtime/YYYYMMDD/runtime-py.log`. Python derives the name from `LOG_FILE` by appending `-py` to the stem, so the two formats never share a file.
-- Feishu raw events: `logs/feishu_raw_events/YYYYMMDD.jsonl`.
-- Provider traces: `logs/agent_traces/` and `logs/sse_wire_traces/`.
+- Bun structured runtime records (JSONL): `var/logs/runtime/YYYYMMDD/runtime.log`.
+- Python text logs (bridge tools and standalone scripts): `var/logs/runtime/YYYYMMDD/runtime-py.log`. Python derives the name from `LOG_FILE` by appending `-py` to the stem, so the two formats never share a file.
+- Feishu raw events: `var/logs/feishu_raw_events/YYYYMMDD.jsonl`.
+- Provider traces: `var/logs/agent_traces/` and `var/logs/sse_wire_traces/`.
 
 ## Record Shape And Context
 

@@ -6,7 +6,7 @@
 
 本专题说明 Runtime 如何限制单个 tool result、处理历史 image、在 provider request 前估算预算，并用 summary checkpoint 缩短 model-visible history。核心原则是：只在能证明安全收缩时写 replacement，失败时保留原始状态并显式终止。
 
-事实来源是 [`packages/runtime/src/context.ts`](/packages/runtime/src/context.ts) 及其测试。
+事实来源是 [`packages/agent/runtime/src/engine/context.ts`](/packages/agent/runtime/src/engine/context.ts) 及其测试。
 
 ## 默认预算
 

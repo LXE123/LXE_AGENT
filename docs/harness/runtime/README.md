@@ -8,7 +8,7 @@ Runtime 负责单个 turn 内的模型调用、上下文预算、工具执行、
 
 ## 当前边界
 
-[`packages/runtime/src`](/packages/runtime/src) 包含生产 Runtime：
+[`packages/agent/runtime/src`](/packages/agent/runtime/src) 包含生产 Runtime：
 
 - `runtime.ts`：turn 与 step 状态机。
 - `context.ts`：canonical message、token 估算、裁剪、修复和摘要压缩。

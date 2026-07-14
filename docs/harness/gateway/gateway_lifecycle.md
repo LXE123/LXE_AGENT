@@ -9,10 +9,10 @@ Gateway lifecycle 负责把配置、持久化、Runtime、Dashboard、scheduler 
 ## 事实来源
 
 - [`apps/gateway/src/main.ts`](/apps/gateway/src/main.ts)：顶层入口、fatal handler 和日志 flush。
-- [`apps/gateway/src/cli.ts`](/apps/gateway/src/cli.ts)：`start`、`stop`、配置与 status 文件入口。
-- [`apps/gateway/src/production.ts`](/apps/gateway/src/production.ts)：provider、storage、tools、MCP、skills、Dashboard 和维护任务装配。
-- [`apps/gateway/src/direct-composition.ts`](/apps/gateway/src/direct-composition.ts)：Gateway 与 Runtime 的进程内组合。
-- [`apps/gateway/src/gateway-lifecycle.ts`](/apps/gateway/src/gateway-lifecycle.ts)：启动、停止、health 和回滚状态机。
+- [`apps/gateway/src/bootstrap/cli.ts`](/apps/gateway/src/bootstrap/cli.ts)：`start`、`stop`、配置与 status 文件入口。
+- [`apps/gateway/src/orchestration/production.ts`](/apps/gateway/src/orchestration/production.ts)：provider、storage、tools、MCP、skills、Dashboard 和维护任务装配。
+- [`apps/gateway/src/orchestration/composition.ts`](/apps/gateway/src/orchestration/composition.ts)：Gateway 与 Runtime 的进程内组合。
+- [`apps/gateway/src/orchestration/lifecycle.ts`](/apps/gateway/src/orchestration/lifecycle.ts)：启动、停止、health 和回滚状态机。
 
 ## 生产组件装配
 

@@ -6,7 +6,7 @@
 
 Context subsystem 决定 provider 实际看见哪些 system、message、tool schema 和 image 信息，并保证 replay、steering、tool closure 与 compaction 后仍可继续执行。它不是简单的 prompt 拼接器，而是会影响长期模型视图的状态边界。
 
-事实来源是 [`packages/runtime/src/context.ts`](/packages/runtime/src/context.ts)、[`runtime.ts`](/packages/runtime/src/runtime.ts) 和 [`storage.ts`](/packages/runtime/src/storage.ts)。
+事实来源是 [`packages/agent/runtime/src/engine/context.ts`](/packages/agent/runtime/src/engine/context.ts)、[`runtime.ts`](/packages/agent/runtime/src/engine/runtime.ts) 和 [`storage.ts`](/packages/agent/runtime/src/state/storage.ts)。
 
 ## 专题导航
 

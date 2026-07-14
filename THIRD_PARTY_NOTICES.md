@@ -2,8 +2,8 @@
 
 ## openclaw-lark CardKit presentation
 
-Portions of `apps/gateway/src/feishu/card-builder.ts` and
-`apps/gateway/src/feishu/markdown-style.ts` are adapted from openclaw-lark,
+Portions of `apps/gateway/src/channels/feishu/card-builder.ts` and
+`apps/gateway/src/channels/feishu/markdown-style.ts` are adapted from openclaw-lark,
 commit `18c44168489246a2f8663f14e12923d6622ff10a`.
 
 Copyright (c) 2026 Lark Technologies Pte. Ltd.

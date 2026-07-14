@@ -6,7 +6,7 @@ Runtime skill prompts live in repository `skills/*/SKILL.md` and optional user s
 
 ## Discovery And Precedence
 
-`packages/runtime/src/skills.ts` scans both roots and parses skill front matter. Repository skills win when the same skill name also exists in the user root. Duplicate names or commands within one source are rejected instead of being resolved by filesystem order.
+`packages/agent/runtime/src/tooling/skills.ts` scans both roots and parses skill front matter. Repository skills win when the same skill name also exists in the user root. Duplicate names or commands within one source are rejected instead of being resolved by filesystem order.
 
 The catalog validates that referenced files:
 

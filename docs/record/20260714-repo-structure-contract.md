@@ -6,7 +6,7 @@ Status: `Current`
 
 ## 三条原则
 
-1. **按运行时世界分区**：目录第一层只回答"属于哪个世界"——Bun 常驻进程（`apps`/`packages`）、前端（`web`）、Python LXE Skill CLI 闭包（`python/lxeskill_cli`）、技能资产（`skills`）、配置与装配（`config`/`scripts`/`data`）、文档（`docs`）。世界内部再按领域分。
+1. **按运行时世界分区**：目录第一层只回答"属于哪个世界"——TypeScript 应用与包（`apps`/`packages`）、Python LXE Skill CLI 闭包（`python/lxeskill_cli`）、技能资产（`skills`）、配置与装配（`config`/`scripts`/`data`）、文档（`docs`）。TypeScript 世界按[大域/小域布局](./20260714-typescript-workspace-domain-layout.md)继续分层。
 2. **代码、配置、状态、文档四分离**：程序管理的易失状态（logs、tmp、sqlite DB）收拢进 `var/` 并整目录 gitignore。`artifacts/` 是例外——它是模型可见的输出面（`send_file` 白名单 + 十余处 SKILL.md 硬编码路径），属于工作区契约而非隐藏状态，留在根目录。
 3. **规范必须有校验器兜底**：约定不写进测试就必然漂移。
 
@@ -40,4 +40,4 @@ var/db/     ← local_agent.sqlite3、sessions.json、machine_identity.json、se
 
 - 不采用 `src/` 布局，不修改四个公开 Python package 名称。
 - 不迁移存量 env 键名，只约束增量。
-- 不动 TS workspace 布局。
+- TS workspace 布局由[后续决策](./20260714-typescript-workspace-domain-layout.md)取代。
