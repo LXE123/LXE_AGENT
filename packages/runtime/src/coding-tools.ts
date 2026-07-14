@@ -83,7 +83,9 @@ const processLines = (value: string): string[] => {
 const PROTECTED_ROOT_FILES = new Set([
   ".env", ".env.local", ".envrc", ".env.development", ".env.production", ".env.test", ".env.staging",
 ]);
-const PROTECTED_ROOT_DIRECTORIES = new Set(["user_session_db"]);
+// Program-managed state the model must never write into. var/tmp and
+// var/artifacts stay writable (scratch and the send_file output surface).
+const PROTECTED_PATH_PREFIXES = ["var/db", "var/logs"];
 const BINARY_EXTENSIONS = new Set([
   ".pyc", ".pyo", ".exe", ".dll", ".so", ".bin", ".zip", ".tar", ".gz", ".7z", ".rar", ".whl",
   ".pdf", ".xlsx", ".xlsm", ".xltx", ".xltm", ".xls", ".docx", ".docm", ".dotx", ".dotm",
@@ -135,8 +137,12 @@ const assertWritable = (root: string, path: string): void => {
   if (parts.length === 1 && PROTECTED_ROOT_FILES.has(parts[0]!.toLowerCase())) {
     throw new Error(`write denied for protected workspace file: ${rel}`);
   }
-  if (parts[0] && PROTECTED_ROOT_DIRECTORIES.has(parts[0].toLowerCase())) {
-    throw new Error(`write denied for protected workspace directory: ${parts[0]}/`);
+  const normalized = rel.replaceAll("\\", "/").toLowerCase();
+  const protectedPrefix = PROTECTED_PATH_PREFIXES.find(
+    (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`),
+  );
+  if (protectedPrefix) {
+    throw new Error(`write denied for protected workspace directory: ${protectedPrefix}/`);
   }
 };
 

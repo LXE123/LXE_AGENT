@@ -12,7 +12,7 @@ def database_path() -> Path:
     if configured:
         return Path(configured).expanduser()
     project_root = Path(__file__).resolve().parents[3]
-    return project_root / "user_session_db" / "local_agent.sqlite3"
+    return project_root / "var" / "db" / "local_agent.sqlite3"
 
 
 def connect() -> sqlite3.Connection:

@@ -246,7 +246,10 @@ describe("native coding tools", () => {
     await expect(registry.execute("write", { file_path: ".env", content: "SECRET=x" }, context()))
       .rejects.toThrow("protected");
     await expect(registry.execute("write", {
-      file_path: "user_session_db/sessions.json", content: "{}",
+      file_path: "var/db/sessions.json", content: "{}",
+    }, context())).rejects.toThrow("protected");
+    await expect(registry.execute("write", {
+      file_path: "var/logs/runtime/x.log", content: "{}",
     }, context())).rejects.toThrow("protected");
     await processes.stop();
   });

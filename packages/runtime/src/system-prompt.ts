@@ -50,7 +50,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
   const volatile = [
     options.skillPrompt.trim(),
     `## Runtime\nOS: ${platform()} ${release()}\nBun: ${Bun.version}\nProvider: ${options.provider || "unknown"}\nModel: ${options.model || "unknown"}\nPlatform: ${options.platform || "unknown"}`,
-    `## Workspace\nYour working directory is: ${options.workspace ?? options.projectRoot}\nTreat this directory as the single workspace for file operations. Root-level .env* files and user_session_db/ are write-protected.`,
+    `## Workspace\nYour working directory is: ${options.workspace ?? options.projectRoot}\nTreat this directory as the single workspace for file operations. Root-level .env* files and var/db, var/logs are write-protected.`,
     `## Current Date & Time\n${date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
   ].filter(Boolean).join("\n\n");
   return `${stable}\n\n${SYSTEM_PROMPT_CACHE_BREAKPOINT}\n\n${volatile}`;

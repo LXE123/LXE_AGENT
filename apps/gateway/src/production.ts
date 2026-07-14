@@ -100,7 +100,7 @@ export function createProductionGateway(
   });
   const databasePath =
     String(options.environment.LXE_SQLITE_DB_PATH ?? "").trim() ||
-    join(options.projectRoot, "user_session_db", "local_agent.sqlite3");
+    join(options.projectRoot, "var", "db", "local_agent.sqlite3");
   const sqliteStore = options.directStorage ? undefined : new SqliteRuntimeStore(databasePath);
   const defaultDirectStore = sqliteStore ? new DirectGatewayStorageAdapter(sqliteStore) : undefined;
   const directStore = options.directStorage ?? defaultDirectStore;

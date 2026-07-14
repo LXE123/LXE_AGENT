@@ -10,7 +10,7 @@
       ".env.test",
       ".env.staging"
     ],
-    "protected_root_directories": ["user_session_db"],
+    "protected_path_prefixes": ["var/db", "var/logs"],
     "skip_directories": [
       ".git",
       "node_modules",

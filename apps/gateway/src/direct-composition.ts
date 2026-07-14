@@ -92,7 +92,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   const bindingsPath = configuredBindings
     || (sqlitePath
       ? join(dirname(sqlitePath), "sessions.json")
-      : join(options.projectRoot, "user_session_db", "sessions.json"));
+      : join(options.projectRoot, "var", "db", "sessions.json"));
   const bindings = new SessionBindingStore(bindingsPath);
   const runtimeState = new SessionRuntimeState();
   const channels = new ChannelRegistry();
