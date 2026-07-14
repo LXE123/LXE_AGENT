@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from services.agent_cli.browser.amazon_common import login_verify
-from services.agent_cli.browser.amazon_fba import login_verify as login_verify_cli
 from services.browser.workflows import amazon_fba_login_verify
 from services.browser.workflows import registry
 from services.browser.workflows.amazon_fba_common import WorkflowBrowserSession
@@ -212,74 +211,6 @@ def test_run_login_verify_workflow_returns_not_ready_without_selected_store() ->
     assert result["params_ready"] is False
     assert result["finished"] is False
     assert result["exception"] == "当前没有明确选中的店铺"
-
-
-def test_login_verify_cli_accepts_store_id_without_context_file() -> None:
-    parser = login_verify_cli._build_parser()
-    args = parser.parse_args(["--store-id", "store-1", "--timeout-sec", "60"])
-
-    context, timeout_sec = login_verify_cli._validate_args(args)
-
-    assert context == {"store_id": "store-1"}
-    assert timeout_sec == 60
-
-
-def test_login_verify_cli_missing_store_id_returns_not_ready(monkeypatch) -> None:
-    events: list[dict[str, object]] = []
-
-    monkeypatch.setattr(login_verify_cli, "write_result_event", lambda payload: events.append(dict(payload)))
-    monkeypatch.setattr(login_verify_cli, "finalize_fba_cli_process", lambda: None)
-
-    exit_code = login_verify_cli.main([])
-
-    assert exit_code == 1
-    assert events[0]["params_ready"] is False
-    assert events[0]["finished"] is False
-    assert events[0]["exception"] == "缺少 store_id"
-
-
-def test_login_verify_cli_uses_direct_workflow_without_files(monkeypatch) -> None:
-    driver = object()
-    session = WorkflowBrowserSession(
-        driver=driver,
-        state_data={},
-        output_dir=Path.cwd(),
-        session_id="agent-1",
-        store_id="store-1",
-        store_name="Amazon-BR",
-    )
-    calls: list[dict[str, object]] = []
-
-    class _BrowserSessionContext:
-        def __enter__(self):
-            return session
-
-        def __exit__(self, exc_type, exc, tb):
-            return None
-
-    def fake_browser_session(**kwargs):
-        calls.append(kwargs)
-        return _BrowserSessionContext()
-
-    def fake_workflow_runner(**kwargs):
-        calls.append(kwargs)
-        return {"params_ready": True, "finished": True, "exception": "", "notice": "ok", "file_path": [], "context": {}}
-
-    monkeypatch.setattr(login_verify_cli, "resolve_agent_session_id", lambda: "agent-1")
-    monkeypatch.setattr(login_verify_cli, "browser_session", fake_browser_session)
-    monkeypatch.setattr(login_verify_cli, "_workflow_output_dir", lambda _session_id: Path.cwd())
-
-    result = login_verify_cli.run_login_verify(
-        context={"store_id": "store-1"},
-        timeout_sec=30,
-        workflow_runner=fake_workflow_runner,
-    )
-
-    assert result["finished"] is True
-    assert calls[0]["session_id"] == "agent-1"
-    assert calls[0]["context"] == {"store_id": "store-1"}
-    assert calls[1]["session"] is session
-    assert calls[1]["payload"] == {"store_id": "store-1", "timeout_sec": 30}
 
 
 def test_login_verify_workflow_is_registered() -> None:

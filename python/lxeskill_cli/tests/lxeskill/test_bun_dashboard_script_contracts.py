@@ -152,7 +152,7 @@ def test_windows_maintenance_flows_delegate_dashboard_to_webui(
 
 
 def test_dashboard_readme_documents_pinned_root_bun_workflow() -> None:
-    readme = _read(ROOT / "web" / "agent-dashboard" / "README.md")
+    readme = _read(ROOT / "apps" / "dashboard" / "README.md")
     package = json.loads(_read(ROOT / "package.json"))
 
     assert package["packageManager"] == f"bun@{BUN_VERSION}"
