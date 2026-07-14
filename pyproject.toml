@@ -21,12 +21,22 @@ dependencies = [
 [project.scripts]
 lxeskill = "lxeskill.cli:main"
 
+[build-system]
+requires = ["hatchling==1.31.0"]
+build-backend = "hatchling.build"
+
 [dependency-groups]
 dev = [
     "pytest",
 ]
 
-[tool.pytest.ini_options]
-pythonpath = [
-    ".",
+[tool.hatch.build.targets.wheel]
+packages = [
+    "python/lxeskill_cli/lxeskill",
+    "python/lxeskill_cli/services",
+    "python/lxeskill_cli/shared",
+    "python/lxeskill_cli/browser_auth_service",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["python/lxeskill_cli/tests"]

@@ -112,7 +112,13 @@ export function createProductionGateway(
   let heartbeatWake: ((payload: JsonObject) => void) | undefined;
   const tools = new ToolRegistry();
   const skillCatalog = new SkillCatalog(options.projectRoot);
-  const commandCatalogPath = join(options.projectRoot, "lxeskill", "catalog.json");
+  const commandCatalogPath = join(
+    options.projectRoot,
+    "python",
+    "lxeskill_cli",
+    "lxeskill",
+    "catalog.json",
+  );
   const cliCommands = existsSync(commandCatalogPath)
     ? loadLxeSkillCommandCatalog(commandCatalogPath)
     : [];

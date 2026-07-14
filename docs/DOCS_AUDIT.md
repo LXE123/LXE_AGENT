@@ -88,7 +88,7 @@ Current candidates：
 - `docs/harness/skill/archive/README.md`
 - `docs/harness/skill/reference/README.md`
 - `data/README.md`
-- `browser_auth_service/README.md`
+- `python/lxeskill_cli/browser_auth_service/README.md`
 - `skills/*/SKILL.md`
 
 Needs refresh：

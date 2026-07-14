@@ -11,7 +11,7 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 - Native direct tools：Runtime 内置的 read/write/edit/grep/find/exec/process 等能力。
 - Native Feishu tools：由 Gateway 注入 API port，读取当前会话或下载资源。
 - MCP tools：从 enabled server 动态发现，可 direct 或 deferred。
-- Script tools：由 `lxeskill/catalog.json` 注册，通过一次性 JSON bridge 执行业务脚本。
+- Script tools：由 `python/lxeskill_cli/lxeskill/catalog.json` 注册，通过一次性 JSON bridge 执行业务脚本。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：搜索 deferred definition 并更新 exposure state。
 

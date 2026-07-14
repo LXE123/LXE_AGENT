@@ -15,7 +15,7 @@
   "scripts": {
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun test",
-    "test:py-tools": "uv run --frozen pytest -q",
+    "test:py-tools": "uv run --frozen pytest -q python/lxeskill_cli/tests skills",
     "dashboard:build": "bun run --cwd web/agent-dashboard build",
     "gateway:dev": "bun run --cwd apps/gateway dev",
     "gateway:watch": "bun run --cwd apps/gateway watch",

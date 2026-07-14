@@ -169,9 +169,7 @@ except Exception as exc:
 
     Write-Host "Checking: runtime configuration warnings"
     $runtimeCheckPath = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-runtime-warning-check-" + [Guid]::NewGuid().ToString("N") + ".py")
-    $previousPythonPath = [string]$env:PYTHONPATH
     try {
-        $env:PYTHONPATH = if ([string]::IsNullOrWhiteSpace($previousPythonPath)) { $ProjectRoot } else { "$ProjectRoot$([System.IO.Path]::PathSeparator)$previousPythonPath" }
         Set-Content -LiteralPath $runtimeCheckPath -Value $runtimeCheck -Encoding UTF8
         $probeResult = Invoke-LxeNativeCapture -FilePath $UvPath -Arguments @(
             "run",
@@ -187,7 +185,6 @@ except Exception as exc:
         }
     }
     finally {
-        $env:PYTHONPATH = $previousPythonPath
         if (Test-Path -LiteralPath $runtimeCheckPath) {
             Remove-Item -LiteralPath $runtimeCheckPath -Force -ErrorAction SilentlyContinue
         }

@@ -1,0 +1,263 @@
+{
+  "protocol_version": "1",
+  "entries": [
+    {
+      "name": "ziniao_browser",
+      "command_path": ["browser", "store"],
+      "legacy_aliases": ["ziniao_browser"],
+      "visibility": "browser",
+      "session_mode": "lxe_session",
+      "handler": "browser",
+      "owner_skills": ["ziniao-browser"],
+      "timeout_ms": 600000,
+      "exposed": true,
+      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["open_store", "get_status", "exit_store"], "description": "店铺生命周期操作。先 get_status；仅在未启动时 open_store；只在明确结束时 exit_store。"}, "store_id": {"type": "string", "minLength": 1, "description": "紫鸟店铺 ID；open_store 必填，禁止凭空猜测。"}}, "required": ["action"], "additionalProperties": false}
+    },
+    {
+      "name": "ziniao_page",
+      "command_path": ["browser", "page"],
+      "legacy_aliases": ["ziniao_page"],
+      "visibility": "browser",
+      "session_mode": "lxe_session",
+      "handler": "browser",
+      "owner_skills": ["ziniao-browser"],
+      "timeout_ms": 600000,
+      "exposed": true,
+      "artifact_paths": [{"field": "screenshot_path", "role": "model_input"}],
+      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["browser_snapshot", "browser_vision", "browser_navigate", "browser_click", "browser_type", "browser_scroll"], "description": "页面操作；交互前先 snapshot，截图仅用于模型读取。"}, "store_id": {"type": "string", "minLength": 1, "description": "已启动且与当前会话绑定的紫鸟店铺 ID。"}, "full": {"type": "boolean", "description": "browser_vision 是否截取完整页面。"}, "url": {"type": "string", "minLength": 1, "description": "browser_navigate 的目标 URL。"}, "ref": {"type": "string", "minLength": 1, "description": "最近一次 snapshot 返回的元素引用；页面变化后必须重新获取。"}, "text": {"type": "string", "description": "browser_type 输入文本。"}, "direction": {"type": "string", "enum": ["up", "down"], "description": "browser_scroll 滚动方向。"}, "pixels": {"type": "integer", "minimum": 100, "maximum": 4000, "description": "browser_scroll 像素数。"}}, "required": ["action", "store_id"], "additionalProperties": false}
+    },
+    {
+      "name": "browser_auth_refresh",
+      "command_path": ["auth", "refresh"],
+      "legacy_aliases": ["browser_auth_refresh"],
+      "visibility": "maintenance",
+      "session_mode": "none",
+      "handler": "internal",
+      "owner_skills": ["ziniao-browser"],
+      "timeout_ms": 180000,
+      "exposed": false,
+      "input_schema": {"type": "object", "properties": {"scope": {"type": "string", "enum": ["erp", "fba", "private_amz"]}, "account": {"type": "string"}, "require_wms_cookie_header": {"type": "boolean"}, "force": {"type": "boolean"}, "force_refresh": {"type": "boolean"}}, "additionalProperties": false}
+    },
+    {
+      "name": "mabang_fill_customs_declaration",
+      "command_path": ["fba", "customs", "fill"],
+      "legacy_aliases": ["mabang_fill_customs_declaration"],
+      "visibility": "business",
+      "session_mode": "none",
+      "module": "services.agent_cli.mabang.fill_customs_declaration",
+      "owner_skills": ["fba-customs-declaration-fill"],
+      "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}],
+      "timeout_ms": 600000,
+      "exposed": true,
+      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "array", "items": {"type": "string"}}, "template_xlsx": {"type": "string"}, "output_dir": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_summarize_fba_delivery_tax_sku",
+      "command_path": ["fba", "export-tax", "delivery-summary"],
+      "legacy_aliases": ["mabang_summarize_fba_delivery_tax_sku"],
+      "visibility": "business",
+      "session_mode": "none",
+      "module": "services.agent_cli.mabang.summarize_fba_delivery_tax_sku",
+      "owner_skills": ["fba-export-tax-delivery-summary"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_import_export_tax_products",
+      "command_path": ["fba", "export-tax", "products-import"],
+      "legacy_aliases": ["mabang_import_export_tax_products"],
+      "visibility": "business",
+      "session_mode": "none",
+      "module": "services.agent_cli.mabang.import_export_tax_products",
+      "owner_skills": ["fba-export-tax-products-manage"], "artifact_paths": [{"field": "backup_path", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"sku": {"type": "array", "items": {"type": "string"}}, "products_path": {"type": "string"}, "backup_dir": {"type": "string"}}, "required": ["sku"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_fill_invoice_template",
+      "command_path": ["fba", "invoice", "fill"],
+      "legacy_aliases": ["mabang_fill_invoice_template"],
+      "visibility": "business",
+      "session_mode": "none",
+      "module": "services.agent_cli.mabang.fill_invoice_template",
+      "owner_skills": ["fba-invoice-template-fill"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string"}, "delivery_csv": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
+    },
+    {
+      "name": "amazon_logistic_quote",
+      "command_path": ["fba", "logistics", "quote"],
+      "legacy_aliases": ["amazon_logistic_quote"],
+      "visibility": "business",
+      "session_mode": "none",
+      "module": "services.agent_cli.amazon_logistic.run",
+      "owner_skills": ["fba-logistics-select"], "artifact_paths": [{"field": "files[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"input_text": {"type": "string"}, "shipment_no": {"type": "string"}, "consignment_no": {"type": "string"}, "destination_address": {"type": "string"}}, "additionalProperties": false}
+    },
+    {
+      "name": "logistics_rate_import",
+      "command_path": ["fba", "logistics", "rates-import"],
+      "legacy_aliases": ["logistics_rate_import"],
+      "visibility": "business",
+      "session_mode": "none",
+      "module": "services.agent_cli.amazon_logistic.logistics_update_ingest",
+      "owner_skills": ["fba-logistics-rate-import"], "timeout_ms": 600000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"file_path": {"type": "string"}, "job_id": {"type": "string"}}, "oneOf": [{"required": ["file_path"]}, {"required": ["job_id"]}], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_download_msku_detail_excel", "module": "services.agent_cli.mabang.download_msku_detail_excel",
+      "command_path": ["fba", "msku", "detail-download"],
+      "legacy_aliases": ["mabang_download_msku_detail_excel"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-msku-detail-download"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "delivery_no": {"type": "string"}}, "additionalProperties": false}
+    },
+    {
+      "name": "mabang_fill_purchase_contracts", "module": "services.agent_cli.mabang.fill_purchase_contracts",
+      "command_path": ["fba", "purchase", "contracts-fill"],
+      "legacy_aliases": ["mabang_fill_purchase_contracts"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-purchase-contract-fill"], "artifact_paths": [{"field": "output_files[].output_xlsx", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"purchase_summary_xlsx": {"type": "string"}, "contract_template_xlsx": {"type": "string"}}, "required": ["purchase_summary_xlsx", "contract_template_xlsx"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_generate_purchase_batch_workbooks", "module": "services.agent_cli.mabang.generate_purchase_batch_workbooks",
+      "command_path": ["fba", "purchase", "summary-create"],
+      "legacy_aliases": ["mabang_generate_purchase_batch_workbooks"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-purchase-summary-create"], "artifact_paths": [{"field": "purchase_summary_xlsx", "role": "deliverable"}, {"field": "restock_xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string"}, "gross_margin": {"type": ["number", "string"]}}, "required": ["delivery_no", "master_xlsx", "gross_margin"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_generate_fba_restock_workbook", "module": "services.agent_cli.mabang.generate_fba_restock_workbook",
+      "command_path": ["fba", "restock", "workbook-create"],
+      "legacy_aliases": ["mabang_generate_fba_restock_workbook"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-restock-workbook-create"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string"}, "gross_margin": {"type": ["number", "string"]}}, "required": ["delivery_no", "master_xlsx", "gross_margin"], "additionalProperties": false}
+    },
+    {
+      "name": "amazon_fba_confirm_own_carrier", "module": "services.agent_cli.browser.amazon_fba.confirm_own_carrier",
+      "command_path": ["fba", "shipment", "confirm-own-carrier"],
+      "legacy_aliases": ["amazon_fba_confirm_own_carrier"],
+      "visibility": "business", "session_mode": "lxe_session",
+      "owner_skills": ["fba-shipment-create"], "timeout_ms": 600000, "exposed": true,
+      "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
+      "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
+    },
+    {
+      "name": "amazon_fba_enter_tracking_codes", "module": "services.agent_cli.browser.amazon_fba.enter_tracking_codes",
+      "command_path": ["fba", "shipment", "enter-tracking-codes"],
+      "legacy_aliases": ["amazon_fba_enter_tracking_codes"],
+      "visibility": "business", "session_mode": "lxe_session",
+      "owner_skills": ["fba-shipment-create"], "timeout_ms": 600000, "exposed": true,
+      "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
+      "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
+    },
+    {
+      "name": "amazon_fba_prepare_multi_box_excel", "module": "services.agent_cli.browser.amazon_fba.prepare_multi_box_excel",
+      "command_path": ["fba", "shipment", "prepare-multi-box"],
+      "legacy_aliases": ["amazon_fba_prepare_multi_box_excel"],
+      "visibility": "business", "session_mode": "lxe_session",
+      "owner_skills": ["fba-shipment-create"], "timeout_ms": 600000, "exposed": true,
+      "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
+      "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
+    },
+    {
+      "name": "amazon_fba_prepare_upload", "module": "services.agent_cli.browser.amazon_fba.prepare_upload",
+      "command_path": ["fba", "shipment", "prepare-upload"],
+      "legacy_aliases": ["amazon_fba_prepare_upload"],
+      "visibility": "business", "session_mode": "lxe_session",
+      "owner_skills": ["fba-shipment-create"], "timeout_ms": 600000, "exposed": true,
+      "artifact_paths": [{"field": "file_path[].value", "role": "deliverable"}],
+      "input_schema": {"type": "object", "properties": {"context_file": {"type": "string"}, "timeout_sec": {"type": "integer"}}, "required": ["context_file"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_download_fba_delivery_csv", "module": "services.agent_cli.mabang.download_fba_delivery_csv",
+      "command_path": ["fba", "shipment", "delivery-csv-download"],
+      "legacy_aliases": ["mabang_download_fba_delivery_csv"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-shipment-delivery-csv-download"], "artifact_paths": [{"field": "csv_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "timeout_sec": {"type": "number"}, "poll_interval_sec": {"type": "number"}}, "required": ["delivery_no"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_download_wms_consignment_excel", "module": "services.agent_cli.mabang.download_wms_consignment_excel",
+      "command_path": ["fba", "shipment", "wms-box-download"],
+      "legacy_aliases": ["mabang_download_wms_consignment_excel"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-shipment-wms-box-download"], "artifact_paths": [{"field": "deliverable_excel_paths[]", "role": "deliverable"}, {"field": "excel_path", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "split_mode": {"type": "string", "enum": ["auto", "original"]}}, "required": ["ship_no"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_download_stock_sku_excel", "module": "services.agent_cli.mabang.download_stock_sku_excel",
+      "command_path": ["fba", "stock-sku", "download"],
+      "legacy_aliases": ["mabang_download_stock_sku_excel"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-stock-sku-download"], "artifact_paths": [{"field": "xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_replenishment_template", "module": "services.agent_cli.mabang.replenishment_template", "positional": ["action"],
+      "command_path": ["replenish", "template"],
+      "legacy_aliases": ["mabang_replenishment_template"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["replenishment-algorithm-config-manage"], "artifact_paths": [{"field": "deliverable_xlsx_path", "role": "deliverable"}], "timeout_ms": 180000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["list", "list-params", "show", "export", "validate-file", "import", "replace", "rename"]}, "template": {"type": "string"}, "xlsx": {"type": "string"}, "name": {"type": "string"}}, "required": ["action"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_build_amazon_restock_inventory_snapshot", "module": "services.agent_cli.mabang.build_amazon_restock_inventory_snapshot",
+      "command_path": ["replenish", "inventory", "restock-snapshot-build"],
+      "legacy_aliases": ["mabang_build_amazon_restock_inventory_snapshot"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["replenishment-amazon-restock-inventory-snapshot"], "artifact_paths": [{"field": "snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "csv": {"type": "string"}, "output_dir": {"type": "string"}, "msku_xlsx": {"type": "string"}, "msku_dir": {"type": "string"}}, "required": ["store_name", "csv"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_calculate_store_msku_replenishment", "module": "services.agent_cli.mabang.calculate_store_msku_replenishment",
+      "command_path": ["replenish", "calculate"],
+      "legacy_aliases": ["mabang_calculate_store_msku_replenishment"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["replenishment-calculate"], "artifact_paths": [{"field": "report_xlsx_path", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "template": {"type": "string"}, "unlinked_shipments_snapshot": {"type": "string"}, "amazon_restock_inventory_snapshot": {"type": "string"}, "amazon_fba_inventory_snapshot": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_download_store_msku_excel", "module": "services.agent_cli.mabang.download_store_msku_excel",
+      "command_path": ["replenish", "msku", "download"],
+      "legacy_aliases": ["mabang_download_store_msku_excel"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["replenishment-msku-download"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"store_id": {"type": "string"}, "id_type": {"type": "string"}, "store_name": {"type": "string"}}, "additionalProperties": false}
+    },
+    {
+      "name": "mabang_export_store_msku_actual_inventory", "module": "services.agent_cli.mabang.export_store_msku_actual_inventory",
+      "command_path": ["replenish", "inventory", "actual-export"],
+      "legacy_aliases": ["mabang_export_store_msku_actual_inventory"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["replenishment-real-inventory-report"], "artifact_paths": [{"field": "shenzhen_warehouse_inventory_report_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_analyze_store_msku_sales", "module": "services.agent_cli.mabang.analyze_store_msku_sales",
+      "command_path": ["replenish", "sales", "analyze"],
+      "legacy_aliases": ["mabang_analyze_store_msku_sales"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["replenishment-sales-analyze"], "artifact_paths": [{"field": "report_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
+    },
+    {
+      "name": "mabang_resolve_fba_store", "module": "services.agent_cli.mabang.resolve_fba_store",
+      "command_path": ["replenish", "store", "resolve"],
+      "legacy_aliases": ["mabang_resolve_fba_store"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["replenishment-store-resolve", "replenishment-unlinked-shipment-download", "replenishment-sales-analyze", "replenishment-real-inventory-report", "replenishment-msku-download", "replenishment-calculate", "replenishment-amazon-restock-inventory-snapshot"],
+      "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}],
+      "timeout_ms": 180000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "additionalProperties": false}
+    },
+    {
+      "name": "mabang_download_store_unlinked_shipments", "module": "services.agent_cli.mabang.download_store_unlinked_shipments",
+      "command_path": ["replenish", "shipments", "unlinked-download"],
+      "legacy_aliases": ["mabang_download_store_unlinked_shipments"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["replenishment-unlinked-shipment-download"], "artifact_paths": [{"field": "status_results[].raw_file_path", "role": "deliverable"}, {"field": "snapshot.snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "timeout_sec": {"type": "number"}, "poll_interval_sec": {"type": "number"}, "output_dir": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
+    }
+  ]
+}

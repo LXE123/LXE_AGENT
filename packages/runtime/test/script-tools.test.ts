@@ -115,7 +115,7 @@ describe("Python JSON tool bridge", () => {
   });
 
   test("loads the shared versioned business catalog with stable names and owners", () => {
-    const catalogPath = join(process.cwd(), "lxeskill", "catalog.json");
+    const catalogPath = join(process.cwd(), "python", "lxeskill_cli", "lxeskill", "catalog.json");
     const entries = loadScriptToolCatalog(catalogPath);
     expect(entries.find((entry) => entry.name === "amazon_logistic_quote")).toMatchObject({
       module: "services.agent_cli.amazon_logistic.run",
@@ -124,7 +124,7 @@ describe("Python JSON tool bridge", () => {
       artifactPaths: [{ field: "files[]", role: "deliverable" }],
     });
     expect(entries.find((entry) => entry.name === "logistics_rate_import")).toMatchObject({
-      module: "scripts.logistics_update_ingest",
+      module: "services.agent_cli.amazon_logistic.logistics_update_ingest",
       ownerSkills: ["fba-logistics-rate-import"],
       timeoutMs: 600_000,
     });

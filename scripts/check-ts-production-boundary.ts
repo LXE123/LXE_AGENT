@@ -45,7 +45,8 @@ for await (const path of new Bun.Glob("**/*.py").scan({ cwd: root, onlyFiles: tr
   if (pythonImports.test(read(path))) failures.push(`${path}: retained Python must not import gateway or agent_runtime`);
 }
 
-const scriptCatalog = JSON.parse(read("lxeskill/catalog.json")) as {
+const scriptCatalogPath = "python/lxeskill_cli/lxeskill/catalog.json";
+const scriptCatalog = JSON.parse(read(scriptCatalogPath)) as {
   protocol_version?: string;
   entries?: Array<{
     name?: string;
@@ -55,7 +56,7 @@ const scriptCatalog = JSON.parse(read("lxeskill/catalog.json")) as {
     visibility?: string;
   }>;
 };
-if (scriptCatalog.protocol_version !== "1") failures.push("lxeskill/catalog.json: protocol_version must be 1");
+if (scriptCatalog.protocol_version !== "1") failures.push(`${scriptCatalogPath}: protocol_version must be 1`);
 const commandEntries = new Map((scriptCatalog.entries ?? []).map((entry) => [
   `lxeskill ${(entry.command_path ?? []).map(String).join(" ")}`.trim(),
   entry,
@@ -94,9 +95,9 @@ for await (const path of new Bun.Glob("skills/**/SKILL.md").scan({ cwd: root, on
 for (const [command, entry] of commandEntries) {
   if (!["business", "browser"].includes(String(entry.visibility ?? ""))) continue;
   const canonicalOwner = entry.owner_skills?.[0] ?? "";
-  if (!canonicalOwner) failures.push(`lxeskill/catalog.json: ${command} has no canonical owner skill`);
+  if (!canonicalOwner) failures.push(`${scriptCatalogPath}: ${command} has no canonical owner skill`);
   else if (declaredCommands.get(command) !== canonicalOwner) {
-    failures.push(`lxeskill/catalog.json: ${command} is missing from canonical owner skill ${canonicalOwner}`);
+    failures.push(`${scriptCatalogPath}: ${command} is missing from canonical owner skill ${canonicalOwner}`);
   }
 }
 
