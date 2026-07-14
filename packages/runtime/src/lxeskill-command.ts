@@ -3,14 +3,14 @@ import type { JsonObject } from "@lxe/protocol";
 export interface LxeSkillInvocation {
   command: string;
   commandId: string;
-  ownerSkill?: string;
+  ownerSkills?: string[];
 }
 
 const normalize = (value: string): string => value.trim().replaceAll(/\s+/gu, " ");
 
 export function matchLxeSkillInvocation(
   rawCommand: unknown,
-  knownCommands?: ReadonlyMap<string, string>,
+  knownCommands?: ReadonlyMap<string, readonly string[]>,
 ): LxeSkillInvocation | undefined {
   const command = normalize(String(rawCommand ?? ""));
   if (!/^lxeskill(?:\.cmd)?\s+/iu.test(command)) return undefined;
@@ -29,7 +29,7 @@ export function matchLxeSkillInvocation(
     return {
       command: stableCommand,
       commandId: stableCommand.slice("lxeskill ".length),
-      ownerSkill: matched[1],
+      ownerSkills: [...matched[1]],
     };
   }
   const tokens = canonical.split(" ");
@@ -47,5 +47,5 @@ export function matchLxeSkillInvocation(
 
 export const classifyLxeSkillInput = (
   input: JsonObject,
-  knownCommands: ReadonlyMap<string, string>,
+  knownCommands: ReadonlyMap<string, readonly string[]>,
 ): LxeSkillInvocation | undefined => matchLxeSkillInvocation(input.command, knownCommands);

@@ -5,8 +5,8 @@ import { buildToolDisplayStep } from "../src/tool-display";
 describe("lxeskill command recognition", () => {
   test("matches only a leading known command and chooses the longest path", () => {
     const known = new Map([
-      ["lxeskill replenish inventory actual-export", "inventory"],
-      ["lxeskill replenish inventory", "short"],
+      ["lxeskill replenish inventory actual-export", ["inventory"]],
+      ["lxeskill replenish inventory", ["short"]],
     ]);
 
     expect(matchLxeSkillInvocation(
@@ -15,7 +15,7 @@ describe("lxeskill command recognition", () => {
     )).toEqual({
       command: "lxeskill replenish inventory actual-export",
       commandId: "replenish inventory actual-export",
-      ownerSkill: "inventory",
+      ownerSkills: ["inventory"],
     });
     expect(matchLxeSkillInvocation("echo lxeskill replenish inventory actual-export", known)).toBeUndefined();
     expect(matchLxeSkillInvocation("lxeskill unknown command", known)).toBeUndefined();
