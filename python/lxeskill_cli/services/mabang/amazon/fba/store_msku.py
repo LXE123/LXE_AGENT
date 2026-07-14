@@ -1,22 +1,37 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
-from shared.infra.net import erp_http_session, external_http_session
-from shared.workspace import artifact_path
 from services.mabang import config as mabang_settings
 from services.mabang.auth_constants import (
     MABANG_MEMCACHE_COOKIE_NAME as MEMCACHE_COOKIE_NAME,
+)
+from services.mabang.auth_constants import (
     PRIVATE_AMZ_HOST,
     PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
     PRIVATE_HOST,
 )
+from services.mabang.export_common import (
+    clean_text as _clean_text,
+)
+from services.mabang.export_common import (
+    configured_text as _configured_text,
+)
+from services.mabang.export_common import (
+    excel_suffix_from_url as _excel_suffix_from_url,
+)
+from services.mabang.export_common import (
+    request_headers as _request_headers,
+)
+from services.mabang.export_common import (
+    safe_store_msku_file_part as _safe_file_part,
+)
+from shared.infra.net import erp_http_session, external_http_session
+from shared.workspace import artifact_path
 
 from ...auth import get_auth_context
 from ...cookies import build_cookie_header, extract_named_cookies, list_cookie_names
@@ -153,20 +168,6 @@ class StoreMskuExcelResult:
         }
 
 
-def _configured_text(name: str, default: str) -> str:
-    return mabang_settings.configured_text(name, default)
-
-
-def _clean_text(value: Any) -> str:
-    return str(value or "").strip()
-
-
-def _safe_file_part(value: Any) -> str:
-    text = _clean_text(value)
-    text = re.sub(r"[^A-Za-z0-9_.-]+", "_", text)
-    return text.strip("._-") or "store_msku"
-
-
 def _timestamp_text(value: datetime | None = None) -> str:
     return (value or datetime.now()).strftime("%Y%m%d%H%M")
 
@@ -179,13 +180,6 @@ def _resolve_output_dir(output_dir: str | Path | None = None) -> Path:
         path = Path(configured) if configured else DEFAULT_OUTPUT_DIR
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def _excel_suffix_from_url(file_url: str) -> str:
-    suffix = Path(urlsplit(str(file_url or "")).path).suffix.lower()
-    if suffix in {".xls", ".xlsx"}:
-        return suffix
-    return ".xls"
 
 
 def normalize_store_id(value: Any) -> str:
@@ -209,17 +203,6 @@ def normalize_id_type(value: Any) -> str:
     if id_type not in {ID_TYPE_FBA_WAREHOUSE, ID_TYPE_SHOP}:
         raise ValueError(f"id_type 只支持 {ID_TYPE_FBA_WAREHOUSE} 或 {ID_TYPE_SHOP}: {id_type}")
     return id_type
-
-
-def _request_headers(cookie_header: str, *, origin: str, referer: str) -> dict[str, str]:
-    return {
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        "X-Requested-With": "XMLHttpRequest",
-        "Origin": origin,
-        "Referer": referer,
-        "Cookie": cookie_header,
-    }
 
 
 def _listsearch_url() -> str:
