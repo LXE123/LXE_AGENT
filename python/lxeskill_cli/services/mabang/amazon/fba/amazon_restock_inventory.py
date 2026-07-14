@@ -6,11 +6,11 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-
-from shared.workspace import artifact_path
 from typing import Any
 
 from services.mabang import config as mabang_settings
+from services.mabang.export_common import clean_text as _clean_text
+from shared.workspace import artifact_path
 
 from .store_msku_actual_inventory import find_latest_store_msku_file
 
@@ -173,10 +173,6 @@ class AmazonRestockInventorySnapshotData:
     snapshot_date: str
     quantities_by_msku: dict[str, float]
     validation: AmazonRestockInventoryValidationSummary | None
-
-
-def _clean_text(value: Any) -> str:
-    return str(value or "").strip()
 
 
 def normalize_store_name(value: Any) -> str:
