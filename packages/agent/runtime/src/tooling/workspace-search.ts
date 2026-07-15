@@ -5,6 +5,12 @@ import { homedir } from "node:os";
 
 export const MANAGED_RIPGREP_VERSION = "15.1.0";
 const RIPGREP_TIMEOUT_MS = 30_000;
+// Safety ceiling for retained rg output even if head_limit is huge or a
+// pathological search matches a multi-megabyte data file in the workspace.
+const RIPGREP_OUTPUT_BYTE_BUDGET = 1_024 * 1_024;
+const RIPGREP_STDERR_BYTE_BUDGET = 64 * 1_024;
+// Bound single-line width so one minified/data line cannot exhaust the budget.
+const RIPGREP_MAX_COLUMNS = 500;
 const SKIP_DIRECTORIES = new Set([
   ".git", "node_modules", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache", ".pytest_cache", "dist", "build",
 ]);
@@ -137,12 +143,47 @@ const limitLines = (lines: string[], limit: number): string[] => {
   return [...lines.slice(0, limit), `... (${lines.length - limit} more lines, raise head_limit or narrow the search)`];
 };
 
+type RipgrepStopReason = "" | "limit" | "budget";
+
+interface RipgrepResult {
+  exitCode: number;
+  lines: string[];
+  stderr: string;
+  stopReason: RipgrepStopReason;
+}
+
+const readCappedText = async (stream: ReadableStream<Uint8Array>, limit: number): Promise<string> => {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let keptBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const room = limit - keptBytes;
+      if (room > 0) {
+        const kept = value.byteLength > room ? value.subarray(0, room) : value;
+        chunks.push(kept);
+        keptBytes += kept.byteLength;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return new TextDecoder().decode(Buffer.concat(chunks));
+};
+
+// Streams rg stdout line by line and stops the process as soon as `limit`
+// output lines are collected or the UTF-8 byte ceiling is hit, so a large match
+// set is never fully buffered. Ordering follows rg's parallel file walk, which
+// was already nondeterministic under the previous "buffer then slice" logic.
 const runRipgrep = async (
   executable: string,
   args: string[],
   cwd: string,
+  limit: number,
   signal?: AbortSignal,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+): Promise<RipgrepResult> => {
   assertActive(signal);
   const child = Bun.spawn([executable, ...args], { cwd, stdout: "pipe", stderr: "pipe", stdin: "ignore", windowsHide: true });
   let timedOut = false;
@@ -151,15 +192,59 @@ const runRipgrep = async (
   signal?.addEventListener("abort", onAbort, { once: true });
   const timeout = setTimeout(() => { timedOut = true; stop(); }, RIPGREP_TIMEOUT_MS);
   timeout.unref?.();
+  const stderrPromise = readCappedText(child.stderr as ReadableStream<Uint8Array>, RIPGREP_STDERR_BYTE_BUDGET);
+  const lines: string[] = [];
+  let stopReason: RipgrepStopReason = "";
   try {
-    const [exitCode, stdout, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ]);
+    const reader = (child.stdout as ReadableStream<Uint8Array>).getReader();
+    const decoder = new TextDecoder();
+    let pending = "";
+    let keptBytes = 0;
+    try {
+      reading: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        pending += decoder.decode(value, { stream: true });
+        let index = pending.indexOf("\n");
+        while (index !== -1) {
+          const line = pending.slice(0, index).replace(/\r$/u, "");
+          pending = pending.slice(index + 1);
+          if (lines.length >= limit) { stopReason = "limit"; break reading; }
+          const lineBytes = Buffer.byteLength(line, "utf8") + 1;
+          if (keptBytes + lineBytes > RIPGREP_OUTPUT_BYTE_BUDGET) {
+            stopReason = "budget";
+            break reading;
+          }
+          lines.push(line);
+          keptBytes += lineBytes;
+          index = pending.indexOf("\n");
+        }
+        // Backstop: a chunk with no newline grows `pending`, so cap it too.
+        if (Buffer.byteLength(pending, "utf8") >= RIPGREP_OUTPUT_BYTE_BUDGET) {
+          stopReason = stopReason || "budget";
+          break;
+        }
+      }
+      if (!stopReason) {
+        const tail = (pending + decoder.decode()).replace(/\r$/u, "");
+        if (tail.trim()) {
+          if (lines.length >= limit) stopReason = "limit";
+          else {
+            const tailBytes = Buffer.byteLength(tail, "utf8");
+            if (keptBytes + tailBytes > RIPGREP_OUTPUT_BYTE_BUDGET) stopReason = "budget";
+            else lines.push(tail);
+          }
+        }
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+    if (stopReason) stop();
+    const exitCode = await child.exited;
+    const stderr = await stderrPromise;
     if (signal?.aborted) throw abortReason(signal);
     if (timedOut) throw new Error(`grep 超时（${RIPGREP_TIMEOUT_MS / 1_000}s），请缩小搜索范围`);
-    return { exitCode, stdout, stderr };
+    return { exitCode, lines, stderr, stopReason };
   } finally {
     clearTimeout(timeout);
     signal?.removeEventListener("abort", onAbort);
@@ -222,7 +307,10 @@ export class WorkspaceSearchService {
   }
 
   private async grepWithRipgrep(request: WorkspaceGrepRequest, executable: string): Promise<string> {
-    const args = ["--no-config", "--color=never", "--no-heading"];
+    const args = [
+      "--no-config", "--color=never", "--no-heading",
+      "--max-columns", String(RIPGREP_MAX_COLUMNS),
+    ];
     if (request.outputMode === "files_with_matches") args.push("--files-with-matches");
     else if (request.outputMode === "count") args.push("--count");
     else {
@@ -238,13 +326,24 @@ export class WorkspaceSearchService {
     if (request.fileType) args.push("--type", request.fileType);
     const target = relative(this.workspaceRoot, request.searchPath) || ".";
     args.push("--regexp", request.pattern, "--", target);
-    const result = await runRipgrep(executable, args, this.workspaceRoot, request.signal);
-    if (result.exitCode !== 0 && result.exitCode !== 1 && !result.stdout.trim()) {
+    const result = await runRipgrep(executable, args, this.workspaceRoot, request.limit, request.signal);
+    // A non-trivial exit with no output and no early stop is a real rg failure;
+    // an early stop legitimately kills rg, so its non-zero exit is expected.
+    if (result.exitCode !== 0 && result.exitCode !== 1 && result.lines.length === 0 && !result.stopReason) {
       throw new Error(`ripgrep 失败 (exit ${result.exitCode}): ${result.stderr.trim().slice(0, 500)}`);
     }
-    if (!result.stdout.trim()) return "No matches found.";
-    const lines = result.stdout.trim().split(/\r?\n/u).map((line) => line.replace(/^\.[/\\]/u, ""));
-    return limitLines(lines, request.limit).join("\n");
+    if (result.lines.length === 0) {
+      return result.stopReason === "budget"
+        ? `... (单行输出超过 ${RIPGREP_OUTPUT_BYTE_BUDGET / 1_024 / 1_024} MiB 安全上限，已提前停止，请缩小搜索范围)`
+        : "No matches found.";
+    }
+    const lines = result.lines.map((line) => line.replace(/^\.[/\\]/u, ""));
+    if (result.stopReason === "budget") {
+      lines.push(`... (输出超过 ${RIPGREP_OUTPUT_BYTE_BUDGET / 1_024 / 1_024} MiB 安全上限，已提前停止，请缩小搜索范围)`);
+    } else if (result.stopReason === "limit") {
+      lines.push(`... (更多匹配未显示，提高 head_limit 或缩小搜索范围)`);
+    }
+    return lines.join("\n");
   }
 
   private async grepFallback(request: WorkspaceGrepRequest): Promise<string> {

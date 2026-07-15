@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
@@ -15,12 +15,12 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-const context = () => ({
+const context = (controller = new AbortController()) => ({
   session_id: "s1",
   turn_id: "turn-1",
   response_route_id: "route-1",
   handle: {
-    signal: new AbortController().signal,
+    signal: controller.signal,
     cancelled: false,
     drainSteering: () => [],
     registerProcess: () => () => undefined,
@@ -280,6 +280,87 @@ describe("native coding tools", () => {
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, { workspaceRoot: root, ripgrepPath: null });
     await expect(registry.execute("read", { path: "payload.unknown" }, context())).rejects.toThrow("binary file");
+    await processes.stop();
+  });
+
+  test("reads a range from a large file without scanning to EOF", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-large-read-"));
+    roots.push(root);
+    // ~2 MiB file (well above the 512 KiB small-file threshold), 20k lines.
+    const big = Array.from({ length: 20_000 }, (_unused, index) => `line-${index + 1} ${"x".repeat(90)}`).join("\n");
+    writeFileSync(join(root, "big.txt"), `${big}\n`);
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, { workspaceRoot: root });
+
+    const ranged = await registry.execute("read", { path: "big.txt", offset: 100, limit: 3 }, context());
+    const text = ranged.content[0]?.text ?? "";
+    expect(text).toContain("   100\tline-100");
+    expect(text).toContain("   102\tline-102");
+    expect(text).not.toContain("line-103");
+    expect(text).not.toContain("line-1 ");
+
+    // A default read (no limit) must page rather than dump the whole file.
+    const capped = await registry.execute("read", { path: "big.txt" }, context());
+    const cappedText = String(capped.content[0]?.text ?? "");
+    const nextOffset = Number(cappedText.match(/使用 offset=(\d+) 继续/u)?.[1] ?? 0);
+    expect(nextOffset).toBeGreaterThan(1);
+    expect(cappedText).toContain(`${String(nextOffset - 1).padStart(6, " ")}\tline-${nextOffset - 1} ${"x".repeat(90)}`);
+    await processes.stop();
+  });
+
+  test("bounds a giant text line and does not offer a misleading next-line offset", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-giant-line-"));
+    roots.push(root);
+    writeFileSync(join(root, "giant.txt"), "中".repeat(2 * 1024 * 1024));
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, { workspaceRoot: root });
+
+    const result = await registry.execute("read", { path: "giant.txt" }, context());
+    const output = String(result.content[0]?.text ?? "");
+    expect(output.length).toBeLessThanOrEqual(10_000);
+    expect(output).toContain("第 1 行超过 10000 字符读取上限");
+    expect(output).not.toContain("使用 offset=");
+    await processes.stop();
+  });
+
+  test("does not authorize edits when a file changes during an asynchronous read", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-read-race-"));
+    roots.push(root);
+    const path = join(root, "changing.txt");
+    writeFileSync(path, "old\n".repeat(2_000_000));
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const mutation = setInterval(() => appendFileSync(path, "changed\n"), 1);
+    try {
+      await expect(registry.execute("read", {
+        path: "changing.txt",
+        offset: 1_999_999,
+        limit: 1,
+      }, context())).rejects.toThrow("read 期间文件发生变化");
+    } finally {
+      clearInterval(mutation);
+    }
+    await expect(registry.execute("edit", {
+      file_path: "changing.txt",
+      old_string: "old",
+      new_string: "new",
+      replace_all: true,
+    }, context())).rejects.toThrow("请先用 read");
+    await processes.stop();
+  });
+
+  test("honors an already-cancelled read without recording a ledger version", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-read-abort-"));
+    roots.push(root);
+    writeFileSync(join(root, "cancelled.txt"), "content\n");
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const controller = new AbortController();
+    controller.abort(new DOMException("cancelled", "AbortError"));
+    await expect(registry.execute("read", { path: "cancelled.txt" }, context(controller))).rejects.toThrow("cancelled");
+    await expect(registry.execute("edit", {
+      file_path: "cancelled.txt", old_string: "content", new_string: "changed",
+    }, context())).rejects.toThrow("请先用 read");
     await processes.stop();
   });
 

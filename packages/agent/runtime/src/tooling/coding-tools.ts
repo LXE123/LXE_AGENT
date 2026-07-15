@@ -1,4 +1,5 @@
 import {
+  type BigIntStats,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -7,6 +8,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
+import { open, readFile, stat } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -29,6 +31,7 @@ import {
 } from "./exec-shell";
 import { isProbablyBinary, WorkspaceSearchService } from "./workspace-search";
 import { classifyLxeSkillInput, matchLxeSkillInvocation } from "./lxeskill-command";
+import { scanNumberedTextChunks, type NumberedTextRangeResult } from "./text-range";
 import {
   ToolExecutionError,
   ToolRegistry,
@@ -226,29 +229,97 @@ const truncateHeadTail = (value: string, limit: number): { value: string; trunca
   return { value: `${value.slice(0, head)}${marker}${value.slice(-(available - head))}`, truncated: true };
 };
 
-const fileMtime = (path: string): bigint | undefined => {
-  try { return statSync(path, { bigint: true }).mtimeNs; } catch { return undefined; }
+const fileVersionFromStats = (info: { dev: bigint; ino: bigint; size: bigint; mtimeNs: bigint }): string =>
+  `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}`;
+
+const currentFileVersion = (path: string): string | undefined => {
+  try { return fileVersionFromStats(statSync(path, { bigint: true })); } catch { return undefined; }
+};
+
+// Files at or below this size take the simple read-whole-then-slice path, which
+// preserves exact `split(/\r?\n/)` semantics. Larger files are scanned in
+// chunks so a range read never pulls the whole file into memory or splits it.
+const SMALL_READ_BYTES = 512 * 1_024;
+const READ_CHUNK_BYTES = 256 * 1_024;
+const DEFAULT_LARGE_READ_LINES = 2_000;
+const READ_HINT_CHAR_RESERVE = 160;
+
+const abortReason = (signal: AbortSignal | undefined): unknown =>
+  signal?.reason ?? new DOMException("Aborted", "AbortError");
+
+const assertActive = (signal: AbortSignal | undefined): void => {
+  if (signal?.aborted) throw abortReason(signal);
+};
+
+const readHeadBytes = async (path: string, count: number, signal?: AbortSignal): Promise<Buffer> => {
+  assertActive(signal);
+  const handle = await open(path, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(count);
+    const { bytesRead } = await handle.read(buffer, 0, count, 0);
+    assertActive(signal);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+};
+
+const readNumberedRange = async (
+  path: string,
+  startLine: number,
+  maxLines: number,
+  charBudget: number,
+  signal?: AbortSignal,
+): Promise<NumberedTextRangeResult> => {
+  assertActive(signal);
+  const handle = await open(path, "r");
+  try {
+    const chunks = async function* (): AsyncGenerator<Uint8Array> {
+      const buffer = Buffer.allocUnsafe(READ_CHUNK_BYTES);
+      while (true) {
+        assertActive(signal);
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+        assertActive(signal);
+        if (bytesRead === 0) return;
+        yield buffer.subarray(0, bytesRead);
+      }
+    };
+    return await scanNumberedTextChunks(chunks(), { startLine, maxLines, charBudget, ...(signal ? { signal } : {}) });
+  } finally {
+    await handle.close();
+  }
+};
+
+const assertFileVersionUnchanged = async (path: string, expected: string): Promise<void> => {
+  let actual: string | undefined;
+  try { actual = fileVersionFromStats(await stat(path, { bigint: true })); } catch { /* Treated as a version change. */ }
+  if (actual !== expected) {
+    throw new Error(`read 期间文件发生变化，请重新读取最新内容: ${path}`);
+  }
 };
 
 class FileReadLedger {
-  private readonly entries = new Map<string, bigint>();
+  private readonly entries = new Map<string, string>();
   private readonly maximum = 10_000;
 
-  record(sessionId: string, path: string): void {
-    const mtime = fileMtime(path);
-    if (mtime === undefined) return;
+  recordVersion(sessionId: string, path: string, version: string): void {
     const key = `${sessionId}\0${path}`;
     this.entries.delete(key);
-    this.entries.set(key, mtime);
+    this.entries.set(key, version);
     while (this.entries.size > this.maximum) this.entries.delete(this.entries.keys().next().value!);
+  }
+
+  recordCurrent(sessionId: string, path: string): void {
+    const version = currentFileVersion(path);
+    if (version !== undefined) this.recordVersion(sessionId, path, version);
   }
 
   assertCurrent(sessionId: string, path: string, action: string): void {
     const key = `${sessionId}\0${path}`;
     const recorded = this.entries.get(key);
     if (recorded === undefined) throw new Error(`${action} 被拒绝：请先用 read 读取该文件再修改: ${path}`);
-    const current = fileMtime(path);
-    if (current !== undefined && current !== recorded) {
+    const current = currentFileVersion(path);
+    if (current !== recorded) {
       throw new Error(`${action} 被拒绝：文件在上次 read 之后被修改过，请重新 read 确认最新内容: ${path}`);
     }
   }
@@ -674,14 +745,20 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     input_schema: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["path"], additionalProperties: false },
     execute: async (input, context) => {
       const path = readablePath(root, input.path);
-      if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`file not found: ${input.path}`);
+      let info: BigIntStats;
+      try { info = await stat(path, { bigint: true }); } catch { throw new Error(`file not found: ${input.path}`); }
+      if (!info.isFile()) throw new Error(`file not found: ${input.path}`);
+      const version = fileVersionFromStats(info);
       if (basename(path).toLowerCase() === "skill.md") {
         await context.exposureState?.activateSkill(basename(dirname(path)));
       }
-      const data = readFileSync(path);
-      if (detectReadImageMime(data.subarray(0, 4_100))) {
+      const head = await readHeadBytes(path, 4_100, context.handle.signal);
+      if (detectReadImageMime(head)) {
+        const data = await readFile(path, { signal: context.handle.signal });
+        await assertFileVersionUnchanged(path, version);
         const prepared = await imageProcessor.process(data, "read");
-        ledger.record(context.session_id, path);
+        assertActive(context.handle.signal);
+        ledger.recordVersion(context.session_id, path, version);
         const scale = prepared.processed.width > 0 ? prepared.original.width / prepared.processed.width : 1;
         return {
           content: [
@@ -695,14 +772,39 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       }
       const extension = extname(path).toLowerCase();
       if (BINARY_EXTENSIONS.has(extension)) throw new Error(`binary file cannot be read as text: ${input.path}`);
-      if (isProbablyBinary(data)) throw new Error(`binary file cannot be read as text: ${input.path}`);
-      const lines = data.toString("utf8").split(/\r?\n/);
+      if (isProbablyBinary(head)) throw new Error(`binary file cannot be read as text: ${input.path}`);
       const start = Math.max(1, Number(input.offset ?? 1));
-      const count = Math.max(1, Number(input.limit ?? lines.length));
-      ledger.record(context.session_id, path);
-      const body = lines.slice(start - 1, start - 1 + count)
-        .map((line, index) => `${String(start + index).padStart(6, " ")}\t${line}`).join("\n");
-      return { content: textBlock(truncateHeadTail(body, toolOutputLimit).value) };
+      if (info.size <= BigInt(SMALL_READ_BYTES)) {
+        const data = await readFile(path, { signal: context.handle.signal });
+        await assertFileVersionUnchanged(path, version);
+        assertActive(context.handle.signal);
+        const lines = data.toString("utf8").split(/\r?\n/);
+        const count = Math.max(1, Number(input.limit ?? lines.length));
+        const body = lines.slice(start - 1, start - 1 + count)
+          .map((line, index) => `${String(start + index).padStart(6, " ")}\t${line}`).join("\n");
+        ledger.recordVersion(context.session_id, path, version);
+        return { content: textBlock(truncateHeadTail(body, toolOutputLimit).value) };
+      }
+      const count = Math.max(1, Number(input.limit ?? DEFAULT_LARGE_READ_LINES));
+      const range = await readNumberedRange(
+        path,
+        start,
+        count,
+        Math.max(1, toolOutputLimit - READ_HINT_CHAR_RESERVE),
+        context.handle.signal,
+      );
+      await assertFileVersionUnchanged(path, version);
+      assertActive(context.handle.signal);
+      ledger.recordVersion(context.session_id, path, version);
+      const hint = range.truncatedLine === undefined
+        ? range.hasMore && range.nextOffset !== undefined
+          ? `... (更多内容，使用 offset=${range.nextOffset} 继续)`
+          : ""
+        : `... (第 ${range.truncatedLine} 行超过 ${toolOutputLimit} 字符读取上限；请使用 exec 的字节工具读取该超长行)`;
+      if (!hint) return { content: textBlock(range.body) };
+      const separator = range.body ? "\n" : "";
+      const bodyLimit = Math.max(0, toolOutputLimit - separator.length - hint.length);
+      return { content: textBlock(`${range.body.slice(0, bodyLimit)}${separator}${hint}`) };
     },
   });
   registry.register({
@@ -718,7 +820,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       }
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, inputText(input, "content"), "utf8");
-      ledger.record(context.session_id, path);
+      ledger.recordCurrent(context.session_id, path);
       return { content: textBlock(`Wrote ${relative(root, path)}`) };
     },
   });
@@ -741,7 +843,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
         ? source.replaceAll(oldText, inputText(input, "new_string"))
         : source.replace(oldText, inputText(input, "new_string"));
       writeFileSync(path, updated, "utf8");
-      ledger.record(context.session_id, path);
+      ledger.recordCurrent(context.session_id, path);
       return { content: textBlock(`Edited ${relative(root, path)}`) };
     },
   });
