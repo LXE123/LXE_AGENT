@@ -20,7 +20,7 @@ def find_repository_root(
     *,
     environment: Mapping[str, str] | None = None,
 ) -> Path:
-    """Locate the checkout that owns LXE Skill CLI assets and mutable state."""
+    """Locate the checkout or packaged resource directory that owns CLI assets."""
     env = os.environ if environment is None else environment
     configured = str(env.get("LXE_ROOT") or "").strip()
     if configured:
@@ -42,8 +42,15 @@ _REPOSITORY_ROOT = find_repository_root()
 
 
 def repository_root() -> Path:
-    """Return the immutable repository root for bundled assets and state."""
+    """Return the immutable root for bundled configuration, skills, and docs."""
     return _REPOSITORY_ROOT
 
 
-__all__ = ["find_repository_root", "repository_root"]
+def state_root(*, environment: Mapping[str, str] | None = None) -> Path:
+    """Return the writable runtime root, separate from packaged read-only assets."""
+    env = os.environ if environment is None else environment
+    configured = str(env.get("LXE_DATA_ROOT") or "").strip()
+    return Path(configured).expanduser().resolve() if configured else repository_root()
+
+
+__all__ = ["find_repository_root", "repository_root", "state_root"]

@@ -5,7 +5,7 @@ from browser_auth_service.service import _remove_dingtalk_storage_state
 
 
 def test_state_file_uses_lxeskill_database_root(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(service, "repository_root", lambda: tmp_path)
+    monkeypatch.setattr(service, "state_root", lambda: tmp_path)
 
     state_file = service._state_file("account-1")
 

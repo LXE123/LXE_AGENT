@@ -98,6 +98,33 @@ describe("ExecShellAdapter", () => {
     }).PATH).toBe("/work/project/.venv/bin:/fake/system/bin:/usr/bin");
   });
 
+  test("keeps desktop managed tools ahead of the user workspace", () => {
+    const managedPython = "C:\\LXE\\python\\python.exe";
+    const shell = new ExecShellAdapter({
+      platform: "win32",
+      environment: {
+        PATH: "C:\\Windows\\System32",
+        LXE_MANAGED_PATH: "C:\\LXE\\node;C:\\LXE\\python;C:\\LXE\\tools",
+        LXE_MANAGED_PYTHON: managedPython,
+      },
+      fileExists: (path) => path === managedPython,
+    });
+    const environment = shell.childEnvironment("C:\\Users\\demo\\workspace", {
+      sessionId: "s1",
+      turnId: "t1",
+      responseRouteId: "r1",
+      execSessionId: "e1",
+    });
+    expect(environment.PATH).toBe(
+      "C:\\LXE\\node;C:\\LXE\\python;C:\\LXE\\tools;C:\\Windows\\System32",
+    );
+    expect(environment.VIRTUAL_ENV).toBeUndefined();
+    expect(shell.normalizeCommand(
+      "C:\\Users\\demo\\workspace",
+      "uv run --frozen python scripts/report.py --format json",
+    )).toBe("'C:\\LXE\\python\\python.exe' scripts/report.py --format json");
+  });
+
   test("prefers the precompiled lxeskill runtime over project Python", () => {
     const frozen = "/work/project/packages/agent/lxeskill-cli/vendor/darwin-arm64/lxeskill/lxeskill";
     const shell = new ExecShellAdapter({

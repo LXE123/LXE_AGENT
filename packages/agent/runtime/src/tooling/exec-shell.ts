@@ -172,9 +172,17 @@ export class ExecShellAdapter {
     if (/\b(?:services\.agent_cli|browser_auth_service\.main)\b/iu.test(command)) {
       throw new Error("registered business Python modules must be called through lxeskill");
     }
-    const python = projectPythonPath(root, this.platform);
+    const python = String(this.environment.LXE_MANAGED_PYTHON ?? "").trim()
+      || projectPythonPath(root, this.platform);
     const fileExists = this.options.fileExists ?? existsSync;
     const quote = (value: string): string => this.platform === "win32" ? quotePowerShell(value) : quotePosix(value);
+    const managedUvPython = command.match(
+      /^uv(?:\.exe)?\s+run\s+--frozen\s+python3?(?:\.exe)?(?=\s|$)([\s\S]*)$/iu,
+    );
+    if (managedUvPython && String(this.environment.LXE_MANAGED_PYTHON ?? "").trim()) {
+      if (!fileExists(python)) throw new Error(`managed Python is unavailable: ${python}`);
+      return `${quote(python)}${String(managedUvPython[1] ?? "")}`;
+    }
     const launcher = command.match(/^([A-Za-z0-9_.-]+)(?:\s+(-\d+(?:\.\d+){0,2}))?(?=\s|$)([\s\S]*)$/u);
     if (launcher) {
       const name = String(launcher[1] ?? "").toLowerCase();
@@ -222,16 +230,23 @@ export class ExecShellAdapter {
   }
 
   childEnvironment(root: string, context: ExecEnvironmentContext): Environment {
-    const bin = projectBinPath(root, this.platform);
+    const projectBin = projectBinPath(root, this.platform);
     const pathSeparator = this.platform === "win32" ? ";" : delimiter;
     const inheritedPath = this.environment.PATH ?? this.environment.Path ?? "";
+    const managedPath = String(this.environment.LXE_MANAGED_PATH ?? "").trim();
+    const pathEntries = (managedPath ? [managedPath, inheritedPath] : [projectBin, inheritedPath])
+      .filter(Boolean);
+    const resourceRoot = String(this.environment.LXE_RESOURCE_ROOT ?? "").trim() || root;
+    const projectVenv = projectVenvPath(root, this.platform);
     return {
       ...this.environment,
-      PATH: inheritedPath ? `${bin}${pathSeparator}${inheritedPath}` : bin,
-      VIRTUAL_ENV: projectVenvPath(root, this.platform),
+      PATH: pathEntries.join(pathSeparator),
+      ...(managedPath ? {} : { VIRTUAL_ENV: projectVenv }),
       PYTHONIOENCODING: "utf-8",
       PYTHONUTF8: "1",
-      LXE_ROOT: root,
+      LXE_ROOT: resourceRoot,
+      LXE_RESOURCE_ROOT: resourceRoot,
+      LXE_WORKSPACE_ROOT: root,
       LXE_AGENT_SESSION_ID: context.sessionId,
       LXE_RESPONSE_ROUTE_ID: context.responseRouteId,
       LXE_AGENT_TURN_ID: context.turnId,

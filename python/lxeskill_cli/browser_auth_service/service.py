@@ -14,7 +14,7 @@ from playwright.sync_api import sync_playwright
 
 from shared.logging import get_logger
 from shared.process_lock import interprocess_lock
-from shared.repository import repository_root
+from shared.repository import state_root
 from services.mabang.auth_constants import PRIVATE_AMZ_HOST, PRIVATE_AMZ_REQUIRED_COOKIE_NAMES
 from services.mabang import config as mabang_settings
 
@@ -148,7 +148,7 @@ def _resolve_credentials(scope: str, account: str) -> tuple[str, str]:
 
 
 def _storage_root() -> Path:
-    root = repository_root() / "var" / "db" / "lxeskill" / "browser_auth_service" / "mabang_erp"
+    root = state_root() / "var" / "db" / "lxeskill" / "browser_auth_service" / "mabang_erp"
     root.mkdir(parents=True, exist_ok=True)
     return root
 

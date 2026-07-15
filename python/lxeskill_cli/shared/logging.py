@@ -8,7 +8,7 @@ from pathlib import Path
 
 from shared.env_config import env_text
 from shared.log_config import local_logs_enabled
-from shared.repository import repository_root
+from shared.repository import state_root
 
 
 _MANAGED_HANDLER_ATTR = "_lxe_agent_logging_handler"
@@ -33,7 +33,7 @@ def get_logger(name: str | None = None) -> logging.Logger:
 
 
 def _repo_root() -> Path:
-    return repository_root()
+    return state_root()
 
 
 def _short_context_value(value: str, *, limit: int = 8) -> str:

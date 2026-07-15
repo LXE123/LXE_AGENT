@@ -264,6 +264,39 @@ def test_external_workspace_is_private_and_does_not_modify_caller_gitignore(tmp_
         activate_project_workspace()
 
 
+def test_desktop_project_workspace_uses_private_writable_roots(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "工作区"
+    data_root = tmp_path / "应用数据"
+    workspace.mkdir()
+    monkeypatch.setenv("LXE_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.setenv("LXE_DATA_ROOT", str(data_root))
+    try:
+        assert activate_project_workspace() == workspace.resolve()
+        assert workspace_root() == workspace.resolve()
+        assert internal_root() == data_root.resolve() / "lxeskill"
+        assert artifact_root() == data_root.resolve() / "artifacts"
+    finally:
+        monkeypatch.delenv("LXE_WORKSPACE_ROOT")
+        monkeypatch.delenv("LXE_DATA_ROOT")
+        activate_project_workspace()
+
+
+def test_workspace_override_alone_does_not_create_a_data_root(tmp_path, monkeypatch) -> None:
+    workspace = tmp_path / "工作区"
+    workspace.mkdir()
+    monkeypatch.setenv("LXE_WORKSPACE_ROOT", str(workspace))
+    monkeypatch.delenv("LXE_DATA_ROOT", raising=False)
+    try:
+        assert activate_project_workspace() == workspace.resolve()
+        assert workspace_root() == workspace.resolve()
+        assert internal_root() == Path(lxeskill.PROJECT_ROOT)
+        assert artifact_root() == Path(lxeskill.PROJECT_ROOT) / "artifacts"
+        assert not (Path(lxeskill.PROJECT_ROOT) / "lxeskill").exists()
+    finally:
+        monkeypatch.delenv("LXE_WORKSPACE_ROOT")
+        activate_project_workspace()
+
+
 def test_declared_artifacts_filter_roles_nested_fields_and_duplicates(tmp_path, monkeypatch) -> None:
     try:
         activate_external_workspace(tmp_path)

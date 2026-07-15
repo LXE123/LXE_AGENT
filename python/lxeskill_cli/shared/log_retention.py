@@ -8,7 +8,7 @@ from pathlib import Path
 
 from shared.env_config import env_int, env_text
 from shared.logging import get_logger
-from shared.repository import repository_root
+from shared.repository import state_root
 
 logger = get_logger(__name__)
 
@@ -26,7 +26,7 @@ class LocalLogRetentionResult:
 
 
 def _repo_root() -> Path:
-    return repository_root()
+    return state_root()
 
 
 def local_log_retention_days() -> int:

@@ -32,9 +32,9 @@ ALLOWED_TOP_LEVEL_DIRECTORIES = {
     "scripts",
 }
 
-ALLOWED_APP_DIRECTORIES = {"dashboard", "gateway"}
+ALLOWED_APP_DIRECTORIES = {"agent-cli", "dashboard", "desktop", "gateway"}
 ALLOWED_PACKAGE_DIRECTORIES = {"agent", "foundation"}
-ALLOWED_FOUNDATION_PACKAGE_DIRECTORIES = {"core", "protocol"}
+ALLOWED_FOUNDATION_PACKAGE_DIRECTORIES = {"core", "desktop-protocol", "protocol"}
 ALLOWED_AGENT_PACKAGE_DIRECTORIES = {"lxeskill-cli", "runtime"}
 ALLOWED_GATEWAY_SOURCE_DIRECTORIES = {
     "bootstrap",
@@ -61,7 +61,7 @@ ALLOWED_RUNTIME_SOURCE_DIRECTORIES = {
     "tooling",
 }
 ALLOWED_RUNTIME_TEST_DIRECTORIES = ALLOWED_RUNTIME_SOURCE_DIRECTORIES | {"fixtures"}
-ALLOWED_DASHBOARD_SOURCE_DIRECTORIES = {"api", "features", "shared"}
+ALLOWED_DASHBOARD_SOURCE_DIRECTORIES = {"api", "desktop", "features", "shared"}
 ALLOWED_DASHBOARD_TEST_DIRECTORIES = {"architecture", "features", "shared"}
 
 ALLOWED_PYTHON_DIRECTORIES = {"lxeskill_cli"}

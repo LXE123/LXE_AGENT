@@ -6,14 +6,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from shared.repository import repository_root
+from shared.repository import state_root
 
 
 def database_path() -> Path:
     configured = str(os.getenv("LXE_SQLITE_DB_PATH") or "").strip()
     if configured:
         return Path(configured).expanduser()
-    return repository_root() / "var" / "db" / "local_agent.sqlite3"
+    return state_root() / "var" / "db" / "local_agent.sqlite3"
 
 
 def connect() -> sqlite3.Connection:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from shared.repository import find_repository_root
+from shared.repository import find_repository_root, repository_root, state_root
 
 
 def _write_repository_markers(root: Path) -> None:
@@ -27,3 +27,10 @@ def test_invalid_explicit_lxe_root_does_not_silently_fall_back(tmp_path: Path) -
 
     with pytest.raises(RuntimeError, match="LXE_ROOT is not an LXE repository root"):
         find_repository_root(root, environment={"LXE_ROOT": str(tmp_path / "missing")})
+
+
+def test_state_root_separates_writable_desktop_data_from_assets(tmp_path: Path) -> None:
+    writable = tmp_path / "桌面数据"
+
+    assert state_root(environment={"LXE_DATA_ROOT": str(writable)}) == writable.resolve()
+    assert state_root(environment={}) == repository_root()
