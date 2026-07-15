@@ -58,7 +58,6 @@ describe("ExecShellAdapter", () => {
   test("normalizes Python, pip, and lxeskill with platform-safe quoting", () => {
     const posix = new ExecShellAdapter({
       platform: "darwin",
-      arch: "arm64",
       fileExists: (path) => path.endsWith("/.venv/bin/python"),
     });
     expect(posix.normalizeCommand("/work/O'Brien", "python -c \"print(1)\"")).toBe(
@@ -73,7 +72,6 @@ describe("ExecShellAdapter", () => {
 
     const windows = new ExecShellAdapter({
       platform: "win32",
-      arch: "x64",
       fileExists: (path) => path.endsWith(".venv\\Scripts\\python.exe"),
     });
     expect(windows.normalizeCommand("C:\\Work O'Brien", "lxeskill list")).toBe(
@@ -98,17 +96,26 @@ describe("ExecShellAdapter", () => {
     }).PATH).toBe("/work/project/.venv/bin:/fake/system/bin:/usr/bin");
   });
 
-  test("prefers the precompiled lxeskill runtime over project Python", () => {
+  test("ignores removed frozen-runtime overrides and always uses project Python", () => {
     const frozen = "/work/project/packages/agent/lxeskill-cli/vendor/darwin-arm64/lxeskill/lxeskill";
     const shell = new ExecShellAdapter({
       platform: "darwin",
-      arch: "arm64",
-      environment: { PATH: "/usr/bin" },
+      environment: {
+        PATH: "/usr/bin",
+        LXESKILL_BINARY_PATH: frozen,
+        LXESKILL_REQUIRE_BUNDLE: "1",
+      },
       fileExists: (path) => path === frozen || path.endsWith("/.venv/bin/python"),
     });
 
-    expect(shell.lxeSkillArgv("/work/project")).toEqual([frozen]);
-    expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(`'${frozen}' list`);
+    expect(shell.lxeSkillArgv("/work/project")).toEqual([
+      "/work/project/.venv/bin/python",
+      "-m",
+      "lxeskill",
+    ]);
+    expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(
+      "'/work/project/.venv/bin/python' '-m' 'lxeskill' list",
+    );
   });
 
   test("rejects direct business modules and unsupported Python launcher versions", () => {

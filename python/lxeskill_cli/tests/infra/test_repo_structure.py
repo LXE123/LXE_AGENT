@@ -35,7 +35,7 @@ ALLOWED_TOP_LEVEL_DIRECTORIES = {
 ALLOWED_APP_DIRECTORIES = {"dashboard", "gateway"}
 ALLOWED_PACKAGE_DIRECTORIES = {"agent", "foundation"}
 ALLOWED_FOUNDATION_PACKAGE_DIRECTORIES = {"core", "protocol"}
-ALLOWED_AGENT_PACKAGE_DIRECTORIES = {"lxeskill-cli", "runtime"}
+ALLOWED_AGENT_PACKAGE_DIRECTORIES = {"runtime"}
 ALLOWED_GATEWAY_SOURCE_DIRECTORIES = {
     "bootstrap",
     "channels",
@@ -148,7 +148,11 @@ def _repository_paths() -> list[str]:
         check=True,
         capture_output=True,
     ).stdout.decode("utf-8")
-    return [path for path in output.split("\0") if path]
+    return [
+        path
+        for path in output.split("\0")
+        if path and (REPO_ROOT / path).exists()
+    ]
 
 
 def _is_git_ignored(path: Path) -> bool:

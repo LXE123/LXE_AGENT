@@ -33,6 +33,8 @@ def test_unix_installer_builds_dashboard_from_frozen_root_bun_workspace() -> Non
     assert "bun run dashboard:build" in script
     assert "package-lock.json" not in script
     assert "npm ci" not in script
+    assert '"\\$LXE_ROOT/.venv/bin/python" -m lxeskill' in script
+    assert "packages/agent/lxeskill-cli" not in script
 
 
 def test_windows_webui_builds_dashboard_from_frozen_root_bun_workspace() -> None:
@@ -83,11 +85,22 @@ def test_windows_doctor_runs_explicit_lxeskill_contract_check() -> None:
     doctor = _read(SCRIPTS / "doctor.ps1")
 
     assert 'Invoke-NativeChecked -Label "lxeskill Skill contract"' in doctor
-    assert '"packages\\agent\\lxeskill-cli\\bin\\lxeskill.js"' in doctor
-    assert "-FilePath $bun" in doctor
+    assert '$projectPython = Join-Path $ProjectRoot ".venv\\Scripts\\python.exe"' in doctor
+    assert "-FilePath $projectPython" in doctor
+    assert '"-m"' in doctor
+    assert '"lxeskill"' in doctor
     assert '"doctor"' in doctor
     assert "PYTHONPATH" not in doctor
+    assert "packages\\agent\\lxeskill-cli" not in doctor
     assert '"lxeskill command registry"' not in doctor
+
+
+def test_windows_launcher_runs_lxeskill_with_project_python() -> None:
+    launcher = _read(SCRIPTS / "launcher.ps1")
+
+    assert '`$PythonPath = Join-Path `$LxeRoot ".venv\\Scripts\\python.exe"' in launcher
+    assert "& `$PythonPath -m lxeskill @SkillArguments" in launcher
+    assert "packages\\agent\\lxeskill-cli" not in launcher
 
 
 def test_windows_resolver_prefers_exact_install_candidate_over_older_path() -> None:

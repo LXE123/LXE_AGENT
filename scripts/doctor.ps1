@@ -194,6 +194,7 @@ except Exception as exc:
 $uv = Resolve-Uv
 $bun = Resolve-Bun -Version "1.3.14"
 $powershell = Resolve-PowerShell
+$projectPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
 $ripgrep = ""
 if ($env:OS -eq "Windows_NT") {
     $ripgrep = Resolve-LxeRipgrep -Version "15.1.0"
@@ -205,6 +206,7 @@ Require-Path (Join-Path $ProjectRoot "pyproject.toml")
 Require-Path (Join-Path $ProjectRoot "uv.lock")
 Require-Path (Join-Path $ProjectRoot ".env.example")
 Require-Path (Join-Path $ProjectRoot "config\runtime.env")
+Require-Path $projectPython
 
 Warn-LocalBusinessDataFile "data\customs_declaration\custom_declaration_documents.xlsx"
 Warn-LocalBusinessDataFile "data\export_tax\export_tax_products.xlsx"
@@ -258,8 +260,9 @@ Invoke-NativeChecked -Label "critical imports" -FilePath $uv -Arguments @(
     "import aiohttp, bs4, openpyxl, pandas, PIL, playwright, requests, selenium, urllib3, xlrd, yaml; print('tool imports ok')"
 ) -Verb "Checking"
 
-Invoke-NativeChecked -Label "lxeskill Skill contract" -FilePath $bun -Arguments @(
-    (Join-Path $ProjectRoot "packages\agent\lxeskill-cli\bin\lxeskill.js"),
+Invoke-NativeChecked -Label "lxeskill Skill contract" -FilePath $projectPython -Arguments @(
+    "-m",
+    "lxeskill",
     "doctor"
 ) -Verb "Checking"
 

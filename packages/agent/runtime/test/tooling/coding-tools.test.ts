@@ -459,13 +459,13 @@ describe("native coding tools", () => {
     expect(hiddenCommand.modelContent(1)).not.toContain("fba-shipment-delivery-csv-download");
     // Unknown commands pass through: authorization belongs to the CLI, which
     // rejects them with a structured error. Here the temp root has neither a
-    // frozen bundle nor .venv, so normalization fails before any spawn.
+    // project .venv, so normalization fails before any spawn.
     await expect(registry.execute("exec", {
       command: "lxeskill unknown command",
-    }, context())).rejects.toThrow("lxeskill runtime is unavailable");
+    }, context())).rejects.toThrow("project Python is unavailable");
     await expect(registry.execute("exec", {
       command: "lxeskill.cmd unknown command",
-    }, context())).rejects.toThrow("lxeskill runtime is unavailable");
+    }, context())).rejects.toThrow("project Python is unavailable");
     const classified = registry.definition("exec")?.classifyInvocation?.({
       command: "lxeskill replenish store resolve --store-name Demo --token secret",
     });
