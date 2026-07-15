@@ -117,6 +117,18 @@ export interface RuntimeTurnUsageRecord extends JsonObject {
   executions: SkillExecutionUsage[];
 }
 
+export interface RuntimeTurnContextRecord extends JsonObject {
+  turn_id: string;
+  job_kind: "turn" | "heartbeat";
+  provider: string;
+  model: string;
+  effort: string;
+  thinking_enabled: boolean;
+  provider_generation: number;
+  context_window_tokens: number;
+  ts: number;
+}
+
 export interface RuntimeSkillSnapshot {
   readonly names: readonly string[];
   readonly prompt: string;
@@ -130,6 +142,7 @@ export interface RuntimeStore {
   getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined>;
   popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   loadMessages(sessionId: string): Promise<RuntimeMessage[]>;
+  appendTurnContext(sessionId: string, context: RuntimeTurnContextRecord): Promise<void>;
   appendMessage(sessionId: string, message: RuntimeMessage, reason?: string): Promise<void>;
   replaceMessages(
     sessionId: string,

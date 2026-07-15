@@ -49,6 +49,7 @@ export type SessionPayload = {
   source: Record<string, unknown>;
   source_summary: SourceSummary;
   model: string;
+  reasoning_effort: string;
   model_config: Record<string, unknown>;
   created_at: number;
   last_active_at: number;

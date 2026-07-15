@@ -20,6 +20,7 @@ class IntegrationStore implements RuntimeStore {
   }
   async popPendingEvents(): Promise<JsonObject[]> { return []; }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
+  async appendTurnContext(): Promise<void> {}
   async appendMessage(_sessionId: string, message: RuntimeMessage): Promise<void> { this.messages.push(message); }
   async replaceMessages(_sessionId: string, messages: RuntimeMessage[]): Promise<void> {
     this.messages = structuredClone(messages);

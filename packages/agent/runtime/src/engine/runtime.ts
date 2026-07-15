@@ -34,6 +34,7 @@ import type {
   SystemPromptContext,
   SkillActivationUsage,
   SkillExecutionUsage,
+  RuntimeTurnContextRecord,
   RuntimeTurnResponse,
   RuntimeUsage,
   ToolResultBlock,
@@ -288,6 +289,18 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       const systemPrompt = typeof this.options.systemPrompt === "function"
         ? this.options.systemPrompt(systemPromptContext)
         : this.options.systemPrompt;
+      const turnContext: RuntimeTurnContextRecord = {
+        turn_id: job.job_id,
+        job_kind: heartbeat ? "heartbeat" : "turn",
+        provider: descriptor?.name ?? "custom",
+        model: descriptor?.model ?? this.options.display?.model ?? "",
+        effort: descriptor?.thinkingEffort ?? "",
+        thinking_enabled: descriptor?.thinkingEnabled ?? false,
+        provider_generation: providerSnapshot?.generation ?? 0,
+        context_window_tokens: contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
+        ts: Date.now() / 1_000,
+      };
+      await this.options.store.appendTurnContext(job.session_id, turnContext);
       let messages = heartbeat ? [] : await this.options.store.loadMessages(job.session_id);
       const userContent: RuntimeMessage["content"] = heartbeat
         ? heartbeatPrompt(pendingEvents)

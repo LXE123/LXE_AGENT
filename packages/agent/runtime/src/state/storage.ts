@@ -1,9 +1,24 @@
-import { appendFileSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync } from "node:fs";
+import { appendFile, mkdir, open, readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
 import type { JsonObject, JsonValue } from "@lxe/protocol";
-import type { RuntimeMessage, RuntimeSessionRecord, RuntimeStore, RuntimeTurnUsageRecord } from "../engine/types";
+import type {
+  RuntimeMessage,
+  RuntimeSessionRecord,
+  RuntimeStore,
+  RuntimeTurnContextRecord,
+  RuntimeTurnUsageRecord,
+} from "../engine/types";
+import {
+  applyTranscriptEvent,
+  createContextPatchEvent,
+  normalizeTranscriptMessages,
+  scanTranscriptBuffer,
+  transcriptDisplayMarker,
+  transcriptHeader,
+} from "./transcript";
 
 const parseObject = (value: unknown): JsonObject => {
   if (value !== null && typeof value === "object" && !Array.isArray(value)) return value as JsonObject;
@@ -62,80 +77,10 @@ const sessionTitle = (message: RuntimeMessage, reason: string): string => {
   return content.replaceAll(/\s+/g, " ").trim().slice(0, 120);
 };
 
-const normalizeLegacyBlock = (value: unknown): JsonObject | undefined => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const block = { ...(value as JsonObject) };
-  const type = text(block.type);
-  if (type === "tool_call" || type === "tool_use") {
-    return {
-      type: "tool_call",
-      id: text(block.id),
-      name: text(block.name),
-      arguments: parseObject(type === "tool_call" ? block.arguments : block.input),
-    };
-  }
-  if (type === "tool_result") {
-    const toolCallId = text(block.tool_call_id) || text(block.tool_use_id);
-    const normalized: JsonObject = {
-      ...block,
-      type: "tool_result",
-      tool_call_id: toolCallId,
-    };
-    delete normalized.tool_use_id;
-    return normalized;
-  }
-  return block;
-};
-
-const normalizeLegacyMessage = (value: unknown): RuntimeMessage | undefined => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const candidate = value as { role?: unknown; content?: unknown };
-  const legacyRole = text(candidate.role);
-  if (!new Set(["user", "assistant", "tool", "system"]).has(legacyRole)) return undefined;
-  let role = legacyRole as RuntimeMessage["role"];
-  if (!Array.isArray(candidate.content)) return { role, content: String(candidate.content ?? "") };
-  const content = candidate.content.map(normalizeLegacyBlock).filter((block): block is JsonObject => Boolean(block));
-  // Early Bun transcripts persisted Anthropic wire messages directly. Recover
-  // them only for model replay; the immutable display reader preserves disk semantics.
-  if (role === "user" && content.length > 0 && content.every((block) => block.type === "tool_result")) {
-    role = "tool";
-  }
-  return {
-    role,
-    content,
-  };
-};
-
-const normalizeLegacyMessages = (values: unknown[]): RuntimeMessage[] =>
-  values.map(normalizeLegacyMessage).filter((message): message is RuntimeMessage => Boolean(message));
-
-const replacementKinds = new Set([
-  "compaction",
-  "context_reset",
-  "memory_clear",
-  "legacy_import",
-  "repair",
-  "history_limit",
-  "context_replacement",
-]);
-
 interface TranscriptDisplayPage {
   messages: JsonObject[];
   page: JsonObject;
 }
-
-const replacementKind = (event: JsonObject): string =>
-  text(event.kind) === "replacement" ? text(event.replacement_kind) : text(event.kind);
-
-const displayReplacement = (kind: string, event: JsonObject): JsonObject | undefined => {
-  if (kind === "compaction") {
-    const count = Math.max(0, Math.trunc(Number(event.compacted_count ?? 0)));
-    return { role: "system", content: `[上下文已压缩：${count} 条消息 → 摘要]` };
-  }
-  if (kind === "context_reset") return { role: "system", content: "[上下文已重置]" };
-  if (kind === "memory_clear") return { role: "system", content: "[上下文记忆已清空]" };
-  return undefined;
-};
 
 const transcriptDisplayPage = (
   events: JsonObject[],
@@ -164,7 +109,7 @@ const transcriptDisplayPage = (
       }
       continue;
     }
-    if (!displayReplacement(replacementKind(event), event)) continue;
+    if (!transcriptDisplayMarker(event)) continue;
     flushPending();
     ranges.push([index, index + 1]);
   }
@@ -189,7 +134,7 @@ const transcriptDisplayPage = (
       if (text(message.role)) messages.push(structuredClone(message));
       continue;
     }
-    const marker = displayReplacement(replacementKind(event), event);
+    const marker = transcriptDisplayMarker(event);
     if (marker) messages.push(marker);
   }
   return {
@@ -219,13 +164,51 @@ export interface DashboardSessionPageOptions {
   page?: number;
 }
 
+interface ReplayCacheEntry {
+  path: string;
+  size: number;
+  mtimeMs: number;
+  byteSize: number;
+  messages: RuntimeMessage[];
+}
+
+interface TranscriptFileState {
+  file_size: number;
+  mtime_ms: number;
+  indexed_bytes: number;
+  event_count: number;
+  raw_message_count: number;
+  display_group_count: number;
+  last_display_kind: string;
+}
+
+export interface SqliteRuntimeStoreOptions {
+  replayCacheMaxEntries?: number;
+  replayCacheMaxBytes?: number;
+}
+
+const DEFAULT_REPLAY_CACHE_MAX_ENTRIES = 32;
+const DEFAULT_REPLAY_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+
 export class SqliteRuntimeStore implements RuntimeStore {
   private database: Database | undefined;
-  private readonly replayCache = new Map<string, { path: string; size: number; mtimeMs: number; messages: RuntimeMessage[] }>();
+  private readonly replayCache = new Map<string, ReplayCacheEntry>();
+  private readonly writeQueues = new Map<string, Promise<void>>();
+  private readonly indexQueues = new Map<string, Promise<void>>();
+  private readonly replayCacheMaxEntries: number;
+  private readonly replayCacheMaxBytes: number;
+  private replayCacheBytes = 0;
   private replayHits = 0;
   private replayMisses = 0;
 
-  constructor(readonly path: string) {}
+  constructor(readonly path: string, options: SqliteRuntimeStoreOptions = {}) {
+    this.replayCacheMaxEntries = Math.max(0, Math.trunc(
+      options.replayCacheMaxEntries ?? DEFAULT_REPLAY_CACHE_MAX_ENTRIES,
+    ));
+    this.replayCacheMaxBytes = Math.max(0, Math.trunc(
+      options.replayCacheMaxBytes ?? DEFAULT_REPLAY_CACHE_MAX_BYTES,
+    ));
+  }
 
   async start(): Promise<void> {
     if (this.database) return;
@@ -251,6 +234,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         session_id TEXT PRIMARY KEY,
         source TEXT NOT NULL DEFAULT '{}',
         model TEXT NOT NULL DEFAULT '',
+        reasoning_effort TEXT NOT NULL DEFAULT '',
         model_config TEXT NOT NULL DEFAULT '{}',
         created_at REAL NOT NULL,
         last_active_at REAL NOT NULL,
@@ -295,17 +279,44 @@ export class SqliteRuntimeStore implements RuntimeStore {
         duration_ms INTEGER NOT NULL DEFAULT 0,
         detail TEXT NOT NULL DEFAULT ''
       );
+      CREATE TABLE IF NOT EXISTS transcript_file_state (
+        session_id TEXT PRIMARY KEY,
+        file_size INTEGER NOT NULL DEFAULT 0,
+        mtime_ms REAL NOT NULL DEFAULT 0,
+        indexed_bytes INTEGER NOT NULL DEFAULT 0,
+        event_count INTEGER NOT NULL DEFAULT 0,
+        raw_message_count INTEGER NOT NULL DEFAULT 0,
+        display_group_count INTEGER NOT NULL DEFAULT 0,
+        last_display_kind TEXT NOT NULL DEFAULT '',
+        updated_at REAL NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS transcript_display_groups (
+        session_id TEXT NOT NULL,
+        group_number INTEGER NOT NULL,
+        byte_start INTEGER NOT NULL,
+        byte_end INTEGER NOT NULL,
+        group_kind TEXT NOT NULL,
+        PRIMARY KEY (session_id, group_number)
+      );
       CREATE INDEX IF NOT EXISTS idx_turn_usage_started_at ON turn_usage (started_at);
       CREATE INDEX IF NOT EXISTS idx_turn_usage_items_kind_name ON turn_usage_items (kind, name, started_at);
       CREATE INDEX IF NOT EXISTS idx_turn_usage_items_turn_id ON turn_usage_items (turn_id);
+      CREATE INDEX IF NOT EXISTS idx_transcript_display_groups_session
+        ON transcript_display_groups (session_id, group_number);
     `);
     this.database = database;
+    const columns = database.query("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "reasoning_effort")) {
+      database.exec("ALTER TABLE agent_sessions ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''");
+    }
+    await this.catchUpTranscriptIndexes();
   }
 
   async stop(): Promise<void> {
+    await Promise.all([...this.writeQueues.values(), ...this.indexQueues.values()]);
     this.database?.close(false);
     this.database = undefined;
-    this.replayCache.clear();
+    this.clearReplayCache();
   }
 
   async ensureSession(request: JsonObject): Promise<void> {
@@ -458,21 +469,19 @@ export class SqliteRuntimeStore implements RuntimeStore {
 
   async resetContext(sessionId: string, reason: "context_reset" | "memory_clear" = "context_reset"): Promise<void> {
     const safeSessionId = text(sessionId);
-    const path = this.transcriptPath(safeSessionId);
-    this.validCacheBeforeWrite(safeSessionId, path);
-    mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, `${JSON.stringify({
-      kind: "replacement",
-      replacement_kind: reason,
-      replacement_history: [],
-      ts: Date.now() / 1_000,
-    })}\n`, "utf8");
-    this.db().transaction(() => {
-      this.db().query("UPDATE agent_sessions SET last_active_at = ?, message_count = 0 WHERE session_id = ?")
-        .run(Date.now() / 1_000, safeSessionId);
-      this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
-    })();
-    this.updateCacheAfterWrite(safeSessionId, path, []);
+    await this.enqueueSessionWrite(safeSessionId, async () => {
+      const path = this.transcriptPath(safeSessionId);
+      const previous = await this.loadMessagesUnqueued(safeSessionId);
+      this.validCacheBeforeWrite(safeSessionId, path);
+      await this.appendTranscriptEvent(safeSessionId, createContextPatchEvent(previous, [], reason));
+      this.db().transaction(() => {
+        this.db().query("UPDATE agent_sessions SET last_active_at = ?, message_count = 0 WHERE session_id = ?")
+          .run(Date.now() / 1_000, safeSessionId);
+        this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
+      })();
+      await this.updateCacheAfterWrite(safeSessionId, path, []);
+      await this.enqueueIndexSync(safeSessionId, path);
+    });
   }
 
   clearSessionRuntimeState(sessionId: string): void {
@@ -489,50 +498,45 @@ export class SqliteRuntimeStore implements RuntimeStore {
     })();
   }
 
-  replayCacheStats(): { hits: number; misses: number; entries: number } {
-    return { hits: this.replayHits, misses: this.replayMisses, entries: this.replayCache.size };
+  replayCacheStats(): { hits: number; misses: number; entries: number; bytes: number } {
+    return {
+      hits: this.replayHits,
+      misses: this.replayMisses,
+      entries: this.replayCache.size,
+      bytes: this.replayCacheBytes,
+    };
   }
 
   async loadMessages(sessionId: string): Promise<RuntimeMessage[]> {
     const safeSessionId = text(sessionId);
+    await this.waitForSessionWrites(safeSessionId);
+    return await this.loadMessagesUnqueued(safeSessionId);
+  }
+
+  private async loadMessagesUnqueued(safeSessionId: string): Promise<RuntimeMessage[]> {
     const path = this.transcriptPath(safeSessionId);
-    let raw: string;
+    let raw: Uint8Array;
     try {
-      const stat = statSync(path);
+      const fileStat = await stat(path);
       const cached = this.replayCache.get(safeSessionId);
-      if (cached && cached.path === path && cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) {
+      if (cached && cached.path === path && cached.size === fileStat.size && cached.mtimeMs === fileStat.mtimeMs) {
         this.replayHits += 1;
+        this.touchReplayCache(safeSessionId, cached);
         return structuredClone(cached.messages);
       }
       this.replayMisses += 1;
-      raw = readFileSync(path, "utf8");
+      raw = await readFile(path);
     } catch (error) {
-      this.replayCache.delete(safeSessionId);
+      this.removeReplayCacheEntry(safeSessionId);
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return this.loadLegacyMessages(safeSessionId);
       throw error;
     }
-    if (!raw.trim()) return this.loadLegacyMessages(safeSessionId);
+    if (raw.length === 0) return this.loadLegacyMessages(safeSessionId);
     let messages: RuntimeMessage[] = [];
-    for (const line of raw.split(/\r?\n/)) {
-      if (!line.trim()) continue;
-      const event = parseObject(line);
-      if (event.kind === "message") {
-        const message = event.message as unknown;
-        if (message !== null && typeof message === "object" && !Array.isArray(message)) {
-          const candidate = normalizeLegacyMessage(message);
-          if (candidate) messages.push(candidate);
-        }
-      } else {
-        const kind = text(event.kind);
-        const replacementKind = kind === "replacement" ? text(event.replacement_kind) : kind;
-        if (!replacementKinds.has(replacementKind)) continue;
-        if (Array.isArray(event.replacement_history)) {
-          messages = normalizeLegacyMessages(event.replacement_history as unknown[]);
-        }
-      }
-    }
-    const stat = statSync(path);
-    this.replayCache.set(safeSessionId, { path, size: stat.size, mtimeMs: stat.mtimeMs, messages: structuredClone(messages) });
+    const scanned = scanTranscriptBuffer(raw, 0, true);
+    for (const { event } of scanned.lines) messages = applyTranscriptEvent(messages, event);
+    const fileStat = await stat(path);
+    this.installReplayCacheEntry(safeSessionId, path, fileStat.size, fileStat.mtimeMs, messages);
     return structuredClone(messages);
   }
 
@@ -540,38 +544,58 @@ export class SqliteRuntimeStore implements RuntimeStore {
     sessionId: string,
     options: DashboardSessionPageOptions,
   ): Promise<TranscriptDisplayPage> {
-    const path = this.transcriptPath(text(sessionId));
-    let raw: string;
-    try {
-      raw = readFileSync(path, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return transcriptDisplayPage([], options);
-      throw error;
-    }
-    const events = raw.split(/\r?\n/u)
-      .filter((line) => line.trim())
-      .map(parseObject)
-      .filter((event) => text(event.kind));
-    return transcriptDisplayPage(events, options);
+    const safeSessionId = text(sessionId);
+    const path = this.transcriptPath(safeSessionId);
+    await this.waitForSessionWrites(safeSessionId);
+    const state = await this.enqueueIndexSync(safeSessionId, path);
+    if (!state) return transcriptDisplayPage([], options);
+    return await this.readIndexedDisplayPage(safeSessionId, path, state, options);
   }
 
   async appendMessage(sessionId: string, message: RuntimeMessage, reason = "runtime"): Promise<void> {
     const safeSessionId = text(sessionId);
-    const path = this.transcriptPath(safeSessionId);
-    const cached = this.validCacheBeforeWrite(safeSessionId, path);
-    const persisted = persistedMessage(message);
-    mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, `${JSON.stringify({ kind: "message", message: persisted, reason, ts: Date.now() / 1_000 })}\n`, "utf8");
-    const title = sessionTitle(message, reason);
-    this.db().transaction(() => {
+    await this.enqueueSessionWrite(safeSessionId, async () => {
+      const path = this.transcriptPath(safeSessionId);
+      const cached = this.validCacheBeforeWrite(safeSessionId, path);
+      const persisted = persistedMessage(message);
+      await this.appendTranscriptEvent(safeSessionId, {
+        kind: "message",
+        message: persisted as unknown as JsonObject,
+        reason,
+        ts: Date.now() / 1_000,
+      });
+      const title = sessionTitle(message, reason);
       this.db().query(`
-        UPDATE agent_sessions SET last_active_at = ?, message_count = message_count + 1,
-          title = CASE WHEN title = '' AND ? <> '' THEN ? ELSE title END
-        WHERE session_id = ?
-      `).run(Date.now() / 1_000, title, title, safeSessionId);
-    })();
-    if (cached) this.updateCacheAfterWrite(safeSessionId, path, [...cached.messages, persisted]);
-    else this.replayCache.delete(safeSessionId);
+          UPDATE agent_sessions SET last_active_at = ?, message_count = message_count + 1,
+            title = CASE WHEN title = '' AND ? <> '' THEN ? ELSE title END
+          WHERE session_id = ?
+        `).run(Date.now() / 1_000, title, title, safeSessionId);
+      if (cached) await this.appendReplayCacheMessage(safeSessionId, path, cached, persisted);
+      else this.removeReplayCacheEntry(safeSessionId);
+      await this.enqueueIndexSync(safeSessionId, path);
+    });
+  }
+
+  async appendTurnContext(sessionId: string, context: RuntimeTurnContextRecord): Promise<void> {
+    const safeSessionId = text(sessionId);
+    await this.enqueueSessionWrite(safeSessionId, async () => {
+      const path = this.transcriptPath(safeSessionId);
+      const cached = this.validCacheBeforeWrite(safeSessionId, path);
+      await this.appendTranscriptEvent(safeSessionId, {
+        kind: "turn_context",
+        turn_id: text(context.turn_id),
+        job_kind: context.job_kind,
+        provider: text(context.provider),
+        model: text(context.model),
+        effort: text(context.effort),
+        thinking_enabled: context.thinking_enabled === true,
+        provider_generation: Math.max(0, Math.trunc(Number(context.provider_generation ?? 0))),
+        context_window_tokens: Math.max(0, Math.trunc(Number(context.context_window_tokens ?? 0))),
+        ts: Number(context.ts ?? Date.now() / 1_000),
+      });
+      if (cached) await this.refreshReplayCacheMetadata(safeSessionId, path, cached);
+      await this.enqueueIndexSync(safeSessionId, path);
+    });
   }
 
   async replaceMessages(
@@ -581,22 +605,20 @@ export class SqliteRuntimeStore implements RuntimeStore {
     metadata: JsonObject = {},
   ): Promise<void> {
     const safeSessionId = text(sessionId);
-    const path = this.transcriptPath(safeSessionId);
-    this.validCacheBeforeWrite(safeSessionId, path);
-    const persisted = messages.map(persistedMessage);
-    mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, `${JSON.stringify({
-      ...metadata,
-      kind: "replacement",
-      replacement_kind: replacementKind,
-      replacement_history: persisted,
-      ts: Date.now() / 1_000,
-    })}\n`, "utf8");
-    this.db().transaction(() => {
+    await this.enqueueSessionWrite(safeSessionId, async () => {
+      const path = this.transcriptPath(safeSessionId);
+      const previous = await this.loadMessagesUnqueued(safeSessionId);
+      this.validCacheBeforeWrite(safeSessionId, path);
+      const persisted = messages.map(persistedMessage);
+      await this.appendTranscriptEvent(
+        safeSessionId,
+        createContextPatchEvent(previous, persisted, replacementKind, metadata),
+      );
       this.db().query("UPDATE agent_sessions SET last_active_at = ? WHERE session_id = ?")
         .run(Date.now() / 1_000, safeSessionId);
-    })();
-    this.updateCacheAfterWrite(safeSessionId, path, persisted);
+      await this.updateCacheAfterWrite(safeSessionId, path, persisted);
+      await this.enqueueIndexSync(safeSessionId, path);
+    });
   }
 
   async patchSessionState(sessionId: string, patch: JsonObject): Promise<void> {
@@ -852,7 +874,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const totalRow = this.db().query(`SELECT COUNT(*) AS count FROM agent_sessions ${where}`)
       .get(...whereArgs) as { count: number } | null;
     const rows = this.db().query(`
-      SELECT session_id, source, model, model_config, created_at, last_active_at,
+      SELECT session_id, source, model, reasoning_effort, model_config, created_at, last_active_at,
              message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
       FROM agent_sessions ${where}
       ORDER BY last_active_at DESC, created_at DESC, session_id ASC LIMIT ? OFFSET ?
@@ -875,13 +897,17 @@ export class SqliteRuntimeStore implements RuntimeStore {
   }
 
   async sessionDetail(sessionId: string, options: DashboardSessionPageOptions): Promise<JsonObject | undefined> {
+    const safeSessionId = text(sessionId);
+    const exists = this.db().query("SELECT 1 AS present FROM agent_sessions WHERE session_id = ?")
+      .get(safeSessionId) as { present: number } | null;
+    if (!exists) return undefined;
+    const display = await this.loadTranscriptDisplayPage(safeSessionId, options);
     const row = this.db().query(`
-      SELECT session_id, source, model, model_config, created_at, last_active_at,
+      SELECT session_id, source, model, reasoning_effort, model_config, created_at, last_active_at,
              message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
       FROM agent_sessions WHERE session_id = ?
-    `).get(text(sessionId)) as Record<string, unknown> | null;
+    `).get(safeSessionId) as Record<string, unknown> | null;
     if (!row) return undefined;
-    const display = await this.loadTranscriptDisplayPage(text(sessionId), options);
     return {
       session: this.sessionPayload(row),
       messages: display.messages,
@@ -905,6 +931,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         chat_type: text(source.chat_type),
       },
       model: text(row.model),
+      reasoning_effort: text(row.reasoning_effort),
       model_config: parseObject(row.model_config),
       created_at: Number(row.created_at ?? 0),
       last_active_at: Number(row.last_active_at ?? 0),
@@ -919,27 +946,382 @@ export class SqliteRuntimeStore implements RuntimeStore {
   private validCacheBeforeWrite(
     sessionId: string,
     path: string,
-  ): { path: string; size: number; mtimeMs: number; messages: RuntimeMessage[] } | undefined {
+  ): ReplayCacheEntry | undefined {
     const cached = this.replayCache.get(sessionId);
     if (!cached || cached.path !== path) return undefined;
     try {
-      const stat = statSync(path);
-      if (cached.size === stat.size && cached.mtimeMs === stat.mtimeMs) return cached;
+      const fileStat = statSync(path);
+      if (cached.size === fileStat.size && cached.mtimeMs === fileStat.mtimeMs) return cached;
     } catch {
       // External deletion invalidates the replay cache.
     }
-    this.replayCache.delete(sessionId);
+    this.removeReplayCacheEntry(sessionId);
     return undefined;
   }
 
-  private updateCacheAfterWrite(sessionId: string, path: string, messages: RuntimeMessage[]): void {
-    const stat = statSync(path);
-    this.replayCache.set(sessionId, {
-      path,
-      size: stat.size,
-      mtimeMs: stat.mtimeMs,
-      messages: structuredClone(messages),
+  private async updateCacheAfterWrite(sessionId: string, path: string, messages: RuntimeMessage[]): Promise<void> {
+    const fileStat = await stat(path);
+    this.installReplayCacheEntry(sessionId, path, fileStat.size, fileStat.mtimeMs, messages);
+  }
+
+  private async appendReplayCacheMessage(
+    sessionId: string,
+    path: string,
+    cached: ReplayCacheEntry,
+    message: RuntimeMessage,
+  ): Promise<void> {
+    const current = this.replayCache.get(sessionId);
+    if (current !== cached) return;
+    const messageBytes = Buffer.byteLength(JSON.stringify(message));
+    const delta = cached.messages.length === 0 ? messageBytes : messageBytes + 1;
+    cached.messages.push(message);
+    cached.byteSize += delta;
+    this.replayCacheBytes += delta;
+    const fileStat = await stat(path);
+    cached.size = fileStat.size;
+    cached.mtimeMs = fileStat.mtimeMs;
+    this.touchReplayCache(sessionId, cached);
+    this.evictReplayCache();
+  }
+
+  private async refreshReplayCacheMetadata(
+    sessionId: string,
+    path: string,
+    cached: ReplayCacheEntry,
+  ): Promise<void> {
+    if (this.replayCache.get(sessionId) !== cached) return;
+    const fileStat = await stat(path);
+    cached.size = fileStat.size;
+    cached.mtimeMs = fileStat.mtimeMs;
+    this.touchReplayCache(sessionId, cached);
+  }
+
+  private installReplayCacheEntry(
+    sessionId: string,
+    path: string,
+    size: number,
+    mtimeMs: number,
+    messages: RuntimeMessage[],
+  ): void {
+    this.removeReplayCacheEntry(sessionId);
+    const byteSize = Buffer.byteLength(JSON.stringify(messages));
+    if (
+      this.replayCacheMaxEntries === 0 ||
+      this.replayCacheMaxBytes === 0 ||
+      byteSize > this.replayCacheMaxBytes
+    ) return;
+    this.replayCache.set(sessionId, { path, size, mtimeMs, byteSize, messages });
+    this.replayCacheBytes += byteSize;
+    this.evictReplayCache();
+  }
+
+  private touchReplayCache(sessionId: string, entry: ReplayCacheEntry): void {
+    this.replayCache.delete(sessionId);
+    this.replayCache.set(sessionId, entry);
+  }
+
+  private removeReplayCacheEntry(sessionId: string): void {
+    const entry = this.replayCache.get(sessionId);
+    if (!entry) return;
+    this.replayCache.delete(sessionId);
+    this.replayCacheBytes = Math.max(0, this.replayCacheBytes - entry.byteSize);
+  }
+
+  private clearReplayCache(): void {
+    this.replayCache.clear();
+    this.replayCacheBytes = 0;
+  }
+
+  private evictReplayCache(): void {
+    while (
+      this.replayCache.size > this.replayCacheMaxEntries ||
+      this.replayCacheBytes > this.replayCacheMaxBytes
+    ) {
+      const oldest = this.replayCache.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.removeReplayCacheEntry(oldest);
+    }
+  }
+
+  private enqueueKeyed<T>(
+    queues: Map<string, Promise<void>>,
+    key: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = queues.get(key) ?? Promise.resolve();
+    const result = previous.catch(() => undefined).then(operation);
+    const barrier = result.then(() => undefined, () => undefined);
+    queues.set(key, barrier);
+    void barrier.then(() => {
+      if (queues.get(key) === barrier) queues.delete(key);
     });
+    return result;
+  }
+
+  private enqueueSessionWrite(sessionId: string, operation: () => Promise<void>): Promise<void> {
+    return this.enqueueKeyed(this.writeQueues, sessionId, operation);
+  }
+
+  private async waitForSessionWrites(sessionId: string): Promise<void> {
+    await this.writeQueues.get(sessionId);
+  }
+
+  private enqueueIndexSync(sessionId: string, path: string): Promise<TranscriptFileState | undefined> {
+    return this.enqueueKeyed(this.indexQueues, sessionId, () => this.syncTranscriptIndex(sessionId, path));
+  }
+
+  private async appendTranscriptEvent(sessionId: string, event: JsonObject): Promise<void> {
+    const path = this.transcriptPath(sessionId);
+    await mkdir(dirname(path), { recursive: true });
+    let empty = false;
+    try {
+      empty = (await stat(path)).size === 0;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      empty = true;
+    }
+    const prefix = empty ? `${JSON.stringify(transcriptHeader(sessionId))}\n` : "";
+    await appendFile(path, `${prefix}${JSON.stringify(event)}\n`, "utf8");
+  }
+
+  private async catchUpTranscriptIndexes(): Promise<void> {
+    const rows = this.db().query("SELECT session_id FROM agent_sessions ORDER BY session_id")
+      .all() as Array<{ session_id: string }>;
+    for (const row of rows) {
+      const sessionId = text(row.session_id);
+      if (sessionId) await this.enqueueIndexSync(sessionId, this.transcriptPath(sessionId));
+    }
+  }
+
+  private clearTranscriptIndex(sessionId: string): void {
+    this.db().transaction(() => {
+      this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(sessionId);
+      this.db().query("DELETE FROM transcript_file_state WHERE session_id = ?").run(sessionId);
+      this.db().query(`
+        UPDATE agent_sessions SET model = '', reasoning_effort = '', model_config = '{}'
+        WHERE session_id = ?
+      `).run(sessionId);
+    })();
+  }
+
+  private async readByteRange(path: string, start: number, end: number): Promise<Uint8Array> {
+    const length = Math.max(0, end - start);
+    const buffer = Buffer.alloc(length);
+    const handle = await open(path, "r");
+    try {
+      let offset = 0;
+      while (offset < length) {
+        const result = await handle.read(buffer, offset, length - offset, start + offset);
+        if (result.bytesRead === 0) break;
+        offset += result.bytesRead;
+      }
+      return buffer.subarray(0, offset);
+    } finally {
+      await handle.close();
+    }
+  }
+
+  private async syncTranscriptIndex(
+    sessionId: string,
+    path: string,
+  ): Promise<TranscriptFileState | undefined> {
+    let fileStat: Awaited<ReturnType<typeof stat>>;
+    try {
+      fileStat = await stat(path);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      this.clearTranscriptIndex(sessionId);
+      this.removeReplayCacheEntry(sessionId);
+      return undefined;
+    }
+    const rawState = this.db().query(`
+      SELECT file_size, mtime_ms, indexed_bytes, event_count, raw_message_count,
+             display_group_count, last_display_kind
+      FROM transcript_file_state WHERE session_id = ?
+    `).get(sessionId) as Record<string, unknown> | null;
+    const state: TranscriptFileState | undefined = rawState ? {
+      file_size: Number(rawState.file_size ?? 0),
+      mtime_ms: Number(rawState.mtime_ms ?? 0),
+      indexed_bytes: Number(rawState.indexed_bytes ?? 0),
+      event_count: Number(rawState.event_count ?? 0),
+      raw_message_count: Number(rawState.raw_message_count ?? 0),
+      display_group_count: Number(rawState.display_group_count ?? 0),
+      last_display_kind: text(rawState.last_display_kind),
+    } : undefined;
+    if (
+      state &&
+      state.indexed_bytes === fileStat.size &&
+      state.file_size === fileStat.size &&
+      state.mtime_ms === fileStat.mtimeMs
+    ) return state;
+
+    const rebuild = !state || state.indexed_bytes > fileStat.size || (
+      state.indexed_bytes === fileStat.size && state.mtime_ms !== fileStat.mtimeMs
+    );
+    const start = rebuild ? 0 : state.indexed_bytes;
+    const bytes = await this.readByteRange(path, start, fileStat.size);
+    const scanned = scanTranscriptBuffer(bytes, start, false);
+    let eventCount = rebuild ? 0 : state.event_count;
+    let rawMessageCount = rebuild ? 0 : state.raw_message_count;
+    let displayGroupCount = rebuild ? 0 : state.display_group_count;
+    let lastDisplayKind = rebuild ? "" : state.last_display_kind;
+    let latestContext: JsonObject | undefined;
+
+    const transaction = this.db().transaction(() => {
+      if (rebuild) {
+        this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(sessionId);
+        this.db().query(`
+          UPDATE agent_sessions SET model = '', reasoning_effort = '', model_config = '{}'
+          WHERE session_id = ?
+        `).run(sessionId);
+      }
+      for (const line of scanned.lines) {
+        const event = line.event;
+        eventCount += 1;
+        if (text(event.kind) === "turn_context") latestContext = event;
+        if (text(event.kind) === "message") {
+          rawMessageCount += 1;
+          const message = parseObject(event.message);
+          const role = text(message.role).toLowerCase();
+          if (role === "assistant" || role === "tool") {
+            if (lastDisplayKind === "assistant_tool" && displayGroupCount > 0) {
+              this.db().query(`
+                UPDATE transcript_display_groups SET byte_end = ?
+                WHERE session_id = ? AND group_number = ?
+              `).run(line.byteEnd, sessionId, displayGroupCount - 1);
+            } else {
+              this.db().query(`
+                INSERT INTO transcript_display_groups
+                  (session_id, group_number, byte_start, byte_end, group_kind)
+                VALUES (?, ?, ?, ?, 'assistant_tool')
+              `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd);
+              displayGroupCount += 1;
+            }
+            lastDisplayKind = "assistant_tool";
+          } else if (role) {
+            this.db().query(`
+              INSERT INTO transcript_display_groups
+                (session_id, group_number, byte_start, byte_end, group_kind)
+              VALUES (?, ?, ?, ?, 'message')
+            `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd);
+            displayGroupCount += 1;
+            lastDisplayKind = "message";
+          }
+          continue;
+        }
+        if (transcriptDisplayMarker(event)) {
+          this.db().query(`
+            INSERT INTO transcript_display_groups
+              (session_id, group_number, byte_start, byte_end, group_kind)
+            VALUES (?, ?, ?, ?, 'marker')
+          `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd);
+          displayGroupCount += 1;
+          lastDisplayKind = "marker";
+        }
+      }
+      if (latestContext) {
+        const modelConfig: JsonObject = {
+          provider: text(latestContext.provider),
+          thinking_enabled: latestContext.thinking_enabled === true,
+          provider_generation: Math.max(0, Math.trunc(Number(latestContext.provider_generation ?? 0))),
+          context_window_tokens: Math.max(0, Math.trunc(Number(latestContext.context_window_tokens ?? 0))),
+        };
+        this.db().query(`
+          UPDATE agent_sessions SET model = ?, reasoning_effort = ?, model_config = ?
+          WHERE session_id = ?
+        `).run(
+          text(latestContext.model),
+          text(latestContext.effort),
+          JSON.stringify(modelConfig),
+          sessionId,
+        );
+      }
+      this.db().query(`
+        INSERT INTO transcript_file_state (
+          session_id, file_size, mtime_ms, indexed_bytes, event_count,
+          raw_message_count, display_group_count, last_display_kind, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET
+          file_size = excluded.file_size,
+          mtime_ms = excluded.mtime_ms,
+          indexed_bytes = excluded.indexed_bytes,
+          event_count = excluded.event_count,
+          raw_message_count = excluded.raw_message_count,
+          display_group_count = excluded.display_group_count,
+          last_display_kind = excluded.last_display_kind,
+          updated_at = excluded.updated_at
+      `).run(
+        sessionId,
+        fileStat.size,
+        fileStat.mtimeMs,
+        scanned.completeBytes,
+        eventCount,
+        rawMessageCount,
+        displayGroupCount,
+        lastDisplayKind,
+        Date.now() / 1_000,
+      );
+    });
+    transaction();
+    return {
+      file_size: fileStat.size,
+      mtime_ms: fileStat.mtimeMs,
+      indexed_bytes: scanned.completeBytes,
+      event_count: eventCount,
+      raw_message_count: rawMessageCount,
+      display_group_count: displayGroupCount,
+      last_display_kind: lastDisplayKind,
+    };
+  }
+
+  private async readIndexedDisplayPage(
+    sessionId: string,
+    path: string,
+    state: TranscriptFileState,
+    options: DashboardSessionPageOptions,
+  ): Promise<TranscriptDisplayPage> {
+    const limit = Math.max(1, Math.min(Math.trunc(options.limit), 200));
+    const total = state.display_group_count;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const currentPage = options.page === undefined
+      ? totalPages
+      : Math.max(1, Math.min(Math.trunc(options.page), totalPages));
+    const start = Math.min(total, (currentPage - 1) * limit);
+    const end = Math.min(total, start + limit);
+    const groups = this.db().query(`
+      SELECT byte_start, byte_end FROM transcript_display_groups
+      WHERE session_id = ? AND group_number >= ? AND group_number < ?
+      ORDER BY group_number ASC
+    `).all(sessionId, start, end) as Array<{ byte_start: number; byte_end: number }>;
+    const messages: JsonObject[] = [];
+    if (groups.length > 0) {
+      const byteStart = Number(groups[0]!.byte_start);
+      const byteEnd = Number(groups.at(-1)!.byte_end);
+      const bytes = await this.readByteRange(path, byteStart, byteEnd);
+      for (const { event } of scanTranscriptBuffer(bytes, byteStart, true).lines) {
+        if (text(event.kind) === "message") {
+          const message = parseObject(event.message);
+          if (text(message.role)) messages.push(structuredClone(message));
+          continue;
+        }
+        const marker = transcriptDisplayMarker(event);
+        if (marker) messages.push(marker);
+      }
+    }
+    return {
+      messages,
+      page: {
+        total,
+        raw_message_total: state.raw_message_count,
+        start,
+        end,
+        limit,
+        current_page: currentPage,
+        total_pages: totalPages,
+        has_previous: currentPage > 1,
+        has_next: currentPage < totalPages,
+      },
+    };
   }
 
   private transcriptPath(sessionId: string): string {
@@ -957,6 +1339,6 @@ export class SqliteRuntimeStore implements RuntimeStore {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     }
-    return normalizeLegacyMessages(raw.split(/\r?\n/).filter((line) => line.trim()).map(parseObject));
+    return normalizeTranscriptMessages(raw.split(/\r?\n/).filter((line) => line.trim()).map(parseObject));
   }
 }

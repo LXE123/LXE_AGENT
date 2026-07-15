@@ -2,13 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { createLogger } from "@lxe/core";
 import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../../src/engine/runtime";
-import { RuntimeProviderError } from "../../src/providers/provider";
+import {
+  RuntimeProviderError,
+  type RuntimeProviderManager,
+  type RuntimeProviderSnapshot,
+} from "../../src/providers/provider";
 import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
 import type {
   RuntimeHandle,
   RuntimeMessage,
   RuntimeProviderRequest,
   RuntimeStore,
+  RuntimeTurnContextRecord,
   RuntimeTurnResponse,
 } from "../../src/engine/types";
 
@@ -33,8 +38,10 @@ class MemoryStore implements RuntimeStore {
   messages: RuntimeMessage[] = [];
   pendingEvents: JsonObject[] = [];
   metrics: JsonObject[] = [];
+  turnContexts: RuntimeTurnContextRecord[] = [];
   statePatches: JsonObject[] = [];
   replacements: RuntimeMessage[][] = [];
+  operations: string[] = [];
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
   async getSession(): Promise<{ session_id: string; source: JsonObject }> {
@@ -44,7 +51,14 @@ class MemoryStore implements RuntimeStore {
     return this.pendingEvents.splice(0);
   }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
-  async appendMessage(_sessionId: string, message: RuntimeMessage): Promise<void> { this.messages.push(message); }
+  async appendTurnContext(_sessionId: string, context: RuntimeTurnContextRecord): Promise<void> {
+    this.turnContexts.push(structuredClone(context));
+    this.operations.push("turn_context");
+  }
+  async appendMessage(_sessionId: string, message: RuntimeMessage): Promise<void> {
+    this.messages.push(message);
+    this.operations.push("message");
+  }
   async replaceMessages(_sessionId: string, messages: RuntimeMessage[]): Promise<void> {
     this.messages = structuredClone(messages);
     this.replacements.push(structuredClone(messages));
@@ -379,6 +393,7 @@ describe("TypeScriptAgentRuntime", () => {
     expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "" }));
     expect(calls).toBe(0);
     expect(store.messages).toEqual([{ role: "user", content: "private history" }]);
+    expect(store.turnContexts).toEqual([]);
     expect(snapshotCalls).toBe(0);
     expect(systemPromptCalls).toBe(0);
   });
@@ -500,6 +515,65 @@ describe("TypeScriptAgentRuntime", () => {
     expect(captured?.messages).toHaveLength(1);
     expect(JSON.stringify(captured?.messages)).not.toContain("private history");
     expect(store.pendingEvents).toEqual([]);
+    expect(store.turnContexts).toEqual([expect.objectContaining({ job_kind: "heartbeat", turn_id: "j1" })]);
+  });
+
+  test("records the acquired model and effort once before the real turn input", async () => {
+    const store = new MemoryStore();
+    const provider = {
+      summarize,
+      turn: async (): Promise<RuntimeTurnResponse> => ({
+        content: [{ type: "text", text: "done" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    };
+    const snapshot: RuntimeProviderSnapshot = {
+      generation: 7,
+      descriptor: {
+        name: "kimi_coding",
+        model: "kimi-for-coding",
+        baseURL: "https://secret.invalid",
+        apiKey: "must-not-be-persisted",
+        maxTokens: 4096,
+        defaultHeaders: { Authorization: "secret" },
+        thinkingStyle: "effort",
+        thinkingEnabled: true,
+        thinkingEffort: "high",
+        thinkingDisplay: "omitted",
+        contextWindowTokens: 256_000,
+        requestIdleTimeoutMs: 1_000,
+      },
+      provider,
+    };
+    const providerManager: RuntimeProviderManager = {
+      acquire: () => snapshot,
+      reconfigure: async () => snapshot,
+    };
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      providerManager,
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    expect(store.turnContexts).toEqual([{
+      turn_id: "j1",
+      job_kind: "turn",
+      provider: "kimi_coding",
+      model: "kimi-for-coding",
+      effort: "high",
+      thinking_enabled: true,
+      provider_generation: 7,
+      context_window_tokens: 256_000,
+      ts: expect.any(Number),
+    }]);
+    expect(store.operations.slice(0, 2)).toEqual(["turn_context", "message"]);
+    expect(JSON.stringify(store.turnContexts)).not.toContain("must-not-be-persisted");
+    expect(JSON.stringify(store.turnContexts)).not.toContain("secret.invalid");
+    await runtime.stop();
   });
 
   test("disables tools on the last step and ignores a violating tool call", async () => {
@@ -1073,11 +1147,21 @@ describe("TypeScriptAgentRuntime", () => {
   });
 
   test("retries retryable provider errors three times but stops non-retryable errors immediately", async () => {
-    const run = async (retryable: boolean): Promise<{ calls: number; outcome: Awaited<ReturnType<TypeScriptAgentRuntime["runTurn"]>> }> => {
+    const run = async (retryable: boolean): Promise<{
+      calls: number;
+      contexts: number;
+      snapshots: number;
+      outcome: Awaited<ReturnType<TypeScriptAgentRuntime["runTurn"]>>;
+    }> => {
       const store = new MemoryStore();
       let calls = 0;
+      let snapshots = 0;
       const runtime = new TypeScriptAgentRuntime({
         store, tools: new ToolRegistry(),
+        skillSnapshot: () => {
+          snapshots += 1;
+          return { names: [], prompt: "", modules: {} };
+        },
         provider: {
           summarize,
           turn: async () => {
@@ -1097,13 +1181,17 @@ describe("TypeScriptAgentRuntime", () => {
       await runtime.start();
       const outcome = await runtime.runTurn(job(), handle());
       await runtime.stop();
-      return { calls, outcome };
+      return { calls, contexts: store.turnContexts.length, snapshots, outcome };
     };
     const retryable = await run(true);
     expect(retryable.calls).toBe(3);
+    expect(retryable.contexts).toBe(1);
+    expect(retryable.snapshots).toBe(1);
     expect(retryable.outcome.reply).toBe("执行失败: Kimi Coding 服务暂时异常，请稍后重试。");
     const fatal = await run(false);
     expect(fatal.calls).toBe(1);
+    expect(fatal.contexts).toBe(1);
+    expect(fatal.snapshots).toBe(1);
     expect(fatal.outcome.reply).toBe("执行失败: Kimi Coding 认证失败，请检查 API Key。");
   });
 
