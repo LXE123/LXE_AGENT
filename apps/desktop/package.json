@@ -9,6 +9,7 @@
     "dev": "bun run build && bun src/dev.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test test",
+    "validate:config": "bun scripts/validate-builder-config.ts",
     "dist:win": "electron-builder --config electron-builder.yml --win nsis --x64"
   },
   "dependencies": {

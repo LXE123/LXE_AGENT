@@ -4,5 +4,11 @@
     "lib": ["ES2022", "DOM"],
     "types": ["node", "electron"]
   },
-  "include": ["src/main.ts", "src/preload.ts", "src/ipc-channels.ts", "src/main"]
+  "include": [
+    "src/main.ts",
+    "src/preload.ts",
+    "src/ipc-channels.ts",
+    "src/main",
+    "scripts/**/*.ts"
+  ]
 }

@@ -18,8 +18,6 @@ win:
       arch:
         - x64
   artifactName: LXE-Agent-${version}-windows-${arch}.${ext}
-  signingHashAlgorithms:
-    - sha256
 nsis:
   oneClick: false
   perMachine: false
