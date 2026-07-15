@@ -1,6 +1,9 @@
 # LXE Skill CLI 冻结分发（2026-07-15）
 
-Status: `Current`
+Status: `Archive`
+
+> 本决策已由 [LXE Skill CLI Python wheel 运行时](./20260715-lxeskill-python-runtime.md)取代。
+> 以下内容仅保留为历史记录，不代表当前实现。
 
 ## 决策
 

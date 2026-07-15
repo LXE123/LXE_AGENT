@@ -77,13 +77,6 @@
         "typescript": "7.0.2",
       },
     },
-    "packages/agent/lxeskill-cli": {
-      "name": "@lxe/lxeskill-cli",
-      "version": "0.1.0",
-      "bin": {
-        "lxeskill": "bin/lxeskill.js",
-      },
-    },
     "packages/agent/runtime": {
       "name": "@lxe/runtime",
       "version": "0.1.0",
@@ -287,8 +280,6 @@
     "@lxe/desktop-protocol": ["@lxe/desktop-protocol@workspace:packages/foundation/desktop-protocol"],
 
     "@lxe/gateway": ["@lxe/gateway@workspace:apps/gateway"],
-
-    "@lxe/lxeskill-cli": ["@lxe/lxeskill-cli@workspace:packages/agent/lxeskill-cli"],
 
     "@lxe/protocol": ["@lxe/protocol@workspace:packages/foundation/protocol"],
 

@@ -28,12 +28,16 @@ describe("desktop private runtime paths", () => {
       userDataPath: join(root, "data"),
       documentsPath: join(root, "documents"),
       platform: "win32",
-      arch: "x64",
     });
 
     expect(paths.agentCommand).toBe(join(root, "runtime", "agent-cli", "agent-cli.exe"));
     expect(paths.agentArguments).toEqual([]);
-    expect(paths.lxeskillPath).toBe(join(root, "runtime", "lxeskill", "lxeskill.exe"));
+    expect(paths.lxeskillModulePath).toBe(
+      join(root, "runtime", "python", "Lib", "site-packages", "lxeskill", "__init__.py"),
+    );
+    expect(paths.lxeskillSmokePath).toBe(
+      join(root, "runtime", "python", ".lxe-lxeskill-ready.json"),
+    );
     expect(paths.managedPath.split(delimiter)).not.toContain(join(root, "runtime", "agent-cli"));
     expect(paths.managedPath.split(delimiter)).toContain(join(root, "runtime", "node"));
   });

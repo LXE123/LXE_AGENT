@@ -20,6 +20,28 @@ if ($env:OS -ne "Windows_NT" -or -not [Environment]::Is64BitProcess) {
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $prepareScript = Join-Path $PSScriptRoot "prepare-desktop-runtime.ps1"
+
+$bunCommand = Get-Command bun -ErrorAction SilentlyContinue
+if ($null -eq $bunCommand) {
+    throw "Bun 1.3.14 is required to build the Windows desktop package."
+}
+$bunVersion = (& $bunCommand.Source --version).Trim()
+if ($LASTEXITCODE -ne 0 -or $bunVersion -ne "1.3.14") {
+    throw "Bun 1.3.14 is required; found '$bunVersion' at $($bunCommand.Source)."
+}
+
+Push-Location $repositoryRoot
+try {
+    Write-Host "==> Validate electron-builder configuration"
+    & $bunCommand.Source run desktop:validate:config
+    if ($LASTEXITCODE -ne 0) {
+        throw "electron-builder configuration validation failed with exit code $LASTEXITCODE."
+    }
+}
+finally {
+    Pop-Location
+}
+
 $prepareParameters = @{}
 if (-not [string]::IsNullOrWhiteSpace($RuntimeRoot)) { $prepareParameters.RuntimeRoot = $RuntimeRoot }
 if (-not [string]::IsNullOrWhiteSpace($CacheRoot)) { $prepareParameters.CacheRoot = $CacheRoot }
@@ -83,14 +105,25 @@ $env:UV_PYTHON = Join-Path $effectivePythonRoot "python.exe"
 $env:UV_PYTHON_DOWNLOADS = "never"
 $env:PLAYWRIGHT_BROWSERS_PATH = $effectivePlaywrightRoot
 
-$bunCommand = Get-Command bun -ErrorAction SilentlyContinue
-if ($null -eq $bunCommand) {
-    throw "Bun 1.3.14 is required to build the Windows desktop package."
+$configuredCacheRoot = $CacheRoot
+if ([string]::IsNullOrWhiteSpace($configuredCacheRoot)) {
+    $configuredCacheRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_CACHE_ROOT")
 }
-$bunVersion = (& $bunCommand.Source --version).Trim()
-if ($LASTEXITCODE -ne 0 -or $bunVersion -ne "1.3.14") {
-    throw "Bun 1.3.14 is required; found '$bunVersion' at $($bunCommand.Source)."
+if ([string]::IsNullOrWhiteSpace($configuredCacheRoot)) {
+    $configuredCacheRoot = Join-Path $repositoryRoot "build\desktop-runtime-cache\win32-x64"
 }
+$effectiveCacheRoot = [System.IO.Path]::GetFullPath(
+    [Environment]::ExpandEnvironmentVariables($configuredCacheRoot)
+)
+$env:UV_CACHE_DIR = Join-Path $effectiveCacheRoot "uv-cache"
+$env:UV_OFFLINE = if ($Offline) { "1" } else { "0" }
+New-Item -ItemType Directory -Path $env:UV_CACHE_DIR -Force | Out-Null
+
+$wheelRoot = Join-Path $repositoryRoot "build\desktop-wheel"
+if (Test-Path -LiteralPath $wheelRoot) {
+    Remove-Item -LiteralPath $wheelRoot -Recurse -Force
+}
+New-Item -ItemType Directory -Path $wheelRoot -Force | Out-Null
 
 function Invoke-LxeDesktopBuildStep {
     param(
@@ -105,9 +138,37 @@ function Invoke-LxeDesktopBuildStep {
     }
 }
 
+function Build-LxeDesktopProjectWheel {
+    Write-Host "==> Build current LXE project wheel"
+    $arguments = @(
+        "build",
+        "--wheel",
+        "--out-dir",
+        $wheelRoot,
+        "--clear",
+        "--no-create-gitignore",
+        "--python",
+        $env:UV_PYTHON
+    )
+    if ($Offline) {
+        $arguments = @("--offline") + $arguments
+    }
+    & $effectiveUvPath @arguments
+    if ($LASTEXITCODE -ne 0) {
+        $mode = if ($Offline) { "offline; ensure the persistent uv cache contains the build backend" } else { "online" }
+        throw "LXE project wheel build failed in $mode mode with exit code $LASTEXITCODE."
+    }
+
+    $wheels = @(Get-ChildItem -LiteralPath $wheelRoot -File -Filter "lxe_agent-*.whl")
+    if ($wheels.Count -ne 1) {
+        throw "Expected exactly one LXE project wheel in $wheelRoot; found $($wheels.Count)."
+    }
+    $env:LXE_DESKTOP_PROJECT_WHEEL = $wheels[0].FullName
+}
+
 Push-Location $repositoryRoot
 try {
-    Invoke-LxeDesktopBuildStep -Label "Build frozen lxeskill" -Arguments @("run", "lxeskill:bundle")
+    Build-LxeDesktopProjectWheel
     Invoke-LxeDesktopBuildStep -Label "Compile private agent-cli" -Arguments @("run", "agent-cli:compile")
     Invoke-LxeDesktopBuildStep -Label "Build Dashboard and Electron" -Arguments @("run", "desktop:build")
     Invoke-LxeDesktopBuildStep -Label "Stage desktop resources" -Arguments @("run", "desktop:resources")

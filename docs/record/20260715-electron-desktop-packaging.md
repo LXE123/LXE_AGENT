@@ -6,8 +6,8 @@ runs the Gateway in Electron Main, and launches one private compiled
 
 ## Managed build inputs
 
-Run the build on Windows x64. PyInstaller and the managed native runtimes are
-not cross-compiled from macOS or Linux.
+Run the complete installer build on Windows x64. The managed native runtimes
+and NSIS package are not cross-compiled from macOS or Linux.
 
 Prepare the pinned private runtime with:
 
@@ -43,6 +43,12 @@ staging paths automatically:
 - `LXE_DESKTOP_RG_PATH`: `rg.exe`.
 - `LXE_DESKTOP_PLAYWRIGHT_ROOT`: Playwright Chromium browser directory.
 
+The wrapper separately builds the current repository as a wheel on every run.
+It uses the persistent runtime `uv-cache`, and passes the resulting wheel to
+resource staging through the internal `LXE_DESKTOP_PROJECT_WHEEL` input. The
+wheel is never stored in the base runtime image, so rebuilding cannot reuse
+stale LXE source.
+
 These five environment variables remain supported as per-field overrides for
 custom build infrastructure. `LXE_DESKTOP_RUNTIME_DESCRIPTOR` can point resource
 staging at a non-default descriptor.
@@ -53,14 +59,32 @@ Then run:
 bun run desktop:dist:win
 ```
 
-The command prepares or reuses the managed runtime, injects it only into the
-build subprocess environment, rebuilds the Windows `lxeskill` bundle, compiles
-`agent-cli.exe`, stages resources, and creates the NSIS installer.
+The build first validates `electron-builder.yml` against the schema bundled
+with the pinned electron-builder version. The same fast check is available on
+every development platform and is included in `bun run verify`:
 
-`desktop:resources` fails closed when a required runtime is missing and writes a
-SHA-256 manifest for every staged file. Only Git-tracked project resources are
-copied, so local `.env`, authentication, sessions, and business artifacts cannot
-leak into the installer.
+```powershell
+bun run desktop:validate:config
+```
+
+Only after that check passes does the Windows command prepare or reuse the
+managed runtime, inject it into the build subprocess environment, rebuild the
+current LXE wheel, compile `agent-cli.exe`, install the wheel into the staged
+private Python, stage the remaining resources, and create the NSIS installer.
+
+`-Offline` also applies to the wheel build. A prior online build must have
+populated the persistent uv cache with the pinned Hatchling build backend;
+missing build cache causes a clear failure without modifying the last valid
+base runtime.
+
+`desktop:resources` installs the wheel with `--offline --no-deps --reinstall`,
+runs `python -I -m lxeskill list`, and fails unless all 28 commands are present.
+The final resource tree must not contain `runtime/lxeskill`; the module lives in
+the private Python site-packages and is recorded in the SHA-256 manifest. A
+small readiness marker records the successful 28-command smoke and wheel hash;
+desktop health requires the Python executable, module file, and marker. Only
+Git-tracked project resources are copied, so local `.env`, authentication,
+sessions, and business artifacts cannot leak into the installer.
 
 Authenticode signing uses electron-builder's standard `CSC_LINK` and
 `CSC_KEY_PASSWORD` environment variables. Unsigned output is intended only for

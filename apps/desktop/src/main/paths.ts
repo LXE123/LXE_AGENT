@@ -9,7 +9,8 @@ export interface DesktopPaths {
   dashboardRoot: string;
   agentCommand: string;
   agentArguments: string[];
-  lxeskillPath: string;
+  lxeskillModulePath: string;
+  lxeskillSmokePath: string;
   managedPythonPath: string;
   managedPath: string;
   playwrightBrowsersPath: string;
@@ -23,7 +24,6 @@ export interface DesktopPathOptions {
   documentsPath: string;
   environment?: Record<string, string | undefined>;
   platform?: NodeJS.Platform;
-  arch?: NodeJS.Architecture;
 }
 
 const existingDirectories = (paths: string[]): string[] =>
@@ -32,7 +32,6 @@ const existingDirectories = (paths: string[]): string[] =>
 export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
   const environment = options.environment ?? process.env;
   const platform = options.platform ?? process.platform;
-  const arch = options.arch ?? process.arch;
   const sourceRoot = resolve(
     String(environment.LXE_SOURCE_ROOT ?? "").trim()
       || (options.packaged ? options.appPath : join(options.appPath, "..", "..")),
@@ -48,18 +47,12 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
   const agentArguments = options.packaged
     ? []
     : [join(sourceRoot, "apps", "agent-cli", "src", "main.ts")];
-  const lxeskillPath = options.packaged
-    ? join(options.resourcesPath, "runtime", "lxeskill", `lxeskill${executable}`)
-    : join(
-        sourceRoot,
-        "packages",
-        "agent",
-        "lxeskill-cli",
-        "vendor",
-        `${platform}-${arch}`,
-        "lxeskill",
-        `lxeskill${executable}`,
-      );
+  const lxeskillModulePath = options.packaged
+    ? join(options.resourcesPath, "runtime", "python", "Lib", "site-packages", "lxeskill", "__init__.py")
+    : join(sourceRoot, "python", "lxeskill_cli", "lxeskill", "__init__.py");
+  const lxeskillSmokePath = options.packaged
+    ? join(options.resourcesPath, "runtime", "python", ".lxe-lxeskill-ready.json")
+    : "";
   const managedPythonPath = options.packaged
     ? join(options.resourcesPath, "runtime", "python", platform === "win32" ? "python.exe" : "bin/python3")
     : join(sourceRoot, ".venv", platform === "win32" ? "Scripts/python.exe" : "bin/python");
@@ -83,7 +76,8 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
       : join(sourceRoot, "apps", "dashboard", "dist"),
     agentCommand,
     agentArguments,
-    lxeskillPath,
+    lxeskillModulePath,
+    lxeskillSmokePath,
     managedPythonPath,
     managedPath: existingDirectories(managedDirectories).join(delimiter),
     playwrightBrowsersPath: options.packaged

@@ -34,7 +34,7 @@ var/db/     ← local_agent.sqlite3、sessions.json、machine_identity.json、se
 ## 后续批次
 
 - Python 收拢已按 [LXE Skill CLI Python 闭包](./20260714-python-lxeskill-cli-closure.md) 完成。
-- `packages/agent/lxeskill-cli` 是 [LXE Skill CLI 冻结分发](./20260715-lxeskill-frozen-distribution.md)新增的 Node/Bun 外壳；Python 源码闭包仍保持不变。
+- `packages/agent` 只保留 TypeScript `runtime`；已按 [LXE Skill CLI Python wheel 运行时](./20260715-lxeskill-python-runtime.md)删除 Node/Bun 外壳和 PyInstaller 冻结层。
 - docs 归类：散文件并入 `harness`（模块契约）/ `record`（决策）/ `goals` / `ops`（安装与网络笔记）。
 
 ## 明确不做

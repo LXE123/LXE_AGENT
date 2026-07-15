@@ -135,8 +135,7 @@ export class DesktopGateway {
       UV_PYTHON: this.options.paths.managedPythonPath,
       UV_PYTHON_DOWNLOADS: "never",
       UV_OFFLINE: this.options.packaged ? "1" : "0",
-      LXESKILL_BINARY_PATH: this.options.paths.lxeskillPath,
-      LXESKILL_REQUIRE_BUNDLE: this.options.packaged ? "1" : "0",
+      PYTHONNOUSERSITE: "1",
       PLAYWRIGHT_BROWSERS_PATH: this.options.paths.playwrightBrowsersPath,
       ...(this.options.packaged ? {
         NODE_PATH: join(process.resourcesPath, "runtime", "node", "node_modules"),
@@ -296,7 +295,10 @@ export class DesktopGateway {
     return {
       gateway: this.gatewayState,
       agent_cli: agentStatus?.state ?? "stopped",
-      lxeskill: existsSync(this.options.paths.lxeskillPath) ? "ready" : "error",
+      lxeskill: existsSync(this.options.paths.managedPythonPath)
+        && existsSync(this.options.paths.lxeskillModulePath)
+        && (!this.options.paths.lxeskillSmokePath
+          || existsSync(this.options.paths.lxeskillSmokePath)) ? "ready" : "error",
       message: this.lastError || agentStatus?.message || "",
       version: this.options.version,
       resource_root: this.options.paths.resourceRoot,

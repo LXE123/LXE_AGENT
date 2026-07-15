@@ -17,7 +17,7 @@ ERP、物流和表格处理能力，并通过本地 Dashboard 展示会话、任
 - Dashboard 前端位于 `apps/dashboard`，由 Gateway 提供静态资源和 API。
 - Python `3.12.10` 仅用于 `lxeskill` 业务命令；浏览器、ERP 和 Excel 脚本按需启动并在执行后退出。
 - Python 环境由 `uv` 管理，生产启动不依赖 Python 常驻服务。
-- 发布物中的 `lxeskill` 优先通过 Node/Bun 外壳启动当前平台的 PyInstaller onedir 核心；源码开发环境在未构建核心时回退到 `.venv`。
+- Runtime 和源码启动器通过项目 `.venv` 执行 `python -I -m lxeskill`；Electron 安装包把当前源码 wheel 安装到随包私有 Python，用户无需安装 Python。
 
 ## 快速安装
 
@@ -110,14 +110,15 @@ bun run gateway:stop
 bun run verify
 ```
 
-为当前 OS/CPU 构建并打包预编译 `lxeskill`：
+构建当前源码 wheel，并验证 wheel 包含四个 Python 业务包：
 
 ```bash
-bun run lxeskill:bundle
-bun run lxeskill:pack
+rm -rf build/wheel-smoke
+uv build --wheel --out-dir build/wheel-smoke --clear --no-create-gitignore
 ```
 
-PyInstaller 不能跨平台构建；Windows、macOS 和 Linux artifact 必须分别在对应系统上生成。
+Windows Electron 打包器会自动完成 wheel 构建、安装和 28 命令冒烟验证，外部入口仍为
+`bun run desktop:dist:win`。
 
 完整检查包含 TypeScript 生产边界、typecheck、Bun 测试、Python/LXE Skill 测试，以及 Dashboard
 和 Gateway 构建。

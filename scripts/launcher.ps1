@@ -97,6 +97,7 @@ Set-StrictMode -Version Latest
 
 `$LxeRoot = $projectRootLiteral
 `$BunPath = $bunPathLiteral
+`$PythonPath = Join-Path `$LxeRoot ".venv\Scripts\python.exe"
 
 function Exit-LxeNativeCommand {
     if (`$LASTEXITCODE -is [int]) {
@@ -132,8 +133,11 @@ function Invoke-LxeUpdate {
 function Invoke-LxeSkill {
     param([string[]]`$SkillArguments)
     Set-Location -LiteralPath `$LxeRoot
-    `$LauncherPath = Join-Path `$LxeRoot "packages\agent\lxeskill-cli\bin\lxeskill.js"
-    & `$BunPath `$LauncherPath @SkillArguments
+    if (-not (Test-Path -LiteralPath `$PythonPath -PathType Leaf)) {
+        throw "Project Python is unavailable: `$PythonPath"
+    }
+    `$env:PYTHONNOUSERSITE = "1"
+    & `$PythonPath -I -m lxeskill @SkillArguments
     Exit-LxeNativeCommand
 }
 

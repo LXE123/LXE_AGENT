@@ -17,19 +17,19 @@
 6. 跑健康检查
 7. 输出启动命令：LXE start
 
-## lxeskill 预编译发布物
+## lxeskill 执行方式
 
-仓库支持把 `lxeskill` 冻结成无需目标机 Python 即可启动的 onedir 核心，并由
-`packages/agent/lxeskill-cli/bin/lxeskill.js` 转发参数、stdio 和退出码：
+源码安装阶段由 `uv sync` 创建固定 Python `3.12.10` 的项目 `.venv`。独立 `lxeskill`
+launcher、Gateway exec 和后台认证任务统一启动该解释器的一次性子进程：
 
-```bash
-bun run lxeskill:bundle
-bun run lxeskill:pack
+```text
+.venv/bin/python -I -m lxeskill ...                 # macOS / Linux
+.venv\Scripts\python.exe -I -m lxeskill ...         # Windows
 ```
 
-构建产物只适用于构建机的 OS/CPU。安装 artifact 若携带匹配的 `vendor/<platform>-<arch>`，
-launcher、Gateway exec 和后台认证任务都会优先使用它；源码 checkout 未携带 vendor 时继续使用
-`.venv`。当前其他 Python skill 脚本尚未全部冻结，因此安装阶段仍保留 uv/Python。
+仓库不再构建或优先选择 PyInstaller 运行时，也不再使用 Node/Bun 外壳转发 `lxeskill`。
+Electron 桌面安装包会把当前源码 wheel 安装到随包私有 Python，因此桌面用户无需另装 Python；
+源码安装器和更新器仍负责准备项目 `.venv`。
 
 ---
 

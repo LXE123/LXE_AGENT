@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,8 @@ def test_unix_installer_builds_dashboard_from_frozen_root_bun_workspace() -> Non
     assert "bun run dashboard:build" in script
     assert "package-lock.json" not in script
     assert "npm ci" not in script
+    assert r'"\$LXE_ROOT/.venv/bin/python" -I -m lxeskill' in script
+    assert "lxeskill-cli" not in script
 
 
 def test_windows_webui_builds_dashboard_from_frozen_root_bun_workspace() -> None:
@@ -125,24 +128,84 @@ def test_windows_desktop_runtime_preparer_is_pinned_isolated_and_offline_capable
 def test_windows_desktop_build_uses_managed_runtime_wrapper() -> None:
     package = json.loads(_read(ROOT / "package.json"))
     wrapper = _read(SCRIPTS / "build-desktop-windows.ps1")
+    builder_config = _read(ROOT / "apps" / "desktop" / "electron-builder.yml")
 
+    assert "validate:config" in package["scripts"]["desktop:validate:config"]
     assert "prepare-desktop-runtime.ps1" in package["scripts"]["desktop:runtime:win"]
     assert "build-desktop-windows.ps1" in package["scripts"]["desktop:dist:win"]
+    assert "signingHashAlgorithms" not in builder_config
+    assert wrapper.index("desktop:validate:config") < wrapper.index(
+        "& $prepareScript @prepareParameters"
+    )
     assert '"prepare-desktop-runtime.ps1"' in wrapper
     assert "desktop-runtime-inputs.json" in wrapper
-    assert 'Invoke-LxeDesktopBuildStep -Label "Build frozen lxeskill"' in wrapper
+    assert "Build-LxeDesktopProjectWheel" in wrapper
+    assert '"build",' in wrapper
+    assert '"--wheel",' in wrapper
+    assert '$env:UV_CACHE_DIR = Join-Path $effectiveCacheRoot "uv-cache"' in wrapper
+    assert '$env:UV_OFFLINE = if ($Offline) { "1" } else { "0" }' in wrapper
+    assert "$env:LXE_DESKTOP_PROJECT_WHEEL = $wheels[0].FullName" in wrapper
+    assert wrapper.index("    Build-LxeDesktopProjectWheel\n") < wrapper.index(
+        'Invoke-LxeDesktopBuildStep -Label "Stage desktop resources"'
+    )
+    assert "Build frozen lxeskill" not in wrapper
     assert 'Invoke-LxeDesktopBuildStep -Label "Build NSIS installer"' in wrapper
+
+
+def test_desktop_resource_staging_installs_current_wheel_into_private_python() -> None:
+    script = _read(SCRIPTS / "prepare-desktop-resources.ts")
+
+    assert "LXE_DESKTOP_PROJECT_WHEEL" in script
+    assert '"--break-system-packages"' in script
+    assert '"--offline"' in script
+    assert '"--no-deps"' in script
+    assert '"--reinstall"' in script
+    assert 'runSmoke("managed Python lxeskill"' in script
+    assert ".lxe-lxeskill-ready.json" in script
+    assert "wheel_sha256" in script
+    assert '"-I"' in script
+    assert 'join(outputRoot, "runtime", "lxeskill")' in script
+    assert "copyDirectory(lxeskill" not in script
+    assert "LXESKILL_BINARY_PATH" not in script
+    assert "LXESKILL_REQUIRE_BUNDLE" not in script
+
+
+def test_desktop_project_wheel_declares_full_python_business_closure() -> None:
+    pyproject = tomllib.loads(_read(ROOT / "pyproject.toml"))
+
+    assert pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]["packages"] == [
+        "python/lxeskill_cli/lxeskill",
+        "python/lxeskill_cli/services",
+        "python/lxeskill_cli/shared",
+        "python/lxeskill_cli/browser_auth_service",
+    ]
+    assert "pyinstaller" not in {
+        dependency.split("==", maxsplit=1)[0].lower()
+        for dependency in pyproject["dependency-groups"]["dev"]
+    }
 
 
 def test_windows_doctor_runs_explicit_lxeskill_contract_check() -> None:
     doctor = _read(SCRIPTS / "doctor.ps1")
 
     assert 'Invoke-NativeChecked -Label "lxeskill Skill contract"' in doctor
-    assert '"packages\\agent\\lxeskill-cli\\bin\\lxeskill.js"' in doctor
-    assert "-FilePath $bun" in doctor
+    assert '-FilePath $projectPython' in doctor
+    assert '"-I"' in doctor
+    assert '"-m"' in doctor
+    assert '"lxeskill"' in doctor
     assert '"doctor"' in doctor
     assert "PYTHONPATH" not in doctor
+    assert "lxeskill-cli" not in doctor
     assert '"lxeskill command registry"' not in doctor
+
+
+def test_windows_launcher_uses_isolated_project_python_for_lxeskill() -> None:
+    launcher = _read(SCRIPTS / "launcher.ps1")
+
+    assert r'Join-Path `$LxeRoot ".venv\Scripts\python.exe"' in launcher
+    assert r'`$env:PYTHONNOUSERSITE = "1"' in launcher
+    assert r'& `$PythonPath -I -m lxeskill @SkillArguments' in launcher
+    assert "lxeskill-cli" not in launcher
 
 
 def test_windows_resolver_prefers_exact_install_candidate_over_older_path() -> None:

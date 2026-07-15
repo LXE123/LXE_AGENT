@@ -211,7 +211,8 @@ case "\${1:-}" in
   skill)
     shift
     cd "\$LXE_ROOT"
-    "$bun_path" "\$LXE_ROOT/packages/agent/lxeskill-cli/bin/lxeskill.js" "\$@"
+    export PYTHONNOUSERSITE=1
+    "\$LXE_ROOT/.venv/bin/python" -I -m lxeskill "\$@"
     ;;
   *)
     echo "Usage: LXE <start|stop|skill>" >&2
@@ -225,7 +226,8 @@ EOF
 set -euo pipefail
 LXE_ROOT="$project_root"
 cd "\$LXE_ROOT"
-exec "$bun_path" "\$LXE_ROOT/packages/agent/lxeskill-cli/bin/lxeskill.js" "\$@"
+export PYTHONNOUSERSITE=1
+exec "\$LXE_ROOT/.venv/bin/python" -I -m lxeskill "\$@"
 EOF
   chmod +x "$SKILL_LAUNCHER_PATH"
 }

@@ -43,17 +43,17 @@ const gitFiles = (prefixes: string[]): string[] => {
 };
 
 const agentCli = join(repositoryRoot, "dist", "agent-cli", "agent-cli.exe");
-const lxeskill = join(
-  repositoryRoot,
-  "packages",
-  "agent",
-  "lxeskill-cli",
-  "vendor",
-  "win32-x64",
-  "lxeskill",
-);
+const projectWheelValue = String(environment.LXE_DESKTOP_PROJECT_WHEEL ?? "").trim();
+const projectWheel = projectWheelValue ? resolve(projectWheelValue) : "";
 if (!existsSync(agentCli)) throw new Error(`Compiled agent-cli is missing: ${agentCli}`);
-if (!existsSync(lxeskill)) throw new Error(`Frozen Windows lxeskill is missing: ${lxeskill}`);
+if (!projectWheel || !existsSync(projectWheel) || !statSync(projectWheel).isFile()) {
+  throw new Error(
+    "LXE_DESKTOP_PROJECT_WHEEL must point to the current LXE project wheel built by the desktop wrapper",
+  );
+}
+if (!projectWheel.toLowerCase().endsWith(".whl")) {
+  throw new Error(`Desktop project wheel must use the .whl extension: ${projectWheel}`);
+}
 
 const runtimeInputs = resolveDesktopRuntimeInputs({ repositoryRoot, environment });
 const {
@@ -94,7 +94,6 @@ if (!existsSync(join(pythonRoot, "python.exe"))) {
 rmSync(outputRoot, { recursive: true, force: true });
 mkdirSync(outputRoot, { recursive: true });
 copyFile(agentCli, join(outputRoot, "runtime", "agent-cli", "agent-cli.exe"));
-copyDirectory(lxeskill, join(outputRoot, "runtime", "lxeskill"));
 copyDirectory(nodeRoot, join(outputRoot, "runtime", "node"));
 copyDirectory(pythonRoot, join(outputRoot, "runtime", "python"));
 copyFile(uvExecutable, join(outputRoot, "runtime", "uv", basename(uvExecutable)));
@@ -122,7 +121,16 @@ for (const path of gitFiles([
 
 const stagedNodeRoot = join(outputRoot, "runtime", "node");
 const stagedPython = join(outputRoot, "runtime", "python", "python.exe");
-const stagedLxeskill = join(outputRoot, "runtime", "lxeskill", "lxeskill.exe");
+const stagedUv = join(outputRoot, "runtime", "uv", basename(uvExecutable));
+const stagedLxeSkillModule = join(
+  outputRoot,
+  "runtime",
+  "python",
+  "Lib",
+  "site-packages",
+  "lxeskill",
+  "__init__.py",
+);
 const smokeStateRoot = join(outputRoot, ".smoke-state");
 const smokeWorkspaceRoot = join(outputRoot, ".smoke-workspace");
 mkdirSync(smokeStateRoot, { recursive: true });
@@ -141,8 +149,9 @@ const smokeEnvironment = {
   LXE_DATA_ROOT: smokeStateRoot,
   LXE_WORKSPACE_ROOT: smokeWorkspaceRoot,
   LXE_MANAGED_PYTHON: stagedPython,
-  LXESKILL_BINARY_PATH: stagedLxeskill,
-  LXESKILL_REQUIRE_BUNDLE: "1",
+  UV_PYTHON: stagedPython,
+  UV_PYTHON_DOWNLOADS: "never",
+  UV_OFFLINE: "1",
   PYTHONNOUSERSITE: "1",
 };
 
@@ -162,6 +171,26 @@ const runSmoke = (label: string, arguments_: string[]): string => {
   }
   return stdout;
 };
+
+runSmoke("install current LXE project wheel", [
+  stagedUv,
+  "pip",
+  "install",
+  "--python",
+  stagedPython,
+  "--break-system-packages",
+  "--offline",
+  "--no-deps",
+  "--reinstall",
+  projectWheel,
+]);
+if (!existsSync(stagedLxeSkillModule)) {
+  throw new Error(`Installed lxeskill module is missing: ${stagedLxeSkillModule}`);
+}
+const retiredFrozenRuntime = join(outputRoot, "runtime", "lxeskill");
+if (existsSync(retiredFrozenRuntime)) {
+  throw new Error(`Retired frozen lxeskill runtime must not be packaged: ${retiredFrozenRuntime}`);
+}
 
 runSmoke("managed Node", [join(stagedNodeRoot, "node.exe"), "--version"]);
 const smokeNodePackage = (label: string, packageRoot: string): void => {
@@ -194,17 +223,32 @@ runSmoke("managed Python", [
   "-c",
   "import sys, openpyxl, pandas, PIL, requests; assert sys.version_info[:3] == (3, 12, 10)",
 ]);
-runSmoke("managed uv", [join(outputRoot, "runtime", "uv", basename(uvExecutable)), "--version"]);
+runSmoke("managed uv", [stagedUv, "--version"]);
 runSmoke("managed ripgrep", [join(outputRoot, "runtime", "tools", "rg.exe"), "--version"]);
-const lxeSkillOutput = runSmoke("frozen lxeskill", [stagedLxeskill, "list"]);
+const lxeSkillOutput = runSmoke("managed Python lxeskill", [
+  stagedPython,
+  "-I",
+  "-m",
+  "lxeskill",
+  "list",
+]);
 const lxeSkillLine = lxeSkillOutput.split(/\r?\n/u).filter(Boolean).at(-1);
 const lxeSkillResult = lxeSkillLine ? JSON.parse(lxeSkillLine) as {
   ok?: unknown;
   data?: { commands?: unknown[] };
 } : {};
 if (lxeSkillResult.ok !== true || lxeSkillResult.data?.commands?.length !== 28) {
-  throw new Error("frozen lxeskill smoke did not return the 28-command catalog");
+  throw new Error("managed Python lxeskill smoke did not return the 28-command catalog");
 }
+writeFileSync(
+  join(outputRoot, "runtime", "python", ".lxe-lxeskill-ready.json"),
+  `${JSON.stringify({
+    schema_version: 1,
+    commands: 28,
+    wheel_sha256: createHash("sha256").update(readFileSync(projectWheel)).digest("hex"),
+  }, null, 2)}\n`,
+  "utf8",
+);
 rmSync(smokeStateRoot, { recursive: true, force: true });
 rmSync(smokeWorkspaceRoot, { recursive: true, force: true });
 

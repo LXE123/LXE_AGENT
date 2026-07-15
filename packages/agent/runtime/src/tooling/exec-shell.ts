@@ -22,7 +22,6 @@ export interface ExecEnvironmentContext {
 
 export interface ExecShellAdapterOptions {
   platform?: NodeJS.Platform;
-  arch?: NodeJS.Architecture;
   environment?: Environment;
   fileExists?: (path: string) => boolean;
   which?: (command: string) => string | null;
@@ -112,24 +111,6 @@ const projectPythonPath = (root: string, platform: NodeJS.Platform): string => p
   ? win32.join(root, ".venv", "Scripts", "python.exe")
   : join(root, ".venv", "bin", "python");
 
-const projectLxeSkillBundlePath = (
-  root: string,
-  platform: NodeJS.Platform,
-  arch: NodeJS.Architecture,
-): string => {
-  const executable = platform === "win32" ? "lxeskill.exe" : "lxeskill";
-  const path = [
-    "packages",
-    "agent",
-    "lxeskill-cli",
-    "vendor",
-    `${platform}-${arch}`,
-    "lxeskill",
-    executable,
-  ];
-  return platform === "win32" ? win32.join(root, ...path) : join(root, ...path);
-};
-
 const projectBinPath = (root: string, platform: NodeJS.Platform): string => platform === "win32"
   ? win32.join(root, ".venv", "Scripts")
   : join(root, ".venv", "bin");
@@ -144,26 +125,21 @@ const PROJECT_PYTHON_VERSIONS = new Set(["-3", "-3.12", "-3.12.10"]);
 
 export class ExecShellAdapter {
   readonly platform: NodeJS.Platform;
-  readonly arch: NodeJS.Architecture;
   private readonly environment: Environment;
   private readonly terminationGraceMs: number;
   private windowsPowerShell = "";
 
   constructor(private readonly options: ExecShellAdapterOptions = {}) {
     this.platform = options.platform ?? process.platform;
-    this.arch = options.arch ?? process.arch;
     this.environment = options.environment ?? process.env;
     this.terminationGraceMs = Math.max(1, Math.trunc(options.terminationGraceMs ?? 2_000));
   }
 
   lxeSkillArgv(root: string): string[] | undefined {
     const fileExists = this.options.fileExists ?? existsSync;
-    const override = String(this.environment.LXESKILL_BINARY_PATH ?? "").trim();
-    const frozen = override || projectLxeSkillBundlePath(root, this.platform, this.arch);
-    if (fileExists(frozen)) return [frozen];
-    if (String(this.environment.LXESKILL_REQUIRE_BUNDLE ?? "").trim() === "1") return undefined;
-    const python = projectPythonPath(root, this.platform);
-    return fileExists(python) ? [python, "-m", "lxeskill"] : undefined;
+    const python = String(this.environment.LXE_MANAGED_PYTHON ?? "").trim()
+      || projectPythonPath(root, this.platform);
+    return fileExists(python) ? [python, "-I", "-m", "lxeskill"] : undefined;
   }
 
   normalizeCommand(root: string, rawCommand: string): string {
@@ -204,8 +180,10 @@ export class ExecShellAdapter {
     if (skill) {
       const argv = this.lxeSkillArgv(root);
       if (!argv) {
-        const frozen = projectLxeSkillBundlePath(root, this.platform, this.arch);
-        throw new Error(`lxeskill runtime is unavailable: ${frozen}`);
+        const managedPython = String(this.environment.LXE_MANAGED_PYTHON ?? "").trim();
+        throw new Error(managedPython
+          ? `managed Python is unavailable: ${managedPython}`
+          : `project Python is unavailable: ${python}`);
       }
       return `${argv.map(quote).join(" ")}${String(skill[1] ?? "")}`;
     }
@@ -244,6 +222,7 @@ export class ExecShellAdapter {
       ...(managedPath ? {} : { VIRTUAL_ENV: projectVenv }),
       PYTHONIOENCODING: "utf-8",
       PYTHONUTF8: "1",
+      PYTHONNOUSERSITE: "1",
       LXE_ROOT: resourceRoot,
       LXE_RESOURCE_ROOT: resourceRoot,
       LXE_WORKSPACE_ROOT: root,
