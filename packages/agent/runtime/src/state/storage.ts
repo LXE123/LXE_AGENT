@@ -1,5 +1,5 @@
 import { mkdirSync, readFileSync, statSync } from "node:fs";
-import { appendFile, mkdir, open, readFile, stat } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, stat, truncate } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
@@ -11,6 +11,7 @@ import type {
   RuntimeTurnContextRecord,
   RuntimeTurnUsageRecord,
 } from "../engine/types";
+import { createLogger } from "@lxe/core";
 import {
   applyTranscriptEvent,
   createContextPatchEvent,
@@ -18,6 +19,7 @@ import {
   scanTranscriptBuffer,
   transcriptDisplayMarker,
   transcriptHeader,
+  tryParseTranscriptEvent,
 } from "./transcript";
 
 const parseObject = (value: unknown): JsonObject => {
@@ -191,6 +193,7 @@ const DEFAULT_REPLAY_CACHE_MAX_ENTRIES = 32;
 const DEFAULT_REPLAY_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 
 export class SqliteRuntimeStore implements RuntimeStore {
+  private readonly logger = createLogger("runtime.storage");
   private database: Database | undefined;
   private readonly replayCache = new Map<string, ReplayCacheEntry>();
   private readonly writeQueues = new Map<string, Promise<void>>();
@@ -1073,15 +1076,60 @@ export class SqliteRuntimeStore implements RuntimeStore {
   private async appendTranscriptEvent(sessionId: string, event: JsonObject): Promise<void> {
     const path = this.transcriptPath(sessionId);
     await mkdir(dirname(path), { recursive: true });
-    let empty = false;
+    let size = 0;
     try {
-      empty = (await stat(path)).size === 0;
+      size = (await stat(path)).size;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      empty = true;
     }
-    const prefix = empty ? `${JSON.stringify(transcriptHeader(sessionId))}\n` : "";
-    await appendFile(path, `${prefix}${JSON.stringify(event)}\n`, "utf8");
+    let separator = "";
+    if (size > 0) {
+      const lastByte = await this.readByteRange(path, size - 1, size);
+      if (lastByte[0] !== 0x0a) {
+        const repaired = await this.repairUnterminatedTail(sessionId, path, size);
+        size = repaired.size;
+        separator = repaired.separator;
+      }
+    }
+    const prefix = size === 0 ? `${JSON.stringify(transcriptHeader(sessionId))}\n` : "";
+    await appendFile(path, `${separator}${prefix}${JSON.stringify(event)}\n`, "utf8");
+  }
+
+  /**
+   * An interrupted append can leave the file without a trailing newline. A
+   * parseable tail only lost its newline, so seal it with a separator; an
+   * unparseable tail is torn, unacknowledged data and must be truncated
+   * before the next event would fuse with it into one permanently corrupt
+   * line.
+   */
+  private async repairUnterminatedTail(
+    sessionId: string,
+    path: string,
+    size: number,
+  ): Promise<{ size: number; separator: string }> {
+    const tailStart = await this.lastNewlineOffset(path, size);
+    const tailRaw = new TextDecoder().decode(await this.readByteRange(path, tailStart, size)).trim();
+    if (tailRaw && tryParseTranscriptEvent(tailRaw)) return { size, separator: "\n" };
+    await truncate(path, tailStart);
+    this.logger.warn("transcript_torn_tail_truncated", {
+      session_id: sessionId,
+      truncated_bytes: size - tailStart,
+    });
+    return { size: tailStart, separator: "" };
+  }
+
+  private async lastNewlineOffset(path: string, size: number): Promise<number> {
+    const chunkSize = 64 * 1024;
+    let end = size;
+    while (end > 0) {
+      const start = Math.max(0, end - chunkSize);
+      const chunk = await this.readByteRange(path, start, end);
+      for (let index = chunk.length - 1; index >= 0; index -= 1) {
+        if (chunk[index] === 0x0a) return start + index + 1;
+      }
+      end = start;
+    }
+    return 0;
   }
 
   private async catchUpTranscriptIndexes(): Promise<void> {

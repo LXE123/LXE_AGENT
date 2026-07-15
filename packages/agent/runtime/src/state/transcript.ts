@@ -181,6 +181,18 @@ const parseEvent = (raw: string, lineNumber?: number): JsonObject => {
   return parsed as JsonObject;
 };
 
+export const tryParseTranscriptEvent = (raw: string): JsonObject | undefined => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+    ? parsed as JsonObject
+    : undefined;
+};
+
 export const scanTranscriptBuffer = (
   buffer: Uint8Array,
   baseOffset = 0,
@@ -199,7 +211,19 @@ export const scanTranscriptBuffer = (
   for (let index = 0; index < buffer.length; index += 1) {
     if (buffer[index] === 0x0a) appendLine(index, index + 1);
   }
-  if (includeFinalLine && lineStart < buffer.length) appendLine(buffer.length, buffer.length);
+  if (includeFinalLine && lineStart < buffer.length) {
+    // The final line has no terminating newline, so it may be the torn tail
+    // of an append interrupted by a crash. Keep terminated lines strict, but
+    // exclude an unparseable unterminated tail instead of failing the scan.
+    const raw = decoder.decode(buffer.subarray(lineStart)).trim();
+    const event = raw ? tryParseTranscriptEvent(raw) : undefined;
+    if (event) {
+      lines.push({ event, byteStart: baseOffset + lineStart, byteEnd: baseOffset + buffer.length });
+      lineStart = buffer.length;
+    } else if (!raw) {
+      lineStart = buffer.length;
+    }
+  }
   return { lines, completeBytes: baseOffset + lineStart };
 };
 

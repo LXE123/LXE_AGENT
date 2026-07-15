@@ -10,6 +10,7 @@ import {
   migrateTranscriptText,
   parseTranscriptText,
   replayTranscript,
+  scanTranscriptBuffer,
 } from "../../src/state/transcript";
 import type { RuntimeMessage } from "../../src/engine/types";
 
@@ -72,6 +73,87 @@ describe("Transcript v2", () => {
     expect(() => applyTranscriptEvent([], {
       kind: "context_patch", start: 1, delete_count: 0, insert_messages: [], patch_kind: "repair",
     })).toThrow("outside the current model view");
+  });
+
+  test("tolerates a torn unterminated tail but stays strict on terminated lines", () => {
+    const encoder = new TextEncoder();
+    const complete = `${JSON.stringify({ kind: "message", message: { role: "user", content: "hello" } })}\n`;
+    const torn = '{"kind":"message","message":{"role":"assistant","con';
+
+    const scanned = scanTranscriptBuffer(encoder.encode(`${complete}${torn}`), 0, true);
+    expect(scanned.lines.map(({ event }) => event.kind)).toEqual(["message"]);
+    expect(scanned.completeBytes).toBe(Buffer.byteLength(complete));
+
+    const sealed = `${JSON.stringify({ kind: "message", message: { role: "user", content: "tail" } })}`;
+    const withValidTail = scanTranscriptBuffer(encoder.encode(`${complete}${sealed}`), 0, true);
+    expect(withValidTail.lines).toHaveLength(2);
+    expect(withValidTail.completeBytes).toBe(Buffer.byteLength(`${complete}${sealed}`));
+
+    expect(() => scanTranscriptBuffer(encoder.encode(`${torn}\n${complete}`), 0, true))
+      .toThrow("invalid transcript JSON at line 1");
+  });
+
+  test("recovers a session whose transcript ends in a torn append", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-transcript-torn-tail-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ session_id: "torn", source: {} });
+
+    mkdirSync(join(root, "session_transcripts"), { recursive: true });
+    const path = join(root, "session_transcripts", "torn.jsonl");
+    writeFileSync(path, [
+      JSON.stringify({ kind: "transcript_header", version: 2, session_id: "torn", created_at: "x" }),
+      JSON.stringify({ kind: "message", message: { role: "user", content: "hello" }, reason: "turn_input", ts: 1 }),
+      '{"kind":"message","message":{"role":"assistant","con',
+    ].join("\n"), "utf8");
+
+    // Replay drops the torn tail instead of failing the session.
+    expect(await store.loadMessages("torn")).toEqual([{ role: "user", content: "hello" }]);
+
+    // The next append truncates the torn tail instead of fusing with it.
+    await store.appendMessage("torn", { role: "user", content: "next" }, "turn_input");
+    expect(await store.loadMessages("torn")).toEqual([
+      { role: "user", content: "hello" },
+      { role: "user", content: "next" },
+    ]);
+    const lines = readFileSync(path, "utf8").split("\n").filter(Boolean);
+    expect(lines).toHaveLength(3);
+    for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
+    const page = await store.loadTranscriptDisplayPage("torn", { limit: 10 });
+    expect(page.messages).toEqual([
+      { role: "user", content: "hello" },
+      { role: "user", content: "next" },
+    ]);
+    await store.stop();
+  });
+
+  test("seals a parseable unterminated tail without dropping it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-transcript-sealed-tail-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ session_id: "sealed", source: {} });
+
+    mkdirSync(join(root, "session_transcripts"), { recursive: true });
+    const path = join(root, "session_transcripts", "sealed.jsonl");
+    writeFileSync(path, [
+      JSON.stringify({ kind: "transcript_header", version: 2, session_id: "sealed", created_at: "x" }),
+      JSON.stringify({ kind: "message", message: { role: "user", content: "hello" }, reason: "turn_input", ts: 1 }),
+      JSON.stringify({ kind: "message", message: { role: "assistant", content: "answer" }, reason: "runtime", ts: 2 }),
+    ].join("\n"), "utf8");
+
+    expect(await store.loadMessages("sealed")).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "answer" },
+    ]);
+    await store.appendMessage("sealed", { role: "user", content: "next" }, "turn_input");
+    expect(await store.loadMessages("sealed")).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "answer" },
+      { role: "user", content: "next" },
+    ]);
+    await store.stop();
   });
 
   test("projects turn context, incrementally catches up, and writes only v2 events", async () => {
