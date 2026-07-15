@@ -50,6 +50,7 @@ import {
 } from "../security/permission-policy";
 import type { GatewayEmitter } from "../channels/emitter";
 import { DirectGatewayStorageAdapter } from "../state/storage-adapter";
+import { InboundImageProcessor } from "../channels/feishu/image";
 
 export interface ProductionGatewayOptions {
   projectRoot: string;
@@ -303,7 +304,7 @@ export function createProductionGateway(
     feishuAppId: feishu.appId,
     maxConcurrency: settings.maxConcurrency,
     dashboard,
-    ...(feishu.gatewayEnabled ? { feishu: { config: feishu } } : {}),
+    ...(feishu.gatewayEnabled ? { feishu: { config: feishu, imageProcessor: new InboundImageProcessor() } } : {}),
     onRunFailure: (handle, error) => {
       logger.error("run failed", {
         session_id: handle.sessionId,

@@ -1,0 +1,407 @@
+import { randomUUID } from "node:crypto";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createInterface, type Interface } from "node:readline";
+import type { AgentJob, EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
+import {
+  AGENT_PROTOCOL_VERSION,
+  isAgentEvent,
+  isAgentResponse,
+  parseAgentWireMessage,
+  type AgentCommand,
+  type AgentCommandPayloads,
+  type AgentEvent,
+  type AgentRequest,
+  type AgentResponse,
+  type DashboardRequestPayload,
+} from "@lxe/desktop-protocol";
+import { createLogger, type Logger } from "@lxe/core";
+import type {
+  DirectAgentRuntime,
+  DirectRuntimeOutcome,
+} from "./composition";
+import { RuntimeRequestError, type RunHandle, type SteeringMessage } from "./scheduler";
+
+type Environment = Record<string, string | undefined>;
+type ProcessState = "stopped" | "starting" | "ready" | "error";
+
+export interface AgentProcessStatus {
+  state: ProcessState;
+  pid: number;
+  message: string;
+}
+
+export interface ProcessAgentRuntimeOptions {
+  command: string;
+  arguments?: string[];
+  cwd: string;
+  environment: Environment;
+  resourceRoot: string;
+  dataRoot: string;
+  workspaceRoot: string;
+  allowedSkillTypes?: readonly string[];
+  requestTimeoutMs?: number;
+  shutdownTimeoutMs?: number;
+  restartDelaysMs?: readonly number[];
+  onEmit?: (request: EmitRequest) => Promise<void> | void;
+  onTyping?: (request: Extract<AgentEvent, { type: "typing.changed" }>["payload"]) => Promise<void> | void;
+  onWake?: (request: JsonObject) => Promise<void> | void;
+  onEvent?: (event: AgentEvent) => Promise<void> | void;
+  onStatus?: (status: AgentProcessStatus) => void;
+  onStderr?: (line: string) => void;
+  logger?: Logger;
+}
+
+export class AgentProcessError extends Error {
+  constructor(
+    message: string,
+    readonly code = "AgentProcessError",
+  ) {
+    super(message);
+    this.name = "AgentProcessError";
+  }
+}
+
+interface PendingRequest {
+  resolve(value: JsonValue): void;
+  reject(error: Error): void;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+const objectValue = (value: JsonValue): JsonObject =>
+  value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+
+const arrayOfObjects = (value: JsonValue): JsonObject[] =>
+  Array.isArray(value)
+    ? value.filter((item): item is JsonObject => item !== null && typeof item === "object" && !Array.isArray(item))
+    : [];
+
+export class ProcessAgentRuntime implements DirectAgentRuntime {
+  private readonly logger: Logger;
+  private readonly pending = new Map<string, PendingRequest>();
+  private readonly cancelledRuns = new Set<string>();
+  private child: ChildProcessWithoutNullStreams | undefined;
+  private stdout: Interface | undefined;
+  private stderr: Interface | undefined;
+  private state: ProcessState = "stopped";
+  private statusMessage = "";
+  private stopping = false;
+  private manuallyStopped = true;
+  private restartAttempt = 0;
+  private restartTimer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(private readonly options: ProcessAgentRuntimeOptions) {
+    this.logger = options.logger ?? createLogger("gateway.agent_process");
+  }
+
+  get isReady(): boolean {
+    return this.state === "ready" && Boolean(this.child && !this.child.killed);
+  }
+
+  status(): AgentProcessStatus {
+    return {
+      state: this.state,
+      pid: this.child?.pid ?? 0,
+      message: this.statusMessage,
+    };
+  }
+
+  async start(): Promise<void> {
+    this.manuallyStopped = false;
+    await this.launch(false);
+  }
+
+  private async launch(recovering: boolean): Promise<void> {
+    if (this.isReady) return;
+    if (this.child) await this.terminateChild();
+    this.stopping = false;
+    this.setStatus("starting", recovering ? "Recovering agent-cli" : "Starting agent-cli");
+    const child = spawn(
+      this.options.command,
+      [
+        ...(this.options.arguments ?? []),
+        "serve",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+      ],
+      {
+        cwd: this.options.cwd,
+        env: { ...this.options.environment },
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+      },
+    );
+    this.child = child;
+    this.stdout = createInterface({ input: child.stdout, crlfDelay: Infinity });
+    this.stderr = createInterface({ input: child.stderr, crlfDelay: Infinity });
+    this.stdout.on("line", (line) => this.handleLine(line));
+    this.stderr.on("line", (line) => {
+      this.options.onStderr?.(line);
+      this.logger.debug("agent_cli_stderr", { line });
+    });
+    child.once("error", (error) => this.handleExit(error));
+    child.once("exit", (code, signal) => this.handleExit(new AgentProcessError(
+      `agent-cli exited: code=${String(code ?? "")} signal=${String(signal ?? "")}`,
+      "AgentProcessExited",
+    )));
+    try {
+      await this.request("initialize", {
+        resource_root: this.options.resourceRoot,
+        data_root: this.options.dataRoot,
+        workspace_root: this.options.workspaceRoot,
+        ...(this.options.allowedSkillTypes
+          ? { allowed_skill_types: [...this.options.allowedSkillTypes] }
+          : {}),
+      }, this.options.requestTimeoutMs ?? 30_000);
+      this.setStatus("ready", "agent-cli is ready");
+      this.restartAttempt = 0;
+    } catch (cause) {
+      await this.terminateChild();
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      this.setStatus("error", error.message);
+      if (recovering) this.scheduleRecovery();
+      throw error;
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.manuallyStopped = true;
+    if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.restartTimer = undefined;
+    this.restartAttempt = 0;
+    if (!this.child) {
+      this.setStatus("stopped", "");
+      return;
+    }
+    this.stopping = true;
+    try {
+      await this.request("shutdown", {}, this.options.shutdownTimeoutMs ?? 5_000);
+    } catch {
+      // The process may have already exited; termination below is idempotent.
+    }
+    await this.terminateChild();
+    this.setStatus("stopped", "");
+    this.stopping = false;
+  }
+
+  async restart(): Promise<void> {
+    await this.stop();
+    await this.start();
+  }
+
+  async runTurn(job: AgentJob, handle: RunHandle): Promise<DirectRuntimeOutcome> {
+    const releaseProcess = handle.registerProcess({
+      kill: () => this.cancelRun(handle.runId),
+      forceKill: () => this.cancelRun(handle.runId),
+    });
+    try {
+      return objectValue(await this.request("run_turn", { job }, 0)) as unknown as DirectRuntimeOutcome;
+    } finally {
+      this.cancelledRuns.delete(handle.runId);
+      releaseProcess();
+    }
+  }
+
+  async cancelTurn(handle: RunHandle): Promise<void> {
+    await this.cancelRun(handle.runId);
+  }
+
+  async steerTurn(handle: RunHandle, message: Required<SteeringMessage>): Promise<void> {
+    const result = objectValue(await this.request("steer_turn", {
+      run_id: handle.runId,
+      text: message.text,
+      response_route_id: message.response_route_id,
+      message_id: message.message_id,
+    }));
+    if (result.accepted !== true) {
+      throw new RuntimeRequestError("run_not_found", "agent-cli rejected steering");
+    }
+  }
+
+  async ensureSession(request: JsonObject): Promise<void> {
+    await this.request("ensure_session", { request });
+  }
+
+  async rebindSession(request: JsonObject): Promise<void> {
+    await this.request("rebind_session", { request });
+  }
+
+  async popPendingEvents(sessionId: string): Promise<JsonObject[]> {
+    return arrayOfObjects(await this.request("pop_pending_events", { session_id: sessionId }));
+  }
+
+  async appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
+    await this.request("append_pending_event", { session_id: sessionId, event });
+  }
+
+  async hasPendingEvents(sessionId: string): Promise<boolean> {
+    return objectValue(await this.request("has_pending_events", { session_id: sessionId })).pending === true;
+  }
+
+  async dashboardRequest(request: DashboardRequestPayload): Promise<{ status: number; body: JsonValue }> {
+    const result = objectValue(await this.request("dashboard_request", request));
+    return {
+      status: Number(result.status ?? 500),
+      body: result.body ?? null,
+    };
+  }
+
+  async remoteHealth(): Promise<JsonObject> {
+    if (!this.isReady) return { ready: false, ...this.status() };
+    return objectValue(await this.request("health", {}, 2_000));
+  }
+
+  private async cancelRun(runId: string): Promise<void> {
+    if (!this.isReady) return;
+    if (this.cancelledRuns.has(runId)) return;
+    const result = objectValue(await this.request("cancel_turn", { run_id: runId }, 5_000));
+    if (result.cancelled !== true) {
+      throw new RuntimeRequestError("run_not_found", "agent-cli could not find the active run");
+    }
+    this.cancelledRuns.add(runId);
+  }
+
+  private request<C extends AgentCommand>(
+    command: C,
+    payload: AgentCommandPayloads[C],
+    timeoutMs = this.options.requestTimeoutMs ?? 30_000,
+  ): Promise<JsonValue> {
+    if (!this.child || this.child.stdin.destroyed) {
+      return Promise.reject(new AgentProcessError("agent-cli is not running", "AgentProcessUnavailable"));
+    }
+    const id = randomUUID();
+    const request: AgentRequest<C> = {
+      version: AGENT_PROTOCOL_VERSION,
+      id,
+      command,
+      payload,
+    } as AgentRequest<C>;
+    return new Promise<JsonValue>((resolveRequest, rejectRequest) => {
+      const pending: PendingRequest = { resolve: resolveRequest, reject: rejectRequest };
+      if (timeoutMs > 0) {
+        pending.timer = setTimeout(() => {
+          this.pending.delete(id);
+          rejectRequest(new AgentProcessError(
+            `agent-cli request timed out: ${command}`,
+            "AgentRequestTimeout",
+          ));
+        }, timeoutMs);
+        pending.timer.unref?.();
+      }
+      this.pending.set(id, pending);
+      this.child!.stdin.write(`${JSON.stringify(request)}\n`, (error) => {
+        if (!error) return;
+        this.pending.delete(id);
+        if (pending.timer) clearTimeout(pending.timer);
+        rejectRequest(error);
+      });
+    });
+  }
+
+  private handleLine(line: string): void {
+    let message: ReturnType<typeof parseAgentWireMessage>;
+    try {
+      message = parseAgentWireMessage(line);
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      this.logger.error("invalid_agent_cli_output", { error, line });
+      this.setStatus("error", error.message);
+      return;
+    }
+    if (isAgentResponse(message)) {
+      this.handleResponse(message);
+      return;
+    }
+    if (isAgentEvent(message)) void this.handleEvent(message);
+  }
+
+  private handleResponse(response: AgentResponse): void {
+    const pending = this.pending.get(response.id);
+    if (!pending) return;
+    this.pending.delete(response.id);
+    if (pending.timer) clearTimeout(pending.timer);
+    if (response.ok) pending.resolve(response.result);
+    else pending.reject(new AgentProcessError(response.error.message, response.error.code));
+  }
+
+  private async handleEvent(event: AgentEvent): Promise<void> {
+    try {
+      if (event.type === "item.completed") await this.options.onEmit?.(event.payload);
+      else if (event.type === "typing.changed") await this.options.onTyping?.(event.payload);
+      else if (event.type === "agent.wake") await this.options.onWake?.(event.payload);
+      await this.options.onEvent?.(event);
+    } catch (cause) {
+      this.logger.error("agent_event_delivery_failed", { type: event.type, error: cause });
+    }
+  }
+
+  private handleExit(error: Error): void {
+    if (!this.child) return;
+    this.child = undefined;
+    this.stdout?.close();
+    this.stderr?.close();
+    this.stdout = undefined;
+    this.stderr = undefined;
+    this.rejectPending(error);
+    const planned = this.stopping || this.manuallyStopped;
+    this.setStatus(planned ? "stopped" : "error", planned ? "" : error.message);
+    if (!planned) this.scheduleRecovery();
+  }
+
+  private scheduleRecovery(): void {
+    if (this.manuallyStopped || this.restartTimer) return;
+    const delays = this.options.restartDelaysMs ?? [];
+    const delay = delays[this.restartAttempt];
+    if (delay === undefined) return;
+    this.restartAttempt += 1;
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = undefined;
+      if (this.manuallyStopped) return;
+      void this.launch(true).catch(() => undefined);
+    }, delay);
+    this.restartTimer.unref?.();
+  }
+
+  private async terminateChild(): Promise<void> {
+    const child = this.child;
+    if (!child) return;
+    this.child = undefined;
+    this.stdout?.close();
+    this.stderr?.close();
+    this.stdout = undefined;
+    this.stderr = undefined;
+    if (!child.killed) child.kill("SIGTERM");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        new Promise<void>((resolveExit) => child.once("exit", () => resolveExit())),
+        new Promise<void>((resolveTimeout) => {
+          timer = setTimeout(() => {
+            child.kill("SIGKILL");
+            resolveTimeout();
+          }, 2_000);
+          timer.unref?.();
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    this.rejectPending(new AgentProcessError("agent-cli stopped", "AgentProcessStopped"));
+  }
+
+  private rejectPending(error: Error): void {
+    for (const pending of this.pending.values()) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.pending.clear();
+    this.cancelledRuns.clear();
+  }
+
+  private setStatus(state: ProcessState, message: string): void {
+    this.state = state;
+    this.statusMessage = message;
+    this.options.onStatus?.(this.status());
+  }
+}

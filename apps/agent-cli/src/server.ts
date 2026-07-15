@@ -1,0 +1,292 @@
+import type { AgentJob, EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
+import type { RuntimeHandle } from "@lxe/runtime";
+import {
+  AGENT_PROTOCOL_VERSION,
+  parseAgentWireMessage,
+  type AgentEvent,
+  type AgentRequest,
+  type AgentResponse,
+} from "@lxe/desktop-protocol";
+import {
+  createProductionAgentService,
+  type ProductionAgentService,
+} from "@lxe/gateway/agent-service";
+
+type Environment = Record<string, string | undefined>;
+
+export interface AgentProtocolServerOptions {
+  environment?: Environment;
+  write(message: AgentResponse | AgentEvent): void | Promise<void>;
+  createService?: typeof createProductionAgentService;
+  exit?: (code: number) => void;
+}
+
+class ProtocolRunHandle implements RuntimeHandle {
+  private readonly abortController = new AbortController();
+  private readonly processes = new Set<{
+    kill(): void | Promise<void>;
+    forceKill(): void | Promise<void>;
+  }>();
+  private steering: Array<{
+    text: string;
+    response_route_id?: string;
+    message_id?: string;
+  }> = [];
+
+  get signal(): AbortSignal {
+    return this.abortController.signal;
+  }
+
+  get cancelled(): boolean {
+    return this.signal.aborted;
+  }
+
+  pushSteering(message: { text: string; response_route_id: string; message_id: string }): void {
+    this.steering.push(message);
+  }
+
+  drainSteering(): Array<{ text: string; response_route_id?: string; message_id?: string }> {
+    const messages = this.steering;
+    this.steering = [];
+    return messages;
+  }
+
+  registerProcess(process: {
+    kill(): void | Promise<void>;
+    forceKill(): void | Promise<void>;
+  }): () => void {
+    this.processes.add(process);
+    return () => this.processes.delete(process);
+  }
+
+  async abort(force = false): Promise<void> {
+    if (!this.signal.aborted) this.abortController.abort();
+    await Promise.allSettled([...this.processes].map((process) =>
+      Promise.resolve(force ? process.forceKill() : process.kill())));
+  }
+}
+
+const errorResponse = (id: string, cause: unknown): AgentResponse => {
+  const error = cause instanceof Error ? cause : new Error(String(cause));
+  return {
+    version: AGENT_PROTOCOL_VERSION,
+    id,
+    ok: false,
+    error: {
+      code: error.name || "AgentProtocolError",
+      message: error.message,
+    },
+  };
+};
+
+export class AgentProtocolServer {
+  private readonly environment: Environment;
+  private readonly createService: typeof createProductionAgentService;
+  private readonly activeRuns = new Map<string, ProtocolRunHandle>();
+  private service: ProductionAgentService | undefined;
+  private shuttingDown = false;
+
+  constructor(private readonly options: AgentProtocolServerOptions) {
+    this.environment = options.environment ?? process.env;
+    this.createService = options.createService ?? createProductionAgentService;
+  }
+
+  async accept(line: string): Promise<void> {
+    let request: AgentRequest;
+    try {
+      const message = parseAgentWireMessage(line);
+      if (!("command" in message)) throw new Error("agent-cli accepts request envelopes only");
+      request = message;
+    } catch (cause) {
+      await this.options.write(errorResponse("", cause));
+      return;
+    }
+    try {
+      const result = await this.dispatch(request);
+      await this.options.write({
+        version: AGENT_PROTOCOL_VERSION,
+        id: request.id,
+        ok: true,
+        result,
+      });
+      if (request.command === "shutdown") this.options.exit?.(0);
+    } catch (cause) {
+      await this.options.write(errorResponse(request.id, cause));
+    }
+  }
+
+  private async dispatch(request: AgentRequest): Promise<JsonValue> {
+    switch (request.command) {
+      case "initialize":
+        return this.initialize(request.payload);
+      case "run_turn":
+        return this.runTurn(request.payload.job);
+      case "cancel_turn": {
+        const handle = this.activeRuns.get(request.payload.run_id);
+        if (!handle) return { cancelled: false };
+        await handle.abort();
+        return { cancelled: true };
+      }
+      case "steer_turn": {
+        const handle = this.activeRuns.get(request.payload.run_id);
+        if (!handle || handle.cancelled) return { accepted: false };
+        handle.pushSteering(request.payload);
+        return { accepted: true };
+      }
+      case "ensure_session":
+        await this.readyService().ensureSession(request.payload.request);
+        return { ensured: true };
+      case "rebind_session":
+        await this.readyService().rebindSession(request.payload.request);
+        return { rebound: true };
+      case "pop_pending_events":
+        return this.readyService().popPendingEvents(request.payload.session_id);
+      case "append_pending_event":
+        await this.readyService().appendPendingEvent(
+          request.payload.session_id,
+          request.payload.event,
+        );
+        return { appended: true };
+      case "has_pending_events":
+        return { pending: await this.readyService().hasPendingEvents(request.payload.session_id) };
+      case "dashboard_request":
+        return this.readyService().dashboardRequest(
+          request.payload.method,
+          request.payload.path,
+          request.payload.body,
+        );
+      case "health":
+        return this.service?.health() ?? { ready: false };
+      case "shutdown":
+        await this.shutdown();
+        return { stopped: true };
+    }
+  }
+
+  private async initialize(payload: AgentRequest<"initialize">["payload"]): Promise<JsonValue> {
+    if (this.shuttingDown) throw new Error("agent-cli is shutting down");
+    if (this.service) return this.service.health();
+    const service = this.createService({
+      resourceRoot: payload.resource_root,
+      dataRoot: payload.data_root,
+      workspaceRoot: payload.workspace_root,
+      environment: this.environment,
+      emitter: {
+        emit: async (emitRequest: EmitRequest) => {
+          await this.options.write({
+            version: AGENT_PROTOCOL_VERSION,
+            type: "item.completed",
+            thread_id: emitRequest.session_id,
+            turn_id: emitRequest.turn_id,
+            payload: emitRequest,
+          });
+        },
+        typing: async (typingRequest) => {
+          await this.options.write({
+            version: AGENT_PROTOCOL_VERSION,
+            type: "typing.changed",
+            thread_id: typingRequest.session_id,
+            turn_id: typingRequest.turn_id,
+            payload: typingRequest,
+          });
+        },
+      },
+      ...(payload.allowed_skill_types
+        ? { allowedSkillTypes: new Set(payload.allowed_skill_types) }
+        : {}),
+      onWake: (wake) => {
+        void this.options.write({
+          version: AGENT_PROTOCOL_VERSION,
+          type: "agent.wake",
+          payload: wake,
+        });
+      },
+    });
+    await service.start();
+    this.service = service;
+    await this.options.write({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "system.ready",
+      payload: { state: "ready" },
+    });
+    return service.health();
+  }
+
+  private async runTurn(job: AgentJob): Promise<JsonValue> {
+    const service = this.readyService();
+    const runId = job.job_id.trim();
+    if (!runId) throw new Error("job_id required");
+    if (this.activeRuns.has(runId)) throw new Error(`run already active: ${runId}`);
+    const handle = new ProtocolRunHandle();
+    this.activeRuns.set(runId, handle);
+    await this.options.write({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "thread.started",
+      thread_id: job.session_id,
+      payload: { thread_id: job.session_id },
+    });
+    await this.options.write({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "turn.started",
+      thread_id: job.session_id,
+      turn_id: runId,
+      payload: { job_kind: job.job_kind },
+    });
+    try {
+      const outcome = await service.runTurn(job, handle);
+      await this.options.write({
+        version: AGENT_PROTOCOL_VERSION,
+        type: outcome.status === "error" ? "turn.failed" : "turn.completed",
+        thread_id: job.session_id,
+        turn_id: runId,
+        payload: {
+          status: outcome.status,
+          usage: {
+            input_tokens: outcome.input_tokens,
+            output_tokens: outcome.output_tokens,
+            tool_calls: outcome.tool_calls,
+          },
+        },
+      });
+      return {
+        status: outcome.status,
+        reply: outcome.reply,
+        input_tokens: outcome.input_tokens,
+        output_tokens: outcome.output_tokens,
+        tool_calls: outcome.tool_calls,
+      };
+    } catch (cause) {
+      await this.options.write({
+        version: AGENT_PROTOCOL_VERSION,
+        type: "turn.failed",
+        thread_id: job.session_id,
+        turn_id: runId,
+        payload: {
+          status: "error",
+          error: cause instanceof Error ? cause.message : String(cause),
+        },
+      });
+      throw cause;
+    } finally {
+      this.activeRuns.delete(runId);
+    }
+  }
+
+  private readyService(): ProductionAgentService {
+    if (!this.service) throw new Error("agent-cli is not initialized");
+    return this.service;
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.shuttingDown) return;
+    this.shuttingDown = true;
+    await Promise.allSettled([...this.activeRuns.values()].map((handle) => handle.abort(true)));
+    await this.service?.stop();
+    this.service = undefined;
+    await this.options.write({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "system.status",
+      payload: { state: "stopped" },
+    });
+  }
+}

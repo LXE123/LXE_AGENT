@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join, parse, resolve } from "node:path";
 import type { JsonObject } from "@lxe/protocol";
 import type { FeishuInboundResource, FeishuMessageSnapshot, ResolvedResources } from "./inbound";
-import { InboundImageError, InboundImageProcessor } from "./image";
+import {
+  InboundImageError,
+  type InboundImageProcessorPort,
+} from "./image-contract";
 
 export interface FeishuInboundResourceApi {
   download(
@@ -34,8 +37,21 @@ export function createFeishuInboundResourceResolver(options: {
   projectRoot: string;
   api: FeishuInboundResourceApi;
   signal?: AbortSignal;
+  imageProcessor?: InboundImageProcessorPort;
 }): (resources: FeishuInboundResource[], snapshot: FeishuMessageSnapshot) => Promise<ResolvedResources> {
-  const imageProcessor = new InboundImageProcessor();
+  let imageProcessor = options.imageProcessor;
+  const resolveImageProcessor = async (): Promise<InboundImageProcessorPort> => {
+    if (imageProcessor) return imageProcessor;
+    // Source-mode compatibility for direct resolver consumers. Production
+    // compositions inject a platform processor so packaged Node code never
+    // imports the Bun.Image implementation.
+    const imageModulePath: string = "./image";
+    const module = await import(imageModulePath) as {
+      InboundImageProcessor: new () => InboundImageProcessorPort;
+    };
+    imageProcessor = new module.InboundImageProcessor();
+    return imageProcessor;
+  };
   return async (resources, snapshot) => {
     const userInput: string[] = [];
     const userContentBlocks: JsonObject[] = [];
@@ -65,7 +81,7 @@ export function createFeishuInboundResourceResolver(options: {
           const imageName = `${safePart(parse(fileName).name, "image")}.jpg`;
           const path = collisionSafePath(directory, imageName);
           try {
-            const processed = await imageProcessor.process({
+            const processed = await (await resolveImageProcessor()).process({
               bytes: downloaded.data,
               originalMime: mime,
               originalFileName: fileName,

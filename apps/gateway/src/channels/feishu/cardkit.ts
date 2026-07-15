@@ -53,6 +53,9 @@ export interface FeishuRouteContext {
   extra_data: JsonObject;
 }
 
+const delayMilliseconds = (milliseconds: number): Promise<void> =>
+  new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+
 export class FeishuCardKitError extends Error {
   readonly api_code: number;
   readonly card_id: string;
@@ -185,7 +188,7 @@ export class FeishuCardKit {
     delay?: (milliseconds: number) => Promise<void>;
   }) {
     this.logger = options.logger ?? createLogger("gateway.feishu.cardkit");
-    this.delay = options.delay ?? Bun.sleep;
+    this.delay = options.delay ?? delayMilliseconds;
   }
 
   handle(request: OutboundRequest, route: FeishuRouteContext): Promise<void> {

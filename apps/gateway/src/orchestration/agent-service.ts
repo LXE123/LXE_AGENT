@@ -1,0 +1,281 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import type { EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
+import { createLogger, runWithLogContext, type Logger } from "@lxe/core";
+import {
+  AtomicRuntimeProviderManager,
+  buildSystemPrompt,
+  configureRuntimeTracing,
+  ExecShellAdapter,
+  loadLxeSkillCommandCatalog,
+  loadMcpConfig,
+  MaintenanceScheduler,
+  McpManager,
+  OfficialMcpConnector,
+  OneShotCliRunner,
+  registerCodingTools,
+  registerToolSearch,
+  setMcpServerEnabled,
+  SkillCatalog,
+  SqliteRuntimeStore,
+  ToolRegistry,
+  TypeScriptAgentRuntime,
+  type RuntimeEmitter,
+  type RuntimeHandle,
+  type TurnOutcome,
+} from "@lxe/runtime";
+import { DashboardApi } from "../dashboard/api";
+import { loadFeishuConfig } from "../channels/feishu/config";
+import {
+  createOfficialFeishuImToolApi,
+  registerFeishuImTools,
+} from "../channels/feishu/tools";
+
+type Environment = Record<string, string | undefined>;
+
+export interface ProductionAgentServiceOptions {
+  resourceRoot: string;
+  dataRoot: string;
+  workspaceRoot: string;
+  environment: Environment;
+  emitter: RuntimeEmitter;
+  allowedSkillTypes?: ReadonlySet<string>;
+  onWake?: (payload: JsonObject) => void;
+  logger?: Logger;
+}
+
+export interface DashboardAgentResponse extends JsonObject {
+  status: number;
+  body: JsonValue;
+}
+
+export interface ProductionAgentService {
+  readonly runtime: TypeScriptAgentRuntime;
+  readonly store: SqliteRuntimeStore;
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  runTurn(job: Parameters<TypeScriptAgentRuntime["runTurn"]>[0], handle: RuntimeHandle): Promise<TurnOutcome>;
+  ensureSession(request: JsonObject): Promise<void>;
+  rebindSession(request: JsonObject): Promise<void>;
+  popPendingEvents(sessionId: string): Promise<JsonObject[]>;
+  appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
+  hasPendingEvents(sessionId: string): Promise<boolean>;
+  dashboardRequest(method: "GET" | "PATCH", path: string, body?: JsonObject): Promise<DashboardAgentResponse>;
+  health(): JsonObject;
+}
+
+const jsonValue = (value: unknown): JsonValue => value as JsonValue;
+
+export function createProductionAgentService(
+  options: ProductionAgentServiceOptions,
+): ProductionAgentService {
+  const logger = options.logger ?? createLogger("agent.service");
+  const environment: Environment = {
+    ...options.environment,
+    LXE_ROOT: options.resourceRoot,
+    LXE_RESOURCE_ROOT: options.resourceRoot,
+    LXE_DATA_ROOT: options.dataRoot,
+    LXE_WORKSPACE_ROOT: options.workspaceRoot,
+  };
+  const databasePath = String(environment.LXE_AGENT_SQLITE_DB_PATH ?? "").trim()
+    || join(options.dataRoot, "db", "agent.sqlite3");
+  const store = new SqliteRuntimeStore(databasePath);
+  const providerManager = new AtomicRuntimeProviderManager(options.resourceRoot, environment);
+  const feishu = loadFeishuConfig(environment);
+  const tools = new ToolRegistry();
+  const skillCatalog = new SkillCatalog(options.resourceRoot);
+  const commandCatalogPath = join(
+    options.resourceRoot,
+    "python",
+    "lxeskill_cli",
+    "lxeskill",
+    "catalog.json",
+  );
+  const cliCommands = existsSync(commandCatalogPath)
+    ? loadLxeSkillCommandCatalog(commandCatalogPath)
+    : [];
+  const businessCommands = new Map(
+    cliCommands
+      .filter((entry) => ["business", "browser"].includes(entry.visibility) || (
+        entry.visibility === "maintenance" && entry.ownerSkills.length > 0
+      ))
+      .map((entry) => [entry.command, entry.ownerSkills] as const),
+  );
+  const execShell = new ExecShellAdapter({ environment });
+  const processes = registerCodingTools(tools, {
+    workspaceRoot: options.workspaceRoot,
+    businessCommands,
+    businessCommandCatalog: cliCommands,
+    execShell,
+    execEnv: ({ skillNames }) => ({ LXESKILL_SKILL_SCOPE: skillNames.join(",") }),
+    onProcessComplete: async (snapshot) => {
+      const sessionId = String(snapshot.session_id ?? "").trim();
+      if (!sessionId) return;
+      const responseRouteId = String(snapshot.response_route_id ?? "").trim();
+      const taskId = String(snapshot.task_id ?? "").trim();
+      const turnId = String(snapshot.origin_turn_id ?? "").trim();
+      await runWithLogContext({
+        session_id: sessionId,
+        turn_id: turnId,
+        response_route_id: responseRouteId,
+        task_id: taskId,
+      }, async () => {
+        const eventId = crypto.randomUUID().replaceAll("-", "");
+        await store.appendPendingEvent(sessionId, {
+          event_id: eventId,
+          job_id: taskId,
+          created_at: Math.trunc(Date.now() / 1_000),
+          text: `后台命令已结束：status=${String(snapshot.status ?? "")}\n${String(snapshot.output_tail ?? "")}`.trim(),
+          ...(responseRouteId ? { response_route_id: responseRouteId } : {}),
+        });
+        options.onWake?.({
+          session_id: sessionId,
+          response_route_id: responseRouteId,
+          reason: "exec-event",
+        });
+      });
+    },
+  });
+  if (feishu.missingRequired().length === 0) {
+    registerFeishuImTools(tools, {
+      api: createOfficialFeishuImToolApi(feishu),
+      workspaceRoot: options.workspaceRoot,
+      sessionSource: async (sessionId) => store.getSession(sessionId).then((session) => session?.source),
+    });
+  }
+  const runtimeServices: Array<{
+    start(registry: ToolRegistry): Promise<void>;
+    stop(): Promise<void>;
+  }> = [processes];
+  const lxeSkillArgv = execShell.lxeSkillArgv(options.workspaceRoot);
+  if (lxeSkillArgv) {
+    runtimeServices.push(new MaintenanceScheduler({
+      projectRoot: options.workspaceRoot,
+      environment,
+      store,
+      gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
+      authRunner: new OneShotCliRunner({
+        command: lxeSkillArgv,
+        cwd: options.workspaceRoot,
+        timeoutMs: 3 * 60_000,
+        maxOutputBytes: 10 * 1024 * 1024,
+        env: {
+          ...environment,
+          LOG_FILE: String(environment.LOG_FILE ?? "").trim() || "runtime.log",
+        },
+        onStderr: (line) => logger.info("lxeskill", { line }),
+      }),
+    }));
+  }
+  registerToolSearch(tools);
+  const mcpConfigPath = String(environment.LXE_MCP_CONFIG_PATH ?? "").trim()
+    || join(options.dataRoot, "config", "mcp_servers.local.yaml");
+  const mcpConfig = loadMcpConfig(mcpConfigPath, environment);
+  const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment));
+  runtimeServices.push(mcpManager);
+  const dashboardApi = new DashboardApi({
+    projectRoot: options.resourceRoot,
+    stateRoot: options.dataRoot,
+    environment,
+    store,
+    tools,
+    mcpConfig,
+    connectorStatePath: join(options.dataRoot, "config", "connector-states.local.json"),
+    backgroundTasks: () => processes.snapshots(),
+    setMcpEnabled: async (serverName, enabled) => {
+      setMcpServerEnabled(mcpConfigPath, serverName, enabled);
+      await mcpManager.setEnabled(serverName, enabled);
+    },
+    mcpStatus: (serverName) => mcpManager.status(serverName),
+    skillCatalog,
+    cliCommands,
+    ...(options.allowedSkillTypes ? { allowedSkillTypes: options.allowedSkillTypes } : {}),
+    providerManager,
+  });
+  const providerDescriptor = providerManager.acquire().descriptor;
+  const runtime = new TypeScriptAgentRuntime({
+    store,
+    providerManager,
+    environment,
+    traceController: configureRuntimeTracing({
+      projectRoot: options.dataRoot,
+      environment,
+    }),
+    tools,
+    skillSnapshot: () => {
+      const connectorPolicy = dashboardApi.runtimeConnectorPolicy();
+      const snapshot = skillCatalog.snapshot({
+        ...(options.allowedSkillTypes
+          ? { allowedTypes: options.allowedSkillTypes }
+          : { allowedTypes: new Set<string>() }),
+        disabledNames: connectorPolicy.disabledSkillNames,
+      });
+      return Object.freeze({
+        ...snapshot,
+        disabledConnectorIds: Object.freeze([...connectorPolicy.disabledConnectorIds]),
+      });
+    },
+    contextWindowTokens: providerDescriptor.contextWindowTokens,
+    display: {
+      model: providerDescriptor.model,
+      contextWindowTokens: providerDescriptor.contextWindowTokens,
+      toolUseMode: feishu.cardDisplay.toolUseMode,
+      showFullPaths: feishu.cardDisplay.showFullPaths,
+    },
+    emitter: options.emitter,
+    systemPrompt: (context) => buildSystemPrompt({
+      projectRoot: options.resourceRoot,
+      workspace: options.workspaceRoot,
+      platform: context.platform,
+      provider: context.provider,
+      model: context.model,
+      skillPrompt: context.skillPrompt,
+    }),
+    services: runtimeServices,
+  });
+  let started = false;
+
+  return {
+    runtime,
+    store,
+    start: async () => {
+      await runtime.start();
+      started = true;
+    },
+    stop: async () => {
+      await runtime.stop();
+      started = false;
+    },
+    runTurn: (job, handle) => runtime.runTurn(job, handle),
+    ensureSession: (request) => store.ensureSession(request),
+    rebindSession: (request) => store.rebindSession(request),
+    popPendingEvents: (sessionId) => store.popPendingEvents(sessionId),
+    appendPendingEvent: (sessionId, event) => store.appendPendingEvent(sessionId, event),
+    hasPendingEvents: (sessionId) => store.hasPendingEvents(sessionId),
+    dashboardRequest: async (method, path, body) => {
+      const url = new URL(path, "http://desktop.lxe");
+      if (url.origin !== "http://desktop.lxe" || !url.pathname.startsWith("/api/")) {
+        return { status: 400, body: { detail: "invalid dashboard path" } };
+      }
+      const request = new Request(url.toString(), {
+        method,
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      const response = await dashboardApi.handle(request, url);
+      if (!response) return { status: 404, body: { detail: "not found" } };
+      const responseBody = response.headers.get("content-type")?.includes("application/json")
+        ? jsonValue(await response.json())
+        : await response.text();
+      return { status: response.status, body: responseBody };
+    },
+    health: () => ({
+      ready: started,
+      database_path: databasePath,
+      provider: providerManager.acquire().descriptor.name,
+      model: providerManager.acquire().descriptor.model,
+      lxeskill_available: Boolean(lxeSkillArgv),
+      active_turns: 0,
+    }),
+  };
+}

@@ -1,0 +1,32 @@
+appId: com.lxe.agent
+productName: LXE Agent
+copyright: Copyright © 2026 LXE
+asar: true
+npmRebuild: false
+directories:
+  output: ../../dist/desktop
+files:
+  - dist/**/*
+extraResources:
+  - from: ../../build/desktop-resources
+    to: .
+    filter:
+      - "**/*"
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: LXE-Agent-${version}-windows-${arch}.${ext}
+  signingHashAlgorithms:
+    - sha256
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: LXE Agent
+  deleteAppDataOnUninstall: false
+publish: null

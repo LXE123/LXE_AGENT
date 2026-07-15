@@ -17,7 +17,8 @@ export function ModelsView({
   modelSaving,
   thinkingSaving,
   onCurrentModelChange,
-  onThinkingLevelChange
+  onThinkingLevelChange,
+  onConfigureCredentials
 }: {
   models: ModelPayload[];
   current: ModelPayload | null;
@@ -25,6 +26,7 @@ export function ModelsView({
   thinkingSaving: boolean;
   onCurrentModelChange: (provider: string, model: string) => void;
   onThinkingLevelChange: (level: string) => void;
+  onConfigureCredentials?: () => void;
 }) {
   const t = useUiText();
   const [selectedModels, setSelectedModels] = useState<Record<string, string>>({});
@@ -65,6 +67,12 @@ export function ModelsView({
           <span className="models-effective-dot" aria-hidden="true" />
           {t.models.effectiveNextTurn}
         </div>
+        {onConfigureCredentials ? (
+          <button className="desktop-inline-settings" onClick={onConfigureCredentials} type="button">
+            <Settings2 size={14} />
+            配置凭证
+          </button>
+        ) : null}
       </section>
 
       <div className="grid-list models-grid">

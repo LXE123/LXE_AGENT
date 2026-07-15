@@ -81,6 +81,7 @@ import { SkillsView } from "./features/skills/view";
 import { StatsView } from "./features/stats/view";
 import { BackgroundTasksView } from "./features/tasks/view";
 import { McpView, ToolsView } from "./features/tools/view";
+import { DesktopShell } from "./desktop/shell";
 const SESSION_MESSAGE_PAGE_LIMIT = 10;
 const SESSION_LIST_PAGE_SIZE = 10;
 const DOCS_HOME_PATH = "README.md";
@@ -150,7 +151,7 @@ function routeStateFromLocation(useHistoryState = true): { tab: string; docPath:
   return { tab: DASHBOARD_TAB_IDS.has(tab) ? tab : "home", docPath: "" };
 }
 
-function App() {
+function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) {
   const [initialRoute] = useState(() => routeStateFromLocation(false));
   const [language, setLanguage] = useState<Language>(() => initialLanguage());
   const t = UI_TEXT[language];
@@ -940,6 +941,7 @@ function App() {
                     thinkingSaving={thinkingSaving}
                     onCurrentModelChange={setCurrentModel}
                     onThinkingLevelChange={setCurrentThinkingLevel}
+                    onConfigureCredentials={onOpenDesktopSettings}
                   />
                 ) : null}
                 {activeTab === "tools" ? (
@@ -964,6 +966,7 @@ function App() {
                     connectors={data.connectors.items}
                     savingId={connectorSaving}
                     onToggle={toggleConnector}
+                    onConfigureCredentials={onOpenDesktopSettings}
                   />
                 ) : null}
                 {activeTab === "background-tasks" ? (
@@ -998,4 +1001,10 @@ const rootContainer = document.getElementById("root")! as HTMLElement & {
 };
 const appRoot = rootContainer.__appRoot ?? createRoot(rootContainer);
 rootContainer.__appRoot = appRoot;
-appRoot.render(<App />);
+appRoot.render(
+  <DesktopShell>
+    {(openDesktopSettings) => (
+      <App onOpenDesktopSettings={window.lxe ? openDesktopSettings : undefined} />
+    )}
+  </DesktopShell>
+);

@@ -1,42 +1,16 @@
 import { writeFileSync } from "node:fs";
 import type { JsonObject } from "@lxe/protocol";
 import { ModelImageError, ModelImageProcessor } from "@lxe/runtime";
+import {
+  INBOUND_IMAGE_ERROR_CODES,
+  InboundImageError,
+  type InboundImageErrorCode,
+  type InboundImageProcessRequest,
+  type InboundImageProcessResult,
+  type InboundImageProcessorPort,
+} from "./image-contract";
 
-export const INBOUND_IMAGE_ERROR_CODES = [
-  "ERR_IMAGE_TOO_MANY_PIXELS",
-  "ERR_IMAGE_FORMAT_UNSUPPORTED",
-  "ERR_IMAGE_DECODE_FAILED",
-  "ERR_IMAGE_ENCODE_FAILED",
-  "ERR_IMAGE_UNKNOWN_FORMAT",
-] as const;
-
-export type InboundImageErrorCode = typeof INBOUND_IMAGE_ERROR_CODES[number];
-
-export class InboundImageError extends Error {
-  constructor(
-    readonly code: InboundImageErrorCode,
-    message: string,
-    options?: ErrorOptions,
-  ) {
-    super(message, options);
-    this.name = "InboundImageError";
-  }
-}
-
-export interface InboundImageProcessRequest {
-  bytes: Uint8Array;
-  originalMime: string;
-  originalFileName: string;
-  outputPath: string;
-  resource: JsonObject;
-}
-
-export interface InboundImageProcessResult {
-  bytes: Uint8Array;
-  modelBlock: JsonObject;
-  savedPath: string;
-  metadata: JsonObject;
-}
+export * from "./image-contract";
 
 const knownErrorCodes = new Set<string>(INBOUND_IMAGE_ERROR_CODES);
 
@@ -60,7 +34,7 @@ const imageError = (
   return new InboundImageError(errorCode(cause, fallback), `${stage}: ${message}`, { cause });
 };
 
-export class InboundImageProcessor {
+export class InboundImageProcessor implements InboundImageProcessorPort {
   private readonly processor = new ModelImageProcessor();
 
   async process(request: InboundImageProcessRequest): Promise<InboundImageProcessResult> {

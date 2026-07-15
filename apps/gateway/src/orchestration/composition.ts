@@ -26,6 +26,8 @@ export interface DirectAgentRuntime {
   start(): Promise<void>;
   stop(): Promise<void>;
   runTurn(job: AgentJob, handle: RunHandle): Promise<DirectRuntimeOutcome>;
+  cancelTurn?(handle: RunHandle): Promise<void>;
+  steerTurn?(handle: RunHandle, message: Required<SteeringMessage>): Promise<void>;
 }
 
 export interface DirectGatewayStorage {
@@ -127,8 +129,13 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
       ).finally(() => active.delete(handle.runId));
       active.set(handle.runId, { handle, promise });
     },
-    cancelTurn: (handle) => handle.abort(),
-    steerTurn: async (_handle, _message: Required<SteeringMessage>) => undefined,
+    cancelTurn: async (handle) => {
+      if (options.runtime.cancelTurn) await options.runtime.cancelTurn(handle);
+      await handle.abort();
+    },
+    steerTurn: async (handle, message: Required<SteeringMessage>) => {
+      await options.runtime.steerTurn?.(handle, message);
+    },
   };
   scheduler = new SessionScheduler({ runtime: runtimePort, maxConcurrency: options.maxConcurrency ?? 2 });
   scheduler.setRuntimeReady(false);

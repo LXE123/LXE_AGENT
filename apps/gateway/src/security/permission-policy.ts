@@ -138,7 +138,7 @@ export function permissionPolicyPath(options: PermissionPolicyPathOptions = {}):
   const env = options.env ?? process.env;
   const configured = clean(options.path) || clean(env[POLICY_PATH_ENV]);
   if (configured) return expandUser(configured, options.home ?? homedir());
-  const projectRoot = options.projectRoot ?? repositoryRoot(import.meta.dir);
+  const projectRoot = options.projectRoot ?? repositoryRoot(import.meta.dirname);
   return join(projectRoot, "config", "permission_policy.yaml");
 }
 

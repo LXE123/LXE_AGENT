@@ -9,6 +9,7 @@ import type { FeishuConfig } from "./config";
 import { FeishuInboundNormalizer, convertFeishuMessage, snapshotMessageEvent } from "./inbound";
 import { FeishuMedia } from "./media";
 import { createFeishuInboundResourceResolver } from "./resources";
+import type { InboundImageProcessorPort } from "./image-contract";
 import { FeishuIdleRestart, type RestartClock } from "./restart";
 import type { FeishuSdkFactory, FeishuSdkServices } from "./sdk";
 import { createOfficialFeishuSdkFactory } from "./sdk";
@@ -30,11 +31,14 @@ export interface FeishuAdapterOptions {
   delay?: (milliseconds: number) => Promise<void>;
   uuid?: () => string;
   projectRoot?: string;
+  imageProcessor?: InboundImageProcessorPort;
 }
 
 const object = (value: JsonValue | undefined): JsonObject | undefined =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : undefined;
 const text = (value: JsonValue | undefined): string => String(value ?? "").trim();
+const delayMilliseconds = (milliseconds: number): Promise<void> =>
+  new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 
 export class FeishuAdapter implements ChannelAdapter {
   readonly platform = "feishu";
@@ -58,7 +62,7 @@ export class FeishuAdapter implements ChannelAdapter {
   private readonly logger = createLogger("gateway.feishu");
 
   constructor(private readonly options: FeishuAdapterOptions) {
-    this.delay = options.delay ?? Bun.sleep;
+    this.delay = options.delay ?? delayMilliseconds;
     this.stopTimeoutMs = Math.max(1, Math.trunc(options.stopTimeoutMs ?? 5_000));
   }
 
@@ -194,7 +198,11 @@ export class FeishuAdapter implements ChannelAdapter {
       this.logger.warn("feishu_bot_identity_failed", { error });
     }
     const resourceResolver = sdk.resources && this.options.projectRoot
-      ? createFeishuInboundResourceResolver({ projectRoot: this.options.projectRoot, api: sdk.resources })
+      ? createFeishuInboundResourceResolver({
+          projectRoot: this.options.projectRoot,
+          api: sdk.resources,
+          ...(this.options.imageProcessor ? { imageProcessor: this.options.imageProcessor } : {}),
+        })
       : undefined;
     const fetchMessageItems = async (messageId: string): Promise<Record<string, unknown>[]> => {
       const response = await sdk.api.request("GET", `/im/v1/messages/${encodeURIComponent(messageId)}`, {});

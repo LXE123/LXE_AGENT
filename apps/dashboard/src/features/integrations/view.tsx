@@ -137,59 +137,71 @@ export function FeishuHealthPanel({
 export function ConnectorsView({
   connectors,
   savingId,
-  onToggle
+  onToggle,
+  onConfigureCredentials
 }: {
   connectors: ConnectorPayload[];
   savingId: string;
   onToggle: (connector: ConnectorPayload) => void;
+  onConfigureCredentials?: () => void;
 }) {
   const t = useUiText();
   if (!connectors.length) {
     return <EmptyState label={t.connectors.empty} />;
   }
   return (
-    <div className="grid-list connectors-grid">
-      {connectors.map((connector) => {
-        const saving = savingId === connector.id;
-        return (
-          <article className="item-card connector-card" key={connector.id}>
-            <div className="connector-card-top">
-              <div className="item-heading">
-                <div className="item-icon connector-icon">
-                  <Plug size={18} />
+    <div className="connectors-page">
+      {onConfigureCredentials ? (
+        <div className="desktop-page-actions">
+          <button className="desktop-inline-settings" onClick={onConfigureCredentials} type="button">
+            <Plug size={14} />
+            配置渠道凭证
+          </button>
+        </div>
+      ) : null}
+      <div className="grid-list connectors-grid">
+        {connectors.map((connector) => {
+          const saving = savingId === connector.id;
+          return (
+            <article className="item-card connector-card" key={connector.id}>
+              <div className="connector-card-top">
+                <div className="item-heading">
+                  <div className="item-icon connector-icon">
+                    <Plug size={18} />
+                  </div>
+                  <div>
+                    <h3>{connector.name}</h3>
+                    <div className="model-heading-model">{connector.kind || t.common.unknown}</div>
+                  </div>
                 </div>
-                <div>
-                  <h3>{connector.name}</h3>
-                  <div className="model-heading-model">{connector.kind || t.common.unknown}</div>
-                </div>
+                <span className={connector.enabled ? "status-dot on" : "status-dot"} />
               </div>
-              <span className={connector.enabled ? "status-dot on" : "status-dot"} />
-            </div>
-            <p className="description connector-description">{connector.description}</p>
-            <div className="pill-row">
-              <span className={connector.enabled ? "pill ok" : "pill warn"}>
-                {connector.enabled ? t.connectors.enabled : t.connectors.disabled}
-              </span>
-              <span className="pill">
-                {t.common.countItems(formatNumber(connector.skill_count), t.connectors.itemUnit)}
-              </span>
-            </div>
-            <p className="connector-note">{t.connectors.note}</p>
-            <button
-              className={connector.enabled ? "connector-toggle on" : "connector-toggle"}
-              disabled={saving}
-              type="button"
-              onClick={() => onToggle(connector)}
-            >
-              {saving
-                ? t.connectors.saving
-                : connector.enabled
-                  ? t.connectors.disable
-                  : t.connectors.enable}
-            </button>
-          </article>
-        );
-      })}
+              <p className="description connector-description">{connector.description}</p>
+              <div className="pill-row">
+                <span className={connector.enabled ? "pill ok" : "pill warn"}>
+                  {connector.enabled ? t.connectors.enabled : t.connectors.disabled}
+                </span>
+                <span className="pill">
+                  {t.common.countItems(formatNumber(connector.skill_count), t.connectors.itemUnit)}
+                </span>
+              </div>
+              <p className="connector-note">{t.connectors.note}</p>
+              <button
+                className={connector.enabled ? "connector-toggle on" : "connector-toggle"}
+                disabled={saving}
+                type="button"
+                onClick={() => onToggle(connector)}
+              >
+                {saving
+                  ? t.connectors.saving
+                  : connector.enabled
+                    ? t.connectors.disable
+                    : t.connectors.enable}
+              </button>
+            </article>
+          );
+        })}
+      </div>
     </div>
   );
 }

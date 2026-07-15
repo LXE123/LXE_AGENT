@@ -24,7 +24,10 @@ import {
 type Environment = Record<string, string | undefined>;
 
 interface DashboardApiOptions {
+  /** Read-only application resources containing config schemas, skills, and docs. */
   projectRoot: string;
+  /** Writable desktop/source state. Defaults to projectRoot for source compatibility. */
+  stateRoot?: string;
   environment: Environment;
   store: SqliteRuntimeStore;
   tools: ToolRegistry;
@@ -130,7 +133,7 @@ export class DashboardApi {
   constructor(private readonly options: DashboardApiOptions) {
     this.connectorStatePath = options.connectorStatePath
       ?? (text(options.environment.LXE_CONNECTOR_STATE_PATH)
-        || join(options.projectRoot, "config", "connector-states.local.json"));
+        || join(options.stateRoot ?? options.projectRoot, "config", "connector-states.local.json"));
     this.skillCatalog = options.skillCatalog ?? new SkillCatalog(options.projectRoot);
   }
 
@@ -527,7 +530,7 @@ export class DashboardApi {
   }
 
   private persistEnvironment(values: Record<string, string>): void {
-    const path = join(this.options.projectRoot, ".env.local");
+    const path = join(this.options.stateRoot ?? this.options.projectRoot, ".env.local");
     let lines: string[] = [];
     try { lines = readFileSync(path, "utf8").split(/\r?\n/); } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

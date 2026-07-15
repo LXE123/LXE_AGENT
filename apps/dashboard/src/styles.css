@@ -86,12 +86,358 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
 button {
   color: inherit;
+}
+
+/* Electron-only shell. These classes are dormant in the standalone WebUI. */
+.desktop-loading,
+.desktop-onboarding {
+  display: grid;
+  width: 100%;
+  min-height: 100vh;
+  place-items: center;
+  padding: 32px;
+  background:
+    radial-gradient(circle at 15% 15%, rgba(180, 106, 77, 0.12), transparent 32%),
+    radial-gradient(circle at 85% 80%, rgba(217, 164, 136, 0.13), transparent 30%),
+    var(--bg);
+}
+
+.desktop-loading {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.desktop-onboarding-card,
+.desktop-settings-modal {
+  width: min(560px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(54, 39, 26, 0.14);
+}
+
+.desktop-onboarding-card {
+  display: grid;
+  gap: 22px;
+  padding: 34px;
+}
+
+.desktop-onboarding-mark {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 16px;
+  background: var(--accent);
+  color: white;
+  font-size: 16px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+.desktop-eyebrow {
+  margin: 0 0 4px;
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.desktop-onboarding-card h1,
+.desktop-settings-modal h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-weight: 680;
+}
+
+.desktop-onboarding-card h1 {
+  font-size: 26px;
+}
+
+.desktop-onboarding-copy {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.desktop-setup-fields {
+  display: grid;
+  gap: 15px;
+}
+
+.desktop-setup-fields label {
+  display: grid;
+  gap: 7px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.desktop-setup-fields input,
+.desktop-setup-fields select {
+  width: 100%;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  outline: none;
+  background: var(--surface);
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.desktop-setup-fields input:focus-visible,
+.desktop-setup-fields select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.desktop-path-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+}
+
+.desktop-path-input input {
+  border-radius: 9px 0 0 9px;
+}
+
+.desktop-path-input button {
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-left: 0;
+  border-radius: 0 9px 9px 0;
+  background: var(--surface-muted);
+  cursor: pointer;
+}
+
+.desktop-optional-settings {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.desktop-optional-settings summary {
+  cursor: pointer;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.desktop-optional-settings[open] {
+  display: grid;
+  gap: 14px;
+}
+
+.desktop-primary-button,
+.desktop-inline-settings,
+.desktop-settings-modal footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.desktop-primary-button {
+  min-height: 42px;
+  padding: 0 18px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.desktop-primary-button:disabled,
+.desktop-settings-modal button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.desktop-form-error,
+.desktop-health-message {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.desktop-diagnostics {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  padding: 10px 12px;
+}
+
+.desktop-diagnostics summary {
+  cursor: pointer;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.desktop-diagnostics dl {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 0;
+}
+
+.desktop-diagnostics dl div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 10px;
+  font-size: 12px;
+}
+
+.desktop-diagnostics dt {
+  color: var(--muted);
+}
+
+.desktop-diagnostics dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.desktop-status-button {
+  position: fixed;
+  z-index: 40;
+  top: 12px;
+  right: 14px;
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow-card);
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  backdrop-filter: blur(12px);
+}
+
+.desktop-status-button.state-ready svg:first-child,
+.desktop-health-card.state-ready strong {
+  color: var(--rate-good);
+}
+
+.desktop-status-button.state-error,
+.desktop-health-card.state-error strong {
+  color: var(--danger);
+}
+
+.desktop-settings-backdrop {
+  z-index: 100;
+}
+
+.desktop-settings-modal {
+  display: grid;
+  max-height: calc(100vh - 48px);
+  gap: 20px;
+  padding: 24px;
+  overflow: auto;
+}
+
+.desktop-settings-modal > header,
+.desktop-settings-modal > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.desktop-settings-modal h2 {
+  font-size: 20px;
+}
+
+.desktop-close-button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  cursor: pointer;
+}
+
+.desktop-health-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.desktop-health-card {
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+.desktop-health-card span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.desktop-health-card strong {
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.desktop-settings-modal footer {
+  justify-content: flex-end;
+}
+
+.desktop-settings-modal footer button {
+  min-height: 36px;
+  padding: 0 13px;
+}
+
+.desktop-version {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.desktop-inline-settings {
+  min-height: 32px;
+  padding: 0 11px;
+  white-space: nowrap;
+}
+
+.desktop-page-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.connectors-page {
+  width: 100%;
 }
 
 .app-shell {

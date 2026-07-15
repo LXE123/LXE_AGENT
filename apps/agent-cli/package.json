@@ -1,0 +1,24 @@
+{
+  "name": "@lxe/agent-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun src/main.ts",
+    "build": "bun build src/main.ts --outdir dist --target bun",
+    "compile": "bun build --compile src/main.ts --outfile ../../dist/agent-cli/agent-cli.exe",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test test"
+  },
+  "dependencies": {
+    "@lxe/desktop-protocol": "workspace:*",
+    "@lxe/gateway": "workspace:*",
+    "@lxe/protocol": "workspace:*",
+    "@lxe/runtime": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "@types/node": "24.10.1",
+    "typescript": "7.0.2"
+  }
+}

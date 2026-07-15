@@ -6,9 +6,12 @@
     "bun": "1.3.14"
   },
   "workspaces": [
+    "apps/agent-cli",
+    "apps/desktop",
     "apps/gateway",
     "apps/dashboard",
     "packages/foundation/core",
+    "packages/foundation/desktop-protocol",
     "packages/foundation/protocol",
     "packages/agent/runtime",
     "packages/agent/lxeskill-cli"
@@ -18,6 +21,12 @@
     "test": "bun test",
     "test:py-tools": "uv run --frozen pytest -q python/lxeskill_cli/tests skills",
     "dashboard:build": "bun run --cwd apps/dashboard build",
+    "agent-cli:build": "bun run --cwd apps/agent-cli build",
+    "agent-cli:compile": "bun run --cwd apps/agent-cli compile",
+    "desktop:dev": "bun run --cwd apps/desktop dev",
+    "desktop:build": "bun run dashboard:build && bun run --cwd apps/desktop build",
+    "desktop:resources": "bun scripts/prepare-desktop-resources.ts",
+    "desktop:dist:win": "bun run lxeskill:bundle && bun run agent-cli:compile && bun run desktop:build && bun run desktop:resources && bun run --cwd apps/desktop dist:win",
     "gateway:dev": "bun run --cwd apps/gateway dev",
     "gateway:watch": "bun run --cwd apps/gateway watch",
     "gateway:start": "bun run --cwd apps/gateway start",
