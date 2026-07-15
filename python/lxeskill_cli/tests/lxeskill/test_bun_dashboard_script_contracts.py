@@ -83,7 +83,8 @@ def test_windows_doctor_runs_explicit_lxeskill_contract_check() -> None:
     doctor = _read(SCRIPTS / "doctor.ps1")
 
     assert 'Invoke-NativeChecked -Label "lxeskill Skill contract"' in doctor
-    assert '"lxeskill"' in doctor
+    assert '"packages\\agent\\lxeskill-cli\\bin\\lxeskill.js"' in doctor
+    assert "-FilePath $bun" in doctor
     assert '"doctor"' in doctor
     assert "PYTHONPATH" not in doctor
     assert '"lxeskill command registry"' not in doctor

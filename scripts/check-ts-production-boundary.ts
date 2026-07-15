@@ -23,7 +23,11 @@ forbidText("scripts/install.sh", /main\.py|agent_runtime\.worker/, "macOS launch
 forbidText("package.json", /main\.py|agent_runtime\.worker/, "workspace scripts must not start Python production code");
 forbidText("apps/gateway/src/main.ts", /main\.py|agent_runtime\.worker/, "Bun CLI must not fall back to Python");
 requireText("apps/gateway/src/orchestration/production.ts", /new TypeScriptAgentRuntime/, "production must assemble the TypeScript Runtime");
-requireText("apps/gateway/src/orchestration/production.ts", /"-m",\s*"lxeskill"/, "business maintenance must cross the one-shot lxeskill CLI");
+requireText(
+  "apps/gateway/src/orchestration/production.ts",
+  /lxeSkillArgv[\s\S]*new OneShotCliRunner\([\s\S]*command:\s*lxeSkillArgv/,
+  "business maintenance must cross the resolved one-shot lxeskill CLI",
+);
 forbidText(
   "apps/gateway/src/orchestration/production.ts",
   /LXE_SCRIPT_TOOL_BRIDGE_ENABLED|PythonScriptToolRunner|registerScriptTools|loadScriptToolCatalog|lxeskill\.bridge/,

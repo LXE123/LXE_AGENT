@@ -258,12 +258,8 @@ Invoke-NativeChecked -Label "critical imports" -FilePath $uv -Arguments @(
     "import aiohttp, bs4, openpyxl, pandas, PIL, playwright, requests, selenium, urllib3, xlrd, yaml; print('tool imports ok')"
 ) -Verb "Checking"
 
-Invoke-NativeChecked -Label "lxeskill Skill contract" -FilePath $uv -Arguments @(
-    "run",
-    "--frozen",
-    "python",
-    "-m",
-    "lxeskill",
+Invoke-NativeChecked -Label "lxeskill Skill contract" -FilePath $bun -Arguments @(
+    (Join-Path $ProjectRoot "packages\agent\lxeskill-cli\bin\lxeskill.js"),
     "doctor"
 ) -Verb "Checking"
 

@@ -24,6 +24,7 @@ describe("ExecShellAdapter", () => {
       LXE_AGENT_TURN_ID: "turn",
       LXE_RESPONSE_ROUTE_ID: "route",
       LXE_EXEC_SESSION_ID: "exec",
+      LXE_ROOT: "/workspace",
     });
   });
 
@@ -55,7 +56,11 @@ describe("ExecShellAdapter", () => {
   });
 
   test("normalizes Python, pip, and lxeskill with platform-safe quoting", () => {
-    const posix = new ExecShellAdapter({ platform: "darwin", fileExists: () => true });
+    const posix = new ExecShellAdapter({
+      platform: "darwin",
+      arch: "arm64",
+      fileExists: (path) => path.endsWith("/.venv/bin/python"),
+    });
     expect(posix.normalizeCommand("/work/O'Brien", "python -c \"print(1)\"")).toBe(
       `'/work/O'"'"'Brien/.venv/bin/python' -c "print(1)"`,
     );
@@ -63,12 +68,16 @@ describe("ExecShellAdapter", () => {
       "'/work/demo/.venv/bin/python' -m pip install demo",
     );
     expect(posix.normalizeCommand("/work/demo", "lxeskill fba purchase contracts-fill --input-json args.json")).toBe(
-      "'/work/demo/.venv/bin/python' -m lxeskill fba purchase contracts-fill --input-json args.json",
+      "'/work/demo/.venv/bin/python' '-m' 'lxeskill' fba purchase contracts-fill --input-json args.json",
     );
 
-    const windows = new ExecShellAdapter({ platform: "win32", fileExists: () => true });
+    const windows = new ExecShellAdapter({
+      platform: "win32",
+      arch: "x64",
+      fileExists: (path) => path.endsWith(".venv\\Scripts\\python.exe"),
+    });
     expect(windows.normalizeCommand("C:\\Work O'Brien", "lxeskill list")).toBe(
-      "'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' -m lxeskill list",
+      "'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' '-m' 'lxeskill' list",
     );
   });
 
@@ -76,10 +85,10 @@ describe("ExecShellAdapter", () => {
     const shell = new ExecShellAdapter({
       platform: "darwin",
       environment: { PATH: "/fake/system/bin:/usr/bin" },
-      fileExists: () => true,
+      fileExists: (path) => path.endsWith("/.venv/bin/python"),
     });
     expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(
-      "'/work/project/.venv/bin/python' -m lxeskill list",
+      "'/work/project/.venv/bin/python' '-m' 'lxeskill' list",
     );
     expect(shell.childEnvironment("/work/project", {
       sessionId: "s1",
@@ -87,6 +96,19 @@ describe("ExecShellAdapter", () => {
       responseRouteId: "r1",
       execSessionId: "e1",
     }).PATH).toBe("/work/project/.venv/bin:/fake/system/bin:/usr/bin");
+  });
+
+  test("prefers the precompiled lxeskill runtime over project Python", () => {
+    const frozen = "/work/project/packages/agent/lxeskill-cli/vendor/darwin-arm64/lxeskill/lxeskill";
+    const shell = new ExecShellAdapter({
+      platform: "darwin",
+      arch: "arm64",
+      environment: { PATH: "/usr/bin" },
+      fileExists: (path) => path === frozen || path.endsWith("/.venv/bin/python"),
+    });
+
+    expect(shell.lxeSkillArgv("/work/project")).toEqual([frozen]);
+    expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(`'${frozen}' list`);
   });
 
   test("rejects direct business modules and unsupported Python launcher versions", () => {

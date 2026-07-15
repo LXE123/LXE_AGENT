@@ -52,6 +52,7 @@ config/mcp_servers.local.yaml
 /downloads/
 /auth_data/
 /tasks/
+/packages/agent/lxeskill-cli/vendor/*/
 
 # Logs
 *.log

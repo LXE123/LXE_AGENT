@@ -132,8 +132,8 @@ function Invoke-LxeUpdate {
 function Invoke-LxeSkill {
     param([string[]]`$SkillArguments)
     Set-Location -LiteralPath `$LxeRoot
-    `$PythonPath = Join-Path `$LxeRoot ".venv\Scripts\python.exe"
-    & `$PythonPath -m lxeskill @SkillArguments
+    `$LauncherPath = Join-Path `$LxeRoot "packages\agent\lxeskill-cli\bin\lxeskill.js"
+    & `$BunPath `$LauncherPath @SkillArguments
     Exit-LxeNativeCommand
 }
 

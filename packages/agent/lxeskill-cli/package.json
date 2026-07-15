@@ -1,0 +1,18 @@
+{
+  "name": "@lxe/lxeskill-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "lxeskill": "bin/lxeskill.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "vendor"
+  ],
+  "scripts": {
+    "pack:bundle": "bun -e \"require('node:fs').mkdirSync('../../../dist/lxeskill',{recursive:true})\" && bun pm pack --destination ../../../dist/lxeskill",
+    "test": "bun test test"
+  }
+}

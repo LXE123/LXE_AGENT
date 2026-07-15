@@ -14,6 +14,7 @@ import {
   setMcpServerEnabled,
   registerCodingTools,
   OneShotCliRunner,
+  ExecShellAdapter,
   SkillCatalog,
   loadLxeSkillCommandCatalog,
   configureRuntimeTracing,
@@ -126,10 +127,12 @@ export function createProductionGateway(
       ))
       .map((entry) => [entry.command, entry.ownerSkills] as const),
   );
+  const execShell = new ExecShellAdapter({ environment: options.environment });
   const processes = registerCodingTools(tools, {
     workspaceRoot: options.projectRoot,
     businessCommands,
     businessCommandCatalog: cliCommands,
+    execShell,
     execEnv: ({ skillNames }) => ({ LXESKILL_SKILL_SCOPE: skillNames.join(",") }),
     onProcessComplete: async (snapshot) => {
       const sessionId = String(snapshot.session_id ?? "").trim();
@@ -179,15 +182,12 @@ export function createProductionGateway(
         directStore.getSession(sessionId).then((session) => session?.source),
     });
   }
-  const python =
-    process.platform === "win32"
-      ? join(options.projectRoot, ".venv", "Scripts", "python.exe")
-      : join(options.projectRoot, ".venv", "bin", "python");
+  const lxeSkillArgv = execShell.lxeSkillArgv(options.projectRoot);
   const runtimeServices: Array<{
     start(registry: ToolRegistry): Promise<void>;
     stop(): Promise<void>;
   }> = [processes];
-  if (existsSync(python)) {
+  if (lxeSkillArgv) {
     if (sqliteStore) runtimeServices.push(
       new MaintenanceScheduler({
         projectRoot: options.projectRoot,
@@ -195,12 +195,16 @@ export function createProductionGateway(
         store: sqliteStore,
         gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
         authRunner: new OneShotCliRunner({
-          command: [python, "-m", "lxeskill"],
+          command: lxeSkillArgv,
           cwd: options.projectRoot,
           timeoutMs: 3 * 60_000,
           maxOutputBytes: 10 * 1024 * 1024,
-          env: { ...options.environment, LOG_FILE: String(options.environment.LOG_FILE ?? "").trim() || "runtime.log" },
-          onStderr: (line) => logger.info("Python tool", { line }),
+          env: {
+            ...options.environment,
+            LXE_ROOT: options.projectRoot,
+            LOG_FILE: String(options.environment.LOG_FILE ?? "").trim() || "runtime.log",
+          },
+          onStderr: (line) => logger.info("lxeskill", { line }),
         }),
       }),
     );
