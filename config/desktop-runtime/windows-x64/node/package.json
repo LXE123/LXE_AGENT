@@ -1,0 +1,12 @@
+{
+  "name": "@lxe/desktop-node-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pinned private Node.js runtime dependencies for the LXE Windows desktop package.",
+  "dependencies": {
+    "@larksuite/cli": "1.0.58",
+    "@larksuite/whiteboard-cli": "0.2.11",
+    "dingtalk-workspace-cli": "1.0.50",
+    "npm": "10.9.7"
+  }
+}

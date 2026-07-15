@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { basename, delimiter, dirname, join, relative, resolve } from "node:path";
+import { resolveDesktopRuntimeInputs } from "./desktop-runtime-inputs";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const outputRoot = join(repositoryRoot, "build", "desktop-resources");
@@ -20,14 +21,6 @@ if ((process.platform !== "win32" || process.arch !== "x64")
   && environment.LXE_DESKTOP_ALLOW_HOST_BUILD !== "1") {
   throw new Error("Windows x64 desktop resources must be prepared on Windows x64");
 }
-
-const requiredPath = (name: string): string => {
-  const path = resolve(String(environment[name] ?? "").trim());
-  if (!String(environment[name] ?? "").trim() || !existsSync(path)) {
-    throw new Error(`Missing desktop runtime input: ${name}`);
-  }
-  return path;
-};
 
 const copyDirectory = (source: string, destination: string): void => {
   mkdirSync(dirname(destination), { recursive: true });
@@ -62,11 +55,14 @@ const lxeskill = join(
 if (!existsSync(agentCli)) throw new Error(`Compiled agent-cli is missing: ${agentCli}`);
 if (!existsSync(lxeskill)) throw new Error(`Frozen Windows lxeskill is missing: ${lxeskill}`);
 
-const nodeRoot = requiredPath("LXE_DESKTOP_NODE_ROOT");
-const pythonRoot = requiredPath("LXE_DESKTOP_PYTHON_ROOT");
-const uvExecutable = requiredPath("LXE_DESKTOP_UV_PATH");
-const ripgrepExecutable = requiredPath("LXE_DESKTOP_RG_PATH");
-const playwrightRoot = requiredPath("LXE_DESKTOP_PLAYWRIGHT_ROOT");
+const runtimeInputs = resolveDesktopRuntimeInputs({ repositoryRoot, environment });
+const {
+  nodeRoot,
+  pythonRoot,
+  uvExecutable,
+  ripgrepExecutable,
+  playwrightRoot,
+} = runtimeInputs;
 
 for (const path of [
   join(nodeRoot, ".npmrc"),

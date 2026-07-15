@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "platform": "win32-x64",
+  "node": {
+    "version": "22.22.2",
+    "archive_url": "https://nodejs.org/dist/v22.22.2/node-v22.22.2-win-x64.zip",
+    "archive_sha256": "7c93e9d92bf68c07182b471aa187e35ee6cd08ef0f24ab060dfff605fcc1c57c",
+    "archive_root": "node-v22.22.2-win-x64",
+    "npm_version": "10.9.7",
+    "packages": {
+      "dingtalk-workspace-cli": "1.0.50",
+      "@larksuite/cli": "1.0.58",
+      "@larksuite/whiteboard-cli": "0.2.11"
+    }
+  },
+  "python": {
+    "version": "3.12.10"
+  },
+  "uv": {
+    "version": "0.11.19",
+    "archive_url": "https://github.com/astral-sh/uv/releases/download/0.11.19/uv-x86_64-pc-windows-msvc.zip",
+    "archive_sha256": "1665fc8e37b5d70a134820d6d7891747471a2ac8bc940ee7af0b69fd03b28d61"
+  },
+  "ripgrep": {
+    "version": "15.1.0",
+    "archive_url": "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-pc-windows-msvc.zip",
+    "archive_sha256": "124510b94b6baa3380d051fdf4650eaa80a302c876d611e9dba0b2e18d87493a",
+    "executable_sha256": "decdd4992f3f1b9a5ef9898f1b40ab16886d579d6516b4efd3d5eaa19364e408"
+  },
+  "playwright": {
+    "version": "1.58.0",
+    "browser": "chromium",
+    "download_connection_timeout_ms": 120000,
+    "download_attempts": 3
+  }
+}

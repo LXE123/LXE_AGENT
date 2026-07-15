@@ -79,6 +79,61 @@ def test_windows_dependency_helper_installs_pinned_ripgrep_sidecar() -> None:
     assert 'Resolve-LxeRipgrep -Version "15.1.0"' in doctor
 
 
+def test_windows_desktop_runtime_preparer_is_pinned_isolated_and_offline_capable() -> None:
+    script = _read(SCRIPTS / "prepare-desktop-runtime.ps1")
+    runtime_lock = json.loads(
+        _read(ROOT / "config" / "desktop-runtime" / "windows-x64" / "runtime.lock.json")
+    )
+    node_manifest = json.loads(
+        _read(
+            ROOT
+            / "config"
+            / "desktop-runtime"
+            / "windows-x64"
+            / "node"
+            / "package.json"
+        )
+    )
+
+    assert runtime_lock["platform"] == "win32-x64"
+    assert runtime_lock["node"]["version"] == "22.22.2"
+    assert runtime_lock["node"]["npm_version"] == "10.9.7"
+    assert runtime_lock["python"]["version"] == "3.12.10"
+    assert runtime_lock["uv"]["version"] == "0.11.19"
+    assert runtime_lock["ripgrep"]["version"] == "15.1.0"
+    assert runtime_lock["playwright"]["version"] == "1.58.0"
+    assert node_manifest["dependencies"] == {
+        "@larksuite/cli": "1.0.58",
+        "@larksuite/whiteboard-cli": "0.2.11",
+        "dingtalk-workspace-cli": "1.0.50",
+        "npm": "10.9.7",
+    }
+    assert "LXE_DESKTOP_RUNTIME_ROOT" in script
+    assert "LXE_DESKTOP_CACHE_ROOT" in script
+    assert 'elseif ($Offline)' in script
+    assert 'throw "No complete runtime image is available for offline reconstruction' in script
+    assert '"ci",' in script
+    assert 'Copy-Item -LiteralPath $bootstrapNode' in script
+    assert '"--break-system-packages"' in script
+    assert 'Test-LxePathWithin -Candidate $stagedPython -Parent $Destination' in script
+    assert '"export", "--frozen", "--no-dev", "--no-emit-project"' in script
+    assert "PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT" in script
+    assert "runtime-images" in script
+    assert "Publish-LxeRuntime" in script
+
+
+def test_windows_desktop_build_uses_managed_runtime_wrapper() -> None:
+    package = json.loads(_read(ROOT / "package.json"))
+    wrapper = _read(SCRIPTS / "build-desktop-windows.ps1")
+
+    assert "prepare-desktop-runtime.ps1" in package["scripts"]["desktop:runtime:win"]
+    assert "build-desktop-windows.ps1" in package["scripts"]["desktop:dist:win"]
+    assert '"prepare-desktop-runtime.ps1"' in wrapper
+    assert "desktop-runtime-inputs.json" in wrapper
+    assert 'Invoke-LxeDesktopBuildStep -Label "Build frozen lxeskill"' in wrapper
+    assert 'Invoke-LxeDesktopBuildStep -Label "Build NSIS installer"' in wrapper
+
+
 def test_windows_doctor_runs_explicit_lxeskill_contract_check() -> None:
     doctor = _read(SCRIPTS / "doctor.ps1")
 
