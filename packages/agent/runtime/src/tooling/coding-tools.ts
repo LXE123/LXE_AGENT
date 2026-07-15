@@ -51,7 +51,7 @@ export interface CodingToolOptions {
   businessCommands?: ReadonlyMap<string, readonly string[]>;
   businessCommandCatalog?: readonly LxeSkillRecoveryCommand[];
   execShell?: ExecShellAdapter;
-  execEnv?: () => Record<string, string>;
+  execEnv?: (context: { skillNames: readonly string[] }) => Record<string, string>;
 }
 
 type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
@@ -818,7 +818,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   });
   registry.register({
     name: "exec",
-    description: "Execute shell commands with background continuation. Windows uses PowerShell; macOS/Linux use /bin/sh without loading user profiles. Python, pip, and lxeskill use this project's .venv. A lxeskill invocation must be the only command in command; use cwd instead of cd and do not wrap it with uv, python -m, pipes, redirects, or shell operators.",
+    description: "Execute shell commands with background continuation. Windows uses PowerShell; macOS/Linux use /bin/sh without loading user profiles. Python and pip use this project's .venv; lxeskill prefers the precompiled project runtime and falls back to .venv in development. A lxeskill invocation must be the only command in command; use cwd instead of cd and do not wrap it with uv, python -m, pipes, redirects, or shell operators.",
     input_schema: {
       type: "object",
       properties: {
@@ -884,7 +884,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
         ...(!background ? { timeoutMs: timeoutSeconds * 1_000 } : {}),
         handle: context.handle,
         ...(context.turn_id === undefined ? {} : { turnId: context.turn_id }),
-        ...(options.execEnv ? { env: options.execEnv() } : {}),
+        ...(options.execEnv ? { env: options.execEnv({ skillNames: context.skill_names ?? [] }) } : {}),
       });
       return commandResult(payload);
     },

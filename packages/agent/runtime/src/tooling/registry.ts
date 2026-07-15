@@ -18,6 +18,7 @@ export interface ToolDefinition extends ToolSchema {
     response_route_id?: string;
     turn_id?: string;
     exposureState?: ToolExposureState;
+    skill_names?: readonly string[];
   }): Promise<ToolExecutionResult>;
 }
 
@@ -200,6 +201,7 @@ export class ToolRegistry {
       response_route_id?: string;
       turn_id?: string;
       exposureState?: ToolExposureState;
+      skill_names?: readonly string[];
     },
   ): Promise<ToolExecutionResult> {
     const definition = this.definitions.get(name.trim());

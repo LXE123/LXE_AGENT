@@ -27,6 +27,17 @@ export interface SkillManifest {
   content: string;
 }
 
+export interface SkillCatalogSnapshot {
+  readonly names: readonly string[];
+  readonly prompt: string;
+  readonly modules: Readonly<Record<string, string>>;
+}
+
+export interface SkillCatalogOptions {
+  refreshIntervalMs?: number;
+  now?: () => number;
+}
+
 export class SkillCatalogError extends Error {
   constructor(message: string) {
     super(message);
@@ -107,32 +118,101 @@ const parseManifest = (path: string, source: SkillManifest["source"]): SkillMani
   };
 };
 
+const DEFAULT_REFRESH_INTERVAL_MS = 1_000;
+const MAX_SNAPSHOT_CACHE_ENTRIES = 32;
+
+interface CachedSkillCatalogSnapshot {
+  manifests: readonly SkillManifest[];
+  snapshot: SkillCatalogSnapshot;
+}
+
+const allowedBy = (manifest: SkillManifest, options: SkillPromptOptions): boolean => {
+  if (options.disabledNames?.has(manifest.name)) return false;
+  return !options.allowedTypes
+    || options.allowedTypes.has("*")
+    || options.allowedTypes.has(manifest.type);
+};
+
+const sortedSet = (values: ReadonlySet<string> | undefined): string[] | undefined =>
+  values ? [...values].sort((left, right) => left.localeCompare(right)) : undefined;
+
+const optionsKey = (options: SkillPromptOptions): string => JSON.stringify([
+  sortedSet(options.allowedTypes),
+  sortedSet(options.disabledNames),
+]);
+
 export class SkillCatalog {
   private readonly logger = createLogger("runtime.skills");
   private signature = "";
+  private initialized = false;
+  private nextRefreshAt = 0;
   private manifests: SkillManifest[] = [];
+  private manifestsByName = new Map<string, SkillManifest>();
+  private readonly snapshotCache = new Map<string, CachedSkillCatalogSnapshot>();
+  private readonly refreshIntervalMs: number;
+  private readonly now: () => number;
 
   constructor(
     private readonly projectRoot: string,
     private readonly userSkillsRoot = join(homedir(), ".agents", "skills"),
-  ) {}
+    options: SkillCatalogOptions = {},
+  ) {
+    this.refreshIntervalMs = Math.max(0, Math.trunc(
+      options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS,
+    ));
+    this.now = options.now ?? (() => performance.now());
+  }
 
   list(options: SkillPromptOptions = {}): SkillManifest[] {
-    this.refresh();
-    return this.manifests.filter((manifest) => {
-      if (options.disabledNames?.has(manifest.name)) return false;
-      return !options.allowedTypes
-        || options.allowedTypes.has("*")
-        || options.allowedTypes.has(manifest.type);
-    }).map((manifest) => structuredClone(manifest));
+    return this.cachedSnapshot(options).manifests.map((manifest) => structuredClone(manifest));
   }
 
   get(name: string, options: SkillPromptOptions = {}): SkillManifest | undefined {
-    return this.list(options).find((manifest) => manifest.name === name.trim());
+    this.refresh();
+    const manifest = this.manifestsByName.get(name.trim());
+    return manifest && allowedBy(manifest, options) ? structuredClone(manifest) : undefined;
   }
 
   buildPrompt(options: SkillPromptOptions = {}): string {
-    const manifests = this.list(options);
+    return this.snapshot(options).prompt;
+  }
+
+  snapshot(options: SkillPromptOptions = {}): SkillCatalogSnapshot {
+    return this.cachedSnapshot(options).snapshot;
+  }
+
+  private cachedSnapshot(options: SkillPromptOptions): CachedSkillCatalogSnapshot {
+    this.refresh();
+    const key = optionsKey(options);
+    const existing = this.snapshotCache.get(key);
+    if (existing) {
+      this.snapshotCache.delete(key);
+      this.snapshotCache.set(key, existing);
+      return existing;
+    }
+    const manifests = this.manifests.filter((manifest) => allowedBy(manifest, options));
+    const names = Object.freeze(manifests.map((manifest) => manifest.name));
+    const moduleEntries = Object.create(null) as Record<string, string>;
+    for (const manifest of manifests) moduleEntries[manifest.name] = manifest.type;
+    const modules = Object.freeze(moduleEntries);
+    const cached: CachedSkillCatalogSnapshot = {
+      manifests,
+      snapshot: Object.freeze({
+        names,
+        prompt: this.promptFor(manifests),
+        modules,
+      }),
+    };
+    this.snapshotCache.set(key, cached);
+    while (this.snapshotCache.size > MAX_SNAPSHOT_CACHE_ENTRIES) {
+      const oldest = this.snapshotCache.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.snapshotCache.delete(oldest);
+    }
+    return cached;
+  }
+
+  private promptFor(manifests: readonly SkillManifest[]): string {
     const rows = manifests.map((manifest) => {
       const instructions = manifest.source === "repository"
         ? relative(this.projectRoot, manifest.location).replaceAll("\\", "/")
@@ -163,6 +243,8 @@ export class SkillCatalog {
   }
 
   private refresh(): void {
+    const checkedAt = this.now();
+    if (this.initialized && checkedAt < this.nextRefreshAt) return;
     const repositoryRoot = join(this.projectRoot, "skills");
     const paths = [
       ...manifestPaths(repositoryRoot).map((path) => ({ path, source: "repository" as const })),
@@ -172,7 +254,10 @@ export class SkillCatalog {
       const stat = statSync(path);
       return `${source}:${path}:${stat.size}:${stat.mtimeMs}`;
     }).join("|");
-    if (signature === this.signature) return;
+    if (this.initialized && signature === this.signature) {
+      this.nextRefreshAt = checkedAt + this.refreshIntervalMs;
+      return;
+    }
     const parsed = paths.map(({ path, source }) => parseManifest(path, source));
     const byName = new Map<string, SkillManifest>();
     let externalSkipped = 0;
@@ -204,8 +289,13 @@ export class SkillCatalog {
         commands.set(command, manifest.name);
       }
     }
-    this.manifests = [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+    const manifests = [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+    this.manifests = manifests;
+    this.manifestsByName = new Map(manifests.map((manifest) => [manifest.name, manifest]));
     this.signature = signature;
+    this.initialized = true;
+    this.nextRefreshAt = checkedAt + this.refreshIntervalMs;
+    this.snapshotCache.clear();
     this.logger.info("skill_catalog_loaded", {
       skill_count: this.manifests.length,
       repository_skill_count: parsed.filter((manifest) => manifest.source === "repository").length,

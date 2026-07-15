@@ -126,15 +126,11 @@ export function createProductionGateway(
       ))
       .map((entry) => [entry.command, entry.ownerSkills] as const),
   );
-  // Mirrors prompt-level skill visibility into lxeskill: the CLI reads
-  // LXESKILL_SKILL_SCOPE and hides or rejects business commands whose owner
-  // skill this bot cannot see. Assigned after the permission policy resolves.
-  let lxeskillScope: () => string = () => "";
   const processes = registerCodingTools(tools, {
     workspaceRoot: options.projectRoot,
     businessCommands,
     businessCommandCatalog: cliCommands,
-    execEnv: () => ({ LXESKILL_SKILL_SCOPE: lxeskillScope() }),
+    execEnv: ({ skillNames }) => ({ LXESKILL_SKILL_SCOPE: skillNames.join(",") }),
     onProcessComplete: async (snapshot) => {
       const sessionId = String(snapshot.session_id ?? "").trim();
       if (!sessionId) return;
@@ -237,13 +233,6 @@ export function createProductionGateway(
     ...(allowedSkillTypes ? { allowedSkillTypes } : {}),
     ...(providerManager ? { providerManager } : {}),
   });
-  const skillOptions = () => ({
-    ...(allowedSkillTypes
-      ? { allowedTypes: allowedSkillTypes }
-      : { allowedTypes: new Set<string>() }),
-    disabledNames: dashboardApi?.disabledSkillNames() ?? new Set<string>(),
-  });
-  lxeskillScope = () => skillCatalog.list(skillOptions()).map((skill) => skill.name).join(",");
   const directRuntime =
     options.directRuntime ??
     (() => {
@@ -256,14 +245,22 @@ export function createProductionGateway(
         environment: options.environment,
         traceController: configureRuntimeTracing({ projectRoot: options.projectRoot, environment: options.environment }),
         tools,
-        resolveSkillMetadata: (skillName) => {
-          const skill = skillCatalog.get(skillName);
-          return skill ? { module: skill.type } : undefined;
+        skillSnapshot: () => {
+          const connectorPolicy = dashboardApi?.runtimeConnectorPolicy() ?? {
+            disabledSkillNames: new Set<string>(),
+            disabledConnectorIds: new Set<string>(),
+          };
+          const snapshot = skillCatalog.snapshot({
+            ...(allowedSkillTypes
+              ? { allowedTypes: allowedSkillTypes }
+              : { allowedTypes: new Set<string>() }),
+            disabledNames: connectorPolicy.disabledSkillNames,
+          });
+          return Object.freeze({
+            ...snapshot,
+            disabledConnectorIds: Object.freeze([...connectorPolicy.disabledConnectorIds]),
+          });
         },
-        toolExposure: () => ({
-          allowedSkills: new Set(skillCatalog.list(skillOptions()).map((skill) => skill.name)),
-          disabledConnectors: dashboardApi?.disabledConnectorIds() ?? new Set<string>(),
-        }),
         contextWindowTokens: providerDescriptor.contextWindowTokens,
         display: {
           model: providerDescriptor.model,
@@ -287,7 +284,7 @@ export function createProductionGateway(
           platform: context.platform,
           provider: context.provider,
           model: context.model,
-          skillPrompt: skillCatalog.buildPrompt(skillOptions()),
+          skillPrompt: context.skillPrompt,
         }),
         services: runtimeServices,
       });

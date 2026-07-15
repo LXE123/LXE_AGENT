@@ -117,6 +117,13 @@ export interface RuntimeTurnUsageRecord extends JsonObject {
   executions: SkillExecutionUsage[];
 }
 
+export interface RuntimeSkillSnapshot {
+  readonly names: readonly string[];
+  readonly prompt: string;
+  readonly modules: Readonly<Record<string, string>>;
+  readonly disabledConnectorIds?: readonly string[];
+}
+
 export interface RuntimeStore {
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -138,6 +145,7 @@ export interface SystemPromptContext {
   platform: string;
   provider: string;
   model: string;
+  skillPrompt: string;
 }
 
 export interface ToolSchema {

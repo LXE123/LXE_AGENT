@@ -28,6 +28,7 @@ import type {
   RuntimeHandle,
   RuntimeMessage,
   RuntimeProvider,
+  RuntimeSkillSnapshot,
   RuntimeStore,
   RuntimeStreamEvent,
   SystemPromptContext,
@@ -47,6 +48,7 @@ export interface TypeScriptAgentRuntimeOptions {
   traceController?: RuntimeTraceControllerPort;
   tools: ToolRegistry;
   toolExposure?: ToolExposureOptions | (() => ToolExposureOptions);
+  skillSnapshot?: () => RuntimeSkillSnapshot;
   resolveSkillMetadata?: (skillName: string) => { module: string } | undefined;
   emitter: RuntimeEmitter;
   systemPrompt: string | ((context: SystemPromptContext) => string);
@@ -146,26 +148,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     if (!provider) throw new Error("runtime provider is not configured");
     const skillActivations = new Map<string, SkillActivationUsage>();
     const skillExecutions: SkillExecutionUsage[] = [];
-    const skillModule = (name: string): string => this.options.resolveSkillMetadata?.(name)?.module.trim() ?? "";
-    const exposureOptions = typeof this.options.toolExposure === "function"
-      ? this.options.toolExposure()
-      : this.options.toolExposure;
-    const toolExposure = this.options.tools.createExposureState({
-      ...exposureOptions,
-      onSkillActivated: async (name) => {
-        skillActivations.set(name, { skill: name, module: skillModule(name) });
-        await exposureOptions?.onSkillActivated?.(name);
-      },
-    });
     const descriptor = providerSnapshot?.descriptor;
-    const systemPromptContext: SystemPromptContext = {
-      platform: String(session.source.platform ?? "").trim(),
-      provider: descriptor?.name ?? "custom",
-      model: descriptor?.model ?? this.options.display?.model ?? "",
-    };
-    const systemPrompt = typeof this.options.systemPrompt === "function"
-      ? this.options.systemPrompt(systemPromptContext)
-      : this.options.systemPrompt;
     const observer = new RuntimeTurnObserver({
       ...(this.options.environment ? { environment: this.options.environment } : {}),
     });
@@ -267,7 +250,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           provider: descriptor?.name ?? "custom",
           model: descriptor?.model ?? this.options.display?.model ?? "",
           messageTurns: 0,
-          systemTokens: estimateTokens(systemPrompt),
+          systemTokens: 0,
           messageTokens: 0,
           contextCapacity: contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
           pendingEventCount: 0,
@@ -276,6 +259,35 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         await recordUsage("completed");
         return this.outcome("completed", "", inputTokens, outputTokens, toolCalls);
       }
+      const skillSnapshot = this.options.skillSnapshot?.();
+      const skillModule = (name: string): string => skillSnapshot
+        ? skillSnapshot.modules[name]?.trim() ?? ""
+        : this.options.resolveSkillMetadata?.(name)?.module.trim() ?? "";
+      const exposureOptions = typeof this.options.toolExposure === "function"
+        ? this.options.toolExposure()
+        : this.options.toolExposure;
+      const skillNames = skillSnapshot?.names
+        ?? (exposureOptions?.allowedSkills ? [...exposureOptions.allowedSkills] : []);
+      const toolExposure = this.options.tools.createExposureState({
+        ...exposureOptions,
+        ...(skillSnapshot ? { allowedSkills: new Set(skillNames) } : {}),
+        ...(skillSnapshot?.disabledConnectorIds
+          ? { disabledConnectors: new Set(skillSnapshot.disabledConnectorIds) }
+          : {}),
+        onSkillActivated: async (name) => {
+          skillActivations.set(name, { skill: name, module: skillModule(name) });
+          await exposureOptions?.onSkillActivated?.(name);
+        },
+      });
+      const systemPromptContext: SystemPromptContext = {
+        platform: String(session.source.platform ?? "").trim(),
+        provider: descriptor?.name ?? "custom",
+        model: descriptor?.model ?? this.options.display?.model ?? "",
+        skillPrompt: skillSnapshot?.prompt ?? "",
+      };
+      const systemPrompt = typeof this.options.systemPrompt === "function"
+        ? this.options.systemPrompt(systemPromptContext)
+        : this.options.systemPrompt;
       let messages = heartbeat ? [] : await this.options.store.loadMessages(job.session_id);
       const userContent: RuntimeMessage["content"] = heartbeat
         ? heartbeatPrompt(pendingEvents)
@@ -531,6 +543,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               response_route_id: job.response_route_id,
               turn_id: job.job_id,
               exposureState: toolExposure,
+              skill_names: skillNames,
             });
             if (result.state_patch && Object.keys(result.state_patch).length > 0) {
               await this.options.store.patchSessionState(job.session_id, result.state_patch);

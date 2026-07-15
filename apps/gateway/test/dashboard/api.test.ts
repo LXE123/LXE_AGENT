@@ -169,9 +169,16 @@ describe("DashboardApi", () => {
     const connectors = (await call("/api/connectors")).body as { total: number; items: Array<Record<string, unknown>> };
     expect(connectors.total).toBe(2);
     expect(connectors.items[0]).toMatchObject({ id: "feishu", enabled: false });
+    expect(api.runtimeConnectorPolicy()).toEqual({
+      disabledSkillNames: expect.any(Set),
+      disabledConnectorIds: new Set(["dingtalk", "feishu"]),
+    });
+    expect(api.runtimeConnectorPolicy().disabledSkillNames).toContain("lark-im");
     expect((await call("/api/connectors/feishu", {
       method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: true }),
     })).body).toMatchObject({ id: "feishu", enabled: true, everConnected: true });
+    expect(api.runtimeConnectorPolicy().disabledConnectorIds).toEqual(new Set(["dingtalk"]));
+    expect(api.runtimeConnectorPolicy().disabledSkillNames).not.toContain("lark-im");
     await store.stop();
   });
 });

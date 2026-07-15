@@ -218,6 +218,9 @@ describe("TypeScriptAgentRuntime", () => {
   test("records skill activation once and attributes every later lxeskill execution independently", async () => {
     const store = new MemoryStore();
     const tools = new ToolRegistry();
+    const executionSkillNames: Array<readonly string[]> = [];
+    const promptSkillNames: string[] = [];
+    let snapshotCalls = 0;
     tools.register({
       name: "read",
       description: "read skill",
@@ -236,7 +239,8 @@ describe("TypeScriptAgentRuntime", () => {
         commandId: "replenish store resolve",
         ownerSkills: ["replenishment-store-resolve"],
       }),
-      execute: async (input) => {
+      execute: async (input, context) => {
+        executionSkillNames.push(context.skill_names ?? []);
         if (input.fail === true) throw new Error("command failed");
         return { content: [{ type: "text", text: "done" }] };
       },
@@ -258,10 +262,18 @@ describe("TypeScriptAgentRuntime", () => {
       tools,
       provider: { summarize, turn: async () => responses.shift()! },
       emitter: { emit: async () => undefined, typing: async () => undefined },
-      systemPrompt: "test",
-      resolveSkillMetadata: (name) => name === "replenishment-store-resolve"
-        ? { module: "amazon_replenish" }
-        : undefined,
+      systemPrompt: (context) => {
+        promptSkillNames.push(context.skillPrompt);
+        return context.skillPrompt;
+      },
+      skillSnapshot: () => {
+        snapshotCalls += 1;
+        return {
+          names: ["replenishment-store-resolve"],
+          prompt: "skills: replenishment-store-resolve",
+          modules: { "replenishment-store-resolve": "amazon_replenish" },
+        };
+      },
     });
 
     await runtime.start();
@@ -269,6 +281,15 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.runTurn({ ...job(), job_id: "j2", message_id: "m2" }, handle());
     await runtime.stop();
 
+    expect(snapshotCalls).toBe(2);
+    expect(promptSkillNames).toEqual([
+      "skills: replenishment-store-resolve",
+      "skills: replenishment-store-resolve",
+    ]);
+    expect(executionSkillNames).toEqual([
+      ["replenishment-store-resolve"],
+      ["replenishment-store-resolve"],
+    ]);
     expect(store.metrics[0]?.activations).toEqual([{
       skill: "replenishment-store-resolve",
       module: "amazon_replenish",
@@ -331,6 +352,8 @@ describe("TypeScriptAgentRuntime", () => {
     const store = new MemoryStore();
     store.messages.push({ role: "user", content: "private history" });
     let calls = 0;
+    let snapshotCalls = 0;
+    let systemPromptCalls = 0;
     const runtime = new TypeScriptAgentRuntime({
       store,
       tools: new ToolRegistry(),
@@ -342,13 +365,104 @@ describe("TypeScriptAgentRuntime", () => {
         },
       },
       emitter: { emit: async () => undefined, typing: async () => undefined },
-      systemPrompt: "test",
+      skillSnapshot: () => {
+        snapshotCalls += 1;
+        return { names: [], prompt: "", modules: {} };
+      },
+      systemPrompt: () => {
+        systemPromptCalls += 1;
+        return "test";
+      },
     });
     await runtime.start();
     const outcome = await runtime.runTurn({ ...job(), job_kind: "heartbeat", user_input: "" }, handle());
     expect(outcome).toEqual(expect.objectContaining({ status: "completed", reply: "" }));
     expect(calls).toBe(0);
     expect(store.messages).toEqual([{ role: "user", content: "private history" }]);
+    expect(snapshotCalls).toBe(0);
+    expect(systemPromptCalls).toBe(0);
+  });
+
+  test("keeps concurrent turns on the skill snapshot acquired at their own start", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "first_tool", description: "first", input_schema: { type: "object" },
+      ownerSkills: ["first"], execute: async () => ({ content: [] }),
+    });
+    tools.register({
+      name: "second_tool", description: "second", input_schema: { type: "object" },
+      ownerSkills: ["second"], execute: async () => ({ content: [] }),
+    });
+    tools.register({
+      name: "first_connector_tool", description: "first connector", input_schema: { type: "object" },
+      connectorName: "first-connector", execute: async () => ({ content: [] }),
+    });
+    tools.register({
+      name: "second_connector_tool", description: "second connector", input_schema: { type: "object" },
+      connectorName: "second-connector", execute: async () => ({ content: [] }),
+    });
+    let current = {
+      names: ["first"] as readonly string[],
+      prompt: "prompt:first",
+      modules: { first: "module:first" } as Readonly<Record<string, string>>,
+      disabledConnectorIds: ["second-connector"] as readonly string[],
+    };
+    let snapshotCalls = 0;
+    let releaseFirst!: () => void;
+    let firstEntered!: () => void;
+    const firstEnteredPromise = new Promise<void>((resolve) => { firstEntered = resolve; });
+    const firstReleasePromise = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    const requests: Array<{ system: string; tools: string[] }> = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      skillSnapshot: () => {
+        snapshotCalls += 1;
+        return current;
+      },
+      provider: {
+        summarize,
+        turn: async (request) => {
+          requests.push({ system: request.system, tools: request.tools.map((tool) => tool.name) });
+          if (request.system === "prompt:first") {
+            firstEntered();
+            await firstReleasePromise;
+          }
+          return {
+            content: [{ type: "text", text: "done" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: (context) => context.skillPrompt,
+    });
+    await runtime.start();
+    const firstTurn = runtime.runTurn({ ...job(), response_route_id: "" }, handle());
+    await firstEnteredPromise;
+    current = {
+      names: ["second"],
+      prompt: "prompt:second",
+      modules: { second: "module:second" },
+      disabledConnectorIds: ["first-connector"],
+    };
+    const secondTurn = runtime.runTurn({
+      ...job(), job_id: "j2", message_id: "m2", session_id: "s2", response_route_id: "",
+    }, handle());
+    await secondTurn;
+    releaseFirst();
+    await firstTurn;
+    await runtime.stop();
+
+    expect(snapshotCalls).toBe(2);
+    expect(requests).toContainEqual({
+      system: "prompt:first", tools: ["first_tool", "first_connector_tool"],
+    });
+    expect(requests).toContainEqual({
+      system: "prompt:second", tools: ["second_tool", "second_connector_tool"],
+    });
   });
 
   test("reports heartbeat events without history or tools", async () => {

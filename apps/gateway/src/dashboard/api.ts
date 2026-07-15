@@ -203,11 +203,19 @@ export class DashboardApi {
   }
 
   disabledSkillNames(): Set<string> {
-    return new Set(this.connectors().filter((item) => !item.enabled).flatMap((item) => item.skill_names));
+    return this.runtimeConnectorPolicy().disabledSkillNames;
   }
 
   disabledConnectorIds(): Set<string> {
-    return new Set(this.connectors().filter((item) => !item.enabled).map((item) => String(item.id)));
+    return this.runtimeConnectorPolicy().disabledConnectorIds;
+  }
+
+  runtimeConnectorPolicy(): { disabledSkillNames: Set<string>; disabledConnectorIds: Set<string> } {
+    const disabled = this.connectors().filter((item) => !item.enabled);
+    return {
+      disabledSkillNames: new Set(disabled.flatMap((item) => item.skill_names)),
+      disabledConnectorIds: new Set(disabled.map((item) => String(item.id))),
+    };
   }
 
   private skill(path: string): Response {
