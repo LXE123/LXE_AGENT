@@ -17,6 +17,20 @@
 6. 跑健康检查
 7. 输出启动命令：LXE start
 
+## lxeskill 预编译发布物
+
+仓库支持把 `lxeskill` 冻结成无需目标机 Python 即可启动的 onedir 核心，并由
+`packages/agent/lxeskill-cli/bin/lxeskill.js` 转发参数、stdio 和退出码：
+
+```bash
+bun run lxeskill:bundle
+bun run lxeskill:pack
+```
+
+构建产物只适用于构建机的 OS/CPU。安装 artifact 若携带匹配的 `vendor/<platform>-<arch>`，
+launcher、Gateway exec 和后台认证任务都会优先使用它；源码 checkout 未携带 vendor 时继续使用
+`.venv`。当前其他 Python skill 脚本尚未全部冻结，因此安装阶段仍保留 uv/Python。
+
 ---
 
 再补两个脚本：

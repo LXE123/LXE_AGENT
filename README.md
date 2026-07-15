@@ -17,6 +17,7 @@ ERP、物流和表格处理能力，并通过本地 Dashboard 展示会话、任
 - Dashboard 前端位于 `apps/dashboard`，由 Gateway 提供静态资源和 API。
 - Python `3.12.10` 仅用于 `lxeskill` 业务命令；浏览器、ERP 和 Excel 脚本按需启动并在执行后退出。
 - Python 环境由 `uv` 管理，生产启动不依赖 Python 常驻服务。
+- 发布物中的 `lxeskill` 优先通过 Node/Bun 外壳启动当前平台的 PyInstaller onedir 核心；源码开发环境在未构建核心时回退到 `.venv`。
 
 ## 快速安装
 
@@ -108,6 +109,15 @@ bun run gateway:stop
 ```bash
 bun run verify
 ```
+
+为当前 OS/CPU 构建并打包预编译 `lxeskill`：
+
+```bash
+bun run lxeskill:bundle
+bun run lxeskill:pack
+```
+
+PyInstaller 不能跨平台构建；Windows、macOS 和 Linux artifact 必须分别在对应系统上生成。
 
 完整检查包含 TypeScript 生产边界、typecheck、Bun 测试、Python/LXE Skill 测试，以及 Dashboard
 和 Gateway 构建。
