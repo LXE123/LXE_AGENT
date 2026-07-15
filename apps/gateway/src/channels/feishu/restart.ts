@@ -55,11 +55,12 @@ export class FeishuIdleRestart {
     if (!task) return;
     const timeoutMs = Math.max(1, Math.trunc(this.options.stopTimeoutMs ?? 3_000));
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // This deadline is part of the awaited shutdown path, so it must remain
+    // referenced until either the restart settles or the timeout wins.
     await Promise.race([
       task.catch(() => undefined),
       new Promise<void>((resolve) => {
         timer = setTimeout(resolve, timeoutMs);
-        timer.unref?.();
       }),
     ]);
     if (this.attemptTask === task) this.logger.warn("feishu_restart_stop_timed_out", { timeout_ms: timeoutMs });

@@ -102,11 +102,12 @@ export class MaintenanceScheduler {
     const active = Promise.allSettled([...this.active]);
     const timeoutMs = Math.max(1, Math.trunc(this.options.stopTimeoutMs ?? 5_000));
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // This deadline is part of the awaited shutdown path, so it must remain
+    // referenced until either the active work settles or the timeout wins.
     const completed = await Promise.race([
       active.then(() => true),
       new Promise<boolean>((resolve) => {
         timer = setTimeout(() => resolve(false), timeoutMs);
-        timer.unref?.();
       }),
     ]);
     if (timer) clearTimeout(timer);

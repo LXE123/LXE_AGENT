@@ -326,6 +326,8 @@ export class GatewayLifecycle {
     const task = Promise.resolve().then(action);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
+      // This deadline is part of the awaited shutdown path, so it must remain
+      // referenced until either the component stops or the timeout wins.
       await Promise.race([
         task,
         new Promise<never>((_resolve, reject) => {
@@ -333,7 +335,6 @@ export class GatewayLifecycle {
             () => reject(new Error(`timed out after ${Math.max(1, Math.trunc(timeoutMs))}ms`)),
             Math.max(1, Math.trunc(timeoutMs)),
           );
-          timer.unref?.();
         }),
       ]);
       this.logger.debug("shutdown_component_stopped", { component: label });
