@@ -311,10 +311,24 @@ const lxeSkillOutput = runSmoke("managed Python lxeskill", [
 const lxeSkillLine = lxeSkillOutput.split(/\r?\n/u).filter(Boolean).at(-1);
 const lxeSkillResult = lxeSkillLine ? JSON.parse(lxeSkillLine) as {
   ok?: unknown;
-  data?: { commands?: unknown[] };
+  data?: { commands?: Array<{ command?: unknown }> };
 } : {};
-if (lxeSkillResult.ok !== true || lxeSkillResult.data?.commands?.length !== 28) {
-  throw new Error("managed Python lxeskill smoke did not return the 28-command catalog");
+const sourceCatalog = JSON.parse(readFileSync(
+  join(repositoryRoot, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
+  "utf8",
+)) as { entries?: Array<{ command_path?: unknown[]; visibility?: unknown }> };
+const expectedLxeSkillCommands = (sourceCatalog.entries ?? [])
+  .filter((entry) => String(entry.visibility ?? "") !== "internal")
+  .map((entry) => (entry.command_path ?? []).map(String).join(" "))
+  .sort();
+const packagedLxeSkillCommands = (lxeSkillResult.data?.commands ?? [])
+  .map((entry) => String(entry.command ?? ""))
+  .sort();
+if (lxeSkillResult.ok !== true
+  || JSON.stringify(packagedLxeSkillCommands) !== JSON.stringify(expectedLxeSkillCommands)) {
+  throw new Error(
+    `managed Python lxeskill catalog differs from source: expected=${JSON.stringify(expectedLxeSkillCommands)}, actual=${JSON.stringify(packagedLxeSkillCommands)}`,
+  );
 }
 for (const forbiddenPath of [
   join(outputRoot, "runtime", "uv"),
@@ -335,7 +349,7 @@ writeFileSync(
   join(outputRoot, "runtime", "python", ".lxe-lxeskill-ready.json"),
   `${JSON.stringify({
     schema_version: 1,
-    commands: 28,
+    commands: expectedLxeSkillCommands.length,
     wheel_sha256: createHash("sha256").update(readFileSync(projectWheel)).digest("hex"),
   }, null, 2)}\n`,
   "utf8",
