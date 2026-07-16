@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/LXE123/LXE_AGENT.git"
-REF="main"
+REF="lxe-agent-TUI"
 INSTALL_DIR=""
 NO_PATH=0
 PYTHON_VERSION="3.12.10"
