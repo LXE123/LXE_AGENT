@@ -173,6 +173,14 @@ try {
     Invoke-LxeDesktopBuildStep -Label "Build Dashboard and Electron" -Arguments @("run", "desktop:build")
     Invoke-LxeDesktopBuildStep -Label "Stage desktop resources" -Arguments @("run", "desktop:resources")
     Invoke-LxeDesktopBuildStep -Label "Build NSIS installer" -Arguments @("run", "--cwd", "apps/desktop", "dist:win")
+    $packagedExecutable = Join-Path $repositoryRoot "dist\desktop\win-unpacked\LXE Agent.exe"
+    if (-not (Test-Path -LiteralPath $packagedExecutable -PathType Leaf)) {
+        throw "Packaged desktop executable is missing: $packagedExecutable"
+    }
+    Invoke-LxeDesktopBuildStep -Label "Smoke packaged Electron preload and IPC" -Arguments @(
+        "apps/desktop/scripts/smoke-packaged-app.ts",
+        $packagedExecutable
+    )
 }
 finally {
     Pop-Location

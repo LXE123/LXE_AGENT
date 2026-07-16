@@ -22,6 +22,11 @@ describe("app:// Dashboard asset resolution", () => {
     expect(resolveDashboardAsset(root, "/docs/getting-started"))
       .toEqual({ status: 200, path: join(root, "index.html") });
     expect(resolveDashboardAsset(root, "/assets/missing.js")).toEqual({ status: 404 });
+    expect(resolveDashboardAsset(root, "/api")).toEqual({ status: 404 });
+    expect(resolveDashboardAsset(root, "/api/models")).toEqual({ status: 404 });
+    expect(resolveDashboardAsset(root, "/%61pi/models")).toEqual({ status: 404 });
+    expect(resolveDashboardAsset(root, "/apiary"))
+      .toEqual({ status: 200, path: join(root, "index.html") });
   });
 
   test("rejects traversal and malformed encoding", () => {

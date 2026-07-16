@@ -9,9 +9,16 @@ import type { JsonObject } from "@lxe/protocol";
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
+const isJsonContentType = (contentType: string | null): boolean => {
+  const mediaType = contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+  return mediaType === "application/json" || mediaType.endsWith("+json");
+};
+
 export class HttpDashboardTransport implements DashboardTransport {
+  constructor(private readonly fetcher: typeof fetch = fetch) {}
+
   async request<T>(request: DashboardTransportRequest): Promise<T> {
-    const response = await fetch(`${API_BASE}${request.path}`, {
+    const response = await this.fetcher(`${API_BASE}${request.path}`, {
       method: request.method,
       headers: {
         Accept: "application/json",
@@ -19,15 +26,23 @@ export class HttpDashboardTransport implements DashboardTransport {
       },
       ...(request.body === undefined ? {} : { body: JSON.stringify(request.body) })
     });
+    const contentType = response.headers.get("content-type");
     if (!response.ok) {
       let detail = `${response.status} ${response.statusText}`;
-      try {
-        const body = (await response.json()) as { detail?: unknown };
-        if (body.detail) detail = String(body.detail);
-      } catch {
-        // Keep the HTTP status fallback.
+      if (isJsonContentType(contentType)) {
+        try {
+          const body = (await response.json()) as { detail?: unknown };
+          if (body.detail) detail = String(body.detail);
+        } catch {
+          // Keep the HTTP status fallback.
+        }
       }
       throw new Error(detail);
+    }
+    if (!isJsonContentType(contentType)) {
+      throw new Error(
+        `Dashboard API ${request.path} returned ${contentType ?? "an unknown content type"} instead of JSON`,
+      );
     }
     return (await response.json()) as T;
   }
@@ -39,8 +54,26 @@ export function setDashboardTransportForTests(transport?: DashboardTransport): v
   testTransport = transport;
 }
 
+export interface DashboardRuntimeTransport {
+  protocol: string;
+  bridge?: DashboardTransport;
+}
+
+export function resolveDashboardTransport(runtime: DashboardRuntimeTransport): DashboardTransport {
+  if (runtime.bridge) return runtime.bridge;
+  if (runtime.protocol === "app:") {
+    throw new Error("Desktop preload bridge is unavailable");
+  }
+  return new HttpDashboardTransport();
+}
+
 export function dashboardTransport(): DashboardTransport {
-  return testTransport ?? window.lxe?.dashboard ?? new HttpDashboardTransport();
+  if (testTransport) return testTransport;
+  const runtimeWindow = typeof window === "undefined" ? undefined : window;
+  return resolveDashboardTransport({
+    protocol: runtimeWindow?.location.protocol ?? "",
+    ...(runtimeWindow?.lxe?.dashboard ? { bridge: runtimeWindow.lxe.dashboard } : {}),
+  });
 }
 
 export async function fetchJson<T>(path: string): Promise<T> {

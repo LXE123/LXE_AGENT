@@ -169,7 +169,7 @@ async function bootstrap(): Promise<void> {
     show: false,
     backgroundColor: "#faf8f5",
     webPreferences: {
-      preload: join(import.meta.dirname, "preload.js"),
+      preload: join(import.meta.dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

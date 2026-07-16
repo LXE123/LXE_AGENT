@@ -5,8 +5,9 @@
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
-    "build": "bun build src/main.ts src/preload.ts --outdir dist --target node --external electron --external node:sqlite",
+    "build": "bun scripts/build-desktop.ts",
     "dev": "bun run build && bun src/dev.ts",
+    "smoke:packaged": "bun scripts/smoke-packaged-app.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test test",
     "validate:config": "bun scripts/validate-builder-config.ts",
