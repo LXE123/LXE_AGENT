@@ -83,7 +83,9 @@ export function createProductionAgentService(
   const providerManager = new AtomicRuntimeProviderManager(options.resourceRoot, environment);
   const feishu = loadFeishuConfig(environment);
   const tools = new ToolRegistry();
-  const skillCatalog = new SkillCatalog(options.resourceRoot);
+  const skillCatalog = new SkillCatalog(options.resourceRoot, undefined, {
+    workspaceRoot: options.workspaceRoot,
+  });
   const commandCatalogPath = join(
     options.resourceRoot,
     "python",
@@ -104,6 +106,8 @@ export function createProductionAgentService(
   const execShell = new ExecShellAdapter({ environment });
   const processes = registerCodingTools(tools, {
     workspaceRoot: options.workspaceRoot,
+    repositorySkillsRoot: join(options.resourceRoot, "skills"),
+    artifactRoot: join(options.dataRoot, "artifacts"),
     businessCommands,
     businessCommandCatalog: cliCommands,
     execShell,

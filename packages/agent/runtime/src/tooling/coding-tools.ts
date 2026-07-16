@@ -47,6 +47,9 @@ export interface LxeSkillRecoveryCommand {
 
 export interface CodingToolOptions {
   workspaceRoot: string;
+  repositorySkillsRoot?: string;
+  artifactRoot?: string;
+  homeDirectory?: string;
   maxOutputChars?: number;
   sendFile?: (request: { path: string; session_id: string; response_route_id: string }) => Promise<void>;
   onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
@@ -186,6 +189,10 @@ const canonicalCandidate = (path: string): string => {
   return resolve(base, ...missing);
 };
 
+const containsCanonicalPath = (root: string, path: string): boolean =>
+  containsPath(root, path)
+  && containsPath(canonicalCandidate(root), canonicalCandidate(path));
+
 const safePath = (root: string, value: unknown): string => {
   const requested = String(value ?? ".").trim() || ".";
   const path = resolve(root, requested);
@@ -195,15 +202,50 @@ const safePath = (root: string, value: unknown): string => {
   return path;
 };
 
-const readablePath = (root: string, value: unknown): string => {
+type ReadableScopeKind = "workspace" | "skills" | "artifacts";
+
+interface ReadableScope {
+  root: string;
+  kind: ReadableScopeKind;
+}
+
+interface ReadableTarget {
+  path: string;
+  scope: ReadableScope;
+}
+
+const requestedPath = (root: string, home: string, requested: string): string => {
+  if (requested === "~") return home;
+  if (/^~[\\/]/u.test(requested)) return resolve(home, requested.slice(2));
+  return resolve(root, requested);
+};
+
+const readableTarget = (
+  root: string,
+  home: string,
+  scopes: readonly ReadableScope[],
+  value: unknown,
+): ReadableTarget => {
   const requested = String(value ?? "").trim();
   if (!requested) throw new Error("path is required");
-  const path = resolve(root, requested);
-  const externalRoot = resolve(homedir(), ".agents", "skills");
-  const canonical = canonicalCandidate(path);
-  if (containsPath(realpathSync(root), canonical)) return path;
-  if (existsSync(externalRoot) && containsPath(realpathSync(externalRoot), canonical)) return path;
-  throw new Error(`path escapes workspace and external skills: ${requested}`);
+  const path = requestedPath(root, home, requested);
+  const scope = scopes.find((candidate) => containsCanonicalPath(candidate.root, path));
+  if (scope) return { path, scope };
+  throw new Error(`path escapes workspace and approved read-only roots: ${requested}`);
+};
+
+const displayReadablePath = (workspaceRoot: string, target: ReadableTarget): string =>
+  target.scope.kind === "workspace"
+    ? relative(workspaceRoot, target.path).replaceAll("\\", "/") || "."
+    : target.path.replaceAll("\\", "/");
+
+const isSkillAsset = (skillRoot: string, path: string): boolean => {
+  if (!containsPath(skillRoot, path)) return false;
+  const parts = relative(skillRoot, path).replaceAll("\\", "/").split("/");
+  const assetsIndex = parts.lastIndexOf("assets");
+  if (assetsIndex <= 0 || assetsIndex >= parts.length - 1) return false;
+  const assetRoot = resolve(skillRoot, ...parts.slice(0, assetsIndex + 1));
+  return containsCanonicalPath(assetRoot, path);
 };
 
 const assertWritable = (root: string, path: string): void => {
@@ -724,7 +766,35 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   const processOutputLimit = Math.max(1_000, Math.trunc(options.maxOutputChars ?? 200_000));
   const ledger = new FileReadLedger();
   const imageProcessor = new ModelImageProcessor();
-  const search = new WorkspaceSearchService(root, options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath });
+  const home = resolve(options.homeDirectory ?? homedir());
+  const userSkillsRoot = resolve(home, ".agents", "skills");
+  const scopesByRoot = new Map<string, ReadableScope>();
+  for (const scope of [
+    { root, kind: "workspace" as const },
+    ...(options.repositorySkillsRoot
+      ? [{ root: resolve(options.repositorySkillsRoot), kind: "skills" as const }]
+      : []),
+    { root: userSkillsRoot, kind: "skills" as const },
+    ...(options.artifactRoot
+      ? [{ root: resolve(options.artifactRoot), kind: "artifacts" as const }]
+      : []),
+  ]) {
+    if (!scopesByRoot.has(scope.root)) scopesByRoot.set(scope.root, scope);
+  }
+  const readableScopes = [...scopesByRoot.values()];
+  const searchOptions = options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath };
+  const searches = new Map(readableScopes.map((scope) => [
+    scope.root,
+    new WorkspaceSearchService(scope.root, {
+      ...searchOptions,
+      absolutePaths: scope.kind !== "workspace",
+    }),
+  ]));
+  const searchFor = (target: ReadableTarget): WorkspaceSearchService => {
+    const search = searches.get(target.scope.root);
+    if (!search) throw new Error(`search root is unavailable: ${target.scope.root}`);
+    return search;
+  };
   const execShell = options.execShell ?? new ExecShellAdapter();
   const commandCatalog = options.businessCommandCatalog ?? [];
   const businessCommands = options.businessCommands ?? new Map(
@@ -741,10 +811,10 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   processes.onComplete = options.onProcessComplete;
   registry.register({
     name: "read",
-    description: "Read a text or image file from the workspace, or a read-only file under ~/.agents/skills. Reading records the file version required by edit/write.",
+    description: "Read a text or image file from the workspace, bundled skills, runtime artifacts, or ~/.agents/skills. External roots are read-only. Reading records the file version required by edit/write.",
     input_schema: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["path"], additionalProperties: false },
     execute: async (input, context) => {
-      const path = readablePath(root, input.path);
+      const path = readableTarget(root, home, readableScopes, input.path).path;
       let info: BigIntStats;
       try { info = await stat(path, { bigint: true }); } catch { throw new Error(`file not found: ${input.path}`); }
       if (!info.isFile()) throw new Error(`file not found: ${input.path}`);
@@ -849,7 +919,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   });
   registry.register({
     name: "grep",
-    description: "Search UTF-8 workspace files for a regular expression.",
+    description: "Search UTF-8 files in the workspace or an explicitly addressed read-only skill/artifact root for a regular expression.",
     input_schema: { type: "object", properties: {
       pattern: { type: "string" }, path: { type: "string" }, glob: { type: "string" }, type: { type: "string" },
       output_mode: { type: "string", enum: ["files_with_matches", "content", "count"] },
@@ -857,15 +927,15 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       after_context: { type: "integer" }, multiline: { type: "boolean" }, head_limit: { type: "integer" },
     }, required: ["pattern"], additionalProperties: false },
     execute: async (input, context) => {
-      const base = safePath(root, input.path ?? ".");
+      const target = readableTarget(root, home, readableScopes, input.path ?? ".");
       const pattern = inputText(input, "pattern");
       if (!pattern) throw new Error("pattern 不能为空");
       const maxLines = Math.max(1, Number(input.head_limit ?? 100));
       const mode = String(input.output_mode ?? "files_with_matches");
       if (!["files_with_matches", "content", "count"].includes(mode)) throw new Error(`未知 output_mode: ${mode}`);
-      const output = await search.grep({
+      const output = await searchFor(target).grep({
         pattern,
-        searchPath: base,
+        searchPath: target.path,
         outputMode: mode as "files_with_matches" | "content" | "count",
         glob: inputText(input, "glob"),
         fileType: inputText(input, "type"),
@@ -882,40 +952,56 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   });
   registry.register({
     name: "find",
-    description: "Find workspace files by glob-like pattern.",
+    description: "Find files in the workspace or an explicitly addressed read-only skill/artifact root by glob-like pattern.",
     input_schema: { type: "object", properties: { pattern: { type: "string" }, path: { type: "string" }, head_limit: { type: "integer" } }, required: ["pattern"], additionalProperties: false },
     execute: async (input, context) => {
-      const base = safePath(root, input.path ?? ".");
+      const target = readableTarget(root, home, readableScopes, input.path ?? ".");
       const pattern = inputText(input, "pattern");
       if (!pattern) throw new Error("pattern 不能为空");
       const max = Math.max(1, Number(input.head_limit ?? 200));
-      const output = await search.find({ pattern, searchPath: base, limit: max, signal: context.handle.signal });
+      const output = await searchFor(target).find({
+        pattern,
+        searchPath: target.path,
+        limit: max,
+        signal: context.handle.signal,
+      });
       return { content: textBlock(truncateHeadTail(output, toolOutputLimit).value) };
     },
   });
   registry.register({
     name: "ls",
-    description: "List workspace directory contents.",
+    description: "List directory contents in the workspace or an explicitly addressed read-only skill/artifact root.",
     input_schema: { type: "object", properties: { path: { type: "string" } }, additionalProperties: false },
     execute: async (input) => {
-      const base = safePath(root, input.path ?? ".");
-      const entries = readdirSync(base, { withFileTypes: true }).map((entry) => `${entry.isDirectory() ? "d" : "f"} ${entry.name}`).sort();
+      const target = readableTarget(root, home, readableScopes, input.path ?? ".");
+      const entries = readdirSync(target.path, { withFileTypes: true }).map((entry) => `${entry.isDirectory() ? "d" : "f"} ${entry.name}`).sort();
       return { content: textBlock(truncateHeadTail(entries.join("\n"), toolOutputLimit).value) };
     },
   });
   registry.register({
     name: "send_file",
-    description: "Send an existing workspace artifact to the current user.",
+    description: "Send an existing workspace/runtime artifact or a bundled skill asset to the current user.",
     input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"], additionalProperties: false },
     execute: async (input, context) => {
-      const path = safePath(root, input.path);
+      const target = readableTarget(root, home, readableScopes, input.path);
+      const path = target.path;
       if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`file not found: ${input.path}`);
-      const artifacts = join(root, "artifacts");
-      const rel = relative(root, path).replaceAll("\\", "/");
-      const skillAsset = /^skills\/[^/]+\/assets\//u.test(rel);
-      if (!containsPath(artifacts, path) && !skillAsset) throw new Error("send_file only allows artifacts/** or skills/*/assets/**");
+      const artifactRoots = [
+        join(root, "artifacts"),
+        ...(options.artifactRoot ? [resolve(options.artifactRoot)] : []),
+      ];
+      const skillRoots = [
+        join(root, "skills"),
+        ...(options.repositorySkillsRoot ? [resolve(options.repositorySkillsRoot)] : []),
+        userSkillsRoot,
+      ];
+      const artifact = artifactRoots.some((artifactRoot) => containsCanonicalPath(artifactRoot, path));
+      const skillAsset = skillRoots.some((skillRoot) => isSkillAsset(skillRoot, path));
+      if (!artifact && !skillAsset) {
+        throw new Error("send_file only allows workspace/runtime artifacts or skill assets/**");
+      }
       if (options.sendFile) await options.sendFile({ path, session_id: context.session_id, response_route_id: context.response_route_id ?? "" });
-      return { content: textBlock(`Sent ${relative(root, path)}`), files: [path] };
+      return { content: textBlock(`Sent ${displayReadablePath(root, target)}`), files: [path] };
     },
   });
   registry.register({

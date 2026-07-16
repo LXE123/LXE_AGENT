@@ -33,6 +33,28 @@ describe("skill context", () => {
     expect(prompt).not.toContain("lxeskill hidden run");
   });
 
+  test("uses absolute repository instructions when skills live outside the workspace", () => {
+    const resourceRoot = mkdtempSync(join(tmpdir(), "lxe-skill-resource-"));
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "lxe-skill-workspace-"));
+    roots.push(resourceRoot, workspaceRoot);
+    const skillPath = join(resourceRoot, "skills", "demo", "SKILL.md");
+    mkdirSync(join(resourceRoot, "skills", "demo"), { recursive: true });
+    mkdirSync(join(workspaceRoot, "skills", "demo"), { recursive: true });
+    writeFileSync(skillPath, "---\nname: demo\ndescription: Bundled workflow\n---\n# Bundled\n", "utf8");
+    writeFileSync(
+      join(workspaceRoot, "skills", "demo", "SKILL.md"),
+      "---\nname: demo\ndescription: Workspace shadow\n---\n# Shadow\n",
+      "utf8",
+    );
+
+    const catalog = new SkillCatalog(resourceRoot, join(resourceRoot, "missing-user"), {
+      workspaceRoot,
+    });
+    const normalizedSkillPath = skillPath.replaceAll("\\", "/");
+    expect(catalog.buildPrompt()).toContain(`Instructions: ${normalizedSkillPath}`);
+    expect(catalog.buildPrompt()).not.toContain("Instructions: skills/demo/SKILL.md");
+  });
+
   test("prefers repository skills, refreshes by signature, and validates references", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-skills-catalog-"));
     roots.push(root);

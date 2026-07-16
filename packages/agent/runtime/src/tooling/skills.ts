@@ -36,6 +36,8 @@ export interface SkillCatalogSnapshot {
 export interface SkillCatalogOptions {
   refreshIntervalMs?: number;
   now?: () => number;
+  /** Workspace used to render repository instruction paths for the model. */
+  workspaceRoot?: string;
 }
 
 export class SkillCatalogError extends Error {
@@ -141,6 +143,11 @@ const optionsKey = (options: SkillPromptOptions): string => JSON.stringify([
   sortedSet(options.disabledNames),
 ]);
 
+const containsPath = (root: string, path: string): boolean => {
+  const relation = relative(resolve(root), resolve(path));
+  return relation === "" || (!isAbsolute(relation) && relation !== ".." && !relation.startsWith(`..${sep}`));
+};
+
 export class SkillCatalog {
   private readonly logger = createLogger("runtime.skills");
   private signature = "";
@@ -151,6 +158,7 @@ export class SkillCatalog {
   private readonly snapshotCache = new Map<string, CachedSkillCatalogSnapshot>();
   private readonly refreshIntervalMs: number;
   private readonly now: () => number;
+  private readonly workspaceRoot: string;
 
   constructor(
     private readonly projectRoot: string,
@@ -161,6 +169,7 @@ export class SkillCatalog {
       options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS,
     ));
     this.now = options.now ?? (() => performance.now());
+    this.workspaceRoot = resolve(options.workspaceRoot ?? projectRoot);
   }
 
   list(options: SkillPromptOptions = {}): SkillManifest[] {
@@ -214,8 +223,8 @@ export class SkillCatalog {
 
   private promptFor(manifests: readonly SkillManifest[]): string {
     const rows = manifests.map((manifest) => {
-      const instructions = manifest.source === "repository"
-        ? relative(this.projectRoot, manifest.location).replaceAll("\\", "/")
+      const instructions = manifest.source === "repository" && containsPath(this.workspaceRoot, manifest.location)
+        ? relative(this.workspaceRoot, manifest.location).replaceAll("\\", "/")
         : manifest.location.replaceAll("\\", "/");
       const commands = manifest.commands.length > 0
         ? `\n  Commands: ${manifest.commands.join(", ")}`

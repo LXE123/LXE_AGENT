@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { deflateSync } from "node:zlib";
 import type { JsonObject } from "@lxe/protocol";
 import { repositoryRoot } from "@lxe/core";
@@ -78,6 +78,93 @@ describe("native coding tools", () => {
     expect(ls.content[0]?.text).toContain("a.txt");
     await expect(registry.execute("read", { path: "../outside.txt" }, context())).rejects.toThrow("workspace");
     expect(existsSync(join(root, "outside.txt"))).toBe(false);
+    await processes.stop();
+  });
+
+  test("reads split-root skills and artifacts without making external roots writable", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "lxe-coding-workspace-"));
+    const resourceRoot = mkdtempSync(join(tmpdir(), "lxe-coding-resource-"));
+    const dataRoot = mkdtempSync(join(tmpdir(), "lxe-coding-data-"));
+    const home = mkdtempSync(join(tmpdir(), "lxe-coding-home-"));
+    const outsideRoot = mkdtempSync(join(tmpdir(), "lxe-coding-outside-"));
+    roots.push(workspaceRoot, resourceRoot, dataRoot, home, outsideRoot);
+    const repositorySkillsRoot = join(resourceRoot, "skills");
+    const skillRoot = join(repositorySkillsRoot, "nested", "demo");
+    const skillPath = join(skillRoot, "SKILL.md");
+    const referencePath = join(skillRoot, "references", "help.md");
+    const assetPath = join(skillRoot, "assets", "guide.txt");
+    const artifactRoot = join(dataRoot, "artifacts");
+    const artifactPath = join(artifactRoot, "report.txt");
+    const userSkillPath = join(home, ".agents", "skills", "personal", "SKILL.md");
+    const outsidePath = join(outsideRoot, "secret.txt");
+    mkdirSync(join(skillRoot, "references"), { recursive: true });
+    mkdirSync(join(skillRoot, "assets"), { recursive: true });
+    mkdirSync(artifactRoot, { recursive: true });
+    mkdirSync(dirname(userSkillPath), { recursive: true });
+    mkdirSync(join(workspaceRoot, "skills", "nested", "demo"), { recursive: true });
+    writeFileSync(skillPath, "---\nname: demo\ndescription: Bundled\n---\n# Bundled skill\n", "utf8");
+    writeFileSync(referencePath, "reference text\n", "utf8");
+    writeFileSync(assetPath, "asset text\n", "utf8");
+    writeFileSync(artifactPath, "artifact text\n", "utf8");
+    writeFileSync(userSkillPath, "---\nname: personal\ndescription: Personal\n---\n# Personal skill\n", "utf8");
+    writeFileSync(join(workspaceRoot, "skills", "nested", "demo", "SKILL.md"), "# Workspace shadow\n", "utf8");
+    writeFileSync(outsidePath, "secret\n", "utf8");
+    symlinkSync(outsideRoot, join(skillRoot, "escaped"), process.platform === "win32" ? "junction" : "dir");
+
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {
+      workspaceRoot,
+      repositorySkillsRoot,
+      artifactRoot,
+      homeDirectory: home,
+      ripgrepPath: null,
+    });
+    const activated: string[] = [];
+    const exposureState = registry.createExposureState({
+      allowedSkills: new Set(["demo"]),
+      onSkillActivated: (name) => { activated.push(name); },
+    });
+    const bundled = await registry.execute("read", { path: skillPath }, { ...context(), exposureState });
+    expect(String(bundled.content[0]?.text)).toContain("Bundled skill");
+    expect(String(bundled.content[0]?.text)).not.toContain("Workspace shadow");
+    expect(activated).toEqual(["demo"]);
+    expect(String((await registry.execute("read", { path: referencePath }, context())).content[0]?.text))
+      .toContain("reference text");
+    expect(String((await registry.execute("read", {
+      path: "~/.agents/skills/personal/SKILL.md",
+    }, context())).content[0]?.text)).toContain("Personal skill");
+    expect(String((await registry.execute("read", { path: artifactPath }, context())).content[0]?.text))
+      .toContain("artifact text");
+
+    const listed = await registry.execute("ls", { path: skillRoot }, context());
+    expect(String(listed.content[0]?.text)).toContain("d references");
+    const found = await registry.execute("find", {
+      pattern: "*.md",
+      path: repositorySkillsRoot,
+    }, context());
+    expect(String(found.content[0]?.text).replaceAll("\\", "/")).toContain(skillPath.replaceAll("\\", "/"));
+    const grepped = await registry.execute("grep", {
+      pattern: "Bundled skill",
+      path: repositorySkillsRoot,
+      output_mode: "content",
+    }, context());
+    expect(String(grepped.content[0]?.text).replaceAll("\\", "/")).toContain(skillPath.replaceAll("\\", "/"));
+
+    expect((await registry.execute("send_file", { path: assetPath }, context())).files).toEqual([assetPath]);
+    expect((await registry.execute("send_file", { path: artifactPath }, context())).files).toEqual([artifactPath]);
+    await expect(registry.execute("send_file", { path: skillPath }, context())).rejects.toThrow("skill assets");
+    await expect(registry.execute("read", { path: outsidePath }, context())).rejects.toThrow("approved read-only roots");
+    await expect(registry.execute("read", {
+      path: join(skillRoot, "escaped", "secret.txt"),
+    }, context())).rejects.toThrow("approved read-only roots");
+    await expect(registry.execute("write", {
+      file_path: join(skillRoot, "new.txt"),
+      content: "denied",
+    }, context())).rejects.toThrow("escapes workspace");
+    await expect(registry.execute("exec", {
+      command: "echo denied",
+      cwd: skillRoot,
+    }, context())).rejects.toThrow("escapes workspace");
     await processes.stop();
   });
 

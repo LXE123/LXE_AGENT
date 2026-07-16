@@ -55,6 +55,37 @@ describe("WorkspaceSearchService", () => {
     expect(args).not.toContain("--max-columns-preview");
   });
 
+  test("keeps external ripgrep results absolute and reusable", async () => {
+    if (process.platform === "win32") return;
+    const root = mkdtempSync(join(tmpdir(), "lxe-rg-absolute-"));
+    roots.push(root);
+    const source = join(root, "skills");
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, "SKILL.md"), "needle\n");
+    const fake = join(root, "fake-rg");
+    const argsPath = join(root, "rg-args.txt");
+    writeFileSync(fake, `#!/usr/bin/env bun
+const args = process.argv.slice(2);
+await Bun.write(${JSON.stringify(argsPath)}, args.join("\\n"));
+process.stdout.write(args.at(-1) + "/SKILL.md:1:needle\\n");
+`);
+    chmodSync(fake, 0o755);
+
+    const output = await new WorkspaceSearchService(root, {
+      ripgrepPath: fake,
+      absolutePaths: true,
+    }).grep({
+      pattern: "needle",
+      searchPath: source,
+      outputMode: "content",
+      limit: 20,
+    });
+    expect(output.replaceAll("\\", "/")).toBe(`${source.replaceAll("\\", "/")}/SKILL.md:1:needle`);
+    const args = readFileSync(argsPath, "utf8");
+    expect(args).toContain("--path-separator\n/");
+    expect(args).toContain(source);
+  });
+
   test("stops ripgrep early at head_limit and reports more matches", async () => {
     if (process.platform === "win32") return;
     const root = mkdtempSync(join(tmpdir(), "lxe-rg-early-"));

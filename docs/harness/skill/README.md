@@ -8,6 +8,8 @@ Runtime skill prompts live in repository `skills/*/SKILL.md` and optional user s
 
 `packages/agent/runtime/src/tooling/skills.ts` scans both roots and parses skill front matter. Repository skills win when the same skill name also exists in the user root. Duplicate names or commands within one source are rejected instead of being resolved by filesystem order.
 
+Desktop packaging keeps repository skills in the read-only resource root while the user's workspace is writable and separate. In that split-root mode the catalog publishes canonical absolute manifest paths; when a repository skill is already inside the workspace it keeps the shorter workspace-relative path. Relative tool paths always remain workspace-relative, so a workspace `skills/` directory cannot shadow a bundled manifest selected by the catalog.
+
 The catalog validates that referenced files:
 
 - use relative paths;
@@ -27,6 +29,8 @@ Discovery is not the same as model activation.
 4. The prompt receives compact metadata for only the available skills.
 5. The model reads a skill's `SKILL.md` when it chooses that workflow.
 6. Owner-gated deferred tools from the activated skill become available on the next step.
+
+The read-only coding-tool scope includes bundled skills, optional user skills and managed runtime artifacts. Writes and command working directories remain workspace-only. Skill references, scripts and assets should therefore be resolved from the manifest's actual directory rather than from the process working directory.
 
 This keeps the base prompt bounded while preserving detailed workflow contracts on demand.
 

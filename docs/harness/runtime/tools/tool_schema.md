@@ -60,7 +60,9 @@ State 记录 exposed names 与 active skills，不修改全局 registry。不同
 
 ## Skill activation
 
-System prompt 只列允许的 skill manifest 路径。模型通过 read 加载某个 `SKILL.md` 后，coding read hook 验证该 manifest 在当前 allowed set，再激活 owner tools。
+System prompt 只列允许的 skill manifest 路径。repository root 与 workspace root 分离时使用 manifest 的规范绝对路径；同根时保留 workspace-relative 路径。模型通过 read 加载某个 `SKILL.md` 后，coding read hook 验证该 manifest 在当前 allowed set，再激活 owner tools。
+
+`read`、`ls`、`grep` 和 `find` 可显式访问 workspace、repository skills、`~/.agents/skills` 与 runtime artifacts。外部搜索结果使用绝对路径，外部 roots 始终只读；相对路径、`write`、`edit` 和 `exec.cwd` 仍严格属于 workspace。`send_file` 只允许 workspace/runtime artifacts 与 skill `assets/**`。
 
 Repository skill 同名优先于用户 skill；重复同来源 name/command、越界 reference 或缺失文件导致 catalog error。激活事件进入 skill usage。
 

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { basename, extname, join, relative } from "node:path";
+import { basename, extname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 
 export const MANAGED_RIPGREP_VERSION = "15.1.0";
@@ -60,6 +60,7 @@ export interface WorkspaceSearchOptions {
   homeDirectory?: string;
   platform?: NodeJS.Platform;
   which?: (name: string) => string | null;
+  absolutePaths?: boolean;
 }
 
 const normalizePath = (path: string): string => path.replaceAll("\\", "/");
@@ -267,9 +268,15 @@ const matchingLineIndexes = (source: string, pattern: string, caseInsensitive: b
 
 export class WorkspaceSearchService {
   private readonly ripgrepPath: string | undefined;
+  private readonly absolutePaths: boolean;
 
   constructor(private readonly workspaceRoot: string, options: WorkspaceSearchOptions = {}) {
     this.ripgrepPath = resolveRipgrepExecutable(options);
+    this.absolutePaths = options.absolutePaths ?? false;
+  }
+
+  private displayPath(path: string): string {
+    return this.absolutePaths ? normalizePath(resolve(this.workspaceRoot, path)) : path;
   }
 
   async grep(request: WorkspaceGrepRequest): Promise<string> {
@@ -299,7 +306,7 @@ export class WorkspaceSearchService {
     }
     matched.sort((left, right) => right.mtime - left.mtime || left.path.localeCompare(right.path));
     if (matched.length === 0) return "No files found.";
-    const lines = matched.slice(0, request.limit).map((item) => item.path);
+    const lines = matched.slice(0, request.limit).map((item) => this.displayPath(item.path));
     if (matched.length > request.limit) {
       lines.push(`... (showing first ${request.limit} of ${matched.length} results, sorted by modification time)`);
     }
@@ -324,7 +331,10 @@ export class WorkspaceSearchService {
     if (request.glob) args.push("--glob", request.glob);
     for (const skipped of [...SKIP_DIRECTORIES].sort()) args.push("--glob", `!**/${skipped}/**`);
     if (request.fileType) args.push("--type", request.fileType);
-    const target = relative(this.workspaceRoot, request.searchPath) || ".";
+    if (this.absolutePaths) args.push("--path-separator", "/");
+    const target = this.absolutePaths
+      ? resolve(request.searchPath)
+      : relative(this.workspaceRoot, request.searchPath) || ".";
     args.push("--regexp", request.pattern, "--", target);
     const result = await runRipgrep(executable, args, this.workspaceRoot, request.limit, request.signal);
     // A non-trivial exit with no output and no early stop is a real rg failure;
@@ -360,6 +370,7 @@ export class WorkspaceSearchService {
       assertActive(request.signal);
       const batch = files.slice(offset, offset + 8);
       const matches = await Promise.all(batch.map(async (path) => {
+        const displayedPath = this.displayPath(path);
         const searchRelative = baseRelative && path.startsWith(`${baseRelative}/`) ? path.slice(baseRelative.length + 1) : path;
         if (!matchesGlob(path, searchRelative, request.glob ?? "")) return [];
         if (typeExtensions && !typeExtensions.includes(extname(path).toLowerCase())) return [];
@@ -369,10 +380,10 @@ export class WorkspaceSearchService {
         const source = new TextDecoder().decode(bytes);
         const indexes = matchingLineIndexes(source, request.pattern, request.caseInsensitive ?? false, request.multiline ?? false);
         if (indexes.length === 0) return [];
-        if (request.outputMode === "files_with_matches") return [path];
-        if (request.outputMode === "count") return [`${path}:${indexes.length}`];
+        if (request.outputMode === "files_with_matches") return [displayedPath];
+        if (request.outputMode === "count") return [`${displayedPath}:${indexes.length}`];
         const lines = source.split(/\r?\n/u);
-        if (request.multiline) return indexes.map((index) => `${path}:${index + 1}:${lines[index] ?? ""}`);
+        if (request.multiline) return indexes.map((index) => `${displayedPath}:${index + 1}:${lines[index] ?? ""}`);
         const common = Math.max(0, request.context ?? 0);
         const before = Math.max(0, request.beforeContext ?? common);
         const after = Math.max(0, request.afterContext ?? common);
@@ -384,7 +395,7 @@ export class WorkspaceSearchService {
             if (emitted.has(current)) continue;
             emitted.add(current);
             const separator = matched.has(current) ? ":" : "-";
-            output.push(`${path}${separator}${current + 1}${separator}${lines[current] ?? ""}`);
+            output.push(`${displayedPath}${separator}${current + 1}${separator}${lines[current] ?? ""}`);
           }
         }
         return output;
