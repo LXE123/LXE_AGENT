@@ -4,9 +4,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from services.amazon.amazon_logistic.input.validator import normalize_consignment_no
-from services.amazon.amazon_logistic.sources.consignment_excel import (
+from services.mabang.amazon.fba.consignment_excel import (
     find_consignment_excel,
+    normalize_consignment_no,
     resolve_column,
     resolve_consignment_excel_dir,
 )

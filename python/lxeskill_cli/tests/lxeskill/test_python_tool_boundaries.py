@@ -79,8 +79,8 @@ def test_browser_vision_returns_a_path_without_base64(tmp_path, monkeypatch) -> 
 
 def test_catalog_covers_active_business_skills() -> None:
     catalog = load_catalog()
-    assert catalog["amazon_logistic_quote"]["module"] == "services.agent_cli.amazon_logistic.run"
-    assert catalog["logistics_rate_import"]["owner_skills"] == ["fba-logistics-rate-import"]
+    assert "amazon_logistic_quote" not in catalog
+    assert "logistics_rate_import" not in catalog
     assert catalog["mabang_resolve_fba_store"]["owner_skills"]
     assert catalog["browser_auth_refresh"]["exposed"] is False
 
