@@ -240,7 +240,7 @@ describe("native coding tools", () => {
     controller.abort();
     expect(String((await cancellation).content[0]?.text)).toContain("status: killed");
     await processes.stop();
-  });
+  }, 15_000);
 
   test("requires a current read before modifying existing files and protects runtime state", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-safety-"));

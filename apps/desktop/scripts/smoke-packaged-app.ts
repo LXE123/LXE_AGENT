@@ -59,6 +59,8 @@ const findPageTarget = async (
   timeoutMilliseconds: number,
 ): Promise<DevToolsTarget> => {
   const deadline = Date.now() + timeoutMilliseconds;
+  let stableTargetUrl: string | undefined;
+  let stableObservations = 0;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error(`Packaged desktop exited before DevTools became ready (${child.exitCode})`);
@@ -73,7 +75,21 @@ const findPageTarget = async (
           target.type === "page"
           && target.url === "app://lxe/"
           && Boolean(target.webSocketDebuggerUrl));
-        if (page) return page;
+        if (page) {
+          if (page.webSocketDebuggerUrl === stableTargetUrl) {
+            stableObservations += 1;
+          } else {
+            stableTargetUrl = page.webSocketDebuggerUrl;
+            stableObservations = 1;
+          }
+          // Attaching while Electron is still creating a sandboxed renderer can
+          // race preload startup on Windows. Require a stable target rather than
+          // sleeping blindly or retrying a failed bridge evaluation.
+          if (stableObservations >= 5) return page;
+        } else {
+          stableTargetUrl = undefined;
+          stableObservations = 0;
+        }
       }
     } catch {
       // Electron is still starting.
