@@ -1,9 +1,16 @@
 export const IPC_CHANNELS = {
   dashboardRequest: "lxe:dashboard:request",
   selectWorkspace: "lxe:desktop:select-workspace",
+  selectZiniaoApp: "lxe:desktop:select-ziniao-app",
+  selectZiniaoWebDriverDirectory: "lxe:desktop:select-ziniao-webdriver-directory",
+  selectConfigImport: "lxe:desktop:select-config-import",
+  applyConfigImport: "lxe:desktop:apply-config-import",
+  discardConfigImport: "lxe:desktop:discard-config-import",
+  openLogsDirectory: "lxe:desktop:open-logs-directory",
   getHealth: "lxe:desktop:get-health",
   restartAgent: "lxe:desktop:restart-agent",
   getSetupState: "lxe:desktop:get-setup-state",
   saveSetup: "lxe:desktop:save-setup",
+  dashboardInvalidated: "lxe:desktop:dashboard-invalidated",
   statusChanged: "lxe:desktop:status-changed",
 } as const;

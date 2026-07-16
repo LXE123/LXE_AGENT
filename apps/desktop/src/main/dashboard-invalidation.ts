@@ -1,0 +1,112 @@
+import type {
+  AgentEvent,
+  DesktopDashboardDataDomain,
+  DesktopDashboardInvalidation,
+} from "@lxe/desktop-protocol";
+
+export const ALL_DASHBOARD_DATA_DOMAINS: readonly DesktopDashboardDataDomain[] = [
+  "sessions",
+  "stats",
+  "background_tasks",
+  "channels",
+  "models",
+  "connectors",
+  "skills",
+  "tools",
+  "docs",
+];
+
+export interface DashboardInvalidationDraft {
+  domains: DesktopDashboardDataDomain[];
+  sessionIds: string[];
+}
+
+export function dashboardInvalidationForAgentEvent(
+  event: AgentEvent,
+): DashboardInvalidationDraft | undefined {
+  if (
+    event.type !== "thread.started"
+    && event.type !== "turn.started"
+    && event.type !== "turn.completed"
+    && event.type !== "turn.failed"
+    && event.type !== "item.completed"
+  ) {
+    return undefined;
+  }
+  const domains: DesktopDashboardDataDomain[] = ["sessions"];
+  if (event.type === "turn.completed" || event.type === "turn.failed") {
+    domains.push("stats", "background_tasks");
+  }
+  return {
+    domains,
+    sessionIds: event.thread_id.trim() ? [event.thread_id] : [],
+  };
+}
+
+export function dashboardDomainsForMutation(path: string): DesktopDashboardDataDomain[] {
+  const pathname = new URL(path, "http://desktop.lxe").pathname;
+  if (pathname === "/api/models/current" || pathname === "/api/models/current/thinking") {
+    return ["models"];
+  }
+  if (pathname.startsWith("/api/connectors/")) {
+    return ["connectors", "skills"];
+  }
+  if (pathname.startsWith("/api/mcp/servers/")) {
+    return ["tools"];
+  }
+  return [];
+}
+
+type Schedule = (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+type CancelSchedule = (handle: ReturnType<typeof setTimeout>) => void;
+
+export class DashboardInvalidationBatcher {
+  private readonly domains = new Set<DesktopDashboardDataDomain>();
+  private readonly sessionIds = new Set<string>();
+  private revision = 0;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(
+    private readonly publish: (invalidation: DesktopDashboardInvalidation) => void,
+    private readonly delayMs = 200,
+    private readonly schedule: Schedule = setTimeout,
+    private readonly cancelSchedule: CancelSchedule = clearTimeout,
+  ) {}
+
+  push(domains: Iterable<DesktopDashboardDataDomain>, sessionIds: Iterable<string> = []): void {
+    for (const domain of domains) this.domains.add(domain);
+    for (const sessionId of sessionIds) {
+      const normalized = sessionId.trim();
+      if (normalized) this.sessionIds.add(normalized);
+    }
+    if (!this.domains.size || this.timer) return;
+    this.timer = this.schedule(() => {
+      this.timer = undefined;
+      this.flush();
+    }, this.delayMs);
+  }
+
+  flush(): void {
+    if (!this.domains.size) return;
+    if (this.timer) {
+      this.cancelSchedule(this.timer);
+      this.timer = undefined;
+    }
+    this.revision += 1;
+    const invalidation: DesktopDashboardInvalidation = {
+      revision: this.revision,
+      domains: ALL_DASHBOARD_DATA_DOMAINS.filter((domain) => this.domains.has(domain)),
+      session_ids: [...this.sessionIds],
+    };
+    this.domains.clear();
+    this.sessionIds.clear();
+    this.publish(invalidation);
+  }
+
+  dispose(): void {
+    if (this.timer) this.cancelSchedule(this.timer);
+    this.timer = undefined;
+    this.domains.clear();
+    this.sessionIds.clear();
+  }
+}

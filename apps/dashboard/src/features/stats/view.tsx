@@ -1,40 +1,28 @@
 // Usage statistics view (turns / skills / tools aggregates).
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 
-import { fetchJson } from "../../api/client";
+import {
+  queryError,
+  useSkillStatsQuery,
+  useStatsOverviewQuery,
+  useToolStatsQuery,
+} from "../../api/queries";
 import { EmptyState, FailureCount, SuccessRateCell } from "../../shared/components";
 import { formatDate, formatDurationMs, formatNumber, skillTypeLabel } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
-import type { ApiList, SkillStatPayload, StatsOverviewPayload, ToolStatPayload } from "../../api/payloads";
+import type { SkillStatPayload, StatsOverviewPayload } from "../../api/payloads";
 
 export const USAGE_RANGE_OPTIONS = [7, 30, 90];
 export const SKILL_BADGE_STATS_DAYS = 30;
 
 export function useSkillUsageStats(days: number): Record<string, SkillStatPayload> | null {
-  const [stats, setStats] = useState<Record<string, SkillStatPayload> | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetchJson<ApiList<SkillStatPayload>>(`/api/stats/skills?days=${days}`)
-      .then((payload) => {
-        if (cancelled) {
-          return;
-        }
-        const map: Record<string, SkillStatPayload> = {};
-        for (const item of payload.items) {
-          map[item.name] = item;
-        }
-        setStats(map);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStats(null);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [days]);
-  return stats;
+  const query = useSkillStatsQuery(days);
+  return useMemo(() => {
+    if (!query.data) return null;
+    const stats: Record<string, SkillStatPayload> = {};
+    for (const item of query.data.items) stats[item.name] = item;
+    return stats;
+  }, [query.data]);
 }
 
 function UsageDailyChart({ daily }: { daily: StatsOverviewPayload["daily"] }) {
@@ -73,43 +61,20 @@ function UsageDailyChart({ daily }: { daily: StatsOverviewPayload["daily"] }) {
 export function StatsView() {
   const t = useUiText();
   const [days, setDays] = useState(30);
-  const [overview, setOverview] = useState<StatsOverviewPayload | null>(null);
-  const [skillStats, setSkillStats] = useState<SkillStatPayload[]>([]);
-  const [toolStats, setToolStats] = useState<ToolStatPayload[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    Promise.all([
-      fetchJson<StatsOverviewPayload>(`/api/stats/overview?days=${days}`),
-      fetchJson<ApiList<SkillStatPayload>>(`/api/stats/skills?days=${days}`),
-      fetchJson<ApiList<ToolStatPayload>>(`/api/stats/tools?days=${days}`)
-    ])
-      .then(([nextOverview, nextSkills, nextTools]) => {
-        if (cancelled) {
-          return;
-        }
-        setOverview(nextOverview);
-        setSkillStats(nextSkills.items);
-        setToolStats(nextTools.items);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [days]);
+  const overviewQuery = useStatsOverviewQuery(days);
+  const skillStatsQuery = useSkillStatsQuery(days);
+  const toolStatsQuery = useToolStatsQuery(days);
+  const overview = overviewQuery.data;
+  const skillStats = skillStatsQuery.data?.items ?? [];
+  const toolStats = toolStatsQuery.data?.items ?? [];
+  const loading = !overview
+    && (overviewQuery.isPending || skillStatsQuery.isPending || toolStatsQuery.isPending);
+  const firstError = overviewQuery.error || skillStatsQuery.error || toolStatsQuery.error;
+  const error = !overview ? queryError(firstError) : "";
+  const backgroundError = [overviewQuery, skillStatsQuery, toolStatsQuery]
+    .find((current) => current.isRefetchError)?.error;
+  const refreshing = [overviewQuery, skillStatsQuery, toolStatsQuery]
+    .some((current) => current.isFetching && !current.isPending);
 
   if (loading) {
     return <EmptyState label={t.usage.loading} />;
@@ -150,6 +115,13 @@ export function StatsView() {
 
   return (
     <div className="usage-page">
+      {backgroundError ? (
+        <div className="dashboard-query-notice" role="status">
+          {t.common.errorPrefix(t.errors.api, queryError(backgroundError))}
+        </div>
+      ) : refreshing ? (
+        <div className="dashboard-refresh-indicator" role="status">{t.common.updating}</div>
+      ) : null}
       <div className="usage-range" role="group" aria-label={t.usage.rangeAria}>
         {USAGE_RANGE_OPTIONS.map((option) => (
           <button

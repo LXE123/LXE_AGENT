@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { loadGatewayBootstrapSettings } from "../../src/bootstrap/cli";
 import { gatewaySettings, loadProjectEnv, parseEnvFile } from "../../src/bootstrap/env";
 
 describe("project environment", () => {
@@ -45,19 +44,6 @@ describe("project environment", () => {
       ["中文变量", "ok"],
       ["ALSO_GOOD", "value=with=equals"],
     ]);
-  });
-
-  test("lets .env.local override the shipped Dashboard browser default", () => {
-    const files: Record<string, string> = {
-      [join("/repo", ".env.local")]: "AGENT_DASHBOARD_OPEN_BROWSER=0\n",
-      [join("/repo", "config", "runtime.env")]: "AGENT_DASHBOARD_OPEN_BROWSER=1\n",
-    };
-    const environment = loadProjectEnv({
-      projectRoot: "/repo",
-      initial: {},
-      readFile: (path) => files[path],
-    });
-    expect(loadGatewayBootstrapSettings(environment).dashboardOpenBrowser).toBe(false);
   });
 
   test("builds typed settings with Python-compatible defaults and minimums", () => {

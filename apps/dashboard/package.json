@@ -6,12 +6,12 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc -b",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "build": "tsc -b && vite build"
   },
   "dependencies": {
     "@lxe/desktop-protocol": "workspace:*",
     "@lxe/protocol": "workspace:*",
+    "@tanstack/react-query": "^5.90.21",
     "lucide-react": "^0.562.0",
     "mermaid": "^11.15.0",
     "react": "^19.2.3",

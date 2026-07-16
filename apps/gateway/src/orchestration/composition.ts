@@ -4,10 +4,9 @@ import type { AgentJob, JsonObject } from "@lxe/protocol";
 import { ChannelRegistry, type ChannelAdapter } from "../channels/registry";
 import { GatewayEmitter } from "../channels/emitter";
 import { FeishuAdapter, type FeishuAdapterOptions } from "../channels/feishu/adapter";
-import { GatewayLifecycle, type GatewayLifecycleOptions } from "./lifecycle";
+import { GatewayLifecycle } from "./lifecycle";
 import { HeartbeatBridge, type HeartbeatClock } from "./heartbeat-bridge";
 import type { PermissionPolicy } from "../security/permission-policy";
-import { GatewayStatusController, GatewayStatusFiles, PlannedStopPoller, type PollerClock } from "../bootstrap/planned-stop";
 import { SessionRouter } from "./router";
 import { HeartbeatWakeQueue, RunHandle, SessionScheduler, type RuntimePort, type SteeringMessage } from "./scheduler";
 import { SessionBindingStore } from "../state/session-bindings";
@@ -42,11 +41,8 @@ export interface DirectGatewayStorage {
   patchResponseRoute(responseRouteId: string, update: ResponseRoutePatch): Promise<void>;
 }
 
-type DashboardPort = GatewayLifecycleOptions["dashboard"];
-
 export interface DirectGatewayCompositionOptions {
   projectRoot: string;
-  runtimeRoot?: string;
   bindingsPath?: string;
   environment?: Record<string, string | undefined>;
   policy: PermissionPolicy;
@@ -57,12 +53,9 @@ export interface DirectGatewayCompositionOptions {
   feishuAppId?: string;
   channels?: readonly ChannelAdapter[];
   feishu?: Omit<FeishuAdapterOptions, "store" | "hasInflight">;
-  dashboard: DashboardPort;
   heartbeatClock?: HeartbeatClock;
-  plannedStopClock?: PollerClock;
   onRunFailure?: (handle: RunHandle, error: Error) => void;
   onObserverError?: (error: Error) => void;
-  onPlannedStopError?: (error: Error) => void;
 }
 
 export interface DirectGatewayComposition {
@@ -75,8 +68,6 @@ export interface DirectGatewayComposition {
     heartbeatQueue: HeartbeatWakeQueue;
     heartbeatBridge: HeartbeatBridge;
     channels: ChannelRegistry;
-    statusFiles: GatewayStatusFiles;
-    statusController: GatewayStatusController;
     lifecycle: GatewayLifecycle;
     emitter?: GatewayEmitter;
   };
@@ -86,7 +77,6 @@ export interface DirectGatewayComposition {
 }
 
 export function createDirectGatewayComposition(options: DirectGatewayCompositionOptions): DirectGatewayComposition {
-  const runtimeRoot = options.runtimeRoot ?? options.projectRoot;
   const environment = options.environment ?? {};
   const sqlitePath = String(environment.LXE_SQLITE_DB_PATH ?? "").trim();
   const configuredBindings = options.bindingsPath
@@ -170,11 +160,6 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     state: runtimeState,
     ...(options.feishuAppId ? { feishuAppId: options.feishuAppId } : {}),
   });
-  const statusFiles = new GatewayStatusFiles({ projectRoot: runtimeRoot });
-  const statusController = new GatewayStatusController(
-    statusFiles,
-    new PlannedStopPoller(statusFiles, options.plannedStopClock, options.onPlannedStopError),
-  );
   let runtimeReady = false;
   const runtimeLifecycle = {
     get isReady(): boolean { return runtimeReady; },
@@ -200,12 +185,10 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   const lifecycle = new GatewayLifecycle({
     bootId: options.bootId ?? randomUUID().replaceAll("-", ""),
     state: bindings,
-    dashboard: options.dashboard,
     runtime: runtimeLifecycle,
     scheduler,
     heartbeat: heartbeatBridge,
     channels,
-    status: statusController,
     inbound: (event) => router.routeMessage(event).then(() => undefined),
   });
   const parts = {
@@ -217,8 +200,6 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     heartbeatQueue,
     heartbeatBridge,
     channels,
-    statusFiles,
-    statusController,
     lifecycle,
     ...(emitter ? { emitter } : {}),
   };

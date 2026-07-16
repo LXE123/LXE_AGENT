@@ -11,17 +11,32 @@ import {
 } from "electron";
 import type {
   DashboardTransportRequest,
+  DesktopDashboardInvalidation,
   DesktopHealth,
   DesktopSetupInput,
   DesktopSetupState,
 } from "@lxe/desktop-protocol";
 import type { JsonValue } from "@lxe/protocol";
+import { loadProjectEnv } from "@lxe/gateway/desktop";
 import { IPC_CHANNELS } from "./ipc-channels";
 import { registerDashboardProtocol } from "./main/app-protocol";
 import { createTrayIcon } from "./main/brand";
+import { DesktopConfigImportManager } from "./main/config-import";
 import { DesktopConfigStore } from "./main/config-store";
+import {
+  ALL_DASHBOARD_DATA_DOMAINS,
+  DashboardInvalidationBatcher,
+  dashboardDomainsForMutation,
+} from "./main/dashboard-invalidation";
 import { DesktopGateway } from "./main/desktop-gateway";
 import { registerDesktopIpc, type DesktopIpcApplication } from "./main/ipc";
+import {
+  desktopPreviewDataRoot,
+  isAllowedDesktopNavigation,
+  resolveDesktopLaunchMode,
+  usesPackagedRuntime,
+  usesProductionRenderer,
+} from "./main/launch-mode";
 import { bootstrapDesktopState, migrateLegacyArtifacts } from "./main/migration";
 import { resolveDesktopPaths } from "./main/paths";
 import { desktopWindowAppearance } from "./main/window-options";
@@ -37,6 +52,20 @@ protocol.registerSchemesAsPrivileged([{
   },
 }]);
 
+const launchMode = resolveDesktopLaunchMode({
+  packaged: app.isPackaged,
+  previewFlag: process.env.LXE_DESKTOP_PREVIEW,
+});
+const productionRenderer = usesProductionRenderer(launchMode);
+const packagedRuntime = usesPackagedRuntime(launchMode);
+const previewDataRoot = launchMode === "preview"
+  ? desktopPreviewDataRoot(app.getPath("appData"))
+  : undefined;
+if (previewDataRoot) {
+  app.setPath("userData", previewDataRoot);
+  process.stderr.write(`LXE Agent production preview: app://lxe/ with source runtime\nPreview data: ${previewDataRoot}\n`);
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
 const desktopPlatform = normalizeDesktopPlatform(process.platform);
@@ -48,16 +77,7 @@ let shutdownComplete = false;
 let shutdownPromise: Promise<void> | undefined;
 let removeIpcHandlers: (() => void) | undefined;
 let activeGateway: DesktopGateway | undefined;
-
-const isAllowedNavigation = (target: string, developmentUrl: string): boolean => {
-  try {
-    const parsed = new URL(target);
-    if (app.isPackaged) return parsed.protocol === "app:" && parsed.hostname === "lxe";
-    return parsed.origin === new URL(developmentUrl).origin;
-  } catch {
-    return false;
-  }
-};
+let activeInvalidationBatcher: DashboardInvalidationBatcher | undefined;
 
 const shutdownApplication = (exitCode = 0): Promise<void> => {
   if (shutdownPromise) return shutdownPromise;
@@ -71,6 +91,8 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
     removeIpcHandlers?.();
     removeIpcHandlers = undefined;
     tray?.destroy();
+    activeInvalidationBatcher?.dispose();
+    activeInvalidationBatcher = undefined;
     tray = undefined;
     shutdownComplete = true;
     if (exitCode === 0) app.quit();
@@ -80,12 +102,16 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
 };
 
 async function bootstrap(): Promise<void> {
+  const desktopEnvironment = previewDataRoot
+    ? { ...process.env, LXE_DATA_ROOT: previewDataRoot }
+    : process.env;
   const paths = resolveDesktopPaths({
-    packaged: app.isPackaged,
+    packaged: packagedRuntime,
     appPath: app.getAppPath(),
     resourcesPath: process.resourcesPath,
     userDataPath: app.getPath("userData"),
     documentsPath: app.getPath("documents"),
+    environment: desktopEnvironment,
   });
   bootstrapDesktopState(paths.resourceRoot, paths.dataRoot);
   migrateLegacyArtifacts({
@@ -96,36 +122,76 @@ async function bootstrap(): Promise<void> {
     paths.dataRoot,
     paths.defaultWorkspaceRoot,
     safeStorage,
+    { platform: desktopPlatform },
   );
+  config.migrateLegacyEnvironment({
+    environment: {
+      ...loadProjectEnv({ projectRoot: paths.resourceRoot, initial: desktopEnvironment }),
+      ...loadProjectEnv({ projectRoot: paths.dataRoot, initial: {} }),
+    },
+    managedFiles: [join(paths.dataRoot, ".env"), join(paths.dataRoot, ".env.local")],
+  });
+  const configImports = new DesktopConfigImportManager(config);
   const broadcastHealth = (health: DesktopHealth): void => {
     for (const browserWindow of BrowserWindow.getAllWindows()) {
       if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.statusChanged, health);
     }
   };
+  const broadcastInvalidation = (invalidation: DesktopDashboardInvalidation): void => {
+    for (const browserWindow of BrowserWindow.getAllWindows()) {
+      if (!browserWindow.isDestroyed()) {
+        browserWindow.webContents.send(IPC_CHANNELS.dashboardInvalidated, invalidation);
+      }
+    }
+  };
+  const invalidations = new DashboardInvalidationBatcher(broadcastInvalidation);
+  activeInvalidationBatcher = invalidations;
   const gateway = new DesktopGateway({
     paths,
     config,
     version: app.getVersion(),
-    packaged: app.isPackaged,
+    packaged: packagedRuntime,
     onHealthChanged: broadcastHealth,
+    onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
   });
   activeGateway = gateway;
   const ipcApplication: DesktopIpcApplication = {
-    dashboardRequest: (request: DashboardTransportRequest): Promise<JsonValue> =>
-      gateway.dashboardRequest(request),
+    dashboardRequest: async (request: DashboardTransportRequest): Promise<JsonValue> => {
+      const result = await gateway.dashboardRequest(request);
+      if (request.method === "PATCH") {
+        invalidations.push(dashboardDomainsForMutation(request.path));
+      }
+      return result;
+    },
     getHealth: () => gateway.health(),
-    restartAgent: () => gateway.restartAgent(),
+    restartAgent: async () => {
+      const health = await gateway.restartAgent();
+      invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
+      return health;
+    },
     getSetupState: () => config.state(),
     saveSetup: async (input: DesktopSetupInput): Promise<DesktopSetupState> => {
       const state = config.save(input);
       await gateway.restart();
+      invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
       broadcastHealth(gateway.health());
       return state;
     },
+    previewConfigImport: (filePath) => configImports.select(filePath),
+    applyConfigImport: async (importId) => {
+      const result = configImports.apply(importId);
+      if (result.state.complete) await gateway.restart();
+      else await gateway.stop();
+      invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
+      broadcastHealth(gateway.health());
+      return result;
+    },
+    discardConfigImport: (importId) => configImports.discard(importId),
+    logsDirectory: join(paths.dataRoot, "logs"),
   };
   removeIpcHandlers = registerDesktopIpc(ipcApplication);
 
-  if (app.isPackaged) {
+  if (productionRenderer) {
     registerDashboardProtocol(paths.dashboardRoot);
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       if (!details.url.startsWith("app://lxe/")) {
@@ -174,7 +240,7 @@ async function bootstrap(): Promise<void> {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
     const developmentUrl = String(process.env.LXE_DASHBOARD_DEV_URL ?? "http://127.0.0.1:5173");
-    const allowed = isAllowedNavigation(url, developmentUrl);
+    const allowed = isAllowedDesktopNavigation(url, launchMode, developmentUrl);
     if (!allowed) event.preventDefault();
   });
   window.on("close", (event) => {
@@ -185,7 +251,7 @@ async function bootstrap(): Promise<void> {
   window.on("closed", () => { window = undefined; });
   window.once("ready-to-show", () => window?.show());
   await window.loadURL(
-    app.isPackaged
+    productionRenderer
       ? "app://lxe/"
       : String(process.env.LXE_DASHBOARD_DEV_URL ?? "http://127.0.0.1:5173"),
   );

@@ -60,13 +60,11 @@ describe("direct Gateway composition", () => {
     }, "direct-test.yaml");
     const composition = createDirectGatewayComposition({
       projectRoot: root,
-      runtimeRoot: root,
       bindingsPath: join(root, "sessions.json"),
       policy,
       storage,
       runtime,
       channels: [channel],
-      dashboard: { enabled: false, url: "", start: async () => true, stop: async () => undefined },
     });
 
     await composition.start();

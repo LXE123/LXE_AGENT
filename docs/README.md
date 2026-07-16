@@ -18,7 +18,8 @@
 
 优先从这些文档开始：
 
-- `Current` [Project README](../README.md)：项目概览、快速安装、运行要求和开发检查。
+- `Current` [Project README](../README.md)：产品概览、主要能力、支持平台和产品版本入口。
+- `Current` [Desktop 技术手册](desktop/README.md)：Electron 进程架构、私有运行时、配置、开发和 Windows 打包。
 - `Current` [产品分支与安装入口](record/20260716-product-lines-branch-migration.md)：Desktop `main` 与源码 `lxe-agent-TUI` 的长期边界和迁移规则。
 - `Current` [Python 3.12.10 / uv 部署说明](record/20260428-python-3.12.10-uv.md)：Python 和依赖管理规则。
 - `Current` [LXE Skill CLI Python wheel 运行时](record/20260715-lxeskill-python-runtime.md)：源码 `.venv` 与 Electron 私有 Python 的统一模块调用规则。

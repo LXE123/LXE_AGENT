@@ -9,11 +9,6 @@
     "./desktop": "./src/desktop.ts"
   },
   "scripts": {
-    "dev": "bun src/main.ts",
-    "watch": "bun --watch src/main.ts",
-    "start": "bun src/main.ts",
-    "stop": "bun src/main.ts stop",
-    "build": "bun build src/main.ts --outdir dist --target bun",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

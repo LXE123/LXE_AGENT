@@ -9,6 +9,9 @@ const sourceDir = path.resolve(testDir, "../../src");
 const expectedModules = [
   "api/client.ts",
   "api/payloads.ts",
+  "api/queries.ts",
+  "api/query-client.tsx",
+  "api/query-keys.ts",
   "features/docs/model.ts",
   "features/models/model.ts",
   "features/sessions/conversation.ts",
@@ -58,10 +61,18 @@ test("dashboard entry delegates feature views to dedicated modules", () => {
     main,
     /^function (SessionDetailView|DocsShell|ModelsView|ToolsView|McpView|ConnectorsView|SkillsView|BackgroundTasksView|DetailModal)\(/m
   );
+  assert.doesNotMatch(main, /type DashboardData|setData\(|fetchJson/);
   sourceFiles(sourceDir)
     .filter((file) => path.basename(file) !== "main.tsx")
     .forEach((file) => {
       const source = readFileSync(file, "utf8");
       assert.doesNotMatch(source, /from ["'][^"']*main["']/);
+    });
+
+  sourceFiles(sourceDir)
+    .filter((file) => !file.endsWith("/api/client.ts") && !file.endsWith("/api/queries.ts"))
+    .forEach((file) => {
+      const source = readFileSync(file, "utf8");
+      assert.doesNotMatch(source, /\bfetchJson\b/, `${file} must read server state through Query hooks`);
     });
 });

@@ -22,13 +22,13 @@ Feishu event
   -> Feishu CardKit / message / file
 ```
 
-Gateway 与 Runtime 是同一 Bun 进程内的直接函数调用。平台 callback、session 排队和 turn 执行仍是独立模块，以接口而不是进程隔离职责。
+Gateway 位于 Electron Main，Runtime 位于 Electron 管理的私有 `agent-cli` 子进程；两者通过版本化 agent protocol 通信。平台 callback、session 排队和 turn 执行仍以接口隔离职责。
 
 ## 边界地图
 
 | 边界 | 状态与职责 | 当前实现 |
 | --- | --- | --- |
-| Bootstrap | env、policy、store、provider、tools、Dashboard、channels | [`production.ts`](/apps/gateway/src/orchestration/production.ts) |
+| Bootstrap | 桌面配置、policy、store、受管 Runtime、channels | [`desktop-gateway.ts`](/apps/desktop/src/main/desktop-gateway.ts) |
 | Inbound | 飞书事件、资源与统一消息 | [`feishu/inbound.ts`](/apps/gateway/src/channels/feishu/inbound.ts) |
 | Routing | 权限、binding、route、控制命令 | [`router.ts`](/apps/gateway/src/orchestration/router.ts) |
 | Scheduling | queue、active run、abort、steering | [`scheduler.ts`](/apps/gateway/src/orchestration/scheduler.ts) |

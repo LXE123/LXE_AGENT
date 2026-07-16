@@ -21,24 +21,57 @@ describe("preload bridge", () => {
     expect(Object.keys(bridge).sort()).toEqual(["dashboard", "desktop"]);
     expect(Object.keys(bridge.dashboard)).toEqual(["request"]);
     expect(Object.keys(bridge.desktop).sort()).toEqual([
+      "applyConfigImport",
+      "discardConfigImport",
       "getHealth",
       "getSetupState",
+      "onDashboardInvalidated",
       "onStatusChanged",
+      "openLogsDirectory",
       "platform",
       "restartAgent",
       "saveSetup",
+      "selectConfigImport",
       "selectWorkspace",
+      "selectZiniaoApp",
+      "selectZiniaoWebDriverDirectory",
     ]);
     expect(bridge.desktop.platform).toBe("win32");
     await bridge.dashboard.request({ method: "GET", path: "/api/models" });
+    await bridge.desktop.selectConfigImport();
+    await bridge.desktop.applyConfigImport("import-123");
+    await bridge.desktop.discardConfigImport("import-123");
+    await bridge.desktop.selectZiniaoApp();
+    await bridge.desktop.selectZiniaoWebDriverDirectory();
+    await bridge.desktop.openLogsDirectory();
     await bridge.desktop.getHealth();
     const unsubscribe = bridge.desktop.onStatusChanged(() => undefined);
     expect(listeners.has(IPC_CHANNELS.statusChanged)).toBe(true);
     unsubscribe();
     expect(listeners.has(IPC_CHANNELS.statusChanged)).toBe(false);
+    let revision = 0;
+    const unsubscribeInvalidation = bridge.desktop.onDashboardInvalidated((event) => {
+      revision = event.revision;
+    });
+    listeners.get(IPC_CHANNELS.dashboardInvalidated)?.({}, {
+      revision: 7,
+      domains: ["sessions"],
+      session_ids: ["session-1"],
+    });
+    expect(revision).toBe(7);
+    unsubscribeInvalidation();
+    expect(listeners.has(IPC_CHANNELS.dashboardInvalidated)).toBe(false);
     expect(invocations.map((item) => item.channel)).toEqual([
       IPC_CHANNELS.dashboardRequest,
+      IPC_CHANNELS.selectConfigImport,
+      IPC_CHANNELS.applyConfigImport,
+      IPC_CHANNELS.discardConfigImport,
+      IPC_CHANNELS.selectZiniaoApp,
+      IPC_CHANNELS.selectZiniaoWebDriverDirectory,
+      IPC_CHANNELS.openLogsDirectory,
       IPC_CHANNELS.getHealth,
     ]);
+    expect(invocations[2]?.arguments).toEqual(["import-123"]);
+    expect(invocations[3]?.arguments).toEqual(["import-123"]);
   });
 });
