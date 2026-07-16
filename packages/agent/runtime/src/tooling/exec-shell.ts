@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { delimiter, join, win32 } from "node:path";
+import { posix, win32 } from "node:path";
 
 export const DEFAULT_EXEC_TIMEOUT_SECONDS = 120;
 export const MAX_EXEC_TIMEOUT_SECONDS = 3_600;
@@ -109,15 +109,15 @@ const quotePosix = (value: string): string => `'${value.replaceAll("'", `'"'"'`)
 
 const projectPythonPath = (root: string, platform: NodeJS.Platform): string => platform === "win32"
   ? win32.join(root, ".venv", "Scripts", "python.exe")
-  : join(root, ".venv", "bin", "python");
+  : posix.join(root, ".venv", "bin", "python");
 
 const projectBinPath = (root: string, platform: NodeJS.Platform): string => platform === "win32"
   ? win32.join(root, ".venv", "Scripts")
-  : join(root, ".venv", "bin");
+  : posix.join(root, ".venv", "bin");
 
 const projectVenvPath = (root: string, platform: NodeJS.Platform): string => platform === "win32"
   ? win32.join(root, ".venv")
-  : join(root, ".venv");
+  : posix.join(root, ".venv");
 
 const PROJECT_PYTHON_LAUNCHERS = new Set(["py", "python", "python.exe", "python3", "python3.exe"]);
 const PROJECT_PIP_LAUNCHERS = new Set(["pip", "pip.exe", "pip3", "pip3.exe"]);
@@ -152,12 +152,13 @@ export class ExecShellAdapter {
       || projectPythonPath(root, this.platform);
     const fileExists = this.options.fileExists ?? existsSync;
     const quote = (value: string): string => this.platform === "win32" ? quotePowerShell(value) : quotePosix(value);
+    const invokeExecutable = (value: string): string => `${this.platform === "win32" ? "& " : ""}${quote(value)}`;
     const managedUvPython = command.match(
       /^uv(?:\.exe)?\s+run\s+--frozen\s+python3?(?:\.exe)?(?=\s|$)([\s\S]*)$/iu,
     );
     if (managedUvPython && String(this.environment.LXE_MANAGED_PYTHON ?? "").trim()) {
       if (!fileExists(python)) throw new Error(`managed Python is unavailable: ${python}`);
-      return `${quote(python)}${String(managedUvPython[1] ?? "")}`;
+      return `${invokeExecutable(python)}${String(managedUvPython[1] ?? "")}`;
     }
     const launcher = command.match(/^([A-Za-z0-9_.-]+)(?:\s+(-\d+(?:\.\d+){0,2}))?(?=\s|$)([\s\S]*)$/u);
     if (launcher) {
@@ -169,11 +170,11 @@ export class ExecShellAdapter {
           throw new Error(`project requires .venv Python 3.12.10; ${name} ${version} is not allowed`);
         }
         if (!fileExists(python)) throw new Error(`project Python is unavailable: ${python}`);
-        return `${quote(python)}${rest}`;
+        return `${invokeExecutable(python)}${rest}`;
       }
       if (PROJECT_PIP_LAUNCHERS.has(name) && !version) {
         if (!fileExists(python)) throw new Error(`project Python is unavailable: ${python}`);
-        return `${quote(python)} -m pip${rest}`;
+        return `${invokeExecutable(python)} -m pip${rest}`;
       }
     }
     const skill = command.match(/^lxeskill(?:\.cmd)?(?=\s|$)([\s\S]*)$/iu);
@@ -185,7 +186,8 @@ export class ExecShellAdapter {
           ? `managed Python is unavailable: ${managedPython}`
           : `project Python is unavailable: ${python}`);
       }
-      return `${argv.map(quote).join(" ")}${String(skill[1] ?? "")}`;
+      const invocation = argv.map(quote).join(" ");
+      return `${this.platform === "win32" ? "& " : ""}${invocation}${String(skill[1] ?? "")}`;
     }
     return command;
   }
@@ -209,7 +211,7 @@ export class ExecShellAdapter {
 
   childEnvironment(root: string, context: ExecEnvironmentContext): Environment {
     const projectBin = projectBinPath(root, this.platform);
-    const pathSeparator = this.platform === "win32" ? ";" : delimiter;
+    const pathSeparator = this.platform === "win32" ? ";" : ":";
     const inheritedPath = this.environment.PATH ?? this.environment.Path ?? "";
     const managedPath = String(this.environment.LXE_MANAGED_PATH ?? "").trim();
     const pathEntries = (managedPath ? [managedPath, inheritedPath] : [projectBin, inheritedPath])

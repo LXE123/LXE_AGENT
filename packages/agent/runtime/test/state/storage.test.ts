@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -196,12 +196,17 @@ describe("SqliteRuntimeStore", () => {
     });
 
     const legacy = new Database(databasePath);
-    legacy.query(`
+    const legacyInsert = legacy.prepare(`
       INSERT INTO turn_usage_items
         (turn_id, session_id, started_at, kind, name, module, calls, errors, duration_ms, detail)
       VALUES ('turn-1', 's1', ?, 'skill', 'legacy', 'legacy_module', 99, 99, 999, 'legacy command')
-    `).run(startedAt);
-    legacy.close(false);
+    `);
+    try {
+      legacyInsert.run(startedAt);
+    } finally {
+      legacyInsert.finalize();
+      legacy.close(true);
+    }
 
     expect(store.skillUsageStats(30, "demo")).toEqual([{
       name: "demo", module: "amazon_replenish", activations: 1, executions: 3,
@@ -236,5 +241,32 @@ describe("SqliteRuntimeStore", () => {
     store.clearSessionRuntimeState("s1");
     expect((await store.getSession("s1"))?.source.tool_state).toBeUndefined();
     await store.stop();
+  });
+
+  test("releases SQLite files after session detail and usage export", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-runtime-usage-close-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.appendMessage("s1", { role: "user", content: "hello" });
+    await store.recordTurn("s1", {
+      turn_id: "turn-1", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 4,
+      input_tokens: 1, output_tokens: 1, tool_calls: 1, api_calls: 1,
+      tools: [{ name: "lxeskill:demo", calls: 1, errors: 0, duration_ms: 4 }],
+      activations: [{ skill: "demo", module: "test" }],
+      executions: [{ skill: "demo", module: "test", command: "demo run", success: true, duration_ms: 4 }],
+    });
+
+    expect(store.listSessions({ limit: 10, offset: 0 }).items).toHaveLength(1);
+    expect((await store.sessionDetail("s1", { limit: 10, page: 1 }))?.messages).toHaveLength(1);
+    expect(store.exportTurnUsage(30)).toEqual([
+      expect.objectContaining({ turn_id: "turn-1", items: expect.any(Array) }),
+    ]);
+
+    await store.stop();
+    rmSync(root, { recursive: true, force: true });
+    expect(existsSync(root)).toBe(false);
+    roots.splice(roots.indexOf(root), 1);
   });
 });

@@ -9,24 +9,26 @@ import {
 } from "../../src/tooling/exec-shell";
 
 describe("ExecShellAdapter", () => {
-  test("uses /bin/sh without a login profile on Unix", () => {
-    const shell = new ExecShellAdapter({ platform: "darwin", environment: { PATH: "/usr/bin:/bin" } });
-    expect(shell.spawnSpec("printf ok")).toEqual({
-      argv: ["/bin/sh", "-c", "printf ok"],
-      detached: true,
+  for (const platform of ["darwin", "linux"] as const) {
+    test(`uses /bin/sh and POSIX paths on ${platform}`, () => {
+      const shell = new ExecShellAdapter({ platform, environment: { PATH: "/usr/bin:/bin" } });
+      expect(shell.spawnSpec("printf ok")).toEqual({
+        argv: ["/bin/sh", "-c", "printf ok"],
+        detached: true,
+      });
+      expect(shell.childEnvironment("/workspace", {
+        sessionId: "session", turnId: "turn", responseRouteId: "route", execSessionId: "exec",
+      })).toMatchObject({
+        PATH: "/workspace/.venv/bin:/usr/bin:/bin",
+        VIRTUAL_ENV: "/workspace/.venv",
+        LXE_AGENT_SESSION_ID: "session",
+        LXE_AGENT_TURN_ID: "turn",
+        LXE_RESPONSE_ROUTE_ID: "route",
+        LXE_EXEC_SESSION_ID: "exec",
+        LXE_ROOT: "/workspace",
+      });
     });
-    expect(shell.childEnvironment("/workspace", {
-      sessionId: "session", turnId: "turn", responseRouteId: "route", execSessionId: "exec",
-    })).toMatchObject({
-      PATH: "/workspace/.venv/bin:/usr/bin:/bin",
-      VIRTUAL_ENV: "/workspace/.venv",
-      LXE_AGENT_SESSION_ID: "session",
-      LXE_AGENT_TURN_ID: "turn",
-      LXE_RESPONSE_ROUTE_ID: "route",
-      LXE_EXEC_SESSION_ID: "exec",
-      LXE_ROOT: "/workspace",
-    });
-  });
+  }
 
   test("resolves verified PowerShell 7 before Windows PowerShell 5.1", () => {
     const programFiles = "C:\\Program Files";
@@ -74,8 +76,14 @@ describe("ExecShellAdapter", () => {
       platform: "win32",
       fileExists: (path) => path.endsWith(".venv\\Scripts\\python.exe"),
     });
+    expect(windows.normalizeCommand("C:\\Work O'Brien", "python -c \"print(1)\"")).toBe(
+      "& 'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' -c \"print(1)\"",
+    );
+    expect(windows.normalizeCommand("C:\\Work O'Brien", "pip install demo")).toBe(
+      "& 'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' -m pip install demo",
+    );
     expect(windows.normalizeCommand("C:\\Work O'Brien", "lxeskill list")).toBe(
-      "'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' '-I' '-m' 'lxeskill' list",
+      "& 'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' '-I' '-m' 'lxeskill' list",
     );
   });
 
@@ -121,7 +129,7 @@ describe("ExecShellAdapter", () => {
     expect(shell.normalizeCommand(
       "C:\\Users\\demo\\workspace",
       "uv run --frozen python scripts/report.py --format json",
-    )).toBe("'C:\\LXE\\python\\python.exe' scripts/report.py --format json");
+    )).toBe("& 'C:\\LXE\\python\\python.exe' scripts/report.py --format json");
   });
 
   test("uses managed Python and ignores removed frozen-runtime overrides", () => {

@@ -163,14 +163,21 @@ describe("native coding tools", () => {
         background: true,
       }, context())).content[0]?.text);
       const session = started.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
-      await Bun.sleep(100);
-      const polled = session
-        ? String((await registry.execute("process", { action: "poll", session }, context())).content[0]?.text)
-        : "";
-      const childPid = Number(`${started}\n${polled}`.match(/(?:tail|new_output):\s*(\d+)/u)?.[1]);
       expect(session).toMatch(/^exec_/);
+      let observed = started;
+      const deadline = performance.now() + 3_000;
+      while (session && !/(?:tail|output):\s*\d+/u.test(observed) && performance.now() < deadline) {
+        await Bun.sleep(25);
+        const logged = String((await registry.execute(
+          "process",
+          { action: "log", session, offset: 1, limit: 10 },
+          context(),
+        )).content[0]?.text);
+        observed = `${started}\n${logged}`;
+      }
+      const childPid = Number(observed.match(/(?:tail|output):\s*(\d+)/u)?.[1]);
       expect(childPid).toBeGreaterThan(0);
-      if (!session || !childPid) throw new Error(`missing process identifiers in: ${started}`);
+      if (!session || !childPid) throw new Error(`missing process identifiers in: ${observed}`);
       return { session, childPid };
     };
     const expectDead = async (pid: number): Promise<void> => {
@@ -189,7 +196,7 @@ describe("native coding tools", () => {
     const forceKilled = await startTree();
     await processes.stop();
     await expectDead(forceKilled.childPid);
-  });
+  }, 15_000);
 
   test("uses timeout seconds and ignores the timer for explicit background work", async () => {
     const registry = new ToolRegistry();

@@ -106,10 +106,13 @@ describe("MaintenanceScheduler", () => {
     const starting = scheduler.start();
     void starting.catch(() => undefined);
     await runnerEntered;
-    const started = Date.now();
+    const started = performance.now();
     await scheduler.stop();
-    expect(Date.now() - started).toBeLessThan(200);
+    const elapsedMs = performance.now() - started;
     await store.stop();
+    // Console logging is synchronous and can stall under Windows CI; the
+    // scheduler must still return well before its normal five-second budget.
+    expect(elapsedMs).toBeLessThan(1_000);
   });
 
   test("aborts an in-flight auth refresh when stopped during startup", async () => {

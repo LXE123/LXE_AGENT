@@ -46,6 +46,7 @@ describe("ProcessAgentRuntime", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-agent-process-"));
     temporaryRoots.push(root);
     const crashMarker = join(root, "crashed.once");
+    const states: string[] = [];
     const runtime = new ProcessAgentRuntime({
       command: process.execPath,
       arguments: [fixture],
@@ -56,17 +57,23 @@ describe("ProcessAgentRuntime", () => {
       workspaceRoot: root,
       requestTimeoutMs: 2_000,
       restartDelaysMs: [10, 20],
+      onStatus: (status) => states.push(status.state),
     });
     runtimes.push(runtime);
     await runtime.start();
 
     await expect(runtime.dashboardRequest({ method: "GET", path: "/api/crash" })).rejects.toThrow("exited");
     expect(existsSync(crashMarker)).toBe(true);
-    await Bun.sleep(100);
+    const deadline = performance.now() + 3_000;
+    while (states.filter((state) => state === "ready").length < 2 && performance.now() < deadline) {
+      await Bun.sleep(10);
+    }
 
+    expect(states).toContain("error");
+    expect(states.filter((state) => state === "ready")).toHaveLength(2);
     expect(runtime.isReady).toBe(true);
     expect(await runtime.remoteHealth()).toMatchObject({ ready: true, fake: true });
-  });
+  }, 10_000);
 
   test("forwards steering and deduplicates cancellation for an active turn", async () => {
     const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");

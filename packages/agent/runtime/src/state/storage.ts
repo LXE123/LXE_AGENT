@@ -3,6 +3,7 @@ import { appendFile, mkdir, open, readFile, stat, truncate } from "node:fs/promi
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
+import type { SQLQueryBindings } from "bun:sqlite";
 import type { JsonObject, JsonValue } from "@lxe/protocol";
 import type {
   RuntimeMessage,
@@ -308,7 +309,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         ON transcript_display_groups (session_id, group_number);
     `);
     this.database = database;
-    const columns = database.query("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
+    const columns = this.allPrepared<{ name: string }>("PRAGMA table_info(agent_sessions)");
     if (!columns.some((column) => column.name === "reasoning_effort")) {
       database.exec("ALTER TABLE agent_sessions ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''");
     }
@@ -326,8 +327,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const sessionId = text(request.session_id);
     if (!sessionId) throw new Error("session_id required");
     const incomingSource = parseObject(request.source);
-    const current = this.db().query("SELECT source FROM agent_sessions WHERE session_id = ?")
-      .get(sessionId) as { source: string } | null;
+    const current = this.getPrepared<{ source: string }>(
+      "SELECT source FROM agent_sessions WHERE session_id = ?",
+      sessionId,
+    );
     const source = mergeObjects(current ? parseObject(current.source) : {}, incomingSource);
     const now = Date.now() / 1_000;
     this.db().query(`
@@ -342,8 +345,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
   }
 
   async getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined> {
-    const row = this.db().query("SELECT session_id, source FROM agent_sessions WHERE session_id = ?")
-      .get(text(sessionId)) as { session_id: string; source: string } | null;
+    const row = this.getPrepared<{ session_id: string; source: string }>(
+      "SELECT session_id, source FROM agent_sessions WHERE session_id = ?",
+      text(sessionId),
+    );
     return row ? { session_id: row.session_id, source: parseObject(row.source) } : undefined;
   }
 
@@ -384,8 +389,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
   }
 
   async getResponseRoute(responseRouteId: string): Promise<JsonObject | undefined> {
-    const row = this.db().query("SELECT * FROM response_routes WHERE response_route_id = ?")
-      .get(text(responseRouteId)) as Record<string, unknown> | null;
+    const row = this.getPrepared<Record<string, unknown>>(
+      "SELECT * FROM response_routes WHERE response_route_id = ?",
+      text(responseRouteId),
+    );
     if (!row) return undefined;
     return {
       response_route_id: text(row.response_route_id),
@@ -438,19 +445,20 @@ export class SqliteRuntimeStore implements RuntimeStore {
   }
 
   async hasPendingEvents(sessionId: string): Promise<boolean> {
-    const row = this.db().query(
+    const row = this.getPrepared<{ present: number }>(
       "SELECT 1 AS present FROM agent_session_pending_events WHERE session_id = ? LIMIT 1",
-    ).get(text(sessionId)) as { present: number } | null;
+      text(sessionId),
+    );
     return Boolean(row?.present);
   }
 
   async popPendingEvents(sessionId: string): Promise<JsonObject[]> {
     const safeSessionId = text(sessionId);
     const transaction = this.db().transaction(() => {
-      const rows = this.db().query(`
+      const rows = this.allPrepared<Record<string, unknown>>(`
         SELECT event_id, job_id, created_at, text, queued_at
         FROM agent_session_pending_events WHERE session_id = ? ORDER BY queue_id ASC
-      `).all(safeSessionId) as Array<Record<string, unknown>>;
+      `, safeSessionId);
       this.db().query("DELETE FROM agent_session_pending_events WHERE session_id = ?").run(safeSessionId);
       return rows.map((row) => ({
         event_id: text(row.event_id),
@@ -490,8 +498,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
   clearSessionRuntimeState(sessionId: string): void {
     const safeSessionId = text(sessionId);
     this.db().transaction(() => {
-      const row = this.db().query("SELECT source FROM agent_sessions WHERE session_id = ?")
-        .get(safeSessionId) as { source: string } | null;
+      const row = this.getPrepared<{ source: string }>(
+        "SELECT source FROM agent_sessions WHERE session_id = ?",
+        safeSessionId,
+      );
       if (!row) throw new Error(`session not found: ${safeSessionId}`);
       const source = parseObject(row.source);
       delete source.tool_state;
@@ -627,8 +637,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
   async patchSessionState(sessionId: string, patch: JsonObject): Promise<void> {
     const safeSessionId = text(sessionId);
     const transaction = this.db().transaction(() => {
-      const row = this.db().query("SELECT source FROM agent_sessions WHERE session_id = ?")
-        .get(safeSessionId) as { source: string } | null;
+      const row = this.getPrepared<{ source: string }>(
+        "SELECT source FROM agent_sessions WHERE session_id = ?",
+        safeSessionId,
+      );
       if (!row) throw new Error(`session not found: ${safeSessionId}`);
       const source = parseObject(row.source);
       source.tool_state = mergeObjects(parseObject(source.tool_state), patch);
@@ -707,35 +719,35 @@ export class SqliteRuntimeStore implements RuntimeStore {
   usageOverview(days: number): JsonObject {
     const safeDays = Math.max(1, Math.min(Math.trunc(days), 365));
     const cutoff = Date.now() / 1_000 - safeDays * 86_400;
-    const totals = this.db().query(`
+    const totals = this.getPrepared<Record<string, number>>(`
       SELECT COUNT(*) AS turns, COALESCE(SUM(tool_calls), 0) AS tool_calls,
              COALESCE(SUM(llm_calls), 0) AS llm_calls, COALESCE(SUM(input_tokens), 0) AS input_tokens,
              COALESCE(SUM(output_tokens), 0) AS output_tokens,
              COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS error_turns
       FROM turn_usage WHERE started_at >= ?
-    `).get(cutoff) as Record<string, number>;
-    const dailyTurns = this.db().query(`
+    `, cutoff) ?? {};
+    const dailyTurns = this.allPrepared<Record<string, unknown>>(`
       SELECT date(started_at, 'unixepoch', 'localtime') AS day, COUNT(*) AS turns,
              COALESCE(SUM(tool_calls), 0) AS tool_calls
       FROM turn_usage WHERE started_at >= ? GROUP BY day ORDER BY day ASC
-    `).all(cutoff) as Array<Record<string, unknown>>;
-    const dailyExecutions = this.db().query(`
+    `, cutoff);
+    const dailyExecutions = this.allPrepared<Record<string, unknown>>(`
       SELECT date(started_at, 'unixepoch', 'localtime') AS day,
              COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures
       FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
       GROUP BY day ORDER BY day ASC
-    `).all(cutoff) as Array<Record<string, unknown>>;
-    const skillTotals = this.db().query(`
+    `, cutoff);
+    const skillTotals = this.getPrepared<Record<string, number>>(`
       SELECT COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures
       FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
-    `).get(cutoff) as Record<string, number> | null;
-    const modules = this.db().query(`
+    `, cutoff);
+    const modules = this.allPrepared<Record<string, unknown>>(`
       SELECT module, COUNT(DISTINCT name) AS skills, COUNT(DISTINCT turn_id) AS turns,
              COALESCE(SUM(calls), 0) AS executions, COALESCE(SUM(errors), 0) AS failures,
              COALESCE(SUM(duration_ms), 0) AS duration_ms
       FROM turn_usage_items WHERE kind = 'skill_execution' AND started_at >= ?
       GROUP BY module ORDER BY executions DESC, module ASC
-    `).all(cutoff) as Array<Record<string, unknown>>;
+    `, cutoff);
     const executionsByDay = new Map(dailyExecutions.map((row) => [text(row.day), row]));
     return {
       days: safeDays,
@@ -762,13 +774,13 @@ export class SqliteRuntimeStore implements RuntimeStore {
 
   toolUsageStats(days: number): JsonObject[] {
     const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
-    const rows = this.db().query(`
+    const rows = this.allPrepared<Record<string, unknown>>(`
       SELECT name, COALESCE(SUM(calls), 0) AS calls, COALESCE(SUM(errors), 0) AS errors,
              COALESCE(SUM(duration_ms), 0) AS duration_ms, COUNT(DISTINCT turn_id) AS turns,
              MAX(started_at) AS last_used_at
       FROM turn_usage_items WHERE kind = 'tool' AND started_at >= ?
       GROUP BY name ORDER BY calls DESC, name ASC
-    `).all(cutoff) as Array<Record<string, unknown>>;
+    `, cutoff);
     return rows.map((row) => ({
       name: text(row.name), calls: Number(row.calls ?? 0), errors: Number(row.errors ?? 0),
       duration_ms: Number(row.duration_ms ?? 0), turns: Number(row.turns ?? 0), last_used_at: Number(row.last_used_at ?? 0),
@@ -778,7 +790,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
   skillUsageStats(days: number, name = ""): JsonObject[] {
     const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
     const skillName = text(name);
-    const rows = this.db().query(`
+    const rows = this.allPrepared<Record<string, unknown>>(`
       SELECT name, MAX(module) AS module,
              COALESCE(SUM(CASE WHEN kind = 'skill_activation' THEN calls ELSE 0 END), 0) AS activations,
              COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN calls ELSE 0 END), 0) AS executions,
@@ -789,7 +801,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
       FROM turn_usage_items
       WHERE kind IN ('skill_activation', 'skill_execution') AND started_at >= ? AND (? = '' OR name = ?)
       GROUP BY name ORDER BY executions DESC, activations DESC, name ASC
-    `).all(cutoff, skillName, skillName) as Array<Record<string, unknown>>;
+    `, cutoff, skillName, skillName);
     return rows.map((row) => ({
       name: text(row.name), module: text(row.module), activations: Number(row.activations ?? 0),
       executions: Number(row.executions ?? 0),
@@ -802,7 +814,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const skillName = text(name);
     const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
     const safeFailureLimit = Math.max(1, Math.min(Math.trunc(failureLimit), 50));
-    const daily = this.db().query(`
+    const daily = this.allPrepared<Record<string, unknown>>(`
       SELECT date(started_at, 'unixepoch', 'localtime') AS day,
              COALESCE(SUM(CASE WHEN kind = 'skill_activation' THEN calls ELSE 0 END), 0) AS activations,
              COALESCE(SUM(CASE WHEN kind = 'skill_execution' THEN calls ELSE 0 END), 0) AS executions,
@@ -810,13 +822,13 @@ export class SqliteRuntimeStore implements RuntimeStore {
       FROM turn_usage_items
       WHERE name = ? AND kind IN ('skill_activation', 'skill_execution') AND started_at >= ?
       GROUP BY day ORDER BY day ASC
-    `).all(skillName, cutoff) as Array<Record<string, unknown>>;
-    const failures = this.db().query(`
+    `, skillName, cutoff);
+    const failures = this.allPrepared<Record<string, unknown>>(`
       SELECT turn_id, session_id, started_at, detail
       FROM turn_usage_items
       WHERE name = ? AND kind = 'skill_execution' AND errors > 0 AND started_at >= ?
       ORDER BY started_at DESC LIMIT ?
-    `).all(skillName, cutoff, safeFailureLimit) as Array<Record<string, unknown>>;
+    `, skillName, cutoff, safeFailureLimit);
     return {
       name: skillName,
       daily: daily.map((row) => ({
@@ -832,10 +844,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
 
   exportTurnUsage(days: number, limit = 5_000): JsonObject[] {
     const cutoff = Date.now() / 1_000 - Math.max(1, Math.min(Math.trunc(days), 365)) * 86_400;
-    const rows = this.db().query(`
+    const rows = this.allPrepared<Record<string, unknown>>(`
       SELECT turn_id, session_id, started_at, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens
       FROM turn_usage WHERE started_at >= ? ORDER BY started_at ASC LIMIT ?
-    `).all(cutoff, Math.max(1, Math.min(Math.trunc(limit), 50_000))) as Array<Record<string, unknown>>;
+    `, cutoff, Math.max(1, Math.min(Math.trunc(limit), 50_000)));
     const turns = rows.map((row) => ({
       turn_id: text(row.turn_id), session_id: text(row.session_id), started_at: Number(row.started_at ?? 0),
       status: text(row.status), elapsed_ms: Number(row.elapsed_ms ?? 0), llm_calls: Number(row.llm_calls ?? 0),
@@ -844,12 +856,12 @@ export class SqliteRuntimeStore implements RuntimeStore {
     }));
     const byId = new Map(turns.map((turn) => [turn.turn_id, turn]));
     if (turns.length > 0) {
-      const items = this.db().query(`
+      const items = this.allPrepared<Record<string, unknown>>(`
         SELECT turn_id, kind, name, module, calls, errors, duration_ms, detail
         FROM turn_usage_items
         WHERE started_at >= ? AND kind IN ('tool', 'skill_activation', 'skill_execution')
         ORDER BY item_id ASC
-      `).all(cutoff) as Array<Record<string, unknown>>;
+      `, cutoff);
       for (const row of items) {
         byId.get(text(row.turn_id))?.items.push({
           kind: text(row.kind), name: text(row.name), module: text(row.module), calls: Number(row.calls ?? 0),
@@ -874,18 +886,20 @@ export class SqliteRuntimeStore implements RuntimeStore {
       ? "WHERE lower(coalesce(session_id, '')) LIKE ? OR lower(coalesce(title, '')) LIKE ? OR lower(coalesce(model, '')) LIKE ? OR lower(coalesce(source, '')) LIKE ?"
       : "";
     const whereArgs = needle ? Array(4).fill(`%${needle}%`) : [];
-    const totalRow = this.db().query(`SELECT COUNT(*) AS count FROM agent_sessions ${where}`)
-      .get(...whereArgs) as { count: number } | null;
-    const rows = this.db().query(`
+    const totalRow = this.getPrepared<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM agent_sessions ${where}`,
+      ...whereArgs,
+    );
+    const rows = this.allPrepared<Record<string, unknown>>(`
       SELECT session_id, source, model, reasoning_effort, model_config, created_at, last_active_at,
              message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
       FROM agent_sessions ${where}
       ORDER BY last_active_at DESC, created_at DESC, session_id ASC LIMIT ? OFFSET ?
-    `).all(...whereArgs, limit, offset) as Array<Record<string, unknown>>;
-    const summary = this.db().query(`
+    `, ...whereArgs, limit, offset);
+    const summary = this.getPrepared<Record<string, number>>(`
       SELECT COUNT(*) AS total_sessions, COALESCE(SUM(tool_call_count), 0) AS tool_call_count,
              COALESCE(SUM(input_tokens + output_tokens), 0) AS token_count FROM agent_sessions
-    `).get() as Record<string, number> | null;
+    `);
     return {
       items: rows.map((row) => this.sessionPayload(row)),
       limit,
@@ -901,15 +915,17 @@ export class SqliteRuntimeStore implements RuntimeStore {
 
   async sessionDetail(sessionId: string, options: DashboardSessionPageOptions): Promise<JsonObject | undefined> {
     const safeSessionId = text(sessionId);
-    const exists = this.db().query("SELECT 1 AS present FROM agent_sessions WHERE session_id = ?")
-      .get(safeSessionId) as { present: number } | null;
+    const exists = this.getPrepared<{ present: number }>(
+      "SELECT 1 AS present FROM agent_sessions WHERE session_id = ?",
+      safeSessionId,
+    );
     if (!exists) return undefined;
     const display = await this.loadTranscriptDisplayPage(safeSessionId, options);
-    const row = this.db().query(`
+    const row = this.getPrepared<Record<string, unknown>>(`
       SELECT session_id, source, model, reasoning_effort, model_config, created_at, last_active_at,
              message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
       FROM agent_sessions WHERE session_id = ?
-    `).get(safeSessionId) as Record<string, unknown> | null;
+    `, safeSessionId);
     if (!row) return undefined;
     return {
       session: this.sessionPayload(row),
@@ -921,6 +937,24 @@ export class SqliteRuntimeStore implements RuntimeStore {
   private db(): Database {
     if (!this.database) throw new Error("runtime store is not started");
     return this.database;
+  }
+
+  private allPrepared<T>(sql: string, ...bindings: SQLQueryBindings[]): T[] {
+    const statement = this.db().prepare<T, SQLQueryBindings[]>(sql);
+    try {
+      return statement.all(...bindings);
+    } finally {
+      statement.finalize();
+    }
+  }
+
+  private getPrepared<T>(sql: string, ...bindings: SQLQueryBindings[]): T | null {
+    const statement = this.db().prepare<T, SQLQueryBindings[]>(sql);
+    try {
+      return statement.get(...bindings);
+    } finally {
+      statement.finalize();
+    }
   }
 
   private sessionPayload(row: Record<string, unknown>): JsonObject {
@@ -1133,8 +1167,9 @@ export class SqliteRuntimeStore implements RuntimeStore {
   }
 
   private async catchUpTranscriptIndexes(): Promise<void> {
-    const rows = this.db().query("SELECT session_id FROM agent_sessions ORDER BY session_id")
-      .all() as Array<{ session_id: string }>;
+    const rows = this.allPrepared<{ session_id: string }>(
+      "SELECT session_id FROM agent_sessions ORDER BY session_id",
+    );
     for (const row of rows) {
       const sessionId = text(row.session_id);
       if (sessionId) await this.enqueueIndexSync(sessionId, this.transcriptPath(sessionId));
@@ -1182,11 +1217,11 @@ export class SqliteRuntimeStore implements RuntimeStore {
       this.removeReplayCacheEntry(sessionId);
       return undefined;
     }
-    const rawState = this.db().query(`
+    const rawState = this.getPrepared<Record<string, unknown>>(`
       SELECT file_size, mtime_ms, indexed_bytes, event_count, raw_message_count,
              display_group_count, last_display_kind
       FROM transcript_file_state WHERE session_id = ?
-    `).get(sessionId) as Record<string, unknown> | null;
+    `, sessionId);
     const state: TranscriptFileState | undefined = rawState ? {
       file_size: Number(rawState.file_size ?? 0),
       mtime_ms: Number(rawState.mtime_ms ?? 0),
@@ -1336,11 +1371,11 @@ export class SqliteRuntimeStore implements RuntimeStore {
       : Math.max(1, Math.min(Math.trunc(options.page), totalPages));
     const start = Math.min(total, (currentPage - 1) * limit);
     const end = Math.min(total, start + limit);
-    const groups = this.db().query(`
+    const groups = this.allPrepared<{ byte_start: number; byte_end: number }>(`
       SELECT byte_start, byte_end FROM transcript_display_groups
       WHERE session_id = ? AND group_number >= ? AND group_number < ?
       ORDER BY group_number ASC
-    `).all(sessionId, start, end) as Array<{ byte_start: number; byte_end: number }>;
+    `, sessionId, start, end);
     const messages: JsonObject[] = [];
     if (groups.length > 0) {
       const byteStart = Number(groups[0]!.byte_start);
