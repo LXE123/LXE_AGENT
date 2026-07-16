@@ -448,7 +448,7 @@ function Test-LxePythonRuntime {
     $previousBrowserRoot = $env:PLAYWRIGHT_BROWSERS_PATH
     try {
         $env:PLAYWRIGHT_BROWSERS_PATH = $PlaywrightRoot
-        $browserSmoke = "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True); page=b.new_page(); page.goto('data:text/html,<title>LXE</title>'); assert page.title() == 'LXE'; b.close(); p.stop()"
+        $browserSmoke = "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(channel='chromium', headless=True); page=b.new_page(); page.goto('data:text/html,<title>LXE</title>'); assert page.title() == 'LXE'; b.close(); p.stop()"
         Invoke-LxeNative -Label "Playwright Chromium smoke" -FilePath $python -Arguments @("-I", "-c", $browserSmoke) -TimeoutSeconds 120 -Quiet | Out-Null
     }
     finally {
@@ -735,7 +735,7 @@ function Install-LxePlaywrightBrowser {
     )
 
     $python = Join-Path $PythonRoot "python.exe"
-    $browserCache = Join-Path $script:ResolvedCacheRoot "playwright\$($script:RuntimeLock.playwright.version)"
+    $browserCache = Join-Path $script:ResolvedCacheRoot "playwright\$($script:RuntimeLock.playwright.cache_key)"
     if ($Offline) {
         if (-not (Test-Path -LiteralPath $browserCache -PathType Container)) {
             throw "Playwright Chromium is missing from the offline cache: $browserCache"
@@ -755,7 +755,7 @@ function Install-LxePlaywrightBrowser {
             try {
                 Write-Host "Preparing Playwright Chromium (attempt $attempt/$attempts)..."
                 Invoke-LxeNative -Label "Playwright Chromium installation" -FilePath $python -Arguments @(
-                    "-I", "-m", "playwright", "install", [string]$script:RuntimeLock.playwright.browser
+                    "-I", "-m", "playwright", "install", "--no-shell", [string]$script:RuntimeLock.playwright.browser
                 ) -TimeoutSeconds 900 | Out-Null
                 if (Test-Path -LiteralPath $Destination) {
                     Remove-Item -LiteralPath $Destination -Recurse -Force

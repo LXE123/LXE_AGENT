@@ -17,6 +17,9 @@ bun run desktop:runtime:win
 
 The first run downloads Node 22.22.2, Python 3.12.10, uv 0.11.19,
 ripgrep 15.1.0, Playwright Chromium, and the pinned DingTalk/Lark npm packages.
+Playwright is installed with `--no-shell`; headed and headless automation both
+use the full browser through the `chromium` channel instead of carrying the
+separate Chromium headless shell.
 Validated downloads and a complete runtime image are cached under
 `build/desktop-runtime-cache/win32-x64`, so a later build can be reconstructed
 offline:
@@ -72,6 +75,21 @@ managed runtime, inject it into the build subprocess environment, rebuild the
 current LXE wheel, compile `agent-cli.exe`, install the wheel into the staged
 private Python, stage the remaining resources, and create the NSIS installer.
 
+The managed build image is intentionally larger than the installed runtime.
+It retains npm/npx, the npm content cache, and uv so that an offline build can
+be reconstructed. Resource staging keeps `node.exe`, `python.exe`, pip, the
+three pinned Node CLIs, ripgrep, and the production Python packages, but it does
+not copy npm/npx, `npm-cache`, or `uv.exe` into the installer. The DWS package's
+post-install archives are also omitted after its native executable and shared
+skills have been validated.
+
+The packaged Playwright Python binding uses the private Node 22 executable via
+`PLAYWRIGHT_NODEJS_PATH`; its second driver-local `node.exe` is removed. Both
+Electron and Playwright Chromium keep only `en-US` and `zh-CN` locale packs.
+Agent shell commands can still run Node, Python, pip, lxeskill, DWS, Lark CLI,
+and Whiteboard CLI. The legacy skill form `uv run --frozen python ...` is
+normalized to the managed Python executable before the shell is spawned.
+
 `-Offline` also applies to the wheel build. A prior online build must have
 populated the persistent uv cache with the pinned Hatchling build backend;
 missing build cache causes a clear failure without modifying the last valid
@@ -85,6 +103,35 @@ small readiness marker records the successful 28-command smoke and wheel hash;
 desktop health requires the Python executable, module file, and marker. Only
 Git-tracked project resources are copied, so local `.env`, authentication,
 sessions, and business artifacts cannot leak into the installer.
+
+After electron-builder creates `win-unpacked`,
+`scripts/report-desktop-resource-sizes.ts` writes
+`dist/desktop/desktop-resource-sizes.json`. It reports logical bytes and file
+counts for Electron, Node, Python, Playwright, agent-cli, tools, Dashboard, and
+project resources. The Windows build fails when the managed runtime exceeds
+950 MiB or the complete unpacked application exceeds 1.30 GiB.
+
+## Windows size baseline
+
+The optimized 2026-07-16 Windows x64 build produced these measured results:
+
+| Component | Logical size |
+| --- | ---: |
+| Installed application | 1,207.24 MiB |
+| `win-unpacked` | 1,207.08 MiB |
+| Managed runtime | 884.29 MiB |
+| Node runtime and CLI packages | 215.28 MiB |
+| Python runtime and packages | 209.43 MiB |
+| Playwright browser files | 356.47 MiB |
+| Compiled agent-cli | 99.05 MiB |
+| Electron and top-level files | 301.57 MiB |
+| NSIS installer | 354.45 MiB |
+
+The previous installed application measured 1,832.07 MiB. The optimized
+installation is 624.83 MiB smaller, a 34.1% reduction. The generated report
+confirmed zero packaged bytes for `runtime/uv`, `runtime/node/npm-cache`, and
+the Playwright driver-local Node executable. The unpacked, NSIS, and actual
+installed application all passed the packaged preload/IPC health probe.
 
 Authenticode signing uses electron-builder's standard `CSC_LINK` and
 `CSC_KEY_PASSWORD` environment variables. Unsigned output is intended only for

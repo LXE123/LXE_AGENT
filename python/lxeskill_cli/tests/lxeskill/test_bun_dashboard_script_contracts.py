@@ -105,6 +105,7 @@ def test_windows_desktop_runtime_preparer_is_pinned_isolated_and_offline_capable
     assert runtime_lock["uv"]["version"] == "0.11.19"
     assert runtime_lock["ripgrep"]["version"] == "15.1.0"
     assert runtime_lock["playwright"]["version"] == "1.58.0"
+    assert runtime_lock["playwright"]["cache_key"] == "1.58.0-chromium-channel-no-shell"
     assert node_manifest["dependencies"] == {
         "@larksuite/cli": "1.0.58",
         "@larksuite/whiteboard-cli": "0.2.11",
@@ -121,6 +122,8 @@ def test_windows_desktop_runtime_preparer_is_pinned_isolated_and_offline_capable
     assert 'Test-LxePathWithin -Candidate $stagedPython -Parent $Destination' in script
     assert '"export", "--frozen", "--no-dev", "--no-emit-project"' in script
     assert "PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT" in script
+    assert '"--no-shell"' in script
+    assert "channel='chromium'" in script
     assert "runtime-images" in script
     assert "Publish-LxeRuntime" in script
 
@@ -150,6 +153,11 @@ def test_windows_desktop_build_uses_managed_runtime_wrapper() -> None:
     )
     assert "Build frozen lxeskill" not in wrapper
     assert 'Invoke-LxeDesktopBuildStep -Label "Build NSIS installer"' in wrapper
+    assert 'Invoke-LxeDesktopBuildStep -Label "Enforce desktop resource size budgets"' in wrapper
+    assert '"desktop:sizes:win"' in wrapper
+    assert "electronLanguages:" in builder_config
+    assert "  - en-US" in builder_config
+    assert "  - zh-CN" in builder_config
 
 
 def test_desktop_resource_staging_installs_current_wheel_into_private_python() -> None:
@@ -168,6 +176,41 @@ def test_desktop_resource_staging_installs_current_wheel_into_private_python() -
     assert "copyDirectory(lxeskill" not in script
     assert "LXESKILL_BINARY_PATH" not in script
     assert "LXESKILL_REQUIRE_BUNDLE" not in script
+    assert 'PLAYWRIGHT_NODEJS_PATH: join(stagedNodeRoot, "node.exe")' in script
+    assert 'p.chromium.launch(channel=\'chromium\', headless=headless)' in script
+    assert 'runSmoke("managed Python pip"' in script
+    assert 'join(outputRoot, "runtime", "uv")' in script
+    assert 'join(stagedNodeRoot, "npm-cache")' in script
+    assert '["npm", "npm.cmd", "npm.ps1", "npx", "npx.cmd", "npx.ps1"]' in script
+    assert 'join(stagedNodeRoot, "node_modules", "dingtalk-workspace-cli", "assets")' in script
+    assert "Development-only runtime resource must not be packaged" in script
+
+
+def test_desktop_size_report_enforces_runtime_and_unpacked_budgets() -> None:
+    package = json.loads(_read(ROOT / "package.json"))
+    script = _read(SCRIPTS / "report-desktop-resource-sizes.ts")
+
+    assert package["scripts"]["desktop:sizes:win"] == (
+        "bun scripts/report-desktop-resource-sizes.ts"
+    )
+    assert "DESKTOP_RUNTIME_BUDGET_BYTES = 950 * MIB" in script
+    assert "DESKTOP_UNPACKED_BUDGET_BYTES = Math.floor(1.3 * GIB)" in script
+    assert 'join(runtimeRoot, "node", "npm-cache")' in script
+    assert 'join(runtimeRoot, "python", "Lib", "site-packages", "playwright")' in script
+    assert 'join(runtimeRoot, "uv")' in script
+    assert "assertDesktopResourceSizeBudgets(report)" in script
+
+
+def test_packaged_desktop_reuses_managed_node_without_exposing_package_caches() -> None:
+    gateway = _read(ROOT / "apps" / "desktop" / "src" / "main" / "desktop-gateway.ts")
+    paths = _read(ROOT / "apps" / "desktop" / "src" / "main" / "paths.ts")
+
+    assert "PLAYWRIGHT_NODEJS_PATH" in gateway
+    assert 'join(process.resourcesPath, "runtime", "node", "node.exe")' in gateway
+    assert "npm_config_prefix" not in gateway
+    assert "npm_config_cache" not in gateway
+    assert "npm_config_offline" not in gateway
+    assert 'targetPath.join(options.resourcesPath, "runtime", "uv")' not in paths
 
 
 def test_desktop_project_wheel_declares_full_python_business_closure() -> None:

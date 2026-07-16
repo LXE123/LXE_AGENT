@@ -30,6 +30,7 @@
   "playwright": {
     "version": "1.58.0",
     "browser": "chromium",
+    "cache_key": "1.58.0-chromium-channel-no-shell",
     "download_connection_timeout_ms": 120000,
     "download_attempts": 3
   }

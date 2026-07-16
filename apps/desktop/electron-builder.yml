@@ -3,6 +3,9 @@ productName: LXE Agent
 copyright: Copyright © 2026 LXE
 asar: true
 npmRebuild: false
+electronLanguages:
+  - en-US
+  - zh-CN
 directories:
   output: ../../dist/desktop
 files:

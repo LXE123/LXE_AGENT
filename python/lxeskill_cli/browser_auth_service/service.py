@@ -746,6 +746,11 @@ def _browser_auth_headless() -> bool:
     return bool(auth_settings.BROWSER_AUTH_HEADLESS)
 
 
+def _launch_chromium(playwright, *, headless: bool):
+    """Launch the single packaged Chromium build in headed or new-headless mode."""
+    return playwright.chromium.launch(channel="chromium", headless=headless)
+
+
 def _playwright_storage_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
     storage_state: dict[str, Any] = {}
     cookies = payload.get("cookies")
@@ -863,7 +868,7 @@ def _ensure_erp_auth(
     _clear_state_file(state_file)
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=_browser_auth_headless())
+        browser = _launch_chromium(playwright, headless=_browser_auth_headless())
         context = _open_context(browser, state_file, can_reuse_state=False)
         try:
             page = context.new_page()
@@ -908,7 +913,7 @@ def _ensure_private_amz_auth(
     used_relogin = False
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=_browser_auth_headless())
+        browser = _launch_chromium(playwright, headless=_browser_auth_headless())
         context = _open_context(browser, state_file, can_reuse_state=can_reuse_state)
         try:
             page = context.new_page()
@@ -1023,7 +1028,7 @@ def _ensure_fba_auth(
     used_relogin = False
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=headless)
+        browser = _launch_chromium(playwright, headless=headless)
         context = _open_context(
             browser,
             state_file,

@@ -27,6 +27,7 @@
     "desktop:validate:config": "bun run --cwd apps/desktop validate:config",
     "desktop:runtime:win": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-desktop-runtime.ps1",
     "desktop:resources": "bun scripts/prepare-desktop-resources.ts",
+    "desktop:sizes:win": "bun scripts/report-desktop-resource-sizes.ts",
     "desktop:dist:win": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-windows.ps1",
     "gateway:dev": "bun run --cwd apps/gateway dev",
     "gateway:watch": "bun run --cwd apps/gateway watch",

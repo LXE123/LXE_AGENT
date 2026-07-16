@@ -33,6 +33,26 @@ class FakePage:
         self.waits.append(timeout_ms)
 
 
+def test_launch_chromium_uses_single_full_browser_for_headed_and_headless_modes() -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeChromium:
+        def launch(self, **options):
+            calls.append(options)
+            return object()
+
+    class FakePlaywright:
+        chromium = FakeChromium()
+
+    service._launch_chromium(FakePlaywright(), headless=True)
+    service._launch_chromium(FakePlaywright(), headless=False)
+
+    assert calls == [
+        {"channel": "chromium", "headless": True},
+        {"channel": "chromium", "headless": False},
+    ]
+
+
 def test_extract_token_waits_for_target_origin_frame() -> None:
     private_frame = FakeFrame("https://private.mabangerp.com/index.php", ["wrong-token"])
     token_frame = FakeFrame("https://amz1-private.mabangerp.com/dashboard", ["", "", "free-token"])
@@ -186,7 +206,8 @@ def test_ensure_fba_auth_force_refresh_removes_cached_token_from_seed(tmp_path: 
             return None
 
     class FakeChromium:
-        def launch(self, *, headless: bool):
+        def launch(self, *, channel: str, headless: bool):
+            assert channel == "chromium"
             return FakeBrowser()
 
     class FakePlaywright:
@@ -271,7 +292,8 @@ def test_ensure_fba_auth_force_refresh_removes_wms_cookie_seed_when_required(
             return None
 
     class FakeChromium:
-        def launch(self, *, headless: bool):
+        def launch(self, *, channel: str, headless: bool):
+            assert channel == "chromium"
             return FakeBrowser()
 
     class FakePlaywright:

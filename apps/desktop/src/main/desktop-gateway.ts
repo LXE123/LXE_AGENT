@@ -132,17 +132,16 @@ export class DesktopGateway {
       LXE_CONNECTOR_STATE_PATH: join(this.options.paths.dataRoot, "config", "connector-states.local.json"),
       LXE_MANAGED_PATH: this.options.paths.managedPath,
       LXE_MANAGED_PYTHON: this.options.paths.managedPythonPath,
-      UV_PYTHON: this.options.paths.managedPythonPath,
-      UV_PYTHON_DOWNLOADS: "never",
-      UV_OFFLINE: this.options.packaged ? "1" : "0",
       PYTHONNOUSERSITE: "1",
       PLAYWRIGHT_BROWSERS_PATH: this.options.paths.playwrightBrowsersPath,
       ...(this.options.packaged ? {
+        PLAYWRIGHT_NODEJS_PATH: join(process.resourcesPath, "runtime", "node", "node.exe"),
         NODE_PATH: join(process.resourcesPath, "runtime", "node", "node_modules"),
-        npm_config_prefix: join(process.resourcesPath, "runtime", "node"),
-        npm_config_cache: join(process.resourcesPath, "runtime", "node", "npm-cache"),
-        npm_config_offline: "true",
-      } : {}),
+      } : {
+        UV_PYTHON: this.options.paths.managedPythonPath,
+        UV_PYTHON_DOWNLOADS: "never",
+        UV_OFFLINE: "0",
+      }),
       AGENT_DASHBOARD_ENABLED: "0",
       AGENT_DASHBOARD_OPEN_BROWSER: "0",
     };

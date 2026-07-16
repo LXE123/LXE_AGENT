@@ -19,6 +19,8 @@ afterEach(() => {
 describe("electron-builder configuration", () => {
   test("matches the schema bundled with the pinned electron-builder", async () => {
     await expect(validateDesktopBuilderConfig()).resolves.toBeUndefined();
+    const config = readFileSync(desktopBuilderConfigPath, "utf8");
+    expect(config).toMatch(/electronLanguages:\r?\n  - en-US\r?\n  - zh-CN/u);
   });
 
   test("exits nonzero and identifies an unknown Windows option", () => {

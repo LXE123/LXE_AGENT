@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { basename, delimiter, dirname, join, relative, resolve } from "node:path";
+import { delimiter, dirname, join, relative, resolve } from "node:path";
 import { resolveDesktopRuntimeInputs } from "./desktop-runtime-inputs";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
@@ -96,10 +96,74 @@ mkdirSync(outputRoot, { recursive: true });
 copyFile(agentCli, join(outputRoot, "runtime", "agent-cli", "agent-cli.exe"));
 copyDirectory(nodeRoot, join(outputRoot, "runtime", "node"));
 copyDirectory(pythonRoot, join(outputRoot, "runtime", "python"));
-copyFile(uvExecutable, join(outputRoot, "runtime", "uv", basename(uvExecutable)));
 copyFile(ripgrepExecutable, join(outputRoot, "runtime", "tools", "rg.exe"));
 copyDirectory(playwrightRoot, join(outputRoot, "runtime", "playwright"));
 copyDirectory(join(repositoryRoot, "apps", "dashboard", "dist"), join(outputRoot, "dashboard"));
+
+const stagedNodeRoot = join(outputRoot, "runtime", "node");
+const stagedPythonRoot = join(outputRoot, "runtime", "python");
+const stagedPlaywrightRoot = join(outputRoot, "runtime", "playwright");
+for (const path of [
+  join(stagedNodeRoot, "npm.cmd"),
+  join(stagedNodeRoot, "npx.cmd"),
+  join(stagedNodeRoot, "npm-cache"),
+  join(stagedNodeRoot, "package.json"),
+  join(stagedNodeRoot, "package-lock.json"),
+  join(stagedNodeRoot, "node_modules", "npm"),
+  join(stagedNodeRoot, "node_modules", "dingtalk-workspace-cli", "assets"),
+]) {
+  rmSync(path, { recursive: true, force: true });
+}
+for (const shimName of ["npm", "npm.cmd", "npm.ps1", "npx", "npx.cmd", "npx.ps1"]) {
+  rmSync(join(stagedNodeRoot, "node_modules", ".bin", shimName), { force: true });
+}
+
+const playwrightDriverNode = join(
+  stagedPythonRoot,
+  "Lib",
+  "site-packages",
+  "playwright",
+  "driver",
+  "node.exe",
+);
+if (!existsSync(playwrightDriverNode)) {
+  throw new Error(`Playwright driver Node executable is missing before pruning: ${playwrightDriverNode}`);
+}
+rmSync(playwrightDriverNode, { force: true });
+
+for (const entry of readdirSync(stagedPlaywrightRoot, { withFileTypes: true })) {
+  if (entry.isDirectory() && entry.name.startsWith("chromium_headless_shell-")) {
+    rmSync(join(stagedPlaywrightRoot, entry.name), { recursive: true, force: true });
+  }
+}
+
+const packagedLocales = new Set(["en-US.pak", "zh-CN.pak"]);
+let playwrightLocaleDirectories = 0;
+const prunePlaywrightLocales = (directory: string): void => {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (!entry.isDirectory()) continue;
+    if (entry.name === "locales") {
+      playwrightLocaleDirectories += 1;
+      for (const locale of readdirSync(path, { withFileTypes: true })) {
+        if (locale.isFile() && locale.name.endsWith(".pak") && !packagedLocales.has(locale.name)) {
+          rmSync(join(path, locale.name), { force: true });
+        }
+      }
+      for (const requiredLocale of packagedLocales) {
+        if (!existsSync(join(path, requiredLocale))) {
+          throw new Error(`Packaged Playwright locale is missing: ${join(path, requiredLocale)}`);
+        }
+      }
+      continue;
+    }
+    prunePlaywrightLocales(path);
+  }
+};
+prunePlaywrightLocales(stagedPlaywrightRoot);
+if (playwrightLocaleDirectories === 0) {
+  throw new Error("Packaged Playwright Chromium does not contain a locales directory");
+}
 
 for (const path of gitFiles([
   "skills",
@@ -119,9 +183,7 @@ for (const path of gitFiles([
   copyFile(join(repositoryRoot, path), join(outputRoot, "project", path));
 }
 
-const stagedNodeRoot = join(outputRoot, "runtime", "node");
 const stagedPython = join(outputRoot, "runtime", "python", "python.exe");
-const stagedUv = join(outputRoot, "runtime", "uv", basename(uvExecutable));
 const stagedLxeSkillModule = join(
   outputRoot,
   "runtime",
@@ -140,8 +202,8 @@ const smokeEnvironment = {
   PATH: [
     stagedNodeRoot,
     join(outputRoot, "runtime", "python"),
-    join(outputRoot, "runtime", "uv"),
     join(outputRoot, "runtime", "tools"),
+    join(stagedNodeRoot, "node_modules", ".bin"),
     String(process.env.PATH ?? ""),
   ].filter(Boolean).join(delimiter),
   LXE_ROOT: join(outputRoot, "project"),
@@ -149,9 +211,8 @@ const smokeEnvironment = {
   LXE_DATA_ROOT: smokeStateRoot,
   LXE_WORKSPACE_ROOT: smokeWorkspaceRoot,
   LXE_MANAGED_PYTHON: stagedPython,
-  UV_PYTHON: stagedPython,
-  UV_PYTHON_DOWNLOADS: "never",
-  UV_OFFLINE: "1",
+  PLAYWRIGHT_BROWSERS_PATH: stagedPlaywrightRoot,
+  PLAYWRIGHT_NODEJS_PATH: join(stagedNodeRoot, "node.exe"),
   PYTHONNOUSERSITE: "1",
 };
 
@@ -173,7 +234,7 @@ const runSmoke = (label: string, arguments_: string[]): string => {
 };
 
 runSmoke("install current LXE project wheel", [
-  stagedUv,
+  uvExecutable,
   "pip",
   "install",
   "--python",
@@ -223,7 +284,22 @@ runSmoke("managed Python", [
   "-c",
   "import sys, openpyxl, pandas, PIL, requests; assert sys.version_info[:3] == (3, 12, 10)",
 ]);
-runSmoke("managed uv", [stagedUv, "--version"]);
+runSmoke("managed Python pip", [stagedPython, "-I", "-m", "pip", "--version"]);
+runSmoke("managed Playwright Chromium", [
+  stagedPython,
+  "-I",
+  "-c",
+  [
+    "from playwright.sync_api import sync_playwright",
+    "with sync_playwright() as p:",
+    "    for headless in (True, False):",
+    "        browser = p.chromium.launch(channel='chromium', headless=headless)",
+    "        page = browser.new_page(locale='zh-CN')",
+    "        page.goto('data:text/html,<title>LXE packaged Chromium</title>')",
+    "        assert page.title() == 'LXE packaged Chromium'",
+    "        browser.close()",
+  ].join("\n"),
+]);
 runSmoke("managed ripgrep", [join(outputRoot, "runtime", "tools", "rg.exe"), "--version"]);
 const lxeSkillOutput = runSmoke("managed Python lxeskill", [
   stagedPython,
@@ -239,6 +315,21 @@ const lxeSkillResult = lxeSkillLine ? JSON.parse(lxeSkillLine) as {
 } : {};
 if (lxeSkillResult.ok !== true || lxeSkillResult.data?.commands?.length !== 28) {
   throw new Error("managed Python lxeskill smoke did not return the 28-command catalog");
+}
+for (const forbiddenPath of [
+  join(outputRoot, "runtime", "uv"),
+  join(stagedNodeRoot, "npm.cmd"),
+  join(stagedNodeRoot, "npx.cmd"),
+  join(stagedNodeRoot, "npm-cache"),
+  join(stagedNodeRoot, "node_modules", "npm"),
+  join(stagedNodeRoot, "node_modules", ".bin", "npm.cmd"),
+  join(stagedNodeRoot, "node_modules", ".bin", "npx.cmd"),
+  join(stagedNodeRoot, "node_modules", "dingtalk-workspace-cli", "assets"),
+  playwrightDriverNode,
+]) {
+  if (existsSync(forbiddenPath)) {
+    throw new Error(`Development-only runtime resource must not be packaged: ${forbiddenPath}`);
+  }
 }
 writeFileSync(
   join(outputRoot, "runtime", "python", ".lxe-lxeskill-ready.json"),

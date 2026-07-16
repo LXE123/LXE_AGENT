@@ -177,6 +177,10 @@ try {
     if (-not (Test-Path -LiteralPath $packagedExecutable -PathType Leaf)) {
         throw "Packaged desktop executable is missing: $packagedExecutable"
     }
+    Invoke-LxeDesktopBuildStep -Label "Enforce desktop resource size budgets" -Arguments @(
+        "run",
+        "desktop:sizes:win"
+    )
     Invoke-LxeDesktopBuildStep -Label "Smoke packaged Electron preload and IPC" -Arguments @(
         "apps/desktop/scripts/smoke-packaged-app.ts",
         $packagedExecutable

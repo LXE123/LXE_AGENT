@@ -63,7 +63,6 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
         targetPath.join(options.resourcesPath, "runtime", "node"),
         targetPath.join(options.resourcesPath, "runtime", "python"),
         targetPath.join(options.resourcesPath, "runtime", "python", platform === "win32" ? "Scripts" : "bin"),
-        targetPath.join(options.resourcesPath, "runtime", "uv"),
         targetPath.join(options.resourcesPath, "runtime", "tools"),
         targetPath.join(options.resourcesPath, "runtime", "node", "node_modules", ".bin"),
       ]

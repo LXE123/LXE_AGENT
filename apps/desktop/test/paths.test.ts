@@ -25,6 +25,7 @@ describe("desktop private runtime paths", () => {
     );
     expect(paths.managedPath.split(";")).not.toContain(win32.join(root, "runtime", "agent-cli"));
     expect(paths.managedPath.split(";")).toContain(win32.join(root, "runtime", "node"));
+    expect(paths.managedPath.split(";")).not.toContain(win32.join(root, "runtime", "uv"));
     expect(paths.managedPath).not.toContain(":/");
   });
 

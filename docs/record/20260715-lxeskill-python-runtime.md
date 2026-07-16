@@ -20,7 +20,7 @@ python -I -m lxeskill <command>
 基础桌面运行时缓存只保存 Python、锁定的第三方依赖、uv 和 Playwright，不保存 LXE 项目 wheel。
 wheel 输出目录每次清空，构建使用持久 `UV_CACHE_DIR`；离线模式通过 uv 的 offline 开关禁止下载，
 缺少 Hatchling 构建缓存时立即失败。资源装配器只接受内部输入 `LXE_DESKTOP_PROJECT_WHEEL`，并用
-暂存区的 uv 执行：
+构建输入中的 uv 执行：
 
 ```text
 uv pip install --python <private-python> --break-system-packages \
@@ -28,7 +28,8 @@ uv pip install --python <private-python> --break-system-packages \
 ```
 
 wheel 不复制进最终资源。manifest 应包含私有 Python `site-packages/lxeskill` 下的模块文件，且禁止
-出现旧 `runtime/lxeskill` 目录。
+出现旧 `runtime/lxeskill` 目录。uv 只属于构建和离线缓存边界，不复制到最终 `runtime/uv`；Skills
+中的 `uv run --frozen python ...` 由 ExecShellAdapter 直接改写为受管 Python。
 
 ## 运行和健康边界
 
