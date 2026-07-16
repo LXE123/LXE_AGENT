@@ -89,3 +89,22 @@ sessions, and business artifacts cannot leak into the installer.
 Authenticode signing uses electron-builder's standard `CSC_LINK` and
 `CSC_KEY_PASSWORD` environment variables. Unsigned output is intended only for
 internal test machines.
+
+## Platform quality gates
+
+Run `bun run verify:platform:win` on Windows x64. It covers the production
+boundary, the complete Bun and Python suites, all workspace type checks, the
+wheel, native Agent CLI, Dashboard, Gateway, Electron build, and the complete
+NSIS pipeline.
+
+Run `bun run verify:platform:mac` on macOS. It runs the same source, test, type,
+wheel, native Agent CLI, Dashboard, Gateway, Electron build, and Builder schema
+checks. The command deliberately does not produce a macOS application bundle:
+the managed private runtime and release signing/notarization pipeline are
+currently Windows-only. A macOS DMG must not be treated as supported until
+equivalent pinned Node, Python, uv, ripgrep, Playwright, wheel staging, signing,
+and installed-app smoke coverage exists.
+
+Target-platform path tests inject Windows, macOS, and Linux explicitly. Code
+that accepts an injected platform must use `node:path`'s matching `win32` or
+`posix` implementation rather than host `join`, `resolve`, or `delimiter`.

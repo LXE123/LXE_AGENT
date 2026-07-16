@@ -123,6 +123,22 @@ Windows Electron 打包器会自动完成 wheel 构建、安装和 28 命令冒�
 完整检查包含 TypeScript 生产边界、typecheck、Bun 测试、Python/LXE Skill 测试，以及 Dashboard
 和 Gateway 构建。
 
+跨平台发布门禁还会构建当前 wheel、原生 Agent CLI、Dashboard 和 Electron main/renderer：
+
+```bash
+bun run verify:platform:mac
+```
+
+Windows x64 使用更完整的门禁，并在上述检查后实际生成 NSIS 安装包：
+
+```powershell
+bun run verify:platform:win
+```
+
+Desktop 可分发产物目前仅支持 Windows x64。macOS 门禁验证 macOS 原生 wheel/Agent CLI 和
+Electron 源码构建，并静态验证 Windows Builder 配置；在引入受管 macOS Node/Python/浏览器运行时、
+签名与 notarization 之前，不生成缺少私有运行时的伪 DMG。
+
 ## 日志
 
 默认只输出适合终端阅读的日志，不写本地日志文件。开发排障可在 `.env.local` 中设置

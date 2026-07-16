@@ -423,7 +423,22 @@ function Get-LxeFileSha256 {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         return ""
     }
-    return ([string](Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash).Trim().ToLowerInvariant()
+
+    $stream = $null
+    $sha256 = $null
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        if ($null -ne $sha256) {
+            $sha256.Dispose()
+        }
+        if ($null -ne $stream) {
+            $stream.Dispose()
+        }
+    }
 }
 
 function Test-LxeRipgrepBinary {
@@ -448,7 +463,8 @@ function Test-LxeRipgrepBinary {
     if ($firstLine.Count -eq 0) {
         return $false
     }
-    return [string]::Equals(([string]$firstLine[0]).Trim(), "ripgrep $Version", [StringComparison]::Ordinal)
+    $expectedVersion = [regex]::Escape($Version)
+    return ([string]$firstLine[0]).Trim() -match "^ripgrep $expectedVersion(?: \(rev [0-9a-f]+\))?$"
 }
 
 function Resolve-LxeRipgrep {

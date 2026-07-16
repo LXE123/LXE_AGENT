@@ -58,7 +58,21 @@ function Test-LxePathWithin {
 function Get-LxeFileSha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    return ([string](Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash).ToLowerInvariant()
+    $stream = $null
+    $sha256 = $null
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        $sha256 = [System.Security.Cryptography.SHA256]::Create()
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($stream))).Replace("-", "").ToLowerInvariant()
+    }
+    finally {
+        if ($null -ne $sha256) {
+            $sha256.Dispose()
+        }
+        if ($null -ne $stream) {
+            $stream.Dispose()
+        }
+    }
 }
 
 function Get-LxeTextSha256 {
@@ -537,7 +551,8 @@ function Test-LxeRuntimeImage {
         }
         $rgVersion = Invoke-LxeNative -Label "managed ripgrep version" -FilePath $ripgrepExecutable -Arguments @("--version") -Quiet
         $rgFirstLine = @($rgVersion.Stdout -split "`r?`n")[0].Trim()
-        if ($rgFirstLine -ne "ripgrep $($script:RuntimeLock.ripgrep.version)") {
+        $expectedRgVersion = [regex]::Escape([string]$script:RuntimeLock.ripgrep.version)
+        if ($rgFirstLine -notmatch "^ripgrep $expectedRgVersion(?: \(rev [0-9a-f]+\))?$") {
             throw "Managed ripgrep version mismatch: $rgFirstLine"
         }
         $rgHash = Get-LxeFileSha256 -Path $ripgrepExecutable

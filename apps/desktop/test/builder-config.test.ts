@@ -25,20 +25,29 @@ describe("electron-builder configuration", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-builder-config-"));
     temporaryRoots.push(root);
 
-    const invalidConfig = readFileSync(desktopBuilderConfigPath, "utf8").replace(
-      "win:\n",
-      "win:\n  signingHashAlgorithms:\n    - sha256\n",
+    const sourceConfig = readFileSync(desktopBuilderConfigPath, "utf8");
+    const invalidConfig = sourceConfig.replace(
+      /^win:(\r?\n)/mu,
+      (_match, lineEnding: string) => [
+        "win:",
+        "  signingHashAlgorithms:",
+        "    - sha256",
+        "",
+      ].join(lineEnding),
     );
+    if (invalidConfig === sourceConfig) throw new Error("Windows builder configuration block was not found");
     const invalidConfigPath = join(root, "electron-builder.yml");
     writeFileSync(invalidConfigPath, invalidConfig, "utf8");
 
     const result = Bun.spawnSync({
       cmd: [process.execPath, validatorPath, invalidConfigPath],
+      timeout: 20_000,
+      killSignal: "SIGKILL",
     });
 
     expect(result.exitCode).not.toBe(0);
     expect(new TextDecoder().decode(result.stderr)).toContain(
       "configuration.win has an unknown property 'signingHashAlgorithms'",
     );
-  });
+  }, 30_000);
 });
