@@ -8,6 +8,12 @@ __pycache__/
 dist/
 build/
 
+# Electron-builder source artwork is versioned; generated build output is not.
+!apps/desktop/build/
+apps/desktop/build/*
+!apps/desktop/build/icon-win.svg
+!apps/desktop/build/icon-mac.svg
+
 # Virtual environments
 .venv/
 .venv*/

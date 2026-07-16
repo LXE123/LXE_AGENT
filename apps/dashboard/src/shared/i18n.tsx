@@ -12,8 +12,8 @@ export const ZH_TEXT = {
     en: "EN"
   },
   app: {
-    eyebrow: "本地 Agent",
-    title: "Agent Dashboard",
+    eyebrow: "本地智能工作台",
+    title: "LXE Agent",
     subtitle: "查看当前 gateway 的会话、模型、工具和技能。",
     apiOnline: "API 在线",
     apiOffline: "API 离线"
@@ -31,12 +31,12 @@ export const ZH_TEXT = {
     aria: "Dashboard 区域"
   },
   sidebar: {
-    brand: "Agent",
+    brand: "LXE Agent",
     collapse: "收起侧边栏",
     expand: "展开侧边栏"
   },
   home: {
-    title: "欢迎使用 Agent Dashboard",
+    title: "欢迎使用 LXE Agent",
     subtitle: "进入会话页面查看历史记录，或使用左侧导航查看模型、工具、技能、任务和文档。",
     greetingMorning: "早上好",
     greetingAfternoon: "下午好",
@@ -339,8 +339,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       en: "EN"
     },
     app: {
-      eyebrow: "Local Harness Agent",
-      title: "Agent Dashboard",
+      eyebrow: "Local Agent Workspace",
+      title: "LXE Agent",
       subtitle: "Sessions, models, tools and skills from the running gateway.",
       apiOnline: "API online",
       apiOffline: "API offline"
@@ -358,12 +358,12 @@ export const UI_TEXT: Record<Language, UiText> = {
       aria: "Dashboard sections"
     },
     sidebar: {
-      brand: "Agent",
+      brand: "LXE Agent",
       collapse: "Collapse sidebar",
       expand: "Expand sidebar"
     },
     home: {
-      title: "Welcome to Agent Dashboard",
+      title: "Welcome to LXE Agent",
       subtitle: "Open Sessions to review history, or use the sidebar to view Models, Tools, Skills, Tasks, and Docs.",
       greetingMorning: "Good morning",
       greetingAfternoon: "Good afternoon",

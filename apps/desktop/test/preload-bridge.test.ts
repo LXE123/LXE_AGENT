@@ -16,7 +16,7 @@ describe("preload bridge", () => {
         if (listeners.get(channel) === listener) listeners.delete(channel);
       },
     };
-    const bridge = createDesktopBridge(ipc);
+    const bridge = createDesktopBridge(ipc, "win32");
 
     expect(Object.keys(bridge).sort()).toEqual(["dashboard", "desktop"]);
     expect(Object.keys(bridge.dashboard)).toEqual(["request"]);
@@ -24,10 +24,12 @@ describe("preload bridge", () => {
       "getHealth",
       "getSetupState",
       "onStatusChanged",
+      "platform",
       "restartAgent",
       "saveSetup",
       "selectWorkspace",
     ]);
+    expect(bridge.desktop.platform).toBe("win32");
     await bridge.dashboard.request({ method: "GET", path: "/api/models" });
     await bridge.desktop.getHealth();
     const unsubscribe = bridge.desktop.onStatusChanged(() => undefined);

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   desktopBuilderConfigPath,
   validateDesktopBuilderConfig,
@@ -21,6 +21,12 @@ describe("electron-builder configuration", () => {
     await expect(validateDesktopBuilderConfig()).resolves.toBeUndefined();
     const config = readFileSync(desktopBuilderConfigPath, "utf8");
     expect(config).toMatch(/electronLanguages:\r?\n  - en-US\r?\n  - zh-CN/u);
+    expect(config).toMatch(/buildResources: build/u);
+    expect(config).toMatch(/win:\r?\n  icon: icon-win\.svg/u);
+    expect(config).toMatch(/mac:\r?\n  icon: icon-mac\.svg/u);
+    const desktopRoot = dirname(desktopBuilderConfigPath);
+    expect(existsSync(join(desktopRoot, "build", "icon-win.svg"))).toBe(true);
+    expect(existsSync(join(desktopRoot, "build", "icon-mac.svg"))).toBe(true);
   });
 
   test("exits nonzero and identifies an unknown Windows option", () => {

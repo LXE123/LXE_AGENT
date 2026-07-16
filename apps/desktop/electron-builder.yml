@@ -8,6 +8,7 @@ electronLanguages:
   - zh-CN
 directories:
   output: ../../dist/desktop
+  buildResources: build
 files:
   - dist/**/*
 extraResources:
@@ -16,11 +17,14 @@ extraResources:
     filter:
       - "**/*"
 win:
+  icon: icon-win.svg
   target:
     - target: nsis
       arch:
         - x64
   artifactName: LXE-Agent-${version}-windows-${arch}.${ext}
+mac:
+  icon: icon-mac.svg
 nsis:
   oneClick: false
   perMachine: false

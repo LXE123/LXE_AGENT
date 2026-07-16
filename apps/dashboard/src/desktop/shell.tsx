@@ -5,6 +5,7 @@ import type {
   DesktopSetupInput,
   DesktopSetupState,
 } from "@lxe/desktop-protocol";
+import { BrandMark } from "../shared/ui/brand-mark";
 
 type Provider = DesktopSetupInput["provider"];
 
@@ -139,8 +140,15 @@ export function DesktopShell({
   }, [desktop]);
 
   if (!desktop) return children(() => undefined);
+  const frameClassName = `desktop-window-frame desktop-platform-${desktop.platform}`;
+  const dragRegion = <div aria-hidden className="desktop-window-drag-region" />;
   if (!setup || !form) {
-    return <main className="desktop-loading">{error || "正在加载 LXE Agent…"}</main>;
+    return (
+      <main className={`desktop-loading ${frameClassName}`}>
+        {dragRegion}
+        {error || "正在加载 LXE Agent…"}
+      </main>
+    );
   }
 
   const updateForm = (patch: Partial<SetupForm>): void => setForm((current) => current ? { ...current, ...patch } : current);
@@ -186,9 +194,12 @@ export function DesktopShell({
 
   if (!setup.complete) {
     return (
-      <main className="desktop-onboarding">
+      <main className={`desktop-onboarding ${frameClassName}`}>
+        {dragRegion}
         <form className="desktop-onboarding-card" onSubmit={save}>
-          <div className="desktop-onboarding-mark">LXE</div>
+          <div className="desktop-onboarding-mark">
+            <BrandMark title="LXE Agent" />
+          </div>
           <div>
             <p className="desktop-eyebrow">首次启动</p>
             <h1>配置你的 LXE Agent</h1>
@@ -216,7 +227,8 @@ export function DesktopShell({
   };
   const state = health?.gateway ?? "starting";
   return (
-    <>
+    <div className={frameClassName}>
+      {dragRegion}
       <div key={appGeneration}>{children(openSettings)}</div>
       <button
         className={`desktop-status-button state-${state}`}
@@ -285,6 +297,6 @@ export function DesktopShell({
           </form>
         </div>
       ) : null}
-    </>
+    </div>
   );
 }

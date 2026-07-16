@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Bot,
   Brain,
   ChartColumn,
   FileText,
@@ -82,6 +81,7 @@ import { StatsView } from "./features/stats/view";
 import { BackgroundTasksView } from "./features/tasks/view";
 import { McpView, ToolsView } from "./features/tools/view";
 import { DesktopShell } from "./desktop/shell";
+import { BrandMark } from "./shared/ui/brand-mark";
 const SESSION_MESSAGE_PAGE_LIMIT = 10;
 const SESSION_LIST_PAGE_SIZE = 10;
 const DOCS_HOME_PATH = "README.md";
@@ -808,17 +808,18 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
       <main className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
         <aside className={sidebarCollapsed ? "app-sidebar collapsed" : "app-sidebar"}>
           <div className="sidebar-topbar">
-            {!sidebarCollapsed ? (
-              <button
-                aria-label={t.home.title}
-                className="sidebar-brand"
-                onClick={openDashboardHome}
-                title={t.home.title}
-                type="button"
-              >
+            <button
+              aria-label={t.home.title}
+              className="sidebar-brand"
+              onClick={openDashboardHome}
+              title={t.home.title}
+              type="button"
+            >
+              <BrandMark className="sidebar-brand-mark" tone="sidebar" />
+              {!sidebarCollapsed ? (
                 <span className="sidebar-brand-text">{t.sidebar.brand}</span>
-              </button>
-            ) : null}
+              ) : null}
+            </button>
             <div className="sidebar-topbar-actions">
               {!sidebarCollapsed && activeTab !== "docs" ? (
                 <button
@@ -866,7 +867,7 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
             onClick={() => setDashboardStatusOpen(true)}
           >
             <span className="sidebar-status-icon">
-              <Bot size={16} />
+              <BrandMark tone="sidebar" />
             </span>
             <span className="sidebar-status-copy">
               <span className="sidebar-status-title">{t.app.title}</span>

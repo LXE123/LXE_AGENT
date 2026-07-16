@@ -1,5 +1,6 @@
 import type {
   DesktopHealth,
+  DesktopPlatform,
   LxeDesktopBridge,
 } from "@lxe/desktop-protocol";
 import { IPC_CHANNELS } from "./ipc-channels";
@@ -13,12 +14,16 @@ export interface IpcRendererPort {
 }
 
 /** Construct the complete and intentionally narrow Renderer API whitelist. */
-export function createDesktopBridge(ipc: IpcRendererPort): LxeDesktopBridge {
+export function createDesktopBridge(
+  ipc: IpcRendererPort,
+  platform: DesktopPlatform,
+): LxeDesktopBridge {
   return {
     dashboard: {
       request: (request) => ipc.invoke(IPC_CHANNELS.dashboardRequest, request),
     },
     desktop: {
+      platform,
       selectWorkspace: () => ipc.invoke(IPC_CHANNELS.selectWorkspace),
       getHealth: () => ipc.invoke(IPC_CHANNELS.getHealth),
       restartAgent: () => ipc.invoke(IPC_CHANNELS.restartAgent),

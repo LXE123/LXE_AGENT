@@ -4,7 +4,6 @@ import {
   app,
   BrowserWindow,
   Menu,
-  nativeImage,
   protocol,
   safeStorage,
   session,
@@ -19,11 +18,14 @@ import type {
 import type { JsonValue } from "@lxe/protocol";
 import { IPC_CHANNELS } from "./ipc-channels";
 import { registerDashboardProtocol } from "./main/app-protocol";
+import { createTrayIcon } from "./main/brand";
 import { DesktopConfigStore } from "./main/config-store";
 import { DesktopGateway } from "./main/desktop-gateway";
 import { registerDesktopIpc, type DesktopIpcApplication } from "./main/ipc";
 import { bootstrapDesktopState, migrateLegacyArtifacts } from "./main/migration";
 import { resolveDesktopPaths } from "./main/paths";
+import { desktopWindowAppearance } from "./main/window-options";
+import { normalizeDesktopPlatform } from "./platform";
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "app",
@@ -37,6 +39,7 @@ protocol.registerSchemesAsPrivileged([{
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
+const desktopPlatform = normalizeDesktopPlatform(process.platform);
 
 let window: BrowserWindow | undefined;
 let tray: Tray | undefined;
@@ -75,16 +78,6 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
   })();
   return shutdownPromise;
 };
-
-const trayIcon = (): Electron.NativeImage => nativeImage.createFromDataURL(
-  "data:image/svg+xml;base64," + Buffer.from(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-      <rect width="32" height="32" rx="8" fill="#b46a4d"/>
-      <path d="M9 8h4v12h10v4H9z" fill="white"/>
-      <path d="M17 8h6v4h-6z" fill="#f8e9e2"/>
-    </svg>
-  `).toString("base64"),
-);
 
 async function bootstrap(): Promise<void> {
   const paths = resolveDesktopPaths({
@@ -161,6 +154,7 @@ async function bootstrap(): Promise<void> {
   }
 
   window = new BrowserWindow({
+    ...desktopWindowAppearance(desktopPlatform),
     title: "LXE Agent",
     width: 1280,
     height: 820,
@@ -176,6 +170,7 @@ async function bootstrap(): Promise<void> {
       webSecurity: true,
     },
   });
+  if (desktopPlatform !== "darwin") window.setMenuBarVisibility(false);
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
     const developmentUrl = String(process.env.LXE_DASHBOARD_DEV_URL ?? "http://127.0.0.1:5173");
@@ -200,7 +195,7 @@ async function bootstrap(): Promise<void> {
     window.show();
     window.focus();
   };
-  tray = new Tray(trayIcon());
+  tray = new Tray(createTrayIcon(desktopPlatform));
   tray.setToolTip("LXE Agent");
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "打开 LXE Agent", click: showWindow },
@@ -216,6 +211,7 @@ async function bootstrap(): Promise<void> {
 if (hasSingleInstanceLock) {
   app.whenReady().then(() => {
     app.setAppUserModelId("com.lxe.agent");
+    if (desktopPlatform === "win32") Menu.setApplicationMenu(null);
     return bootstrap();
   }).catch((error) => {
     process.stderr.write(`LXE Agent startup failed: ${error instanceof Error ? error.stack : String(error)}\n`);

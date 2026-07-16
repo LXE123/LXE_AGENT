@@ -1,10 +1,11 @@
-import { Bot, Brain, Coins, Languages, MessageSquareText, Plug, Radio, Wrench, X } from "lucide-react";
+import { Brain, Coins, Languages, MessageSquareText, Plug, Radio, Wrench, X } from "lucide-react";
 
 import { EmptyState } from "../../shared/components";
 import { formatIsoDate, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { Language, UiText } from "../../shared/i18n";
 import type { ChannelHealthPayload, ConnectorPayload, ModelPayload, SessionSummaryPayload } from "../../api/payloads";
+import { BrandMark } from "../../shared/ui/brand-mark";
 import { LanguageSwitch } from "../../shared/ui/language-switch";
 
 type FeishuConnectionState = "connected" | "disconnected" | "restarting" | "stopped" | "failed" | "unknown";
@@ -251,7 +252,7 @@ export function DashboardStatusModal({
         <div className="modal-header dashboard-status-header">
           <div className="dashboard-status-title">
             <span className="dashboard-status-app-icon">
-              <Bot size={20} />
+              <BrandMark tone="brand" />
             </span>
             <div>
               <div className="modal-kicker">{t.app.eyebrow}</div>

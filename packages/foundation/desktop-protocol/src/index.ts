@@ -120,6 +120,8 @@ export interface DashboardTransport {
 
 export type DesktopComponentState = "stopped" | "starting" | "ready" | "error";
 
+export type DesktopPlatform = "win32" | "darwin" | "linux";
+
 export interface DesktopHealth {
   gateway: DesktopComponentState;
   agent_cli: DesktopComponentState;
@@ -151,6 +153,7 @@ export interface DesktopSetupInput {
 export interface LxeDesktopBridge {
   dashboard: DashboardTransport;
   desktop: {
+    readonly platform: DesktopPlatform;
     selectWorkspace(): Promise<string | null>;
     getHealth(): Promise<DesktopHealth>;
     restartAgent(): Promise<DesktopHealth>;

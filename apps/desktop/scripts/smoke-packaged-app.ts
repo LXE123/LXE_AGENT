@@ -16,6 +16,7 @@ export interface PackagedDesktopProbeResult {
   lxeKeys: string[];
   dashboardType: string;
   desktopType: string;
+  platform?: unknown;
   health?: unknown;
   healthError?: string;
 }
@@ -117,6 +118,7 @@ const evaluateBridge = async (webSocketDebuggerUrl: string): Promise<PackagedDes
           lxeKeys: bridge ? Object.keys(bridge).sort() : [],
           dashboardType: typeof bridge?.dashboard,
           desktopType: typeof bridge?.desktop,
+          platform: bridge?.desktop?.platform,
         };
         if (bridge) {
           try {
@@ -217,6 +219,9 @@ export async function smokePackagedDesktop(
     if (result.lxeType !== "object") throw new Error(`window.lxe is ${result.lxeType}`);
     if (result.dashboardType !== "object") throw new Error(`window.lxe.dashboard is ${result.dashboardType}`);
     if (result.desktopType !== "object") throw new Error(`window.lxe.desktop is ${result.desktopType}`);
+    if (result.platform !== "win32" && result.platform !== "darwin" && result.platform !== "linux") {
+      throw new Error(`window.lxe.desktop.platform is ${String(result.platform)}`);
+    }
     if (!result.lxeKeys.includes("dashboard") || !result.lxeKeys.includes("desktop")) {
       throw new Error(`window.lxe exposes unexpected keys: ${result.lxeKeys.join(", ")}`);
     }
