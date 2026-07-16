@@ -6,15 +6,18 @@ This page is a navigation inventory, not a second source of runtime prompt truth
 
 ## Inventory
 
-The repository currently contains 27 runtime skills:
+The repository currently contains 26 top-level workflow and default runtime skills:
 
 | Type | Count | Purpose |
 | --- | ---: | --- |
-| `amazon_fba` | 15 | shipment, logistics, customs, purchase, contract, and export-tax workflows |
+| `amazon_fba` | 13 | shipment, customs, purchase, contract, and export-tax workflows |
 | `amazon_replenish` | 9 | inventory snapshots, sales analysis, parameters, and replenishment calculation |
 | `default` | 3 | general connector and workbook capabilities |
+| `ziniao_browser` | 1 | controlled Ziniao browser lifecycle and page operations |
 
-Counts describe repository skills before per-agent permission and connector filtering.
+Counts describe top-level repository skills before per-agent permission and connector filtering. The
+bundled Lark CLI contributes another 27 nested connector-specific Skill manifests, so recursive runtime
+discovery sees 53 repository manifests in total.
 
 ## Amazon FBA
 
@@ -24,8 +27,6 @@ Counts describe repository skills before per-agent permission and connector filt
 - `fba-shipment-wms-box-download`
 - `fba-msku-detail-download`
 - `fba-stock-sku-download`
-- `fba-logistics-select`
-- `fba-logistics-rate-import`
 - `fba-customs-declaration-fill`
 - `fba-invoice-template-fill`
 - `fba-purchase-summary-create`
@@ -55,6 +56,10 @@ Start with `replenishment-workflow-map`. Snapshot and analysis skills prepare ex
 - `dws`: DingTalk Workspace operations, subject to local connector visibility.
 - `feishu-im-read`: Feishu IM read operations, subject to platform authorization and connector visibility.
 - `minimax-xlsx`: general workbook creation and transformation utilities.
+
+## Ziniao Browser
+
+- `ziniao-browser`: controlled store lifecycle, snapshots, navigation, and page interaction.
 
 ## Runtime Visibility
 

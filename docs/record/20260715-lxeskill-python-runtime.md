@@ -29,3 +29,7 @@ Runtime / Gateway / launcher
 删除 `packages/agent/lxeskill-cli` workspace、PyInstaller build/spec、vendor 约定和对应构建命令。
 PyInstaller 同时从 Python 开发依赖与锁文件移除。历史冻结方案保留在
 [LXE Skill CLI 冻结分发](./20260715-lxeskill-frozen-distribution.md)，状态改为 `Archive`。
+
+> 2026-07-16：本文所述命令边界后来由
+> [物流服务退役记录](20260716-retire-logistics-service.md) 更新；物流报价和费率导入已下线，
+> 当前 catalog 为 26 个命令。

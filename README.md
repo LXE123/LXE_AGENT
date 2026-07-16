@@ -1,12 +1,12 @@
 # LXE Agent
 
 LXE Agent 是 LXE 内部使用的本地业务 agent。它通过飞书机器人接收请求，调用本机浏览器、
-ERP、物流和表格处理能力，并通过本地 Dashboard 展示会话、任务和运行状态。
+ERP 和表格处理能力，并通过本地 Dashboard 展示会话、任务和运行状态。
 
 ## 核心能力
 
 - 飞书私聊与群聊会话接入。
-- FBA 与补货 skill，覆盖马帮、紫鸟、物流、报关、发票、采购和退税流程。
+- FBA 与补货 skill，覆盖马帮、紫鸟、报关、发票、采购和退税流程。
 - 本地 Dashboard，默认地址为 `http://127.0.0.1:8765/`。
 - 本地 session、JSONL transcript、任务和使用量记录。
 - 可选的 Lark、DingTalk、MCP 和 LXE Agent Data Server 集成。
