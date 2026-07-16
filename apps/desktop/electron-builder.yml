@@ -17,14 +17,14 @@ extraResources:
     filter:
       - "**/*"
 win:
-  icon: icon-win.svg
+  icon: icon-win.png
   target:
     - target: nsis
       arch:
         - x64
   artifactName: LXE-Agent-${version}-windows-${arch}.${ext}
 mac:
-  icon: icon-mac.svg
+  icon: icon-mac.png
 nsis:
   oneClick: false
   perMachine: false

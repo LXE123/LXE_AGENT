@@ -13,6 +13,8 @@ build/
 apps/desktop/build/*
 !apps/desktop/build/icon-win.svg
 !apps/desktop/build/icon-mac.svg
+!apps/desktop/build/icon-win.png
+!apps/desktop/build/icon-mac.png
 
 # Virtual environments
 .venv/
