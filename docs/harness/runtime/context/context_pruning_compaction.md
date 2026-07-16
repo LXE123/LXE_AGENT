@@ -4,7 +4,7 @@
 
 ## 目的
 
-本专题说明 Runtime 如何限制单个 tool result、处理历史 image、在 provider request 前估算预算，并用 summary checkpoint 缩短 model-visible history。核心原则是：只在能证明安全收缩时写 replacement，失败时保留原始状态并显式终止。
+本专题说明 Runtime 如何限制单个 tool result、处理历史 image、在 provider request 前估算预算，并用 summary 缩短 model-visible history。核心原则是：只在能证明安全收缩时写 `context_patch`，失败时保留原始状态并显式终止。
 
 事实来源是 [`packages/agent/runtime/src/engine/context.ts`](/packages/agent/runtime/src/engine/context.ts) 及其测试。
 
@@ -85,7 +85,7 @@ Summary usage 计入当前 turn input/output/api call，并进入 CardKit metric
 
 ## 写入门禁
 
-只有全部满足时才写 replacement：
+只有全部满足时才写 `context_patch`：
 
 - 选择到闭合、非空的可摘要前缀。
 - summary 非空且 canonical。
@@ -115,4 +115,4 @@ Final reply 后可以再次检查长期预算并写 checkpoint。该阶段异常
 
 ## 验收场景
 
-测试覆盖 UTF-8 tool result 首尾裁剪、image block、tool schema 预算、跨 turn/mid-turn selection、summary retry、token 未下降、abort、provider overflow、replacement persistence 和 closure repair。
+测试覆盖 UTF-8 tool result 首尾裁剪、image block、tool schema 预算、跨 turn/mid-turn selection、summary retry、token 未下降、abort、provider overflow、`context_patch` persistence 和 closure repair。

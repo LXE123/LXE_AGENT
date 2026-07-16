@@ -44,7 +44,7 @@ Tool call 使用 server-specific timeout 和 turn abort signal。调用失败更
 - `catalog.json` 决定稳定 command path、owner skill、业务 module 和 artifact 声明。
 - `exec.command` 只允许一条独立的 `lxeskill` 调用；拒绝 `python -m`、内部业务 module、管道、重定向和 shell 拼接。
 - Gateway 注入 `LXESKILL_SKILL_SCOPE`，CLI 负责命令授权、参数校验和业务 dispatch。
-- `.venv` 解析、cwd、timeout、background、output limit、abort 和 Windows process tree 由 native process manager 处理。
+- Desktop 优先使用 `LXE_MANAGED_PYTHON` 指向的应用私有 Python；源码开发才回退到项目 `.venv`。cwd、timeout、background、output limit、abort 和 Windows process tree 由 native process manager 处理。
 - CLI 保留版本化 JSONL/result/artifact 合同，Runtime 将 stdout/stderr 作为受控 process output 返回。
 
 Skill 只能调用自己声明且由 catalog 归属的命令；生成文件仍需经过 workspace/artifact boundary 才能发送。

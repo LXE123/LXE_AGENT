@@ -1,3 +1,9 @@
+# read 工具历史笔记
+
+状态：Archive
+
+> 本文记录旧版 `read` 实现和参数，不能作为当前工具合同。当前行为见 [Runtime Tools](../runtime/tools/README.md) 和 [Tool Execution](../runtime/tools/tool_execution.md)。
+
 ### read 工具支持两类文件
 1. 文本文件（所有非图片文件）
 任何文件只要不被识别为图片，就按 UTF-8 文本读取。没有后缀白名单，什么 .py、.js、.json、.md、.csv、.xml、.yaml、.log、.txt ... 全部当文本读。

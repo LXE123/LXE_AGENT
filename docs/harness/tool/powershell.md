@@ -1,3 +1,9 @@
+# PowerShell exec 历史笔记
+
+状态：Archive
+
+> 本文保留早期 PowerShell 实现推演，不是当前工具合同。当前跨平台执行边界见 [Runtime Tools](../runtime/tools/README.md) 和 [Tool Execution](../runtime/tools/tool_execution.md)。
+
 本文件只描述 Windows exec 的 PowerShell 实现。macOS/Linux 使用 `/bin/sh -c`，不需要安装 PowerShell。
 
 目前该 agent 系统在 windows 系统上使用 exec 工具时，基本上都是基于 powershell 来运行。

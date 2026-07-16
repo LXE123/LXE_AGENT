@@ -1,6 +1,8 @@
 # TypeScript Workspace 大域/小域布局（2026-07-14）
 
-Status: `Current`
+Status: `Archive (Superseded)`
+
+> 本文保留 2026-07-14 的五 workspace 和 HTTP Dashboard 历史决策。当前 Desktop 已增加 Electron、私有 Agent CLI 和 Desktop Protocol，进程与目录事实见 [Desktop 技术手册](../desktop/README.md)。
 
 本记录部分取代《仓库结构契约》中“不动 TS workspace 布局”的旧结论。五个 workspace package 保持独立，公开 package 名与依赖方向不变，只重组物理目录与源码领域。
 

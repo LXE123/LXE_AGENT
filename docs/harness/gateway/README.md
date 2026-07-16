@@ -2,65 +2,58 @@
 
 状态：Current
 
-## 目的
+## 先说结论
 
-Gateway 是 LXE Agent 的进程边界、平台边界和调度入口。它负责把飞书事件转换成稳定的 `InboundEvent`，完成权限、session binding、排队与取消，再把 turn 交给同一 Bun 进程中的 `TypeScriptAgentRuntime`。Runtime 产生的 stream、tool、final 和 typing 事件统一由 Gateway 发送回原平台。
+Gateway 是桌面应用里的“接待和调度中心”。它运行在 Electron Main 中，负责接收飞书消息、检查权限、找到会话、安排执行顺序，再把结果送回正确的聊天窗口。
 
-本文目录用于回答这些问题：
+真正调用模型和工具的是私有 `agent-cli` 子进程里的 Runtime。Gateway 不直接执行 turn，而是通过版本化 NDJSON 协议向子进程发任务、取消和查询请求。
 
-- 生产进程由哪些组件组成，按什么顺序启动和停止。
-- 平台 adapter 可以做什么，不能越过哪些边界。
-- 用户、bot、会话和 response route 如何关联。
-- 同 session 串行、跨 session 并发、`/stop` 和 steering 如何协作。
-- 后台任务结束后，为什么仍通过正常 session 调度回到用户。
+## 当前主链路
 
-## 当前拓扑
-
-```text
-Bun CLI
-  -> ProductionGatewayApplication
-  -> GatewayLifecycle
-  -> FeishuAdapter
-  -> SessionRouter
-  -> SessionScheduler
-  -> TypeScriptAgentRuntime.runTurn()
-  -> GatewayEmitter
-  -> Feishu CardKit / message / file / typing
+```mermaid
+flowchart LR
+    A["飞书事件"] --> B["Electron Main<br/>Gateway"]
+    B --> C["权限 / 会话 / 调度"]
+    C <-->|"NDJSON"| D["私有 agent-cli"]
+    D --> E["TypeScript Runtime<br/>模型 / Context / Tools"]
+    E --> D
+    D --> B
+    B --> F["GatewayEmitter"]
+    F --> G["飞书 CardKit / 消息 / 文件"]
 ```
 
-Gateway、Runtime、Dashboard、scheduler、channel adapter 和常驻维护任务运行在一个 Bun 进程中。生产路径没有 worker supervisor、NDJSON worker envelope 或其它 runtime fallback。Python 业务能力只通过 native `exec` 调用版本化的独立 `lxeskill ...` 命令，执行完成即退出。
+Dashboard 也不直接连接 Runtime。Renderer 先通过白名单 IPC 请求 Electron Main；需要 Agent 数据时，Main 再通过同一套私有协议请求 `agent-cli`。
+
+## 谁负责什么
+
+| 组件 | 主要职责 | 不负责 |
+| --- | --- | --- |
+| Electron Main | 管理桌面生命周期、配置、凭证和子进程 | 不执行模型 turn |
+| Gateway | 平台接入、权限、session binding、排队、取消和结果路由 | 不调用模型或业务工具 |
+| `agent-cli` | 承载 Runtime、Agent 数据库和 Dashboard Agent API | 不接收平台 webhook |
+| Runtime | Context、模型调用、工具、transcript 和 usage | 不持有平台 SDK，不决定消息发到哪里 |
+| GatewayEmitter | 根据 response route 发送 stream、文件和最终结果 | 不改变 Runtime 已完成的业务结果 |
+
+这种拆分最重要的好处是：平台接入和模型执行互不越界。Runtime 崩溃或重启时，Electron Main 仍能报告健康状态；平台发送失败时，也不会让已经执行成功的工具重新运行。
+
+## 调度与失败边界
+
+- Router 在创建任务前完成权限、session source 和 response route 校验。
+- Scheduler 保证同一个 session 串行执行，不同 session 可以并发。
+- `/stop`、steering 和桌面退出共用同一条取消链，最终传到 provider、MCP 和工具进程。
+- Runtime 子进程短暂异常时，Gateway 停止接收新任务并按受控策略重启；不会偷偷切换到同进程 Runtime。
+- 平台发送失败只影响 delivery，不回滚 transcript，也不重跑已完成工具。
+- 后台命令结束后先写 pending event，再通过 heartbeat 回到正常调度链。
 
 ## 专题导航
 
-- [Gateway Lifecycle](gateway_lifecycle.md)：bootstrap、启动顺序、健康状态、停止和失败回滚。
-- [Channel Adapter Boundary](channel_adapter_boundary.md)：统一 inbound/outbound 契约与飞书 SDK 隔离。
-- [Session Routing and Permission](session_routing_permission.md)：权限、session binding、response route 和控制命令。
-- [Session Scheduler and Cancellation](session_scheduler_cancellation.md)：排队、并发、cancel、steering 和 active run 生命周期。
-- [Emitter and Heartbeat Wake](emitter_heartbeat_wake.md)：统一出站、CardKit stream 与后台事件唤醒。
+- [Gateway Lifecycle](gateway_lifecycle.md)：启动、停止、健康状态和失败回滚。
+- [Channel Adapter Boundary](channel_adapter_boundary.md)：平台 adapter 的输入输出边界。
+- [Session Routing and Permission](session_routing_permission.md)：权限、会话和控制命令。
+- [Session Scheduler and Cancellation](session_scheduler_cancellation.md)：排队、并发、取消和 steering。
+- [Emitter and Heartbeat Wake](emitter_heartbeat_wake.md)：统一出站与后台事件唤醒。
+- [Desktop Event Loop](../../eventloop.md)：整个桌面产品的进程与关闭顺序。
 
 ## 事实来源
 
-Gateway 的单一事实来源是 [`apps/gateway/src`](/apps/gateway/src)：
-
-- `apps/desktop/src/main/desktop-gateway.ts`：Electron 内的生产依赖装配。
-- `orchestration/composition.ts`、`orchestration/lifecycle.ts`：组件组合与生命周期。
-- `orchestration/process-runtime.ts`：私有 `agent-cli` 子进程协议。
-- `router.ts`、`scheduler.ts`：入站控制面和 turn 调度。
-- `emitter.ts`、`heartbeat-bridge.ts`：统一出站和后台唤醒。
-- `feishu/`：飞书 SDK、消息转换、资源、CardKit 和 typing。
-
-同目录测试是失败语义和边界行为的可执行合同。文档与实现不一致时，应先以源码和测试为准，再修正文档。
-
-## 核心不变量
-
-1. Adapter 不直接调用 Runtime，也不自行决定 session。
-2. Router 在创建 `AgentJob` 前完成权限和 session source 校验。
-3. Scheduler 保证同 session 只有一个 active run。
-4. Runtime 只通过 emitter port 产生出站意图，不持有平台 SDK。
-5. Emitter 必须通过 `response_route_id` 或 session source 解析目标平台。
-6. 后台完成事件先持久化，再以 heartbeat job 进入同一个 scheduler。
-7. 任何 adapter、turn 或维护任务失败都不能让未相关的 session 丢失状态。
-
-## 非当前架构
-
-历史独立 Gateway CLI、浏览器 Dashboard Server、worker-based Gateway 和旧平台实现不属于 Current 文档。生产入口只有 Electron Main，production boundary check 会拒绝重新引入这些已删除路径或 HTTP fallback。
+实现入口是 [Desktop Gateway](/apps/desktop/src/main/desktop-gateway.ts)、[Gateway orchestration](/apps/gateway/src/orchestration) 和 [Process Runtime port](/apps/gateway/src/orchestration/process-runtime.ts)。测试是失败语义和生命周期的可执行合同；文档与测试不一致时，以当前代码和测试为准。

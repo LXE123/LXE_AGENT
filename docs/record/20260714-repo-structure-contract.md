@@ -6,8 +6,8 @@ Status: `Current`
 
 ## 三条原则
 
-1. **按运行时世界分区**：目录第一层只回答"属于哪个世界"——TypeScript 应用与包（`apps`/`packages`）、Python LXE Skill CLI 闭包（`python/lxeskill_cli`）、技能资产（`skills`）、配置与装配（`config`/`scripts`/`data`）、文档（`docs`）。TypeScript 世界按[大域/小域布局](./20260714-typescript-workspace-domain-layout.md)继续分层。
-2. **代码、配置、状态、文档四分离**：程序管理的易失状态（logs、tmp、sqlite DB）收拢进 `var/` 并整目录 gitignore。`artifacts/` 是例外——它是模型可见的输出面（`send_file` 白名单 + 十余处 SKILL.md 硬编码路径），属于工作区契约而非隐藏状态，留在根目录。
+1. **按运行时世界分区**：目录第一层只回答"属于哪个世界"——TypeScript 应用与包（`apps`/`packages`）、Python LXE Skill CLI 闭包（`python/lxeskill_cli`）、技能资产（`skills`）、配置与装配（`config`/`scripts`/`data`）、文档（`docs`）。当前 Desktop 应用与基础包布局见 [Desktop 技术手册](../desktop/README.md)。
+2. **代码、配置、状态、文档四分离**：程序管理的易失状态进入逻辑 data root；源码默认使用仓库 `var/`，Desktop 使用应用数据目录。`artifacts/` 是模型可见的输出面，不和数据库、日志混写。
 3. **规范必须有校验器兜底**：约定不写进测试就必然漂移。
 
 ## 命名规范
@@ -21,24 +21,35 @@ Status: `Current`
 | 新增 env 键 | 一律 `LXE_` 前缀；业务域二级前缀（如 `LXE_MABANG_*`）；存量键冻结不迁 |
 | 顶层目录 | 白名单冻结（见测试），新增先写决策记录 |
 
-## 状态目录 `var/`（已完成）
+## 逻辑状态根
+
+源码 checkout 未设置 `LXE_DATA_ROOT` 时，程序状态继续使用仓库下的 `var/`：
 
 ```
 var/logs/   ← 所有日志与 trace（Bun JSONL + Python 文本，同一路径分流）
 var/tmp/    ← gateway 运行目录、lxeskill 会话锁等 scratch
-var/db/     ← local_agent.sqlite3、sessions.json、machine_identity.json、session_transcripts/
+var/db/     ← 源码模式数据库、sessions.json、machine_identity.json、session_transcripts/
 ```
 
-写保护按路径前缀：`var/db`、`var/logs` 禁写；`var/tmp` 与根 `artifacts/` 可写。`LXE_SQLITE_DB_PATH`、`LOG_FILE`、各 `*_TRACE_DIR` env 未设时才走上述默认；Bun 与 Python 两侧默认值保持一致。
+Desktop 会把 `LXE_DATA_ROOT` 指向应用数据目录，不把运行状态写进只读安装资源：
+
+```
+<data-root>/db/         ← gateway.sqlite3、agent.sqlite3、lxeskill.sqlite3、sessions.json、transcript
+<data-root>/logs/       ← Runtime、Gateway、Python 和 trace 日志
+<data-root>/artifacts/  ← Runtime 生成的可发送产物
+<data-root>/config/     ← 用户本地 MCP 与 connector 状态
+```
+
+源码工作区中的 `var/db`、`var/logs` 继续受模型写保护；Desktop data root 位于工作区之外，也不会暴露给普通文件写工具。具体数据库所有权见 [本地状态与数据库](../database/local_agent.md)。
 
 ## 后续批次
 
 - Python 收拢已按 [LXE Skill CLI Python 闭包](./20260714-python-lxeskill-cli-closure.md) 完成。
 - `packages/agent` 只保留 TypeScript `runtime`；已按 [LXE Skill CLI Python wheel 运行时](./20260715-lxeskill-python-runtime.md)删除 Node/Bun 外壳和 PyInstaller 冻结层。
-- docs 归类：散文件并入 `harness`（模块契约）/ `record`（决策）/ `goals` / `ops`（安装与网络笔记）。
+- docs 通过 [文档入口](../README.md) 区分 Current、Needs Refresh、Draft、Archive 和 Reference；模块契约主要进入 `harness`，日期决策进入 `record`。
 
 ## 明确不做
 
-- 不采用 `src/` 布局，不修改四个公开 Python package 名称。
+- Python 闭包不额外套一层 `src/`，不修改四个公开 Python package 名称。
 - 不迁移存量 env 键名，只约束增量。
-- TS workspace 布局由[后续决策](./20260714-typescript-workspace-domain-layout.md)取代。
+- 2026-07-14 的 TS workspace 布局记录已被 Desktop 产品结构取代，当前入口见 [Desktop 技术手册](../desktop/README.md)。

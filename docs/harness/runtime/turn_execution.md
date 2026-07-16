@@ -81,7 +81,7 @@ Runtime 从 assistant content 中按顺序取得合法 `tool_use`：
 
 assistant 没有 tool use 时，text block 合并为 final reply。streamer 先完成同一张卡；只有此前从未成功发送 stream frame 时，Runtime 才尝试一次普通 final emit。
 
-final 后执行 post-turn context maintenance。它可以写 replacement/compaction checkpoint，但失败只记录 warning，不撤销已交付答案。turn usage 和 trace 最终以 completed/cancelled/error 之一关闭。
+final 后执行 post-turn context maintenance。它可以追加 compaction `context_patch`，但失败只记录 warning，不撤销已交付答案。turn usage 和 trace 最终以 completed/cancelled/error 之一关闭。
 
 ## 最大步骤与错误回复
 

@@ -13,7 +13,7 @@ Context subsystem 决定 provider 实际看见哪些 system、message、tool sch
 - [Canonical Message](canonical_message.md)：message/block 形态与 closure 修复。
 - [Context Assembly](context_assembly.md)：turn/step 组装顺序和完整请求预算。
 - [Pruning and Compaction](context_pruning_compaction.md)：tool result、image、summary 与 overflow recovery。
-- [Context Persistence](context_persistence.md)：append-only transcript、replacement checkpoint 和 replay cache。
+- [Context Persistence](context_persistence.md)：Transcript v2、`context_patch`、模型 replay 和 Dashboard 审计视图。
 
 ## 请求预算
 
@@ -42,12 +42,12 @@ ContextPipeline sanitize closure、计算完整预算，并按 `pre_call` 或 `o
 
 ### Turn 后
 
-post-turn maintenance 在 final delivery 后执行，可以写 replacement checkpoint 或整理长期历史。失败只记录 warning，不撤销已交付答案。
+post-turn maintenance 在 final delivery 后执行，可以追加 `context_patch` 整理长期模型视图。失败只记录 warning，不撤销已交付答案。
 
 ## 核心不变量
 
 1. Canonical history 中 tool use 必须有对应 result。
-2. Compaction 只能写新 replacement，不能改写旧 JSONL 行。
+2. Compaction 只能追加最小 `context_patch`，不能改写旧 JSONL 行。
 3. 摘要失败、为空或未降低 token 时保留原 messages。
 4. encrypted thinking data 不进入 summary、日志或平台展示。
 5. 当前用户请求在 mid-turn compaction 中逐字保留。

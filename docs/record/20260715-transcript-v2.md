@@ -1,10 +1,12 @@
 # Transcript v2 与上下文投影
 
+Status: `Current`
+
 ## 决策
 
-- `var/db/session_transcripts/<session>.jsonl` 是会话上下文的逐 turn 权威历史。
+- `<data-root>/db/session_transcripts/<session>.jsonl` 是会话上下文的逐 turn 权威历史；源码默认 data root 时对应仓库 `var/db/`。
 - SQLite 中的 transcript 文件状态、Dashboard 分页区间以及 session 最新模型信息都是可重建投影。
-- 普通消息只写一次；上下文压缩、修复和重置写为最小 `context_patch`，不再追加完整 `replacement_history`。
+- 普通消息只写一次；上下文压缩、修复和重置写为最小 `context_patch`，不再追加旧版整段替换事件。
 - `turn_context` 记录真实执行时采用的 provider、model、effort、thinking 状态、provider generation 和 context window，不记录任何认证信息。
 
 ## 迁移命令

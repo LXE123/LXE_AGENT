@@ -21,9 +21,9 @@
 - `Current` [Project README](../README.md)：产品概览、主要能力、支持平台和产品版本入口。
 - `Current` [Desktop 技术手册](desktop/README.md)：Electron 进程架构、私有运行时、配置、开发和 Windows 打包。
 - `Current` [产品分支与安装入口](record/20260716-product-lines-branch-migration.md)：Desktop `main` 与源码 `lxe-agent-TUI` 的长期边界和迁移规则。
-- `Current` [Python 3.12.10 / uv 部署说明](record/20260428-python-3.12.10-uv.md)：Python 和依赖管理规则。
 - `Current` [LXE Skill CLI Python wheel 运行时](record/20260715-lxeskill-python-runtime.md)：源码 `.venv` 与 Electron 私有 Python 的统一模块调用规则。
-- `Current` [Local agent database layout](database/local_agent.md)：SQLite 状态、保留的 PostgreSQL pricing 范围和 runtime notes。
+- `Current` [本地状态与数据库](database/local_agent.md)：Desktop 三个 SQLite、session binding 与 Transcript v2 的所有权边界。
+- `Current` [Transcript v2 与上下文投影](record/20260715-transcript-v2.md)：`context_patch`、模型 replay、Dashboard 审计视图和迁移规则。
 - `Current` [Event loop architecture](eventloop.md)：Bun 事件循环、任务所有权和关闭策略。
 - `Current` [Runtime](harness/runtime/README.md)：agent runtime 架构、turn execution、context 和 tools 文档入口。
 - `Current` [LLM Integration](harness/llm/README.md)：模型供应商 catalog、Anthropic-compatible streaming 和 provider 边界。
@@ -53,7 +53,6 @@
 
 这些区域有价值，但使用前需要对照当前代码：
 
-- `Needs Refresh` [Install script planning](install.md)：安装脚本设计笔记，不是最终用户手册。
 - `Needs Refresh` [Dashboard/UI idea](visualization/preliminary_idea.md)：早期 UI 设想，当前实现是 React 前端加 Bun Dashboard API。
 
 ## 草稿和归档
@@ -64,8 +63,11 @@
 - `Archive` `docs/harness/skill/archive/amazon_replenish/replenishment-*/`
 - `Archive` `docs/harness/skill/archive/unmapped/`
 - `Reference` `docs/harness/skill/reference/`
+- `Archive` `docs/harness/tool/read.md`、`exec-process.md`、`powershell.md`
 - `Archive` `docs/goals/*`
-- `Archive` `docs/record/*`
+- `Archive / Superseded` `docs/record/20260428-python-3.12.10-uv.md`
+- `Archive / Superseded` `docs/record/20260714-typescript-workspace-domain-layout.md`
+- `Archive` 未在“当前可信入口”中明确列为 `Current` 的其他 `docs/record/*`
 - `Draft` `docs/tool_draft/*`
 
 ## 维护规则

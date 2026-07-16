@@ -1,3 +1,9 @@
+# exec / process 历史笔记
+
+状态：Archive
+
+> 本文保留早期设计讨论，其中的 Python 环境、process action 和提示词已经过期。当前行为见 [Runtime Tools](../runtime/tools/README.md) 和 [Tool Execution](../runtime/tools/tool_execution.md)。
+
 exec 用来做什么的，目的是什么？
 - exec 是 shell 命令执行器。
 - Windows 使用 PowerShell；macOS/Linux 使用 `/bin/sh -c`，不会加载用户 shell profile。

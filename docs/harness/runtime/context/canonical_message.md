@@ -56,7 +56,7 @@ Storage 的模型 replay 会归一化历史兼容形态，包括早期 Bun 写�
 - message 必须是可 JSON 序列化数据。
 - tool input 和 state patch 必须是 object，不能接受 array/null 伪装。
 - clone 进入 provider request，防止 SDK mutation 反向修改 transcript。
-- 任何脱敏只影响日志/展示；除 image aging 和明确 replacement 外，不静默改写持久化内容。
+- 任何脱敏只影响日志/展示；除 image aging 和明确的 `context_patch` 外，不静默改变模型视图。
 
 ## 验证
 

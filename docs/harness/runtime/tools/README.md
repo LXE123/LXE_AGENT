@@ -9,7 +9,7 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 ## 工具来源
 
 - Native direct tools：Runtime 内置的 read/write/edit/grep/find/exec/process 等能力。
-- Native Feishu tools：由 Gateway 注入 API port，读取当前会话或下载资源。
+- Native Feishu tools：由 `agent-cli` 中的 Agent service 按配置注册，用于读取会话相关资源；平台出站仍由 Gateway 负责。
 - MCP tools：从 enabled server 动态发现，可 direct 或 deferred。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：搜索 deferred definition 并更新 exposure state。
@@ -20,9 +20,17 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 - [Tool Schema](tool_schema.md)：definition、命名、JSON schema 和 exposure。
 - [Tool Execution](tool_execution.md)：dispatch、cancel、result、artifact 与错误语义。
 
+## 常用行为
+
+- `read` 可以读取文本和受支持的图片；已知二进制文件会明确拒绝。文本输出有统一上限，大文件通过 `offset` 和 `limit` 分段继续，不把整文件一次塞给模型。
+- `exec` 在 Windows 使用 PowerShell，在 macOS/Linux 使用非登录 `/bin/sh`。Desktop 的 Python、pip 和 `lxeskill` 使用应用私有 Python；源码开发才回退到项目 `.venv`。
+- `process` 只管理由 `exec` 启动的 session，当前 action 为 `list`、`poll`、`log`、`write`、`kill` 和 `remove`。
+
+这里描述稳定边界，不冻结容易变化的字符数、图片尺寸或缓存数字。需要核对参数时，以当前 tool schema 和测试为准。
+
 ## 事实来源
 
-- [`tools.ts`](/packages/agent/runtime/src/tooling/registry.ts)：registry 与 exposure state。
+- [`registry.ts`](/packages/agent/runtime/src/tooling/registry.ts)：registry 与 exposure state。
 - [`coding-tools.ts`](/packages/agent/runtime/src/tooling/coding-tools.ts)：文件和 process 工具。
 - [`lxeskill-command.ts`](/packages/agent/runtime/src/tooling/lxeskill-command.ts)：catalog 命令、owner 与 artifact 声明解析。
 - [`mcp.ts`](/packages/agent/runtime/src/tooling/mcp.ts)：MCP config、连接和工具注册。
@@ -51,7 +59,7 @@ Exposure state 在 turn 内持久，schema 每 step 重新捕获。新暴露的�
 
 ## Cancel 与 process
 
-所有 handler 接收当前 `RunHandle`。长运行 native/MCP/process 必须监听 abort。后台 process 登记 session、turn、route 和 task id，允许 list/poll/log/remove；完成事件先持久化 pending event，再由 heartbeat 回到正常 turn。
+所有 handler 接收当前 `RunHandle`。长运行 native/MCP/process 必须监听 abort。后台 process 登记 session、turn、route 和 task id，允许查询、输入、终止或移除；完成事件先持久化 pending event，再由 heartbeat 回到正常 turn。
 
 ## Model-visible result
 

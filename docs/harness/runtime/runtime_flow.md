@@ -68,7 +68,7 @@ Tool execute context 包含 handle、session、route、turn 和 exposure state�
 ## 持久化
 
 - SQLite 保存 session、response route、pending event、turn/tool/skill usage 和 Dashboard 查询数据。
-- `session_transcripts/*.jsonl` 只追加 message 与 replacement/compaction checkpoint。
+- `session_transcripts/*.jsonl` 只追加 message、turn metadata 与最小 `context_patch`。
 - `sessions.json` 保存平台 source 到 session id 的稳定 binding。
 - replay cache 使用文件 size/mtime 签名，并在进程内 append 后直接更新。
 - 已处理 base64 image 在持久化边界替换为占位，不长期保存二进制正文。

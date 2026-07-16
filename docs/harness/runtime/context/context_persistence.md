@@ -1,86 +1,84 @@
-# Context Persistence
+# Context 持久化
 
 状态：Current
 
-## 目的
+## 先说结论
 
-Context persistence 让进程重启、turn 中断和 summary compaction 后仍能重建模型实际看见的 history，同时保留 append-only 审计轨迹。它区分原始 transcript 与当前 model-visible replacement，不用整文件重写来“压缩历史”。
+Context 持久化解决两个问题：进程重启后还能继续对话，以及历史太长时能缩短模型看到的内容。Runtime 不会重写旧消息，而是在 Transcript v2 中持续追加事件。
 
-事实来源是 [`packages/agent/runtime/src/state/storage.ts`](/packages/agent/runtime/src/state/storage.ts)。
+普通消息写一次；压缩、修复和重置通过最小 `context_patch` 改变“当前模型视图”。这样既能保留完整审计轨迹，也能让下一次模型请求使用更短的上下文。
 
-## 存储组成
+数据库和文件的完整分工见 [本地状态与数据库](../../../database/local_agent.md)。本篇只解释 transcript 如何写入和 replay。
 
-默认状态目录包含：
+## Transcript v2 事件
 
-- `local_agent.sqlite3`：session、route、pending event、usage 和 Dashboard 查询。
-- `session_transcripts/<session>.jsonl`：append-only message/checkpoint 日志。
-- `sessions.json`：平台 source 到 session id 的 binding，由 Gateway 管理。
+每个 session 对应一个 `session_transcripts/<session>.jsonl` 文件。主要事件只有四类：
 
-SQLite schema 在 store start 时初始化。JSONL 与 SQLite 承担不同职责：transcript 保存模型历史事件，SQLite 保存可查询的结构化状态。
+| 事件 | 作用 |
+| --- | --- |
+| `transcript_header` | 标记 transcript 版本和 session |
+| `message` | 保存 user、assistant 或 tool canonical message |
+| `turn_context` | 记录本轮实际 provider、model、effort 和 context window |
+| `context_patch` | 对当前模型视图做最小删除和插入 |
 
-## JSONL 事件
+一次压缩可能追加这样的事件：
 
-Runtime 使用两类核心记录：
+```json
+{
+  "kind": "context_patch",
+  "start": 4,
+  "delete_count": 18,
+  "insert_messages": [
+    {"role": "user", "content": "较早对话已压缩为摘要……"}
+  ],
+  "patch_kind": "compaction"
+}
+```
 
-- message append：user、steering、assistant 或 tool-result message，带 reason/时间等 metadata。
-- replacement/compaction checkpoint：声明从某个位置开始，当前 model view 应替换为新的 messages。
+`start` 和 `delete_count` 指向当前模型视图，不是 JSONL 行号。`insert_messages` 只保存真正变化的部分，不复制整段历史。
 
-旧行永远不修改。Replay 按顺序读取事件，并应用最新有效 replacement，得到当前 provider history。这样原始 tool output 仍可审计，而长期 model view 可以变短。
+## 两种视图
 
-## 写入时机
+同一份 transcript 会产生两个用途不同的视图：
+
+- **模型 replay**：按顺序读取 `message`，再应用每个 `context_patch`，得到 provider 下一次真正看见的 history。
+- **Dashboard 展示**：按原始事件分页，保留历史消息，并在压缩或重置位置插入说明标记，不把旧审计内容藏起来。
+
+所以“模型已经不再携带某段原始工具输出”不等于“Dashboard 或磁盘上删除了这段记录”。
+
+## 写入顺序
 
 - 当前 user message 在第一次 provider request 前写入。
-- steering 被消费时立即写入。
-- provider response 在 tool dispatch 前写入。
-- tool result 在每组调用闭合后写入。
-- 成功 compaction 在验证 token 下降后写 replacement。
-- final/post-turn maintenance 可以追加 checkpoint，但不回写旧事件。
+- steering 被消费时立即作为独立 user message 写入。
+- 完整 assistant response 在 tool dispatch 前写入。
+- tool result 在执行后写入，并保证 tool call 闭合。
+- compaction 只有在摘要有效、上下文确实变短且没有取消时才写 `context_patch`。
+- post-turn maintenance 可以继续治理长期历史；失败只记 warning，不撤销已经发送的最终答案。
 
-写入顺序必须与模型可见顺序一致。进程在工具中间退出时，replay sanitizer 会补缺失 result stub，不会重复执行工具。
+进程如果在工具执行中间退出，replay sanitizer 会补明确的 unavailable result，使历史保持可读，但不会自动重跑工具。
 
-## Replay cache
+## Replay cache 与索引
 
-Store 以 transcript 文件 size/mtime 组成 signature：
+Runtime 使用 transcript 的文件大小和修改时间判断缓存是否仍有效。进程内 append 会同步更新缓存；外部追加、截断、删除或替换文件后，下一次读取会重新 replay。
 
-- 首次 load 解析 JSONL 并缓存 view。
-- 进程内 append/replacement 同步更新 cache。
-- 外部 append、truncate、delete 或 replace 改变 signature，下一次 load 自动 replay。
-- cache 只缓存可重建数据，不是持久化单一事实源。
+SQLite 中的 transcript 状态和 Dashboard 分页区间都是可重建索引，不是会话正文的第二份真相。缓存或索引损坏时，应从 JSONL 重建，而不是反过来覆盖 transcript。
 
-这个路径避免 emitter、Dashboard 或 turn 热路径反复解析完整 transcript。
+## 图片与敏感数据
 
-## Image 与敏感数据
+图片第一次交给模型后，持久化时会把 base64 数据换成文本占位，保留“这里曾有图片”的语义，避免后续 turn 反复携带大块二进制。
 
-写入 transcript 前，已由模型处理的 base64 image 替换为文本占位。Provider auth、cookie、local secret 和 wire header 从不写入 context。redacted thinking opaque data可以保存在 canonical message，但日志、summary 和展示必须遮蔽。
+Provider 密钥、cookie、authorization header 和本地 secret 不进入 Context。需要兼容的 opaque thinking 数据也不能出现在 summary、日志或 Dashboard 正文中。
 
-## Session 与 response route
+## 旧数据兼容
 
-Session record 保存 source、state 和时间 metadata，不复制完整 transcript。response route 单独存储 platform/conversation/message/delivery handle，使 outbox failure 不影响 model history。
-
-Tool state patch 只合并受控 JSON object。后台任务先写 pending event，下一 heartbeat turn pop 后再进入 context，避免子进程直接修改 transcript 或发送平台消息。
-
-## Compaction checkpoint
-
-Replacement 写入前必须满足：
-
-1. summary 非空。
-2. canonical closure 有效。
-3. 新 estimate 小于原 estimate。
-4. signal 未 aborted。
-
-失败时不写任何 replacement。Post-turn checkpoint 即使失败也不回滚已完成 turn。
-
-## Legacy 兼容
-
-Replay 可以读取旧 message envelope、tool role 和已有 replacement/compaction JSONL，并归一为当前 canonical shape。兼容逻辑只用于读取旧用户数据；新写入始终使用当前事件格式。
+Runtime 仍能读取早期 message envelope、旧 tool role 和带 `replacement_history` 的整段替换记录，但这条兼容路径只负责读取旧用户数据。当前版本的新写入一律使用 Transcript v2 的最小 `context_patch`。
 
 ## 故障处理
 
-- 单行 JSON 损坏必须报告可定位错误，不能静默丢弃后续 transcript。
-- SQLite transaction 失败不应留下半写 route/state。
-- 外部文件变化使 cache 失效，而不是继续返回陈旧历史。
-- Turn usage 使用幂等 guard，异常路径最多记录一次。
+- 已完整写入但格式错误的 JSONL 行必须报出可定位错误，不能静默跳过后续历史。
+- 进程崩溃留下的未换行尾部可以忽略，最后一个完整事件仍应正常 replay。
+- 越界或结构错误的 `context_patch` 必须失败，不能猜测修复。
+- SQLite 事务失败不能留下半条 session、route 或 usage 更新。
+- summary 失败、为空或没有降低 token 时，不写 patch，原模型视图保持不变。
 
-## 验证
-
-Storage tests 覆盖 schema bootstrap、append/replay、replacement、cache invalidation、session/route/pending events、usage 查询和 Unicode 路径。任何 JSONL 形态变化都需要向后兼容 fixture。
+实现事实来源是 [Transcript v2](/packages/agent/runtime/src/state/transcript.ts) 和 [Runtime storage](/packages/agent/runtime/src/state/storage.ts)。

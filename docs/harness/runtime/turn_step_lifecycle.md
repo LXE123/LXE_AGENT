@@ -36,7 +36,7 @@ ContextPipeline 执行：
 - 90% soft threshold 与 hard limit 判断。
 - 必要的 summary compaction。
 
-prepare 失败不会修改持久化历史；成功 replacement 才写 checkpoint。
+prepare 失败不会修改持久化历史；只有安全压缩成功时才追加 `context_patch`。
 
 ## Provider 阶段
 

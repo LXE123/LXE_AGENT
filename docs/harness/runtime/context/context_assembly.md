@@ -38,7 +38,7 @@ Heartbeat pending events 已在 Router/job 层进入用户输入上下文，不�
 5. 判断 soft threshold 与 hard limit。
 6. 必要时选择跨 turn 或 mid-turn compaction plan。
 7. 调用 provider summary，验证 token 确实降低。
-8. 成功时写 replacement checkpoint 并返回新 view。
+8. 成功时追加最小 `context_patch` 并返回新 view。
 
 `trigger="pre_call"` 只在预算超过 threshold 时摘要。`trigger="overflow"` 表示 provider 已明确拒绝请求，会强制尝试一次安全 compaction。
 
@@ -74,7 +74,7 @@ Canonical assembly 不为具体 provider 删除 thinking、image 或 signature�
 
 - 无可摘要前缀：返回未压缩结果；若超过 hard limit，Runtime 显式 overflow。
 - summary exception/empty：最多两次，失败后保留原 history。
-- summary token 未下降：不写 replacement，并返回 failure reason。
+- summary token 未下降：不写 `context_patch`，并返回 failure reason。
 - abort：立即终止 summary/provider，不写半完成 checkpoint。
 - post-turn maintenance 失败：warning，不影响已经完成的 reply。
 
