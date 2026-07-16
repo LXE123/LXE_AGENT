@@ -95,6 +95,9 @@ populated the persistent uv cache with the pinned Hatchling build backend;
 missing build cache causes a clear failure without modifying the last valid
 base runtime.
 
+> 2026-07-16：固定 28 命令门禁已由
+> [物流服务退役记录](20260716-retire-logistics-service.md) 取代；打包现在比较源码与 wheel 的完整命令集合。
+
 `desktop:resources` installs the wheel with `--offline --no-deps --reinstall`,
 runs `python -I -m lxeskill list`, and fails unless all 28 commands are present.
 The final resource tree must not contain `runtime/lxeskill`; the module lives in

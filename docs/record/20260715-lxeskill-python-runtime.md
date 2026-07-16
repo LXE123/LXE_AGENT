@@ -37,6 +37,9 @@ wheel 不复制进最终资源。manifest 应包含私有 Python `site-packages/
 源码模式使用项目 `.venv`。两种模式都启用 `-I` 和 `PYTHONNOUSERSITE=1`，不读取用户 site-packages。
 旧 `LXESKILL_BINARY_PATH` 与 `LXESKILL_REQUIRE_BUNDLE` 不再受支持。
 
+> 2026-07-16：固定 28 命令门禁已由
+> [物流服务退役记录](20260716-retire-logistics-service.md) 取代；打包现在比较源码与 wheel 的完整命令集合。
+
 桌面 IPC 与界面的 `lxeskill` 健康字段保持不变。打包阶段以 `lxeskill list` 返回 28 个命令作为
 行为冒烟，并写入包含 wheel 哈希的 readiness marker；健康检查要求私有 Python、模块文件和该
 marker 同时存在才判定 ready。

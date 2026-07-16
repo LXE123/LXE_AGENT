@@ -47,6 +47,9 @@ browser auth 的 Playwright storage state 属于 LXE Skill CLI 持久状态，�
 
 ## 兼容与验证边界
 
+> 2026-07-16：本节记录的物流命令后来由
+> [物流服务退役记录](20260716-retire-logistics-service.md) 正式下线。
+
 - `scripts.logistics_update_ingest` 移入 `services.agent_cli.amazon_logistic`；
   catalog 对外命令、参数、owner 和协议不变。
 - macOS 验证完整 Python/Bun 套件、wheel 内容、任意 cwd CLI 和静态 Windows
