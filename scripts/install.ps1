@@ -1,6 +1,6 @@
 param(
     [string]$RepoUrl = "https://github.com/LXE123/LXE_AGENT.git",
-    [string]$Ref = "main",
+    [string]$Ref = "lxe-agent-TUI",
     [string]$InstallDir = "",
     [switch]$NoPath,
     [switch]$AllowZipFallback,

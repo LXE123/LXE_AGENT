@@ -13,10 +13,19 @@ from shared.repository import repository_root
 ROOT = repository_root()
 SCRIPTS = ROOT / "scripts"
 BUN_VERSION = "1.3.14"
+SOURCE_PRODUCT_BRANCH = "lxe-agent-TUI"
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def test_source_installers_default_to_tui_product_branch() -> None:
+    unix_installer = _read(SCRIPTS / "install.sh")
+    windows_installer = _read(SCRIPTS / "install.ps1")
+
+    assert f'REF="{SOURCE_PRODUCT_BRANCH}"' in unix_installer
+    assert f'[string]$Ref = "{SOURCE_PRODUCT_BRANCH}"' in windows_installer
 
 
 def test_unix_installer_builds_dashboard_from_frozen_root_bun_workspace() -> None:
