@@ -99,10 +99,11 @@ base runtime.
 > [物流服务退役记录](20260716-retire-logistics-service.md) 取代；打包现在比较源码与 wheel 的完整命令集合。
 
 `desktop:resources` installs the wheel with `--offline --no-deps --reinstall`,
-runs `python -I -m lxeskill list`, and fails unless all 28 commands are present.
+runs `python -I -m lxeskill list`, and fails unless its command set exactly matches
+the current source catalog.
 The final resource tree must not contain `runtime/lxeskill`; the module lives in
 the private Python site-packages and is recorded in the SHA-256 manifest. A
-small readiness marker records the successful 28-command smoke and wheel hash;
+small readiness marker records the successful catalog smoke and wheel hash;
 desktop health requires the Python executable, module file, and marker. Only
 Git-tracked project resources are copied, so local `.env`, authentication,
 sessions, and business artifacts cannot leak into the installer.

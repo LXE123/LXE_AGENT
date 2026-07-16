@@ -1,32 +1,47 @@
-# LXE Agent
+# LXE Agent Desktop
 
-LXE Agent 是 LXE 内部使用的本地业务 agent。它通过飞书机器人接收请求，调用本机浏览器、
-ERP 和表格处理能力，并通过本地 Dashboard 展示会话、任务和运行状态。
+LXE Agent Desktop 是 LXE Agent 的默认产品线。它把现有 Dashboard、Gateway、Agent Runtime、
+业务 skill 和私有运行时装进 Windows Electron/NSIS 桌面应用，用户不需要预装 Bun、Node.js
+或 Python。
 
 ## 核心能力
 
 - 飞书私聊与群聊会话接入。
 - FBA 与补货 skill，覆盖马帮、紫鸟、报关、发票、采购和退税流程。
-- 本地 Dashboard，默认地址为 `http://127.0.0.1:8765/`。
+- 复用现有 Dashboard 的 Electron 管理界面，不额外启动本地 Web 服务。
 - 本地 session、JSONL transcript、任务和使用量记录。
 - 可选的 Lark、DingTalk、MCP 和 LXE Agent Data Server 集成。
+- 托盘、后台组件状态、工作区和私有凭证管理。
 
 ## 运行架构
 
-- Gateway、Runtime、Dashboard API 和常驻任务运行在 Bun `1.3.14` 单进程中。
-- Dashboard 前端位于 `apps/dashboard`，由 Gateway 提供静态资源和 API。
-- Python `3.12.10` 仅用于 `lxeskill` 业务命令；浏览器、ERP 和 Excel 脚本按需启动并在执行后退出。
-- Python 环境由 `uv` 管理，生产启动不依赖 Python 常驻服务。
-- Runtime 和源码启动器通过项目 `.venv` 执行 `python -I -m lxeskill`；Electron 安装包把当前源码 wheel 安装到随包私有 Python，用户无需安装 Python。
+- Electron Main 使用 Electron 自带的 Node.js 运行 Gateway，并管理窗口、托盘、配置和子进程生命周期。
+- Dashboard 位于 `apps/dashboard`；正式包通过安全的应用协议加载，并通过白名单 IPC 访问 Gateway。
+- `agent-cli.exe` 由 Bun `1.3.14` 和 TypeScript 编译，通过 NDJSON 标准输入输出与 Electron Main 通信。
+- `lxeskill` 保持 Python 原生实现；构建时生成 wheel，安装到随包私有 Python，并以
+  `python -I -m lxeskill` 按需执行。
+- 私有 Node.js、Python、ripgrep 和 Playwright Chromium 只对应用子进程注入，不修改系统 PATH。
 
-## 快速安装
+## Windows 桌面安装
 
-### Windows
-
-在 PowerShell 中运行：
+当前支持 Windows x64。CI/发布机通过以下命令生成 NSIS 安装程序：
 
 ```powershell
-irm https://raw.githubusercontent.com/LXE123/LXE_AGENT/main/scripts/install.ps1 | iex
+bun run verify:platform:win
+```
+
+产物位于 `dist/desktop/`，文件名为 `LXE-Agent-<version>-windows-x64.exe`。本轮只调整默认产品分支，
+尚未发布 GitHub Release；内部测试请使用经过 Windows 门禁验证的 Setup.exe。
+
+## 源码 / TUI 产品线
+
+需要源码安装、终端命令和浏览器 Dashboard 的用户，请使用独立维护的
+[`lxe-agent-TUI`](https://github.com/LXE123/LXE_AGENT/tree/lxe-agent-TUI) 分支。
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/LXE123/LXE_AGENT/lxe-agent-TUI/scripts/install.ps1 | iex
 ```
 
 如当前会话禁止执行脚本，先运行：
@@ -35,30 +50,14 @@ irm https://raw.githubusercontent.com/LXE123/LXE_AGENT/main/scripts/install.ps1 
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 ```
 
-安装完成后可使用：
-
-```powershell
-LXE start
-LXE stop
-LXE doctor
-LXE update
-```
-
-### macOS / Linux
+macOS / Linux：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LXE123/LXE_AGENT/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/LXE123/LXE_AGENT/lxe-agent-TUI/scripts/install.sh | bash
 ```
 
-重新打开终端后启动或停止：
-
-```bash
-LXE start
-LXE stop
-```
-
-安装脚本会准备固定版本的 Bun、uv、Python 依赖、Playwright Chromium、Dashboard 构建产物和
-`LXE` / `lxeskill` 命令。
+为兼容历史 raw `main/scripts/install.*` 链接，本分支仍保留源码安装器；它的默认 ref 同样是
+`lxe-agent-TUI`，不会把桌面源码当成 TUI 安装。
 
 ## 本地配置
 
@@ -117,7 +116,7 @@ rm -rf build/wheel-smoke
 uv build --wheel --out-dir build/wheel-smoke --clear --no-create-gitignore
 ```
 
-Windows Electron 打包器会自动完成 wheel 构建、安装和 28 命令冒烟验证，外部入口仍为
+Windows Electron 打包器会自动完成 wheel 构建、安装和源码 catalog 完整命令集合冒烟验证，外部入口仍为
 `bun run desktop:dist:win`。
 
 完整检查包含 TypeScript 生产边界、typecheck、Bun 测试、Python/LXE Skill 测试，以及 Dashboard
