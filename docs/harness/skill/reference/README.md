@@ -6,8 +6,8 @@
 
 ## References
 
-- [Ziniao WebDriver doc](ziniao-webdriver-doc/SKILL.md)：紫鸟浏览器 WebDriver 对接说明。
-- [Ziniao core APIs](ziniao-webdriver-doc/references/api-core.md)
-- [Ziniao auxiliary APIs](ziniao-webdriver-doc/references/api-auxiliary.md)
-- [Ziniao prerequisites](ziniao-webdriver-doc/references/prerequisites.md)
-- [Ziniao startup params](ziniao-webdriver-doc/references/startup-params.md)
+- [Ziniao WebDriver doc](ziniao-webdriver-doc-1.0.0/SKILL.md)：紫鸟浏览器 WebDriver 对接说明。
+- [Ziniao core APIs](ziniao-webdriver-doc-1.0.0/reference/api-core.md)
+- [Ziniao auxiliary APIs](ziniao-webdriver-doc-1.0.0/reference/api-auxiliary.md)
+- [Ziniao prerequisites](ziniao-webdriver-doc-1.0.0/reference/prerequisites.md)
+- [Ziniao startup params](ziniao-webdriver-doc-1.0.0/reference/startup-params.md)

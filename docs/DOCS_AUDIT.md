@@ -36,7 +36,7 @@ tracked Markdown 的质量信号：
 
 ## Empty Documents
 
-以下文件被 Git 跟踪，但内容为空，不能视为当前文档：
+P0 清理前发现以下空文档；它们已于 2026-07-16 删除：
 
 - `docs/feishu/feishu.md`
 - `docs/tool_draft/更新物流数据.md`
@@ -49,7 +49,6 @@ tracked Markdown 的质量信号：
 - `docs/harness/skill/archive/amazon_replenish/replenishment-*/`
 - `docs/harness/skill/archive/unmapped/`
 - `docs/log_collection/draft.md`
-- `docs/tool_draft/更新物流数据.md`
 
 ## Phase And Dated Records
 
