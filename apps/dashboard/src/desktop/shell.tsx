@@ -526,13 +526,13 @@ export function DesktopShell({
   }, [desktop]);
 
   if (!desktop) {
-    return <main className="desktop-loading">桌面 preload bridge 不可用，LXE Agent 无法在普通浏览器中运行。</main>;
+    return <main className="desktop-loading" data-lxe-root-state="fatal">桌面 preload bridge 不可用，LXE Agent 无法在普通浏览器中运行。</main>;
   }
   const frameClassName = `desktop-window-frame desktop-platform-${desktop.platform}`;
   const dragRegion = <div aria-hidden className="desktop-window-drag-region" />;
   if (!setup || !form) {
     return (
-      <main className={`desktop-loading ${frameClassName}`}>
+      <main className={`desktop-loading ${frameClassName}`} data-lxe-root-state="loading">
         {dragRegion}
         {error || "正在加载 LXE Agent…"}
       </main>
@@ -748,7 +748,7 @@ export function DesktopShell({
 
   if (!setup.complete) {
     return (
-      <main className={`desktop-onboarding ${frameClassName}`}>
+      <main className={`desktop-onboarding ${frameClassName}`} data-lxe-root-state="setup">
         {dragRegion}
         <form className="desktop-onboarding-card" onSubmit={save}>
           <div className="desktop-onboarding-header">
@@ -778,7 +778,7 @@ export function DesktopShell({
   };
   const state = health?.gateway ?? "starting";
   return (
-    <div className={frameClassName}>
+    <div className={frameClassName} data-lxe-root-state="ready">
       {dragRegion}
       <div key={appGeneration}>{children(openSettings)}</div>
       {notice && !settingsOpen ? <p className="desktop-import-toast">{notice}</p> : null}

@@ -87,6 +87,7 @@ import { StatsView } from "./features/stats/view";
 import { BackgroundTasksView } from "./features/tasks/view";
 import { McpView, ToolsView } from "./features/tools/view";
 import { DesktopShell } from "./desktop/shell";
+import { DashboardRootErrorBoundary } from "./root-error-boundary";
 import { BrandMark } from "./shared/ui/brand-mark";
 const DOCS_HOME_PATH = "README.md";
 const DASHBOARD_TAB_IDS = new Set([
@@ -831,11 +832,13 @@ const rootContainer = document.getElementById("root")! as HTMLElement & {
 const appRoot = rootContainer.__appRoot ?? createRoot(rootContainer);
 rootContainer.__appRoot = appRoot;
 appRoot.render(
-  <DashboardQueryProvider>
-    <DesktopShell>
-      {(openDesktopSettings) => (
-        <App onOpenDesktopSettings={window.lxe ? openDesktopSettings : undefined} />
-      )}
-    </DesktopShell>
-  </DashboardQueryProvider>
+  <DashboardRootErrorBoundary>
+    <DashboardQueryProvider>
+      <DesktopShell>
+        {(openDesktopSettings) => (
+          <App onOpenDesktopSettings={window.lxe ? openDesktopSettings : undefined} />
+        )}
+      </DesktopShell>
+    </DashboardQueryProvider>
+  </DashboardRootErrorBoundary>
 );

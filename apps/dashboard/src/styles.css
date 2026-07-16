@@ -138,7 +138,8 @@ button {
 }
 
 .desktop-loading,
-.desktop-onboarding {
+.desktop-onboarding,
+.desktop-fatal {
   display: grid;
   width: 100%;
   min-height: 100vh;
@@ -159,6 +160,49 @@ button {
 .desktop-loading {
   color: var(--muted);
   font-size: 14px;
+}
+
+.desktop-fatal-card {
+  display: grid;
+  width: min(460px, 100%);
+  justify-items: start;
+  gap: 14px;
+  padding: 34px;
+  border: 1px solid var(--danger-border);
+  border-radius: 20px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(54, 39, 26, 0.14);
+}
+
+.desktop-fatal-card h1,
+.desktop-fatal-card p {
+  margin: 0;
+}
+
+.desktop-fatal-card h1 {
+  color: var(--text-strong);
+  font-size: 26px;
+}
+
+.desktop-fatal-card > p:not(.desktop-eyebrow) {
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.desktop-fatal-mark {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border: 1px solid var(--accent-muted);
+  border-radius: 16px;
+  background: var(--accent-soft);
+}
+
+.desktop-fatal-mark svg {
+  width: 42px;
+  height: 42px;
 }
 
 .desktop-onboarding-card,
