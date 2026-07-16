@@ -17,7 +17,7 @@ from services.agent_cli.mabang.restock_workbook import (
     summary_column_indexes,
 )
 from services.agent_cli.mabang import shipment_quantity_validation as quantity_validation
-from services.amazon.amazon_logistic.sources.consignment_excel import (
+from services.mabang.amazon.fba.consignment_excel import (
     find_consignment_excel,
     resolve_column,
 )

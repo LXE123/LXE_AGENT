@@ -32,7 +32,7 @@ from services.agent_cli.mabang.shipment_quantity_validation import (
     read_consignment_msku_rows,
     resolve_delivery_csv_path,
 )
-from services.amazon.amazon_logistic.sources.consignment_excel import (
+from services.mabang.amazon.fba.consignment_excel import (
     find_consignment_excel,
 )
 from services.mabang.stock_sku_export import (

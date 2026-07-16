@@ -1,6 +1,6 @@
 ---
 name: fba-workflow-map
-description: FBA 模块路由图。用户询问 FBA skill 关系、FBA 流程、只有 SP 单号该跑哪个、发货单 CSV 和 WMS 装箱 Excel 区别、发票报关流程、采购汇总表生成、采购合同填写、备货单生成、物流流程、退税流程时使用；这是路由/解释 skill，不直接执行 CLI。
+description: FBA 模块路由图。用户询问 FBA skill 关系、FBA 流程、只有 SP 单号该跑哪个、发货单 CSV 和 WMS 装箱 Excel 区别、发票报关流程、采购汇总表生成、采购合同填写、备货单生成、退税流程时使用；这是路由/解释 skill，不直接执行 CLI。
 type: amazon_fba
 ---
 
@@ -29,7 +29,6 @@ flowchart TD
   A --> D["fba-invoice-template-fill<br/>发票导入模板"]
 
   E["fba-shipment-wms-box-download<br/>WMS 装箱数据"] --> F["fba-shipment-create<br/>Amazon FBA 创建货件"]
-  E --> G["fba-logistics-select<br/>物流优选"]
   E --> D
   L["备货单 xlsx"] --> D
   A --> H["fba-customs-declaration-fill<br/>报关资料"]
@@ -38,7 +37,6 @@ flowchart TD
 
   A --> I["fba-export-tax-delivery-summary<br/>发货单退税汇总"]
   J["fba-export-tax-products-manage<br/>退税白名单"] --> I
-  K["fba-logistics-rate-import<br/>物流报价导入"] --> G
   A --> M["fba-purchase-summary-create<br/>采购汇总表+批量备货单生成"]
   N["出口退税总表 xlsx"] --> M
   M --> P["fba-purchase-contract-fill<br/>采购合同填写"]
@@ -61,8 +59,6 @@ flowchart TD
 | 按一批发货单和出口退税总表生成采购汇总表、采购单、批量备货单 | `fba-purchase-summary-create` |
 | 根据采购汇总表和合同汇总模板填写采购合同 | `fba-purchase-contract-fill` |
 | 明确只按单个发货单独立生成备货单，且不需要整批正飞均价 | `fba-restock-workbook-create` |
-| 导入物流报价、更新物流价格 | `fba-logistics-rate-import` |
-| 物流优选、选物流渠道 | `fba-logistics-select` |
 | 维护可退税 SKU 白名单 | `fba-export-tax-products-manage` |
 | 统计某个发货单的退税 SKU | `fba-export-tax-delivery-summary` |
 
@@ -77,7 +73,6 @@ flowchart TD
 | 采购汇总表与批量备货单生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-purchase-summary-create` |
 | 采购合同填写 | 采购汇总表 + 合同汇总模板 -> `fba-purchase-contract-fill` |
 | 单 SP 备货单兼容生成 | 单个 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-restock-workbook-create` |
-| 物流报价与优选 | `fba-logistics-rate-import` -> `fba-logistics-select` |
 | 出口退税 | `fba-export-tax-products-manage` -> `fba-export-tax-delivery-summary` |
 
 日常采购流程应走 `fba-purchase-summary-create`，一次生成采购汇总表和每个 SP 的备货单；这样正飞 `均价` 会按整批 SP 统一计算。`fba-restock-workbook-create` 只作为单 SP 独立生成的兼容入口。

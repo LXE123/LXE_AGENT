@@ -71,11 +71,7 @@ def load_catalog() -> dict[str, dict[str, Any]]:
                 raise RuntimeError(f"duplicate script tool module: {module}")
             modules.add(module)
             expected = (
-                "amazon_logistic_quote"
-                if module == "services.agent_cli.amazon_logistic.run"
-                else "logistics_rate_import"
-                if module == "services.agent_cli.amazon_logistic.logistics_update_ingest"
-                else f"mabang_{module.rsplit('.', 1)[-1]}"
+                f"mabang_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.mabang.")
                 else f"amazon_fba_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.browser.amazon_fba.")
@@ -205,7 +201,6 @@ def _finalize_payload(
     if "success" in payload:
         success = bool(payload.get("success"))
     elif "ok" in payload:
-        # The logistics ingest family reports via "ok" instead of "success".
         success = bool(payload.get("ok"))
     else:
         success = True

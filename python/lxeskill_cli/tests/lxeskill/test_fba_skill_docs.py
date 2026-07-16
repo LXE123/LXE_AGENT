@@ -11,6 +11,12 @@ def _skill_text(name: str) -> str:
     return (PROJECT_ROOT / "skills" / name / "SKILL.md").read_text(encoding="utf-8")
 
 
+def test_repository_skill_inventory_distinguishes_top_level_and_nested_manifests() -> None:
+    skill_root = PROJECT_ROOT / "skills"
+    assert len(list(skill_root.glob("*/SKILL.md"))) == 26
+    assert len(list(skill_root.rglob("SKILL.md"))) == 53
+
+
 def test_ziniao_is_independent_and_shipment_owns_only_four_stages() -> None:
     catalog = load_catalog()
     assert catalog["ziniao_browser"]["owner_skills"] == ["ziniao-browser"]
@@ -27,12 +33,7 @@ def test_ziniao_is_independent_and_shipment_owns_only_four_stages() -> None:
     assert "旧元素 `ref` 立即视为失效" in ziniao
 
 
-def test_fba_docs_use_portable_input_and_send_only_declared_deliverables() -> None:
-    logistics = _skill_text("fba-logistics-select")
-    assert "--input-json" in logistics
-    assert "PowerShell" not in logistics
-    assert "@'" not in logistics
-
+def test_fba_docs_send_only_declared_deliverables() -> None:
     catalog = load_catalog()
     deliverable_owners = {
         str(owner)

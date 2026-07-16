@@ -82,26 +82,6 @@
       "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string"}, "delivery_csv": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
     },
     {
-      "name": "amazon_logistic_quote",
-      "command_path": ["fba", "logistics", "quote"],
-      "legacy_aliases": ["amazon_logistic_quote"],
-      "visibility": "business",
-      "session_mode": "none",
-      "module": "services.agent_cli.amazon_logistic.run",
-      "owner_skills": ["fba-logistics-select"], "artifact_paths": [{"field": "files[]", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"input_text": {"type": "string"}, "shipment_no": {"type": "string"}, "consignment_no": {"type": "string"}, "destination_address": {"type": "string"}}, "additionalProperties": false}
-    },
-    {
-      "name": "logistics_rate_import",
-      "command_path": ["fba", "logistics", "rates-import"],
-      "legacy_aliases": ["logistics_rate_import"],
-      "visibility": "business",
-      "session_mode": "none",
-      "module": "services.agent_cli.amazon_logistic.logistics_update_ingest",
-      "owner_skills": ["fba-logistics-rate-import"], "timeout_ms": 600000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"file_path": {"type": "string"}, "job_id": {"type": "string"}}, "oneOf": [{"required": ["file_path"]}, {"required": ["job_id"]}], "additionalProperties": false}
-    },
-    {
       "name": "mabang_download_msku_detail_excel", "module": "services.agent_cli.mabang.download_msku_detail_excel",
       "command_path": ["fba", "msku", "detail-download"],
       "legacy_aliases": ["mabang_download_msku_detail_excel"],

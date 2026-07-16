@@ -66,7 +66,6 @@ REMOVED_SYMBOLS = {
         "reset_local_log_retention_once_for_tests",
     ),
     "python/lxeskill_cli/lxeskill/cli.py": ("standalone_main",),
-    "python/lxeskill_cli/services/agent_cli/amazon_logistic/defaults.py": ("DEFAULT_QUOTE_BOXES",),
     "python/lxeskill_cli/services/agent_cli/browser/amazon_common/own_carrier.py": (
         "_open_phase_3_1_carrier_dropdown",
         "_phase_3_2_ship_date_calendar_day_selected",
@@ -91,7 +90,7 @@ REMOVED_SYMBOLS = {
         "ConsignmentMskuQuantityRow",
         "read_delivery_msku_components",
     ),
-    "python/lxeskill_cli/services/amazon/amazon_logistic/sources/consignment_excel.py": (
+    "python/lxeskill_cli/services/mabang/amazon/fba/consignment_excel.py": (
         "resolve_test_file_dir",
     ),
     "python/lxeskill_cli/services/browser/browser/selenium_runner.py": ("detach",),
