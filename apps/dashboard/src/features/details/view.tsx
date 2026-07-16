@@ -3,18 +3,20 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CheckCircle2, Copy, X } from "lucide-react";
 
-import { fetchJson } from "../../api/client";
+import {
+  queryError,
+  useSkillContentQuery,
+  useSkillReferenceQuery,
+} from "../../api/queries";
 import { formatDate, formatDuration } from "../../shared/format";
 import { copyTextToClipboard } from "../../shared/content";
-import { encodePathSegments, markdownWithoutFrontMatter } from "../docs/model";
+import { markdownWithoutFrontMatter } from "../docs/model";
 import { statusPillClass } from "../tasks/model";
 import { useUiText } from "../../shared/i18n";
 import type {
   SkillContentMode,
-  SkillContentPayload,
   SkillContentView,
   SkillPayload,
-  SkillReferenceContentPayload,
   SkillReferencePayload
 } from "../../api/payloads";
 import { markdownComponents } from "../../shared/ui/markdown";
@@ -22,13 +24,34 @@ import type { DetailTarget } from "../../shared/ui/detail-target";
 
 function SkillDetailContent({ skill }: { skill: SkillPayload }) {
   const t = useUiText();
-  const [payload, setPayload] = useState<SkillContentPayload | null>(null);
-  const [contentView, setContentView] = useState<SkillContentView | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [referenceLoading, setReferenceLoading] = useState("");
-  const [error, setError] = useState("");
+  const [selectedReferencePath, setSelectedReferencePath] = useState("");
   const [copied, setCopied] = useState(false);
   const [contentMode, setContentMode] = useState<SkillContentMode>("preview");
+  const contentQuery = useSkillContentQuery(skill.name);
+  const referenceQuery = useSkillReferenceQuery(
+    skill.name,
+    selectedReferencePath,
+    Boolean(selectedReferencePath),
+  );
+  const payload = contentQuery.data;
+  const contentView: SkillContentView | null = selectedReferencePath
+    ? referenceQuery.data
+      ? {
+          title: referenceQuery.data.path,
+          subtitle: referenceQuery.data.description,
+          content: referenceQuery.data.content || "",
+        }
+      : null
+    : payload
+      ? {
+          title: "SKILL.md",
+          subtitle: payload.description || skill.description,
+          content: payload.content || "",
+        }
+      : null;
+  const loading = contentQuery.isPending;
+  const referenceLoading = referenceQuery.isFetching ? selectedReferencePath : "";
+  const error = queryError(contentQuery.error || referenceQuery.error);
   const references = payload?.references || skill.references;
   const copyDisabled = !contentView?.content || loading || Boolean(referenceLoading);
   const previewContent = contentView?.title === "SKILL.md"
@@ -36,79 +59,24 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
     : contentView?.content || "";
 
   useEffect(() => {
-    let cancelled = false;
+    setSelectedReferencePath("");
+    setCopied(false);
+    setContentMode("preview");
+  }, [skill.name]);
 
-    async function loadSkillContent() {
-      setPayload(null);
-      setContentView(null);
-      setLoading(true);
-      setReferenceLoading("");
-      setError("");
-      setCopied(false);
-      setContentMode("preview");
-      try {
-        const nextPayload = await fetchJson<SkillContentPayload>(
-          `/api/skills/${encodeURIComponent(skill.name)}/content`
-        );
-        if (cancelled) {
-          return;
-        }
-        setPayload(nextPayload);
-        setContentView({
-          title: "SKILL.md",
-          subtitle: nextPayload.description || skill.description,
-          content: nextPayload.content || ""
-        });
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadSkillContent();
-    return () => {
-      cancelled = true;
-    };
-  }, [skill.name, skill.description]);
-
-  async function openReference(reference: SkillReferencePayload) {
+  function openReference(reference: SkillReferencePayload) {
     if (referenceLoading === reference.path) {
       return;
     }
-    setReferenceLoading(reference.path);
-    setError("");
     setCopied(false);
-    try {
-      const nextPayload = await fetchJson<SkillReferenceContentPayload>(
-        `/api/skills/${encodeURIComponent(skill.name)}/references/${encodePathSegments(reference.path)}`
-      );
-      setContentView({
-        title: nextPayload.path,
-        subtitle: nextPayload.description || reference.description,
-        content: nextPayload.content || ""
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setReferenceLoading("");
-    }
+    setSelectedReferencePath(reference.path);
   }
 
   function showSkillBody() {
     if (!payload) {
       return;
     }
-    setContentView({
-      title: "SKILL.md",
-      subtitle: payload.description || skill.description,
-      content: payload.content || ""
-    });
-    setError("");
+    setSelectedReferencePath("");
     setCopied(false);
   }
 

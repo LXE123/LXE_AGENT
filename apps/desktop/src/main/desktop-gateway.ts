@@ -1,6 +1,10 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { DesktopHealth, DashboardTransportRequest } from "@lxe/desktop-protocol";
+import type {
+  DashboardTransportRequest,
+  DesktopDashboardDataDomain,
+  DesktopHealth,
+} from "@lxe/desktop-protocol";
 import type { JsonObject, JsonValue } from "@lxe/protocol";
 import {
   createDirectGatewayComposition,
@@ -18,6 +22,10 @@ import type { DesktopConfigStore } from "./config-store";
 import { ElectronInboundImageProcessor } from "./inbound-image";
 import type { DesktopPaths } from "./paths";
 import { NodeGatewayStore } from "./gateway-store";
+import {
+  ALL_DASHBOARD_DATA_DOMAINS,
+  dashboardInvalidationForAgentEvent,
+} from "./dashboard-invalidation";
 
 class SplitGatewayStorage implements DirectGatewayStorage {
   constructor(
@@ -70,6 +78,10 @@ export interface DesktopGatewayOptions {
   version: string;
   packaged: boolean;
   onHealthChanged?: (health: DesktopHealth) => void;
+  onDashboardInvalidated?: (
+    domains: DesktopDashboardDataDomain[],
+    sessionIds: string[],
+  ) => void;
 }
 
 export class DesktopGateway {
@@ -77,6 +89,7 @@ export class DesktopGateway {
   private runtime: ProcessAgentRuntime | undefined;
   private store: NodeGatewayStore | undefined;
   private gatewayState: DesktopHealth["gateway"] = "stopped";
+  private runtimeReady = false;
   private lastError = "";
 
   constructor(private readonly options: DesktopGatewayOptions) {}
@@ -142,8 +155,6 @@ export class DesktopGateway {
         UV_PYTHON_DOWNLOADS: "never",
         UV_OFFLINE: "0",
       }),
-      AGENT_DASHBOARD_ENABLED: "0",
-      AGENT_DASHBOARD_OPEN_BROWSER: "0",
     };
     const policy = loadPermissionPolicy(permissionPolicyPath({
       env: environment,
@@ -173,9 +184,23 @@ export class DesktopGateway {
         await composition?.parts.emitter?.typing(request);
       },
       onWake: (request) => composition?.parts.heartbeatBridge.handle(request),
+      onEvent: (event) => {
+        const invalidation = dashboardInvalidationForAgentEvent(event);
+        if (invalidation) {
+          this.options.onDashboardInvalidated?.(
+            invalidation.domains,
+            invalidation.sessionIds,
+          );
+        }
+      },
       restartDelaysMs: [1_000, 2_000, 5_000],
       onStatus: (status) => {
-        composition?.parts.scheduler.setRuntimeReady(status.state === "ready");
+        const ready = status.state === "ready";
+        composition?.parts.scheduler.setRuntimeReady(ready);
+        if (ready && !this.runtimeReady) {
+          this.options.onDashboardInvalidated?.([...ALL_DASHBOARD_DATA_DOMAINS], []);
+        }
+        this.runtimeReady = ready;
         this.publishHealth();
       },
       onStderr: (line) => {
@@ -187,19 +212,12 @@ export class DesktopGateway {
     const splitStorage = new SplitGatewayStorage(store, runtime);
     composition = createDirectGatewayComposition({
       projectRoot: setup.workspace_root,
-      runtimeRoot: this.options.paths.dataRoot,
       environment,
       policy,
       storage: splitStorage,
       runtime,
       feishuAppId: feishu.appId,
       maxConcurrency: 2,
-      dashboard: {
-        enabled: false,
-        url: "",
-        start: () => true,
-        stop: () => undefined,
-      },
       ...(feishu.gatewayEnabled && feishu.missingRequired().length === 0
         ? { feishu: { config: feishu, imageProcessor: new ElectronInboundImageProcessor() } }
         : {}),
@@ -241,6 +259,7 @@ export class DesktopGateway {
     this.store?.stop();
     this.store = undefined;
     this.runtime = undefined;
+    this.runtimeReady = false;
     this.gatewayState = "stopped";
     this.publishHealth();
   }

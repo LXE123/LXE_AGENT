@@ -122,6 +122,57 @@ export type DesktopComponentState = "stopped" | "starting" | "ready" | "error";
 
 export type DesktopPlatform = "win32" | "darwin" | "linux";
 
+export type DesktopLogProfile = "off" | "standard" | "diagnostic";
+
+export type DesktopLogRetentionDays = 3 | 7 | 14 | 30;
+
+export type DesktopZiniaoVersion = "v5" | "v6";
+
+export type DesktopConfigImportGroupName = "base" | "ziniao" | "mabang" | "feishu" | "logging";
+
+export interface DesktopConfigImportGroupPreview {
+  group: DesktopConfigImportGroupName;
+  label: string;
+  status: "ready" | "pending";
+  detected_fields: string[];
+  overwritten_fields: string[];
+  issues: string[];
+}
+
+export interface DesktopConfigImportPreview {
+  import_id: string;
+  file_name: string;
+  expires_at: number;
+  groups: DesktopConfigImportGroupPreview[];
+  warnings: string[];
+  unknown_variable_count: number;
+  diagnostic_logging: boolean;
+}
+
+export interface DesktopConfigImportApplyResult {
+  state: DesktopSetupState;
+  applied_groups: string[];
+  pending_groups: string[];
+  warnings: string[];
+}
+
+export type DesktopDashboardDataDomain =
+  | "sessions"
+  | "stats"
+  | "background_tasks"
+  | "channels"
+  | "models"
+  | "connectors"
+  | "skills"
+  | "tools"
+  | "docs";
+
+export interface DesktopDashboardInvalidation {
+  revision: number;
+  domains: DesktopDashboardDataDomain[];
+  session_ids: string[];
+}
+
 export interface DesktopHealth {
   gateway: DesktopComponentState;
   agent_cli: DesktopComponentState;
@@ -138,16 +189,70 @@ export interface DesktopSetupState {
   provider: string;
   provider_key_configured: boolean;
   workspace_root: string;
-  feishu_configured: boolean;
-  feishu_app_id_masked: string;
+  ziniao: {
+    managed: boolean;
+    configured: boolean;
+    issues: string[];
+    company: string;
+    username: string;
+    password_configured: boolean;
+    app_version: DesktopZiniaoVersion;
+    app_path: string;
+    webdriver_path: string;
+  };
+  mabang: {
+    managed: boolean;
+    configured: boolean;
+    issues: string[];
+    account: string;
+    password_configured: boolean;
+  };
+  feishu: {
+    managed: boolean;
+    configured: boolean;
+    issues: string[];
+    app_id: string;
+    app_secret_configured: boolean;
+  };
+  logging: {
+    profile: DesktopLogProfile;
+    retention_days: DesktopLogRetentionDays;
+    directory: string;
+  };
+  legacy_environment_imported: boolean;
 }
+
+export type DesktopZiniaoSetupInput =
+  | { action: "clear" }
+  | {
+      action: "save";
+      company: string;
+      username: string;
+      password?: string;
+      app_version: DesktopZiniaoVersion;
+      app_path: string;
+      webdriver_path: string;
+    };
+
+export type DesktopMabangSetupInput =
+  | { action: "clear" }
+  | { action: "save"; account: string; password?: string };
+
+export type DesktopFeishuSetupInput =
+  | { action: "clear" }
+  | { action: "save"; app_id: string; app_secret?: string };
 
 export interface DesktopSetupInput {
   provider: "kimi_coding" | "deepseek" | "glm";
   api_key?: string;
   workspace_root: string;
-  feishu_app_id?: string;
-  feishu_app_secret?: string;
+  ziniao?: DesktopZiniaoSetupInput;
+  mabang?: DesktopMabangSetupInput;
+  feishu?: DesktopFeishuSetupInput;
+  logging?: {
+    profile: DesktopLogProfile;
+    retention_days: DesktopLogRetentionDays;
+  };
 }
 
 export interface LxeDesktopBridge {
@@ -155,10 +260,17 @@ export interface LxeDesktopBridge {
   desktop: {
     readonly platform: DesktopPlatform;
     selectWorkspace(): Promise<string | null>;
+    selectZiniaoApp(): Promise<string | null>;
+    selectZiniaoWebDriverDirectory(): Promise<string | null>;
+    selectConfigImport(): Promise<DesktopConfigImportPreview | null>;
+    applyConfigImport(importId: string): Promise<DesktopConfigImportApplyResult>;
+    discardConfigImport(importId: string): Promise<void>;
+    openLogsDirectory(): Promise<void>;
     getHealth(): Promise<DesktopHealth>;
     restartAgent(): Promise<DesktopHealth>;
     getSetupState(): Promise<DesktopSetupState>;
     saveSetup(input: DesktopSetupInput): Promise<DesktopSetupState>;
+    onDashboardInvalidated(listener: (invalidation: DesktopDashboardInvalidation) => void): () => void;
     onStatusChanged(listener: (health: DesktopHealth) => void): () => void;
   };
 }

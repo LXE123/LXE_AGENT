@@ -42,9 +42,9 @@ Gateway、Runtime、Dashboard、scheduler、channel adapter 和常驻维护任�
 
 Gateway 的单一事实来源是 [`apps/gateway/src`](/apps/gateway/src)：
 
-- `main.ts`、`cli.ts`：命令行入口、信号和状态文件。
-- `production.ts`、`direct-composition.ts`：生产依赖装配。
-- `gateway-lifecycle.ts`、`channel.ts`：组件生命周期。
+- `apps/desktop/src/main/desktop-gateway.ts`：Electron 内的生产依赖装配。
+- `orchestration/composition.ts`、`orchestration/lifecycle.ts`：组件组合与生命周期。
+- `orchestration/process-runtime.ts`：私有 `agent-cli` 子进程协议。
 - `router.ts`、`scheduler.ts`：入站控制面和 turn 调度。
 - `emitter.ts`、`heartbeat-bridge.ts`：统一出站和后台唤醒。
 - `feishu/`：飞书 SDK、消息转换、资源、CardKit 和 typing。
@@ -63,4 +63,4 @@ Gateway 的单一事实来源是 [`apps/gateway/src`](/apps/gateway/src)：
 
 ## 非当前架构
 
-历史 worker-based Gateway、跨进程 worker client 和旧平台实现不属于 Current 文档。生产入口只有 [`apps/gateway/src/main.ts`](/apps/gateway/src/main.ts)，production boundary check 会拒绝重新引入已删除的生产路径或 fallback。
+历史独立 Gateway CLI、浏览器 Dashboard Server、worker-based Gateway 和旧平台实现不属于 Current 文档。生产入口只有 Electron Main，production boundary check 会拒绝重新引入这些已删除路径或 HTTP fallback。

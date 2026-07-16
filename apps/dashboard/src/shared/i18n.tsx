@@ -64,6 +64,7 @@ export const ZH_TEXT = {
   },
   common: {
     loading: "加载中",
+    updating: "正在更新…",
     copied: "已复制",
     unknown: "unknown",
     unnamedSession: "未命名会话",
@@ -391,6 +392,7 @@ export const UI_TEXT: Record<Language, UiText> = {
     },
     common: {
       loading: "loading",
+      updating: "Updating…",
       copied: "Copied",
       unknown: "unknown",
       unnamedSession: "Untitled session",

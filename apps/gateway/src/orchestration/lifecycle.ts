@@ -23,12 +23,6 @@ export interface LifecycleChannelsPort {
 export interface GatewayLifecycleOptions {
   bootId: string;
   state: { ensureUsable(): void | Promise<void> };
-  dashboard: {
-    enabled: boolean;
-    readonly url: string;
-    start(): boolean | Promise<boolean>;
-    stop(): void | Promise<void>;
-  };
   runtime: {
     readonly isReady: boolean;
     start(): Promise<void>;
@@ -42,12 +36,6 @@ export interface GatewayLifecycleOptions {
     stop(): void | Promise<void>;
   };
   channels: LifecycleChannelsPort;
-  status: {
-    writeStatus(bootId: string): unknown;
-    clearStatus(bootId: string): void;
-    startPolling(bootId: string, requestStop: () => void): void;
-    stopPolling(): void;
-  };
   inbound: (event: InboundEvent) => Promise<void>;
   logger?: Logger;
   shutdownTimeouts?: Partial<GatewayShutdownTimeouts>;
@@ -58,9 +46,7 @@ export interface GatewayShutdownTimeouts {
   schedulerMs: number;
   activeRunsMs: number;
   channelsMs: number;
-  dashboardMs: number;
   runtimeMs: number;
-  statusMs: number;
   startupMs: number;
 }
 
@@ -69,9 +55,7 @@ const DEFAULT_SHUTDOWN_TIMEOUTS: GatewayShutdownTimeouts = {
   schedulerMs: 3_000,
   activeRunsMs: 3_000,
   channelsMs: 8_000,
-  dashboardMs: 3_000,
   runtimeMs: 5_000,
-  statusMs: 3_000,
   startupMs: 3_000,
 };
 
@@ -79,13 +63,9 @@ export class GatewayLifecycle {
   private readonly logger: Logger;
   private readonly shutdownTimeouts: GatewayShutdownTimeouts;
   private stateUsable = false;
-  private dashboardBound = false;
-  private dashboardAttempted = false;
   private channelsStarted = false;
   private channelsAttempted = false;
   private heartbeatAttempted = false;
-  private statusWriteAttempted = false;
-  private pollingAttempted = false;
   private acceptingIngress = false;
   private started = false;
   private shutdownStarted = false;
@@ -118,26 +98,6 @@ export class GatewayLifecycle {
       this.logger.debug("startup_component_ready", { component: "state" });
       this.assertStartupActive(generation);
       this.stateUsable = true;
-      this.statusWriteAttempted = true;
-      this.options.status.writeStatus(this.options.bootId);
-      this.logger.debug("startup_component_ready", { component: "gateway status" });
-      this.assertStartupActive(generation);
-      this.pollingAttempted = true;
-      this.options.status.startPolling(this.options.bootId, () => {
-        void this.stop();
-      });
-      this.assertStartupActive(generation);
-
-      if (this.options.dashboard.enabled) {
-        this.dashboardAttempted = true;
-        this.dashboardBound = await this.options.dashboard.start();
-        this.assertStartupActive(generation);
-        if (!this.dashboardBound) throw new Error("Dashboard listener failed to bind");
-        this.logger.debug("startup_component_ready", { component: "Dashboard" });
-      } else {
-        this.dashboardBound = true;
-      }
-
       await this.options.runtime.start();
       this.assertStartupActive(generation);
       if (!this.options.runtime.isReady) throw new Error("runtime is not ready");
@@ -155,11 +115,7 @@ export class GatewayLifecycle {
       this.assertStartupActive(generation);
       this.started = true;
       this.lastError = "";
-      this.logger.info("gateway_ready", {
-        boot_id: this.options.bootId,
-        dashboard_enabled: this.options.dashboard.enabled,
-        dashboard_url: this.options.dashboard.enabled ? this.options.dashboard.url : "",
-      });
+      this.logger.info("gateway_ready", { boot_id: this.options.bootId });
     } catch (cause) {
       this.acceptingIngress = false;
       if (this.shutdownStarted || generation !== this.startupGeneration) {
@@ -205,7 +161,6 @@ export class GatewayLifecycle {
       this.acceptingIngress &&
       !this.shutdownStarted &&
       this.stateUsable &&
-      this.dashboardBound &&
       this.channelsStarted &&
       channelsHealthy &&
       this.options.runtime.isReady,
@@ -215,10 +170,6 @@ export class GatewayLifecycle {
       accepting_ingress: this.acceptingIngress,
       shutdown_started: this.shutdownStarted,
       state_storage_usable: this.stateUsable,
-      dashboard: {
-        enabled: this.options.dashboard.enabled,
-        bound: this.dashboardBound,
-      },
       runtime: {
         ready: this.options.runtime.isReady,
       },
@@ -294,24 +245,6 @@ export class GatewayLifecycle {
       );
     }
     await this.runStopStep("runtime", () => this.options.runtime.stop(), errors, this.shutdownTimeouts.runtimeMs);
-    if (this.options.dashboard.enabled && this.dashboardAttempted) {
-      await this.runStopStep("Dashboard", () => this.options.dashboard.stop(), errors, this.shutdownTimeouts.dashboardMs);
-    }
-    this.dashboardBound = false;
-    if (!preserveAttempts) this.dashboardAttempted = false;
-    if (this.pollingAttempted) {
-      await this.runStopStep("planned-stop poller", () => this.options.status.stopPolling(), errors, this.shutdownTimeouts.statusMs);
-    }
-    if (!preserveAttempts) this.pollingAttempted = false;
-    if (this.statusWriteAttempted) {
-      await this.runStopStep(
-        "gateway status",
-        () => this.options.status.clearStatus(this.options.bootId),
-        errors,
-        this.shutdownTimeouts.statusMs,
-      );
-    }
-    if (!preserveAttempts) this.statusWriteAttempted = false;
     this.started = false;
     return errors;
   }

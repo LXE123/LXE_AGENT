@@ -7,6 +7,7 @@
   "scripts": {
     "build": "bun scripts/build-desktop.ts",
     "dev": "bun run build && bun src/dev.ts",
+    "preview": "bun run build && bun src/preview.ts",
     "smoke:packaged": "bun scripts/smoke-packaged-app.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test test",

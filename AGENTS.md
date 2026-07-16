@@ -4,3 +4,6 @@
 
 ## Editing Safety
 - On Windows, do **not** use ad-hoc whole-file PowerShell rewrites on Python files that contain Chinese, emoji, or other non-ASCII text. They can corrupt encoding and break strings/docstrings.
+
+## 本项目的修改流程
+- 创建独立分支 → 进行修改 → 完整验证 → 本地合并 main

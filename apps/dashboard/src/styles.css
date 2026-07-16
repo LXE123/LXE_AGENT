@@ -150,6 +150,12 @@ button {
     var(--bg);
 }
 
+.desktop-onboarding {
+  align-items: start;
+  overflow: auto;
+  padding-block: 64px 32px;
+}
+
 .desktop-loading {
   color: var(--muted);
   font-size: 14px;
@@ -157,7 +163,7 @@ button {
 
 .desktop-onboarding-card,
 .desktop-settings-modal {
-  width: min(560px, 100%);
+  width: min(760px, 100%);
   border: 1px solid var(--border);
   border-radius: 20px;
   background: var(--surface);
@@ -167,7 +173,15 @@ button {
 .desktop-onboarding-card {
   display: grid;
   gap: 22px;
+  max-height: calc(100vh - 96px);
   padding: 34px;
+  overflow: auto;
+}
+
+.desktop-onboarding-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .desktop-onboarding-mark {
@@ -215,7 +229,126 @@ button {
 
 .desktop-setup-fields {
   display: grid;
-  gap: 15px;
+  gap: 16px;
+}
+
+.desktop-config-import-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--accent-muted);
+  border-radius: 12px;
+  background: var(--accent-soft);
+}
+
+.desktop-config-import-callout > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+.desktop-config-import-icon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid var(--accent-muted);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--accent-strong);
+}
+
+.desktop-config-import-callout h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.desktop-config-import-callout p {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.desktop-config-import-callout > button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--accent-strong);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.desktop-settings-section {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-subtle);
+}
+
+.desktop-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.desktop-section-heading h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.desktop-section-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.desktop-required-badge,
+.desktop-optional-badge {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.desktop-required-badge {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.desktop-optional-badge {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.desktop-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.desktop-field-wide {
+  grid-column: 1 / -1;
 }
 
 .desktop-setup-fields label {
@@ -264,23 +397,150 @@ button {
   cursor: pointer;
 }
 
-.desktop-optional-settings {
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-muted);
+.desktop-integrations {
+  display: grid;
+  gap: 9px;
 }
 
-.desktop-optional-settings summary {
+.desktop-integration-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.desktop-integration-card > summary {
+  padding: 12px 13px;
   cursor: pointer;
   color: var(--text-soft);
   font-size: 12px;
   font-weight: 650;
 }
 
-.desktop-optional-settings[open] {
+.desktop-integration-card[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.desktop-integration-summary {
+  display: inline-flex;
+  width: calc(100% - 18px);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.desktop-integration-status {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+}
+
+.desktop-integration-status.configured {
+  background: var(--success-soft);
+  color: var(--rate-good);
+}
+
+.desktop-integration-status.incomplete {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.desktop-integration-status.optional {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.desktop-integration-fields {
   display: grid;
-  gap: 14px;
+  gap: 12px;
+  padding: 14px;
+}
+
+.desktop-integration-issues {
+  margin: 0;
+  padding: 9px 11px 9px 28px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.desktop-clear-integration {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-self: end;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.desktop-diagnostic-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 11px;
+  border: 1px solid var(--warning-border);
+  border-radius: 9px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.desktop-diagnostic-warning svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.desktop-log-directory {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.desktop-log-directory > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.desktop-log-directory span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.desktop-log-directory code {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-log-directory button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  cursor: pointer;
+  font-size: 11px;
 }
 
 .desktop-primary-button,
@@ -320,6 +580,17 @@ button {
   border-radius: 8px;
   background: var(--danger-soft);
   color: var(--danger);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.desktop-form-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--success-border);
+  border-radius: 8px;
+  background: var(--success-soft);
+  color: var(--rate-good);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -397,6 +668,203 @@ button {
   z-index: 100;
 }
 
+.desktop-config-import-backdrop {
+  z-index: 120;
+}
+
+.desktop-config-import-dialog {
+  display: grid;
+  width: min(660px, 100%);
+  max-height: calc(100vh - 48px);
+  gap: 16px;
+  padding: 24px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 30px 80px var(--shadow-strong);
+}
+
+.desktop-config-import-dialog > header,
+.desktop-config-import-dialog > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.desktop-config-import-dialog > header {
+  align-items: flex-start;
+}
+
+.desktop-config-import-dialog h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 20px;
+}
+
+.desktop-config-import-dialog > header p:last-child {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.desktop-config-import-dialog > header button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  cursor: pointer;
+}
+
+.desktop-config-import-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.desktop-config-import-group {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+
+.desktop-config-import-group.status-pending {
+  border-color: var(--warning-border);
+  background: var(--warning-soft);
+}
+
+.desktop-config-import-group > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.desktop-config-import-group strong {
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.desktop-config-import-group > div:first-child span {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--success-soft);
+  color: var(--rate-good);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.desktop-config-import-group.status-pending > div:first-child span {
+  background: var(--warning-strong-soft);
+  color: var(--warning);
+}
+
+.desktop-config-import-group p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.desktop-config-import-group .desktop-config-import-overwrite {
+  color: var(--accent-strong);
+}
+
+.desktop-config-import-group .desktop-integration-issues {
+  padding: 7px 8px 7px 24px;
+}
+
+.desktop-config-import-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.desktop-config-import-warnings {
+  margin: 0;
+  padding: 10px 12px 10px 30px;
+  border: 1px solid var(--warning-border);
+  border-radius: 9px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.desktop-config-import-diagnostic {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--warning-border-strong);
+  border-radius: 9px;
+  background: var(--warning-strong-soft);
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.5;
+}
+
+.desktop-config-import-diagnostic input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.desktop-config-import-dialog > footer {
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+.desktop-config-import-dialog > footer button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.desktop-config-import-dialog > footer .desktop-primary-button {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+.desktop-config-import-dialog button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.desktop-import-toast {
+  position: fixed;
+  z-index: 80;
+  right: 18px;
+  bottom: 18px;
+  max-width: min(420px, calc(100vw - 36px));
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid var(--success-border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  color: var(--rate-good);
+  font-size: 12px;
+}
+
 .desktop-settings-modal {
   display: grid;
   max-height: calc(100vh - 48px);
@@ -460,6 +928,12 @@ button {
 .desktop-settings-modal footer button {
   min-height: 36px;
   padding: 0 13px;
+}
+
+.desktop-settings-modal footer .desktop-primary-button {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
 }
 
 .desktop-version {
@@ -1152,12 +1626,37 @@ h1 {
 }
 
 .content-panel {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
   overflow: auto;
   padding: 24px 28px 34px;
   background: transparent;
+}
+
+.dashboard-query-notice {
+  margin: 0 0 12px;
+  border: 1px solid rgba(180, 106, 77, 0.28);
+  border-radius: 10px;
+  background: rgba(180, 106, 77, 0.08);
+  color: #8f4b35;
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
+.dashboard-refresh-indicator {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 18px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(250, 248, 245, 0.92);
+  color: var(--muted);
+  padding: 4px 9px;
+  font-size: 11px;
+  box-shadow: 0 4px 14px rgba(33, 29, 26, 0.06);
 }
 
 .dashboard-home-panel .content-panel {
@@ -4446,6 +4945,16 @@ pre {
 }
 
 @media (max-width: 920px) {
+  .desktop-onboarding {
+    padding: 52px 20px 24px;
+  }
+
+  .desktop-onboarding-card,
+  .desktop-settings-modal,
+  .desktop-config-import-dialog {
+    border-radius: 14px;
+  }
+
   .docs-shell {
     height: auto;
     grid-template-columns: 1fr;
@@ -4544,6 +5053,32 @@ pre {
 }
 
 @media (max-width: 620px) {
+  .desktop-onboarding {
+    padding-inline: 12px;
+  }
+
+  .desktop-onboarding-card,
+  .desktop-settings-modal,
+  .desktop-config-import-dialog {
+    padding: 18px;
+  }
+
+  .desktop-config-import-callout,
+  .desktop-log-directory {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .desktop-config-import-callout > button {
+    width: 100%;
+  }
+
+  .desktop-field-grid,
+  .desktop-health-grid,
+  .desktop-config-import-groups {
+    grid-template-columns: 1fr;
+  }
+
   h1 {
     font-size: 23px;
   }

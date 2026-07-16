@@ -1,17 +1,15 @@
 // Landing view: last-24h overview with recent sessions and active skills.
-import { useEffect, useState } from "react";
-
-import { fetchJson } from "../../api/client";
+import {
+  flattenSessionPages,
+  queryError,
+  useSessionsInfiniteQuery,
+  useSkillStatsQuery,
+  useStatsOverviewQuery,
+} from "../../api/queries";
 import { SuccessRateCell } from "../../shared/components";
 import { formatDate, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
-import type {
-  ApiList,
-  SessionListPayload,
-  SessionPayload,
-  SkillStatPayload,
-  StatsOverviewPayload
-} from "../../api/payloads";
+import type { SessionPayload } from "../../api/payloads";
 
 export function DashboardHome({
   onOpenSession,
@@ -23,40 +21,17 @@ export function DashboardHome({
   onOpenStats: () => void;
 }) {
   const t = useUiText();
-  const [overview, setOverview] = useState<StatsOverviewPayload | null>(null);
-  const [skills, setSkills] = useState<SkillStatPayload[]>([]);
-  const [sessions, setSessions] = useState<SessionPayload[]>([]);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.allSettled([
-      fetchJson<StatsOverviewPayload>("/api/stats/overview?days=1"),
-      fetchJson<ApiList<SkillStatPayload>>("/api/stats/skills?days=7"),
-      fetchJson<SessionListPayload>("/api/sessions?limit=6&offset=0")
-    ]).then(([overviewResult, skillsResult, sessionsResult]) => {
-      if (cancelled) {
-        return;
-      }
-      if (overviewResult.status === "fulfilled") {
-        setOverview(overviewResult.value);
-      }
-      if (skillsResult.status === "fulfilled") {
-        setSkills(skillsResult.value.items);
-      }
-      if (sessionsResult.status === "fulfilled") {
-        setSessions(sessionsResult.value.items);
-      }
-      setFailed(
-        overviewResult.status === "rejected" &&
-          skillsResult.status === "rejected" &&
-          sessionsResult.status === "rejected"
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const overviewQuery = useStatsOverviewQuery(1);
+  const skillsQuery = useSkillStatsQuery(7);
+  const sessionsQuery = useSessionsInfiniteQuery("");
+  const overview = overviewQuery.data;
+  const skills = skillsQuery.data?.items ?? [];
+  const sessions = flattenSessionPages(sessionsQuery.data?.pages).items.slice(0, 6);
+  const failed = overviewQuery.isError && skillsQuery.isError && sessionsQuery.isError;
+  const backgroundError = [overviewQuery, skillsQuery, sessionsQuery]
+    .find((current) => current.isRefetchError)?.error;
+  const refreshing = [overviewQuery, skillsQuery, sessionsQuery]
+    .some((current) => current.isFetching && !current.isPending);
 
   const hour = new Date().getHours();
   const greeting =
@@ -87,6 +62,13 @@ export function DashboardHome({
         <h2 id="dashboard-home-title">{greeting}</h2>
         <p>{failed ? t.home.loadError : t.home.overviewHint}</p>
       </header>
+      {backgroundError ? (
+        <div className="dashboard-query-notice" role="status">
+          {t.common.errorPrefix(t.errors.api, queryError(backgroundError))}
+        </div>
+      ) : refreshing ? (
+        <div className="dashboard-refresh-indicator" role="status">{t.common.updating}</div>
+      ) : null}
 
       <div className="home-tiles">
         {tiles.map((tile) => (

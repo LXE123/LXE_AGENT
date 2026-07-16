@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 import {
   ChannelRegistry,
   GatewayLifecycle,
-  GatewayStatusFiles,
   HeartbeatWakeQueue,
   SessionBindingStore,
   SessionRouter,
@@ -12,10 +11,9 @@ import {
   loadProjectEnv,
 } from "../src/index";
 
-test("the thin Gateway entrypoint exports core modules without starting services", () => {
+test("the desktop Gateway library exports core modules without starting services", () => {
   expect(ChannelRegistry).toBeTypeOf("function");
   expect(GatewayLifecycle).toBeTypeOf("function");
-  expect(GatewayStatusFiles).toBeTypeOf("function");
   expect(HeartbeatWakeQueue).toBeTypeOf("function");
   expect(SessionBindingStore).toBeTypeOf("function");
   expect(SessionRouter).toBeTypeOf("function");

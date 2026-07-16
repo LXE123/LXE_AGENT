@@ -65,15 +65,10 @@ const makeLifecycle = (
     channelStartGate?: Promise<void>;
     channelStopGate?: Promise<void>;
     channelStopFailure?: boolean;
-    dashboardStartFailure?: boolean;
-    dashboardBound?: boolean;
-    dashboardStopFailure?: boolean;
     heartbeatStopFailure?: boolean;
     heartbeatStartFailure?: boolean;
     heartbeatStartGate?: Promise<void>;
-    pollerStartFailure?: boolean;
     stateFailure?: boolean;
-    statusWriteFailure?: boolean;
     runtimeStartFailure?: boolean;
     runtimeStopFailure?: boolean;
     shutdownTimeouts?: GatewayLifecycleOptions["shutdownTimeouts"];
@@ -129,21 +124,6 @@ const makeLifecycle = (
         if (options.stateFailure) throw new Error("state path is read-only");
       },
     },
-    dashboard: {
-      enabled: true,
-      url: "http://127.0.0.1:8765",
-      async start() {
-        calls.push("dashboard.start");
-        if (options.dashboardStartFailure) throw new Error("dashboard start failed");
-        return options.dashboardBound ?? true;
-      },
-      async stop() {
-        calls.push("dashboard.stop");
-        if (options.dashboardStopFailure) {
-          throw new Error("dashboard stop failed");
-        }
-      },
-    },
     runtime,
     scheduler: {
       setRuntimeReady(ready) {
@@ -152,22 +132,6 @@ const makeLifecycle = (
     },
     heartbeat,
     channels,
-    status: {
-      writeStatus() {
-        calls.push("status.write");
-        if (options.statusWriteFailure) throw new Error("status write failed");
-      },
-      clearStatus() {
-        calls.push("status.clear");
-      },
-      startPolling(_bootId, _requestStop) {
-        calls.push("status.poll-start");
-        if (options.pollerStartFailure) throw new Error("poller start failed");
-      },
-      stopPolling() {
-        calls.push("status.poll-stop");
-      },
-    },
     inbound: async (event) => {
       ingested.push(event.message_id);
     },
@@ -180,15 +144,12 @@ const makeLifecycle = (
 };
 
 describe("GatewayLifecycle", () => {
-  test("binds state and Dashboard and starts the in-process Runtime before channels", async () => {
+  test("binds state and starts the in-process Runtime before channels", async () => {
     const { lifecycle, calls, channels, ingested, logs } = makeLifecycle();
     await lifecycle.start();
 
     expect(calls).toEqual([
       "state.usable",
-      "status.write",
-      "status.poll-start",
-      "dashboard.start",
       "runtime.start",
       "heartbeat.start",
       "channels.wire",
@@ -199,8 +160,6 @@ describe("GatewayLifecycle", () => {
     expect((await lifecycle.healthSnapshot()).ready).toBe(true);
     expect(logs).toContainEqual(expect.objectContaining({
       message: "gateway_ready",
-      dashboard_enabled: true,
-      dashboard_url: "http://127.0.0.1:8765",
     }));
   });
 
@@ -214,18 +173,9 @@ describe("GatewayLifecycle", () => {
     expect(calls).toContain("runtime.stop");
   });
 
-  test("does not connect channels if Dashboard binding fails", async () => {
-    const { lifecycle, calls } = makeLifecycle({ dashboardBound: false });
-    await expect(lifecycle.start()).rejects.toThrow("Dashboard");
-    expect(calls).not.toContain("runtime.start");
-    expect(calls).not.toContain("channels.start");
-    expect((await lifecycle.healthSnapshot()).ready).toBe(false);
-  });
-
   test("stays unhealthy and does not bind services when state storage is unusable", async () => {
     const { lifecycle, calls } = makeLifecycle({ stateFailure: true });
     await expect(lifecycle.start()).rejects.toThrow("state path is read-only");
-    expect(calls).not.toContain("dashboard.start");
     expect(calls).not.toContain("runtime.start");
     const health = await lifecycle.healthSnapshot();
     expect(health.ready).toBe(false);
@@ -233,9 +183,6 @@ describe("GatewayLifecycle", () => {
   });
 
   test.each([
-    ["status", { statusWriteFailure: true }, "status write failed"],
-    ["poller", { pollerStartFailure: true }, "poller start failed"],
-    ["Dashboard", { dashboardStartFailure: true }, "dashboard start failed"],
     ["runtime", { runtimeStartFailure: true }, "runtime start failed"],
     ["heartbeat", { heartbeatStartFailure: true }, "heartbeat start failed"],
     ["channel", { channelFailure: true }, "channel failed"],
@@ -243,9 +190,6 @@ describe("GatewayLifecycle", () => {
     const { lifecycle, calls } = makeLifecycle(options);
     await expect(lifecycle.start()).rejects.toThrow(message);
     expect(calls).toContain("runtime.stop");
-    expect(calls).toContain("status.clear");
-    if (!("statusWriteFailure" in options)) expect(calls).toContain("status.poll-stop");
-    if ("dashboardStartFailure" in options) expect(calls).toContain("dashboard.stop");
     if ("heartbeatStartFailure" in options) expect(calls).toContain("heartbeat.stop");
   });
 
@@ -262,9 +206,6 @@ describe("GatewayLifecycle", () => {
       "scheduler.ready:false",
       "runtime.fail-active",
       "runtime.stop",
-      "dashboard.stop",
-      "status.poll-stop",
-      "status.clear",
     ]);
     await expect(channels.sink!(inboundEvent())).rejects.toBeInstanceOf(IngressClosedError);
     const health = await lifecycle.healthSnapshot();
@@ -276,7 +217,6 @@ describe("GatewayLifecycle", () => {
     const { lifecycle, calls } = makeLifecycle({
       channelStopFailure: true,
       heartbeatStopFailure: true,
-      dashboardStopFailure: true,
       runtimeStopFailure: true,
     });
     await lifecycle.start();
@@ -289,9 +229,6 @@ describe("GatewayLifecycle", () => {
       "scheduler.ready:false",
       "runtime.fail-active",
       "runtime.stop",
-      "dashboard.stop",
-      "status.poll-stop",
-      "status.clear",
     ]);
     expect((await lifecycle.healthSnapshot()).last_error).toContain("channels stop failed");
   });
@@ -306,8 +243,6 @@ describe("GatewayLifecycle", () => {
         schedulerMs: 5,
         activeRunsMs: 5,
         runtimeMs: 5,
-        dashboardMs: 5,
-        statusMs: 5,
         startupMs: 5,
       },
     });
@@ -318,8 +253,6 @@ describe("GatewayLifecycle", () => {
     expect(Date.now() - started).toBeLessThan(200);
     expect(calls).toContain("heartbeat.stop");
     expect(calls).toContain("runtime.stop");
-    expect(calls).toContain("dashboard.stop");
-    expect(calls).toContain("status.clear");
     expect((await lifecycle.healthSnapshot()).last_error).toContain("channels: timed out");
   });
 

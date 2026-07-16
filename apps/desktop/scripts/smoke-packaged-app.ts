@@ -19,6 +19,15 @@ export interface PackagedDesktopProbeResult {
   platform?: unknown;
   health?: unknown;
   healthError?: string;
+  setupBeforeComplete?: unknown;
+  setupAfter?: {
+    complete?: unknown;
+    provider?: unknown;
+    providerKeyConfigured?: unknown;
+    workspaceRoot?: unknown;
+    loggingProfile?: unknown;
+  };
+  postSaveHealth?: unknown;
 }
 
 const delay = (milliseconds: number): Promise<void> =>
@@ -99,7 +108,11 @@ const findPageTarget = async (
   throw new Error(`Packaged desktop DevTools did not become ready within ${timeoutMilliseconds}ms`);
 };
 
-const evaluateBridge = async (webSocketDebuggerUrl: string): Promise<PackagedDesktopProbeResult> => {
+const evaluateBridge = async (
+  webSocketDebuggerUrl: string,
+  workspaceRoot: string,
+  timeoutMilliseconds: number,
+): Promise<PackagedDesktopProbeResult> => {
   const socket = new WebSocket(webSocketDebuggerUrl);
   await withTimeout(new Promise<void>((resolvePromise, reject) => {
     socket.addEventListener("open", () => resolvePromise(), { once: true });
@@ -139,6 +152,22 @@ const evaluateBridge = async (webSocketDebuggerUrl: string): Promise<PackagedDes
         if (bridge) {
           try {
             result.health = await bridge.desktop.getHealth();
+            const setupBefore = await bridge.desktop.getSetupState();
+            result.setupBeforeComplete = setupBefore?.complete;
+            const setupAfter = await bridge.desktop.saveSetup({
+              provider: "kimi_coding",
+              api_key: "packaged-smoke-placeholder-key",
+              workspace_root: ${JSON.stringify(workspaceRoot)},
+              logging: { profile: "standard", retention_days: 7 },
+            });
+            result.setupAfter = {
+              complete: setupAfter?.complete,
+              provider: setupAfter?.provider,
+              providerKeyConfigured: setupAfter?.provider_key_configured,
+              workspaceRoot: setupAfter?.workspace_root,
+              loggingProfile: setupAfter?.logging?.profile,
+            };
+            result.postSaveHealth = await bridge.desktop.getHealth();
           } catch (error) {
             result.healthError = String(error);
           }
@@ -151,7 +180,11 @@ const evaluateBridge = async (webSocketDebuggerUrl: string): Promise<PackagedDes
   }));
 
   try {
-    const response = await withTimeout(responsePromise, 10_000, "preload bridge evaluation");
+    const response = await withTimeout(
+      responsePromise,
+      timeoutMilliseconds,
+      "preload bridge and setup evaluation",
+    );
     const protocolResult = response.result as {
       exceptionDetails?: { text?: string };
       result?: { value?: PackagedDesktopProbeResult; description?: string };
@@ -230,7 +263,7 @@ export async function smokePackagedDesktop(
   let failure: unknown;
   try {
     const target = await findPageTarget(child, port, timeoutMilliseconds);
-    result = await evaluateBridge(target.webSocketDebuggerUrl!);
+    result = await evaluateBridge(target.webSocketDebuggerUrl!, probeRoot, timeoutMilliseconds);
     if (result.href !== "app://lxe/") throw new Error(`Unexpected renderer URL: ${result.href}`);
     if (result.lxeType !== "object") throw new Error(`window.lxe is ${result.lxeType}`);
     if (result.dashboardType !== "object") throw new Error(`window.lxe.dashboard is ${result.dashboardType}`);
@@ -244,6 +277,21 @@ export async function smokePackagedDesktop(
     if (result.healthError) throw new Error(`Desktop health IPC failed: ${result.healthError}`);
     if (!result.health || typeof result.health !== "object") {
       throw new Error("Desktop health IPC returned no object");
+    }
+    if (result.setupAfter?.complete !== true || result.setupAfter.providerKeyConfigured !== true) {
+      throw new Error(`Desktop setup did not become complete: ${JSON.stringify(result.setupAfter)}`);
+    }
+    if (result.setupAfter.provider !== "kimi_coding") {
+      throw new Error(`Desktop setup persisted an unexpected provider: ${String(result.setupAfter.provider)}`);
+    }
+    if (result.setupAfter.workspaceRoot !== probeRoot) {
+      throw new Error(`Desktop setup persisted an unexpected workspace: ${String(result.setupAfter.workspaceRoot)}`);
+    }
+    if (result.setupAfter.loggingProfile !== "standard") {
+      throw new Error(`Desktop setup persisted an unexpected log profile: ${String(result.setupAfter.loggingProfile)}`);
+    }
+    if (!result.postSaveHealth || typeof result.postSaveHealth !== "object") {
+      throw new Error("Desktop Gateway did not return health after the setup-triggered restart");
     }
   } catch (error) {
     failure = error;

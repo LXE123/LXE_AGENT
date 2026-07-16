@@ -42,7 +42,6 @@ ALLOWED_GATEWAY_SOURCE_DIRECTORIES = {
     "dashboard",
     "orchestration",
     "security",
-    "smoke",
     "state",
 }
 ALLOWED_GATEWAY_TEST_DIRECTORIES = {
@@ -77,11 +76,6 @@ ALLOWED_LXESKILL_CLI_DIRECTORIES = {
 # (domain-scoped keys use a second segment, e.g. LXE_MABANG_*). Removing a
 # legacy key is always allowed; never add to this list.
 LEGACY_RUNTIME_ENV_KEYS = {
-    "AGENT_DASHBOARD_ENABLED",
-    "AGENT_DASHBOARD_HOST",
-    "AGENT_DASHBOARD_OPEN_BROWSER",
-    "AGENT_DASHBOARD_PORT",
-    "AGENT_DASHBOARD_PORT_AUTO_FALLBACK",
     "AGENT_LLM_MAX_TOKENS",
     "AGENT_LLM_MODEL",
     "AGENT_LLM_PROVIDER",

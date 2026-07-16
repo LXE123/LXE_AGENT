@@ -14,25 +14,21 @@ const forbidPath = (path: string, message: string): void => {
   if (existsSync(join(root, path))) failures.push(`${path}: ${message}`);
 };
 
-requireText("scripts/launcher.ps1", /run gateway:start/, "launcher must start the Bun Gateway");
-requireText("scripts/launcher.ps1", /run gateway:stop/, "launcher must stop the Bun Gateway");
-forbidText("scripts/launcher.ps1", /main\.py|agent_runtime\.worker|uv[^\r\n]*python/i, "launcher must not start Python production code");
-requireText("scripts/install.sh", /run gateway:start/, "macOS launcher must start the Bun Gateway");
-requireText("scripts/install.sh", /run gateway:stop/, "macOS launcher must stop the Bun Gateway");
-forbidText("scripts/install.sh", /main\.py|agent_runtime\.worker/, "macOS launcher must not start Python production code");
 forbidText("package.json", /main\.py|agent_runtime\.worker/, "workspace scripts must not start Python production code");
-forbidText("apps/gateway/src/main.ts", /main\.py|agent_runtime\.worker/, "Bun CLI must not fall back to Python");
-requireText("apps/gateway/src/orchestration/production.ts", /new TypeScriptAgentRuntime/, "production must assemble the TypeScript Runtime");
-requireText(
-  "apps/gateway/src/orchestration/production.ts",
-  /lxeSkillArgv[\s\S]*new OneShotCliRunner\([\s\S]*command:\s*lxeSkillArgv/,
-  "business maintenance must cross the resolved one-shot lxeskill CLI",
-);
-forbidText(
-  "apps/gateway/src/orchestration/production.ts",
-  /LXE_SCRIPT_TOOL_BRIDGE_ENABLED|PythonScriptToolRunner|registerScriptTools|loadScriptToolCatalog|lxeskill\.bridge/,
-  "production must not retain the retired script-tool bridge",
-);
+forbidText("package.json", /gateway:(?:dev|watch|start|stop|build)/, "workspace must not expose a standalone Gateway CLI");
+forbidText("apps/gateway/package.json", /"(?:dev|watch|start|stop|build)"\s*:/, "Gateway package must be a desktop library only");
+forbidText("config/runtime.env", /AGENT_DASHBOARD_(?:ENABLED|HOST|PORT|PORT_AUTO_FALLBACK|OPEN_BROWSER)/, "runtime must not expose browser Dashboard settings");
+forbidText("apps/dashboard/src/api/client.ts", /\bfetch\b|VITE_API_BASE_URL|HttpDashboardTransport/, "Renderer API must use Electron IPC only");
+requireText("apps/desktop/src/main.ts", /registerDashboardProtocol/, "packaged Renderer must load through the Electron app protocol");
+requireText("package.json", /"desktop:preview"\s*:\s*"bun run dashboard:build && bun run --cwd apps\/desktop preview"/, "workspace must expose the production Renderer preview");
+requireText("apps/desktop/package.json", /"preview"\s*:\s*"bun run build && bun src\/preview\.ts"/, "desktop package must build Main and Preload before preview");
+requireText("apps/desktop/src/preview.ts", /LXE_DESKTOP_PREVIEW\s*=\s*"1"/, "preview launcher must select the internal preview mode");
+requireText("apps/desktop/src/preview.ts", /delete environment\.LXE_DATA_ROOT/, "preview launcher must discard external desktop data roots");
+forbidText("apps/desktop/src/preview.ts", /https?:\/\/|\bfetch\b|VITE|5173|8765|LXE_DASHBOARD_DEV_URL\s*=/, "production preview must not start or target an HTTP Renderer");
+requireText("apps/desktop/src/main.ts", /usesProductionRenderer\(launchMode\)/, "desktop must select the Renderer independently from packaging");
+requireText("apps/desktop/src/main.ts", /usesPackagedRuntime\(launchMode\)/, "desktop must keep preview on the source Runtime");
+requireText("scripts/install.sh", /REF="lxe-agent-TUI"/, "legacy shell installer must forward to the TUI product line");
+requireText("scripts/install.ps1", /\$Ref\s*=\s*"lxe-agent-TUI"/, "legacy PowerShell installer must forward to the TUI product line");
 forbidText("config/runtime.env", /LXE_SCRIPT_TOOL_BRIDGE_ENABLED/, "runtime configuration must not restore the retired bridge gate");
 
 forbidPath("main.py", "the legacy Python production entrypoint must be deleted");
@@ -53,13 +49,15 @@ forbidPath("apps/gateway/src/orchestration/gateway-composition.ts", "the worker 
 forbidPath("apps/gateway/src/orchestration/worker-client.ts", "the worker client must be deleted");
 forbidPath("apps/gateway/src/orchestration/worker-process.ts", "the worker process launcher must be deleted");
 forbidPath("apps/gateway/src/orchestration/worker-supervisor.ts", "the worker supervisor must be deleted");
+forbidPath("apps/gateway/src/main.ts", "the standalone Gateway CLI must be deleted");
+forbidPath("apps/gateway/src/bootstrap/cli.ts", "the standalone Gateway bootstrap must be deleted");
+forbidPath("apps/gateway/src/orchestration/production.ts", "the standalone Gateway production assembly must be deleted");
+forbidPath("apps/gateway/src/dashboard/server.ts", "the browser Dashboard HTTP server must be deleted");
+forbidPath("apps/gateway/src/dashboard/browser.ts", "the browser Dashboard opener must be deleted");
 forbidPath("packages/foundation/protocol/schemas/worker-envelope.schema.json", "the worker envelope contract must be deleted");
 forbidPath("packages/agent/runtime/src/tooling/script-tools.ts", "the retired script-tool runner must be deleted");
 forbidPath("python/lxeskill_cli/lxeskill/bridge.py", "the retired Python bridge entrypoint must be deleted");
-forbidText("apps/gateway/src/orchestration/production.ts", /spawnWorker|WorkerProcess|createGatewayComposition/, "production must not retain a worker fallback");
 forbidText("packages/foundation/protocol/src/types.ts", /WorkerEnvelope/, "protocol types must not expose a worker envelope");
-forbidText("scripts/doctor.ps1", /platforms\.feishu|shared\.llm|agent_runtime|main\.py/, "doctor must not inspect deleted Python production modules");
-requireText("scripts/doctor.ps1", /bootstrap[\\/]runtime-config\.ts/, "doctor must inspect Bun-owned Feishu and LLM configuration");
 
 const pythonImports = /(?:^|\n)\s*(?:from|import)\s+(?:gateway|agent_runtime)(?:\.|\s|$)/m;
 for await (const path of new Bun.Glob("**/*.py").scan({ cwd: root, onlyFiles: true })) {
