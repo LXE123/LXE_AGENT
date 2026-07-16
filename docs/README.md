@@ -19,6 +19,7 @@
 优先从这些文档开始：
 
 - `Current` [Project README](../README.md)：项目概览、快速安装、运行要求和开发检查。
+- `Current` [产品分支与安装入口](record/20260716-product-lines-branch-migration.md)：Desktop `main` 与源码 `lxe-agent-TUI` 的长期边界和迁移规则。
 - `Current` [Python 3.12.10 / uv 部署说明](record/20260428-python-3.12.10-uv.md)：Python 和依赖管理规则。
 - `Current` [LXE Skill CLI Python 直连运行时](record/20260715-lxeskill-python-runtime.md)：统一通过项目 `.venv` 执行 Python 源码的规则。
 - `Current` [Local agent database layout](database/local_agent.md)：SQLite 状态、保留的 PostgreSQL pricing 范围和 runtime notes。

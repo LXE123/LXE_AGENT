@@ -1,7 +1,11 @@
-# LXE Agent
+# LXE Agent TUI
 
-LXE Agent 是 LXE 内部使用的本地业务 agent。它通过飞书机器人接收请求，调用本机浏览器、
-ERP 和表格处理能力，并通过本地 Dashboard 展示会话、任务和运行状态。
+LXE Agent TUI 是 LXE Agent 的源码安装/Gateway 产品线。它通过飞书机器人接收请求，调用本机浏览器、
+ERP 和表格处理能力，并通过终端命令和浏览器 Dashboard 管理会话、任务与运行状态。
+
+默认桌面产品位于
+[`main`](https://github.com/LXE123/LXE_AGENT/tree/main)，由 Electron、私有 Agent CLI 和受管运行时
+组成。本分支独立维护，不与桌面产品线整体 merge 或 rebase。
 
 ## 核心能力
 
@@ -26,7 +30,7 @@ ERP 和表格处理能力，并通过本地 Dashboard 展示会话、任务和�
 在 PowerShell 中运行：
 
 ```powershell
-irm https://raw.githubusercontent.com/LXE123/LXE_AGENT/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/LXE123/LXE_AGENT/lxe-agent-TUI/scripts/install.ps1 | iex
 ```
 
 如当前会话禁止执行脚本，先运行：
@@ -47,7 +51,7 @@ LXE update
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/LXE123/LXE_AGENT/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/LXE123/LXE_AGENT/lxe-agent-TUI/scripts/install.sh | bash
 ```
 
 重新打开终端后启动或停止：
@@ -59,6 +63,21 @@ LXE stop
 
 安装脚本会准备固定版本的 Bun、uv、Python 依赖、Playwright Chromium、Dashboard 构建产物和
 `LXE` / `lxeskill` 命令。
+
+## 已有源码安装迁移
+
+GitHub 上原来的源码 `main` 已改名为 `lxe-agent-TUI`。如果现有安装的本地分支仍叫 `main`，
+请在项目根目录执行一次：
+
+```bash
+git fetch origin
+git branch -m main lxe-agent-TUI
+git branch --set-upstream-to=origin/lxe-agent-TUI lxe-agent-TUI
+git remote set-head origin -a
+```
+
+完成后 `LXE update` 会继续更新源码产品线。GitHub raw URL 和已有本地 upstream 不会随远端分支
+改名自动迁移。
 
 ## 本地配置
 
