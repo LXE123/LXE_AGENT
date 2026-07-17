@@ -5,8 +5,15 @@
 ## Editing Safety
 - On Windows, do **not** use ad-hoc whole-file PowerShell rewrites on Python files that contain Chinese, emoji, or other non-ASCII text. They can corrupt encoding and break strings/docstrings.
 
-## 本项目的修改流程
-- 创建独立分支 → 进行修改 → 完整验证 → 本地合并 main
+## 本项目的修改与并行开发流程
+- 主工作区固定在 `main`，只用于同步、检查和合并，不直接开发。
+- 每个任务或 Codex 对话必须使用独立分支和独立 Git worktree。
+- 禁止在其他任务正在使用的 worktree 中切换分支、暂存或提交。
+- 一个分支只能由一个任务对应的 worktree 使用。
+- 每个 worktree 必须使用独立的 Python `.venv` 等可写运行环境；禁止在共享虚拟环境中执行 `uv sync` 或安装 editable package。
+- 流程：创建 worktree → 修改 → 完整验证 → commit → 更新到最新 main → 再次验证 → 本地 fast-forward 合并 main。
+- 多个任务可以并行开发，但必须依次合并；后合并的分支需要先 rebase 到最新 main。
+- 删除 worktree 前必须确认工作区干净、提交已合并或已推送。
 
 ## commit 规范
 - commit 的备注要用英语
