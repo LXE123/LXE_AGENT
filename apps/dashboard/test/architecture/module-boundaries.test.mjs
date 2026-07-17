@@ -48,6 +48,10 @@ function sourceFiles(directory) {
     .map((entry) => path.join(directory, String(entry)));
 }
 
+function sourceRelativePath(file) {
+  return path.relative(sourceDir, file).split(path.sep).join("/");
+}
+
 test("dashboard entry delegates feature views to dedicated modules", () => {
   expectedModules.forEach((relativePath) => {
     assert.equal(existsSync(path.join(sourceDir, relativePath)), true, `${relativePath} should exist`);
@@ -71,7 +75,7 @@ test("dashboard entry delegates feature views to dedicated modules", () => {
     });
 
   sourceFiles(sourceDir)
-    .filter((file) => !file.endsWith("/api/client.ts") && !file.endsWith("/api/queries.ts"))
+    .filter((file) => !["api/client.ts", "api/queries.ts"].includes(sourceRelativePath(file)))
     .forEach((file) => {
       const source = readFileSync(file, "utf8");
       assert.doesNotMatch(source, /\bfetchJson\b/, `${file} must read server state through Query hooks`);
