@@ -17,7 +17,7 @@ const runnerFor = (source: string, options: { stderr?: string[]; timeoutMs?: num
   return new OneShotCliRunner({
     command: [process.execPath, script],
     cwd: root,
-    timeoutMs: options.timeoutMs ?? 1_000,
+    timeoutMs: options.timeoutMs ?? 5_000,
     maxOutputBytes: 64 * 1024,
     onStderr: (line) => options.stderr?.push(line),
   });

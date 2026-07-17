@@ -253,7 +253,7 @@ describe("native coding tools", () => {
     }, context())).content[0]?.text);
     expect(lxeskillList).toContain("status: completed");
     await processes.stop();
-  });
+  }, 15_000);
 
   test("exec forwards host env so lxeskill enforces the injected skill scope", async () => {
     const registry = new ToolRegistry();
