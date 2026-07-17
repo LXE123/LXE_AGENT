@@ -11,7 +11,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
-  Settings2,
   Sparkles,
 } from "lucide-react";
 
@@ -84,6 +83,7 @@ import { ToolsView } from "./features/tools/view";
 import { DesktopShell } from "./desktop/shell";
 import type { DesktopSettingsSection } from "./desktop/settings-model";
 import { DashboardRootErrorBoundary } from "./root-error-boundary";
+import { BrandMark } from "./shared/ui/brand-mark";
 import {
   dashboardRouteFromHistory,
   readStoredCapabilityView,
@@ -751,7 +751,7 @@ function App({
             onClick={() => onOpenDesktopSettings?.("status")}
           >
             <span className="sidebar-status-icon">
-              <Settings2 aria-hidden="true" size={18} />
+              <BrandMark />
             </span>
             <span className="sidebar-status-copy">
               <span className="sidebar-status-title">{t.sidebar.statusAndSettings}</span>

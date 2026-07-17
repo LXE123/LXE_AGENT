@@ -24,11 +24,16 @@ describe("electron-builder configuration", () => {
     expect(config).toMatch(/buildResources: build/u);
     expect(config).toMatch(/win:\r?\n  icon: icon-win\.png/u);
     expect(config).toMatch(/mac:\r?\n  icon: icon-mac\.png/u);
+    expect(config).toMatch(/from: build\r?\n    to: branding/u);
+    expect(config).toContain("tray-win.ico");
+    expect(config).toContain("tray-macTemplate.png");
+    expect(config).toContain("tray-macTemplate@2x.png");
     const desktopRoot = dirname(desktopBuilderConfigPath);
-    expect(existsSync(join(desktopRoot, "build", "icon-win.svg"))).toBe(true);
-    expect(existsSync(join(desktopRoot, "build", "icon-mac.svg"))).toBe(true);
     expect(existsSync(join(desktopRoot, "build", "icon-win.png"))).toBe(true);
     expect(existsSync(join(desktopRoot, "build", "icon-mac.png"))).toBe(true);
+    expect(existsSync(join(desktopRoot, "build", "tray-win.ico"))).toBe(true);
+    expect(existsSync(join(desktopRoot, "build", "tray-macTemplate.png"))).toBe(true);
+    expect(existsSync(join(desktopRoot, "build", "tray-macTemplate@2x.png"))).toBe(true);
   });
 
   test("exits nonzero and identifies an unknown Windows option", () => {

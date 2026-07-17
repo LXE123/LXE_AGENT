@@ -16,6 +16,14 @@ extraResources:
     to: .
     filter:
       - "**/*"
+  - from: build
+    to: branding
+    filter:
+      - icon-win.png
+      - icon-mac.png
+      - tray-win.ico
+      - tray-macTemplate.png
+      - tray-macTemplate@2x.png
 win:
   icon: icon-win.png
   target:

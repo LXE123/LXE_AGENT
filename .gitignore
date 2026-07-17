@@ -11,10 +11,11 @@ build/
 # Electron-builder source artwork is versioned; generated build output is not.
 !apps/desktop/build/
 apps/desktop/build/*
-!apps/desktop/build/icon-win.svg
-!apps/desktop/build/icon-mac.svg
 !apps/desktop/build/icon-win.png
 !apps/desktop/build/icon-mac.png
+!apps/desktop/build/tray-win.ico
+!apps/desktop/build/tray-macTemplate.png
+!apps/desktop/build/tray-macTemplate@2x.png
 
 # Virtual environments
 .venv/

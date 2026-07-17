@@ -191,14 +191,14 @@ button {
   width: 54px;
   height: 54px;
   place-items: center;
-  border: 1px solid var(--accent-muted);
   border-radius: 16px;
-  background: var(--accent-soft);
+  background: transparent;
 }
 
-.desktop-fatal-mark svg {
-  width: 42px;
-  height: 42px;
+.desktop-fatal-mark img {
+  display: block;
+  width: 54px;
+  height: 54px;
 }
 
 .desktop-onboarding-card,
@@ -234,14 +234,13 @@ button {
   height: 54px;
   place-items: center;
   border-radius: 16px;
-  border: 1px solid var(--accent-muted);
-  background: var(--accent-soft);
   box-shadow: 0 8px 24px var(--shadow-soft);
 }
 
-.desktop-onboarding-mark svg {
-  width: 42px;
-  height: 42px;
+.desktop-onboarding-mark img {
+  display: block;
+  width: 54px;
+  height: 54px;
 }
 
 .desktop-eyebrow {
@@ -2422,13 +2421,15 @@ h1 {
   place-items: center;
   flex: 0 0 auto;
   border-radius: 8px;
-  background: rgba(207, 154, 131, 0.18);
-  color: #d9a488;
+  background: transparent;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
 }
 
-.sidebar-status-icon svg {
-  width: 19px;
-  height: 19px;
+.sidebar-status-icon img {
+  display: block;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
 }
 
 .sidebar-status-copy {

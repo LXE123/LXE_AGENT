@@ -22,6 +22,7 @@ import { loadProjectEnv } from "@lxe/gateway/desktop";
 import { IPC_CHANNELS } from "./ipc-channels";
 import { registerDashboardProtocol } from "./main/app-protocol";
 import { createTrayIcon } from "./main/brand";
+import { resolveDesktopBrandAssets } from "./main/brand-assets";
 import { DesktopConfigImportManager } from "./main/config-import";
 import { DesktopConfigStore } from "./main/config-store";
 import {
@@ -121,6 +122,12 @@ async function bootstrap(): Promise<void> {
     userDataPath: app.getPath("userData"),
     documentsPath: app.getPath("documents"),
     environment: desktopEnvironment,
+  });
+  const brandAssets = resolveDesktopBrandAssets({
+    packaged: app.isPackaged,
+    platform: desktopPlatform,
+    resourcesPath: process.resourcesPath,
+    sourceRoot: paths.sourceRoot,
   });
   bootstrapDesktopState(paths.resourceRoot, paths.dataRoot);
   migrateLegacyArtifacts({
@@ -247,6 +254,7 @@ async function bootstrap(): Promise<void> {
 
   window = new BrowserWindow({
     ...desktopWindowAppearance(desktopPlatform),
+    ...(desktopPlatform === "darwin" ? {} : { icon: brandAssets.appIconPath }),
     title: "LXE Agent",
     width: 1280,
     height: 820,
@@ -287,7 +295,7 @@ async function bootstrap(): Promise<void> {
     window.show();
     window.focus();
   };
-  tray = new Tray(createTrayIcon(desktopPlatform));
+  tray = new Tray(createTrayIcon(desktopPlatform, brandAssets));
   tray.setToolTip("LXE Agent");
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "打开 LXE Agent", click: showWindow },
