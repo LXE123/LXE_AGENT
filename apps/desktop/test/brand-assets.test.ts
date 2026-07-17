@@ -31,9 +31,9 @@ describe("desktop brand assets", () => {
       resourcesPath: "/resources",
       sourceRoot: "/source",
     })).toEqual({
-      appIconPath: "/source/apps/desktop/build/icon-win.png",
-      trayFallbackPath: "/source/apps/desktop/build/icon-win.png",
-      trayIconPath: "/source/apps/desktop/build/tray-win.ico",
+      appIconPath: join("/source", "apps", "desktop", "build", "icon-win.png"),
+      trayFallbackPath: join("/source", "apps", "desktop", "build", "icon-win.png"),
+      trayIconPath: join("/source", "apps", "desktop", "build", "tray-win.ico"),
     });
     expect(resolveDesktopBrandAssets({
       packaged: true,
@@ -41,9 +41,9 @@ describe("desktop brand assets", () => {
       resourcesPath: "/resources",
       sourceRoot: "/source",
     })).toEqual({
-      appIconPath: "/resources/branding/icon-mac.png",
-      trayFallbackPath: "/resources/branding/icon-mac.png",
-      trayIconPath: "/resources/branding/tray-macTemplate.png",
+      appIconPath: join("/resources", "branding", "icon-mac.png"),
+      trayFallbackPath: join("/resources", "branding", "icon-mac.png"),
+      trayIconPath: join("/resources", "branding", "tray-macTemplate.png"),
     });
   });
 
