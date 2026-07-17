@@ -3339,7 +3339,7 @@ h1 {
 .model-thinking-panel {
   display: grid;
   gap: 8px;
-  margin-top: auto;
+  margin-top: 15px;
   padding: 14px 13px 13px;
   border: 1px solid var(--model-panel-border);
   border-radius: 12px;
@@ -5274,10 +5274,6 @@ pre {
 
   .models-grid .model-card {
     min-height: 0;
-  }
-
-  .model-thinking-panel {
-    margin-top: 15px;
   }
 
   .model-select-row {
