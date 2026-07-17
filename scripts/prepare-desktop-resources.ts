@@ -45,6 +45,9 @@ const gitFiles = (prefixes: string[]): string[] => {
 const agentCli = join(repositoryRoot, "dist", "agent-cli", "agent-cli.exe");
 const projectWheelValue = String(environment.LXE_DESKTOP_PROJECT_WHEEL ?? "").trim();
 const projectWheel = projectWheelValue ? resolve(projectWheelValue) : "";
+const wireGuardMsiValue = String(environment.LXE_DESKTOP_WIREGUARD_MSI ?? "").trim();
+const wireGuardMsi = wireGuardMsiValue ? resolve(wireGuardMsiValue) : "";
+const wireGuardSha256 = "6daa5d37a9e2950dfb8c48b95ab8e562cb2bad1c785d020f38f97bea4c6a5566";
 if (!existsSync(agentCli)) throw new Error(`Compiled agent-cli is missing: ${agentCli}`);
 if (!projectWheel || !existsSync(projectWheel) || !statSync(projectWheel).isFile()) {
   throw new Error(
@@ -53,6 +56,13 @@ if (!projectWheel || !existsSync(projectWheel) || !statSync(projectWheel).isFile
 }
 if (!projectWheel.toLowerCase().endsWith(".whl")) {
   throw new Error(`Desktop project wheel must use the .whl extension: ${projectWheel}`);
+}
+if (!wireGuardMsi || !existsSync(wireGuardMsi) || !statSync(wireGuardMsi).isFile()) {
+  throw new Error("LXE_DESKTOP_WIREGUARD_MSI must point to the verified WireGuard 1.1 x64 MSI");
+}
+const actualWireGuardHash = createHash("sha256").update(readFileSync(wireGuardMsi)).digest("hex");
+if (actualWireGuardHash !== wireGuardSha256) {
+  throw new Error(`WireGuard 1.1 MSI SHA-256 mismatch: ${actualWireGuardHash}`);
 }
 
 const runtimeInputs = resolveDesktopRuntimeInputs({ repositoryRoot, environment });
@@ -99,6 +109,15 @@ copyDirectory(pythonRoot, join(outputRoot, "runtime", "python"));
 copyFile(ripgrepExecutable, join(outputRoot, "runtime", "tools", "rg.exe"));
 copyDirectory(playwrightRoot, join(outputRoot, "runtime", "playwright"));
 copyDirectory(join(repositoryRoot, "apps", "dashboard", "dist"), join(outputRoot, "dashboard"));
+copyFile(wireGuardMsi, join(outputRoot, "wireguard", "wireguard-amd64-1.1.msi"));
+copyFile(
+  join(repositoryRoot, "apps", "desktop", "resources", "wireguard", "provision-wireguard.ps1"),
+  join(outputRoot, "wireguard", "provision-wireguard.ps1"),
+);
+copyFile(
+  join(repositoryRoot, "apps", "desktop", "resources", "wireguard", "LICENSE.txt"),
+  join(outputRoot, "wireguard", "LICENSE.txt"),
+);
 
 const stagedNodeRoot = join(outputRoot, "runtime", "node");
 const stagedPythonRoot = join(outputRoot, "runtime", "python");

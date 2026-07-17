@@ -1,5 +1,6 @@
 import type {
   DashboardTransportRequest,
+  DesktopCloudActivationInput,
   DesktopSetupInput,
 } from "@lxe/desktop-protocol";
 
@@ -40,6 +41,14 @@ export function validateConfigImportId(value: unknown): string {
   const importId = boundedText(value, "Configuration import ID", 128);
   if (!/^[A-Za-z0-9-]+$/u.test(importId)) throw new Error("Configuration import ID is invalid");
   return importId;
+}
+
+export function validateCloudActivationInput(value: unknown): DesktopCloudActivationInput {
+  const input = objectValue(value, "Cloud activation input");
+  const enrollmentId = validateConfigImportId(input.enrollment_id);
+  const password = boundedText(input.password, "Enrollment password", 256);
+  if (password.length < 12) throw new Error("Enrollment password is invalid");
+  return { enrollment_id: enrollmentId, password };
 }
 
 export function validateDashboardRequest(value: unknown): DashboardTransportRequest {

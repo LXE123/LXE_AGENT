@@ -20,6 +20,7 @@ if ($env:OS -ne "Windows_NT" -or -not [Environment]::Is64BitProcess) {
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $prepareScript = Join-Path $PSScriptRoot "prepare-desktop-runtime.ps1"
+$prepareWireGuardScript = Join-Path $PSScriptRoot "prepare-wireguard-windows.ps1"
 
 $bunCommand = Get-Command bun -ErrorAction SilentlyContinue
 if ($null -eq $bunCommand) {
@@ -118,6 +119,11 @@ $effectiveCacheRoot = [System.IO.Path]::GetFullPath(
 $env:UV_CACHE_DIR = Join-Path $effectiveCacheRoot "uv-cache"
 $env:UV_OFFLINE = if ($Offline) { "1" } else { "0" }
 New-Item -ItemType Directory -Path $env:UV_CACHE_DIR -Force | Out-Null
+
+$wireGuardParameters = @{ CacheRoot = $effectiveCacheRoot }
+if ($Offline) { $wireGuardParameters.Offline = $true }
+if ($Force) { $wireGuardParameters.Force = $true }
+& $prepareWireGuardScript @wireGuardParameters
 
 $wheelRoot = Join-Path $repositoryRoot "build\desktop-wheel"
 if (Test-Path -LiteralPath $wheelRoot) {

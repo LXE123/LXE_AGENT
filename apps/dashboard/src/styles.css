@@ -296,6 +296,129 @@ button {
   line-height: 1.5;
 }
 
+.desktop-cloud-badge {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.desktop-cloud-badge.connected {
+  background: var(--success-soft);
+  color: var(--rate-good);
+}
+
+.desktop-cloud-activation {
+  display: grid;
+  max-width: 520px;
+  gap: 14px;
+}
+
+.desktop-path-button {
+  display: inline-flex;
+  min-height: 42px;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-path-button svg {
+  flex: 0 0 auto;
+}
+
+.desktop-cloud-activate {
+  width: fit-content;
+  min-width: 112px;
+}
+
+.desktop-cloud-identity {
+  display: flex;
+  max-width: 520px;
+  align-items: center;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid var(--success-border);
+  border-radius: 8px;
+  background: var(--success-soft);
+  color: var(--rate-good);
+}
+
+.desktop-cloud-identity > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.desktop-cloud-identity strong {
+  overflow-wrap: anywhere;
+  color: var(--text-strong);
+  font-size: 13px;
+}
+
+.desktop-cloud-identity span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.desktop-cloud-status {
+  display: flex;
+  max-width: 520px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.desktop-cloud-status.connected {
+  border-color: var(--success-border);
+  background: var(--success-soft);
+  color: var(--rate-good);
+}
+
+.desktop-cloud-status button {
+  display: inline-flex;
+  min-height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.desktop-form-hint {
+  max-width: 520px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .desktop-required-badge {
   flex: 0 0 auto;
   padding: 3px 8px;

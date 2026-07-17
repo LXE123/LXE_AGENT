@@ -1,11 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import {
+  validateCloudActivationInput,
   validateConfigImportId,
   validateDashboardRequest,
   validateSetupInput,
 } from "../src/main/ipc-validation";
 
 describe("desktop IPC validation", () => {
+  test("accepts only opaque enrollment ids and bounded passwords", () => {
+    expect(validateCloudActivationInput({
+      enrollment_id: "enroll-123",
+      password: " ABCD-EFGH-JKLM-NPQR ",
+    })).toEqual({ enrollment_id: "enroll-123", password: "ABCD-EFGH-JKLM-NPQR" });
+    expect(() => validateCloudActivationInput({ enrollment_id: "../bad", password: "A".repeat(20) }))
+      .toThrow("invalid");
+    expect(() => validateCloudActivationInput({ enrollment_id: "valid", password: "short" }))
+      .toThrow("invalid");
+  });
   test("accepts only opaque bounded configuration import ids", () => {
     expect(validateConfigImportId(" 39b01a67-1835-48d4-b83f-74e9400c203b "))
       .toBe("39b01a67-1835-48d4-b83f-74e9400c203b");

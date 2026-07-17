@@ -21,8 +21,10 @@ describe("preload bridge", () => {
     expect(Object.keys(bridge).sort()).toEqual(["dashboard", "desktop"]);
     expect(Object.keys(bridge.dashboard)).toEqual(["request"]);
     expect(Object.keys(bridge.desktop).sort()).toEqual([
+      "activateCloudEnrollment",
       "applyConfigImport",
       "discardConfigImport",
+      "getCloudState",
       "getHealth",
       "getSetupState",
       "onDashboardInvalidated",
@@ -30,7 +32,9 @@ describe("preload bridge", () => {
       "openLogsDirectory",
       "platform",
       "restartAgent",
+      "retryCloudConnection",
       "saveSetup",
+      "selectCloudEnrollment",
       "selectConfigImport",
       "selectWorkspace",
       "selectZiniaoApp",
@@ -39,6 +43,10 @@ describe("preload bridge", () => {
     expect(bridge.desktop.platform).toBe("win32");
     await bridge.dashboard.request({ method: "GET", path: "/api/models" });
     await bridge.desktop.selectConfigImport();
+    await bridge.desktop.selectCloudEnrollment();
+    await bridge.desktop.activateCloudEnrollment({ enrollment_id: "enroll-123", password: "password-value" });
+    await bridge.desktop.getCloudState();
+    await bridge.desktop.retryCloudConnection();
     await bridge.desktop.applyConfigImport("import-123");
     await bridge.desktop.discardConfigImport("import-123");
     await bridge.desktop.selectZiniaoApp();
@@ -64,6 +72,10 @@ describe("preload bridge", () => {
     expect(invocations.map((item) => item.channel)).toEqual([
       IPC_CHANNELS.dashboardRequest,
       IPC_CHANNELS.selectConfigImport,
+      IPC_CHANNELS.selectCloudEnrollment,
+      IPC_CHANNELS.activateCloudEnrollment,
+      IPC_CHANNELS.getCloudState,
+      IPC_CHANNELS.retryCloudConnection,
       IPC_CHANNELS.applyConfigImport,
       IPC_CHANNELS.discardConfigImport,
       IPC_CHANNELS.selectZiniaoApp,
@@ -71,7 +83,8 @@ describe("preload bridge", () => {
       IPC_CHANNELS.openLogsDirectory,
       IPC_CHANNELS.getHealth,
     ]);
-    expect(invocations[2]?.arguments).toEqual(["import-123"]);
-    expect(invocations[3]?.arguments).toEqual(["import-123"]);
+    expect(invocations[3]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
+    expect(invocations[6]?.arguments).toEqual(["import-123"]);
+    expect(invocations[7]?.arguments).toEqual(["import-123"]);
   });
 });

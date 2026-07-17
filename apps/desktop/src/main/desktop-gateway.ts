@@ -140,6 +140,7 @@ export class DesktopGateway {
       LXE_DATA_ROOT: this.options.paths.dataRoot,
       LXE_WORKSPACE_ROOT: setup.workspace_root,
       LXE_AGENT_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "agent.sqlite3"),
+      LXE_DATA_SERVER_MACHINE_ID_PATH: join(this.options.paths.dataRoot, "db", "machine_identity.json"),
       LXE_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "lxeskill.sqlite3"),
       AGENT_STREAM_TRACE_DIR: join(this.options.paths.dataRoot, "var", "logs", "agent_traces"),
       AGENT_SSE_WIRE_TRACE_DIR: join(this.options.paths.dataRoot, "var", "logs", "sse_wire_traces"),

@@ -139,6 +139,35 @@ export interface DesktopLoggingSinkStatus extends JsonObject {
 
 export type DesktopZiniaoVersion = "v5" | "v6";
 
+export type DesktopCloudConnectionState =
+  | "not_configured"
+  | "provisioning"
+  | "connecting"
+  | "connected"
+  | "offline"
+  | "error"
+  | "unsupported";
+
+export interface DesktopCloudState {
+  configured: boolean;
+  device_name: string;
+  device_id: string;
+  vpn_ip: string;
+  connection: DesktopCloudConnectionState;
+  last_error: string;
+}
+
+export interface DesktopCloudEnrollmentSelection {
+  enrollment_id: string;
+  file_name: string;
+  expires_at: number;
+}
+
+export interface DesktopCloudActivationInput {
+  enrollment_id: string;
+  password: string;
+}
+
 export type DesktopConfigImportGroupName = "base" | "ziniao" | "mabang" | "feishu" | "logging";
 
 export interface DesktopConfigImportGroupPreview {
@@ -278,6 +307,10 @@ export interface LxeDesktopBridge {
     selectZiniaoApp(): Promise<string | null>;
     selectZiniaoWebDriverDirectory(): Promise<string | null>;
     selectConfigImport(): Promise<DesktopConfigImportPreview | null>;
+    selectCloudEnrollment(): Promise<DesktopCloudEnrollmentSelection | null>;
+    activateCloudEnrollment(input: DesktopCloudActivationInput): Promise<DesktopCloudState>;
+    getCloudState(): Promise<DesktopCloudState>;
+    retryCloudConnection(): Promise<DesktopCloudState>;
     applyConfigImport(importId: string): Promise<DesktopConfigImportApplyResult>;
     discardConfigImport(importId: string): Promise<void>;
     openLogsDirectory(): Promise<void>;

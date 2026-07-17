@@ -2,15 +2,20 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefOb
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Cloud,
   ExternalLink,
+  FileKey2,
   FileUp,
   FolderOpen,
   RotateCcw,
+  ShieldCheck,
   Trash2,
   X,
 } from "lucide-react";
 import type {
   DesktopConfigImportPreview,
+  DesktopCloudEnrollmentSelection,
+  DesktopCloudState,
   DesktopHealth,
   DesktopLogProfile,
   DesktopLogRetentionDays,
@@ -88,6 +93,7 @@ function DesktopSettingsNavigation({
   health,
   language,
   setup,
+  cloud,
   showStatus,
   onLanguageChange,
   onSelect,
@@ -99,6 +105,7 @@ function DesktopSettingsNavigation({
   health: DesktopHealth | null;
   language: Language;
   setup: DesktopSetupState;
+  cloud: DesktopCloudState;
   showStatus: boolean;
   onLanguageChange: (language: Language) => void;
   onSelect: (section: DesktopSettingsSection) => void;
@@ -130,6 +137,15 @@ function DesktopSettingsNavigation({
     <nav aria-label="设置菜单" className="desktop-settings-nav">
       <div className="desktop-settings-nav-list">
         {showStatus ? item("status", "运行状态", stateLabel(health?.gateway ?? "starting")) : null}
+        {item("cloud", "公司云端", ({
+          connected: "已连接",
+          connecting: "连接中",
+          provisioning: "配置中",
+          offline: "离线",
+          error: "需处理",
+          unsupported: "仅 Windows",
+          not_configured: "未配置",
+        } as const)[cloud.connection])}
         {item("base", "基础设置", desktopSettingsSectionStatus("base", setup))}
         <p className="desktop-settings-nav-group">业务集成</p>
         {item("ziniao", "紫鸟自动化", desktopSettingsSectionStatus("ziniao", setup))}
@@ -148,6 +164,89 @@ function DesktopSettingsNavigation({
         </button>
       </div>
     </nav>
+  );
+}
+
+function DesktopCloudPanel({
+  activating,
+  cloud,
+  enrollment,
+  headingRef,
+  password,
+  onActivate,
+  onPasswordChange,
+  onRetry,
+  onSelect,
+}: {
+  activating: boolean;
+  cloud: DesktopCloudState;
+  enrollment: DesktopCloudEnrollmentSelection | null;
+  headingRef: RefObject<HTMLHeadingElement | null>;
+  password: string;
+  onActivate: () => void;
+  onPasswordChange: (value: string) => void;
+  onRetry: () => void;
+  onSelect: () => void;
+}) {
+  const connected = cloud.connection === "connected";
+  const supported = cloud.connection !== "unsupported";
+  return (
+    <section className="desktop-settings-section desktop-cloud-panel">
+      <DesktopSectionHeading
+        badge={connected ? "已连接" : cloud.configured ? "已配置" : supported ? "未配置" : "仅 Windows"}
+        badgeClassName={connected ? "desktop-cloud-badge connected" : "desktop-cloud-badge"}
+        description="连接公司内网并启用每小时云端同步。"
+        headingRef={headingRef}
+        title="公司云端"
+      />
+      {cloud.configured ? (
+        <div className="desktop-cloud-identity">
+          <ShieldCheck aria-hidden size={20} />
+          <div><strong>{cloud.device_name}</strong><span>{cloud.vpn_ip}</span></div>
+        </div>
+      ) : null}
+      {!supported ? (
+        <p className="desktop-form-hint">请在 Windows 10/11 x64 安装包中导入管理员提供的设备文件。</p>
+      ) : !cloud.configured ? (
+        <div className="desktop-cloud-activation">
+          <button className="desktop-path-button" disabled={activating} onClick={onSelect} type="button">
+            <FileKey2 size={17} />
+            {enrollment?.file_name || "选择 .lxe-enroll 设备文件"}
+          </button>
+          <label>
+            <span>一次性密码</span>
+            <input
+              autoComplete="off"
+              disabled={activating}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              placeholder="输入管理员单独发送的密码"
+              type="password"
+              value={password}
+            />
+          </label>
+          <button
+            className="desktop-primary-button desktop-cloud-activate"
+            disabled={activating || !enrollment || password.trim().length < 12}
+            onClick={onActivate}
+            type="button"
+          >
+            <Cloud size={17} />
+            {activating ? "正在配置…" : "激活"}
+          </button>
+        </div>
+      ) : null}
+      {cloud.configured ? (
+        <div className={`desktop-cloud-status ${cloud.connection}`}>
+          <span>{connected ? "公司云端连接正常" : cloud.last_error || "正在检查公司网络"}</span>
+          {!connected ? (
+            <button disabled={activating} onClick={onRetry} type="button">
+              <RotateCcw size={15} />
+              重试连接
+            </button>
+          ) : null}
+        </div>
+      ) : cloud.last_error ? <p className="desktop-form-error" role="alert">{cloud.last_error}</p> : null}
+    </section>
   );
 }
 
@@ -678,11 +777,15 @@ export function DesktopShell({
   const desktop = window.lxe?.desktop;
   const [setup, setSetup] = useState<DesktopSetupState | null>(null);
   const [health, setHealth] = useState<DesktopHealth | null>(null);
+  const [cloud, setCloud] = useState<DesktopCloudState | null>(null);
   const [form, setForm] = useState<SetupForm | null>(null);
-  const [activeSettingsSection, setActiveSettingsSection] = useState<DesktopSettingsSection>("base");
+  const [activeSettingsSection, setActiveSettingsSection] = useState<DesktopSettingsSection>("cloud");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [cloudActivating, setCloudActivating] = useState(false);
+  const [cloudEnrollment, setCloudEnrollment] = useState<DesktopCloudEnrollmentSelection | null>(null);
+  const [cloudPassword, setCloudPassword] = useState("");
   const [importPreview, setImportPreview] = useState<DesktopConfigImportPreview | null>(null);
   const [importApplying, setImportApplying] = useState(false);
   const [importDiagnosticConfirmed, setImportDiagnosticConfirmed] = useState(false);
@@ -700,10 +803,15 @@ export function DesktopShell({
   useEffect(() => {
     if (!desktop) return;
     let cancelled = false;
-    void Promise.all([desktop.getSetupState(), desktop.getHealth()]).then(([nextSetup, nextHealth]) => {
+    void Promise.all([desktop.getSetupState(), desktop.getHealth(), desktop.getCloudState()]).then(([
+      nextSetup,
+      nextHealth,
+      nextCloud,
+    ]) => {
       if (cancelled) return;
       setSetup(nextSetup);
       setHealth(nextHealth);
+      setCloud(nextCloud);
       setForm(setupForm(nextSetup));
     }).catch((cause: unknown) => {
       if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
@@ -722,7 +830,7 @@ export function DesktopShell({
   }
   const frameClassName = `desktop-window-frame desktop-platform-${desktop.platform}`;
   const dragRegion = <div aria-hidden className="desktop-window-drag-region" />;
-  if (!setup || !form || !health) {
+  if (!setup || !form || !health || !cloud) {
     return (
       <main className={`desktop-loading ${frameClassName}`} data-lxe-root-state="loading">
         {dragRegion}
@@ -761,6 +869,48 @@ export function DesktopShell({
       setImportDiagnosticConfirmed(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const selectCloudEnrollment = async (): Promise<void> => {
+    setError("");
+    try {
+      const selection = await desktop.selectCloudEnrollment();
+      if (selection) setCloudEnrollment(selection);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const activateCloudEnrollment = async (): Promise<void> => {
+    if (!cloudEnrollment) return;
+    setCloudActivating(true);
+    setError("");
+    try {
+      const nextCloud = await desktop.activateCloudEnrollment({
+        enrollment_id: cloudEnrollment.enrollment_id,
+        password: cloudPassword,
+      });
+      setCloud(nextCloud);
+      if (nextCloud.configured) {
+        setCloudEnrollment(null);
+        setCloudPassword("");
+        setNotice(nextCloud.connection === "connected" ? "公司云端已连接" : "公司云端已配置，将自动重试连接");
+      }
+    } catch (cause) {
+      setCloud(await desktop.getCloudState());
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCloudActivating(false);
+    }
+  };
+  const retryCloudConnection = async (): Promise<void> => {
+    setCloudActivating(true);
+    setError("");
+    try {
+      setCloud(await desktop.retryCloudConnection());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setCloudActivating(false);
     }
   };
   const cancelConfigImport = async (): Promise<void> => {
@@ -862,6 +1012,7 @@ export function DesktopShell({
   };
   const save = (event: FormEvent): void => {
     event.preventDefault();
+    if (activeSettingsSection === "cloud" || activeSettingsSection === "status") return;
     if (form.logProfile === "diagnostic" && setup.logging.profile !== "diagnostic") {
       setConfirmation({ kind: "diagnostic" });
       return;
@@ -925,6 +1076,7 @@ export function DesktopShell({
   };
   const baseline = setupForm(setup);
   const editableSection: EditableDesktopSettingsSection = activeSettingsSection === "status"
+    || activeSettingsSection === "cloud"
     ? "base"
     : activeSettingsSection;
   const selectSettingsSection = (section: DesktopSettingsSection): void => {
@@ -950,12 +1102,26 @@ export function DesktopShell({
       setup={setup}
     />
   );
+  const settingsBody = activeSettingsSection === "cloud" ? (
+    <DesktopCloudPanel
+      activating={cloudActivating}
+      cloud={cloud}
+      enrollment={cloudEnrollment}
+      headingRef={sectionHeadingRef}
+      onActivate={() => { void activateCloudEnrollment(); }}
+      onPasswordChange={setCloudPassword}
+      onRetry={() => { void retryCloudConnection(); }}
+      onSelect={() => { void selectCloudEnrollment(); }}
+      password={cloudPassword}
+    />
+  ) : settingsFields;
   const settingsNavigation = (showStatus: boolean) => (
     <DesktopSettingsNavigation
       activeSection={activeSettingsSection}
       baseline={baseline}
       form={form}
       health={health}
+      cloud={cloud}
       language={language}
       onLanguageChange={onLanguageChange}
       onSelect={selectSettingsSection}
@@ -998,16 +1164,18 @@ export function DesktopShell({
           <div className="desktop-settings-workspace">
             {settingsNavigation(false)}
             <div className="desktop-settings-content">
-              {settingsFields}
+              {settingsBody}
               {notice ? <p aria-live="polite" className="desktop-form-notice" role="status">{notice}</p> : null}
               {error ? <p className="desktop-form-error" role="alert">{error}</p> : null}
             </div>
           </div>
           <footer className="desktop-onboarding-footer">
-            <span>基础设置完成后即可启动</span>
-            <button className="desktop-primary-button" disabled={saving} type="submit">
-              {saving ? "正在启动…" : "保存并启动"}
-            </button>
+            <span>{activeSettingsSection === "cloud" ? "公司云端可以稍后配置" : "基础设置完成后即可启动"}</span>
+            {activeSettingsSection !== "cloud" ? (
+              <button className="desktop-primary-button" disabled={saving} type="submit">
+                {saving ? "正在启动…" : "保存并启动"}
+              </button>
+            ) : null}
           </footer>
         </form>
         {importDialog}
@@ -1062,16 +1230,18 @@ export function DesktopShell({
                     onRestart={() => { void restart(); }}
                     restarting={restarting}
                   />
-                ) : settingsFields}
+                ) : settingsBody}
                 {notice ? <p aria-live="polite" className="desktop-form-notice" role="status">{notice}</p> : null}
                 {error ? <p className="desktop-form-error" role="alert">{error}</p> : null}
               </div>
             </div>
             <footer>
               <span className="desktop-version">v{health?.version || "0.1.0"}</span>
-              <button className="desktop-primary-button" disabled={saving} type="submit">
-                {saving ? "保存中…" : "保存设置"}
-              </button>
+              {activeSettingsSection !== "status" && activeSettingsSection !== "cloud" ? (
+                <button className="desktop-primary-button" disabled={saving} type="submit">
+                  {saving ? "保存中…" : "保存设置"}
+                </button>
+              ) : null}
             </footer>
           </form>
         </div>

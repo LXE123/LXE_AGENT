@@ -198,4 +198,36 @@ describe("DesktopConfigStore", () => {
     })).toThrow("Secure credential storage is unavailable");
     expect(existsSync(join(root, "config", "desktop.json"))).toBe(false);
   });
+
+  test("stores cloud metadata separately from the encrypted upload token", () => {
+    const root = createRoot();
+    const opaqueStorage = {
+      isEncryptionAvailable: () => true,
+      encryptString: (value: string) => Buffer.from(Buffer.from(value, "utf8").toString("base64"), "ascii"),
+      decryptString: (value: Buffer) => Buffer.from(String(value), "base64").toString("utf8"),
+    };
+    const store = new DesktopConfigStore(root, join(root, "workspace"), opaqueStorage, { platform: "win32" });
+    const cloud = store.saveCloudEnrollment({
+      deviceId: "0123456789abcdef0123456789abcdef",
+      deviceName: "Finance-PC-01",
+      vpnIp: "10.88.0.8",
+      dataServerUrl: "http://10.88.0.1:8000",
+      syncIntervalSeconds: 3_600,
+      tunnelName: "lxe-agent",
+      apiKey: "lxe_dev_0123456789abcdef0123456789abcdef.secret-value",
+    });
+
+    expect(cloud).toMatchObject({ managed: true, vpn_ip: "10.88.0.8", api_key_configured: true });
+    const publicConfig = readFileSync(join(root, "config", "desktop.json"), "utf8");
+    expect(publicConfig).toContain("Finance-PC-01");
+    expect(publicConfig).not.toContain("secret-value");
+    expect(readFileSync(join(root, "config", "secrets.bin"), "utf8")).not.toContain("secret-value");
+    expect(store.environment()).toMatchObject({
+      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
+      LXE_DATA_SERVER_API_KEY: "lxe_dev_0123456789abcdef0123456789abcdef.secret-value",
+      LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "3600",
+      LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
+    });
+  });
 });

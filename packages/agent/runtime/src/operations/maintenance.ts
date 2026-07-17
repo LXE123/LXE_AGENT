@@ -1,11 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { hostname } from "node:os";
-import { randomUUID } from "node:crypto";
 import { createLogger } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 import type { OneShotCliRunnerPort } from "../tooling/one-shot-cli";
 import type { SqliteRuntimeStore } from "../state/storage";
+import { resolveMachineIdentity } from "./machine-identity";
 
 type Environment = Record<string, string | undefined>;
 type DataServerTargetName = "cloud" | "local_fallback";
@@ -294,20 +293,11 @@ export class MaintenanceScheduler {
     const path = envText(this.options.environment, "LXE_DATA_SERVER_MACHINE_ID_PATH")
       || join(dirname(this.options.store.path), "machine_identity.json");
     try {
-      if (existsSync(path)) {
-        const payload = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-        const existing = String(payload.machine_id ?? "").trim();
-        if (existing) return existing;
-      }
+      return resolveMachineIdentity(path).machine_id;
     } catch (error) {
       this.logger.warn("machine_identity_unreadable", { path, error });
+      throw error;
     }
-    const machineId = randomUUID().replaceAll("-", "");
-    mkdirSync(dirname(path), { recursive: true });
-    const temporary = `${path}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${JSON.stringify({ machine_id: machineId, hostname_at_creation: hostname(), created_at: new Date().toISOString() }, null, 2)}\n`, "utf8");
-    renameSync(temporary, path);
-    return machineId;
   }
 
   private requestSingleFlight(

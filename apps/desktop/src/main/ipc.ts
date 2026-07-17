@@ -3,6 +3,9 @@ import { dialog, ipcMain, shell } from "electron";
 import type {
   DesktopConfigImportApplyResult,
   DesktopConfigImportPreview,
+  DesktopCloudActivationInput,
+  DesktopCloudEnrollmentSelection,
+  DesktopCloudState,
   DashboardTransportRequest,
   DesktopHealth,
   DesktopSetupInput,
@@ -10,7 +13,12 @@ import type {
 } from "@lxe/desktop-protocol";
 import type { JsonValue } from "@lxe/protocol";
 import { IPC_CHANNELS } from "../ipc-channels";
-import { validateConfigImportId, validateDashboardRequest, validateSetupInput } from "./ipc-validation";
+import {
+  validateCloudActivationInput,
+  validateConfigImportId,
+  validateDashboardRequest,
+  validateSetupInput,
+} from "./ipc-validation";
 
 export interface DesktopIpcApplication {
   dashboardRequest(request: DashboardTransportRequest): Promise<JsonValue>;
@@ -21,6 +29,10 @@ export interface DesktopIpcApplication {
   previewConfigImport(filePath: string): DesktopConfigImportPreview;
   applyConfigImport(importId: string): Promise<DesktopConfigImportApplyResult>;
   discardConfigImport(importId: string): void;
+  previewCloudEnrollment(filePath: string): DesktopCloudEnrollmentSelection;
+  activateCloudEnrollment(input: DesktopCloudActivationInput): Promise<DesktopCloudState>;
+  getCloudState(): DesktopCloudState;
+  retryCloudConnection(): Promise<DesktopCloudState>;
   logsDirectory: string;
 }
 
@@ -58,6 +70,20 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     const filePath = selection.canceled ? undefined : selection.filePaths[0];
     return filePath ? application.previewConfigImport(filePath) : null;
   });
+  ipcMain.handle(IPC_CHANNELS.selectCloudEnrollment, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: "选择公司云端设备文件",
+      buttonLabel: "选择",
+      properties: ["openFile"],
+      filters: [{ name: "LXE 设备文件", extensions: ["lxe-enroll"] }],
+    });
+    const filePath = selection.canceled ? undefined : selection.filePaths[0];
+    return filePath ? application.previewCloudEnrollment(filePath) : null;
+  });
+  ipcMain.handle(IPC_CHANNELS.activateCloudEnrollment, (_event, input: unknown) =>
+    application.activateCloudEnrollment(validateCloudActivationInput(input)));
+  ipcMain.handle(IPC_CHANNELS.getCloudState, () => application.getCloudState());
+  ipcMain.handle(IPC_CHANNELS.retryCloudConnection, () => application.retryCloudConnection());
   ipcMain.handle(IPC_CHANNELS.applyConfigImport, (_event, importId: unknown) =>
     application.applyConfigImport(validateConfigImportId(importId)));
   ipcMain.handle(IPC_CHANNELS.discardConfigImport, (_event, importId: unknown) =>

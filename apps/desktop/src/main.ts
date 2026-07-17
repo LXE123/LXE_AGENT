@@ -12,6 +12,7 @@ import {
 import { createLogger } from "@lxe/core";
 import type {
   DashboardTransportRequest,
+  DesktopCloudActivationInput,
   DesktopDashboardInvalidation,
   DesktopHealth,
   DesktopSetupInput,
@@ -24,7 +25,9 @@ import { registerDashboardProtocol } from "./main/app-protocol";
 import { createTrayIcon } from "./main/brand";
 import { resolveDesktopBrandAssets } from "./main/brand-assets";
 import { DesktopConfigImportManager } from "./main/config-import";
+import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
 import { DesktopConfigStore } from "./main/config-store";
+import { DesktopCloudService } from "./main/desktop-cloud";
 import {
   ALL_DASHBOARD_DATA_DOMAINS,
   DashboardInvalidationBatcher,
@@ -43,6 +46,7 @@ import {
 import { bootstrapDesktopState, migrateLegacyArtifacts } from "./main/migration";
 import { resolveDesktopPaths } from "./main/paths";
 import { desktopWindowAppearance } from "./main/window-options";
+import { WindowsWireGuardProvisioner } from "./main/wireguard-provisioner";
 import { normalizeDesktopPlatform } from "./platform";
 
 const logger = createLogger("desktop.main");
@@ -186,6 +190,24 @@ async function bootstrap(): Promise<void> {
     onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
   });
   activeGateway = gateway;
+  const cloud = new DesktopCloudService({
+    dataRoot: paths.dataRoot,
+    supported: packagedRuntime && desktopPlatform === "win32" && process.arch === "x64",
+    config,
+    enrollments: new DesktopCloudEnrollmentManager(),
+    provisioner: new WindowsWireGuardProvisioner({
+      platform: process.platform,
+      arch: process.arch,
+      packaged: packagedRuntime,
+      dataRoot: paths.dataRoot,
+      resourcesPath: process.resourcesPath,
+    }),
+    onConfigured: async () => {
+      await gateway.restart();
+      invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
+      broadcastHealth(gateway.health());
+    },
+  });
   const ipcApplication: DesktopIpcApplication = {
     dashboardRequest: async (request: DashboardTransportRequest): Promise<JsonValue> => {
       const result = await gateway.dashboardRequest(request);
@@ -220,6 +242,10 @@ async function bootstrap(): Promise<void> {
       return result;
     },
     discardConfigImport: (importId) => configImports.discard(importId),
+    previewCloudEnrollment: (filePath) => cloud.select(filePath),
+    activateCloudEnrollment: (input: DesktopCloudActivationInput) => cloud.activate(input),
+    getCloudState: () => cloud.state(),
+    retryCloudConnection: () => cloud.retry(),
     logsDirectory: join(paths.dataRoot, "var", "logs"),
   };
   removeIpcHandlers = registerDesktopIpc(ipcApplication);
@@ -251,6 +277,7 @@ async function bootstrap(): Promise<void> {
       logger.error("desktop_gateway_start_failed", { error });
     }
   }
+  if (config.cloudConfiguration().managed) void cloud.retry();
 
   window = new BrowserWindow({
     ...desktopWindowAppearance(desktopPlatform),

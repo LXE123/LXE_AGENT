@@ -37,6 +37,7 @@ Windows 安装包在 ASAR 外携带经过固定版本和冒烟验证的运行资
 - Python 3.12.10、生产依赖和当前源码构建的 LXE wheel。
 - Playwright Chromium、Selenium 所需 Python 依赖和浏览器认证能力。
 - ripgrep 与编译后的 `agent-cli.exe`。
+- 官方 WireGuard 1.1 x64 MSI、许可证与受控提权配置脚本。
 
 应用只向自己创建的子进程注入私有工具路径，不修改系统 `PATH`。最终安装包保留运行所需的 Node、Python、pip、CLI 和浏览器，但不会携带构建期使用的 npm/npx、npm cache 或 `uv.exe`。
 
@@ -59,6 +60,7 @@ python.exe -I -m lxeskill ...
 - Dashboard request transport。
 - 工作区选择。
 - `.env` 配置文件选择、脱敏预览和一次性应用/取消。
+- 公司云端设备文件选择、激活、状态读取和连接重试。
 - 紫鸟 APP 与驱动目录选择。
 - 日志目录打开。
 - 后台健康状态查询。
@@ -77,6 +79,14 @@ python.exe -I -m lxeskill ...
 | `.env.local.example` | 本地调试配置示例 | 是 |
 
 Data Server 同步是可选能力，需要显式配置 `LXE_DATA_SERVER_ENABLED`、`LXE_DATA_SERVER_URL` 和 `LXE_DATA_SERVER_API_KEY`。本地真实凭证、会话、业务数据和构建日志不会被资源装配器复制进安装包。
+
+### 公司云端设备接入
+
+Windows 10/11 x64 安装包支持管理员签发的 `.lxe-enroll` 设备文件。员工在首次启动或设置页选择设备文件并输入单独发送的一次性密码；文件路径、WireGuard 私钥和设备上传 Token 只进入 Electron Main，Renderer 仅接收设备名称、设备 ID、VPN IP 和脱敏状态。
+
+Main 使用一次 UAC 授权安装或复用 WireGuard 1.1 及更高版本。配置先由 WireGuard manager service 转换为 Local System 保护的 `.conf.dpapi`，再创建 `WireGuardTunnel$lxe-agent` 开机服务，所有明文临时配置随后删除。隧道只路由 `10.88.0.1/32`，不会接管员工电脑的普通上网流量。
+
+设备上传 Token 通过 `safeStorage` 写入 `secrets.bin`，非敏感设备信息写入 `desktop.json`。正式安装包自动注入私网 Data Server 地址、设备 Token 和 3600 秒同步周期；网络不可用时 Agent 保持运行，并在后续定时同步或用户点击“重试连接”时恢复。源码开发和现有 Mac 手工 WireGuard 配置不受此流程影响。
 
 ## 本地开发
 
@@ -137,7 +147,7 @@ bun run verify:platform:win
 
 构建顺序会先校验 Electron Builder 配置，再准备运行时、构建 wheel 和 `agent-cli.exe`、装配 Dashboard 与私有资源、执行冒烟验证，最后生成 NSIS 并检查体积预算。产物位于 `dist/desktop/`，安装程序命名为 `LXE-Agent-<version>-windows-x64.exe`。
 
-首次联网构建会缓存固定版本的 Node、Python、uv、ripgrep 和 Playwright Chromium；后续可使用缓存离线重建。完整的运行时锁定、缓存、资源裁剪、体积基线和平台门禁说明见 [Electron desktop packaging](../record/20260715-electron-desktop-packaging.md)。
+首次联网构建会缓存固定版本的 Node、Python、uv、ripgrep、Playwright Chromium 和 WireGuard 1.1 MSI；WireGuard 资源必须同时通过固定 SHA-256 与 Authenticode 签名校验。后续可使用缓存离线重建，员工安装和激活阶段不会下载 WireGuard。完整的运行时锁定、缓存、资源裁剪、体积基线和平台门禁说明见 [Electron desktop packaging](../record/20260715-electron-desktop-packaging.md)。
 
 ## 日志与诊断
 

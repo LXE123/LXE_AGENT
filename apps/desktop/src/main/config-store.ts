@@ -28,7 +28,7 @@ interface SafeStoragePort {
 }
 
 interface DesktopConfig {
-  schema_version: 2;
+  schema_version: 3;
   migration_version: number;
   provider: DesktopSetupInput["provider"];
   workspace_root: string;
@@ -48,6 +48,15 @@ interface DesktopConfig {
     profile: DesktopLogProfile;
     retention_days: DesktopLogRetentionDays;
   };
+  cloud: {
+    managed: boolean;
+    device_id: string;
+    device_name: string;
+    vpn_ip: string;
+    data_server_url: string;
+    sync_interval_seconds: number;
+    tunnel_name: string;
+  };
 }
 
 interface DesktopSecrets {
@@ -55,6 +64,28 @@ interface DesktopSecrets {
   ziniao_password: string;
   mabang_password: string;
   feishu_app_secret: string;
+  data_server_api_key: string;
+}
+
+export interface DesktopCloudConfiguration {
+  managed: boolean;
+  device_id: string;
+  device_name: string;
+  vpn_ip: string;
+  data_server_url: string;
+  sync_interval_seconds: number;
+  tunnel_name: string;
+  api_key_configured: boolean;
+}
+
+export interface DesktopCloudEnrollmentConfig {
+  deviceId: string;
+  deviceName: string;
+  vpnIp: string;
+  dataServerUrl: string;
+  syncIntervalSeconds: number;
+  tunnelName: string;
+  apiKey: string;
 }
 
 export interface DesktopConfigStoreOptions {
@@ -93,7 +124,7 @@ const PROVIDER_LABEL = {
 } as const;
 
 const DEFAULT_CONFIG: DesktopConfig = {
-  schema_version: 2,
+  schema_version: 3,
   migration_version: 0,
   provider: "kimi_coding",
   workspace_root: "",
@@ -110,12 +141,22 @@ const DEFAULT_CONFIG: DesktopConfig = {
     feishu: { managed: false, app_id: "" },
   },
   logging: { profile: "standard", retention_days: 7 },
+  cloud: {
+    managed: false,
+    device_id: "",
+    device_name: "",
+    vpn_ip: "",
+    data_server_url: "",
+    sync_interval_seconds: 3_600,
+    tunnel_name: "lxe-agent",
+  },
 };
 const DEFAULT_SECRETS: DesktopSecrets = {
   provider_keys: {},
   ziniao_password: "",
   mabang_password: "",
   feishu_app_secret: "",
+  data_server_api_key: "",
 };
 
 const objectValue = (value: unknown): Record<string, unknown> =>
@@ -299,6 +340,38 @@ export class DesktopConfigStore {
     mkdirSync(workspaceRoot, { recursive: true });
     this.commit(config, secrets);
     return this.state();
+  }
+
+  cloudConfiguration(): DesktopCloudConfiguration {
+    const cloud = this.readConfig().cloud;
+    return {
+      ...cloud,
+      api_key_configured: Boolean(text(this.readSecrets().data_server_api_key)),
+    };
+  }
+
+  saveCloudEnrollment(input: DesktopCloudEnrollmentConfig): DesktopCloudConfiguration {
+    this.requireSafeStorage();
+    const apiKey = text(input.apiKey);
+    if (!apiKey) throw new Error("Device upload token is required");
+    const config = this.readConfig();
+    const secrets = this.readSecrets();
+    config.cloud = {
+      managed: true,
+      device_id: text(input.deviceId),
+      device_name: text(input.deviceName),
+      vpn_ip: text(input.vpnIp),
+      data_server_url: text(input.dataServerUrl).replace(/\/+$/u, ""),
+      sync_interval_seconds: Math.max(30, Math.trunc(input.syncIntervalSeconds)),
+      tunnel_name: text(input.tunnelName) || "lxe-agent",
+    };
+    if (!config.cloud.device_id || !config.cloud.device_name || !config.cloud.vpn_ip
+      || !config.cloud.data_server_url) {
+      throw new Error("Cloud enrollment metadata is incomplete");
+    }
+    secrets.data_server_api_key = apiKey;
+    this.commit(config, secrets);
+    return this.cloudConfiguration();
   }
 
   migrateLegacyEnvironment(options: LegacyEnvironmentMigrationOptions): DesktopSetupState {
@@ -632,6 +705,7 @@ export class DesktopConfigStore {
     const feishuConfigured = feishu.managed && this.feishuIssues(feishu, secrets).length === 0;
     const diagnostic = config.logging.profile === "diagnostic";
     const logsEnabled = config.logging.profile !== "off";
+    const cloudEnabled = config.cloud.managed && Boolean(text(secrets.data_server_api_key));
     return {
       AGENT_LLM_PROVIDER: config.provider,
       ...providerEnvironment,
@@ -654,6 +728,11 @@ export class DesktopConfigStore {
       AGENT_SSE_WIRE_TRACE_ENABLED: diagnostic ? "1" : "0",
       ZINIAO_DIAGNOSTIC_TRACE_ENABLED: diagnostic ? "1" : "0",
       FEISHU_RAW_EVENT_DUMP_ENABLED: diagnostic ? "1" : "0",
+      LXE_DATA_SERVER_ENABLED: cloudEnabled ? "1" : "0",
+      LXE_DATA_SERVER_URL: cloudEnabled ? config.cloud.data_server_url : "",
+      LXE_DATA_SERVER_API_KEY: cloudEnabled ? secrets.data_server_api_key : "",
+      LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: String(config.cloud.sync_interval_seconds),
+      LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
     };
   }
 
@@ -731,9 +810,10 @@ export class DesktopConfigStore {
       const rawMabang = objectValue(integrations.mabang);
       const rawFeishu = objectValue(integrations.feishu);
       const rawLogging = objectValue(value.logging);
+      const rawCloud = objectValue(value.cloud);
       const legacyFeishuAppId = text(value.feishu_app_id);
       return {
-        schema_version: 2,
+        schema_version: 3,
         migration_version: Number.isFinite(Number(value.migration_version))
           ? Math.max(0, Math.trunc(Number(value.migration_version)))
           : 0,
@@ -763,6 +843,20 @@ export class DesktopConfigStore {
           profile: logProfile(rawLogging.profile),
           retention_days: logRetention(rawLogging.retention_days),
         },
+        cloud: {
+          managed: Boolean(rawCloud.managed),
+          device_id: text(rawCloud.device_id),
+          device_name: text(rawCloud.device_name),
+          vpn_ip: text(rawCloud.vpn_ip),
+          data_server_url: text(rawCloud.data_server_url),
+          sync_interval_seconds: Math.max(
+            30,
+            Number.isFinite(Number(rawCloud.sync_interval_seconds))
+              ? Math.trunc(Number(rawCloud.sync_interval_seconds))
+              : 3_600,
+          ),
+          tunnel_name: text(rawCloud.tunnel_name) || "lxe-agent",
+        },
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -790,6 +884,7 @@ export class DesktopConfigStore {
       ziniao_password: text(value.ziniao_password),
       mabang_password: text(value.mabang_password),
       feishu_app_secret: text(value.feishu_app_secret),
+      data_server_api_key: text(value.data_server_api_key),
     };
   }
 
