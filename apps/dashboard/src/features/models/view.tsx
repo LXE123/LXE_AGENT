@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Settings2, Sparkles } from "lucide-react";
 
+import kimiMoonDust from "../../assets/providers/kimi/kimi-moon-dust.png";
 import { formatCompactNumber, formatNumber } from "../../shared/format";
 import { ProviderBrandMark, providerBrandKind } from "../../shared/ui/provider-brand-mark";
 import {
@@ -112,7 +113,7 @@ export function ModelsView({
             >
               {brandKind === "kimi" ? (
                 <div className="model-kimi-dust" aria-hidden="true">
-                  <ProviderBrandMark provider={model.provider} size={520} />
+                  <img alt="" draggable={false} src={kimiMoonDust} />
                 </div>
               ) : (
                 <div className="model-brand-watermark" aria-hidden="true">

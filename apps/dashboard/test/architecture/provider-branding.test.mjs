@@ -13,6 +13,7 @@ const runtimeStatus = readSource("features/runtime-status/view.tsx");
 const providerMark = readSource("shared/ui/provider-brand-mark.tsx");
 const styles = readSource("styles.css");
 const kimiIcon = path.join(sourceDir, "assets/providers/kimi/kimi-icon-round.png");
+const kimiDust = path.join(sourceDir, "assets/providers/kimi/kimi-moon-dust.png");
 
 test("model and runtime surfaces share local provider marks", () => {
   assert.match(models, /ProviderBrandMark/);
@@ -20,6 +21,12 @@ test("model and runtime surfaces share local provider marks", () => {
   assert.match(models, /className="models-current-summary"[\s\S]*?data-provider=\{current\?\.provider/);
   assert.match(models, /className="model-brand-watermark"/);
   assert.match(models, /className="model-kimi-dust"/);
+  assert.match(models, /kimi-moon-dust\.png/);
+  assert.match(
+    models,
+    /<div className="model-kimi-dust" aria-hidden="true">\s*<img alt="" draggable=\{false\} src=\{kimiMoonDust\} \/>\s*<\/div>/,
+  );
+  assert.doesNotMatch(models, /size=\{520\}/);
   assert.doesNotMatch(models, /<Brain\b/);
   assert.match(runtimeStatus, /ProviderBrandMark provider=\{currentModel\?\.provider\}/);
   assert.match(runtimeStatus, /provider=\{currentModel\?\.provider\}/);
@@ -28,6 +35,10 @@ test("model and runtime surfaces share local provider marks", () => {
   assert.doesNotMatch(providerMark, /https?:\/\//);
   assert.match(providerMark, /data-provider-mark=\{kind\}/);
   assert.ok(readFileSync(kimiIcon).byteLength > 0);
+  const dustBytes = readFileSync(kimiDust);
+  assert.equal(dustBytes.subarray(1, 4).toString("ascii"), "PNG");
+  assert.ok(dustBytes.readUInt32BE(16) >= 1600);
+  assert.ok(dustBytes.readUInt32BE(20) >= 800);
 });
 
 test("Kimi and DeepSeek use distinct responsive card themes", () => {
@@ -61,8 +72,12 @@ test("Kimi and DeepSeek use distinct responsive card themes", () => {
   assert.match(styles, /\.model-card\[data-provider="deepseek"\]::after[\s\S]*?repeating-linear-gradient/);
   assert.match(styles, /\.models-current-summary\[data-provider="kimi_coding"\] \.models-current-icon/);
   assert.match(styles, /\.model-kimi-dust[\s\S]*?mask-image:\s*linear-gradient/);
-  assert.match(styles, /\.model-kimi-dust \.provider-brand-mark[\s\S]*?grayscale\(0\.9\)/);
-  assert.match(styles, /\.model-kimi-dust \.provider-brand-mark[\s\S]*?mix-blend-mode:\s*screen/);
+  const kimiDustImage = styles.match(
+    /\.model-kimi-dust > img \{[\s\S]*?\n\}/,
+  )?.[0] ?? "";
+  assert.match(kimiDustImage, /width:\s*clamp\(470px,\s*128%,\s*720px\)/);
+  assert.match(kimiDustImage, /mix-blend-mode:\s*screen/);
+  assert.doesNotMatch(kimiDustImage, /filter:/);
   assert.match(styles, /\.runtime-status-item\[data-provider="kimi_coding"\] \.runtime-status-icon/);
   assert.match(styles, /\.runtime-status-item\[data-provider="deepseek"\] \.runtime-status-icon/);
   assert.doesNotMatch(providerMark, /provider-brand-(?:orbit|scan|pulse)/);

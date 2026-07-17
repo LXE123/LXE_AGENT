@@ -2929,23 +2929,36 @@ h1 {
   right: 0;
   bottom: 0;
   left: 0;
-  height: 118px;
+  height: 126px;
   overflow: hidden;
-  opacity: 0.3;
+  opacity: 0.32;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0.9) 42%, transparent 100%);
-  mask-image: linear-gradient(to top, #000 0%, rgba(0, 0, 0, 0.9) 42%, transparent 100%);
+  -webkit-mask-image: linear-gradient(
+    to top,
+    #000 0%,
+    rgba(0, 0, 0, 0.96) 36%,
+    rgba(0, 0, 0, 0.42) 72%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to top,
+    #000 0%,
+    rgba(0, 0, 0, 0.96) 36%,
+    rgba(0, 0, 0, 0.42) 72%,
+    transparent 100%
+  );
 }
 
-.model-kimi-dust .provider-brand-mark {
+.model-kimi-dust > img {
   position: absolute;
-  right: -3%;
-  bottom: -8px;
-  width: min(700px, 125%) !important;
-  height: auto !important;
-  aspect-ratio: 1;
-  filter: grayscale(0.9) contrast(1.12) brightness(1.18);
+  right: -7%;
+  bottom: -28px;
+  width: clamp(470px, 128%, 720px);
+  max-width: none;
+  height: auto;
   mix-blend-mode: screen;
+  pointer-events: none;
+  user-select: none;
 }
 
 .model-card[data-provider="glm"] {
