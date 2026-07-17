@@ -2626,10 +2626,27 @@ h1 {
 }
 
 .models-current-summary[data-provider="kimi_coding"] {
-  --provider-hue: #2b2d33;
-  --provider-hue-strong: #17181c;
-  --provider-soft: #f1f1ef;
-  --provider-ring: #d6d5d1;
+  --provider-hue: #0b0b0c;
+  --provider-hue-strong: #0b0b0c;
+  --provider-soft: #f2f2f0;
+  --provider-ring: #d5d5d2;
+}
+
+.models-current-summary[data-provider="kimi_coding"]::after {
+  background: radial-gradient(
+    circle,
+    transparent 0 28px,
+    rgba(11, 11, 12, 0.09) 29px 31px,
+    transparent 38px
+  );
+  opacity: 0.9;
+}
+
+.models-current-summary[data-provider="kimi_coding"] .models-current-icon {
+  border-color: #303033;
+  background: #0b0b0c;
+  color: #f7f7f5;
+  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.05);
 }
 
 .models-current-summary[data-provider="deepseek"] {
@@ -2779,26 +2796,26 @@ h1 {
 }
 
 .model-card[data-provider="kimi_coding"] {
-  --model-hue: #f4f2ed;
-  --model-hue-strong: #fffdf8;
-  --model-soft: rgba(255, 255, 255, 0.085);
-  --model-ring: rgba(255, 255, 255, 0.28);
-  --model-card-bg: linear-gradient(145deg, #0f1118 0%, #15161d 58%, #1b1a19 100%);
-  --model-card-active-bg: linear-gradient(145deg, #0f1118 0%, #15161d 58%, #1b1a19 100%);
-  --model-card-text: #f8f8f6;
-  --model-card-muted: #b9bbc2;
-  --model-card-soft-text: #d5d6da;
-  --model-panel-bg: rgba(255, 255, 255, 0.045);
-  --model-panel-border: rgba(255, 255, 255, 0.16);
-  --model-input-bg: rgba(3, 5, 10, 0.52);
-  --model-input-disabled-bg: rgba(255, 255, 255, 0.055);
-  --model-input-text: #f8f8f6;
-  --model-focus-ring: rgba(255, 255, 255, 0.18);
-  --model-badge-bg: #f4f2ed;
-  --model-badge-color: #111218;
+  --model-hue: #f7f7f5;
+  --model-hue-strong: #ffffff;
+  --model-soft: rgba(255, 255, 255, 0.07);
+  --model-ring: rgba(255, 255, 255, 0.34);
+  --model-card-bg: linear-gradient(155deg, #060606 0%, #09090a 52%, #111113 100%);
+  --model-card-active-bg: linear-gradient(155deg, #060606 0%, #09090a 52%, #111113 100%);
+  --model-card-text: #f7f7f5;
+  --model-card-muted: #a5a5aa;
+  --model-card-soft-text: #d3d3d5;
+  --model-panel-bg: rgba(14, 14, 16, 0.78);
+  --model-panel-border: rgba(255, 255, 255, 0.12);
+  --model-input-bg: rgba(2, 2, 3, 0.74);
+  --model-input-disabled-bg: rgba(255, 255, 255, 0.05);
+  --model-input-text: #f7f7f5;
+  --model-focus-ring: rgba(255, 255, 255, 0.2);
+  --model-badge-bg: #f7f7f5;
+  --model-badge-color: #09090a;
   --model-badge-border: #ffffff;
-  border-color: rgba(255, 255, 255, 0.22);
-  box-shadow: 0 18px 40px rgba(3, 5, 10, 0.28);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.24);
 }
 
 .model-card[data-provider="deepseek"] {
@@ -2826,10 +2843,46 @@ h1 {
 
 .model-card[data-provider="kimi_coding"]::after {
   background:
-    radial-gradient(circle at 14% 13%, rgba(255, 255, 255, 0.52) 0 0.7px, transparent 1.2px),
-    radial-gradient(circle at 41% 8%, rgba(255, 255, 255, 0.34) 0 0.6px, transparent 1.1px),
-    radial-gradient(circle at 67% 19%, rgba(226, 229, 238, 0.42) 0 0.8px, transparent 1.3px),
-    radial-gradient(circle at 87% 8%, rgba(234, 237, 245, 0.14), transparent 30%);
+    radial-gradient(
+      circle at 84% 15%,
+      transparent 0 48px,
+      rgba(255, 255, 255, 0.22) 49px 51px,
+      rgba(255, 255, 255, 0.055) 52px 59px,
+      transparent 70px
+    ),
+    linear-gradient(
+      90deg,
+      transparent 0 42%,
+      rgba(255, 255, 255, 0.018) 54%,
+      rgba(255, 255, 255, 0.065) 67%,
+      transparent 82%
+    ),
+    repeating-linear-gradient(0deg, transparent 0 31px, rgba(255, 255, 255, 0.023) 32px 33px);
+  opacity: 0.72;
+  transition: opacity 0.4s ease;
+}
+
+.model-card[data-provider="kimi_coding"]:hover::after {
+  opacity: 0.94;
+}
+
+.model-card[data-provider="kimi_coding"].item-active::after {
+  animation: kimi-eclipse-drift 10s ease-in-out infinite;
+}
+
+@keyframes kimi-eclipse-drift {
+  0%,
+  100% {
+    background-position: 0 0;
+    opacity: 0.72;
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    background-position: 9px 0;
+    opacity: 0.94;
+    transform: translate3d(-4px, 2px, 0);
+  }
 }
 
 .model-card[data-provider="deepseek"]::after {
@@ -2860,6 +2913,13 @@ h1 {
   right: 0;
   opacity: 0.08;
   transform: scale(0.8);
+}
+
+.model-card[data-provider="kimi_coding"] .model-brand-watermark {
+  top: 18px;
+  right: 0;
+  opacity: 0.11;
+  transform: scale(0.9);
 }
 
 .model-card[data-provider="glm"] {
@@ -2959,6 +3019,21 @@ h1 {
   stroke: none;
 }
 
+.provider-brand-mark[data-provider-mark="kimi"] .provider-brand-orbit {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
+  opacity: 0.82;
+}
+
+.provider-brand-mark[data-provider-mark="kimi"] .provider-brand-scan {
+  stroke-width: 1.6;
+}
+
+.provider-brand-mark[data-provider-mark="kimi"] .provider-brand-pulse {
+  opacity: 0.94;
+}
+
 .provider-brand-mark .provider-brand-fill {
   fill: currentColor;
   stroke: none;
@@ -3004,6 +3079,15 @@ h1 {
   font-size: 16px;
   font-weight: 680;
   letter-spacing: -0.01em;
+}
+
+.model-card[data-provider="kimi_coding"] .model-heading-copy h3 {
+  font-weight: 720;
+  letter-spacing: -0.02em;
+}
+
+.model-card[data-provider="kimi_coding"] .model-heading-model {
+  opacity: 0.78;
 }
 
 .model-heading-model {
@@ -5919,14 +6003,14 @@ pre {
 }
 
 .runtime-status-item[data-provider="kimi_coding"] .runtime-status-icon {
-  border: 1px solid #494b52;
-  background: #15161d;
-  color: #f4f2ed;
-  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.045);
+  border: 1px solid #303033;
+  background: #0b0b0c;
+  color: #f7f7f5;
+  box-shadow: inset 0 0 12px rgba(255, 255, 255, 0.05);
 }
 
 .runtime-status-item[data-provider="kimi_coding"] .runtime-status-value-line strong {
-  color: #2b2d33;
+  color: #1c1c1e;
 }
 
 .runtime-status-item[data-provider="deepseek"] .runtime-status-icon {
@@ -6195,6 +6279,15 @@ pre {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .model-card[data-provider="kimi_coding"].item-active::after {
+    animation: none;
+    transform: none;
+  }
+
+  .model-card[data-provider="kimi_coding"]::after {
+    transition: none;
+  }
+
   .runtime-status-popover {
     animation: none;
   }

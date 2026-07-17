@@ -23,9 +23,22 @@ describe("ProviderBrandMark", () => {
 
     expect(kimi).toContain('data-provider-mark="kimi"');
     expect(kimi).toContain('aria-hidden="true"');
+    expect(kimi).toContain('class="provider-brand-orbit"');
+    expect(kimi.match(/class="provider-brand-scan"/gu)).toHaveLength(3);
+    expect(kimi).toContain('class="provider-brand-pulse"');
     expect(deepseek).toContain('data-provider-mark="deepseek"');
     expect(fallback).toContain('data-provider-mark="generic"');
     expect(fallback).toContain("lucide-brain");
     expect(`${kimi}${deepseek}`).not.toMatch(/<img|https?:\/\//u);
+  });
+
+  test("keeps the Kimi lunar mark scalable at compact status sizes", () => {
+    for (const size of [16, 20, 24]) {
+      const kimi = renderToStaticMarkup(<ProviderBrandMark provider="kimi-code" size={size} />);
+
+      expect(kimi).toContain(`width:${size}px`);
+      expect(kimi).toContain(`height:${size}px`);
+      expect(kimi).toContain('viewBox="0 0 24 24"');
+    }
   });
 });

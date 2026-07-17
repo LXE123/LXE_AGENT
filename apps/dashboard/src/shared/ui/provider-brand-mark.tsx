@@ -30,13 +30,11 @@ export function ProviderBrandMark({
     >
       {kind === "kimi" ? (
         <svg fill="none" focusable="false" viewBox="0 0 24 24">
-          <path
-            className="provider-brand-fill"
-            d="M16.8 3.5A9.2 9.2 0 1 0 20.5 17a7.4 7.4 0 0 1-3.7-13.5Z"
-          />
-          <path d="m12.3 9.2-2.2 2.8 2.2 2.8M16 9.2l2.2 2.8-2.2 2.8" />
-          <circle cx="19.4" cy="5.1" r="1.15" />
-          <circle cx="20.7" cy="8" r="0.55" />
+          <circle className="provider-brand-orbit" cx="11.5" cy="12" r="8" />
+          <path className="provider-brand-scan" d="M7 8h3.2m3.5 0H16" />
+          <path className="provider-brand-scan" d="M4.8 12h4.6l2.3-2.2M9.4 12l2.3 2.2m2-2.2h4.5" />
+          <path className="provider-brand-scan" d="M7 16h3.2m3.5 0H16" />
+          <circle className="provider-brand-pulse" cx="20.2" cy="6.2" r="1.05" />
         </svg>
       ) : kind === "deepseek" ? (
         <svg fill="none" focusable="false" viewBox="0 0 24 24">
