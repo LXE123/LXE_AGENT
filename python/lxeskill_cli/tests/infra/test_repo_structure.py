@@ -60,7 +60,7 @@ ALLOWED_RUNTIME_SOURCE_DIRECTORIES = {
     "tooling",
 }
 ALLOWED_RUNTIME_TEST_DIRECTORIES = ALLOWED_RUNTIME_SOURCE_DIRECTORIES | {"fixtures"}
-ALLOWED_DASHBOARD_SOURCE_DIRECTORIES = {"api", "desktop", "features", "shared"}
+ALLOWED_DASHBOARD_SOURCE_DIRECTORIES = {"api", "assets", "desktop", "features", "shared"}
 ALLOWED_DASHBOARD_TEST_DIRECTORIES = {"architecture", "desktop", "features", "shared"}
 
 ALLOWED_PYTHON_DIRECTORIES = {"lxeskill_cli"}
