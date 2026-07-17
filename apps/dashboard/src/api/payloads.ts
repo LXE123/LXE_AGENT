@@ -48,6 +48,7 @@ export type SessionPayload = {
   title: string;
   source: Record<string, unknown>;
   source_summary: SourceSummary;
+  workspace: WorkspacePayload;
   model: string;
   reasoning_effort: string;
   model_config: Record<string, unknown>;
@@ -58,6 +59,12 @@ export type SessionPayload = {
   input_tokens: number;
   output_tokens: number;
   api_call_count: number;
+};
+
+export type WorkspacePayload = {
+  server_scope: "local";
+  directory: string;
+  worktree: string;
 };
 
 export type SourceSummary = {

@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
+import { resolveWorkspaceContext } from "@lxe/core";
 import type {
   DesktopConfigImportApplyResult,
   DesktopConfigImportGroupPreview,
@@ -270,8 +271,7 @@ export class DesktopConfigStore {
     if (!["kimi_coding", "deepseek", "glm"].includes(provider)) {
       throw new Error("Unsupported model provider");
     }
-    const workspaceRoot = resolve(text(input.workspace_root) || this.defaultWorkspaceRoot);
-    if (!workspaceRoot) throw new Error("Workspace is required");
+    const workspaceRoot = this.validateWorkspaceRoot(text(input.workspace_root) || this.defaultWorkspaceRoot);
     const config = this.readConfig();
     const secrets = this.readSecrets();
     config.provider = provider;
@@ -337,7 +337,6 @@ export class DesktopConfigStore {
         retention_days: logRetention(input.logging.retention_days),
       };
     }
-    mkdirSync(workspaceRoot, { recursive: true });
     this.commit(config, secrets);
     return this.state();
   }
@@ -489,11 +488,12 @@ export class DesktopConfigStore {
     }
     const workspaceRoot = imported("LXE_WORKSPACE_ROOT");
     if (workspaceRoot) {
+      const validatedWorkspace = this.validateWorkspaceRoot(workspaceRoot);
       baseFields.push("默认工作区");
-      if (previousConfig.workspace_root && resolve(previousConfig.workspace_root) !== resolve(workspaceRoot)) {
+      if (previousConfig.workspace_root && resolve(previousConfig.workspace_root) !== validatedWorkspace) {
         baseOverwrites.push("默认工作区");
       }
-      config.workspace_root = resolve(workspaceRoot);
+      config.workspace_root = validatedWorkspace;
     }
     if (baseFields.length > 0) {
       const issues = secrets.provider_keys[config.provider] ? [] : ["缺少所选模型服务的 API Key"];
@@ -675,8 +675,6 @@ export class DesktopConfigStore {
       apply: () => {
         if (applied) throw new Error("This configuration import has already been applied");
         applied = true;
-        const workspace = config.workspace_root || this.defaultWorkspaceRoot;
-        if (workspace) mkdirSync(workspace, { recursive: true });
         this.commit(config, secrets);
         return {
           state: this.state(),
@@ -799,6 +797,14 @@ export class DesktopConfigStore {
     if (this.pathExists(webdriverPath) && !this.pathIsDirectory(webdriverPath)) {
       throw new Error("紫鸟浏览器驱动安装地址必须是目录");
     }
+  }
+
+  private validateWorkspaceRoot(value: string): string {
+    const requestedWorkspace = text(value);
+    if (!requestedWorkspace) throw new Error("Workspace is required");
+    const workspace = resolveWorkspaceContext(requestedWorkspace);
+    accessSync(workspace.directory, constants.R_OK | constants.W_OK | constants.X_OK);
+    return workspace.directory;
   }
 
   private readConfig(): DesktopConfig {

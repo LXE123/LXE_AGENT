@@ -1,4 +1,4 @@
-import type { JsonObject } from "@lxe/protocol";
+import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 import type { RuntimeHandle, ToolExecutionResult, ToolSchema } from "../engine/types";
 
 export interface ToolDefinition extends ToolSchema {
@@ -19,6 +19,7 @@ export interface ToolDefinition extends ToolSchema {
     turn_id?: string;
     exposureState?: ToolExposureState;
     skill_names?: readonly string[];
+    workspace: WorkspaceContext;
   }): Promise<ToolExecutionResult>;
 }
 
@@ -202,6 +203,7 @@ export class ToolRegistry {
       turn_id?: string;
       exposureState?: ToolExposureState;
       skill_names?: readonly string[];
+      workspace: WorkspaceContext;
     },
   ): Promise<ToolExecutionResult> {
     const definition = this.definitions.get(name.trim());

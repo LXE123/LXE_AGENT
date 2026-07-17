@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
 import type { SQLQueryBindings } from "bun:sqlite";
-import type { JsonObject, JsonValue } from "@lxe/protocol";
+import type { JsonObject, JsonValue, SessionWorkspaceRequest, WorkspaceContext } from "@lxe/protocol";
 import type {
   RuntimeMessage,
   RuntimeSessionRecord,
@@ -12,7 +12,12 @@ import type {
   RuntimeTurnContextRecord,
   RuntimeTurnUsageRecord,
 } from "../engine/types";
-import { createLogger } from "@lxe/core";
+import {
+  createLogger,
+  sameWorkspaceContext,
+  SessionWorkspaceMismatchError,
+  workspaceContextFrom,
+} from "@lxe/core";
 import {
   applyTranscriptEvent,
   createContextPatchEvent,
@@ -188,6 +193,7 @@ interface TranscriptFileState {
 export interface SqliteRuntimeStoreOptions {
   replayCacheMaxEntries?: number;
   replayCacheMaxBytes?: number;
+  legacyWorkspace?: WorkspaceContext;
 }
 
 const DEFAULT_REPLAY_CACHE_MAX_ENTRIES = 32;
@@ -205,7 +211,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
   private replayHits = 0;
   private replayMisses = 0;
 
-  constructor(readonly path: string, options: SqliteRuntimeStoreOptions = {}) {
+  constructor(readonly path: string, private readonly options: SqliteRuntimeStoreOptions = {}) {
     this.replayCacheMaxEntries = Math.max(0, Math.trunc(
       options.replayCacheMaxEntries ?? DEFAULT_REPLAY_CACHE_MAX_ENTRIES,
     ));
@@ -237,6 +243,9 @@ export class SqliteRuntimeStore implements RuntimeStore {
       CREATE TABLE IF NOT EXISTS agent_sessions (
         session_id TEXT PRIMARY KEY,
         source TEXT NOT NULL DEFAULT '{}',
+        workspace_server_scope TEXT NOT NULL DEFAULT '',
+        workspace_directory TEXT NOT NULL DEFAULT '',
+        workspace_worktree TEXT NOT NULL DEFAULT '',
         model TEXT NOT NULL DEFAULT '',
         reasoning_effort TEXT NOT NULL DEFAULT '',
         model_config TEXT NOT NULL DEFAULT '{}',
@@ -313,6 +322,23 @@ export class SqliteRuntimeStore implements RuntimeStore {
     if (!columns.some((column) => column.name === "reasoning_effort")) {
       database.exec("ALTER TABLE agent_sessions ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''");
     }
+    for (const [name, declaration] of [
+      ["workspace_server_scope", "TEXT NOT NULL DEFAULT ''"],
+      ["workspace_directory", "TEXT NOT NULL DEFAULT ''"],
+      ["workspace_worktree", "TEXT NOT NULL DEFAULT ''"],
+    ] as const) {
+      if (!columns.some((column) => column.name === name)) {
+        database.exec(`ALTER TABLE agent_sessions ADD COLUMN ${name} ${declaration}`);
+      }
+    }
+    if (this.options.legacyWorkspace) {
+      const workspace = this.options.legacyWorkspace;
+      database.query(`
+        UPDATE agent_sessions SET
+          workspace_server_scope = ?, workspace_directory = ?, workspace_worktree = ?
+        WHERE workspace_server_scope = '' OR workspace_directory = '' OR workspace_worktree = ''
+      `).run(workspace.server_scope, workspace.directory, workspace.worktree);
+    }
     await this.catchUpTranscriptIndexes();
   }
 
@@ -323,33 +349,69 @@ export class SqliteRuntimeStore implements RuntimeStore {
     this.clearReplayCache();
   }
 
-  async ensureSession(request: JsonObject): Promise<void> {
+  async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     const sessionId = text(request.session_id);
     if (!sessionId) throw new Error("session_id required");
+    const workspace = workspaceContextFrom(request.workspace);
     const incomingSource = parseObject(request.source);
-    const current = this.getPrepared<{ source: string }>(
-      "SELECT source FROM agent_sessions WHERE session_id = ?",
+    const current = this.getPrepared<{
+      source: string;
+      workspace_server_scope: string;
+      workspace_directory: string;
+      workspace_worktree: string;
+    }>(
+      `SELECT source, workspace_server_scope, workspace_directory, workspace_worktree
+       FROM agent_sessions WHERE session_id = ?`,
       sessionId,
     );
+    const currentWorkspace = current ? this.workspaceFromRow(current) : undefined;
+    if (currentWorkspace && !sameWorkspaceContext(currentWorkspace, workspace)) {
+      throw new SessionWorkspaceMismatchError(sessionId);
+    }
     const source = mergeObjects(current ? parseObject(current.source) : {}, incomingSource);
     const now = Date.now() / 1_000;
     this.db().query(`
-      INSERT INTO agent_sessions (session_id, source, created_at, last_active_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(session_id) DO UPDATE SET source = excluded.source, last_active_at = excluded.last_active_at
-    `).run(sessionId, JSON.stringify(source), now, now);
+      INSERT INTO agent_sessions (
+        session_id, source, workspace_server_scope, workspace_directory, workspace_worktree,
+        created_at, last_active_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        source = excluded.source,
+        workspace_server_scope = excluded.workspace_server_scope,
+        workspace_directory = excluded.workspace_directory,
+        workspace_worktree = excluded.workspace_worktree,
+        last_active_at = excluded.last_active_at
+    `).run(
+      sessionId,
+      JSON.stringify(source),
+      workspace.server_scope,
+      workspace.directory,
+      workspace.worktree,
+      now,
+      now,
+    );
   }
 
-  async rebindSession(request: JsonObject): Promise<void> {
+  async rebindSession(request: SessionWorkspaceRequest): Promise<void> {
     await this.ensureSession(request);
   }
 
   async getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined> {
-    const row = this.getPrepared<{ session_id: string; source: string }>(
-      "SELECT session_id, source FROM agent_sessions WHERE session_id = ?",
+    const row = this.getPrepared<{
+      session_id: string;
+      source: string;
+      workspace_server_scope: string;
+      workspace_directory: string;
+      workspace_worktree: string;
+    }>(
+      `SELECT session_id, source, workspace_server_scope, workspace_directory, workspace_worktree
+       FROM agent_sessions WHERE session_id = ?`,
       text(sessionId),
     );
-    return row ? { session_id: row.session_id, source: parseObject(row.source) } : undefined;
+    if (!row) return undefined;
+    const workspace = this.workspaceFromRow(row);
+    if (!workspace) throw new Error(`session workspace is missing: ${row.session_id}`);
+    return { session_id: row.session_id, source: parseObject(row.source), workspace };
   }
 
   async upsertResponseRoute(request: JsonObject): Promise<void> {
@@ -902,7 +964,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
       ...whereArgs,
     );
     const rows = this.allPrepared<Record<string, unknown>>(`
-      SELECT session_id, source, model, reasoning_effort, model_config, created_at, last_active_at,
+      SELECT session_id, source, workspace_server_scope, workspace_directory, workspace_worktree,
+             model, reasoning_effort, model_config, created_at, last_active_at,
              message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
       FROM agent_sessions ${where}
       ORDER BY last_active_at DESC, created_at DESC, session_id ASC LIMIT ? OFFSET ?
@@ -933,7 +996,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
     if (!exists) return undefined;
     const display = await this.loadTranscriptDisplayPage(safeSessionId, options);
     const row = this.getPrepared<Record<string, unknown>>(`
-      SELECT session_id, source, model, reasoning_effort, model_config, created_at, last_active_at,
+      SELECT session_id, source, workspace_server_scope, workspace_directory, workspace_worktree,
+             model, reasoning_effort, model_config, created_at, last_active_at,
              message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
       FROM agent_sessions WHERE session_id = ?
     `, safeSessionId);
@@ -970,10 +1034,13 @@ export class SqliteRuntimeStore implements RuntimeStore {
 
   private sessionPayload(row: Record<string, unknown>): JsonObject {
     const source = parseObject(row.source);
+    const workspace = this.workspaceFromRow(row);
+    if (!workspace) throw new Error(`session workspace is missing: ${text(row.session_id)}`);
     return {
       session_id: text(row.session_id),
       title: text(row.title),
       source,
+      workspace,
       source_summary: {
         platform: text(source.platform) || "unknown",
         chat_type: text(source.chat_type),
@@ -989,6 +1056,14 @@ export class SqliteRuntimeStore implements RuntimeStore {
       output_tokens: Number(row.output_tokens ?? 0),
       api_call_count: Number(row.api_call_count ?? 0),
     };
+  }
+
+  private workspaceFromRow(row: Record<string, unknown>): WorkspaceContext | undefined {
+    const serverScope = text(row.workspace_server_scope);
+    const directory = text(row.workspace_directory);
+    const worktree = text(row.workspace_worktree);
+    if (!serverScope && !directory && !worktree) return undefined;
+    return workspaceContextFrom({ server_scope: serverScope, directory, worktree });
   }
 
   private validCacheBeforeWrite(

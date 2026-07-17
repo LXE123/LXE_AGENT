@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { createLogger } from "@lxe/core";
+import { join } from "node:path";
+import { createLogger, repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
 import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../../src/engine/runtime";
 import {
@@ -17,6 +18,8 @@ import type {
   RuntimeTurnResponse,
 } from "../../src/engine/types";
 
+const workspace = resolveWorkspaceContext(repositoryRoot(import.meta.dir));
+
 const job = (): AgentJob => ({
   job_id: "j1",
   session_id: "s1",
@@ -32,6 +35,7 @@ const job = (): AgentJob => ({
   source: { platform: "feishu", chat_id: "c1" },
   raw_data: {},
   user_content_blocks: [],
+  workspace,
 });
 
 class MemoryStore implements RuntimeStore {
@@ -44,8 +48,8 @@ class MemoryStore implements RuntimeStore {
   operations: string[] = [];
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
-  async getSession(): Promise<{ session_id: string; source: JsonObject }> {
-    return { session_id: "s1", source: { platform: "feishu" } };
+  async getSession(): Promise<{ session_id: string; source: JsonObject; workspace: typeof workspace }> {
+    return { session_id: "s1", source: { platform: "feishu" }, workspace };
   }
   async popPendingEvents(): Promise<JsonObject[]> {
     return this.pendingEvents.splice(0);
@@ -98,6 +102,31 @@ const lxeSkillInvocationError = (details: JsonObject = {
 );
 
 describe("TypeScriptAgentRuntime", () => {
+  test("rejects an AgentJob whose workspace differs from the persisted session", async () => {
+    const store = new MemoryStore();
+    let providerCalled = false;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async () => {
+          providerCalled = true;
+          throw new Error("provider must not run");
+        },
+      },
+      systemPrompt: "test",
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+    });
+    await runtime.start();
+    await expect(runtime.runTurn({
+      ...job(),
+      workspace: { ...workspace, directory: join(workspace.worktree, "another-directory") },
+    }, handle())).rejects.toThrow("job workspace does not match session");
+    expect(providerCalled).toBe(false);
+    await runtime.stop();
+  });
+
   test("sends structured lxeskill recovery to the model while keeping tool display concise", async () => {
     const store = new MemoryStore();
     const emitted: EmitRequest[] = [];

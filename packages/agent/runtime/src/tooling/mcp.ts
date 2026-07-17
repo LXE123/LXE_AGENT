@@ -128,7 +128,7 @@ const stringSet = (value: unknown): Set<string> => new Set(Array.isArray(value)
   ? value.map((item) => String(item).trim()).filter(Boolean)
   : []);
 
-export function loadMcpConfig(path: string, env: Environment): McpConfig {
+export function loadMcpConfig(path: string, env: Environment, defaultCwd = ""): McpConfig {
   let source: string;
   try {
     source = readFileSync(path, "utf8");
@@ -159,7 +159,7 @@ export function loadMcpConfig(path: string, env: Environment): McpConfig {
           : [],
         env: Object.fromEntries(Object.entries(stringMapping(config.env))
           .map(([key, value]) => [key, resolvePlaceholders(value, env, `${name}.env.${key}`)])),
-        cwd: resolvePlaceholders(String(config.cwd ?? "").trim(), env, `${name}.cwd`),
+        cwd: resolvePlaceholders(String(config.cwd ?? "").trim(), env, `${name}.cwd`) || defaultCwd,
         url: resolvePlaceholders(String(config.url ?? "").trim(), env, `${name}.url`),
         headers,
         envHeaders: stringMapping(config.env_headers ?? config.envHeaders),

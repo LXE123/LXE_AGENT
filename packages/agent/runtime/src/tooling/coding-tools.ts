@@ -13,7 +13,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createLogger, runWithLogContext } from "@lxe/core";
-import type { JsonObject } from "@lxe/protocol";
+import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 import type { RuntimeHandle } from "../engine/types";
 import { detectReadImageMime, ModelImageProcessor } from "../providers/model-image";
 import {
@@ -61,7 +61,6 @@ export interface ProcessCompletionConsumeRequest {
 }
 
 export interface CodingToolOptions {
-  workspaceRoot: string;
   repositorySkillsRoot?: string;
   artifactRoot?: string;
   homeDirectory?: string;
@@ -84,6 +83,7 @@ interface ProcessEntry {
   sessionId: string;
   turnId: string;
   responseRouteId: string;
+  workspace: WorkspaceContext;
   startedAt: number;
   endedAt?: number;
   process: ReturnType<typeof Bun.spawn>;
@@ -210,9 +210,9 @@ const containsCanonicalPath = (root: string, path: string): boolean =>
   containsPath(root, path)
   && containsPath(canonicalCandidate(root), canonicalCandidate(path));
 
-const safePath = (root: string, value: unknown): string => {
+const safePath = (root: string, value: unknown, base = root): string => {
   const requested = String(value ?? ".").trim() || ".";
-  const path = resolve(root, requested);
+  const path = resolve(base, requested);
   if (!containsPath(root, path) || !containsPath(realpathSync(root), canonicalCandidate(path))) {
     throw new Error(`path escapes workspace: ${requested}`);
   }
@@ -393,7 +393,6 @@ export class CodingProcessManager {
     maxPendingBytes: number;
     tailBytes: number;
     ttlSeconds: number;
-    workspaceRoot: string;
     shell: ExecShellAdapter;
   }) {}
 
@@ -417,6 +416,7 @@ export class CodingProcessManager {
     cwd: string;
     sessionId: string;
     responseRouteId: string;
+    workspace: WorkspaceContext;
     background: boolean;
     yieldMs: number;
     timeoutMs?: number;
@@ -437,7 +437,7 @@ export class CodingProcessManager {
         detached: spawn.detached,
         windowsHide: true,
         env: {
-          ...this.options.shell.childEnvironment(this.options.workspaceRoot, {
+          ...this.options.shell.childEnvironment(request.workspace.worktree, {
             sessionId: request.sessionId,
             responseRouteId: request.responseRouteId,
             turnId: request.turnId ?? "",
@@ -486,6 +486,7 @@ export class CodingProcessManager {
       sessionId: request.sessionId,
       turnId: request.turnId ?? "",
       responseRouteId: request.responseRouteId,
+      workspace: request.workspace,
       startedAt: Date.now() / 1_000,
       process: child,
       explicitBackground: request.background,
@@ -591,11 +592,12 @@ export class CodingProcessManager {
     }
   }
 
-  async process(input: JsonObject): Promise<JsonObject> {
+  async process(input: JsonObject, sessionId: string): Promise<JsonObject> {
     const action = inputText(input, "action").trim();
     if (action === "list") {
       this.sweep();
       const sessions = [...this.entries.values()]
+        .filter((entry) => entry.sessionId === sessionId)
         .sort((left, right) => right.startedAt - left.startedAt)
         .map((entry) => ({
           session: entry.id,
@@ -609,7 +611,7 @@ export class CodingProcessManager {
     const id = inputText(input, "session").trim();
     const entry = this.entries.get(id);
     if (!id) return { error: "需要指定 session 参数。" };
-    if (!entry) return { error: `会话 ${id} 不存在。` };
+    if (!entry || entry.sessionId !== sessionId) return { error: `会话 ${id} 不存在。` };
     if (action === "poll") {
       if (entry.status === "running" && entry.pendingStdout.byteLength === 0 && entry.pendingStderr.byteLength === 0) {
         await Promise.race([entry.completion, Bun.sleep(5_000)]);
@@ -760,6 +762,7 @@ export class CodingProcessManager {
       pid: entry.process.pid,
       command: entry.command,
       cwd: entry.cwd,
+      workspace: entry.workspace,
       started_at: entry.startedAt,
       ended_at: endedAt,
       duration_sec: this.duration(entry),
@@ -816,16 +819,14 @@ export class CodingProcessManager {
 }
 
 export function registerCodingTools(registry: ToolRegistry, options: CodingToolOptions): CodingProcessManager {
-  const root = resolve(options.workspaceRoot);
   const toolOutputLimit = 10_000;
   const processOutputLimit = Math.max(1_000, Math.trunc(options.maxOutputChars ?? 200_000));
   const ledger = new FileReadLedger();
   const imageProcessor = new ModelImageProcessor();
   const home = resolve(options.homeDirectory ?? homedir());
   const userSkillsRoot = resolve(home, ".agents", "skills");
-  const scopesByRoot = new Map<string, ReadableScope>();
+  const externalScopesByRoot = new Map<string, ReadableScope>();
   for (const scope of [
-    { root, kind: "workspace" as const },
     ...(options.repositorySkillsRoot
       ? [{ root: resolve(options.repositorySkillsRoot), kind: "skills" as const }]
       : []),
@@ -834,22 +835,43 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       ? [{ root: resolve(options.artifactRoot), kind: "artifacts" as const }]
       : []),
   ]) {
-    if (!scopesByRoot.has(scope.root)) scopesByRoot.set(scope.root, scope);
+    if (!externalScopesByRoot.has(scope.root)) externalScopesByRoot.set(scope.root, scope);
   }
-  const readableScopes = [...scopesByRoot.values()];
+  const externalScopes = [...externalScopesByRoot.values()];
+  const readableScopes = (workspace: WorkspaceContext): ReadableScope[] => {
+    const scopes = new Map<string, ReadableScope>();
+    for (const scope of [
+      { root: workspace.worktree, kind: "workspace" as const },
+      ...externalScopes,
+    ]) {
+      if (!scopes.has(scope.root)) scopes.set(scope.root, scope);
+    }
+    return [...scopes.values()];
+  };
   const searchOptions = options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath };
-  const searches = new Map(readableScopes.map((scope) => [
-    scope.root,
-    new WorkspaceSearchService(scope.root, {
-      ...searchOptions,
-      absolutePaths: scope.kind !== "workspace",
-    }),
-  ]));
-  const searchFor = (target: ReadableTarget): WorkspaceSearchService => {
-    const search = searches.get(target.scope.root);
-    if (!search) throw new Error(`search root is unavailable: ${target.scope.root}`);
+  const searches = new Map<string, WorkspaceSearchService>();
+  const searchFor = (target: ReadableTarget, workspace: WorkspaceContext): WorkspaceSearchService => {
+    const key = `${workspace.server_scope}\0${target.scope.root}`;
+    let search = searches.get(key);
+    if (!search) {
+      search = new WorkspaceSearchService(target.scope.root, {
+        ...searchOptions,
+        absolutePaths: target.scope.kind !== "workspace",
+      });
+      searches.set(key, search);
+      if (searches.size > 32) searches.delete(searches.keys().next().value!);
+    }
     return search;
   };
+  const readable = (context: { workspace: WorkspaceContext }, value: unknown): ReadableTarget =>
+    readableTarget(
+      context.workspace.directory,
+      home,
+      readableScopes(context.workspace),
+      value,
+    );
+  const workspacePath = (context: { workspace: WorkspaceContext }, value: unknown): string =>
+    safePath(context.workspace.worktree, value, context.workspace.directory);
   const execShell = options.execShell ?? new ExecShellAdapter();
   const commandCatalog = options.businessCommandCatalog ?? [];
   const businessCommands = options.businessCommands ?? new Map(
@@ -860,7 +882,6 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     maxPendingBytes: 30_000,
     tailBytes: 2_000,
     ttlSeconds: 1_800,
-    workspaceRoot: root,
     shell: execShell,
   });
   processes.onComplete = options.onProcessComplete;
@@ -870,7 +891,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     description: "Read a text or image file from the workspace, bundled skills, runtime artifacts, or ~/.agents/skills. External roots are read-only. Reading records the file version required by edit/write.",
     input_schema: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["path"], additionalProperties: false },
     execute: async (input, context) => {
-      const path = readableTarget(root, home, readableScopes, input.path).path;
+      const path = readable(context, input.path).path;
       let info: BigIntStats;
       try { info = await stat(path, { bigint: true }); } catch { throw new Error(`file not found: ${input.path}`); }
       if (!info.isFile()) throw new Error(`file not found: ${input.path}`);
@@ -938,8 +959,8 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     description: "Create or overwrite a UTF-8 file inside the workspace.",
     input_schema: { type: "object", properties: { file_path: { type: "string" }, content: { type: "string" } }, required: ["file_path", "content"], additionalProperties: false },
     execute: async (input, context) => {
-      const path = safePath(root, input.file_path);
-      assertWritable(root, path);
+      const path = workspacePath(context, input.file_path);
+      assertWritable(context.workspace.worktree, path);
       if (existsSync(path)) {
         if (!statSync(path).isFile()) throw new Error(`path is not a regular file: ${input.file_path}`);
         ledger.assertCurrent(context.session_id, path, "write");
@@ -947,7 +968,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, inputText(input, "content"), "utf8");
       ledger.recordCurrent(context.session_id, path);
-      return { content: textBlock(`Wrote ${relative(root, path)}`) };
+      return { content: textBlock(`Wrote ${relative(context.workspace.directory, path)}`) };
     },
   });
   registry.register({
@@ -955,8 +976,8 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     description: "Replace exact text in a workspace file.",
     input_schema: { type: "object", properties: { file_path: { type: "string" }, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, required: ["file_path", "old_string", "new_string"], additionalProperties: false },
     execute: async (input, context) => {
-      const path = safePath(root, input.file_path);
-      assertWritable(root, path);
+      const path = workspacePath(context, input.file_path);
+      assertWritable(context.workspace.worktree, path);
       if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`file not found: ${input.file_path}`);
       ledger.assertCurrent(context.session_id, path, "edit");
       const source = readFileSync(path, "utf8");
@@ -970,7 +991,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
         : source.replace(oldText, inputText(input, "new_string"));
       writeFileSync(path, updated, "utf8");
       ledger.recordCurrent(context.session_id, path);
-      return { content: textBlock(`Edited ${relative(root, path)}`) };
+      return { content: textBlock(`Edited ${relative(context.workspace.directory, path)}`) };
     },
   });
   registry.register({
@@ -983,13 +1004,13 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       after_context: { type: "integer" }, multiline: { type: "boolean" }, head_limit: { type: "integer" },
     }, required: ["pattern"], additionalProperties: false },
     execute: async (input, context) => {
-      const target = readableTarget(root, home, readableScopes, input.path ?? ".");
+      const target = readable(context, input.path ?? ".");
       const pattern = inputText(input, "pattern");
       if (!pattern) throw new Error("pattern 不能为空");
       const maxLines = Math.max(1, Number(input.head_limit ?? 100));
       const mode = String(input.output_mode ?? "files_with_matches");
       if (!["files_with_matches", "content", "count"].includes(mode)) throw new Error(`未知 output_mode: ${mode}`);
-      const output = await searchFor(target).grep({
+      const output = await searchFor(target, context.workspace).grep({
         pattern,
         searchPath: target.path,
         outputMode: mode as "files_with_matches" | "content" | "count",
@@ -1011,11 +1032,11 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     description: "Find files in the workspace or an explicitly addressed read-only skill/artifact root by glob-like pattern.",
     input_schema: { type: "object", properties: { pattern: { type: "string" }, path: { type: "string" }, head_limit: { type: "integer" } }, required: ["pattern"], additionalProperties: false },
     execute: async (input, context) => {
-      const target = readableTarget(root, home, readableScopes, input.path ?? ".");
+      const target = readable(context, input.path ?? ".");
       const pattern = inputText(input, "pattern");
       if (!pattern) throw new Error("pattern 不能为空");
       const max = Math.max(1, Number(input.head_limit ?? 200));
-      const output = await searchFor(target).find({
+      const output = await searchFor(target, context.workspace).find({
         pattern,
         searchPath: target.path,
         limit: max,
@@ -1028,8 +1049,8 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     name: "ls",
     description: "List directory contents in the workspace or an explicitly addressed read-only skill/artifact root.",
     input_schema: { type: "object", properties: { path: { type: "string" } }, additionalProperties: false },
-    execute: async (input) => {
-      const target = readableTarget(root, home, readableScopes, input.path ?? ".");
+    execute: async (input, context) => {
+      const target = readable(context, input.path ?? ".");
       const entries = readdirSync(target.path, { withFileTypes: true }).map((entry) => `${entry.isDirectory() ? "d" : "f"} ${entry.name}`).sort();
       return { content: textBlock(truncateHeadTail(entries.join("\n"), toolOutputLimit).value) };
     },
@@ -1039,15 +1060,15 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     description: "Send an existing workspace/runtime artifact or a bundled skill asset to the current user.",
     input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"], additionalProperties: false },
     execute: async (input, context) => {
-      const target = readableTarget(root, home, readableScopes, input.path);
+      const target = readable(context, input.path);
       const path = target.path;
       if (!existsSync(path) || !statSync(path).isFile()) throw new Error(`file not found: ${input.path}`);
       const artifactRoots = [
-        join(root, "artifacts"),
+        join(context.workspace.worktree, "artifacts"),
         ...(options.artifactRoot ? [resolve(options.artifactRoot)] : []),
       ];
       const skillRoots = [
-        join(root, "skills"),
+        join(context.workspace.worktree, "skills"),
         ...(options.repositorySkillsRoot ? [resolve(options.repositorySkillsRoot)] : []),
         userSkillsRoot,
       ];
@@ -1057,7 +1078,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
         throw new Error("send_file only allows workspace/runtime artifacts or skill assets/**");
       }
       if (options.sendFile) await options.sendFile({ path, session_id: context.session_id, response_route_id: context.response_route_id ?? "" });
-      return { content: textBlock(`Sent ${displayReadablePath(root, target)}`), files: [path] };
+      return { content: textBlock(`Sent ${displayReadablePath(context.workspace.directory, target)}`), files: [path] };
     },
   });
   registry.register({
@@ -1070,7 +1091,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
           type: "string",
           description: "Shell command string. For lxeskill, provide exactly one standalone `lxeskill <command> [options]`; do not use uv, python -m, cd, newlines, pipes, redirects, &&, ||, semicolons, backticks, or $(). Use cwd for the working directory. Help/list/describe commands follow the same rule.",
         },
-        cwd: { type: "string", description: "Working directory inside the workspace; defaults to the workspace root." },
+        cwd: { type: "string", description: "Working directory inside the Git worktree; defaults to the session working directory." },
         timeout: {
           type: "number", minimum: 1, maximum: MAX_EXEC_TIMEOUT_SECONDS, default: DEFAULT_EXEC_TIMEOUT_SECONDS,
           description: "Foreground timeout in seconds (default 120, maximum 3600). Ignored when background=true.",
@@ -1132,12 +1153,13 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       }
       const yieldMs = Number(input.yield_ms ?? DEFAULT_EXEC_YIELD_MS);
       if (!Number.isFinite(yieldMs) || yieldMs < 1) throw new Error("yield_ms must be a positive number of milliseconds");
-      const command = execShell.normalizeCommand(root, rawCommand);
+      const command = execShell.normalizeCommand(context.workspace.worktree, rawCommand);
       const payload = await processes.execute({
         command,
-        cwd: safePath(root, input.cwd ?? "."),
+        cwd: workspacePath(context, input.cwd ?? "."),
         sessionId: context.session_id,
         responseRouteId: context.response_route_id ?? "",
+        workspace: context.workspace,
         background,
         yieldMs,
         ...(!background ? { timeoutMs: timeoutSeconds * 1_000 } : {}),
@@ -1152,7 +1174,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     name: "process",
     description: "Manage exec sessions: list, poll, log, write, kill, or remove.",
     input_schema: { type: "object", properties: { action: { type: "string", enum: ["list", "poll", "log", "write", "kill", "remove"] }, session: { type: "string" }, text: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["action"], additionalProperties: false },
-    execute: async (input) => commandResult(await processes.process(input)),
+    execute: async (input, context) => commandResult(await processes.process(input, context.session_id)),
   });
   return processes;
 }

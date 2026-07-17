@@ -1,11 +1,19 @@
-import type { AgentJob, EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
+import {
+  validateAgentJob,
+  type AgentJob,
+  type EmitRequest,
+  type JsonObject,
+  type JsonValue,
+  type SessionWorkspaceRequest,
+  type WorkspaceContext,
+} from "@lxe/protocol";
 
 export const AGENT_PROTOCOL_VERSION = 1 as const;
 
 export type AgentInitializePayload = {
   resource_root: string;
   data_root: string;
-  workspace_root: string;
+  legacy_workspace: WorkspaceContext;
   allowed_skill_types?: string[];
 };
 
@@ -25,8 +33,8 @@ export type AgentCommandPayloads = {
     response_route_id: string;
     message_id: string;
   };
-  ensure_session: { request: JsonObject };
-  rebind_session: { request: JsonObject };
+  ensure_session: { request: SessionWorkspaceRequest };
+  rebind_session: { request: SessionWorkspaceRequest };
   pop_pending_events: { session_id: string };
   append_pending_event: { session_id: string; event: JsonObject };
   has_pending_events: { session_id: string };
@@ -366,11 +374,21 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
   const requireObject = (name: string): void => {
     if (!objectValue(payload[name])) throw new Error(`agent protocol ${command}.${name} must be an object`);
   };
+  const requireWorkspace = (value: unknown, field: string): void => {
+    const workspace = objectValue(value);
+    if (!workspace) throw new Error(`agent protocol ${field} must be an object`);
+    if (workspace.server_scope !== "local") throw new Error(`agent protocol ${field}.server_scope must be local`);
+    for (const name of ["directory", "worktree"]) {
+      if (typeof workspace[name] !== "string" || !String(workspace[name]).trim()) {
+        throw new Error(`agent protocol ${field}.${name} must be a non-empty string`);
+      }
+    }
+  };
   switch (command) {
     case "initialize":
       requireText("resource_root");
       requireText("data_root");
-      requireText("workspace_root");
+      requireWorkspace(payload.legacy_workspace, "initialize.legacy_workspace");
       if (payload.allowed_skill_types !== undefined
         && (!Array.isArray(payload.allowed_skill_types)
           || payload.allowed_skill_types.some((value) => typeof value !== "string"))) {
@@ -379,6 +397,7 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       break;
     case "run_turn":
       requireObject("job");
+      if (!validateAgentJob(payload.job)) throw new Error("agent protocol run_turn.job is invalid");
       break;
     case "cancel_turn":
       requireText("run_id");
@@ -389,6 +408,7 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
     case "ensure_session":
     case "rebind_session":
       requireObject("request");
+      requireWorkspace(objectValue(payload.request)?.workspace, `${command}.request.workspace`);
       break;
     case "pop_pending_events":
     case "has_pending_events":

@@ -1,7 +1,17 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { JsonObject, JsonValue } from "@lxe/protocol";
+import type {
+  JsonObject,
+  JsonValue,
+  SessionWorkspaceRequest,
+  WorkspaceContext,
+} from "@lxe/protocol";
+import {
+  sameWorkspaceContext,
+  SessionWorkspaceMismatchError,
+  workspaceContextFrom,
+} from "@lxe/core";
 import type {
   DirectGatewayStorage,
   ResponseRoutePatch,
@@ -28,7 +38,7 @@ export class NodeGatewayStore implements Omit<
 > {
   private database: DatabaseSync | undefined;
 
-  constructor(readonly path: string) {}
+  constructor(readonly path: string, private readonly legacyWorkspace: WorkspaceContext) {}
 
   start(): void {
     if (this.database) return;
@@ -41,6 +51,9 @@ export class NodeGatewayStore implements Omit<
       CREATE TABLE IF NOT EXISTS gateway_sessions (
         session_id TEXT PRIMARY KEY,
         source TEXT NOT NULL DEFAULT '{}',
+        workspace_server_scope TEXT NOT NULL DEFAULT '',
+        workspace_directory TEXT NOT NULL DEFAULT '',
+        workspace_worktree TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -57,6 +70,25 @@ export class NodeGatewayStore implements Omit<
         updated_at TEXT NOT NULL
       );
     `);
+    const columns = database.prepare("PRAGMA table_info(gateway_sessions)").all() as Array<{ name: string }>;
+    for (const [name, declaration] of [
+      ["workspace_server_scope", "TEXT NOT NULL DEFAULT ''"],
+      ["workspace_directory", "TEXT NOT NULL DEFAULT ''"],
+      ["workspace_worktree", "TEXT NOT NULL DEFAULT ''"],
+    ] as const) {
+      if (!columns.some((column) => column.name === name)) {
+        database.exec(`ALTER TABLE gateway_sessions ADD COLUMN ${name} ${declaration}`);
+      }
+    }
+    database.prepare(`
+      UPDATE gateway_sessions SET
+        workspace_server_scope = ?, workspace_directory = ?, workspace_worktree = ?
+      WHERE workspace_server_scope = '' OR workspace_directory = '' OR workspace_worktree = ''
+    `).run(
+      this.legacyWorkspace.server_scope,
+      this.legacyWorkspace.directory,
+      this.legacyWorkspace.worktree,
+    );
     this.database = database;
   }
 
@@ -65,29 +97,80 @@ export class NodeGatewayStore implements Omit<
     this.database = undefined;
   }
 
-  async ensureSession(request: JsonObject): Promise<void> {
+  async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     const sessionId = text(request.session_id);
     if (!sessionId) throw new Error("session_id required");
-    const existing = this.db().prepare("SELECT source FROM gateway_sessions WHERE session_id = ?").get(sessionId) as
-      | { source: string }
+    const workspace = workspaceContextFrom(request.workspace);
+    const existing = this.db().prepare(`
+      SELECT source, workspace_server_scope, workspace_directory, workspace_worktree
+      FROM gateway_sessions WHERE session_id = ?
+    `).get(sessionId) as
+      | { source: string; workspace_server_scope: string; workspace_directory: string; workspace_worktree: string }
       | undefined;
+    const existingWorkspace = existing ? this.workspaceFromRow(existing) : undefined;
+    if (existingWorkspace && !sameWorkspaceContext(existingWorkspace, workspace)) {
+      throw new SessionWorkspaceMismatchError(sessionId);
+    }
     const source = { ...parseObject(existing?.source), ...objectValue(request.source) };
     const now = new Date().toISOString();
     this.db().prepare(`
-      INSERT INTO gateway_sessions (session_id, source, created_at, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(session_id) DO UPDATE SET source = excluded.source, updated_at = excluded.updated_at
-    `).run(sessionId, JSON.stringify(source), now, now);
+      INSERT INTO gateway_sessions (
+        session_id, source, workspace_server_scope, workspace_directory, workspace_worktree,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        source = excluded.source,
+        workspace_server_scope = excluded.workspace_server_scope,
+        workspace_directory = excluded.workspace_directory,
+        workspace_worktree = excluded.workspace_worktree,
+        updated_at = excluded.updated_at
+    `).run(
+      sessionId,
+      JSON.stringify(source),
+      workspace.server_scope,
+      workspace.directory,
+      workspace.worktree,
+      now,
+      now,
+    );
   }
 
-  rebindSession(request: JsonObject): Promise<void> {
+  rebindSession(request: SessionWorkspaceRequest): Promise<void> {
     return this.ensureSession(request);
   }
 
-  async getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject } | undefined> {
-    const row = this.db().prepare("SELECT session_id, source FROM gateway_sessions WHERE session_id = ?")
-      .get(sessionId) as { session_id: string; source: string } | undefined;
-    return row ? { session_id: row.session_id, source: parseObject(row.source) } : undefined;
+  async getSession(sessionId: string): Promise<{
+    session_id: string;
+    source: JsonObject;
+    workspace: WorkspaceContext;
+  } | undefined> {
+    const row = this.db().prepare(`
+      SELECT session_id, source, workspace_server_scope, workspace_directory, workspace_worktree
+      FROM gateway_sessions WHERE session_id = ?
+    `).get(sessionId) as {
+      session_id: string;
+      source: string;
+      workspace_server_scope: string;
+      workspace_directory: string;
+      workspace_worktree: string;
+    } | undefined;
+    if (!row) return undefined;
+    const workspace = this.workspaceFromRow(row);
+    if (!workspace) throw new Error(`session workspace is missing: ${row.session_id}`);
+    return { session_id: row.session_id, source: parseObject(row.source), workspace };
+  }
+
+  private workspaceFromRow(row: {
+    workspace_server_scope: string;
+    workspace_directory: string;
+    workspace_worktree: string;
+  }): WorkspaceContext | undefined {
+    if (!row.workspace_server_scope && !row.workspace_directory && !row.workspace_worktree) return undefined;
+    return workspaceContextFrom({
+      server_scope: row.workspace_server_scope,
+      directory: row.workspace_directory,
+      worktree: row.workspace_worktree,
+    });
   }
 
   async upsertResponseRoute(request: JsonObject): Promise<void> {

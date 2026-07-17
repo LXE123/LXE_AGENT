@@ -10,13 +10,14 @@ import { FeishuAdapter } from "../../../src/channels/feishu/adapter";
 import { loadFeishuConfig } from "../../../src/channels/feishu/config";
 import { FeishuApiHttpError } from "../../../src/channels/feishu/response";
 import type { FeishuSdkCallbacks, FeishuSdkServices } from "../../../src/channels/feishu/sdk";
+import { testWorkspace } from "../../workspace";
 
 class IntegrationStore implements RuntimeStore {
   messages: RuntimeMessage[] = [];
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
-  async getSession(_sessionId: string): Promise<{ session_id: string; source: JsonObject }> {
-    return { session_id: "session-1", source: { platform: "feishu" } };
+  async getSession(_sessionId: string): Promise<{ session_id: string; source: JsonObject; workspace: typeof testWorkspace }> {
+    return { session_id: "session-1", source: { platform: "feishu" }, workspace: testWorkspace };
   }
   async popPendingEvents(): Promise<JsonObject[]> { return []; }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
@@ -148,6 +149,7 @@ describe("Runtime to Feishu CardKit delivery", () => {
       source: { platform: "feishu" },
       raw_data: {},
       user_content_blocks: [],
+      workspace: testWorkspace,
     }, handle);
 
     expect(apiCalls.filter((call) => call.operation === "card.create")).toHaveLength(1);
@@ -270,6 +272,7 @@ describe("Runtime to Feishu CardKit delivery", () => {
       source: { platform: "feishu" },
       raw_data: {},
       user_content_blocks: [],
+      workspace: testWorkspace,
     }, {
       signal: controller.signal,
       cancelled: false,

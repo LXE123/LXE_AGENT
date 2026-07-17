@@ -21,5 +21,10 @@
       "type": "text",
       "text": "check inventory"
     }
-  ]
+  ],
+  "workspace": {
+    "server_scope": "local",
+    "directory": "/workspace/project",
+    "worktree": "/workspace"
+  }
 }

@@ -16,6 +16,7 @@
     "user_input",
     "job_kind",
     "sender_nick",
+    "workspace",
     "source",
     "raw_data",
     "user_content_blocks"
@@ -32,6 +33,16 @@
     "user_input": { "type": "string" },
     "job_kind": { "type": "string", "minLength": 1 },
     "sender_nick": { "type": "string" },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["server_scope", "directory", "worktree"],
+      "properties": {
+        "server_scope": { "const": "local" },
+        "directory": { "type": "string", "minLength": 1 },
+        "worktree": { "type": "string", "minLength": 1 }
+      }
+    },
     "source": {
       "type": "object",
       "additionalProperties": true

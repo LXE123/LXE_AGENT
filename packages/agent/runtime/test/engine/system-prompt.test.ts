@@ -14,7 +14,11 @@ describe("system prompt builder", () => {
       provider: "anthropic",
       model: "claude-test",
       skillPrompt: "## Available Skills\n- one",
-      workspace: "/workspace",
+      workspace: {
+        server_scope: "local",
+        directory: "/workspace/project",
+        worktree: "/workspace",
+      },
       now: new Date("2026-07-12T00:00:00Z"),
     });
     const [stable, volatile] = prompt.split(SYSTEM_PROMPT_CACHE_BREAKPOINT);
@@ -25,6 +29,7 @@ describe("system prompt builder", () => {
     expect(volatile).toContain("Provider: anthropic");
     expect(volatile).toContain("Model: claude-test");
     expect(volatile).toContain("Platform: feishu");
-    expect(volatile).toContain("/workspace");
+    expect(volatile).toContain("Working directory: /workspace/project");
+    expect(volatile).toContain("Git worktree root: /workspace");
   });
 });

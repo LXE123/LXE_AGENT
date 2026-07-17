@@ -1,6 +1,12 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
+import type {
+  EmitRequest,
+  JsonObject,
+  JsonValue,
+  SessionWorkspaceRequest,
+  WorkspaceContext,
+} from "@lxe/protocol";
 import { createLogger, runWithLogContext, type Logger } from "@lxe/core";
 import {
   AtomicRuntimeProviderManager,
@@ -37,7 +43,7 @@ type Environment = Record<string, string | undefined>;
 export interface ProductionAgentServiceOptions {
   resourceRoot: string;
   dataRoot: string;
-  workspaceRoot: string;
+  legacyWorkspace: WorkspaceContext;
   environment: Environment;
   emitter: RuntimeEmitter;
   allowedSkillTypes?: ReadonlySet<string>;
@@ -56,8 +62,8 @@ export interface ProductionAgentService {
   start(): Promise<void>;
   stop(): Promise<void>;
   runTurn(job: Parameters<TypeScriptAgentRuntime["runTurn"]>[0], handle: RuntimeHandle): Promise<TurnOutcome>;
-  ensureSession(request: JsonObject): Promise<void>;
-  rebindSession(request: JsonObject): Promise<void>;
+  ensureSession(request: SessionWorkspaceRequest): Promise<void>;
+  rebindSession(request: SessionWorkspaceRequest): Promise<void>;
   popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   hasPendingEvents(sessionId: string): Promise<boolean>;
@@ -76,17 +82,14 @@ export function createProductionAgentService(
     LXE_ROOT: options.resourceRoot,
     LXE_RESOURCE_ROOT: options.resourceRoot,
     LXE_DATA_ROOT: options.dataRoot,
-    LXE_WORKSPACE_ROOT: options.workspaceRoot,
   };
   const databasePath = String(environment.LXE_AGENT_SQLITE_DB_PATH ?? "").trim()
     || join(options.dataRoot, "db", "agent.sqlite3");
-  const store = new SqliteRuntimeStore(databasePath);
+  const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: options.legacyWorkspace });
   const providerManager = new AtomicRuntimeProviderManager(options.resourceRoot, environment);
   const feishu = loadFeishuConfig(environment);
   const tools = new ToolRegistry();
-  const skillCatalog = new SkillCatalog(options.resourceRoot, undefined, {
-    workspaceRoot: options.workspaceRoot,
-  });
+  const skillCatalog = new SkillCatalog(options.resourceRoot);
   const commandCatalogPath = join(
     options.resourceRoot,
     "python",
@@ -111,7 +114,7 @@ export function createProductionAgentService(
     process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
   );
   const managedPython = String(environment.LXE_MANAGED_PYTHON ?? "").trim();
-  const lxeSkillArgv = execShell.lxeSkillArgv(options.workspaceRoot);
+  const lxeSkillArgv = execShell.lxeSkillArgv(options.resourceRoot);
   const selectedPython = String(lxeSkillArgv?.[0] ?? (managedPython || sourcePython)).trim();
   const sourceRuntime = !managedPython && resolve(selectedPython) === resolve(sourcePython);
   const recovery = sourceRuntime
@@ -119,7 +122,7 @@ export function createProductionAgentService(
     : "Reinstall or rebuild LXE Agent";
   const lxeSkillRunner = lxeSkillArgv ? new OneShotCliRunner({
     command: lxeSkillArgv,
-    cwd: options.workspaceRoot,
+    cwd: options.dataRoot,
     timeoutMs: 3 * 60_000,
     maxOutputBytes: 10 * 1024 * 1024,
     env: {
@@ -129,7 +132,6 @@ export function createProductionAgentService(
     onStderr: (line) => logger.info("lxeskill", { line }),
   }) : undefined;
   const maintenance = lxeSkillRunner ? new MaintenanceScheduler({
-    projectRoot: options.workspaceRoot,
     environment,
     store,
     gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
@@ -145,7 +147,6 @@ export function createProductionAgentService(
     logger,
   });
   const processes = registerCodingTools(tools, {
-    workspaceRoot: options.workspaceRoot,
     repositorySkillsRoot: join(options.resourceRoot, "skills"),
     artifactRoot: join(options.dataRoot, "artifacts"),
     businessCommands,
@@ -194,7 +195,6 @@ export function createProductionAgentService(
   if (feishu.missingRequired().length === 0) {
     registerFeishuImTools(tools, {
       api: createOfficialFeishuImToolApi(feishu),
-      workspaceRoot: options.workspaceRoot,
       sessionSource: async (sessionId) => store.getSession(sessionId).then((session) => session?.source),
     });
   }
@@ -205,7 +205,7 @@ export function createProductionAgentService(
   registerToolSearch(tools);
   const mcpConfigPath = String(environment.LXE_MCP_CONFIG_PATH ?? "").trim()
     || join(options.dataRoot, "config", "mcp_servers.local.yaml");
-  const mcpConfig = loadMcpConfig(mcpConfigPath, environment);
+  const mcpConfig = loadMcpConfig(mcpConfigPath, environment, options.dataRoot);
   const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment));
   runtimeServices.push(mcpManager);
   const dashboardApi = new DashboardApi({
@@ -237,14 +237,14 @@ export function createProductionAgentService(
       environment,
     }),
     tools,
-    skillSnapshot: () => {
+    skillSnapshot: (workspace) => {
       const connectorPolicy = dashboardApi.runtimeConnectorPolicy();
       const snapshot = skillCatalog.snapshot({
         ...(options.allowedSkillTypes
           ? { allowedTypes: options.allowedSkillTypes }
           : { allowedTypes: new Set<string>() }),
         disabledNames: connectorPolicy.disabledSkillNames,
-      });
+      }, workspace);
       return Object.freeze({
         ...snapshot,
         disabledConnectorIds: Object.freeze([...connectorPolicy.disabledConnectorIds]),
@@ -260,7 +260,7 @@ export function createProductionAgentService(
     emitter: options.emitter,
     systemPrompt: (context) => buildSystemPrompt({
       projectRoot: options.resourceRoot,
-      workspace: options.workspaceRoot,
+      workspace: context.workspace,
       platform: context.platform,
       provider: context.provider,
       model: context.model,

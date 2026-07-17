@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createInterface, type Interface } from "node:readline";
-import type { AgentJob, EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
+import type {
+  AgentJob,
+  EmitRequest,
+  JsonObject,
+  JsonValue,
+  SessionWorkspaceRequest,
+  WorkspaceContext,
+} from "@lxe/protocol";
 import {
   AGENT_PROTOCOL_VERSION,
   isAgentEvent,
@@ -41,7 +48,7 @@ export interface ProcessAgentRuntimeOptions {
   environment: Environment;
   resourceRoot: string;
   dataRoot: string;
-  workspaceRoot: string;
+  legacyWorkspace: WorkspaceContext;
   allowedSkillTypes?: readonly string[];
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
@@ -187,7 +194,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       this.remoteHealthSnapshot = objectValue(await this.request("initialize", {
         resource_root: this.options.resourceRoot,
         data_root: this.options.dataRoot,
-        workspace_root: this.options.workspaceRoot,
+        legacy_workspace: this.options.legacyWorkspace,
         ...(this.options.allowedSkillTypes
           ? { allowed_skill_types: [...this.options.allowedSkillTypes] }
           : {}),
@@ -257,11 +264,11 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     }
   }
 
-  async ensureSession(request: JsonObject): Promise<void> {
+  async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     await this.request("ensure_session", { request });
   }
 
-  async rebindSession(request: JsonObject): Promise<void> {
+  async rebindSession(request: SessionWorkspaceRequest): Promise<void> {
     await this.request("rebind_session", { request });
   }
 

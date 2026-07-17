@@ -8,6 +8,7 @@ import {
   SessionScheduler,
   type RuntimePort,
 } from "../../src/orchestration/scheduler";
+import { testWorkspace } from "../workspace";
 
 const tick = async (): Promise<void> => {
   await Promise.resolve();
@@ -29,6 +30,7 @@ const job = (sessionId: string, jobId: string, overrides: Partial<AgentJob> = {}
   source: { platform: "feishu", chat_id: "chat", chat_type: "dm", user_id: "user" },
   raw_data: { keep: "yes", system_events: [{ id: "old" }] },
   user_content_blocks: [],
+  workspace: testWorkspace,
   ...overrides,
 });
 
@@ -349,6 +351,7 @@ describe("HeartbeatWakeQueue", () => {
       hasPendingEvents: async () => true,
       loadSession: async () => ({
         session_id: "s1",
+        workspace: testWorkspace,
         source: {
           platform: "feishu",
           chat_id: "chat",
@@ -401,6 +404,7 @@ describe("HeartbeatWakeQueue", () => {
           },
         },
         user_content_blocks: [],
+        workspace: testWorkspace,
       },
     ]);
     expect(validateAgentJob(runtime.started[0])).toBe(true);
@@ -416,6 +420,7 @@ describe("HeartbeatWakeQueue", () => {
       hasPendingEvents: async (sessionId) => sessionId !== "empty",
       loadSession: async (sessionId) => ({
         session_id: sessionId,
+        workspace: testWorkspace,
         source: { platform: "feishu", chat_id: sessionId, chat_type: "dm", user_id: "user" },
       }),
       isSuspended: (sessionId) => sessionId === "suspended",
@@ -442,6 +447,7 @@ describe("HeartbeatWakeQueue", () => {
       loadSession: async () => ({
         session_id: "busy",
         source: { platform: "feishu", chat_id: "busy", chat_type: "dm", user_id: "user" },
+        workspace: testWorkspace,
       }),
       isSuspended: () => false,
       id: () => "unexpected-heartbeat",
@@ -467,6 +473,7 @@ describe("HeartbeatWakeQueue", () => {
       hasPendingEvents: async () => true,
       loadSession: async (sessionId) => ({
         session_id: sessionId,
+        workspace: testWorkspace,
         source:
           sessionId === "invalid"
             ? { platform: "feishu", chat_type: "dm", user_id: "user" }
@@ -504,6 +511,7 @@ describe("HeartbeatWakeQueue", () => {
       },
       loadSession: async (sessionId) => ({
         session_id: sessionId,
+        workspace: testWorkspace,
         source: { platform: "feishu", chat_id: sessionId, chat_type: "dm", user_id: "user" },
       }),
       isSuspended: () => false,

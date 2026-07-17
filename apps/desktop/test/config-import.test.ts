@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DesktopConfigImportManager } from "../src/main/config-import";
@@ -21,6 +21,8 @@ const createFixture = (platform: "win32" | "darwin" = "win32") => {
   const root = mkdtempSync(join(tmpdir(), "lxe-config-import-"));
   roots.push(root);
   const workspace = join(root, "default-workspace");
+  mkdirSync(workspace);
+  mkdirSync(join(root, "workspace"));
   const store = new DesktopConfigStore(root, workspace, safeStorage, { platform });
   return { root, store, manager: new DesktopConfigImportManager(store) };
 };
@@ -82,7 +84,7 @@ describe("DesktopConfigImportManager", () => {
       complete: true,
       provider: "deepseek",
       provider_key_configured: true,
-      workspace_root: join(root, "workspace"),
+      workspace_root: realpathSync(join(root, "workspace")),
       ziniao: { configured: true, company: "First Company", password_configured: true },
       mabang: { configured: true, password_configured: true },
       feishu: { configured: true, app_secret_configured: true },
@@ -115,7 +117,7 @@ describe("DesktopConfigImportManager", () => {
     store.save({
       provider: "deepseek",
       api_key: "existing-deepseek-key",
-      workspace_root: workspace,
+      workspace_root: realpathSync(workspace),
       mabang: { action: "save", account: "existing-account", password: "existing-password" },
     });
     const first = manager.select(writeEnv(root, [
@@ -127,7 +129,7 @@ describe("DesktopConfigImportManager", () => {
     ].join("\n")));
     expect(manager.apply(first.import_id).state).toMatchObject({
       provider: "deepseek",
-      workspace_root: workspace,
+      workspace_root: realpathSync(workspace),
       mabang: { account: "existing-account", configured: true },
     });
     expect(store.environment()).toMatchObject({

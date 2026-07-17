@@ -207,7 +207,7 @@ export class AgentProtocolServer {
       service = this.createService({
         resourceRoot: payload.resource_root,
         dataRoot: payload.data_root,
-        workspaceRoot: payload.workspace_root,
+        legacyWorkspace: payload.legacy_workspace,
         environment,
         emitter: {
           emit: async (emitRequest: EmitRequest) => {

@@ -11,6 +11,7 @@ import {
 } from "../../src/tooling/coding-tools";
 import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
 import { registerToolSearch } from "../../src/tooling/tool-search";
+import { workspaceFor } from "../workspace";
 
 const roots: string[] = [];
 const projectRoot = repositoryRoot(import.meta.dir);
@@ -18,16 +19,27 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-const context = (controller = new AbortController()) => ({
+const context = (workspaceRoot: string = projectRoot, controller = new AbortController()) => ({
   session_id: "s1",
   turn_id: "turn-1",
   response_route_id: "route-1",
+  workspace: workspaceFor(workspaceRoot),
   handle: {
     signal: controller.signal,
     cancelled: false,
     drainSteering: () => [],
     registerProcess: () => () => undefined,
   },
+});
+
+const sessionContext = (
+  directory: string,
+  worktree: string,
+  sessionId: string,
+) => ({
+  ...context(directory),
+  session_id: sessionId,
+  workspace: workspaceFor(directory, worktree),
 });
 
 const onePixelPng = (): Uint8Array => {
@@ -57,35 +69,82 @@ const onePixelPng = (): Uint8Array => {
 };
 
 describe("native coding tools", () => {
+  test("isolates two session workspaces and background processes from the process cwd", async () => {
+    const rootA = mkdtempSync(join(tmpdir(), "lxe-workspace-a-"));
+    const rootB = mkdtempSync(join(tmpdir(), "lxe-workspace-b-"));
+    const unrelated = mkdtempSync(join(tmpdir(), "lxe-process-cwd-"));
+    const directoryA = join(rootA, "nested");
+    const directoryB = join(rootB, "nested");
+    mkdirSync(directoryA);
+    mkdirSync(directoryB);
+    roots.push(rootA, rootB, unrelated);
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {});
+    const contextA = sessionContext(directoryA, rootA, "session-a");
+    const contextB = sessionContext(directoryB, rootB, "session-b");
+    const previousCwd = process.cwd();
+    try {
+      process.chdir(unrelated);
+      await Promise.all([
+        registry.execute("write", { file_path: "same.txt", content: "from-a" }, contextA),
+        registry.execute("write", { file_path: "same.txt", content: "from-b" }, contextB),
+      ]);
+      expect(readFileSync(join(directoryA, "same.txt"), "utf8")).toBe("from-a");
+      expect(readFileSync(join(directoryB, "same.txt"), "utf8")).toBe("from-b");
+
+      const cwdResult = await registry.execute("exec", {
+        command: `"${process.execPath}" -e "console.log(process.cwd())"`,
+      }, contextA);
+      expect(String(cwdResult.content[0]?.text).replaceAll("\\", "/"))
+        .toContain(directoryA.replaceAll("\\", "/"));
+
+      const started = await registry.execute("exec", {
+        command: `"${process.execPath}" -e "setTimeout(() => {}, 60000)"`,
+        background: true,
+      }, contextA);
+      const processId = String(started.content[0]?.text).match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
+      expect(processId).toMatch(/^exec_/);
+      if (!processId) throw new Error("missing background process id");
+      expect(String((await registry.execute("process", { action: "list" }, contextB)).content[0]?.text))
+        .not.toContain(String(processId));
+      expect(String((await registry.execute("process", { action: "kill", session: processId }, contextB)).content[0]?.text))
+        .toContain("不存在");
+      await registry.execute("process", { action: "kill", session: processId }, contextA);
+    } finally {
+      process.chdir(previousCwd);
+      await processes.stop();
+    }
+  });
+
   test("exposes compatible coding schemas and keeps file operations inside the workspace", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-"));
     roots.push(root);
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {
-      workspaceRoot: root,
       businessCommands: new Map([["lxeskill replenish store resolve", ["replenishment-store-resolve"]]]),
     });
     expect(registry.schemas().map((item) => item.name)).toEqual([
       "read", "write", "edit", "grep", "find", "ls", "send_file", "exec", "process",
     ]);
-    await registry.execute("write", { file_path: "src/a.txt", content: "hello\nworld\n" }, context());
+    await registry.execute("write", { file_path: "src/a.txt", content: "hello\nworld\n" }, context(root));
     expect(readFileSync(join(root, "src", "a.txt"), "utf8")).toBe("hello\nworld\n");
-    await registry.execute("edit", { file_path: "src/a.txt", old_string: "world", new_string: "Bun" }, context());
-    const read = await registry.execute("read", { path: "src/a.txt", offset: 2, limit: 1 }, context());
+    await registry.execute("edit", { file_path: "src/a.txt", old_string: "world", new_string: "Bun" }, context(root));
+    const read = await registry.execute("read", { path: "src/a.txt", offset: 2, limit: 1 }, context(root));
     expect(read.content[0]?.text).toContain("Bun");
-    const grep = await registry.execute("grep", { pattern: "Bun", path: "src" }, context());
+    const grep = await registry.execute("grep", { pattern: "Bun", path: "src" }, context(root));
     expect(grep.content[0]?.text).toContain("a.txt");
-    const find = await registry.execute("find", { pattern: "*.txt", path: "src" }, context());
+    const find = await registry.execute("find", { pattern: "*.txt", path: "src" }, context(root));
     expect(find.content[0]?.text).toContain("a.txt");
-    const ls = await registry.execute("ls", { path: "src" }, context());
+    const ls = await registry.execute("ls", { path: "src" }, context(root));
     expect(ls.content[0]?.text).toContain("a.txt");
-    await expect(registry.execute("read", { path: "../outside.txt" }, context())).rejects.toThrow("workspace");
+    await expect(registry.execute("read", { path: "../outside.txt" }, context(root))).rejects.toThrow("workspace");
     expect(existsSync(join(root, "outside.txt"))).toBe(false);
     await processes.stop();
   });
 
   test("reads split-root skills and artifacts without making external roots writable", async () => {
     const workspaceRoot = mkdtempSync(join(tmpdir(), "lxe-coding-workspace-"));
+    const root = workspaceRoot;
     const resourceRoot = mkdtempSync(join(tmpdir(), "lxe-coding-resource-"));
     const dataRoot = mkdtempSync(join(tmpdir(), "lxe-coding-data-"));
     const home = mkdtempSync(join(tmpdir(), "lxe-coding-home-"));
@@ -116,7 +175,6 @@ describe("native coding tools", () => {
 
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {
-      workspaceRoot,
       repositorySkillsRoot,
       artifactRoot,
       homeDirectory: home,
@@ -127,47 +185,47 @@ describe("native coding tools", () => {
       allowedSkills: new Set(["demo"]),
       onSkillActivated: (name) => { activated.push(name); },
     });
-    const bundled = await registry.execute("read", { path: skillPath }, { ...context(), exposureState });
+    const bundled = await registry.execute("read", { path: skillPath }, { ...context(root), exposureState });
     expect(String(bundled.content[0]?.text)).toContain("Bundled skill");
     expect(String(bundled.content[0]?.text)).not.toContain("Workspace shadow");
     expect(activated).toEqual(["demo"]);
-    expect(String((await registry.execute("read", { path: referencePath }, context())).content[0]?.text))
+    expect(String((await registry.execute("read", { path: referencePath }, context(root))).content[0]?.text))
       .toContain("reference text");
     expect(String((await registry.execute("read", {
       path: "~/.agents/skills/personal/SKILL.md",
-    }, context())).content[0]?.text)).toContain("Personal skill");
-    expect(String((await registry.execute("read", { path: artifactPath }, context())).content[0]?.text))
+    }, context(root))).content[0]?.text)).toContain("Personal skill");
+    expect(String((await registry.execute("read", { path: artifactPath }, context(root))).content[0]?.text))
       .toContain("artifact text");
 
-    const listed = await registry.execute("ls", { path: skillRoot }, context());
+    const listed = await registry.execute("ls", { path: skillRoot }, context(root));
     expect(String(listed.content[0]?.text)).toContain("d references");
     const found = await registry.execute("find", {
       pattern: "*.md",
       path: repositorySkillsRoot,
-    }, context());
+    }, context(root));
     expect(String(found.content[0]?.text).replaceAll("\\", "/")).toContain(skillPath.replaceAll("\\", "/"));
     const grepped = await registry.execute("grep", {
       pattern: "Bundled skill",
       path: repositorySkillsRoot,
       output_mode: "content",
-    }, context());
+    }, context(root));
     expect(String(grepped.content[0]?.text).replaceAll("\\", "/")).toContain(skillPath.replaceAll("\\", "/"));
 
-    expect((await registry.execute("send_file", { path: assetPath }, context())).files).toEqual([assetPath]);
-    expect((await registry.execute("send_file", { path: artifactPath }, context())).files).toEqual([artifactPath]);
-    await expect(registry.execute("send_file", { path: skillPath }, context())).rejects.toThrow("skill assets");
-    await expect(registry.execute("read", { path: outsidePath }, context())).rejects.toThrow("approved read-only roots");
+    expect((await registry.execute("send_file", { path: assetPath }, context(root))).files).toEqual([assetPath]);
+    expect((await registry.execute("send_file", { path: artifactPath }, context(root))).files).toEqual([artifactPath]);
+    await expect(registry.execute("send_file", { path: skillPath }, context(root))).rejects.toThrow("skill assets");
+    await expect(registry.execute("read", { path: outsidePath }, context(root))).rejects.toThrow("approved read-only roots");
     await expect(registry.execute("read", {
       path: join(skillRoot, "escaped", "secret.txt"),
-    }, context())).rejects.toThrow("approved read-only roots");
+    }, context(root))).rejects.toThrow("approved read-only roots");
     await expect(registry.execute("write", {
       file_path: join(skillRoot, "new.txt"),
       content: "denied",
-    }, context())).rejects.toThrow("escapes workspace");
+    }, context(root))).rejects.toThrow("escapes workspace");
     await expect(registry.execute("exec", {
       command: "echo denied",
       cwd: skillRoot,
-    }, context())).rejects.toThrow("escapes workspace");
+    }, context(root))).rejects.toThrow("escapes workspace");
     await processes.stop();
   });
 
@@ -176,7 +234,6 @@ describe("native coding tools", () => {
     roots.push(root);
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {
-      workspaceRoot: root,
       lxeSkillStatus: () => ({
         state: "unavailable",
         available: false,
@@ -187,13 +244,13 @@ describe("native coding tools", () => {
 
     const ordinary = String((await registry.execute("exec", {
       command: "echo ordinary",
-    }, context())).content[0]?.text);
+    }, context(root))).content[0]?.text);
     expect(ordinary).toContain("status: completed");
     expect(ordinary).toContain("ordinary");
 
     let failure: ToolExecutionError | undefined;
     try {
-      await registry.execute("exec", { command: "lxeskill list" }, context());
+      await registry.execute("exec", { command: "lxeskill list" }, context(root));
     } catch (cause) {
       if (cause instanceof ToolExecutionError) failure = cause;
       else throw cause;
@@ -206,6 +263,7 @@ describe("native coding tools", () => {
   });
 
   test("exec sessions run cross-platform shell commands and lxeskill without PowerShell on Unix", async () => {
+    const root = projectRoot;
     mkdirSync(join(projectRoot, "var", "tmp"), { recursive: true });
     const cwd = mkdtempSync(join(projectRoot, "var", "tmp", "exec 中文 (space)-"));
     roots.push(cwd);
@@ -213,7 +271,6 @@ describe("native coding tools", () => {
     const completed: JsonObject[] = [];
     const consumed: ProcessCompletionConsumeRequest[] = [];
     const processes = registerCodingTools(registry, {
-      workspaceRoot: projectRoot,
       onProcessComplete: async (snapshot) => { completed.push(snapshot); },
       onProcessConsume: async (request) => { consumed.push(request); },
     });
@@ -221,16 +278,16 @@ describe("native coding tools", () => {
       command: "python -c \"import time; time.sleep(0.08); print('done')\"",
       cwd,
       background: true,
-    }, context());
+    }, context(root));
     const startedText = String(started.content[0]?.text);
     expect(startedText).toContain("status: running");
     const session = startedText.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
     expect(session).toMatch(/^exec_/);
     if (!session) throw new Error(`missing process session in: ${startedText}`);
-    const listed = String((await registry.execute("process", { action: "list" }, context())).content[0]?.text);
+    const listed = String((await registry.execute("process", { action: "list" }, context(root))).content[0]?.text);
     expect(listed).toContain(String(session));
     await Bun.sleep(180);
-    const polled = String((await registry.execute("process", { action: "poll", session }, context())).content[0]?.text);
+    const polled = String((await registry.execute("process", { action: "poll", session }, context(root))).content[0]?.text);
     expect(polled).toContain("status: completed");
     expect(polled).toContain("done");
     expect(completed).toEqual([expect.objectContaining({
@@ -243,20 +300,20 @@ describe("native coding tools", () => {
       status: "completed",
       reason: "process.poll",
     })]);
-    await registry.execute("process", { action: "remove", session }, context());
+    await registry.execute("process", { action: "remove", session }, context(root));
     expect(consumed).toHaveLength(1);
     expect(processes.snapshots()).toHaveLength(0);
 
     const completedText = String((await registry.execute("exec", {
       command: "python -c \"print('x' * 3000)\"",
-    }, context())).content[0]?.text);
+    }, context(root))).content[0]?.text);
     expect(completedText).toContain("status: completed");
     expect(completedText).toContain("output:");
     expect(completedText.length).toBeGreaterThan(2_000);
 
     const failed = String((await registry.execute("exec", {
       command: "python -c \"import sys; print('expected failure', file=sys.stderr); raise SystemExit(3)\"",
-    }, context())).content[0]?.text);
+    }, context(root))).content[0]?.text);
     expect(failed).toContain("status: failed");
     expect(failed).toContain("expected failure");
 
@@ -264,7 +321,7 @@ describe("native coding tools", () => {
     // authorization and list is always known to it.
     const lxeskillList = String((await registry.execute("exec", {
       command: "lxeskill list",
-    }, context())).content[0]?.text);
+    }, context(root))).content[0]?.text);
     expect(lxeskillList).toContain("status: completed");
     await processes.stop();
   }, 15_000);
@@ -273,7 +330,6 @@ describe("native coding tools", () => {
     const registry = new ToolRegistry();
     const consumed: ProcessCompletionConsumeRequest[] = [];
     const processes = registerCodingTools(registry, {
-      workspaceRoot: projectRoot,
       onProcessConsume: async (request) => { consumed.push(request); },
     });
     const start = async (command: string): Promise<string> => {
@@ -294,25 +350,25 @@ describe("native coding tools", () => {
 
     const logged = await start("python -c \"print('logged')\"");
     await waitFor(logged, (snapshot) => snapshot.status !== "running");
-    await processes.process({ action: "log", session: logged });
-    await processes.process({ action: "poll", session: logged });
+    await processes.process({ action: "log", session: logged }, "s1");
+    await processes.process({ action: "poll", session: logged }, "s1");
     expect(consumed.filter((item) => item.task_id === logged)).toEqual([
       expect.objectContaining({ reason: "process.log" }),
     ]);
 
     const removed = await start("python -c \"print('removed')\"");
     await waitFor(removed, (snapshot) => snapshot.status !== "running");
-    await processes.process({ action: "remove", session: removed });
+    await processes.process({ action: "remove", session: removed }, "s1");
     expect(consumed.filter((item) => item.task_id === removed)).toEqual([
       expect.objectContaining({ reason: "process.remove" }),
     ]);
 
     const killed = await start("python -c \"import time; print('ready', flush=True); time.sleep(60)\"");
     await waitFor(killed, (snapshot) => String(snapshot.output_tail ?? "").includes("ready"));
-    await processes.process({ action: "list" });
-    expect((await processes.process({ action: "poll", session: killed })).status).toBe("running");
+    await processes.process({ action: "list" }, "s1");
+    expect((await processes.process({ action: "poll", session: killed }, "s1")).status).toBe("running");
     expect(consumed.some((item) => item.task_id === killed)).toBe(false);
-    await processes.process({ action: "kill", session: killed });
+    await processes.process({ action: "kill", session: killed }, "s1");
     expect(consumed.filter((item) => item.task_id === killed)).toEqual([
       expect.objectContaining({ reason: "process.kill", status: "killed" }),
     ]);
@@ -320,8 +376,8 @@ describe("native coding tools", () => {
     const concurrent = await start("python -c \"print('concurrent')\"");
     await waitFor(concurrent, (snapshot) => snapshot.status !== "running");
     await Promise.all([
-      processes.process({ action: "poll", session: concurrent }),
-      processes.process({ action: "log", session: concurrent }),
+      processes.process({ action: "poll", session: concurrent }, "s1"),
+      processes.process({ action: "log", session: concurrent }, "s1"),
     ]);
     expect(consumed.filter((item) => item.task_id === concurrent)).toHaveLength(1);
 
@@ -333,7 +389,6 @@ describe("native coding tools", () => {
     let attempts = 0;
     let failNext = true;
     const processes = registerCodingTools(registry, {
-      workspaceRoot: projectRoot,
       onProcessConsume: async () => {
         attempts += 1;
         if (failNext) {
@@ -354,9 +409,9 @@ describe("native coding tools", () => {
       await Bun.sleep(20);
     }
 
-    await expect(processes.process({ action: "poll", session })).rejects.toThrow("consume failed");
+    await expect(processes.process({ action: "poll", session }, "s1")).rejects.toThrow("consume failed");
     expect(attempts).toBe(1);
-    expect((await processes.process({ action: "poll", session })).new_output).toContain("retry-output");
+    expect((await processes.process({ action: "poll", session }, "s1")).new_output).toContain("retry-output");
     expect(attempts).toBe(2);
 
     const removable = String((await registry.execute("exec", {
@@ -370,9 +425,9 @@ describe("native coding tools", () => {
       await Bun.sleep(20);
     }
     failNext = true;
-    await expect(processes.process({ action: "remove", session: removable })).rejects.toThrow("consume failed");
+    await expect(processes.process({ action: "remove", session: removable }, "s1")).rejects.toThrow("consume failed");
     expect(processes.snapshots().some((item) => item.task_id === removable)).toBe(true);
-    await processes.process({ action: "remove", session: removable });
+    await processes.process({ action: "remove", session: removable }, "s1");
     expect(processes.snapshots().some((item) => item.task_id === removable)).toBe(false);
     await processes.stop();
   }, 15_000);
@@ -385,7 +440,6 @@ describe("native coding tools", () => {
       releaseNotification = resolve;
     });
     const processes = registerCodingTools(registry, {
-      workspaceRoot: projectRoot,
       onProcessComplete: async () => {
         order.push("notification-started");
         await notificationBlocked;
@@ -405,7 +459,7 @@ describe("native coding tools", () => {
       await Bun.sleep(20);
     }
 
-    const poll = processes.process({ action: "poll", session });
+    const poll = processes.process({ action: "poll", session }, "s1");
     await Bun.sleep(20);
     expect(order).toEqual(["notification-started"]);
     releaseNotification();
@@ -415,10 +469,10 @@ describe("native coding tools", () => {
   }, 15_000);
 
   test("exec forwards host env so lxeskill enforces the injected skill scope", async () => {
+    const root = projectRoot;
     const registry = new ToolRegistry();
     const receivedSkillNames: Array<readonly string[]> = [];
     const processes = registerCodingTools(registry, {
-      workspaceRoot: projectRoot,
       execEnv: ({ skillNames }) => {
         receivedSkillNames.push(skillNames);
         return { LXESKILL_SKILL_SCOPE: skillNames.join(",") };
@@ -426,7 +480,7 @@ describe("native coding tools", () => {
     });
     const listed = String((await registry.execute("exec", {
       command: "lxeskill list",
-    }, { ...context(), skill_names: ["replenishment-store-resolve"] })).content[0]?.text);
+    }, { ...context(root), skill_names: ["replenishment-store-resolve"] })).content[0]?.text);
     expect(listed).toContain("replenish store resolve");
     expect(listed).not.toContain("fba customs fill");
     expect(listed).toContain("auth refresh");
@@ -435,13 +489,14 @@ describe("native coding tools", () => {
   });
 
   test("terminates the complete exec process tree", async () => {
+    const root = projectRoot;
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: projectRoot });
+    const processes = registerCodingTools(registry, {});
     const startTree = async (): Promise<{ session: string; childPid: number }> => {
       const started = String((await registry.execute("exec", {
         command: "python -c \"import subprocess,sys,time; child=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)']); print(child.pid, flush=True); time.sleep(60)\"",
         background: true,
-      }, context())).content[0]?.text);
+      }, context(root))).content[0]?.text);
       const session = started.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
       expect(session).toMatch(/^exec_/);
       let observed = started;
@@ -451,7 +506,7 @@ describe("native coding tools", () => {
         const logged = String((await registry.execute(
           "process",
           { action: "log", session, offset: 1, limit: 10 },
-          context(),
+          context(root),
         )).content[0]?.text);
         observed = `${started}\n${logged}`;
       }
@@ -470,7 +525,7 @@ describe("native coding tools", () => {
     };
 
     const killed = await startTree();
-    await registry.execute("process", { action: "kill", session: killed.session }, context());
+    await registry.execute("process", { action: "kill", session: killed.session }, context(root));
     await expectDead(killed.childPid);
 
     const forceKilled = await startTree();
@@ -479,25 +534,26 @@ describe("native coding tools", () => {
   }, 15_000);
 
   test("uses timeout seconds and ignores the timer for explicit background work", async () => {
+    const root = projectRoot;
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: projectRoot });
+    const processes = registerCodingTools(registry, {});
     const timedOut = String((await registry.execute("exec", {
       command: "python -c \"import time; time.sleep(60)\"",
       timeout: 1,
       yield_ms: 2_000,
-    }, context())).content[0]?.text);
+    }, context(root))).content[0]?.text);
     expect(timedOut).toContain("status: timeout");
 
     const background = String((await registry.execute("exec", {
       command: "python -c \"import time; time.sleep(0.05); print('background done')\"",
       timeout: 1,
       background: true,
-    }, context())).content[0]?.text);
+    }, context(root))).content[0]?.text);
     const session = background.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
     expect(session).toMatch(/^exec_/);
     await Bun.sleep(100);
     const polled = session
-      ? String((await registry.execute("process", { action: "poll", session }, context())).content[0]?.text)
+      ? String((await registry.execute("process", { action: "poll", session }, context(root))).content[0]?.text)
       : "";
     expect(polled).toContain("status: completed");
     expect(polled).toContain("background done");
@@ -508,7 +564,7 @@ describe("native coding tools", () => {
       timeout: 10,
       yield_ms: 2_000,
     }, {
-      ...context(),
+      ...context(root),
       handle: {
         signal: controller.signal,
         cancelled: false,
@@ -527,23 +583,23 @@ describe("native coding tools", () => {
     roots.push(root);
     writeFileSync(join(root, "existing.txt"), "v1\n", "utf8");
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const processes = registerCodingTools(registry, {});
     await expect(registry.execute("edit", {
       file_path: "existing.txt", old_string: "v1", new_string: "v2",
-    }, context())).rejects.toThrow("先用 read");
-    await registry.execute("read", { path: "existing.txt" }, context());
+    }, context(root))).rejects.toThrow("先用 read");
+    await registry.execute("read", { path: "existing.txt" }, context(root));
     writeFileSync(join(root, "existing.txt"), "external\n", "utf8");
     await expect(registry.execute("write", {
       file_path: "existing.txt", content: "blind overwrite\n",
-    }, context())).rejects.toThrow("重新 read");
-    await expect(registry.execute("write", { file_path: ".env", content: "SECRET=x" }, context()))
+    }, context(root))).rejects.toThrow("重新 read");
+    await expect(registry.execute("write", { file_path: ".env", content: "SECRET=x" }, context(root)))
       .rejects.toThrow("protected");
     await expect(registry.execute("write", {
       file_path: "var/db/sessions.json", content: "{}",
-    }, context())).rejects.toThrow("protected");
+    }, context(root))).rejects.toThrow("protected");
     await expect(registry.execute("write", {
       file_path: "var/logs/runtime/x.log", content: "{}",
-    }, context())).rejects.toThrow("protected");
+    }, context(root))).rejects.toThrow("protected");
     await processes.stop();
   });
 
@@ -552,8 +608,8 @@ describe("native coding tools", () => {
     roots.push(root);
     writeFileSync(join(root, "screenshot.data"), onePixelPng());
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: root });
-    const result = await registry.execute("read", { path: "screenshot.data" }, context());
+    const processes = registerCodingTools(registry, {});
+    const result = await registry.execute("read", { path: "screenshot.data" }, context(root));
     expect(result.content[0]?.text).toContain("Read image file [image/png]");
     expect(result.content[0]?.text).toContain("Multiply coordinates");
     expect(result.content[1]).toMatchObject({ type: "image", source: { media_type: "image/png" } });
@@ -565,8 +621,8 @@ describe("native coding tools", () => {
     roots.push(root);
     writeFileSync(join(root, "payload.unknown"), new Uint8Array([1, 2, 0, 3, 4]));
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: root, ripgrepPath: null });
-    await expect(registry.execute("read", { path: "payload.unknown" }, context())).rejects.toThrow("binary file");
+    const processes = registerCodingTools(registry, { ripgrepPath: null });
+    await expect(registry.execute("read", { path: "payload.unknown" }, context(root))).rejects.toThrow("binary file");
     await processes.stop();
   });
 
@@ -577,9 +633,9 @@ describe("native coding tools", () => {
     const big = Array.from({ length: 20_000 }, (_unused, index) => `line-${index + 1} ${"x".repeat(90)}`).join("\n");
     writeFileSync(join(root, "big.txt"), `${big}\n`);
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const processes = registerCodingTools(registry, {});
 
-    const ranged = await registry.execute("read", { path: "big.txt", offset: 100, limit: 3 }, context());
+    const ranged = await registry.execute("read", { path: "big.txt", offset: 100, limit: 3 }, context(root));
     const text = ranged.content[0]?.text ?? "";
     expect(text).toContain("   100\tline-100");
     expect(text).toContain("   102\tline-102");
@@ -587,7 +643,7 @@ describe("native coding tools", () => {
     expect(text).not.toContain("line-1 ");
 
     // A default read (no limit) must page rather than dump the whole file.
-    const capped = await registry.execute("read", { path: "big.txt" }, context());
+    const capped = await registry.execute("read", { path: "big.txt" }, context(root));
     const cappedText = String(capped.content[0]?.text ?? "");
     const nextOffset = Number(cappedText.match(/使用 offset=(\d+) 继续/u)?.[1] ?? 0);
     expect(nextOffset).toBeGreaterThan(1);
@@ -600,9 +656,9 @@ describe("native coding tools", () => {
     roots.push(root);
     writeFileSync(join(root, "giant.txt"), "中".repeat(2 * 1024 * 1024));
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const processes = registerCodingTools(registry, {});
 
-    const result = await registry.execute("read", { path: "giant.txt" }, context());
+    const result = await registry.execute("read", { path: "giant.txt" }, context(root));
     const output = String(result.content[0]?.text ?? "");
     expect(output.length).toBeLessThanOrEqual(10_000);
     expect(output).toContain("第 1 行超过 10000 字符读取上限");
@@ -616,14 +672,14 @@ describe("native coding tools", () => {
     const path = join(root, "changing.txt");
     writeFileSync(path, "old\n".repeat(2_000_000));
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const processes = registerCodingTools(registry, {});
     const mutation = setInterval(() => appendFileSync(path, "changed\n"), 1);
     try {
       await expect(registry.execute("read", {
         path: "changing.txt",
         offset: 1_999_999,
         limit: 1,
-      }, context())).rejects.toThrow("read 期间文件发生变化");
+      }, context(root))).rejects.toThrow("read 期间文件发生变化");
     } finally {
       clearInterval(mutation);
     }
@@ -632,7 +688,7 @@ describe("native coding tools", () => {
       old_string: "old",
       new_string: "new",
       replace_all: true,
-    }, context())).rejects.toThrow("请先用 read");
+    }, context(root))).rejects.toThrow("请先用 read");
     await processes.stop();
   });
 
@@ -641,13 +697,13 @@ describe("native coding tools", () => {
     roots.push(root);
     writeFileSync(join(root, "cancelled.txt"), "content\n");
     const registry = new ToolRegistry();
-    const processes = registerCodingTools(registry, { workspaceRoot: root });
+    const processes = registerCodingTools(registry, {});
     const controller = new AbortController();
     controller.abort(new DOMException("cancelled", "AbortError"));
-    await expect(registry.execute("read", { path: "cancelled.txt" }, context(controller))).rejects.toThrow("cancelled");
+    await expect(registry.execute("read", { path: "cancelled.txt" }, context(root, controller))).rejects.toThrow("cancelled");
     await expect(registry.execute("edit", {
       file_path: "cancelled.txt", old_string: "content", new_string: "changed",
-    }, context())).rejects.toThrow("请先用 read");
+    }, context(root))).rejects.toThrow("请先用 read");
     await processes.stop();
   });
 
@@ -656,7 +712,6 @@ describe("native coding tools", () => {
     roots.push(root);
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {
-      workspaceRoot: root,
       businessCommands: new Map([
         ["lxeskill replenish store resolve", ["replenishment-store-resolve"]],
         ["lxeskill fba shipment delivery-csv-download", ["fba-shipment-delivery-csv-download"]],
@@ -674,17 +729,17 @@ describe("native coding tools", () => {
         },
       ],
     });
-    await registry.execute("write", { file_path: "src/a.py", content: "alpha\nbeta\nbeta\n" }, context());
+    await registry.execute("write", { file_path: "src/a.py", content: "alpha\nbeta\nbeta\n" }, context(root));
     const count = await registry.execute("grep", {
       pattern: "beta", path: "src", output_mode: "count", type: "py",
-    }, context());
+    }, context(root));
     expect(String(count.content[0]?.text).replaceAll("\\", "/")).toContain("src/a.py:2");
-    await expect(registry.execute("send_file", { path: "src/a.py" }, context())).rejects.toThrow("artifacts");
-    await registry.execute("write", { file_path: "artifacts/a.txt", content: "ok" }, context());
-    expect((await registry.execute("send_file", { path: "artifacts/a.txt" }, context())).files).toHaveLength(1);
+    await expect(registry.execute("send_file", { path: "src/a.py" }, context(root))).rejects.toThrow("artifacts");
+    await registry.execute("write", { file_path: "artifacts/a.txt", content: "ok" }, context(root));
+    expect((await registry.execute("send_file", { path: "artifacts/a.txt" }, context(root))).files).toHaveLength(1);
     const rejected = async (
       command: string,
-      executionContext: Parameters<ToolRegistry["execute"]>[2] = context(),
+      executionContext: Parameters<ToolRegistry["execute"]>[2] = context(root),
     ): Promise<ToolExecutionError> => {
       try {
         await registry.execute("exec", { command }, executionContext);
@@ -740,7 +795,7 @@ describe("native coding tools", () => {
     const hiddenSkills = registry.createExposureState({ allowedSkills: new Set(["another-skill"]) });
     const hiddenCommand = await rejected(
       "python -m services.agent_cli.mabang.download_fba_delivery_csv",
-      { ...context(), exposureState: hiddenSkills },
+      { ...context(root), exposureState: hiddenSkills },
     );
     expect(hiddenCommand.details).toMatchObject({ discovery_command: "lxeskill list" });
     expect(hiddenCommand.modelContent(1)).not.toContain("fba-shipment-delivery-csv-download");
@@ -749,10 +804,10 @@ describe("native coding tools", () => {
     // managed Python nor .venv, so normalization fails before any spawn.
     await expect(registry.execute("exec", {
       command: "lxeskill unknown command",
-    }, context())).rejects.toThrow("project Python is unavailable");
+    }, context(root))).rejects.toThrow("project Python is unavailable");
     await expect(registry.execute("exec", {
       command: "lxeskill.cmd unknown command",
-    }, context())).rejects.toThrow("project Python is unavailable");
+    }, context(root))).rejects.toThrow("project Python is unavailable");
     const classified = registry.definition("exec")?.classifyInvocation?.({
       command: "lxeskill replenish store resolve --store-name Demo --token secret",
     });
@@ -764,7 +819,7 @@ describe("native coding tools", () => {
     await expect(registry.execute("exec", {
       command: "lxeskill replenish store resolve",
       timeout: 120_000,
-    }, context())).rejects.toThrow("between 1 and 3600 seconds");
+    }, context(root))).rejects.toThrow("between 1 and 3600 seconds");
     expect(registry.definition("exec")?.input_schema.properties).toMatchObject({
       command: { description: expect.stringContaining("exactly one standalone") },
       timeout: { type: "number", minimum: 1, maximum: 3_600, default: 120 },
@@ -774,10 +829,11 @@ describe("native coding tools", () => {
   });
 
   test("tool search discovers tools by name, description, and parameters", async () => {
+    const root = projectRoot;
     const registry = new ToolRegistry();
     registry.register({ name: "inventory_lookup", description: "Find stock by SKU", input_schema: { type: "object", properties: { sku: { type: "string" } } }, execute: async () => ({ content: [] }) });
     registerToolSearch(registry);
-    const found = await registry.execute("tool_search", { query: "stock sku" }, context());
+    const found = await registry.execute("tool_search", { query: "stock sku" }, context(root));
     expect(JSON.parse(String(found.content[0]?.text)).tools).toEqual([expect.objectContaining({ name: "inventory_lookup" })]);
   });
 });

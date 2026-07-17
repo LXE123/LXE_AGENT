@@ -11,6 +11,8 @@ export type {
   ToolStep,
   ToolStepStatus,
   TurnDisplayStatus,
+  SessionWorkspaceRequest,
+  WorkspaceContext,
 } from "./types";
 export {
   contractSchemas,

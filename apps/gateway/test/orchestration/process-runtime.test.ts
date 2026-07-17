@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import type { AgentJob } from "@lxe/protocol";
 import { ProcessAgentRuntime } from "../../src/orchestration/process-runtime";
 import { RunHandle } from "../../src/orchestration/scheduler";
+import { testWorkspace, workspaceFor } from "../workspace";
 
 const runtimes: ProcessAgentRuntime[] = [];
 const temporaryRoots: string[] = [];
@@ -24,7 +25,7 @@ describe("ProcessAgentRuntime", () => {
       environment: process.env,
       resourceRoot: process.cwd(),
       dataRoot: process.cwd(),
-      workspaceRoot: process.cwd(),
+      legacyWorkspace: testWorkspace,
       onStatus: (status) => states.push(status.state),
     });
     runtimes.push(runtime);
@@ -57,7 +58,7 @@ describe("ProcessAgentRuntime", () => {
       environment: { ...process.env, FAKE_LXESKILL_UNAVAILABLE: "1" },
       resourceRoot: process.cwd(),
       dataRoot: process.cwd(),
-      workspaceRoot: process.cwd(),
+      legacyWorkspace: testWorkspace,
     });
     runtimes.push(runtime);
 
@@ -81,7 +82,7 @@ describe("ProcessAgentRuntime", () => {
       environment: { ...process.env, FAKE_LOGGING_FAILURE_EVENT: "1" },
       resourceRoot: process.cwd(),
       dataRoot: process.cwd(),
-      workspaceRoot: process.cwd(),
+      legacyWorkspace: testWorkspace,
       onStatus: (status) => statuses.push(status),
     });
     runtimes.push(runtime);
@@ -116,7 +117,7 @@ describe("ProcessAgentRuntime", () => {
       environment: { ...process.env, FAKE_AGENT_CRASH_MARKER: crashMarker },
       resourceRoot: process.cwd(),
       dataRoot: root,
-      workspaceRoot: root,
+      legacyWorkspace: workspaceFor(root),
       requestTimeoutMs: 2_000,
       restartDelaysMs: [10, 20],
       onStatus: (status) => states.push(status.state),
@@ -146,7 +147,7 @@ describe("ProcessAgentRuntime", () => {
       environment: process.env,
       resourceRoot: process.cwd(),
       dataRoot: process.cwd(),
-      workspaceRoot: process.cwd(),
+      legacyWorkspace: testWorkspace,
     });
     runtimes.push(runtime);
     await runtime.start();
@@ -165,6 +166,7 @@ describe("ProcessAgentRuntime", () => {
       source: {},
       raw_data: {},
       user_content_blocks: [],
+      workspace: testWorkspace,
     };
     const handle = new RunHandle(job);
     const turn = runtime.runTurn(job, handle);

@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import type { AgentJob, JsonObject } from "@lxe/protocol";
+import type {
+  AgentJob,
+  JsonObject,
+  SessionWorkspaceRequest,
+  WorkspaceContext,
+} from "@lxe/protocol";
 import { ChannelRegistry, type ChannelAdapter } from "../channels/registry";
 import { GatewayEmitter } from "../channels/emitter";
 import { FeishuAdapter, type FeishuAdapterOptions } from "../channels/feishu/adapter";
@@ -30,10 +35,14 @@ export interface DirectAgentRuntime {
 }
 
 export interface DirectGatewayStorage {
-  ensureSession(request: JsonObject): Promise<void>;
-  rebindSession(request: JsonObject): Promise<void>;
+  ensureSession(request: SessionWorkspaceRequest): Promise<void>;
+  rebindSession(request: SessionWorkspaceRequest): Promise<void>;
   upsertResponseRoute(request: JsonObject): Promise<void>;
-  getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject } | undefined>;
+  getSession(sessionId: string): Promise<{
+    session_id: string;
+    source: JsonObject;
+    workspace: WorkspaceContext;
+  } | undefined>;
   popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   hasPendingEvents(sessionId: string): Promise<boolean>;
@@ -43,6 +52,7 @@ export interface DirectGatewayStorage {
 
 export interface DirectGatewayCompositionOptions {
   projectRoot: string;
+  defaultWorkspace: () => WorkspaceContext;
   bindingsPath?: string;
   environment?: Record<string, string | undefined>;
   policy: PermissionPolicy;
@@ -155,6 +165,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     policy: options.policy,
     bindings,
     storage: options.storage,
+    defaultWorkspace: options.defaultWorkspace,
     scheduler,
     channels,
     state: runtimeState,

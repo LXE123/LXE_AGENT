@@ -6,7 +6,13 @@ import type {
   DesktopHealth,
   DesktopLoggingSinkStatus,
 } from "@lxe/desktop-protocol";
-import type { JsonObject, JsonValue } from "@lxe/protocol";
+import type {
+  JsonObject,
+  JsonValue,
+  SessionWorkspaceRequest,
+  WorkspaceContext,
+} from "@lxe/protocol";
+import { resolveWorkspaceContext } from "@lxe/core";
 import {
   createDirectGatewayComposition,
   loadFeishuConfig,
@@ -36,12 +42,12 @@ class SplitGatewayStorage implements DirectGatewayStorage {
     private readonly agent: ProcessAgentRuntime,
   ) {}
 
-  async ensureSession(request: JsonObject): Promise<void> {
+  async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     await this.gateway.ensureSession(request);
     await this.agent.ensureSession(request);
   }
 
-  async rebindSession(request: JsonObject): Promise<void> {
+  async rebindSession(request: SessionWorkspaceRequest): Promise<void> {
     await this.gateway.rebindSession(request);
     await this.agent.rebindSession(request);
   }
@@ -50,7 +56,11 @@ class SplitGatewayStorage implements DirectGatewayStorage {
     return this.gateway.upsertResponseRoute(request);
   }
 
-  getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject } | undefined> {
+  getSession(sessionId: string): Promise<{
+    session_id: string;
+    source: JsonObject;
+    workspace: WorkspaceContext;
+  } | undefined> {
     return this.gateway.getSession(sessionId);
   }
 
@@ -108,7 +118,7 @@ export class DesktopGateway {
       this.publishHealth();
       return;
     }
-    mkdirSync(setup.workspace_root, { recursive: true });
+    const legacyWorkspace = resolveWorkspaceContext(setup.workspace_root);
     const configuredEnvironment = this.options.config.environment();
     const resourceEnvironment = loadProjectEnv({
       projectRoot: this.options.paths.resourceRoot,
@@ -118,6 +128,9 @@ export class DesktopGateway {
       projectRoot: this.options.paths.dataRoot,
       initial: {},
     });
+    delete configuredEnvironment.LXE_WORKSPACE_ROOT;
+    delete resourceEnvironment.LXE_WORKSPACE_ROOT;
+    delete persistedEnvironment.LXE_WORKSPACE_ROOT;
     const selectedProvider = configuredEnvironment.AGENT_LLM_PROVIDER;
     const previousProvider = persistedEnvironment.AGENT_LLM_PROVIDER
       || resourceEnvironment.AGENT_LLM_PROVIDER;
@@ -138,7 +151,6 @@ export class DesktopGateway {
       LXE_ROOT: this.options.paths.resourceRoot,
       LXE_RESOURCE_ROOT: this.options.paths.resourceRoot,
       LXE_DATA_ROOT: this.options.paths.dataRoot,
-      LXE_WORKSPACE_ROOT: setup.workspace_root,
       LXE_AGENT_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "agent.sqlite3"),
       LXE_DATA_SERVER_MACHINE_ID_PATH: join(this.options.paths.dataRoot, "db", "machine_identity.json"),
       LXE_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "lxeskill.sqlite3"),
@@ -175,11 +187,11 @@ export class DesktopGateway {
     const runtime = new ProcessAgentRuntime({
       command: this.options.paths.agentCommand,
       arguments: this.options.paths.agentArguments,
-      cwd: setup.workspace_root,
+      cwd: this.options.paths.dataRoot,
       environment,
       resourceRoot: this.options.paths.resourceRoot,
       dataRoot: this.options.paths.dataRoot,
-      workspaceRoot: setup.workspace_root,
+      legacyWorkspace,
       ...(allowedSkillTypes ? { allowedSkillTypes } : {}),
       onEmit: async (request) => {
         const emitter = composition?.parts.emitter;
@@ -213,11 +225,15 @@ export class DesktopGateway {
         if (line.trim()) process.stderr.write(`[agent-cli] ${line}\n`);
       },
     });
-    const store = new NodeGatewayStore(join(this.options.paths.dataRoot, "db", "gateway.sqlite3"));
+    const store = new NodeGatewayStore(
+      join(this.options.paths.dataRoot, "db", "gateway.sqlite3"),
+      legacyWorkspace,
+    );
     store.start();
     const splitStorage = new SplitGatewayStorage(store, runtime);
     composition = createDirectGatewayComposition({
-      projectRoot: setup.workspace_root,
+      projectRoot: this.options.paths.resourceRoot,
+      defaultWorkspace: () => resolveWorkspaceContext(this.options.config.state().workspace_root),
       environment,
       policy,
       storage: splitStorage,

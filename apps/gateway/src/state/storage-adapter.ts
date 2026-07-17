@@ -1,12 +1,21 @@
-import type { JsonObject, JsonValue } from "@lxe/protocol";
+import type {
+  JsonObject,
+  JsonValue,
+  SessionWorkspaceRequest,
+  WorkspaceContext,
+} from "@lxe/protocol";
 import type { DirectGatewayStorage } from "../orchestration/composition";
 import type { ResponseRoutePatch, ResponseRouteRecord } from "./models";
 
 interface RuntimeGatewayStorageBackend {
-  ensureSession(request: JsonObject): Promise<void>;
-  rebindSession(request: JsonObject): Promise<void>;
+  ensureSession(request: SessionWorkspaceRequest): Promise<void>;
+  rebindSession(request: SessionWorkspaceRequest): Promise<void>;
   upsertResponseRoute(request: JsonObject): Promise<void>;
-  getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject } | undefined>;
+  getSession(sessionId: string): Promise<{
+    session_id: string;
+    source: JsonObject;
+    workspace: WorkspaceContext;
+  } | undefined>;
   popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   hasPendingEvents(sessionId: string): Promise<boolean>;
@@ -23,10 +32,14 @@ const object = (value: JsonValue | undefined): JsonObject =>
 export class DirectGatewayStorageAdapter implements DirectGatewayStorage {
   constructor(private readonly backend: RuntimeGatewayStorageBackend) {}
 
-  ensureSession(request: JsonObject): Promise<void> { return this.backend.ensureSession(request); }
-  rebindSession(request: JsonObject): Promise<void> { return this.backend.rebindSession(request); }
+  ensureSession(request: SessionWorkspaceRequest): Promise<void> { return this.backend.ensureSession(request); }
+  rebindSession(request: SessionWorkspaceRequest): Promise<void> { return this.backend.rebindSession(request); }
   upsertResponseRoute(request: JsonObject): Promise<void> { return this.backend.upsertResponseRoute(request); }
-  getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject } | undefined> {
+  getSession(sessionId: string): Promise<{
+    session_id: string;
+    source: JsonObject;
+    workspace: WorkspaceContext;
+  } | undefined> {
     return this.backend.getSession(sessionId);
   }
   popPendingEvents(sessionId: string): Promise<JsonObject[]> { return this.backend.popPendingEvents(sessionId); }

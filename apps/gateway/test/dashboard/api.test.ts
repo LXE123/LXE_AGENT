@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { SqliteRuntimeStore, ToolRegistry, type RuntimeProviderManager } from "@lxe/runtime";
 import { DashboardApi } from "../../src/dashboard/api";
 import { loadProjectEnv } from "../../src/bootstrap/env";
+import { workspaceFor } from "../workspace";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -61,7 +62,7 @@ describe("DashboardApi", () => {
 
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "session-one", source: { platform: "feishu", chat_type: "p2p" } });
+    await store.ensureSession({ workspace: workspaceFor(root), session_id: "session-one", source: { platform: "feishu", chat_type: "p2p" } });
     await store.appendMessage("session-one", { role: "user", content: "hello" });
     await store.appendMessage("session-one", {
       role: "assistant",

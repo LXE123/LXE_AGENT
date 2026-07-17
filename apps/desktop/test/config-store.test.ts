@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DesktopConfigStore } from "../src/main/config-store";
@@ -17,6 +17,7 @@ const safeStorage = {
 
 const createRoot = (): string => {
   const root = mkdtempSync(join(tmpdir(), "lxe-desktop-config-"));
+  mkdirSync(join(root, "workspace"));
   roots.push(root);
   return root;
 };
@@ -197,6 +198,43 @@ describe("DesktopConfigStore", () => {
       workspace_root: join(root, "workspace"),
     })).toThrow("Secure credential storage is unavailable");
     expect(existsSync(join(root, "config", "desktop.json"))).toBe(false);
+  });
+
+  test("requires the selected default workspace to already exist", () => {
+    const root = createRoot();
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+    const missing = join(root, "missing-workspace");
+    expect(() => store.save({
+      provider: "glm",
+      api_key: "secret",
+      workspace_root: missing,
+    })).toThrow();
+    expect(existsSync(missing)).toBe(false);
+    expect(() => store.save({
+      provider: "glm",
+      api_key: "secret",
+      workspace_root: "relative-workspace",
+    })).toThrow("absolute path");
+  });
+
+  test("keeps a default-workspace-only change out of the process environment", () => {
+    const root = createRoot();
+    const nextWorkspace = join(root, "next-workspace");
+    mkdirSync(nextWorkspace);
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+    store.save({
+      provider: "glm",
+      api_key: "secret",
+      workspace_root: join(root, "workspace"),
+    });
+    const before = store.environment();
+    const state = store.save({
+      provider: "glm",
+      workspace_root: nextWorkspace,
+    });
+    expect(state.workspace_root).toBe(realpathSync(nextWorkspace));
+    expect(store.environment()).toEqual(before);
+    expect(store.environment()).not.toHaveProperty("LXE_WORKSPACE_ROOT");
   });
 
   test("stores cloud metadata separately from the encrypted upload token", () => {

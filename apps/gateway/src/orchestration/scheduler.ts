@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { AgentJob, JsonObject, JsonValue } from "@lxe/protocol";
+import type { AgentJob, JsonObject, JsonValue, WorkspaceContext } from "@lxe/protocol";
 import { createLogger, runWithLogContext } from "@lxe/core";
 import { SessionSource } from "../state/session-bindings";
 
@@ -403,6 +403,7 @@ export type HeartbeatScheduleKind = "none" | "normal" | "retry";
 export interface RuntimeSessionRecord {
   session_id: string;
   source: JsonObject;
+  workspace: WorkspaceContext;
 }
 
 export interface HeartbeatOptions {
@@ -523,6 +524,7 @@ export class HeartbeatWakeQueue {
       user_input: "",
       job_kind: "heartbeat",
       sender_nick: source.user_name,
+      workspace: session.workspace,
       source: { ...session.source },
       raw_data: {
         heartbeat_reason: wake.reason,

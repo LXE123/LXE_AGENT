@@ -17,7 +17,6 @@ export interface FeishuImToolApi {
 
 interface RegisterFeishuImToolsOptions {
   api: FeishuImToolApi;
-  workspaceRoot: string;
   sessionSource(sessionId: string): Promise<JsonObject | undefined>;
 }
 
@@ -201,7 +200,13 @@ export function registerFeishuImTools(registry: ToolRegistry, options: RegisterF
       const type = text(input.type);
       if (!messageId || !fileKey || !["image", "file"].includes(type)) throw new Error("message_id、file_key 和有效 type 必填");
       const resource = await options.api.download(messageId, fileKey, type as "image" | "file", context.handle.signal);
-      const directory = resolve(options.workspaceRoot, "artifacts", "feishu", "im_read", messageId.replaceAll(/[^\w.-]/g, "_"));
+      const directory = resolve(
+        context.workspace.worktree,
+        "artifacts",
+        "feishu",
+        "im_read",
+        messageId.replaceAll(/[^\w.-]/g, "_"),
+      );
       mkdirSync(directory, { recursive: true });
       const fallbackExtension = resource.contentType === "image/png" ? ".png" : "";
       const rawName = basename(resource.fileName || `${type}_${fileKey}${fallbackExtension}`);

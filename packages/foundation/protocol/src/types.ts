@@ -3,6 +3,19 @@ export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 export interface JsonObject {
   [key: string]: JsonValue;
 }
+
+export interface WorkspaceContext extends JsonObject {
+  server_scope: "local";
+  directory: string;
+  worktree: string;
+}
+
+export interface SessionWorkspaceRequest {
+  session_id: string;
+  source: JsonObject;
+  workspace: WorkspaceContext;
+  entry_text?: string;
+}
 export interface InboundEvent {
   platform: string;
   event_type: string;
@@ -31,6 +44,7 @@ export interface AgentJob {
   user_input: string;
   job_kind: string;
   sender_nick: string;
+  workspace: WorkspaceContext;
   source: JsonObject;
   raw_data: JsonObject;
   user_content_blocks: JsonObject[];

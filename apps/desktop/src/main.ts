@@ -224,19 +224,29 @@ async function bootstrap(): Promise<void> {
     },
     getSetupState: () => config.state(),
     saveSetup: async (input: DesktopSetupInput): Promise<DesktopSetupState> => {
+      const previousEnvironment = config.environment();
+      const wasComplete = config.state().complete;
       const state = config.save(input);
       logging.configure();
-      await gateway.restart();
+      const nextEnvironment = config.environment();
+      const runtimeConfigurationChanged = JSON.stringify(previousEnvironment) !== JSON.stringify(nextEnvironment);
+      if (!wasComplete || runtimeConfigurationChanged) await gateway.restart();
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
       broadcastHealth(gateway.health());
       return state;
     },
     previewConfigImport: (filePath) => configImports.select(filePath),
     applyConfigImport: async (importId) => {
+      const previousEnvironment = config.environment();
+      const wasComplete = config.state().complete;
       const result = configImports.apply(importId);
       logging.configure();
-      if (result.state.complete) await gateway.restart();
-      else await gateway.stop();
+      if (!result.state.complete) await gateway.stop();
+      else {
+        const nextEnvironment = config.environment();
+        const runtimeConfigurationChanged = JSON.stringify(previousEnvironment) !== JSON.stringify(nextEnvironment);
+        if (!wasComplete || runtimeConfigurationChanged) await gateway.restart();
+      }
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
       broadcastHealth(gateway.health());
       return result;

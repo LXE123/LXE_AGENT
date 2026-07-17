@@ -6,6 +6,7 @@ import type { AgentJob, JsonObject } from "@lxe/protocol";
 import { FakeChannelAdapter } from "../../src/channels/registry";
 import { createDirectGatewayComposition } from "../../src/orchestration/composition";
 import { buildPermissionPolicy } from "../../src/security/permission-policy";
+import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -17,6 +18,7 @@ const job = (): AgentJob => ({
   user_id: "u1", conversation_id: "c1", is_group: false, message_id: "m1",
   user_input: "hello", job_kind: "turn", sender_nick: "Tester",
   source: { platform: "test", chat_id: "c1" }, raw_data: {}, user_content_blocks: [],
+  workspace: testWorkspace,
 });
 
 describe("direct Gateway composition", () => {
@@ -39,7 +41,7 @@ describe("direct Gateway composition", () => {
       ensureSession: async () => undefined,
       rebindSession: async () => undefined,
       upsertResponseRoute: async () => undefined,
-      getSession: async () => ({ session_id: "s1", source: { platform: "test" } }),
+      getSession: async () => ({ session_id: "s1", source: { platform: "test" }, workspace: testWorkspace }),
       popPendingEvents: async () => [],
       appendPendingEvent: async () => undefined,
       hasPendingEvents: async () => false,
@@ -60,6 +62,7 @@ describe("direct Gateway composition", () => {
     }, "direct-test.yaml");
     const composition = createDirectGatewayComposition({
       projectRoot: root,
+      defaultWorkspace: () => testWorkspace,
       bindingsPath: join(root, "sessions.json"),
       policy,
       storage,

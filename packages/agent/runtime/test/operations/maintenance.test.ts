@@ -7,6 +7,7 @@ import { SqliteRuntimeStore } from "../../src/state/storage";
 import { MaintenanceScheduler } from "../../src/operations/maintenance";
 import type { MaintenanceClock } from "../../src/operations/maintenance";
 import type { CliTerminalResult } from "../../src/tooling/one-shot-cli";
+import { testWorkspace } from "../workspace";
 
 const cliSuccess = (): CliTerminalResult => ({
   protocol_version: "1",
@@ -56,7 +57,6 @@ describe("MaintenanceScheduler", () => {
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const secondEntered = new Promise<void>((resolve) => { entered = resolve; });
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: { LXE_MAINTENANCE_AUTH_ENABLED: "1" },
       store,
       gatewayId: "gateway-one",
@@ -97,7 +97,6 @@ describe("MaintenanceScheduler", () => {
     let entered!: () => void;
     const runnerEntered = new Promise<void>((resolve) => { entered = resolve; });
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: { LXE_MAINTENANCE_AUTH_ENABLED: "1" },
       store,
       gatewayId: "gateway-one",
@@ -128,7 +127,6 @@ describe("MaintenanceScheduler", () => {
     let entered: (() => void) | undefined;
     const refreshEntered = new Promise<void>((resolve) => { entered = resolve; });
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: { LXE_MAINTENANCE_AUTH_ENABLED: "1" },
       store,
       gatewayId: "gateway-one",
@@ -157,11 +155,10 @@ describe("MaintenanceScheduler", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     const clock = new ManualMaintenanceClock();
     let requests = 0;
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: {
         LXE_MAINTENANCE_AUTH_ENABLED: "0",
         LXE_DATA_SERVER_ENABLED: "1",
@@ -209,10 +206,9 @@ describe("MaintenanceScheduler", () => {
     loggingControllers.push(logging);
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     const uploads: Array<{ url: string; authorization: string | null }> = [];
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: {
         LXE_DATA_SERVER_URL: "https://cloud.example",
         LXE_DATA_SERVER_API_KEY: "cloud-secret",
@@ -251,10 +247,9 @@ describe("MaintenanceScheduler", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     const uploads: Array<{ url: string; authorization: string | null; signal?: AbortSignal }> = [];
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: {
         LXE_MAINTENANCE_AUTH_ENABLED: "0",
         LXE_DATA_SERVER_ENABLED: "1",
@@ -299,10 +294,9 @@ describe("MaintenanceScheduler", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     const uploads: string[] = [];
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: {
         LXE_MAINTENANCE_AUTH_ENABLED: "0",
         LXE_DATA_SERVER_ENABLED: "1",
@@ -337,10 +331,9 @@ describe("MaintenanceScheduler", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     const uploads: string[] = [];
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: {
         LXE_MAINTENANCE_AUTH_ENABLED: "0",
         LXE_DATA_SERVER_ENABLED: "1",
@@ -383,11 +376,10 @@ describe("MaintenanceScheduler", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     const uploads: string[] = [];
     let status = 400;
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: {
         LXE_MAINTENANCE_AUTH_ENABLED: "0",
         LXE_DATA_SERVER_ENABLED: "1",
@@ -422,10 +414,9 @@ describe("MaintenanceScheduler", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     const uploads: string[] = [];
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: {
         LXE_MAINTENANCE_AUTH_ENABLED: "0",
         LXE_DATA_SERVER_ENABLED: "1",
@@ -456,7 +447,7 @@ describe("MaintenanceScheduler", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     const clock = new ManualMaintenanceClock();
     let calls = 0;
     let active = 0;
@@ -466,7 +457,6 @@ describe("MaintenanceScheduler", () => {
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const secondEntered = new Promise<void>((resolve) => { entered = resolve; });
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: {
         LXE_MAINTENANCE_AUTH_ENABLED: "0",
         LXE_DATA_SERVER_ENABLED: "1",
@@ -511,7 +501,7 @@ describe("MaintenanceScheduler", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     await store.appendMessage("s1", { role: "user", content: "hello" });
     await store.recordTurn("s1", {
       turn_id: "t1", status: "completed", started_at: Date.now() / 1_000,
@@ -527,7 +517,6 @@ describe("MaintenanceScheduler", () => {
     const uploads: Array<{ url: string; init?: RequestInit }> = [];
     const clock = new ManualMaintenanceClock();
     const scheduler = new MaintenanceScheduler({
-      projectRoot: root,
       environment: {
         LXE_DATA_SERVER_ENABLED: "1",
         LXE_DATA_SERVER_URL: "https://data.example/base/",
@@ -553,6 +542,8 @@ describe("MaintenanceScheduler", () => {
     expect(new Headers(uploads[0]?.init?.headers).get("authorization")).toBe("Bearer secret");
     const snapshot = JSON.parse(String(uploads[0]?.init?.body));
     expect(snapshot).toMatchObject({ gateway_id: "gateway-one", sessions: [{ session_id: "s1", messages: [{ role: "user", content: "hello" }] }] });
+    expect(snapshot.sessions[0]).not.toHaveProperty("workspace");
+    expect(JSON.stringify(snapshot)).not.toContain(testWorkspace.directory);
     expect(snapshot.turn_usage.turns).toEqual([expect.objectContaining({ turn_id: "t1", status: "completed" })]);
     expect(snapshot.turn_usage.turns[0].items).toEqual([
       expect.objectContaining({ kind: "tool", name: "lxeskill:replenish store resolve" }),

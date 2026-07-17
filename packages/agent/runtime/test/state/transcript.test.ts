@@ -13,6 +13,7 @@ import {
   scanTranscriptBuffer,
 } from "../../src/state/transcript";
 import type { RuntimeMessage } from "../../src/engine/types";
+import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -98,7 +99,7 @@ describe("Transcript v2", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "torn", source: {} });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "torn", source: {} });
 
     mkdirSync(join(root, "session_transcripts"), { recursive: true });
     const path = join(root, "session_transcripts", "torn.jsonl");
@@ -133,7 +134,7 @@ describe("Transcript v2", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "sealed", source: {} });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "sealed", source: {} });
 
     mkdirSync(join(root, "session_transcripts"), { recursive: true });
     const path = join(root, "session_transcripts", "sealed.jsonl");
@@ -161,7 +162,7 @@ describe("Transcript v2", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     await store.appendTurnContext("s1", {
       turn_id: "turn-1",
       job_kind: "turn",
@@ -225,7 +226,7 @@ describe("Transcript v2", () => {
     });
     await store.start();
     for (const sessionId of ["s1", "s2", "s3"]) {
-      await store.ensureSession({ session_id: sessionId, source: {} });
+      await store.ensureSession({ workspace: testWorkspace, session_id: sessionId, source: {} });
       await store.appendMessage(sessionId, { role: "user", content: sessionId });
       if (sessionId !== "s3") await store.loadMessages(sessionId);
     }
@@ -245,7 +246,7 @@ describe("Transcript v2", () => {
       replayCacheMaxBytes: 100,
     });
     await small.start();
-    await small.ensureSession({ session_id: "large", source: {} });
+    await small.ensureSession({ workspace: testWorkspace, session_id: "large", source: {} });
     await small.appendMessage("large", { role: "user", content: "x".repeat(500) });
     await small.loadMessages("large");
     expect(small.replayCacheStats()).toEqual(expect.objectContaining({ entries: 0, bytes: 0 }));
@@ -258,7 +259,7 @@ describe("Transcript v2", () => {
     const databasePath = join(root, "var", "db", "local_agent.sqlite3");
     const store = new SqliteRuntimeStore(databasePath);
     await store.start();
-    await store.ensureSession({ session_id: "legacy", source: {} });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "legacy", source: {} });
     await store.stop();
     const transcriptDirectory = join(root, "var", "db", "session_transcripts");
     mkdirSync(transcriptDirectory, { recursive: true });

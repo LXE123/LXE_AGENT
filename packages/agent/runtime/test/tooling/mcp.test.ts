@@ -10,6 +10,7 @@ import {
   setMcpServerEnabled,
 } from "../../src/tooling/mcp";
 import { ToolRegistry } from "../../src/tooling/registry";
+import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -73,6 +74,7 @@ describe("MCP manager", () => {
     expect(manager.status("local").tools).toEqual([{ rawName: "echo", modelName: "mcp__local__echo" }]);
     await registry.execute("mcp__local__echo", {}, {
       session_id: "s1",
+      workspace: testWorkspace,
       handle: {
         signal: new AbortController().signal,
         cancelled: false,
@@ -126,6 +128,7 @@ describe("MCP manager", () => {
     expect(manager.status("slow-start").error).toContain("timed out");
     await expect(registry.execute("mcp__slow-tool__hang", {}, {
       session_id: "s1",
+      workspace: testWorkspace,
       handle: {
         signal: new AbortController().signal,
         cancelled: false,
@@ -231,6 +234,7 @@ describe("MCP manager", () => {
     await manager.start(registry);
     const context = {
       session_id: "s1",
+      workspace: testWorkspace,
       handle: {
         signal: new AbortController().signal,
         cancelled: false,

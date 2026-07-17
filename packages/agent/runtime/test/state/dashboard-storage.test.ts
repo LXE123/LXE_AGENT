@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteRuntimeStore } from "../../src/state/storage";
+import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -15,7 +16,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s-1", source: { platform: "feishu", chat_type: "p2p" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s-1", source: { platform: "feishu", chat_type: "p2p" } });
     await store.appendMessage("s-1", { role: "user", content: "hello" });
     await store.appendMessage("s-1", { role: "assistant", content: "world" });
     await store.recordTurn("s-1", {
@@ -29,8 +30,10 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     expect(listed.total).toBe(1);
     expect(listed.summary).toEqual({ total_sessions: 1, tool_call_count: 2, token_count: 10 });
     expect(listed.items[0]?.source_summary).toEqual({ platform: "feishu", chat_type: "p2p" });
+    expect(listed.items[0]?.workspace).toEqual(testWorkspace);
 
     const detail = await store.sessionDetail("s-1", { limit: 1, page: 2 });
+    expect(detail).toMatchObject({ session: { workspace: testWorkspace } });
     expect(detail?.messages).toEqual([{ role: "assistant", content: "world" }]);
     expect(detail?.messages_page).toMatchObject({ total: 2, current_page: 2, total_pages: 2, has_previous: true, has_next: false });
     expect(await store.sessionDetail("missing", { limit: 10 })).toBeUndefined();
@@ -44,7 +47,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "tool-page", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "tool-page", source: { platform: "feishu" } });
     await store.appendMessage("tool-page", { role: "user", content: "start" });
     await store.appendMessage("tool-page", {
       role: "assistant",
@@ -84,7 +87,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "compacted", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "compacted", source: { platform: "feishu" } });
     await store.appendMessage("compacted", { role: "user", content: "old question" });
     await store.appendMessage("compacted", { role: "assistant", content: "old answer" });
     await store.replaceMessages("compacted", [{ role: "user", content: "model summary" }], "compaction", {
@@ -116,7 +119,7 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       "[上下文记忆已清空]",
     ]);
 
-    await store.ensureSession({ session_id: "missing-transcript", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "missing-transcript", source: { platform: "feishu" } });
     expect((await store.sessionDetail("missing-transcript", { limit: 10 }))?.messages).toEqual([]);
     await store.stop();
   });

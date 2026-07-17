@@ -1,4 +1,4 @@
-import type { AgentJob, EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
+import type { AgentJob, EmitRequest, JsonObject, JsonValue, WorkspaceContext } from "@lxe/protocol";
 import type { RuntimeWireTraceAttempt } from "../providers/trace";
 
 export interface TextBlock extends JsonObject {
@@ -81,6 +81,7 @@ export interface RuntimeHandle {
 export interface RuntimeSessionRecord {
   session_id: string;
   source: JsonObject;
+  workspace: WorkspaceContext;
 }
 
 export interface ToolTurnUsage extends JsonObject {
@@ -159,6 +160,7 @@ export interface SystemPromptContext {
   provider: string;
   model: string;
   skillPrompt: string;
+  workspace: WorkspaceContext;
 }
 
 export interface ToolSchema {

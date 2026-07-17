@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { JsonObject } from "@lxe/protocol";
+import { repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
 import {
   ContextPipeline,
   IMAGE_TOKEN_ESTIMATE,
@@ -20,12 +21,16 @@ import type {
   ToolResultBlock,
 } from "../../src/engine/types";
 
+const workspace = resolveWorkspaceContext(repositoryRoot(import.meta.dir));
+
 class MemoryStore implements RuntimeStore {
   messages: RuntimeMessage[] = [];
   replacements: Array<{ kind: string; messages: RuntimeMessage[]; metadata: JsonObject }> = [];
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
-  async getSession(): Promise<{ session_id: string; source: JsonObject }> { return { session_id: "s1", source: {} }; }
+  async getSession(): Promise<{ session_id: string; source: JsonObject; workspace: typeof workspace }> {
+    return { session_id: "s1", source: {}, workspace };
+  }
   async popPendingEvents(): Promise<JsonObject[]> { return []; }
   async loadMessages(): Promise<RuntimeMessage[]> { return structuredClone(this.messages); }
   async appendTurnContext(): Promise<void> {}

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SqliteRuntimeStore } from "../../src/state/storage";
+import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -11,6 +12,60 @@ afterEach(() => {
 });
 
 describe("SqliteRuntimeStore", () => {
+  test("backfills legacy sessions once and never allows a workspace rebind", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-runtime-workspace-migration-"));
+    roots.push(root);
+    const databasePath = join(root, "local_agent.sqlite3");
+    const legacy = new Database(databasePath, { create: true });
+    legacy.exec(`
+      CREATE TABLE agent_sessions (
+        session_id TEXT PRIMARY KEY,
+        source TEXT NOT NULL DEFAULT '{}',
+        model TEXT NOT NULL DEFAULT '',
+        reasoning_effort TEXT NOT NULL DEFAULT '',
+        model_config TEXT NOT NULL DEFAULT '{}',
+        created_at REAL NOT NULL,
+        last_active_at REAL NOT NULL,
+        message_count INTEGER NOT NULL DEFAULT 0,
+        tool_call_count INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        title TEXT NOT NULL DEFAULT '',
+        api_call_count INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO agent_sessions (session_id, source, created_at, last_active_at)
+      VALUES ('legacy', '{"platform":"feishu"}', 1, 1);
+    `);
+    legacy.close(true);
+
+    const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: testWorkspace });
+    await store.start();
+    expect(await store.getSession("legacy")).toEqual(expect.objectContaining({
+      session_id: "legacy",
+      workspace: testWorkspace,
+    }));
+    await store.rebindSession({
+      session_id: "legacy",
+      source: { chat_id: "same-workspace" },
+      workspace: testWorkspace,
+    });
+    const different = { ...testWorkspace, directory: join(testWorkspace.worktree, "different") };
+    await expect(store.rebindSession({
+      session_id: "legacy",
+      source: {},
+      workspace: different,
+    })).rejects.toThrow("workspace is immutable");
+    expect(await store.sessionDetail("legacy", { limit: 10 })).toMatchObject({
+      session: { workspace: testWorkspace },
+    });
+    await store.stop();
+
+    const reopened = new SqliteRuntimeStore(databasePath, { legacyWorkspace: different });
+    await reopened.start();
+    expect((await reopened.getSession("legacy"))?.workspace).toEqual(testWorkspace);
+    await reopened.stop();
+  });
+
   test("replays legacy tool messages, replacements, and session_messages fallback", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-legacy-store-"));
     roots.push(root);
@@ -74,7 +129,7 @@ describe("SqliteRuntimeStore", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu", chat_id: "c1" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu", chat_id: "c1" } });
     await store.upsertResponseRoute({
       response_route_id: "r1",
       platform: "feishu",
@@ -145,7 +200,7 @@ describe("SqliteRuntimeStore", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "images", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "images", source: { platform: "feishu" } });
     await store.appendMessage("images", {
       role: "user",
       content: [
@@ -174,7 +229,7 @@ describe("SqliteRuntimeStore", () => {
     const databasePath = join(root, "local_agent.sqlite3");
     const store = new SqliteRuntimeStore(databasePath);
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { tool_state: { browser: { page: 1 } } } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { tool_state: { browser: { page: 1 } } } });
     await store.appendPendingEvent("s1", { event_id: "e1", text: "pending" });
     expect(store.discardPendingEvents("s1")).toBe(1);
     await store.appendMessage("s1", { role: "user", content: "keep until reset" }, "turn_input");
@@ -256,7 +311,7 @@ describe("SqliteRuntimeStore", () => {
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
     await store.start();
-    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
     await store.appendMessage("s1", { role: "user", content: "hello" });
     await store.recordTurn("s1", {
       turn_id: "turn-1", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 4,

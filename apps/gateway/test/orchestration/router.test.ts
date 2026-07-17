@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentJob, InboundEvent, JsonObject } from "@lxe/protocol";
+import type { AgentJob, InboundEvent, JsonObject, SessionWorkspaceRequest, WorkspaceContext } from "@lxe/protocol";
 import { SqliteRuntimeStore } from "@lxe/runtime";
 import { FakeChannelAdapter, ChannelRegistry } from "../../src/channels/registry";
 import { buildPermissionPolicy } from "../../src/security/permission-policy";
@@ -15,6 +15,7 @@ import {
 import { SessionBindingStore } from "../../src/state/session-bindings";
 import { SessionRuntimeState } from "../../src/state/session-state";
 import type { RunHandle, SteeringMessage } from "../../src/orchestration/scheduler";
+import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -58,29 +59,30 @@ const event = (overrides: Partial<InboundEvent> = {}): InboundEvent => ({
 });
 
 class FakeStorage implements StoragePort {
-  readonly ensured: JsonObject[] = [];
-  readonly rebound: JsonObject[] = [];
+  readonly ensured: SessionWorkspaceRequest[] = [];
+  readonly rebound: SessionWorkspaceRequest[] = [];
   readonly routes: JsonObject[] = [];
   readonly appended: Array<{ sessionId: string; event: JsonObject }> = [];
   pending: JsonObject[] = [];
   popCalls = 0;
-  readonly sessions = new Set<string>();
+  readonly sessions = new Map<string, WorkspaceContext>();
   rebindMissing = false;
   appendFails = false;
 
-  async ensureSession(request: JsonObject): Promise<void> {
+  async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     this.ensured.push(request);
-    this.sessions.add(String(request.session_id));
+    this.sessions.set(String(request.session_id), request.workspace);
   }
-  async rebindSession(request: JsonObject): Promise<void> {
+  async rebindSession(request: SessionWorkspaceRequest): Promise<void> {
     if (this.rebindMissing) throw new SessionNotFoundError(String(request.session_id));
     this.rebound.push(request);
   }
   async upsertResponseRoute(request: JsonObject): Promise<void> {
     this.routes.push(request);
   }
-  async getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject } | undefined> {
-    return this.sessions.has(sessionId) ? { session_id: sessionId, source: {} } : undefined;
+  async getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject; workspace: typeof testWorkspace } | undefined> {
+    const workspace = this.sessions.get(sessionId);
+    return workspace ? { session_id: sessionId, source: {}, workspace } : undefined;
   }
   async popPendingEvents(): Promise<JsonObject[]> {
     this.popCalls += 1;
@@ -128,7 +130,7 @@ class FakeScheduler implements RouterSchedulerPort {
   }
 }
 
-const setup = () => {
+const setup = (defaultWorkspace: () => WorkspaceContext = () => testWorkspace) => {
   const root = mkdtempSync(join(tmpdir(), "lxe-router-"));
   roots.push(root);
   let idIndex = 0;
@@ -152,6 +154,7 @@ const setup = () => {
     channels,
     state,
     id,
+    defaultWorkspace,
     nowSeconds: () => 1_700_000_000,
   });
   return { router, bindings, storage, scheduler, channel, state };
@@ -189,6 +192,7 @@ describe("SessionRouter permission and normal routes", () => {
       scheduler,
       channels,
       id: () => "job-real",
+      defaultWorkspace: () => testWorkspace,
     });
 
     try {
@@ -238,7 +242,7 @@ describe("SessionRouter permission and normal routes", () => {
       platform: "feishu",
     });
     expect(storage.ensured).toHaveLength(1);
-    expect(storage.ensured[0]?.response_route).toBeUndefined();
+    expect(storage.ensured[0]).not.toHaveProperty("response_route");
     expect(storage.rebound).toEqual([]);
     expect(scheduler.jobs).toHaveLength(1);
     expect(scheduler.jobs[0]?.job).toEqual({
@@ -283,6 +287,7 @@ describe("SessionRouter permission and normal routes", () => {
         system_events: [{ event_id: "pending-1", text: "done" }],
       },
       user_content_blocks: [],
+      workspace: testWorkspace,
     });
   });
 
@@ -313,6 +318,28 @@ describe("SessionRouter permission and normal routes", () => {
     expect(storage.ensured).toHaveLength(1);
     expect(storage.rebound).toHaveLength(1);
     expect(state.isAutonomySuspended(sessionId)).toBe(false);
+  });
+
+  test("keeps an existing session on its workspace while clear uses the latest default", async () => {
+    let currentWorkspace: WorkspaceContext = testWorkspace;
+    const setupValue = setup(() => currentWorkspace);
+    await setupValue.router.routeMessage(event());
+    const firstSession = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    expect(setupValue.scheduler.jobs.at(-1)?.job.workspace).toEqual(testWorkspace);
+
+    currentWorkspace = {
+      ...testWorkspace,
+      directory: join(testWorkspace.worktree, "new-default"),
+    };
+    await setupValue.router.routeMessage(event({ message_id: "message-2", response_route_id: "route-2" }));
+    expect(setupValue.scheduler.jobs.at(-1)?.job.workspace).toEqual(testWorkspace);
+
+    await setupValue.router.routeMessage(event({ user_input: "/clear", message_id: "clear-message" }));
+    const secondSession = setupValue.bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    expect(secondSession).not.toBe(firstSession);
+    expect(setupValue.storage.ensured.at(-1)?.workspace).toEqual(currentWorkspace);
+    await setupValue.router.routeMessage(event({ message_id: "message-3", response_route_id: "route-3" }));
+    expect(setupValue.scheduler.jobs.at(-1)?.job.workspace).toEqual(currentWorkspace);
   });
 
   test("recreates a missing persisted session when a binding still exists", async () => {

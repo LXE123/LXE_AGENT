@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
-import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
-import { createLogger, runWithLogContext, type Environment, type Logger } from "@lxe/core";
+import type { AgentJob, EmitRequest, JsonObject, WorkspaceContext } from "@lxe/protocol";
+import {
+  assertWorkspaceAvailable,
+  createLogger,
+  runWithLogContext,
+  sameWorkspaceContext,
+  workspaceContextFrom,
+  type Environment,
+  type Logger,
+} from "@lxe/core";
 import { ToolExecutionError, ToolRegistry, type ToolExposureOptions } from "../tooling/registry";
 import {
   ContextCompactionError,
@@ -49,7 +57,7 @@ export interface TypeScriptAgentRuntimeOptions {
   traceController?: RuntimeTraceControllerPort;
   tools: ToolRegistry;
   toolExposure?: ToolExposureOptions | (() => ToolExposureOptions);
-  skillSnapshot?: () => RuntimeSkillSnapshot;
+  skillSnapshot?: (workspace: WorkspaceContext) => RuntimeSkillSnapshot;
   resolveSkillMetadata?: (skillName: string) => { module: string } | undefined;
   emitter: RuntimeEmitter;
   systemPrompt: string | ((context: SystemPromptContext) => string);
@@ -144,6 +152,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     if (!this.started) throw new Error("runtime is not started");
     const session = await this.options.store.getSession(job.session_id);
     if (!session) throw new Error(`session not found: ${job.session_id}`);
+    const requestedWorkspace = workspaceContextFrom(job.workspace);
+    if (!sameWorkspaceContext(session.workspace, requestedWorkspace)) {
+      throw new Error(`job workspace does not match session: ${job.session_id}`);
+    }
+    const workspace = assertWorkspaceAvailable(session.workspace);
     const providerSnapshot = this.options.providerManager?.acquire();
     const provider = providerSnapshot?.provider ?? this.options.provider;
     if (!provider) throw new Error("runtime provider is not configured");
@@ -262,7 +275,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         await recordUsage("completed");
         return this.outcome("completed", "", inputTokens, outputTokens, toolCalls);
       }
-      const skillSnapshot = this.options.skillSnapshot?.();
+      const skillSnapshot = this.options.skillSnapshot?.(workspace);
       const skillModule = (name: string): string => skillSnapshot
         ? skillSnapshot.modules[name]?.trim() ?? ""
         : this.options.resolveSkillMetadata?.(name)?.module.trim() ?? "";
@@ -287,6 +300,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         provider: descriptor?.name ?? "custom",
         model: descriptor?.model ?? this.options.display?.model ?? "",
         skillPrompt: skillSnapshot?.prompt ?? "",
+        workspace,
       };
       const systemPrompt = typeof this.options.systemPrompt === "function"
         ? this.options.systemPrompt(systemPromptContext)
@@ -559,6 +573,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               turn_id: job.job_id,
               exposureState: toolExposure,
               skill_names: skillNames,
+              workspace,
             });
             if (result.state_patch && Object.keys(result.state_patch).length > 0) {
               await this.options.store.patchSessionState(job.session_id, result.state_patch);

@@ -4,14 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolRegistry } from "@lxe/runtime";
 import { registerFeishuImTools, type FeishuImToolApi } from "../../../src/channels/feishu/tools";
+import { workspaceFor } from "../../workspace";
 
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-const context = () => ({
+const context = (root: string) => ({
   session_id: "session-1",
+  workspace: workspaceFor(root),
   handle: {
     signal: new AbortController().signal,
     cancelled: false,
@@ -38,11 +40,10 @@ describe("native Feishu IM tools", () => {
     const registry = new ToolRegistry();
     registerFeishuImTools(registry, {
       api,
-      workspaceRoot: root,
       sessionSource: async () => ({ platform: "feishu", chat_id: "oc_current" }),
     });
 
-    const messages = await registry.execute("feishu_im_bot_get_messages", { page_size: 20 }, context());
+    const messages = await registry.execute("feishu_im_bot_get_messages", { page_size: 20 }, context(root));
     expect(JSON.parse(String(messages.content[0]?.text))).toMatchObject({
       chat_id: "oc_current", messages: [{ message_id: "om_1", content: "你好" }],
     });
@@ -50,7 +51,7 @@ describe("native Feishu IM tools", () => {
 
     const resource = await registry.execute("feishu_im_bot_fetch_resource", {
       message_id: "om_1", file_key: "img_1", type: "image",
-    }, context());
+    }, context(root));
     const payload = JSON.parse(String(resource.content[0]?.text));
     expect(readFileSync(payload.saved_path)).toEqual(Buffer.from([1, 2, 3]));
     expect(resource.files).toEqual([payload.saved_path]);

@@ -325,7 +325,7 @@ function DesktopStatusPanel({
             <dl>
               <div><dt>资源目录</dt><dd>{health.resource_root}</dd></div>
               <div><dt>数据目录</dt><dd>{health.data_root}</dd></div>
-              <div><dt>工作区</dt><dd>{health.workspace_root}</dd></div>
+              <div><dt>新会话默认工作区</dt><dd>{health.workspace_root}</dd></div>
             </dl>
           </details>
         ) : null}
@@ -393,7 +393,7 @@ function DesktopSettingsForm({
             />
           </label>
           <label className="desktop-field-wide">
-            <span>默认工作区</span>
+            <span>新会话默认工作区</span>
             <span className="desktop-path-input">
               <input onChange={(event) => onChange({ workspaceRoot: event.target.value })} value={form.workspaceRoot} />
               <button onClick={onSelectWorkspace} title="选择文件夹" type="button"><FolderOpen size={17} /></button>

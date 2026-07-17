@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parse } from "yaml";
 import { createLogger } from "@lxe/core";
-import type { JsonObject } from "@lxe/protocol";
+import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 
 export interface SkillPromptOptions {
   allowedTypes?: ReadonlySet<string>;
@@ -36,8 +36,6 @@ export interface SkillCatalogSnapshot {
 export interface SkillCatalogOptions {
   refreshIntervalMs?: number;
   now?: () => number;
-  /** Workspace used to render repository instruction paths for the model. */
-  workspaceRoot?: string;
 }
 
 export class SkillCatalogError extends Error {
@@ -148,6 +146,14 @@ const containsPath = (root: string, path: string): boolean => {
   return relation === "" || (!isAbsolute(relation) && relation !== ".." && !relation.startsWith(`..${sep}`));
 };
 
+type SkillWorkspaceContext = Pick<WorkspaceContext, "directory" | "worktree">;
+
+const skillWorkspaceContext = (
+  value: SkillWorkspaceContext | string,
+): SkillWorkspaceContext => typeof value === "string"
+  ? { directory: resolve(value), worktree: resolve(value) }
+  : { directory: resolve(value.directory), worktree: resolve(value.worktree) };
+
 export class SkillCatalog {
   private readonly logger = createLogger("runtime.skills");
   private signature = "";
@@ -158,7 +164,6 @@ export class SkillCatalog {
   private readonly snapshotCache = new Map<string, CachedSkillCatalogSnapshot>();
   private readonly refreshIntervalMs: number;
   private readonly now: () => number;
-  private readonly workspaceRoot: string;
 
   constructor(
     private readonly projectRoot: string,
@@ -169,7 +174,6 @@ export class SkillCatalog {
       options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS,
     ));
     this.now = options.now ?? (() => performance.now());
-    this.workspaceRoot = resolve(options.workspaceRoot ?? projectRoot);
   }
 
   list(options: SkillPromptOptions = {}): SkillManifest[] {
@@ -182,17 +186,27 @@ export class SkillCatalog {
     return manifest && allowedBy(manifest, options) ? structuredClone(manifest) : undefined;
   }
 
-  buildPrompt(options: SkillPromptOptions = {}): string {
-    return this.snapshot(options).prompt;
+  buildPrompt(
+    options: SkillPromptOptions = {},
+    workspace: SkillWorkspaceContext | string = this.projectRoot,
+  ): string {
+    return this.snapshot(options, workspace).prompt;
   }
 
-  snapshot(options: SkillPromptOptions = {}): SkillCatalogSnapshot {
-    return this.cachedSnapshot(options).snapshot;
+  snapshot(
+    options: SkillPromptOptions = {},
+    workspace: SkillWorkspaceContext | string = this.projectRoot,
+  ): SkillCatalogSnapshot {
+    return this.cachedSnapshot(options, workspace).snapshot;
   }
 
-  private cachedSnapshot(options: SkillPromptOptions): CachedSkillCatalogSnapshot {
+  private cachedSnapshot(
+    options: SkillPromptOptions,
+    workspace: SkillWorkspaceContext | string = this.projectRoot,
+  ): CachedSkillCatalogSnapshot {
     this.refresh();
-    const key = optionsKey(options);
+    const resolvedWorkspace = skillWorkspaceContext(workspace);
+    const key = JSON.stringify([optionsKey(options), resolvedWorkspace.directory, resolvedWorkspace.worktree]);
     const existing = this.snapshotCache.get(key);
     if (existing) {
       this.snapshotCache.delete(key);
@@ -208,7 +222,7 @@ export class SkillCatalog {
       manifests,
       snapshot: Object.freeze({
         names,
-        prompt: this.promptFor(manifests),
+        prompt: this.promptFor(manifests, resolvedWorkspace),
         modules,
       }),
     };
@@ -221,10 +235,10 @@ export class SkillCatalog {
     return cached;
   }
 
-  private promptFor(manifests: readonly SkillManifest[]): string {
+  private promptFor(manifests: readonly SkillManifest[], workspace: SkillWorkspaceContext): string {
     const rows = manifests.map((manifest) => {
-      const instructions = manifest.source === "repository" && containsPath(this.workspaceRoot, manifest.location)
-        ? relative(this.workspaceRoot, manifest.location).replaceAll("\\", "/")
+      const instructions = containsPath(workspace.worktree, manifest.location)
+        ? relative(workspace.directory, manifest.location).replaceAll("\\", "/")
         : manifest.location.replaceAll("\\", "/");
       const commands = manifest.commands.length > 0
         ? `\n  Commands: ${manifest.commands.join(", ")}`

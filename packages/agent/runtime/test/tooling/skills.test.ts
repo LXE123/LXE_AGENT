@@ -47,12 +47,29 @@ describe("skill context", () => {
       "utf8",
     );
 
-    const catalog = new SkillCatalog(resourceRoot, join(resourceRoot, "missing-user"), {
-      workspaceRoot,
-    });
+    const catalog = new SkillCatalog(resourceRoot, join(resourceRoot, "missing-user"));
     const normalizedSkillPath = skillPath.replaceAll("\\", "/");
-    expect(catalog.buildPrompt()).toContain(`Instructions: ${normalizedSkillPath}`);
-    expect(catalog.buildPrompt()).not.toContain("Instructions: skills/demo/SKILL.md");
+    expect(catalog.buildPrompt({}, workspaceRoot)).toContain(`Instructions: ${normalizedSkillPath}`);
+    expect(catalog.buildPrompt({}, workspaceRoot)).not.toContain("Instructions: skills/demo/SKILL.md");
+  });
+
+  test("renders a worktree skill relative to the session working directory", () => {
+    const worktree = mkdtempSync(join(tmpdir(), "lxe-skill-worktree-"));
+    roots.push(worktree);
+    const directory = join(worktree, "packages", "app");
+    mkdirSync(directory, { recursive: true });
+    mkdirSync(join(worktree, "skills", "demo"), { recursive: true });
+    writeFileSync(
+      join(worktree, "skills", "demo", "SKILL.md"),
+      "---\nname: demo\ndescription: Worktree skill\n---\n# Demo\n",
+      "utf8",
+    );
+    const catalog = new SkillCatalog(worktree, join(worktree, "missing-user"));
+    const prompt = catalog.buildPrompt({}, {
+      directory,
+      worktree,
+    });
+    expect(prompt).toContain("Instructions: ../../skills/demo/SKILL.md");
   });
 
   test("prefers repository skills, refreshes by signature, and validates references", () => {

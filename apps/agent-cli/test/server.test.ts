@@ -8,6 +8,12 @@ import { AgentProtocolServer, type AgentProtocolServerOptions } from "../src/ser
 
 type CreateService = NonNullable<AgentProtocolServerOptions["createService"]>;
 
+const workspace = (root: string) => ({
+  server_scope: "local" as const,
+  directory: root,
+  worktree: root,
+});
+
 const fakeService: CreateService = (() => ({
   start: async () => {
     createLogger("runtime.maintenance").info("data_sync_uploaded", {
@@ -27,7 +33,7 @@ describe("AgentProtocolServer", () => {
       version: AGENT_PROTOCOL_VERSION,
       id: "health-1",
       command: "ensure_session",
-      payload: { request: { session_id: "session-1" } },
+      payload: { request: { session_id: "session-1", source: {}, workspace: workspace(process.cwd()) } },
     }));
     expect(output).toHaveLength(1);
     expect(output[0]).toMatchObject({ id: "health-1", ok: false });
@@ -88,7 +94,7 @@ describe("AgentProtocolServer", () => {
         payload: {
           resource_root: root,
           data_root: root,
-          workspace_root: root,
+          legacy_workspace: workspace(root),
         },
       }));
 

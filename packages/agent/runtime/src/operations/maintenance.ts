@@ -41,7 +41,6 @@ const systemClock: MaintenanceClock = {
 };
 
 interface MaintenanceSchedulerOptions {
-  projectRoot: string;
   environment: Environment;
   store: SqliteRuntimeStore;
   gatewayId: string;
@@ -157,7 +156,8 @@ export class MaintenanceScheduler {
           const next = await this.options.store.sessionDetail(sessionId, { limit: 200, page });
           if (Array.isArray(next?.messages)) messages.push(...next.messages);
         }
-        sessions.push({ ...session, messages });
+        const { workspace: _localWorkspace, ...portableSession } = session;
+        sessions.push({ ...portableSession, messages });
       }
       if (listed.items.length < 200) break;
     }

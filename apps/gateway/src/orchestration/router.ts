@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { AgentJob, InboundEvent, JsonObject } from "@lxe/protocol";
+import type {
+  AgentJob,
+  InboundEvent,
+  JsonObject,
+  SessionWorkspaceRequest,
+  WorkspaceContext,
+} from "@lxe/protocol";
 import { createLogger, runWithLogContext } from "@lxe/core";
 import type { ChannelRegistry } from "../channels/registry";
 import {
@@ -25,11 +31,12 @@ export class SessionNotFoundError extends Error {
 export interface StorageSessionRecord {
   session_id: string;
   source: JsonObject;
+  workspace: WorkspaceContext;
 }
 
 export interface StoragePort {
-  ensureSession(request: JsonObject): Promise<void>;
-  rebindSession(request: JsonObject): Promise<void>;
+  ensureSession(request: SessionWorkspaceRequest): Promise<void>;
+  rebindSession(request: SessionWorkspaceRequest): Promise<void>;
   upsertResponseRoute(request: JsonObject): Promise<void>;
   /** Reads the session from the in-process Runtime store. */
   getSession(sessionId: string): Promise<StorageSessionRecord | undefined>;
@@ -50,6 +57,7 @@ interface RouterOptions {
   policy: PermissionPolicy;
   bindings: SessionBindingStore;
   storage: StoragePort;
+  defaultWorkspace: () => WorkspaceContext;
   scheduler: RouterSchedulerPort;
   channels: ChannelRegistry;
   state?: SessionRuntimeState;
@@ -157,6 +165,8 @@ export class SessionRouter {
     }
 
     const entry = await this.loadOrCreateSession(context);
+    const session = await this.options.storage.getSession(entry.session_id);
+    if (!session) throw new SessionNotFoundError(entry.session_id);
     await this.options.storage.upsertResponseRoute(responseRoutePayload(context));
     this.state.resumeAutonomy(entry.session_id);
     if (await this.trySteer(entry.session_id, context)) {
@@ -185,6 +195,7 @@ export class SessionRouter {
       user_input: context.user_input,
       job_kind: "turn",
       sender_nick: context.sender_nick,
+      workspace: session.workspace,
       source: { ...context.source },
       raw_data: rawData,
       user_content_blocks: context.user_content_blocks.map((block) => ({ ...block })),
@@ -224,10 +235,13 @@ export class SessionRouter {
   private async loadOrCreateSession(context: SessionContext): Promise<SessionBindingEntry> {
     const existing = this.options.bindings.get(context.session_key);
     if (existing?.session_id) {
+      const stored = await this.options.storage.getSession(existing.session_id);
+      const workspace = stored?.workspace ?? this.options.defaultWorkspace();
       try {
         await this.options.storage.rebindSession({
           session_id: existing.session_id,
           source: { ...context.source },
+          workspace,
         });
         this.logger.debug("session_rebound", { session_id: existing.session_id, session_key: context.session_key });
       } catch (error) {
@@ -235,6 +249,7 @@ export class SessionRouter {
         await this.options.storage.ensureSession({
           session_id: existing.session_id,
           source: { ...context.source },
+          workspace,
           entry_text: context.user_input,
         });
         this.logger.info("session_created", { session_id: existing.session_id, session_key: context.session_key, recovered_binding: true });
@@ -245,6 +260,7 @@ export class SessionRouter {
     await this.options.storage.ensureSession({
       session_id: entry.session_id,
       source: { ...context.source },
+      workspace: this.options.defaultWorkspace(),
       entry_text: context.user_input,
     });
     this.logger.info("session_created", { session_id: entry.session_id, session_key: context.session_key, recovered_binding: false });
@@ -342,6 +358,7 @@ export class SessionRouter {
     await this.options.storage.ensureSession({
       session_id: next.session_id,
       source: { ...context.source },
+      workspace: this.options.defaultWorkspace(),
       entry_text: context.user_input,
     });
     await this.sendFeedback(context, next.session_id, "已创建新会话。");

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { platform, release } from "node:os";
 import { join } from "node:path";
+import type { WorkspaceContext } from "@lxe/protocol";
 
 export const SYSTEM_PROMPT_CACHE_BREAKPOINT = "<<system-prompt-cache-breakpoint>>";
 
@@ -31,7 +32,7 @@ export interface BuildSystemPromptOptions {
   provider: string;
   model: string;
   skillPrompt: string;
-  workspace?: string;
+  workspace: WorkspaceContext;
   now?: Date;
 }
 
@@ -50,7 +51,14 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
   const volatile = [
     options.skillPrompt.trim(),
     `## Runtime\nOS: ${platform()} ${release()}\nBun: ${Bun.version}\nProvider: ${options.provider || "unknown"}\nModel: ${options.model || "unknown"}\nPlatform: ${options.platform || "unknown"}`,
-    `## Workspace\nYour working directory is: ${options.workspace ?? options.projectRoot}\nTreat this directory as the single workspace for file operations. Root-level .env* files and var/db, var/logs are write-protected.`,
+    [
+      "## Workspace",
+      `Working directory: ${options.workspace.directory}`,
+      `Git worktree root: ${options.workspace.worktree}`,
+      `Server scope: ${options.workspace.server_scope}`,
+      "Relative paths start from the working directory.",
+      "File operations are limited to the Git worktree root. Root-level .env* files and var/db, var/logs are write-protected.",
+    ].join("\n"),
     `## Current Date & Time\n${date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`,
   ].filter(Boolean).join("\n\n");
   return `${stable}\n\n${SYSTEM_PROMPT_CACHE_BREAKPOINT}\n\n${volatile}`;
