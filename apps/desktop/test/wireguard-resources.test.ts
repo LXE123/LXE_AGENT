@@ -11,7 +11,10 @@ describe("packaged WireGuard resources", () => {
     const hash = "6daa5d37a9e2950dfb8c48b95ab8e562cb2bad1c785d020f38f97bea4c6a5566";
     expect(prepare).toContain("https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi");
     expect(prepare).toContain(hash);
-    expect(prepare).toContain("Get-AuthenticodeSignature");
+    expect(prepare).toContain("[System.Security.Cryptography.SHA256]::Create()");
+    expect(prepare).not.toContain("Get-FileHash");
+    expect(prepare).toContain("Join-Path $PSHOME");
+    expect(prepare).toContain("Microsoft.PowerShell.Security\\Get-AuthenticodeSignature");
     expect(prepare).toContain("WireGuard LLC");
     expect(staging).toContain(hash);
     expect(staging).toContain("wireguard-amd64-1.1.msi");
@@ -23,6 +26,8 @@ describe("packaged WireGuard resources", () => {
       "utf8",
     );
     expect(provision).toContain("/installmanagerservice");
+    expect(provision).toContain("Join-Path $PSHOME");
+    expect(provision).toContain("Microsoft.PowerShell.Security\\Get-AuthenticodeSignature");
     expect(provision).toContain("$SecureConfiguration = \"$PlainConfiguration.dpapi\"");
     expect(provision).toContain("/installtunnelservice");
     expect(provision).toContain("WireGuardTunnel`$$TunnelName");
