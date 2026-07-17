@@ -19,7 +19,7 @@ export { RuntimeProviderError } from "./provider-errors";
 
 const logger = createLogger("runtime.provider");
 const warnedThinkingNormalizations = new Set<string>();
-const KIMI_CODING_USER_AGENT = "claude-code/0.1.0";
+const KIMI_CODING_USER_AGENT = "KimiCLI/1.5";
 const DEEPSEEK_IMAGE_PLACEHOLDER = "[image omitted: DeepSeek Anthropic API does not support image content]";
 const DEEPSEEK_REDACTED_THINKING_PLACEHOLDER = "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]";
 
@@ -37,6 +37,8 @@ export interface ProviderDescriptor {
   maxTokens: number;
   defaultHeaders: Record<string, string>;
   thinkingStyle: string;
+  thinkingLevels: string[];
+  thinkingDefault: string;
   thinkingEnabled: boolean;
   thinkingEffort: string;
   thinkingDisplay: string;
@@ -133,6 +135,19 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
   if (modelSpec === null || typeof modelSpec !== "object" || Array.isArray(modelSpec)) {
     throw new Error(`unsupported LLM model: ${name}/${model}`);
   }
+  const selectedModel = modelSpec as Record<string, unknown>;
+  const thinkingLevels = Array.isArray(selectedModel.thinking_levels)
+    ? selectedModel.thinking_levels.map((level) => String(level ?? "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const declaredThinkingDefault = String(selectedModel.thinking_default ?? "").trim().toLowerCase();
+  const thinkingDefault = thinkingLevels.includes(declaredThinkingDefault)
+    ? declaredThinkingDefault
+    : thinkingLevels[0] ?? (declaredThinkingDefault || "low");
+  const requestedThinkingEffort = envText(env, "AGENT_LLM_THINKING_EFFORT", thinkingDefault).toLowerCase();
+  const thinkingEffort = thinkingLevels.length === 0 || thinkingLevels.includes(requestedThinkingEffort)
+    ? requestedThinkingEffort
+    : thinkingDefault;
+  const thinkingRequired = thinkingLevels.length > 0 && !thinkingLevels.includes("off");
   const authRoot = readObject(paths.authProfiles);
   const profiles = authRoot.profiles as Record<string, unknown> | undefined;
   const profile = profiles?.[name] as Record<string, unknown> | undefined;
@@ -149,13 +164,15 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
     model,
     baseURL: String(spec.base_url ?? "").trim(),
     apiKey,
-    maxTokens: configuredMax || Math.max(1, Number((modelSpec as Record<string, unknown>).max_tokens ?? 4096)),
+    maxTokens: configuredMax || Math.max(1, Number(selectedModel.max_tokens ?? 4096)),
     defaultHeaders,
-    thinkingStyle: String((modelSpec as Record<string, unknown>).thinking_request_style ?? "none").trim(),
-    thinkingEnabled: envFlag(env, "AGENT_LLM_THINKING_ENABLED", true),
-    thinkingEffort: envText(env, "AGENT_LLM_THINKING_EFFORT", "low").toLowerCase(),
+    thinkingStyle: String(selectedModel.thinking_request_style ?? "none").trim(),
+    thinkingLevels,
+    thinkingDefault,
+    thinkingEnabled: thinkingRequired || (envFlag(env, "AGENT_LLM_THINKING_ENABLED", true) && thinkingEffort !== "off"),
+    thinkingEffort,
     thinkingDisplay: envText(env, "AGENT_LLM_THINKING_DISPLAY", "omitted").toLowerCase(),
-    contextWindowTokens: Math.max(0, Math.trunc(Number((modelSpec as Record<string, unknown>).context_window_tokens ?? 0))),
+    contextWindowTokens: Math.max(0, Math.trunc(Number(selectedModel.context_window_tokens ?? 0))),
     requestIdleTimeoutMs: envInteger(env, "LLM_REQUEST_TIMEOUT_S", 120, { min: 1, max: 3_600 }) * 1_000,
   };
 }
@@ -325,14 +342,6 @@ const safeBudgetTokens = (budget: number, maxTokens: number): number | undefined
 
 export const buildThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
   const style = descriptor.thinkingStyle;
-  if (descriptor.name === "kimi_coding" && style === "anthropic-budget") {
-    const budgetTokens = safeBudgetTokens(4_000, descriptor.maxTokens);
-    if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off" || budgetTokens === undefined) {
-      return { thinking: { type: "disabled" } };
-    }
-    if (descriptor.thinkingEffort !== "low") warnThinkingNormalization(descriptor, "low");
-    return { thinking: { type: "enabled", budget_tokens: budgetTokens } };
-  }
   if (style === "anthropic-effort") {
     if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off") return { thinking: { type: "disabled" } };
     const effort = ["xhigh", "max"].includes(descriptor.thinkingEffort)
@@ -343,12 +352,16 @@ export const buildThinkingPayload = (descriptor: ProviderDescriptor): Record<str
     }
     return { thinking: { type: "enabled" }, output_config: { effort } };
   }
-  if (!descriptor.thinkingEnabled) return {};
   if (style === "anthropic-adaptive") {
-    const effort = ["low", "medium", "high", "xhigh"].includes(descriptor.thinkingEffort) ? descriptor.thinkingEffort : "medium";
+    if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off") return { thinking: { type: "disabled" } };
+    const effort = ["low", "medium", "high", "xhigh", "max"].includes(descriptor.thinkingEffort)
+      ? descriptor.thinkingEffort
+      : descriptor.thinkingDefault;
+    if (effort !== descriptor.thinkingEffort) warnThinkingNormalization(descriptor, effort);
     const display = ["omitted", "summarized"].includes(descriptor.thinkingDisplay) ? descriptor.thinkingDisplay : "omitted";
     return { thinking: { type: "adaptive", display }, output_config: { effort } };
   }
+  if (!descriptor.thinkingEnabled) return {};
   if (style === "anthropic-budget" && descriptor.maxTokens > 1_024) {
     const budgets: Record<string, number> = { low: 4_000, medium: 8_000, high: 16_000, xhigh: 32_000 };
     const budget = budgets[descriptor.thinkingEffort] ?? budgets.medium!;
@@ -356,6 +369,18 @@ export const buildThinkingPayload = (descriptor: ProviderDescriptor): Record<str
     return budgetTokens === undefined ? {} : { thinking: { type: "enabled", budget_tokens: budgetTokens } };
   }
   return {};
+};
+
+export const buildSummaryThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
+  if (descriptor.thinkingStyle === "provider-managed") return {};
+  if (descriptor.thinkingLevels.length > 0 && !descriptor.thinkingLevels.includes("off")) {
+    return buildThinkingPayload({
+      ...descriptor,
+      thinkingEnabled: true,
+      thinkingEffort: descriptor.thinkingDefault,
+    });
+  }
+  return { thinking: { type: "disabled" } };
 };
 
 export function buildProviderRequest(
@@ -659,7 +684,7 @@ export class AnthropicRuntimeProvider implements RuntimeProvider {
         system: SUMMARY_SYSTEM_PROMPT,
         messages: adaptMessagesForProvider(request.messages, this.descriptor),
         stream: true,
-        ...(this.descriptor.thinkingStyle === "provider-managed" ? {} : { thinking: { type: "disabled" } }),
+        ...buildSummaryThinkingPayload(this.descriptor),
       }, { signal: watchdog.signal });
       try {
         stream.on?.("connect", () => watchdog.activity());

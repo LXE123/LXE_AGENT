@@ -102,11 +102,20 @@ const kimiClassification = (status: number, text: string): Classification => {
   if (contains(text, "security risk", "current url poses a security risk")) return {
     category: "工具调用错误", userMessage: `${label} 拒绝访问该 URL，当前 URL 被判定存在安全风险。`, retryable: false,
   };
+  if (contains(text, "does not have access to k3")) return {
+    category: "权限错误", userMessage: `${label} 当前会员套餐不支持 K3，请升级套餐或改用 kimi-for-coding。`, retryable: false,
+  };
+  if (contains(text, "supports only kimi-k3 up to 256k context")) return {
+    category: "权限错误", userMessage: `${label} 当前会员套餐的 K3 上下文上限为 256K，请缩短上下文或升级套餐。`, retryable: false,
+  };
+  if (contains(text, "does not have access to kimi-for-coding-highspeed")) return {
+    category: "权限错误", userMessage: `${label} 当前会员套餐不支持 HighSpeed，请升级套餐或改用 kimi-for-coding。`, retryable: false,
+  };
   if (status === 401 || contains(text, "api key appears to be invalid", "invalid authentication", "api key", "authentication")) return {
     category: "认证错误", userMessage: `${label} 认证失败，请检查 API Key 是否无效或已过期。`, retryable: false,
   };
   if (status === 402 || contains(text, "membership benefits")) return {
-    category: "会员权益异常", userMessage: `${label} 会员权益异常，请检查当前账号权益。`, retryable: false,
+    category: "会员权益异常", userMessage: `${label} 暂时无法验证会员权益，请稍后重试。`, retryable: true,
   };
   if (status === 404 || contains(text, "not found the model", "method not found", "not found")) return {
     category: "资源未找到", userMessage: `${label} 模型或接口未找到，请检查模型名称和账号权限。`, retryable: false,

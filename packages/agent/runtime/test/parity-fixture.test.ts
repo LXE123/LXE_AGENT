@@ -31,7 +31,8 @@ describe("frozen main production parity", () => {
   test("maps the frozen main canonical tool exchange only at the Provider boundary", () => {
     const descriptor: ProviderDescriptor = {
       name: "kimi_coding", model: "fixture", baseURL: "", apiKey: "", maxTokens: 1,
-      defaultHeaders: {}, thinkingStyle: "none", thinkingEnabled: false, thinkingEffort: "off",
+      defaultHeaders: {}, thinkingStyle: "none", thinkingLevels: ["off"], thinkingDefault: "off",
+      thinkingEnabled: false, thinkingEffort: "off",
       thinkingDisplay: "omitted", contextWindowTokens: 1, requestIdleTimeoutMs: 1,
     };
     expect(adaptMessagesForProvider(

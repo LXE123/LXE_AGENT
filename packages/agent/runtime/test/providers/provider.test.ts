@@ -6,6 +6,7 @@ import {
   AnthropicRuntimeProvider,
   AtomicRuntimeProviderManager,
   buildProviderRequest,
+  buildSummaryThinkingPayload,
   buildSystemPayload,
   buildThinkingPayload,
   loadProviderDescriptor,
@@ -30,30 +31,58 @@ describe("Anthropic-compatible provider", () => {
       baseURL: "https://api.kimi.com/coding/",
       apiKey: "secret-key",
       maxTokens: 32768,
-      defaultHeaders: expect.objectContaining({ "User-Agent": "claude-code/0.1.0" }),
+      defaultHeaders: expect.objectContaining({ "User-Agent": "KimiCLI/1.5" }),
+      thinkingLevels: ["off", "low", "medium", "high"],
+      thinkingDefault: "medium",
+      thinkingEnabled: true,
+      thinkingEffort: "medium",
       requestIdleTimeoutMs: 120_000,
     }));
   });
 
-  test("restores main-compatible Kimi and DeepSeek request controls", () => {
+  test("builds adaptive Kimi and effort-based DeepSeek request controls", () => {
     const projectRoot = repositoryRoot(import.meta.dir);
     const kimi = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_MODEL: "kimi-for-coding",
       KIMI_CODE_API_KEY: "secret-key",
     });
+    for (const effort of ["low", "medium", "high"] as const) {
+      expect(buildThinkingPayload({ ...kimi, thinkingEffort: effort })).toEqual({
+        thinking: { type: "adaptive", display: "omitted" },
+        output_config: { effort },
+      });
+    }
     expect(buildThinkingPayload({ ...kimi, thinkingEnabled: false })).toEqual({ thinking: { type: "disabled" } });
     expect(buildThinkingPayload({ ...kimi, thinkingEffort: "off" })).toEqual({ thinking: { type: "disabled" } });
-    expect(buildThinkingPayload({ ...kimi, maxTokens: 1_024 })).toEqual({ thinking: { type: "disabled" } });
-    expect(buildThinkingPayload({ ...kimi, maxTokens: 4_096 })).toEqual({
-      thinking: { type: "enabled", budget_tokens: 4_000 },
-    });
-    expect(buildThinkingPayload({ ...kimi, maxTokens: 3_000 })).toEqual({
-      thinking: { type: "enabled", budget_tokens: 1_976 },
-    });
     expect(buildThinkingPayload({ ...kimi, thinkingEffort: "wild" })).toEqual({
-      thinking: { type: "enabled", budget_tokens: 4_000 },
+      thinking: { type: "adaptive", display: "omitted" },
+      output_config: { effort: "medium" },
     });
+    expect(buildSummaryThinkingPayload(kimi)).toEqual({ thinking: { type: "disabled" } });
+
+    const k3 = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "k3",
+      AGENT_LLM_THINKING_ENABLED: "0",
+      AGENT_LLM_THINKING_EFFORT: "low",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
+    expect(k3).toEqual(expect.objectContaining({
+      model: "k3",
+      maxTokens: 131_072,
+      contextWindowTokens: 262_144,
+      thinkingLevels: ["max"],
+      thinkingDefault: "max",
+      thinkingEnabled: true,
+      thinkingEffort: "max",
+    }));
+    const k3Thinking = {
+      thinking: { type: "adaptive", display: "omitted" },
+      output_config: { effort: "max" },
+    };
+    expect(buildThinkingPayload(k3)).toEqual(k3Thinking);
+    expect(buildSummaryThinkingPayload(k3)).toEqual(k3Thinking);
 
     const deepseek = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "deepseek",
@@ -96,6 +125,44 @@ describe("Anthropic-compatible provider", () => {
     expect(buildSystemPayload(" system ")).toBe("system");
   });
 
+  test("keeps required K3 adaptive thinking enabled during summaries", async () => {
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "k3",
+      AGENT_LLM_THINKING_ENABLED: "0",
+      AGENT_LLM_THINKING_EFFORT: "off",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
+    let captured: Record<string, unknown> = {};
+    const provider = new AnthropicRuntimeProvider(descriptor, {
+      messages: {
+        stream: (parameters) => {
+          captured = parameters;
+          return {
+            finalMessage: async () => ({
+              content: [{ type: "text", text: "summary" }],
+              stop_reason: "end_turn",
+              usage: { input_tokens: 3, output_tokens: 4 },
+            }),
+          };
+        },
+      },
+    });
+
+    await provider.summarize({
+      messages: [{ role: "user", content: "summarize" }],
+      signal: new AbortController().signal,
+      kind: "history",
+    });
+
+    expect(captured).toEqual(expect.objectContaining({
+      model: "k3",
+      max_tokens: 32_768,
+      thinking: { type: "adaptive", display: "omitted" },
+      output_config: { effort: "max" },
+    }));
+  });
+
   test("uses SDK streaming and maps text and tool blocks into runtime types", async () => {
     let captured: Record<string, unknown> = {};
     const listeners = new Map<string, (...args: unknown[]) => void>();
@@ -109,6 +176,8 @@ describe("Anthropic-compatible provider", () => {
         maxTokens: 1024,
         defaultHeaders: {},
         thinkingStyle: "anthropic-effort",
+        thinkingLevels: ["off", "high", "max"],
+        thinkingDefault: "high",
         thinkingEnabled: true,
         thinkingEffort: "max",
         thinkingDisplay: "omitted",
@@ -355,8 +424,18 @@ describe("Anthropic-compatible provider", () => {
       AGENT_LLM_MODEL: "kimi-for-coding",
       KIMI_CODE_API_KEY: "secret-key",
     });
-    expect(normalizeProviderError({ status: 402, error: { message: "membership benefits exhausted" } }, kimi))
-      .toEqual(expect.objectContaining({ retryable: false, category: "会员权益异常" }));
+    expect(normalizeProviderError({ status: 402, error: { message: "unable to verify membership benefits" } }, kimi))
+      .toEqual(expect.objectContaining({ retryable: true, category: "会员权益异常" }));
+    for (const message of [
+      "Your current subscription does not have access to k3.",
+      "Your current plan supports only kimi-k3 up to 256K context.",
+      "Your current subscription does not have access to kimi-for-coding-highspeed.",
+    ]) {
+      expect(normalizeProviderError({ status: 401, error: { message } }, kimi))
+        .toEqual(expect.objectContaining({ retryable: false, category: "权限错误" }));
+    }
+    expect(normalizeProviderError({ status: 401, error: { message: "The API Key appears to be invalid" } }, kimi))
+      .toEqual(expect.objectContaining({ retryable: false, category: "认证错误" }));
     expect(normalizeProviderError({ status: 429, body: { message: "kimi monthly usage limit" } }, kimi))
       .toEqual(expect.objectContaining({ retryable: true, category: "限流与配额" }));
     expect(normalizeProviderError({ status: 400, body: { message: "input is too long" } }, kimi))
@@ -419,7 +498,8 @@ describe("Anthropic-compatible provider", () => {
     const provider = new AnthropicRuntimeProvider(
       {
         name: "kimi_coding", model: "fixture", baseURL: "https://example.invalid", apiKey: "secret",
-        maxTokens: 4_096, defaultHeaders: {}, thinkingStyle: "anthropic-budget", thinkingEnabled: true,
+        maxTokens: 4_096, defaultHeaders: {}, thinkingStyle: "anthropic-adaptive",
+        thinkingLevels: ["off", "low", "medium", "high"], thinkingDefault: "medium", thinkingEnabled: true,
         thinkingEffort: "low", thinkingDisplay: "omitted", contextWindowTokens: 256_000, requestIdleTimeoutMs: 120_000,
       },
       { messages: { stream: () => {
@@ -479,6 +559,8 @@ describe("Anthropic-compatible provider", () => {
         maxTokens: 1024,
         defaultHeaders: {},
         thinkingStyle: "none",
+        thinkingLevels: ["off"],
+        thinkingDefault: "off",
         thinkingEnabled: false,
         thinkingEffort: "low",
         thinkingDisplay: "omitted",
@@ -508,7 +590,8 @@ describe("Anthropic-compatible provider", () => {
     const provider = new AnthropicRuntimeProvider(
       {
         name: "test", model: "model-1", baseURL: "https://example.invalid", apiKey: "key",
-        maxTokens: 1024, defaultHeaders: {}, thinkingStyle: "none", thinkingEnabled: false,
+        maxTokens: 1024, defaultHeaders: {}, thinkingStyle: "none",
+        thinkingLevels: ["off"], thinkingDefault: "off", thinkingEnabled: false,
         thinkingEffort: "low", thinkingDisplay: "omitted", contextWindowTokens: 200_000, requestIdleTimeoutMs: 30_000,
       },
       { messages: { stream: () => ({
@@ -546,7 +629,8 @@ describe("Anthropic-compatible provider", () => {
     const provider = new AnthropicRuntimeProvider(
       {
         name: "test", model: "model-1", baseURL: "https://example.invalid", apiKey: "key",
-        maxTokens: 1_024, defaultHeaders: {}, thinkingStyle: "none", thinkingEnabled: false,
+        maxTokens: 1_024, defaultHeaders: {}, thinkingStyle: "none",
+        thinkingLevels: ["off"], thinkingDefault: "off", thinkingEnabled: false,
         thinkingEffort: "low", thinkingDisplay: "omitted", contextWindowTokens: 200_000, requestIdleTimeoutMs: 30_000,
       },
       { messages: { stream: () => {

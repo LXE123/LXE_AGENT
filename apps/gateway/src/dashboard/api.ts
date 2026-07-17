@@ -437,7 +437,10 @@ export class DashboardApi {
     const envNames = this.authEnvNames(name);
     const configured = envNames.some((envName) => Boolean(text(this.options.environment[envName])));
     const levels = Array.isArray(selected.thinking_levels) ? selected.thinking_levels.map(text) : [];
-    const currentEffort = text(this.options.environment.AGENT_LLM_THINKING_EFFORT) || text(selected.thinking_default) || "off";
+    const defaultEffort = text(selected.thinking_default) || (levels[0] ?? "off");
+    const configuredEffort = text(this.options.environment.AGENT_LLM_THINKING_EFFORT).toLowerCase() || defaultEffort;
+    const currentEffort = levels.length === 0 || levels.includes(configuredEffort) ? configuredEffort : defaultEffort;
+    const thinkingRequired = levels.length > 0 && !levels.includes("off");
     const capabilities = {
       provider: name,
       model,
@@ -479,7 +482,11 @@ export class DashboardApi {
       thinking_levels: levels,
       thinking_level_labels: object(selected.thinking_level_labels) as JsonObject,
       thinking_default: text(selected.thinking_default),
-      thinking_state: { enabled: this.options.environment.AGENT_LLM_THINKING_ENABLED !== "0" && currentEffort !== "off", level: currentEffort, editable: levels.includes("off") },
+      thinking_state: {
+        enabled: thinkingRequired || (this.options.environment.AGENT_LLM_THINKING_ENABLED !== "0" && currentEffort !== "off"),
+        level: currentEffort,
+        editable: levels.includes("off"),
+      },
       capabilities,
     };
   }

@@ -538,6 +538,8 @@ describe("TypeScriptAgentRuntime", () => {
         maxTokens: 4096,
         defaultHeaders: { Authorization: "secret" },
         thinkingStyle: "effort",
+        thinkingLevels: ["off", "high"],
+        thinkingDefault: "high",
         thinkingEnabled: true,
         thinkingEffort: "high",
         thinkingDisplay: "omitted",

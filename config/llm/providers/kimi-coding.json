@@ -5,7 +5,7 @@
   "base_url": "https://api.kimi.com/coding/",
   "default_model": "kimi-for-coding",
   "default_headers": {
-    "User-Agent": "claude-code/0.1.0",
+    "User-Agent": "KimiCLI/1.5",
     "anthropic-version": "2023-06-01"
   },
   "aliases": ["kimi-coding", "kimi_code", "kimi-code"],
@@ -19,12 +19,19 @@
       "supports_vision": true,
       "supports_thinking": true,
       "supports_temperature": false,
-      "thinking_request_style": "anthropic-budget",
-      "thinking_levels": ["off", "low"],
-      "thinking_level_labels": {
-        "low": "on"
-      },
-      "thinking_default": "off"
+      "thinking_request_style": "anthropic-adaptive",
+      "thinking_levels": ["off", "low", "medium", "high"],
+      "thinking_default": "medium"
+    },
+    "k3": {
+      "context_window_tokens": 262144,
+      "max_tokens": 131072,
+      "supports_vision": true,
+      "supports_thinking": true,
+      "supports_temperature": false,
+      "thinking_request_style": "anthropic-adaptive",
+      "thinking_levels": ["max"],
+      "thinking_default": "max"
     }
   }
 }
