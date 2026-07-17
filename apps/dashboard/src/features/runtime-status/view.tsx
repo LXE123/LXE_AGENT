@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DesktopHealth } from "@lxe/desktop-protocol";
-import { Activity, Bot, Brain, Radio, Server, X } from "lucide-react";
+import { Activity, Bot, Radio, Server, X } from "lucide-react";
 
 import { useChannelHealthQuery } from "../../api/queries";
 import type { ModelPayload } from "../../api/payloads";
 import type { DesktopSettingsSection } from "../../desktop/settings-model";
 import { useUiText } from "../../shared/i18n";
+import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import {
   aggregateAgentState,
   aggregateRuntimeTone,
@@ -19,6 +20,7 @@ function RuntimeStatusItem({
   icon,
   label,
   meta,
+  provider,
   tone,
   value,
   onClick,
@@ -26,6 +28,7 @@ function RuntimeStatusItem({
   icon: ReactNode;
   label: string;
   meta?: string;
+  provider?: string;
   tone: RuntimeTone;
   value: string;
   onClick: () => void;
@@ -35,6 +38,7 @@ function RuntimeStatusItem({
     <button
       aria-label={accessibleLabel}
       className={`runtime-status-item tone-${tone}`}
+      data-provider={provider}
       onClick={onClick}
       title={accessibleLabel}
       type="button"
@@ -130,10 +134,11 @@ export function RuntimeStatusPopover({
           </div>
           <div aria-label={t.home.runtimeStatusAria} className="runtime-status-list" role="group">
             <RuntimeStatusItem
-              icon={<Brain size={16} />}
+              icon={<ProviderBrandMark provider={currentModel?.provider} size={18} />}
               label={t.home.currentModel}
               meta={currentModel?.model || t.home.channelStates.unavailable}
               onClick={() => closeAndRun(onOpenModels)}
+              provider={currentModel?.provider}
               tone={currentModel ? "healthy" : "neutral"}
               value={currentModel?.label || t.home.channelStates.unavailable}
             />

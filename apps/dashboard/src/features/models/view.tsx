@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Brain, Check, CircleCheck, Settings2, Sparkles } from "lucide-react";
+import { Check, Settings2, Sparkles } from "lucide-react";
 
 import { formatCompactNumber, formatNumber } from "../../shared/format";
+import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import {
   modelDisabledReasonLabel,
   modelsInDisplayOrder,
@@ -48,10 +49,14 @@ export function ModelsView({
 
   return (
     <div className="models-page">
-      <section className="models-current-summary" aria-label={t.models.currentModel}>
+      <section
+        aria-label={t.models.currentModel}
+        className="models-current-summary"
+        data-provider={current?.provider || "generic"}
+      >
         <div className="models-current-identity">
           <div className="models-current-icon">
-            <CircleCheck size={21} />
+            <ProviderBrandMark provider={current?.provider} size={21} />
           </div>
           <div className="models-current-copy">
             <span>{t.models.currentModel}</span>
@@ -104,10 +109,13 @@ export function ModelsView({
               data-provider={model.provider}
               key={model.provider}
             >
+              <div className="model-brand-watermark" aria-hidden="true">
+                <ProviderBrandMark provider={model.provider} size={142} />
+              </div>
               <div className="model-card-header">
                 <div className="item-heading">
                   <div className="item-icon">
-                    <Brain size={19} />
+                    <ProviderBrandMark provider={model.provider} size={23} />
                   </div>
                   <div className="model-heading-copy">
                     <h3>{model.label}</h3>

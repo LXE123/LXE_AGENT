@@ -23,6 +23,7 @@ const expectedModules = [
   "shared/ui/markdown.tsx",
   "shared/ui/language-switch.tsx",
   "shared/ui/detail-target.ts",
+  "shared/ui/provider-brand-mark.tsx",
   "features/sessions/view.tsx",
   "features/docs/view.tsx",
   "features/models/view.tsx",
