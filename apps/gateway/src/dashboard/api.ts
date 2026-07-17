@@ -11,6 +11,8 @@ import { basename, dirname, extname, join, relative, resolve, sep } from "node:p
 import type { JsonObject } from "@lxe/protocol";
 import {
   mcpServerPrefix,
+  providerPreferencePatch,
+  readProviderPreference,
   runtimeConfigPaths,
   SkillCatalog,
   type McpConfig,
@@ -74,6 +76,11 @@ const json = (value: unknown, status = 200): Response => Response.json(value, { 
 const text = (value: unknown): string => String(value ?? "").trim();
 const normalizeProviderKey = (value: unknown): string =>
   text(value).toLowerCase().replaceAll("-", "_").replaceAll(/\s+/g, "_");
+const optionalFlag = (value: unknown): boolean | undefined => {
+  const normalized = text(value).toLowerCase();
+  if (!normalized) return undefined;
+  return ["1", "true", "yes", "on"].includes(normalized);
+};
 const integer = (value: string | null, fallback: number, minimum: number, maximum: number): number => {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) ? Math.max(minimum, Math.min(parsed, maximum)) : fallback;
@@ -423,24 +430,49 @@ export class DashboardApi {
     const requested = text(this.options.environment.AGENT_LLM_PROVIDER) || "kimi_coding";
     const spec = this.providerSpec(requested);
     if (spec) {
-      return this.modelPayload(spec, text(this.options.environment.AGENT_LLM_MODEL));
+      return this.modelPayload(spec);
     }
     return this.models()[0] ?? {};
+  }
+
+  private providerRuntimePreference(provider: string): {
+    model: string;
+    thinkingEnabled: string;
+    thinkingEffort: string;
+  } {
+    const saved = readProviderPreference(this.options.environment, provider);
+    if (normalizeProviderKey(this.options.environment.AGENT_LLM_PROVIDER) !== provider) return saved;
+    return {
+      model: text(this.options.environment.AGENT_LLM_MODEL) || saved.model,
+      thinkingEnabled: text(this.options.environment.AGENT_LLM_THINKING_ENABLED) || saved.thinkingEnabled,
+      thinkingEffort: text(this.options.environment.AGENT_LLM_THINKING_EFFORT) || saved.thinkingEffort,
+    };
   }
 
   private modelPayload(spec: Record<string, unknown>, modelOverride?: string): JsonObject {
     const name = normalizeProviderKey(spec.name);
     const models = object(spec.models);
-    const requestedModel = text(modelOverride) || text(spec.default_model);
-    const model = requestedModel in models ? requestedModel : text(spec.default_model);
+    const runtimePreference = this.providerRuntimePreference(name);
+    const savedPreference = readProviderPreference(this.options.environment, name);
+    const requestedModel = text(modelOverride) || runtimePreference.model || text(spec.default_model);
+    const restoredSavedModel = savedPreference.model in models ? savedPreference.model : "";
+    const model = requestedModel in models
+      ? requestedModel
+      : restoredSavedModel || text(spec.default_model);
+    const preference = model === restoredSavedModel && requestedModel !== model
+      ? savedPreference
+      : runtimePreference;
     const selected = object(models[model]);
     const envNames = this.authEnvNames(name);
     const configured = envNames.some((envName) => Boolean(text(this.options.environment[envName])));
     const levels = Array.isArray(selected.thinking_levels) ? selected.thinking_levels.map(text) : [];
     const defaultEffort = text(selected.thinking_default) || (levels[0] ?? "off");
-    const configuredEffort = text(this.options.environment.AGENT_LLM_THINKING_EFFORT).toLowerCase() || defaultEffort;
-    const currentEffort = levels.length === 0 || levels.includes(configuredEffort) ? configuredEffort : defaultEffort;
+    const configuredEffort = preference.thinkingEffort.toLowerCase() || defaultEffort;
+    const normalizedEffort = levels.length === 0 || levels.includes(configuredEffort) ? configuredEffort : defaultEffort;
     const thinkingRequired = levels.length > 0 && !levels.includes("off");
+    const thinkingEnabled = thinkingRequired
+      || ((optionalFlag(preference.thinkingEnabled) ?? true) && normalizedEffort !== "off");
+    const currentEffort = !thinkingEnabled && levels.includes("off") ? "off" : normalizedEffort;
     const capabilities = {
       provider: name,
       model,
@@ -483,7 +515,7 @@ export class DashboardApi {
       thinking_level_labels: object(selected.thinking_level_labels) as JsonObject,
       thinking_default: text(selected.thinking_default),
       thinking_state: {
-        enabled: thinkingRequired || (this.options.environment.AGENT_LLM_THINKING_ENABLED !== "0" && currentEffort !== "off"),
+        enabled: thinkingEnabled,
         level: currentEffort,
         editable: levels.includes("off"),
       },
@@ -508,13 +540,34 @@ export class DashboardApi {
     const provider = normalizeProviderKey(spec.name);
     const requestedModel = text(body.model);
     const models = object(spec.models);
-    const model = requestedModel || text(spec.default_model);
+    const activeProvider = normalizeProviderKey(this.options.environment.AGENT_LLM_PROVIDER);
+    const activePreference = activeProvider ? this.providerRuntimePreference(activeProvider) : undefined;
+    const activeModel = activeProvider ? this.currentModel() : undefined;
+    const activeThinkingState = object(activeModel?.thinking_state);
+    const savedPreference = readProviderPreference(this.options.environment, provider);
+    const preferredModel = requestedModel || savedPreference.model || text(spec.default_model);
+    const model = preferredModel in models
+      ? preferredModel
+      : requestedModel ? preferredModel : text(spec.default_model);
     if (!(model in models)) return json({ detail: "Unsupported model for provider" }, 400);
     if (!this.authEnvNames(provider).some((name) => Boolean(text(this.options.environment[name])))) return json({ detail: "missing API key" }, 400);
     const modelSpec = object(models[model]);
     const levels = Array.isArray(modelSpec.thinking_levels) ? modelSpec.thinking_levels.map(text) : [];
-    const currentEffort = text(this.options.environment.AGENT_LLM_THINKING_EFFORT).toLowerCase();
-    const effort = levels.includes(currentEffort) ? currentEffort : text(modelSpec.thinking_default) || (levels[0] ?? "off");
+    const defaultEffort = text(modelSpec.thinking_default) || (levels[0] ?? "off");
+    const sameProvider = activeProvider === provider;
+    const savedModelMatches = savedPreference.model === model;
+    const preferredEffort = sameProvider
+      ? text(activeThinkingState.level) || activePreference?.thinkingEffort
+      : savedModelMatches ? savedPreference.thinkingEffort : "";
+    const preferredEnabled = sameProvider
+      ? (activeThinkingState.enabled === false ? "0" : "1")
+      : savedModelMatches ? savedPreference.thinkingEnabled : "";
+    const normalizedEffort = levels.includes(text(preferredEffort).toLowerCase())
+      ? text(preferredEffort).toLowerCase()
+      : defaultEffort;
+    const effort = optionalFlag(preferredEnabled) === false && levels.includes("off")
+      ? "off"
+      : normalizedEffort;
     const patch = {
       provider,
       model,
@@ -527,10 +580,29 @@ export class DashboardApi {
       AGENT_LLM_THINKING_ENABLED: effort === "off" ? "0" : "1",
       AGENT_LLM_THINKING_EFFORT: effort,
     };
+    const outgoingPreferencePatch = activeProvider && activeModel
+      ? providerPreferencePatch(activeProvider, {
+        AGENT_LLM_MODEL: text(activeModel.model),
+        AGENT_LLM_THINKING_ENABLED: activeThinkingState.enabled === false ? "0" : "1",
+        AGENT_LLM_THINKING_EFFORT: text(activeThinkingState.level),
+      })
+      : {};
     const snapshot = this.options.providerManager
-      ? await this.options.providerManager.reconfigure(patch, (values) => this.persistEnvironment(values))
+      ? await this.options.providerManager.reconfigure(patch, (values) => {
+        const persistedValues = {
+          ...outgoingPreferencePatch,
+          ...values,
+          ...providerPreferencePatch(provider, values),
+        };
+        this.persistEnvironment(persistedValues);
+        Object.assign(this.options.environment, persistedValues);
+      })
       : undefined;
-    if (!snapshot) this.updateEnvironment(environmentPatch);
+    if (!snapshot) this.updateEnvironment({
+      ...outgoingPreferencePatch,
+      ...environmentPatch,
+      ...providerPreferencePatch(provider, environmentPatch),
+    });
     return json({
       ...this.modelPayload(spec, model),
       generation: snapshot?.generation ?? 0,
@@ -544,11 +616,19 @@ export class DashboardApi {
     const level = text(body.level).toLowerCase();
     const levels = Array.isArray(current.thinking_levels) ? current.thinking_levels.map(text) : [];
     if (!levels.includes(level)) return json({ detail: `Current model thinking level must be one of: ${levels.join(", ")}` }, 400);
+    const provider = normalizeProviderKey(current.provider);
     const environmentPatch = { AGENT_LLM_THINKING_ENABLED: level === "off" ? "0" : "1", AGENT_LLM_THINKING_EFFORT: level };
     const snapshot = this.options.providerManager
-      ? await this.options.providerManager.reconfigure({ thinkingEnabled: level !== "off", thinkingEffort: level }, (values) => this.persistEnvironment(values))
+      ? await this.options.providerManager.reconfigure({ thinkingEnabled: level !== "off", thinkingEffort: level }, (values) => {
+        const persistedValues = { ...values, ...providerPreferencePatch(provider, values) };
+        this.persistEnvironment(persistedValues);
+        Object.assign(this.options.environment, persistedValues);
+      })
       : undefined;
-    if (!snapshot) this.updateEnvironment(environmentPatch);
+    if (!snapshot) this.updateEnvironment({
+      ...environmentPatch,
+      ...providerPreferencePatch(provider, environmentPatch),
+    });
     return json({ ...this.currentModel(), generation: snapshot?.generation ?? 0, effective_from: "next_turn" });
   }
 

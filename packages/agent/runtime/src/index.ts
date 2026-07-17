@@ -13,6 +13,7 @@ export * from "./tooling/skills";
 export * from "./engine/system-events";
 export * from "./engine/system-prompt";
 export * from "./providers/provider";
+export * from "./providers/provider-preferences";
 export * from "./tooling/process-output";
 export * from "./state/storage";
 export * from "./tooling/registry";

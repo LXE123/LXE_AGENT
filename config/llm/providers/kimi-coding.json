@@ -30,7 +30,7 @@
       "supports_thinking": true,
       "supports_temperature": false,
       "thinking_request_style": "anthropic-adaptive",
-      "thinking_levels": ["max"],
+      "thinking_levels": ["off", "max"],
       "thinking_default": "max"
     }
   }

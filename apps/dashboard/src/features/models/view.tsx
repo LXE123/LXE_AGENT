@@ -6,7 +6,8 @@ import {
   modelDisabledReasonLabel,
   modelsInDisplayOrder,
   modelThinkingLevelLabel,
-  modelWithOption
+  modelWithOption,
+  reconcileModelSelections
 } from "./model";
 import { useUiText } from "../../shared/i18n";
 import type { ModelPayload } from "../../api/payloads";
@@ -42,20 +43,8 @@ export function ModelsView({
   const displayedModels = useMemo(() => modelsInDisplayOrder(models), [models]);
 
   useEffect(() => {
-    setSelectedModels((existing) => {
-      const next: Record<string, string> = {};
-      models.forEach((model) => {
-        const optionModels = model.model_options.map((option) => option.model);
-        const existingSelection = existing[model.provider];
-        if (existingSelection && optionModels.includes(existingSelection) && current?.provider !== model.provider) {
-          next[model.provider] = existingSelection;
-          return;
-        }
-        next[model.provider] = optionModels.includes(model.model) ? model.model : optionModels[0] || model.model;
-      });
-      return next;
-    });
-  }, [models, current?.provider]);
+    setSelectedModels((existing) => reconcileModelSelections(models, current, existing));
+  }, [models, current]);
 
   return (
     <div className="models-page">

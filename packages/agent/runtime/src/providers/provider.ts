@@ -15,6 +15,7 @@ import type {
 } from "../engine/types";
 import { runtimeConfigPaths } from "./config-paths";
 import { classifyProviderError, RuntimeProviderError } from "./provider-errors";
+import { readProviderPreference } from "./provider-preferences";
 export { RuntimeProviderError } from "./provider-errors";
 
 const logger = createLogger("runtime.provider");
@@ -129,13 +130,32 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
     throw new Error(`provider models must be an object: ${name}`);
   }
   const aliases = stringRecord(spec.model_aliases);
-  const requestedModel = envText(env, "AGENT_LLM_MODEL", String(spec.default_model ?? ""));
-  const model = aliases[requestedModel.toLowerCase()] ?? requestedModel;
-  const modelSpec = (models as Record<string, unknown>)[model];
-  if (modelSpec === null || typeof modelSpec !== "object" || Array.isArray(modelSpec)) {
+  const preference = readProviderPreference(env, name);
+  const configuredModel = envText(env, "AGENT_LLM_MODEL", "");
+  const defaultModel = String(spec.default_model ?? "").trim();
+  const resolveModel = (requestedModel: string): string => aliases[requestedModel.toLowerCase()] ?? requestedModel;
+  let model = resolveModel(configuredModel || preference.model || defaultModel);
+  let modelSpec = (models as Record<string, unknown>)[model];
+  const validModelSpec = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === "object" && !Array.isArray(value);
+  if (!validModelSpec(modelSpec) && preference.model) {
+    const preferredModel = resolveModel(preference.model);
+    const preferredModelSpec = (models as Record<string, unknown>)[preferredModel];
+    if (validModelSpec(preferredModelSpec)) {
+      model = preferredModel;
+      modelSpec = preferredModelSpec;
+    } else {
+      model = resolveModel(defaultModel);
+      modelSpec = (models as Record<string, unknown>)[model];
+    }
+  } else if (!validModelSpec(modelSpec) && !configuredModel) {
+    model = resolveModel(defaultModel);
+    modelSpec = (models as Record<string, unknown>)[model];
+  }
+  if (!validModelSpec(modelSpec)) {
     throw new Error(`unsupported LLM model: ${name}/${model}`);
   }
-  const selectedModel = modelSpec as Record<string, unknown>;
+  const selectedModel = modelSpec;
   const thinkingLevels = Array.isArray(selectedModel.thinking_levels)
     ? selectedModel.thinking_levels.map((level) => String(level ?? "").trim().toLowerCase()).filter(Boolean)
     : [];
@@ -143,11 +163,24 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
   const thinkingDefault = thinkingLevels.includes(declaredThinkingDefault)
     ? declaredThinkingDefault
     : thinkingLevels[0] ?? (declaredThinkingDefault || "low");
-  const requestedThinkingEffort = envText(env, "AGENT_LLM_THINKING_EFFORT", thinkingDefault).toLowerCase();
-  const thinkingEffort = thinkingLevels.length === 0 || thinkingLevels.includes(requestedThinkingEffort)
+  const requestedThinkingEffort = envText(
+    env,
+    "AGENT_LLM_THINKING_EFFORT",
+    preference.thinkingEffort || thinkingDefault,
+  ).toLowerCase();
+  const normalizedThinkingEffort = thinkingLevels.length === 0 || thinkingLevels.includes(requestedThinkingEffort)
     ? requestedThinkingEffort
     : thinkingDefault;
   const thinkingRequired = thinkingLevels.length > 0 && !thinkingLevels.includes("off");
+  const configuredThinkingEnabled = envText(env, "AGENT_LLM_THINKING_ENABLED", "");
+  const thinkingEnvironment = configuredThinkingEnabled || !preference.thinkingEnabled
+    ? env
+    : { ...env, AGENT_LLM_THINKING_ENABLED: preference.thinkingEnabled };
+  const thinkingEnabled = thinkingRequired
+    || (envFlag(thinkingEnvironment, "AGENT_LLM_THINKING_ENABLED", true) && normalizedThinkingEffort !== "off");
+  const thinkingEffort = !thinkingEnabled && thinkingLevels.includes("off")
+    ? "off"
+    : normalizedThinkingEffort;
   const authRoot = readObject(paths.authProfiles);
   const profiles = authRoot.profiles as Record<string, unknown> | undefined;
   const profile = profiles?.[name] as Record<string, unknown> | undefined;
@@ -169,7 +202,7 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
     thinkingStyle: String(selectedModel.thinking_request_style ?? "none").trim(),
     thinkingLevels,
     thinkingDefault,
-    thinkingEnabled: thinkingRequired || (envFlag(env, "AGENT_LLM_THINKING_ENABLED", true) && thinkingEffort !== "off"),
+    thinkingEnabled,
     thinkingEffort,
     thinkingDisplay: envText(env, "AGENT_LLM_THINKING_DISPLAY", "omitted").toLowerCase(),
     contextWindowTokens: Math.max(0, Math.trunc(Number(selectedModel.context_window_tokens ?? 0))),

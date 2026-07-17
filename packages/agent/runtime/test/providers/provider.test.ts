@@ -61,28 +61,39 @@ describe("Anthropic-compatible provider", () => {
     });
     expect(buildSummaryThinkingPayload(kimi)).toEqual({ thinking: { type: "disabled" } });
 
-    const k3 = loadProviderDescriptor(projectRoot, {
+    const k3Off = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_MODEL: "k3",
       AGENT_LLM_THINKING_ENABLED: "0",
       AGENT_LLM_THINKING_EFFORT: "low",
       KIMI_CODE_API_KEY: "secret-key",
     });
-    expect(k3).toEqual(expect.objectContaining({
+    expect(k3Off).toEqual(expect.objectContaining({
       model: "k3",
       maxTokens: 131_072,
       contextWindowTokens: 262_144,
-      thinkingLevels: ["max"],
+      thinkingLevels: ["off", "max"],
       thinkingDefault: "max",
-      thinkingEnabled: true,
-      thinkingEffort: "max",
+      thinkingEnabled: false,
+      thinkingEffort: "off",
     }));
+    expect(buildThinkingPayload(k3Off)).toEqual({ thinking: { type: "disabled" } });
+    expect(buildSummaryThinkingPayload(k3Off)).toEqual({ thinking: { type: "disabled" } });
+
+    const k3Max = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "k3",
+      AGENT_LLM_THINKING_ENABLED: "1",
+      AGENT_LLM_THINKING_EFFORT: "low",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
     const k3Thinking = {
       thinking: { type: "adaptive", display: "omitted" },
       output_config: { effort: "max" },
     };
-    expect(buildThinkingPayload(k3)).toEqual(k3Thinking);
-    expect(buildSummaryThinkingPayload(k3)).toEqual(k3Thinking);
+    expect(k3Max).toEqual(expect.objectContaining({ thinkingEnabled: true, thinkingEffort: "max" }));
+    expect(buildThinkingPayload(k3Max)).toEqual(k3Thinking);
+    expect(buildSummaryThinkingPayload(k3Max)).toEqual({ thinking: { type: "disabled" } });
 
     const deepseek = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "deepseek",
@@ -125,7 +136,7 @@ describe("Anthropic-compatible provider", () => {
     expect(buildSystemPayload(" system ")).toBe("system");
   });
 
-  test("keeps required K3 adaptive thinking enabled during summaries", async () => {
+  test("disables optional K3 thinking during summaries", async () => {
     const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_MODEL: "k3",
@@ -158,9 +169,42 @@ describe("Anthropic-compatible provider", () => {
     expect(captured).toEqual(expect.objectContaining({
       model: "k3",
       max_tokens: 32_768,
-      thinking: { type: "adaptive", display: "omitted" },
-      output_config: { effort: "max" },
+      thinking: { type: "disabled" },
     }));
+    expect(captured).not.toHaveProperty("output_config");
+  });
+
+  test("restores provider preferences and ignores an invalid remembered model", () => {
+    const projectRoot = repositoryRoot(import.meta.dir);
+    const restored = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL_KIMI_CODING: "k3",
+      AGENT_LLM_THINKING_ENABLED_KIMI_CODING: "0",
+      AGENT_LLM_THINKING_EFFORT_KIMI_CODING: "off",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
+    expect(restored).toEqual(expect.objectContaining({
+      model: "k3",
+      thinkingEnabled: false,
+      thinkingEffort: "off",
+    }));
+
+    const fallback = loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "retired-model",
+      AGENT_LLM_MODEL_KIMI_CODING: "retired-model",
+      AGENT_LLM_THINKING_EFFORT_KIMI_CODING: "max",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
+    expect(fallback).toEqual(expect.objectContaining({
+      model: "kimi-for-coding",
+      thinkingEffort: "medium",
+    }));
+    expect(() => loadProviderDescriptor(projectRoot, {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "retired-model",
+      KIMI_CODE_API_KEY: "secret-key",
+    })).toThrow("unsupported LLM model: kimi_coding/retired-model");
   });
 
   test("uses SDK streaming and maps text and tool blocks into runtime types", async () => {
