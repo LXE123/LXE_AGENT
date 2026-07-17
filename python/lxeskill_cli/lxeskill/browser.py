@@ -1,19 +1,10 @@
 from __future__ import annotations
 
-import json
-import time
-from hashlib import sha256
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 from lxeskill.business import allowed_output_file
-from shared.agent_state import merge_agent_state
-from shared.db.sqlite.engine import connection_scope
 from shared.logging import get_logger
-from shared.workspace import internal_root
-from shared.process_lock import InterProcessLockTimeout, interprocess_lock
-from services.browser.store.agent_tool_state import load_tool_state
 
 
 logger = get_logger(__name__)
@@ -25,27 +16,6 @@ class BrowserCliError(RuntimeError):
         self.code = code
 
 
-def _session_lock_path(session_id: str) -> Path:
-    digest = sha256(session_id.encode("utf-8")).hexdigest()[:24]
-    return internal_root() / "var" / "tmp" / "lxeskill" / f"session-{digest}.lock"
-
-
-def _patch_session_state(session_id: str, patch: dict[str, Any]) -> None:
-    with connection_scope() as conn:
-        row = conn.execute("SELECT source FROM agent_sessions WHERE session_id = ?", (session_id,)).fetchone()
-        if row is None:
-            raise BrowserCliError("session_not_found", f"agent session not found: {session_id}")
-        try:
-            source = json.loads(str(row["source"] or "{}"))
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise BrowserCliError("session_state_invalid", f"agent session source is invalid: {session_id}") from exc
-        source["tool_state"] = merge_agent_state(dict(source.get("tool_state") or {}), patch)
-        conn.execute(
-            "UPDATE agent_sessions SET source = ?, last_active_at = ? WHERE session_id = ?",
-            (json.dumps(source, ensure_ascii=False, separators=(",", ":")), time.time(), session_id),
-        )
-
-
 async def execute_browser_command(
     entry: dict[str, Any],
     arguments: dict[str, Any],
@@ -54,40 +24,31 @@ async def execute_browser_command(
     safe_session_id = str(session_id or "").strip()
     if not safe_session_id:
         raise BrowserCliError("session_required", "browser command requires LXE_AGENT_SESSION_ID")
-    try:
-        with interprocess_lock(_session_lock_path(safe_session_id), timeout_seconds=180):
-            state_data = load_tool_state(safe_session_id)
-            if state_data is None:
-                raise BrowserCliError("session_not_found", f"agent session not found: {safe_session_id}")
-            from services.browser.tools import client as browser_client
+    from services.browser.tools import client as browser_client
 
-            session = SimpleNamespace(session_id=safe_session_id, source={}, state_data=state_data)
-            result = await browser_client.execute_browser_tool(
-                str(entry.get("name") or ""),
-                arguments,
-                session,
-            )
-            if result.state_patch:
-                _patch_session_state(safe_session_id, dict(result.state_patch))
-            if not result.success:
-                raise BrowserCliError(
-                    str(result.error_code or "browser_tool_failed"),
-                    str(result.error_message or "browser command failed"),
-                )
-            content = [dict(item or {}) for item in list(result.content or [])]
-            owners = [str(item) for item in list(entry.get("owner_skills") or [])]
-            validated_files = [
-                str(allowed_output_file(str(path), owner_skills=owners))
-                for path in list(result.files or [])
-            ]
-            action = str(arguments.get("action") or "").strip().lower()
-            if str(entry.get("name") or "") == "ziniao_page" and action == "browser_vision":
-                if len(validated_files) != 1:
-                    raise BrowserCliError("browser_screenshot_missing", "browser_vision did not return one screenshot")
-                return {"content": content, "screenshot_path": validated_files[0]}, []
-            return {"content": content}, validated_files
-    except InterProcessLockTimeout as exc:
-        raise BrowserCliError("session_busy", str(exc)) from exc
+    session = SimpleNamespace(session_id=safe_session_id)
+    result = await browser_client.execute_browser_tool(
+        str(entry.get("name") or ""),
+        arguments,
+        session,
+    )
+    if not result.success:
+        raise BrowserCliError(
+            str(result.error_code or "browser_tool_failed"),
+            str(result.error_message or "browser command failed"),
+        )
+    content = [dict(item or {}) for item in list(result.content or [])]
+    owners = [str(item) for item in list(entry.get("owner_skills") or [])]
+    validated_files = [
+        str(allowed_output_file(str(path), owner_skills=owners))
+        for path in list(result.files or [])
+    ]
+    action = str(arguments.get("action") or "").strip().lower()
+    if str(entry.get("name") or "") == "ziniao_page" and action == "browser_vision":
+        if len(validated_files) != 1:
+            raise BrowserCliError("browser_screenshot_missing", "browser_vision did not return one screenshot")
+        return {"content": content, "screenshot_path": validated_files[0]}, []
+    return {"content": content}, validated_files
 
 
 __all__ = ["BrowserCliError", "execute_browser_command"]

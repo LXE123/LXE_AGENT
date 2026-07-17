@@ -238,7 +238,7 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
         try:
             data, files = asyncio.run(execute_browser_command(entry, arguments, session_id))
         except BrowserCliError as exc:
-            exit_code = EXIT_ENVIRONMENT if exc.code in {"session_required", "session_not_found", "session_busy"} else EXIT_BUSINESS
+            exit_code = EXIT_ENVIRONMENT if exc.code in {"session_required", "store_busy"} else EXIT_BUSINESS
             raise LxeSkillError(
                 exc.code,
                 str(exc),

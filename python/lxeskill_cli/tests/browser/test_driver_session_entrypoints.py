@@ -3,7 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from services.agent_cli._shared import browser_session as browser_session_module
+from services.browser.store import store_driver_session as store_driver_session_module
 from services.browser.tools import dispatcher, driver_session, executor
+from shared.process_lock import InterProcessLockTimeout
 
 
 class _DriverContext:
@@ -59,23 +61,28 @@ def _store_session() -> SimpleNamespace:
     )
 
 
-def test_ziniao_page_session_selects_first_normal_tab(monkeypatch, tmp_path) -> None:
-    calls: list[tuple] = []
-    driver = object()
-    service = _FakeStoreSessionService(_store_session(), calls)
-    runtime = SimpleNamespace(state_data={}, session_id="session-1")
-
-    monkeypatch.setattr(executor, "StoreSessionService", lambda: service)
+def _patch_store_driver_session(monkeypatch, tmp_path, service, driver, calls) -> None:
+    monkeypatch.setattr(store_driver_session_module, "internal_root", lambda: tmp_path)
+    monkeypatch.setattr(store_driver_session_module, "StoreSessionService", lambda: service)
     monkeypatch.setattr(
-        executor,
+        store_driver_session_module,
         "attached_driver",
         lambda **kwargs: calls.append(("attached_driver", kwargs)) or _DriverContext(driver, calls),
     )
     monkeypatch.setattr(
-        executor,
+        store_driver_session_module,
         "select_first_normal_tab",
         lambda selected_driver, **kwargs: calls.append(("select_first_normal_tab", selected_driver, kwargs)),
     )
+
+
+def test_ziniao_page_session_selects_first_normal_tab(monkeypatch, tmp_path) -> None:
+    calls: list[tuple] = []
+    driver = object()
+    service = _FakeStoreSessionService(_store_session(), calls)
+    runtime = SimpleNamespace(session_id="session-1")
+
+    _patch_store_driver_session(monkeypatch, tmp_path, service, driver, calls)
 
     with executor._page_workflow_session(runtime, store_id="store-1", output_dir=tmp_path) as session:
         assert session.driver is driver
@@ -88,22 +95,7 @@ def test_fba_cli_browser_session_selects_first_normal_tab(monkeypatch, tmp_path)
     driver = object()
     service = _FakeStoreSessionService(_store_session(), calls)
 
-    monkeypatch.setattr(browser_session_module, "StoreSessionService", lambda: service)
-    monkeypatch.setattr(
-        browser_session_module,
-        "_load_session_state",
-        lambda session_id: SimpleNamespace(state_data={}),
-    )
-    monkeypatch.setattr(
-        browser_session_module,
-        "attached_driver",
-        lambda **kwargs: calls.append(("attached_driver", kwargs)) or _DriverContext(driver, calls),
-    )
-    monkeypatch.setattr(
-        browser_session_module,
-        "select_first_normal_tab",
-        lambda selected_driver, **kwargs: calls.append(("select_first_normal_tab", selected_driver, kwargs)),
-    )
+    _patch_store_driver_session(monkeypatch, tmp_path, service, driver, calls)
 
     with browser_session_module.browser_session(
         session_id="session-1",
@@ -120,18 +112,7 @@ def test_fba_cli_browser_session_passes_core_fields_to_attached_driver(monkeypat
     driver = object()
     service = _FakeStoreSessionService(_store_session(), calls)
 
-    monkeypatch.setattr(browser_session_module, "StoreSessionService", lambda: service)
-    monkeypatch.setattr(
-        browser_session_module,
-        "_load_session_state",
-        lambda session_id: SimpleNamespace(state_data={}),
-    )
-    monkeypatch.setattr(
-        browser_session_module,
-        "attached_driver",
-        lambda **kwargs: calls.append(("attached_driver", kwargs)) or _DriverContext(driver, calls),
-    )
-    monkeypatch.setattr(browser_session_module, "select_first_normal_tab", lambda selected_driver, **kwargs: None)
+    _patch_store_driver_session(monkeypatch, tmp_path, service, driver, calls)
 
     with browser_session_module.browser_session(
         session_id="session-1",
@@ -151,11 +132,54 @@ def test_fba_cli_browser_session_passes_core_fields_to_attached_driver(monkeypat
     ) in calls
 
 
+def test_store_driver_session_restarts_store_when_attach_fails(monkeypatch, tmp_path) -> None:
+    calls: list[tuple] = []
+    driver = object()
+    service = _FakeStoreSessionService(_store_session(), calls)
+    attempts: list[int] = []
+
+    def flaky_attached_driver(**kwargs):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise RuntimeError("无法连接当前紫鸟浏览器，请重新打开店铺")
+        calls.append(("attached_driver", kwargs))
+        return _DriverContext(driver, calls)
+
+    monkeypatch.setattr(store_driver_session_module, "internal_root", lambda: tmp_path)
+    monkeypatch.setattr(store_driver_session_module, "StoreSessionService", lambda: service)
+    monkeypatch.setattr(store_driver_session_module, "attached_driver", flaky_attached_driver)
+    monkeypatch.setattr(store_driver_session_module, "select_first_normal_tab", lambda selected_driver, **kwargs: None)
+
+    with store_driver_session_module.store_driver_session("store-1") as (store_session, attached):
+        assert attached is driver
+
+    assert ("ensure_store_session", "store-1", False) in calls
+    assert ("ensure_store_session", "store-1", True) in calls
+
+
+def test_executor_reports_store_busy_when_store_lock_times_out(monkeypatch, tmp_path) -> None:
+    def busy_lock(path, **kwargs):
+        raise InterProcessLockTimeout("timed out waiting for lock")
+
+    monkeypatch.setattr(store_driver_session_module, "internal_root", lambda: tmp_path)
+    monkeypatch.setattr(store_driver_session_module, "interprocess_lock", busy_lock)
+
+    result = executor.execute_browser_tool(
+        SimpleNamespace(session_id="session-1"),
+        tool_name="ziniao_page",
+        arguments={"action": "browser_snapshot", "store_id": "store-1"},
+    )
+
+    assert result.success is False
+    assert result.error_code == "store_busy"
+
+
 def test_open_store_selects_blank_capable_tab_before_ip_check(monkeypatch, tmp_path) -> None:
     calls: list[tuple] = []
     driver = object()
     service = _FakeStoreSessionService(_store_session(), calls)
 
+    monkeypatch.setattr(store_driver_session_module, "internal_root", lambda: tmp_path)
     monkeypatch.setattr(dispatcher, "_store_session_service", lambda: service)
     monkeypatch.setattr(dispatcher, "_client_running", lambda: True)
     monkeypatch.setattr(

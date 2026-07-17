@@ -2,99 +2,45 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
-
-import pytest
 
 from lxeskill import cli as lxeskill
 from lxeskill import browser as lxeskill_browser
 from services.browser.tools import client as browser_client
 from services.browser.tools.models import ToolExecutionResult
-from shared.db.sqlite.engine import connection_scope
-from shared.process_lock import InterProcessLockTimeout
 
 
-def _create_bun_agent_sessions_table() -> None:
-    """Create the Bun-owned table needed by this cross-runtime integration test."""
-    with connection_scope() as conn:
-        conn.execute(
-            """
-            CREATE TABLE agent_sessions (
-                session_id TEXT PRIMARY KEY,
-                source TEXT NOT NULL DEFAULT '{}',
-                model TEXT NOT NULL DEFAULT '',
-                model_config TEXT NOT NULL DEFAULT '{}',
-                created_at REAL NOT NULL,
-                last_active_at REAL NOT NULL,
-                message_count INTEGER NOT NULL DEFAULT 0,
-                tool_call_count INTEGER NOT NULL DEFAULT 0,
-                input_tokens INTEGER NOT NULL DEFAULT 0,
-                output_tokens INTEGER NOT NULL DEFAULT 0,
-                title TEXT NOT NULL DEFAULT '',
-                api_call_count INTEGER NOT NULL DEFAULT 0
-            )
-            """
-        )
-
-
-def _insert_session(session_id: str, source: dict) -> None:
-    now = time.time()
-    with connection_scope() as conn:
-        conn.execute(
-            """
-            INSERT INTO agent_sessions (
-                session_id, source, model, model_config, created_at, last_active_at
-            ) VALUES (?, ?, '', '{}', ?, ?)
-            """,
-            (session_id, json.dumps(source), now, now),
-        )
-
-
-def test_browser_command_persists_state_patch_and_restores_it_next_call(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "runtime.sqlite3"))
-    monkeypatch.setattr(lxeskill_browser, "internal_root", lambda: tmp_path)
-    _create_bun_agent_sessions_table()
-    _insert_session(
-        "session-1",
-        {"tool_state": {"runtime": {}, "context": {"messages": []}}, "binding": "kept"},
-    )
-    observed_states: list[dict] = []
+def test_browser_command_runs_on_a_fresh_db_without_agent_sessions(tmp_path, monkeypatch) -> None:
+    # Regression: agent_sessions is a Bun-runtime table in agent.sqlite3; the
+    # Python browser CLI must not touch it. A fresh lxeskill.sqlite3 without
+    # that table used to fail with "no such table: agent_sessions".
+    monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "fresh.sqlite3"))
+    observed_sessions: list[str] = []
 
     async def fake_execute(tool_name, arguments, session):
-        observed_states.append(dict(session.state_data))
+        observed_sessions.append(session.session_id)
         return ToolExecutionResult(
             tool_name=tool_name,
             success=True,
             content=[{"type": "text", "text": "ready"}],
-            state_patch={
-                "runtime": {"session_activity_at": "2026-07-12T08:00:00Z"},
-                "context": {"messages": []},
-            },
         )
 
     monkeypatch.setattr(browser_client, "execute_browser_tool", fake_execute)
-    entry = {"name": "ziniao_browser"}
 
-    first, files = asyncio.run(
-        lxeskill_browser.execute_browser_command(entry, {"action": "get_status"}, "session-1")
+    data, files = asyncio.run(
+        lxeskill_browser.execute_browser_command(
+            {"name": "ziniao_browser"},
+            {"action": "get_status"},
+            "session-1",
+        )
     )
-    asyncio.run(lxeskill_browser.execute_browser_command(entry, {"action": "get_status"}, "session-1"))
 
-    assert first == {"content": [{"type": "text", "text": "ready"}]}
+    assert data == {"content": [{"type": "text", "text": "ready"}]}
     assert files == []
-    assert observed_states[0]["runtime"] == {}
-    assert observed_states[1]["runtime"]["session_activity_at"] == "2026-07-12T08:00:00Z"
-    with connection_scope() as conn:
-        source = json.loads(conn.execute("SELECT source FROM agent_sessions WHERE session_id = 'session-1'").fetchone()["source"])
-    assert source["binding"] == "kept"
-    assert source["tool_state"]["runtime"]["session_activity_at"] == "2026-07-12T08:00:00Z"
+    assert observed_sessions == ["session-1"]
 
 
 def test_browser_vision_exposes_model_input_path_but_not_terminal_file(tmp_path, monkeypatch) -> None:
-    monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "runtime.sqlite3"))
-    monkeypatch.setattr(lxeskill_browser, "internal_root", lambda: tmp_path)
-    _create_bun_agent_sessions_table()
-    _insert_session("session-vision", {"tool_state": {"runtime": {}, "context": {"messages": []}}})
+    monkeypatch.setenv("LXE_SQLITE_DB_PATH", str(tmp_path / "fresh.sqlite3"))
     screenshot = tmp_path / "artifacts" / "browser" / "shot.png"
     screenshot.parent.mkdir(parents=True)
     screenshot.write_bytes(b"png")
@@ -104,7 +50,6 @@ def test_browser_vision_exposes_model_input_path_but_not_terminal_file(tmp_path,
             tool_name=tool_name,
             success=True,
             content=[{"type": "text", "text": "captured"}],
-            state_patch={"runtime": {}, "context": {"messages": []}},
             files=[str(screenshot)],
         )
 
@@ -146,24 +91,29 @@ def test_browser_command_reports_session_required_as_environment_error(capsys, m
     assert record["error"]["code"] == "session_required"
 
 
-def test_browser_command_reports_busy_session(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(lxeskill_browser, "internal_root", lambda: tmp_path)
-    monkeypatch.setattr(
-        lxeskill_browser,
-        "interprocess_lock",
-        lambda *args, **kwargs: (_ for _ in ()).throw(InterProcessLockTimeout("busy")),
-    )
+def test_browser_command_surfaces_store_busy_error(monkeypatch) -> None:
+    async def fake_execute(tool_name, arguments, session):
+        return ToolExecutionResult(
+            tool_name=tool_name,
+            success=False,
+            error_code="store_busy",
+            error_message="timed out waiting for lock",
+        )
 
-    with pytest.raises(lxeskill_browser.BrowserCliError, match="busy") as captured:
+    monkeypatch.setattr(browser_client, "execute_browser_tool", fake_execute)
+
+    try:
         asyncio.run(
             lxeskill_browser.execute_browser_command(
-                {"name": "ziniao_browser"},
-                {"action": "get_status"},
+                {"name": "ziniao_page"},
+                {"action": "browser_snapshot", "store_id": "store-1"},
                 "session-1",
             )
         )
-
-    assert captured.value.code == "session_busy"
+    except lxeskill_browser.BrowserCliError as exc:
+        assert exc.code == "store_busy"
+    else:
+        raise AssertionError("expected BrowserCliError")
 
 
 def test_store_sessions_work_on_a_fresh_db_without_init_schema(tmp_path, monkeypatch) -> None:

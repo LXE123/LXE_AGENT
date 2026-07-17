@@ -5,16 +5,15 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from shared.agent_state import ensure_agent_state, runtime_patch_from_state
 from shared.logging import get_logger
+from shared.process_lock import InterProcessLockTimeout
 from shared.workspace import artifact_path
 
 from services.browser.tools.dispatcher import dispatch_ziniao_browser, dispatch_ziniao_page
-from services.browser.tools.driver_session import attached_driver, select_first_normal_tab
 from services.browser.tools.models import ExecuteToolResult
 from services.browser.tools.schema import build_browser_tool_call
 from services.browser.models.protocol import emit_progress
-from services.browser.store.store_session_service import StoreSessionService
+from services.browser.store.store_driver_session import store_driver_session
 from services.browser.workflows.amazon_fba_common import WorkflowBrowserSession
 
 logger = get_logger(__name__)
@@ -35,50 +34,19 @@ def _tool_target_text(tool_call) -> str:
 
 @contextmanager
 def _page_workflow_session(runtime: Any, *, store_id: str, output_dir: Path) -> Iterator[WorkflowBrowserSession]:
-    service = StoreSessionService()
-    workflow_session: WorkflowBrowserSession | None = None
-
-    try:
-        try:
-            store_session = service.ensure_store_session(store_id)
-            driver_context = attached_driver(
-                browser_path=str(store_session.browser_path or "").strip(),
-                debugging_port=int(store_session.debugging_port or 0),
-                core_type=getattr(store_session, "core_type", None),
-                core_version=str(getattr(store_session, "core_version", "") or "").strip(),
-            )
-            driver = driver_context.__enter__()
-        except RuntimeError:
-            store_session = service.ensure_store_session(store_id, force_restart=True)
-            driver_context = attached_driver(
-                browser_path=str(store_session.browser_path or "").strip(),
-                debugging_port=int(store_session.debugging_port or 0),
-                core_type=getattr(store_session, "core_type", None),
-                core_version=str(getattr(store_session, "core_version", "") or "").strip(),
-            )
-            driver = driver_context.__enter__()
-        try:
-            select_first_normal_tab(driver)
-            workflow_session = WorkflowBrowserSession(
-                driver=driver,
-                state_data=ensure_agent_state(getattr(runtime, "state_data", {}) or {}),
-                output_dir=output_dir,
-                session_id=str(getattr(runtime, "session_id", "") or "").strip(),
-                store_id=str(store_session.browser_oauth or "").strip(),
-                store_name=str(store_session.browser_name or "").strip(),
-                download_path=str(store_session.download_path or "").strip(),
-                browser_path=str(store_session.browser_path or "").strip(),
-            )
-            yield workflow_session
-        finally:
-            driver_context.__exit__(None, None, None)
-    finally:
-        if workflow_session is not None:
-            runtime.state_data = ensure_agent_state(workflow_session.state_data)
+    with store_driver_session(store_id) as (store_session, driver):
+        yield WorkflowBrowserSession(
+            driver=driver,
+            output_dir=output_dir,
+            session_id=str(getattr(runtime, "session_id", "") or "").strip(),
+            store_id=str(store_session.browser_oauth or "").strip(),
+            store_name=str(store_session.browser_name or "").strip(),
+            download_path=str(store_session.download_path or "").strip(),
+            browser_path=str(store_session.browser_path or "").strip(),
+        )
 
 
 def _raw_result(
-    runtime: Any,
     *,
     started_at: float,
     tool_name: str,
@@ -103,7 +71,6 @@ def _raw_result(
         error_code=str(error_code or "").strip(),
         clicked_element=dict(clicked_element or {}),
         latency_ms=int((time.perf_counter() - started_at) * 1000),
-        state_data=runtime_patch_from_state(getattr(runtime, "state_data", {}) or {}),
     )
 
 
@@ -137,7 +104,6 @@ def _finalize_payload(
         )
 
     return _raw_result(
-        runtime,
         started_at=started_at,
         tool_name=tool_call.name,
         summary=str(payload.get("summary") or "").strip(),
@@ -150,7 +116,6 @@ def _finalize_payload(
 
 
 def _failure_result(
-    runtime: Any,
     *,
     started_at: float,
     tool_call,
@@ -160,7 +125,6 @@ def _failure_result(
     after_snapshot: dict[str, Any] | None = None,
 ) -> ExecuteToolResult:
     return _raw_result(
-        runtime,
         started_at=started_at,
         tool_name=tool_call.name,
         summary="",
@@ -184,9 +148,16 @@ def execute_browser_tool(runtime: Any, *, tool_name: str, arguments: dict[str, A
         emit_progress(f"正在执行紫鸟浏览器动作: {tool_call.arguments.get('action')}")
         try:
             payload = dispatch_ziniao_browser(runtime, dict(tool_call.arguments or {}), output_dir=output_dir)
+        except InterProcessLockTimeout as exc:
+            return _failure_result(
+                started_at=started_at,
+                tool_call=tool_call,
+                user_goal=user_goal,
+                failure_reason=str(exc).strip(),
+                error_code="store_busy",
+            )
         except Exception as exc:
             return _failure_result(
-                runtime,
                 started_at=started_at,
                 tool_call=tool_call,
                 user_goal=user_goal,
@@ -204,7 +175,6 @@ def execute_browser_tool(runtime: Any, *, tool_name: str, arguments: dict[str, A
     store_id = str(tool_call.arguments.get("store_id") or "").strip()
     if not store_id:
         return _failure_result(
-            runtime,
             started_at=started_at,
             tool_call=tool_call,
             user_goal=user_goal,
@@ -221,9 +191,16 @@ def execute_browser_tool(runtime: Any, *, tool_name: str, arguments: dict[str, A
                 output_dir=output_dir,
                 before_snapshot=before_snapshot,
             )
+    except InterProcessLockTimeout as exc:
+        return _failure_result(
+            started_at=started_at,
+            tool_call=tool_call,
+            user_goal=user_goal,
+            failure_reason=str(exc).strip(),
+            error_code="store_busy",
+        )
     except Exception as exc:
         return _failure_result(
-            runtime,
             started_at=started_at,
             tool_call=tool_call,
             user_goal=user_goal,

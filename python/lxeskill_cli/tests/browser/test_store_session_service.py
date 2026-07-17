@@ -161,6 +161,50 @@ def test_ensure_store_session_reuses_existing_record_for_opaque_running_oauth() 
     assert session_map.deleted == []
 
 
+def test_ensure_store_session_rebuilds_record_from_running_info_without_restart() -> None:
+    # Field set mirrors a real getRunningInfo response captured on 2026-07-17;
+    # see docs/harness/skill/reference/ziniao-webdriver-doc-1.0.0/reference/samples-get-running-info.md
+    session_map = FakeStoreSessionMap()
+    browser = FakeBrowserClient(
+        browser_list=[_catalog_entry()],
+        running_info=[
+            {
+                "browserOauth": OPAQUE_STORE_ID,
+                "browserPath": "/tmp/ziniao/env-kit/chrome_64_138.1.2.80",
+                "downloadPath": "/tmp/ziniao/downloads/Amazon-HSP-US",
+                "debuggingPort": 26176,
+                "core_type": 0,
+                "core_version": "138.1.2.80",
+            }
+        ],
+    )
+    service = StoreSessionService(session_map=session_map, browser_client=browser)
+
+    record = service.ensure_store_session(OPAQUE_STORE_ID)
+
+    assert ("start_browser", OPAQUE_STORE_ID) not in browser.calls
+    assert record.browser_id == NUMERIC_BROWSER_ID
+    assert record.debugging_port == 26176
+    assert record.browser_path == "/tmp/ziniao/env-kit/chrome_64_138.1.2.80"
+    assert record.download_path == "/tmp/ziniao/downloads/Amazon-HSP-US"
+    assert record.core_version == "138.1.2.80"
+    assert session_map.get(OPAQUE_STORE_ID) is record
+
+
+def test_ensure_store_session_falls_back_to_start_when_running_info_is_incomplete() -> None:
+    session_map = FakeStoreSessionMap()
+    browser = FakeBrowserClient(
+        browser_list=[_catalog_entry()],
+        running_info=[{"browserOauth": OPAQUE_STORE_ID}],
+    )
+    service = StoreSessionService(session_map=session_map, browser_client=browser)
+
+    record = service.ensure_store_session(OPAQUE_STORE_ID)
+
+    assert ("start_browser", OPAQUE_STORE_ID) in browser.calls
+    assert record.debugging_port == 9300
+
+
 def test_list_store_status_still_matches_running_store_by_numeric_browser_id() -> None:
     browser = FakeBrowserClient(
         browser_list=[_catalog_entry()],

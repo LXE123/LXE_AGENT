@@ -12,7 +12,9 @@ REMOVED_PATHS = (
     "python/lxeskill_cli/shared/db/sqlite/response_route_state.py",
     "python/lxeskill_cli/shared/db/sqlite/session_messages.py",
     "python/lxeskill_cli/shared/db/sqlite/session_transcripts.py",
+    "python/lxeskill_cli/shared/agent_state.py",
     "python/lxeskill_cli/shared/media",
+    "python/lxeskill_cli/services/browser/store/agent_tool_state.py",
     "python/lxeskill_cli/services/agent_cli/browser/amazon_fba/login_verify.py",
     "python/lxeskill_cli/services/agent_cli/mabang/build_amazon_fba_inventory_snapshot.py",
     "python/lxeskill_cli/services/agent_cli/mabang/build_store_unlinked_shipments_snapshot.py",
@@ -22,22 +24,6 @@ REMOVED_PATHS = (
 )
 
 REMOVED_SYMBOLS = {
-    "python/lxeskill_cli/shared/agent_state.py": (
-        "build_initial_agent_state",
-        "compose_agent_state",
-        "context_patch",
-        "context_state",
-        "empty_context_state",
-        "empty_runtime_state",
-        "is_nested_agent_state",
-        "migrate_legacy_context_data",
-        "replace_context_state",
-        "replace_runtime_state",
-        "reset_context_only",
-        "split_agent_state_for_storage",
-        "update_context_state",
-        "update_runtime_state",
-    ),
     "python/lxeskill_cli/shared/db/shared_state_dto.py": ("AgentSessionState", "ResponseRouteContext"),
     "python/lxeskill_cli/shared/db/sqlite/bootstrap.py": (
         "init_schema",

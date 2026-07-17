@@ -8,6 +8,7 @@ from services.browser.tools.driver_session import (
     open_launcher_page,
     select_first_normal_tab,
 )
+from services.browser.store.store_driver_session import store_lock
 from services.browser.store.store_session_service import StoreSessionService
 from services.browser.store.ziniao_browser_client import ZiniaoBrowserClient
 from services.browser.store.ziniao_lifecycle import ZiniaoLifecycleManager
@@ -178,23 +179,24 @@ def _dispatch_ziniao_browser(runtime: Any, arguments: dict[str, Any], *, output_
 
     if action == "open_store":
         store_id = str(arguments.get("store_id") or "").strip()
-        store_session, start_result = service.start_store_session(store_id)
-        ip_detection_page = str(start_result.get("ipDetectionPage") or "").strip()
-        launcher_page = str(start_result.get("launcherPage") or "").strip()
-        try:
-            with attached_driver(
-                browser_path=str(store_session.browser_path or "").strip(),
-                debugging_port=int(store_session.debugging_port or 0),
-                core_type=getattr(store_session, "core_type", None),
-                core_version=str(getattr(store_session, "core_version", "") or "").strip(),
-            ) as driver:
-                select_first_normal_tab(driver, allow_blank=True)
-                if not check_ip(driver, ip_detection_page):
-                    raise RuntimeError("紫鸟 IP 检测失败")
-                open_launcher_page(driver, launcher_page)
-        except Exception as exc:
-            service.stop_store_session(store_id)
-            raise exc
+        with store_lock(store_id):
+            store_session, start_result = service.start_store_session(store_id)
+            ip_detection_page = str(start_result.get("ipDetectionPage") or "").strip()
+            launcher_page = str(start_result.get("launcherPage") or "").strip()
+            try:
+                with attached_driver(
+                    browser_path=str(store_session.browser_path or "").strip(),
+                    debugging_port=int(store_session.debugging_port or 0),
+                    core_type=getattr(store_session, "core_type", None),
+                    core_version=str(getattr(store_session, "core_version", "") or "").strip(),
+                ) as driver:
+                    select_first_normal_tab(driver, allow_blank=True)
+                    if not check_ip(driver, ip_detection_page):
+                        raise RuntimeError("紫鸟 IP 检测失败")
+                    open_launcher_page(driver, launcher_page)
+            except Exception as exc:
+                service.stop_store_session(store_id)
+                raise exc
 
         status = _status_data(service=service)
         return {
@@ -222,7 +224,8 @@ def _dispatch_ziniao_browser(runtime: Any, arguments: dict[str, Any], *, output_
 
     if action == "exit_store":
         store_id = str(arguments.get("store_id") or "").strip()
-        service.stop_store_session(store_id)
+        with store_lock(store_id):
+            service.stop_store_session(store_id)
         if not service.list_running_stores():
             service.close_client()
         status = _status_data(service=service)

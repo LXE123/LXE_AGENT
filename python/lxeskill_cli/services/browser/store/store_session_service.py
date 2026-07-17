@@ -79,11 +79,13 @@ class StoreSessionService:
         *,
         catalog_by_id: dict[int, dict[str, Any]],
         catalog_by_oauth: dict[str, dict[str, Any]],
+        running_entries: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         seen_browser_ids: set[int] = set()
         seen_browser_oauths: set[str] = set()
         summaries: list[dict[str, Any]] = []
-        for item in self._browser.get_running_info():
+        entries = running_entries if running_entries is not None else self._browser.get_running_info()
+        for item in entries:
             running_oauth = _running_browser_oauth(item)
             catalog_entry = catalog_by_oauth.get(running_oauth) if running_oauth else None
             browser_id = _safe_browser_id((catalog_entry or {}).get("browserId"))
@@ -172,6 +174,62 @@ class StoreSessionService:
             browser_path=browser_path,
             core_type=start_result.get("core_type"),
             core_version=start_result.get("core_version"),
+        )
+        return record
+
+    def _record_from_running_info(
+        self,
+        *,
+        browser_oauth: str,
+        catalog_entry: dict[str, Any],
+        running_entries: list[dict[str, Any]],
+    ) -> ZiniaoStoreSessionState | None:
+        """Rebuild attach material for an already-running store without restarting it.
+
+        getRunningInfo is not documented to always carry the full field set, so
+        any gap falls back to the startBrowser path instead of failing here.
+        """
+        safe_browser_oauth = _safe_browser_oauth(browser_oauth)
+        entry = next(
+            (
+                dict(item or {})
+                for item in running_entries
+                if _running_browser_oauth(item) == safe_browser_oauth
+            ),
+            None,
+        )
+        browser_id = _safe_browser_id((catalog_entry or {}).get("browserId"))
+        debugging_port = _safe_browser_id((entry or {}).get("debuggingPort"))
+        download_path = str((entry or {}).get("downloadPath") or "").strip()
+        browser_path = str((entry or {}).get("browserPath") or "").strip()
+        if entry is None or browser_id <= 0 or debugging_port <= 0 or not download_path or not browser_path:
+            trace_event(
+                "session.rebuild.incomplete",
+                level="warning",
+                store_id=safe_browser_oauth,
+                has_entry=entry is not None,
+                browser_id=browser_id,
+                debugging_port=debugging_port,
+                has_download_path=bool(download_path),
+                has_browser_path=bool(browser_path),
+            )
+            return None
+        record = self._map.upsert(
+            browser_oauth=safe_browser_oauth,
+            browser_id=browser_id,
+            browser_name=str((catalog_entry or {}).get("browserName") or safe_browser_oauth).strip(),
+            debugging_port=debugging_port,
+            download_path=download_path,
+            browser_path=browser_path,
+            core_type=entry.get("core_type"),
+            core_version=str(entry.get("core_version") or "").strip(),
+        )
+        trace_event(
+            "session.rebuild.success",
+            store_id=safe_browser_oauth,
+            browser_id=browser_id,
+            debugging_port=debugging_port,
+            browser_path=browser_path,
         )
         return record
 
@@ -266,9 +324,11 @@ class StoreSessionService:
         if catalog_entry is None:
             trace_event("session.catalog.miss", level="error", store_id=safe_browser_oauth)
             raise RuntimeError(f"目标店铺不存在: {safe_browser_oauth}")
+        running_entries = self._browser.get_running_info()
         running_summaries = self._normalized_running_summaries(
             catalog_by_id=catalog_by_id,
             catalog_by_oauth=catalog_by_oauth,
+            running_entries=running_entries,
         )
         running_browser_oauths = {
             str(item.get("browserOauth") or "").strip()
@@ -288,6 +348,13 @@ class StoreSessionService:
                     browser_path=existing.browser_path,
                 )
                 return existing
+            rebuilt = self._record_from_running_info(
+                browser_oauth=safe_browser_oauth,
+                catalog_entry=catalog_entry,
+                running_entries=running_entries,
+            )
+            if rebuilt is not None:
+                return rebuilt
 
         record = self._record_from_start(
             browser_oauth=safe_browser_oauth,

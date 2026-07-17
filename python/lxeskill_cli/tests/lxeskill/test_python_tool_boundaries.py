@@ -14,19 +14,17 @@ from services.browser.tools.models import ExecuteToolResult, ToolExecutionResult
 
 
 def test_browser_client_exposes_async_tool_boundary(monkeypatch) -> None:
-    session = SimpleNamespace(session_id="session-1", state_data={})
+    session = SimpleNamespace(session_id="session-1")
 
     def fake_execute(runtime, *, tool_name: str, arguments: dict):
         assert runtime is session
         assert tool_name == "ziniao_browser"
         assert arguments == {"action": "get_status"}
-        runtime.state_data = {"runtime": {"session_activity_at": "2026-07-11T08:00:00Z"}}
         return ExecuteToolResult(
             tool_name=tool_name,
             success=True,
             summary="browser ready",
             payload={"action": "get_status", "data": {"client_running": True}},
-            state_data={"runtime": {"session_activity_at": "2026-07-11T08:00:00Z"}},
         )
 
     monkeypatch.setattr(client.browser_executor, "execute_browser_tool", fake_execute)
@@ -44,14 +42,13 @@ def test_browser_client_exposes_async_tool_boundary(monkeypatch) -> None:
     assert result.content == [
         {"type": "text", "text": 'browser ready\nStatus JSON: {"client_running": true}'}
     ]
-    assert result.state_patch == {"runtime": {"session_activity_at": "2026-07-11T08:00:00Z"}}
     assert result.files == []
 
 
 def test_browser_vision_returns_a_path_without_base64(tmp_path, monkeypatch) -> None:
     screenshot = tmp_path / "page.png"
     screenshot.write_bytes(b"not-decoded-by-client")
-    session = SimpleNamespace(session_id="session-1", state_data={})
+    session = SimpleNamespace(session_id="session-1")
 
     def fake_execute(runtime, *, tool_name: str, arguments: dict):
         return ExecuteToolResult(
@@ -60,7 +57,6 @@ def test_browser_vision_returns_a_path_without_base64(tmp_path, monkeypatch) -> 
             summary="captured",
             screenshot_path=str(screenshot),
             payload={"action": "browser_vision"},
-            state_data={},
         )
 
     monkeypatch.setattr(client.browser_executor, "execute_browser_tool", fake_execute)

@@ -17,14 +17,12 @@ class ExecuteToolResult:
     error_code: str = ""
     clicked_element: dict[str, Any] = field(default_factory=dict)
     latency_ms: int = 0
-    state_data: dict[str, Any] = field(default_factory=dict)
 
 @dataclass(frozen=True)
 class ToolExecutionResult:
     tool_name: str
     success: bool
     content: list[dict[str, Any]] = field(default_factory=list)
-    state_patch: dict[str, Any] = field(default_factory=dict)
     files: list[str] = field(default_factory=list)
     error_code: str = ""
     error_message: str = ""

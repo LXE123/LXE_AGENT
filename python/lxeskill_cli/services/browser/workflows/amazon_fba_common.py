@@ -18,7 +18,6 @@ class WorkflowBrowserSession:
         self,
         *,
         driver: Any,
-        state_data: dict[str, Any],
         output_dir: Path,
         session_id: str = "",
         store_id: str = "",
@@ -27,7 +26,6 @@ class WorkflowBrowserSession:
         browser_path: str = "",
     ):
         self.driver = driver
-        self.state_data = dict(state_data or {})
         self.output_dir = Path(output_dir)
         self.session_id = str(session_id or "").strip()
         self.store_id = str(store_id or "").strip()

@@ -7,7 +7,6 @@ from services.browser.workflows.amazon_fba_prepare_upload import run_prepare_upl
 def _session(tmp_path) -> WorkflowBrowserSession:
     return WorkflowBrowserSession(
         driver=object(),
-        state_data={},
         output_dir=tmp_path,
         session_id="session-1",
         store_id="store-1",

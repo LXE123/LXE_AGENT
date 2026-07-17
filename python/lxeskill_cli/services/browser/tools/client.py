@@ -6,29 +6,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from shared.agent_state import ensure_agent_state
-
 from services.browser.tools import executor as browser_executor
 from services.browser.tools.models import ExecuteToolResult, ToolExecutionResult
 
 
 def _runtime_from_session(session: Any) -> Any:
     if isinstance(session, dict):
-        return SimpleNamespace(
-            session_id=str(session.get("session_id") or "").strip(),
-            state_data=ensure_agent_state(session.get("state_data") or {}),
-        )
-    if not hasattr(session, "state_data"):
-        setattr(session, "state_data", {})
+        return SimpleNamespace(session_id=str(session.get("session_id") or "").strip())
     return session
-
-
-def _sync_session_state(session: Any, state_patch: dict[str, Any]) -> None:
-    safe_state = ensure_agent_state(state_patch)
-    if isinstance(session, dict):
-        session["state_data"] = safe_state
-        return
-    setattr(session, "state_data", safe_state)
 
 
 def _image_content(path_text: str) -> tuple[list[dict[str, Any]], list[str]]:
@@ -65,12 +50,10 @@ def _text_content(result: ExecuteToolResult) -> list[dict[str, Any]]:
 
 
 def _to_tool_execution_result(result: ExecuteToolResult) -> ToolExecutionResult:
-    state_patch = dict(result.state_data or {})
     if not result.success:
         return ToolExecutionResult(
             tool_name=result.tool_name,
             success=False,
-            state_patch=state_patch,
             error_code=str(result.error_code or "browser_tool_failed").strip() or "browser_tool_failed",
             error_message=str(result.failure_reason or f"{result.tool_name} 执行失败").strip(),
         )
@@ -85,7 +68,6 @@ def _to_tool_execution_result(result: ExecuteToolResult) -> ToolExecutionResult:
         tool_name=result.tool_name,
         success=True,
         content=content,
-        state_patch=state_patch,
         files=files,
     )
 
@@ -102,9 +84,7 @@ async def execute_browser_tool(
         tool_name=str(tool_name or "").strip(),
         arguments=dict(arguments or {}),
     )
-    result = _to_tool_execution_result(raw_result)
-    _sync_session_state(session, result.state_patch)
-    return result
+    return _to_tool_execution_result(raw_result)
 
 
 __all__ = ["execute_browser_tool"]

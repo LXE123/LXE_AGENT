@@ -138,7 +138,6 @@ def test_run_login_verify_workflow_uses_driver_and_returns_notice() -> None:
     driver = object()
     session = WorkflowBrowserSession(
         driver=driver,
-        state_data={},
         output_dir=Path.cwd(),
         store_id="store-1",
         store_name="Amazon-BR",
@@ -166,7 +165,6 @@ def test_run_login_verify_workflow_uses_driver_and_returns_notice() -> None:
 def test_run_login_verify_workflow_returns_manual_required_failure() -> None:
     session = WorkflowBrowserSession(
         driver=object(),
-        state_data={},
         output_dir=Path.cwd(),
         store_id="store-1",
         store_name="Amazon-BR",
@@ -194,7 +192,6 @@ def test_run_login_verify_workflow_returns_manual_required_failure() -> None:
 def test_run_login_verify_workflow_returns_not_ready_without_selected_store() -> None:
     session = WorkflowBrowserSession(
         driver=object(),
-        state_data={},
         output_dir=Path.cwd(),
         store_id="",
         store_name="",
