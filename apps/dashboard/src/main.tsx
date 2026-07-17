@@ -72,6 +72,7 @@ import { DocsShell } from "./features/docs/view";
 import { ConnectionsView } from "./features/integrations/view";
 import { DashboardHome } from "./features/home/view";
 import { ModelsView } from "./features/models/view";
+import { RuntimeStatusPopover } from "./features/runtime-status/view";
 import {
   SessionDetailView,
   SessionsIndex
@@ -647,10 +648,23 @@ function App({
         ? `${formatDate(selectedSession.last_active_at)} · ${formatNumber(selectedSession.input_tokens + selectedSession.output_tokens)} ${t.sessions.tokenSuffix}`
         : ""
       : "";
+  const runtimeStatusNavigationKey = docsOpen
+    ? `docs:${effectiveDocPath}`
+    : `${activeSection}:${capabilityView}:${activityView}:${selectedSessionId}`;
+  const runtimeStatusPopover = (
+    <RuntimeStatusPopover
+      currentModel={currentModelQuery.data ?? null}
+      desktopHealth={desktopHealth}
+      navigationKey={runtimeStatusNavigationKey}
+      onOpenModels={() => openCapabilityView("models")}
+      onOpenSettings={(section) => onOpenDesktopSettings?.(section)}
+    />
+  );
 
   if (docsOpen) {
     return (
-      <DocsShell
+      <>
+        <DocsShell
           docs={docs}
           docsLoading={docsQuery.isPending}
           docsError={!docsQuery.data ? queryError(docsQuery.error) : ""}
@@ -668,12 +682,15 @@ function App({
           onBackToDashboard={backToDashboard}
           onModeChange={setDocContentMode}
           onCopy={copyCurrentDoc}
-      />
+        />
+        {runtimeStatusPopover}
+      </>
     );
   }
 
   return (
-    <main className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
+    <>
+      <main className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
         <aside className={sidebarCollapsed ? "app-sidebar collapsed" : "app-sidebar"}>
           <div className="sidebar-topbar">
             <div className="sidebar-topbar-actions">
@@ -801,12 +818,8 @@ function App({
             ) : null}
             {activeSection === "home" ? (
               <DashboardHome
-                currentModel={currentModelQuery.data ?? null}
-                desktopHealth={desktopHealth}
-                onOpenModels={() => openCapabilityView("models")}
                 onOpenSession={openSession}
                 onOpenSessions={() => openDashboardSection("sessions")}
-                onOpenSettings={(section) => onOpenDesktopSettings?.(section)}
                 onOpenStats={() => openActivityView("stats")}
               />
             ) : null}
@@ -885,7 +898,9 @@ function App({
         </section>
 
         <DetailModal target={detailTarget} onClose={() => setDetailTarget(null)} />
-    </main>
+      </main>
+      {runtimeStatusPopover}
+    </>
   );
 }
 

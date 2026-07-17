@@ -1435,7 +1435,7 @@ button {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 18px 34px 42px;
+  padding: 18px 34px 92px;
 }
 
 .app-sidebar {
@@ -1930,7 +1930,7 @@ h1 {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: 24px 28px 34px;
+  padding: 24px 28px 92px;
   background: transparent;
 }
 
@@ -5026,18 +5026,24 @@ pre {
     font-size: 23px;
   }
 
-  .content-panel,
   .app-sidebar {
     padding: 12px;
+  }
+
+  .content-panel {
+    padding: 12px 12px 88px;
   }
 
   .main-header {
     padding: 14px 12px;
   }
 
-  .docs-shell-sidebar,
-  .docs-shell-content {
+  .docs-shell-sidebar {
     padding: 12px;
+  }
+
+  .docs-shell-content {
+    padding: 12px 12px 88px;
   }
 
   .docs-back-button span {
@@ -5496,7 +5502,7 @@ pre {
   width: min(920px, 100%);
   max-width: 100%;
   margin: 0 auto;
-  padding: 18px 0 76px;
+  padding: 18px 0 0;
 }
 
 .home-hero h2 {
@@ -5513,12 +5519,12 @@ pre {
   color: var(--muted);
 }
 
-.home-runtime-list {
+.runtime-status-list {
   display: flex;
   flex-direction: column;
 }
 
-.home-runtime-floating {
+.runtime-status-floating {
   position: fixed;
   z-index: 12;
   right: 24px;
@@ -5529,16 +5535,16 @@ pre {
   pointer-events: none;
 }
 
-.home-runtime-popover,
-.home-runtime-trigger {
+.runtime-status-popover,
+.runtime-status-trigger {
   pointer-events: auto;
 }
 
-.home-runtime-popover {
+.runtime-status-popover {
   position: absolute;
   right: 0;
   bottom: calc(100% + 12px);
-  width: 310px;
+  width: 280px;
   max-width: calc(100vw - 40px);
   max-height: min(430px, calc(100vh - 116px));
   overflow: auto;
@@ -5548,11 +5554,11 @@ pre {
   background: color-mix(in srgb, var(--surface) 96%, transparent);
   box-shadow: 0 18px 50px rgba(54, 39, 26, 0.18), 0 2px 8px var(--shadow-soft);
   transform-origin: right bottom;
-  animation: home-runtime-popover-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: runtime-status-popover-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
   backdrop-filter: blur(16px);
 }
 
-.home-runtime-popover-heading {
+.runtime-status-popover-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -5560,14 +5566,14 @@ pre {
   margin-bottom: 6px;
 }
 
-.home-runtime-popover-heading h3 {
+.runtime-status-popover-heading h3 {
   margin: 0;
   color: var(--text-strong);
   font-size: 13.5px;
   font-weight: 650;
 }
 
-.home-runtime-trigger {
+.runtime-status-trigger {
   --runtime-tone: var(--muted-light);
   position: relative;
   display: grid;
@@ -5584,62 +5590,62 @@ pre {
   transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
 }
 
-.home-runtime-trigger.tone-healthy {
+.runtime-status-trigger.tone-healthy {
   --runtime-tone: var(--rate-good);
 }
 
-.home-runtime-trigger.tone-progress {
+.runtime-status-trigger.tone-progress {
   --runtime-tone: var(--info);
 }
 
-.home-runtime-trigger.tone-warning {
+.runtime-status-trigger.tone-warning {
   --runtime-tone: var(--rate-bad);
 }
 
-.home-runtime-trigger:hover {
+.runtime-status-trigger:hover {
   background: #332e28;
   box-shadow: 0 15px 34px rgba(54, 39, 26, 0.3), 0 2px 8px var(--shadow-medium);
   transform: translateY(-2px);
 }
 
-.home-runtime-trigger:active {
+.runtime-status-trigger:active {
   transform: translateY(0) scale(0.96);
 }
 
-.home-runtime-trigger:focus-visible {
+.runtime-status-trigger:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 3px;
 }
 
-.home-runtime-trigger-icons {
+.runtime-status-trigger-icons {
   position: relative;
   display: block;
   width: 22px;
   height: 22px;
 }
 
-.home-runtime-trigger-icons svg {
+.runtime-status-trigger-icons svg {
   position: absolute;
   inset: 0;
   transition: opacity 150ms ease, transform 180ms ease;
 }
 
-.home-runtime-trigger-close {
+.runtime-status-trigger-close {
   opacity: 0;
   transform: rotate(-75deg) scale(0.72);
 }
 
-.home-runtime-trigger.is-open .home-runtime-trigger-activity {
+.runtime-status-trigger.is-open .runtime-status-trigger-activity {
   opacity: 0;
   transform: rotate(75deg) scale(0.72);
 }
 
-.home-runtime-trigger.is-open .home-runtime-trigger-close {
+.runtime-status-trigger.is-open .runtime-status-trigger-close {
   opacity: 1;
   transform: rotate(0) scale(1);
 }
 
-.home-runtime-trigger-dot {
+.runtime-status-trigger-dot {
   position: absolute;
   top: 5px;
   right: 5px;
@@ -5651,7 +5657,7 @@ pre {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--runtime-tone) 22%, transparent);
 }
 
-@keyframes home-runtime-popover-in {
+@keyframes runtime-status-popover-in {
   from {
     opacity: 0;
     transform: translateY(10px) scale(0.94);
@@ -5663,7 +5669,7 @@ pre {
   }
 }
 
-.home-runtime-item {
+.runtime-status-item {
   --runtime-tone: var(--muted-light);
   display: grid;
   min-width: 0;
@@ -5682,28 +5688,28 @@ pre {
   transition: background 0.14s ease;
 }
 
-.home-runtime-item:last-child {
+.runtime-status-item:last-child {
   border-bottom: 0;
 }
 
-.home-runtime-item:hover,
-.home-runtime-item:focus-visible {
+.runtime-status-item:hover,
+.runtime-status-item:focus-visible {
   background: var(--row-hover);
 }
 
-.home-runtime-item.tone-healthy {
+.runtime-status-item.tone-healthy {
   --runtime-tone: var(--rate-good);
 }
 
-.home-runtime-item.tone-progress {
+.runtime-status-item.tone-progress {
   --runtime-tone: var(--info);
 }
 
-.home-runtime-item.tone-warning {
+.runtime-status-item.tone-warning {
   --runtime-tone: var(--rate-bad);
 }
 
-.home-runtime-icon {
+.runtime-status-icon {
   display: grid;
   width: 30px;
   height: 30px;
@@ -5714,19 +5720,19 @@ pre {
   color: var(--accent-strong);
 }
 
-.home-runtime-copy {
+.runtime-status-copy {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
-.home-runtime-label {
+.runtime-status-label {
   color: var(--muted);
   font-size: 11px;
   line-height: 1;
 }
 
-.home-runtime-value-line {
+.runtime-status-value-line {
   display: flex;
   min-width: 0;
   align-items: baseline;
@@ -5734,7 +5740,7 @@ pre {
   line-height: 1.2;
 }
 
-.home-runtime-value-line strong {
+.runtime-status-value-line strong {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -5745,7 +5751,7 @@ pre {
   white-space: nowrap;
 }
 
-.home-runtime-meta {
+.runtime-status-meta {
   min-width: 0;
   overflow: hidden;
   color: var(--muted-light);
@@ -5754,15 +5760,15 @@ pre {
   white-space: nowrap;
 }
 
-.home-runtime-item.tone-progress .home-runtime-value-line strong {
+.runtime-status-item.tone-progress .runtime-status-value-line strong {
   color: var(--info);
 }
 
-.home-runtime-item.tone-warning .home-runtime-value-line strong {
+.runtime-status-item.tone-warning .runtime-status-value-line strong {
   color: var(--rate-bad);
 }
 
-.home-runtime-dot {
+.runtime-status-dot {
   width: 7px;
   height: 7px;
   margin-right: 3px;
@@ -5959,23 +5965,23 @@ pre {
 }
 
 @media (max-width: 620px) {
-  .home-runtime-floating {
+  .runtime-status-floating {
     right: 16px;
     bottom: 16px;
   }
 
-  .home-runtime-popover {
+  .runtime-status-popover {
     max-width: calc(100vw - 32px);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .home-runtime-popover {
+  .runtime-status-popover {
     animation: none;
   }
 
-  .home-runtime-trigger,
-  .home-runtime-trigger-icons svg {
+  .runtime-status-trigger,
+  .runtime-status-trigger-icons svg {
     transition: none;
   }
 }

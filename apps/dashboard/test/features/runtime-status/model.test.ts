@@ -3,8 +3,9 @@ import type { DesktopHealth } from "@lxe/desktop-protocol";
 
 import {
   aggregateAgentState,
+  aggregateRuntimeTone,
   summarizeChannelState,
-} from "../../../src/features/home/model";
+} from "../../../src/features/runtime-status/model";
 
 const health = (patch: Partial<DesktopHealth> = {}): DesktopHealth => ({
   gateway: "ready",
@@ -18,7 +19,7 @@ const health = (patch: Partial<DesktopHealth> = {}): DesktopHealth => ({
   ...patch,
 });
 
-describe("home runtime status model", () => {
+describe("global runtime status model", () => {
   test("aggregates agent-cli and lxeskill by the most actionable state", () => {
     expect(aggregateAgentState(health())).toBe("ready");
     expect(aggregateAgentState(health({ lxeskill: "starting" }))).toBe("starting");
@@ -45,5 +46,12 @@ describe("home runtime status model", () => {
       items: { feishu: { running: false } },
       total: 1,
     })).toBe("disabled");
+  });
+
+  test("promotes the most actionable tone to the floating trigger", () => {
+    expect(aggregateRuntimeTone(["healthy", "healthy"])).toBe("healthy");
+    expect(aggregateRuntimeTone(["healthy", "neutral"])).toBe("neutral");
+    expect(aggregateRuntimeTone(["healthy", "progress", "neutral"])).toBe("progress");
+    expect(aggregateRuntimeTone(["progress", "warning", "healthy"])).toBe("warning");
   });
 });

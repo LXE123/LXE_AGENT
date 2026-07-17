@@ -5,7 +5,7 @@ import type {
   ChannelHealthPayload,
 } from "../../api/payloads";
 
-export type HomeChannelState =
+export type RuntimeChannelState =
   | "connected"
   | "connecting"
   | "error"
@@ -13,9 +13,13 @@ export type HomeChannelState =
   | "unconfigured"
   | "unavailable";
 
+export type RuntimeTone = "healthy" | "progress" | "warning" | "neutral";
+
 const CONNECTING_CHANNEL_STATES = new Set(["starting", "reconnecting", "connecting"]);
 
-export function aggregateAgentState(health: Pick<DesktopHealth, "agent_cli" | "lxeskill">): DesktopComponentState {
+export function aggregateAgentState(
+  health: Pick<DesktopHealth, "agent_cli" | "lxeskill">,
+): DesktopComponentState {
   const states = [health.agent_cli, health.lxeskill];
   if (states.includes("error")) return "error";
   if (states.includes("stopped")) return "stopped";
@@ -23,7 +27,28 @@ export function aggregateAgentState(health: Pick<DesktopHealth, "agent_cli" | "l
   return "ready";
 }
 
-function channelItemState(health: ChannelHealthPayload): HomeChannelState {
+export function componentTone(state: DesktopComponentState): RuntimeTone {
+  if (state === "ready") return "healthy";
+  if (state === "starting") return "progress";
+  if (state === "error" || state === "stopped") return "warning";
+  return "neutral";
+}
+
+export function channelTone(state: RuntimeChannelState): RuntimeTone {
+  if (state === "connected") return "healthy";
+  if (state === "connecting") return "progress";
+  if (state === "error") return "warning";
+  return "neutral";
+}
+
+export function aggregateRuntimeTone(tones: RuntimeTone[]): RuntimeTone {
+  if (tones.includes("warning")) return "warning";
+  if (tones.includes("progress")) return "progress";
+  if (tones.length > 0 && tones.every((tone) => tone === "healthy")) return "healthy";
+  return "neutral";
+}
+
+function channelItemState(health: ChannelHealthPayload): RuntimeChannelState {
   const connectionState = String(health.connection_state || "").trim().toLowerCase();
   if (health.ready === true || connectionState === "connected") return "connected";
   if (health.restart_in_progress || CONNECTING_CHANNEL_STATES.has(connectionState)) return "connecting";
@@ -35,7 +60,7 @@ function channelItemState(health: ChannelHealthPayload): HomeChannelState {
 export function summarizeChannelState(
   channels: ChannelHealthList | undefined,
   unavailable = false,
-): HomeChannelState {
+): RuntimeChannelState {
   if (!channels) return unavailable ? "unavailable" : "unconfigured";
   const items = Object.values(channels.items || {});
   if (!items.length) return "unconfigured";
