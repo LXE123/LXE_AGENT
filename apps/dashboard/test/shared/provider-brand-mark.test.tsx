@@ -16,29 +16,30 @@ describe("ProviderBrandMark", () => {
     expect(providerBrandKind("unknown-provider")).toBe("generic");
   });
 
-  test("renders local decorative vectors with a generic fallback", () => {
+  test("renders the bundled Kimi icon with local vectors and a generic fallback", () => {
     const kimi = renderToStaticMarkup(<ProviderBrandMark provider="kimi_coding" />);
     const deepseek = renderToStaticMarkup(<ProviderBrandMark provider="deepseek" />);
     const fallback = renderToStaticMarkup(<ProviderBrandMark provider="glm" />);
 
     expect(kimi).toContain('data-provider-mark="kimi"');
     expect(kimi).toContain('aria-hidden="true"');
-    expect(kimi).toContain('class="provider-brand-orbit"');
-    expect(kimi.match(/class="provider-brand-scan"/gu)).toHaveLength(3);
-    expect(kimi).toContain('class="provider-brand-pulse"');
+    expect(kimi).toContain("<img");
+    expect(kimi).toContain("kimi-icon-round.png");
+    expect(kimi).not.toContain("provider-brand-orbit");
+    expect(kimi).not.toContain("provider-brand-scan");
     expect(deepseek).toContain('data-provider-mark="deepseek"');
     expect(fallback).toContain('data-provider-mark="generic"');
     expect(fallback).toContain("lucide-brain");
-    expect(`${kimi}${deepseek}`).not.toMatch(/<img|https?:\/\//u);
+    expect(`${kimi}${deepseek}`).not.toMatch(/https?:\/\//u);
   });
 
-  test("keeps the Kimi lunar mark scalable at compact status sizes", () => {
+  test("keeps the Kimi icon scalable at compact status sizes", () => {
     for (const size of [16, 20, 24]) {
       const kimi = renderToStaticMarkup(<ProviderBrandMark provider="kimi-code" size={size} />);
 
       expect(kimi).toContain(`width:${size}px`);
       expect(kimi).toContain(`height:${size}px`);
-      expect(kimi).toContain('viewBox="0 0 24 24"');
+      expect(kimi).toContain("<img");
     }
   });
 });

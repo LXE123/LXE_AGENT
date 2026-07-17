@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Check, Settings2, Sparkles } from "lucide-react";
 
 import { formatCompactNumber, formatNumber } from "../../shared/format";
-import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
+import { ProviderBrandMark, providerBrandKind } from "../../shared/ui/provider-brand-mark";
 import {
   modelDisabledReasonLabel,
   modelsInDisplayOrder,
@@ -80,6 +80,7 @@ export function ModelsView({
 
       <div className="grid-list models-grid">
         {displayedModels.map((model) => {
+          const brandKind = providerBrandKind(model.provider);
           const providerActive = current?.provider === model.provider;
           const selectedModel = selectedModels[model.provider] || model.model;
           const selectedOption =
@@ -109,9 +110,15 @@ export function ModelsView({
               data-provider={model.provider}
               key={model.provider}
             >
-              <div className="model-brand-watermark" aria-hidden="true">
-                <ProviderBrandMark provider={model.provider} size={142} />
-              </div>
+              {brandKind === "kimi" ? (
+                <div className="model-kimi-dust" aria-hidden="true">
+                  <ProviderBrandMark provider={model.provider} size={520} />
+                </div>
+              ) : (
+                <div className="model-brand-watermark" aria-hidden="true">
+                  <ProviderBrandMark provider={model.provider} size={142} />
+                </div>
+              )}
               <div className="model-card-header">
                 <div className="item-heading">
                   <div className="item-icon">

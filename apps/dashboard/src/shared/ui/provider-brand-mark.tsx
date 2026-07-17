@@ -1,5 +1,7 @@
 import { Brain } from "lucide-react";
 
+import kimiIconRound from "../../assets/providers/kimi/kimi-icon-round.png";
+
 export type ProviderBrandKind = "kimi" | "deepseek" | "generic";
 
 export function providerBrandKind(provider: string | null | undefined): ProviderBrandKind {
@@ -29,13 +31,7 @@ export function ProviderBrandMark({
       style={{ width: size, height: size }}
     >
       {kind === "kimi" ? (
-        <svg fill="none" focusable="false" viewBox="0 0 24 24">
-          <circle className="provider-brand-orbit" cx="11.5" cy="12" r="8" />
-          <path className="provider-brand-scan" d="M7 8h3.2m3.5 0H16" />
-          <path className="provider-brand-scan" d="M4.8 12h4.6l2.3-2.2M9.4 12l2.3 2.2m2-2.2h4.5" />
-          <path className="provider-brand-scan" d="M7 16h3.2m3.5 0H16" />
-          <circle className="provider-brand-pulse" cx="20.2" cy="6.2" r="1.05" />
-        </svg>
+        <img alt="" draggable={false} src={kimiIconRound} />
       ) : kind === "deepseek" ? (
         <svg fill="none" focusable="false" viewBox="0 0 24 24">
           <path d="M3.2 13.2c2.6-4.1 8.8-5.2 13-2.3 1.4 1 2.2 2.4 2.2 3.8-1.9 3-5.7 4.4-9.2 3.3-2.3-.7-3.8-2.4-4-4.5" />
