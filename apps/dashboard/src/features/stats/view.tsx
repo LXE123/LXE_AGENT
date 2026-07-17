@@ -135,11 +135,11 @@ export function StatsView() {
         ))}
       </div>
 
-      <div className="usage-cards">
+      <div className="usage-summary-strip" aria-label={t.usage.title}>
         {totalCards.map((card) => (
-          <div className={card.tone ? `usage-card ${card.tone}` : "usage-card"} key={card.label}>
-            <span className="usage-card-value">{card.value}</span>
-            <span className="usage-card-label">{card.label}</span>
+          <div className={card.tone ? `usage-summary-item ${card.tone}` : "usage-summary-item"} key={card.label}>
+            <span className="usage-summary-label">{card.label}</span>
+            <strong className="usage-summary-value">{card.value}</strong>
           </div>
         ))}
       </div>
@@ -150,8 +150,11 @@ export function StatsView() {
       </section>
 
       {overview.modules.length ? (
-        <section className="usage-section">
-          <h3>{t.usage.modulesTitle}</h3>
+        <details className="usage-section usage-breakdown">
+          <summary>
+            <span>{t.usage.modulesTitle}</span>
+            <small>{t.common.countItems(formatNumber(overview.modules.length), t.usage.modulesTitle)}</small>
+          </summary>
           <div className="table-shell">
             <table className="session-table usage-table">
               <thead>
@@ -180,12 +183,15 @@ export function StatsView() {
               </tbody>
             </table>
           </div>
-        </section>
+        </details>
       ) : null}
 
       {skillStats.length ? (
-        <section className="usage-section">
-          <h3>{t.usage.skillsTitle}</h3>
+        <details className="usage-section usage-breakdown">
+          <summary>
+            <span>{t.usage.skillsTitle}</span>
+            <small>{t.common.countItems(formatNumber(skillStats.length), t.usage.skillsTitle)}</small>
+          </summary>
           <div className="table-shell">
             <table className="session-table usage-table">
               <thead>
@@ -216,12 +222,15 @@ export function StatsView() {
               </tbody>
             </table>
           </div>
-        </section>
+        </details>
       ) : null}
 
       {toolStats.length ? (
-        <section className="usage-section">
-          <h3>{t.usage.toolsTitle}</h3>
+        <details className="usage-section usage-breakdown">
+          <summary>
+            <span>{t.usage.toolsTitle}</span>
+            <small>{t.common.countItems(formatNumber(toolStats.length), t.usage.toolsTitle)}</small>
+          </summary>
           <div className="table-shell">
             <table className="session-table usage-table">
               <thead>
@@ -248,7 +257,7 @@ export function StatsView() {
               </tbody>
             </table>
           </div>
-        </section>
+        </details>
       ) : null}
     </div>
   );

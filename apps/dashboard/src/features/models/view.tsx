@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Brain, Check, CircleCheck, Settings2, Sparkles } from "lucide-react";
 
-import { formatNumber } from "../../shared/format";
+import { formatCompactNumber, formatNumber } from "../../shared/format";
 import {
   modelDisabledReasonLabel,
   modelsInDisplayOrder,
@@ -10,6 +10,15 @@ import {
 } from "./model";
 import { useUiText } from "../../shared/i18n";
 import type { ModelPayload } from "../../api/payloads";
+
+function CompactTokenMetric({ value }: { value: number }) {
+  const exactValue = formatNumber(value);
+  return (
+    <dd aria-label={exactValue} title={exactValue}>
+      {formatCompactNumber(value)}
+    </dd>
+  );
+}
 
 export function ModelsView({
   models,
@@ -165,26 +174,29 @@ export function ModelsView({
                 ) : null}
               </div>
 
-              <dl className="compact-metrics">
-                <div>
-                  <dt>{t.models.context}</dt>
-                  <dd>{formatNumber(displayedModel.capabilities.context_window_tokens)}</dd>
-                </div>
-                <div>
-                  <dt>{t.models.output}</dt>
-                  <dd>
-                    {formatNumber(
-                      displayedModel.capabilities.max_tokens ?? displayedModel.capabilities.max_output_tokens ?? 0
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt>{t.models.vision}</dt>
-                  <dd className={displayedModel.capabilities.supports_vision ? "metric-positive" : undefined}>
-                    {displayedModel.capabilities.supports_vision ? t.common.yes : t.common.no}
-                  </dd>
-                </div>
-              </dl>
+              <details className="model-capabilities-details">
+                <summary>{t.models.capabilities}</summary>
+                <dl className="compact-metrics">
+                  <div>
+                    <dt>{t.models.context}</dt>
+                    <CompactTokenMetric value={displayedModel.capabilities.context_window_tokens} />
+                  </div>
+                  <div>
+                    <dt>{t.models.output}</dt>
+                    <CompactTokenMetric
+                      value={displayedModel.capabilities.max_tokens
+                        ?? displayedModel.capabilities.max_output_tokens
+                        ?? 0}
+                    />
+                  </div>
+                  <div>
+                    <dt>{t.models.vision}</dt>
+                    <dd className={displayedModel.capabilities.supports_vision ? "metric-positive" : undefined}>
+                      {displayedModel.capabilities.supports_vision ? t.common.yes : t.common.no}
+                    </dd>
+                  </div>
+                </dl>
+              </details>
               {showThinkingPanel ? (
                 <div className="model-thinking-panel">
                   <div className="model-thinking-title">

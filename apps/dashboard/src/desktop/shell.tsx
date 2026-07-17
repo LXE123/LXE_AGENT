@@ -1,13 +1,11 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Activity,
   AlertTriangle,
   ExternalLink,
   FileUp,
   FolderOpen,
   RotateCcw,
-  Settings,
   Trash2,
   X,
 } from "lucide-react";
@@ -21,45 +19,25 @@ import type {
   DesktopZiniaoVersion,
 } from "@lxe/desktop-protocol";
 import { BrandMark } from "../shared/ui/brand-mark";
+import type { Language } from "../shared/i18n";
+import { LanguageSwitch } from "../shared/ui/language-switch";
+import { useDialogFocus } from "../shared/ui/use-dialog-focus";
+import {
+  desktopSettingsForm,
+  desktopSettingsSectionIsDirty,
+  desktopSettingsSectionStatus,
+  type DesktopSettingsFormValue,
+  type DesktopSettingsSection,
+  type EditableDesktopSettingsSection,
+} from "./settings-model";
 
 type Provider = DesktopSetupInput["provider"];
 type IntegrationName = "ziniao" | "mabang" | "feishu";
-
-interface SetupForm {
-  provider: Provider;
-  apiKey: string;
-  workspaceRoot: string;
-  ziniaoCompany: string;
-  ziniaoUsername: string;
-  ziniaoPassword: string;
-  ziniaoVersion: DesktopZiniaoVersion;
-  ziniaoAppPath: string;
-  ziniaoWebDriverPath: string;
-  mabangAccount: string;
-  mabangPassword: string;
-  feishuAppId: string;
-  feishuAppSecret: string;
-  logProfile: DesktopLogProfile;
-  logRetentionDays: DesktopLogRetentionDays;
-}
-
-const setupForm = (state: DesktopSetupState): SetupForm => ({
-  provider: state.provider as Provider,
-  apiKey: "",
-  workspaceRoot: state.workspace_root,
-  ziniaoCompany: state.ziniao.company,
-  ziniaoUsername: state.ziniao.username,
-  ziniaoPassword: "",
-  ziniaoVersion: state.ziniao.app_version,
-  ziniaoAppPath: state.ziniao.app_path,
-  ziniaoWebDriverPath: state.ziniao.webdriver_path,
-  mabangAccount: state.mabang.account,
-  mabangPassword: "",
-  feishuAppId: state.feishu.app_id,
-  feishuAppSecret: "",
-  logProfile: state.logging.profile,
-  logRetentionDays: state.logging.retention_days,
-});
+type SetupForm = DesktopSettingsFormValue;
+type DesktopConfirmation =
+  | { kind: "diagnostic" }
+  | { kind: "clear-integration"; integration: IntegrationName; label: string };
+const setupForm = desktopSettingsForm;
 
 const stateLabel = (state: DesktopHealth["gateway"]): string => ({
   stopped: "已停止",
@@ -68,29 +46,10 @@ const stateLabel = (state: DesktopHealth["gateway"]): string => ({
   error: "异常",
 })[state];
 
-const integrationLabel = (managed: boolean, configured: boolean): string =>
-  configured ? "已配置" : managed ? "待补全" : "可选";
+const integrationStatusClass = (managed: boolean, configured: boolean): string =>
+  `desktop-integration-status ${configured ? "configured" : managed ? "incomplete" : "optional"}`;
 
 const hasText = (...values: string[]): boolean => values.some((value) => value.trim().length > 0);
-
-function IntegrationSummary({
-  title,
-  managed,
-  configured,
-}: {
-  title: string;
-  managed: boolean;
-  configured: boolean;
-}) {
-  return (
-    <span className="desktop-integration-summary">
-      <span>{title}</span>
-      <span className={`desktop-integration-status ${configured ? "configured" : managed ? "incomplete" : "optional"}`}>
-        {integrationLabel(managed, configured)}
-      </span>
-    </span>
-  );
-}
 
 function IntegrationIssues({ issues }: { issues: string[] }) {
   if (issues.length === 0) return null;
@@ -101,60 +60,201 @@ function IntegrationIssues({ issues }: { issues: string[] }) {
   );
 }
 
-function DesktopSettingsForm({
+function DesktopSettingsNavigation({
+  activeSection,
+  baseline,
   form,
+  health,
+  language,
+  setup,
+  showStatus,
+  onLanguageChange,
+  onSelect,
+  onSelectConfigImport,
+}: {
+  activeSection: DesktopSettingsSection;
+  baseline: SetupForm;
+  form: SetupForm;
+  health: DesktopHealth | null;
+  language: Language;
+  setup: DesktopSetupState;
+  showStatus: boolean;
+  onLanguageChange: (language: Language) => void;
+  onSelect: (section: DesktopSettingsSection) => void;
+  onSelectConfigImport: () => void;
+}) {
+  const item = (section: DesktopSettingsSection, label: string, status: string) => {
+    const dirty = desktopSettingsSectionIsDirty(section, form, baseline);
+    const active = activeSection === section;
+    return (
+      <button
+        aria-current={active ? "page" : undefined}
+        className={`desktop-settings-nav-item${active ? " active" : ""}`}
+        key={section}
+        onClick={() => onSelect(section)}
+        type="button"
+      >
+        <span>
+          <strong>{label}</strong>
+          <small>{status}</small>
+        </span>
+        {dirty ? (
+          <i aria-label="有未保存修改" className="desktop-settings-dirty-dot" title="有未保存修改" />
+        ) : null}
+      </button>
+    );
+  };
+
+  return (
+    <nav aria-label="设置菜单" className="desktop-settings-nav">
+      <div className="desktop-settings-nav-list">
+        {showStatus ? item("status", "运行状态", stateLabel(health?.gateway ?? "starting")) : null}
+        {item("base", "基础设置", desktopSettingsSectionStatus("base", setup))}
+        <p className="desktop-settings-nav-group">业务集成</p>
+        {item("ziniao", "紫鸟自动化", desktopSettingsSectionStatus("ziniao", setup))}
+        {item("mabang", "马帮", desktopSettingsSectionStatus("mabang", setup))}
+        {item("feishu", "飞书", desktopSettingsSectionStatus("feishu", setup))}
+        {item("logging", "日志与排障", desktopSettingsSectionStatus("logging", setup))}
+      </div>
+      <div className="desktop-settings-nav-footer">
+        <div className="desktop-settings-language">
+          <span>界面语言</span>
+          <LanguageSwitch language={language} onLanguageChange={onLanguageChange} />
+        </div>
+        <button className="desktop-settings-import-button" onClick={onSelectConfigImport} type="button">
+          <FileUp size={15} />
+          <span><strong>从 .env 导入</strong><small>读取本地配置文件</small></span>
+        </button>
+      </div>
+    </nav>
+  );
+}
+
+function DesktopSectionHeading({
+  badge,
+  badgeClassName,
+  description,
+  headingRef,
+  title,
+}: {
+  badge?: string;
+  badgeClassName?: string;
+  description: string;
+  headingRef: RefObject<HTMLHeadingElement | null>;
+  title: string;
+}) {
+  return (
+    <div className="desktop-section-heading">
+      <div>
+        <h3 ref={headingRef} tabIndex={-1}>{title}</h3>
+        <p>{description}</p>
+      </div>
+      {badge ? <span className={badgeClassName}>{badge}</span> : null}
+    </div>
+  );
+}
+
+function DesktopStatusPanel({
+  health,
+  headingRef,
+  restarting,
+  onRestart,
+}: {
+  health: DesktopHealth | null;
+  headingRef: RefObject<HTMLHeadingElement | null>;
+  restarting: boolean;
+  onRestart: () => void;
+}) {
+  const hasHealthError = health
+    ? [health.gateway, health.agent_cli, health.lxeskill].includes("error")
+    : false;
+  return (
+    <section className="desktop-settings-section desktop-status-panel">
+      <DesktopSectionHeading
+        description="查看桌面核心组件、运行目录和当前后台状态。"
+        headingRef={headingRef}
+        title="运行状态"
+      />
+      <div className="desktop-health-grid">
+        {([
+          ["Gateway", health?.gateway],
+          ["agent-cli", health?.agent_cli],
+          ["lxeskill", health?.lxeskill],
+        ] as const).map(([label, value]) => (
+          <div className={`desktop-health-card state-${value ?? "stopped"}`} key={label}>
+            <span>{label}</span>
+            <strong>{stateLabel(value ?? "stopped")}</strong>
+          </div>
+        ))}
+      </div>
+      {health?.message && hasHealthError ? <p className="desktop-health-message">{health.message}</p> : null}
+      <div className="desktop-maintenance-panel">
+        <div className="desktop-maintenance-heading">
+          <div>
+            <strong>运行维护</strong>
+            <span>查看目录或重新启动桌面后台。</span>
+          </div>
+          <button className="desktop-restart-button" disabled={restarting} onClick={onRestart} type="button">
+            <RotateCcw size={15} />
+            {restarting ? "重启中…" : "重启后台"}
+          </button>
+        </div>
+        {health ? (
+          <details className="desktop-diagnostics">
+            <summary>运行目录</summary>
+            <dl>
+              <div><dt>资源目录</dt><dd>{health.resource_root}</dd></div>
+              <div><dt>数据目录</dt><dd>{health.data_root}</dd></div>
+              <div><dt>工作区</dt><dd>{health.workspace_root}</dd></div>
+            </dl>
+          </details>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function DesktopSettingsForm({
+  activeSection,
+  form,
+  headingRef,
   setup,
   platform,
   requireKey,
   onChange,
   onSelectWorkspace,
-  onSelectConfigImport,
   onSelectZiniaoApp,
   onSelectZiniaoWebDriverDirectory,
   onOpenLogsDirectory,
   onClearIntegration,
 }: {
+  activeSection: EditableDesktopSettingsSection;
   form: SetupForm;
+  headingRef: RefObject<HTMLHeadingElement | null>;
   setup: DesktopSetupState;
   platform: "win32" | "darwin" | "linux";
   requireKey: boolean;
   onChange: (patch: Partial<SetupForm>) => void;
   onSelectWorkspace: () => void;
-  onSelectConfigImport: () => void;
   onSelectZiniaoApp: () => void;
   onSelectZiniaoWebDriverDirectory: () => void;
   onOpenLogsDirectory: () => void;
   onClearIntegration: (name: IntegrationName) => void;
 }) {
-  return (
-    <div className="desktop-setup-fields">
-      <section className="desktop-config-import-callout">
-        <div>
-          <span className="desktop-config-import-icon"><FileUp size={18} /></span>
-          <div>
-            <h3>已有配置文件？</h3>
-            <p>从 `.env` 或 `.env.local` 一键导入；密码只在桌面主进程中读取并加密保存。</p>
-          </div>
-        </div>
-        <button onClick={onSelectConfigImport} type="button">
-          <FileUp size={15} />选择文件
-        </button>
-      </section>
+  if (activeSection === "base") {
+    return (
       <section className="desktop-settings-section">
-        <div className="desktop-section-heading">
-          <div>
-            <h3>基础设置</h3>
-            <p>启动 LXE Agent 所需的模型与本地工作区。</p>
-          </div>
-          <span className="desktop-required-badge">必填</span>
-        </div>
+        <DesktopSectionHeading
+          badge="必填"
+          badgeClassName="desktop-required-badge"
+          description="启动 LXE Agent 所需的模型与本地工作区。"
+          headingRef={headingRef}
+          title="基础设置"
+        />
         <div className="desktop-field-grid">
           <label>
             <span>模型服务</span>
-            <select
-              value={form.provider}
-              onChange={(event) => onChange({ provider: event.target.value as Provider, apiKey: "" })}
-            >
+            <select value={form.provider} onChange={(event) => onChange({ provider: event.target.value as Provider, apiKey: "" })}>
               <option value="kimi_coding">Kimi Coding</option>
               <option value="deepseek">DeepSeek</option>
               <option value="glm">GLM</option>
@@ -173,236 +273,226 @@ function DesktopSettingsForm({
           <label className="desktop-field-wide">
             <span>默认工作区</span>
             <span className="desktop-path-input">
-              <input
-                onChange={(event) => onChange({ workspaceRoot: event.target.value })}
-                value={form.workspaceRoot}
-              />
-              <button onClick={onSelectWorkspace} title="选择文件夹" type="button">
-                <FolderOpen size={17} />
-              </button>
+              <input onChange={(event) => onChange({ workspaceRoot: event.target.value })} value={form.workspaceRoot} />
+              <button onClick={onSelectWorkspace} title="选择文件夹" type="button"><FolderOpen size={17} /></button>
             </span>
           </label>
         </div>
       </section>
+    );
+  }
 
+  if (activeSection === "ziniao") {
+    const status = desktopSettingsSectionStatus("ziniao", setup);
+    return (
       <section className="desktop-settings-section">
-        <div className="desktop-section-heading">
-          <div>
-            <h3>业务集成</h3>
-            <p>整组留空即可跳过；开始填写后，该组字段需要完整。</p>
+        <DesktopSectionHeading
+          badge={status}
+          badgeClassName={integrationStatusClass(setup.ziniao.managed, setup.ziniao.configured)}
+          description="整组留空即可跳过；开始填写后，所有字段都需要完整。"
+          headingRef={headingRef}
+          title="紫鸟自动化"
+        />
+        <div className="desktop-integration-fields">
+          <IntegrationIssues issues={setup.ziniao.issues} />
+          <div className="desktop-field-grid">
+            <label>
+              <span>公司名</span>
+              <input
+                onChange={(event) => onChange({ ziniaoCompany: event.target.value })}
+                placeholder="公司名"
+                value={form.ziniaoCompany}
+              />
+            </label>
+            <label>
+              <span>账号</span>
+              <input
+                autoComplete="username"
+                onChange={(event) => onChange({ ziniaoUsername: event.target.value })}
+                placeholder="紫鸟账号"
+                value={form.ziniaoUsername}
+              />
+            </label>
+            <label>
+              <span>密码{setup.ziniao.password_configured ? "（留空则保持不变）" : ""}</span>
+              <input
+                autoComplete="new-password"
+                onChange={(event) => onChange({ ziniaoPassword: event.target.value })}
+                placeholder={setup.ziniao.password_configured ? "已安全保存" : "紫鸟密码"}
+                type="password"
+                value={form.ziniaoPassword}
+              />
+            </label>
+            <label>
+              <span>APP 版本</span>
+              <select
+                disabled={platform === "darwin"}
+                onChange={(event) => onChange({ ziniaoVersion: event.target.value as DesktopZiniaoVersion })}
+                value={platform === "darwin" ? "v6" : form.ziniaoVersion}
+              >
+                <option value="v6">v6</option>
+                {platform !== "darwin" ? <option value="v5">v5</option> : null}
+              </select>
+            </label>
+            <label className="desktop-field-wide">
+              <span>紫鸟 APP 文件地址</span>
+              <span className="desktop-path-input">
+                <input
+                  onChange={(event) => onChange({ ziniaoAppPath: event.target.value })}
+                  placeholder={platform === "darwin" ? "/Applications/紫鸟浏览器.app" : "C:\\Program Files\\ZiNiao\\ZiNiao.exe"}
+                  value={form.ziniaoAppPath}
+                />
+                <button onClick={onSelectZiniaoApp} title="选择紫鸟 APP" type="button">
+                  <FolderOpen size={17} />
+                </button>
+              </span>
+            </label>
+            <label className="desktop-field-wide">
+              <span>浏览器驱动安装目录</span>
+              <span className="desktop-path-input">
+                <input
+                  onChange={(event) => onChange({ ziniaoWebDriverPath: event.target.value })}
+                  placeholder="驱动可以在首次运行时自动下载"
+                  value={form.ziniaoWebDriverPath}
+                />
+                <button onClick={onSelectZiniaoWebDriverDirectory} title="选择驱动目录" type="button">
+                  <FolderOpen size={17} />
+                </button>
+              </span>
+            </label>
           </div>
-          <span className="desktop-optional-badge">可选</span>
-        </div>
-        <div className="desktop-integrations">
-          <details className="desktop-integration-card">
-            <summary>
-              <IntegrationSummary
-                title="紫鸟自动化"
-                managed={setup.ziniao.managed}
-                configured={setup.ziniao.configured}
-              />
-            </summary>
-            <div className="desktop-integration-fields">
-              <IntegrationIssues issues={setup.ziniao.issues} />
-              <div className="desktop-field-grid">
-                <label>
-                  <span>公司名</span>
-                  <input
-                    onChange={(event) => onChange({ ziniaoCompany: event.target.value })}
-                    placeholder="公司名"
-                    value={form.ziniaoCompany}
-                  />
-                </label>
-                <label>
-                  <span>账号</span>
-                  <input
-                    autoComplete="username"
-                    onChange={(event) => onChange({ ziniaoUsername: event.target.value })}
-                    placeholder="紫鸟账号"
-                    value={form.ziniaoUsername}
-                  />
-                </label>
-                <label>
-                  <span>密码{setup.ziniao.password_configured ? "（留空则保持不变）" : ""}</span>
-                  <input
-                    autoComplete="new-password"
-                    onChange={(event) => onChange({ ziniaoPassword: event.target.value })}
-                    placeholder={setup.ziniao.password_configured ? "已安全保存" : "紫鸟密码"}
-                    type="password"
-                    value={form.ziniaoPassword}
-                  />
-                </label>
-                <label>
-                  <span>APP 版本</span>
-                  <select
-                    disabled={platform === "darwin"}
-                    onChange={(event) => onChange({ ziniaoVersion: event.target.value as DesktopZiniaoVersion })}
-                    value={platform === "darwin" ? "v6" : form.ziniaoVersion}
-                  >
-                    <option value="v6">v6</option>
-                    {platform !== "darwin" ? <option value="v5">v5</option> : null}
-                  </select>
-                </label>
-                <label className="desktop-field-wide">
-                  <span>紫鸟 APP 文件地址</span>
-                  <span className="desktop-path-input">
-                    <input
-                      onChange={(event) => onChange({ ziniaoAppPath: event.target.value })}
-                      placeholder={platform === "darwin" ? "/Applications/紫鸟浏览器.app" : "C:\\Program Files\\ZiNiao\\ZiNiao.exe"}
-                      value={form.ziniaoAppPath}
-                    />
-                    <button onClick={onSelectZiniaoApp} title="选择紫鸟 APP" type="button">
-                      <FolderOpen size={17} />
-                    </button>
-                  </span>
-                </label>
-                <label className="desktop-field-wide">
-                  <span>浏览器驱动安装目录</span>
-                  <span className="desktop-path-input">
-                    <input
-                      onChange={(event) => onChange({ ziniaoWebDriverPath: event.target.value })}
-                      placeholder="驱动可以在首次运行时自动下载"
-                      value={form.ziniaoWebDriverPath}
-                    />
-                    <button onClick={onSelectZiniaoWebDriverDirectory} title="选择驱动目录" type="button">
-                      <FolderOpen size={17} />
-                    </button>
-                  </span>
-                </label>
-              </div>
-              {setup.ziniao.managed ? (
-                <button className="desktop-clear-integration" onClick={() => onClearIntegration("ziniao")} type="button">
-                  <Trash2 size={14} />清除配置并停用
-                </button>
-              ) : null}
-            </div>
-          </details>
-
-          <details className="desktop-integration-card">
-            <summary>
-              <IntegrationSummary
-                title="马帮"
-                managed={setup.mabang.managed}
-                configured={setup.mabang.configured}
-              />
-            </summary>
-            <div className="desktop-integration-fields">
-              <IntegrationIssues issues={setup.mabang.issues} />
-              <div className="desktop-field-grid">
-                <label>
-                  <span>马帮账号</span>
-                  <input
-                    autoComplete="username"
-                    onChange={(event) => onChange({ mabangAccount: event.target.value })}
-                    value={form.mabangAccount}
-                  />
-                </label>
-                <label>
-                  <span>马帮密码{setup.mabang.password_configured ? "（留空则保持不变）" : ""}</span>
-                  <input
-                    autoComplete="new-password"
-                    onChange={(event) => onChange({ mabangPassword: event.target.value })}
-                    placeholder={setup.mabang.password_configured ? "已安全保存" : "输入马帮密码"}
-                    type="password"
-                    value={form.mabangPassword}
-                  />
-                </label>
-              </div>
-              {setup.mabang.managed ? (
-                <button className="desktop-clear-integration" onClick={() => onClearIntegration("mabang")} type="button">
-                  <Trash2 size={14} />清除配置并停用
-                </button>
-              ) : null}
-            </div>
-          </details>
-
-          <details className="desktop-integration-card">
-            <summary>
-              <IntegrationSummary
-                title="飞书"
-                managed={setup.feishu.managed}
-                configured={setup.feishu.configured}
-              />
-            </summary>
-            <div className="desktop-integration-fields">
-              <IntegrationIssues issues={setup.feishu.issues} />
-              <div className="desktop-field-grid">
-                <label>
-                  <span>App ID</span>
-                  <input
-                    autoComplete="off"
-                    onChange={(event) => onChange({ feishuAppId: event.target.value })}
-                    value={form.feishuAppId}
-                  />
-                </label>
-                <label>
-                  <span>App Secret{setup.feishu.app_secret_configured ? "（留空则保持不变）" : ""}</span>
-                  <input
-                    autoComplete="new-password"
-                    onChange={(event) => onChange({ feishuAppSecret: event.target.value })}
-                    placeholder={setup.feishu.app_secret_configured ? "已安全保存" : "输入 App Secret"}
-                    type="password"
-                    value={form.feishuAppSecret}
-                  />
-                </label>
-              </div>
-              {setup.feishu.managed ? (
-                <button className="desktop-clear-integration" onClick={() => onClearIntegration("feishu")} type="button">
-                  <Trash2 size={14} />清除配置并停用
-                </button>
-              ) : null}
-            </div>
-          </details>
+          {setup.ziniao.managed ? (
+            <button className="desktop-clear-integration" onClick={() => onClearIntegration("ziniao")} type="button">
+              <Trash2 size={14} />清除配置并停用
+            </button>
+          ) : null}
         </div>
       </section>
+    );
+  }
 
+  if (activeSection === "mabang") {
+    const status = desktopSettingsSectionStatus("mabang", setup);
+    return (
       <section className="desktop-settings-section">
-        <div className="desktop-section-heading">
-          <div>
-            <h3>日志与排障</h3>
-            <p>标准日志适合长期运行，排障日志仅建议在复现问题时开启。</p>
+        <DesktopSectionHeading
+          badge={status}
+          badgeClassName={integrationStatusClass(setup.mabang.managed, setup.mabang.configured)}
+          description="账号与密码必须成对填写；整组留空即可跳过。"
+          headingRef={headingRef}
+          title="马帮"
+        />
+        <div className="desktop-integration-fields">
+          <IntegrationIssues issues={setup.mabang.issues} />
+          <div className="desktop-field-grid">
+            <label>
+              <span>马帮账号</span>
+              <input
+                autoComplete="username"
+                onChange={(event) => onChange({ mabangAccount: event.target.value })}
+                value={form.mabangAccount}
+              />
+            </label>
+            <label>
+              <span>马帮密码{setup.mabang.password_configured ? "（留空则保持不变）" : ""}</span>
+              <input
+                autoComplete="new-password"
+                onChange={(event) => onChange({ mabangPassword: event.target.value })}
+                placeholder={setup.mabang.password_configured ? "已安全保存" : "输入马帮密码"}
+                type="password"
+                value={form.mabangPassword}
+              />
+            </label>
           </div>
-        </div>
-        <div className="desktop-field-grid">
-          <label>
-            <span>日志档位</span>
-            <select
-              onChange={(event) => onChange({ logProfile: event.target.value as DesktopLogProfile })}
-              value={form.logProfile}
-            >
-              <option value="off">关闭</option>
-              <option value="standard">标准</option>
-              <option value="diagnostic">排障</option>
-            </select>
-          </label>
-          <label>
-            <span>保留周期</span>
-            <select
-              disabled={form.logProfile === "off"}
-              onChange={(event) => onChange({ logRetentionDays: Number(event.target.value) as DesktopLogRetentionDays })}
-              value={form.logRetentionDays}
-            >
-              {[3, 7, 14, 30].map((days) => <option key={days} value={days}>{days} 天</option>)}
-            </select>
-          </label>
-        </div>
-        {form.logProfile === "diagnostic" ? (
-          <div className="desktop-diagnostic-warning">
-            <AlertTriangle size={16} />
-            <span>排障日志会记录模型通信、紫鸟诊断和飞书原始事件，可能包含消息正文与账号标识。</span>
-          </div>
-        ) : null}
-        <div className="desktop-log-directory">
-          <div>
-            <span>日志目录</span>
-            <code>{setup.logging.directory}</code>
-          </div>
-          <button onClick={onOpenLogsDirectory} type="button">
-            <ExternalLink size={14} />打开目录
-          </button>
+          {setup.mabang.managed ? (
+            <button className="desktop-clear-integration" onClick={() => onClearIntegration("mabang")} type="button">
+              <Trash2 size={14} />清除配置并停用
+            </button>
+          ) : null}
         </div>
       </section>
-    </div>
+    );
+  }
+
+  if (activeSection === "feishu") {
+    const status = desktopSettingsSectionStatus("feishu", setup);
+    return (
+      <section className="desktop-settings-section">
+        <DesktopSectionHeading
+          badge={status}
+          badgeClassName={integrationStatusClass(setup.feishu.managed, setup.feishu.configured)}
+          description="App ID 与 App Secret 必须成对填写；整组留空即可跳过。"
+          headingRef={headingRef}
+          title="飞书"
+        />
+        <div className="desktop-integration-fields">
+          <IntegrationIssues issues={setup.feishu.issues} />
+          <div className="desktop-field-grid">
+            <label>
+              <span>App ID</span>
+              <input
+                autoComplete="off"
+                onChange={(event) => onChange({ feishuAppId: event.target.value })}
+                value={form.feishuAppId}
+              />
+            </label>
+            <label>
+              <span>App Secret{setup.feishu.app_secret_configured ? "（留空则保持不变）" : ""}</span>
+              <input
+                autoComplete="new-password"
+                onChange={(event) => onChange({ feishuAppSecret: event.target.value })}
+                placeholder={setup.feishu.app_secret_configured ? "已安全保存" : "输入 App Secret"}
+                type="password"
+                value={form.feishuAppSecret}
+              />
+            </label>
+          </div>
+          {setup.feishu.managed ? (
+            <button className="desktop-clear-integration" onClick={() => onClearIntegration("feishu")} type="button">
+              <Trash2 size={14} />清除配置并停用
+            </button>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="desktop-settings-section">
+      <DesktopSectionHeading
+        description="标准日志适合长期运行，排障日志仅建议在复现问题时开启。"
+        headingRef={headingRef}
+        title="日志与排障"
+      />
+      <div className="desktop-field-grid">
+        <label>
+          <span>日志档位</span>
+          <select onChange={(event) => onChange({ logProfile: event.target.value as DesktopLogProfile })} value={form.logProfile}>
+            <option value="off">关闭</option><option value="standard">标准</option><option value="diagnostic">排障</option>
+          </select>
+        </label>
+        <label>
+          <span>保留周期</span>
+          <select
+            disabled={form.logProfile === "off"}
+            onChange={(event) => onChange({ logRetentionDays: Number(event.target.value) as DesktopLogRetentionDays })}
+            value={form.logRetentionDays}
+          >
+            {[3, 7, 14, 30].map((days) => <option key={days} value={days}>{days} 天</option>)}
+          </select>
+        </label>
+      </div>
+      {form.logProfile === "diagnostic" ? (
+        <div className="desktop-diagnostic-warning">
+          <AlertTriangle size={16} />
+          <span>排障日志会记录模型通信、紫鸟诊断和飞书原始事件，可能包含消息正文与账号标识。</span>
+        </div>
+      ) : null}
+      <div className="desktop-log-directory">
+        <div><span>日志目录</span><code>{setup.logging.directory}</code></div>
+        <button onClick={onOpenLogsDirectory} type="button"><ExternalLink size={14} />打开目录</button>
+      </div>
+    </section>
   );
 }
 
@@ -421,11 +511,22 @@ function ConfigImportDialog({
   onCancel: () => void;
   onApply: () => void;
 }) {
+  const closeDialog = () => {
+    if (!applying) onCancel();
+  };
+  const dialogRef = useDialogFocus<HTMLElement>(true, closeDialog);
   return (
     <div className="modal-backdrop desktop-config-import-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && !applying) onCancel();
+      if (event.target === event.currentTarget) closeDialog();
     }}>
-      <section aria-labelledby="desktop-config-import-title" aria-modal="true" className="desktop-config-import-dialog" role="dialog">
+      <section
+        aria-labelledby="desktop-config-import-title"
+        aria-modal="true"
+        className="desktop-config-import-dialog"
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <header>
           <div>
             <p className="desktop-eyebrow">配置导入预览</p>
@@ -485,25 +586,89 @@ function ConfigImportDialog({
   );
 }
 
+function DesktopConfirmationDialog({
+  confirmation,
+  onCancel,
+  onConfirm,
+}: {
+  confirmation: DesktopConfirmation;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const dialogRef = useDialogFocus<HTMLElement>(true, onCancel);
+  const diagnostic = confirmation.kind === "diagnostic";
+  const title = diagnostic ? "开启排障日志？" : `清除${confirmation.label}配置？`;
+  const description = diagnostic
+    ? "排障日志可能包含飞书消息正文、账号标识和页面上下文。仅建议在复现问题时开启，完成后请恢复为标准或关闭。"
+    : `保存的${confirmation.label}密码也会被删除，相关集成将立即停用。`;
+  return (
+    <div className="modal-backdrop desktop-confirm-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onCancel();
+    }}>
+      <section
+        aria-labelledby="desktop-confirm-title"
+        aria-modal="true"
+        className="desktop-confirm-dialog"
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <div className={diagnostic ? "desktop-confirm-icon warning" : "desktop-confirm-icon danger"}>
+          <AlertTriangle aria-hidden="true" size={18} />
+        </div>
+        <div>
+          <h2 id="desktop-confirm-title">{title}</h2>
+          <p>{description}</p>
+        </div>
+        <footer>
+          <button onClick={onCancel} type="button">取消</button>
+          <button
+            className={diagnostic ? "desktop-primary-button" : "desktop-primary-button desktop-danger-button"}
+            onClick={onConfirm}
+            type="button"
+          >
+            {diagnostic ? "确认开启并保存" : "清除并停用"}
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 export function DesktopShell({
   children,
+  language,
+  onLanguageChange,
 }: {
-  children: (openSettings: () => void) => ReactNode;
+  children: (context: {
+    health: DesktopHealth;
+    openSettings: (section?: DesktopSettingsSection) => void;
+  }) => ReactNode;
+  language: Language;
+  onLanguageChange: (language: Language) => void;
 }) {
   const queryClient = useQueryClient();
   const desktop = window.lxe?.desktop;
   const [setup, setSetup] = useState<DesktopSetupState | null>(null);
   const [health, setHealth] = useState<DesktopHealth | null>(null);
   const [form, setForm] = useState<SetupForm | null>(null);
+  const [activeSettingsSection, setActiveSettingsSection] = useState<DesktopSettingsSection>("base");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [importPreview, setImportPreview] = useState<DesktopConfigImportPreview | null>(null);
   const [importApplying, setImportApplying] = useState(false);
   const [importDiagnosticConfirmed, setImportDiagnosticConfirmed] = useState(false);
+  const [confirmation, setConfirmation] = useState<DesktopConfirmation | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [appGeneration, setAppGeneration] = useState(0);
+  const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const closeSettings = (): void => {
+    setConfirmation(null);
+    setSettingsOpen(false);
+  };
+  const settingsDialogRef = useDialogFocus<HTMLFormElement>(settingsOpen, closeSettings);
 
   useEffect(() => {
     if (!desktop) return;
@@ -530,7 +695,7 @@ export function DesktopShell({
   }
   const frameClassName = `desktop-window-frame desktop-platform-${desktop.platform}`;
   const dragRegion = <div aria-hidden className="desktop-window-drag-region" />;
-  if (!setup || !form) {
+  if (!setup || !form || !health) {
     return (
       <main className={`desktop-loading ${frameClassName}`} data-lxe-root-state="loading">
         {dragRegion}
@@ -656,28 +821,27 @@ export function DesktopShell({
       } : {}),
     };
   };
-  const save = async (event: FormEvent): Promise<void> => {
-    event.preventDefault();
-    if (form.logProfile === "diagnostic" && setup.logging.profile !== "diagnostic") {
-      const confirmed = window.confirm(
-        "排障日志可能记录飞书消息正文、账号标识和页面上下文。请仅在复现问题时开启，并在完成后恢复为标准或关闭。是否继续？",
-      );
-      if (!confirmed) return;
-    }
+  const persistSetup = async (): Promise<void> => {
     setSaving(true);
     setError("");
     try {
       await refreshSetup(await desktop.saveSetup(formInput()));
-      setSettingsOpen(false);
+      closeSettings();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setSaving(false);
     }
   };
-  const clearIntegration = async (name: IntegrationName): Promise<void> => {
-    const labels = { ziniao: "紫鸟", mabang: "马帮", feishu: "飞书" } as const;
-    if (!window.confirm(`确定清除${labels[name]}配置并停用该集成吗？保存的密码也会被删除。`)) return;
+  const save = (event: FormEvent): void => {
+    event.preventDefault();
+    if (form.logProfile === "diagnostic" && setup.logging.profile !== "diagnostic") {
+      setConfirmation({ kind: "diagnostic" });
+      return;
+    }
+    void persistSetup();
+  };
+  const performClearIntegration = async (name: IntegrationName): Promise<void> => {
     setSaving(true);
     setError("");
     try {
@@ -705,6 +869,20 @@ export function DesktopShell({
       setSaving(false);
     }
   };
+  const clearIntegration = (name: IntegrationName): void => {
+    const labels = { ziniao: "紫鸟", mabang: "马帮", feishu: "飞书" } as const;
+    setConfirmation({ kind: "clear-integration", integration: name, label: labels[name] });
+  };
+  const confirmPendingAction = (): void => {
+    const pending = confirmation;
+    if (!pending) return;
+    setConfirmation(null);
+    if (pending.kind === "diagnostic") {
+      void persistSetup();
+    } else {
+      void performClearIntegration(pending.integration);
+    }
+  };
   const restart = async (): Promise<void> => {
     setRestarting(true);
     setError("");
@@ -718,21 +896,44 @@ export function DesktopShell({
       setRestarting(false);
     }
   };
+  const baseline = setupForm(setup);
+  const editableSection: EditableDesktopSettingsSection = activeSettingsSection === "status"
+    ? "base"
+    : activeSettingsSection;
+  const selectSettingsSection = (section: DesktopSettingsSection): void => {
+    setActiveSettingsSection(section);
+    window.requestAnimationFrame(() => sectionHeadingRef.current?.focus());
+  };
   const settingsFields = (
     <DesktopSettingsForm
+      activeSection={editableSection}
       form={form}
+      headingRef={sectionHeadingRef}
       onChange={updateForm}
-      onClearIntegration={(name) => { void clearIntegration(name); }}
+      onClearIntegration={clearIntegration}
       onOpenLogsDirectory={() => { void desktop.openLogsDirectory().catch((cause: unknown) => {
         setError(cause instanceof Error ? cause.message : String(cause));
       }); }}
-      onSelectConfigImport={() => { void selectConfigImport(); }}
       onSelectWorkspace={() => { void selectWorkspace(); }}
       onSelectZiniaoApp={() => { void selectZiniaoApp(); }}
       onSelectZiniaoWebDriverDirectory={() => { void selectZiniaoWebDriverDirectory(); }}
       platform={desktop.platform}
       requireKey={!setup.provider_key_configured}
       setup={setup}
+    />
+  );
+  const settingsNavigation = (showStatus: boolean) => (
+    <DesktopSettingsNavigation
+      activeSection={activeSettingsSection}
+      baseline={baseline}
+      form={form}
+      health={health}
+      language={language}
+      onLanguageChange={onLanguageChange}
+      onSelect={selectSettingsSection}
+      onSelectConfigImport={() => { void selectConfigImport(); }}
+      setup={setup}
+      showStatus={showStatus}
     />
   );
   const importDialog = importPreview ? (
@@ -745,12 +946,19 @@ export function DesktopShell({
       preview={importPreview}
     />
   ) : null;
+  const confirmationDialog = confirmation ? (
+    <DesktopConfirmationDialog
+      confirmation={confirmation}
+      onCancel={() => setConfirmation(null)}
+      onConfirm={confirmPendingAction}
+    />
+  ) : null;
 
   if (!setup.complete) {
     return (
       <main className={`desktop-onboarding ${frameClassName}`} data-lxe-root-state="setup">
         {dragRegion}
-        <form className="desktop-onboarding-card" onSubmit={save}>
+        <form className="desktop-onboarding-card desktop-settings-surface" onSubmit={save}>
           <div className="desktop-onboarding-header">
             <div className="desktop-onboarding-mark"><BrandMark title="LXE Agent" /></div>
             <div>
@@ -759,85 +967,80 @@ export function DesktopShell({
               <p className="desktop-onboarding-copy">基础设置完成即可启动，业务集成也可以稍后在设置中补充。</p>
             </div>
           </div>
-          {settingsFields}
-          {notice ? <p className="desktop-form-notice">{notice}</p> : null}
-          {error ? <p className="desktop-form-error">{error}</p> : null}
-          <button className="desktop-primary-button" disabled={saving} type="submit">
-            {saving ? "正在启动…" : "保存并启动"}
-          </button>
+          <div className="desktop-settings-workspace">
+            {settingsNavigation(false)}
+            <div className="desktop-settings-content">
+              {settingsFields}
+              {notice ? <p aria-live="polite" className="desktop-form-notice" role="status">{notice}</p> : null}
+              {error ? <p className="desktop-form-error" role="alert">{error}</p> : null}
+            </div>
+          </div>
+          <footer className="desktop-onboarding-footer">
+            <span>基础设置完成后即可启动</span>
+            <button className="desktop-primary-button" disabled={saving} type="submit">
+              {saving ? "正在启动…" : "保存并启动"}
+            </button>
+          </footer>
         </form>
         {importDialog}
+        {confirmationDialog}
       </main>
     );
   }
 
-  const openSettings = (): void => {
+  const openSettings = (section: DesktopSettingsSection = "status"): void => {
     setForm(setupForm(setup));
+    setActiveSettingsSection(section);
+    setConfirmation(null);
     setError("");
     setSettingsOpen(true);
   };
-  const state = health?.gateway ?? "starting";
   return (
     <div className={frameClassName} data-lxe-root-state="ready">
       {dragRegion}
-      <div key={appGeneration}>{children(openSettings)}</div>
-      {notice && !settingsOpen ? <p className="desktop-import-toast">{notice}</p> : null}
-      <button
-        className={`desktop-status-button state-${state}`}
-        onClick={openSettings}
-        title="桌面运行状态与设置"
-        type="button"
-      >
-        <Activity size={15} />
-        <span>{stateLabel(state)}</span>
-        <Settings size={14} />
-      </button>
+      <div key={appGeneration}>{children({ health, openSettings })}</div>
+      {notice && !settingsOpen ? (
+        <p aria-live="polite" className="desktop-import-toast" role="status">{notice}</p>
+      ) : null}
       {settingsOpen ? (
         <div className="modal-backdrop desktop-settings-backdrop" onMouseDown={(event) => {
-          if (event.target === event.currentTarget) setSettingsOpen(false);
+          if (event.target === event.currentTarget) closeSettings();
         }}>
-          <form className="desktop-settings-modal" onSubmit={save}>
+          <form
+            aria-labelledby="desktop-settings-title"
+            aria-modal="true"
+            className="desktop-settings-modal"
+            onSubmit={save}
+            ref={settingsDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <header>
               <div>
                 <p className="desktop-eyebrow">LXE Agent Desktop</p>
-                <h2>运行状态与设置</h2>
+                <h2 id="desktop-settings-title">设置</h2>
               </div>
-              <button className="desktop-close-button" onClick={() => setSettingsOpen(false)} type="button">
+              <button aria-label="关闭设置" className="desktop-close-button" onClick={closeSettings} type="button">
                 <X size={18} />
               </button>
             </header>
-            <div className="desktop-health-grid">
-              {([
-                ["Gateway", health?.gateway],
-                ["agent-cli", health?.agent_cli],
-                ["lxeskill", health?.lxeskill],
-              ] as const).map(([label, value]) => (
-                <div className={`desktop-health-card state-${value ?? "stopped"}`} key={label}>
-                  <span>{label}</span>
-                  <strong>{stateLabel(value ?? "stopped")}</strong>
-                </div>
-              ))}
+            <div className="desktop-settings-workspace">
+              {settingsNavigation(true)}
+              <div className="desktop-settings-content">
+                {activeSettingsSection === "status" ? (
+                  <DesktopStatusPanel
+                    headingRef={sectionHeadingRef}
+                    health={health}
+                    onRestart={() => { void restart(); }}
+                    restarting={restarting}
+                  />
+                ) : settingsFields}
+                {notice ? <p aria-live="polite" className="desktop-form-notice" role="status">{notice}</p> : null}
+                {error ? <p className="desktop-form-error" role="alert">{error}</p> : null}
+              </div>
             </div>
-            {health?.message ? <p className="desktop-health-message">{health.message}</p> : null}
-            {health ? (
-              <details className="desktop-diagnostics">
-                <summary>运行目录</summary>
-                <dl>
-                  <div><dt>资源目录</dt><dd>{health.resource_root}</dd></div>
-                  <div><dt>数据目录</dt><dd>{health.data_root}</dd></div>
-                  <div><dt>工作区</dt><dd>{health.workspace_root}</dd></div>
-                </dl>
-              </details>
-            ) : null}
-            {settingsFields}
-            {notice ? <p className="desktop-form-notice">{notice}</p> : null}
-            {error ? <p className="desktop-form-error">{error}</p> : null}
             <footer>
               <span className="desktop-version">v{health?.version || "0.1.0"}</span>
-              <button disabled={restarting} onClick={() => { void restart(); }} type="button">
-                <RotateCcw size={15} />
-                {restarting ? "重启中…" : "重启后台"}
-              </button>
               <button className="desktop-primary-button" disabled={saving} type="submit">
                 {saving ? "保存中…" : "保存设置"}
               </button>
@@ -846,6 +1049,7 @@ export function DesktopShell({
         </div>
       ) : null}
       {importDialog}
+      {confirmationDialog}
     </div>
   );
 }

@@ -21,6 +21,7 @@ import type {
 } from "../../api/payloads";
 import { markdownComponents } from "../../shared/ui/markdown";
 import type { DetailTarget } from "../../shared/ui/detail-target";
+import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 
 function SkillDetailContent({ skill }: { skill: SkillPayload }) {
   const t = useUiText();
@@ -197,13 +198,23 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
 
 export function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () => void }) {
   const t = useUiText();
+  const dialogRef = useDialogFocus<HTMLElement>(Boolean(target), onClose);
   if (!target) {
     return null;
   }
   const modalType = target.type === "tool" ? t.detailModal.tool : target.type === "skill" ? t.detailModal.skill : t.detailModal.task;
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <section className="modal" role="dialog" aria-modal="true" aria-label={target.title} onClick={(event) => event.stopPropagation()}>
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section
+        aria-label={target.title}
+        aria-modal="true"
+        className="modal"
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <div className="modal-header">
           <div>
             <div className="modal-kicker">{modalType}</div>

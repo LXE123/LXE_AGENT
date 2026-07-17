@@ -18,6 +18,7 @@ const expectedModules = [
   "features/sessions/model.ts",
   "features/tasks/model.ts",
   "shared/content.ts",
+  "shared/navigation.ts",
   "shared/ui/markdown.tsx",
   "shared/ui/language-switch.tsx",
   "shared/ui/detail-target.ts",
@@ -59,7 +60,7 @@ test("dashboard entry delegates feature views to dedicated modules", () => {
   });
   assert.doesNotMatch(
     main,
-    /^function (SessionDetailView|DocsShell|ModelsView|ToolsView|McpView|ConnectorsView|SkillsView|BackgroundTasksView|DetailModal)\(/m
+    /^function (SessionDetailView|DocsShell|ModelsView|ToolsView|ConnectionsView|SkillsView|BackgroundTasksView|DetailModal)\(/m
   );
   assert.doesNotMatch(main, /type DashboardData|setData\(|fetchJson/);
   sourceFiles(sourceDir)

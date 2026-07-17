@@ -1,5 +1,4 @@
 // Small shared presentational components.
-import type { ReactNode } from "react";
 import { Info } from "lucide-react";
 
 import { formatNumber } from "./format";
@@ -10,43 +9,6 @@ export function EmptyState({ label }: { label: string }) {
       <Info size={18} />
       <span>{label}</span>
     </div>
-  );
-}
-
-export function CatalogOverview({
-  icon,
-  eyebrow,
-  title,
-  description,
-  metrics
-}: {
-  icon: ReactNode;
-  eyebrow: string;
-  title: string;
-  description: string;
-  metrics: Array<{ label: string; value: string }>;
-}) {
-  return (
-    <section className="catalog-overview">
-      <div className="catalog-overview-copy">
-        <div className="catalog-overview-icon" aria-hidden="true">
-          {icon}
-        </div>
-        <div>
-          <span className="catalog-overview-eyebrow">{eyebrow}</span>
-          <h1>{title}</h1>
-          <p>{description}</p>
-        </div>
-      </div>
-      <dl className="catalog-overview-metrics">
-        {metrics.map((metric) => (
-          <div key={metric.label}>
-            <dt>{metric.label}</dt>
-            <dd>{metric.value}</dd>
-          </div>
-        ))}
-      </dl>
-    </section>
   );
 }
 

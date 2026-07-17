@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { DesktopHealth } from "@lxe/desktop-protocol";
 import {
-  Brain,
   ChartColumn,
   FileText,
-  Layers3,
+  House,
   MessageSquareText,
   PanelLeftClose,
   PanelLeftOpen,
-  Plug,
   Search,
+  Settings2,
   Sparkles,
-  Wrench
 } from "lucide-react";
 
 import "./styles.css";
@@ -23,7 +23,6 @@ import {
   flattenSessionPages,
   queryError,
   useBackgroundTasksQuery,
-  useChannelHealthQuery,
   useCommandsQuery,
   useConnectorsQuery,
   useCurrentModelQuery,
@@ -51,7 +50,6 @@ import {
   modelWithOption,
   modelWithThinkingLevel
 } from "./features/models/model";
-import { EMPTY_SESSION_SUMMARY } from "./features/sessions/model";
 import {
   I18nContext,
   LANGUAGE_STORAGE_KEY,
@@ -61,7 +59,6 @@ import {
 import type { Language } from "./shared/i18n";
 import type {
   ApiList,
-  ChannelHealthList,
   ConnectorPayload,
   ModelPayload,
   McpServerPayload,
@@ -72,10 +69,7 @@ import type { DocsContentMode } from "./api/payloads";
 import type { DetailTarget } from "./shared/ui/detail-target";
 import { DetailModal } from "./features/details/view";
 import { DocsShell } from "./features/docs/view";
-import {
-  ConnectorsView,
-  DashboardStatusModal
-} from "./features/integrations/view";
+import { ConnectionsView } from "./features/integrations/view";
 import { DashboardHome } from "./features/home/view";
 import { ModelsView } from "./features/models/view";
 import {
@@ -85,27 +79,58 @@ import {
 import { SkillsView } from "./features/skills/view";
 import { StatsView } from "./features/stats/view";
 import { BackgroundTasksView } from "./features/tasks/view";
-import { McpView, ToolsView } from "./features/tools/view";
+import { ToolsView } from "./features/tools/view";
 import { DesktopShell } from "./desktop/shell";
+import type { DesktopSettingsSection } from "./desktop/settings-model";
 import { DashboardRootErrorBoundary } from "./root-error-boundary";
-import { BrandMark } from "./shared/ui/brand-mark";
+import {
+  dashboardRouteFromHistory,
+  readStoredCapabilityView,
+  storeCapabilityView,
+} from "./shared/navigation";
+import type {
+  ActivityView,
+  CapabilityView,
+  DashboardRouteSelection,
+  DashboardSection,
+} from "./shared/navigation";
 const DOCS_HOME_PATH = "README.md";
-const DASHBOARD_TAB_IDS = new Set([
-  "home",
-  "sessions",
-  "models",
-  "tools",
-  "mcp",
-  "skills",
-  "connectors",
-  "background-tasks",
-  "stats"
-]);
 
-const EMPTY_CHANNEL_HEALTH: ChannelHealthList = {
-  items: {},
-  total: 0
-};
+function WorkspaceView<T extends string>({
+  activeView,
+  children,
+  items,
+  label,
+  onSelect,
+}: {
+  activeView: T;
+  children: ReactNode;
+  items: ReadonlyArray<{ id: T; label: string }>;
+  label: string;
+  onSelect: (view: T) => void;
+}) {
+  return (
+    <section className="workspace-view">
+      <header className="workspace-view-header">
+        <h2>{label}</h2>
+        <nav aria-label={label} className="workspace-subnav">
+          {items.map((item) => (
+            <button
+              aria-current={activeView === item.id ? "page" : undefined}
+              className={activeView === item.id ? "workspace-subnav-item active" : "workspace-subnav-item"}
+              key={item.id}
+              onClick={() => onSelect(item.id)}
+              type="button"
+            >
+              {item.label}
+            </button>
+          ))}
+        </nav>
+      </header>
+      <div className="workspace-view-content">{children}</div>
+    </section>
+  );
+}
 
 function modelsWithCurrentModel(
   current: ApiList<ModelPayload> | undefined,
@@ -120,27 +145,55 @@ function modelsWithCurrentModel(
   };
 }
 
-function routeStateFromLocation(useHistoryState = true): { tab: string; docPath: string } {
+type AppRouteState = DashboardRouteSelection & {
+  docsOpen: boolean;
+  docPath: string;
+};
+
+function browserStorage(): Storage | undefined {
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+function routeStateFromLocation(): AppRouteState {
   const pathname = window.location.pathname;
+  const storedCapabilityView = readStoredCapabilityView(browserStorage());
   if (pathname === DOCS_ROUTE_PREFIX || pathname.startsWith(`${DOCS_ROUTE_PREFIX}/`)) {
     const docPath = pathname.startsWith(`${DOCS_ROUTE_PREFIX}/`)
       ? normalizeDocPath(decodePathSegments(pathname.slice(DOCS_ROUTE_PREFIX.length + 1)))
       : "";
-    return { tab: "docs", docPath };
+    const fallback = dashboardRouteFromHistory(window.history.state, storedCapabilityView);
+    return { ...fallback, docsOpen: true, docPath };
   }
-  const tab = useHistoryState && typeof window.history.state?.tab === "string" ? window.history.state.tab : "home";
-  return { tab: DASHBOARD_TAB_IDS.has(tab) ? tab : "home", docPath: "" };
+  return {
+    ...dashboardRouteFromHistory(window.history.state, storedCapabilityView),
+    docsOpen: false,
+    docPath: "",
+  };
 }
 
-function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) {
+function App({
+  desktopHealth,
+  language,
+  onLanguageChange,
+  onOpenDesktopSettings,
+}: {
+  desktopHealth: DesktopHealth;
+  language: Language;
+  onLanguageChange: (language: Language) => void;
+  onOpenDesktopSettings?: (section?: DesktopSettingsSection) => void;
+}) {
   const queryClient = useQueryClient();
-  const [initialRoute] = useState(() => routeStateFromLocation(false));
-  const [language, setLanguage] = useState<Language>(() => initialLanguage());
+  const [initialRoute] = useState(() => routeStateFromLocation());
   const t = UI_TEXT[language];
-  const [activeTab, setActiveTab] = useState(initialRoute.tab);
-  const [lastDashboardTab, setLastDashboardTab] = useState(
-    initialRoute.tab === "docs" ? "home" : initialRoute.tab
-  );
+  const [activeSection, setActiveSection] = useState<DashboardSection>(initialRoute.section);
+  const [capabilityView, setCapabilityView] = useState<CapabilityView>(initialRoute.capabilityView);
+  const [activityView, setActivityView] = useState<ActivityView>(initialRoute.activityView);
+  const [docsOpen, setDocsOpen] = useState(initialRoute.docsOpen);
+  const [lastDashboardSection, setLastDashboardSection] = useState<DashboardSection>(initialRoute.section);
   const [error, setError] = useState("");
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
   const [query, setQuery] = useState("");
@@ -151,49 +204,43 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
   const [selectedDocPath, setSelectedDocPath] = useState(initialRoute.docPath);
   const [docContentMode, setDocContentMode] = useState<DocsContentMode>("preview");
   const [docCopied, setDocCopied] = useState(false);
-  const [dashboardStatusOpen, setDashboardStatusOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
 
-  const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery, activeTab === "sessions");
-  const statusSessionsQuery = useSessionsInfiniteQuery("", dashboardStatusOpen);
+  const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery, activeSection === "sessions" && !docsOpen);
   const sessionDetailQuery = useSessionDetailQuery(
     selectedSessionId,
     sessionDetailPage,
-    activeTab === "sessions",
+    activeSection === "sessions" && !docsOpen,
   );
-  const modelsQuery = useModelsQuery(activeTab === "models");
+  const capabilitiesOpen = activeSection === "capabilities" && !docsOpen;
+  const activityOpen = activeSection === "activity" && !docsOpen;
+  const modelsQuery = useModelsQuery(capabilitiesOpen && capabilityView === "models");
   const currentModelQuery = useCurrentModelQuery();
-  const connectorsQuery = useConnectorsQuery(activeTab === "connectors");
-  const skillsQuery = useSkillsQuery(activeTab === "skills");
-  const commandsQuery = useCommandsQuery(activeTab === "skills");
-  const toolsetsQuery = useToolsetsQuery(activeTab === "tools" || activeTab === "mcp");
-  const backgroundTasksQuery = useBackgroundTasksQuery(activeTab === "background-tasks");
-  const channelHealthQuery = useChannelHealthQuery(dashboardStatusOpen);
-  const docsQuery = useProjectDocsQuery(activeTab === "docs");
+  const connectorsQuery = useConnectorsQuery(capabilitiesOpen && capabilityView === "connections");
+  const skillsQuery = useSkillsQuery(capabilitiesOpen && capabilityView === "skills");
+  const commandsQuery = useCommandsQuery(capabilitiesOpen && capabilityView === "skills");
+  const toolsetsQuery = useToolsetsQuery(
+    capabilitiesOpen && (capabilityView === "tools" || capabilityView === "connections"),
+  );
+  const backgroundTasksQuery = useBackgroundTasksQuery(activityOpen && activityView === "background-tasks");
+  const docsQuery = useProjectDocsQuery(docsOpen);
 
   const docs = docsQuery.data?.items ?? [];
   const sessions = flattenSessionPages(sessionsQuery.data?.pages);
-  const statusSessions = flattenSessionPages(statusSessionsQuery.data?.pages);
-
-  useEffect(() => {
-    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
-    try {
-      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
-    } catch {
-      // Ignore storage failures; the in-memory language still updates.
-    }
-  }, [language]);
 
   useEffect(() => {
     const handlePopState = () => {
       const nextRoute = routeStateFromLocation();
-      setActiveTab(nextRoute.tab);
+      setActiveSection(nextRoute.section);
+      setCapabilityView(nextRoute.capabilityView);
+      setActivityView(nextRoute.activityView);
+      setDocsOpen(nextRoute.docsOpen);
       setSelectedDocPath(nextRoute.docPath);
-      if (nextRoute.tab !== "docs") {
-        setLastDashboardTab(nextRoute.tab);
+      if (!nextRoute.docsOpen) {
+        setLastDashboardSection(nextRoute.section);
       }
-      if (nextRoute.tab === "home") {
+      if (nextRoute.section === "home" && !nextRoute.docsOpen) {
         setSelectedSessionId("");
         setSessionDetailPage(undefined);
       }
@@ -207,6 +254,10 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
     return () => window.clearTimeout(debounce);
   }, [query]);
 
+  useEffect(() => {
+    storeCapabilityView(capabilityView, browserStorage());
+  }, [capabilityView]);
+
   const defaultDocPath = useMemo(() => {
     if (!docs.length) {
       return "";
@@ -214,9 +265,9 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
     return docs.find((doc) => doc.path === DOCS_HOME_PATH)?.path || docs[0].path;
   }, [docs]);
 
-  const effectiveDocPath = activeTab === "docs" ? selectedDocPath || defaultDocPath : "";
+  const effectiveDocPath = docsOpen ? selectedDocPath || defaultDocPath : "";
 
-  const docContentQuery = useProjectDocContentQuery(effectiveDocPath, activeTab === "docs");
+  const docContentQuery = useProjectDocContentQuery(effectiveDocPath, docsOpen);
   const docContent = docContentQuery.data;
 
   function handleSessionQueryChange(value: string) {
@@ -234,8 +285,9 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
       setSidebarCollapsed(false);
     }
     pushDashboardRoute("sessions");
-    setActiveTab("sessions");
-    setLastDashboardTab("sessions");
+    setActiveSection("sessions");
+    setDocsOpen(false);
+    setLastDashboardSection("sessions");
     setSelectedSessionId("");
     setSessionDetailPage(undefined);
     setSessionSearchFocusKey((current) => current + 1);
@@ -247,57 +299,81 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
 
   // Two-pane sessions view: keep the detail pane populated by default.
   useEffect(() => {
-    if (activeTab === "sessions" && !selectedSessionId && sessions.items.length > 0) {
+    if (activeSection === "sessions" && !docsOpen && !selectedSessionId && sessions.items.length > 0) {
       setSelectedSessionId(sessions.items[0].session_id);
       setSessionDetailPage(undefined);
     }
-  }, [activeTab, selectedSessionId, sessions.items]);
+  }, [activeSection, docsOpen, selectedSessionId, sessions.items]);
 
-  function pushDashboardRoute(tab: string) {
-    const nextTab = DASHBOARD_TAB_IDS.has(tab) && tab !== "docs" ? tab : "home";
-    if (window.location.pathname !== "/" || window.history.state?.tab !== nextTab) {
-      window.history.pushState({ tab: nextTab }, "", "/");
+  function pushDashboardRoute(
+    section: DashboardSection,
+    nextCapabilityView = capabilityView,
+    nextActivityView = activityView,
+  ) {
+    const nextState = {
+      section,
+      capabilityView: nextCapabilityView,
+      activityView: nextActivityView,
+    };
+    const currentState = window.history.state;
+    const stateChanged = currentState?.section !== section
+      || currentState?.capabilityView !== nextCapabilityView
+      || currentState?.activityView !== nextActivityView;
+    if (window.location.pathname !== "/" || stateChanged) {
+      window.history.pushState(nextState, "", "/");
     }
   }
 
-  function openDashboardTab(tab: string) {
-    if (tab === "docs") {
-      openDocRoute("");
-      return;
-    }
-    pushDashboardRoute(tab);
-    setActiveTab(tab);
-    setLastDashboardTab(tab);
-    if (tab === "sessions") {
+  function openDashboardSection(section: DashboardSection) {
+    const nextActivityView = section === "activity" ? "stats" : activityView;
+    pushDashboardRoute(section, capabilityView, nextActivityView);
+    setActiveSection(section);
+    setActivityView(nextActivityView);
+    setDocsOpen(false);
+    setLastDashboardSection(section);
+    if (section === "sessions") {
       setSelectedSessionId("");
       setSessionDetailPage(undefined);
     }
   }
 
-  function openDashboardHome() {
-    pushDashboardRoute("home");
-    setActiveTab("home");
-    setLastDashboardTab("home");
-    setSelectedSessionId("");
-    setSessionDetailPage(undefined);
+  function openCapabilityView(view: CapabilityView) {
+    pushDashboardRoute("capabilities", view, activityView);
+    setActiveSection("capabilities");
+    setCapabilityView(view);
+    setDocsOpen(false);
+    setLastDashboardSection("capabilities");
+  }
+
+  function openActivityView(view: ActivityView) {
+    pushDashboardRoute("activity", capabilityView, view);
+    setActiveSection("activity");
+    setActivityView(view);
+    setDocsOpen(false);
+    setLastDashboardSection("activity");
   }
 
   function openDocRoute(path: string) {
     const safePath = normalizeDocPath(path);
     const nextUrl = docsHrefForPath(safePath);
     if (window.location.pathname !== nextUrl) {
-      window.history.pushState({ tab: "docs", docPath: safePath }, "", nextUrl);
+      window.history.pushState({
+        section: lastDashboardSection,
+        tab: "docs",
+        docPath: safePath,
+        capabilityView,
+        activityView,
+      }, "", nextUrl);
     }
-    setActiveTab("docs");
+    setDocsOpen(true);
     setSelectedDocPath(safePath);
     setDocContentMode("preview");
   }
 
   function backToDashboard() {
-    const nextTab = DASHBOARD_TAB_IDS.has(lastDashboardTab) ? lastDashboardTab : "home";
-    pushDashboardRoute(nextTab);
-    setActiveTab(nextTab);
-    setLastDashboardTab(nextTab);
+    pushDashboardRoute(lastDashboardSection);
+    setActiveSection(lastDashboardSection);
+    setDocsOpen(false);
     setSelectedDocPath("");
   }
 
@@ -316,8 +392,9 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
 
   function openSession(session: SessionPayload) {
     pushDashboardRoute("sessions");
-    setActiveTab("sessions");
-    setLastDashboardTab("sessions");
+    setActiveSection("sessions");
+    setDocsOpen(false);
+    setLastDashboardSection("sessions");
     setSelectedSessionId(session.session_id);
     setSessionDetailPage(undefined);
   }
@@ -522,73 +599,58 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
   const selectedSession = sessions.items.find((session) => session.session_id === selectedSessionId)
     || sessionDetail?.session
     || null;
-  const sessionSummary = statusSessions.summary
-    || (!debouncedQuery ? sessions.summary : undefined)
-    || EMPTY_SESSION_SUMMARY;
-  const dashboardApiOnline = currentModelQuery.isSuccess;
-  const showSessionSearch = activeTab === "sessions" || Boolean(query.trim());
-  const showDashboardHome = activeTab === "home";
-  const hasEmbeddedPageHeader = activeTab === "models" || activeTab === "tools" || activeTab === "skills";
+  const showDashboardHome = activeSection === "home";
+  const hasEmbeddedPageHeader = activeSection === "capabilities" || activeSection === "activity";
   const mcpToolset = toolsetsQuery.data?.items.find((toolset) => toolset.name === "mcp");
-  const channelHealth = channelHealthQuery.data ?? EMPTY_CHANNEL_HEALTH;
-  const activeQueries = activeTab === "sessions"
+  const activeQueries = activeSection === "sessions"
     ? [sessionsQuery, sessionDetailQuery]
-    : activeTab === "models"
+    : activeSection === "capabilities" && capabilityView === "models"
       ? [modelsQuery, currentModelQuery]
-      : activeTab === "tools" || activeTab === "mcp"
+      : activeSection === "capabilities" && capabilityView === "tools"
         ? [toolsetsQuery]
-        : activeTab === "skills"
+        : activeSection === "capabilities" && capabilityView === "skills"
           ? [skillsQuery, commandsQuery]
-          : activeTab === "connectors"
-            ? [connectorsQuery]
-            : activeTab === "background-tasks"
+          : activeSection === "capabilities" && capabilityView === "connections"
+            ? [connectorsQuery, toolsetsQuery]
+            : activeSection === "activity" && activityView === "background-tasks"
               ? [backgroundTasksQuery]
               : [];
   const activeRefreshing = activeQueries.some((current) => current.isFetching && !current.isPending);
   const backgroundError = activeQueries.find((current) => current.isRefetchError)?.error;
   const visibleError = error || queryError(backgroundError);
 
-  const tabs = [
+  const tabs: Array<{ id: DashboardSection; label: string; icon: ReactNode }> = [
+    { id: "home", label: t.nav.home, icon: <House size={16} /> },
     { id: "sessions", label: t.nav.sessions, icon: <MessageSquareText size={16} /> },
-    { id: "models", label: t.nav.models, icon: <Brain size={16} /> },
-    { id: "tools", label: t.nav.tools, icon: <Wrench size={16} /> },
-    { id: "mcp", label: t.nav.mcp, icon: <Plug size={16} /> },
-    { id: "skills", label: t.nav.skills, icon: <Sparkles size={16} /> },
-    { id: "connectors", label: t.nav.connectors, icon: <Plug size={16} /> },
-    { id: "background-tasks", label: t.nav.tasks, icon: <Layers3 size={16} /> },
-    { id: "stats", label: t.nav.usage, icon: <ChartColumn size={16} /> },
-    { id: "docs", label: t.nav.docs, icon: <FileText size={16} /> }
+    { id: "capabilities", label: t.nav.capabilities, icon: <Sparkles size={16} /> },
+    { id: "activity", label: t.nav.activity, icon: <ChartColumn size={16} /> },
   ];
-  const activeTabItem = tabs.find((tab) => tab.id === activeTab);
-  const pageTitle = activeTab === "home"
+  const capabilityItems: Array<{ id: CapabilityView; label: string }> = [
+    { id: "models", label: t.nav.models },
+    { id: "skills", label: t.nav.skills },
+    { id: "tools", label: t.nav.tools },
+    { id: "connections", label: t.nav.connections },
+  ];
+  const activityItems: Array<{ id: ActivityView; label: string }> = [
+    { id: "stats", label: t.nav.usage },
+    { id: "background-tasks", label: t.nav.tasks },
+  ];
+  const pageTitle = activeSection === "home"
     ? t.home.title
-    : activeTab === "sessions"
+    : activeSection === "sessions"
       ? selectedSession?.title || t.sessions.title
-    : activeTab === "docs"
-      ? docContent?.title || t.docs.title
-      : activeTabItem?.label || t.app.title;
-  const pageSubtitle = activeTab === "home"
+      : t.app.title;
+  const pageSubtitle = activeSection === "home"
     ? ""
-    : activeTab === "sessions"
+    : activeSection === "sessions"
       ? selectedSession
         ? `${formatDate(selectedSession.last_active_at)} · ${formatNumber(selectedSession.input_tokens + selectedSession.output_tokens)} ${t.sessions.tokenSuffix}`
         : ""
-    : activeTab === "docs"
-      ? docContent?.path || effectiveDocPath || t.docs.selectPrompt
-    : activeTab === "models"
-      ? t.models.subtitle
-    : activeTab === "tools"
-      ? t.tools.subtitle
-    : activeTab === "skills"
-      ? t.skills.subtitle
-    : activeTab === "connectors"
-      ? t.connectors.subtitle
       : "";
 
-  if (activeTab === "docs") {
+  if (docsOpen) {
     return (
-      <I18nContext.Provider value={t}>
-        <DocsShell
+      <DocsShell
           docs={docs}
           docsLoading={docsQuery.isPending}
           docsError={!docsQuery.data ? queryError(docsQuery.error) : ""}
@@ -600,39 +662,25 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
           mode={docContentMode}
           copied={docCopied}
           language={language}
-          onLanguageChange={setLanguage}
+          onLanguageChange={onLanguageChange}
           onDocQueryChange={setDocQuery}
           onOpenDoc={openDocRoute}
           onBackToDashboard={backToDashboard}
           onModeChange={setDocContentMode}
           onCopy={copyCurrentDoc}
-        />
-      </I18nContext.Provider>
+      />
     );
   }
 
   return (
-    <I18nContext.Provider value={t}>
-      <main className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
+    <main className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
         <aside className={sidebarCollapsed ? "app-sidebar collapsed" : "app-sidebar"}>
           <div className="sidebar-topbar">
-            <button
-              aria-label={t.home.title}
-              className="sidebar-brand"
-              onClick={openDashboardHome}
-              title={t.home.title}
-              type="button"
-            >
-              <BrandMark className="sidebar-brand-mark" tone="sidebar" />
-              {!sidebarCollapsed ? (
-                <span className="sidebar-brand-text">{t.sidebar.brand}</span>
-              ) : null}
-            </button>
             <div className="sidebar-topbar-actions">
-              {!sidebarCollapsed && activeTab !== "docs" ? (
+              {!sidebarCollapsed && activeSection === "sessions" ? (
                 <button
                   aria-label={t.sessions.searchAria}
-                  className={showSessionSearch ? "sidebar-icon-button active" : "sidebar-icon-button"}
+                  className="sidebar-icon-button active"
                   onClick={handleSessionSearchToggle}
                   title={t.sessions.searchAria}
                   type="button"
@@ -655,40 +703,48 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
             {tabs.map((tab) => (
               <button
                 className={
-                  activeTab === tab.id ? `tab tab-${tab.id} active` : `tab tab-${tab.id}`
+                  activeSection === tab.id ? `tab tab-${tab.id} active` : `tab tab-${tab.id}`
                 }
                 key={tab.id}
                 title={tab.label}
                 type="button"
-                onClick={() => openDashboardTab(tab.id)}
+                onClick={() => openDashboardSection(tab.id)}
               >
                 {tab.icon}
                 <span>{tab.label}</span>
               </button>
             ))}
           </nav>
+          <div className="sidebar-utility">
+            <button
+              className="tab tab-docs"
+              onClick={() => openDocRoute("")}
+              title={t.nav.docs}
+              type="button"
+            >
+              <FileText size={16} />
+              <span>{t.nav.docs}</span>
+            </button>
+          </div>
           <button
-            aria-label={t.app.title}
+            aria-label={t.sidebar.statusAndSettings}
             className="sidebar-status-card"
-            title={t.app.title}
+            title={t.sidebar.statusAndSettings}
             type="button"
-            onClick={() => setDashboardStatusOpen(true)}
+            onClick={() => onOpenDesktopSettings?.("status")}
           >
             <span className="sidebar-status-icon">
-              <BrandMark tone="sidebar" />
+              <Settings2 aria-hidden="true" size={18} />
             </span>
             <span className="sidebar-status-copy">
-              <span className="sidebar-status-title">{t.app.title}</span>
-              <span className="sidebar-status-meta">
-                {currentModelQuery.data?.model || (currentModelQuery.isPending ? t.common.loading : t.app.apiOffline)}
-              </span>
+              <span className="sidebar-status-title">{t.sidebar.statusAndSettings}</span>
             </span>
           </button>
         </aside>
 
         <section className={showDashboardHome ? "main-panel dashboard-home-panel" : "main-panel"}>
           {!showDashboardHome && !hasEmbeddedPageHeader ? (
-            <header className={`main-header tab-${activeTab}`}>
+            <header className={`main-header tab-${activeSection}`}>
               <div className="main-title">
                 <h2>{pageTitle}</h2>
                 {pageSubtitle ? <p>{pageSubtitle}</p> : null}
@@ -704,7 +760,7 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
             {activeRefreshing ? (
               <div className="dashboard-refresh-indicator" role="status">{t.common.updating}</div>
             ) : null}
-            {activeTab === "sessions" ? (
+            {activeSection === "sessions" ? (
               <section className="sessions-split">
                 <div className="sessions-split-index">
                   <SessionsIndex
@@ -743,84 +799,121 @@ function App({ onOpenDesktopSettings }: { onOpenDesktopSettings?: () => void }) 
                 </div>
               </section>
             ) : null}
-            {activeTab === "home" ? (
+            {activeSection === "home" ? (
               <DashboardHome
+                currentModel={currentModelQuery.data ?? null}
+                desktopHealth={desktopHealth}
+                onOpenModels={() => openCapabilityView("models")}
                 onOpenSession={openSession}
-                onOpenSessions={() => openDashboardTab("sessions")}
-                onOpenStats={() => openDashboardTab("stats")}
+                onOpenSessions={() => openDashboardSection("sessions")}
+                onOpenSettings={(section) => onOpenDesktopSettings?.(section)}
+                onOpenStats={() => openActivityView("stats")}
               />
             ) : null}
-            {activeTab === "models" ? (
-              modelsQuery.isPending || currentModelQuery.isPending ? <EmptyState label={t.common.loading} />
-                : !modelsQuery.data || !currentModelQuery.data
-                  ? <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(modelsQuery.error || currentModelQuery.error))} />
-                  : <ModelsView
-                      models={modelsQuery.data.items}
-                      current={currentModelQuery.data}
-                      modelSaving={modelMutation.isPending}
-                      thinkingSaving={thinkingMutation.isPending}
-                      onCurrentModelChange={setCurrentModel}
-                      onThinkingLevelChange={setCurrentThinkingLevel}
-                      onConfigureCredentials={onOpenDesktopSettings}
-                    />
+            {activeSection === "capabilities" ? (
+              <WorkspaceView
+                activeView={capabilityView}
+                items={capabilityItems}
+                label={t.nav.capabilities}
+                onSelect={openCapabilityView}
+              >
+                {capabilityView === "models" ? (
+                  modelsQuery.isPending || currentModelQuery.isPending ? <EmptyState label={t.common.loading} />
+                    : !modelsQuery.data || !currentModelQuery.data
+                      ? <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(modelsQuery.error || currentModelQuery.error))} />
+                      : <ModelsView
+                          models={modelsQuery.data.items}
+                          current={currentModelQuery.data}
+                          modelSaving={modelMutation.isPending}
+                          thinkingSaving={thinkingMutation.isPending}
+                          onCurrentModelChange={setCurrentModel}
+                          onThinkingLevelChange={setCurrentThinkingLevel}
+                          onConfigureCredentials={onOpenDesktopSettings
+                            ? () => onOpenDesktopSettings("base")
+                            : undefined}
+                        />
+                ) : null}
+                {capabilityView === "skills" ? (
+                  skillsQuery.isPending || commandsQuery.isPending ? <EmptyState label={t.common.loading} />
+                    : skillsQuery.data && commandsQuery.data
+                      ? <SkillsView
+                          skills={skillsQuery.data.items}
+                          commands={commandsQuery.data.items}
+                          onOpen={setDetailTarget}
+                        />
+                      : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(skillsQuery.error || commandsQuery.error))} />
+                ) : null}
+                {capabilityView === "tools" ? (
+                  toolsetsQuery.isPending ? <EmptyState label={t.common.loading} />
+                    : toolsetsQuery.data
+                      ? <ToolsView toolsets={toolsetsQuery.data.items} onOpen={setDetailTarget} />
+                      : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(toolsetsQuery.error))} />
+                ) : null}
+                {capabilityView === "connections" ? (
+                  connectorsQuery.isPending && toolsetsQuery.isPending ? <EmptyState label={t.common.loading} />
+                    : <ConnectionsView
+                        connectorError={!connectorsQuery.data ? queryError(connectorsQuery.error) : ""}
+                        connectors={connectorsQuery.data?.items ?? []}
+                        mcpError={!toolsetsQuery.data ? queryError(toolsetsQuery.error) : ""}
+                        mcpSavingId={mcpMutation.isPending ? mcpMutation.variables?.name || "" : ""}
+                        mcpToolset={mcpToolset}
+                        savingId={connectorMutation.isPending ? connectorMutation.variables?.id || "" : ""}
+                        onConfigureCredentials={onOpenDesktopSettings}
+                        onToggle={toggleConnector}
+                        onToggleMcpServer={toggleMcpServer}
+                      />
+                ) : null}
+              </WorkspaceView>
             ) : null}
-            {activeTab === "tools" ? (
-              toolsetsQuery.isPending ? <EmptyState label={t.common.loading} />
-                : toolsetsQuery.data
-                  ? <ToolsView toolsets={toolsetsQuery.data.items} onOpen={setDetailTarget} />
-                  : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(toolsetsQuery.error))} />
+            {activeSection === "activity" ? (
+              <WorkspaceView
+                activeView={activityView}
+                items={activityItems}
+                label={t.nav.activity}
+                onSelect={openActivityView}
+              >
+                {activityView === "stats" ? <StatsView /> : null}
+                {activityView === "background-tasks" ? (
+                  backgroundTasksQuery.isPending ? <EmptyState label={t.common.loading} />
+                    : backgroundTasksQuery.data
+                      ? <BackgroundTasksView tasks={backgroundTasksQuery.data.items} onOpen={setDetailTarget} />
+                      : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(backgroundTasksQuery.error))} />
+                ) : null}
+              </WorkspaceView>
             ) : null}
-            {activeTab === "mcp" ? (
-              toolsetsQuery.isPending ? <EmptyState label={t.common.loading} />
-                : toolsetsQuery.data
-                  ? <McpView
-                      toolset={mcpToolset}
-                      savingId={mcpMutation.isPending ? mcpMutation.variables?.name || "" : ""}
-                      onOpen={setDetailTarget}
-                      onToggleServer={toggleMcpServer}
-                    />
-                  : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(toolsetsQuery.error))} />
-            ) : null}
-            {activeTab === "skills" ? (
-              skillsQuery.isPending || commandsQuery.isPending ? <EmptyState label={t.common.loading} />
-                : skillsQuery.data && commandsQuery.data
-                  ? <SkillsView skills={skillsQuery.data.items} commands={commandsQuery.data.items} onOpen={setDetailTarget} />
-                  : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(skillsQuery.error || commandsQuery.error))} />
-            ) : null}
-            {activeTab === "connectors" ? (
-              connectorsQuery.isPending ? <EmptyState label={t.common.loading} />
-                : connectorsQuery.data
-                  ? <ConnectorsView
-                      connectors={connectorsQuery.data.items}
-                      savingId={connectorMutation.isPending ? connectorMutation.variables?.id || "" : ""}
-                      onToggle={toggleConnector}
-                      onConfigureCredentials={onOpenDesktopSettings}
-                    />
-                  : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(connectorsQuery.error))} />
-            ) : null}
-            {activeTab === "background-tasks" ? (
-              backgroundTasksQuery.isPending ? <EmptyState label={t.common.loading} />
-                : backgroundTasksQuery.data
-                  ? <BackgroundTasksView tasks={backgroundTasksQuery.data.items} onOpen={setDetailTarget} />
-                  : <EmptyState label={t.common.errorPrefix(t.errors.api, queryError(backgroundTasksQuery.error))} />
-            ) : null}
-            {activeTab === "stats" ? <StatsView /> : null}
           </section>
         </section>
 
         <DetailModal target={detailTarget} onClose={() => setDetailTarget(null)} />
-        <DashboardStatusModal
-          apiOnline={dashboardApiOnline}
-          currentModel={currentModelQuery.data || null}
-          feishuHealth={channelHealth.items.feishu}
-          channelHealthError={!channelHealthQuery.data ? queryError(channelHealthQuery.error) : ""}
-          language={language}
-          onClose={() => setDashboardStatusOpen(false)}
-          onLanguageChange={setLanguage}
-          open={dashboardStatusOpen}
-          summary={sessionSummary}
-        />
-      </main>
+    </main>
+  );
+}
+
+function DashboardApplication() {
+  const [language, setLanguage] = useState<Language>(() => initialLanguage());
+  const t = UI_TEXT[language];
+
+  useEffect(() => {
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    try {
+      window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+    } catch {
+      // The active language still works when persistent storage is unavailable.
+    }
+  }, [language]);
+
+  return (
+    <I18nContext.Provider value={t}>
+      <DesktopShell language={language} onLanguageChange={setLanguage}>
+        {({ health, openSettings }) => (
+          <App
+            desktopHealth={health}
+            language={language}
+            onLanguageChange={setLanguage}
+            onOpenDesktopSettings={window.lxe ? openSettings : undefined}
+          />
+        )}
+      </DesktopShell>
     </I18nContext.Provider>
   );
 }
@@ -834,11 +927,7 @@ rootContainer.__appRoot = appRoot;
 appRoot.render(
   <DashboardRootErrorBoundary>
     <DashboardQueryProvider>
-      <DesktopShell>
-        {(openDesktopSettings) => (
-          <App onOpenDesktopSettings={window.lxe ? openDesktopSettings : undefined} />
-        )}
-      </DesktopShell>
+      <DashboardApplication />
     </DashboardQueryProvider>
   </DashboardRootErrorBoundary>
 );

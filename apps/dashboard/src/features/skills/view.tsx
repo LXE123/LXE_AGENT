@@ -9,7 +9,7 @@ import {
   TerminalSquare
 } from "lucide-react";
 
-import { CatalogOverview, EmptyState, successRateText } from "../../shared/components";
+import { EmptyState, successRateText } from "../../shared/components";
 import { formatNumber, groupSkillsByType } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { CliCommandPayload, SkillPayload } from "../../api/payloads";
@@ -27,6 +27,7 @@ export function SkillsView({
 }) {
   const t = useUiText();
   const [expandedSkillGroups, setExpandedSkillGroups] = useState<Record<string, boolean>>({});
+  const [maintenanceExpanded, setMaintenanceExpanded] = useState(false);
   const usageStats = useSkillUsageStats(SKILL_BADGE_STATS_DAYS);
 
   if (!skills.length) {
@@ -34,25 +35,17 @@ export function SkillsView({
   }
   const groups = groupSkillsByType(skills, t);
   const maintenanceCommands = commands.filter((command) => command.visibility === "maintenance");
-  const linkedCommands = skills.reduce((total, skill) => total + skill.commands.length, 0);
   return (
     <div className="catalog-page skills-catalog">
-      <CatalogOverview
-        description={t.skills.overviewDescription}
-        eyebrow={t.skills.overviewEyebrow}
-        icon={<Sparkles size={22} />}
-        metrics={[
-          { label: t.skills.totalSkills, value: formatNumber(skills.length) },
-          { label: t.skills.groups, value: formatNumber(groups.length) },
-          { label: t.skills.totalCommands, value: formatNumber(linkedCommands) }
-        ]}
-        title={t.skills.overviewTitle}
-      />
-
       <div className="toolset-stack">
         {maintenanceCommands.length ? (
           <section className="toolset-section catalog-section maintenance-section">
-            <div className="catalog-section-heading">
+            <button
+              aria-expanded={maintenanceExpanded}
+              className="section-title-button catalog-section-toggle"
+              onClick={() => setMaintenanceExpanded((expanded) => !expanded)}
+              type="button"
+            >
               <span className="catalog-section-icon">
                 <TerminalSquare size={18} />
               </span>
@@ -63,22 +56,28 @@ export function SkillsView({
               <span className="catalog-count-badge">
                 {t.common.countItems(formatNumber(maintenanceCommands.length), t.skills.commandUnit)}
               </span>
-            </div>
-            <div className="grid-list catalog-grid">
-              {maintenanceCommands.map((command) => (
-                <article className="item-card catalog-item maintenance-command-card" key={command.command}>
-                  <div className="item-heading">
-                    <div className="item-icon">
-                      <TerminalSquare size={18} />
+              <ChevronRight
+                className={maintenanceExpanded ? "section-chevron expanded" : "section-chevron"}
+                size={17}
+              />
+            </button>
+            {maintenanceExpanded ? (
+              <div className="grid-list catalog-grid">
+                {maintenanceCommands.map((command) => (
+                  <article className="item-card catalog-item maintenance-command-card" key={command.command}>
+                    <div className="item-heading">
+                      <div className="item-icon">
+                        <TerminalSquare size={18} />
+                      </div>
+                      <div>
+                        <h3 className="maintenance-command-name">{command.command}</h3>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="maintenance-command-name">{command.command}</h3>
-                    </div>
-                  </div>
-                  <p className="description">{t.skills.maintenanceNote}</p>
-                </article>
-              ))}
-            </div>
+                    <p className="description">{t.skills.maintenanceNote}</p>
+                  </article>
+                ))}
+              </div>
+            ) : null}
           </section>
         ) : null}
         {groups.map((group, groupIndex) => {

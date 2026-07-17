@@ -1,326 +1,157 @@
-import { Brain, Coins, Languages, MessageSquareText, Plug, Radio, Wrench, X } from "lucide-react";
+import { Plug } from "lucide-react";
 
 import { EmptyState } from "../../shared/components";
-import { formatIsoDate, formatNumber } from "../../shared/format";
+import { formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
-import type { Language, UiText } from "../../shared/i18n";
-import type { ChannelHealthPayload, ConnectorPayload, ModelPayload, SessionSummaryPayload } from "../../api/payloads";
-import { BrandMark } from "../../shared/ui/brand-mark";
-import { LanguageSwitch } from "../../shared/ui/language-switch";
+import type {
+  ConnectorPayload,
+  McpServerPayload,
+  ToolsetPayload,
+} from "../../api/payloads";
 
-type FeishuConnectionState = "connected" | "disconnected" | "restarting" | "stopped" | "failed" | "unknown";
-
-function feishuConnectionState(health: ChannelHealthPayload): FeishuConnectionState {
-  const state = String(health.connection_state || "").trim().toLowerCase();
-  if (health.restart_in_progress || state === "restarting") {
-    return "restarting";
-  }
-  if (state === "connected" || health.connection_alive) {
-    return "connected";
-  }
-  if (state === "failed") {
-    return "failed";
-  }
-  if (state === "stopped") {
-    return "stopped";
-  }
-  if (state === "disconnected") {
-    return "disconnected";
-  }
-  return "unknown";
-}
-
-function feishuConnectionLabel(t: UiText, state: FeishuConnectionState): string {
-  if (state === "connected") {
-    return t.connectors.wsConnected;
-  }
-  if (state === "restarting") {
-    return t.connectors.wsRestarting;
-  }
-  if (state === "stopped") {
-    return t.connectors.wsStopped;
-  }
-  if (state === "failed") {
-    return t.connectors.wsFailed;
-  }
-  if (state === "disconnected") {
-    return t.connectors.wsDisconnected;
-  }
-  return t.connectors.wsUnknown;
-}
-
-function feishuConnectionPillClass(state: FeishuConnectionState): string {
-  if (state === "connected") {
-    return "pill ok";
-  }
-  if (state === "failed") {
-    return "pill danger";
-  }
-  if (state === "restarting") {
-    return "pill active";
-  }
-  return "pill warn";
-}
-
-export function FeishuHealthPanel({
-  health,
-  healthError
+function McpServerRow({
+  server,
+  saving,
+  onToggle,
 }: {
-  health: ChannelHealthPayload | undefined;
-  healthError: string;
+  server: McpServerPayload;
+  saving: boolean;
+  onToggle: (server: McpServerPayload) => void;
 }) {
   const t = useUiText();
-  if (!health) {
-    return (
-      <div className="dashboard-health-panel">
-        <div className="dashboard-health-heading">
-          <span className="dashboard-health-icon">
-            <Radio size={15} />
-          </span>
-          <strong>{t.connectors.channelHealth}</strong>
-        </div>
-        <div className="pill-row dashboard-health-pills">
-          <span className={healthError ? "pill danger" : "pill warn"}>{t.connectors.healthUnavailable}</span>
-        </div>
-        {healthError ? (
-          <div className="dashboard-health-error">
-            <span>{t.connectors.lastError}</span>
-            <strong>{healthError}</strong>
-          </div>
-        ) : null}
-      </div>
-    );
-  }
-
-  const connectionState = feishuConnectionState(health);
-  const monitorAlive = Boolean(health.restart_monitor_alive);
-  const errorText = String(health.last_restart_error || health.last_error || healthError || "").trim();
-
+  const title = server.server_title || server.connector_name || server.name;
   return (
-    <div className="dashboard-health-panel">
-      <div className="dashboard-health-topline">
-        <div className="dashboard-health-heading">
-          <span className="dashboard-health-icon">
-            <Radio size={15} />
-          </span>
-          <strong>{t.connectors.channelHealth}</strong>
-        </div>
-        <div className="pill-row dashboard-health-pills">
-          <span className={feishuConnectionPillClass(connectionState)}>
-            {feishuConnectionLabel(t, connectionState)}
-          </span>
-          <span className={monitorAlive ? "pill ok" : "pill warn"}>
-            {monitorAlive ? t.connectors.monitorRunning : t.connectors.monitorStopped}
-          </span>
+    <article className="connection-row">
+      <div className="connection-row-main">
+        <span className="connection-row-icon"><Plug size={16} /></span>
+        <div className="connection-row-copy">
+          <strong>{title}</strong>
+          <span>{server.name}</span>
         </div>
       </div>
-      <dl className="dashboard-health-list">
-        <div>
-          <dt>{t.connectors.nextRestart}</dt>
-          <dd>{formatIsoDate(health.next_restart_at)}</dd>
-        </div>
-        <div>
-          <dt>{t.connectors.lastRestart}</dt>
-          <dd>{formatIsoDate(health.last_restart_at)}</dd>
-        </div>
-        {errorText ? (
-          <div className="dashboard-health-error-row">
-            <dt>{t.connectors.lastError}</dt>
-            <dd>{errorText}</dd>
-          </div>
-        ) : null}
-      </dl>
-    </div>
+      <div className="connection-row-meta">
+        <span>{server.transport || t.common.unknown}</span>
+        <span>{t.common.countItems(formatNumber(server.tool_count), t.tools.itemUnit)}</span>
+      </div>
+      <span className={server.enabled ? "connection-state on" : "connection-state"}>
+        <i aria-hidden="true" />
+        {server.enabled ? server.status || t.tools.enabled : t.tools.disabled}
+      </span>
+      <button
+        className={server.enabled ? "connector-toggle on" : "connector-toggle"}
+        disabled={saving}
+        onClick={() => onToggle(server)}
+        type="button"
+      >
+        {saving ? t.tools.saving : server.enabled ? t.tools.disable : t.tools.enable}
+      </button>
+      {server.error ? <p className="connection-row-error" role="alert">{server.error}</p> : null}
+    </article>
   );
 }
 
-
-export function ConnectorsView({
+export function ConnectionsView({
+  connectorError,
   connectors,
+  mcpError,
+  mcpSavingId,
+  mcpToolset,
   savingId,
   onToggle,
-  onConfigureCredentials
+  onConfigureCredentials,
+  onToggleMcpServer,
 }: {
+  connectorError: string;
   connectors: ConnectorPayload[];
+  mcpError: string;
+  mcpSavingId: string;
+  mcpToolset: ToolsetPayload | undefined;
   savingId: string;
   onToggle: (connector: ConnectorPayload) => void;
   onConfigureCredentials?: () => void;
+  onToggleMcpServer: (server: McpServerPayload) => void;
 }) {
   const t = useUiText();
-  if (!connectors.length) {
-    return <EmptyState label={t.connectors.empty} />;
-  }
+  const mcpServers = mcpToolset?.servers ?? [];
   return (
-    <div className="connectors-page">
-      {onConfigureCredentials ? (
-        <div className="desktop-page-actions">
-          <button className="desktop-inline-settings" onClick={onConfigureCredentials} type="button">
-            <Plug size={14} />
-            配置渠道凭证
-          </button>
-        </div>
-      ) : null}
-      <div className="grid-list connectors-grid">
-        {connectors.map((connector) => {
-          const saving = savingId === connector.id;
-          return (
-            <article className="item-card connector-card" key={connector.id}>
-              <div className="connector-card-top">
-                <div className="item-heading">
-                  <div className="item-icon connector-icon">
-                    <Plug size={18} />
-                  </div>
-                  <div>
-                    <h3>{connector.name}</h3>
-                    <div className="model-heading-model">{connector.kind || t.common.unknown}</div>
-                  </div>
-                </div>
-                <span className={connector.enabled ? "status-dot on" : "status-dot"} />
-              </div>
-              <p className="description connector-description">{connector.description}</p>
-              <div className="pill-row">
-                <span className={connector.enabled ? "pill ok" : "pill warn"}>
-                  {connector.enabled ? t.connectors.enabled : t.connectors.disabled}
-                </span>
-                <span className="pill">
-                  {t.common.countItems(formatNumber(connector.skill_count), t.connectors.itemUnit)}
-                </span>
-              </div>
-              <p className="connector-note">{t.connectors.note}</p>
-              <button
-                className={connector.enabled ? "connector-toggle on" : "connector-toggle"}
-                disabled={saving}
-                type="button"
-                onClick={() => onToggle(connector)}
-              >
-                {saving
-                  ? t.connectors.saving
-                  : connector.enabled
-                    ? t.connectors.disable
-                    : t.connectors.enable}
-              </button>
-            </article>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-const TASK_STATUS_ORDER = ["running", "completed", "failed", "timeout", "killed"];
-
-
-export function DashboardStatusModal({
-  open,
-  onClose,
-  summary,
-  currentModel,
-  apiOnline,
-  feishuHealth,
-  channelHealthError,
-  language,
-  onLanguageChange
-}: {
-  open: boolean;
-  onClose: () => void;
-  summary: SessionSummaryPayload;
-  currentModel: ModelPayload | null;
-  apiOnline: boolean;
-  feishuHealth: ChannelHealthPayload | undefined;
-  channelHealthError: string;
-  language: Language;
-  onLanguageChange: (language: Language) => void;
-}) {
-  const t = useUiText();
-
-  if (!open) {
-    return null;
-  }
-
-  const statusLabel = apiOnline ? t.app.apiOnline : t.app.apiOffline;
-  const currentModelLabel = currentModel?.model || "-";
-
-  return (
-    <div className="modal-backdrop" role="presentation" onClick={onClose}>
-      <section
-        aria-label={t.app.title}
-        aria-modal="true"
-        className="modal dashboard-status-modal"
-        onClick={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <div className="modal-header dashboard-status-header">
-          <div className="dashboard-status-title">
-            <span className="dashboard-status-app-icon">
-              <BrandMark tone="brand" />
-            </span>
-            <div>
-              <div className="modal-kicker">{t.app.eyebrow}</div>
-              <h2>{t.app.title}</h2>
-            </div>
+    <div className="connections-page">
+      <section className="connection-section">
+        <div className="connection-section-heading">
+          <div>
+            <h3>{t.connectors.businessConnections}</h3>
+            <p>{t.connectors.businessConnectionsDescription}</p>
           </div>
-          <div className="dashboard-status-header-actions">
-            <span className={apiOnline ? "dashboard-api-status online" : "dashboard-api-status offline"}>
-              <span aria-hidden="true" />
-              {statusLabel}
-            </span>
-            <button className="icon-button" type="button" onClick={onClose} aria-label={t.detailModal.close}>
-              <X size={18} />
+          {onConfigureCredentials ? (
+            <button className="desktop-inline-settings" onClick={onConfigureCredentials} type="button">
+              <Plug size={14} />
+              {t.connectors.configureCredentials}
             </button>
+          ) : null}
+        </div>
+        <p className="connection-section-note">{t.connectors.note}</p>
+        {connectorError ? (
+          <EmptyState label={t.common.errorPrefix(t.errors.api, connectorError)} />
+        ) : connectors.length ? (
+          <div className="connection-list">
+            {connectors.map((connector) => {
+              const saving = savingId === connector.id;
+              return (
+                <article className="connection-row" key={connector.id}>
+                  <div className="connection-row-main">
+                    <span className="connection-row-icon"><Plug size={16} /></span>
+                    <div className="connection-row-copy">
+                      <strong>{connector.name}</strong>
+                      <span>{connector.description || connector.kind || t.common.unknown}</span>
+                    </div>
+                  </div>
+                  <div className="connection-row-meta">
+                    <span>{connector.kind || t.common.unknown}</span>
+                    <span>{t.common.countItems(formatNumber(connector.skill_count), t.connectors.itemUnit)}</span>
+                  </div>
+                  <span className={connector.enabled ? "connection-state on" : "connection-state"}>
+                    <i aria-hidden="true" />
+                    {connector.enabled ? t.connectors.enabled : t.connectors.disabled}
+                  </span>
+                  <button
+                    className={connector.enabled ? "connector-toggle on" : "connector-toggle"}
+                    disabled={saving}
+                    onClick={() => onToggle(connector)}
+                    type="button"
+                  >
+                    {saving ? t.connectors.saving : connector.enabled ? t.connectors.disable : t.connectors.enable}
+                  </button>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <EmptyState label={t.connectors.empty} />
+        )}
+      </section>
+
+      <section className="connection-section">
+        <div className="connection-section-heading">
+          <div>
+            <h3>{t.connectors.mcpConnections}</h3>
+            <p>{t.connectors.mcpConnectionsDescription}</p>
           </div>
         </div>
-        <div className="modal-content dashboard-status-content">
-          <div className="dashboard-status-grid">
-            <div className="dashboard-status-item">
-              <span className="dashboard-status-metric-icon">
-                <MessageSquareText size={17} />
-              </span>
-              <div>
-                <span>{t.stats.sessions}</span>
-                <strong>{formatNumber(summary.total_sessions)}</strong>
-              </div>
-            </div>
-            <div className="dashboard-status-item">
-              <span className="dashboard-status-metric-icon">
-                <Wrench size={17} />
-              </span>
-              <div>
-                <span>{t.stats.toolCalls}</span>
-                <strong>{formatNumber(summary.tool_call_count)}</strong>
-              </div>
-            </div>
-            <div className="dashboard-status-item">
-              <span className="dashboard-status-metric-icon">
-                <Coins size={17} />
-              </span>
-              <div>
-                <span>{t.stats.tokens}</span>
-                <strong>{formatNumber(summary.token_count)}</strong>
-              </div>
-            </div>
+        {mcpError ? (
+          <EmptyState label={t.common.errorPrefix(t.errors.api, mcpError)} />
+        ) : mcpServers.length ? (
+          <div className="connection-list">
+            {mcpServers.map((server) => (
+              <McpServerRow
+                key={server.name}
+                onToggle={onToggleMcpServer}
+                saving={mcpSavingId === server.name}
+                server={server}
+              />
+            ))}
           </div>
-          <FeishuHealthPanel health={feishuHealth} healthError={channelHealthError} />
-          <div className="dashboard-status-footer">
-            <div className="dashboard-status-row">
-              <span className="dashboard-status-row-icon">
-                <Brain size={17} />
-              </span>
-              <div className="dashboard-status-row-copy">
-                <span>{t.models.currentModel}</span>
-                <strong>{currentModelLabel}</strong>
-              </div>
-            </div>
-            <div className="dashboard-status-row dashboard-language-row">
-              <span className="dashboard-status-row-icon">
-                <Languages size={17} />
-              </span>
-              <div className="dashboard-status-row-copy">
-                <span>{t.language.label}</span>
-                <LanguageSwitch language={language} onLanguageChange={onLanguageChange} />
-              </div>
-            </div>
-          </div>
-        </div>
+        ) : (
+          <EmptyState label={t.tools.noServers} />
+        )}
       </section>
     </div>
   );

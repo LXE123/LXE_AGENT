@@ -1,7 +1,12 @@
-// Landing view: last-24h overview with recent sessions and active skills.
+// Landing view: last-24h overview with recent activity and a compact runtime footer.
+import type { ReactNode } from "react";
+import type { DesktopComponentState, DesktopHealth } from "@lxe/desktop-protocol";
+import { Bot, Brain, Radio, Server } from "lucide-react";
+
 import {
   flattenSessionPages,
   queryError,
+  useChannelHealthQuery,
   useSessionsInfiniteQuery,
   useSkillStatsQuery,
   useStatsOverviewQuery,
@@ -9,21 +14,89 @@ import {
 import { SuccessRateCell } from "../../shared/components";
 import { formatDate, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
-import type { SessionPayload } from "../../api/payloads";
+import {
+  aggregateAgentState,
+  summarizeChannelState,
+  type HomeChannelState,
+} from "./model";
+import type { ModelPayload, SessionPayload } from "../../api/payloads";
+
+type HomeSettingsSection = "status" | "feishu";
+type RuntimeTone = "healthy" | "progress" | "warning" | "neutral";
+
+function componentTone(state: DesktopComponentState): RuntimeTone {
+  if (state === "ready") return "healthy";
+  if (state === "starting") return "progress";
+  if (state === "error" || state === "stopped") return "warning";
+  return "neutral";
+}
+
+function channelTone(state: HomeChannelState): RuntimeTone {
+  if (state === "connected") return "healthy";
+  if (state === "connecting") return "progress";
+  if (state === "error") return "warning";
+  return "neutral";
+}
+
+function RuntimeStatusItem({
+  icon,
+  label,
+  meta,
+  tone,
+  value,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  meta?: string;
+  tone: RuntimeTone;
+  value: string;
+  onClick: () => void;
+}) {
+  const accessibleLabel = `${label}：${value}${meta ? `，${meta}` : ""}`;
+  return (
+    <button
+      aria-label={accessibleLabel}
+      className={`home-runtime-item tone-${tone}`}
+      onClick={onClick}
+      title={accessibleLabel}
+      type="button"
+    >
+      <span className="home-runtime-icon" aria-hidden="true">{icon}</span>
+      <span className="home-runtime-copy">
+        <span className="home-runtime-label">{label}</span>
+        <span className="home-runtime-value-line">
+          <strong>{value}</strong>
+          {meta ? <span className="home-runtime-meta">· {meta}</span> : null}
+        </span>
+      </span>
+      <span className="home-runtime-dot" aria-hidden="true" />
+    </button>
+  );
+}
 
 export function DashboardHome({
+  currentModel,
+  desktopHealth,
+  onOpenModels,
   onOpenSession,
   onOpenSessions,
-  onOpenStats
+  onOpenSettings,
+  onOpenStats,
 }: {
+  currentModel: ModelPayload | null;
+  desktopHealth: DesktopHealth;
+  onOpenModels: () => void;
   onOpenSession: (session: SessionPayload) => void;
   onOpenSessions: () => void;
+  onOpenSettings: (section: HomeSettingsSection) => void;
   onOpenStats: () => void;
 }) {
   const t = useUiText();
   const overviewQuery = useStatsOverviewQuery(1);
   const skillsQuery = useSkillStatsQuery(7);
   const sessionsQuery = useSessionsInfiniteQuery("");
+  const channelsQuery = useChannelHealthQuery();
   const overview = overviewQuery.data;
   const skills = skillsQuery.data?.items ?? [];
   const sessions = flattenSessionPages(sessionsQuery.data?.pages).items.slice(0, 6);
@@ -55,6 +128,11 @@ export function DashboardHome({
       tone: ""
     }
   ];
+  const agentState = aggregateAgentState(desktopHealth);
+  const channelUnavailable = channelsQuery.isError && !channelsQuery.data;
+  const channelState = summarizeChannelState(channelsQuery.data, channelUnavailable);
+  const componentStates = t.home.componentStates;
+  const channelStates = t.home.channelStates;
 
   return (
     <section className="home-page" aria-labelledby="dashboard-home-title">
@@ -138,6 +216,38 @@ export function DashboardHome({
           )}
         </section>
       </div>
+
+      <section aria-label={t.home.runtimeStatusAria} className="home-runtime-strip">
+        <RuntimeStatusItem
+          icon={<Brain size={17} />}
+          label={t.home.currentModel}
+          meta={currentModel?.model || t.home.channelStates.unavailable}
+          onClick={onOpenModels}
+          tone={currentModel ? "healthy" : "neutral"}
+          value={currentModel?.label || t.home.channelStates.unavailable}
+        />
+        <RuntimeStatusItem
+          icon={<Server size={17} />}
+          label={t.home.gateway}
+          onClick={() => onOpenSettings("status")}
+          tone={componentTone(desktopHealth.gateway)}
+          value={componentStates[desktopHealth.gateway]}
+        />
+        <RuntimeStatusItem
+          icon={<Bot size={17} />}
+          label={t.home.agent}
+          onClick={() => onOpenSettings("status")}
+          tone={componentTone(agentState)}
+          value={componentStates[agentState]}
+        />
+        <RuntimeStatusItem
+          icon={<Radio size={17} />}
+          label={t.home.feishu}
+          onClick={() => onOpenSettings("feishu")}
+          tone={channelTone(channelState)}
+          value={channelStates[channelState]}
+        />
+      </section>
     </section>
   );
 }

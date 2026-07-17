@@ -202,6 +202,7 @@ export type ConnectorPayload = {
 };
 
 export type ChannelHealthPayload = {
+  ready?: boolean;
   running?: boolean;
   thread_alive?: boolean;
   connection_alive?: boolean;

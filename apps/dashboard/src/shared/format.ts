@@ -37,6 +37,21 @@ export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(Math.max(0, Number(value) || 0));
 }
 
+export function formatCompactNumber(value: number): string {
+  const normalized = Math.max(0, Number(value) || 0);
+  if (normalized < 1_000) return formatNumber(normalized);
+  let [divisor, suffix] = normalized >= 1_000_000
+    ? [1_000_000, "M"] as const
+    : [1_000, "K"] as const;
+  let scaled = normalized / divisor;
+  if (suffix === "K" && Math.round(scaled * 10) / 10 >= 1_000) {
+    divisor = 1_000_000;
+    suffix = "M";
+    scaled = normalized / divisor;
+  }
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 }).format(scaled)}${suffix}`;
+}
+
 export function formatDuration(value: number | null | undefined): string {
   const duration = Number(value);
   if (!Number.isFinite(duration) || duration < 0) {
