@@ -30,6 +30,7 @@ Mitigation: Prefer controlled shutdown where possible, confirm target processes,
 - [Core Workflow APIs](reference/api-core.md) <br>
 - [Auxiliary Management APIs](reference/api-auxiliary.md) <br>
 - [Startup Parameters](reference/startup-params.md) <br>
+- [Repository Automation Framework Policy](reference/automation-framework-policy.md) <br>
 - [Framework Examples](reference/framework-examples.md) <br>
 - [Prerequisites and Troubleshooting](reference/prerequisites.md) <br>
 - [Ziniao WebDriver Demo Repository](https://github.com/ziniao-open/ziniao_webdriver_demo) <br>

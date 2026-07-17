@@ -2,6 +2,7 @@
 
 > 本文件是 ziniao-webdriver-doc 的 Level 2 参考文档。
 > 仅在需要查看各语言/框架的示例代码与下载链接时加载。
+> 本文件保留上游示例索引，不代表本仓库允许使用其中所有框架。
 
 ## 概述
 
@@ -11,7 +12,7 @@
 - Socket 端口号
 - 用户登录信息（company, username, password）
 
-**推荐使用 Selenium**：Playwright 和 Puppeteer 会被平台检测为自动化，需自行处理特征问题。
+**本仓库必须使用 Selenium**：页面级控制只能走紫鸟配对的 Selenium 和 ChromeDriver 链路。Playwright、Puppeteer、DrissionPage 和裸 CDP 客户端只作为上游参考保留，不得用于本项目的页面读取、截图或交互。详见 [automation-framework-policy.md](automation-framework-policy.md)。
 
 ## 框架支持矩阵
 
@@ -21,11 +22,11 @@
 | Selenium | Python | ziniao_webdriver_demo | [GitHub](https://github.com/ziniao-open/ziniao_webdriver_demo) | 开源示例集：订单拉取、报表下载、评价导出 |
 | Selenium | Java | webdriver-java-demo.zip | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/webdriver-java-demo.zip) | 用 IDEA 打开后运行 |
 | Selenium | C#.NET | webdriver-C#.net-demo.zip | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/webdriver-CSharp-demo.zip) | Windows 环境 |
-| Puppeteer | JavaScript | puppeteer_js_demo.zip | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/puppeteer_js_demo.zip) | 通过 Puppeteer API 控制 |
-| Playwright | Python | ziniao_playwright_http_py3.py | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/ziniao_playwright_http_py3.py) | 会被检测为自动化，建议用 Selenium |
-| Playwright | Java | playwright-java-demo.zip | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/playwright-java-demo.zip) | 会被检测为自动化，建议用 Selenium |
-| Playwright | JavaScript | playwright_js_demo.zip | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/playwright_js_demo.zip) | 会被检测为自动化，建议用 Selenium |
-| DrissionPage | Python | ziniao_drissionpage_http_py3.py | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/ziniao_drissionpage_http_py3.py) | 通过 DrissionPage API 控制 |
+| Puppeteer | JavaScript | puppeteer_js_demo.zip | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/puppeteer_js_demo.zip) | 上游参考；本仓库禁止用于页面控制 |
+| Playwright | Python | ziniao_playwright_http_py3.py | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/ziniao_playwright_http_py3.py) | 上游参考；本仓库禁止用于页面控制 |
+| Playwright | Java | playwright-java-demo.zip | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/playwright-java-demo.zip) | 上游参考；本仓库禁止用于页面控制 |
+| Playwright | JavaScript | playwright_js_demo.zip | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/playwright_js_demo.zip) | 上游参考；本仓库禁止用于页面控制 |
+| DrissionPage | Python | ziniao_drissionpage_http_py3.py | [下载](https://cdn-superbrowser-attachment.ziniao.com/webdriver/demo/20260119/ziniao_drissionpage_http_py3.py) | 上游参考；本仓库禁止用于页面控制 |
 
 ## 连接示例（以 Selenium 为例）
 

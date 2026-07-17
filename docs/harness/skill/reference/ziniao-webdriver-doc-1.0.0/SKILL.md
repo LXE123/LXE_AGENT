@@ -23,7 +23,7 @@ description: >
 
 ### 是什么
 
-紫鸟浏览器 WebDriver 是紫鸟浏览器提供的本地自动化控制接口。通过命令行参数启动紫鸟浏览器进入 WebDriver 模式后，浏览器在本地开启 HTTP 服务，开发者可通过 JSON API 管理店铺窗口，并使用 Selenium / Puppeteer / Playwright / DrissionPage 等框架对接调试端口，实现对店铺浏览器的自动化控制。
+紫鸟浏览器 WebDriver 是紫鸟浏览器提供的本地自动化控制接口。通过命令行参数启动紫鸟浏览器进入 WebDriver 模式后，浏览器在本地开启 HTTP 服务，开发者可通过 JSON API 管理店铺窗口。上游资料包含多种自动化框架示例，但本仓库的页面级控制只允许使用紫鸟配对的 Selenium 和 ChromeDriver 链路；详见 `reference/automation-framework-policy.md`。
 
 ### 能力概览
 
@@ -32,7 +32,7 @@ description: >
 | 客户端启动控制 | 命令行参数启动/退出紫鸟浏览器进入 WebDriver 模式 |
 | 认证与登录 | 通过 API 完成设备授权、账号登录、获取店铺列表 |
 | 店铺窗口管理 | 启动/关闭指定店铺窗口，获取调试端口(debuggingPort) |
-| 自动化框架对接 | 返回调试端口供 Selenium/Puppeteer/Playwright/DrissionPage 连接 |
+| 自动化框架对接 | 返回调试端口；本仓库只使用紫鸟配对的 Selenium/ChromeDriver |
 | 内核管理 | 检测/下载/更新浏览器内核 |
 | 缓存与会话 | 清理本地/在线缓存、管理 Cookie 策略 |
 | 插件管理 | 启动店铺时加载指定插件、查询插件安装状态 |
@@ -145,7 +145,7 @@ pkill -f ziniao || true
 | 通信协议 | HTTP POST, JSON, UTF-8 |
 | 超时设置 | ≥ 120 秒 |
 | 启动前提 | 紫鸟主进程必须已完全关闭 |
-| 推荐框架 | Selenium（Playwright/Puppeteer 会被检测为自动化） |
+| 页面控制框架 | 必须使用 Selenium（Playwright/Puppeteer/裸 CDP 不得用于本仓库的页面级操作） |
 
 ---
 
@@ -159,5 +159,6 @@ pkill -f ziniao || true
 | 核心工作流接口（applyAuth/getBrowserList/startBrowser） | `reference/api-core.md` |
 | 辅助管理接口（stopBrowser/logout/exit/缓存/插件/updateCore） | `reference/api-auxiliary.md` |
 | 启动客户端的命令行参数详细说明 | `reference/startup-params.md` |
+| 本仓库的自动化框架选型与豁免边界 | `reference/automation-framework-policy.md` |
 | 各语言/框架的示例代码与下载链接 | `reference/framework-examples.md` |
 | 权限开通、账号配置、常见问题排查 | `reference/prerequisites.md` |
