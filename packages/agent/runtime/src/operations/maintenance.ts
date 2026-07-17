@@ -8,6 +8,24 @@ import type { OneShotCliRunnerPort } from "../tooling/one-shot-cli";
 import type { SqliteRuntimeStore } from "../state/storage";
 
 type Environment = Record<string, string | undefined>;
+type DataServerTargetName = "cloud" | "local_fallback";
+
+interface DataServerTarget {
+  name: DataServerTargetName;
+  serverUrl: string;
+  apiKey: string;
+}
+
+class DataServerUploadError extends Error {
+  constructor(
+    readonly target: DataServerTargetName,
+    message: string,
+    readonly fallbackEligible: boolean,
+  ) {
+    super(message);
+    this.name = "DataServerUploadError";
+  }
+}
 
 export interface MaintenanceClock {
   setInterval(callback: () => void, delayMs: number): unknown;
@@ -67,12 +85,14 @@ export class MaintenanceScheduler {
     const authEnabled = envBoolean(this.options.environment, "LXE_MAINTENANCE_AUTH_ENABLED", true);
     const dataEnabled = envBoolean(this.options.environment, "LXE_DATA_SERVER_ENABLED");
     const authIntervalMs = 2 * 60 * 60_000;
-    const dataIntervalMs = envInteger(this.options.environment, "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS", 10_800, 30) * 1_000;
+    const dataIntervalMs = envInteger(this.options.environment, "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS", 3_600, 30) * 1_000;
+    const localFallbackEnabled = this.localFallbackTarget() !== undefined;
     this.logger.info("maintenance_configured", {
       auth_enabled: authEnabled,
       auth_interval_ms: authIntervalMs,
       data_sync_enabled: dataEnabled,
       data_sync_interval_ms: dataIntervalMs,
+      data_local_fallback_enabled: localFallbackEnabled,
     });
     if (authEnabled) {
       await this.requestSingleFlight("auth", () => this.refreshAuth());
@@ -118,9 +138,8 @@ export class MaintenanceScheduler {
   }
 
   async syncDataServer(): Promise<JsonObject> {
-    const serverUrl = envText(this.options.environment, "LXE_DATA_SERVER_URL").replace(/\/+$/, "");
-    const apiKey = envText(this.options.environment, "LXE_DATA_SERVER_API_KEY");
-    if (!serverUrl || !apiKey) {
+    const cloud = this.dataServerTarget("cloud", "LXE_DATA_SERVER_URL", "LXE_DATA_SERVER_API_KEY");
+    if (!cloud) {
       this.logger.info("data_sync_skipped", { reason: "missing_config" });
       return { uploaded: false, skipped_reason: "missing_config" };
     }
@@ -155,26 +174,94 @@ export class MaintenanceScheduler {
       sessions,
       turn_usage: { days: usageDays, turns: this.options.store.exportTurnUsage(usageDays) },
     };
+    try {
+      return await this.uploadSnapshot(cloud, snapshot, sessions.length);
+    } catch (error) {
+      if (!(error instanceof DataServerUploadError) || !error.fallbackEligible || this.stopped) {
+        throw error;
+      }
+      const fallback = this.localFallbackTarget();
+      if (!fallback) throw error;
+      this.logger.warn("data_sync_fallback_started", {
+        target: fallback.name,
+        reason: error.message,
+      });
+      return this.uploadSnapshot(fallback, snapshot, sessions.length);
+    }
+  }
+
+  private dataServerTarget(
+    name: DataServerTargetName,
+    urlName: string,
+    apiKeyName: string,
+  ): DataServerTarget | undefined {
+    const serverUrl = envText(this.options.environment, urlName).replace(/\/+$/, "");
+    const apiKey = envText(this.options.environment, apiKeyName);
+    return serverUrl && apiKey ? { name, serverUrl, apiKey } : undefined;
+  }
+
+  private localFallbackTarget(): DataServerTarget | undefined {
+    const allowed = envBoolean(
+      this.options.environment,
+      "LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED",
+      true,
+    );
+    const enabled = envBoolean(
+      this.options.environment,
+      "LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED",
+    );
+    if (!allowed || !enabled) return undefined;
+    return this.dataServerTarget(
+      "local_fallback",
+      "LXE_DATA_SERVER_FALLBACK_URL",
+      "LXE_DATA_SERVER_FALLBACK_API_KEY",
+    );
+  }
+
+  private async uploadSnapshot(
+    target: DataServerTarget,
+    snapshot: JsonObject,
+    sessionCount: number,
+  ): Promise<JsonObject> {
     const controller = new AbortController();
     this.controllers.add(controller);
     const timeout = setTimeout(() => controller.abort(new Error("data server request timed out")),
       envInteger(this.options.environment, "LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS", 30, 1) * 1_000);
     try {
-      const response = await this.fetch(`${serverUrl}/api/v1/agent-data/snapshots`, {
-        method: "POST",
-        headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-        body: JSON.stringify(snapshot),
-        signal: controller.signal,
-      });
-      if (!response.ok) throw new Error(`data server returned HTTP ${response.status}`);
+      let response: Response;
+      try {
+        response = await this.fetch(`${target.serverUrl}/api/v1/agent-data/snapshots`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${target.apiKey}`, "content-type": "application/json" },
+          body: JSON.stringify(snapshot),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        if (controller.signal.aborted && this.stopped) throw error;
+        const message = error instanceof Error ? error.message : String(error);
+        throw new DataServerUploadError(
+          target.name,
+          `${target.name} data server request failed: ${message}`,
+          true,
+        );
+      }
+      if (!response.ok) {
+        throw new DataServerUploadError(
+          target.name,
+          `${target.name} data server returned HTTP ${response.status}`,
+          response.status >= 500 && response.status <= 599,
+        );
+      }
       const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
       const result: JsonObject = {
         uploaded: true,
-        sessions_received: Number(payload.sessions_received ?? sessions.length),
+        target: target.name,
+        sessions_received: Number(payload.sessions_received ?? sessionCount),
         messages_received: Number(payload.messages_received ?? 0),
       };
       this.logger.info("data_sync_uploaded", {
-        session_count: sessions.length,
+        target: target.name,
+        session_count: sessionCount,
         usage_turn_count: Array.isArray((snapshot.turn_usage as JsonObject).turns)
           ? ((snapshot.turn_usage as JsonObject).turns as unknown[]).length
           : 0,
@@ -246,7 +333,12 @@ export class MaintenanceScheduler {
           duration_ms: Date.now() - startedAt,
         });
       } catch (error) {
-        this.logger.warn(kind === "auth" ? "auth_refresh_failed" : "data_sync_failed", { error });
+        this.logger.warn(kind === "auth" ? "auth_refresh_failed" : "data_sync_failed", {
+          ...(kind === "data" && error instanceof DataServerUploadError
+            ? { target: error.target }
+            : {}),
+          error,
+        });
         this.logger.info("maintenance_task_completed", {
           task: kind,
           status: "failed",

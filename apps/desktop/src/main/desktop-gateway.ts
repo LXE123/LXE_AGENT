@@ -27,6 +27,7 @@ import {
   dashboardInvalidationForAgentEvent,
 } from "./dashboard-invalidation";
 import { desktopLxeSkillState } from "./lxeskill-health";
+import { dataServerRuntimePolicy } from "./data-server-policy";
 
 class SplitGatewayStorage implements DirectGatewayStorage {
   constructor(
@@ -156,6 +157,7 @@ export class DesktopGateway {
         UV_PYTHON_DOWNLOADS: "never",
         UV_OFFLINE: "0",
       }),
+      ...dataServerRuntimePolicy(this.options.packaged),
     };
     const policy = loadPermissionPolicy(permissionPolicyPath({
       env: environment,

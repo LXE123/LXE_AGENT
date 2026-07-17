@@ -17,17 +17,18 @@ const cliSuccess = (): CliTerminalResult => ({
 });
 
 class ManualMaintenanceClock implements MaintenanceClock {
-  readonly intervals: Array<() => void> = [];
-  setInterval(callback: () => void): unknown {
-    this.intervals.push(callback);
-    return callback;
+  readonly intervals: Array<{ callback: () => void; delayMs: number }> = [];
+  setInterval(callback: () => void, delayMs: number): unknown {
+    const interval = { callback, delayMs };
+    this.intervals.push(interval);
+    return interval;
   }
   clearInterval(id: unknown): void {
-    const index = this.intervals.indexOf(id as () => void);
+    const index = this.intervals.indexOf(id as { callback: () => void; delayMs: number });
     if (index >= 0) this.intervals.splice(index, 1);
   }
   async fire(index = 0): Promise<void> {
-    this.intervals[index]?.();
+    this.intervals[index]?.callback();
     await Bun.sleep(0);
   }
 }
@@ -77,7 +78,7 @@ describe("MaintenanceScheduler", () => {
     await clock.fire();
     expect(calls).toBe(2);
     release();
-    for (let attempt = 0; attempt < 20 && calls < 3; attempt += 1) await Bun.sleep(0);
+    for (let attempt = 0; attempt < 100 && calls < 3; attempt += 1) await Bun.sleep(1);
     expect(calls).toBe(3);
     expect(maxActive).toBe(1);
     await scheduler.stop();
@@ -154,21 +155,335 @@ describe("MaintenanceScheduler", () => {
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
     await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    const clock = new ManualMaintenanceClock();
+    let requests = 0;
     const scheduler = new MaintenanceScheduler({
       projectRoot: root,
       environment: {
         LXE_MAINTENANCE_AUTH_ENABLED: "0",
         LXE_DATA_SERVER_ENABLED: "1",
         LXE_DATA_SERVER_URL: "https://offline.example",
-        LXE_DATA_SERVER_API_KEY: "secret",
+        LXE_DATA_SERVER_API_KEY: "cloud-secret",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
+        LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:8000",
+        LXE_DATA_SERVER_FALLBACK_API_KEY: "local-secret",
+      },
+      store,
+      gatewayId: "gateway-one",
+      clock,
+      authRunner: { execute: async () => { throw new Error("not used"); } },
+      fetch: async () => {
+        requests += 1;
+        throw new Error("offline");
+      },
+    });
+
+    await expect(scheduler.start()).resolves.toBeUndefined();
+    expect(requests).toBe(2);
+    expect(clock.intervals[0]?.delayMs).toBe(3_600_000);
+    await clock.fire();
+    for (let attempt = 0; attempt < 100 && requests < 4; attempt += 1) await Bun.sleep(1);
+    expect(requests).toBe(4);
+    await scheduler.stop();
+    await scheduler.start();
+    expect(requests).toBe(6);
+    await scheduler.stop();
+    await store.stop();
+  });
+
+  test("uploads only to cloud after a successful cloud response", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-cloud-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    const uploads: Array<{ url: string; authorization: string | null }> = [];
+    const scheduler = new MaintenanceScheduler({
+      projectRoot: root,
+      environment: {
+        LXE_DATA_SERVER_URL: "https://cloud.example",
+        LXE_DATA_SERVER_API_KEY: "cloud-secret",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
+        LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:8000",
+        LXE_DATA_SERVER_FALLBACK_API_KEY: "local-secret",
       },
       store,
       gatewayId: "gateway-one",
       authRunner: { execute: async () => { throw new Error("not used"); } },
-      fetch: async () => { throw new Error("offline"); },
+      fetch: async (url, init) => {
+        uploads.push({
+          url: String(url),
+          authorization: new Headers(init?.headers).get("authorization"),
+        });
+        return Response.json({ sessions_received: 1, messages_received: 0 });
+      },
     });
 
-    await expect(scheduler.start()).resolves.toBeUndefined();
+    const result = await scheduler.syncDataServer();
+    expect(result).toMatchObject({ uploaded: true, target: "cloud" });
+    expect(uploads).toEqual([{
+      url: "https://cloud.example/api/v1/agent-data/snapshots",
+      authorization: "Bearer cloud-secret",
+    }]);
+    await store.stop();
+  });
+
+  test("falls back with a separate controller and API key after a cloud network error", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-fallback-network-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    const uploads: Array<{ url: string; authorization: string | null; signal?: AbortSignal }> = [];
+    const scheduler = new MaintenanceScheduler({
+      projectRoot: root,
+      environment: {
+        LXE_MAINTENANCE_AUTH_ENABLED: "0",
+        LXE_DATA_SERVER_ENABLED: "1",
+        LXE_DATA_SERVER_URL: "https://cloud.example",
+        LXE_DATA_SERVER_API_KEY: "cloud-secret",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
+        LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:8000",
+        LXE_DATA_SERVER_FALLBACK_API_KEY: "local-secret",
+      },
+      store,
+      gatewayId: "gateway-one",
+      authRunner: { execute: async () => { throw new Error("not used"); } },
+      fetch: async (url, init) => {
+        uploads.push({
+          url: String(url),
+          authorization: new Headers(init?.headers).get("authorization"),
+          ...(init?.signal ? { signal: init.signal } : {}),
+        });
+        if (String(url).startsWith("https://cloud.example")) throw new Error("network unavailable");
+        return Response.json({ sessions_received: 1, messages_received: 0 });
+      },
+    });
+
+    await scheduler.start();
+    expect(uploads.map(({ url }) => url)).toEqual([
+      "https://cloud.example/api/v1/agent-data/snapshots",
+      "http://127.0.0.1:8000/api/v1/agent-data/snapshots",
+    ]);
+    expect(uploads.map(({ authorization }) => authorization)).toEqual([
+      "Bearer cloud-secret",
+      "Bearer local-secret",
+    ]);
+    expect(uploads[0]?.signal).not.toBe(uploads[1]?.signal);
+    const result = await scheduler.syncDataServer();
+    expect(result).toMatchObject({ uploaded: true, target: "local_fallback" });
+    await scheduler.stop();
+    await store.stop();
+  });
+
+  test("falls back after a cloud 5xx response", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-fallback-5xx-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    const uploads: string[] = [];
+    const scheduler = new MaintenanceScheduler({
+      projectRoot: root,
+      environment: {
+        LXE_MAINTENANCE_AUTH_ENABLED: "0",
+        LXE_DATA_SERVER_ENABLED: "1",
+        LXE_DATA_SERVER_URL: "https://cloud.example",
+        LXE_DATA_SERVER_API_KEY: "cloud-secret",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
+        LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:8000",
+        LXE_DATA_SERVER_FALLBACK_API_KEY: "local-secret",
+      },
+      store,
+      gatewayId: "gateway-one",
+      authRunner: { execute: async () => { throw new Error("not used"); } },
+      fetch: async (url) => {
+        uploads.push(String(url));
+        return String(url).startsWith("https://cloud.example")
+          ? new Response(null, { status: 503 })
+          : Response.json({ sessions_received: 1, messages_received: 0 });
+      },
+    });
+
+    await scheduler.start();
+    expect(uploads).toEqual([
+      "https://cloud.example/api/v1/agent-data/snapshots",
+      "http://127.0.0.1:8000/api/v1/agent-data/snapshots",
+    ]);
+    await scheduler.stop();
+    await store.stop();
+  });
+
+  test("falls back after the cloud request times out", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-fallback-timeout-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    const uploads: string[] = [];
+    const scheduler = new MaintenanceScheduler({
+      projectRoot: root,
+      environment: {
+        LXE_MAINTENANCE_AUTH_ENABLED: "0",
+        LXE_DATA_SERVER_ENABLED: "1",
+        LXE_DATA_SERVER_URL: "https://cloud.example",
+        LXE_DATA_SERVER_API_KEY: "cloud-secret",
+        LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS: "1",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
+        LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:8000",
+        LXE_DATA_SERVER_FALLBACK_API_KEY: "local-secret",
+      },
+      store,
+      gatewayId: "gateway-one",
+      authRunner: { execute: async () => { throw new Error("not used"); } },
+      fetch: async (url, init) => {
+        uploads.push(String(url));
+        if (!String(url).startsWith("https://cloud.example")) {
+          return Response.json({ sessions_received: 1, messages_received: 0 });
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason ?? new Error("aborted")),
+            { once: true },
+          );
+        });
+      },
+    });
+
+    await scheduler.start();
+    expect(uploads).toEqual([
+      "https://cloud.example/api/v1/agent-data/snapshots",
+      "http://127.0.0.1:8000/api/v1/agent-data/snapshots",
+    ]);
+    await scheduler.stop();
+    await store.stop();
+  });
+
+  test("does not fall back after cloud configuration, auth, not-found, or rate-limit errors", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-no-fallback-4xx-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    const uploads: string[] = [];
+    let status = 400;
+    const scheduler = new MaintenanceScheduler({
+      projectRoot: root,
+      environment: {
+        LXE_MAINTENANCE_AUTH_ENABLED: "0",
+        LXE_DATA_SERVER_ENABLED: "1",
+        LXE_DATA_SERVER_URL: "https://cloud.example",
+        LXE_DATA_SERVER_API_KEY: "cloud-secret",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
+        LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:8000",
+        LXE_DATA_SERVER_FALLBACK_API_KEY: "local-secret",
+      },
+      store,
+      gatewayId: "gateway-one",
+      authRunner: { execute: async () => { throw new Error("not used"); } },
+      fetch: async (url) => {
+        uploads.push(String(url));
+        return new Response(null, { status });
+      },
+    });
+
+    await scheduler.start();
+    for (const nextStatus of [401, 403, 404, 429]) {
+      status = nextStatus;
+      await expect(scheduler.syncDataServer()).rejects.toThrow(`HTTP ${nextStatus}`);
+    }
+    expect(uploads).toHaveLength(5);
+    expect(uploads.every((url) => url.startsWith("https://cloud.example"))).toBeTrue();
+    await scheduler.stop();
+    await store.stop();
+  });
+
+  test("honors a runtime policy that forbids local fallback", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-fallback-forbidden-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    const uploads: string[] = [];
+    const scheduler = new MaintenanceScheduler({
+      projectRoot: root,
+      environment: {
+        LXE_MAINTENANCE_AUTH_ENABLED: "0",
+        LXE_DATA_SERVER_ENABLED: "1",
+        LXE_DATA_SERVER_URL: "https://cloud.example",
+        LXE_DATA_SERVER_API_KEY: "cloud-secret",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "0",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
+        LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:8000",
+        LXE_DATA_SERVER_FALLBACK_API_KEY: "local-secret",
+      },
+      store,
+      gatewayId: "gateway-one",
+      authRunner: { execute: async () => { throw new Error("not used"); } },
+      fetch: async (url) => {
+        uploads.push(String(url));
+        throw new Error("offline");
+      },
+    });
+
+    await scheduler.start();
+    expect(uploads).toEqual(["https://cloud.example/api/v1/agent-data/snapshots"]);
+    await scheduler.stop();
+    await store.stop();
+  });
+
+  test("keeps hourly data ticks single-flight", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-data-single-flight-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
+    const clock = new ManualMaintenanceClock();
+    let calls = 0;
+    let active = 0;
+    let maxActive = 0;
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const secondEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const scheduler = new MaintenanceScheduler({
+      projectRoot: root,
+      environment: {
+        LXE_MAINTENANCE_AUTH_ENABLED: "0",
+        LXE_DATA_SERVER_ENABLED: "1",
+        LXE_DATA_SERVER_URL: "https://cloud.example",
+        LXE_DATA_SERVER_API_KEY: "cloud-secret",
+      },
+      store,
+      gatewayId: "gateway-one",
+      clock,
+      authRunner: { execute: async () => { throw new Error("not used"); } },
+      fetch: async () => {
+        calls += 1;
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        if (calls === 2) {
+          entered();
+          await gate;
+        }
+        active -= 1;
+        return Response.json({ sessions_received: 1, messages_received: 0 });
+      },
+    });
+
+    await scheduler.start();
+    expect(calls).toBe(1);
+    expect(clock.intervals[0]?.delayMs).toBe(3_600_000);
+    await clock.fire();
+    await secondEntered;
+    await clock.fire();
+    await clock.fire();
+    expect(calls).toBe(2);
+    release();
+    for (let attempt = 0; attempt < 100 && calls < 3; attempt += 1) await Bun.sleep(1);
+    expect(calls).toBe(3);
+    expect(maxActive).toBe(1);
     await scheduler.stop();
     await store.stop();
   });
@@ -192,16 +507,17 @@ describe("MaintenanceScheduler", () => {
     });
     const authCalls: unknown[] = [];
     const uploads: Array<{ url: string; init?: RequestInit }> = [];
+    const clock = new ManualMaintenanceClock();
     const scheduler = new MaintenanceScheduler({
       projectRoot: root,
       environment: {
         LXE_DATA_SERVER_ENABLED: "1",
         LXE_DATA_SERVER_URL: "https://data.example/base/",
         LXE_DATA_SERVER_API_KEY: "secret",
-        LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "10800",
       },
       store,
       gatewayId: "gateway-one",
+      clock,
       authRunner: { execute: async (arguments_) => {
         authCalls.push(arguments_);
         return cliSuccess();
@@ -214,6 +530,7 @@ describe("MaintenanceScheduler", () => {
 
     await scheduler.start();
     expect(authCalls[0]).toEqual(["auth", "refresh", "--scope", "erp"]);
+    expect(clock.intervals.map(({ delayMs }) => delayMs)).toEqual([7_200_000, 3_600_000]);
     expect(uploads[0]?.url).toBe("https://data.example/base/api/v1/agent-data/snapshots");
     expect(new Headers(uploads[0]?.init?.headers).get("authorization")).toBe("Bearer secret");
     const snapshot = JSON.parse(String(uploads[0]?.init?.body));
