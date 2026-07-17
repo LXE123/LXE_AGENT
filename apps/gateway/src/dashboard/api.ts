@@ -72,6 +72,8 @@ const connectorDefinitions = [
 
 const json = (value: unknown, status = 200): Response => Response.json(value, { status });
 const text = (value: unknown): string => String(value ?? "").trim();
+const normalizeProviderKey = (value: unknown): string =>
+  text(value).toLowerCase().replaceAll("-", "_").replaceAll(/\s+/g, "_");
 const integer = (value: string | null, fallback: number, minimum: number, maximum: number): number => {
   const parsed = Number.parseInt(value ?? "", 10);
   return Number.isFinite(parsed) ? Math.max(minimum, Math.min(parsed, maximum)) : fallback;
@@ -393,24 +395,44 @@ export class DashboardApi {
     return this.options.store.usageOverview(this.days(url));
   }
 
-  private models(): JsonObject[] {
+  private providerSpecs(): Record<string, unknown>[] {
     const providerRoot = runtimeConfigPaths(this.options.projectRoot).providers;
     if (!existsSync(providerRoot)) return [];
-    return readdirSync(providerRoot).filter((name) => name.endsWith(".json"))
-      .map((name) => this.modelPayload(loadJson(join(providerRoot, name))))
+    return readdirSync(providerRoot)
+      .filter((name) => name.endsWith(".json"))
+      .sort((left, right) => left.localeCompare(right))
+      .map((name) => loadJson(join(providerRoot, name)));
+  }
+
+  private providerSpec(requestedProvider: string): Record<string, unknown> | undefined {
+    const requested = normalizeProviderKey(requestedProvider);
+    if (!requested) return undefined;
+    return this.providerSpecs().find((spec) => {
+      const aliases = Array.isArray(spec.aliases) ? spec.aliases : [];
+      return [spec.name, ...aliases].some((candidate) => normalizeProviderKey(candidate) === requested);
+    });
+  }
+
+  private models(): JsonObject[] {
+    return this.providerSpecs()
+      .map((spec) => this.modelPayload(spec))
       .sort((left, right) => text(left.provider).localeCompare(text(right.provider)));
   }
 
   private currentModel(): JsonObject {
-    const models = this.models();
     const requested = text(this.options.environment.AGENT_LLM_PROVIDER) || "kimi_coding";
-    return models.find((model) => model.provider === requested) ?? models[0] ?? {};
+    const spec = this.providerSpec(requested);
+    if (spec) {
+      return this.modelPayload(spec, text(this.options.environment.AGENT_LLM_MODEL));
+    }
+    return this.models()[0] ?? {};
   }
 
   private modelPayload(spec: Record<string, unknown>, modelOverride?: string): JsonObject {
-    const name = text(spec.name);
+    const name = normalizeProviderKey(spec.name);
     const models = object(spec.models);
-    const model = modelOverride || text(spec.default_model);
+    const requestedModel = text(modelOverride) || text(spec.default_model);
+    const model = requestedModel in models ? requestedModel : text(spec.default_model);
     const selected = object(models[model]);
     const envNames = this.authEnvNames(name);
     const configured = envNames.some((envName) => Boolean(text(this.options.environment[envName])));
@@ -474,11 +496,10 @@ export class DashboardApi {
 
   private async patchModel(request: Request): Promise<Response> {
     const body = object(await request.json());
-    const provider = text(body.provider);
+    const spec = this.providerSpec(text(body.provider));
+    if (!spec) return json({ detail: "Unsupported model provider" }, 400);
+    const provider = normalizeProviderKey(spec.name);
     const requestedModel = text(body.model);
-    const specPath = join(runtimeConfigPaths(this.options.projectRoot).providers, `${provider}.json`);
-    if (!existsSync(specPath)) return json({ detail: "Unsupported model provider" }, 400);
-    const spec = loadJson(specPath);
     const models = object(spec.models);
     const model = requestedModel || text(spec.default_model);
     if (!(model in models)) return json({ detail: "Unsupported model for provider" }, 400);

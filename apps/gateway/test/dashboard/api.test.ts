@@ -23,15 +23,29 @@ describe("DashboardApi", () => {
     ].join("\n"), "utf8");
     writeFileSync(join(root, "skills", "demo", "references", "help.md"), "# Help", "utf8");
     mkdirSync(join(root, "config", "llm", "providers"), { recursive: true });
-    writeFileSync(join(root, "config", "llm", "providers", "kimi_coding.json"), JSON.stringify({
+    writeFileSync(join(root, "config", "llm", "providers", "kimi-coding.json"), JSON.stringify({
       name: "kimi_coding",
       label: "Kimi Coding",
       api_style: "anthropic_messages",
+      aliases: ["kimi-coding", "kimi_code", "kimi-code"],
       default_model: "kimi-for-coding",
       models: { "kimi-for-coding": { max_tokens: 4096, thinking_levels: ["off"] } },
     }), "utf8");
+    writeFileSync(join(root, "config", "llm", "providers", "deepseek.json"), JSON.stringify({
+      name: "deepseek",
+      label: "DeepSeek",
+      api_style: "anthropic_messages",
+      aliases: ["deep-seek"],
+      default_model: "deepseek-v4-pro",
+      models: {
+        "deepseek-v4-pro": { max_tokens: 384_000, thinking_levels: ["off", "high"], thinking_default: "high" },
+      },
+    }), "utf8");
     writeFileSync(join(root, "config", "llm", "auth-profiles.json"), JSON.stringify({
-      profiles: { kimi_coding: { env_names: ["KIMI_API_KEY"] } },
+      profiles: {
+        kimi_coding: { env_names: ["KIMI_API_KEY"] },
+        deepseek: { env_names: ["DEEPSEEK_API"] },
+      },
     }), "utf8");
 
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
@@ -61,18 +75,27 @@ describe("DashboardApi", () => {
       execute: async () => ({ content: [] }),
     });
     const reconfigured: unknown[] = [];
+    const environment: Record<string, string> = {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "kimi-for-coding",
+      KIMI_API_KEY: "test-key",
+      DEEPSEEK_API: "deepseek-key",
+    };
+    let providerGeneration = 1;
     const providerManager: RuntimeProviderManager = {
       acquire: () => { throw new Error("not needed by Dashboard test"); },
       reconfigure: async (patch, persist) => {
         reconfigured.push(patch);
-        await persist?.({
+        const environmentPatch = {
           AGENT_LLM_PROVIDER: patch.provider ?? "kimi_coding",
           AGENT_LLM_MODEL: patch.model ?? "kimi-for-coding",
           AGENT_LLM_THINKING_ENABLED: patch.thinkingEnabled === false ? "0" : "1",
           AGENT_LLM_THINKING_EFFORT: patch.thinkingEffort ?? "off",
-        });
+        };
+        await persist?.(environmentPatch);
+        Object.assign(environment, environmentPatch);
         return {
-          generation: 2,
+          generation: ++providerGeneration,
           descriptor: {
             name: patch.provider ?? "kimi_coding", model: patch.model ?? "kimi-for-coding",
             baseURL: "", apiKey: "", maxTokens: 4096, defaultHeaders: {}, thinkingStyle: "none",
@@ -88,7 +111,7 @@ describe("DashboardApi", () => {
     };
     const api = new DashboardApi({
       projectRoot: root,
-      environment: { KIMI_API_KEY: "test-key" },
+      environment,
       store,
       tools,
       mcpConfig: { servers: [{
@@ -156,15 +179,50 @@ describe("DashboardApi", () => {
       daily: [{ activations: 1, executions: 1, failures: 1 }],
       recent_failures: [{ turn_id: "turn-one", session_id: "session-one", command: "scripts.demo" }],
     });
-    expect((await call("/api/models")).body).toMatchObject({
-      items: [{ provider: "kimi_coding", model: "kimi-for-coding", configured: true }],
+    const modelList = (await call("/api/models")).body as { items: Array<Record<string, unknown>> };
+    expect(modelList.items.find((model) => model.provider === "kimi_coding")).toMatchObject({
+      provider: "kimi_coding", model: "kimi-for-coding", configured: true,
+    });
+    expect(modelList.items.find((model) => model.provider === "deepseek")).toMatchObject({
+      provider: "deepseek", model: "deepseek-v4-pro", configured: true,
     });
     expect((await call("/api/models/current")).body).toMatchObject({ provider: "kimi_coding" });
-    expect((await call("/api/models/current", {
+    const deepseekSwitch = await call("/api/models/current", {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "deepseek", model: "deepseek-v4-pro" }),
+    });
+    expect(deepseekSwitch).toMatchObject({
+      status: 200,
+      body: { provider: "deepseek", model: "deepseek-v4-pro", generation: 2, effective_from: "next_turn" },
+    });
+    expect((await call("/api/models/current")).body).toMatchObject({ provider: "deepseek", model: "deepseek-v4-pro" });
+
+    const kimiSwitch = await call("/api/models/current", {
       method: "PATCH", headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "kimi_coding", model: "kimi-for-coding" }),
-    })).body).toMatchObject({ provider: "kimi_coding", model: "kimi-for-coding", generation: 2, effective_from: "next_turn" });
-    expect(reconfigured).toEqual([expect.objectContaining({ provider: "kimi_coding", model: "kimi-for-coding" })]);
+    });
+    expect(kimiSwitch).toMatchObject({
+      status: 200,
+      body: { provider: "kimi_coding", model: "kimi-for-coding", generation: 3, effective_from: "next_turn" },
+    });
+
+    const kimiAliasSwitch = await call("/api/models/current", {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "kimi-code", model: "kimi-for-coding" }),
+    });
+    expect(kimiAliasSwitch).toMatchObject({
+      status: 200,
+      body: { provider: "kimi_coding", model: "kimi-for-coding", generation: 4 },
+    });
+    expect(await call("/api/models/current", {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "../kimi_coding", model: "kimi-for-coding" }),
+    })).toMatchObject({ status: 400, body: { detail: "Unsupported model provider" } });
+    expect(reconfigured).toEqual([
+      expect.objectContaining({ provider: "deepseek", model: "deepseek-v4-pro" }),
+      expect.objectContaining({ provider: "kimi_coding", model: "kimi-for-coding" }),
+      expect.objectContaining({ provider: "kimi_coding", model: "kimi-for-coding" }),
+    ]);
 
     const connectors = (await call("/api/connectors")).body as { total: number; items: Array<Record<string, unknown>> };
     expect(connectors.total).toBe(2);
