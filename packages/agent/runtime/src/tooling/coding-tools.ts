@@ -46,6 +46,20 @@ export interface LxeSkillRecoveryCommand {
   ownerSkills: readonly string[];
 }
 
+export type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
+export type ProcessCompletionConsumeReason =
+  | "process.poll"
+  | "process.log"
+  | "process.kill"
+  | "process.remove";
+
+export interface ProcessCompletionConsumeRequest {
+  session_id: string;
+  task_id: string;
+  status: Exclude<ProcessStatus, "running">;
+  reason: ProcessCompletionConsumeReason;
+}
+
 export interface CodingToolOptions {
   workspaceRoot: string;
   repositorySkillsRoot?: string;
@@ -54,6 +68,7 @@ export interface CodingToolOptions {
   maxOutputChars?: number;
   sendFile?: (request: { path: string; session_id: string; response_route_id: string }) => Promise<void>;
   onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
+  onProcessConsume?: (request: ProcessCompletionConsumeRequest) => Promise<void> | void;
   ripgrepPath?: string | null;
   businessCommands?: ReadonlyMap<string, readonly string[]>;
   businessCommandCatalog?: readonly LxeSkillRecoveryCommand[];
@@ -61,8 +76,6 @@ export interface CodingToolOptions {
   execEnv?: (context: { skillNames: readonly string[] }) => Record<string, string>;
   lxeSkillStatus?: () => LxeSkillRuntimeStatus;
 }
-
-type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
 
 interface ProcessEntry {
   id: string;
@@ -85,6 +98,8 @@ interface ProcessEntry {
   stderrTail: Uint8Array;
   truncated: boolean;
   completion: Promise<void>;
+  consumption?: Promise<void>;
+  completionConsumed: boolean;
   timeout?: ReturnType<typeof setTimeout>;
   notifyOnExit: boolean;
   terminationEvents: Set<"process_killed" | "process_force_killed">;
@@ -484,6 +499,7 @@ export class CodingProcessManager {
       stderrTail: new Uint8Array(),
       truncated: false,
       completion: Promise.resolve(),
+      completionConsumed: false,
       notifyOnExit: request.background,
       terminationEvents: new Set(),
     };
@@ -603,13 +619,14 @@ export class CodingProcessManager {
         status: entry.status,
         new_output: combineProcessStreams(entry.pendingStdout, entry.pendingStderr) || "(no new output)",
       };
-      entry.pendingStdout = new Uint8Array();
-      entry.pendingStderr = new Uint8Array();
       if (entry.status !== "running") {
         payload.exit_code = entry.exitCode;
         payload.duration_sec = this.duration(entry);
       }
       if (entry.truncated) payload.truncated = true;
+      if (entry.status !== "running") await this.consumeCompletion(entry, "process.poll");
+      entry.pendingStdout = new Uint8Array();
+      entry.pendingStderr = new Uint8Array();
       return payload;
     }
     if (action === "log") {
@@ -631,6 +648,7 @@ export class CodingProcessManager {
       };
       if (showingEnd < totalLines) payload.message = `还有 ${totalLines - showingEnd} 行。用 offset=${showingEnd + 1} 继续。`;
       if (entry.truncated) payload.truncated = true;
+      if (entry.status !== "running") await this.consumeCompletion(entry, "process.log");
       return payload;
     }
     if (action === "write") {
@@ -647,10 +665,13 @@ export class CodingProcessManager {
       }
     }
     if (action === "kill") {
-      if (entry.status !== "running") return { message: `会话 ${id} 已经结束（${entry.status}）。` };
-      entry.status = "killed";
-      await this.terminateObserved(entry, "process_killed");
-      await entry.completion;
+      if (entry.status === "running") {
+        entry.status = "killed";
+        await this.terminateObserved(entry, "process_killed");
+        await entry.completion;
+      }
+      await this.consumeCompletion(entry, "process.kill");
+      if (entry.status !== "killed") return { message: `会话 ${id} 已经结束（${entry.status}）。` };
       return { status: "killed", session: id };
     }
     if (action === "remove") {
@@ -659,6 +680,7 @@ export class CodingProcessManager {
         await this.terminateObserved(entry, "process_killed");
         await entry.completion;
       }
+      await this.consumeCompletion(entry, "process.remove");
       this.entries.delete(id);
       return { status: "removed", session: id };
     }
@@ -667,6 +689,36 @@ export class CodingProcessManager {
 
   private duration(entry: ProcessEntry): number {
     return Math.max(0, (entry.endedAt ?? Date.now() / 1_000) - entry.startedAt);
+  }
+
+  private async consumeCompletion(
+    entry: ProcessEntry,
+    reason: ProcessCompletionConsumeReason,
+  ): Promise<void> {
+    if (entry.status === "running" || entry.completionConsumed) return;
+    await entry.completion;
+    if (entry.completionConsumed) return;
+    let consumption = entry.consumption;
+    if (!consumption) {
+      consumption = runWithLogContext(this.logContext(entry), async () => {
+        if (entry.completionConsumed || entry.status === "running") return;
+        if (entry.notifyOnExit && this.onConsume) {
+          await this.onConsume({
+            session_id: entry.sessionId,
+            task_id: entry.id,
+            status: entry.status,
+            reason,
+          });
+        }
+        entry.completionConsumed = true;
+        entry.notifyOnExit = false;
+      });
+      entry.consumption = consumption;
+      void consumption.finally(() => {
+        if (entry.consumption === consumption) delete entry.consumption;
+      }).catch(() => undefined);
+    }
+    await consumption;
   }
 
   private completedPayload(entry: ProcessEntry): JsonObject {
@@ -760,6 +812,7 @@ export class CodingProcessManager {
   }
 
   onComplete: ((snapshot: JsonObject) => Promise<void> | void) | undefined;
+  onConsume: ((request: ProcessCompletionConsumeRequest) => Promise<void> | void) | undefined;
 }
 
 export function registerCodingTools(registry: ToolRegistry, options: CodingToolOptions): CodingProcessManager {
@@ -811,6 +864,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     shell: execShell,
   });
   processes.onComplete = options.onProcessComplete;
+  processes.onConsume = options.onProcessConsume;
   registry.register({
     name: "read",
     description: "Read a text or image file from the workspace, bundled skills, runtime artifacts, or ~/.agents/skills. External roots are read-only. Reading records the file version required by edit/write.",

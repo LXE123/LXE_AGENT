@@ -17,7 +17,7 @@ import { RuntimeProviderError, type RuntimeProviderManager } from "../providers/
 import { RuntimeTurnObserver } from "./turn-observer";
 import {
   heartbeatPrompt,
-  normalizePendingSystemEvents,
+  mergePendingSystemEvents,
   userContentWithSystemEvents,
 } from "./system-events";
 import type { RuntimeTraceControllerPort, RuntimeWireTraceAttempt } from "../providers/trace";
@@ -240,9 +240,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }, "start");
       }
       const heartbeat = job.job_kind === "heartbeat";
-      const pendingEvents = normalizePendingSystemEvents(heartbeat
-        ? await this.options.store.popPendingEvents(job.session_id)
-        : job.raw_data.system_events);
+      const storedPendingEvents = await this.options.store.popPendingEvents(job.session_id);
+      const pendingEvents = mergePendingSystemEvents(
+        job.raw_data.system_events,
+        storedPendingEvents,
+      );
       if (heartbeat) observer.pendingEvents("popped", pendingEvents.length);
       else if (pendingEvents.length > 0) observer.pendingEvents("attached", pendingEvents.length);
       if (heartbeat && pendingEvents.length === 0) {

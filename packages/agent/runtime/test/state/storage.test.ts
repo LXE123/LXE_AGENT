@@ -87,6 +87,14 @@ describe("SqliteRuntimeStore", () => {
     expect(await store.popPendingEvents("s1")).toEqual([
       expect.objectContaining({ event_id: "e1", job_id: "j1", text: "done" }),
     ]);
+    await store.appendPendingEvent("s1", { event_id: "e2", job_id: "j2", text: "consume me" });
+    await store.appendPendingEvent("s1", { event_id: "e3", job_id: "j3", text: "keep me" });
+    expect(store.discardPendingEvent("s1", "j2")).toBe(1);
+    expect(store.discardPendingEvent("s1", "j2")).toBe(0);
+    expect(store.discardPendingEvent("", "j3")).toBe(0);
+    expect(await store.popPendingEvents("s1")).toEqual([
+      expect.objectContaining({ event_id: "e3", job_id: "j3", text: "keep me" }),
+    ]);
     await store.appendMessage("s1", { role: "user", content: "hello" }, "turn_input");
     await store.appendMessage("s1", { role: "assistant", content: "world" }, "turn_output");
     await store.replaceMessages("s1", [

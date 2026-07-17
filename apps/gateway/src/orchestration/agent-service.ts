@@ -180,6 +180,16 @@ export function createProductionAgentService(
         });
       });
     },
+    onProcessConsume: (request) => {
+      const deletedEvents = store.discardPendingEvent(request.session_id, request.task_id);
+      logger.info("process_completion_consumed", {
+        session_id: request.session_id,
+        task_id: request.task_id,
+        status: request.status,
+        consume_reason: request.reason,
+        deleted_events: deletedEvents,
+      });
+    },
   });
   if (feishu.missingRequired().length === 0) {
     registerFeishuImTools(tools, {

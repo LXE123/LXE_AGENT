@@ -430,6 +430,35 @@ describe("HeartbeatWakeQueue", () => {
     expect(runtime.started.map((item) => item.job_id)).toEqual(["active"]);
   });
 
+  test("drops a deferred heartbeat after the active turn consumes its last event", async () => {
+    const runtime = new RecordingRuntime();
+    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    await scheduler.enqueue(job("busy", "active"));
+    await tick();
+    let hasPendingEvent = true;
+    const wakes = new HeartbeatWakeQueue({
+      scheduler,
+      hasPendingEvents: async () => hasPendingEvent,
+      loadSession: async () => ({
+        session_id: "busy",
+        source: { platform: "feishu", chat_id: "busy", chat_type: "dm", user_id: "user" },
+      }),
+      isSuspended: () => false,
+      id: () => "unexpected-heartbeat",
+    });
+    wakes.request({ session_id: "busy", reason: "exec-event" });
+    await wakes.flush();
+    expect(wakes.peek("busy")?.reason).toBe("retry");
+
+    hasPendingEvent = false;
+    expect(scheduler.handleRuntimeEvent(completion("active", "busy"))).toBe(true);
+    await wakes.flush();
+    await tick();
+
+    expect(wakes.pendingCount).toBe(0);
+    expect(runtime.started.map((item) => item.job_id)).toEqual(["active"]);
+  });
+
   test("drops an invalid source without aborting other wakes in the batch", async () => {
     const runtime = new RecordingRuntime();
     const scheduler = new SessionScheduler({ runtime, maxConcurrency: 2 });

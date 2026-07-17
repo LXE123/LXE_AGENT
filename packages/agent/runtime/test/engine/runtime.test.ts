@@ -480,6 +480,47 @@ describe("TypeScriptAgentRuntime", () => {
     });
   });
 
+  test("merges embedded and stored pending events when an ordinary turn starts", async () => {
+    const store = new MemoryStore();
+    store.pendingEvents.push(
+      { event_id: "shared", job_id: "stored-duplicate", created_at: 0, text: "stored duplicate" },
+      { event_id: "stored", job_id: "stored", created_at: 0, text: "stored second" },
+    );
+    let captured: RuntimeProviderRequest | undefined;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async (request) => {
+          captured = request;
+          return {
+            content: [{ type: "text", text: "done" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    await runtime.runTurn({
+      ...job(),
+      raw_data: {
+        system_events: [
+          { event_id: "shared", job_id: "embedded", created_at: 0, text: "embedded first" },
+        ],
+      },
+    }, handle());
+    await runtime.stop();
+
+    expect(captured?.messages.at(-1)?.content).toBe(
+      "System: embedded first\n\nSystem: stored second\n\nhello",
+    );
+    expect(store.pendingEvents).toEqual([]);
+  });
+
   test("reports heartbeat events without history or tools", async () => {
     const store = new MemoryStore();
     store.messages.push({ role: "user", content: "private history" });

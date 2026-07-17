@@ -63,6 +63,7 @@ class FakeStorage implements StoragePort {
   readonly routes: JsonObject[] = [];
   readonly appended: Array<{ sessionId: string; event: JsonObject }> = [];
   pending: JsonObject[] = [];
+  popCalls = 0;
   readonly sessions = new Set<string>();
   rebindMissing = false;
   appendFails = false;
@@ -82,6 +83,7 @@ class FakeStorage implements StoragePort {
     return this.sessions.has(sessionId) ? { session_id: sessionId, source: {} } : undefined;
   }
   async popPendingEvents(): Promise<JsonObject[]> {
+    this.popCalls += 1;
     return this.pending.splice(0);
   }
   async appendPendingEvent(sessionId: string, value: JsonObject): Promise<void> {
@@ -282,6 +284,24 @@ describe("SessionRouter permission and normal routes", () => {
       },
       user_content_blocks: [],
     });
+  });
+
+  test("leaves pending events stored when a new message must queue behind inflight work", async () => {
+    const { router, bindings, storage, scheduler } = setup();
+    await router.routeMessage(event());
+    const sessionId = bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    scheduler.jobs.length = 0;
+    scheduler.active.add(sessionId);
+    scheduler.acceptSteering = false;
+    storage.pending = [{ event_id: "deferred", job_id: "exec-1", text: "done" }];
+    const popCallsBefore = storage.popCalls;
+
+    await router.routeMessage(event({ message_id: "message-2", response_route_id: "route-2" }));
+
+    expect(storage.popCalls).toBe(popCallsBefore);
+    expect(storage.pending).toEqual([{ event_id: "deferred", job_id: "exec-1", text: "done" }]);
+    expect(scheduler.jobs).toHaveLength(1);
+    expect(scheduler.jobs[0]?.job.raw_data.system_events).toBeUndefined();
   });
 
   test("rebinds existing sessions and resumes autonomy on the next user message", async () => {

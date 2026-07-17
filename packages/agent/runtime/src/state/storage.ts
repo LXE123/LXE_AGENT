@@ -471,6 +471,17 @@ export class SqliteRuntimeStore implements RuntimeStore {
     return transaction();
   }
 
+  discardPendingEvent(sessionId: string, jobId: string): number {
+    const safeSessionId = text(sessionId);
+    const safeJobId = text(jobId);
+    if (!safeSessionId || !safeJobId) return 0;
+    const result = this.db().transaction(() => this.db().query(`
+      DELETE FROM agent_session_pending_events
+      WHERE session_id = ? AND job_id = ?
+    `).run(safeSessionId, safeJobId))();
+    return Number(result.changes ?? 0);
+  }
+
   discardPendingEvents(sessionId: string): number {
     const result = this.db().transaction(() => this.db().query(
       "DELETE FROM agent_session_pending_events WHERE session_id = ?",

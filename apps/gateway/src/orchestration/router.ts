@@ -163,7 +163,10 @@ export class SessionRouter {
       this.logger.info("message_steered", { session_id: entry.session_id });
       return { route_kind: "agent_steer", lane_key: lane, platform: context.platform };
     }
-    const pendingEvents = await this.options.storage.popPendingEvents(entry.session_id);
+    const sessionBusy = this.options.scheduler.hasInflightWork(entry.session_id);
+    const pendingEvents = sessionBusy
+      ? []
+      : await this.options.storage.popPendingEvents(entry.session_id);
     const rawData: JsonObject = {
       ...context.raw_data,
       session_key: context.session_key,
@@ -192,6 +195,7 @@ export class SessionRouter {
         platform: context.platform,
         attachment_count: context.user_content_blocks.length,
         pending_event_count: pendingEvents.length,
+        pending_events_deferred: sessionBusy,
       });
     });
     return { route_kind: "agent_message", lane_key: lane, platform: context.platform };

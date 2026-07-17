@@ -35,6 +35,19 @@ export function normalizePendingSystemEvents(value: JsonValue | undefined): Pend
   return events;
 }
 
+export function mergePendingSystemEvents(...values: Array<JsonValue | undefined>): PendingSystemEvent[] {
+  const events: PendingSystemEvent[] = [];
+  const seenEventIds = new Set<string>();
+  for (const value of values) {
+    for (const event of normalizePendingSystemEvents(value)) {
+      if (event.event_id && seenEventIds.has(event.event_id)) continue;
+      if (event.event_id) seenEventIds.add(event.event_id);
+      events.push(event);
+    }
+  }
+  return events;
+}
+
 export function sanitizeSystemPrefixedText(value: string): string {
   return String(value ?? "").split(/\r?\n/u).map((line) =>
     line.startsWith("System:") ? line.replace("System:", "System (untrusted):") : line
