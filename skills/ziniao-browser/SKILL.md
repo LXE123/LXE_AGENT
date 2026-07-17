@@ -15,7 +15,8 @@ commands:
 - 每次先检查 terminal 的 `ok`。成功时读取 `data`；失败时停止并原样转述 `error.message`，不要凭空补救。
 - `store_id` 必须来自用户输入或 `get_status` 的真实结果，禁止猜测。
 - 优先复用已运行店铺；只有状态明确为未运行时才 `open_store`。
-- 页面发生导航、点击、输入或滚动后，旧元素 `ref` 立即视为失效，下一次交互前重新执行 `browser_snapshot`。
+- 页面发生导航、点击、输入或滚动后，旧元素 `ref` 立即视为失效，下一次交互前重新执行 `browser_snapshot`。批量 `--steps` 内部按同一次附着执行，批尾会自动返回最新快照。
+- 连续多步交互（如 click→type→click）必须合并为一次 `--steps` 批量调用，不要逐步单发。
 - 除非用户明确要求结束店铺进程，否则不要执行 `exit_store`。
 
 ## 店铺生命周期
@@ -60,6 +61,21 @@ lxeskill browser page --action browser_snapshot --store-id <store_id>
 lxeskill browser page --action browser_click --store-id <store_id> --ref <ref>
 lxeskill browser page --action browser_type --store-id <store_id> --ref <ref> --text "<text>"
 lxeskill browser page --action browser_scroll --store-id <store_id> --direction down --pixels 800
+```
+
+## 批量页面操作（steps）
+
+连续交互优先使用批量模式：一次调用按顺序执行多步，共用一次浏览器附着，显著降低延迟。规则：
+
+- `--steps` 与 `--action` 互斥；每个 `--steps` 值是一个紧凑单行 JSON 对象，最多 20 步。
+- `ref` 来自上一次调用返回的 snapshot；批执行后结果会自动附带最新页面快照，无需再单独 snapshot。
+- `browser_vision` 只能作为最后一步。
+- 某步失败时批停止：结果逐条标注 ✓/✗，附失败原因与当前页面快照；已完成步骤不会回滚，按快照判断现场后再继续。
+
+示例（填写表单并确认）：
+
+```text
+lxeskill browser page --store-id <store_id> --steps '{"action":"browser_click","ref":"aid-5"}' --steps '{"action":"browser_type","ref":"aid-7","text":"<text>"}' --steps '{"action":"browser_click","ref":"aid-9"}'
 ```
 
 ## 截图协议

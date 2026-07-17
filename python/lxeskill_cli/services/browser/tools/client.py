@@ -26,11 +26,32 @@ def _image_content(path_text: str) -> tuple[list[dict[str, Any]], list[str]]:
     )
 
 
+def _batch_step_lines(payload: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    steps = [dict(item or {}) for item in list(payload.get("steps") or [])]
+    for position, step in enumerate(steps, start=1):
+        mark = "✓" if step.get("ok") else "✗"
+        detail = str(step.get("summary") or step.get("error") or "").strip()
+        is_last = position == len(steps)
+        if detail and not (is_last and str(step.get("action") or "") == "browser_snapshot"):
+            detail = detail.splitlines()[0]
+        lines.append(
+            f"{step.get('index')}. {mark} {step.get('action')}" + (f" — {detail}" if detail else "")
+        )
+    final_snapshot_summary = str(payload.get("final_snapshot_summary") or "").strip()
+    if final_snapshot_summary:
+        lines.append(final_snapshot_summary)
+    return lines
+
+
 def _text_content(result: ExecuteToolResult) -> list[dict[str, Any]]:
     output_parts: list[str] = []
     summary = str(result.summary or "").strip()
     if summary:
         output_parts.append(summary)
+
+    if result.tool_name == "ziniao_page" and str(dict(result.payload or {}).get("action") or "") == "batch":
+        output_parts.extend(_batch_step_lines(dict(result.payload or {})))
 
     snapshot = dict(result.after_snapshot or {})
     if snapshot:
@@ -59,8 +80,12 @@ def _to_tool_execution_result(result: ExecuteToolResult) -> ToolExecutionResult:
         )
 
     payload = dict(result.payload or {})
-    if result.tool_name == "ziniao_page" and str(payload.get("action") or "").strip().lower() == "browser_vision":
+    action = str(payload.get("action") or "").strip().lower()
+    if result.tool_name == "ziniao_page" and action == "browser_vision":
         content, files = _image_content(result.screenshot_path)
+    elif result.tool_name == "ziniao_page" and action == "batch" and str(result.screenshot_path or "").strip():
+        image_content, files = _image_content(result.screenshot_path)
+        content = _text_content(result) + image_content
     else:
         content = _text_content(result)
         files = []

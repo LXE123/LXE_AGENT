@@ -77,7 +77,11 @@ def _raw_result(
 def _allows_screenshot(tool_call) -> bool:
     if str(tool_call.name or "").strip() != "ziniao_page":
         return False
-    action = str(dict(tool_call.arguments or {}).get("action") or "").strip().lower()
+    arguments = dict(tool_call.arguments or {})
+    steps = list(arguments.get("steps") or [])
+    if steps:
+        return str(dict(steps[-1] or {}).get("action") or "").strip().lower() == "browser_vision"
+    action = str(arguments.get("action") or "").strip().lower()
     return action == "browser_vision"
 
 
@@ -138,6 +142,130 @@ def _failure_result(
     )
 
 
+_OBSERVE_ONLY_ACTIONS = {"browser_snapshot", "browser_vision"}
+
+
+def _execute_page_batch(
+    runtime: Any,
+    *,
+    started_at: float,
+    tool_call,
+    user_goal: str,
+    output_dir: Path,
+) -> ExecuteToolResult:
+    arguments = dict(tool_call.arguments or {})
+    store_id = str(arguments.get("store_id") or "").strip()
+    steps = [dict(step or {}) for step in list(arguments.get("steps") or [])]
+    emit_progress(f"正在执行紫鸟页面批量动作: {len(steps)} 步")
+
+    step_results: list[dict[str, Any]] = []
+    failed_step = 0
+    failure_reason = ""
+    screenshot_path = ""
+    final_snapshot: dict[str, Any] = {}
+    final_snapshot_summary = ""
+    last_action = ""
+
+    try:
+        with _page_workflow_session(runtime, store_id=store_id, output_dir=output_dir) as session:
+            previous_after: dict[str, Any] = {}
+            for index, step in enumerate(steps, start=1):
+                last_action = str(step.get("action") or "").strip().lower()
+                before_snapshot = previous_after or session.snapshot()
+                try:
+                    payload = dispatch_ziniao_page(
+                        session,
+                        step,
+                        output_dir=output_dir,
+                        before_snapshot=before_snapshot,
+                    )
+                except Exception as exc:
+                    failed_step = index
+                    failure_reason = str(exc).strip()
+                    step_results.append({
+                        "index": index,
+                        "action": last_action,
+                        "ok": False,
+                        "error": failure_reason,
+                    })
+                    break
+                previous_after = dict(payload.get("after_snapshot") or {})
+                if last_action == "browser_vision":
+                    screenshot_path = str(payload.get("screenshot_path") or "").strip()
+                step_results.append({
+                    "index": index,
+                    "action": last_action,
+                    "ok": True,
+                    "summary": str(payload.get("summary") or "").strip(),
+                })
+            final_snapshot = previous_after
+            # A trailing snapshot keeps the model's refs fresh after page
+            # mutations, and doubles as the recovery view after a failed step.
+            if failed_step or last_action not in _OBSERVE_ONLY_ACTIONS:
+                try:
+                    snapshot_payload = dispatch_ziniao_page(
+                        session,
+                        {"action": "browser_snapshot", "store_id": store_id},
+                        output_dir=output_dir,
+                        before_snapshot=previous_after,
+                    )
+                    final_snapshot = dict(snapshot_payload.get("after_snapshot") or {})
+                    final_snapshot_summary = str(snapshot_payload.get("summary") or "").strip()
+                except Exception:
+                    logger.warning("batch final snapshot failed", exc_info=True)
+    except InterProcessLockTimeout as exc:
+        return _failure_result(
+            started_at=started_at,
+            tool_call=tool_call,
+            user_goal=user_goal,
+            failure_reason=str(exc).strip(),
+            error_code="store_busy",
+        )
+    except Exception as exc:
+        return _failure_result(
+            started_at=started_at,
+            tool_call=tool_call,
+            user_goal=user_goal,
+            failure_reason=str(exc).strip(),
+            error_code="page_action_failed",
+        )
+
+    executed = sum(1 for item in step_results if item.get("ok"))
+    completed = failed_step == 0
+    if completed:
+        summary = f"批量执行完成: {executed}/{len(steps)} 步"
+    else:
+        summary = f"批量执行在第 {failed_step}/{len(steps)} 步停止: {failure_reason}"
+    meaningful_change = any(
+        item.get("ok") and str(item.get("action") or "") not in _OBSERVE_ONLY_ACTIONS
+        for item in step_results
+    )
+    aggregate: dict[str, Any] = {
+        "summary": summary,
+        "verification": {"action": "batch", "meaningful_change": meaningful_change},
+        "after_snapshot": final_snapshot,
+        "screenshot_path": screenshot_path,
+        "payload": {
+            "action": "batch",
+            "store_id": store_id,
+            "total_steps": len(steps),
+            "completed": completed,
+            "steps": step_results,
+        },
+    }
+    if failed_step:
+        aggregate["payload"]["failed_step"] = failed_step
+        aggregate["payload"]["failure_reason"] = failure_reason
+    if final_snapshot_summary:
+        aggregate["payload"]["final_snapshot_summary"] = final_snapshot_summary
+    return _finalize_payload(
+        runtime,
+        started_at=started_at,
+        tool_call=tool_call,
+        payload=aggregate,
+    )
+
+
 def execute_browser_tool(runtime: Any, *, tool_name: str, arguments: dict[str, Any] | None = None) -> ExecuteToolResult:
     started_at = time.perf_counter()
     tool_call = build_browser_tool_call(name=tool_name, arguments=arguments or {})
@@ -169,6 +297,15 @@ def execute_browser_tool(runtime: Any, *, tool_name: str, arguments: dict[str, A
             started_at=started_at,
             tool_call=tool_call,
             payload=payload,
+        )
+
+    if list(tool_call.arguments.get("steps") or []):
+        return _execute_page_batch(
+            runtime,
+            started_at=started_at,
+            tool_call=tool_call,
+            user_goal=user_goal,
+            output_dir=output_dir,
         )
 
     emit_progress(f"正在执行紫鸟页面动作: {tool_call.arguments.get('action')}")

@@ -157,7 +157,43 @@ def _normalize_ziniao_browser_arguments(arguments: dict[str, Any]) -> dict[str, 
     return normalized
 
 
+_MAX_PAGE_BATCH_STEPS = 20
+
+
+def _normalize_ziniao_page_batch(arguments: dict[str, Any]) -> dict[str, Any]:
+    if "action" in arguments:
+        raise ValueError("ziniao_page accepts either action or steps, not both")
+    extra_keys = sorted(set(arguments) - {"steps", "store_id"})
+    if extra_keys:
+        raise ValueError("batch mode only accepts store_id and steps; per-step options go inside each step")
+    store_id = _clean_text(arguments.get("store_id"), 120)
+    if not store_id:
+        raise ValueError("steps requires store_id")
+    raw_steps = arguments.get("steps")
+    if not isinstance(raw_steps, list) or not raw_steps:
+        raise ValueError("steps must be a non-empty array of step objects")
+    if len(raw_steps) > _MAX_PAGE_BATCH_STEPS:
+        raise ValueError(f"steps accepts at most {_MAX_PAGE_BATCH_STEPS} steps")
+    normalized_steps: list[dict[str, Any]] = []
+    for position, raw_step in enumerate(raw_steps, start=1):
+        if not isinstance(raw_step, dict):
+            raise ValueError(f"step {position} must be a JSON object")
+        step = dict(raw_step)
+        if "steps" in step or "store_id" in step:
+            raise ValueError(f"step {position} must not contain steps or store_id")
+        try:
+            normalized_steps.append(_normalize_ziniao_page_arguments({**step, "store_id": store_id}))
+        except ValueError as exc:
+            raise ValueError(f"step {position}: {exc}") from exc
+        step_action = str(normalized_steps[-1].get("action") or "")
+        if step_action == "browser_vision" and position != len(raw_steps):
+            raise ValueError("browser_vision is only allowed as the final step")
+    return {"store_id": store_id, "steps": normalized_steps}
+
+
 def _normalize_ziniao_page_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+    if "steps" in arguments:
+        return _normalize_ziniao_page_batch(arguments)
     action = _clean_text(arguments.get("action"), 40)
     if action not in _ZINIAO_PAGE_ACTIONS:
         raise ValueError(f"Unknown ziniao_page action: {action or '(missing)'}")

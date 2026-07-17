@@ -90,6 +90,14 @@ def _coerce(value: str, schema: dict[str, Any]) -> Any:
         return int(value)
     if "number" in kinds:
         return float(value)
+    if "object" in kinds:
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise LxeSkillError("invalid_arguments", f"expected a JSON object, got: {value[:120]}", exit_code=EXIT_USAGE) from exc
+        if not isinstance(parsed, dict):
+            raise LxeSkillError("invalid_arguments", f"expected a JSON object, got: {value[:120]}", exit_code=EXIT_USAGE)
+        return parsed
     return value
 
 

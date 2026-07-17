@@ -27,11 +27,14 @@ async def execute_browser_command(
     from services.browser.tools import client as browser_client
 
     session = SimpleNamespace(session_id=safe_session_id)
-    result = await browser_client.execute_browser_tool(
-        str(entry.get("name") or ""),
-        arguments,
-        session,
-    )
+    try:
+        result = await browser_client.execute_browser_tool(
+            str(entry.get("name") or ""),
+            arguments,
+            session,
+        )
+    except ValueError as exc:
+        raise BrowserCliError("invalid_arguments", str(exc)) from exc
     if not result.success:
         raise BrowserCliError(
             str(result.error_code or "browser_tool_failed"),
@@ -44,10 +47,19 @@ async def execute_browser_command(
         for path in list(result.files or [])
     ]
     action = str(arguments.get("action") or "").strip().lower()
-    if str(entry.get("name") or "") == "ziniao_page" and action == "browser_vision":
-        if len(validated_files) != 1:
-            raise BrowserCliError("browser_screenshot_missing", "browser_vision did not return one screenshot")
-        return {"content": content, "screenshot_path": validated_files[0]}, []
+    steps = arguments.get("steps") if isinstance(arguments.get("steps"), list) else []
+    last_step_action = str(dict(steps[-1] or {}).get("action") or "").strip().lower() if steps else ""
+    if str(entry.get("name") or "") == "ziniao_page":
+        if action == "browser_vision":
+            if len(validated_files) != 1:
+                raise BrowserCliError("browser_screenshot_missing", "browser_vision did not return one screenshot")
+            return {"content": content, "screenshot_path": validated_files[0]}, []
+        # A batch ending in browser_vision may stop before the screenshot; only
+        # apply the screenshot contract when the step actually produced one.
+        if last_step_action == "browser_vision" and validated_files:
+            if len(validated_files) != 1:
+                raise BrowserCliError("browser_screenshot_missing", "batch browser_vision returned multiple screenshots")
+            return {"content": content, "screenshot_path": validated_files[0]}, []
     return {"content": content}, validated_files
 
 
