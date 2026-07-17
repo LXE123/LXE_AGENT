@@ -592,10 +592,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             toolStatus = "error";
             const message = cause instanceof Error ? cause.message : String(cause);
             let modelMessage = message;
-            if (cause instanceof ToolExecutionError && cause.recoveryGroup) {
-              const attempt = (toolRecoveryAttempts.get(cause.recoveryGroup) ?? 0) + 1;
-              toolRecoveryAttempts.set(cause.recoveryGroup, attempt);
-              modelMessage = cause.modelContent(attempt);
+            if (cause instanceof ToolExecutionError) {
+              if (cause.recoveryGroup) {
+                const attempt = (toolRecoveryAttempts.get(cause.recoveryGroup) ?? 0) + 1;
+                toolRecoveryAttempts.set(cause.recoveryGroup, attempt);
+                modelMessage = cause.modelContent(attempt);
+              } else {
+                modelMessage = cause.modelContent();
+              }
             }
             toolDisplayOutput = { error: message };
             results.push({

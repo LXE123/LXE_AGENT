@@ -31,6 +31,9 @@ describe("ProcessAgentRuntime", () => {
 
     await runtime.start();
     expect(runtime.isReady).toBe(true);
+    expect(runtime.status()).toMatchObject({
+      lxeskillAvailable: true,
+    });
     expect(await runtime.remoteHealth()).toMatchObject({ ready: true, fake: true });
     expect(await runtime.dashboardRequest({ method: "GET", path: "/api/models" }))
       .toEqual({ status: 200, body: { path: "/api/models" } });
@@ -39,6 +42,29 @@ describe("ProcessAgentRuntime", () => {
     expect(runtime.status().state).toBe("stopped");
     expect(states).toContain("starting");
     expect(states).toContain("ready");
+  });
+
+  test("caches degraded lxeskill health without failing agent startup", async () => {
+    const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");
+    const runtime = new ProcessAgentRuntime({
+      command: process.execPath,
+      arguments: [fixture],
+      cwd: process.cwd(),
+      environment: { ...process.env, FAKE_LXESKILL_UNAVAILABLE: "1" },
+      resourceRoot: process.cwd(),
+      dataRoot: process.cwd(),
+      workspaceRoot: process.cwd(),
+    });
+    runtimes.push(runtime);
+
+    await runtime.start();
+
+    expect(runtime.isReady).toBe(true);
+    expect(runtime.status()).toMatchObject({
+      state: "ready",
+      lxeskillAvailable: false,
+      lxeskillMessage: "No module named lxeskill",
+    });
   });
 
   test("recovers an unexpectedly crashed agent process", async () => {

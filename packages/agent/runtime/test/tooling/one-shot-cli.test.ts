@@ -41,6 +41,7 @@ describe("OneShotCliRunner", () => {
 
   test("returns a failed terminal result with a stable nonzero CLI exit", async () => {
     const runner = runnerFor(`
+      console.error("diagnostic");
       console.log(JSON.stringify({protocol_version:"1",type:"result",command:"auth refresh",ok:false,data:{},files:[],error:{code:"auth_failed",message:"failed"}}));
       process.exit(4);
     `);
@@ -49,6 +50,7 @@ describe("OneShotCliRunner", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("auth_failed");
+    expect(result.error?.message).toBe("failed (exit 4): diagnostic");
   });
 
   test("rejects stdout pollution and duplicate terminal records", async () => {
@@ -61,6 +63,17 @@ describe("OneShotCliRunner", () => {
       console.log(JSON.stringify(result));
     `);
     await expect(duplicate.execute([], new AbortController().signal)).rejects.toThrow("exactly one terminal");
+  });
+
+  test("preserves stderr when a broken Python environment emits no JSONL", async () => {
+    const runner = runnerFor(`
+      console.error("No module named lxeskill");
+      process.exit(1);
+    `);
+
+    await expect(runner.execute([], new AbortController().signal)).rejects.toThrow(
+      "lxeskill produced no JSONL result (exit 1): No module named lxeskill",
+    );
   });
 
   test("terminates a timed out process", async () => {

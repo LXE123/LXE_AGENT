@@ -168,6 +168,40 @@ describe("native coding tools", () => {
     await processes.stop();
   });
 
+  test("rejects unavailable lxeskill commands before spawning without blocking other exec work", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-lxeskill-unavailable-"));
+    roots.push(root);
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {
+      workspaceRoot: root,
+      lxeSkillStatus: () => ({
+        state: "unavailable",
+        available: false,
+        message: "LXE Skill CLI is unavailable: No module named lxeskill",
+        recovery: "run uv sync",
+      }),
+    });
+
+    const ordinary = String((await registry.execute("exec", {
+      command: "printf ordinary",
+    }, context())).content[0]?.text);
+    expect(ordinary).toContain("status: completed");
+    expect(ordinary).toContain("ordinary");
+
+    let failure: ToolExecutionError | undefined;
+    try {
+      await registry.execute("exec", { command: "lxeskill list" }, context());
+    } catch (cause) {
+      if (cause instanceof ToolExecutionError) failure = cause;
+      else throw cause;
+    }
+    expect(failure?.code).toBe("environment_unavailable");
+    expect(failure?.modelContent()).toContain('"retryable": false');
+    expect(failure?.modelContent()).toContain("report_environment_failure_without_retrying_shell_variations");
+    expect(processes.snapshots()).toHaveLength(1);
+    await processes.stop();
+  });
+
   test("exec sessions run cross-platform shell commands and lxeskill without PowerShell on Unix", async () => {
     mkdirSync(join(projectRoot, "var", "tmp"), { recursive: true });
     const cwd = mkdtempSync(join(projectRoot, "var", "tmp", "exec 中文 (space)-"));

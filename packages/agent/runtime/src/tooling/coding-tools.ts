@@ -31,6 +31,7 @@ import {
 } from "./exec-shell";
 import { isProbablyBinary, WorkspaceSearchService } from "./workspace-search";
 import { classifyLxeSkillInput, matchLxeSkillInvocation } from "./lxeskill-command";
+import type { LxeSkillRuntimeStatus } from "../operations/lxeskill-runtime";
 import { scanNumberedTextChunks, type NumberedTextRangeResult } from "./text-range";
 import {
   ToolExecutionError,
@@ -58,6 +59,7 @@ export interface CodingToolOptions {
   businessCommandCatalog?: readonly LxeSkillRecoveryCommand[];
   execShell?: ExecShellAdapter;
   execEnv?: (context: { skillNames: readonly string[] }) => Record<string, string>;
+  lxeSkillStatus?: () => LxeSkillRuntimeStatus;
 }
 
 type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
@@ -1054,6 +1056,21 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       const recoveryCatalog = commandCatalog.filter((entry) => ownerIsVisible(entry.ownerSkills));
       const invocationError = lxeSkillInvocationError(rawCommand, recoveryCommands, recoveryCatalog);
       if (invocationError) throw invocationError;
+      if (/^lxeskill(?:\.cmd)?(?:\s|$)/iu.test(rawCommand.trim())) {
+        const status = options.lxeSkillStatus?.();
+        if (status && !status.available) {
+          throw new ToolExecutionError(
+            "environment_unavailable",
+            status.message || "LXE Skill CLI is unavailable",
+            {
+              type: "lxeskill_runtime_unavailable",
+              retryable: false,
+              next_action: "report_environment_failure_without_retrying_shell_variations",
+              operator_recovery: status.recovery,
+            },
+          );
+        }
+      }
       const background = input.background === true;
       const timeoutSeconds = Number(input.timeout ?? DEFAULT_EXEC_TIMEOUT_SECONDS);
       if (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > MAX_EXEC_TIMEOUT_SECONDS) {

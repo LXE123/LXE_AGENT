@@ -137,8 +137,11 @@ export class ExecShellAdapter {
 
   lxeSkillArgv(root: string): string[] | undefined {
     const fileExists = this.options.fileExists ?? existsSync;
+    const resourceRoot = String(
+      this.environment.LXE_RESOURCE_ROOT ?? this.environment.LXE_ROOT ?? "",
+    ).trim() || root;
     const python = String(this.environment.LXE_MANAGED_PYTHON ?? "").trim()
-      || projectPythonPath(root, this.platform);
+      || projectPythonPath(resourceRoot, this.platform);
     return fileExists(python) ? [python, "-I", "-m", "lxeskill"] : undefined;
   }
 

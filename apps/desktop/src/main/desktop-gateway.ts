@@ -26,6 +26,7 @@ import {
   ALL_DASHBOARD_DATA_DOMAINS,
   dashboardInvalidationForAgentEvent,
 } from "./dashboard-invalidation";
+import { desktopLxeSkillState } from "./lxeskill-health";
 
 class SplitGatewayStorage implements DirectGatewayStorage {
   constructor(
@@ -310,14 +311,15 @@ export class DesktopGateway {
   health(): DesktopHealth {
     const setup = this.options.config.state();
     const agentStatus = this.runtime?.status();
+    const runtimeFilesReady = existsSync(this.options.paths.managedPythonPath)
+      && existsSync(this.options.paths.lxeskillModulePath)
+      && (!this.options.paths.lxeskillSmokePath
+        || existsSync(this.options.paths.lxeskillSmokePath));
     return {
       gateway: this.gatewayState,
       agent_cli: agentStatus?.state ?? "stopped",
-      lxeskill: existsSync(this.options.paths.managedPythonPath)
-        && existsSync(this.options.paths.lxeskillModulePath)
-        && (!this.options.paths.lxeskillSmokePath
-          || existsSync(this.options.paths.lxeskillSmokePath)) ? "ready" : "error",
-      message: this.lastError || agentStatus?.message || "",
+      lxeskill: runtimeFilesReady ? desktopLxeSkillState(agentStatus) : "error",
+      message: this.lastError || agentStatus?.lxeskillMessage || agentStatus?.message || "",
       version: this.options.version,
       resource_root: this.options.paths.resourceRoot,
       data_root: this.options.paths.dataRoot,

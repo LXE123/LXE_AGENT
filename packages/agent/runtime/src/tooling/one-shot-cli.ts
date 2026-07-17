@@ -23,6 +23,12 @@ export interface OneShotCliRunnerOptions {
   onStderr?: (line: string) => void;
 }
 
+const failureSuffix = (exitCode: number, stderr: string): string => {
+  const rawDetail = stderr.trim();
+  const detail = rawDetail.length > 4_096 ? `…${rawDetail.slice(-4_096)}` : rawDetail;
+  return ` (exit ${exitCode})${detail ? `: ${detail}` : ""}`;
+};
+
 const readLimited = async (stream: ReadableStream<Uint8Array>, limit: number): Promise<Uint8Array> => {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
@@ -110,13 +116,24 @@ export class OneShotCliRunner implements OneShotCliRunnerPort {
       const stderr = new TextDecoder().decode(stderrBytes);
       for (const line of stderr.split(/\r?\n/u).filter(Boolean)) this.options.onStderr?.(line);
       const lines = new TextDecoder().decode(stdoutBytes).split(/\r?\n/u).filter((line) => line.trim());
-      const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+      if (lines.length === 0) {
+        throw new Error(`lxeskill produced no JSONL result${failureSuffix(exitCode, stderr)}`);
+      }
+      let records: Array<Record<string, unknown>>;
+      try {
+        records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+      } catch (cause) {
+        const error = cause instanceof Error ? cause.message : String(cause);
+        throw new Error(`invalid lxeskill JSONL output: ${error}${failureSuffix(exitCode, stderr)}`);
+      }
       if (records.some((record) => record.protocol_version !== "1" || !["progress", "result"].includes(String(record.type)))) {
-        throw new Error("invalid lxeskill JSONL record");
+        throw new Error(`invalid lxeskill JSONL record${failureSuffix(exitCode, stderr)}`);
       }
       const terminals = records.filter((record) => record.type === "result");
       if (terminals.length !== 1 || records.at(-1) !== terminals[0]) {
-        throw new Error("lxeskill stdout must contain exactly one terminal result as its final record");
+        throw new Error(
+          `lxeskill stdout must contain exactly one terminal result as its final record${failureSuffix(exitCode, stderr)}`,
+        );
       }
       const terminal = terminals[0] as unknown as CliTerminalResult;
       if (!terminal.data || typeof terminal.data !== "object" || !Array.isArray(terminal.files)) {
@@ -124,6 +141,15 @@ export class OneShotCliRunner implements OneShotCliRunnerPort {
       }
       if (exitCode === 0 && !terminal.ok) throw new Error("lxeskill returned a failed result with exit code 0");
       if (exitCode !== 0 && terminal.ok) throw new Error(`lxeskill exited with ${exitCode} after reporting success`);
+      if (exitCode !== 0 && terminal.error) {
+        return {
+          ...terminal,
+          error: {
+            ...terminal.error,
+            message: `${terminal.error.message}${failureSuffix(exitCode, stderr)}`,
+          },
+        };
+      }
       return terminal;
     } catch (error) {
       await terminate();

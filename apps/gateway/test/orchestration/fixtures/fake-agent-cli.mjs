@@ -9,8 +9,18 @@ let cancelCount = 0;
 for await (const line of input) {
   const request = JSON.parse(line);
   if (request.command === "initialize") {
+    const lxeskillAvailable = process.env.FAKE_LXESKILL_UNAVAILABLE !== "1";
     write({ version: 1, type: "system.ready", payload: { state: "ready" } });
-    write({ version: 1, id: request.id, ok: true, result: { ready: true } });
+    write({
+      version: 1,
+      id: request.id,
+      ok: true,
+      result: {
+        ready: true,
+        lxeskill_available: lxeskillAvailable,
+        lxeskill_message: lxeskillAvailable ? "" : "No module named lxeskill",
+      },
+    });
     continue;
   }
   if (request.command === "health") {

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import type { EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
 import { createLogger, runWithLogContext, type Logger } from "@lxe/core";
 import {
@@ -9,6 +9,7 @@ import {
   ExecShellAdapter,
   loadLxeSkillCommandCatalog,
   loadMcpConfig,
+  LxeSkillRuntimeService,
   MaintenanceScheduler,
   McpManager,
   OfficialMcpConnector,
@@ -104,6 +105,45 @@ export function createProductionAgentService(
       .map((entry) => [entry.command, entry.ownerSkills] as const),
   );
   const execShell = new ExecShellAdapter({ environment });
+  const sourcePython = join(
+    options.resourceRoot,
+    ".venv",
+    process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
+  );
+  const managedPython = String(environment.LXE_MANAGED_PYTHON ?? "").trim();
+  const lxeSkillArgv = execShell.lxeSkillArgv(options.workspaceRoot);
+  const selectedPython = String(lxeSkillArgv?.[0] ?? (managedPython || sourcePython)).trim();
+  const sourceRuntime = !managedPython && resolve(selectedPython) === resolve(sourcePython);
+  const recovery = sourceRuntime
+    ? `Run uv sync --frozen --all-groups --python 3.12.10 in ${options.resourceRoot}`
+    : "Reinstall or rebuild LXE Agent";
+  const lxeSkillRunner = lxeSkillArgv ? new OneShotCliRunner({
+    command: lxeSkillArgv,
+    cwd: options.workspaceRoot,
+    timeoutMs: 3 * 60_000,
+    maxOutputBytes: 10 * 1024 * 1024,
+    env: {
+      ...environment,
+      LOG_FILE: String(environment.LOG_FILE ?? "").trim() || "runtime.log",
+    },
+    onStderr: (line) => logger.info("lxeskill", { line }),
+  }) : undefined;
+  const maintenance = lxeSkillRunner ? new MaintenanceScheduler({
+    projectRoot: options.workspaceRoot,
+    environment,
+    store,
+    gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
+    authRunner: lxeSkillRunner,
+  }) : undefined;
+  const lxeSkillRuntime = new LxeSkillRuntimeService({
+    ...(lxeSkillRunner ? { runner: lxeSkillRunner } : {}),
+    ...(maintenance ? { dependentService: maintenance } : {}),
+    recovery,
+    unavailableMessage: selectedPython
+      ? `LXE Skill CLI Python is unavailable: ${selectedPython}`
+      : "LXE Skill CLI Python is not configured",
+    logger,
+  });
   const processes = registerCodingTools(tools, {
     workspaceRoot: options.workspaceRoot,
     repositorySkillsRoot: join(options.resourceRoot, "skills"),
@@ -111,6 +151,7 @@ export function createProductionAgentService(
     businessCommands,
     businessCommandCatalog: cliCommands,
     execShell,
+    lxeSkillStatus: () => lxeSkillRuntime.snapshot(),
     execEnv: ({ skillNames }) => ({ LXESKILL_SKILL_SCOPE: skillNames.join(",") }),
     onProcessComplete: async (snapshot) => {
       const sessionId = String(snapshot.session_id ?? "").trim();
@@ -150,27 +191,7 @@ export function createProductionAgentService(
   const runtimeServices: Array<{
     start(registry: ToolRegistry): Promise<void>;
     stop(): Promise<void>;
-  }> = [processes];
-  const lxeSkillArgv = execShell.lxeSkillArgv(options.workspaceRoot);
-  if (lxeSkillArgv) {
-    runtimeServices.push(new MaintenanceScheduler({
-      projectRoot: options.workspaceRoot,
-      environment,
-      store,
-      gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
-      authRunner: new OneShotCliRunner({
-        command: lxeSkillArgv,
-        cwd: options.workspaceRoot,
-        timeoutMs: 3 * 60_000,
-        maxOutputBytes: 10 * 1024 * 1024,
-        env: {
-          ...environment,
-          LOG_FILE: String(environment.LOG_FILE ?? "").trim() || "runtime.log",
-        },
-        onStderr: (line) => logger.info("lxeskill", { line }),
-      }),
-    }));
-  }
+  }> = [processes, lxeSkillRuntime];
   registerToolSearch(tools);
   const mcpConfigPath = String(environment.LXE_MCP_CONFIG_PATH ?? "").trim()
     || join(options.dataRoot, "config", "mcp_servers.local.yaml");
@@ -273,13 +294,17 @@ export function createProductionAgentService(
         : await response.text();
       return { status: response.status, body: responseBody };
     },
-    health: () => ({
-      ready: started,
-      database_path: databasePath,
-      provider: providerManager.acquire().descriptor.name,
-      model: providerManager.acquire().descriptor.model,
-      lxeskill_available: Boolean(lxeSkillArgv),
-      active_turns: 0,
-    }),
+    health: () => {
+      const lxeSkillStatus = lxeSkillRuntime.snapshot();
+      return {
+        ready: started,
+        database_path: databasePath,
+        provider: providerManager.acquire().descriptor.name,
+        model: providerManager.acquire().descriptor.model,
+        lxeskill_available: lxeSkillStatus.available,
+        lxeskill_message: lxeSkillStatus.message,
+        active_turns: 0,
+      };
+    },
   };
 }

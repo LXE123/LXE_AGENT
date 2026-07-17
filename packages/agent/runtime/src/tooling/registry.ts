@@ -47,7 +47,7 @@ export interface LxeSkillInvocationErrorDetails extends JsonObject {
 
 export class ToolExecutionError extends Error {
   constructor(
-    readonly code: "permission_denied" | "unsupported_invocation",
+    readonly code: "environment_unavailable" | "permission_denied" | "unsupported_invocation",
     message: string,
     readonly details?: JsonObject,
     readonly recoveryGroup?: string,

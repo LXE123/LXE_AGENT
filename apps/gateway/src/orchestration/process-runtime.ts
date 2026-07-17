@@ -28,6 +28,8 @@ export interface AgentProcessStatus {
   state: ProcessState;
   pid: number;
   message: string;
+  lxeskillAvailable?: boolean;
+  lxeskillMessage?: string;
 }
 
 export interface ProcessAgentRuntimeOptions {
@@ -88,6 +90,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   private manuallyStopped = true;
   private restartAttempt = 0;
   private restartTimer: ReturnType<typeof setTimeout> | undefined;
+  private remoteHealthSnapshot: JsonObject = {};
 
   constructor(private readonly options: ProcessAgentRuntimeOptions) {
     this.logger = options.logger ?? createLogger("gateway.agent_process");
@@ -98,10 +101,16 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   }
 
   status(): AgentProcessStatus {
+    const lxeSkillAvailable = this.remoteHealthSnapshot.lxeskill_available;
+    const lxeSkillMessage = String(this.remoteHealthSnapshot.lxeskill_message ?? "").trim();
     return {
       state: this.state,
       pid: this.child?.pid ?? 0,
       message: this.statusMessage,
+      ...(typeof lxeSkillAvailable === "boolean"
+        ? { lxeskillAvailable: lxeSkillAvailable }
+        : {}),
+      ...(lxeSkillMessage ? { lxeskillMessage: lxeSkillMessage } : {}),
     };
   }
 
@@ -114,6 +123,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     if (this.isReady) return;
     if (this.child) await this.terminateChild();
     this.stopping = false;
+    this.remoteHealthSnapshot = {};
     this.setStatus("starting", recovering ? "Recovering agent-cli" : "Starting agent-cli");
     const child = spawn(
       this.options.command,
@@ -146,14 +156,14 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       "AgentProcessExited",
     )));
     try {
-      await this.request("initialize", {
+      this.remoteHealthSnapshot = objectValue(await this.request("initialize", {
         resource_root: this.options.resourceRoot,
         data_root: this.options.dataRoot,
         workspace_root: this.options.workspaceRoot,
         ...(this.options.allowedSkillTypes
           ? { allowed_skill_types: [...this.options.allowedSkillTypes] }
           : {}),
-      }, this.options.requestTimeoutMs ?? 30_000);
+      }, this.options.requestTimeoutMs ?? 30_000));
       this.setStatus("ready", "agent-cli is ready");
       this.restartAttempt = 0;
     } catch (cause) {

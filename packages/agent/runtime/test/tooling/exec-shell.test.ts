@@ -104,6 +104,26 @@ describe("ExecShellAdapter", () => {
     }).PATH).toBe("/work/project/.venv/bin:/fake/system/bin:/usr/bin");
   });
 
+  test("resolves the lxeskill fallback from the resource root, not the workspace", () => {
+    const resourcePython = "/resources/lxe/.venv/bin/python";
+    const shell = new ExecShellAdapter({
+      platform: "darwin",
+      environment: { LXE_RESOURCE_ROOT: "/resources/lxe" },
+      fileExists: (path) => path === resourcePython,
+    });
+
+    expect(shell.lxeSkillArgv("/Users/demo/Documents/LXE Agent")).toEqual([
+      resourcePython,
+      "-I",
+      "-m",
+      "lxeskill",
+    ]);
+    expect(shell.normalizeCommand(
+      "/Users/demo/Documents/LXE Agent",
+      "lxeskill list",
+    )).toBe("'/resources/lxe/.venv/bin/python' '-I' '-m' 'lxeskill' list");
+  });
+
   test("keeps desktop managed tools ahead of the user workspace", () => {
     const managedPython = "C:\\LXE\\python\\python.exe";
     const shell = new ExecShellAdapter({
