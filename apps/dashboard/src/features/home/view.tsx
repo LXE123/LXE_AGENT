@@ -1,7 +1,7 @@
-// Landing view: last-24h overview with recent activity and a compact runtime footer.
-import type { ReactNode } from "react";
+// Landing view: last-24h overview with recent activity and a floating runtime status popover.
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DesktopComponentState, DesktopHealth } from "@lxe/desktop-protocol";
-import { Bot, Brain, Radio, Server } from "lucide-react";
+import { Activity, Bot, Brain, Radio, Server, X } from "lucide-react";
 
 import {
   flattenSessionPages,
@@ -35,6 +35,13 @@ function channelTone(state: HomeChannelState): RuntimeTone {
   if (state === "connected") return "healthy";
   if (state === "connecting") return "progress";
   if (state === "error") return "warning";
+  return "neutral";
+}
+
+function aggregateRuntimeTone(tones: RuntimeTone[]): RuntimeTone {
+  if (tones.includes("warning")) return "warning";
+  if (tones.includes("progress")) return "progress";
+  if (tones.every((tone) => tone === "healthy")) return "healthy";
   return "neutral";
 }
 
@@ -93,6 +100,9 @@ export function DashboardHome({
   onOpenStats: () => void;
 }) {
   const t = useUiText();
+  const [runtimeStatusOpen, setRuntimeStatusOpen] = useState(false);
+  const runtimeStatusRootRef = useRef<HTMLDivElement>(null);
+  const runtimeStatusTriggerRef = useRef<HTMLButtonElement>(null);
   const overviewQuery = useStatsOverviewQuery(1);
   const skillsQuery = useSkillStatsQuery(7);
   const sessionsQuery = useSessionsInfiniteQuery("");
@@ -133,6 +143,37 @@ export function DashboardHome({
   const channelState = summarizeChannelState(channelsQuery.data, channelUnavailable);
   const componentStates = t.home.componentStates;
   const channelStates = t.home.channelStates;
+  const runtimeTone = aggregateRuntimeTone([
+    currentModel ? "healthy" : "neutral",
+    componentTone(desktopHealth.gateway),
+    componentTone(agentState),
+    channelTone(channelState),
+  ]);
+
+  useEffect(() => {
+    if (!runtimeStatusOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!runtimeStatusRootRef.current?.contains(event.target as Node)) {
+        setRuntimeStatusOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setRuntimeStatusOpen(false);
+      runtimeStatusTriggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [runtimeStatusOpen]);
+
+  const closeRuntimeStatusAnd = (action: () => void) => {
+    setRuntimeStatusOpen(false);
+    action();
+  };
 
   return (
     <section className="home-page" aria-labelledby="dashboard-home-title">
@@ -217,37 +258,75 @@ export function DashboardHome({
         </section>
       </div>
 
-      <section aria-label={t.home.runtimeStatusAria} className="home-runtime-strip">
-        <RuntimeStatusItem
-          icon={<Brain size={17} />}
-          label={t.home.currentModel}
-          meta={currentModel?.model || t.home.channelStates.unavailable}
-          onClick={onOpenModels}
-          tone={currentModel ? "healthy" : "neutral"}
-          value={currentModel?.label || t.home.channelStates.unavailable}
-        />
-        <RuntimeStatusItem
-          icon={<Server size={17} />}
-          label={t.home.gateway}
-          onClick={() => onOpenSettings("status")}
-          tone={componentTone(desktopHealth.gateway)}
-          value={componentStates[desktopHealth.gateway]}
-        />
-        <RuntimeStatusItem
-          icon={<Bot size={17} />}
-          label={t.home.agent}
-          onClick={() => onOpenSettings("status")}
-          tone={componentTone(agentState)}
-          value={componentStates[agentState]}
-        />
-        <RuntimeStatusItem
-          icon={<Radio size={17} />}
-          label={t.home.feishu}
-          onClick={() => onOpenSettings("feishu")}
-          tone={channelTone(channelState)}
-          value={channelStates[channelState]}
-        />
-      </section>
+      <div className="home-runtime-floating" ref={runtimeStatusRootRef}>
+        {runtimeStatusOpen ? (
+          <section
+            aria-labelledby="home-runtime-popover-title"
+            className="home-runtime-popover"
+            id="home-runtime-popover"
+            role="dialog"
+          >
+            <div className="home-runtime-popover-heading">
+              <h3 id="home-runtime-popover-title">{t.home.runtimeStatus}</h3>
+              <button
+                className="home-panel-link"
+                onClick={() => closeRuntimeStatusAnd(() => onOpenSettings("status"))}
+                type="button"
+              >
+                {t.home.openStatusSettings}
+              </button>
+            </div>
+            <div aria-label={t.home.runtimeStatusAria} className="home-runtime-list" role="group">
+              <RuntimeStatusItem
+                icon={<Brain size={16} />}
+                label={t.home.currentModel}
+                meta={currentModel?.model || t.home.channelStates.unavailable}
+                onClick={() => closeRuntimeStatusAnd(onOpenModels)}
+                tone={currentModel ? "healthy" : "neutral"}
+                value={currentModel?.label || t.home.channelStates.unavailable}
+              />
+              <RuntimeStatusItem
+                icon={<Server size={16} />}
+                label={t.home.gateway}
+                onClick={() => closeRuntimeStatusAnd(() => onOpenSettings("status"))}
+                tone={componentTone(desktopHealth.gateway)}
+                value={componentStates[desktopHealth.gateway]}
+              />
+              <RuntimeStatusItem
+                icon={<Bot size={16} />}
+                label={t.home.agent}
+                onClick={() => closeRuntimeStatusAnd(() => onOpenSettings("status"))}
+                tone={componentTone(agentState)}
+                value={componentStates[agentState]}
+              />
+              <RuntimeStatusItem
+                icon={<Radio size={16} />}
+                label={t.home.feishu}
+                onClick={() => closeRuntimeStatusAnd(() => onOpenSettings("feishu"))}
+                tone={channelTone(channelState)}
+                value={channelStates[channelState]}
+              />
+            </div>
+          </section>
+        ) : null}
+        <button
+          aria-controls="home-runtime-popover"
+          aria-expanded={runtimeStatusOpen}
+          aria-haspopup="dialog"
+          aria-label={runtimeStatusOpen ? t.home.closeRuntimeStatus : t.home.openRuntimeStatus}
+          className={`home-runtime-trigger tone-${runtimeTone}${runtimeStatusOpen ? " is-open" : ""}`}
+          onClick={() => setRuntimeStatusOpen((open) => !open)}
+          ref={runtimeStatusTriggerRef}
+          title={runtimeStatusOpen ? t.home.closeRuntimeStatus : t.home.openRuntimeStatus}
+          type="button"
+        >
+          <span className="home-runtime-trigger-icons" aria-hidden="true">
+            <Activity className="home-runtime-trigger-activity" size={22} />
+            <X className="home-runtime-trigger-close" size={22} />
+          </span>
+          <span className="home-runtime-trigger-dot" aria-hidden="true" />
+        </button>
+      </div>
     </section>
   );
 }
