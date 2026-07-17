@@ -183,7 +183,7 @@ describe("native coding tools", () => {
     });
 
     const ordinary = String((await registry.execute("exec", {
-      command: "printf ordinary",
+      command: "echo ordinary",
     }, context())).content[0]?.text);
     expect(ordinary).toContain("status: completed");
     expect(ordinary).toContain("ordinary");
