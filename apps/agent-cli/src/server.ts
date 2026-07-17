@@ -1,6 +1,12 @@
 import type { AgentJob, EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
 import type { RuntimeHandle } from "@lxe/runtime";
 import {
+  configureLogging,
+  createLogger,
+  type LoggingController,
+  type LoggingStatus,
+} from "@lxe/core";
+import {
   AGENT_PROTOCOL_VERSION,
   parseAgentWireMessage,
   type AgentEvent,
@@ -13,6 +19,17 @@ import {
 } from "@lxe/gateway/agent-service";
 
 type Environment = Record<string, string | undefined>;
+
+const logger = createLogger("agent.cli");
+
+const loggingStatusPayload = (status: LoggingStatus): JsonObject => ({
+  local_file_enabled: status.localFileEnabled,
+  file_path: status.filePath ?? "",
+  disabled_reason: status.disabledReason ?? "",
+  last_error: status.lastError ?? "",
+  console_level: status.consoleLevel,
+  file_level: status.fileLevel,
+});
 
 export interface AgentProtocolServerOptions {
   environment?: Environment;
@@ -84,10 +101,11 @@ export class AgentProtocolServer {
   private readonly createService: typeof createProductionAgentService;
   private readonly activeRuns = new Map<string, ProtocolRunHandle>();
   private service: ProductionAgentService | undefined;
+  private logging: LoggingController | undefined;
   private shuttingDown = false;
 
   constructor(private readonly options: AgentProtocolServerOptions) {
-    this.environment = options.environment ?? process.env;
+    this.environment = { ...(options.environment ?? process.env) };
     this.createService = options.createService ?? createProductionAgentService;
   }
 
@@ -156,7 +174,7 @@ export class AgentProtocolServer {
           request.payload.body,
         );
       case "health":
-        return this.service?.health() ?? { ready: false };
+        return this.health();
       case "shutdown":
         await this.shutdown();
         return { stopped: true };
@@ -165,51 +183,101 @@ export class AgentProtocolServer {
 
   private async initialize(payload: AgentRequest<"initialize">["payload"]): Promise<JsonValue> {
     if (this.shuttingDown) throw new Error("agent-cli is shutting down");
-    if (this.service) return this.service.health();
-    const service = this.createService({
-      resourceRoot: payload.resource_root,
-      dataRoot: payload.data_root,
-      workspaceRoot: payload.workspace_root,
-      environment: this.environment,
-      emitter: {
-        emit: async (emitRequest: EmitRequest) => {
-          await this.options.write({
-            version: AGENT_PROTOCOL_VERSION,
-            type: "item.completed",
-            thread_id: emitRequest.session_id,
-            turn_id: emitRequest.turn_id,
-            payload: emitRequest,
-          });
-        },
-        typing: async (typingRequest) => {
-          await this.options.write({
-            version: AGENT_PROTOCOL_VERSION,
-            type: "typing.changed",
-            thread_id: typingRequest.session_id,
-            turn_id: typingRequest.turn_id,
-            payload: typingRequest,
-          });
-        },
-      },
-      ...(payload.allowed_skill_types
-        ? { allowedSkillTypes: new Set(payload.allowed_skill_types) }
-        : {}),
-      onWake: (wake) => {
-        void this.options.write({
-          version: AGENT_PROTOCOL_VERSION,
-          type: "agent.wake",
-          payload: wake,
-        });
-      },
+    if (this.service) return this.health();
+    const environment = {
+      ...this.environment,
+      LOG_FILE: String(this.environment.LOG_FILE ?? "").trim() || "runtime.log",
+    };
+    Object.assign(this.environment, environment);
+    this.logging = configureLogging({
+      projectRoot: payload.data_root,
+      environment,
+      onStatusChange: (status) => this.publishLoggingStatus(status),
     });
-    await service.start();
-    this.service = service;
-    await this.options.write({
+    logger.info("logging_configured", {
+      process: "agent-cli",
+      local_file_enabled: this.logging.status.localFileEnabled,
+      runtime_log_path: this.logging.status.filePath ?? "",
+      disabled_reason: this.logging.status.disabledReason ?? "",
+      console_level: this.logging.status.consoleLevel,
+      file_level: this.logging.status.fileLevel,
+    });
+    let service: ProductionAgentService | undefined;
+    try {
+      service = this.createService({
+        resourceRoot: payload.resource_root,
+        dataRoot: payload.data_root,
+        workspaceRoot: payload.workspace_root,
+        environment,
+        emitter: {
+          emit: async (emitRequest: EmitRequest) => {
+            await this.options.write({
+              version: AGENT_PROTOCOL_VERSION,
+              type: "item.completed",
+              thread_id: emitRequest.session_id,
+              turn_id: emitRequest.turn_id,
+              payload: emitRequest,
+            });
+          },
+          typing: async (typingRequest) => {
+            await this.options.write({
+              version: AGENT_PROTOCOL_VERSION,
+              type: "typing.changed",
+              thread_id: typingRequest.session_id,
+              turn_id: typingRequest.turn_id,
+              payload: typingRequest,
+            });
+          },
+        },
+        ...(payload.allowed_skill_types
+          ? { allowedSkillTypes: new Set(payload.allowed_skill_types) }
+          : {}),
+        onWake: (wake) => {
+          void this.options.write({
+            version: AGENT_PROTOCOL_VERSION,
+            type: "agent.wake",
+            payload: wake,
+          });
+        },
+      });
+      await service.start();
+      this.service = service;
+      await this.options.write({
+        version: AGENT_PROTOCOL_VERSION,
+        type: "system.ready",
+        payload: {
+          state: "ready",
+          logging: loggingStatusPayload(this.logging.status),
+        },
+      });
+      return this.health();
+    } catch (cause) {
+      logger.error("agent_cli_initialization_failed", { error: cause });
+      await service?.stop().catch(() => undefined);
+      await this.closeLogging();
+      throw cause;
+    }
+  }
+
+  private health(): JsonObject {
+    return {
+      ...(this.service?.health() ?? { ready: false }),
+      ...(this.logging ? { logging: loggingStatusPayload(this.logging.status) } : {}),
+    };
+  }
+
+  private publishLoggingStatus(status: LoggingStatus): void {
+    const delivery = this.options.write({
       version: AGENT_PROTOCOL_VERSION,
-      type: "system.ready",
-      payload: { state: "ready" },
+      type: "system.status",
+      payload: {
+        state: this.service ? "ready" : "starting",
+        logging: loggingStatusPayload(status),
+      },
     });
-    return service.health();
+    void Promise.resolve(delivery).catch((error) => {
+      logger.error("logging_status_delivery_failed", { error });
+    });
   }
 
   private async runTurn(job: AgentJob): Promise<JsonValue> {
@@ -280,13 +348,37 @@ export class AgentProtocolServer {
   async shutdown(): Promise<void> {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
-    await Promise.allSettled([...this.activeRuns.values()].map((handle) => handle.abort(true)));
-    await this.service?.stop();
-    this.service = undefined;
-    await this.options.write({
-      version: AGENT_PROTOCOL_VERSION,
-      type: "system.status",
-      payload: { state: "stopped" },
-    });
+    let stopError: unknown;
+    try {
+      await Promise.allSettled([...this.activeRuns.values()].map((handle) => handle.abort(true)));
+      try {
+        await this.service?.stop();
+      } catch (error) {
+        stopError = error;
+        logger.error("agent_service_stop_failed", { error });
+      }
+      if (this.service || this.logging) logger.info("agent_cli_stopped");
+      await this.logging?.flush();
+      await this.options.write({
+        version: AGENT_PROTOCOL_VERSION,
+        type: "system.status",
+        payload: {
+          state: "stopped",
+          ...(this.logging ? { logging: loggingStatusPayload(this.logging.status) } : {}),
+        },
+      });
+    } finally {
+      this.service = undefined;
+      await this.closeLogging();
+    }
+    if (stopError) throw stopError;
+  }
+
+  private async closeLogging(): Promise<void> {
+    const logging = this.logging;
+    this.logging = undefined;
+    if (!logging) return;
+    await logging.flush();
+    await logging.close();
   }
 }

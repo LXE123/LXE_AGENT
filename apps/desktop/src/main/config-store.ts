@@ -217,7 +217,7 @@ export class DesktopConfigStore {
       },
       logging: {
         ...config.logging,
-        directory: join(this.dataRoot, "logs"),
+        directory: join(this.dataRoot, "var", "logs"),
       },
       legacy_environment_imported: config.migration_version >= MIGRATION_VERSION,
     };

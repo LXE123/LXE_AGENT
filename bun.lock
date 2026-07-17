@@ -12,6 +12,7 @@
       "name": "@lxe/agent-cli",
       "version": "0.1.0",
       "dependencies": {
+        "@lxe/core": "workspace:*",
         "@lxe/desktop-protocol": "workspace:*",
         "@lxe/gateway": "workspace:*",
         "@lxe/protocol": "workspace:*",
@@ -50,6 +51,7 @@
       "name": "@lxe/desktop",
       "version": "0.1.0",
       "dependencies": {
+        "@lxe/core": "workspace:*",
         "@lxe/desktop-protocol": "workspace:*",
         "@lxe/gateway": "workspace:*",
         "@lxe/protocol": "workspace:*",

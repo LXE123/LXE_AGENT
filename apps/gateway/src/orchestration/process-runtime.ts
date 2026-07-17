@@ -13,6 +13,7 @@ import {
   type AgentRequest,
   type AgentResponse,
   type DashboardRequestPayload,
+  type DesktopLoggingSinkStatus,
 } from "@lxe/desktop-protocol";
 import { createLogger, type Logger } from "@lxe/core";
 import type {
@@ -30,6 +31,7 @@ export interface AgentProcessStatus {
   message: string;
   lxeskillAvailable?: boolean;
   lxeskillMessage?: string;
+  logging?: DesktopLoggingSinkStatus;
 }
 
 export interface ProcessAgentRuntimeOptions {
@@ -77,6 +79,30 @@ const arrayOfObjects = (value: JsonValue): JsonObject[] =>
     ? value.filter((item): item is JsonObject => item !== null && typeof item === "object" && !Array.isArray(item))
     : [];
 
+const LOG_LEVELS = new Set(["debug", "info", "warn", "error"]);
+const LOGGING_DISABLED_REASONS = new Set(["", "disabled_by_config", "missing_log_file", "sink_failed"]);
+
+const loggingStatus = (value: JsonValue | undefined): DesktopLoggingSinkStatus | undefined => {
+  const object = value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as JsonObject
+    : undefined;
+  if (!object || typeof object.local_file_enabled !== "boolean") return undefined;
+  const consoleLevel = String(object.console_level ?? "");
+  const fileLevel = String(object.file_level ?? "");
+  const disabledReason = String(object.disabled_reason ?? "");
+  if (!LOG_LEVELS.has(consoleLevel) || !LOG_LEVELS.has(fileLevel) || !LOGGING_DISABLED_REASONS.has(disabledReason)) {
+    return undefined;
+  }
+  return {
+    local_file_enabled: object.local_file_enabled,
+    file_path: String(object.file_path ?? ""),
+    disabled_reason: disabledReason as DesktopLoggingSinkStatus["disabled_reason"],
+    last_error: String(object.last_error ?? ""),
+    console_level: consoleLevel as DesktopLoggingSinkStatus["console_level"],
+    file_level: fileLevel as DesktopLoggingSinkStatus["file_level"],
+  };
+};
+
 export class ProcessAgentRuntime implements DirectAgentRuntime {
   private readonly logger: Logger;
   private readonly pending = new Map<string, PendingRequest>();
@@ -103,6 +129,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   status(): AgentProcessStatus {
     const lxeSkillAvailable = this.remoteHealthSnapshot.lxeskill_available;
     const lxeSkillMessage = String(this.remoteHealthSnapshot.lxeskill_message ?? "").trim();
+    const logging = loggingStatus(this.remoteHealthSnapshot.logging);
     return {
       state: this.state,
       pid: this.child?.pid ?? 0,
@@ -111,6 +138,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         ? { lxeskillAvailable: lxeSkillAvailable }
         : {}),
       ...(lxeSkillMessage ? { lxeskillMessage: lxeSkillMessage } : {}),
+      ...(logging ? { logging } : {}),
     };
   }
 
@@ -259,7 +287,10 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
 
   async remoteHealth(): Promise<JsonObject> {
     if (!this.isReady) return { ready: false, ...this.status() };
-    return objectValue(await this.request("health", {}, 2_000));
+    const snapshot = objectValue(await this.request("health", {}, 2_000));
+    this.remoteHealthSnapshot = snapshot;
+    this.options.onStatus?.(this.status());
+    return snapshot;
   }
 
   private async cancelRun(runId: string): Promise<void> {
@@ -340,6 +371,13 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       if (event.type === "item.completed") await this.options.onEmit?.(event.payload);
       else if (event.type === "typing.changed") await this.options.onTyping?.(event.payload);
       else if (event.type === "agent.wake") await this.options.onWake?.(event.payload);
+      else if (event.type === "system.ready" || event.type === "system.status") {
+        const status = loggingStatus(event.payload.logging);
+        if (status) {
+          this.remoteHealthSnapshot = { ...this.remoteHealthSnapshot, logging: status };
+          this.options.onStatus?.(this.status());
+        }
+      }
       await this.options.onEvent?.(event);
     } catch (cause) {
       this.logger.error("agent_event_delivery_failed", { type: event.type, error: cause });

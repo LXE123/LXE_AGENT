@@ -16,6 +16,16 @@ const health = (patch: Partial<DesktopHealth> = {}): DesktopHealth => ({
   resource_root: "/resources",
   data_root: "/data",
   workspace_root: "/workspace",
+  logging: {
+    desktop: {
+      local_file_enabled: true,
+      file_path: "/data/var/logs/runtime/20260717/desktop.log",
+      disabled_reason: "",
+      last_error: "",
+      console_level: "info",
+      file_level: "info",
+    },
+  },
   ...patch,
 });
 

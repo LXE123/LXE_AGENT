@@ -598,6 +598,66 @@ button {
   margin-top: 1px;
 }
 
+.desktop-logging-sinks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.desktop-logging-sink {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+.desktop-logging-sink > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.desktop-logging-sink span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.desktop-logging-sink strong {
+  color: var(--text-strong);
+  font-size: 11px;
+}
+
+.desktop-logging-sink.state-ready strong {
+  color: var(--success);
+}
+
+.desktop-logging-sink.state-warning strong {
+  color: var(--warning);
+}
+
+.desktop-logging-sink.state-error strong,
+.desktop-logging-sink p {
+  color: var(--danger);
+}
+
+.desktop-logging-sink code,
+.desktop-logging-sink p {
+  overflow: hidden;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-logging-sink code {
+  color: var(--text-soft);
+}
+
 .desktop-log-directory {
   display: flex;
   align-items: center;
@@ -5350,6 +5410,7 @@ pre {
 
   .desktop-field-grid,
   .desktop-health-grid,
+  .desktop-logging-sinks,
   .desktop-config-import-groups {
     grid-template-columns: 1fr;
   }

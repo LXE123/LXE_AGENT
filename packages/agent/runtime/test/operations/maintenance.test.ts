@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { configureLogging, type LoggingController } from "@lxe/core";
 import { SqliteRuntimeStore } from "../../src/state/storage";
 import { MaintenanceScheduler } from "../../src/operations/maintenance";
 import type { MaintenanceClock } from "../../src/operations/maintenance";
@@ -34,7 +35,9 @@ class ManualMaintenanceClock implements MaintenanceClock {
 }
 
 const roots: string[] = [];
-afterEach(() => {
+const loggingControllers: LoggingController[] = [];
+afterEach(async () => {
+  for (const controller of loggingControllers.splice(0)) await controller.close();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -194,6 +197,16 @@ describe("MaintenanceScheduler", () => {
   test("uploads only to cloud after a successful cloud response", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-cloud-"));
     roots.push(root);
+    const logging = configureLogging({
+      projectRoot: root,
+      environment: {
+        LOCAL_LOGS_ENABLED: "1",
+        LOG_FILE: "runtime.log",
+        LOG_LEVEL: "ERROR",
+        RUNTIME_LOG_LEVEL: "INFO",
+      },
+    });
+    loggingControllers.push(logging);
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
     await store.ensureSession({ session_id: "s1", source: { platform: "feishu" } });
@@ -225,6 +238,11 @@ describe("MaintenanceScheduler", () => {
       url: "https://cloud.example/api/v1/agent-data/snapshots",
       authorization: "Bearer cloud-secret",
     }]);
+    await logging.flush();
+    const runtimeLog = readFileSync(logging.filePath!, "utf8");
+    expect(runtimeLog).toContain('"message":"data_sync_uploaded"');
+    expect(runtimeLog).toContain('"target":"cloud"');
+    expect(runtimeLog).not.toContain("cloud-secret");
     await store.stop();
   });
 

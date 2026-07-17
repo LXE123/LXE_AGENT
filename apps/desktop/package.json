@@ -15,6 +15,7 @@
     "dist:win": "electron-builder --config electron-builder.yml --win nsis --x64"
   },
   "dependencies": {
+    "@lxe/core": "workspace:*",
     "@lxe/desktop-protocol": "workspace:*",
     "@lxe/gateway": "workspace:*",
     "@lxe/protocol": "workspace:*"

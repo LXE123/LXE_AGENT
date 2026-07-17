@@ -1,10 +1,26 @@
 import type {
   DesktopLogProfile,
   DesktopLogRetentionDays,
+  DesktopLoggingSinkStatus,
   DesktopSetupInput,
   DesktopSetupState,
   DesktopZiniaoVersion,
 } from "@lxe/desktop-protocol";
+
+export interface DesktopLoggingSinkView {
+  label: "写入中" | "已关闭" | "配置缺失" | "写入失败" | "未启动";
+  tone: "ready" | "neutral" | "warning" | "error";
+}
+
+export const desktopLoggingSinkView = (
+  status: DesktopLoggingSinkStatus | undefined,
+): DesktopLoggingSinkView => {
+  if (!status) return { label: "未启动", tone: "neutral" };
+  if (status.local_file_enabled) return { label: "写入中", tone: "ready" };
+  if (status.disabled_reason === "sink_failed") return { label: "写入失败", tone: "error" };
+  if (status.disabled_reason === "missing_log_file") return { label: "配置缺失", tone: "warning" };
+  return { label: "已关闭", tone: "neutral" };
+};
 
 export type DesktopSettingsSection =
   | "status"

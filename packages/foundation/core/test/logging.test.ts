@@ -325,6 +325,7 @@ describe("structured logger", () => {
   test("disables a failed file sink once and exposes the effective status", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-logging-failure-"));
     roots.push(root);
+    const statuses: logging.LoggingStatus[] = [];
     const controller = logging.configureLogging({
       projectRoot: root,
       environment: {
@@ -332,6 +333,10 @@ describe("structured logger", () => {
         LOG_FILE: "runtime.log",
         LOG_LEVEL: "ERROR",
         RUNTIME_LOG_LEVEL: "DEBUG",
+      },
+      onStatusChange: (status) => {
+        statuses.push(status);
+        throw new Error("listener broke");
       },
     });
     controllers.push(controller);
@@ -344,6 +349,13 @@ describe("structured logger", () => {
       expect(() => logger.warn("first_write")).not.toThrow();
       expect(() => logger.warn("second_write")).not.toThrow();
       expect(fallback.mock.calls.filter((call) => String(call[0]).includes("logging_sink_failed"))).toHaveLength(1);
+      expect(fallback.mock.calls.filter((call) => String(call[0]).includes("logging_status_listener_failed"))).toHaveLength(1);
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0]).toEqual(expect.objectContaining({
+        localFileEnabled: false,
+        disabledReason: "sink_failed",
+        lastError: expect.any(String),
+      }));
       expect(controller.status).toEqual(expect.objectContaining({
         localFileEnabled: false,
         disabledReason: "sink_failed",

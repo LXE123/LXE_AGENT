@@ -53,6 +53,7 @@ export interface LogSanitizePolicy {
 export interface ConfigureLoggingOptions {
   projectRoot: string;
   environment: Environment;
+  onStatusChange?: (status: LoggingStatus) => void;
 }
 
 interface ProcessLoggingSink {
@@ -486,6 +487,16 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
   let closed = false;
   let fileUsable = Boolean(filePath);
   let sinkFailureReported = false;
+  const notifyStatusChange = (): void => {
+    try {
+      options.onStatusChange?.(statusSnapshot(status));
+    } catch (error) {
+      safeConsole("error", JSON.stringify({
+        timestamp: new Date().toISOString(), level: "error", logger: "logging",
+        message: "logging_status_listener_failed", error: failureText(error),
+      }));
+    }
+  };
   const sink: ProcessLoggingSink = {
     write(level, logger, record, line) {
       if (closed) return;
@@ -507,6 +518,7 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
               timestamp: new Date().toISOString(), level: "error", logger: "logging",
               message: "logging_sink_failed", file_path: filePath, error: status.lastError,
             }));
+            notifyStatusChange();
           }
         }
       }

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DesktopSetupState } from "@lxe/desktop-protocol";
 import {
   desktopSettingsForm,
+  desktopLoggingSinkView,
   desktopSettingsSectionIsDirty,
   desktopSettingsSectionStatus,
 } from "../../src/desktop/settings-model";
@@ -39,7 +40,7 @@ const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState =
   logging: {
     profile: "standard",
     retention_days: 7,
-    directory: "/data/logs",
+    directory: "/data/var/logs",
   },
   legacy_environment_imported: true,
   ...patch,
@@ -83,5 +84,41 @@ describe("desktop settings navigation model", () => {
 
     expect(desktopSettingsSectionStatus("feishu", setup)).toBe("已配置");
     expect(desktopSettingsSectionIsDirty("feishu", form, baseline)).toBe(true);
+  });
+
+  test("presents logging sinks without promoting disabled logging to an error", () => {
+    expect(desktopLoggingSinkView(undefined)).toEqual({ label: "未启动", tone: "neutral" });
+    expect(desktopLoggingSinkView({
+      local_file_enabled: true,
+      file_path: "/data/var/logs/runtime.log",
+      disabled_reason: "",
+      last_error: "",
+      console_level: "info",
+      file_level: "info",
+    })).toEqual({ label: "写入中", tone: "ready" });
+    expect(desktopLoggingSinkView({
+      local_file_enabled: false,
+      file_path: "",
+      disabled_reason: "disabled_by_config",
+      last_error: "",
+      console_level: "info",
+      file_level: "info",
+    })).toEqual({ label: "已关闭", tone: "neutral" });
+    expect(desktopLoggingSinkView({
+      local_file_enabled: false,
+      file_path: "",
+      disabled_reason: "missing_log_file",
+      last_error: "",
+      console_level: "info",
+      file_level: "info",
+    })).toEqual({ label: "配置缺失", tone: "warning" });
+    expect(desktopLoggingSinkView({
+      local_file_enabled: false,
+      file_path: "/data/var/logs/runtime.log",
+      disabled_reason: "sink_failed",
+      last_error: "disk full",
+      console_level: "info",
+      file_level: "debug",
+    })).toEqual({ label: "写入失败", tone: "error" });
   });
 });

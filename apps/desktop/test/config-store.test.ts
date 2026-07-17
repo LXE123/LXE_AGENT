@@ -53,6 +53,7 @@ describe("DesktopConfigStore", () => {
       feishu: { configured: true, app_secret_configured: true },
       logging: { profile: "diagnostic", retention_days: 14 },
     });
+    expect(state.logging.directory).toBe(join(root, "var", "logs"));
     const serializedState = JSON.stringify(state);
     for (const secret of ["model-secret", "ziniao-secret", "mabang-secret", "feishu-secret"]) {
       expect(serializedState).not.toContain(secret);

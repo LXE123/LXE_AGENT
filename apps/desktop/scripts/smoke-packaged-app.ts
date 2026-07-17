@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -28,6 +28,7 @@ export interface PackagedDesktopProbeResult {
     providerKeyConfigured?: unknown;
     workspaceRoot?: unknown;
     loggingProfile?: unknown;
+    loggingDirectory?: unknown;
   };
   postSaveHealth?: unknown;
 }
@@ -265,6 +266,7 @@ const evaluateBridge = async (
               providerKeyConfigured: setupAfter?.provider_key_configured,
               workspaceRoot: setupAfter?.workspace_root,
               loggingProfile: setupAfter?.logging?.profile,
+              loggingDirectory: setupAfter?.logging?.directory,
             };
             result.postSaveHealth = await bridge.desktop.getHealth();
           } catch (error) {
@@ -378,8 +380,40 @@ export async function smokePackagedDesktop(
     if (result.setupAfter.loggingProfile !== "standard") {
       throw new Error(`Desktop setup persisted an unexpected log profile: ${String(result.setupAfter.loggingProfile)}`);
     }
+    if (result.setupAfter.loggingDirectory !== join(dataRoot, "var", "logs")) {
+      throw new Error(`Desktop setup exposed an unexpected log directory: ${String(result.setupAfter.loggingDirectory)}`);
+    }
     if (!result.postSaveHealth || typeof result.postSaveHealth !== "object") {
       throw new Error("Desktop Gateway did not return health after the setup-triggered restart");
+    }
+    const logging = (result.postSaveHealth as {
+      logging?: {
+        desktop?: { local_file_enabled?: unknown; file_path?: unknown };
+        agent_cli?: { local_file_enabled?: unknown; file_path?: unknown };
+      };
+    }).logging;
+    for (const [name, expectedFile, status] of [
+      ["desktop", "desktop.log", logging?.desktop],
+      ["agent-cli", "runtime.log", logging?.agent_cli],
+    ] as const) {
+      if (status?.local_file_enabled !== true) throw new Error(`${name} logging sink is not enabled`);
+      const filePath = String(status.file_path ?? "");
+      if (!filePath.endsWith(expectedFile) || !existsSync(filePath)) {
+        throw new Error(`${name} log file is unavailable: ${filePath}`);
+      }
+      const content = readFileSync(filePath, "utf8");
+      const lines = content.trim().split(/\r?\n/u).filter(Boolean);
+      if (lines.length === 0 || lines.some((line) => {
+        try { JSON.parse(line); return false; } catch { return true; }
+      })) {
+        throw new Error(`${name} log file is not valid JSONL: ${filePath}`);
+      }
+      if (!content.includes('"message":"logging_configured"')) {
+        throw new Error(`${name} log file is missing logging_configured`);
+      }
+      if (content.includes("packaged-smoke-placeholder-key")) {
+        throw new Error(`${name} log file exposed the packaged smoke API key`);
+      }
     }
   } catch (error) {
     failure = error;

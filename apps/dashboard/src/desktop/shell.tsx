@@ -24,6 +24,7 @@ import { LanguageSwitch } from "../shared/ui/language-switch";
 import { useDialogFocus } from "../shared/ui/use-dialog-focus";
 import {
   desktopSettingsForm,
+  desktopLoggingSinkView,
   desktopSettingsSectionIsDirty,
   desktopSettingsSectionStatus,
   type DesktopSettingsFormValue,
@@ -57,6 +58,26 @@ function IntegrationIssues({ issues }: { issues: string[] }) {
     <ul className="desktop-integration-issues">
       {issues.map((issue) => <li key={issue}>{issue}</li>)}
     </ul>
+  );
+}
+
+function LoggingSinkCard({
+  label,
+  status,
+}: {
+  label: string;
+  status: DesktopHealth["logging"]["agent_cli"];
+}) {
+  const view = desktopLoggingSinkView(status);
+  return (
+    <div className={`desktop-logging-sink state-${view.tone}`}>
+      <div>
+        <span>{label}</span>
+        <strong>{view.label}</strong>
+      </div>
+      {status?.file_path ? <code title={status.file_path}>{status.file_path}</code> : null}
+      {status?.last_error ? <p>{status.last_error}</p> : null}
+    </div>
   );
 }
 
@@ -217,6 +238,7 @@ function DesktopStatusPanel({
 function DesktopSettingsForm({
   activeSection,
   form,
+  health,
   headingRef,
   setup,
   platform,
@@ -230,6 +252,7 @@ function DesktopSettingsForm({
 }: {
   activeSection: EditableDesktopSettingsSection;
   form: SetupForm;
+  health: DesktopHealth;
   headingRef: RefObject<HTMLHeadingElement | null>;
   setup: DesktopSetupState;
   platform: "win32" | "darwin" | "linux";
@@ -488,6 +511,10 @@ function DesktopSettingsForm({
           <span>排障日志会记录模型通信、紫鸟诊断和飞书原始事件，可能包含消息正文与账号标识。</span>
         </div>
       ) : null}
+      <div className="desktop-logging-sinks">
+        <LoggingSinkCard label="Desktop / Gateway" status={health.logging.desktop} />
+        <LoggingSinkCard label="agent-cli" status={health.logging.agent_cli} />
+      </div>
       <div className="desktop-log-directory">
         <div><span>日志目录</span><code>{setup.logging.directory}</code></div>
         <button onClick={onOpenLogsDirectory} type="button"><ExternalLink size={14} />打开目录</button>
@@ -908,6 +935,7 @@ export function DesktopShell({
     <DesktopSettingsForm
       activeSection={editableSection}
       form={form}
+      health={health}
       headingRef={sectionHeadingRef}
       onChange={updateForm}
       onClearIntegration={clearIntegration}

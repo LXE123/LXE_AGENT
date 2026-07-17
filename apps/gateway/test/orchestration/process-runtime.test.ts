@@ -33,6 +33,10 @@ describe("ProcessAgentRuntime", () => {
     expect(runtime.isReady).toBe(true);
     expect(runtime.status()).toMatchObject({
       lxeskillAvailable: true,
+      logging: {
+        local_file_enabled: true,
+        file_path: "/tmp/runtime.log",
+      },
     });
     expect(await runtime.remoteHealth()).toMatchObject({ ready: true, fake: true });
     expect(await runtime.dashboardRequest({ method: "GET", path: "/api/models" }))
@@ -65,6 +69,38 @@ describe("ProcessAgentRuntime", () => {
       lxeskillAvailable: false,
       lxeskillMessage: "No module named lxeskill",
     });
+  });
+
+  test("propagates an agent logging sink failure without changing process health", async () => {
+    const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");
+    const statuses: ReturnType<ProcessAgentRuntime["status"]>[] = [];
+    const runtime = new ProcessAgentRuntime({
+      command: process.execPath,
+      arguments: [fixture],
+      cwd: process.cwd(),
+      environment: { ...process.env, FAKE_LOGGING_FAILURE_EVENT: "1" },
+      resourceRoot: process.cwd(),
+      dataRoot: process.cwd(),
+      workspaceRoot: process.cwd(),
+      onStatus: (status) => statuses.push(status),
+    });
+    runtimes.push(runtime);
+
+    await runtime.start();
+    const deadline = performance.now() + 2_000;
+    while (runtime.status().logging?.disabled_reason !== "sink_failed" && performance.now() < deadline) {
+      await Bun.sleep(10);
+    }
+
+    expect(runtime.status()).toMatchObject({
+      state: "ready",
+      logging: {
+        local_file_enabled: false,
+        disabled_reason: "sink_failed",
+        last_error: "disk unavailable",
+      },
+    });
+    expect(statuses.some((status) => status.logging?.disabled_reason === "sink_failed")).toBe(true);
   });
 
   test("recovers an unexpectedly crashed agent process", async () => {

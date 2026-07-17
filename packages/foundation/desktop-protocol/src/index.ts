@@ -126,6 +126,17 @@ export type DesktopLogProfile = "off" | "standard" | "diagnostic";
 
 export type DesktopLogRetentionDays = 3 | 7 | 14 | 30;
 
+export type DesktopLogLevel = "debug" | "info" | "warn" | "error";
+
+export interface DesktopLoggingSinkStatus extends JsonObject {
+  local_file_enabled: boolean;
+  file_path: string;
+  disabled_reason: "" | "disabled_by_config" | "missing_log_file" | "sink_failed";
+  last_error: string;
+  console_level: DesktopLogLevel;
+  file_level: DesktopLogLevel;
+}
+
 export type DesktopZiniaoVersion = "v5" | "v6";
 
 export type DesktopConfigImportGroupName = "base" | "ziniao" | "mabang" | "feishu" | "logging";
@@ -182,6 +193,10 @@ export interface DesktopHealth {
   resource_root: string;
   data_root: string;
   workspace_root: string;
+  logging: {
+    desktop: DesktopLoggingSinkStatus;
+    agent_cli?: DesktopLoggingSinkStatus;
+  };
 }
 
 export interface DesktopSetupState {

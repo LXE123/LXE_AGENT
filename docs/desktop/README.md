@@ -147,7 +147,7 @@ bun run verify:platform:win
 LOCAL_LOGS_ENABLED=1
 ```
 
-Bun JSONL 和 Python 文本日志随后写入 `var/logs/runtime/<YYYYMMDD>/`。日志格式、脱敏和保留策略见 [Logging and runtime traces](../harness/logger.md)。
+Desktop/Gateway、私有 Agent 和 Python 分别写入 `desktop.log`、`runtime.log` 和 `runtime-py.log`，统一位于应用数据目录的 `var/logs/runtime/<YYYYMMDD>/`。Provider traces 和飞书诊断也统一放在 `var/logs/`；设置页会显示两个 TypeScript sink 的实际路径与失败原因。日志格式、脱敏和保留策略见 [Logging and runtime traces](../harness/logger.md)。
 
 桌面设置提供 Gateway、agent-cli 和 lxeskill 健康状态，以及后台组件重启和诊断入口。关闭窗口只隐藏到托盘；从托盘退出 LXE 时，Main 会依次停止 Gateway、Agent 和相关子进程。
 

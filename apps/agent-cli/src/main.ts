@@ -1,6 +1,9 @@
 import { createInterface } from "node:readline";
+import { createLogger } from "@lxe/core";
 import type { AgentEvent, AgentResponse } from "@lxe/desktop-protocol";
 import { AgentProtocolServer } from "./server";
+
+const logger = createLogger("agent.cli.main");
 
 const arguments_ = process.argv.slice(2);
 const mode = arguments_.find((value) => !value.startsWith("-")) ?? "serve";
@@ -44,18 +47,40 @@ const server = new AgentProtocolServer({
   },
 });
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
+let stopping: Promise<void> | undefined;
+const stop = (code: number): Promise<void> => {
+  if (stopping) return stopping;
+  input.close();
+  stopping = server.shutdown().catch((error) => {
+    logger.error("agent_cli_shutdown_failed", { error });
+  }).then(() => writes).catch((error) => {
+    logger.error("agent_cli_protocol_flush_failed", { error });
+  }).finally(() => {
+    process.exit(code);
+  });
+  return stopping;
+};
 
 void (async () => {
   for await (const line of input) {
     if (line.trim()) void server.accept(line);
   }
-  await server.shutdown();
-  process.exit(0);
+  await stop(0);
 })();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    input.close();
-    void server.shutdown().finally(() => process.exit(0));
+    void stop(0);
   });
 }
+
+process.on("unhandledRejection", (cause) => {
+  logger.error("unhandled_rejection", {
+    error: cause instanceof Error ? cause : new Error(String(cause)),
+  });
+  void stop(1);
+});
+process.on("uncaughtException", (error) => {
+  logger.error("uncaught_exception", { error });
+  void stop(1);
+});

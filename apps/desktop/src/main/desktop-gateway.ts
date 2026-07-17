@@ -4,6 +4,7 @@ import type {
   DashboardTransportRequest,
   DesktopDashboardDataDomain,
   DesktopHealth,
+  DesktopLoggingSinkStatus,
 } from "@lxe/desktop-protocol";
 import type { JsonObject, JsonValue } from "@lxe/protocol";
 import {
@@ -79,6 +80,7 @@ export interface DesktopGatewayOptions {
   config: DesktopConfigStore;
   version: string;
   packaged: boolean;
+  desktopLoggingStatus: () => DesktopLoggingSinkStatus;
   onHealthChanged?: (health: DesktopHealth) => void;
   onDashboardInvalidated?: (
     domains: DesktopDashboardDataDomain[],
@@ -139,9 +141,9 @@ export class DesktopGateway {
       LXE_WORKSPACE_ROOT: setup.workspace_root,
       LXE_AGENT_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "agent.sqlite3"),
       LXE_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "lxeskill.sqlite3"),
-      AGENT_STREAM_TRACE_DIR: join(this.options.paths.dataRoot, "logs", "agent_traces"),
-      AGENT_SSE_WIRE_TRACE_DIR: join(this.options.paths.dataRoot, "logs", "sse_wire_traces"),
-      FEISHU_RAW_EVENT_DUMP_DIR: join(this.options.paths.dataRoot, "logs", "feishu_raw_events"),
+      AGENT_STREAM_TRACE_DIR: join(this.options.paths.dataRoot, "var", "logs", "agent_traces"),
+      AGENT_SSE_WIRE_TRACE_DIR: join(this.options.paths.dataRoot, "var", "logs", "sse_wire_traces"),
+      FEISHU_RAW_EVENT_DUMP_DIR: join(this.options.paths.dataRoot, "var", "logs", "feishu_raw_events"),
       AGENT_SESSION_BINDINGS_PATH: join(this.options.paths.dataRoot, "db", "sessions.json"),
       LXE_MCP_CONFIG_PATH: join(this.options.paths.dataRoot, "config", "mcp_servers.local.yaml"),
       LXE_CONNECTOR_STATE_PATH: join(this.options.paths.dataRoot, "config", "connector-states.local.json"),
@@ -326,6 +328,12 @@ export class DesktopGateway {
       resource_root: this.options.paths.resourceRoot,
       data_root: this.options.paths.dataRoot,
       workspace_root: setup.workspace_root,
+      logging: {
+        desktop: this.options.desktopLoggingStatus(),
+        ...(agentStatus?.logging && agentStatus.state !== "stopped"
+          ? { agent_cli: agentStatus.logging }
+          : {}),
+      },
     };
   }
 

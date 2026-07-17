@@ -39,15 +39,20 @@ var/logs/sse_wire_traces/YYYYMMDD/HHMM_<session>/<turn>/step_<zero-based-step>_a
 Each successful attempt records `request_start`, `response_start`, every SDK `wire_event`, and one `request_end`. A failure before an HTTP response omits `response_start`. Existing legacy `provider.jsonl` files are retained, but new turns do not create them.
 
 `LOCAL_LOGS_ENABLED` governs local file writes only. Ordinary console logging remains available when local logs are disabled.
-The shipped runtime configuration leaves local file logging disabled. For development, copy the relevant values from
-`.env.local.example` into `.env.local`; effective logging state and the resolved runtime path are emitted during startup.
+New Desktop installations use the `standard` profile, which enables `INFO` files with seven-day retention. The source
+runtime defaults remain disabled until `.env.local` opts in. Both Desktop processes emit `logging_configured` with the
+effective level, disabled reason, and resolved path during startup.
 
 File responsibilities are intentionally separate:
 
-- Bun structured runtime records (JSONL): `var/logs/runtime/YYYYMMDD/runtime.log`.
+- Electron Main and Gateway records (JSONL): `var/logs/runtime/YYYYMMDD/desktop.log`.
+- Private `agent-cli` and Runtime records (JSONL): `var/logs/runtime/YYYYMMDD/runtime.log`.
 - Python text logs (standalone `lxeskill` commands): `var/logs/runtime/YYYYMMDD/runtime-py.log`. Python derives the name from `LOG_FILE` by appending `-py` to the stem, so the two formats never share a file.
 - Feishu raw events: `var/logs/feishu_raw_events/YYYYMMDD.jsonl`.
 - Provider traces: `var/logs/agent_traces/` and `var/logs/sse_wire_traces/`.
+
+Desktop resolves every path above from `LXE_DATA_ROOT` and exposes `LXE_DATA_ROOT/var/logs` as the canonical diagnostics
+directory. The older `LXE_DATA_ROOT/logs` trace location is not migrated or deleted.
 
 ## Record Shape And Context
 
@@ -100,7 +105,8 @@ Business CLI commands reserve stdout for their JSON protocol. Their diagnostics 
 
 1. Confirm whether the missing information belongs in terminal logs, runtime files, or traces.
 2. Check `LOCAL_LOGS_ENABLED`, `LOG_FILE`, and the relevant level thresholds.
-3. Check `LOG_LEVELS` for a prefix override.
-4. For provider streams, enable only the required trace surface and reproduce one turn.
-5. Verify the resulting record is sanitized before sharing it.
-6. Disable verbose tracing after the investigation.
+3. In Desktop settings, check both the Desktop/Gateway and `agent-cli` sink status, effective path, and safe failure detail.
+4. Check `LOG_LEVELS` for a prefix override.
+5. For provider streams, enable only the required trace surface and reproduce one turn.
+6. Verify the resulting record is sanitized before sharing it.
+7. Disable verbose tracing after the investigation.

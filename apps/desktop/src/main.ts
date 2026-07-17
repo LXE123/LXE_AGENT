@@ -9,6 +9,7 @@ import {
   session,
   Tray,
 } from "electron";
+import { createLogger } from "@lxe/core";
 import type {
   DashboardTransportRequest,
   DesktopDashboardInvalidation,
@@ -29,6 +30,7 @@ import {
   dashboardDomainsForMutation,
 } from "./main/dashboard-invalidation";
 import { DesktopGateway } from "./main/desktop-gateway";
+import { DesktopLoggingManager } from "./main/logging";
 import { registerDesktopIpc, type DesktopIpcApplication } from "./main/ipc";
 import {
   desktopPreviewDataRoot,
@@ -41,6 +43,8 @@ import { bootstrapDesktopState, migrateLegacyArtifacts } from "./main/migration"
 import { resolveDesktopPaths } from "./main/paths";
 import { desktopWindowAppearance } from "./main/window-options";
 import { normalizeDesktopPlatform } from "./platform";
+
+const logger = createLogger("desktop.main");
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "app",
@@ -78,6 +82,7 @@ let shutdownPromise: Promise<void> | undefined;
 let removeIpcHandlers: (() => void) | undefined;
 let activeGateway: DesktopGateway | undefined;
 let activeInvalidationBatcher: DashboardInvalidationBatcher | undefined;
+let activeLogging: DesktopLoggingManager | undefined;
 
 const shutdownApplication = (exitCode = 0): Promise<void> => {
   if (shutdownPromise) return shutdownPromise;
@@ -86,7 +91,7 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
     try {
       await activeGateway?.stop();
     } catch (error) {
-      process.stderr.write(`Desktop Gateway failed to stop: ${error instanceof Error ? error.message : String(error)}\n`);
+      logger.error("desktop_gateway_stop_failed", { error });
     }
     removeIpcHandlers?.();
     removeIpcHandlers = undefined;
@@ -94,6 +99,10 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
     activeInvalidationBatcher?.dispose();
     activeInvalidationBatcher = undefined;
     tray = undefined;
+    logger.info("desktop_stopped", { exit_code: exitCode });
+    const logging = activeLogging;
+    activeLogging = undefined;
+    await logging?.close();
     shutdownComplete = true;
     if (exitCode === 0) app.quit();
     else app.exit(exitCode);
@@ -144,13 +153,28 @@ async function bootstrap(): Promise<void> {
       }
     }
   };
+  let gateway: DesktopGateway;
+  const logging = new DesktopLoggingManager({
+    dataRoot: paths.dataRoot,
+    environment: () => ({
+      ...loadProjectEnv({ projectRoot: paths.resourceRoot, initial: desktopEnvironment }),
+      ...loadProjectEnv({ projectRoot: paths.dataRoot, initial: {} }),
+      ...config.environment(),
+    }),
+    onStatusChange: () => {
+      if (gateway) broadcastHealth(gateway.health());
+    },
+  });
+  activeLogging = logging;
+  logging.configure();
   const invalidations = new DashboardInvalidationBatcher(broadcastInvalidation);
   activeInvalidationBatcher = invalidations;
-  const gateway = new DesktopGateway({
+  gateway = new DesktopGateway({
     paths,
     config,
     version: app.getVersion(),
     packaged: packagedRuntime,
+    desktopLoggingStatus: () => logging.status(),
     onHealthChanged: broadcastHealth,
     onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
   });
@@ -172,6 +196,7 @@ async function bootstrap(): Promise<void> {
     getSetupState: () => config.state(),
     saveSetup: async (input: DesktopSetupInput): Promise<DesktopSetupState> => {
       const state = config.save(input);
+      logging.configure();
       await gateway.restart();
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
       broadcastHealth(gateway.health());
@@ -180,6 +205,7 @@ async function bootstrap(): Promise<void> {
     previewConfigImport: (filePath) => configImports.select(filePath),
     applyConfigImport: async (importId) => {
       const result = configImports.apply(importId);
+      logging.configure();
       if (result.state.complete) await gateway.restart();
       else await gateway.stop();
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
@@ -187,7 +213,7 @@ async function bootstrap(): Promise<void> {
       return result;
     },
     discardConfigImport: (importId) => configImports.discard(importId),
-    logsDirectory: join(paths.dataRoot, "logs"),
+    logsDirectory: join(paths.dataRoot, "var", "logs"),
   };
   removeIpcHandlers = registerDesktopIpc(ipcApplication);
 
@@ -215,7 +241,7 @@ async function bootstrap(): Promise<void> {
     try {
       await gateway.start();
     } catch (error) {
-      process.stderr.write(`Desktop Gateway failed to start: ${error instanceof Error ? error.message : String(error)}\n`);
+      logger.error("desktop_gateway_start_failed", { error });
     }
   }
 
@@ -280,7 +306,7 @@ if (hasSingleInstanceLock) {
     if (desktopPlatform === "win32") Menu.setApplicationMenu(null);
     return bootstrap();
   }).catch((error) => {
-    process.stderr.write(`LXE Agent startup failed: ${error instanceof Error ? error.stack : String(error)}\n`);
+    logger.error("desktop_startup_failed", { error });
     void shutdownApplication(1);
   });
 }
