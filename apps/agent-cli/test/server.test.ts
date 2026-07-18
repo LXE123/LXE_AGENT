@@ -131,7 +131,7 @@ describe("AgentProtocolServer", () => {
     await server.shutdown();
   });
 
-  test("reports not-ready health without initialization", async () => {
+  test("rejects the removed health command", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     const server = new AgentProtocolServer({ write: (message) => { output.push(message); } });
     await server.accept(JSON.stringify({
@@ -140,12 +140,11 @@ describe("AgentProtocolServer", () => {
       command: "health",
       payload: {},
     }));
-    expect(output[0]).toEqual({
-      version: AGENT_PROTOCOL_VERSION,
-      id: "health-1",
-      ok: true,
-      result: { ready: false },
-    });
+    expect(output).toHaveLength(1);
+    const response = output[0];
+    expect(response && !("type" in response) && !response.ok).toBe(true);
+    expect(response && !("type" in response) && !response.ok ? response.error.message : "")
+      .toContain("unsupported agent protocol command");
   });
 
   test("propagates Dashboard RPC errors through the agent error envelope", async () => {
@@ -198,16 +197,16 @@ describe("AgentProtocolServer", () => {
     }));
     await server.accept(JSON.stringify({
       version: AGENT_PROTOCOL_VERSION,
-      id: "health-after-failure",
-      command: "health",
-      payload: {},
+      id: "command-after-failure",
+      command: "ensure_session",
+      payload: { request: { session_id: "session-1", source: {}, workspace: workspace(root) } },
     }));
 
     expect(stops).toBe(1);
     expect(output.find((message) => !("type" in message) && message.id === "initialize-failed"))
       .toMatchObject({ ok: false, error: { message: "runtime start failed" } });
-    expect(output.find((message) => !("type" in message) && message.id === "health-after-failure"))
-      .toMatchObject({ ok: true, result: { ready: false } });
+    expect(output.find((message) => !("type" in message) && message.id === "command-after-failure"))
+      .toMatchObject({ ok: false, error: { message: "agent-cli is not initialized" } });
     await server.shutdown();
   });
 

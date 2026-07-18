@@ -35,11 +35,9 @@ export type AgentCommandPayloads = {
     message_id: string;
   };
   ensure_session: { request: SessionWorkspaceRequest };
-  rebind_session: { request: SessionWorkspaceRequest };
   append_pending_event: { session_id: string; event: JsonObject };
   has_pending_events: { session_id: string };
   dashboard_call: AgentDashboardRpcCall;
-  health: Record<string, never>;
   shutdown: Record<string, never>;
 };
 
@@ -352,11 +350,9 @@ const agentCommands = new Set<AgentCommand>([
   "cancel_turn",
   "steer_turn",
   "ensure_session",
-  "rebind_session",
   "append_pending_event",
   "has_pending_events",
   "dashboard_call",
-  "health",
   "shutdown",
 ]);
 const agentEventTypes = new Set<AgentEvent["type"]>([
@@ -418,7 +414,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       for (const name of ["run_id", "text", "response_route_id", "message_id"]) requireText(name);
       break;
     case "ensure_session":
-    case "rebind_session":
       requireObject("request");
       requireWorkspace(objectValue(payload.request)?.workspace, `${command}.request.workspace`);
       break;
@@ -432,7 +427,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
     case "dashboard_call":
       parseAgentDashboardRpcCall(payload);
       break;
-    case "health":
     case "shutdown":
       break;
   }

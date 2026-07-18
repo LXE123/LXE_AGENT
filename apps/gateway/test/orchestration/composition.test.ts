@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentJob, JsonObject } from "@lxe/protocol";
-import { FakeChannelAdapter } from "../../src/channels/registry";
+import { FakeChannelAdapter } from "../fake-channel";
 import { createDirectGatewayComposition } from "../../src/orchestration/composition";
 import { buildPermissionPolicy } from "../../src/security/permission-policy";
 import type { RunHandle, SteeringMessage } from "../../src/orchestration/scheduler";
@@ -24,7 +24,6 @@ const job = (): AgentJob => ({
 
 const storage = () => ({
   ensureSession: async () => undefined,
-  rebindSession: async () => undefined,
   upsertResponseRoute: async () => undefined,
   getSession: async () => ({ session_id: "s1", source: { platform: "test" }, workspace: testWorkspace }),
   appendPendingEvent: async () => undefined,

@@ -64,7 +64,7 @@ describe("SessionBindingStore", () => {
     expect(() => store.ensureUsable()).toThrow("must be a JSON object");
   });
 
-  test("writes deterministic UTF-8 JSON atomically and preserves entry flags", () => {
+  test("writes deterministic UTF-8 JSON atomically", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-bindings-"));
     roots.push(root);
     const path = join(root, "nested", "sessions.json");
@@ -89,13 +89,9 @@ describe("SessionBindingStore", () => {
     expect(readdirSync(join(root, "nested"))).toEqual(["sessions.json"]);
 
     const payload = JSON.parse(raw);
-    payload[first.session_key].resume_pending = true;
-    payload[first.session_key].suspended = true;
-    writeFileSync(path, `${JSON.stringify(payload)}\n`, "utf8");
+    expect(payload[first.session_key].session_id).toBe("session-a");
     const rebound = store.bind(source, "session-b");
     expect(rebound.created_at).toBe(first.created_at);
-    expect(rebound.resume_pending).toBe(true);
-    expect(rebound.suspended).toBe(true);
     expect(Object.keys(store.loadAll())).toEqual([first.session_key]);
   });
 

@@ -297,10 +297,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     await this.request("ensure_session", { request });
   }
 
-  async rebindSession(request: SessionWorkspaceRequest): Promise<void> {
-    await this.request("rebind_session", { request });
-  }
-
   async appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
     await this.request("append_pending_event", { session_id: sessionId, event });
   }
@@ -313,14 +309,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>> {
     return await this.request("dashboard_call", call) as DashboardRpcResult<O>;
-  }
-
-  async remoteHealth(): Promise<JsonObject> {
-    if (!this.isReady) return { ready: false, ...this.status() };
-    const snapshot = objectValue(await this.request("health", {}, 2_000));
-    this.remoteHealthSnapshot = snapshot;
-    this.options.onStatus?.(this.status());
-    return snapshot;
   }
 
   private async cancelRun(runId: string): Promise<void> {

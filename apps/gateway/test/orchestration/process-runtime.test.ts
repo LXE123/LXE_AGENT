@@ -39,7 +39,6 @@ describe("ProcessAgentRuntime", () => {
         file_path: "/tmp/runtime.log",
       },
     });
-    expect(await runtime.remoteHealth()).toMatchObject({ ready: true, fake: true });
     expect(await runtime.dashboardCall({ operation: "models.list", input: {} }))
       .toEqual({ items: [], total: 0 });
     await runtime.stop();
@@ -135,7 +134,8 @@ describe("ProcessAgentRuntime", () => {
     expect(states).toContain("error");
     expect(states.filter((state) => state === "ready")).toHaveLength(2);
     expect(runtime.isReady).toBe(true);
-    expect(await runtime.remoteHealth()).toMatchObject({ ready: true, fake: true });
+    expect(await runtime.dashboardCall({ operation: "models.list", input: {} }))
+      .toEqual({ items: [], total: 0 });
   }, 10_000);
 
   test("forwards steering and deduplicates cancellation for an active turn", async () => {
@@ -182,10 +182,12 @@ describe("ProcessAgentRuntime", () => {
 
     expect(await turn).toMatchObject({
       status: "cancelled",
+      // The fixture echoes its cancel-turn request count; 1 proves the
+      // handle.abort() kill callback was deduplicated against cancelTurn().
+      tool_calls: 1,
       remaining_steering: [
         { text: "steer", response_route_id: "route-1", message_id: "message-2" },
       ],
     });
-    expect(await runtime.remoteHealth()).toMatchObject({ cancel_count: 1 });
   });
 });

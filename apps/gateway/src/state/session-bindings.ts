@@ -122,8 +122,6 @@ export interface SessionBindingEntry {
   origin: JsonRecord;
   platform: string;
   chat_type: string;
-  resume_pending: boolean;
-  suspended: boolean;
 }
 
 interface StoreOptions {
@@ -144,8 +142,6 @@ const parseEntry = (value: JsonRecord): SessionBindingEntry => {
     origin,
     platform: clean(value.platform ?? origin.platform),
     chat_type: normalizeChatType(value.chat_type ?? origin.chat_type),
-    resume_pending: Boolean(value.resume_pending),
-    suspended: Boolean(value.suspended),
   };
 };
 
@@ -234,8 +230,6 @@ export class SessionBindingStore {
       origin: source.toJSON(),
       platform: source.platform,
       chat_type: source.chat_type,
-      resume_pending: existing?.resume_pending ?? false,
-      suspended: existing?.suspended ?? false,
     };
     entries[sessionKey] = entry;
     this.saveAll(entries);

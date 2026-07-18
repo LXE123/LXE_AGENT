@@ -38,7 +38,6 @@ export interface DirectAgentRuntime {
 
 export interface DirectGatewayStorage {
   ensureSession(request: SessionWorkspaceRequest): Promise<void>;
-  rebindSession(request: SessionWorkspaceRequest): Promise<void>;
   upsertResponseRoute(request: JsonObject): Promise<void>;
   getSession(sessionId: string): Promise<{
     session_id: string;

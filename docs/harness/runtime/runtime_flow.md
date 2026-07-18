@@ -43,7 +43,7 @@ Gateway 位于 Electron Main，Runtime 位于 Electron 管理的私有 `agent-cl
 
 ## Turn 建立
 
-Router ensure/rebind session，保存 response route，并把 pending events 与当前用户输入组成 `AgentJob`。Scheduler 创建 `RunHandle` 后，Runtime 读取 session、验证不可变 WorkspaceContext、取得 Workspace Lease，再固定 provider generation、exposure state、system prompt、trace 和可选 `FinalAnswerStreamer`。同一 Lease 的 Skill、AGENTS Instructions 和搜索服务贯穿整个 Turn。
+Router ensure session，保存 response route，并把 pending events 与当前用户输入组成 `AgentJob`。Scheduler 创建 `RunHandle` 后，Runtime 读取 session、验证不可变 WorkspaceContext、取得 Workspace Lease，再固定 provider generation、exposure state、system prompt、trace 和可选 `FinalAnswerStreamer`。同一 Lease 的 Skill、AGENTS Instructions 和搜索服务贯穿整个 Turn。
 
 用户消息立即 append 到 transcript。之后每个 steering 也以独立 user message 持久化，确保进程退出后 replay 与模型实际看见的顺序一致。
 

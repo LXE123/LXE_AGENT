@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { EmitRequest } from "@lxe/protocol";
-import { ChannelRegistry, FakeChannelAdapter } from "../../src/channels/registry";
+import { ChannelRegistry } from "../../src/channels/registry";
 import { GatewayEmitter } from "../../src/channels/emitter";
+import { FakeChannelAdapter } from "../fake-channel";
 
 const emit = (patch: Record<string, unknown> = {}): EmitRequest => ({
   session_id: "session-1",

@@ -157,9 +157,6 @@ export class AgentProtocolServer {
       case "ensure_session":
         await this.readyHost().ensureSession(request.payload.request);
         return { ensured: true };
-      case "rebind_session":
-        await this.readyHost().rebindSession(request.payload.request);
-        return { rebound: true };
       case "append_pending_event":
         await this.readyHost().appendPendingEvent(
           request.payload.session_id,
@@ -170,8 +167,6 @@ export class AgentProtocolServer {
         return { pending: await this.readyHost().hasPendingEvents(request.payload.session_id) };
       case "dashboard_call":
         return this.readyHost().dashboardCall(request.payload) as Promise<JsonValue>;
-      case "health":
-        return this.health();
       case "shutdown":
         await this.shutdown();
         return { stopped: true };

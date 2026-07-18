@@ -13,7 +13,7 @@ afterEach(() => {
 });
 
 describe("SqliteRuntimeStore", () => {
-  test("backfills legacy sessions once and never allows a workspace rebind", async () => {
+  test("backfills legacy sessions once and never allows a workspace change", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-workspace-migration-"));
     roots.push(root);
     const databasePath = join(root, "local_agent.sqlite3");
@@ -45,13 +45,13 @@ describe("SqliteRuntimeStore", () => {
       session_id: "legacy",
       workspace: testWorkspace,
     }));
-    await store.rebindSession({
+    await store.ensureSession({
       session_id: "legacy",
       source: { chat_id: "same-workspace" },
       workspace: testWorkspace,
     });
     const different = { ...testWorkspace, directory: join(testWorkspace.worktree, "different") };
-    await expect(store.rebindSession({
+    await expect(store.ensureSession({
       session_id: "legacy",
       source: {},
       workspace: different,

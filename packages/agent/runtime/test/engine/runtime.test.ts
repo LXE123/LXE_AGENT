@@ -568,11 +568,11 @@ describe("TypeScriptAgentRuntime", () => {
     });
   });
 
-  test("merges embedded and stored pending events when an ordinary turn starts", async () => {
+  test("ignores embedded system events and consumes stored pending events when an ordinary turn starts", async () => {
     const store = new MemoryStore();
     store.pendingEvents.push(
-      { event_id: "shared", job_id: "stored-duplicate", created_at: 0, text: "stored duplicate" },
-      { event_id: "stored", job_id: "stored", created_at: 0, text: "stored second" },
+      { event_id: "stored-1", job_id: "stored-1", created_at: 0, text: "stored first" },
+      { event_id: "stored-2", job_id: "stored-2", created_at: 0, text: "stored second" },
     );
     let captured: RuntimeProviderRequest | undefined;
     const runtime = new TypeScriptAgentRuntime({
@@ -597,14 +597,14 @@ describe("TypeScriptAgentRuntime", () => {
       ...job(),
       raw_data: {
         system_events: [
-          { event_id: "shared", job_id: "embedded", created_at: 0, text: "embedded first" },
+          { event_id: "embedded", job_id: "embedded", created_at: 0, text: "embedded ignored" },
         ],
       },
     }, handle());
     await runtime.stop();
 
     expect(captured?.messages.at(-1)?.content).toBe(
-      "System: embedded first\n\nSystem: stored second\n\nhello",
+      "System: stored first\n\nSystem: stored second\n\nhello",
     );
     expect(store.pendingEvents).toEqual([]);
   });

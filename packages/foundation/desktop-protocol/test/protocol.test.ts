@@ -30,7 +30,7 @@ describe("desktop agent protocol", () => {
     expect(() => parseAgentWireMessage(JSON.stringify({
       version: AGENT_PROTOCOL_VERSION,
       id: "request-1",
-      command: "health",
+      command: "shutdown",
       payload: null,
     }))).toThrow("payload must be an object");
   });

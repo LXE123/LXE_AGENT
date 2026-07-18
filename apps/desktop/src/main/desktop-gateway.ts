@@ -49,11 +49,6 @@ class SplitGatewayStorage implements DirectGatewayStorage {
     await this.agent.ensureSession(request);
   }
 
-  async rebindSession(request: SessionWorkspaceRequest): Promise<void> {
-    await this.gateway.rebindSession(request);
-    await this.agent.rebindSession(request);
-  }
-
   upsertResponseRoute(request: JsonObject): Promise<void> {
     return this.gateway.upsertResponseRoute(request);
   }

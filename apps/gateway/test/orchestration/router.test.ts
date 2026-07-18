@@ -3,10 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentJob, InboundEvent, JsonObject, SessionWorkspaceRequest, WorkspaceContext } from "@lxe/protocol";
-import { FakeChannelAdapter, ChannelRegistry } from "../../src/channels/registry";
+import { ChannelRegistry } from "../../src/channels/registry";
+import { FakeChannelAdapter } from "../fake-channel";
 import { buildPermissionPolicy } from "../../src/security/permission-policy";
 import {
-  SessionNotFoundError,
   SessionRouter,
   type RouterSchedulerPort,
   type StoragePort,
@@ -59,20 +59,14 @@ const event = (overrides: Partial<InboundEvent> = {}): InboundEvent => ({
 
 class FakeStorage implements StoragePort {
   readonly ensured: SessionWorkspaceRequest[] = [];
-  readonly rebound: SessionWorkspaceRequest[] = [];
   readonly routes: JsonObject[] = [];
   readonly appended: Array<{ sessionId: string; event: JsonObject }> = [];
   readonly sessions = new Map<string, WorkspaceContext>();
-  rebindMissing = false;
   appendFails = false;
 
   async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     this.ensured.push(request);
     this.sessions.set(String(request.session_id), request.workspace);
-  }
-  async rebindSession(request: SessionWorkspaceRequest): Promise<void> {
-    if (this.rebindMissing) throw new SessionNotFoundError(String(request.session_id));
-    this.rebound.push(request);
   }
   async upsertResponseRoute(request: JsonObject): Promise<void> {
     this.routes.push(request);
@@ -189,7 +183,6 @@ describe("SessionRouter permission and normal routes", () => {
     });
     expect(storage.ensured).toHaveLength(1);
     expect(storage.ensured[0]).not.toHaveProperty("response_route");
-    expect(storage.rebound).toEqual([]);
     expect(scheduler.jobs).toHaveLength(1);
     expect(scheduler.jobs[0]?.job).toEqual({
       job_id: "job-1",
@@ -250,14 +243,13 @@ describe("SessionRouter permission and normal routes", () => {
     expect(scheduler.jobs[0]?.job.raw_data.system_events).toBeUndefined();
   });
 
-  test("rebinds existing sessions and resumes autonomy on the next user message", async () => {
+  test("refreshes existing sessions and resumes autonomy on the next user message", async () => {
     const { router, bindings, storage, state } = setup();
     await router.routeMessage(event());
     const sessionId = bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
     state.suspendAutonomy(sessionId);
     await router.routeMessage(event({ message_id: "message-2", response_route_id: "route-2" }));
-    expect(storage.ensured).toHaveLength(1);
-    expect(storage.rebound).toHaveLength(1);
+    expect(storage.ensured).toHaveLength(2);
     expect(state.isAutonomySuspended(sessionId)).toBe(false);
   });
 
@@ -284,9 +276,10 @@ describe("SessionRouter permission and normal routes", () => {
   });
 
   test("recreates a missing persisted session when a binding still exists", async () => {
-    const { router, storage } = setup();
+    const { router, bindings, storage } = setup();
     await router.routeMessage(event());
-    storage.rebindMissing = true;
+    const sessionId = bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
+    storage.sessions.delete(sessionId);
     await router.routeMessage(event({ message_id: "message-2", response_route_id: "route-2" }));
     expect(storage.ensured).toHaveLength(2);
   });

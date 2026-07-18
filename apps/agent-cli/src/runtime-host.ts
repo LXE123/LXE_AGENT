@@ -61,8 +61,6 @@ export interface AgentRuntimeHost {
   stop(): Promise<void>;
   runTurn(job: Parameters<TypeScriptAgentRuntime["runTurn"]>[0], handle: RuntimeHandle): Promise<TurnOutcome>;
   ensureSession(request: SessionWorkspaceRequest): Promise<void>;
-  rebindSession(request: SessionWorkspaceRequest): Promise<void>;
-  popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   hasPendingEvents(sessionId: string): Promise<boolean>;
   dashboardCall<O extends AgentDashboardRpcOperation>(
@@ -288,8 +286,6 @@ export function createAgentRuntimeHost(
     },
     runTurn: (job, handle) => runtime.runTurn(job, handle),
     ensureSession: (request) => store.ensureSession(request),
-    rebindSession: (request) => store.rebindSession(request),
-    popPendingEvents: (sessionId) => store.popPendingEvents(sessionId),
     appendPendingEvent: (sessionId, event) => store.appendPendingEvent(sessionId, event),
     hasPendingEvents: (sessionId) => store.hasPendingEvents(sessionId),
     dashboardCall: (call) => dashboardService.call(call),
@@ -302,7 +298,6 @@ export function createAgentRuntimeHost(
         model: providerManager.acquire().descriptor.model,
         lxeskill_available: lxeSkillStatus.available,
         lxeskill_message: lxeSkillStatus.message,
-        active_turns: 0,
         workspace_instances: workspaceInstances.diagnostics(),
       };
     },

@@ -389,10 +389,6 @@ export class SqliteRuntimeStore implements RuntimeStore {
     );
   }
 
-  async rebindSession(request: SessionWorkspaceRequest): Promise<void> {
-    await this.ensureSession(request);
-  }
-
   async getSession(sessionId: string): Promise<RuntimeSessionRecord | undefined> {
     const row = this.getPrepared<{
       session_id: string;

@@ -31,7 +31,7 @@ Router 在访问 session store 或 scheduler 之前先验证：
 
 `SessionBindingStore` 使用原子 UTF-8 JSON 保存 source key 到 session id 的映射：
 
-- 已有 binding 且 SQLite session 存在时复用并 rebind 最新 source。
+- 已有 binding 且 SQLite session 存在时复用并用最新 source ensure。
 - binding 存在但 session 丢失时创建新的 session，避免悬空引用。
 - `/clear` 在无 active work 时旋转到新 session。
 - 无效根结构或重复/残缺 entry 不会被默默接受。
@@ -48,7 +48,7 @@ Router 在 enqueue 前 upsert route；CardKit 创建后可 patch `platform_messa
 
 通过权限和 source 校验后，Router：
 
-1. ensure/rebind session。
+1. ensure session。
 2. 恢复 autonomy suspension。
 3. 保存 response route。
 4. pop 已持久化的 pending events，并附加到本轮输入上下文。

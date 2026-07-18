@@ -51,7 +51,7 @@ describe("NodeGatewayStore workspace migration", () => {
     const store = new NodeGatewayStore(databasePath, firstWorkspace);
     store.start();
     expect((await store.getSession("legacy-session"))?.workspace).toEqual(firstWorkspace);
-    await store.rebindSession({
+    await store.ensureSession({
       session_id: "legacy-session",
       source: { chat_id: "chat-1" },
       workspace: firstWorkspace,
@@ -63,7 +63,7 @@ describe("NodeGatewayStore workspace migration", () => {
       conversation_id: "chat-1",
       source: {},
     });
-    await expect(store.rebindSession({
+    await expect(store.ensureSession({
       session_id: "legacy-session",
       source: {},
       workspace: secondWorkspace,

@@ -139,10 +139,6 @@ export class NodeGatewayStore implements Omit<
     );
   }
 
-  rebindSession(request: SessionWorkspaceRequest): Promise<void> {
-    return this.ensureSession(request);
-  }
-
   async getSession(sessionId: string): Promise<{
     session_id: string;
     source: JsonObject;

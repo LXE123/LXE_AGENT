@@ -49,15 +49,6 @@ for await (const line of input) {
     }
     continue;
   }
-  if (request.command === "health") {
-    write({
-      version: 2,
-      id: request.id,
-      ok: true,
-      result: { ready: true, fake: true, cancel_count: cancelCount, logging: loggingStatus },
-    });
-    continue;
-  }
   if (request.command === "run_turn") {
     activeRunRequest = request;
     continue;
@@ -91,7 +82,7 @@ for await (const line of input) {
           reply: "",
           input_tokens: 0,
           output_tokens: 0,
-          tool_calls: 0,
+          tool_calls: cancelCount,
           remaining_steering: steered,
         },
       }), 25);

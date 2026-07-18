@@ -36,7 +36,6 @@ export interface StorageSessionRecord {
 
 export interface StoragePort {
   ensureSession(request: SessionWorkspaceRequest): Promise<void>;
-  rebindSession(request: SessionWorkspaceRequest): Promise<void>;
   upsertResponseRoute(request: JsonObject): Promise<void>;
   /** Reads the session from the in-process Runtime store. */
   getSession(sessionId: string): Promise<StorageSessionRecord | undefined>;
@@ -226,23 +225,12 @@ export class SessionRouter {
     if (existing?.session_id) {
       const stored = await this.options.storage.getSession(existing.session_id);
       const workspace = stored?.workspace ?? this.options.defaultWorkspace();
-      try {
-        await this.options.storage.rebindSession({
-          session_id: existing.session_id,
-          source: { ...context.source },
-          workspace,
-        });
-        this.logger.debug("session_rebound", { session_id: existing.session_id, session_key: context.session_key });
-      } catch (error) {
-        if (!(error instanceof SessionNotFoundError)) throw error;
-        await this.options.storage.ensureSession({
-          session_id: existing.session_id,
-          source: { ...context.source },
-          workspace,
-          entry_text: context.user_input,
-        });
-        this.logger.info("session_created", { session_id: existing.session_id, session_key: context.session_key, recovered_binding: true });
-      }
+      await this.options.storage.ensureSession({
+        session_id: existing.session_id,
+        source: { ...context.source },
+        workspace,
+      });
+      this.logger.debug("session_refreshed", { session_id: existing.session_id, session_key: context.session_key });
       return existing;
     }
     const entry = this.options.bindings.getOrCreate(SessionSource.from(context.source));
