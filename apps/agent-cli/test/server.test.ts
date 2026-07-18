@@ -3,7 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger } from "@lxe/core";
-import { AGENT_PROTOCOL_VERSION, type AgentEvent, type AgentResponse } from "@lxe/desktop-protocol";
+import {
+  AGENT_PROTOCOL_VERSION,
+  DashboardRpcError,
+  type AgentEvent,
+  type AgentResponse,
+} from "@lxe/desktop-protocol";
 import { AgentProtocolServer, type AgentProtocolServerOptions } from "../src/server";
 
 type CreateService = NonNullable<AgentProtocolServerOptions["createService"]>;
@@ -22,6 +27,9 @@ const fakeService: CreateService = (() => ({
   },
   stop: async () => undefined,
   health: () => ({ ready: true }),
+  dashboardCall: async () => {
+    throw new DashboardRpcError("not_found", "dashboard item not found");
+  },
 })) as unknown as CreateService;
 
 describe("AgentProtocolServer", () => {
@@ -53,6 +61,34 @@ describe("AgentProtocolServer", () => {
       ok: true,
       result: { ready: false },
     });
+  });
+
+  test("propagates Dashboard RPC errors through the agent error envelope", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    const root = process.cwd();
+    const server = new AgentProtocolServer({
+      write: (message) => { output.push(message); },
+      createService: fakeService,
+      environment: { LOCAL_LOGS_ENABLED: "0" },
+    });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "initialize-dashboard",
+      command: "initialize",
+      payload: { resource_root: root, data_root: root, legacy_workspace: workspace(root) },
+    }));
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "dashboard-1",
+      command: "dashboard_call",
+      payload: { operation: "models.list", input: {} },
+    }));
+    expect(output.find((message) => !("type" in message) && message.id === "dashboard-1"))
+      .toMatchObject({
+        ok: false,
+        error: { code: "not_found", message: "dashboard item not found" },
+      });
+    await server.shutdown();
   });
 
   test("writes the shutdown response before requesting process exit", async () => {

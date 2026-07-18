@@ -8,6 +8,14 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import {
+  DashboardRpcError,
+  type AgentDashboardRpcCall,
+  type AgentDashboardRpcHandlers,
+  type AgentDashboardRpcOperation,
+  type DashboardRpcResult,
+  type DashboardRpcSpec,
+} from "@lxe/desktop-protocol";
 import type { JsonObject } from "@lxe/protocol";
 import {
   mcpServerPrefix,
@@ -25,7 +33,7 @@ import {
 
 type Environment = Record<string, string | undefined>;
 
-interface DashboardApiOptions {
+interface DashboardServiceOptions {
   /** Read-only application resources containing config schemas, skills, and docs. */
   projectRoot: string;
   /** Writable desktop/source state. Defaults to projectRoot for source compatibility. */
@@ -73,7 +81,6 @@ const connectorDefinitions = [
   },
 ] as const;
 
-const json = (value: unknown, status = 200): Response => Response.json(value, { status });
 const text = (value: unknown): string => String(value ?? "").trim();
 const normalizeProviderKey = (value: unknown): string =>
   text(value).toLowerCase().replaceAll("-", "_").replaceAll(/\s+/g, "_");
@@ -82,9 +89,8 @@ const optionalFlag = (value: unknown): boolean | undefined => {
   if (!normalized) return undefined;
   return ["1", "true", "yes", "on"].includes(normalized);
 };
-const integer = (value: string | null, fallback: number, minimum: number, maximum: number): number => {
-  const parsed = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(parsed) ? Math.max(minimum, Math.min(parsed, maximum)) : fallback;
+const integer = (value: number | undefined, fallback: number, minimum: number, maximum: number): number => {
+  return value === undefined ? fallback : Math.max(minimum, Math.min(Math.trunc(value), maximum));
 };
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -104,12 +110,7 @@ const recursiveFiles = (root: string, predicate: (path: string) => boolean): str
 };
 
 const safeChild = (root: string, rawPath: string, extension?: string): string | undefined => {
-  let requested: string;
-  try {
-    requested = decodeURIComponent(rawPath).replaceAll("\\", "/");
-  } catch {
-    return undefined;
-  }
+  const requested = rawPath.replaceAll("\\", "/");
   if (!requested || requested.startsWith("/") || requested.startsWith("~") || requested.includes(":")) return undefined;
   const parts = requested.split("/").filter(Boolean);
   if (parts.some((part) => part === "." || part === "..")) return undefined;
@@ -136,7 +137,11 @@ const markdownStatus = (content: string): string => {
 
 const loadJson = (path: string): Record<string, unknown> => object(JSON.parse(readFileSync(path, "utf8")));
 
-export class DashboardApi {
+function rpcError(code: ConstructorParameters<typeof DashboardRpcError>[0], message: string): never {
+  throw new DashboardRpcError(code, message);
+}
+
+export class DashboardService {
   private readonly connectorStatePath: string;
   private readonly skillCatalog: SkillCatalog;
   private connectorStateCache: {
@@ -144,78 +149,84 @@ export class DashboardApi {
     state: { enabled: string[]; everConnected: string[]; userDisabled: string[] };
   } | undefined;
 
-  constructor(private readonly options: DashboardApiOptions) {
+  private readonly handlers: AgentDashboardRpcHandlers = {
+    "sessions.list": (input) => this.sessions(input) as DashboardRpcResult<"sessions.list">,
+    "sessions.detail": (input) => this.session(input) as Promise<DashboardRpcResult<"sessions.detail">>,
+    "sessions.workspace.reload": (input) => this.reloadWorkspace(input),
+    "skills.list": () => this.listPayload(this.skills()) as DashboardRpcResult<"skills.list">,
+    "skills.content": (input) => this.skillContent(input.name) as DashboardRpcResult<"skills.content">,
+    "skills.reference": (input) => this.skillReference(input.name, input.path) as DashboardRpcResult<"skills.reference">,
+    "commands.list": () => this.listPayload(this.options.cliCommands ?? []) as DashboardRpcResult<"commands.list">,
+    "docs.list": () => this.listPayload(this.docs()) as DashboardRpcResult<"docs.list">,
+    "docs.content": (input) => this.doc(input.path) as DashboardRpcResult<"docs.content">,
+    "connectors.list": () => this.listPayload(this.connectors()) as DashboardRpcResult<"connectors.list">,
+    "connectors.update": (input) => this.updateConnector(input) as Promise<DashboardRpcResult<"connectors.update">>,
+    "toolsets.list": () => this.listPayload(this.toolsets()) as DashboardRpcResult<"toolsets.list">,
+    "mcp.servers.list": () => this.mcpServers() as DashboardRpcResult<"mcp.servers.list">,
+    "mcp.servers.update": (input) => this.updateMcp(input) as Promise<DashboardRpcResult<"mcp.servers.update">>,
+    "backgroundTasks.list": () => this.listPayload(this.options.backgroundTasks?.() ?? []) as DashboardRpcResult<"backgroundTasks.list">,
+    "stats.overview": (input) => this.overview(input.days) as DashboardRpcResult<"stats.overview">,
+    "stats.skills.list": (input) => {
+      const days = this.days(input.days);
+      return { ...this.listPayload(this.options.store.skillUsageStats(days)), days } as DashboardRpcResult<"stats.skills.list">;
+    },
+    "stats.skills.detail": (input) => {
+      const days = this.days(input.days);
+      return { ...this.options.store.skillUsageDetail(input.name, days), days } as DashboardRpcResult<"stats.skills.detail">;
+    },
+    "stats.tools.list": (input) => {
+      const days = this.days(input.days);
+      return { ...this.listPayload(this.options.store.toolUsageStats(days)), days } as DashboardRpcResult<"stats.tools.list">;
+    },
+    "models.list": () => this.listPayload(this.models()) as DashboardRpcResult<"models.list">,
+    "models.current": () => this.currentModel() as DashboardRpcResult<"models.current">,
+    "models.update": (input) => this.updateModel(input) as Promise<DashboardRpcResult<"models.update">>,
+    "models.thinking.update": (input) => this.updateThinking(input) as Promise<DashboardRpcResult<"models.thinking.update">>,
+  };
+
+  constructor(private readonly options: DashboardServiceOptions) {
     this.connectorStatePath = options.connectorStatePath
       ?? (text(options.environment.LXE_CONNECTOR_STATE_PATH)
         || join(options.stateRoot ?? options.projectRoot, "config", "connector-states.local.json"));
     this.skillCatalog = options.skillCatalog ?? new SkillCatalog(options.projectRoot);
   }
 
-  async handle(request: Request, url: URL): Promise<Response | undefined> {
-    const path = url.pathname;
-    if (request.method === "GET" && path === "/api/sessions") return json(this.sessions(url));
-    if (request.method === "GET" && path.startsWith("/api/sessions/")) return this.session(path, url);
-    if (request.method === "PATCH" && path.startsWith("/api/sessions/") && path.endsWith("/workspace/reload")) {
-      const sessionId = decodeURIComponent(path.slice("/api/sessions/".length, -"/workspace/reload".length));
-      if (!sessionId) return json({ detail: "session id is required" }, 400);
-      if (!this.options.reloadWorkspace) return json({ detail: "workspace reload is unavailable" }, 503);
-      return json(await this.options.reloadWorkspace(sessionId));
-    }
-    if (request.method === "GET" && path === "/api/skills") return json(this.listPayload(this.skills()));
-    if (request.method === "GET" && path === "/api/commands") return json(this.listPayload(this.options.cliCommands ?? []));
-    if (request.method === "GET" && path.startsWith("/api/skills/")) return this.skill(path);
-    if (request.method === "GET" && path === "/api/project-docs") return json(this.listPayload(this.docs()));
-    if (request.method === "GET" && path.startsWith("/api/project-docs/")) return this.doc(path);
-    if (request.method === "GET" && path === "/api/connectors") return json(this.listPayload(this.connectors()));
-    if (request.method === "PATCH" && path.startsWith("/api/connectors/")) return this.patchConnector(request, path);
-    if (request.method === "GET" && path === "/api/tools/toolsets") return json(this.listPayload(this.toolsets()));
-    if (request.method === "GET" && path === "/api/mcp/servers") return json(this.mcpServers());
-    if (request.method === "PATCH" && path.startsWith("/api/mcp/servers/")) return this.patchMcp(request, path);
-    if (request.method === "GET" && path === "/api/background-tasks") {
-      return json(this.listPayload(this.options.backgroundTasks?.() ?? []));
-    }
-    if (request.method === "GET" && path === "/api/stats/overview") return json(this.overview(url));
-    if (request.method === "GET" && path === "/api/stats/skills") {
-      const days = this.days(url);
-      return json({ ...this.listPayload(this.options.store.skillUsageStats(days)), days });
-    }
-    if (request.method === "GET" && path.startsWith("/api/stats/skills/")) {
-      const name = decodeURIComponent(path.slice("/api/stats/skills/".length));
-      const days = this.days(url);
-      return json({ ...this.options.store.skillUsageDetail(name, days), days });
-    }
-    if (request.method === "GET" && path === "/api/stats/tools") {
-      const days = this.days(url);
-      return json({ ...this.listPayload(this.options.store.toolUsageStats(days)), days });
-    }
-    if (request.method === "GET" && path === "/api/models") return json(this.listPayload(this.models()));
-    if (request.method === "GET" && path === "/api/models/current") return json(this.currentModel());
-    if (request.method === "PATCH" && path === "/api/models/current") return this.patchModel(request);
-    if (request.method === "PATCH" && path === "/api/models/current/thinking") return this.patchThinking(request);
-    return undefined;
+  async call<O extends AgentDashboardRpcOperation>(
+    call: AgentDashboardRpcCall<O>,
+  ): Promise<DashboardRpcResult<O>> {
+    const handler = this.handlers[call.operation] as (
+      input: DashboardRpcSpec[O]["input"],
+    ) => DashboardRpcResult<O> | Promise<DashboardRpcResult<O>>;
+    return handler(call.input);
   }
 
   private listPayload(items: unknown[]): { items: unknown[]; total: number } {
     return { items, total: items.length };
   }
 
-  private sessions(url: URL): ReturnType<SqliteRuntimeStore["listSessions"]> {
+  private sessions(input: DashboardRpcSpec["sessions.list"]["input"]): ReturnType<SqliteRuntimeStore["listSessions"]> {
     return this.options.store.listSessions({
-      limit: integer(url.searchParams.get("limit"), 50, 1, 200),
-      offset: integer(url.searchParams.get("offset"), 0, 0, Number.MAX_SAFE_INTEGER),
-      query: url.searchParams.get("q") ?? "",
+      limit: integer(input.limit, 50, 1, 200),
+      offset: integer(input.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+      query: input.query ?? "",
     });
   }
 
-  private async session(path: string, url: URL): Promise<Response> {
-    const sessionId = decodeURIComponent(path.slice("/api/sessions/".length));
-    const detail = await this.options.store.sessionDetail(sessionId, {
-      limit: integer(url.searchParams.get("message_limit"), 10, 1, 200),
-      ...(url.searchParams.has("message_page")
-        ? { page: integer(url.searchParams.get("message_page"), 1, 1, Number.MAX_SAFE_INTEGER) }
-        : {}),
+  private async session(input: DashboardRpcSpec["sessions.detail"]["input"]): Promise<JsonObject> {
+    const detail = await this.options.store.sessionDetail(input.session_id, {
+      limit: integer(input.message_limit, 10, 1, 200),
+      ...(input.message_page === undefined
+        ? {}
+        : { page: integer(input.message_page, 1, 1, Number.MAX_SAFE_INTEGER) }),
     });
-    return detail ? json(detail) : json({ detail: "session not found" }, 404);
+    return detail ?? rpcError("not_found", "session not found");
+  }
+
+  private async reloadWorkspace(
+    input: DashboardRpcSpec["sessions.workspace.reload"]["input"],
+  ): Promise<DashboardRpcResult<"sessions.workspace.reload">> {
+    if (!this.options.reloadWorkspace) rpcError("unavailable", "workspace reload is unavailable");
+    return this.options.reloadWorkspace(input.session_id) as Promise<DashboardRpcResult<"sessions.workspace.reload">>;
   }
 
   private skills(): SkillManifest[] {
@@ -245,24 +256,21 @@ export class DashboardApi {
     this.connectorStateCache = undefined;
   }
 
-  private skill(path: string): Response {
-    const rest = path.slice("/api/skills/".length);
-    const contentSuffix = "/content";
-    const referenceMarker = "/references/";
-    const name = decodeURIComponent(rest.includes(referenceMarker)
-      ? rest.slice(0, rest.indexOf(referenceMarker))
-      : rest.endsWith(contentSuffix) ? rest.slice(0, -contentSuffix.length) : rest);
+  private skillContent(name: string): JsonObject {
     const manifest = this.skills().find((item) => item.name === name);
-    if (!manifest) return json({ detail: "skill not found" }, 404);
-    if (rest.endsWith(contentSuffix)) return json(this.skillPayload(manifest, true));
-    const markerIndex = rest.indexOf(referenceMarker);
-    if (markerIndex < 0) return json({ detail: "not found" }, 404);
-    const requested = decodeURIComponent(rest.slice(markerIndex + referenceMarker.length)).replaceAll("\\", "/");
+    if (!manifest) rpcError("not_found", "skill not found");
+    return this.skillPayload(manifest, true);
+  }
+
+  private skillReference(name: string, path: string): JsonObject {
+    const manifest = this.skills().find((item) => item.name === name);
+    if (!manifest) rpcError("not_found", "skill not found");
+    const requested = path.replaceAll("\\", "/");
     const reference = manifest.references.find((item) => item.path.replaceAll("\\", "/") === requested);
-    if (!reference) return json({ detail: "skill reference not found" }, 404);
+    if (!reference) rpcError("not_found", "skill reference not found");
     const file = safeChild(manifest.root, reference.path);
-    if (!file || !existsSync(file)) return json({ detail: "skill reference not found" }, 404);
-    return json({ skill_name: manifest.name, ...reference, location: file, content: readFileSync(file, "utf8") });
+    if (!file || !existsSync(file)) rpcError("not_found", "skill reference not found");
+    return { skill_name: manifest.name, ...reference, location: file, content: readFileSync(file, "utf8") };
   }
 
   private skillPayload(manifest: SkillManifest, includeContent = false): JsonObject {
@@ -293,13 +301,14 @@ export class DashboardApi {
     });
   }
 
-  private doc(path: string): Response {
-    const requestPath = path.slice("/api/project-docs/".length);
-    const file = safeChild(join(this.options.projectRoot, "docs"), requestPath, ".md");
-    if (!file || !existsSync(file)) return json({ detail: "project doc not found" }, 404);
+  private doc(path: string): JsonObject {
+    const file = safeChild(join(this.options.projectRoot, "docs"), path, ".md");
+    if (!file || !existsSync(file)) rpcError("not_found", "project doc not found");
     const relativePath = relative(join(this.options.projectRoot, "docs"), file).replaceAll("\\", "/");
     const item = this.docs().find((doc) => doc.path === relativePath);
-    return item ? json({ ...item, content: readFileSync(file, "utf8") }) : json({ detail: "project doc not found" }, 404);
+    return item
+      ? { ...item, content: readFileSync(file, "utf8") }
+      : rpcError("not_found", "project doc not found");
   }
 
   private connectorState(): { enabled: string[]; everConnected: string[]; userDisabled: string[] } {
@@ -342,27 +351,25 @@ export class DashboardApi {
     }));
   }
 
-  private async patchConnector(request: Request, path: string): Promise<Response> {
-    const id = decodeURIComponent(path.slice("/api/connectors/".length));
-    if (!connectorDefinitions.some((item) => item.id === id)) return json({ detail: "connector not found" }, 404);
-    const body = object(await request.json());
-    if (typeof body.enabled !== "boolean") return json({ detail: "enabled must be a boolean" }, 400);
+  private async updateConnector(input: DashboardRpcSpec["connectors.update"]["input"]): Promise<JsonObject> {
+    const { id, enabled } = input;
+    if (!connectorDefinitions.some((item) => item.id === id)) rpcError("not_found", "connector not found");
     const state = this.connectorState();
     const update = (items: string[], include: boolean): string[] => [...new Set(include
       ? [...items, id]
       : items.filter((item) => item !== id))].sort();
     const next = {
       version: 1,
-      enabled: update(state.enabled, body.enabled),
-      everConnected: update(state.everConnected, body.enabled || state.everConnected.includes(id)),
-      userDisabled: update(state.userDisabled, !body.enabled),
+      enabled: update(state.enabled, enabled),
+      everConnected: update(state.everConnected, enabled || state.everConnected.includes(id)),
+      userDisabled: update(state.userDisabled, !enabled),
     };
     mkdirSync(dirname(this.connectorStatePath), { recursive: true });
     const temporary = `${this.connectorStatePath}.tmp`;
     writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, "utf8");
     renameSync(temporary, this.connectorStatePath);
     this.connectorStateCache = undefined;
-    return json(this.connectors().find((item) => item.id === id));
+    return this.connectors().find((item) => item.id === id)!;
   }
 
   private toolsets(): JsonObject[] {
@@ -413,23 +420,21 @@ export class DashboardApi {
     return { items, total: items.length, tool_total: items.reduce((sum, item) => sum + Number(item.tool_count ?? 0), 0) };
   }
 
-  private async patchMcp(request: Request, path: string): Promise<Response> {
-    const name = decodeURIComponent(path.slice("/api/mcp/servers/".length));
+  private async updateMcp(input: DashboardRpcSpec["mcp.servers.update"]["input"]): Promise<JsonObject> {
+    const { name, enabled } = input;
     const server = this.options.mcpConfig.servers.find((item) => item.name === name);
-    if (!server) return json({ detail: "MCP server not found" }, 404);
-    const body = object(await request.json());
-    if (typeof body.enabled !== "boolean") return json({ detail: "enabled must be a boolean" }, 400);
-    server.enabled = body.enabled;
-    await this.options.setMcpEnabled?.(name, body.enabled);
-    return json(this.mcpServer(server));
+    if (!server) rpcError("not_found", "MCP server not found");
+    server.enabled = enabled;
+    await this.options.setMcpEnabled?.(name, enabled);
+    return this.mcpServer(server);
   }
 
-  private days(url: URL): number {
-    return integer(url.searchParams.get("days"), 30, 1, 365);
+  private days(days: number | undefined): number {
+    return integer(days, 30, 1, 365);
   }
 
-  private overview(url: URL): JsonObject {
-    return this.options.store.usageOverview(this.days(url));
+  private overview(days: number | undefined): JsonObject {
+    return this.options.store.usageOverview(this.days(days));
   }
 
   private providerSpecs(): Record<string, unknown>[] {
@@ -563,12 +568,11 @@ export class DashboardApi {
     }
   }
 
-  private async patchModel(request: Request): Promise<Response> {
-    const body = object(await request.json());
-    const spec = this.providerSpec(text(body.provider));
-    if (!spec) return json({ detail: "Unsupported model provider" }, 400);
+  private async updateModel(input: DashboardRpcSpec["models.update"]["input"]): Promise<JsonObject> {
+    const spec = this.providerSpec(input.provider);
+    if (!spec) rpcError("invalid_argument", "Unsupported model provider");
     const provider = normalizeProviderKey(spec.name);
-    const requestedModel = text(body.model);
+    const requestedModel = text(input.model);
     const models = object(spec.models);
     const activeProvider = normalizeProviderKey(this.options.environment.AGENT_LLM_PROVIDER);
     const activePreference = activeProvider ? this.providerRuntimePreference(activeProvider) : undefined;
@@ -579,8 +583,10 @@ export class DashboardApi {
     const model = preferredModel in models
       ? preferredModel
       : requestedModel ? preferredModel : text(spec.default_model);
-    if (!(model in models)) return json({ detail: "Unsupported model for provider" }, 400);
-    if (!this.authEnvNames(provider).some((name) => Boolean(text(this.options.environment[name])))) return json({ detail: "missing API key" }, 400);
+    if (!(model in models)) rpcError("invalid_argument", "Unsupported model for provider");
+    if (!this.authEnvNames(provider).some((name) => Boolean(text(this.options.environment[name])))) {
+      rpcError("failed_precondition", "missing API key");
+    }
     const modelSpec = object(models[model]);
     const levels = Array.isArray(modelSpec.thinking_levels) ? modelSpec.thinking_levels.map(text) : [];
     const defaultEffort = text(modelSpec.thinking_default) || (levels[0] ?? "off");
@@ -633,19 +639,20 @@ export class DashboardApi {
       ...environmentPatch,
       ...providerPreferencePatch(provider, environmentPatch),
     });
-    return json({
+    return {
       ...this.modelPayload(spec, model),
       generation: snapshot?.generation ?? 0,
       effective_from: "next_turn",
-    });
+    };
   }
 
-  private async patchThinking(request: Request): Promise<Response> {
-    const body = object(await request.json());
+  private async updateThinking(input: DashboardRpcSpec["models.thinking.update"]["input"]): Promise<JsonObject> {
     const current = this.currentModel();
-    const level = text(body.level).toLowerCase();
+    const level = text(input.level).toLowerCase();
     const levels = Array.isArray(current.thinking_levels) ? current.thinking_levels.map(text) : [];
-    if (!levels.includes(level)) return json({ detail: `Current model thinking level must be one of: ${levels.join(", ")}` }, 400);
+    if (!levels.includes(level)) {
+      rpcError("invalid_argument", `Current model thinking level must be one of: ${levels.join(", ")}`);
+    }
     const provider = normalizeProviderKey(current.provider);
     const environmentPatch = { AGENT_LLM_THINKING_ENABLED: level === "off" ? "0" : "1", AGENT_LLM_THINKING_EFFORT: level };
     const snapshot = this.options.providerManager
@@ -659,7 +666,7 @@ export class DashboardApi {
       ...environmentPatch,
       ...providerPreferencePatch(provider, environmentPatch),
     });
-    return json({ ...this.currentModel(), generation: snapshot?.generation ?? 0, effective_from: "next_turn" });
+    return { ...this.currentModel(), generation: snapshot?.generation ?? 0, effective_from: "next_turn" };
   }
 
   private updateEnvironment(values: Record<string, string>): void {

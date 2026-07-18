@@ -11,14 +11,15 @@ import {
 } from "electron";
 import { createLogger } from "@lxe/core";
 import type {
-  DashboardTransportRequest,
+  DashboardRpcCall,
+  DashboardRpcOperation,
+  DashboardRpcResult,
   DesktopCloudActivationInput,
   DesktopDashboardInvalidation,
   DesktopHealth,
   DesktopSetupInput,
   DesktopSetupState,
 } from "@lxe/desktop-protocol";
-import type { JsonValue } from "@lxe/protocol";
 import { loadProjectEnv } from "@lxe/gateway/desktop";
 import { IPC_CHANNELS } from "./ipc-channels";
 import { registerDashboardProtocol } from "./main/app-protocol";
@@ -209,11 +210,11 @@ async function bootstrap(): Promise<void> {
     },
   });
   const ipcApplication: DesktopIpcApplication = {
-    dashboardRequest: async (request: DashboardTransportRequest): Promise<JsonValue> => {
-      const result = await gateway.dashboardRequest(request);
-      if (request.method === "PATCH") {
-        invalidations.push(dashboardDomainsForMutation(request.path));
-      }
+    dashboardCall: async <O extends DashboardRpcOperation>(
+      call: DashboardRpcCall<O>,
+    ): Promise<DashboardRpcResult<O>> => {
+      const result = await gateway.dashboardCall(call);
+      invalidations.push(dashboardDomainsForMutation(call.operation));
       return result;
     },
     getHealth: () => gateway.health(),

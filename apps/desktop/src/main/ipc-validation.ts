@@ -1,28 +1,9 @@
 import type {
-  DashboardTransportRequest,
+  DashboardRpcCall,
   DesktopCloudActivationInput,
   DesktopSetupInput,
 } from "@lxe/desktop-protocol";
-
-const GET_PATHS = [
-  /^\/api\/sessions(?:\/[^/?#]+)?$/u,
-  /^\/api\/skills(?:\/[^/?#]+(?:\/content|\/references\/[^?#]+)?)?$/u,
-  /^\/api\/commands$/u,
-  /^\/api\/project-docs(?:\/[^?#]+)?$/u,
-  /^\/api\/connectors$/u,
-  /^\/api\/tools\/toolsets$/u,
-  /^\/api\/mcp\/servers$/u,
-  /^\/api\/background-tasks$/u,
-  /^\/api\/stats\/(?:overview|skills(?:\/[^/?#]+)?|tools)$/u,
-  /^\/api\/models(?:\/current)?$/u,
-  /^\/api\/channels\/health$/u,
-];
-const PATCH_PATHS = [
-  /^\/api\/sessions\/[^/?#]+\/workspace\/reload$/u,
-  /^\/api\/connectors\/[^/?#]+$/u,
-  /^\/api\/mcp\/servers\/[^/?#]+$/u,
-  /^\/api\/models\/current(?:\/thinking)?$/u,
-];
+import { parseDashboardRpcCall } from "@lxe/desktop-protocol";
 
 const objectValue = (value: unknown, label: string): Record<string, unknown> => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
@@ -52,28 +33,8 @@ export function validateCloudActivationInput(value: unknown): DesktopCloudActiva
   return { enrollment_id: enrollmentId, password };
 }
 
-export function validateDashboardRequest(value: unknown): DashboardTransportRequest {
-  const request = objectValue(value, "Dashboard request");
-  const method = String(request.method ?? "").toUpperCase();
-  if (method !== "GET" && method !== "PATCH") throw new Error("Dashboard method is not allowed");
-  const rawPath = boundedText(request.path, "Dashboard path", 8_192);
-  const url = new URL(rawPath, "http://desktop.lxe");
-  if (url.origin !== "http://desktop.lxe") throw new Error("Dashboard origin is not allowed");
-  const patterns = method === "GET" ? GET_PATHS : PATCH_PATHS;
-  if (!patterns.some((pattern) => pattern.test(url.pathname))) {
-    throw new Error(`Dashboard path is not allowed: ${url.pathname}`);
-  }
-  if (method === "GET" && request.body !== undefined) throw new Error("GET requests cannot contain a body");
-  const body = request.body;
-  if (body !== undefined) objectValue(body, "Dashboard request body");
-  if (body !== undefined && JSON.stringify(body).length > 1_000_000) {
-    throw new Error("Dashboard request body is too large");
-  }
-  return {
-    method,
-    path: `${url.pathname}${url.search}`,
-    ...(body === undefined ? {} : { body }),
-  } as DashboardTransportRequest;
+export function validateDashboardRpcCall(value: unknown): DashboardRpcCall {
+  return parseDashboardRpcCall(value);
 }
 
 export function validateSetupInput(value: unknown): DesktopSetupInput {

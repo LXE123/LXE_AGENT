@@ -16,24 +16,27 @@ Claude Code's stream JSON mode:
 - lifecycle and turn progress are independent event envelopes.
 
 The protocol is private to the Electron application. It is not installed on the
-system `PATH` and is versioned independently with `version: 1`.
+system `PATH` and is versioned independently. The current typed Dashboard RPC
+cutover uses `version: 2`.
 
 ## Request and response envelopes
 
 ```json
-{"version":1,"id":"request-1","command":"health","payload":{}}
-{"version":1,"id":"request-1","ok":true,"result":{"ready":true}}
+{"version":2,"id":"request-1","command":"health","payload":{}}
+{"version":2,"id":"request-1","ok":true,"result":{"ready":true}}
 ```
 
 Errors preserve the request ID:
 
 ```json
-{"version":1,"id":"request-1","ok":false,"error":{"code":"RunUnavailable","message":"run not found"}}
+{"version":2,"id":"request-1","ok":false,"error":{"code":"RunUnavailable","message":"run not found"}}
 ```
 
 Supported commands are `initialize`, `run_turn`, `cancel_turn`, `steer_turn`,
-the session and pending-event storage operations, `dashboard_request`, `health`,
-and `shutdown`. `initialize` supplies resource, data, and workspace roots before
+the session and pending-event storage operations, `dashboard_call`, `health`,
+and `shutdown`. `dashboard_call` carries a validated `{ operation, input }`
+envelope and returns the operation result directly; it has no HTTP method, path,
+status, `Request`, or `Response`. `initialize` supplies resource, data, and workspace roots before
 any stateful command is accepted.
 
 ## Events and session continuity

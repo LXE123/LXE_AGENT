@@ -70,7 +70,7 @@ test("dashboard entry delegates feature views to dedicated modules", () => {
     main,
     /^function (SessionDetailView|DocsShell|ModelsView|ToolsView|ConnectionsView|SkillsView|BackgroundTasksView|DetailModal)\(/m
   );
-  assert.doesNotMatch(main, /type DashboardData|setData\(|fetchJson/);
+  assert.doesNotMatch(main, /type DashboardData|setData\(|fetchJson|patchJson/);
   sourceFiles(sourceDir)
     .filter((file) => path.basename(file) !== "main.tsx")
     .forEach((file) => {
@@ -79,9 +79,9 @@ test("dashboard entry delegates feature views to dedicated modules", () => {
     });
 
   sourceFiles(sourceDir)
-    .filter((file) => !["api/client.ts", "api/queries.ts"].includes(sourceRelativePath(file)))
+    .filter((file) => !["main.tsx", "api/client.ts", "api/queries.ts"].includes(sourceRelativePath(file)))
     .forEach((file) => {
       const source = readFileSync(file, "utf8");
-      assert.doesNotMatch(source, /\bfetchJson\b/, `${file} must read server state through Query hooks`);
+      assert.doesNotMatch(source, /\bcallDashboard\b/, `${file} must read server state through Query hooks`);
     });
 });

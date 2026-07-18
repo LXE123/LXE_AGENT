@@ -22,7 +22,7 @@ flowchart LR
     F --> G["飞书 CardKit / 消息 / 文件"]
 ```
 
-Dashboard 也不直接连接 Runtime。Renderer 先通过白名单 IPC 请求 Electron Main；需要 Agent 数据时，Main 再通过同一套私有协议请求 `agent-cli`。
+Dashboard 也不直接连接 Runtime。Renderer 先通过白名单 IPC 发送类型化 `{ operation, input }` 调用；需要 Agent 数据时，Main 再通过同一套私有协议调用 `agent-cli`，不模拟 HTTP 请求或响应。
 
 ## 谁负责什么
 

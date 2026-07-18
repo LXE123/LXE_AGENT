@@ -3,10 +3,15 @@ import { join, resolve } from "node:path";
 import type {
   EmitRequest,
   JsonObject,
-  JsonValue,
   SessionWorkspaceRequest,
   WorkspaceContext,
 } from "@lxe/protocol";
+import {
+  DashboardRpcError,
+  type AgentDashboardRpcCall,
+  type AgentDashboardRpcOperation,
+  type DashboardRpcResult,
+} from "@lxe/desktop-protocol";
 import { assertWorkspaceAvailable, createLogger, runWithLogContext, type Logger } from "@lxe/core";
 import {
   AtomicRuntimeProviderManager,
@@ -32,7 +37,7 @@ import {
   type RuntimeHandle,
   type TurnOutcome,
 } from "@lxe/runtime";
-import { DashboardApi } from "../dashboard/api";
+import { DashboardService } from "../dashboard/service";
 import { loadFeishuConfig } from "../channels/feishu/config";
 import {
   createOfficialFeishuImToolApi,
@@ -52,11 +57,6 @@ export interface ProductionAgentServiceOptions {
   logger?: Logger;
 }
 
-export interface DashboardAgentResponse extends JsonObject {
-  status: number;
-  body: JsonValue;
-}
-
 export interface ProductionAgentService {
   readonly runtime: TypeScriptAgentRuntime;
   readonly store: SqliteRuntimeStore;
@@ -68,11 +68,11 @@ export interface ProductionAgentService {
   popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   hasPendingEvents(sessionId: string): Promise<boolean>;
-  dashboardRequest(method: "GET" | "PATCH", path: string, body?: JsonObject): Promise<DashboardAgentResponse>;
+  dashboardCall<O extends AgentDashboardRpcOperation>(
+    call: AgentDashboardRpcCall<O>,
+  ): Promise<DashboardRpcResult<O>>;
   health(): JsonObject;
 }
-
-const jsonValue = (value: unknown): JsonValue => value as JsonValue;
 
 export function createProductionAgentService(
   options: ProductionAgentServiceOptions,
@@ -211,7 +211,7 @@ export function createProductionAgentService(
   const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment));
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;
-  const dashboardApi = new DashboardApi({
+  const dashboardService = new DashboardService({
     projectRoot: options.resourceRoot,
     stateRoot: options.dataRoot,
     environment,
@@ -231,7 +231,7 @@ export function createProductionAgentService(
     providerManager,
     reloadWorkspace: async (sessionId) => {
       const session = await store.getSession(sessionId);
-      if (!session) throw new Error(`session not found: ${sessionId}`);
+      if (!session) throw new DashboardRpcError("not_found", `session not found: ${sessionId}`);
       return workspaceInstances.reload(assertWorkspaceAvailable(session.workspace), "dashboard_diagnostic");
     },
   });
@@ -240,7 +240,7 @@ export function createProductionAgentService(
     connectorStatePath,
     skillCatalog,
     skillOptions: () => {
-      const policy = dashboardApi.runtimeConnectorPolicy();
+      const policy = dashboardService.runtimeConnectorPolicy();
       return {
         ...(options.allowedSkillTypes
           ? { allowedTypes: options.allowedSkillTypes }
@@ -248,8 +248,8 @@ export function createProductionAgentService(
         disabledNames: policy.disabledSkillNames,
       };
     },
-    disabledConnectorIds: () => dashboardApi.runtimeConnectorPolicy().disabledConnectorIds,
-    beforeForceRefresh: () => dashboardApi.invalidateRuntimeConfigCache(),
+    disabledConnectorIds: () => dashboardService.runtimeConnectorPolicy().disabledConnectorIds,
+    beforeForceRefresh: () => dashboardService.invalidateRuntimeConfigCache(),
   });
   const providerDescriptor = providerManager.acquire().descriptor;
   const runtime = new TypeScriptAgentRuntime({
@@ -300,23 +300,7 @@ export function createProductionAgentService(
     popPendingEvents: (sessionId) => store.popPendingEvents(sessionId),
     appendPendingEvent: (sessionId, event) => store.appendPendingEvent(sessionId, event),
     hasPendingEvents: (sessionId) => store.hasPendingEvents(sessionId),
-    dashboardRequest: async (method, path, body) => {
-      const url = new URL(path, "http://desktop.lxe");
-      if (url.origin !== "http://desktop.lxe" || !url.pathname.startsWith("/api/")) {
-        return { status: 400, body: { detail: "invalid dashboard path" } };
-      }
-      const request = new Request(url.toString(), {
-        method,
-        headers: { Accept: "application/json", "Content-Type": "application/json" },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-      });
-      const response = await dashboardApi.handle(request, url);
-      if (!response) return { status: 404, body: { detail: "not found" } };
-      const responseBody = response.headers.get("content-type")?.includes("application/json")
-        ? jsonValue(await response.json())
-        : await response.text();
-      return { status: response.status, body: responseBody };
-    },
+    dashboardCall: (call) => dashboardService.call(call),
     health: () => {
       const lxeSkillStatus = lxeSkillRuntime.snapshot();
       return {

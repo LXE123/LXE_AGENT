@@ -85,12 +85,15 @@ class ProtocolRunHandle implements RuntimeHandle {
 
 const errorResponse = (id: string, cause: unknown): AgentResponse => {
   const error = cause instanceof Error ? cause : new Error(String(cause));
+  const code = typeof (error as Error & { code?: unknown }).code === "string"
+    ? String((error as Error & { code: string }).code)
+    : error.name || "AgentProtocolError";
   return {
     version: AGENT_PROTOCOL_VERSION,
     id,
     ok: false,
     error: {
-      code: error.name || "AgentProtocolError",
+      code,
       message: error.message,
     },
   };
@@ -167,12 +170,8 @@ export class AgentProtocolServer {
         return { appended: true };
       case "has_pending_events":
         return { pending: await this.readyService().hasPendingEvents(request.payload.session_id) };
-      case "dashboard_request":
-        return this.readyService().dashboardRequest(
-          request.payload.method,
-          request.payload.path,
-          request.payload.body,
-        );
+      case "dashboard_call":
+        return this.readyService().dashboardCall(request.payload) as Promise<JsonValue>;
       case "health":
         return this.health();
       case "shutdown":

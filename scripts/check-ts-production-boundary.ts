@@ -19,6 +19,11 @@ forbidText("package.json", /gateway:(?:dev|watch|start|stop|build)/, "workspace 
 forbidText("apps/gateway/package.json", /"(?:dev|watch|start|stop|build)"\s*:/, "Gateway package must be a desktop library only");
 forbidText("config/runtime.env", /AGENT_DASHBOARD_(?:ENABLED|HOST|PORT|PORT_AUTO_FALLBACK|OPEN_BROWSER)/, "runtime must not expose browser Dashboard settings");
 forbidText("apps/dashboard/src/api/client.ts", /\bfetch\b|VITE_API_BASE_URL|HttpDashboardTransport/, "Renderer API must use Electron IPC only");
+forbidText("apps/dashboard/src/api/queries.ts", /\/api\/|URLSearchParams|encodeURIComponent/, "Renderer queries must send typed Dashboard RPC inputs");
+forbidText("apps/gateway/src/dashboard/service.ts", /\bRequest\b|\bResponse\b|Response\.json|request\.json|new URL/, "Dashboard service must not emulate HTTP");
+forbidText("apps/gateway/src/orchestration/agent-service.ts", /dashboard_request|new Request|new URL|response\.status/, "agent service must forward typed Dashboard RPC calls directly");
+forbidText("apps/desktop/src/main/ipc-validation.ts", /\/api\/|GET_PATHS|PATCH_PATHS/, "Desktop IPC must validate Dashboard operations instead of paths");
+forbidText("packages/foundation/desktop-protocol/src/index.ts", /dashboard_request|DashboardRequestPayload/, "agent protocol must not expose the retired pseudo-REST command");
 requireText("apps/desktop/src/main.ts", /registerDashboardProtocol/, "packaged Renderer must load through the Electron app protocol");
 requireText("package.json", /"desktop:preview"\s*:\s*"bun run dashboard:build && bun run --cwd apps\/desktop preview"/, "workspace must expose the production Renderer preview");
 requireText("apps/desktop/package.json", /"preview"\s*:\s*"bun run build && bun src\/preview\.ts"/, "desktop package must build Main and Preload before preview");
@@ -54,6 +59,7 @@ forbidPath("apps/gateway/src/bootstrap/cli.ts", "the standalone Gateway bootstra
 forbidPath("apps/gateway/src/orchestration/production.ts", "the standalone Gateway production assembly must be deleted");
 forbidPath("apps/gateway/src/dashboard/server.ts", "the browser Dashboard HTTP server must be deleted");
 forbidPath("apps/gateway/src/dashboard/browser.ts", "the browser Dashboard opener must be deleted");
+forbidPath("apps/gateway/src/dashboard/api.ts", "the pseudo-REST Dashboard API must be replaced by a typed service");
 forbidPath("packages/foundation/protocol/schemas/worker-envelope.schema.json", "the worker envelope contract must be deleted");
 forbidPath("packages/agent/runtime/src/tooling/script-tools.ts", "the retired script-tool runner must be deleted");
 forbidPath("python/lxeskill_cli/lxeskill/bridge.py", "the retired Python bridge entrypoint must be deleted");

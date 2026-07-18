@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 
 import "./styles.css";
-import { patchJson } from "./api/client";
+import { callDashboard } from "./api/client";
 import { dashboardQueryKeys } from "./api/query-keys";
 import { DashboardQueryProvider } from "./api/query-client";
 import {
@@ -410,7 +410,7 @@ function App({
     string,
     { current?: ModelPayload; models?: ApiList<ModelPayload> }
   >({
-    mutationFn: (level) => patchJson<ModelPayload>("/api/models/current/thinking", { level }),
+    mutationFn: (level) => callDashboard({ operation: "models.thinking.update", input: { level } }),
     onMutate: async (level) => {
       setError("");
       await queryClient.cancelQueries({ queryKey: dashboardQueryKeys.models.all });
@@ -446,8 +446,10 @@ function App({
     { provider: string; model: string; optimistic: ModelPayload },
     { current?: ModelPayload; models?: ApiList<ModelPayload> }
   >({
-    mutationFn: ({ provider, model }) =>
-      patchJson<ModelPayload>("/api/models/current", { provider, model }),
+    mutationFn: ({ provider, model }) => callDashboard({
+      operation: "models.update",
+      input: { provider, model },
+    }),
     onMutate: async ({ optimistic }) => {
       setError("");
       await queryClient.cancelQueries({ queryKey: dashboardQueryKeys.models.all });
@@ -480,10 +482,10 @@ function App({
     ConnectorPayload,
     { connectors?: ApiList<ConnectorPayload> }
   >({
-    mutationFn: (connector) => patchJson<ConnectorPayload>(
-      `/api/connectors/${encodeURIComponent(connector.id)}`,
-      { enabled: !connector.enabled },
-    ),
+    mutationFn: (connector) => callDashboard({
+      operation: "connectors.update",
+      input: { id: connector.id, enabled: !connector.enabled },
+    }),
     onMutate: async (connector) => {
       setError("");
       await queryClient.cancelQueries({ queryKey: dashboardQueryKeys.connectors.all });
@@ -523,10 +525,10 @@ function App({
     McpServerPayload,
     { toolsets?: ApiList<ToolsetPayload> }
   >({
-    mutationFn: (server) => patchJson<McpServerPayload>(
-      `/api/mcp/servers/${encodeURIComponent(server.name)}`,
-      { enabled: !server.enabled },
-    ),
+    mutationFn: (server) => callDashboard({
+      operation: "mcp.servers.update",
+      input: { name: server.name, enabled: !server.enabled },
+    }),
     onMutate: async (server) => {
       setError("");
       await queryClient.cancelQueries({ queryKey: dashboardQueryKeys.tools.all });

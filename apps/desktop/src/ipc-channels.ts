@@ -1,5 +1,5 @@
 export const IPC_CHANNELS = {
-  dashboardRequest: "lxe:dashboard:request",
+  dashboardCall: "lxe:dashboard:call",
   selectWorkspace: "lxe:desktop:select-workspace",
   selectZiniaoApp: "lxe:desktop:select-ziniao-app",
   selectZiniaoWebDriverDirectory: "lxe:desktop:select-ziniao-webdriver-directory",

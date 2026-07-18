@@ -1,27 +1,28 @@
 import { mkdirSync } from "node:fs";
 import { dialog, ipcMain, shell } from "electron";
 import type {
+  DashboardRpcCall,
+  DashboardRpcOperation,
+  DashboardRpcResult,
   DesktopConfigImportApplyResult,
   DesktopConfigImportPreview,
   DesktopCloudActivationInput,
   DesktopCloudEnrollmentSelection,
   DesktopCloudState,
-  DashboardTransportRequest,
   DesktopHealth,
   DesktopSetupInput,
   DesktopSetupState,
 } from "@lxe/desktop-protocol";
-import type { JsonValue } from "@lxe/protocol";
 import { IPC_CHANNELS } from "../ipc-channels";
 import {
   validateCloudActivationInput,
   validateConfigImportId,
-  validateDashboardRequest,
+  validateDashboardRpcCall,
   validateSetupInput,
 } from "./ipc-validation";
 
 export interface DesktopIpcApplication {
-  dashboardRequest(request: DashboardTransportRequest): Promise<JsonValue>;
+  dashboardCall<O extends DashboardRpcOperation>(call: DashboardRpcCall<O>): Promise<DashboardRpcResult<O>>;
   getHealth(): DesktopHealth;
   restartAgent(): Promise<DesktopHealth>;
   getSetupState(): DesktopSetupState;
@@ -37,8 +38,8 @@ export interface DesktopIpcApplication {
 }
 
 export function registerDesktopIpc(application: DesktopIpcApplication): () => void {
-  ipcMain.handle(IPC_CHANNELS.dashboardRequest, (_event, request: unknown) =>
-    application.dashboardRequest(validateDashboardRequest(request)));
+  ipcMain.handle(IPC_CHANNELS.dashboardCall, (_event, call: unknown) =>
+    application.dashboardCall(validateDashboardRpcCall(call)));
   ipcMain.handle(IPC_CHANNELS.selectWorkspace, async () => {
     const selection = await dialog.showOpenDialog({
       title: "选择 LXE Agent 工作区",

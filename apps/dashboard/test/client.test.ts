@@ -1,8 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { DashboardTransport, DashboardTransportRequest } from "@lxe/desktop-protocol";
+import type {
+  DashboardRpcCall,
+  DashboardRpcOperation,
+  DashboardRpcResult,
+  DashboardTransport,
+} from "@lxe/desktop-protocol";
 import {
-  fetchJson,
-  patchJson,
+  callDashboard,
   resolveDashboardTransport,
   setDashboardTransportForTests,
 } from "../src/api/client";
@@ -11,24 +15,23 @@ afterEach(() => setDashboardTransportForTests(undefined));
 
 describe("Dashboard transport", () => {
   test("routes view helpers through the configured transport", async () => {
-    const requests: DashboardTransportRequest[] = [];
+    const calls: DashboardRpcCall[] = [];
     const transport: DashboardTransport = {
-      request: async <T>(request: DashboardTransportRequest): Promise<T> => {
-        requests.push(request);
-        return { ok: true } as T;
+      call: async <O extends DashboardRpcOperation>(call: DashboardRpcCall<O>): Promise<DashboardRpcResult<O>> => {
+        calls.push(call as DashboardRpcCall);
+        return { items: [], total: 0 } as DashboardRpcResult<O>;
       },
     };
     setDashboardTransportForTests(transport);
 
-    await fetchJson("/api/sessions?limit=6");
-    await patchJson("/api/models/current", { provider: "glm", model: "glm-4.7" });
+    await callDashboard({ operation: "sessions.list", input: { limit: 6 } });
+    await callDashboard({ operation: "models.update", input: { provider: "glm", model: "glm-4.7" } });
 
-    expect(requests).toEqual([
-      { method: "GET", path: "/api/sessions?limit=6" },
+    expect(calls).toEqual([
+      { operation: "sessions.list", input: { limit: 6 } },
       {
-        method: "PATCH",
-        path: "/api/models/current",
-        body: { provider: "glm", model: "glm-4.7" },
+        operation: "models.update",
+        input: { provider: "glm", model: "glm-4.7" },
       },
     ]);
   });
@@ -40,7 +43,8 @@ describe("Dashboard transport", () => {
 
   test("uses the injected desktop bridge", () => {
     const bridge: DashboardTransport = {
-      request: async <T>(): Promise<T> => ({ ok: true }) as T,
+      call: async <O extends DashboardRpcOperation>(): Promise<DashboardRpcResult<O>> =>
+        ({ items: [], total: 0 }) as DashboardRpcResult<O>,
     };
     expect(resolveDashboardTransport({ bridge })).toBe(bridge);
   });

@@ -15,7 +15,7 @@ Gateway lifecycle 负责在 Electron Main 内管理持久化、私有 Runtime �
 
 ## 生产组件装配
 
-Electron Main 创建 `ProcessAgentRuntime`、桌面 Gateway SQLite store、permission policy 与可选 Feishu adapter，然后调用 `createDirectGatewayComposition()`。Renderer 的 Dashboard request 经 preload IPC 进入 `DesktopGateway`，再通过私有 agent protocol 交给 `agent-cli` 内的 `DashboardApi`，没有 fetch fallback 或 HTTP Server。
+Electron Main 创建 `ProcessAgentRuntime`、桌面 Gateway SQLite store、permission policy 与可选 Feishu adapter，然后调用 `createDirectGatewayComposition()`。Renderer 发送 `{ operation, input }` 类型化调用，经 preload IPC 进入 `DesktopGateway`；`channels.health` 由 Main 本地处理，其余操作通过私有 NDJSON protocol 交给 `agent-cli` 内的 `DashboardService`。链路没有 URL、method、HTTP status、fetch fallback 或 HTTP Server。
 
 ## 启动顺序
 

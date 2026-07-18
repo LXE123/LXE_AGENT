@@ -40,8 +40,8 @@ describe("ProcessAgentRuntime", () => {
       },
     });
     expect(await runtime.remoteHealth()).toMatchObject({ ready: true, fake: true });
-    expect(await runtime.dashboardRequest({ method: "GET", path: "/api/models" }))
-      .toEqual({ status: 200, body: { path: "/api/models" } });
+    expect(await runtime.dashboardCall({ operation: "models.list", input: {} }))
+      .toEqual({ items: [], total: 0 });
     await runtime.stop();
 
     expect(runtime.status().state).toBe("stopped");
@@ -125,7 +125,7 @@ describe("ProcessAgentRuntime", () => {
     runtimes.push(runtime);
     await runtime.start();
 
-    await expect(runtime.dashboardRequest({ method: "GET", path: "/api/crash" })).rejects.toThrow("exited");
+    await expect(runtime.dashboardCall({ operation: "models.list", input: {} })).rejects.toThrow("exited");
     expect(existsSync(crashMarker)).toBe(true);
     const deadline = performance.now() + 3_000;
     while (states.filter((state) => state === "ready").length < 2 && performance.now() < deadline) {

@@ -14,12 +14,14 @@ import {
   isAgentEvent,
   isAgentResponse,
   parseAgentWireMessage,
+  type AgentDashboardRpcCall,
+  type AgentDashboardRpcOperation,
   type AgentCommand,
   type AgentCommandPayloads,
   type AgentEvent,
   type AgentRequest,
   type AgentResponse,
-  type DashboardRequestPayload,
+  type DashboardRpcResult,
   type DesktopLoggingSinkStatus,
 } from "@lxe/desktop-protocol";
 import { createLogger, type Logger } from "@lxe/core";
@@ -284,12 +286,10 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     return objectValue(await this.request("has_pending_events", { session_id: sessionId })).pending === true;
   }
 
-  async dashboardRequest(request: DashboardRequestPayload): Promise<{ status: number; body: JsonValue }> {
-    const result = objectValue(await this.request("dashboard_request", request));
-    return {
-      status: Number(result.status ?? 500),
-      body: result.body ?? null,
-    };
+  async dashboardCall<O extends AgentDashboardRpcOperation>(
+    call: AgentDashboardRpcCall<O>,
+  ): Promise<DashboardRpcResult<O>> {
+    return await this.request("dashboard_call", call) as DashboardRpcResult<O>;
   }
 
   async remoteHealth(): Promise<JsonObject> {

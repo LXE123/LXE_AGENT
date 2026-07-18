@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { DashboardTransport } from "@lxe/desktop-protocol";
+import type {
+  DashboardRpcCall,
+  DashboardRpcOperation,
+  DashboardRpcResult,
+  DashboardTransport,
+} from "@lxe/desktop-protocol";
 
 import { setDashboardTransportForTests } from "../src/api/client";
 import {
@@ -61,23 +66,23 @@ describe("Dashboard Query state", () => {
 
   test("deduplicates concurrent requests for one query key", async () => {
     let calls = 0;
-    let resolveRequest: ((value: { ok: boolean }) => void) | undefined;
-    const response = new Promise<{ ok: boolean }>((resolve) => { resolveRequest = resolve; });
+    let resolveRequest: ((value: DashboardRpcResult<"models.list">) => void) | undefined;
+    const response = new Promise<DashboardRpcResult<"models.list">>((resolve) => { resolveRequest = resolve; });
     const transport: DashboardTransport = {
-      request: async <T>(): Promise<T> => {
+      call: async <O extends DashboardRpcOperation>(_call: DashboardRpcCall<O>): Promise<DashboardRpcResult<O>> => {
         calls += 1;
-        return response as Promise<T>;
+        return response as Promise<DashboardRpcResult<O>>;
       },
     };
     setDashboardTransportForTests(transport);
     const client = createDashboardQueryClient();
-    const queryFn = () => transport.request<{ ok: boolean }>({ method: "GET", path: "/api/models" });
+    const queryFn = () => transport.call({ operation: "models.list", input: {} });
     const first = client.fetchQuery({ queryKey: dashboardQueryKeys.models.list, queryFn });
     const second = client.fetchQuery({ queryKey: dashboardQueryKeys.models.list, queryFn });
     expect(calls).toBe(1);
-    resolveRequest?.({ ok: true });
-    expect(await first).toEqual({ ok: true });
-    expect(await second).toEqual({ ok: true });
+    resolveRequest?.({ items: [], total: 0 });
+    expect(await first).toEqual({ items: [], total: 0 });
+    expect(await second).toEqual({ items: [], total: 0 });
   });
 
   test("deduplicates session ids across refreshed offset pages", () => {

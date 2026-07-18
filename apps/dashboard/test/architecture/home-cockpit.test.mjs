@@ -12,6 +12,10 @@ const home = readSource("features/home/view.tsx");
 const runtimeStatus = readSource("features/runtime-status/view.tsx");
 const main = readSource("main.tsx");
 const payloads = readSource("api/payloads.ts");
+const dashboardRpc = readFileSync(path.resolve(
+  testDir,
+  "../../../../packages/foundation/desktop-protocol/src/dashboard-rpc.ts",
+), "utf8");
 const shell = readSource("desktop/shell.tsx");
 const styles = readSource("styles.css");
 
@@ -29,7 +33,8 @@ test("runtime popover links to the existing model and settings destinations", ()
   assert.doesNotMatch(main, /onOpenTask=/);
   assert.match(shell, /openSettings: \(section\?: DesktopSettingsSection\) => void/);
   assert.match(shell, /setActiveSettingsSection\(section\)/);
-  assert.match(payloads, /export type ChannelHealthPayload = \{\s*ready\?: boolean;/);
+  assert.match(payloads, /ChannelHealthPayload,/);
+  assert.match(dashboardRpc, /export type ChannelHealthPayload = \{\s*ready\?: boolean;/);
 });
 
 test("home stays bounded while runtime status mounts once across dashboard and docs", () => {

@@ -1,14 +1,16 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type {
-  DashboardTransportRequest,
+  AgentDashboardRpcCall,
+  DashboardRpcCall,
+  DashboardRpcOperation,
+  DashboardRpcResult,
   DesktopDashboardDataDomain,
   DesktopHealth,
   DesktopLoggingSinkStatus,
 } from "@lxe/desktop-protocol";
 import type {
   JsonObject,
-  JsonValue,
   SessionWorkspaceRequest,
   WorkspaceContext,
 } from "@lxe/protocol";
@@ -312,21 +314,13 @@ export class DesktopGateway {
     return this.health();
   }
 
-  async dashboardRequest(request: DashboardTransportRequest): Promise<JsonValue> {
+  async dashboardCall<O extends DashboardRpcOperation>(call: DashboardRpcCall<O>): Promise<DashboardRpcResult<O>> {
     if (!this.composition || !this.runtime?.isReady) throw new Error("Desktop Gateway is not ready");
-    const url = new URL(request.path, "http://desktop.lxe");
-    if (request.method === "GET" && url.pathname === "/api/channels/health") {
+    if (call.operation === "channels.health") {
       const items = await this.composition.parts.channels.healthSnapshot();
-      return { items, total: Object.keys(items).length };
+      return { items, total: Object.keys(items).length } as DashboardRpcResult<O>;
     }
-    const response = await this.runtime.dashboardRequest(request);
-    if (response.status >= 400) {
-      const body = response.body !== null && typeof response.body === "object" && !Array.isArray(response.body)
-        ? response.body
-        : {};
-      throw new Error(String(body.detail ?? `Dashboard request failed: ${response.status}`));
-    }
-    return response.body;
+    return this.runtime.dashboardCall(call as AgentDashboardRpcCall) as Promise<DashboardRpcResult<O>>;
   }
 
   health(): DesktopHealth {

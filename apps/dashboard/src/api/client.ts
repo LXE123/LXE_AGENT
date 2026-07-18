@@ -2,10 +2,11 @@
 // sole transport through the narrow preload bridge.
 
 import type {
+  DashboardRpcCall,
+  DashboardRpcOperation,
+  DashboardRpcResult,
   DashboardTransport,
-  DashboardTransportRequest,
 } from "@lxe/desktop-protocol";
-import type { JsonObject } from "@lxe/protocol";
 
 let testTransport: DashboardTransport | undefined;
 
@@ -30,10 +31,8 @@ export function dashboardTransport(): DashboardTransport {
   });
 }
 
-export async function fetchJson<T>(path: string): Promise<T> {
-  return dashboardTransport().request<T>({ method: "GET", path });
-}
-
-export async function patchJson<T>(path: string, payload: JsonObject): Promise<T> {
-  return dashboardTransport().request<T>({ method: "PATCH", path, body: payload });
+export async function callDashboard<O extends DashboardRpcOperation>(
+  call: DashboardRpcCall<O>,
+): Promise<DashboardRpcResult<O>> {
+  return dashboardTransport().call(call);
 }

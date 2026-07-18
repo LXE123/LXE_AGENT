@@ -21,7 +21,7 @@ export function createDesktopBridge(
 ): LxeDesktopBridge {
   return {
     dashboard: {
-      request: (request) => ipc.invoke(IPC_CHANNELS.dashboardRequest, request),
+      call: (call) => ipc.invoke(IPC_CHANNELS.dashboardCall, call),
     },
     desktop: {
       platform,

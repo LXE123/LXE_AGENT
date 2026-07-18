@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   validateCloudActivationInput,
   validateConfigImportId,
-  validateDashboardRequest,
+  validateDashboardRpcCall,
   validateSetupInput,
 } from "../src/main/ipc-validation";
 
@@ -25,40 +25,33 @@ describe("desktop IPC validation", () => {
     expect(() => validateConfigImportId("a".repeat(129))).toThrow("too long");
   });
 
-  test("allows the Dashboard API surface and normalizes its origin", () => {
-    expect(validateDashboardRequest({
-      method: "get",
-      path: "/api/sessions?limit=6",
-    })).toEqual({ method: "GET", path: "/api/sessions?limit=6" });
-    expect(validateDashboardRequest({
-      method: "PATCH",
-      path: "/api/models/current/thinking",
-      body: { level: "high" },
+  test("allows and normalizes the typed Dashboard RPC surface", () => {
+    expect(validateDashboardRpcCall({
+      operation: "sessions.list",
+      input: { query: " order ", limit: 6 },
     })).toEqual({
-      method: "PATCH",
-      path: "/api/models/current/thinking",
-      body: { level: "high" },
+      operation: "sessions.list",
+      input: { query: "order", limit: 6, offset: 0 },
     });
-    expect(validateDashboardRequest({
-      method: "PATCH",
-      path: "/api/sessions/session-one/workspace/reload",
-    })).toEqual({
-      method: "PATCH",
-      path: "/api/sessions/session-one/workspace/reload",
-    });
+    expect(validateDashboardRpcCall({
+      operation: "models.thinking.update",
+      input: { level: "high" },
+    })).toEqual({ operation: "models.thinking.update", input: { level: "high" } });
+    expect(validateDashboardRpcCall({
+      operation: "sessions.workspace.reload",
+      input: { session_id: "session-one" },
+    })).toEqual({ operation: "sessions.workspace.reload", input: { session_id: "session-one" } });
   });
 
-  test("rejects external origins, unlisted paths, and malformed bodies", () => {
-    expect(() => validateDashboardRequest({
-      method: "GET",
-      path: "https://example.com/api/sessions",
-    })).toThrow("origin is not allowed");
-    expect(() => validateDashboardRequest({ method: "POST", path: "/api/sessions" }))
-      .toThrow("method is not allowed");
-    expect(() => validateDashboardRequest({ method: "GET", path: "/api/shell" }))
-      .toThrow("path is not allowed");
-    expect(() => validateDashboardRequest({ method: "PATCH", path: "/api/models/current", body: [] }))
-      .toThrow("body must be an object");
+  test("rejects unknown operations and malformed inputs", () => {
+    expect(() => validateDashboardRpcCall({ operation: "sessions.search", input: {} }))
+      .toThrow("unsupported Dashboard RPC operation");
+    expect(() => validateDashboardRpcCall({ operation: "models.update", input: [] }))
+      .toThrow("input must be an object");
+    expect(() => validateDashboardRpcCall({ operation: "models.update", input: { provider: 42 } }))
+      .toThrow("provider must be a string");
+    expect(() => validateDashboardRpcCall({ operation: "connectors.update", input: { id: "feishu" } }))
+      .toThrow("enabled must be a boolean");
   });
 
   test("accepts only bounded setup fields and supported providers", () => {

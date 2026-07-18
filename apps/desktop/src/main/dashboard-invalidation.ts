@@ -1,5 +1,6 @@
 import type {
   AgentEvent,
+  DashboardRpcOperation,
   DesktopDashboardDataDomain,
   DesktopDashboardInvalidation,
 } from "@lxe/desktop-protocol";
@@ -43,18 +44,18 @@ export function dashboardInvalidationForAgentEvent(
   };
 }
 
-export function dashboardDomainsForMutation(path: string): DesktopDashboardDataDomain[] {
-  const pathname = new URL(path, "http://desktop.lxe").pathname;
-  if (pathname === "/api/models/current" || pathname === "/api/models/current/thinking") {
-    return ["models"];
+export function dashboardDomainsForMutation(operation: DashboardRpcOperation): DesktopDashboardDataDomain[] {
+  switch (operation) {
+    case "models.update":
+    case "models.thinking.update":
+      return ["models"];
+    case "connectors.update":
+      return ["connectors", "skills"];
+    case "mcp.servers.update":
+      return ["tools"];
+    default:
+      return [];
   }
-  if (pathname.startsWith("/api/connectors/")) {
-    return ["connectors", "skills"];
-  }
-  if (pathname.startsWith("/api/mcp/servers/")) {
-    return ["tools"];
-  }
-  return [];
 }
 
 type Schedule = (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;

@@ -7,20 +7,21 @@ import {
   type SessionWorkspaceRequest,
   type WorkspaceContext,
 } from "@lxe/protocol";
+import {
+  parseAgentDashboardRpcCall,
+  type AgentDashboardRpcCall,
+  type DashboardTransport,
+} from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 1 as const;
+export * from "./dashboard-rpc";
+
+export const AGENT_PROTOCOL_VERSION = 2 as const;
 
 export type AgentInitializePayload = {
   resource_root: string;
   data_root: string;
   legacy_workspace: WorkspaceContext;
   allowed_skill_types?: string[];
-};
-
-export type DashboardRequestPayload = {
-  method: "GET" | "PATCH";
-  path: string;
-  body?: JsonObject;
 };
 
 export type AgentCommandPayloads = {
@@ -38,7 +39,7 @@ export type AgentCommandPayloads = {
   pop_pending_events: { session_id: string };
   append_pending_event: { session_id: string; event: JsonObject };
   has_pending_events: { session_id: string };
-  dashboard_request: DashboardRequestPayload;
+  dashboard_call: AgentDashboardRpcCall;
   health: Record<string, never>;
   shutdown: Record<string, never>;
 };
@@ -119,12 +120,6 @@ export type AgentEvent =
     };
 
 export type AgentWireMessage = AgentRequest | AgentResponse | AgentEvent;
-
-export type DashboardTransportRequest = DashboardRequestPayload;
-
-export interface DashboardTransport {
-  request<T = JsonValue>(request: DashboardTransportRequest): Promise<T>;
-}
 
 export type DesktopComponentState = "stopped" | "starting" | "ready" | "error";
 
@@ -346,7 +341,7 @@ const agentCommands = new Set<AgentCommand>([
   "pop_pending_events",
   "append_pending_event",
   "has_pending_events",
-  "dashboard_request",
+  "dashboard_call",
   "health",
   "shutdown",
 ]);
@@ -421,12 +416,8 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireText("session_id");
       requireObject("event");
       break;
-    case "dashboard_request":
-      if (payload.method !== "GET" && payload.method !== "PATCH") {
-        throw new Error("agent protocol dashboard_request.method is unsupported");
-      }
-      requireText("path");
-      if (payload.body !== undefined) requireObject("body");
+    case "dashboard_call":
+      parseAgentDashboardRpcCall(payload);
       break;
     case "health":
     case "shutdown":
@@ -452,6 +443,9 @@ export function parseAgentWireMessage(line: string): AgentWireMessage {
     const payload = objectValue(object.payload);
     if (!payload) throw new Error("agent protocol request payload must be an object");
     validateRequestPayload(object.command, payload);
+    if (object.command === "dashboard_call") {
+      object.payload = parseAgentDashboardRpcCall(payload);
+    }
     return object as AgentRequest;
   }
   if (typeof object.id === "string" && typeof object.ok === "boolean") {

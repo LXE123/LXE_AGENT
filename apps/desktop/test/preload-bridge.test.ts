@@ -19,7 +19,7 @@ describe("preload bridge", () => {
     const bridge = createDesktopBridge(ipc, "win32");
 
     expect(Object.keys(bridge).sort()).toEqual(["dashboard", "desktop"]);
-    expect(Object.keys(bridge.dashboard)).toEqual(["request"]);
+    expect(Object.keys(bridge.dashboard)).toEqual(["call"]);
     expect(Object.keys(bridge.desktop).sort()).toEqual([
       "activateCloudEnrollment",
       "applyConfigImport",
@@ -41,7 +41,7 @@ describe("preload bridge", () => {
       "selectZiniaoWebDriverDirectory",
     ]);
     expect(bridge.desktop.platform).toBe("win32");
-    await bridge.dashboard.request({ method: "GET", path: "/api/models" });
+    await bridge.dashboard.call({ operation: "models.list", input: {} });
     await bridge.desktop.selectConfigImport();
     await bridge.desktop.selectCloudEnrollment();
     await bridge.desktop.activateCloudEnrollment({ enrollment_id: "enroll-123", password: "password-value" });
@@ -70,7 +70,7 @@ describe("preload bridge", () => {
     unsubscribeInvalidation();
     expect(listeners.has(IPC_CHANNELS.dashboardInvalidated)).toBe(false);
     expect(invocations.map((item) => item.channel)).toEqual([
-      IPC_CHANNELS.dashboardRequest,
+      IPC_CHANNELS.dashboardCall,
       IPC_CHANNELS.selectConfigImport,
       IPC_CHANNELS.selectCloudEnrollment,
       IPC_CHANNELS.activateCloudEnrollment,

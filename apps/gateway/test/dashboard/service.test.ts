@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteRuntimeStore, ToolRegistry, type RuntimeProviderManager } from "@lxe/runtime";
-import { DashboardApi } from "../../src/dashboard/api";
+import type { AgentDashboardRpcCall } from "@lxe/desktop-protocol";
+import { DashboardService } from "../../src/dashboard/service";
 import { loadProjectEnv } from "../../src/bootstrap/env";
 import { workspaceFor } from "../workspace";
 
@@ -12,7 +13,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-describe("DashboardApi", () => {
+describe("DashboardService", () => {
   test("serves the production session, docs, skill, connector, tool, stats, and task contracts", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-api-"));
     roots.push(root);
@@ -75,7 +76,8 @@ describe("DashboardApi", () => {
     await store.appendMessage("session-one", { role: "assistant", content: "done" });
     await store.recordTurn("session-one", {
       turn_id: "turn-one", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 15,
-      input_tokens: 3, output_tokens: 2, tool_calls: 1, api_calls: 1, tools: [],
+      input_tokens: 3, output_tokens: 2, tool_calls: 1, api_calls: 1,
+      tools: [{ name: "demo_tool", calls: 1, errors: 0, duration_ms: 5 }],
       activations: [{ skill: "demo", module: "default" }],
       executions: [{ skill: "demo", module: "default", command: "scripts.demo", success: false, duration_ms: 12 }],
     });
@@ -123,7 +125,7 @@ describe("DashboardApi", () => {
         };
       },
     };
-    const api = new DashboardApi({
+    const service = new DashboardService({
       projectRoot: root,
       environment,
       store,
@@ -146,34 +148,47 @@ describe("DashboardApi", () => {
         return { changed: true, generation: 2, loaded_at: 1, instruction_count: 1, skill_count: 1 };
       },
     });
-    const call = async (path: string, init?: RequestInit) => {
-      const request = new Request(`http://dashboard${path}`, init);
-      const response = await api.handle(request, new URL(request.url));
-      return { status: response?.status, body: await response?.json() };
-    };
+    const call = (request: AgentDashboardRpcCall): Promise<unknown> => service.call(request);
 
-    expect((await call("/api/sessions?q=session-one")).body).toMatchObject({ total: 1, summary: { total_sessions: 1 } });
-    expect((await call("/api/sessions/session-one?message_limit=1&message_page=2")).body).toMatchObject({
+    expect(await call({ operation: "sessions.list", input: { query: "session-one" } })).toMatchObject({
+      total: 1,
+      summary: { total_sessions: 1 },
+    });
+    expect(await call({
+      operation: "sessions.detail",
+      input: { session_id: "session-one", message_limit: 1, message_page: 2 },
+    })).toMatchObject({
       session: { session_id: "session-one" },
       messages: [{ role: "assistant" }, { role: "tool" }, { role: "assistant" }],
       messages_page: { total: 2, raw_message_total: 4, current_page: 2 },
     });
-    expect((await call("/api/sessions/session-one/workspace/reload", { method: "PATCH" })).body)
+    await expect(call({ operation: "sessions.detail", input: { session_id: "missing" } }))
+      .rejects.toMatchObject({ code: "not_found", message: "session not found" });
+    expect(await call({ operation: "sessions.workspace.reload", input: { session_id: "session-one" } }))
       .toMatchObject({ changed: true, generation: 2 });
     expect(workspaceReloads).toEqual(["session-one"]);
-    expect((await call("/api/project-docs")).body).toMatchObject({ items: [{ path: "guide.md", title: "Guide" }], total: 1 });
-    expect((await call("/api/project-docs/guide.md")).body).toMatchObject({ path: "guide.md", content: "# Guide\n\nstatus: ready\n" });
-    expect((await call("/api/project-docs/%2e%2e%2FSOUL.md")).status).toBe(404);
-    expect((await call("/api/skills")).body).toMatchObject({ items: [{ name: "demo", commands: ["scripts.demo"], references: [{ path: "references/help.md" }] }] });
-    expect((await call("/api/commands")).body).toEqual({
+    expect(await call({ operation: "docs.list", input: {} }))
+      .toMatchObject({ items: [{ path: "guide.md", title: "Guide" }], total: 1 });
+    expect(await call({ operation: "docs.content", input: { path: "guide.md" } }))
+      .toMatchObject({ path: "guide.md", content: "# Guide\n\nstatus: ready\n" });
+    await expect(call({ operation: "docs.content", input: { path: "../SOUL.md" } }))
+      .rejects.toMatchObject({ code: "not_found", message: "project doc not found" });
+    expect(await call({ operation: "skills.list", input: {} })).toMatchObject({
+      items: [{ name: "demo", commands: ["scripts.demo"], references: [{ path: "references/help.md" }] }],
+    });
+    expect(await call({ operation: "commands.list", input: {} })).toEqual({
       items: [{ command: "lxeskill auth refresh", name: "browser_auth_refresh", visibility: "maintenance", ownerSkills: [] }],
       total: 1,
     });
-    expect((await call("/api/skills/demo/content")).body).toMatchObject({ name: "demo", content: expect.stringContaining("# Demo") });
-    expect((await call("/api/skills/demo/references/references%2Fhelp.md")).body).toMatchObject({ skill_name: "demo", content: "# Help" });
-    const toolsets = (await call("/api/tools/toolsets")).body as { items: Array<Record<string, unknown>> };
+    expect(await call({ operation: "skills.content", input: { name: "demo" } }))
+      .toMatchObject({ name: "demo", content: expect.stringContaining("# Demo") });
+    await expect(call({ operation: "skills.content", input: { name: "missing" } }))
+      .rejects.toMatchObject({ code: "not_found", message: "skill not found" });
+    expect(await call({ operation: "skills.reference", input: { name: "demo", path: "references/help.md" } }))
+      .toMatchObject({ skill_name: "demo", content: "# Help" });
+    const toolsets = await call({ operation: "toolsets.list", input: {} }) as { items: Array<Record<string, unknown>> };
     expect(toolsets.items.find((item) => item.name === "coding")).toMatchObject({ tools: [{ name: "demo_tool" }] });
-    const mcp = (await call("/api/mcp/servers")).body as Record<string, unknown>;
+    const mcp = await call({ operation: "mcp.servers.list", input: {} }) as Record<string, unknown>;
     expect(mcp).toMatchObject({
       items: [{ connector_id: "inventory-connector", connector_name: "Inventory Connector", connector_description: "Reads inventory", tool_count: 7 }],
       tool_total: 7,
@@ -181,13 +196,16 @@ describe("DashboardApi", () => {
     expect(JSON.stringify(mcp)).not.toContain("secret-static");
     expect(JSON.stringify(mcp)).not.toContain("MCP_SECRET");
     expect(JSON.stringify(mcp)).not.toContain("MCP_BEARER");
-    expect((await call("/api/background-tasks")).body).toEqual({ items: [{ task_id: "task-1", status: "running" }], total: 1 });
-    expect((await call("/api/stats/overview?days=7")).body).toMatchObject({
+    expect(await call({ operation: "mcp.servers.update", input: { name: "inventory", enabled: false } }))
+      .toMatchObject({ name: "inventory", enabled: false, status: "disabled" });
+    expect(await call({ operation: "backgroundTasks.list", input: {} }))
+      .toEqual({ items: [{ task_id: "task-1", status: "running" }], total: 1 });
+    expect(await call({ operation: "stats.overview", input: { days: 7 } })).toMatchObject({
       days: 7,
       totals: { turns: 1, input_tokens: 3, skill_executions: 1, skill_failures: 1 },
       modules: [{ module: "default", skills: 1, turns: 1, executions: 1, failures: 1, duration_ms: 12 }],
     });
-    expect((await call("/api/stats/skills?days=7")).body).toMatchObject({
+    expect(await call({ operation: "stats.skills.list", input: { days: 7 } })).toMatchObject({
       days: 7,
       total: 1,
       items: [{
@@ -195,12 +213,16 @@ describe("DashboardApi", () => {
         execution_turns: 1, duration_ms: 12,
       }],
     });
-    expect((await call("/api/stats/skills/demo?days=7")).body).toMatchObject({
+    expect(await call({ operation: "stats.skills.detail", input: { name: "demo", days: 7 } })).toMatchObject({
       name: "demo", days: 7,
       daily: [{ activations: 1, executions: 1, failures: 1 }],
       recent_failures: [{ turn_id: "turn-one", session_id: "session-one", command: "scripts.demo" }],
     });
-    const modelList = (await call("/api/models")).body as { items: Array<Record<string, unknown>> };
+    expect(await call({ operation: "stats.tools.list", input: { days: 7 } })).toMatchObject({
+      days: 7,
+      items: [{ name: "demo_tool", calls: 1 }],
+    });
+    const modelList = await call({ operation: "models.list", input: {} }) as { items: Array<Record<string, unknown>> };
     const kimiModel = modelList.items.find((model) => model.provider === "kimi_coding")!;
     expect(kimiModel).toMatchObject({ provider: "kimi_coding", model: "kimi-for-coding", configured: true });
     const kimiOptions = kimiModel.model_options as Array<Record<string, unknown>>;
@@ -214,26 +236,26 @@ describe("DashboardApi", () => {
     expect(modelList.items.find((model) => model.provider === "deepseek")).toMatchObject({
       provider: "deepseek", model: "deepseek-v4-pro", configured: true,
     });
-    expect((await call("/api/models/current")).body).toMatchObject({ provider: "kimi_coding" });
+    expect(await call({ operation: "models.current", input: {} })).toMatchObject({ provider: "kimi_coding" });
     Object.assign(environment, {
       AGENT_LLM_MODEL: "k3",
       AGENT_LLM_THINKING_ENABLED: "0",
       AGENT_LLM_THINKING_EFFORT: "low",
     });
-    expect((await call("/api/models/current")).body).toMatchObject({
+    expect(await call({ operation: "models.current", input: {} })).toMatchObject({
       provider: "kimi_coding", model: "k3",
       thinking_state: { enabled: false, level: "off", editable: true },
     });
-    const deepseekSwitch = await call("/api/models/current", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: "deepseek", model: "deepseek-v4-pro" }),
+    const deepseekSwitch = await call({
+      operation: "models.update",
+      input: { provider: "deepseek", model: "deepseek-v4-pro" },
     });
     expect(deepseekSwitch).toMatchObject({
-      status: 200,
-      body: { provider: "deepseek", model: "deepseek-v4-pro", generation: 2, effective_from: "next_turn" },
+      provider: "deepseek", model: "deepseek-v4-pro", generation: 2, effective_from: "next_turn",
     });
-    expect((await call("/api/models/current")).body).toMatchObject({ provider: "deepseek", model: "deepseek-v4-pro" });
-    const modelsAfterDeepseek = (await call("/api/models")).body as { items: Array<Record<string, unknown>> };
+    expect(await call({ operation: "models.current", input: {} }))
+      .toMatchObject({ provider: "deepseek", model: "deepseek-v4-pro" });
+    const modelsAfterDeepseek = await call({ operation: "models.list", input: {} }) as { items: Array<Record<string, unknown>> };
     expect(modelsAfterDeepseek.items.find((model) => model.provider === "kimi_coding")).toMatchObject({
       model: "k3",
       thinking_state: { enabled: false, level: "off", editable: true },
@@ -249,82 +271,69 @@ describe("DashboardApi", () => {
       projectRoot: root,
       initial: { KIMI_API_KEY: "test-key", DEEPSEEK_API: "deepseek-key" },
     });
-    const restartedApi = new DashboardApi({
+    const restartedService = new DashboardService({
       projectRoot: root,
       environment: restartedEnvironment,
       store,
       tools,
       mcpConfig: { servers: [] },
     });
-    const restartedRequest = new Request("http://dashboard/api/models");
-    const restartedResponse = await restartedApi.handle(restartedRequest, new URL(restartedRequest.url));
-    const restartedModels = await restartedResponse?.json() as { items: Array<Record<string, unknown>> };
+    const restartedModels = await restartedService.call({
+      operation: "models.list",
+      input: {},
+    }) as { items: Array<Record<string, unknown>> };
     expect(restartedModels.items.find((model) => model.provider === "kimi_coding")).toMatchObject({
       model: "k3",
       thinking_state: { enabled: false, level: "off", editable: true },
     });
+    await expect(restartedService.call({
+      operation: "sessions.workspace.reload",
+      input: { session_id: "session-one" },
+    })).rejects.toMatchObject({ code: "unavailable", message: "workspace reload is unavailable" });
 
-    const kimiSwitch = await call("/api/models/current", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: "kimi_coding" }),
-    });
+    const kimiSwitch = await call({ operation: "models.update", input: { provider: "kimi_coding" } });
     expect(kimiSwitch).toMatchObject({
-      status: 200,
-      body: {
-        provider: "kimi_coding", model: "k3", generation: 3, effective_from: "next_turn",
-        thinking_state: { enabled: false, level: "off", editable: true },
-      },
+      provider: "kimi_coding", model: "k3", generation: 3, effective_from: "next_turn",
+      thinking_state: { enabled: false, level: "off", editable: true },
     });
 
-    const k3Max = await call("/api/models/current/thinking", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ level: "max" }),
-    });
+    const k3Max = await call({ operation: "models.thinking.update", input: { level: "max" } });
     expect(k3Max).toMatchObject({
-      status: 200,
-      body: {
-        provider: "kimi_coding", model: "k3", generation: 4, effective_from: "next_turn",
-        thinking_levels: ["off", "max"],
-        thinking_state: { enabled: true, level: "max", editable: true },
-        capabilities: { context_window_tokens: 262_144, max_output_tokens: 131_072 },
-      },
+      provider: "kimi_coding", model: "k3", generation: 4, effective_from: "next_turn",
+      thinking_levels: ["off", "max"],
+      thinking_state: { enabled: true, level: "max", editable: true },
+      capabilities: { context_window_tokens: 262_144, max_output_tokens: 131_072 },
     });
 
-    expect(await call("/api/models/current", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: "deepseek" }),
-    })).toMatchObject({
-      status: 200,
-      body: { provider: "deepseek", model: "deepseek-v4-pro", generation: 5 },
-    });
-    expect(await call("/api/models/current", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: "kimi_coding" }),
-    })).toMatchObject({
-      status: 200,
-      body: {
-        provider: "kimi_coding", model: "k3", generation: 6,
-        thinking_state: { enabled: true, level: "max", editable: true },
-      },
+    expect(await call({ operation: "models.update", input: { provider: "deepseek" } }))
+      .toMatchObject({ provider: "deepseek", model: "deepseek-v4-pro", generation: 5 });
+    expect(await call({ operation: "models.update", input: { provider: "kimi_coding" } })).toMatchObject({
+      provider: "kimi_coding", model: "k3", generation: 6,
+      thinking_state: { enabled: true, level: "max", editable: true },
     });
     environment.AGENT_LLM_MODEL_DEEPSEEK = "retired-model";
-    const modelsWithRetiredPreference = (await call("/api/models")).body as { items: Array<Record<string, unknown>> };
+    const modelsWithRetiredPreference = await call({ operation: "models.list", input: {} }) as { items: Array<Record<string, unknown>> };
     expect(modelsWithRetiredPreference.items.find((model) => model.provider === "deepseek")).toMatchObject({
       model: "deepseek-v4-pro",
     });
 
-    const kimiAliasSwitch = await call("/api/models/current", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: "kimi-code", model: "kimi-for-coding" }),
+    const kimiAliasSwitch = await call({
+      operation: "models.update",
+      input: { provider: "kimi-code", model: "kimi-for-coding" },
     });
     expect(kimiAliasSwitch).toMatchObject({
-      status: 200,
-      body: { provider: "kimi_coding", model: "kimi-for-coding", generation: 7 },
+      provider: "kimi_coding", model: "kimi-for-coding", generation: 7,
     });
-    expect(await call("/api/models/current", {
-      method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ provider: "../kimi_coding", model: "kimi-for-coding" }),
-    })).toMatchObject({ status: 400, body: { detail: "Unsupported model provider" } });
+    await expect(call({
+      operation: "models.update",
+      input: { provider: "../kimi_coding", model: "kimi-for-coding" },
+    })).rejects.toMatchObject({ code: "invalid_argument", message: "Unsupported model provider" });
+    await expect(call({ operation: "models.thinking.update", input: { level: "impossible" } }))
+      .rejects.toMatchObject({ code: "invalid_argument" });
+    delete environment.DEEPSEEK_API;
+    await expect(call({ operation: "models.update", input: { provider: "deepseek" } }))
+      .rejects.toMatchObject({ code: "failed_precondition", message: "missing API key" });
+    environment.DEEPSEEK_API = "deepseek-key";
     expect(reconfigured).toEqual([
       expect.objectContaining({ provider: "deepseek", model: "deepseek-v4-pro" }),
       expect.objectContaining({ provider: "kimi_coding", model: "k3", thinkingEffort: "off" }),
@@ -334,19 +343,18 @@ describe("DashboardApi", () => {
       expect.objectContaining({ provider: "kimi_coding", model: "kimi-for-coding" }),
     ]);
 
-    const connectors = (await call("/api/connectors")).body as { total: number; items: Array<Record<string, unknown>> };
+    const connectors = await call({ operation: "connectors.list", input: {} }) as { total: number; items: Array<Record<string, unknown>> };
     expect(connectors.total).toBe(2);
     expect(connectors.items[0]).toMatchObject({ id: "feishu", enabled: false });
-    expect(api.runtimeConnectorPolicy()).toEqual({
+    expect(service.runtimeConnectorPolicy()).toEqual({
       disabledSkillNames: expect.any(Set),
       disabledConnectorIds: new Set(["dingtalk", "feishu"]),
     });
-    expect(api.runtimeConnectorPolicy().disabledSkillNames).toContain("lark-im");
-    expect((await call("/api/connectors/feishu", {
-      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ enabled: true }),
-    })).body).toMatchObject({ id: "feishu", enabled: true, everConnected: true });
-    expect(api.runtimeConnectorPolicy().disabledConnectorIds).toEqual(new Set(["dingtalk"]));
-    expect(api.runtimeConnectorPolicy().disabledSkillNames).not.toContain("lark-im");
+    expect(service.runtimeConnectorPolicy().disabledSkillNames).toContain("lark-im");
+    expect(await call({ operation: "connectors.update", input: { id: "feishu", enabled: true } }))
+      .toMatchObject({ id: "feishu", enabled: true, everConnected: true });
+    expect(service.runtimeConnectorPolicy().disabledConnectorIds).toEqual(new Set(["dingtalk"]));
+    expect(service.runtimeConnectorPolicy().disabledSkillNames).not.toContain("lark-im");
     await store.stop();
   });
 });

@@ -4,7 +4,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 
-import { fetchJson } from "./client";
+import { callDashboard } from "./client";
 import { dashboardQueryKeys } from "./query-keys";
 import { normalizeProjectDocs } from "../features/docs/model";
 import { normalizeSessionList } from "../features/sessions/model";
@@ -46,13 +46,11 @@ export function useSessionsInfiniteQuery(query: string, enabled = true) {
   return useInfiniteQuery({
     queryKey: dashboardQueryKeys.sessions.list(normalizedQuery),
     queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({
-        limit: String(SESSION_LIST_PAGE_SIZE),
-        offset: String(pageParam),
-      });
-      if (normalizedQuery) params.set("q", normalizedQuery);
       return normalizeSessionList(
-        await fetchJson<SessionListPayload>(`/api/sessions?${params.toString()}`),
+        await callDashboard({
+          operation: "sessions.list",
+          input: { query: normalizedQuery, limit: SESSION_LIST_PAGE_SIZE, offset: pageParam },
+        }),
         SESSION_LIST_PAGE_SIZE,
       );
     },
@@ -89,13 +87,16 @@ export function flattenSessionPages(
 
 export function useSessionDetailQuery(sessionId: string, page: number | undefined, enabled = true) {
   const pageKey = page ?? "latest";
-  const params = new URLSearchParams({ message_limit: String(SESSION_MESSAGE_PAGE_LIMIT) });
-  if (page !== undefined) params.set("message_page", String(page));
   return useQuery({
     queryKey: dashboardQueryKeys.sessions.detail(sessionId, pageKey),
-    queryFn: () => fetchJson<SessionDetailPayload>(
-      `/api/sessions/${encodeURIComponent(sessionId)}?${params.toString()}`,
-    ),
+    queryFn: () => callDashboard({
+      operation: "sessions.detail",
+      input: {
+        session_id: sessionId,
+        message_limit: SESSION_MESSAGE_PAGE_LIMIT,
+        ...(page === undefined ? {} : { message_page: page }),
+      },
+    }),
     enabled: enabled && Boolean(sessionId),
     staleTime: ACTIVE_DATA_STALE_TIME_MS,
     refetchInterval: enabled && sessionId ? ACTIVE_DATA_REFRESH_INTERVAL_MS : false,
@@ -107,7 +108,7 @@ export function useSessionDetailQuery(sessionId: string, page: number | undefine
 export function useStatsOverviewQuery(days: number, enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.stats.byType("overview", days),
-    queryFn: () => fetchJson<StatsOverviewPayload>(`/api/stats/overview?days=${days}`),
+    queryFn: () => callDashboard({ operation: "stats.overview", input: { days } }),
     enabled,
     refetchInterval: enabled ? STATS_REFRESH_INTERVAL_MS : false,
     refetchIntervalInBackground: false,
@@ -117,7 +118,7 @@ export function useStatsOverviewQuery(days: number, enabled = true) {
 export function useSkillStatsQuery(days: number, enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.stats.byType("skills", days),
-    queryFn: () => fetchJson<ApiList<SkillStatPayload>>(`/api/stats/skills?days=${days}`),
+    queryFn: () => callDashboard({ operation: "stats.skills.list", input: { days } }),
     enabled,
     refetchInterval: enabled ? STATS_REFRESH_INTERVAL_MS : false,
     refetchIntervalInBackground: false,
@@ -127,7 +128,7 @@ export function useSkillStatsQuery(days: number, enabled = true) {
 export function useToolStatsQuery(days: number, enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.stats.byType("tools", days),
-    queryFn: () => fetchJson<ApiList<ToolStatPayload>>(`/api/stats/tools?days=${days}`),
+    queryFn: () => callDashboard({ operation: "stats.tools.list", input: { days } }),
     enabled,
     refetchInterval: enabled ? STATS_REFRESH_INTERVAL_MS : false,
     refetchIntervalInBackground: false,
@@ -137,7 +138,7 @@ export function useToolStatsQuery(days: number, enabled = true) {
 export function useBackgroundTasksQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.backgroundTasks.all,
-    queryFn: () => fetchJson<ApiList<BackgroundTaskPayload>>("/api/background-tasks"),
+    queryFn: () => callDashboard({ operation: "backgroundTasks.list", input: {} }),
     enabled,
     staleTime: ACTIVE_DATA_STALE_TIME_MS,
     refetchInterval: enabled ? ACTIVE_DATA_REFRESH_INTERVAL_MS : false,
@@ -148,7 +149,7 @@ export function useBackgroundTasksQuery(enabled = true) {
 export function useChannelHealthQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.channelHealth.all,
-    queryFn: () => fetchJson<ChannelHealthList>("/api/channels/health"),
+    queryFn: () => callDashboard({ operation: "channels.health", input: {} }),
     enabled,
     refetchInterval: enabled ? 30_000 : false,
     refetchIntervalInBackground: false,
@@ -158,7 +159,7 @@ export function useChannelHealthQuery(enabled = true) {
 export function useModelsQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.models.list,
-    queryFn: () => fetchJson<ApiList<ModelPayload>>("/api/models"),
+    queryFn: () => callDashboard({ operation: "models.list", input: {} }),
     enabled,
     staleTime: CATALOG_STALE_TIME_MS,
   });
@@ -167,7 +168,7 @@ export function useModelsQuery(enabled = true) {
 export function useCurrentModelQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.models.current,
-    queryFn: () => fetchJson<ModelPayload>("/api/models/current"),
+    queryFn: () => callDashboard({ operation: "models.current", input: {} }),
     enabled,
     staleTime: CATALOG_STALE_TIME_MS,
   });
@@ -176,7 +177,7 @@ export function useCurrentModelQuery(enabled = true) {
 export function useConnectorsQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.connectors.all,
-    queryFn: () => fetchJson<ApiList<ConnectorPayload>>("/api/connectors"),
+    queryFn: () => callDashboard({ operation: "connectors.list", input: {} }),
     enabled,
     staleTime: CATALOG_STALE_TIME_MS,
   });
@@ -185,7 +186,7 @@ export function useConnectorsQuery(enabled = true) {
 export function useSkillsQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.skills.list,
-    queryFn: () => fetchJson<ApiList<SkillPayload>>("/api/skills"),
+    queryFn: () => callDashboard({ operation: "skills.list", input: {} }),
     enabled,
     staleTime: CATALOG_STALE_TIME_MS,
   });
@@ -194,7 +195,7 @@ export function useSkillsQuery(enabled = true) {
 export function useCommandsQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.commands.all,
-    queryFn: () => fetchJson<ApiList<CliCommandPayload>>("/api/commands"),
+    queryFn: () => callDashboard({ operation: "commands.list", input: {} }),
     enabled,
     staleTime: GATEWAY_LIFETIME_STALE_TIME_MS,
   });
@@ -203,7 +204,7 @@ export function useCommandsQuery(enabled = true) {
 export function useToolsetsQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.tools.all,
-    queryFn: () => fetchJson<ApiList<ToolsetPayload>>("/api/tools/toolsets"),
+    queryFn: () => callDashboard({ operation: "toolsets.list", input: {} }),
     enabled,
     staleTime: CATALOG_STALE_TIME_MS,
   });
@@ -213,7 +214,7 @@ export function useProjectDocsQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.docs.list,
     queryFn: async () => normalizeProjectDocs(
-      await fetchJson<ApiList<ProjectDocPayload>>("/api/project-docs"),
+      await callDashboard({ operation: "docs.list", input: {} }),
     ),
     enabled,
     staleTime: GATEWAY_LIFETIME_STALE_TIME_MS,
@@ -223,9 +224,7 @@ export function useProjectDocsQuery(enabled = true) {
 export function useProjectDocContentQuery(path: string, enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.docs.content(path),
-    queryFn: () => fetchJson<ProjectDocContentPayload>(
-      `/api/project-docs/${path.split("/").map(encodeURIComponent).join("/")}`,
-    ),
+    queryFn: () => callDashboard({ operation: "docs.content", input: { path } }),
     enabled: enabled && Boolean(path),
     staleTime: GATEWAY_LIFETIME_STALE_TIME_MS,
   });
@@ -234,9 +233,7 @@ export function useProjectDocContentQuery(path: string, enabled = true) {
 export function useSkillContentQuery(name: string, enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.skills.content(name),
-    queryFn: () => fetchJson<SkillContentPayload>(
-      `/api/skills/${encodeURIComponent(name)}/content`,
-    ),
+    queryFn: () => callDashboard({ operation: "skills.content", input: { name } }),
     enabled: enabled && Boolean(name),
     staleTime: GATEWAY_LIFETIME_STALE_TIME_MS,
   });
@@ -245,9 +242,7 @@ export function useSkillContentQuery(name: string, enabled = true) {
 export function useSkillReferenceQuery(name: string, path: string, enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.skills.reference(name, path),
-    queryFn: () => fetchJson<SkillReferenceContentPayload>(
-      `/api/skills/${encodeURIComponent(name)}/references/${path.split("/").map(encodeURIComponent).join("/")}`,
-    ),
+    queryFn: () => callDashboard({ operation: "skills.reference", input: { name, path } }),
     enabled: enabled && Boolean(name) && Boolean(path),
     staleTime: GATEWAY_LIFETIME_STALE_TIME_MS,
   });

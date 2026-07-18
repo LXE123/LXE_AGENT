@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentEvent, DesktopDashboardInvalidation } from "@lxe/desktop-protocol";
+import { AGENT_PROTOCOL_VERSION, type AgentEvent, type DesktopDashboardInvalidation } from "@lxe/desktop-protocol";
 
 import {
   DashboardInvalidationBatcher,
@@ -10,7 +10,7 @@ import {
 const event = (
   type: "thread.started" | "turn.started" | "turn.completed" | "turn.failed" | "item.completed",
 ): AgentEvent => ({
-  version: 1,
+  version: AGENT_PROTOCOL_VERSION,
   type,
   thread_id: "session-1",
   ...(type === "thread.started" ? {} : { turn_id: "turn-1" }),
@@ -35,12 +35,12 @@ describe("Dashboard invalidation bridge", () => {
     });
   });
 
-  test("maps successful PATCH paths to their related domains", () => {
-    expect(dashboardDomainsForMutation("/api/models/current")).toEqual(["models"]);
-    expect(dashboardDomainsForMutation("/api/models/current/thinking")).toEqual(["models"]);
-    expect(dashboardDomainsForMutation("/api/connectors/feishu")).toEqual(["connectors", "skills"]);
-    expect(dashboardDomainsForMutation("/api/mcp/servers/browser")).toEqual(["tools"]);
-    expect(dashboardDomainsForMutation("/api/sessions")).toEqual([]);
+  test("maps successful mutation operations to their related domains", () => {
+    expect(dashboardDomainsForMutation("models.update")).toEqual(["models"]);
+    expect(dashboardDomainsForMutation("models.thinking.update")).toEqual(["models"]);
+    expect(dashboardDomainsForMutation("connectors.update")).toEqual(["connectors", "skills"]);
+    expect(dashboardDomainsForMutation("mcp.servers.update")).toEqual(["tools"]);
+    expect(dashboardDomainsForMutation("sessions.list")).toEqual([]);
   });
 
   test("coalesces events for 200ms and never forwards event bodies", () => {
