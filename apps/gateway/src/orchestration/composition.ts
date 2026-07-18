@@ -113,7 +113,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
               session_id: handle.sessionId,
               job_id: handle.jobId,
               status: outcome.status,
-              remaining_steering: (outcome.remaining_steering ?? handle.drainSteering()).map((item) => ({
+              remaining_steering: (outcome.remaining_steering ?? []).map((item) => ({
                 text: item.text,
                 response_route_id: item.response_route_id ?? "",
                 message_id: item.message_id ?? "",

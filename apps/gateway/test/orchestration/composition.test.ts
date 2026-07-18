@@ -6,7 +6,6 @@ import type { AgentJob, JsonObject } from "@lxe/protocol";
 import { FakeChannelAdapter } from "../fake-channel";
 import { createDirectGatewayComposition } from "../../src/orchestration/composition";
 import { buildPermissionPolicy } from "../../src/security/permission-policy";
-import type { RunHandle, SteeringMessage } from "../../src/orchestration/scheduler";
 import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
@@ -124,48 +123,6 @@ describe("direct Gateway composition", () => {
     expect(jobs[1]?.user_input).toBe("follow up");
     expect(jobs[1]?.response_route_id).toBe("route-2");
     expect(jobs[1]?.message_id).toBe("m-2");
-    await waitFor(() => !composition.parts.scheduler.hasInflightJobs());
-    await composition.stop();
-  });
-
-  test("falls back to draining the shared handle when the outcome omits remaining steering", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-direct-"));
-    roots.push(root);
-    const jobs: AgentJob[] = [];
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const runtime = {
-      start: async () => undefined,
-      stop: async () => undefined,
-      steerTurn: async (handle: RunHandle, message: Required<SteeringMessage>) => {
-        handle.pushSteering(message);
-      },
-      runTurn: async (value: AgentJob) => {
-        jobs.push(value);
-        if (jobs.length === 1) await gate;
-        return { status: "completed" as const, reply: "done", input_tokens: 1, output_tokens: 1, tool_calls: 0 };
-      },
-    };
-    const composition = createDirectGatewayComposition({
-      projectRoot: root,
-      defaultWorkspace: () => testWorkspace,
-      bindingsPath: join(root, "sessions.json"),
-      policy: policy(),
-      storage: storage(),
-      runtime,
-    });
-
-    await composition.start();
-    await composition.parts.scheduler.enqueue(job());
-    await waitFor(() => jobs.length >= 1);
-    expect(await composition.parts.scheduler.steerActive("s1", { text: "inline steer" })).toBe(true);
-    release();
-    await waitFor(() => jobs.length >= 2);
-
-    expect(jobs).toHaveLength(2);
-    expect(jobs[1]?.user_input).toBe("inline steer");
     await waitFor(() => !composition.parts.scheduler.hasInflightJobs());
     await composition.stop();
   });

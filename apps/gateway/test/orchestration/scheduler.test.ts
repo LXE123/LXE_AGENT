@@ -57,16 +57,6 @@ const completion = (
 ) => ({ kind: "runtime.turn.completed", run_id: runId, payload });
 
 describe("RunHandle", () => {
-  test("stores only non-empty steering and drains it", () => {
-    const handle = new RunHandle(job("s1", "j1"));
-    handle.pushSteering({ text: " first ", response_route_id: "r1", message_id: "m1" });
-    handle.pushSteering({ text: "  ", response_route_id: "", message_id: "" });
-    expect(handle.drainSteering()).toEqual([
-      { text: "first", response_route_id: "r1", message_id: "m1" },
-    ]);
-    expect(handle.drainSteering()).toEqual([]);
-  });
-
   test("aborts registered processes and exposes one cancellation signal", async () => {
     const handle = new RunHandle(job("s1", "j1"));
     const calls: string[] = [];
@@ -262,8 +252,6 @@ describe("SessionScheduler", () => {
       }),
     ).toBe(true);
     expect(runtime.steered).toEqual([{ runId: "j1", text: "new direction" }]);
-    // The gateway handle does not mirror steering; the agent owns the queue.
-    expect(scheduler.activeRun("s1")?.drainSteering()).toEqual([]);
     expect(await scheduler.steerActive("missing", { text: "x" })).toBe(false);
   });
 
@@ -278,7 +266,6 @@ describe("SessionScheduler", () => {
       await scheduler.enqueue(job("s1", "j1"));
       await tick();
       expect(await scheduler.steerActive("s1", { text: "fallback" })).toBe(false);
-      expect(scheduler.activeRun("s1")?.drainSteering()).toEqual([]);
     },
   );
 

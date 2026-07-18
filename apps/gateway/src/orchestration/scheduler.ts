@@ -48,7 +48,6 @@ export class RunHandle {
   closing = false;
   startError: unknown;
   cancelRequest: Promise<boolean> | undefined;
-  private steering: Required<SteeringMessage>[] = [];
   private readonly abortController = new AbortController();
   private readonly processes = new Set<ManagedProcess>();
 
@@ -58,22 +57,6 @@ export class RunHandle {
     this.runId = this.jobId;
     this.responseRouteId = originJob.response_route_id.trim();
     this.startedAt = now();
-  }
-
-  pushSteering(message: SteeringMessage): void {
-    const text = String(message.text ?? "").trim();
-    if (!text) return;
-    this.steering.push({
-      text,
-      response_route_id: String(message.response_route_id ?? "").trim(),
-      message_id: String(message.message_id ?? "").trim(),
-    });
-  }
-
-  drainSteering(): Required<SteeringMessage>[] {
-    const result = this.steering;
-    this.steering = [];
-    return result;
   }
 
   get signal(): AbortSignal {
