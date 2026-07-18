@@ -206,6 +206,11 @@ const canonicalCandidate = (path: string): string => {
   return resolve(base, ...missing);
 };
 
+const normalizedPathKey = (path: string): string => {
+  const normalized = canonicalCandidate(resolve(path));
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+};
+
 const containsCanonicalPath = (root: string, path: string): boolean =>
   containsPath(root, path)
   && containsPath(canonicalCandidate(root), canonicalCandidate(path));
@@ -855,7 +860,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     context: { workspace: WorkspaceContext; workspaceSearch?: WorkspaceSearchService },
   ): WorkspaceSearchService => {
     if (target.scope.kind === "workspace" && context.workspaceSearch) return context.workspaceSearch;
-    const key = `${context.workspace.server_scope}\0${target.scope.root}`;
+    const key = normalizedPathKey(target.scope.root);
     let search = externalSearches.get(key);
     if (!search) {
       search = new WorkspaceSearchService(target.scope.root, {

@@ -114,7 +114,7 @@ const normalizedPathKey = (path: string): string => {
 };
 
 const workspaceKey = (workspace: WorkspaceContext): string =>
-  `${workspace.server_scope}\0${normalizedPathKey(workspace.worktree)}`;
+  normalizedPathKey(workspace.worktree);
 
 const containsPath = (root: string, candidate: string): boolean => {
   const normalizedRoot = normalizedPathKey(root);

@@ -54,7 +54,6 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
       "## Workspace",
       `Working directory: ${options.workspace.directory}`,
       `Git worktree root: ${options.workspace.worktree}`,
-      `Server scope: ${options.workspace.server_scope}`,
       "Relative paths start from the working directory.",
       "File operations are limited to the Git worktree root. Root-level .env* files and var/db, var/logs are write-protected.",
     ].join("\n"),

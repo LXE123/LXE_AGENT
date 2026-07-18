@@ -377,7 +377,10 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
   const requireWorkspace = (value: unknown, field: string): void => {
     const workspace = objectValue(value);
     if (!workspace) throw new Error(`agent protocol ${field} must be an object`);
-    if (workspace.server_scope !== "local") throw new Error(`agent protocol ${field}.server_scope must be local`);
+    const unsupported = Object.keys(workspace).filter((name) => name !== "directory" && name !== "worktree");
+    if (unsupported.length > 0) {
+      throw new Error(`agent protocol ${field} has unsupported fields: ${unsupported.join(", ")}`);
+    }
     for (const name of ["directory", "worktree"]) {
       if (typeof workspace[name] !== "string" || !String(workspace[name]).trim()) {
         throw new Error(`agent protocol ${field}.${name} must be a non-empty string`);

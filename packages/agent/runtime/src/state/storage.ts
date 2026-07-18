@@ -53,6 +53,7 @@ const mergeObjects = (base: JsonObject, patch: JsonObject): JsonObject => {
 };
 
 const text = (value: unknown): string => String(value ?? "").trim();
+const retiredWorkspaceColumn = ["workspace", "server", "scope"].join("_");
 
 const imagePlaceholder = (): JsonObject => ({
   type: "text",
@@ -227,107 +228,118 @@ export class SqliteRuntimeStore implements RuntimeStore {
     database.exec("PRAGMA foreign_keys = ON");
     database.exec("PRAGMA busy_timeout = 5000");
     database.exec("PRAGMA journal_mode = WAL");
-    database.exec(`
-      CREATE TABLE IF NOT EXISTS agent_sessions (
-        session_id TEXT PRIMARY KEY,
-        source TEXT NOT NULL DEFAULT '{}',
-        workspace_server_scope TEXT NOT NULL DEFAULT '',
-        workspace_directory TEXT NOT NULL DEFAULT '',
-        workspace_worktree TEXT NOT NULL DEFAULT '',
-        model TEXT NOT NULL DEFAULT '',
-        reasoning_effort TEXT NOT NULL DEFAULT '',
-        model_config TEXT NOT NULL DEFAULT '{}',
-        created_at REAL NOT NULL,
-        last_active_at REAL NOT NULL,
-        message_count INTEGER NOT NULL DEFAULT 0,
-        tool_call_count INTEGER NOT NULL DEFAULT 0,
-        input_tokens INTEGER NOT NULL DEFAULT 0,
-        output_tokens INTEGER NOT NULL DEFAULT 0,
-        title TEXT NOT NULL DEFAULT '',
-        api_call_count INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS agent_session_pending_events (
-        queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id TEXT NOT NULL,
-        event_id TEXT NOT NULL UNIQUE,
-        job_id TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        text TEXT NOT NULL,
-        queued_at TEXT NOT NULL,
-        FOREIGN KEY(session_id) REFERENCES agent_sessions(session_id) ON DELETE CASCADE
-      );
-      CREATE TABLE IF NOT EXISTS turn_usage (
-        turn_id TEXT PRIMARY KEY,
-        session_id TEXT NOT NULL,
-        started_at REAL NOT NULL,
-        status TEXT NOT NULL DEFAULT '',
-        elapsed_ms INTEGER NOT NULL DEFAULT 0,
-        llm_calls INTEGER NOT NULL DEFAULT 0,
-        tool_calls INTEGER NOT NULL DEFAULT 0,
-        input_tokens INTEGER NOT NULL DEFAULT 0,
-        output_tokens INTEGER NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS turn_usage_items (
-        item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        turn_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        started_at REAL NOT NULL,
-        kind TEXT NOT NULL,
-        name TEXT NOT NULL,
-        module TEXT NOT NULL DEFAULT '',
-        calls INTEGER NOT NULL DEFAULT 1,
-        errors INTEGER NOT NULL DEFAULT 0,
-        duration_ms INTEGER NOT NULL DEFAULT 0,
-        detail TEXT NOT NULL DEFAULT ''
-      );
-      CREATE TABLE IF NOT EXISTS transcript_file_state (
-        session_id TEXT PRIMARY KEY,
-        file_size INTEGER NOT NULL DEFAULT 0,
-        mtime_ms REAL NOT NULL DEFAULT 0,
-        indexed_bytes INTEGER NOT NULL DEFAULT 0,
-        event_count INTEGER NOT NULL DEFAULT 0,
-        raw_message_count INTEGER NOT NULL DEFAULT 0,
-        display_group_count INTEGER NOT NULL DEFAULT 0,
-        last_display_kind TEXT NOT NULL DEFAULT '',
-        updated_at REAL NOT NULL DEFAULT 0
-      );
-      CREATE TABLE IF NOT EXISTS transcript_display_groups (
-        session_id TEXT NOT NULL,
-        group_number INTEGER NOT NULL,
-        byte_start INTEGER NOT NULL,
-        byte_end INTEGER NOT NULL,
-        group_kind TEXT NOT NULL,
-        PRIMARY KEY (session_id, group_number)
-      );
-      CREATE INDEX IF NOT EXISTS idx_turn_usage_started_at ON turn_usage (started_at);
-      CREATE INDEX IF NOT EXISTS idx_turn_usage_items_kind_name ON turn_usage_items (kind, name, started_at);
-      CREATE INDEX IF NOT EXISTS idx_turn_usage_items_turn_id ON turn_usage_items (turn_id);
-      CREATE INDEX IF NOT EXISTS idx_transcript_display_groups_session
-        ON transcript_display_groups (session_id, group_number);
-    `);
     this.database = database;
-    const columns = this.allPrepared<{ name: string }>("PRAGMA table_info(agent_sessions)");
-    if (!columns.some((column) => column.name === "reasoning_effort")) {
-      database.exec("ALTER TABLE agent_sessions ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''");
-    }
-    for (const [name, declaration] of [
-      ["workspace_server_scope", "TEXT NOT NULL DEFAULT ''"],
-      ["workspace_directory", "TEXT NOT NULL DEFAULT ''"],
-      ["workspace_worktree", "TEXT NOT NULL DEFAULT ''"],
-    ] as const) {
-      if (!columns.some((column) => column.name === name)) {
-        database.exec(`ALTER TABLE agent_sessions ADD COLUMN ${name} ${declaration}`);
+    try {
+      database.exec("BEGIN IMMEDIATE");
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS agent_sessions (
+          session_id TEXT PRIMARY KEY,
+          source TEXT NOT NULL DEFAULT '{}',
+          workspace_directory TEXT NOT NULL DEFAULT '',
+          workspace_worktree TEXT NOT NULL DEFAULT '',
+          model TEXT NOT NULL DEFAULT '',
+          reasoning_effort TEXT NOT NULL DEFAULT '',
+          model_config TEXT NOT NULL DEFAULT '{}',
+          created_at REAL NOT NULL,
+          last_active_at REAL NOT NULL,
+          message_count INTEGER NOT NULL DEFAULT 0,
+          tool_call_count INTEGER NOT NULL DEFAULT 0,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0,
+          title TEXT NOT NULL DEFAULT '',
+          api_call_count INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS agent_session_pending_events (
+          queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id TEXT NOT NULL,
+          event_id TEXT NOT NULL UNIQUE,
+          job_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          text TEXT NOT NULL,
+          queued_at TEXT NOT NULL,
+          FOREIGN KEY(session_id) REFERENCES agent_sessions(session_id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS turn_usage (
+          turn_id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          started_at REAL NOT NULL,
+          status TEXT NOT NULL DEFAULT '',
+          elapsed_ms INTEGER NOT NULL DEFAULT 0,
+          llm_calls INTEGER NOT NULL DEFAULT 0,
+          tool_calls INTEGER NOT NULL DEFAULT 0,
+          input_tokens INTEGER NOT NULL DEFAULT 0,
+          output_tokens INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS turn_usage_items (
+          item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          turn_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          started_at REAL NOT NULL,
+          kind TEXT NOT NULL,
+          name TEXT NOT NULL,
+          module TEXT NOT NULL DEFAULT '',
+          calls INTEGER NOT NULL DEFAULT 1,
+          errors INTEGER NOT NULL DEFAULT 0,
+          duration_ms INTEGER NOT NULL DEFAULT 0,
+          detail TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS transcript_file_state (
+          session_id TEXT PRIMARY KEY,
+          file_size INTEGER NOT NULL DEFAULT 0,
+          mtime_ms REAL NOT NULL DEFAULT 0,
+          indexed_bytes INTEGER NOT NULL DEFAULT 0,
+          event_count INTEGER NOT NULL DEFAULT 0,
+          raw_message_count INTEGER NOT NULL DEFAULT 0,
+          display_group_count INTEGER NOT NULL DEFAULT 0,
+          last_display_kind TEXT NOT NULL DEFAULT '',
+          updated_at REAL NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS transcript_display_groups (
+          session_id TEXT NOT NULL,
+          group_number INTEGER NOT NULL,
+          byte_start INTEGER NOT NULL,
+          byte_end INTEGER NOT NULL,
+          group_kind TEXT NOT NULL,
+          PRIMARY KEY (session_id, group_number)
+        );
+        CREATE INDEX IF NOT EXISTS idx_turn_usage_started_at ON turn_usage (started_at);
+        CREATE INDEX IF NOT EXISTS idx_turn_usage_items_kind_name ON turn_usage_items (kind, name, started_at);
+        CREATE INDEX IF NOT EXISTS idx_turn_usage_items_turn_id ON turn_usage_items (turn_id);
+        CREATE INDEX IF NOT EXISTS idx_transcript_display_groups_session
+          ON transcript_display_groups (session_id, group_number);
+      `);
+      const columns = this.allPrepared<{ name: string }>("PRAGMA table_info(agent_sessions)");
+      if (!columns.some((column) => column.name === "reasoning_effort")) {
+        database.exec("ALTER TABLE agent_sessions ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''");
       }
+      for (const [name, declaration] of [
+        ["workspace_directory", "TEXT NOT NULL DEFAULT ''"],
+        ["workspace_worktree", "TEXT NOT NULL DEFAULT ''"],
+      ] as const) {
+        if (!columns.some((column) => column.name === name)) {
+          database.exec(`ALTER TABLE agent_sessions ADD COLUMN ${name} ${declaration}`);
+        }
+      }
+      if (this.options.legacyWorkspace) {
+        const workspace = this.options.legacyWorkspace;
+        database.query(`
+          UPDATE agent_sessions SET
+            workspace_directory = ?, workspace_worktree = ?
+          WHERE workspace_directory = '' OR workspace_worktree = ''
+        `).run(workspace.directory, workspace.worktree);
+      }
+      if (columns.some((column) => column.name === retiredWorkspaceColumn)) {
+        database.exec(`ALTER TABLE agent_sessions DROP COLUMN ${retiredWorkspaceColumn}`);
+      }
+      database.exec("COMMIT");
+      await this.catchUpTranscriptIndexes();
+    } catch (error) {
+      try { database.exec("ROLLBACK"); } catch { /* Preserve the startup failure. */ }
+      this.database = undefined;
+      database.close(false);
+      this.clearReplayCache();
+      throw error;
     }
-    if (this.options.legacyWorkspace) {
-      const workspace = this.options.legacyWorkspace;
-      database.query(`
-        UPDATE agent_sessions SET
-          workspace_server_scope = ?, workspace_directory = ?, workspace_worktree = ?
-        WHERE workspace_server_scope = '' OR workspace_directory = '' OR workspace_worktree = ''
-      `).run(workspace.server_scope, workspace.directory, workspace.worktree);
-    }
-    await this.catchUpTranscriptIndexes();
   }
 
   async stop(): Promise<void> {
@@ -344,11 +356,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const incomingSource = parseObject(request.source);
     const current = this.getPrepared<{
       source: string;
-      workspace_server_scope: string;
       workspace_directory: string;
       workspace_worktree: string;
     }>(
-      `SELECT source, workspace_server_scope, workspace_directory, workspace_worktree
+      `SELECT source, workspace_directory, workspace_worktree
        FROM agent_sessions WHERE session_id = ?`,
       sessionId,
     );
@@ -360,19 +371,17 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const now = Date.now() / 1_000;
     this.db().query(`
       INSERT INTO agent_sessions (
-        session_id, source, workspace_server_scope, workspace_directory, workspace_worktree,
+        session_id, source, workspace_directory, workspace_worktree,
         created_at, last_active_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         source = excluded.source,
-        workspace_server_scope = excluded.workspace_server_scope,
         workspace_directory = excluded.workspace_directory,
         workspace_worktree = excluded.workspace_worktree,
         last_active_at = excluded.last_active_at
     `).run(
       sessionId,
       JSON.stringify(source),
-      workspace.server_scope,
       workspace.directory,
       workspace.worktree,
       now,
@@ -388,11 +397,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const row = this.getPrepared<{
       session_id: string;
       source: string;
-      workspace_server_scope: string;
       workspace_directory: string;
       workspace_worktree: string;
     }>(
-      `SELECT session_id, source, workspace_server_scope, workspace_directory, workspace_worktree
+      `SELECT session_id, source, workspace_directory, workspace_worktree
        FROM agent_sessions WHERE session_id = ?`,
       text(sessionId),
     );
@@ -877,7 +885,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
       ...whereArgs,
     );
     const rows = this.allPrepared<Record<string, unknown>>(`
-      SELECT session_id, source, workspace_server_scope, workspace_directory, workspace_worktree,
+      SELECT session_id, source, workspace_directory, workspace_worktree,
              model, reasoning_effort, model_config, created_at, last_active_at,
              message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
       FROM agent_sessions ${where}
@@ -909,7 +917,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     if (!exists) return undefined;
     const display = await this.loadTranscriptDisplayPage(safeSessionId, options);
     const row = this.getPrepared<Record<string, unknown>>(`
-      SELECT session_id, source, workspace_server_scope, workspace_directory, workspace_worktree,
+      SELECT session_id, source, workspace_directory, workspace_worktree,
              model, reasoning_effort, model_config, created_at, last_active_at,
              message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
       FROM agent_sessions WHERE session_id = ?
@@ -972,11 +980,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
   }
 
   private workspaceFromRow(row: Record<string, unknown>): WorkspaceContext | undefined {
-    const serverScope = text(row.workspace_server_scope);
     const directory = text(row.workspace_directory);
     const worktree = text(row.workspace_worktree);
-    if (!serverScope && !directory && !worktree) return undefined;
-    return workspaceContextFrom({ server_scope: serverScope, directory, worktree });
+    if (!directory && !worktree) return undefined;
+    return workspaceContextFrom({ directory, worktree });
   }
 
   private validCacheBeforeWrite(

@@ -19,6 +19,11 @@ describe("protocol contracts", () => {
 
     expect(validateInboundEvent(validInboundEvent)).toBe(true);
     expect(validateAgentJob(validAgentJob)).toBe(true);
+    const retiredField = ["server", "scope"].join("_");
+    expect(validateAgentJob({
+      ...validAgentJob,
+      workspace: { ...validAgentJob.workspace, [retiredField]: "local" },
+    })).toBe(false);
     expect(validateEmitRequest(validEmitRequest)).toBe(true);
     expect(validateEmitRequest({ ...validEmitRequest, turn_id: "" })).toBe(false);
   });

@@ -23,7 +23,6 @@
     }
   ],
   "workspace": {
-    "server_scope": "local",
     "directory": "/workspace/project",
     "worktree": "/workspace"
   }

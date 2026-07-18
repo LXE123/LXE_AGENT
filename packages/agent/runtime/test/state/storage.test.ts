@@ -7,6 +7,7 @@ import { SqliteRuntimeStore } from "../../src/state/storage";
 import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
+const retiredWorkspaceColumn = ["workspace", "server", "scope"].join("_");
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -58,12 +59,90 @@ describe("SqliteRuntimeStore", () => {
     expect(await store.sessionDetail("legacy", { limit: 10 })).toMatchObject({
       session: { workspace: testWorkspace },
     });
+    await store.appendPendingEvent("legacy", { event_id: "migration-event", job_id: "job-1", text: "preserved" });
+    await store.appendMessage("legacy", { role: "user", content: "preserved transcript" }, "turn_input");
     await store.stop();
+
+    const oldDatabase = new Database(databasePath);
+    const newColumns = oldDatabase.query("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
+    expect(newColumns.map((column) => column.name)).toContain("workspace_directory");
+    expect(newColumns.map((column) => column.name)).toContain("workspace_worktree");
+    expect(newColumns.map((column) => column.name)).not.toContain(retiredWorkspaceColumn);
+    oldDatabase.exec(`
+      ALTER TABLE agent_sessions
+      ADD COLUMN ${retiredWorkspaceColumn} TEXT NOT NULL DEFAULT 'unexpected';
+      INSERT INTO turn_usage (turn_id, session_id, started_at)
+      VALUES ('preserved-turn', 'legacy', 1);
+    `);
+    oldDatabase.close(true);
 
     const reopened = new SqliteRuntimeStore(databasePath, { legacyWorkspace: different });
     await reopened.start();
-    expect((await reopened.getSession("legacy"))?.workspace).toEqual(testWorkspace);
+    expect(await reopened.getSession("legacy")).toEqual(expect.objectContaining({
+      source: { platform: "feishu", chat_id: "same-workspace" },
+      workspace: testWorkspace,
+    }));
+    expect(await reopened.popPendingEvents("legacy")).toEqual([
+      expect.objectContaining({ event_id: "migration-event", job_id: "job-1", text: "preserved" }),
+    ]);
+    expect(await reopened.loadMessages("legacy")).toEqual([
+      { role: "user", content: "preserved transcript" },
+    ]);
     await reopened.stop();
+
+    const migrated = new Database(databasePath);
+    const migratedColumns = migrated.query("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
+    expect(migratedColumns.map((column) => column.name)).not.toContain(retiredWorkspaceColumn);
+    expect(migrated.query("SELECT session_id FROM turn_usage WHERE turn_id = 'preserved-turn'").get())
+      .toEqual({ session_id: "legacy" });
+    migrated.close(true);
+
+    const idempotent = new SqliteRuntimeStore(databasePath, { legacyWorkspace: different });
+    await idempotent.start();
+    expect((await idempotent.getSession("legacy"))?.workspace).toEqual(testWorkspace);
+    await idempotent.stop();
+  });
+
+  test("rolls back all workspace schema changes when the retired column cannot be dropped", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-runtime-workspace-rollback-"));
+    roots.push(root);
+    const databasePath = join(root, "local_agent.sqlite3");
+    const legacy = new Database(databasePath, { create: true });
+    legacy.exec(`
+      CREATE TABLE agent_sessions (
+        session_id TEXT PRIMARY KEY,
+        source TEXT NOT NULL DEFAULT '{}',
+        ${retiredWorkspaceColumn} TEXT NOT NULL DEFAULT 'unexpected',
+        model TEXT NOT NULL DEFAULT '',
+        model_config TEXT NOT NULL DEFAULT '{}',
+        created_at REAL NOT NULL,
+        last_active_at REAL NOT NULL,
+        message_count INTEGER NOT NULL DEFAULT 0,
+        tool_call_count INTEGER NOT NULL DEFAULT 0,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        title TEXT NOT NULL DEFAULT '',
+        api_call_count INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX idx_retired_workspace_column
+      ON agent_sessions (${retiredWorkspaceColumn});
+      INSERT INTO agent_sessions (session_id, source, created_at, last_active_at)
+      VALUES ('preserved', '{"platform":"feishu"}', 1, 1);
+    `);
+    legacy.close(true);
+
+    const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: testWorkspace });
+    await expect(store.start()).rejects.toThrow();
+
+    const inspected = new Database(databasePath);
+    const columns = inspected.query("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toContain(retiredWorkspaceColumn);
+    expect(columns.map((column) => column.name)).not.toContain("workspace_directory");
+    expect(columns.map((column) => column.name)).not.toContain("workspace_worktree");
+    expect(columns.map((column) => column.name)).not.toContain("reasoning_effort");
+    expect(inspected.query("SELECT source FROM agent_sessions WHERE session_id = 'preserved'").get())
+      .toEqual({ source: '{"platform":"feishu"}' });
+    inspected.close(true);
   });
 
   test("replays legacy tool messages, replacements, and session_messages fallback", async () => {

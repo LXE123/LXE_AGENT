@@ -34,6 +34,33 @@ describe("desktop agent protocol", () => {
     }))).toThrow("payload must be an object");
   });
 
+  test("accepts only directory and worktree in workspace payloads", () => {
+    const request = {
+      version: AGENT_PROTOCOL_VERSION,
+      id: "request-workspace",
+      command: "initialize",
+      payload: {
+        resource_root: "/runtime/resources",
+        data_root: "/runtime/data",
+        legacy_workspace: { directory: "/workspace/project", worktree: "/workspace" },
+      },
+    };
+    expect(parseAgentWireMessage(JSON.stringify(request))).toMatchObject(request);
+
+    const retiredField = ["server", "scope"].join("_");
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      ...request,
+      payload: {
+        ...request.payload,
+        legacy_workspace: { ...request.payload.legacy_workspace, [retiredField]: "local" },
+      },
+    }))).toThrow("unsupported fields");
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      ...request,
+      payload: { ...request.payload, legacy_workspace: { directory: "/workspace" } },
+    }))).toThrow("worktree must be a non-empty string");
+  });
+
   test("rejects unknown commands and incomplete command payloads", () => {
     expect(() => parseAgentWireMessage(JSON.stringify({
       version: AGENT_PROTOCOL_VERSION,

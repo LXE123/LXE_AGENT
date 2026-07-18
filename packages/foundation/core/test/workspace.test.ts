@@ -25,6 +25,10 @@ describe("WorkspaceContext resolution", () => {
   test("never falls back to the process cwd for an empty or relative directory", () => {
     expect(() => resolveWorkspaceContext("")).toThrow("absolute path");
     expect(() => resolveWorkspaceContext("relative/workspace")).toThrow("absolute path");
+    expect(() => workspaceContextFrom({ directory: "relative/workspace", worktree: "/workspace" }))
+      .toThrow("workspace.directory must be an absolute path");
+    expect(() => workspaceContextFrom({ directory: "/workspace", worktree: "relative/workspace" }))
+      .toThrow("workspace.worktree must be an absolute path");
   });
 
   test("uses a Git root for nested directories and the directory itself outside Git", () => {
@@ -36,12 +40,10 @@ describe("WorkspaceContext resolution", () => {
     mkdirSync(nested, { recursive: true });
 
     expect(resolveWorkspaceContext(nested)).toEqual({
-      server_scope: "local",
       directory: realpathSync(nested),
       worktree: realpathSync(root),
     });
     expect(resolveWorkspaceContext(plain)).toEqual({
-      server_scope: "local",
       directory: realpathSync(plain),
       worktree: realpathSync(plain),
     });

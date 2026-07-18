@@ -66,7 +66,6 @@ const setup = (options: {
   });
   managers.push(manager);
   const workspace = (directory = worktree, rootPath = worktree): WorkspaceContext => ({
-    server_scope: "local",
     directory,
     worktree: rootPath,
   });

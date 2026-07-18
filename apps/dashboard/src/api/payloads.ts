@@ -62,7 +62,6 @@ export type SessionPayload = {
 };
 
 export type WorkspacePayload = {
-  server_scope: "local";
   directory: string;
   worktree: string;
 };

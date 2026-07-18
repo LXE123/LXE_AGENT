@@ -6,7 +6,6 @@ export const testWorkspace: WorkspaceContext = resolveWorkspaceContext(
 );
 
 export const workspaceFor = (directory: string, worktree = directory): WorkspaceContext => ({
-  server_scope: "local",
   directory,
   worktree,
 });

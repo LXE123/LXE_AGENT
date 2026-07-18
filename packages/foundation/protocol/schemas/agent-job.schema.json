@@ -36,9 +36,8 @@
     "workspace": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["server_scope", "directory", "worktree"],
+      "required": ["directory", "worktree"],
       "properties": {
-        "server_scope": { "const": "local" },
         "directory": { "type": "string", "minLength": 1 },
         "worktree": { "type": "string", "minLength": 1 }
       }

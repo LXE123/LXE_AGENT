@@ -273,3 +273,24 @@ def test_runtime_docs_do_not_reference_legacy_root_log_paths() -> None:
         "runtime documentation must keep logs under var/logs: "
         f"{offenders}"
     )
+
+
+def test_retired_workspace_scope_is_absent() -> None:
+    needles = (
+        "server_" + "scope",
+        "server" + "Scope",
+        "Server " + "scope",
+    )
+    text_suffixes = {".json", ".md", ".py", ".ts", ".tsx"}
+    offenders: list[str] = []
+    for relative_path in _repository_paths():
+        path = REPO_ROOT / relative_path
+        if path.suffix not in text_suffixes:
+            continue
+        text = path.read_text("utf-8")
+        if any(needle in text for needle in needles):
+            offenders.append(relative_path)
+    assert offenders == [], (
+        "the retired workspace scope must not remain in source, schemas, fixtures, or docs: "
+        f"{offenders}"
+    )

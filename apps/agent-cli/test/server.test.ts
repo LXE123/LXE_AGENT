@@ -9,7 +9,6 @@ import { AgentProtocolServer, type AgentProtocolServerOptions } from "../src/ser
 type CreateService = NonNullable<AgentProtocolServerOptions["createService"]>;
 
 const workspace = (root: string) => ({
-  server_scope: "local" as const,
   directory: root,
   worktree: root,
 });

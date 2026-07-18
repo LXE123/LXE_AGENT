@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Session 保存自己不可变的 `WorkspaceContext`，但同一个 Git worktree 下的 Session 不会各自重复加载 Skill、Instructions 和搜索服务。Runtime 用 `server_scope + worktree` 找到一个进程内 `WorkspaceInstance`，再按 Session 的 `directory` 生成当前视图。
+Session 保存自己不可变的 `WorkspaceContext`，但同一个 Git worktree 下的 Session 不会各自重复加载 Skill、Instructions 和搜索服务。Runtime 用规范化后的 worktree 路径找到一个进程内 `WorkspaceInstance`，再按 Session 的 `directory` 生成当前视图。
 
 缓存只用于加速，不是新的事实来源。退出 `agent-cli` 后缓存全部消失；下次使用时从本机文件重新建立，不写磁盘解析缓存，也不写入 Session `source`。
 

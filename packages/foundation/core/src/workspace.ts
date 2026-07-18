@@ -3,7 +3,6 @@ import { spawnSync } from "node:child_process";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 export interface WorkspaceContextLike {
-  server_scope: "local";
   directory: string;
   worktree: string;
 }
@@ -63,7 +62,7 @@ export const resolveWorkspaceContext = (
   if (!containsPath(worktree, directory)) {
     throw new Error(`workspace directory is outside its Git worktree: ${directory}`);
   }
-  return { server_scope: "local", directory, worktree };
+  return { directory, worktree };
 };
 
 export const workspaceContextFrom = (value: unknown): ResolvedWorkspaceContext => {
@@ -71,20 +70,18 @@ export const workspaceContextFrom = (value: unknown): ResolvedWorkspaceContext =
     throw new Error("workspace must be an object");
   }
   const workspace = value as Record<string, unknown>;
-  if (workspace.server_scope !== "local") throw new Error("workspace.server_scope must be local");
   const directory = text(workspace.directory);
   const worktree = text(workspace.worktree);
   if (!directory || !isAbsolute(directory)) throw new Error("workspace.directory must be an absolute path");
   if (!worktree || !isAbsolute(worktree)) throw new Error("workspace.worktree must be an absolute path");
-  return { server_scope: "local", directory: resolve(directory), worktree: resolve(worktree) };
+  return { directory: resolve(directory), worktree: resolve(worktree) };
 };
 
 export const sameWorkspaceContext = (
   left: WorkspaceContextLike,
   right: WorkspaceContextLike,
 ): boolean =>
-  left.server_scope === right.server_scope
-  && left.directory === right.directory
+  left.directory === right.directory
   && left.worktree === right.worktree;
 
 export const assertWorkspaceAvailable = (

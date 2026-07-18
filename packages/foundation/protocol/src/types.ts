@@ -5,7 +5,6 @@ export interface JsonObject {
 }
 
 export interface WorkspaceContext extends JsonObject {
-  server_scope: "local";
   directory: string;
   worktree: string;
 }

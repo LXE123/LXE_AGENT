@@ -403,7 +403,6 @@ export function SessionDetailView({
     { label: t.sessionDetail.source, value: sourceLabel(session.source_summary || session.source) },
     { label: t.sessionDetail.directory, value: session.workspace.directory, mono: true },
     { label: t.sessionDetail.worktree, value: session.workspace.worktree, mono: true },
-    { label: t.sessionDetail.serverScope, value: session.workspace.server_scope, mono: true },
     { label: t.sessionDetail.model, value: session.model || "-" },
     { label: t.sessionDetail.lastActive, value: formatDate(session.last_active_at) },
     { label: t.stats.messages, value: formatNumber(session.message_count) },

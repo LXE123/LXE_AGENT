@@ -11,7 +11,6 @@ describe("system prompt builder", () => {
       skillPrompt: "## Available Skills\n- one",
       workspaceInstructions: "## Workspace Instructions\nFollow the project rules.",
       workspace: {
-        server_scope: "local",
         directory: "/workspace/project",
         worktree: "/workspace",
       },
@@ -28,5 +27,6 @@ describe("system prompt builder", () => {
     expect(volatile).toContain("Platform: feishu");
     expect(volatile).toContain("Working directory: /workspace/project");
     expect(volatile).toContain("Git worktree root: /workspace");
+    expect(volatile).not.toContain(`Server ${"scope"}`);
   });
 });

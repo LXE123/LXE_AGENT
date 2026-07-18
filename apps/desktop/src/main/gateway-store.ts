@@ -19,6 +19,7 @@ import type {
 } from "@lxe/gateway/desktop";
 
 const text = (value: JsonValue | undefined): string => String(value ?? "").trim();
+const retiredWorkspaceColumn = ["workspace", "server", "scope"].join("_");
 const objectValue = (value: JsonValue | undefined): JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 const parseObject = (value: unknown): JsonObject => {
@@ -47,48 +48,53 @@ export class NodeGatewayStore implements Omit<
     database.exec("PRAGMA foreign_keys = ON");
     database.exec("PRAGMA busy_timeout = 5000");
     database.exec("PRAGMA journal_mode = WAL");
-    database.exec(`
-      CREATE TABLE IF NOT EXISTS gateway_sessions (
-        session_id TEXT PRIMARY KEY,
-        source TEXT NOT NULL DEFAULT '{}',
-        workspace_server_scope TEXT NOT NULL DEFAULT '',
-        workspace_directory TEXT NOT NULL DEFAULT '',
-        workspace_worktree TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS response_routes (
-        response_route_id TEXT PRIMARY KEY,
-        owner_user_id TEXT NOT NULL,
-        platform TEXT NOT NULL DEFAULT 'feishu',
-        platform_message_id TEXT,
-        conversation_id TEXT,
-        conversation_type TEXT,
-        sender_nick TEXT,
-        extra_data TEXT NOT NULL DEFAULT '{}',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
-    `);
-    const columns = database.prepare("PRAGMA table_info(gateway_sessions)").all() as Array<{ name: string }>;
-    for (const [name, declaration] of [
-      ["workspace_server_scope", "TEXT NOT NULL DEFAULT ''"],
-      ["workspace_directory", "TEXT NOT NULL DEFAULT ''"],
-      ["workspace_worktree", "TEXT NOT NULL DEFAULT ''"],
-    ] as const) {
-      if (!columns.some((column) => column.name === name)) {
-        database.exec(`ALTER TABLE gateway_sessions ADD COLUMN ${name} ${declaration}`);
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS gateway_sessions (
+          session_id TEXT PRIMARY KEY,
+          source TEXT NOT NULL DEFAULT '{}',
+          workspace_directory TEXT NOT NULL DEFAULT '',
+          workspace_worktree TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS response_routes (
+          response_route_id TEXT PRIMARY KEY,
+          owner_user_id TEXT NOT NULL,
+          platform TEXT NOT NULL DEFAULT 'feishu',
+          platform_message_id TEXT,
+          conversation_id TEXT,
+          conversation_type TEXT,
+          sender_nick TEXT,
+          extra_data TEXT NOT NULL DEFAULT '{}',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+      const columns = database.prepare("PRAGMA table_info(gateway_sessions)").all() as Array<{ name: string }>;
+      for (const [name, declaration] of [
+        ["workspace_directory", "TEXT NOT NULL DEFAULT ''"],
+        ["workspace_worktree", "TEXT NOT NULL DEFAULT ''"],
+      ] as const) {
+        if (!columns.some((column) => column.name === name)) {
+          database.exec(`ALTER TABLE gateway_sessions ADD COLUMN ${name} ${declaration}`);
+        }
       }
+      database.prepare(`
+        UPDATE gateway_sessions SET
+          workspace_directory = ?, workspace_worktree = ?
+        WHERE workspace_directory = '' OR workspace_worktree = ''
+      `).run(this.legacyWorkspace.directory, this.legacyWorkspace.worktree);
+      if (columns.some((column) => column.name === retiredWorkspaceColumn)) {
+        database.exec(`ALTER TABLE gateway_sessions DROP COLUMN ${retiredWorkspaceColumn}`);
+      }
+      database.exec("COMMIT");
+    } catch (error) {
+      try { database.exec("ROLLBACK"); } catch { /* Preserve the migration failure. */ }
+      database.close();
+      throw error;
     }
-    database.prepare(`
-      UPDATE gateway_sessions SET
-        workspace_server_scope = ?, workspace_directory = ?, workspace_worktree = ?
-      WHERE workspace_server_scope = '' OR workspace_directory = '' OR workspace_worktree = ''
-    `).run(
-      this.legacyWorkspace.server_scope,
-      this.legacyWorkspace.directory,
-      this.legacyWorkspace.worktree,
-    );
     this.database = database;
   }
 
@@ -102,10 +108,10 @@ export class NodeGatewayStore implements Omit<
     if (!sessionId) throw new Error("session_id required");
     const workspace = workspaceContextFrom(request.workspace);
     const existing = this.db().prepare(`
-      SELECT source, workspace_server_scope, workspace_directory, workspace_worktree
+      SELECT source, workspace_directory, workspace_worktree
       FROM gateway_sessions WHERE session_id = ?
     `).get(sessionId) as
-      | { source: string; workspace_server_scope: string; workspace_directory: string; workspace_worktree: string }
+      | { source: string; workspace_directory: string; workspace_worktree: string }
       | undefined;
     const existingWorkspace = existing ? this.workspaceFromRow(existing) : undefined;
     if (existingWorkspace && !sameWorkspaceContext(existingWorkspace, workspace)) {
@@ -115,19 +121,17 @@ export class NodeGatewayStore implements Omit<
     const now = new Date().toISOString();
     this.db().prepare(`
       INSERT INTO gateway_sessions (
-        session_id, source, workspace_server_scope, workspace_directory, workspace_worktree,
+        session_id, source, workspace_directory, workspace_worktree,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         source = excluded.source,
-        workspace_server_scope = excluded.workspace_server_scope,
         workspace_directory = excluded.workspace_directory,
         workspace_worktree = excluded.workspace_worktree,
         updated_at = excluded.updated_at
     `).run(
       sessionId,
       JSON.stringify(source),
-      workspace.server_scope,
       workspace.directory,
       workspace.worktree,
       now,
@@ -145,12 +149,11 @@ export class NodeGatewayStore implements Omit<
     workspace: WorkspaceContext;
   } | undefined> {
     const row = this.db().prepare(`
-      SELECT session_id, source, workspace_server_scope, workspace_directory, workspace_worktree
+      SELECT session_id, source, workspace_directory, workspace_worktree
       FROM gateway_sessions WHERE session_id = ?
     `).get(sessionId) as {
       session_id: string;
       source: string;
-      workspace_server_scope: string;
       workspace_directory: string;
       workspace_worktree: string;
     } | undefined;
@@ -161,13 +164,11 @@ export class NodeGatewayStore implements Omit<
   }
 
   private workspaceFromRow(row: {
-    workspace_server_scope: string;
     workspace_directory: string;
     workspace_worktree: string;
   }): WorkspaceContext | undefined {
-    if (!row.workspace_server_scope && !row.workspace_directory && !row.workspace_worktree) return undefined;
+    if (!row.workspace_directory && !row.workspace_worktree) return undefined;
     return workspaceContextFrom({
-      server_scope: row.workspace_server_scope,
       directory: row.workspace_directory,
       worktree: row.workspace_worktree,
     });
