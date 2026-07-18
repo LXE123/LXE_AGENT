@@ -37,21 +37,8 @@ export function createFeishuInboundResourceResolver(options: {
   projectRoot: string;
   api: FeishuInboundResourceApi;
   signal?: AbortSignal;
-  imageProcessor?: InboundImageProcessorPort;
+  imageProcessor: InboundImageProcessorPort;
 }): (resources: FeishuInboundResource[], snapshot: FeishuMessageSnapshot) => Promise<ResolvedResources> {
-  let imageProcessor = options.imageProcessor;
-  const resolveImageProcessor = async (): Promise<InboundImageProcessorPort> => {
-    if (imageProcessor) return imageProcessor;
-    // Source-mode compatibility for direct resolver consumers. Production
-    // compositions inject a platform processor so packaged Node code never
-    // imports the Bun.Image implementation.
-    const imageModulePath: string = "./image";
-    const module = await import(imageModulePath) as {
-      InboundImageProcessor: new () => InboundImageProcessorPort;
-    };
-    imageProcessor = new module.InboundImageProcessor();
-    return imageProcessor;
-  };
   return async (resources, snapshot) => {
     const userInput: string[] = [];
     const userContentBlocks: JsonObject[] = [];
@@ -81,7 +68,7 @@ export function createFeishuInboundResourceResolver(options: {
           const imageName = `${safePart(parse(fileName).name, "image")}.jpg`;
           const path = collisionSafePath(directory, imageName);
           try {
-            const processed = await (await resolveImageProcessor()).process({
+            const processed = await options.imageProcessor.process({
               bytes: downloaded.data,
               originalMime: mime,
               originalFileName: fileName,

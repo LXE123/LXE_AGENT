@@ -93,7 +93,7 @@ Current candidates：
 Needs refresh：
 
 - `docs/install.md`：安装脚本规划笔记；当前用户入口更接近 README 和 scripts 实现。
-- `docs/visualization/preliminary_idea.md`：早期 HTTP Dashboard 设想；当前实现是 `apps/gateway/src/dashboard/service.ts`、共享类型化 RPC 契约和 `apps/dashboard/src/main.tsx`。
+- `docs/visualization/preliminary_idea.md`：早期 HTTP Dashboard 设想；当前实现是 `apps/agent-cli/src/dashboard-service.ts`、共享类型化 RPC 契约和 `apps/dashboard/src/main.tsx`。
 
 Reference：
 

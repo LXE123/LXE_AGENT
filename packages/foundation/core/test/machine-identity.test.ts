@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveMachineIdentity } from "../../src/operations/machine-identity";
+import { resolveMachineIdentity } from "../src/machine-identity";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -32,5 +32,17 @@ describe("machine identity", () => {
     }));
 
     expect(resolveMachineIdentity(path).machine_id).toBe("published-by-peer");
+  });
+
+  test("rejects a corrupt or incomplete identity instead of silently replacing it", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-machine-identity-corrupt-"));
+    roots.push(root);
+    const path = join(root, "machine_identity.json");
+
+    writeFileSync(path, "{not-json", "utf8");
+    expect(() => resolveMachineIdentity(path)).toThrow(SyntaxError);
+
+    writeFileSync(path, JSON.stringify({ hostname_at_creation: "peer" }), "utf8");
+    expect(() => resolveMachineIdentity(path)).toThrow("missing machine_id");
   });
 });

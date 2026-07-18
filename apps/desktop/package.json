@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "@lxe/core": "workspace:*",
-    "@lxe/runtime": "workspace:*",
     "@lxe/desktop-protocol": "workspace:*",
     "@lxe/gateway": "workspace:*",
     "@lxe/protocol": "workspace:*"

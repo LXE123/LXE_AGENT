@@ -13,6 +13,7 @@ Feishu event
   -> FeishuAdapter / InboundEvent
   -> SessionRouter / permission + binding + route
   -> SessionScheduler / RunHandle
+  -> AgentRuntimeHost / NDJSON host boundary
   -> TypeScriptAgentRuntime.runTurn()
   -> ContextPipeline.prepare()
   -> RuntimeProvider.turn()
@@ -32,6 +33,7 @@ Gateway 位于 Electron Main，Runtime 位于 Electron 管理的私有 `agent-cl
 | Inbound | 飞书事件、资源与统一消息 | [`feishu/inbound.ts`](/apps/gateway/src/channels/feishu/inbound.ts) |
 | Routing | 权限、binding、route、控制命令 | [`router.ts`](/apps/gateway/src/orchestration/router.ts) |
 | Scheduling | queue、active run、abort、steering | [`scheduler.ts`](/apps/gateway/src/orchestration/scheduler.ts) |
+| Agent Host | Store、Provider、Runtime、MCP、Python CLI、Workspace、tools、Dashboard 装配 | [`runtime-host.ts`](/apps/agent-cli/src/runtime-host.ts) |
 | Turn | provider/context/tool loop 与 outcome | [`runtime.ts`](/packages/agent/runtime/src/engine/runtime.ts) |
 | Context | canonical history、预算与 compaction | [`context.ts`](/packages/agent/runtime/src/engine/context.ts) |
 | Provider | catalog、SDK stream、retry、usage | [`provider.ts`](/packages/agent/runtime/src/providers/provider.ts) |
@@ -85,4 +87,4 @@ turn_start/end、provider attempt、stream event、tool start/end、context chec
 
 ## 一次性业务命令边界
 
-业务命令由 `python/lxeskill_cli/lxeskill/catalog.json` 注册，模型通过 native `exec` 启动独立的 `lxeskill ...` 进程。Gateway 注入允许的 skill scope，CLI 负责授权与 dispatch；Runtime process manager 负责 timeout、最大输出、abort 和 Windows 进程树终止。常驻 Bun 进程不加载 Python 业务 module。
+业务命令由 `python/lxeskill_cli/lxeskill/catalog.json` 注册，模型通过 native `exec` 启动独立的 `lxeskill ...` 进程。Gateway policy 决定允许的 skill types；`AgentRuntimeHost` 据此构造可见 skill scope，并由 Runtime exec adapter 注入 `LXESKILL_SKILL_SCOPE`。CLI 负责最终授权与 dispatch；Runtime process manager 负责 timeout、最大输出、abort 和 Windows 进程树终止。常驻 Bun 进程不加载 Python 业务 module。

@@ -39,7 +39,6 @@ ALLOWED_AGENT_PACKAGE_DIRECTORIES = {"runtime"}
 ALLOWED_GATEWAY_SOURCE_DIRECTORIES = {
     "bootstrap",
     "channels",
-    "dashboard",
     "orchestration",
     "security",
     "state",
@@ -47,7 +46,6 @@ ALLOWED_GATEWAY_SOURCE_DIRECTORIES = {
 ALLOWED_GATEWAY_TEST_DIRECTORIES = {
     "bootstrap",
     "channels",
-    "dashboard",
     "orchestration",
     "security",
     "state",

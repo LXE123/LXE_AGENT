@@ -11,9 +11,9 @@
     "test": "bun test test"
   },
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "1.70.0",
     "@lxe/core": "workspace:*",
     "@lxe/desktop-protocol": "workspace:*",
-    "@lxe/gateway": "workspace:*",
     "@lxe/protocol": "workspace:*",
     "@lxe/runtime": "workspace:*"
   },

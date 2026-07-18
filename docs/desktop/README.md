@@ -9,7 +9,7 @@ Status: Current
 - Electron Desktop 是默认产品线，当前正式分发目标为 Windows x64。
 - React Dashboard 直接作为 Electron Renderer 加载，不在正式安装包中启动 localhost Dashboard 服务。
 - Electron Main 集成 Gateway，并负责窗口、托盘、配置、凭证和后台组件生命周期。
-- Agent Runtime 编译为私有 `agent-cli.exe`，不安装系统命令，也不加入系统 `PATH`。
+- Agent Runtime 编译为私有 `agent-cli.exe`，其本地 `AgentRuntimeHost` 负责 Store、Provider、Runtime、MCP、Python CLI、Workspace、工具与 Dashboard 生命周期；它不安装系统命令，也不加入系统 `PATH`。
 - `lxeskill` 保持 Python 原生实现，以 wheel 形式安装到应用携带的私有 Python。
 - 会话交互首版继续通过飞书等渠道完成，Dashboard 只承担管理和查看职责。
 
@@ -25,9 +25,9 @@ flowchart LR
 
 Electron 自身会创建 Main、Renderer、GPU 和 utility 等多个进程。LXE 额外维护一个常驻 `agent-cli.exe`，并按需启动 Python、浏览器和其他工具子进程。
 
-Renderer 只能访问 preload 暴露的白名单接口。Dashboard 业务请求始终通过类型化 IPC 进入 Main；开发模式仅由 Vite 提供 Renderer 资源，不提供浏览器版业务 Transport。Main 会校验允许的方法、路径和 payload，Renderer 不能直接访问 Node.js、文件系统或 Shell。
+Renderer 只能访问 preload 暴露的白名单接口。Dashboard 业务请求始终通过类型化 IPC 进入 Main；开发模式仅由 Vite 提供 Renderer 资源，不提供浏览器版业务 Transport。Main 会校验 operation 和结构化 input，Renderer 不能直接访问 Node.js、文件系统或 Shell。
 
-Main 与 `agent-cli` 使用 NDJSON 协议通信：每行是一个完整 JSON 消息，通过标准输入输出传递初始化、执行回合、取消、关闭、状态和错误事件。两个进程分别拥有自己的 SQLite 数据库，禁止并发写入同一个数据库。
+Main 与 `agent-cli` 使用 NDJSON 协议通信：每行是一个完整 JSON 消息，通过标准输入输出传递初始化、执行回合、取消、关闭、状态和错误事件。两个进程分别拥有自己的 SQLite 数据库，禁止并发写入同一个数据库。Main 内的 Gateway 不依赖 Runtime package；`agent-cli` 也不依赖 Gateway package。
 
 ## 私有运行时与工具
 

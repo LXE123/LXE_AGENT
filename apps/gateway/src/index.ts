@@ -3,7 +3,6 @@ export * from "./channels/emitter";
 export * from "./channels/feishu/config";
 export * from "./channels/registry";
 export * from "./orchestration/composition";
-export * from "./orchestration/agent-service";
 export * from "./orchestration/process-runtime";
 export * from "./orchestration/heartbeat-bridge";
 export * from "./orchestration/lifecycle";

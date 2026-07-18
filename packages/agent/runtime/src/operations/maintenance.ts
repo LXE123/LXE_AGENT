@@ -4,7 +4,7 @@ import { createLogger } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
 import type { OneShotCliRunnerPort } from "../tooling/one-shot-cli";
 import type { SqliteRuntimeStore } from "../state/storage";
-import { resolveMachineIdentity } from "./machine-identity";
+import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 
 type Environment = Record<string, string | undefined>;
 type DataServerTargetName = "cloud" | "local_fallback";

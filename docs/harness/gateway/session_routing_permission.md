@@ -81,6 +81,8 @@ Bot 的 allowed skill types 和本地 connector enabled state 共同影响：
 
 这些变化从下一 turn 生效；正在运行的 turn 使用启动时固定的 exposure snapshot。
 
+Gateway 只计算并传递授权结果，不实例化 `SkillCatalog` 或 `ToolRegistry`。`agent-cli` 中的 `AgentRuntimeHost` 负责把 allowed types 与 connector state 转成 Workspace skill scope、工具 exposure 和 `LXESKILL_SKILL_SCOPE`。
+
 ## 失败语义
 
 Router 对单条坏消息返回明确 feedback，不终止 adapter ingress。保存 pending event 或 feedback 失败时仍继续执行 stop/cancel 主动作。任何异常都必须保留 session 串行不变量，不能绕过 scheduler 直接重试 turn。

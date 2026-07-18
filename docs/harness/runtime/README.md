@@ -8,6 +8,8 @@ Runtime 是 Agent 的执行核心，负责一个 turn 里的 Context、模型调
 
 Gateway 通过版本化 NDJSON 协议提交任务和取消请求。Runtime 只返回执行事件和结果，不解析飞书事件，也不决定结果应该发到哪个聊天窗口。
 
+Runtime package 提供执行核心，但不提供产品 composition root。真正的宿主装配位于 [`apps/agent-cli/src/runtime-host.ts`](/apps/agent-cli/src/runtime-host.ts)：它创建 Store、Provider、Runtime、MCP、Python CLI、Workspace、Agent 工具和 DashboardService，并只向 NDJSON server 暴露最小宿主接口。Gateway 不依赖 Runtime package。
+
 ## 主要职责
 
 | 领域 | Runtime 做什么 |
@@ -32,7 +34,7 @@ Gateway 通过版本化 NDJSON 协议提交任务和取消请求。Runtime 只�
 
 ## 进程内生命周期
 
-`agent-cli` 启动 Runtime 时，先打开 Agent store，再启动 process manager、维护任务和 MCP 等服务。任一服务启动失败时，已经启动的部分按反向顺序清理。
+`AgentRuntimeHost` 启动 Runtime 时，先打开 Agent store，再启动 process manager、维护任务和 MCP 等服务。任一服务启动失败时，已经启动的部分按反向顺序清理。
 
 桌面退出时，Gateway 先停止 ingress 和 active work，再关闭 `agent-cli`。Runtime 不自行接管或重放 Gateway 尚未完成的任务。
 
@@ -47,10 +49,10 @@ Gateway 通过版本化 NDJSON 协议提交任务和取消请求。Runtime 只�
 
 ## 核心原则
 
-1. Runtime 不持有平台 SDK，也不绕过 Gateway 直接发消息。
+1. Runtime core 不持有 channel/出站平台 SDK，也不绕过 Gateway 直接发消息；`AgentRuntimeHost` 注册的飞书读取工具是独立产品适配层。
 2. 每次 provider request 使用闭合、可预算的 canonical history。
 3. Context 压缩失败时保留原历史，不做静默删除。
 4. 工具业务执行和 artifact delivery 分开，发送失败不重跑工具。
 5. Transcript、usage 和 trace 不记录 secret 或未脱敏的 thinking data。
 
-实现事实来源是 [Runtime source](/packages/agent/runtime/src) 和对应测试；桌面进程关系见 [Gateway](../gateway/README.md) 与 [Desktop 技术手册](../../desktop/README.md)。
+实现事实来源是 [Runtime source](/packages/agent/runtime/src)、[Agent Runtime host](/apps/agent-cli/src/runtime-host.ts) 和对应测试；桌面进程关系见 [Gateway](../gateway/README.md) 与 [Desktop 技术手册](../../desktop/README.md)。

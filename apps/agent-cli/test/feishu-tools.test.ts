@@ -3,8 +3,14 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolRegistry } from "@lxe/runtime";
-import { registerFeishuImTools, type FeishuImToolApi } from "../../../src/channels/feishu/tools";
-import { workspaceFor } from "../../workspace";
+import { loadAgentFeishuConfig } from "../src/feishu-runtime-config";
+import {
+  registerConfiguredFeishuImTools,
+  registerFeishuImTools,
+  type FeishuImToolApi,
+} from "../src/feishu-tools";
+
+const workspaceFor = (root: string) => ({ directory: root, worktree: root });
 
 const roots: string[] = [];
 afterEach(() => {
@@ -23,6 +29,27 @@ const context = (root: string) => ({
 });
 
 describe("native Feishu IM tools", () => {
+  test("does not register tools or construct an SDK client without inherited credentials", () => {
+    const registry = new ToolRegistry();
+    let clientCreated = false;
+
+    const registered = registerConfiguredFeishuImTools(
+      registry,
+      loadAgentFeishuConfig({}),
+      {
+        sessionSource: async () => undefined,
+        createApi: () => {
+          clientCreated = true;
+          throw new Error("must not construct Feishu client");
+        },
+      },
+    );
+
+    expect(registered).toBe(false);
+    expect(clientCreated).toBe(false);
+    expect(registry.definitionsSnapshot().filter((tool) => tool.name.startsWith("feishu_"))).toEqual([]);
+  });
+
   test("read the current chat and download resources through the Bun API client", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-feishu-tools-"));
     roots.push(root);

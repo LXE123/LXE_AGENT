@@ -14,9 +14,9 @@ import {
   type AgentResponse,
 } from "@lxe/desktop-protocol";
 import {
-  createProductionAgentService,
-  type ProductionAgentService,
-} from "@lxe/gateway/agent-service";
+  createAgentRuntimeHost,
+  type AgentRuntimeHost,
+} from "./runtime-host";
 
 type Environment = Record<string, string | undefined>;
 
@@ -34,7 +34,7 @@ const loggingStatusPayload = (status: LoggingStatus): JsonObject => ({
 export interface AgentProtocolServerOptions {
   environment?: Environment;
   write(message: AgentResponse | AgentEvent): void | Promise<void>;
-  createService?: typeof createProductionAgentService;
+  createHost?: typeof createAgentRuntimeHost;
   exit?: (code: number) => void;
 }
 
@@ -101,15 +101,15 @@ const errorResponse = (id: string, cause: unknown): AgentResponse => {
 
 export class AgentProtocolServer {
   private readonly environment: Environment;
-  private readonly createService: typeof createProductionAgentService;
+  private readonly createHost: typeof createAgentRuntimeHost;
   private readonly activeRuns = new Map<string, ProtocolRunHandle>();
-  private service: ProductionAgentService | undefined;
+  private host: AgentRuntimeHost | undefined;
   private logging: LoggingController | undefined;
   private shuttingDown = false;
 
   constructor(private readonly options: AgentProtocolServerOptions) {
     this.environment = { ...(options.environment ?? process.env) };
-    this.createService = options.createService ?? createProductionAgentService;
+    this.createHost = options.createHost ?? createAgentRuntimeHost;
   }
 
   async accept(line: string): Promise<void> {
@@ -155,23 +155,23 @@ export class AgentProtocolServer {
         return { accepted: true };
       }
       case "ensure_session":
-        await this.readyService().ensureSession(request.payload.request);
+        await this.readyHost().ensureSession(request.payload.request);
         return { ensured: true };
       case "rebind_session":
-        await this.readyService().rebindSession(request.payload.request);
+        await this.readyHost().rebindSession(request.payload.request);
         return { rebound: true };
       case "pop_pending_events":
-        return this.readyService().popPendingEvents(request.payload.session_id);
+        return this.readyHost().popPendingEvents(request.payload.session_id);
       case "append_pending_event":
-        await this.readyService().appendPendingEvent(
+        await this.readyHost().appendPendingEvent(
           request.payload.session_id,
           request.payload.event,
         );
         return { appended: true };
       case "has_pending_events":
-        return { pending: await this.readyService().hasPendingEvents(request.payload.session_id) };
+        return { pending: await this.readyHost().hasPendingEvents(request.payload.session_id) };
       case "dashboard_call":
-        return this.readyService().dashboardCall(request.payload) as Promise<JsonValue>;
+        return this.readyHost().dashboardCall(request.payload) as Promise<JsonValue>;
       case "health":
         return this.health();
       case "shutdown":
@@ -182,7 +182,7 @@ export class AgentProtocolServer {
 
   private async initialize(payload: AgentRequest<"initialize">["payload"]): Promise<JsonValue> {
     if (this.shuttingDown) throw new Error("agent-cli is shutting down");
-    if (this.service) return this.health();
+    if (this.host) return this.health();
     const environment = {
       ...this.environment,
       LOG_FILE: String(this.environment.LOG_FILE ?? "").trim() || "runtime.log",
@@ -201,9 +201,9 @@ export class AgentProtocolServer {
       console_level: this.logging.status.consoleLevel,
       file_level: this.logging.status.fileLevel,
     });
-    let service: ProductionAgentService | undefined;
+    let host: AgentRuntimeHost | undefined;
     try {
-      service = this.createService({
+      host = this.createHost({
         resourceRoot: payload.resource_root,
         dataRoot: payload.data_root,
         legacyWorkspace: payload.legacy_workspace,
@@ -239,8 +239,8 @@ export class AgentProtocolServer {
           });
         },
       });
-      await service.start();
-      this.service = service;
+      await host.start();
+      this.host = host;
       await this.options.write({
         version: AGENT_PROTOCOL_VERSION,
         type: "system.ready",
@@ -252,7 +252,7 @@ export class AgentProtocolServer {
       return this.health();
     } catch (cause) {
       logger.error("agent_cli_initialization_failed", { error: cause });
-      await service?.stop().catch(() => undefined);
+      await host?.stop().catch(() => undefined);
       await this.closeLogging();
       throw cause;
     }
@@ -260,7 +260,7 @@ export class AgentProtocolServer {
 
   private health(): JsonObject {
     return {
-      ...(this.service?.health() ?? { ready: false }),
+      ...(this.host?.health() ?? { ready: false }),
       ...(this.logging ? { logging: loggingStatusPayload(this.logging.status) } : {}),
     };
   }
@@ -270,7 +270,7 @@ export class AgentProtocolServer {
       version: AGENT_PROTOCOL_VERSION,
       type: "system.status",
       payload: {
-        state: this.service ? "ready" : "starting",
+        state: this.host ? "ready" : "starting",
         logging: loggingStatusPayload(status),
       },
     });
@@ -280,7 +280,7 @@ export class AgentProtocolServer {
   }
 
   private async runTurn(job: AgentJob): Promise<JsonValue> {
-    const service = this.readyService();
+    const host = this.readyHost();
     const runId = job.job_id.trim();
     if (!runId) throw new Error("job_id required");
     if (this.activeRuns.has(runId)) throw new Error(`run already active: ${runId}`);
@@ -300,7 +300,7 @@ export class AgentProtocolServer {
       payload: { job_kind: job.job_kind },
     });
     try {
-      const outcome = await service.runTurn(job, handle);
+      const outcome = await host.runTurn(job, handle);
       await this.options.write({
         version: AGENT_PROTOCOL_VERSION,
         type: outcome.status === "error" ? "turn.failed" : "turn.completed",
@@ -339,9 +339,9 @@ export class AgentProtocolServer {
     }
   }
 
-  private readyService(): ProductionAgentService {
-    if (!this.service) throw new Error("agent-cli is not initialized");
-    return this.service;
+  private readyHost(): AgentRuntimeHost {
+    if (!this.host) throw new Error("agent-cli is not initialized");
+    return this.host;
   }
 
   async shutdown(): Promise<void> {
@@ -351,12 +351,12 @@ export class AgentProtocolServer {
     try {
       await Promise.allSettled([...this.activeRuns.values()].map((handle) => handle.abort(true)));
       try {
-        await this.service?.stop();
+        await this.host?.stop();
       } catch (error) {
         stopError = error;
-        logger.error("agent_service_stop_failed", { error });
+        logger.error("agent_host_stop_failed", { error });
       }
-      if (this.service || this.logging) logger.info("agent_cli_stopped");
+      if (this.host || this.logging) logger.info("agent_cli_stopped");
       await this.logging?.flush();
       await this.options.write({
         version: AGENT_PROTOCOL_VERSION,
@@ -367,7 +367,7 @@ export class AgentProtocolServer {
         },
       });
     } finally {
-      this.service = undefined;
+      this.host = undefined;
       await this.closeLogging();
     }
     if (stopError) throw stopError;

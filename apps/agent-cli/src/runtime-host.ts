@@ -37,16 +37,15 @@ import {
   type RuntimeHandle,
   type TurnOutcome,
 } from "@lxe/runtime";
-import { DashboardService } from "../dashboard/service";
-import { loadFeishuConfig } from "../channels/feishu/config";
+import { DashboardService } from "./dashboard-service";
+import { loadAgentFeishuConfig } from "./feishu-runtime-config";
 import {
-  createOfficialFeishuImToolApi,
-  registerFeishuImTools,
-} from "../channels/feishu/tools";
+  registerConfiguredFeishuImTools,
+} from "./feishu-tools";
 
 type Environment = Record<string, string | undefined>;
 
-export interface ProductionAgentServiceOptions {
+export interface AgentRuntimeHostOptions {
   resourceRoot: string;
   dataRoot: string;
   legacyWorkspace: WorkspaceContext;
@@ -57,9 +56,7 @@ export interface ProductionAgentServiceOptions {
   logger?: Logger;
 }
 
-export interface ProductionAgentService {
-  readonly runtime: TypeScriptAgentRuntime;
-  readonly store: SqliteRuntimeStore;
+export interface AgentRuntimeHost {
   start(): Promise<void>;
   stop(): Promise<void>;
   runTurn(job: Parameters<TypeScriptAgentRuntime["runTurn"]>[0], handle: RuntimeHandle): Promise<TurnOutcome>;
@@ -74,10 +71,10 @@ export interface ProductionAgentService {
   health(): JsonObject;
 }
 
-export function createProductionAgentService(
-  options: ProductionAgentServiceOptions,
-): ProductionAgentService {
-  const logger = options.logger ?? createLogger("agent.service");
+export function createAgentRuntimeHost(
+  options: AgentRuntimeHostOptions,
+): AgentRuntimeHost {
+  const logger = options.logger ?? createLogger("agent.host");
   const environment: Environment = {
     ...options.environment,
     LXE_ROOT: options.resourceRoot,
@@ -88,7 +85,7 @@ export function createProductionAgentService(
     || join(options.dataRoot, "db", "agent.sqlite3");
   const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: options.legacyWorkspace });
   const providerManager = new AtomicRuntimeProviderManager(options.resourceRoot, environment);
-  const feishu = loadFeishuConfig(environment);
+  const feishu = loadAgentFeishuConfig(environment);
   const tools = new ToolRegistry();
   const skillCatalog = new SkillCatalog(options.resourceRoot);
   const connectorStatePath = join(options.dataRoot, "config", "connector-states.local.json");
@@ -194,12 +191,9 @@ export function createProductionAgentService(
       });
     },
   });
-  if (feishu.missingRequired().length === 0) {
-    registerFeishuImTools(tools, {
-      api: createOfficialFeishuImToolApi(feishu),
-      sessionSource: async (sessionId) => store.getSession(sessionId).then((session) => session?.source),
-    });
-  }
+  registerConfiguredFeishuImTools(tools, feishu, {
+    sessionSource: async (sessionId) => store.getSession(sessionId).then((session) => session?.source),
+  });
   const runtimeServices: Array<{
     start(registry: ToolRegistry): Promise<void>;
     stop(): Promise<void>;
@@ -284,8 +278,6 @@ export function createProductionAgentService(
   let started = false;
 
   return {
-    runtime,
-    store,
     start: async () => {
       await runtime.start();
       started = true;

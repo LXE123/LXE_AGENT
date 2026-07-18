@@ -40,6 +40,8 @@ Normalizer 支持 text、post、image、file、audio、video，以及 location�
 
 [`feishu/resources.ts`](/apps/gateway/src/channels/feishu/resources.ts) 下载 image/file 等资源到受控本地路径。单个资源失败会替换成包含错误信息的文本占位，其它文本和资源仍进入同一消息；平台下载失败不能使整条用户消息消失。
 
+图片解码和模型 block 生成通过 `InboundImageProcessorPort` 显式注入。Desktop 提供 Electron 实现；Gateway 没有 Bun Runtime fallback，也不导入 Runtime 的图片类。
+
 资源路径只作为 canonical user block 交给 Runtime。adapter 不调用业务 skill，也不自行读取附件内容。
 
 ## 出站 action

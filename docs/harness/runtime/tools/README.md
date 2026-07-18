@@ -9,7 +9,7 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 ## 工具来源
 
 - Native direct tools：Runtime 内置的 read/write/edit/grep/find/exec/process 等能力。
-- Native Feishu tools：由 `agent-cli` 中的 Agent service 按配置注册，用于读取会话相关资源；平台出站仍由 Gateway 负责。
+- Native Feishu tools：由 `agent-cli` 中的 `AgentRuntimeHost` 从继承环境读取最小配置并注册，用于读取会话相关资源；平台出站仍由 Gateway 负责。
 - MCP tools：从 enabled server 动态发现，可 direct 或 deferred。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：搜索 deferred definition 并更新 exposure state。
@@ -35,6 +35,8 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 - [`lxeskill-command.ts`](/packages/agent/runtime/src/tooling/lxeskill-command.ts)：catalog 命令、owner 与 artifact 声明解析。
 - [`mcp.ts`](/packages/agent/runtime/src/tooling/mcp.ts)：MCP config、连接和工具注册。
 - [`skills.ts`](/packages/agent/runtime/src/tooling/skills.ts)：skill catalog 与 prompt。
+- [`runtime-host.ts`](/apps/agent-cli/src/runtime-host.ts)：产品级工具、MCP、Workspace 和 CLI scope 装配。
+- [`feishu-tools.ts`](/apps/agent-cli/src/feishu-tools.ts)：Agent 进程内的飞书只读原生工具。
 
 ## Exposure 模型
 

@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { repositoryRoot } from "@lxe/core";
-import { SkillCatalog } from "@lxe/runtime";
 import {
   PermissionPolicyError,
   buildPermissionPolicy,
@@ -31,19 +30,17 @@ const valid = () => ({
 });
 
 describe("permission policy", () => {
-  test("shows Ziniao only to FBA and wildcard bots", () => {
+  test("authorizes the Ziniao skill type only for FBA and wildcard bots", () => {
     const projectRoot = repositoryRoot(import.meta.dir);
     const policy = loadPermissionPolicy(join(projectRoot, "config", "permission_policy.yaml"));
-    const catalog = new SkillCatalog(projectRoot, join(projectRoot, "missing-user-skills"));
-    const namesForBot = (appId: string): Set<string> => {
+    const typesForBot = (appId: string): ReadonlySet<string> => {
       const key = policy.botIdToKey.get(appId);
-      const allowedTypes = key ? policy.botSkillPolicy.get(key) : undefined;
-      return new Set(catalog.list({ allowedTypes: allowedTypes ?? new Set() }).map((skill) => skill.name));
+      return key ? policy.botSkillPolicy.get(key) ?? new Set() : new Set();
     };
 
-    expect(namesForBot("cli_a97ac28237781bd8").has("ziniao-browser")).toBe(true);
-    expect(namesForBot("cli_aa9d657db5385cdd").has("ziniao-browser")).toBe(false);
-    expect(namesForBot("cli_a93d57dc47385cc0").has("ziniao-browser")).toBe(true);
+    expect(typesForBot("cli_a97ac28237781bd8").has("ziniao_browser")).toBe(true);
+    expect(typesForBot("cli_aa9d657db5385cdd").has("ziniao_browser")).toBe(false);
+    expect(typesForBot("cli_a93d57dc47385cc0").has("*")).toBe(true);
   });
 
   test("allows aliases through shared keys, wildcard users, and denies unknown bots", () => {

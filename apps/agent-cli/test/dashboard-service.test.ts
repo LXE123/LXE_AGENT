@@ -4,9 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteRuntimeStore, ToolRegistry, type RuntimeProviderManager } from "@lxe/runtime";
 import type { AgentDashboardRpcCall } from "@lxe/desktop-protocol";
-import { DashboardService } from "../../src/dashboard/service";
-import { loadProjectEnv } from "../../src/bootstrap/env";
-import { workspaceFor } from "../workspace";
+import { DashboardService } from "../src/dashboard-service";
+
+const workspaceFor = (directory: string, worktree = directory) => ({ directory, worktree });
+const persistedEnvironment = (root: string, initial: Record<string, string>): Record<string, string> => {
+  const values = { ...initial };
+  for (const line of readFileSync(join(root, ".env.local"), "utf8").split(/\r?\n/u)) {
+    const separator = line.indexOf("=");
+    if (separator <= 0) continue;
+    values[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
+  }
+  return values;
+};
 
 const roots: string[] = [];
 afterEach(() => {
@@ -267,9 +276,9 @@ describe("DashboardService", () => {
     expect(persistedAfterDeepseek).toContain("AGENT_LLM_MODEL_DEEPSEEK=deepseek-v4-pro");
     expect(persistedAfterDeepseek).toContain("AGENT_LLM_THINKING_EFFORT_DEEPSEEK=high");
 
-    const restartedEnvironment = loadProjectEnv({
-      projectRoot: root,
-      initial: { KIMI_API_KEY: "test-key", DEEPSEEK_API: "deepseek-key" },
+    const restartedEnvironment = persistedEnvironment(root, {
+      KIMI_API_KEY: "test-key",
+      DEEPSEEK_API: "deepseek-key",
     });
     const restartedService = new DashboardService({
       projectRoot: root,

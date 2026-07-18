@@ -3,6 +3,7 @@ import { existsSync, linkSync, mkdirSync, readFileSync, rmSync, writeFileSync } 
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 
+/** Stable desktop/runtime identity shared by every local process. */
 export interface MachineIdentity {
   machine_id: string;
   hostname_at_creation: string;

@@ -3,7 +3,6 @@ export * from "./tooling/coding-tools";
 export * from "./tooling/exec-shell";
 export * from "./tooling/mcp";
 export * from "./operations/maintenance";
-export * from "./operations/machine-identity";
 export * from "./operations/lxeskill-runtime";
 export * from "./tooling/one-shot-cli";
 export * from "./tooling/lxeskill-command";

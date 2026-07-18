@@ -23,6 +23,7 @@ interface FeishuRouteStatePort {
 export interface FeishuAdapterOptions {
   config: FeishuConfig;
   store: FeishuRouteStatePort;
+  imageProcessor: InboundImageProcessorPort;
   sdkFactory?: FeishuSdkFactory;
   hasInflight?: () => boolean | Promise<boolean>;
   hasQueued?: () => boolean | Promise<boolean>;
@@ -31,7 +32,6 @@ export interface FeishuAdapterOptions {
   delay?: (milliseconds: number) => Promise<void>;
   uuid?: () => string;
   projectRoot?: string;
-  imageProcessor?: InboundImageProcessorPort;
 }
 
 const object = (value: JsonValue | undefined): JsonObject | undefined =>
@@ -201,7 +201,7 @@ export class FeishuAdapter implements ChannelAdapter {
       ? createFeishuInboundResourceResolver({
           projectRoot: this.options.projectRoot,
           api: sdk.resources,
-          ...(this.options.imageProcessor ? { imageProcessor: this.options.imageProcessor } : {}),
+          imageProcessor: this.options.imageProcessor,
         })
       : undefined;
     const fetchMessageItems = async (messageId: string): Promise<Record<string, unknown>[]> => {

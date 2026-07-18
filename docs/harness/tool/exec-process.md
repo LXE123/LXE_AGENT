@@ -10,7 +10,7 @@ exec 用来做什么的，目的是什么？
 - Python、pip 和 lxeskill 固定使用项目 `.venv`，不依赖启动 Gateway 时的用户 PATH。
 - `lxeskill` 是 exec 中的特殊受管调用：`command` 必须只包含一条以 `lxeskill`（Windows 也可为 `lxeskill.cmd`）开头的命令。禁止使用 `uv run`、`python -m`、直接业务模块、`cd`、换行、管道、重定向、`&&`、`||`、`;`、反引号或 `$()` 包装；工作目录必须通过 `cwd` 传入。
 - `lxeskill --help`、`lxeskill list`、`lxeskill describe <command-path>` 也必须独立调用。调用格式失败时，tool result 会返回不含业务参数的结构化恢复信息；第一次可依据 owner skill 或 describe 修正一次，第二次仍违反格式时应停止继续变换 shell 写法。
-- Gateway 会向 exec 子进程注入 `LXESKILL_SKILL_SCOPE`（当前 bot 可见的 skill 名单，与系统提示层可见性同源）。lxeskill 据此在 list/describe/执行时隐藏或拒绝（`skill_not_in_scope`）越界业务命令；maintenance 类基础设施命令（如 `auth refresh`）不受 scope 限制，保证认证失败的自愈提示对所有 bot 有效。外部宿主没有这个变量时 CLI 不设限。
+- Gateway policy 决定当前 bot 允许的 skill types，`AgentRuntimeHost` 解析实际可见 skill 名单，再由 Runtime exec adapter 向子进程注入 `LXESKILL_SKILL_SCOPE`。lxeskill 据此在 list/describe/执行时隐藏或拒绝（`skill_not_in_scope`）越界业务命令；maintenance 类基础设施命令（如 `auth refresh`）不受 scope 限制，保证认证失败的自愈提示对所有 bot 有效。外部宿主没有这个变量时 CLI 不设限。
 - shell 命令就是终端输入的命令。
 - 通过 exec 启动的任何东西都是进程。
 - exec 启动的进程会进入两种 map，这两种 map，一种是存放运行中的进程，一种是存放已完成的进程

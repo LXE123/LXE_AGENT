@@ -12,10 +12,13 @@ Gateway lifecycle 负责在 Electron Main 内管理持久化、私有 Runtime �
 - [`apps/gateway/src/orchestration/composition.ts`](/apps/gateway/src/orchestration/composition.ts)：Router、Scheduler、Channel 和 Runtime port 的组合。
 - [`apps/gateway/src/orchestration/lifecycle.ts`](/apps/gateway/src/orchestration/lifecycle.ts)：启动、停止、health 和失败回滚。
 - [`apps/gateway/src/orchestration/process-runtime.ts`](/apps/gateway/src/orchestration/process-runtime.ts)：受管 `agent-cli` 子进程协议。
+- [`apps/agent-cli/src/runtime-host.ts`](/apps/agent-cli/src/runtime-host.ts)：Agent 进程内的 Runtime composition root。
 
 ## 生产组件装配
 
-Electron Main 创建 `ProcessAgentRuntime`、桌面 Gateway SQLite store、permission policy 与可选 Feishu adapter，然后调用 `createDirectGatewayComposition()`。Renderer 发送 `{ operation, input }` 类型化调用，经 preload IPC 进入 `DesktopGateway`；`channels.health` 由 Main 本地处理，其余操作通过私有 NDJSON protocol 交给 `agent-cli` 内的 `DashboardService`。链路没有 URL、method、HTTP status、fetch fallback 或 HTTP Server。
+Electron Main 创建 `ProcessAgentRuntime`、桌面 Gateway SQLite store、permission policy 与可选 Feishu adapter，然后调用 `createDirectGatewayComposition()`。Feishu adapter 的图片模型输入处理器由 Desktop 显式注入，Gateway 只依赖 `InboundImageProcessorPort`，没有 Runtime fallback。Renderer 发送 `{ operation, input }` 类型化调用，经 preload IPC 进入 `DesktopGateway`；`channels.health` 由 Main 本地处理，其余操作通过私有 NDJSON protocol 交给 `agent-cli` 内的 `DashboardService`。链路没有 URL、method、HTTP status、fetch fallback 或 HTTP Server。
+
+Gateway 的 policy 决定 bot 允许的 skill types，并在初始化 Agent 进程时传递授权结果。实际 `SkillCatalog` 过滤、Workspace scope、`ToolRegistry` 装配和 `LXESKILL_SKILL_SCOPE` 注入由 `AgentRuntimeHost` 执行，Gateway 不导入这些 Runtime 具体类。
 
 ## 启动顺序
 

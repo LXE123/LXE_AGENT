@@ -1,15 +1,39 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { repositoryRoot } from "@lxe/core";
+import { join } from "node:path";
 import { createFeishuInboundResourceResolver } from "../../../src/channels/feishu/resources";
+import {
+  InboundImageError,
+  type InboundImageProcessorPort,
+} from "../../../src/channels/feishu/image-contract";
 
 const roots: string[] = [];
-const imageBytes = new Uint8Array(readFileSync(resolve(
-  repositoryRoot(import.meta.dir),
-    "skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg",
-)));
+const imageBytes = new Uint8Array([1, 2, 3]);
+const imageProcessor: InboundImageProcessorPort = {
+  process: async (request) => {
+    if (request.originalFileName === "图片.png") {
+      throw new InboundImageError("ERR_IMAGE_UNKNOWN_FORMAT", "unknown image format");
+    }
+    writeFileSync(request.outputPath, request.bytes);
+    return {
+      bytes: request.bytes,
+      savedPath: request.outputPath,
+      modelBlock: {
+        type: "image",
+        source: { type: "base64", media_type: "image/jpeg", data: "AQID" },
+      },
+      metadata: {
+        ...request.resource,
+        saved_path: request.outputPath,
+        download_status: "success",
+        processing_status: "success",
+        original: { mime: request.originalMime, width: 1, height: 1 },
+        processed: { mime: "image/jpeg", quality: 60, progressive: false },
+      },
+    };
+  },
+};
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -28,6 +52,7 @@ describe("Feishu inbound resources", () => {
             : { data: new TextEncoder().encode("report"), contentType: "application/octet-stream", fileName: "report.xlsx" };
         },
       },
+      imageProcessor,
     });
     const result = await resolver([
       { type: "image", file_key: "image", file_name: "" },
@@ -61,6 +86,7 @@ describe("Feishu inbound resources", () => {
           ? { data: new Uint8Array([1, 2, 3]), contentType: "image/png", fileName: "图片.png" }
           : { data: new TextEncoder().encode(fileKey), contentType: "application/octet-stream", fileName: "同名 文件.xlsx" },
       },
+      imageProcessor,
     });
     const snapshot = {
       app_id: "cli", message_type: "file", content: "{}", chat_type: "p2p", chat_id: "chat",

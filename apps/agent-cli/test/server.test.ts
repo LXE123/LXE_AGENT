@@ -11,14 +11,14 @@ import {
 } from "@lxe/desktop-protocol";
 import { AgentProtocolServer, type AgentProtocolServerOptions } from "../src/server";
 
-type CreateService = NonNullable<AgentProtocolServerOptions["createService"]>;
+type CreateHost = NonNullable<AgentProtocolServerOptions["createHost"]>;
 
 const workspace = (root: string) => ({
   directory: root,
   worktree: root,
 });
 
-const fakeService: CreateService = (() => ({
+const fakeHost: CreateHost = (() => ({
   start: async () => {
     createLogger("runtime.maintenance").info("data_sync_uploaded", {
       target: "cloud",
@@ -30,7 +30,7 @@ const fakeService: CreateService = (() => ({
   dashboardCall: async () => {
     throw new DashboardRpcError("not_found", "dashboard item not found");
   },
-})) as unknown as CreateService;
+})) as unknown as CreateHost;
 
 describe("AgentProtocolServer", () => {
   test("rejects commands before initialize", async () => {
@@ -68,7 +68,7 @@ describe("AgentProtocolServer", () => {
     const root = process.cwd();
     const server = new AgentProtocolServer({
       write: (message) => { output.push(message); },
-      createService: fakeService,
+      createHost: fakeHost,
       environment: { LOCAL_LOGS_ENABLED: "0" },
     });
     await server.accept(JSON.stringify({
@@ -88,6 +88,41 @@ describe("AgentProtocolServer", () => {
         ok: false,
         error: { code: "not_found", message: "dashboard item not found" },
       });
+    await server.shutdown();
+  });
+
+  test("rolls back a partially initialized host and remains uninitialized", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    let stops = 0;
+    const createHost = (() => ({
+      start: async () => { throw new Error("runtime start failed"); },
+      stop: async () => { stops += 1; },
+    })) as unknown as CreateHost;
+    const root = process.cwd();
+    const server = new AgentProtocolServer({
+      write: (message) => { output.push(message); },
+      createHost,
+      environment: { LOCAL_LOGS_ENABLED: "0" },
+    });
+
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "initialize-failed",
+      command: "initialize",
+      payload: { resource_root: root, data_root: root, legacy_workspace: workspace(root) },
+    }));
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "health-after-failure",
+      command: "health",
+      payload: {},
+    }));
+
+    expect(stops).toBe(1);
+    expect(output.find((message) => !("type" in message) && message.id === "initialize-failed"))
+      .toMatchObject({ ok: false, error: { message: "runtime start failed" } });
+    expect(output.find((message) => !("type" in message) && message.id === "health-after-failure"))
+      .toMatchObject({ ok: true, result: { ready: false } });
     await server.shutdown();
   });
 
@@ -119,7 +154,7 @@ describe("AgentProtocolServer", () => {
         RUNTIME_LOG_LEVEL: "INFO",
       },
       write: (message) => { output.push(message); },
-      createService: fakeService,
+      createHost: fakeHost,
     });
     try {
       await server.accept(JSON.stringify({

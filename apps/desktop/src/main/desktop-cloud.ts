@@ -1,6 +1,6 @@
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { resolveMachineIdentity } from "@lxe/runtime/machine-identity";
+import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 import type {
   DesktopCloudActivationInput,
   DesktopCloudEnrollmentSelection,

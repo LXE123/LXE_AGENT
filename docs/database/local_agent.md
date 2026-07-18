@@ -17,7 +17,7 @@ Desktop 不再把所有状态塞进一个 `local_agent.sqlite3`。Electron Main�
 | `db/lxeskill.sqlite3` | 一次性 Python `lxeskill` 命令 | Python 业务侧状态，目前主要是紫鸟浏览器会话 |
 | `db/sessions.json` | Gateway | 平台 source 到 session id 的稳定绑定 |
 | `db/session_transcripts/<session>.jsonl` | Runtime | 原始消息、turn metadata 和 `context_patch` |
-| `db/machine_identity.json` | Runtime 维护任务 | 可选 Data Server 使用的本机身份 |
+| `db/machine_identity.json` | Desktop 与 Runtime maintenance（共用 Core 实现） | Cloud、WireGuard 和可选 Data Server 共用的本机身份 |
 
 这些路径都位于 Desktop 的应用数据目录。源码开发没有显式设置 `LXE_DATA_ROOT` 时，逻辑 data root 默认落在仓库的 `var/` 下。
 
@@ -67,3 +67,4 @@ Gateway 创建 session 时，会同时让 Gateway store 和 Agent store 建立�
 消息路由错误先看 `gateway.sqlite3` 和 `sessions.json`；模型历史错误看 transcript 与 `context_patch`；后台任务或 usage 错误看 `agent.sqlite3`；紫鸟会话状态错误再看 `lxeskill.sqlite3`。
 
 当前路径装配见 [Desktop Gateway](/apps/desktop/src/main/desktop-gateway.ts)，Transcript 实现见 [Runtime storage](/packages/agent/runtime/src/state/storage.ts)。
+Machine identity 的唯一实现见 [Core machine identity](/packages/foundation/core/src/machine-identity.ts)；移动代码不会迁移或重写现有 JSON 文件。

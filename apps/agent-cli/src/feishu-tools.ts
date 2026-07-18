@@ -3,7 +3,7 @@ import { basename, extname, join, resolve } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
 import type { JsonObject } from "@lxe/protocol";
 import type { ToolRegistry } from "@lxe/runtime";
-import type { FeishuConfig } from "./config";
+import type { AgentFeishuConfig } from "./feishu-runtime-config";
 
 export interface FeishuImToolApi {
   get(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<JsonObject>;
@@ -18,6 +18,11 @@ export interface FeishuImToolApi {
 interface RegisterFeishuImToolsOptions {
   api: FeishuImToolApi;
   sessionSource(sessionId: string): Promise<JsonObject | undefined>;
+}
+
+interface RegisterConfiguredFeishuImToolsOptions {
+  sessionSource(sessionId: string): Promise<JsonObject | undefined>;
+  createApi?: (config: AgentFeishuConfig) => FeishuImToolApi;
 }
 
 const object = (value: unknown): Record<string, unknown> =>
@@ -219,9 +224,22 @@ export function registerFeishuImTools(registry: ToolRegistry, options: RegisterF
   });
 }
 
+export function registerConfiguredFeishuImTools(
+  registry: ToolRegistry,
+  config: AgentFeishuConfig,
+  options: RegisterConfiguredFeishuImToolsOptions,
+): boolean {
+  if (config.missingRequired().length > 0) return false;
+  registerFeishuImTools(registry, {
+    api: (options.createApi ?? createOfficialFeishuImToolApi)(config),
+    sessionSource: options.sessionSource,
+  });
+  return true;
+}
+
 type LooseClient = { request(options: Record<string, unknown>): Promise<unknown> };
 
-export function createOfficialFeishuImToolApi(config: FeishuConfig): FeishuImToolApi {
+export function createOfficialFeishuImToolApi(config: AgentFeishuConfig): FeishuImToolApi {
   const domain = config.domain === "feishu" ? Lark.Domain.Feishu : config.domain === "lark" ? Lark.Domain.Lark : config.domain;
   const client = new Lark.Client({ appId: config.appId, appSecret: config.appSecret, domain }) as unknown as LooseClient;
   return {

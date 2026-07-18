@@ -5,7 +5,6 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./agent-service": "./src/orchestration/agent-service.ts",
     "./desktop": "./src/desktop.ts"
   },
   "scripts": {
@@ -16,7 +15,6 @@
     "@lxe/core": "workspace:*",
     "@lxe/desktop-protocol": "workspace:*",
     "@lxe/protocol": "workspace:*",
-    "@lxe/runtime": "workspace:*",
     "yaml": "2.8.1"
   },
   "devDependencies": {

@@ -6,7 +6,7 @@
 
 Gateway 是桌面应用里的“接待和调度中心”。它运行在 Electron Main 中，负责接收飞书消息、检查权限、找到会话、安排执行顺序，再把结果送回正确的聊天窗口。
 
-真正调用模型和工具的是私有 `agent-cli` 子进程里的 Runtime。Gateway 不直接执行 turn，而是通过版本化 NDJSON 协议向子进程发任务、取消和查询请求。
+真正调用模型和工具的是私有 `agent-cli` 子进程里的 Runtime。`agent-cli` 自己拥有 `AgentRuntimeHost` composition root，装配 Agent store、provider、Runtime、MCP、Python CLI、Workspace、工具和 Dashboard 查询。Gateway 不直接执行 turn，也不依赖 Runtime package；它只通过版本化 NDJSON 协议向宿主发任务、取消和查询请求。
 
 ## 当前主链路
 
@@ -30,8 +30,8 @@ Dashboard 也不直接连接 Runtime。Renderer 先通过白名单 IPC 发送类
 | --- | --- | --- |
 | Electron Main | 管理桌面生命周期、配置、凭证和子进程 | 不执行模型 turn |
 | Gateway | 平台接入、权限、session binding、排队、取消和结果路由 | 不调用模型或业务工具 |
-| `agent-cli` | 承载 Runtime、Agent 数据库和 Dashboard Agent API | 不接收平台 webhook |
-| Runtime | Context、模型调用、工具、transcript 和 usage | 不持有平台 SDK，不决定消息发到哪里 |
+| `agent-cli` | 装配并承载 Runtime、Agent 数据库、provider、MCP、Python CLI、Workspace、Agent 工具和 Dashboard Agent API | 不接收平台 webhook，不决定平台授权 |
+| Runtime core | Context、模型调用、工具、transcript 和 usage | 不持有 channel/出站平台 SDK，不决定消息发到哪里 |
 | GatewayEmitter | 根据 response route 发送 stream、文件和最终结果 | 不改变 Runtime 已完成的业务结果 |
 
 这种拆分最重要的好处是：平台接入和模型执行互不越界。Runtime 崩溃或重启时，Electron Main 仍能报告健康状态；平台发送失败时，也不会让已经执行成功的工具重新运行。
@@ -56,4 +56,4 @@ Dashboard 也不直接连接 Runtime。Renderer 先通过白名单 IPC 发送类
 
 ## 事实来源
 
-实现入口是 [Desktop Gateway](/apps/desktop/src/main/desktop-gateway.ts)、[Gateway orchestration](/apps/gateway/src/orchestration) 和 [Process Runtime port](/apps/gateway/src/orchestration/process-runtime.ts)。测试是失败语义和生命周期的可执行合同；文档与测试不一致时，以当前代码和测试为准。
+实现入口是 [Desktop Gateway](/apps/desktop/src/main/desktop-gateway.ts)、[Gateway orchestration](/apps/gateway/src/orchestration)、[Process Runtime port](/apps/gateway/src/orchestration/process-runtime.ts) 和 [Agent Runtime host](/apps/agent-cli/src/runtime-host.ts)。测试是失败语义和生命周期的可执行合同；文档与测试不一致时，以当前代码和测试为准。

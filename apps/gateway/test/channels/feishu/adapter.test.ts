@@ -6,6 +6,7 @@ import type { JsonObject } from "@lxe/protocol";
 import type { OutboundRequest } from "../../../src/state/models";
 import { loadFeishuConfig } from "../../../src/channels/feishu/config";
 import { FeishuAdapter } from "../../../src/channels/feishu/adapter";
+import type { InboundImageProcessorPort } from "../../../src/channels/feishu/image-contract";
 import type { FeishuSdkCallbacks, FeishuSdkServices } from "../../../src/channels/feishu/sdk";
 
 const roots: string[] = [];
@@ -33,6 +34,12 @@ const outbound = (action: string, payload: JsonObject): OutboundRequest => ({
   response_route_id: "route-1",
   event_id: "emit-1",
 });
+
+const unusedImageProcessor: InboundImageProcessorPort = {
+  process: async () => {
+    throw new Error("unexpected image processing in adapter test");
+  },
+};
 
 const setup = (options: { failStart?: boolean; hangStart?: boolean; hangStop?: boolean; projectRoot?: string; rawDump?: boolean } = {}) => {
   let callbacks!: FeishuSdkCallbacks;
@@ -99,6 +106,7 @@ const setup = (options: { failStart?: boolean; hangStart?: boolean; hangStop?: b
       ...(options.rawDump ? { LOCAL_LOGS_ENABLED: "1" } : {}),
     }),
     store,
+    imageProcessor: unusedImageProcessor,
     sdkFactory: (value) => { callbacks = value; return services; },
     stopTimeoutMs: 5,
     ...(options.projectRoot ? { projectRoot: options.projectRoot } : {}),

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
-import { resolveMachineIdentity } from "@lxe/runtime/machine-identity";
+import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 import type { CloudEnrollmentPayload } from "./cloud-enrollment";
 
 export interface WindowsWireGuardProvisionerOptions {

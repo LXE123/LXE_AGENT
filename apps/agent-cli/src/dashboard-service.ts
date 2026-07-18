@@ -33,6 +33,7 @@ import {
 
 type Environment = Record<string, string | undefined>;
 
+/** Agent-process dependencies required by the Dashboard query service. */
 interface DashboardServiceOptions {
   /** Read-only application resources containing config schemas, skills, and docs. */
   projectRoot: string;
