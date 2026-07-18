@@ -47,6 +47,7 @@ interface DashboardApiOptions {
   skillCatalog?: SkillCatalog;
   allowedSkillTypes?: ReadonlySet<string>;
   cliCommands?: LxeSkillCommandDefinition[];
+  reloadWorkspace?: (sessionId: string) => Promise<JsonObject>;
 }
 
 const connectorDefinitions = [
@@ -138,6 +139,10 @@ const loadJson = (path: string): Record<string, unknown> => object(JSON.parse(re
 export class DashboardApi {
   private readonly connectorStatePath: string;
   private readonly skillCatalog: SkillCatalog;
+  private connectorStateCache: {
+    fingerprint: string;
+    state: { enabled: string[]; everConnected: string[]; userDisabled: string[] };
+  } | undefined;
 
   constructor(private readonly options: DashboardApiOptions) {
     this.connectorStatePath = options.connectorStatePath
@@ -150,6 +155,12 @@ export class DashboardApi {
     const path = url.pathname;
     if (request.method === "GET" && path === "/api/sessions") return json(this.sessions(url));
     if (request.method === "GET" && path.startsWith("/api/sessions/")) return this.session(path, url);
+    if (request.method === "PATCH" && path.startsWith("/api/sessions/") && path.endsWith("/workspace/reload")) {
+      const sessionId = decodeURIComponent(path.slice("/api/sessions/".length, -"/workspace/reload".length));
+      if (!sessionId) return json({ detail: "session id is required" }, 400);
+      if (!this.options.reloadWorkspace) return json({ detail: "workspace reload is unavailable" }, 503);
+      return json(await this.options.reloadWorkspace(sessionId));
+    }
     if (request.method === "GET" && path === "/api/skills") return json(this.listPayload(this.skills()));
     if (request.method === "GET" && path === "/api/commands") return json(this.listPayload(this.options.cliCommands ?? []));
     if (request.method === "GET" && path.startsWith("/api/skills/")) return this.skill(path);
@@ -230,6 +241,10 @@ export class DashboardApi {
     };
   }
 
+  invalidateRuntimeConfigCache(): void {
+    this.connectorStateCache = undefined;
+  }
+
   private skill(path: string): Response {
     const rest = path.slice("/api/skills/".length);
     const contentSuffix = "/content";
@@ -288,16 +303,30 @@ export class DashboardApi {
   }
 
   private connectorState(): { enabled: string[]; everConnected: string[]; userDisabled: string[] } {
+    let fingerprint = "missing";
+    try {
+      const info = statSync(this.connectorStatePath);
+      fingerprint = `${info.size}:${info.mtimeMs}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    if (this.connectorStateCache?.fingerprint === fingerprint) {
+      return structuredClone(this.connectorStateCache.state);
+    }
     try {
       const state = object(JSON.parse(readFileSync(this.connectorStatePath, "utf8")));
       const known = new Set(connectorDefinitions.map((item) => item.id));
       const ids = (value: unknown): string[] => Array.isArray(value)
         ? value.map(text).filter((item) => known.has(item as typeof connectorDefinitions[number]["id"]))
         : [];
-      return { enabled: ids(state.enabled), everConnected: ids(state.everConnected), userDisabled: ids(state.userDisabled) };
+      const parsed = { enabled: ids(state.enabled), everConnected: ids(state.everConnected), userDisabled: ids(state.userDisabled) };
+      this.connectorStateCache = { fingerprint, state: parsed };
+      return structuredClone(parsed);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      return { enabled: [], everConnected: [], userDisabled: [] };
+      const empty = { enabled: [], everConnected: [], userDisabled: [] };
+      this.connectorStateCache = { fingerprint, state: empty };
+      return structuredClone(empty);
     }
   }
 
@@ -332,6 +361,7 @@ export class DashboardApi {
     const temporary = `${this.connectorStatePath}.tmp`;
     writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, "utf8");
     renameSync(temporary, this.connectorStatePath);
+    this.connectorStateCache = undefined;
     return json(this.connectors().find((item) => item.id === id));
   }
 

@@ -1,19 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { buildSystemPrompt, SYSTEM_PROMPT_CACHE_BREAKPOINT } from "../../src/engine/system-prompt";
 
 describe("system prompt builder", () => {
   test("keeps stable policy before the cache boundary and runtime context after it", () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-prompt-"));
-    writeFileSync(join(root, "SOUL.md"), "Careful agent.", "utf8");
     const prompt = buildSystemPrompt({
-      projectRoot: root,
+      soul: "Careful agent.",
       platform: "feishu",
       provider: "anthropic",
       model: "claude-test",
       skillPrompt: "## Available Skills\n- one",
+      workspaceInstructions: "## Workspace Instructions\nFollow the project rules.",
       workspace: {
         server_scope: "local",
         directory: "/workspace/project",
@@ -26,6 +22,7 @@ describe("system prompt builder", () => {
     expect(stable).toContain("Safety & Boundaries");
     expect(stable).toContain("Attachment Handling");
     expect(volatile).toContain("Available Skills");
+    expect(volatile).toContain("Follow the project rules.");
     expect(volatile).toContain("Provider: anthropic");
     expect(volatile).toContain("Model: claude-test");
     expect(volatile).toContain("Platform: feishu");

@@ -47,6 +47,7 @@ Gateway 创建 session 时，会同时让 Gateway store 和 Agent store 建立�
 - 轻量查询只读 SQLite metadata；需要模型历史时才 replay transcript。
 - 程序管理的数据库、日志和本地配置不能由模型文件工具修改。
 - 凭证由桌面安全配置保存，不因为 SQLite 被 Git 忽略就写进数据库。
+- Workspace Skill、AGENTS Instructions 和搜索服务只做进程内缓存，不新增数据库表或磁盘解析缓存。
 
 ## 备份与恢复
 

@@ -849,17 +849,21 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
     return [...scopes.values()];
   };
   const searchOptions = options.ripgrepPath === undefined ? {} : { ripgrepPath: options.ripgrepPath };
-  const searches = new Map<string, WorkspaceSearchService>();
-  const searchFor = (target: ReadableTarget, workspace: WorkspaceContext): WorkspaceSearchService => {
-    const key = `${workspace.server_scope}\0${target.scope.root}`;
-    let search = searches.get(key);
+  const externalSearches = new Map<string, WorkspaceSearchService>();
+  const searchFor = (
+    target: ReadableTarget,
+    context: { workspace: WorkspaceContext; workspaceSearch?: WorkspaceSearchService },
+  ): WorkspaceSearchService => {
+    if (target.scope.kind === "workspace" && context.workspaceSearch) return context.workspaceSearch;
+    const key = `${context.workspace.server_scope}\0${target.scope.root}`;
+    let search = externalSearches.get(key);
     if (!search) {
       search = new WorkspaceSearchService(target.scope.root, {
         ...searchOptions,
         absolutePaths: target.scope.kind !== "workspace",
       });
-      searches.set(key, search);
-      if (searches.size > 32) searches.delete(searches.keys().next().value!);
+      externalSearches.set(key, search);
+      if (externalSearches.size > 8) externalSearches.delete(externalSearches.keys().next().value!);
     }
     return search;
   };
@@ -1010,7 +1014,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       const maxLines = Math.max(1, Number(input.head_limit ?? 100));
       const mode = String(input.output_mode ?? "files_with_matches");
       if (!["files_with_matches", "content", "count"].includes(mode)) throw new Error(`未知 output_mode: ${mode}`);
-      const output = await searchFor(target, context.workspace).grep({
+      const output = await searchFor(target, context).grep({
         pattern,
         searchPath: target.path,
         outputMode: mode as "files_with_matches" | "content" | "count",
@@ -1036,7 +1040,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       const pattern = inputText(input, "pattern");
       if (!pattern) throw new Error("pattern 不能为空");
       const max = Math.max(1, Number(input.head_limit ?? 200));
-      const output = await searchFor(target, context.workspace).find({
+      const output = await searchFor(target, context).find({
         pattern,
         searchPath: target.path,
         limit: max,

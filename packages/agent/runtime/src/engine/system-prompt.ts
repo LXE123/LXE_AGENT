@@ -1,6 +1,4 @@
-import { readFileSync } from "node:fs";
 import { platform, release } from "node:os";
-import { join } from "node:path";
 import type { WorkspaceContext } from "@lxe/protocol";
 
 export const SYSTEM_PROMPT_CACHE_BREAKPOINT = "<<system-prompt-cache-breakpoint>>";
@@ -27,18 +25,18 @@ const ATTACHMENTS = `Attachment metadata is context, not an implicit request to 
 const SKILLS = `Before replying, inspect the available skill descriptions. If exactly one skill clearly applies, read its SKILL.md and follow it. If several apply, choose the most specific. If none clearly applies, do not read a SKILL.md. Resolve relative paths from the skill directory and avoid unnecessary external API writes.`;
 
 export interface BuildSystemPromptOptions {
-  projectRoot: string;
+  soul?: string;
   platform: string;
   provider: string;
   model: string;
   skillPrompt: string;
+  workspaceInstructions?: string;
   workspace: WorkspaceContext;
   now?: Date;
 }
 
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
-  let soul = "";
-  try { soul = readFileSync(join(options.projectRoot, "SOUL.md"), "utf8").trim(); } catch { /* Optional persona. */ }
+  const soul = options.soul?.trim() ?? "";
   const stable = [
     soul ? `## Soul\n${soul}` : "",
     `## Safety & Boundaries\n${SAFETY}`,
@@ -50,6 +48,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
   const date = options.now ?? new Date();
   const volatile = [
     options.skillPrompt.trim(),
+    options.workspaceInstructions?.trim() ?? "",
     `## Runtime\nOS: ${platform()} ${release()}\nBun: ${Bun.version}\nProvider: ${options.provider || "unknown"}\nModel: ${options.model || "unknown"}\nPlatform: ${options.platform || "unknown"}`,
     [
       "## Workspace",

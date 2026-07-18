@@ -1,5 +1,6 @@
 import type { AgentJob, EmitRequest, JsonObject, JsonValue, WorkspaceContext } from "@lxe/protocol";
 import type { RuntimeWireTraceAttempt } from "../providers/trace";
+import type { WorkspaceLease, WorkspaceSnapshot } from "../workspace/instance-manager";
 
 export interface TextBlock extends JsonObject {
   type: "text";
@@ -161,6 +162,12 @@ export interface SystemPromptContext {
   model: string;
   skillPrompt: string;
   workspace: WorkspaceContext;
+  workspaceSnapshot?: WorkspaceSnapshot;
+}
+
+export interface RuntimeWorkspaceInstanceProvider {
+  acquire(workspace: WorkspaceContext): Promise<WorkspaceLease>;
+  disposeAll(reason: string): Promise<void>;
 }
 
 export interface ToolSchema {

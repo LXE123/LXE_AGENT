@@ -39,6 +39,13 @@ describe("desktop IPC validation", () => {
       path: "/api/models/current/thinking",
       body: { level: "high" },
     });
+    expect(validateDashboardRequest({
+      method: "PATCH",
+      path: "/api/sessions/session-one/workspace/reload",
+    })).toEqual({
+      method: "PATCH",
+      path: "/api/sessions/session-one/workspace/reload",
+    });
   });
 
   test("rejects external origins, unlisted paths, and malformed bodies", () => {

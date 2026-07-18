@@ -94,6 +94,7 @@ describe("DashboardApi", () => {
       DEEPSEEK_API: "deepseek-key",
     };
     let providerGeneration = 1;
+    const workspaceReloads: string[] = [];
     const providerManager: RuntimeProviderManager = {
       acquire: () => { throw new Error("not needed by Dashboard test"); },
       reconfigure: async (patch, persist) => {
@@ -140,6 +141,10 @@ describe("DashboardApi", () => {
       backgroundTasks: () => [{ task_id: "task-1", status: "running" }],
       cliCommands: [{ command: "lxeskill auth refresh", name: "browser_auth_refresh", visibility: "maintenance", ownerSkills: [] }],
       providerManager,
+      reloadWorkspace: async (sessionId) => {
+        workspaceReloads.push(sessionId);
+        return { changed: true, generation: 2, loaded_at: 1, instruction_count: 1, skill_count: 1 };
+      },
     });
     const call = async (path: string, init?: RequestInit) => {
       const request = new Request(`http://dashboard${path}`, init);
@@ -153,6 +158,9 @@ describe("DashboardApi", () => {
       messages: [{ role: "assistant" }, { role: "tool" }, { role: "assistant" }],
       messages_page: { total: 2, raw_message_total: 4, current_page: 2 },
     });
+    expect((await call("/api/sessions/session-one/workspace/reload", { method: "PATCH" })).body)
+      .toMatchObject({ changed: true, generation: 2 });
+    expect(workspaceReloads).toEqual(["session-one"]);
     expect((await call("/api/project-docs")).body).toMatchObject({ items: [{ path: "guide.md", title: "Guide" }], total: 1 });
     expect((await call("/api/project-docs/guide.md")).body).toMatchObject({ path: "guide.md", content: "# Guide\n\nstatus: ready\n" });
     expect((await call("/api/project-docs/%2e%2e%2FSOUL.md")).status).toBe(404);

@@ -37,6 +37,7 @@ import type {
   RuntimeMessage,
   RuntimeProvider,
   RuntimeSkillSnapshot,
+  RuntimeWorkspaceInstanceProvider,
   RuntimeStore,
   RuntimeStreamEvent,
   SystemPromptContext,
@@ -58,6 +59,7 @@ export interface TypeScriptAgentRuntimeOptions {
   tools: ToolRegistry;
   toolExposure?: ToolExposureOptions | (() => ToolExposureOptions);
   skillSnapshot?: (workspace: WorkspaceContext) => RuntimeSkillSnapshot;
+  workspaceInstances?: RuntimeWorkspaceInstanceProvider;
   resolveSkillMetadata?: (skillName: string) => { module: string } | undefined;
   emitter: RuntimeEmitter;
   systemPrompt: string | ((context: SystemPromptContext) => string);
@@ -135,6 +137,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       if (!handle.signal.aborted) this.logger.warn("runtime stopped with active turn");
     }));
     await Promise.allSettled([...(this.options.services ?? [])].reverse().map((service) => service.stop()));
+    await this.options.workspaceInstances?.disposeAll("runtime_stop");
     await this.options.store.stop();
     this.started = false;
   }
@@ -199,6 +202,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     let apiCalls = 0;
     let toolCalls = 0;
     let typingStarted = false;
+    let workspaceLease: Awaited<ReturnType<RuntimeWorkspaceInstanceProvider["acquire"]>> | undefined;
     const startedAt = Date.now() / 1_000;
     const toolUsage = new Map<string, { calls: number; errors: number; duration_ms: number }>();
     const toolRecoveryAttempts = new Map<string, number>();
@@ -275,7 +279,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         await recordUsage("completed");
         return this.outcome("completed", "", inputTokens, outputTokens, toolCalls);
       }
-      const skillSnapshot = this.options.skillSnapshot?.(workspace);
+      workspaceLease = await this.options.workspaceInstances?.acquire(workspace);
+      const skillSnapshot = workspaceLease?.snapshot.skills ?? this.options.skillSnapshot?.(workspace);
       const skillModule = (name: string): string => skillSnapshot
         ? skillSnapshot.modules[name]?.trim() ?? ""
         : this.options.resolveSkillMetadata?.(name)?.module.trim() ?? "";
@@ -301,6 +306,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         model: descriptor?.model ?? this.options.display?.model ?? "",
         skillPrompt: skillSnapshot?.prompt ?? "",
         workspace,
+        ...(workspaceLease ? { workspaceSnapshot: workspaceLease.snapshot } : {}),
       };
       const systemPrompt = typeof this.options.systemPrompt === "function"
         ? this.options.systemPrompt(systemPromptContext)
@@ -574,6 +580,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               exposureState: toolExposure,
               skill_names: skillNames,
               workspace,
+              ...(workspaceLease ? { workspaceSearch: workspaceLease.search } : {}),
             });
             if (result.state_patch && Object.keys(result.state_patch).length > 0) {
               await this.options.store.patchSessionState(job.session_id, result.state_patch);
@@ -687,6 +694,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         }, "stop");
       }
       this.active.delete(handle);
+      workspaceLease?.release();
     }
   }
 

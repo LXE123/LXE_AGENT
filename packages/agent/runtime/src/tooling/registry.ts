@@ -1,5 +1,6 @@
 import type { JsonObject, WorkspaceContext } from "@lxe/protocol";
 import type { RuntimeHandle, ToolExecutionResult, ToolSchema } from "../engine/types";
+import type { WorkspaceSearchService } from "./workspace-search";
 
 export interface ToolDefinition extends ToolSchema {
   source?: "native" | "mcp";
@@ -20,6 +21,7 @@ export interface ToolDefinition extends ToolSchema {
     exposureState?: ToolExposureState;
     skill_names?: readonly string[];
     workspace: WorkspaceContext;
+    workspaceSearch?: WorkspaceSearchService;
   }): Promise<ToolExecutionResult>;
 }
 
@@ -204,6 +206,7 @@ export class ToolRegistry {
       exposureState?: ToolExposureState;
       skill_names?: readonly string[];
       workspace: WorkspaceContext;
+      workspaceSearch?: WorkspaceSearchService;
     },
   ): Promise<ToolExecutionResult> {
     const definition = this.definitions.get(name.trim());

@@ -10,7 +10,8 @@ export type DashboardRouteSelection = {
   activityView: ActivityView;
 };
 
-export const CAPABILITY_VIEW_STORAGE_KEY = "lxe-dashboard-capability-view";
+export const CAPABILITY_VIEW_STORAGE_KEY = "lxe.window.main.capability-view.v1";
+const LEGACY_CAPABILITY_VIEW_STORAGE_KEY = "lxe-dashboard-capability-view";
 
 const DASHBOARD_SECTIONS = new Set<DashboardSection>([
   "home",
@@ -38,10 +39,17 @@ export function normalizeCapabilityView(value: unknown): CapabilityView {
     : "models";
 }
 
-export function readStoredCapabilityView(storage?: Pick<Storage, "getItem">): CapabilityView {
+export function readStoredCapabilityView(
+  storage?: Pick<Storage, "getItem"> & Partial<Pick<Storage, "setItem">>,
+): CapabilityView {
   if (!storage) return "models";
   try {
-    return normalizeCapabilityView(storage.getItem(CAPABILITY_VIEW_STORAGE_KEY));
+    const current = storage.getItem(CAPABILITY_VIEW_STORAGE_KEY);
+    if (current !== null) return normalizeCapabilityView(current);
+    const legacy = storage.getItem(LEGACY_CAPABILITY_VIEW_STORAGE_KEY);
+    const migrated = normalizeCapabilityView(legacy);
+    if (legacy !== null && storage.setItem) storage.setItem(CAPABILITY_VIEW_STORAGE_KEY, migrated);
+    return migrated;
   } catch {
     return "models";
   }

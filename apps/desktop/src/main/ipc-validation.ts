@@ -18,6 +18,7 @@ const GET_PATHS = [
   /^\/api\/channels\/health$/u,
 ];
 const PATCH_PATHS = [
+  /^\/api\/sessions\/[^/?#]+\/workspace\/reload$/u,
   /^\/api\/connectors\/[^/?#]+$/u,
   /^\/api\/mcp\/servers\/[^/?#]+$/u,
   /^\/api\/models\/current(?:\/thinking)?$/u,

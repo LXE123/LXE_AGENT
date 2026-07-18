@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -157,6 +158,8 @@ const skillWorkspaceContext = (
 export class SkillCatalog {
   private readonly logger = createLogger("runtime.skills");
   private signature = "";
+  private contentSignature = "";
+  private generation = 0;
   private initialized = false;
   private nextRefreshAt = 0;
   private manifests: SkillManifest[] = [];
@@ -178,6 +181,24 @@ export class SkillCatalog {
 
   list(options: SkillPromptOptions = {}): SkillManifest[] {
     return this.cachedSnapshot(options).manifests.map((manifest) => structuredClone(manifest));
+  }
+
+  /** Performs the throttled source check used by workspace turn acquisition. */
+  refreshIfNeeded(): boolean {
+    return this.refresh();
+  }
+
+  /** Re-reads every SKILL.md even when its cheap filesystem fingerprint is unchanged. */
+  forceRefresh(): boolean {
+    return this.refresh(true);
+  }
+
+  revision(): number {
+    return this.generation;
+  }
+
+  sourceRoots(): string[] {
+    return [join(this.projectRoot, "skills"), this.userSkillsRoot];
   }
 
   get(name: string, options: SkillPromptOptions = {}): SkillManifest | undefined {
@@ -265,23 +286,31 @@ export class SkillCatalog {
     ].join("\n");
   }
 
-  private refresh(): void {
+  private refresh(force = false): boolean {
     const checkedAt = this.now();
-    if (this.initialized && checkedAt < this.nextRefreshAt) return;
+    if (!force && this.initialized && checkedAt < this.nextRefreshAt) return false;
     const repositoryRoot = join(this.projectRoot, "skills");
     const paths = [
       ...manifestPaths(repositoryRoot).map((path) => ({ path, source: "repository" as const })),
       ...manifestPaths(this.userSkillsRoot).map((path) => ({ path, source: "user" as const })),
     ];
     const signature = paths.map(({ path, source }) => {
-      const stat = statSync(path);
-      return `${source}:${path}:${stat.size}:${stat.mtimeMs}`;
+      const stat = statSync(path, { bigint: true });
+      return `${source}:${path}:${realpathSync(path)}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}`;
     }).join("|");
-    if (this.initialized && signature === this.signature) {
+    if (!force && this.initialized && signature === this.signature) {
       this.nextRefreshAt = checkedAt + this.refreshIntervalMs;
-      return;
+      return false;
     }
     const parsed = paths.map(({ path, source }) => parseManifest(path, source));
+    const contentSignature = createHash("sha256")
+      .update(parsed.map((manifest) => `${manifest.source}\0${manifest.location}\0${manifest.content}`).join("\0"))
+      .digest("hex");
+    if (this.initialized && contentSignature === this.contentSignature) {
+      this.signature = signature;
+      this.nextRefreshAt = checkedAt + this.refreshIntervalMs;
+      return false;
+    }
     const byName = new Map<string, SkillManifest>();
     let externalSkipped = 0;
     for (const manifest of parsed) {
@@ -316,16 +345,20 @@ export class SkillCatalog {
     this.manifests = manifests;
     this.manifestsByName = new Map(manifests.map((manifest) => [manifest.name, manifest]));
     this.signature = signature;
+    this.contentSignature = contentSignature;
+    this.generation += 1;
     this.initialized = true;
     this.nextRefreshAt = checkedAt + this.refreshIntervalMs;
     this.snapshotCache.clear();
     this.logger.info("skill_catalog_loaded", {
+      generation: this.generation,
       skill_count: this.manifests.length,
       repository_skill_count: parsed.filter((manifest) => manifest.source === "repository").length,
       user_skill_count: parsed.filter((manifest) => manifest.source === "user").length,
       external_skipped_count: externalSkipped,
       source_root_count: Number(existsSync(repositoryRoot)) + Number(existsSync(this.userSkillsRoot)),
     });
+    return true;
   }
 }
 

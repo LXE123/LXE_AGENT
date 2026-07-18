@@ -11,6 +11,7 @@ import {
 } from "../../src/tooling/coding-tools";
 import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
 import { registerToolSearch } from "../../src/tooling/tool-search";
+import type { WorkspaceSearchService } from "../../src/tooling/workspace-search";
 import { workspaceFor } from "../workspace";
 
 const roots: string[] = [];
@@ -139,6 +140,25 @@ describe("native coding tools", () => {
     expect(ls.content[0]?.text).toContain("a.txt");
     await expect(registry.execute("read", { path: "../outside.txt" }, context(root))).rejects.toThrow("workspace");
     expect(existsSync(join(root, "outside.txt"))).toBe(false);
+    await processes.stop();
+  });
+
+  test("uses the search service supplied by the active workspace lease", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-coding-search-lease-"));
+    roots.push(root);
+    const calls: string[] = [];
+    const workspaceSearch = {
+      grep: async () => { calls.push("grep"); return "lease grep"; },
+      find: async () => { calls.push("find"); return "lease find"; },
+    } as unknown as WorkspaceSearchService;
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {});
+    const leasedContext = { ...context(root), workspaceSearch };
+    expect((await registry.execute("grep", { pattern: "x" }, leasedContext)).content[0]?.text)
+      .toContain("lease grep");
+    expect((await registry.execute("find", { pattern: "*" }, leasedContext)).content[0]?.text)
+      .toContain("lease find");
+    expect(calls).toEqual(["grep", "find"]);
     await processes.stop();
   });
 

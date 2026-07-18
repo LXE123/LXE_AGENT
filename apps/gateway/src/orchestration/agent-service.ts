@@ -7,7 +7,7 @@ import type {
   SessionWorkspaceRequest,
   WorkspaceContext,
 } from "@lxe/protocol";
-import { createLogger, runWithLogContext, type Logger } from "@lxe/core";
+import { assertWorkspaceAvailable, createLogger, runWithLogContext, type Logger } from "@lxe/core";
 import {
   AtomicRuntimeProviderManager,
   buildSystemPrompt,
@@ -27,6 +27,7 @@ import {
   SqliteRuntimeStore,
   ToolRegistry,
   TypeScriptAgentRuntime,
+  WorkspaceInstanceManager,
   type RuntimeEmitter,
   type RuntimeHandle,
   type TurnOutcome,
@@ -90,6 +91,7 @@ export function createProductionAgentService(
   const feishu = loadFeishuConfig(environment);
   const tools = new ToolRegistry();
   const skillCatalog = new SkillCatalog(options.resourceRoot);
+  const connectorStatePath = join(options.dataRoot, "config", "connector-states.local.json");
   const commandCatalogPath = join(
     options.resourceRoot,
     "python",
@@ -208,6 +210,7 @@ export function createProductionAgentService(
   const mcpConfig = loadMcpConfig(mcpConfigPath, environment, options.dataRoot);
   const mcpManager = new McpManager(mcpConfig, new OfficialMcpConnector(environment));
   runtimeServices.push(mcpManager);
+  let workspaceInstances!: WorkspaceInstanceManager;
   const dashboardApi = new DashboardApi({
     projectRoot: options.resourceRoot,
     stateRoot: options.dataRoot,
@@ -215,7 +218,7 @@ export function createProductionAgentService(
     store,
     tools,
     mcpConfig,
-    connectorStatePath: join(options.dataRoot, "config", "connector-states.local.json"),
+    connectorStatePath,
     backgroundTasks: () => processes.snapshots(),
     setMcpEnabled: async (serverName, enabled) => {
       setMcpServerEnabled(mcpConfigPath, serverName, enabled);
@@ -226,6 +229,27 @@ export function createProductionAgentService(
     cliCommands,
     ...(options.allowedSkillTypes ? { allowedSkillTypes: options.allowedSkillTypes } : {}),
     providerManager,
+    reloadWorkspace: async (sessionId) => {
+      const session = await store.getSession(sessionId);
+      if (!session) throw new Error(`session not found: ${sessionId}`);
+      return workspaceInstances.reload(assertWorkspaceAvailable(session.workspace), "dashboard_diagnostic");
+    },
+  });
+  workspaceInstances = new WorkspaceInstanceManager({
+    resourceRoot: options.resourceRoot,
+    connectorStatePath,
+    skillCatalog,
+    skillOptions: () => {
+      const policy = dashboardApi.runtimeConnectorPolicy();
+      return {
+        ...(options.allowedSkillTypes
+          ? { allowedTypes: options.allowedSkillTypes }
+          : { allowedTypes: new Set<string>() }),
+        disabledNames: policy.disabledSkillNames,
+      };
+    },
+    disabledConnectorIds: () => dashboardApi.runtimeConnectorPolicy().disabledConnectorIds,
+    beforeForceRefresh: () => dashboardApi.invalidateRuntimeConfigCache(),
   });
   const providerDescriptor = providerManager.acquire().descriptor;
   const runtime = new TypeScriptAgentRuntime({
@@ -237,19 +261,7 @@ export function createProductionAgentService(
       environment,
     }),
     tools,
-    skillSnapshot: (workspace) => {
-      const connectorPolicy = dashboardApi.runtimeConnectorPolicy();
-      const snapshot = skillCatalog.snapshot({
-        ...(options.allowedSkillTypes
-          ? { allowedTypes: options.allowedSkillTypes }
-          : { allowedTypes: new Set<string>() }),
-        disabledNames: connectorPolicy.disabledSkillNames,
-      }, workspace);
-      return Object.freeze({
-        ...snapshot,
-        disabledConnectorIds: Object.freeze([...connectorPolicy.disabledConnectorIds]),
-      });
-    },
+    workspaceInstances,
     contextWindowTokens: providerDescriptor.contextWindowTokens,
     display: {
       model: providerDescriptor.model,
@@ -259,12 +271,13 @@ export function createProductionAgentService(
     },
     emitter: options.emitter,
     systemPrompt: (context) => buildSystemPrompt({
-      projectRoot: options.resourceRoot,
+      soul: context.workspaceSnapshot?.soul ?? "",
       workspace: context.workspace,
       platform: context.platform,
       provider: context.provider,
       model: context.model,
-      skillPrompt: context.skillPrompt,
+      skillPrompt: context.workspaceSnapshot?.skills.prompt ?? context.skillPrompt,
+      workspaceInstructions: context.workspaceSnapshot?.instructions_prompt ?? "",
     }),
     services: runtimeServices,
   });
@@ -314,6 +327,7 @@ export function createProductionAgentService(
         lxeskill_available: lxeSkillStatus.available,
         lxeskill_message: lxeSkillStatus.message,
         active_turns: 0,
+        workspace_instances: workspaceInstances.diagnostics(),
       };
     },
   };

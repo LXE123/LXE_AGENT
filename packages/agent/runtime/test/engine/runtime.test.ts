@@ -9,6 +9,7 @@ import {
   type RuntimeProviderSnapshot,
 } from "../../src/providers/provider";
 import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
+import { WorkspaceSearchService } from "../../src/tooling/workspace-search";
 import type {
   RuntimeHandle,
   RuntimeMessage,
@@ -102,6 +103,64 @@ const lxeSkillInvocationError = (details: JsonObject = {
 );
 
 describe("TypeScriptAgentRuntime", () => {
+  test("holds one workspace snapshot lease across prompt and tool execution", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    const search = new WorkspaceSearchService(workspace.worktree);
+    let released = 0;
+    let disposed = 0;
+    let promptInstructions = "";
+    tools.register({
+      name: "probe",
+      description: "probe",
+      input_schema: { type: "object" },
+      execute: async (_input, context) => {
+        expect(context.workspaceSearch).toBe(search);
+        return { content: [{ type: "text", text: "ok" }] };
+      },
+    });
+    let providerCalls = 0;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      workspaceInstances: {
+        acquire: async () => ({
+          workspace,
+          search,
+          snapshot: Object.freeze({
+            generation: 7,
+            loaded_at: 1,
+            instructions_prompt: "Workspace rule",
+            skills: Object.freeze({ names: Object.freeze([]), modules: Object.freeze({}), prompt: "" }),
+            soul: "Cached soul",
+          }),
+          release: () => { released += 1; },
+        }),
+        disposeAll: async () => { disposed += 1; },
+      },
+      provider: {
+        summarize,
+        turn: async () => {
+          providerCalls += 1;
+          return providerCalls === 1
+            ? { content: [{ type: "tool_call", id: "probe-1", name: "probe", arguments: {} }], stop_reason: "tool_use", usage: { input_tokens: 1, output_tokens: 1 } }
+            : { content: [{ type: "text", text: "done" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } };
+        },
+      },
+      systemPrompt: (context) => {
+        promptInstructions = context.workspaceSnapshot?.instructions_prompt ?? "";
+        return "test";
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+    });
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    expect(promptInstructions).toBe("Workspace rule");
+    expect(released).toBe(1);
+    await runtime.stop();
+    expect(disposed).toBe(1);
+  });
+
   test("rejects an AgentJob whose workspace differs from the persisted session", async () => {
     const store = new MemoryStore();
     let providerCalled = false;

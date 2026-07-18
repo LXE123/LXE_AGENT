@@ -1,7 +1,8 @@
 // UI copy (zh/en) and the language context.
 import React from "react";
 
-export const LANGUAGE_STORAGE_KEY = "agent-dashboard-language";
+export const LANGUAGE_STORAGE_KEY = "lxe.window.main.language.v1";
+const LEGACY_LANGUAGE_STORAGE_KEY = "agent-dashboard-language";
 
 export type Language = "zh" | "en";
 
@@ -712,10 +713,17 @@ export function isLanguage(value: string | null): value is Language {
   return value === "zh" || value === "en";
 }
 
-export function initialLanguage(): Language {
+export function initialLanguage(
+  storage?: Pick<Storage, "getItem" | "setItem">,
+): Language {
   try {
-    const stored = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-    return isLanguage(stored) ? stored : "zh";
+    const target = storage ?? window.localStorage;
+    const stored = target.getItem(LANGUAGE_STORAGE_KEY);
+    if (isLanguage(stored)) return stored;
+    const legacy = target.getItem(LEGACY_LANGUAGE_STORAGE_KEY);
+    if (!isLanguage(legacy)) return "zh";
+    target.setItem(LANGUAGE_STORAGE_KEY, legacy);
+    return legacy;
   } catch {
     return "zh";
   }

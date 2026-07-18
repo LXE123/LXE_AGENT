@@ -58,6 +58,7 @@ ALLOWED_RUNTIME_SOURCE_DIRECTORIES = {
     "providers",
     "state",
     "tooling",
+    "workspace",
 }
 ALLOWED_RUNTIME_TEST_DIRECTORIES = ALLOWED_RUNTIME_SOURCE_DIRECTORIES | {"fixtures"}
 ALLOWED_DASHBOARD_SOURCE_DIRECTORIES = {"api", "assets", "desktop", "features", "shared"}

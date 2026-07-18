@@ -60,4 +60,14 @@ describe("Dashboard information architecture", () => {
     expect(readStoredCapabilityView({ getItem: () => { throw new Error("blocked"); } })).toBe("models");
     expect(() => storeCapabilityView("tools", { setItem: () => { throw new Error("full"); } })).not.toThrow();
   });
+
+  test("migrates the legacy capability key into the window-scoped key", () => {
+    const values = new Map<string, string>([["lxe-dashboard-capability-view", "skills"]]);
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    };
+    expect(readStoredCapabilityView(storage)).toBe("skills");
+    expect(values.get(CAPABILITY_VIEW_STORAGE_KEY)).toBe("skills");
+  });
 });

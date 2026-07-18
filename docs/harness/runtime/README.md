@@ -41,6 +41,7 @@ Gateway 通过版本化 NDJSON 协议提交任务和取消请求。Runtime 只�
 - [Runtime Flow](runtime_flow.md)：从平台消息到最终 delivery 的端到端边界。
 - [Turn Execution](turn_execution.md)：turn snapshot、provider、tool 和 final outcome。
 - [Turn Step Lifecycle](turn_step_lifecycle.md)：单个 step 的固定顺序。
+- [Workspace Instance](workspace_instances.md)：会话工作区、AGENTS 指令、缓存刷新和回收。
 - [Context](context/README.md)：history、预算、Transcript v2 和 compaction。
 - [Tools](tools/README.md)：工具可见性、执行、进程和业务命令边界。
 
