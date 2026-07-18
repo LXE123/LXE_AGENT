@@ -15,7 +15,7 @@ import {
   resolvePermissionUserId,
   type PermissionPolicy,
 } from "../security/permission-policy";
-import { laneKey, responseRoutePayload, type RouteDecision, type SessionContext } from "../state/models";
+import { responseRoutePayload, type RouteDecision, type SessionContext } from "../state/models";
 import { SessionBindingStore, SessionSource, type SessionBindingEntry } from "../state/session-bindings";
 import type { RunHandle, SteeringMessage } from "./scheduler";
 import { SessionRuntimeState } from "../state/session-state";
@@ -136,8 +136,6 @@ export class SessionRouter {
   }
 
   private async routeContext(event: InboundEvent, context: SessionContext): Promise<RouteDecision> {
-    const sessionKey = context.session_key;
-    const lane = laneKey(context.platform, sessionKey, "agent");
     this.logger.info("inbound_received", {
       platform: context.platform,
       event_type: event.event_type,
@@ -146,7 +144,7 @@ export class SessionRouter {
       user_input_chars: context.user_input.length,
       attachment_count: context.user_content_blocks.length,
     });
-    const denied = await this.checkPermission(event, context, lane);
+    const denied = await this.checkPermission(event, context);
     if (denied) return denied;
 
     const command = normalizeControlCommand(context.user_input);
@@ -161,7 +159,7 @@ export class SessionRouter {
         command,
         session_id: entry?.session_id ?? "",
       });
-      return { route_kind: "agent_control", lane_key: lane, platform: context.platform };
+      return { route_kind: "agent_control", platform: context.platform };
     }
 
     const entry = await this.loadOrCreateSession(context);
@@ -171,7 +169,7 @@ export class SessionRouter {
     this.state.resumeAutonomy(entry.session_id);
     if (await this.trySteer(entry.session_id, context)) {
       this.logger.info("message_steered", { session_id: entry.session_id });
-      return { route_kind: "agent_steer", lane_key: lane, platform: context.platform };
+      return { route_kind: "agent_steer", platform: context.platform };
     }
     const sessionBusy = this.options.scheduler.hasInflightWork(entry.session_id);
     const pendingEvents = sessionBusy
@@ -209,25 +207,24 @@ export class SessionRouter {
         pending_events_deferred: sessionBusy,
       });
     });
-    return { route_kind: "agent_message", lane_key: lane, platform: context.platform };
+    return { route_kind: "agent_message", platform: context.platform };
   }
 
   private async checkPermission(
     event: InboundEvent,
     context: SessionContext,
-    lane: string,
   ): Promise<RouteDecision | undefined> {
     const botId = resolveBotId(event, this.options.feishuAppId);
     if (!isKnownBotId(this.options.policy, botId)) {
       this.logger.warn("permission_denied", { reason: "unknown_bot", platform: context.platform, bot_id: botId });
       await this.sendFeedback(context, "", "当前 Bot 未授权接入 Agent。");
-      return { route_kind: "permission_denied", lane_key: lane, platform: context.platform };
+      return { route_kind: "permission_denied", platform: context.platform };
     }
     const userId = resolvePermissionUserId(event);
     if (!canUserAccessBot(this.options.policy, userId, botId)) {
       this.logger.warn("permission_denied", { reason: "user_not_allowed", platform: context.platform, bot_id: botId, user_id: userId });
       await this.sendFeedback(context, "", "你没有权限使用当前 Agent。");
-      return { route_kind: "permission_denied", lane_key: lane, platform: context.platform };
+      return { route_kind: "permission_denied", platform: context.platform };
     }
     return undefined;
   }

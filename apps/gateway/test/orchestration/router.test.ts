@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentJob, InboundEvent, JsonObject, SessionWorkspaceRequest, WorkspaceContext } from "@lxe/protocol";
-import { SqliteRuntimeStore } from "@lxe/runtime";
 import { FakeChannelAdapter, ChannelRegistry } from "../../src/channels/registry";
 import { buildPermissionPolicy } from "../../src/security/permission-policy";
 import {
@@ -161,51 +160,6 @@ const setup = (defaultWorkspace: () => WorkspaceContext = () => testWorkspace) =
 };
 
 describe("SessionRouter permission and normal routes", () => {
-  test("persists a real SQLite response route before scheduler enqueue", async () => {
-    const root = mkdtempSync(join(tmpdir(), "lxe-router-sqlite-"));
-    roots.push(root);
-    const storage = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
-    await storage.start();
-    const bindings = new SessionBindingStore(join(root, "sessions.json"), {
-      id: () => "session-real",
-      now: () => "2026-01-01T00:00:00+00:00",
-    });
-    const scheduler = new FakeScheduler();
-    scheduler.beforeEnqueue = async () => {
-      expect(await storage.getResponseRoute("route-real")).toEqual(expect.objectContaining({
-        response_route_id: "route-real",
-        owner_user_id: "union-alice",
-        conversation_id: "chat-1",
-        conversation_type: "1",
-        extra_data: expect.objectContaining({
-          platform: "feishu",
-          source_message_id: "message-real",
-        }),
-      }));
-    };
-    const channels = new ChannelRegistry();
-    channels.register(new FakeChannelAdapter("feishu"));
-    const router = new SessionRouter({
-      policy,
-      bindings,
-      storage,
-      scheduler,
-      channels,
-      id: () => "job-real",
-      defaultWorkspace: () => testWorkspace,
-    });
-
-    try {
-      await router.routeMessage(event({
-        response_route_id: "route-real",
-        message_id: "message-real",
-      }));
-      expect(scheduler.jobs).toHaveLength(1);
-    } finally {
-      await storage.stop();
-    }
-  });
-
   test("denies unknown bots and unauthorized users before touching sessions", async () => {
     const unknown = setup();
     const decision = await unknown.router.routeMessage(
@@ -238,7 +192,6 @@ describe("SessionRouter permission and normal routes", () => {
 
     expect(decision).toEqual({
       route_kind: "agent_message",
-      lane_key: "feishu|agent|agent:main:feishu:dm:chat-1|",
       platform: "feishu",
     });
     expect(storage.ensured).toHaveLength(1);

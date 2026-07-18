@@ -17,7 +17,6 @@ export interface SessionContext {
 
 export interface RouteDecision {
   route_kind: "permission_denied" | "agent_control" | "agent_steer" | "agent_message";
-  lane_key: string;
   platform: string;
 }
 
@@ -51,14 +50,6 @@ export interface ResponseRoutePatch {
     platform_message_id?: string;
   };
 }
-
-export const laneKey = (
-  platform: string,
-  ownerId: string,
-  scope = "message",
-  conversationId = "",
-): string =>
-  [platform, scope, ownerId, conversationId].map((value) => String(value ?? "").trim()).join("|");
 
 export const responseRoutePayload = (context: SessionContext): JsonObject => ({
   platform: context.platform,

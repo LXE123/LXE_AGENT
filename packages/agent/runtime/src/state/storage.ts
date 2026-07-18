@@ -228,18 +228,6 @@ export class SqliteRuntimeStore implements RuntimeStore {
     database.exec("PRAGMA busy_timeout = 5000");
     database.exec("PRAGMA journal_mode = WAL");
     database.exec(`
-      CREATE TABLE IF NOT EXISTS response_routes (
-        response_route_id TEXT PRIMARY KEY,
-        owner_user_id TEXT NOT NULL,
-        platform TEXT NOT NULL DEFAULT 'feishu',
-        platform_message_id TEXT,
-        conversation_id TEXT,
-        conversation_type TEXT,
-        sender_nick TEXT,
-        extra_data TEXT NOT NULL DEFAULT '{}',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
       CREATE TABLE IF NOT EXISTS agent_sessions (
         session_id TEXT PRIMARY KEY,
         source TEXT NOT NULL DEFAULT '{}',
@@ -412,81 +400,6 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const workspace = this.workspaceFromRow(row);
     if (!workspace) throw new Error(`session workspace is missing: ${row.session_id}`);
     return { session_id: row.session_id, source: parseObject(row.source), workspace };
-  }
-
-  async upsertResponseRoute(request: JsonObject): Promise<void> {
-    const responseRouteId = text(request.response_route_id);
-    const source = parseObject(request.source);
-    const now = new Date().toISOString();
-    if (!responseRouteId) throw new Error("response_route_id required");
-    const extra: JsonObject = {
-      ...parseObject(request.extra_data),
-      ...(text(source.message_id) ? { source_message_id: text(source.message_id) } : {}),
-    };
-    this.db().query(`
-      INSERT INTO response_routes (
-        response_route_id, owner_user_id, platform, platform_message_id,
-        conversation_id, conversation_type, sender_nick, extra_data, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(response_route_id) DO UPDATE SET
-        owner_user_id = excluded.owner_user_id,
-        platform = excluded.platform,
-        conversation_id = excluded.conversation_id,
-        conversation_type = excluded.conversation_type,
-        sender_nick = excluded.sender_nick,
-        extra_data = excluded.extra_data,
-        updated_at = excluded.updated_at
-    `).run(
-      responseRouteId,
-      text(request.user_id) || text(source.user_id_alt) || text(source.user_id),
-      text(request.platform) || text(source.platform) || "feishu",
-      text(request.platform_message_id) || null,
-      text(request.conversation_id) || text(source.chat_id) || null,
-      text(request.conversation_type) || text(source.chat_type) || null,
-      text(request.sender_nick) || text(source.user_name) || null,
-      JSON.stringify(extra),
-      now,
-      now,
-    );
-  }
-
-  async getResponseRoute(responseRouteId: string): Promise<JsonObject | undefined> {
-    const row = this.getPrepared<Record<string, unknown>>(
-      "SELECT * FROM response_routes WHERE response_route_id = ?",
-      text(responseRouteId),
-    );
-    if (!row) return undefined;
-    return {
-      response_route_id: text(row.response_route_id),
-      owner_user_id: text(row.owner_user_id),
-      platform: text(row.platform),
-      platform_message_id: row.platform_message_id === null ? null : text(row.platform_message_id),
-      conversation_id: row.conversation_id === null ? null : text(row.conversation_id),
-      conversation_type: row.conversation_type === null ? null : text(row.conversation_type),
-      sender_nick: row.sender_nick === null ? null : text(row.sender_nick),
-      extra_data: parseObject(row.extra_data),
-      created_at: row.created_at === null ? null : text(row.created_at),
-      updated_at: row.updated_at === null ? null : text(row.updated_at),
-    };
-  }
-
-  async patchResponseRoute(responseRouteId: string, update: JsonObject): Promise<void> {
-    const current = await this.getResponseRoute(responseRouteId);
-    if (!current) throw new Error(`response route not found: ${responseRouteId}`);
-    const extra = { ...parseObject(current.extra_data), ...parseObject(update.extra_data) };
-    const rawPlatformMessageId = update.platform_message_id === undefined
-      ? current.platform_message_id
-      : update.platform_message_id;
-    const platformMessageId = rawPlatformMessageId === null ? null : text(rawPlatformMessageId);
-    this.db().query(`
-      UPDATE response_routes SET platform_message_id = ?, extra_data = ?, updated_at = ?
-      WHERE response_route_id = ?
-    `).run(
-      platformMessageId,
-      JSON.stringify(extra),
-      new Date().toISOString(),
-      responseRouteId,
-    );
   }
 
   async appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
