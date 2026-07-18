@@ -253,7 +253,6 @@ export class SessionScheduler {
       if (isRunUnavailableError(error)) return false;
       throw error;
     }
-    handle.pushSteering(safeMessage);
     this.logger.info("scheduler_steering_accepted", {
       session_id: handle.sessionId,
       turn_id: handle.jobId,

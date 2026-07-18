@@ -24,6 +24,8 @@ export interface DirectRuntimeOutcome {
   input_tokens: number;
   output_tokens: number;
   tool_calls: number;
+  /** Steering messages the runtime never consumed before the turn ended. */
+  remaining_steering?: SteeringMessage[];
 }
 
 export interface DirectAgentRuntime {
@@ -43,7 +45,6 @@ export interface DirectGatewayStorage {
     source: JsonObject;
     workspace: WorkspaceContext;
   } | undefined>;
-  popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   hasPendingEvents(sessionId: string): Promise<boolean>;
   getResponseRoute(responseRouteId: string): Promise<ResponseRouteRecord | undefined>;
@@ -113,7 +114,11 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
               session_id: handle.sessionId,
               job_id: handle.jobId,
               status: outcome.status,
-              remaining_steering: handle.drainSteering(),
+              remaining_steering: (outcome.remaining_steering ?? handle.drainSteering()).map((item) => ({
+                text: item.text,
+                response_route_id: item.response_route_id ?? "",
+                message_id: item.message_id ?? "",
+              })),
             },
           });
         },

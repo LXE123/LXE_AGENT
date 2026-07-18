@@ -40,7 +40,6 @@ export interface StoragePort {
   upsertResponseRoute(request: JsonObject): Promise<void>;
   /** Reads the session from the in-process Runtime store. */
   getSession(sessionId: string): Promise<StorageSessionRecord | undefined>;
-  popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
 }
 
@@ -171,16 +170,11 @@ export class SessionRouter {
       this.logger.info("message_steered", { session_id: entry.session_id });
       return { route_kind: "agent_steer", platform: context.platform };
     }
-    const sessionBusy = this.options.scheduler.hasInflightWork(entry.session_id);
-    const pendingEvents = sessionBusy
-      ? []
-      : await this.options.storage.popPendingEvents(entry.session_id);
     const rawData: JsonObject = {
       ...context.raw_data,
       session_key: context.session_key,
       source: { ...context.source },
     };
-    if (pendingEvents.length > 0) rawData.system_events = pendingEvents;
     const job: AgentJob = {
       job_id: this.id(),
       session_id: entry.session_id,
@@ -203,8 +197,6 @@ export class SessionRouter {
       this.logger.info("message_queued", {
         platform: context.platform,
         attachment_count: context.user_content_blocks.length,
-        pending_event_count: pendingEvents.length,
-        pending_events_deferred: sessionBusy,
       });
     });
     return { route_kind: "agent_message", platform: context.platform };

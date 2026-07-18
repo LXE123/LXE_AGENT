@@ -66,10 +66,6 @@ class SplitGatewayStorage implements DirectGatewayStorage {
     return this.gateway.getSession(sessionId);
   }
 
-  popPendingEvents(sessionId: string): Promise<JsonObject[]> {
-    return this.agent.popPendingEvents(sessionId);
-  }
-
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {
     return this.agent.appendPendingEvent(sessionId, event);
   }

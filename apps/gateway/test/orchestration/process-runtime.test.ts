@@ -180,7 +180,12 @@ describe("ProcessAgentRuntime", () => {
     await runtime.cancelTurn(handle);
     await handle.abort();
 
-    expect(await turn).toMatchObject({ status: "cancelled" });
+    expect(await turn).toMatchObject({
+      status: "cancelled",
+      remaining_steering: [
+        { text: "steer", response_route_id: "route-1", message_id: "message-2" },
+      ],
+    });
     expect(await runtime.remoteHealth()).toMatchObject({ cancel_count: 1 });
   });
 });

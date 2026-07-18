@@ -36,7 +36,6 @@ export type AgentCommandPayloads = {
   };
   ensure_session: { request: SessionWorkspaceRequest };
   rebind_session: { request: SessionWorkspaceRequest };
-  pop_pending_events: { session_id: string };
   append_pending_event: { session_id: string; event: JsonObject };
   has_pending_events: { session_id: string };
   dashboard_call: AgentDashboardRpcCall;
@@ -45,6 +44,22 @@ export type AgentCommandPayloads = {
 };
 
 export type AgentCommand = keyof AgentCommandPayloads;
+
+export type AgentSteeringMessage = {
+  text: string;
+  response_route_id?: string;
+  message_id?: string;
+};
+
+export type AgentRunTurnResult = {
+  status: "completed" | "cancelled" | "error";
+  reply: string;
+  input_tokens: number;
+  output_tokens: number;
+  tool_calls: number;
+  /** Steering messages the agent never consumed before the turn ended. */
+  remaining_steering?: AgentSteeringMessage[];
+};
 
 export type AgentRequest<C extends AgentCommand = AgentCommand> = C extends AgentCommand
   ? {
@@ -338,7 +353,6 @@ const agentCommands = new Set<AgentCommand>([
   "steer_turn",
   "ensure_session",
   "rebind_session",
-  "pop_pending_events",
   "append_pending_event",
   "has_pending_events",
   "dashboard_call",
@@ -408,7 +422,6 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
       requireObject("request");
       requireWorkspace(objectValue(payload.request)?.workspace, `${command}.request.workspace`);
       break;
-    case "pop_pending_events":
     case "has_pending_events":
       requireText("session_id");
       break;

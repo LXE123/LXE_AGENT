@@ -609,6 +609,40 @@ describe("TypeScriptAgentRuntime", () => {
     expect(store.pendingEvents).toEqual([]);
   });
 
+  test("consumes stored pending events for an ordinary turn without embedded system events", async () => {
+    const store = new MemoryStore();
+    store.pendingEvents.push({
+      event_id: "stored",
+      job_id: "stored",
+      created_at: 0,
+      text: "stored only",
+    });
+    let captured: RuntimeProviderRequest | undefined;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async (request) => {
+          captured = request;
+          return {
+            content: [{ type: "text", text: "done" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    await runtime.stop();
+
+    expect(captured?.messages.at(-1)?.content).toBe("System: stored only\n\nhello");
+    expect(store.pendingEvents).toEqual([]);
+  });
+
   test("reports heartbeat events without history or tools", async () => {
     const store = new MemoryStore();
     store.messages.push({ role: "user", content: "private history" });

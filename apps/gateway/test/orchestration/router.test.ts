@@ -62,8 +62,6 @@ class FakeStorage implements StoragePort {
   readonly rebound: SessionWorkspaceRequest[] = [];
   readonly routes: JsonObject[] = [];
   readonly appended: Array<{ sessionId: string; event: JsonObject }> = [];
-  pending: JsonObject[] = [];
-  popCalls = 0;
   readonly sessions = new Map<string, WorkspaceContext>();
   rebindMissing = false;
   appendFails = false;
@@ -82,10 +80,6 @@ class FakeStorage implements StoragePort {
   async getSession(sessionId: string): Promise<{ session_id: string; source: JsonObject; workspace: typeof testWorkspace } | undefined> {
     const workspace = this.sessions.get(sessionId);
     return workspace ? { session_id: sessionId, source: {}, workspace } : undefined;
-  }
-  async popPendingEvents(): Promise<JsonObject[]> {
-    this.popCalls += 1;
-    return this.pending.splice(0);
   }
   async appendPendingEvent(sessionId: string, value: JsonObject): Promise<void> {
     if (this.appendFails) throw new Error("append failed");
@@ -175,9 +169,8 @@ describe("SessionRouter permission and normal routes", () => {
     expect(denied.scheduler.jobs).toEqual([]);
   });
 
-  test("creates source/context, ensures a binding, pops events, and constructs the exact AgentJob", async () => {
+  test("creates source/context, ensures a binding, and constructs the exact AgentJob", async () => {
     const { router, storage, scheduler } = setup();
-    storage.pending = [{ event_id: "pending-1", text: "done" }];
     scheduler.beforeEnqueue = () => {
       expect(storage.routes).toEqual([
         expect.objectContaining({
@@ -237,27 +230,22 @@ describe("SessionRouter permission and normal routes", () => {
           is_bot: false,
           extra: { bot_name: "Allowed" },
         },
-        system_events: [{ event_id: "pending-1", text: "done" }],
       },
       user_content_blocks: [],
       workspace: testWorkspace,
     });
   });
 
-  test("leaves pending events stored when a new message must queue behind inflight work", async () => {
-    const { router, bindings, storage, scheduler } = setup();
+  test("queues behind inflight work without injecting system events into the job", async () => {
+    const { router, bindings, scheduler } = setup();
     await router.routeMessage(event());
     const sessionId = bindings.get("agent:main:feishu:dm:chat-1")!.session_id;
     scheduler.jobs.length = 0;
     scheduler.active.add(sessionId);
     scheduler.acceptSteering = false;
-    storage.pending = [{ event_id: "deferred", job_id: "exec-1", text: "done" }];
-    const popCallsBefore = storage.popCalls;
 
     await router.routeMessage(event({ message_id: "message-2", response_route_id: "route-2" }));
 
-    expect(storage.popCalls).toBe(popCallsBefore);
-    expect(storage.pending).toEqual([{ event_id: "deferred", job_id: "exec-1", text: "done" }]);
     expect(scheduler.jobs).toHaveLength(1);
     expect(scheduler.jobs[0]?.job.raw_data.system_events).toBeUndefined();
   });

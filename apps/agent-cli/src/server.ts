@@ -160,8 +160,6 @@ export class AgentProtocolServer {
       case "rebind_session":
         await this.readyHost().rebindSession(request.payload.request);
         return { rebound: true };
-      case "pop_pending_events":
-        return this.readyHost().popPendingEvents(request.payload.session_id);
       case "append_pending_event":
         await this.readyHost().appendPendingEvent(
           request.payload.session_id,
@@ -321,6 +319,7 @@ export class AgentProtocolServer {
         input_tokens: outcome.input_tokens,
         output_tokens: outcome.output_tokens,
         tool_calls: outcome.tool_calls,
+        remaining_steering: handle.drainSteering(),
       };
     } catch (cause) {
       await this.options.write({

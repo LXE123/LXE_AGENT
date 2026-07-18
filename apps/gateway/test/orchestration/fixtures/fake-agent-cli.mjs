@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
 let activeRunRequest;
+let steered = [];
 let cancelCount = 0;
 let loggingStatus = {
   local_file_enabled: true,
@@ -91,12 +92,20 @@ for await (const line of input) {
           input_tokens: 0,
           output_tokens: 0,
           tool_calls: 0,
+          remaining_steering: steered,
         },
       }), 25);
     }
     continue;
   }
   if (request.command === "steer_turn") {
+    if (activeRunRequest) {
+      steered.push({
+        text: request.payload.text,
+        response_route_id: request.payload.response_route_id,
+        message_id: request.payload.message_id,
+      });
+    }
     write({ version: 2, id: request.id, ok: true, result: { accepted: Boolean(activeRunRequest) } });
     continue;
   }

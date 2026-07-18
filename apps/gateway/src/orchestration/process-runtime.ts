@@ -21,6 +21,7 @@ import {
   type AgentEvent,
   type AgentRequest,
   type AgentResponse,
+  type AgentRunTurnResult,
   type DashboardRpcResult,
   type DesktopLoggingSinkStatus,
 } from "@lxe/desktop-protocol";
@@ -87,6 +88,32 @@ const arrayOfObjects = (value: JsonValue): JsonObject[] =>
   Array.isArray(value)
     ? value.filter((item): item is JsonObject => item !== null && typeof item === "object" && !Array.isArray(item))
     : [];
+
+const runTurnResult = (value: JsonValue): AgentRunTurnResult => {
+  const object = objectValue(value);
+  const status = String(object.status ?? "");
+  if (status !== "completed" && status !== "cancelled" && status !== "error") {
+    throw new AgentProcessError(
+      `agent-cli run_turn returned invalid status: ${status}`,
+      "AgentProtocolError",
+    );
+  }
+  const remainingSteering = arrayOfObjects(object.remaining_steering ?? [])
+    .map((item) => ({
+      text: String(item.text ?? "").trim(),
+      response_route_id: String(item.response_route_id ?? "").trim(),
+      message_id: String(item.message_id ?? "").trim(),
+    }))
+    .filter((item) => item.text.length > 0);
+  return {
+    status,
+    reply: String(object.reply ?? ""),
+    input_tokens: Number(object.input_tokens ?? 0),
+    output_tokens: Number(object.output_tokens ?? 0),
+    tool_calls: Number(object.tool_calls ?? 0),
+    remaining_steering: remainingSteering,
+  };
+};
 
 const LOG_LEVELS = new Set(["debug", "info", "warn", "error"]);
 const LOGGING_DISABLED_REASONS = new Set(["", "disabled_by_config", "missing_log_file", "sink_failed"]);
@@ -243,7 +270,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       forceKill: () => this.cancelRun(handle.runId),
     });
     try {
-      return objectValue(await this.request("run_turn", { job }, 0)) as unknown as DirectRuntimeOutcome;
+      return runTurnResult(await this.request("run_turn", { job }, 0));
     } finally {
       this.cancelledRuns.delete(handle.runId);
       releaseProcess();
@@ -272,10 +299,6 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
 
   async rebindSession(request: SessionWorkspaceRequest): Promise<void> {
     await this.request("rebind_session", { request });
-  }
-
-  async popPendingEvents(sessionId: string): Promise<JsonObject[]> {
-    return arrayOfObjects(await this.request("pop_pending_events", { session_id: sessionId }));
   }
 
   async appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {

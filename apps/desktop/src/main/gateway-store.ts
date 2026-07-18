@@ -35,7 +35,7 @@ const parseObject = (value: unknown): JsonObject => {
 
 export class NodeGatewayStore implements Omit<
   DirectGatewayStorage,
-  "popPendingEvents" | "appendPendingEvent" | "hasPendingEvents"
+  "appendPendingEvent" | "hasPendingEvents"
 > {
   private database: DatabaseSync | undefined;
 

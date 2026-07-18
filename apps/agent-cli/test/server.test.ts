@@ -46,6 +46,91 @@ describe("AgentProtocolServer", () => {
     expect(output[0]).toMatchObject({ id: "health-1", ok: false });
   });
 
+  test("rejects the removed pop_pending_events command", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    const server = new AgentProtocolServer({ write: (message) => { output.push(message); } });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "pop-1",
+      command: "pop_pending_events",
+      payload: { session_id: "session-1" },
+    }));
+    expect(output).toHaveLength(1);
+    const response = output[0];
+    expect(response && !("type" in response) && !response.ok).toBe(true);
+    expect(response && !("type" in response) && !response.ok ? response.error.message : "")
+      .toContain("unsupported agent protocol command");
+  });
+
+  test("run_turn returns steering the runtime never consumed", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    const root = process.cwd();
+    const createHost = (() => ({
+      start: async () => undefined,
+      stop: async () => undefined,
+      health: () => ({ ready: true }),
+      runTurn: async (
+        _job: unknown,
+        handle: { pushSteering(message: { text: string; response_route_id: string; message_id: string }): void },
+      ) => {
+        handle.pushSteering({ text: "late steer", response_route_id: "route-s", message_id: "m-s" });
+        return { status: "completed", reply: "ok", input_tokens: 1, output_tokens: 2, tool_calls: 3 };
+      },
+    })) as unknown as CreateHost;
+    const server = new AgentProtocolServer({
+      write: (message) => { output.push(message); },
+      createHost,
+      environment: { LOCAL_LOGS_ENABLED: "0" },
+    });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "initialize-1",
+      command: "initialize",
+      payload: { resource_root: root, data_root: root, legacy_workspace: workspace(root) },
+    }));
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "turn-1",
+      command: "run_turn",
+      payload: {
+        job: {
+          job_id: "job-1",
+          session_id: "session-1",
+          session_key: "session-1",
+          response_route_id: "route-1",
+          user_id: "user-1",
+          conversation_id: "conversation-1",
+          is_group: false,
+          message_id: "message-1",
+          user_input: "hello",
+          job_kind: "turn",
+          sender_nick: "tester",
+          source: {},
+          raw_data: {},
+          user_content_blocks: [],
+          workspace: workspace(root),
+        },
+      },
+    }));
+
+    const response = output.find((message): message is AgentResponse =>
+      !("type" in message) && message.id === "turn-1");
+    expect(response).toMatchObject({
+      ok: true,
+      result: {
+        status: "completed",
+        reply: "ok",
+        input_tokens: 1,
+        output_tokens: 2,
+        tool_calls: 3,
+        remaining_steering: [
+          { text: "late steer", response_route_id: "route-s", message_id: "m-s" },
+        ],
+      },
+    });
+    await server.shutdown();
+  });
+
   test("reports not-ready health without initialization", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     const server = new AgentProtocolServer({ write: (message) => { output.push(message); } });

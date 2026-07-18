@@ -6,6 +6,7 @@ import type { AgentJob, JsonObject } from "@lxe/protocol";
 import { FakeChannelAdapter } from "../../src/channels/registry";
 import { createDirectGatewayComposition } from "../../src/orchestration/composition";
 import { buildPermissionPolicy } from "../../src/security/permission-policy";
+import type { RunHandle, SteeringMessage } from "../../src/orchestration/scheduler";
 import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
@@ -20,6 +21,27 @@ const job = (): AgentJob => ({
   source: { platform: "test", chat_id: "c1" }, raw_data: {}, user_content_blocks: [],
   workspace: testWorkspace,
 });
+
+const storage = () => ({
+  ensureSession: async () => undefined,
+  rebindSession: async () => undefined,
+  upsertResponseRoute: async () => undefined,
+  getSession: async () => ({ session_id: "s1", source: { platform: "test" }, workspace: testWorkspace }),
+  appendPendingEvent: async () => undefined,
+  hasPendingEvents: async () => false,
+  getResponseRoute: async () => undefined,
+  patchResponseRoute: async () => undefined,
+});
+
+const policy = () => buildPermissionPolicy({
+  bots: { TEST: { key: "test", app_id: "app-test", skill_types: ["default"] } },
+  users: { Tester: { union_id: "union-test", allow: ["TEST"] } },
+}, "direct-test.yaml");
+
+const waitFor = async (condition: () => boolean): Promise<void> => {
+  const deadline = Date.now() + 1_000;
+  while (!condition() && Date.now() < deadline) await Bun.sleep(0);
+};
 
 describe("direct Gateway composition", () => {
   test("runs and completes a turn in-process while preserving lifecycle ordering", async () => {
@@ -37,17 +59,6 @@ describe("direct Gateway composition", () => {
       }
     }
     const channel = new OrderedChannel("test");
-    const storage = {
-      ensureSession: async () => undefined,
-      rebindSession: async () => undefined,
-      upsertResponseRoute: async () => undefined,
-      getSession: async () => ({ session_id: "s1", source: { platform: "test" }, workspace: testWorkspace }),
-      popPendingEvents: async () => [],
-      appendPendingEvent: async () => undefined,
-      hasPendingEvents: async () => false,
-      getResponseRoute: async () => undefined,
-      patchResponseRoute: async () => undefined,
-    };
     const runtime = {
       start: async () => { order.push("runtime:start"); },
       stop: async () => { order.push("runtime:stop"); },
@@ -56,16 +67,12 @@ describe("direct Gateway composition", () => {
         return { status: "completed" as const, reply: "done", input_tokens: 1, output_tokens: 1, tool_calls: 0 };
       },
     };
-    const policy = buildPermissionPolicy({
-      bots: { TEST: { key: "test", app_id: "app-test", skill_types: ["default"] } },
-      users: { Tester: { union_id: "union-test", allow: ["TEST"] } },
-    }, "direct-test.yaml");
     const composition = createDirectGatewayComposition({
       projectRoot: root,
       defaultWorkspace: () => testWorkspace,
       bindingsPath: join(root, "sessions.json"),
-      policy,
-      storage,
+      policy: policy(),
+      storage: storage(),
       runtime,
       channels: [channel],
     });
@@ -78,5 +85,89 @@ describe("direct Gateway composition", () => {
     expect(order.slice(0, 2)).toEqual(["runtime:start", "channel:start"]);
     await composition.stop();
     expect(order).toContain("runtime:stop");
+  });
+
+  test("requeues remaining steering returned in the run outcome", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-direct-"));
+    roots.push(root);
+    const jobs: AgentJob[] = [];
+    const runtime = {
+      start: async () => undefined,
+      stop: async () => undefined,
+      runTurn: async (value: AgentJob) => {
+        jobs.push(value);
+        return {
+          status: "completed" as const,
+          reply: "done",
+          input_tokens: 1,
+          output_tokens: 1,
+          tool_calls: 0,
+          ...(jobs.length === 1
+            ? { remaining_steering: [{ text: "follow up", response_route_id: "route-2", message_id: "m-2" }] }
+            : {}),
+        };
+      },
+    };
+    const composition = createDirectGatewayComposition({
+      projectRoot: root,
+      defaultWorkspace: () => testWorkspace,
+      bindingsPath: join(root, "sessions.json"),
+      policy: policy(),
+      storage: storage(),
+      runtime,
+    });
+
+    await composition.start();
+    await composition.parts.scheduler.enqueue(job());
+    await waitFor(() => jobs.length >= 2);
+
+    expect(jobs).toHaveLength(2);
+    expect(jobs[1]?.user_input).toBe("follow up");
+    expect(jobs[1]?.response_route_id).toBe("route-2");
+    expect(jobs[1]?.message_id).toBe("m-2");
+    await waitFor(() => !composition.parts.scheduler.hasInflightJobs());
+    await composition.stop();
+  });
+
+  test("falls back to draining the shared handle when the outcome omits remaining steering", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-direct-"));
+    roots.push(root);
+    const jobs: AgentJob[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runtime = {
+      start: async () => undefined,
+      stop: async () => undefined,
+      steerTurn: async (handle: RunHandle, message: Required<SteeringMessage>) => {
+        handle.pushSteering(message);
+      },
+      runTurn: async (value: AgentJob) => {
+        jobs.push(value);
+        if (jobs.length === 1) await gate;
+        return { status: "completed" as const, reply: "done", input_tokens: 1, output_tokens: 1, tool_calls: 0 };
+      },
+    };
+    const composition = createDirectGatewayComposition({
+      projectRoot: root,
+      defaultWorkspace: () => testWorkspace,
+      bindingsPath: join(root, "sessions.json"),
+      policy: policy(),
+      storage: storage(),
+      runtime,
+    });
+
+    await composition.start();
+    await composition.parts.scheduler.enqueue(job());
+    await waitFor(() => jobs.length >= 1);
+    expect(await composition.parts.scheduler.steerActive("s1", { text: "inline steer" })).toBe(true);
+    release();
+    await waitFor(() => jobs.length >= 2);
+
+    expect(jobs).toHaveLength(2);
+    expect(jobs[1]?.user_input).toBe("inline steer");
+    await waitFor(() => !composition.parts.scheduler.hasInflightJobs());
+    await composition.stop();
   });
 });

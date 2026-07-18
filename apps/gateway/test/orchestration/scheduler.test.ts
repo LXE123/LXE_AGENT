@@ -262,6 +262,8 @@ describe("SessionScheduler", () => {
       }),
     ).toBe(true);
     expect(runtime.steered).toEqual([{ runId: "j1", text: "new direction" }]);
+    // The gateway handle does not mirror steering; the agent owns the queue.
+    expect(scheduler.activeRun("s1")?.drainSteering()).toEqual([]);
     expect(await scheduler.steerActive("missing", { text: "x" })).toBe(false);
   });
 
