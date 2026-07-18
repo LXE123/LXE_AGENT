@@ -1,24 +1,53 @@
-# AGENTS.md - AI Coding Agent Guide
+# AGENTS.md — AI 编码代理须知
 
-(You are a perfectionist Virgo programmer who cares deeply about how others evaluate your code, so much so that you strive to make it highly readable and portable.)
+## 项目地图（30 秒版）
 
-## Editing Safety
-- On Windows, do **not** use ad-hoc whole-file PowerShell rewrites on Python files that contain Chinese, emoji, or other non-ASCII text. They can corrupt encoding and break strings/docstrings.
+- `packages/agent/runtime`：Bun Agent 运行时——会话状态的唯一属主（`db/agent.sqlite3`）。
+- `apps/gateway`、`apps/desktop`：编排层与桌面壳；desktop 负责注入各进程的环境变量与 DB 路径。
+- `python/lxeskill_cli`：一次性 Python CLI（`lxeskill` 命令）——无状态执行器，自己的表在 `db/lxeskill.sqlite3`。
+- `skills/`：模型可见的技能定义；`python/lxeskill_cli/lxeskill/catalog.json` 是模型工具契约，改动必须过测试。
+- `docs/harness/`：内部技术文档（紫鸟 API 参考、选型约束、真实响应样本都在这里）。
 
-## 本项目的修改与并行开发流程
+## 红线（违反 = 生产事故）
+
+- **状态归属**：`agent_sessions` 等会话表只属于 Bun 运行时；Python 侧禁止读写 agent DB，也禁止在 Python DB 里建影子表。浏览器的真实状态在外部（紫鸟客户端实时接口 + CDP 端口），本地只允许可丢弃的缓存。
+- **紫鸟浏览器页面自动化只允许官方配对的 Selenium 链路**（`SeleniumRunner` + 按 `core_version` 配对的 chromedriver）。禁止引入 Playwright / Puppeteer / 裸 CDP 做页面级操作——会被站点风控识别，有封店风险。依据与豁免清单见 `docs/harness/skill/reference/ziniao-webdriver-doc-1.0.0/reference/automation-framework-policy.md`。
+- **禁止共享或复制 `.venv`**：editable 安装的 `.pth` 指向创建它的 checkout 绝对路径，共享会导致"改的是这份代码、跑的却是另一份"。每个 worktree 各自 `uv sync`（几秒钟，`wt-claim` 已自动做对）。
+
+## 工具链
+
+- Python 一律用 `uv`（禁 pip），JS 一律用 `bun`（禁 npm/yarn）；安装带 `--frozen`，不要动 lockfile 之外的版本。
+- 测试必须从仓库根运行：`uv run pytest python/lxeskill_cli/tests`。从子目录运行会因相对路径假失败。
+- 合并前跑全量测试，不要只跑改动相关的子集。
+
+## 并行开发流程
+
+核心规则：**不要自己 `git worktree add`，也不要删除 worktree。** 用 `scripts/wt-claim` 从常驻池领取一个依赖就绪的 worktree（复用约 0.1 秒，首建约 5 秒，无需下载依赖）。
+
+适用范围：无人值守 / 并行 agent 任务**必须**走此流程；用户在场的交互式会话按用户指示（用户明确同意时可直接在主工作区修改）。
+
+每个任务的完整流程：
+
+1. **领取**：在仓库任意位置执行 `scripts/wt-claim <task-slug>`（slug 用 kebab-case 描述任务，如 `fix-store-lock`）。脚本输出的最后一行是 worktree 路径，分支自动建为 `codex/<task-slug>`，bun/uv 依赖已同步好。之后所有开发、测试都在这个目录里进行。
+2. **开发与验证**：修改 → 完整验证（测试在 worktree 内跑，用它自己的 `.venv`）→ commit。
+3. **合并**：把 worktree 分支 rebase 到最新 `main` → 在 worktree 内再次验证 → 在主工作区 fast-forward 合并。多任务并行开发，但必须依次合并；后合并者先 rebase。
+4. **归还**：合并完成后执行 `scripts/wt-claim release <task-slug>`。脚本会自动删除已合并的分支并把 slot 还给池子；未合并的分支会保留并提示。
+
+硬性约束：
+
 - 主工作区固定在 `main`，只用于同步、检查和合并，不直接开发。
-- 每个任务或 Codex 对话必须使用独立分支和独立 Git worktree。
-- 禁止在其他任务正在使用的 worktree 中切换分支、暂存或提交。
-- 一个分支只能由一个任务对应的 worktree 使用。
-- 每个 worktree 必须使用独立的 Python `.venv` 等可写运行环境；禁止在共享虚拟环境中执行 `uv sync` 或安装 editable package。
-- 流程：创建 worktree → 修改 → 完整验证 → commit → 更新到最新 main → 再次验证 → 本地 fast-forward 合并 main。
-- 多个任务可以并行开发，但必须依次合并；后合并的分支需要先 rebase 到最新 main。
-- 删除 worktree 前必须确认工作区干净、提交已合并或已推送。
+- 一个分支只属于一个任务；禁止动别的任务已领取的 slot（`scripts/wt-claim status` 可查占用）。
+- 释放前必须工作区干净（committed 或 discard）；`release` 会强制检查。
+- 池子默认 4 个 slot，全忙时用 `WT_POOL_MAX=6 scripts/wt-claim <slug>` 临时扩容。
+
+## Windows 编辑安全
+
+- 在 Windows 上，**不要**对含中文、emoji 或其他非 ASCII 文本的 Python 文件做临时性的 PowerShell 整文件重写——会损坏编码、破坏字符串和 docstring。
 
 ## commit 规范
-- commit 的备注要用英语
-- 要按照以下类型写备注开头：
-常用的 `type` 包括：
+
+- commit 备注用英语，按以下类型开头：
+
 | 类型 | 说明 | 对应版本变更 |
 | :--- | :--- | :--- |
 | **feat** | 新增功能 (Feature) | `Minor` |
@@ -32,4 +61,5 @@
 | **ci** | 持续集成配置文件或脚本的变动 | 无 |
 
 ## DOCS 规范
-- 如果编写文档，分清主次，重点多讲，细枝末节少讲，多用大白话
+
+- 如果编写文档，分清主次，重点多讲，细枝末节少讲，多用大白话。

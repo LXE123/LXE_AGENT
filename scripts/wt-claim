@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# wt-claim — persistent worktree pool for parallel agent development.
+#
+#   scripts/wt-claim <task-slug>            claim an idle slot on branch codex/<task-slug>
+#   scripts/wt-claim release <task-slug>    release the slot after merge
+#   scripts/wt-claim status                 list pool slots
+#
+# Slots live in .worktrees/pool-N and are never deleted; dependencies are
+# synced in place (bun/uv global caches make this seconds, not downloads).
+# Each slot keeps its own .venv — the editable install must point at the
+# slot's checkout, so never share or copy a .venv between worktrees.
+set -euo pipefail
+
+COMMON_DIR="$(git rev-parse --path-format=absolute --git-common-dir)"
+MAIN_ROOT="$(dirname "$COMMON_DIR")"
+POOL_DIR="$MAIN_ROOT/.worktrees"
+MAX_SLOTS="${WT_POOL_MAX:-4}"
+die() { echo "wt-claim: $*" >&2; exit 1; }
+
+# The claim marker lives NEXT TO the slot (pool-N.claim), never inside it,
+# so claiming leaves the worktree perfectly clean.
+slot_slug() { cat "$1.claim" 2>/dev/null || true; }
+
+slot_dirty() { [ -n "$(git -C "$1" status --porcelain)" ]; }
+
+slot_branch() { git -C "$1" branch --show-current 2>/dev/null || true; }
+
+sync_deps() {
+  local dir="$1" started ended
+  started="$(date +%s)"
+  (cd "$dir" && bun install --frozen-lockfile >/dev/null)
+  (cd "$dir" && uv sync --frozen >/dev/null 2>&1)
+  ended="$(date +%s)"
+  echo "deps synced in $((ended - started))s (bun install + uv sync, warm caches)"
+}
+
+cmd_status() {
+  local i dir slug branch state
+  for i in $(seq 1 "$MAX_SLOTS"); do
+    dir="$POOL_DIR/pool-$i"
+    if [ ! -d "$dir" ]; then
+      echo "pool-$i  (not created)"
+      continue
+    fi
+    slug="$(slot_slug "$dir")"
+    branch="$(slot_branch "$dir")"
+    state="idle"
+    [ -n "$slug" ] && state="claimed: $slug"
+    slot_dirty "$dir" && state="$state, dirty"
+    echo "pool-$i  ${branch:-detached}  $state"
+  done
+}
+
+cmd_claim() {
+  local slug="$1" branch dir i
+  [[ "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "task slug must be kebab-case: $slug"
+  branch="codex/$slug"
+
+  # Resume: slug already owns a slot.
+  for i in $(seq 1 "$MAX_SLOTS"); do
+    dir="$POOL_DIR/pool-$i"
+    if [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ]; then
+      sync_deps "$dir"
+      echo "resumed pool-$i on $(slot_branch "$dir")"
+      echo "$dir"
+      return 0
+    fi
+  done
+
+  git -C "$MAIN_ROOT" show-ref --verify --quiet "refs/heads/$branch" \
+    && die "branch $branch already exists; pick a new slug or release/finish the old task"
+
+  for i in $(seq 1 "$MAX_SLOTS"); do
+    dir="$POOL_DIR/pool-$i"
+    if [ ! -d "$dir" ]; then
+      git -C "$MAIN_ROOT" worktree add --detach "$dir" main >/dev/null
+    elif [ -n "$(slot_slug "$dir")" ]; then
+      continue
+    elif slot_dirty "$dir"; then
+      echo "wt-claim: skipping pool-$i (dirty but unclaimed — inspect manually)" >&2
+      continue
+    fi
+    git -C "$dir" checkout --quiet -b "$branch" main
+    echo "$slug" > "$dir.claim"
+    sync_deps "$dir"
+    echo "claimed pool-$i on $branch"
+    echo "$dir"
+    return 0
+  done
+  die "no idle slot (max $MAX_SLOTS); release a finished task or raise WT_POOL_MAX"
+}
+
+cmd_release() {
+  local slug="$1" dir i branch
+  for i in $(seq 1 "$MAX_SLOTS"); do
+    dir="$POOL_DIR/pool-$i"
+    [ -d "$dir" ] && [ "$(slot_slug "$dir")" = "$slug" ] || continue
+    slot_dirty "$dir" && die "pool-$i has uncommitted changes; commit or discard them first"
+    branch="$(slot_branch "$dir")"
+    git -C "$dir" checkout --quiet --detach main
+    rm -f "$dir.claim"
+    if [ -n "$branch" ] && ! git -C "$MAIN_ROOT" branch -d "$branch" 2>/dev/null; then
+      echo "note: branch $branch is not merged into main; kept (delete manually once merged)"
+    fi
+    echo "released pool-$i"
+    return 0
+  done
+  die "no slot claimed by: $slug"
+}
+
+case "${1:-}" in
+  status) cmd_status ;;
+  release) [ -n "${2:-}" ] || die "usage: wt-claim release <task-slug>"; cmd_release "$2" ;;
+  "") die "usage: wt-claim <task-slug> | release <task-slug> | status" ;;
+  *) cmd_claim "$1" ;;
+esac
