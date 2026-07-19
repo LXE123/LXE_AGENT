@@ -1,17 +1,113 @@
 import { describe, expect, test } from "bun:test";
-import { dataServerRuntimePolicy } from "../src/main/data-server-policy";
+import { join } from "node:path";
+import { loadProjectEnv } from "@lxe/gateway/desktop";
+import {
+  resolveDataServerRuntimeEnvironment,
+  withoutDataServerEnvironment,
+} from "../src/main/data-server-policy";
 
 describe("desktop data server policy", () => {
-  test("allows local fallback for source development and Preview", () => {
-    expect(dataServerRuntimePolicy(false)).toEqual({
+  test("uses the repository environment for source development and Preview", () => {
+    const files: Record<string, string> = {
+      [join("/worktree", ".env")]: "LXE_DATA_SERVER_API_KEY=source-secret\n",
+      [join("/worktree", ".env.local")]: [
+        "LXE_DATA_SERVER_ENABLED=1",
+        "LXE_DATA_SERVER_URL=http://127.0.0.1:18000",
+        "LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED=1",
+        "LXE_DATA_SERVER_FALLBACK_URL=http://127.0.0.1:18001",
+        "LXE_DATA_SERVER_FALLBACK_API_KEY=fallback-secret",
+      ].join("\n"),
+      [join("/worktree", "config", "runtime.env")]: [
+        "LXE_DATA_SERVER_ENABLED=0",
+        "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS=3600",
+        "LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS=30",
+        "LXE_DATA_SERVER_SESSION_LIMIT=1000",
+      ].join("\n"),
+    };
+    const sourceEnvironment = loadProjectEnv({
+      projectRoot: "/worktree",
+      initial: {},
+      readFile: (path) => files[path],
+    });
+
+    const environment = resolveDataServerRuntimeEnvironment({
+      packaged: false,
+      sourceEnvironment,
+      managedEnvironment: {
+        LXE_DATA_SERVER_ENABLED: "0",
+        LXE_DATA_SERVER_URL: "",
+        LXE_DATA_SERVER_API_KEY: "managed-secret",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
+      },
+      machineIdentityPath: "/worktree/var/db/machine_identity.json",
+    });
+
+    expect(environment).toMatchObject({
+      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
+      LXE_DATA_SERVER_API_KEY: "source-secret",
+      LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "3600",
+      LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS: "30",
+      LXE_DATA_SERVER_SESSION_LIMIT: "1000",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "1",
+      LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
+      LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:18001",
+      LXE_DATA_SERVER_FALLBACK_API_KEY: "fallback-secret",
+      LXE_DATA_SERVER_MACHINE_ID_PATH: "/worktree/var/db/machine_identity.json",
     });
   });
 
-  test("forces local fallback off for packaged builds", () => {
-    const configured = { LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "1" };
-    const environment = { ...configured, ...dataServerRuntimePolicy(true) };
+  test("uses only managed data server values for packaged builds", () => {
+    const environment = resolveDataServerRuntimeEnvironment({
+      packaged: true,
+      sourceEnvironment: {
+        LXE_DATA_SERVER_ENABLED: "1",
+        LXE_DATA_SERVER_URL: "http://source.example",
+        LXE_DATA_SERVER_API_KEY: "source-secret",
+        LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS: "99",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "1",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
+        LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:8000",
+        LXE_DATA_SERVER_FALLBACK_API_KEY: "fallback-secret",
+      },
+      managedEnvironment: {
+        LXE_DATA_SERVER_ENABLED: "1",
+        LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
+        LXE_DATA_SERVER_API_KEY: "managed-secret",
+        LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "3600",
+        LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
+      },
+      machineIdentityPath: "C:\\LXE Agent\\var\\db\\machine_identity.json",
+    });
 
-    expect(environment.LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED).toBe("0");
+    expect(environment).toEqual({
+      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
+      LXE_DATA_SERVER_API_KEY: "managed-secret",
+      LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "3600",
+      LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
+      LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "0",
+      LXE_DATA_SERVER_MACHINE_ID_PATH: "C:\\LXE Agent\\var\\db\\machine_identity.json",
+    });
+    expect(JSON.stringify(environment)).not.toContain("source-secret");
+    expect(JSON.stringify(environment)).not.toContain("fallback-secret");
+  });
+
+  test("removes every inherited data server key before mode-specific values are applied", () => {
+    expect(withoutDataServerEnvironment({
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_FUTURE_SECRET: "must-not-pass-through",
+      LXE_DATA_SERVER_MACHINE_ID_PATH: "/untrusted/machine.json",
+    })).toEqual({ AGENT_LLM_PROVIDER: "kimi_coding" });
+  });
+
+  test("always replaces an attempted machine identity override with the canonical path", () => {
+    expect(resolveDataServerRuntimeEnvironment({
+      packaged: false,
+      sourceEnvironment: { LXE_DATA_SERVER_MACHINE_ID_PATH: "/untrusted/machine.json" },
+      managedEnvironment: {},
+      machineIdentityPath: "/repo/var/db/machine_identity.json",
+    }).LXE_DATA_SERVER_MACHINE_ID_PATH).toBe("/repo/var/db/machine_identity.json");
   });
 });

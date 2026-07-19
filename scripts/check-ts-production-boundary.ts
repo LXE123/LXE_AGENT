@@ -66,6 +66,10 @@ for (const pathName of ["userData", "sessionData", "temp", "logs", "crashDumps"]
 forbidText("apps/desktop/src/preview.ts", /https?:\/\/|\bfetch\b|VITE|5173|8765|LXE_DASHBOARD_DEV_URL\s*=/, "production preview must not start or target an HTTP Renderer");
 requireText("apps/desktop/src/main.ts", /usesProductionRenderer\(launchMode\)/, "desktop must select the Renderer independently from packaging");
 requireText("apps/desktop/src/main.ts", /usesPackagedRuntime\(launchMode\)/, "desktop must keep preview on the source Runtime");
+requireText("apps/desktop/src/main/desktop-gateway.ts", /sourceEnvironment:\s*resourceEnvironment/, "source development and Preview must use the repository Data Server environment");
+requireText("apps/desktop/src/main/desktop-gateway.ts", /managedEnvironment:\s*configuredEnvironment/, "packaged Desktop must use the managed Data Server environment");
+requireText("apps/desktop/src/main/desktop-gateway.ts", /withoutDataServerEnvironment\(configuredEnvironment\)/, "Gateway must remove inherited Data Server values before applying its mode policy");
+requireText("apps/desktop/src/main/desktop-gateway.ts", /machineIdentityPath:\s*join\(this\.options\.paths\.dataRoot, "db", "machine_identity\.json"\)/, "Data Server machine identity must remain under the canonical var root");
 requireText("scripts/install.sh", /REF="lxe-agent-TUI"/, "legacy shell installer must forward to the TUI product line");
 requireText("scripts/install.ps1", /\$Ref\s*=\s*"lxe-agent-TUI"/, "legacy PowerShell installer must forward to the TUI product line");
 forbidText("config/runtime.env", /LXE_SCRIPT_TOOL_BRIDGE_ENABLED/, "runtime configuration must not restore the retired bridge gate");

@@ -36,7 +36,10 @@ import {
   dashboardInvalidationForAgentEvent,
 } from "./dashboard-invalidation";
 import { desktopLxeSkillState } from "./lxeskill-health";
-import { dataServerRuntimePolicy } from "./data-server-policy";
+import {
+  resolveDataServerRuntimeEnvironment,
+  withoutDataServerEnvironment,
+} from "./data-server-policy";
 
 class SplitGatewayStorage implements DirectGatewayStorage {
   constructor(
@@ -138,14 +141,13 @@ export class DesktopGateway {
       }
     }
     const environment: Record<string, string | undefined> = {
-      ...resourceEnvironment,
-      ...persistedEnvironment,
-      ...configuredEnvironment,
+      ...withoutDataServerEnvironment(resourceEnvironment),
+      ...withoutDataServerEnvironment(persistedEnvironment),
+      ...withoutDataServerEnvironment(configuredEnvironment),
       LXE_ROOT: this.options.paths.resourceRoot,
       LXE_RESOURCE_ROOT: this.options.paths.resourceRoot,
       LXE_DATA_ROOT: this.options.paths.dataRoot,
       LXE_AGENT_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "agent.sqlite3"),
-      LXE_DATA_SERVER_MACHINE_ID_PATH: join(this.options.paths.dataRoot, "db", "machine_identity.json"),
       LXE_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "lxeskill.sqlite3"),
       AGENT_STREAM_TRACE_DIR: join(this.options.paths.dataRoot, "logs", "agent_traces"),
       AGENT_SSE_WIRE_TRACE_DIR: join(this.options.paths.dataRoot, "logs", "sse_wire_traces"),
@@ -168,7 +170,12 @@ export class DesktopGateway {
         UV_PYTHON_DOWNLOADS: "never",
         UV_OFFLINE: "0",
       }),
-      ...dataServerRuntimePolicy(this.options.packaged),
+      ...resolveDataServerRuntimeEnvironment({
+        packaged: this.options.packaged,
+        sourceEnvironment: resourceEnvironment,
+        managedEnvironment: configuredEnvironment,
+        machineIdentityPath: join(this.options.paths.dataRoot, "db", "machine_identity.json"),
+      }),
     };
     const policy = loadPermissionPolicy(permissionPolicyPath({
       env: environment,

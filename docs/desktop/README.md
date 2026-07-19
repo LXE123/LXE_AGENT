@@ -78,7 +78,7 @@ python.exe -I -m lxeskill ...
 | `.env.example` | 私有配置示例 | 是 |
 | `.env.local.example` | 本地调试配置示例 | 是 |
 
-Data Server 同步是可选能力，需要显式配置 `LXE_DATA_SERVER_ENABLED`、`LXE_DATA_SERVER_URL` 和 `LXE_DATA_SERVER_API_KEY`。本地真实凭证、会话、业务数据和构建日志不会被资源装配器复制进安装包。
+Data Server 同步是可选能力，需要显式配置 `LXE_DATA_SERVER_ENABLED`、`LXE_DATA_SERVER_URL` 和 `LXE_DATA_SERVER_API_KEY`。`desktop:dev` 和 `desktop:preview` 固定从当前仓库或 worktree 根加载这些开发变量，并优先于 `var/config` 中的托管云端状态；Windows 安装包只使用 `desktop.json + safeStorage` 的托管配置。本地真实凭证、会话、业务数据和构建日志不会被资源装配器复制进安装包。
 
 ### 公司云端设备接入
 
