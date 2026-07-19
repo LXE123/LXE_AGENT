@@ -71,6 +71,7 @@ test("Preview repository env uploads to the configured Data Server without loggi
   });
   await store.appendMessage("preview-session", { role: "user", content: "preview upload" });
   const intervals: unknown[] = [];
+  const initialTasks: Array<() => void> = [];
   const scheduler = new MaintenanceScheduler({
     environment,
     store,
@@ -86,6 +87,14 @@ test("Preview repository env uploads to the configured Data Server without loggi
       }),
     },
     clock: {
+      setTimeout: (callback, _delayMs) => {
+        initialTasks.push(callback);
+        return callback;
+      },
+      clearTimeout: (callback) => {
+        const index = initialTasks.indexOf(callback as () => void);
+        if (index >= 0) initialTasks.splice(index, 1);
+      },
       setInterval: (_callback, _delayMs) => {
         const interval = Symbol("interval");
         intervals.push(interval);
@@ -100,14 +109,22 @@ test("Preview repository env uploads to the configured Data Server without loggi
 
   try {
     await scheduler.start();
+    expect(uploads).toHaveLength(0);
+    initialTasks.shift()?.();
+    for (let attempt = 0; attempt < 100 && uploads.length === 0; attempt += 1) await Bun.sleep(1);
     expect(uploads).toHaveLength(1);
     expect(uploads[0]?.authorization).toBe(`Bearer ${apiKey}`);
     expect(JSON.parse(uploads[0]?.body ?? "{}")).toMatchObject({
       gateway_id: "preview-gateway",
       sessions: [{ session_id: "preview-session" }],
     });
-    await logging.flush();
-    const log = readFileSync(logging.filePath!, "utf8");
+    let log = "";
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      await logging.flush();
+      log = readFileSync(logging.filePath!, "utf8");
+      if (log.includes('"message":"data_sync_uploaded"')) break;
+      await Bun.sleep(1);
+    }
     expect(log).toContain('"message":"maintenance_configured"');
     expect(log).toContain('"data_sync_enabled":true');
     expect(log).toContain('"message":"data_sync_uploaded"');

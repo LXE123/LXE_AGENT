@@ -28,6 +28,12 @@ import type { Language } from "../shared/i18n";
 import { LanguageSwitch } from "../shared/ui/language-switch";
 import { useDialogFocus } from "../shared/ui/use-dialog-focus";
 import {
+  configImportSuccessMessage,
+  desktopProgressNotice,
+  desktopSuccessNotice,
+  type DesktopNoticeState,
+} from "./notice-model";
+import {
   desktopSettingsForm,
   desktopLoggingSinkView,
   desktopSettingsSectionIsDirty,
@@ -98,6 +104,7 @@ function DesktopSettingsNavigation({
   onLanguageChange,
   onSelect,
   onSelectConfigImport,
+  configurationBusy,
 }: {
   activeSection: DesktopSettingsSection;
   baseline: SetupForm;
@@ -110,6 +117,7 @@ function DesktopSettingsNavigation({
   onLanguageChange: (language: Language) => void;
   onSelect: (section: DesktopSettingsSection) => void;
   onSelectConfigImport: () => void;
+  configurationBusy: boolean;
 }) {
   const item = (section: DesktopSettingsSection, label: string, status: string) => {
     const dirty = desktopSettingsSectionIsDirty(section, form, baseline);
@@ -158,12 +166,38 @@ function DesktopSettingsNavigation({
           <span>界面语言</span>
           <LanguageSwitch language={language} onLanguageChange={onLanguageChange} />
         </div>
-        <button className="desktop-settings-import-button" onClick={onSelectConfigImport} type="button">
+        <button
+          className="desktop-settings-import-button"
+          disabled={configurationBusy}
+          onClick={onSelectConfigImport}
+          type="button"
+        >
           <FileUp size={15} />
           <span><strong>从 .env 导入</strong><small>读取本地配置文件</small></span>
         </button>
       </div>
     </nav>
+  );
+}
+
+function DesktopNoticeMessage({
+  className,
+  notice,
+  onDismiss,
+}: {
+  className: string;
+  notice: DesktopNoticeState;
+  onDismiss: () => void;
+}) {
+  return (
+    <div aria-live="polite" className={`${className} desktop-notice-message`} role="status">
+      <span>{notice.message}</span>
+      {notice.dismissible ? (
+        <button aria-label="关闭提示" onClick={onDismiss} title="关闭提示" type="button">
+          <X aria-hidden size={14} />
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -790,10 +824,19 @@ export function DesktopShell({
   const [importApplying, setImportApplying] = useState(false);
   const [importDiagnosticConfirmed, setImportDiagnosticConfirmed] = useState(false);
   const [confirmation, setConfirmation] = useState<DesktopConfirmation | null>(null);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<DesktopNoticeState | null>(null);
   const [error, setError] = useState("");
   const [appGeneration, setAppGeneration] = useState(0);
   const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const noticeSequence = useRef(0);
+  const showProgressNotice = (message: string): void => {
+    noticeSequence.current += 1;
+    setNotice(desktopProgressNotice(noticeSequence.current, message));
+  };
+  const showSuccessNotice = (message: string): void => {
+    noticeSequence.current += 1;
+    setNotice(desktopSuccessNotice(noticeSequence.current, message));
+  };
   const closeSettings = (): void => {
     setConfirmation(null);
     setSettingsOpen(false);
@@ -824,6 +867,15 @@ export function DesktopShell({
       unsubscribe();
     };
   }, [desktop]);
+
+  useEffect(() => {
+    if (!notice?.autoDismissMs) return;
+    const noticeId = notice.id;
+    const timer = window.setTimeout(() => {
+      setNotice((current) => current?.id === noticeId ? null : current);
+    }, notice.autoDismissMs);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   if (!desktop) {
     return <main className="desktop-loading" data-lxe-root-state="fatal">桌面 preload bridge 不可用，LXE Agent 无法在普通浏览器中运行。</main>;
@@ -860,8 +912,9 @@ export function DesktopShell({
     if (selected) updateForm({ ziniaoWebDriverPath: selected });
   };
   const selectConfigImport = async (): Promise<void> => {
+    if (importApplying) return;
     setError("");
-    setNotice("");
+    setNotice(null);
     try {
       const preview = await desktop.selectConfigImport();
       if (!preview) return;
@@ -872,6 +925,7 @@ export function DesktopShell({
     }
   };
   const selectCloudEnrollment = async (): Promise<void> => {
+    if (importApplying) return;
     setError("");
     try {
       const selection = await desktop.selectCloudEnrollment();
@@ -881,7 +935,7 @@ export function DesktopShell({
     }
   };
   const activateCloudEnrollment = async (): Promise<void> => {
-    if (!cloudEnrollment) return;
+    if (!cloudEnrollment || importApplying) return;
     setCloudActivating(true);
     setError("");
     try {
@@ -893,7 +947,7 @@ export function DesktopShell({
       if (nextCloud.configured) {
         setCloudEnrollment(null);
         setCloudPassword("");
-        setNotice(nextCloud.connection === "connected" ? "公司云端已连接" : "公司云端已配置，将自动重试连接");
+        showSuccessNotice(nextCloud.connection === "connected" ? "公司云端已连接" : "公司云端已配置，将自动重试连接");
       }
     } catch (cause) {
       setCloud(await desktop.getCloudState());
@@ -903,6 +957,7 @@ export function DesktopShell({
     }
   };
   const retryCloudConnection = async (): Promise<void> => {
+    if (importApplying) return;
     setCloudActivating(true);
     setError("");
     try {
@@ -928,26 +983,22 @@ export function DesktopShell({
     const preview = importPreview;
     if (!preview) return;
     setImportApplying(true);
+    setImportPreview(null);
+    setImportDiagnosticConfirmed(false);
+    setConfirmation(null);
     setError("");
+    showProgressNotice("正在导入配置并重启服务…");
     try {
       const result = await desktop.applyConfigImport(preview.import_id);
-      setImportPreview(null);
-      setImportDiagnosticConfirmed(false);
       await refreshSetup(result.state);
-      const imported = result.applied_groups.length > 0
-        ? `已导入：${result.applied_groups.join("、")}`
-        : "配置文件已处理";
-      const pending = result.pending_groups.length > 0
-        ? `；待补全：${result.pending_groups.join("、")}`
-        : "";
-      const skipped = preview.unknown_variable_count > 0
-        ? `；已跳过 ${preview.unknown_variable_count} 个未知变量`
-        : "";
-      const warnings = result.warnings.length > 0
-        ? `；${result.warnings.length} 项注意事项`
-        : "";
-      setNotice(`${imported}${pending}${skipped}${warnings}`);
+      showSuccessNotice(configImportSuccessMessage(result, preview.unknown_variable_count));
     } catch (cause) {
+      setNotice(null);
+      try {
+        await refreshSetup(await desktop.getSetupState());
+      } catch {
+        // Preserve the actual import or restart error below.
+      }
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setImportApplying(false);
@@ -999,6 +1050,7 @@ export function DesktopShell({
     };
   };
   const persistSetup = async (): Promise<void> => {
+    if (importApplying) return;
     setSaving(true);
     setError("");
     try {
@@ -1012,6 +1064,7 @@ export function DesktopShell({
   };
   const save = (event: FormEvent): void => {
     event.preventDefault();
+    if (importApplying) return;
     if (activeSettingsSection === "cloud" || activeSettingsSection === "status") return;
     if (form.logProfile === "diagnostic" && setup.logging.profile !== "diagnostic") {
       setConfirmation({ kind: "diagnostic" });
@@ -1020,6 +1073,7 @@ export function DesktopShell({
     void persistSetup();
   };
   const performClearIntegration = async (name: IntegrationName): Promise<void> => {
+    if (importApplying) return;
     setSaving(true);
     setError("");
     try {
@@ -1048,10 +1102,12 @@ export function DesktopShell({
     }
   };
   const clearIntegration = (name: IntegrationName): void => {
+    if (importApplying) return;
     const labels = { ziniao: "紫鸟", mabang: "马帮", feishu: "飞书" } as const;
     setConfirmation({ kind: "clear-integration", integration: name, label: labels[name] });
   };
   const confirmPendingAction = (): void => {
+    if (importApplying) return;
     const pending = confirmation;
     if (!pending) return;
     setConfirmation(null);
@@ -1062,6 +1118,7 @@ export function DesktopShell({
     }
   };
   const restart = async (): Promise<void> => {
+    if (importApplying) return;
     setRestarting(true);
     setError("");
     try {
@@ -1102,9 +1159,9 @@ export function DesktopShell({
       setup={setup}
     />
   );
-  const settingsBody = activeSettingsSection === "cloud" ? (
+  const settingsBodyContent = activeSettingsSection === "cloud" ? (
     <DesktopCloudPanel
-      activating={cloudActivating}
+      activating={cloudActivating || importApplying}
       cloud={cloud}
       enrollment={cloudEnrollment}
       headingRef={sectionHeadingRef}
@@ -1115,6 +1172,11 @@ export function DesktopShell({
       password={cloudPassword}
     />
   ) : settingsFields;
+  const settingsBody = (
+    <fieldset className="desktop-settings-fieldset" disabled={importApplying}>
+      {settingsBodyContent}
+    </fieldset>
+  );
   const settingsNavigation = (showStatus: boolean) => (
     <DesktopSettingsNavigation
       activeSection={activeSettingsSection}
@@ -1122,6 +1184,7 @@ export function DesktopShell({
       form={form}
       health={health}
       cloud={cloud}
+      configurationBusy={importApplying}
       language={language}
       onLanguageChange={onLanguageChange}
       onSelect={selectSettingsSection}
@@ -1165,15 +1228,21 @@ export function DesktopShell({
             {settingsNavigation(false)}
             <div className="desktop-settings-content">
               {settingsBody}
-              {notice ? <p aria-live="polite" className="desktop-form-notice" role="status">{notice}</p> : null}
+              {notice ? (
+                <DesktopNoticeMessage
+                  className="desktop-form-notice"
+                  notice={notice}
+                  onDismiss={() => setNotice(null)}
+                />
+              ) : null}
               {error ? <p className="desktop-form-error" role="alert">{error}</p> : null}
             </div>
           </div>
           <footer className="desktop-onboarding-footer">
             <span>{activeSettingsSection === "cloud" ? "公司云端可以稍后配置" : "基础设置完成后即可启动"}</span>
             {activeSettingsSection !== "cloud" ? (
-              <button className="desktop-primary-button" disabled={saving} type="submit">
-                {saving ? "正在启动…" : "保存并启动"}
+              <button className="desktop-primary-button" disabled={saving || importApplying} type="submit">
+                {importApplying ? "正在应用配置…" : saving ? "正在启动…" : "保存并启动"}
               </button>
             ) : null}
           </footer>
@@ -1196,7 +1265,11 @@ export function DesktopShell({
       {dragRegion}
       <div key={appGeneration}>{children({ health, openSettings })}</div>
       {notice && !settingsOpen ? (
-        <p aria-live="polite" className="desktop-import-toast" role="status">{notice}</p>
+        <DesktopNoticeMessage
+          className="desktop-import-toast"
+          notice={notice}
+          onDismiss={() => setNotice(null)}
+        />
       ) : null}
       {settingsOpen ? (
         <div className="modal-backdrop desktop-settings-backdrop" onMouseDown={(event) => {
@@ -1228,18 +1301,24 @@ export function DesktopShell({
                     headingRef={sectionHeadingRef}
                     health={health}
                     onRestart={() => { void restart(); }}
-                    restarting={restarting}
+                    restarting={restarting || importApplying}
                   />
                 ) : settingsBody}
-                {notice ? <p aria-live="polite" className="desktop-form-notice" role="status">{notice}</p> : null}
+                {notice ? (
+                  <DesktopNoticeMessage
+                    className="desktop-form-notice"
+                    notice={notice}
+                    onDismiss={() => setNotice(null)}
+                  />
+                ) : null}
                 {error ? <p className="desktop-form-error" role="alert">{error}</p> : null}
               </div>
             </div>
             <footer>
               <span className="desktop-version">v{health?.version || "0.1.0"}</span>
               {activeSettingsSection !== "status" && activeSettingsSection !== "cloud" ? (
-                <button className="desktop-primary-button" disabled={saving} type="submit">
-                  {saving ? "保存中…" : "保存设置"}
+                <button className="desktop-primary-button" disabled={saving || importApplying} type="submit">
+                  {importApplying ? "正在应用配置…" : saving ? "保存中…" : "保存设置"}
                 </button>
               ) : null}
             </footer>

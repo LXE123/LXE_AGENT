@@ -26,6 +26,7 @@ import { registerDashboardProtocol } from "./main/app-protocol";
 import { createTrayIcon } from "./main/brand";
 import { resolveDesktopBrandAssets } from "./main/brand-assets";
 import { DesktopConfigImportManager } from "./main/config-import";
+import { applyDesktopConfigImport } from "./main/config-import-application";
 import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
 import { DesktopConfigStore } from "./main/config-store";
 import { DesktopCloudService } from "./main/desktop-cloud";
@@ -241,21 +242,18 @@ async function bootstrap(): Promise<void> {
       return state;
     },
     previewConfigImport: (filePath) => configImports.select(filePath),
-    applyConfigImport: async (importId) => {
-      const previousEnvironment = config.environment();
-      const wasComplete = config.state().complete;
-      const result = configImports.apply(importId);
-      logging.configure();
-      if (!result.state.complete) await gateway.stop();
-      else {
-        const nextEnvironment = config.environment();
-        const runtimeConfigurationChanged = JSON.stringify(previousEnvironment) !== JSON.stringify(nextEnvironment);
-        if (!wasComplete || runtimeConfigurationChanged) await gateway.restart();
-      }
-      invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
-      broadcastHealth(gateway.health());
-      return result;
-    },
+    applyConfigImport: (importId) => applyDesktopConfigImport({
+      importId,
+      apply: (selectedImportId) => configImports.apply(selectedImportId),
+      currentEnvironment: () => config.environment(),
+      currentState: () => config.state(),
+      configureLogging: () => logging.configure(),
+      restartGateway: () => gateway.restart(),
+      stopGateway: () => gateway.stop(),
+      invalidateDashboard: () => invalidations.push(ALL_DASHBOARD_DATA_DOMAINS),
+      broadcastHealth: () => broadcastHealth(gateway.health()),
+      logger,
+    }),
     discardConfigImport: (importId) => configImports.discard(importId),
     previewCloudEnrollment: (filePath) => cloud.select(filePath),
     activateCloudEnrollment: (input: DesktopCloudActivationInput) => cloud.activate(input),

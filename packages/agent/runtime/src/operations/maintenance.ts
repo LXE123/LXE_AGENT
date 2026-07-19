@@ -27,11 +27,19 @@ class DataServerUploadError extends Error {
 }
 
 export interface MaintenanceClock {
+  setTimeout(callback: () => void, delayMs: number): unknown;
+  clearTimeout(id: unknown): void;
   setInterval(callback: () => void, delayMs: number): unknown;
   clearInterval(id: unknown): void;
 }
 
 const systemClock: MaintenanceClock = {
+  setTimeout: (callback, delayMs) => {
+    const timer = setTimeout(callback, delayMs);
+    timer.unref?.();
+    return timer;
+  },
+  clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
   setInterval: (callback, delayMs) => {
     const timer = setInterval(callback, delayMs);
     timer.unref?.();
@@ -66,10 +74,11 @@ export class MaintenanceScheduler {
   private readonly logger = createLogger("runtime.maintenance");
   private readonly fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   private readonly clock: MaintenanceClock;
-  private readonly timers: unknown[] = [];
+  private readonly intervalTimers: unknown[] = [];
   private readonly active = new Set<Promise<unknown>>();
   private readonly controllers = new Set<AbortController>();
   private readonly flights = new Map<"auth" | "data", { running?: Promise<void>; rerun: boolean }>();
+  private initialTimer: unknown | undefined;
   private stopped = true;
 
   constructor(private readonly options: MaintenanceSchedulerOptions) {
@@ -93,28 +102,34 @@ export class MaintenanceScheduler {
       data_local_fallback_enabled: localFallbackEnabled,
     });
     if (authEnabled) {
-      await this.requestSingleFlight("auth", () => this.refreshAuth());
-      if (this.stopped) return;
       const authTimer = this.clock.setInterval(
         () => { void this.requestSingleFlight("auth", () => this.refreshAuth()); },
         authIntervalMs,
       );
-      this.timers.push(authTimer);
+      this.intervalTimers.push(authTimer);
     }
     if (dataEnabled) {
-      await this.requestSingleFlight("data", () => this.syncDataServer());
-      if (this.stopped) return;
       const syncTimer = this.clock.setInterval(
         () => { void this.requestSingleFlight("data", () => this.syncDataServer()); },
         dataIntervalMs,
       );
-      this.timers.push(syncTimer);
+      this.intervalTimers.push(syncTimer);
+    }
+    if (authEnabled || dataEnabled) {
+      this.initialTimer = this.clock.setTimeout(() => {
+        this.initialTimer = undefined;
+        if (this.stopped) return;
+        if (authEnabled) void this.requestSingleFlight("auth", () => this.refreshAuth());
+        if (dataEnabled) void this.requestSingleFlight("data", () => this.syncDataServer());
+      }, 0);
     }
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
-    for (const timer of this.timers.splice(0)) this.clock.clearInterval(timer);
+    if (this.initialTimer !== undefined) this.clock.clearTimeout(this.initialTimer);
+    this.initialTimer = undefined;
+    for (const timer of this.intervalTimers.splice(0)) this.clock.clearInterval(timer);
     for (const flight of this.flights.values()) flight.rerun = false;
     for (const controller of this.controllers) controller.abort(new Error("maintenance stopped"));
     const active = Promise.allSettled([...this.active]);

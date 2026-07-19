@@ -19,7 +19,17 @@ const cliSuccess = (): CliTerminalResult => ({
 });
 
 class ManualMaintenanceClock implements MaintenanceClock {
+  readonly timeouts: Array<{ callback: () => void; delayMs: number }> = [];
   readonly intervals: Array<{ callback: () => void; delayMs: number }> = [];
+  setTimeout(callback: () => void, delayMs: number): unknown {
+    const timeout = { callback, delayMs };
+    this.timeouts.push(timeout);
+    return timeout;
+  }
+  clearTimeout(id: unknown): void {
+    const index = this.timeouts.indexOf(id as { callback: () => void; delayMs: number });
+    if (index >= 0) this.timeouts.splice(index, 1);
+  }
   setInterval(callback: () => void, delayMs: number): unknown {
     const interval = { callback, delayMs };
     this.intervals.push(interval);
@@ -33,16 +43,97 @@ class ManualMaintenanceClock implements MaintenanceClock {
     this.intervals[index]?.callback();
     await Bun.sleep(0);
   }
+  async fireInitial(index = 0): Promise<void> {
+    const timeout = this.timeouts.splice(index, 1)[0];
+    timeout?.callback();
+    await Bun.sleep(0);
+  }
 }
 
 const roots: string[] = [];
 const loggingControllers: LoggingController[] = [];
+const waitFor = async (predicate: () => boolean, label: string, timeoutMs = 2_500): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) await Bun.sleep(1);
+  if (!predicate()) throw new Error(`timed out waiting for ${label}`);
+};
 afterEach(async () => {
   for (const controller of loggingControllers.splice(0)) await controller.close();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe("MaintenanceScheduler", () => {
+  test("starts initial auth and data work in the background without delaying startup", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-background-start-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "feishu" } });
+    const clock = new ManualMaintenanceClock();
+    let releaseAuth!: () => void;
+    const authGate = new Promise<void>((resolve) => { releaseAuth = resolve; });
+    let authStarted = false;
+    let dataStarted = false;
+    const scheduler = new MaintenanceScheduler({
+      environment: {
+        LXE_MAINTENANCE_AUTH_ENABLED: "1",
+        LXE_DATA_SERVER_ENABLED: "1",
+        LXE_DATA_SERVER_URL: "https://cloud.example",
+        LXE_DATA_SERVER_API_KEY: "cloud-secret",
+      },
+      store,
+      gatewayId: "gateway-one",
+      clock,
+      authRunner: { execute: async () => {
+        authStarted = true;
+        await authGate;
+        return cliSuccess();
+      } },
+      fetch: async () => {
+        dataStarted = true;
+        return Response.json({ sessions_received: 1, messages_received: 0 });
+      },
+    });
+
+    await expect(scheduler.start()).resolves.toBeUndefined();
+    expect(authStarted).toBeFalse();
+    expect(dataStarted).toBeFalse();
+    expect(clock.timeouts[0]?.delayMs).toBe(0);
+    await clock.fireInitial();
+    await waitFor(() => authStarted && dataStarted, "parallel initial maintenance tasks");
+    releaseAuth();
+    await scheduler.stop();
+    await store.stop();
+  });
+
+  test("cancels deferred initial work when stopped before the next event-loop turn", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-cancel-deferred-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
+    await store.start();
+    const clock = new ManualMaintenanceClock();
+    let authCalls = 0;
+    const scheduler = new MaintenanceScheduler({
+      environment: { LXE_MAINTENANCE_AUTH_ENABLED: "1" },
+      store,
+      gatewayId: "gateway-one",
+      clock,
+      authRunner: { execute: async () => {
+        authCalls += 1;
+        return cliSuccess();
+      } },
+    });
+
+    await scheduler.start();
+    expect(clock.timeouts).toHaveLength(1);
+    await scheduler.stop();
+    expect(clock.timeouts).toHaveLength(0);
+    expect(clock.intervals).toHaveLength(0);
+    await clock.fireInitial();
+    expect(authCalls).toBe(0);
+    await store.stop();
+  });
+
   test("coalesces repeated auth ticks into one non-overlapping rerun", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-maintenance-single-flight-"));
     roots.push(root);
@@ -74,6 +165,9 @@ describe("MaintenanceScheduler", () => {
       } },
     });
     await scheduler.start();
+    expect(calls).toBe(0);
+    expect(clock.timeouts[0]?.delayMs).toBe(0);
+    await clock.fireInitial();
     expect(calls).toBe(1);
     await clock.fire();
     await secondEntered;
@@ -96,18 +190,21 @@ describe("MaintenanceScheduler", () => {
     await store.start();
     let entered!: () => void;
     const runnerEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const clock = new ManualMaintenanceClock();
     const scheduler = new MaintenanceScheduler({
       environment: { LXE_MAINTENANCE_AUTH_ENABLED: "1" },
       store,
       gatewayId: "gateway-one",
+      clock,
       stopTimeoutMs: 5,
       authRunner: { execute: async () => {
         entered();
         return new Promise(() => undefined);
       } },
     });
-    const starting = scheduler.start();
-    void starting.catch(() => undefined);
+    await scheduler.start();
+    expect(clock.timeouts).toHaveLength(1);
+    await clock.fireInitial();
     await runnerEntered;
     const started = performance.now();
     await scheduler.stop();
@@ -126,10 +223,12 @@ describe("MaintenanceScheduler", () => {
     let capturedSignal: AbortSignal | undefined;
     let entered: (() => void) | undefined;
     const refreshEntered = new Promise<void>((resolve) => { entered = resolve; });
+    const clock = new ManualMaintenanceClock();
     const scheduler = new MaintenanceScheduler({
       environment: { LXE_MAINTENANCE_AUTH_ENABLED: "1" },
       store,
       gatewayId: "gateway-one",
+      clock,
       authRunner: { execute: async (_arguments, signal) => {
         capturedSignal = signal;
         entered?.();
@@ -141,10 +240,10 @@ describe("MaintenanceScheduler", () => {
       } },
     });
 
-    const starting = scheduler.start();
+    await scheduler.start();
+    await clock.fireInitial();
     await refreshEntered;
     await scheduler.stop();
-    await starting;
 
     expect(capturedSignal?.aborted).toBe(true);
     await store.stop();
@@ -179,6 +278,9 @@ describe("MaintenanceScheduler", () => {
     });
 
     await expect(scheduler.start()).resolves.toBeUndefined();
+    expect(requests).toBe(0);
+    await clock.fireInitial();
+    await waitFor(() => requests === 2, "initial offline cloud and fallback requests");
     expect(requests).toBe(2);
     expect(clock.intervals[0]?.delayMs).toBe(3_600_000);
     await clock.fire();
@@ -186,6 +288,8 @@ describe("MaintenanceScheduler", () => {
     expect(requests).toBe(4);
     await scheduler.stop();
     await scheduler.start();
+    await clock.fireInitial();
+    await waitFor(() => requests === 6, "restarted offline cloud and fallback requests");
     expect(requests).toBe(6);
     await scheduler.stop();
     await store.stop();
@@ -274,6 +378,7 @@ describe("MaintenanceScheduler", () => {
     });
 
     await scheduler.start();
+    await waitFor(() => uploads.length === 2, "initial cloud fallback upload");
     expect(uploads.map(({ url }) => url)).toEqual([
       "https://cloud.example/api/v1/agent-data/snapshots",
       "http://127.0.0.1:8000/api/v1/agent-data/snapshots",
@@ -318,6 +423,7 @@ describe("MaintenanceScheduler", () => {
     });
 
     await scheduler.start();
+    await waitFor(() => uploads.length === 2, "initial 5xx fallback upload");
     expect(uploads).toEqual([
       "https://cloud.example/api/v1/agent-data/snapshots",
       "http://127.0.0.1:8000/api/v1/agent-data/snapshots",
@@ -363,6 +469,7 @@ describe("MaintenanceScheduler", () => {
     });
 
     await scheduler.start();
+    await waitFor(() => uploads.length === 2, "initial timeout fallback upload");
     expect(uploads).toEqual([
       "https://cloud.example/api/v1/agent-data/snapshots",
       "http://127.0.0.1:8000/api/v1/agent-data/snapshots",
@@ -399,6 +506,7 @@ describe("MaintenanceScheduler", () => {
     });
 
     await scheduler.start();
+    await waitFor(() => uploads.length === 1, "initial rejected cloud upload");
     for (const nextStatus of [401, 403, 404, 429]) {
       status = nextStatus;
       await expect(scheduler.syncDataServer()).rejects.toThrow(`HTTP ${nextStatus}`);
@@ -437,6 +545,7 @@ describe("MaintenanceScheduler", () => {
     });
 
     await scheduler.start();
+    await waitFor(() => uploads.length === 1, "initial cloud-only upload");
     expect(uploads).toEqual(["https://cloud.example/api/v1/agent-data/snapshots"]);
     await scheduler.stop();
     await store.stop();
@@ -481,6 +590,9 @@ describe("MaintenanceScheduler", () => {
     });
 
     await scheduler.start();
+    expect(calls).toBe(0);
+    await clock.fireInitial();
+    await waitFor(() => calls === 1, "initial data upload");
     expect(calls).toBe(1);
     expect(clock.intervals[0]?.delayMs).toBe(3_600_000);
     await clock.fire();
@@ -536,6 +648,8 @@ describe("MaintenanceScheduler", () => {
     });
 
     await scheduler.start();
+    await clock.fireInitial();
+    await waitFor(() => authCalls.length === 1 && uploads.length === 1, "initial auth and snapshot upload");
     expect(authCalls[0]).toEqual(["auth", "refresh", "--scope", "erp"]);
     expect(clock.intervals.map(({ delayMs }) => delayMs)).toEqual([7_200_000, 3_600_000]);
     expect(uploads[0]?.url).toBe("https://data.example/base/api/v1/agent-data/snapshots");
