@@ -48,9 +48,63 @@ export interface LxeSkillInvocationErrorDetails extends JsonObject {
   discovery_command?: "lxeskill list";
 }
 
+export type ToolExecutionErrorCode =
+  | "environment_unavailable"
+  | "permission_denied"
+  | "unsupported_invocation"
+  | "unclassified"
+  | "invalid_argument"
+  | "failed_precondition"
+  | "not_found"
+  | "unavailable"
+  | "external_api_error";
+
+export interface ToolFailureDetails extends JsonObject {
+  type: "tool_failure";
+  operation: string;
+  cause_known: boolean;
+  observed_message: string;
+  verified_reason?: string;
+  provider?: string;
+  http_status?: number;
+  provider_code?: number | string;
+  provider_subcode?: number | string;
+  log_id?: string;
+  retryability: "retryable" | "not_retryable" | "unknown";
+  next_action: string;
+  inference_policy: "verified_reason_only";
+}
+
+export interface UnclassifiedToolFailureDetails extends ToolFailureDetails {
+  code: "unclassified";
+}
+
+const TOOL_ERROR_SECRET = /(token|secret|password|api[-_]?key|authorization|cookie)\s*[=:]\s*[^\s,;]+/giu;
+
+export const safeToolFailureObservation = (value: unknown): string =>
+  String(value ?? "")
+    .replace(/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+\/-]+=*/giu, "$1 [redacted]")
+    .replace(TOOL_ERROR_SECRET, "$1=[redacted]")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, 500) || "Tool execution failed without an error message";
+
+export function unknownToolFailureDetails(operation: string, error: unknown): UnclassifiedToolFailureDetails {
+  return {
+    type: "tool_failure",
+    code: "unclassified",
+    operation: operation.trim() || "unknown_tool",
+    cause_known: false,
+    observed_message: safeToolFailureObservation(error instanceof Error ? error.message : error),
+    retryability: "unknown",
+    next_action: "Report only the observed failure. Do not infer a cause or retry unless another verified input supports it.",
+    inference_policy: "verified_reason_only",
+  };
+}
+
 export class ToolExecutionError extends Error {
   constructor(
-    readonly code: "environment_unavailable" | "permission_denied" | "unsupported_invocation",
+    readonly code: ToolExecutionErrorCode,
     message: string,
     readonly details?: JsonObject,
     readonly recoveryGroup?: string,

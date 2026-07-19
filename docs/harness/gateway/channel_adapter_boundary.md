@@ -34,15 +34,17 @@ Lark event callback
 
 Normalizer 支持 text、post、image、file、audio、video，以及 location、sticker、calendar、share、folder、todo、vote、video chat、merge-forward、interactive、system 和 unknown。unknown 消息保留可读描述，不能因为 converter 未识别而静默丢失。
 
-Interactive Card 是单独的结构化文本边界。直接收到卡片、读取被引用卡片或展开合并转发时，adapter 都以 `card_msg_content_type=raw_card_content` 获取原始 CardKit JSON，再提取标题、Markdown、代码块、折叠面板、操作和 footer。查询失败时保留事件自带的可读文本并记录错误；飞书的内部 icon、image key 和默认升级客户端降级文案不会进入 Agent 输入。
+Interactive Card 是单独的结构化文本边界。直接收到卡片、读取被引用卡片或展开合并转发时，adapter 都以 `card_msg_content_type=raw_card_content` 获取原始 CardKit JSON，再提取标题、Markdown、代码块、折叠面板、操作和 footer。引用查询先请求 `/im/v1/messages/{id}`，无结果或失败才回退 `/im/v1/messages/mget`。两条路径都失败时只写入“引用消息未能读取，原因未确认”的系统诊断，并记录 endpoint、HTTP status、飞书 code 与 log ID；不得回退到图片、附件或客户端升级描述。飞书的内部 icon、image key 和默认升级客户端降级文案不会进入 Agent 输入。
 
 私聊保留 sender、chat、thread、quote 和 union-id 信息。群聊必须包含当前 bot mention，mention 从用户可见文本中移除后再进入 Runtime。缺少 sender open id 的事件被拒绝；无法解析或缺失 timestamp 的事件允许继续，但明确过旧的事件会被丢弃。
 
 ## 资源处理
 
-[`feishu/resources.ts`](/apps/gateway/src/channels/feishu/resources.ts) 下载 image/file 等资源到受控本地路径。单个资源失败会替换成包含错误信息的文本占位，其它文本和资源仍进入同一消息；平台下载失败不能使整条用户消息消失。
+[`feishu/resources.ts`](/apps/gateway/src/channels/feishu/resources.ts) 下载 image/file 等资源到受控本地路径。单个资源失败会替换成“下载失败，原因未确认”的安全文本，其它文本和资源仍进入同一消息；HTTP status 和 SDK 异常只作为结构化观测事实，平台下载失败不能使整条用户消息消失。
 
 只有普通 image/file/audio/video、富文本和合并转发子消息中的普通资源进入下载链路。Interactive Card converter 始终返回空资源列表；卡片图片只保留 alt 等文本语义，因为飞书的 message-resource API 不支持卡片消息资源。引用普通图片仍会下载并作为模型 image block 传入。
+
+Agent 进程中的 `feishu_im_bot_fetch_resource` 还会在下载前回读目标消息，确认 key 与类型确实由普通消息正文声明。CardKit key 被确定性拒绝为 `interactive_card_not_downloadable_resource`，不属于目标消息的 key/type 被拒绝为 `resource_not_declared_by_message`；验证查询失败时 fail closed，不盲目调用资源接口。
 
 图片解码和模型 block 生成通过 `InboundImageProcessorPort` 显式注入。Desktop 提供 Electron 实现；Gateway 没有 Bun Runtime fallback，也不导入 Runtime 的图片类。
 

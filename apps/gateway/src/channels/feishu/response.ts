@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue } from "@lxe/protocol";
+import { inspectHttpError } from "@lxe/core";
 
 export interface FeishuApiEnvelope {
   code: number;
@@ -10,8 +11,9 @@ export interface FeishuApiEnvelope {
 const object = (value: JsonValue | undefined): JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {};
 
-export const safeFeishuMessage = (value: JsonValue | undefined): string =>
+export const safeFeishuMessage = (value: unknown): string =>
   String(value ?? "")
+    .replace(/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+\/-]+=*/gi, "$1 [redacted]")
     .replace(/(token|secret|password|api[-_]?key|authorization|cookie)\s*[=:]\s*[^\s,;]+/gi, "$1=[redacted]")
     .replace(/\s+/g, " ")
     .trim()
@@ -70,18 +72,82 @@ export class FeishuApiHttpError extends Error {
   }
 }
 
+export class FeishuApiResponseError extends Error {
+  readonly api_code: number;
+  readonly api_subcode: number;
+  readonly log_id: string;
+  readonly operation: string;
+
+  constructor(options: { apiCode: number; logId: string; operation: string; message: string }) {
+    super(options.message);
+    this.name = "FeishuApiResponseError";
+    this.api_code = options.apiCode;
+    this.api_subcode = Number(/ErrCode:\s*(\d+)/iu.exec(options.message)?.[1] ?? -1);
+    this.log_id = options.logId;
+    this.operation = options.operation;
+  }
+}
+
+export function feishuErrorFields(cause: unknown): JsonObject {
+  if (cause instanceof FeishuApiHttpError) {
+    return {
+      error_name: cause.name,
+      observed_message: safeFeishuMessage(cause.message),
+      http_status: cause.http_status,
+      api_code: cause.api_code,
+      api_subcode: cause.api_subcode,
+      log_id: cause.log_id,
+      operation: cause.operation,
+    };
+  }
+  if (cause instanceof FeishuApiResponseError) {
+    return {
+      error_name: cause.name,
+      observed_message: safeFeishuMessage(cause.message),
+      api_code: cause.api_code,
+      api_subcode: cause.api_subcode,
+      log_id: cause.log_id,
+      operation: cause.operation,
+    };
+  }
+  const observed = inspectHttpError(cause);
+  const payload = observed.responseData;
+  const errorDetail = record(payload.error);
+  const rawCode = payload.code;
+  const apiCode = typeof rawCode === "number" && Number.isFinite(rawCode)
+    ? rawCode
+    : typeof rawCode === "string" && rawCode.trim()
+      ? rawCode.trim()
+      : undefined;
+  const providerMessage = safeFeishuMessage(payload.msg ?? payload.message);
+  const rawSubcode = errorDetail.subcode ?? errorDetail.code;
+  const apiSubcode = typeof rawSubcode === "number" && Number.isFinite(rawSubcode)
+    ? rawSubcode
+    : typeof rawSubcode === "string" && rawSubcode.trim()
+      ? rawSubcode.trim()
+      : /ErrCode:\s*(\d+)/iu.exec(providerMessage)?.[1];
+  const logId = String(payload.log_id ?? errorDetail.log_id ?? "").trim();
+  return {
+    error_name: cause instanceof Error ? cause.name : "Error",
+    observed_message: providerMessage || safeFeishuMessage(observed.message),
+    ...(observed.httpStatus ? { http_status: observed.httpStatus } : {}),
+    ...(apiCode !== undefined ? { api_code: apiCode } : {}),
+    ...(apiSubcode !== undefined ? { api_subcode: apiSubcode } : {}),
+    ...(logId ? { log_id: logId } : {}),
+  };
+}
+
 export function normalizeFeishuTransportError(
   method: string,
   path: string,
   cause: unknown,
   operation = "api_request",
 ): Error {
-  const source = record(cause);
-  const response = record(source.response);
-  const payload = record(response.data);
+  const observed = inspectHttpError(cause);
+  const payload = observed.responseData;
   const errorDetail = record(payload.error);
-  const status = Number(response.status);
-  if (!Number.isInteger(status) || status <= 0) {
+  const status = observed.httpStatus;
+  if (!status) {
     return cause instanceof Error ? cause : new Error(String(cause));
   }
   const rawCode = payload.code;

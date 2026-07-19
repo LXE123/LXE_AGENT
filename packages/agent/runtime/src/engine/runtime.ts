@@ -9,7 +9,12 @@ import {
   type Environment,
   type Logger,
 } from "@lxe/core";
-import { ToolExecutionError, ToolRegistry, type ToolExposureOptions } from "../tooling/registry";
+import {
+  ToolExecutionError,
+  ToolRegistry,
+  unknownToolFailureDetails,
+  type ToolExposureOptions,
+} from "../tooling/registry";
 import {
   ContextCompactionError,
   ContextOverflowError,
@@ -611,9 +616,10 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           } catch (cause) {
             usage.errors += 1;
             toolStatus = "error";
-            const message = cause instanceof Error ? cause.message : String(cause);
-            let modelMessage = message;
+            let displayMessage = "Tool execution failed; the cause was not determined.";
+            let modelMessage = JSON.stringify(unknownToolFailureDetails(call.name, cause), null, 2);
             if (cause instanceof ToolExecutionError) {
+              displayMessage = cause.message;
               if (cause.recoveryGroup) {
                 const attempt = (toolRecoveryAttempts.get(cause.recoveryGroup) ?? 0) + 1;
                 toolRecoveryAttempts.set(cause.recoveryGroup, attempt);
@@ -622,7 +628,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 modelMessage = cause.modelContent();
               }
             }
-            toolDisplayOutput = { error: message };
+            toolDisplayOutput = { error: displayMessage };
             results.push({
               type: "tool_result",
               tool_call_id: call.id,

@@ -2,11 +2,12 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ToolRegistry } from "@lxe/runtime";
+import { ToolExecutionError, ToolRegistry } from "@lxe/runtime";
 import { loadAgentFeishuConfig } from "../src/feishu-runtime-config";
 import {
   registerConfiguredFeishuImTools,
   registerFeishuImTools,
+  normalizeFeishuToolError,
   type FeishuImToolApi,
 } from "../src/feishu-tools";
 
@@ -57,6 +58,11 @@ describe("native Feishu IM tools", () => {
     const api: FeishuImToolApi = {
       get: async (path, params) => {
         calls.push({ path, params });
+        if (path === "/im/v1/messages/om_1") {
+          return {
+            items: [{ message_id: "om_1", msg_type: "image", body: { content: "{\"image_key\":\"img_1\"}" } }],
+          };
+        }
         return {
           items: [{ message_id: "om_1", msg_type: "text", body: { content: "{\"text\":\"你好\"}" }, sender: { id: "ou_1" } }],
           has_more: false,
@@ -82,5 +88,164 @@ describe("native Feishu IM tools", () => {
     const payload = JSON.parse(String(resource.content[0]?.text));
     expect(readFileSync(payload.saved_path)).toEqual(Buffer.from([1, 2, 3]));
     expect(resource.files).toEqual([payload.saved_path]);
+    expect(calls[1]).toEqual({
+      path: "/im/v1/messages/om_1",
+      params: { user_id_type: "open_id", card_msg_content_type: "raw_card_content" },
+    });
+  });
+
+  test("rejects card and undeclared resource keys before download", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-feishu-card-resource-"));
+    roots.push(root);
+    let mode: "card" | "image" = "card";
+    let downloads = 0;
+    const api: FeishuImToolApi = {
+      get: async () => ({ items: [mode === "card"
+        ? { message_id: "om_card", msg_type: "interactive", body: { content: "{\"json_card\":\"{}\"}" } }
+        : { message_id: "om_card", msg_type: "image", body: { content: "{\"image_key\":\"img_real\"}" } }] }),
+      download: async () => {
+        downloads += 1;
+        return { data: new Uint8Array(), contentType: "image/png", fileName: "x.png" };
+      },
+    };
+    const registry = new ToolRegistry();
+    registerFeishuImTools(registry, { api, sessionSource: async () => ({ platform: "feishu" }) });
+    const call = () => registry.execute("feishu_im_bot_fetch_resource", {
+      message_id: "om_card", file_key: "img_v3_internal", type: "image",
+    }, context(root));
+
+    const cardError = await call().catch((error) => error);
+    expect(cardError).toBeInstanceOf(ToolExecutionError);
+    expect(cardError.details).toMatchObject({
+      cause_known: true,
+      verified_reason: "interactive_card_not_downloadable_resource",
+      inference_policy: "verified_reason_only",
+    });
+    expect(JSON.parse(cardError.modelContent())).toMatchObject({
+      type: "tool_failure",
+      cause_known: true,
+      verified_reason: "interactive_card_not_downloadable_resource",
+    });
+    mode = "image";
+    const mismatch = await call().catch((error) => error);
+    expect(mismatch).toBeInstanceOf(ToolExecutionError);
+    expect(mismatch.details).toMatchObject({ verified_reason: "resource_not_declared_by_message" });
+    expect(downloads).toBe(0);
+  });
+
+  test("validates post and content_v2 resources before downloading", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-feishu-post-resource-"));
+    roots.push(root);
+    const downloads: string[] = [];
+    const api: FeishuImToolApi = {
+      get: async () => ({ items: [{
+        message_id: "om_post",
+        msg_type: "post",
+        body: { content: JSON.stringify({
+          zh_cn: { content_v2: [[
+            { tag: "md", text: "![chart](img_post)" },
+            { tag: "file", file_key: "file_post" },
+          ]] },
+        }) },
+      }] }),
+      download: async (_messageId, fileKey, type) => {
+        downloads.push(`${type}:${fileKey}`);
+        return { data: new Uint8Array([1]), contentType: type === "image" ? "image/png" : "application/octet-stream", fileName: `${fileKey}.bin` };
+      },
+    };
+    const registry = new ToolRegistry();
+    registerFeishuImTools(registry, { api, sessionSource: async () => ({ platform: "feishu" }) });
+    await registry.execute("feishu_im_bot_fetch_resource", {
+      message_id: "om_post", file_key: "img_post", type: "image",
+    }, context(root));
+    await registry.execute("feishu_im_bot_fetch_resource", {
+      message_id: "om_post", file_key: "file_post", type: "file",
+    }, context(root));
+    expect(downloads).toEqual(["image:img_post", "file:file_post"]);
+  });
+
+  test("preserves observed Feishu error fields without inventing a cause", () => {
+    const error = Object.assign(new Error("Request failed with status code 400"), {
+      response: {
+        status: 400,
+        data: {
+          code: 200000,
+          msg: "invalid request authorization: Bearer private-credential token=private",
+          log_id: "log-1",
+        },
+      },
+    });
+    const normalized = normalizeFeishuToolError("GET /resource", error);
+    expect(normalized.message).toBe("Feishu API request failed; the cause was not determined.");
+    expect(normalized.details).toMatchObject({
+      cause_known: false,
+      http_status: 400,
+      provider_code: 200000,
+      log_id: "log-1",
+      inference_policy: "verified_reason_only",
+    });
+    expect(normalized.details?.observed_message).not.toContain("private-credential");
+    expect(normalized.details?.observed_message).not.toContain("token=private");
+    expect(normalized.details).not.toHaveProperty("verified_reason");
+  });
+
+  test("states a Feishu cause only for a mapped provider code", () => {
+    const error = Object.assign(new Error("Request failed with status code 400"), {
+      response: {
+        status: 400,
+        data: { code: 99991672, msg: "missing application scope", log_id: "log-scope" },
+      },
+    });
+    const normalized = normalizeFeishuToolError("GET /im/v1/messages", error);
+    expect(normalized.code).toBe("permission_denied");
+    expect(normalized.details).toMatchObject({
+      cause_known: true,
+      verified_reason: "missing_application_scope",
+      http_status: 400,
+      provider_code: 99991672,
+      log_id: "log-scope",
+      retryability: "not_retryable",
+      inference_policy: "verified_reason_only",
+    });
+  });
+
+  test("fails closed when resource provenance cannot be checked", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-feishu-resource-validation-"));
+    roots.push(root);
+    let downloads = 0;
+    const api: FeishuImToolApi = {
+      get: async () => {
+        throw Object.assign(new Error("Request failed with status code 503"), {
+          response: {
+            status: 503,
+            data: {
+              code: "UPSTREAM_UNAVAILABLE",
+              msg: "temporary failure",
+              error: { subcode: "MESSAGE_LOOKUP_FAILED", log_id: "log-validation" },
+            },
+          },
+        });
+      },
+      download: async () => {
+        downloads += 1;
+        return { data: new Uint8Array(), contentType: "image/png", fileName: "x.png" };
+      },
+    };
+    const registry = new ToolRegistry();
+    registerFeishuImTools(registry, { api, sessionSource: async () => ({ platform: "feishu" }) });
+
+    const failure = await registry.execute("feishu_im_bot_fetch_resource", {
+      message_id: "om_unknown", file_key: "img_unknown", type: "image",
+    }, context(root)).catch((error) => error);
+    expect(failure).toBeInstanceOf(ToolExecutionError);
+    expect(failure.code).toBe("external_api_error");
+    expect(failure.details).toMatchObject({
+      cause_known: false,
+      http_status: 503,
+      provider_code: "UPSTREAM_UNAVAILABLE",
+      provider_subcode: "MESSAGE_LOOKUP_FAILED",
+      log_id: "log-validation",
+    });
+    expect(downloads).toBe(0);
   });
 });

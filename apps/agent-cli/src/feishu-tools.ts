@@ -1,8 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import * as Lark from "@larksuiteoapi/node-sdk";
+import { inspectHttpError } from "@lxe/core";
 import type { JsonObject } from "@lxe/protocol";
-import type { ToolRegistry } from "@lxe/runtime";
+import {
+  ToolExecutionError,
+  safeToolFailureObservation,
+  type ToolFailureDetails,
+  type ToolRegistry,
+} from "@lxe/runtime";
 import type { AgentFeishuConfig } from "./feishu-runtime-config";
 
 export interface FeishuImToolApi {
@@ -28,6 +34,77 @@ interface RegisterConfiguredFeishuImToolsOptions {
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown): string => String(value ?? "").trim();
+const safeFeishuToolMessage = (value: unknown): string => safeToolFailureObservation(text(value));
+
+const knownFeishuFailure = (
+  operation: string,
+  code: "failed_precondition" | "not_found" | "permission_denied",
+  reason: string,
+  message: string,
+  extra: Partial<ToolFailureDetails> = {},
+): ToolExecutionError => new ToolExecutionError(code, message, {
+  type: "tool_failure",
+  operation,
+  cause_known: true,
+  observed_message: message,
+  verified_reason: reason,
+  provider: "feishu",
+  retryability: "not_retryable",
+  next_action: "Report the verified reason and do not retry the same resource request.",
+  inference_policy: "verified_reason_only",
+  ...extra,
+});
+
+export const normalizeFeishuToolError = (operation: string, cause: unknown): ToolExecutionError => {
+  if (cause instanceof ToolExecutionError) return cause;
+  const observed = inspectHttpError(cause);
+  const payload = observed.responseData;
+  const rawCode = payload.code;
+  const providerCode = typeof rawCode === "number" && Number.isFinite(rawCode)
+    ? rawCode
+    : typeof rawCode === "string" && rawCode.trim()
+      ? rawCode.trim()
+      : undefined;
+  const numericProviderCode = Number(providerCode);
+  const errorDetail = object(payload.error);
+  const observedMessage = safeFeishuToolMessage(payload.msg ?? payload.message ?? observed.message)
+    || "Feishu API request failed without an error message";
+  const rawSubcode = errorDetail.subcode ?? errorDetail.code;
+  const providerSubcode = typeof rawSubcode === "number" && Number.isFinite(rawSubcode)
+    ? rawSubcode
+    : typeof rawSubcode === "string" && rawSubcode.trim()
+      ? rawSubcode.trim()
+      : /ErrCode:\s*(\d+)/iu.exec(observedMessage)?.[1];
+  const logId = text(payload.log_id ?? errorDetail.log_id);
+  const permissionMissing = numericProviderCode === 99991672;
+  const messageUnavailable = numericProviderCode === 230011 || numericProviderCode === 231003;
+  const details: ToolFailureDetails = {
+    type: "tool_failure",
+    operation,
+    cause_known: permissionMissing || messageUnavailable,
+    observed_message: observedMessage,
+    ...(permissionMissing ? { verified_reason: "missing_application_scope" } : {}),
+    ...(messageUnavailable ? { verified_reason: "message_unavailable" } : {}),
+    provider: "feishu",
+    ...(observed.httpStatus ? { http_status: observed.httpStatus } : {}),
+    ...(providerCode !== undefined ? { provider_code: providerCode } : {}),
+    ...(providerSubcode !== undefined ? { provider_subcode: providerSubcode } : {}),
+    ...(logId ? { log_id: logId } : {}),
+    retryability: permissionMissing || messageUnavailable ? "not_retryable" : "unknown",
+    next_action: permissionMissing
+      ? "Report that the Feishu application is missing a required scope. Do not retry."
+      : messageUnavailable
+        ? "Report that Feishu marks the message unavailable. Do not retry."
+        : "Report only the observed API failure. Do not infer expiration, permissions, network, file format, or client version.",
+    inference_policy: "verified_reason_only",
+  };
+  const display = permissionMissing
+    ? "Feishu API request failed because the application is missing a required scope."
+    : messageUnavailable
+      ? "Feishu API request failed because the message is unavailable."
+      : "Feishu API request failed; the cause was not determined.";
+  return new ToolExecutionError(permissionMissing ? "permission_denied" : messageUnavailable ? "not_found" : "external_api_error", display, details);
+};
 const result = (payload: JsonObject, files?: string[]) => ({
   content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
   ...(files ? { files } : {}),
@@ -108,6 +185,80 @@ const messagePayload = (raw: unknown): JsonObject => {
     chat_id: text(item.chat_id),
     ...(text(item.parent_id) ? { reply_to: text(item.parent_id) } : {}),
   };
+};
+
+type MessageResourceType = "image" | "file";
+
+const declaredMessageResources = (item: Record<string, unknown>): Map<string, MessageResourceType> => {
+  const declared = new Map<string, MessageResourceType>();
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    const current = object(value);
+    if (Object.keys(current).length === 0) return;
+    const imageKey = text(current.image_key);
+    const fileKey = text(current.file_key);
+    if (imageKey) declared.set(imageKey, "image");
+    if (fileKey) declared.set(fileKey, "file");
+    if (text(current.tag).toLowerCase() === "md") {
+      for (const match of String(current.text ?? "").matchAll(/!\[[^\]]*\]\((img_[A-Za-z0-9_-]+)\)/gu)) {
+        if (match[1]) declared.set(match[1], "image");
+      }
+    }
+    for (const child of Object.values(current)) visit(child);
+  };
+  const raw = text(object(item.body).content);
+  try { visit(JSON.parse(raw)); } catch { /* An invalid body declares no downloadable resources. */ }
+  return declared;
+};
+
+const validateMessageResource = async (
+  options: RegisterFeishuImToolsOptions,
+  messageId: string,
+  fileKey: string,
+  type: MessageResourceType,
+  signal: AbortSignal,
+): Promise<void> => {
+  const operation = "feishu_im_bot_fetch_resource.validate";
+  let data: JsonObject;
+  try {
+    data = await options.api.get(`/im/v1/messages/${encodeURIComponent(messageId)}`, {
+      user_id_type: "open_id",
+      card_msg_content_type: "raw_card_content",
+    }, signal);
+  } catch (cause) {
+    throw normalizeFeishuToolError(operation, cause);
+  }
+  const items = Array.isArray(data.items) ? data.items.map(object) : [];
+  const item = items.find((candidate) => text(candidate.message_id) === messageId) ?? items[0];
+  if (!item) {
+    throw knownFeishuFailure(
+      operation,
+      "not_found",
+      "message_not_returned_by_feishu",
+      "Feishu did not return the message needed to validate this resource.",
+    );
+  }
+  const messageType = text(item.msg_type ?? item.message_type).toLowerCase();
+  if (messageType === "interactive") {
+    throw knownFeishuFailure(
+      operation,
+      "failed_precondition",
+      "interactive_card_not_downloadable_resource",
+      "Interactive Card image and icon keys are not downloadable message resources.",
+    );
+  }
+  const declaredType = declaredMessageResources(item).get(fileKey);
+  if (declaredType !== type) {
+    throw knownFeishuFailure(
+      operation,
+      "failed_precondition",
+      "resource_not_declared_by_message",
+      "The requested resource key and type are not declared by the Feishu message.",
+    );
+  }
 };
 
 const commonMessages = async (
@@ -195,7 +346,7 @@ export function registerFeishuImTools(registry: ToolRegistry, options: RegisterF
   });
   registry.register({
     name: "feishu_im_bot_fetch_resource",
-    description: "Download a Feishu image or file resource into workspace artifacts.",
+    description: "Download an ordinary Feishu message attachment into workspace artifacts. The key must be declared by the target image, file, audio, video, post, or content_v2 message. Interactive Card image/icon keys are not downloadable resources.",
     input_schema: { type: "object", properties: {
       message_id: { type: "string" }, file_key: { type: "string" }, type: { type: "string", enum: ["image", "file"] },
     }, required: ["message_id", "file_key", "type"], additionalProperties: false },
@@ -204,7 +355,8 @@ export function registerFeishuImTools(registry: ToolRegistry, options: RegisterF
       const fileKey = text(input.file_key);
       const type = text(input.type);
       if (!messageId || !fileKey || !["image", "file"].includes(type)) throw new Error("message_id、file_key 和有效 type 必填");
-      const resource = await options.api.download(messageId, fileKey, type as "image" | "file", context.handle.signal);
+      await validateMessageResource(options, messageId, fileKey, type as MessageResourceType, context.handle.signal);
+      const resource = await options.api.download(messageId, fileKey, type as MessageResourceType, context.handle.signal);
       const directory = resolve(
         context.workspace.worktree,
         "artifacts",
@@ -244,27 +396,41 @@ export function createOfficialFeishuImToolApi(config: AgentFeishuConfig): Feishu
   const client = new Lark.Client({ appId: config.appId, appSecret: config.appSecret, domain }) as unknown as LooseClient;
   return {
     get: async (path, params, signal) => {
-      const response = object(await client.request({ method: "GET", url: `/open-apis${path}`, params, signal }));
-      const payload = object(response.data ?? response);
-      const code = Number(response.code ?? 0);
-      if (code !== 0) throw new Error(`Feishu API error: ${text(response.msg) || code}`);
-      return payload as JsonObject;
+      try {
+        const response = object(await client.request({ method: "GET", url: `/open-apis${path}`, params, signal }));
+        const payload = object(response.data ?? response);
+        const code = Number(response.code ?? 0);
+        if (code !== 0) {
+          throw Object.assign(new Error(text(response.msg) || `Feishu API code ${code}`), {
+            response: { status: 200, data: response },
+          });
+        }
+        return payload as JsonObject;
+      } catch (cause) {
+        throw normalizeFeishuToolError(`GET ${path}`, cause);
+      }
     },
     download: async (messageId, fileKey, type, signal) => {
-      const response = object(await client.request({
-        method: "GET",
-        url: `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}/resources/${encodeURIComponent(fileKey)}`,
-        params: { type },
-        responseType: "arraybuffer",
-        $return_headers: true,
-        signal,
-      }));
-      const headers = object(response.headers);
-      const disposition = text(headers["content-disposition"]);
-      const fileName = decodeURIComponent(disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)/i)?.[1] ?? "");
-      const raw = response.data;
-      const data = raw instanceof Uint8Array ? raw : new Uint8Array(raw as ArrayBuffer);
-      return { data, contentType: text(headers["content-type"]) || "application/octet-stream", fileName };
+      const path = `/im/v1/messages/${encodeURIComponent(messageId)}/resources/${encodeURIComponent(fileKey)}`;
+      try {
+        const response = object(await client.request({
+          method: "GET",
+          url: `/open-apis${path}`,
+          params: { type },
+          responseType: "arraybuffer",
+          $return_headers: true,
+          signal,
+        }));
+        const headers = object(response.headers);
+        const disposition = text(headers["content-disposition"]);
+        let fileName = disposition.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)/i)?.[1] ?? "";
+        try { fileName = decodeURIComponent(fileName); } catch { /* Keep the server-provided name. */ }
+        const raw = response.data;
+        const data = raw instanceof Uint8Array ? raw : new Uint8Array(raw as ArrayBuffer);
+        return { data, contentType: text(headers["content-type"]) || "application/octet-stream", fileName };
+      } catch (cause) {
+        throw normalizeFeishuToolError(`GET ${path}`, cause);
+      }
     },
   };
 }

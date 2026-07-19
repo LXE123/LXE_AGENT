@@ -6,6 +6,7 @@ import {
   InboundImageError,
   type InboundImageProcessorPort,
 } from "./image-contract";
+import { feishuErrorFields } from "./response";
 
 export interface FeishuInboundResourceApi {
   download(
@@ -110,11 +111,14 @@ export function createFeishuInboundResourceResolver(options: {
         }
       } catch (cause) {
         if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
-        const message = cause instanceof Error ? cause.message : String(cause);
-        const placeholder = `[Unable to download Feishu ${resource.type}: ${resource.file_name || resource.file_key}]`;
+        const placeholder = `[Feishu ${resource.type} download failed; cause_known=false. The cause was not determined.]`;
         userInput.push(placeholder);
         userContentBlocks.push({ type: "text", text: placeholder });
-        resourceMetadata.push({ ...resource, download_status: "error", error: message.slice(0, 500) });
+        resourceMetadata.push({
+          ...resource,
+          download_status: "error",
+          error: { ...feishuErrorFields(cause), cause_known: false },
+        });
       }
     }
     return {

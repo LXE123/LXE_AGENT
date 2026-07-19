@@ -322,6 +322,7 @@ describe("TypeScriptAgentRuntime", () => {
     const tools = new ToolRegistry();
     const executionSkillNames: Array<readonly string[]> = [];
     const promptSkillNames: string[] = [];
+    const emitted: EmitRequest[] = [];
     let snapshotCalls = 0;
     tools.register({
       name: "read",
@@ -363,7 +364,7 @@ describe("TypeScriptAgentRuntime", () => {
       store,
       tools,
       provider: { summarize, turn: async () => responses.shift()! },
-      emitter: { emit: async () => undefined, typing: async () => undefined },
+      emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
       systemPrompt: (context) => {
         promptSkillNames.push(context.skillPrompt);
         return context.skillPrompt;
@@ -418,6 +419,23 @@ describe("TypeScriptAgentRuntime", () => {
       }),
     ]);
     expect(JSON.stringify(store.metrics[1]?.executions)).not.toContain("--store-name");
+    const failedToolResult = store.messages.flatMap((message) =>
+      message.role === "tool" && Array.isArray(message.content)
+        ? message.content.filter((block) => block.type === "tool_result" && block.is_error === true)
+        : []
+    ).at(-1);
+    expect(JSON.parse(String(failedToolResult?.content))).toMatchObject({
+      type: "tool_failure",
+      code: "unclassified",
+      operation: "exec",
+      cause_known: false,
+      observed_message: "command failed",
+      inference_policy: "verified_reason_only",
+    });
+    const displayedFailure = emitted.flatMap((request) => request.tool_steps)
+      .find((step) => step.id === "exec-2" && step.status === "error");
+    expect(displayedFailure?.error_block?.content).toBe("Tool execution failed; the cause was not determined.");
+    expect(JSON.stringify(displayedFailure)).not.toContain("command failed");
   });
 
   test("does not count static tool ownership as a skill execution", async () => {

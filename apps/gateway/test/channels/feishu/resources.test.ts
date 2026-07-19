@@ -65,8 +65,14 @@ describe("Feishu inbound resources", () => {
     });
     expect(result.userContentBlocks[0]).toMatchObject({ type: "image", source: { type: "base64", media_type: "image/jpeg" } });
     expect(result.userInput).toContain("report.xlsx");
-    expect(result.userInput).toContain("Unable to download Feishu file");
+    expect(result.userInput).toContain("Feishu file download failed; cause_known=false");
+    expect(result.userInput).not.toContain("expired");
+    expect(result.userInput).not.toContain("permission");
     expect(result.resourceMetadata.map((item) => item.download_status)).toEqual(["success", "success", "error"]);
+    expect(result.resourceMetadata[2]?.error).toMatchObject({
+      cause_known: false,
+      observed_message: "download unavailable",
+    });
     const savedPath = String(result.resourceMetadata[1]?.saved_path ?? "");
     expect(readFileSync(savedPath, "utf8")).toBe("report");
     expect(result.resourceMetadata[0]).toMatchObject({

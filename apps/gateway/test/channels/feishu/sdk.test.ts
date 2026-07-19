@@ -1,9 +1,30 @@
 import { describe, expect, test } from "bun:test";
 import { loadFeishuConfig } from "../../../src/channels/feishu/config";
 import { createOfficialFeishuSdk, FEISHU_EVENT_TYPES } from "../../../src/channels/feishu/sdk";
-import { FeishuApiHttpError } from "../../../src/channels/feishu/response";
+import {
+  FeishuApiHttpError,
+  FeishuApiResponseError,
+  feishuErrorFields,
+} from "../../../src/channels/feishu/response";
 
 describe("official Feishu SDK factory", () => {
+  test("keeps response-level provider subcodes without exposing credentials", () => {
+    const error = new FeishuApiResponseError({
+      apiCode: 230099,
+      logId: "log-response",
+      operation: "get_messages",
+      message: "request rejected ErrCode: 11310 token=private",
+    });
+    expect(feishuErrorFields(error)).toEqual({
+      error_name: "FeishuApiResponseError",
+      observed_message: "request rejected ErrCode: 11310 token=[redacted]",
+      api_code: 230099,
+      api_subcode: 11310,
+      log_id: "log-response",
+      operation: "get_messages",
+    });
+  });
+
   test("constructs Client/WSClient/EventDispatcher and registers required events", async () => {
     const registered: Record<string, (value: unknown) => unknown> = {};
     const starts: unknown[] = [];

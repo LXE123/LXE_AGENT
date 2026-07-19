@@ -9,7 +9,7 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 ## 工具来源
 
 - Native direct tools：Runtime 内置的 read/write/edit/grep/find/exec/process 等能力。
-- Native Feishu tools：由 `agent-cli` 中的 `AgentRuntimeHost` 从继承环境读取最小配置并注册，用于读取会话相关资源；平台出站仍由 Gateway 负责。
+- Native Feishu tools：由 `agent-cli` 中的 `AgentRuntimeHost` 从继承环境读取最小配置并注册，用于读取会话和普通消息正文声明的资源；平台出站仍由 Gateway 负责。资源下载前必须回读消息校验来源，CardKit icon/image key 不是可下载附件。
 - MCP tools：从 enabled server 动态发现，可 direct 或 deferred。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：搜索 deferred definition 并更新 exposure state。
@@ -72,6 +72,8 @@ Exposure state 在 turn 内持久，schema 每 step 重新捕获。新暴露的�
 - `state_patch`：合并到受控 session state。
 
 Tool result 在 append 前执行 token-aware 裁剪。日志和 CardKit 使用独立 display sanitizer；完整 result 不自动显示给用户，也不能泄露 secret、绝对敏感路径或 encrypted data。
+
+错误结果使用统一的事实边界：`cause_known=false` 表示只能复述观测和安全下一步，不能从 HTTP status、异常文本或历史占位符猜原因；只有 `cause_known=true` 且带 `verified_reason` 的已分类错误才能作为归因依据。
 
 ## 非目标
 

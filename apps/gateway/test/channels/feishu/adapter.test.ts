@@ -177,7 +177,50 @@ describe("FeishuAdapter lifecycle and delivery", () => {
     expect(state.calls).toEqual(["start", "stop:false"]);
   });
 
-  test("reads quoted cards as raw content without inventing image attachments", async () => {
+  test("reads quoted cards from the single-message raw endpoint first", async () => {
+    const parentId = "om_direct_quote";
+    const state = setup({
+      apiRequest: async (_method, path) => {
+        if (path !== `/im/v1/messages/${parentId}`) throw new Error(`unexpected path: ${path}`);
+        return { code: 0, data: { items: [{
+          message_id: parentId,
+          msg_type: "interactive",
+          sender: { id: "cli_agent", name: "LXE_Claw" },
+          body: { content: JSON.stringify({ json_card: JSON.stringify({
+            schema: "2.0",
+            body: { elements: [{ tag: "markdown", content: "direct quote body" }] },
+          }) }) },
+        }] } };
+      },
+    });
+    const inbound: InboundEvent[] = [];
+    state.adapter.setInboundSink(async (event) => { inbound.push(event); });
+    await state.adapter.start();
+    await state.callbacks.onMessage({
+      sender: { sender_type: "user", sender_id: { open_id: "ou_user" } },
+      message: {
+        message_type: "text",
+        content: JSON.stringify({ text: "read it" }),
+        chat_type: "p2p",
+        chat_id: "oc_chat",
+        parent_id: parentId,
+        create_time: String(Date.now()),
+        message_id: "om_direct_reply",
+      },
+    });
+    expect(inbound[0]?.user_input).toContain("direct quote body");
+    expect(state.apiRequests).toEqual([{
+      method: "GET",
+      path: `/im/v1/messages/${parentId}`,
+      options: { query: {
+        user_id_type: "open_id",
+        card_msg_content_type: "raw_card_content",
+      } },
+    }]);
+    await state.adapter.stop();
+  });
+
+  test("falls back to mget for quoted cards without inventing image attachments", async () => {
     const root = await mkdtemp(join(tmpdir(), "lxe-adapter-card-quote-"));
     roots.push(root);
     let downloadCount = 0;
@@ -240,6 +283,52 @@ describe("FeishuAdapter lifecycle and delivery", () => {
         card_msg_content_type: "raw_card_content",
       } },
     });
+    await state.adapter.stop();
+  });
+
+  test("reports unknown quote lookup failures without speculative causes or resources", async () => {
+    const state = setup({
+      apiRequest: async (_method, path) => {
+        if (path === "/im/v1/messages/mget") {
+          return { code: 999999, msg: "lookup failed token=private", log_id: "log-quote" };
+        }
+        throw Object.assign(new Error("Request failed with status code 400"), {
+          response: { status: 400, data: { code: 200000, msg: "invalid request", log_id: "log-direct" } },
+        });
+      },
+    });
+    const inbound: InboundEvent[] = [];
+    state.adapter.setInboundSink(async (event) => { inbound.push(event); });
+    await state.adapter.start();
+    await state.callbacks.onMessage({
+      sender: { sender_type: "user", sender_id: { open_id: "ou_user" } },
+      message: {
+        message_type: "text",
+        content: JSON.stringify({ text: "现在呢" }),
+        chat_type: "p2p",
+        chat_id: "oc_chat",
+        parent_id: "om_missing_quote",
+        create_time: String(Date.now()),
+        message_id: "om_missing_reply",
+      },
+    });
+    const event = inbound[0];
+    expect(event?.user_input).toContain("cause_known=false");
+    expect(event?.user_input).not.toContain("请升级至最新版本客户端");
+    expect(event?.user_input).not.toContain("[image]");
+    expect(event?.user_input).not.toContain("Unable to download");
+    expect(event?.user_content_blocks).toEqual([]);
+    expect(event?.raw_data.resources).toEqual([]);
+    expect(event?.raw_data.quoted_message).toMatchObject({
+      message_id: "om_missing_quote",
+      available: false,
+      cause_known: false,
+      observed_message: expect.stringContaining("invalid request"),
+    });
+    expect(state.apiRequests.map((request) => request.path)).toEqual([
+      "/im/v1/messages/om_missing_quote",
+      "/im/v1/messages/mget",
+    ]);
     await state.adapter.stop();
   });
 

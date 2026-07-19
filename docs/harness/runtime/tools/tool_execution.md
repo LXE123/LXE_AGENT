@@ -61,7 +61,7 @@ Artifact delivery 与工具业务执行分离。发送失败会报告 delivery e
 
 ## Result closure
 
-成功 result 使用原 `tool_call_id`。异常转换为 `is_error=true` 和可读错误文本。多个调用的 results 作为一个 tool message append；cancel 或 steering 会为尚未执行的调用生成 closure stub。Anthropic 的 `tool_use_id` 只存在于 Provider adapter 生成的 wire request。
+成功 result 使用原 `tool_call_id`。异常转换为 `is_error=true`。未分类异常不能把裸 `Error.message` 当成原因交给模型，而要生成统一的 `ToolFailureDetails`：`cause_known=false`、受限并脱敏的 `observed_message`、`retryability=unknown` 和 `inference_policy=verified_reason_only`。只有经过本地校验或明确映射的平台错误码才允许设置 `cause_known=true` 与 `verified_reason`。多个调用的 results 作为一个 tool message append；cancel 或 steering 会为尚未执行的调用生成 closure stub。Anthropic 的 `tool_use_id` 只存在于 Provider adapter 生成的 wire request。
 
 Oversized content 在 append 前由 ContextPipeline 以总文本 10k token 预算裁剪。Image block 保留给当前 turn，并单独计 token。
 
@@ -76,6 +76,8 @@ Oversized content 在 append 前由 ContextPipeline 以总文本 10k token 预�
 
 Model-visible result、用户展示和运行日志是三个不同输出，不能互相直接复用。
 
+其中模型只能根据 `verified_reason` 陈述原因。HTTP status、异常文本、平台 fallback、旧 transcript 中的 assistant 判断，以及 `[Unable to download ...]` 一类历史占位符都只是观测事实，不能升级为权限、过期、网络、格式或客户端版本诊断。用户卡片只显示稳定的安全提示；provider code、log ID 和诊断上下文进入结构化结果或日志。
+
 ## Usage
 
 Runtime 按 tool name 记录 calls、errors、duration；当前已激活 owner skill 同步累计 usage。Turn 完成后批量写入 usage tables，Dashboard 可按时间和 skill/tool 查询。
@@ -83,6 +85,8 @@ Runtime 按 tool name 记录 calls、errors、duration；当前已激活 owner s
 ## Failure 语义
 
 - Tool error 不使 Bun 进程退出，模型可以在下一 step 恢复。
+- 原因未知必须明确写成未知；不能为了“可读”而补写未经验证的归因。
+- 已分类错误保留确定的 `verified_reason` 和 retryability，模型可以据此采取下一步。
 - Abort 不继续 dispatch 剩余调用。
 - Background completion 通过 pending event/heartbeat 汇报。
 - MCP/server failure 隔离到对应 connector。

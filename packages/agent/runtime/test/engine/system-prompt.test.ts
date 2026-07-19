@@ -20,6 +20,8 @@ describe("system prompt builder", () => {
     expect(stable).toContain("Careful agent.");
     expect(stable).toContain("Safety & Boundaries");
     expect(stable).toContain("Attachment Handling");
+    expect(stable).toContain("cause_known=true");
+    expect(stable).toContain("do not offer speculative causes as diagnosis");
     expect(volatile).toContain("Available Skills");
     expect(volatile).toContain("Follow the project rules.");
     expect(volatile).toContain("Provider: anthropic");

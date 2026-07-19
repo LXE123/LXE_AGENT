@@ -49,7 +49,7 @@ Each Runtime turn has exactly one `turn_started` and exactly one terminal `turn_
 | Routing | `inbound_received`, `permission_denied`, `session_created`, `session_rebound`, `message_queued`, `message_steered`, `control_completed` |
 | Scheduler | `scheduler_job_enqueued`, `scheduler_job_dispatched`, `scheduler_job_released`, `scheduler_stop_requested`, `scheduler_pending_cleared`, `scheduler_steering_requeued` |
 | Heartbeat | `heartbeat_requested`, `heartbeat_deduplicated`, `heartbeat_deferred`, `heartbeat_dropped`, `heartbeat_enqueued` |
-| Feishu ingress | `feishu_inbound_rejected`, `feishu_inbound_normalized`, `feishu_inbound_sink_completed`, `feishu_inbound_failed` |
+| Feishu ingress | `feishu_inbound_rejected`, `feishu_inbound_normalized`, `feishu_inbound_sink_completed`, `feishu_inbound_failed`, `feishu_quote_lookup_failed`, `feishu_card_content_fetch_failed` |
 | Feishu connection | `feishu_connection_starting`, `feishu_connected`, `feishu_reconnecting`, `feishu_reconnected`, `feishu_connection_failed`, `feishu_connection_stopped` |
 | CardKit delivery | `card_created`, `card_reference_retry_scheduled`, `card_reference_retry_succeeded`, `card_reference_retry_exhausted`, `card_send_completed`, `card_dead`, `card_finalized` |
 | Stream fallback | `stream_fallback_started`, `stream_fallback_completed`, `stream_fallback_failed` |
@@ -78,3 +78,5 @@ Core serialization:
 Logger writers, trace writers, retention cleanup, and local-file sinks must never change a business result. A local sink is disabled after its first write failure, reports `logging_sink_failed` once, and exposes `disabledReason="sink_failed"` plus a safe `lastError` through logging status.
 
 The official Feishu SDK logger is suppressed because it emits duplicate Axios diagnostics. The adapter records connection lifecycle, CardKit records operation/state decisions, and the Runtime remains the only owner of the final outbound-delivery warning.
+
+Feishu lookup/download diagnostics keep only safe observations such as attempted endpoint, HTTP status, provider code, subcode and log ID. They must record whether a cause is known, must not include credentials or full response bodies, and must not translate an unmapped `400` or SDK message into a permissions, expiration, network, format or client-version diagnosis.
