@@ -1,5 +1,5 @@
 // Usage statistics view (turns / skills / tools aggregates).
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { CircleX, Coins, MessagesSquare, TriangleAlert, Wrench, Zap } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -45,6 +45,8 @@ function chartTicks(maxValue: number): { max: number; ticks: number[] } {
   };
 }
 
+const FLIP_DURATION_MS = 380;
+
 type ChartTip = {
   x: number;
   y: number;
@@ -53,16 +55,72 @@ type ChartTip = {
   executions: number;
 };
 
-function UsageDailyChart({ daily }: { daily: StatsOverviewPayload["daily"] }) {
+function fillDailyRange(
+  daily: StatsOverviewPayload["daily"],
+  days: number
+): StatsOverviewPayload["daily"] {
+  // The backend only returns days that have activity; pad the rest of the
+  // selected window with zeros so the axis always spans the full range.
+  const byDay = new Map(daily.map((entry) => [entry.day, entry]));
+  const today = new Date();
+  const filled: StatsOverviewPayload["daily"] = [];
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const date = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
+    const key = [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0")
+    ].join("-");
+    filled.push(byDay.get(key) ?? { day: key, turns: 0, tool_calls: 0, executions: 0, failures: 0 });
+  }
+  return filled;
+}
+
+function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]; days: number }) {
   const t = useUiText();
   const [tip, setTip] = useState<ChartTip | null>(null);
+  const chartRef = useRef<HTMLDivElement | null>(null);
+  const previousRectsRef = useRef<Map<string, { left: number; width: number }> | null>(null);
+  const filled = useMemo(() => fillDailyRange(daily, days), [daily, days]);
+
+  useLayoutEffect(() => {
+    // FLIP: columns that survive a range change slide to their new positions.
+    const chart = chartRef.current;
+    if (!chart) return;
+    const columns = Array.from(chart.querySelectorAll<HTMLElement>("[data-day]"));
+    const nextRects = new Map<string, { left: number; width: number }>();
+    for (const column of columns) {
+      const rect = column.getBoundingClientRect();
+      nextRects.set(column.dataset.day ?? "", { left: rect.left, width: rect.width });
+    }
+    const previousRects = previousRectsRef.current;
+    previousRectsRef.current = nextRects;
+    if (!previousRects || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    for (const column of columns) {
+      const day = column.dataset.day ?? "";
+      const previous = previousRects.get(day);
+      const next = nextRects.get(day);
+      if (!previous || !next) continue;
+      const deltaX = previous.left - next.left;
+      const scaleX = next.width > 0.5 ? previous.width / next.width : 1;
+      if (Math.abs(deltaX) < 0.5 && Math.abs(scaleX - 1) < 0.01) continue;
+      column.animate(
+        [
+          { transform: `translateX(${deltaX}px) scaleX(${scaleX})`, transformOrigin: "left center" },
+          { transform: "translateX(0px) scaleX(1)", transformOrigin: "left center" }
+        ],
+        { duration: FLIP_DURATION_MS, easing: "cubic-bezier(0.22, 0.68, 0.26, 1)" }
+      );
+    }
+  }, [filled]);
+
   if (!daily.length) {
     return null;
   }
   const { max, ticks } = chartTicks(
-    Math.max(1, ...daily.map((entry) => Math.max(entry.turns, entry.executions)))
+    Math.max(1, ...filled.map((entry) => Math.max(entry.turns, entry.executions)))
   );
-  const labelStep = Math.max(1, Math.ceil(daily.length / 15));
+  const labelStep = Math.max(1, Math.ceil(filled.length / 15));
   const showTip = (
     event: ReactMouseEvent<HTMLDivElement>,
     entry: StatsOverviewPayload["daily"][number]
@@ -80,10 +138,11 @@ function UsageDailyChart({ daily }: { daily: StatsOverviewPayload["daily"] }) {
           </span>
         ))}
       </div>
-      <div className="usage-chart" role="img" aria-label={t.usage.dailyTitle}>
-        {daily.map((entry, index) => (
+      <div className="usage-chart" role="img" aria-label={t.usage.dailyTitle} ref={chartRef}>
+        {filled.map((entry, index) => (
           <div
             className="usage-chart-day"
+            data-day={entry.day}
             key={entry.day}
             onMouseEnter={(event) => showTip(event, entry)}
             onMouseLeave={() => setTip(null)}
@@ -257,7 +316,7 @@ export function StatsView() {
             <span><i className="usage-legend-dot executions" />{t.usage.dailyLegendExecutions}</span>
           </div>
         </div>
-        <UsageDailyChart daily={overview.daily} />
+        <UsageDailyChart daily={overview.daily} days={days} />
       </section>
 
       {overview.modules.length ? (

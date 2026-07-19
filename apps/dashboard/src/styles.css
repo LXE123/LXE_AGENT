@@ -5825,6 +5825,22 @@ pre {
 .usage-chart-body {
   position: relative;
   padding-left: 38px;
+  background-image: linear-gradient(
+    to top,
+    var(--border-strong) 0 1px,
+    transparent 1px calc(25% - 1px),
+    var(--usage-grid, color-mix(in srgb, var(--border) 62%, transparent)) calc(25% - 1px) 25%,
+    transparent 25% calc(50% - 1px),
+    var(--usage-grid, color-mix(in srgb, var(--border) 62%, transparent)) calc(50% - 1px) 50%,
+    transparent 50% calc(75% - 1px),
+    var(--usage-grid, color-mix(in srgb, var(--border) 62%, transparent)) calc(75% - 1px) 75%,
+    transparent 75% calc(100% - 1px),
+    var(--usage-grid, color-mix(in srgb, var(--border) 62%, transparent)) calc(100% - 1px)
+  );
+  background-origin: content-box;
+  background-position: top left;
+  background-repeat: no-repeat;
+  background-size: 100% 180px;
 }
 
 .usage-chart-yaxis {
@@ -5848,14 +5864,12 @@ pre {
 .usage-chart {
   display: flex;
   gap: 4px;
-  overflow-x: auto;
-  padding-bottom: 2px;
 }
 
 .usage-chart-day {
   display: flex;
   min-width: 0;
-  flex: 1 0 28px;
+  flex: 1 1 0;
   flex-direction: column;
   border-radius: 6px;
   transition: background 0.14s ease;
@@ -5866,31 +5880,18 @@ pre {
 }
 
 .usage-chart-bars {
-  --usage-grid: color-mix(in srgb, var(--border) 62%, transparent);
-
   display: flex;
   align-items: flex-end;
-  gap: 3px;
+  gap: 2px;
   justify-content: center;
   height: 180px;
-  padding: 0 2px;
-  background-image: linear-gradient(
-    to top,
-    var(--border-strong) 0 1px,
-    transparent 1px calc(25% - 1px),
-    var(--usage-grid) calc(25% - 1px) 25%,
-    transparent 25% calc(50% - 1px),
-    var(--usage-grid) calc(50% - 1px) 50%,
-    transparent 50% calc(75% - 1px),
-    var(--usage-grid) calc(75% - 1px) 75%,
-    transparent 75% calc(100% - 1px),
-    var(--usage-grid) calc(100% - 1px)
-  );
 }
 
 .usage-chart-bar {
   display: inline-block;
-  width: 10px;
+  width: 38%;
+  min-width: 2px;
+  max-width: 13px;
   border-radius: 3px 3px 0 0;
   transform-origin: bottom;
   animation: usage-bar-rise 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both;
@@ -5927,12 +5928,11 @@ pre {
   display: block;
   min-height: 15px;
   padding-top: 5px;
-  overflow: hidden;
+  overflow: visible;
   color: var(--muted-light);
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   text-align: center;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

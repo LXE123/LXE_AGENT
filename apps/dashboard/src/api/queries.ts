@@ -112,6 +112,7 @@ export function useStatsOverviewQuery(days: number, enabled = true) {
     enabled,
     refetchInterval: enabled ? STATS_REFRESH_INTERVAL_MS : false,
     refetchIntervalInBackground: false,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -122,6 +123,7 @@ export function useSkillStatsQuery(days: number, enabled = true) {
     enabled,
     refetchInterval: enabled ? STATS_REFRESH_INTERVAL_MS : false,
     refetchIntervalInBackground: false,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -132,6 +134,7 @@ export function useToolStatsQuery(days: number, enabled = true) {
     enabled,
     refetchInterval: enabled ? STATS_REFRESH_INTERVAL_MS : false,
     refetchIntervalInBackground: false,
+    placeholderData: keepPreviousData,
   });
 }
 
