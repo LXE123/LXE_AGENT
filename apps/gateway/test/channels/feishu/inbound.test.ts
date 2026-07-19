@@ -290,6 +290,88 @@ describe("Feishu inbound normalization", () => {
     expect(converted.resources).toEqual([]);
   });
 
+  test("parses CardKit code nodes with official field traversal and ignores empty nodes", async () => {
+    const snapshot = snapshotMessageEvent(baseEvent({
+      message_id: "om_card_code",
+      message_type: "interactive",
+      content: JSON.stringify({
+        card_schema: 2,
+        json_card: JSON.stringify({
+          schema: "2.0",
+          body: { property: { elements: [
+            { tag: "code_block" },
+            { tag: "markdown", property: { content: "Before code" } },
+            {
+              tag: "code_block",
+              property: {
+                language: "typescript",
+                contents: [
+                  { contents: [{ content: "const answer = " }, { content: "42;\n" }, null] },
+                  { property: { contents: [{ property: { content: "return answer;" } }] } },
+                ],
+              },
+            },
+            { tag: "code_span", property: { content: "answer" } },
+            { tag: "code_span", property: { text: "must not be inferred" } },
+            { tag: "code_block", language: "text", content: "legacy content" },
+          ] } },
+        }),
+      }),
+    }))!;
+    const converted = await convertFeishuMessage(snapshot);
+    expect(converted.message).toContain("Before code");
+    expect(converted.message).toContain("```typescript\nconst answer = 42;\nreturn answer;\n```");
+    expect(converted.message).toContain("`answer`");
+    expect(converted.message).not.toContain("must not be inferred");
+    expect(converted.message).toContain("```text\nlegacy content\n```");
+    expect(converted.diagnostics).toEqual([]);
+    expect(converted.resources).toEqual([]);
+  });
+
+  test("keeps CardKit traversal depth, node and output bounds deterministic", async () => {
+    let nested: Record<string, unknown> = { tag: "markdown", property: { content: "deep" } };
+    for (let index = 0; index < 70; index += 1) {
+      nested = { tag: "div", property: { elements: [nested] } };
+    }
+    const cases = [
+      {
+        messageId: "om_card_depth",
+        card: { schema: "2.0", body: { property: { elements: [nested] } } },
+        observed: "Feishu card exceeds maximum render depth 64",
+      },
+      {
+        messageId: "om_card_nodes",
+        card: {
+          schema: "2.0",
+          body: { property: { elements: Array.from({ length: 2_100 }, () => ({ tag: "markdown", property: { content: "x" } })) } },
+        },
+        observed: "Feishu card exceeds maximum render nodes 2000",
+      },
+      {
+        messageId: "om_card_output",
+        card: { schema: "2.0", body: { property: { elements: [{ tag: "markdown", property: { content: "x".repeat(64_001) } }] } } },
+        observed: "Feishu card rendered text exceeds maximum length 64000",
+      },
+    ];
+    for (const fixture of cases) {
+      const snapshot = snapshotMessageEvent(baseEvent({
+        message_id: fixture.messageId,
+        message_type: "interactive",
+        content: JSON.stringify({ card_schema: 2, json_card: JSON.stringify(fixture.card) }),
+      }))!;
+      const converted = await convertFeishuMessage(snapshot);
+      expect(converted.message).toBe("");
+      expect(converted.resources).toEqual([]);
+      expect(converted.diagnostics).toEqual([
+        expect.objectContaining({
+          stage: "card_convert",
+          error_name: "RangeError",
+          observed_error: fixture.observed,
+        }),
+      ]);
+    }
+  });
+
   test("drops legacy card fallback images and safely rejects malformed raw cards", async () => {
     const degraded = snapshotMessageEvent(baseEvent({
       message_id: "om_degraded_card",

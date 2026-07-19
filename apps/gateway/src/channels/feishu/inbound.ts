@@ -265,20 +265,6 @@ const cardText = (value: unknown): string => {
   return "";
 };
 
-const cardCodeText = (value: unknown): string => {
-  if (typeof value === "string" || typeof value === "number") return String(value);
-  if (Array.isArray(value)) return value.map(cardCodeText).join("");
-  const item = record(value);
-  const property = record(item.property);
-  const direct = property.content ?? item.content ?? property.text ?? item.text;
-  if (typeof direct === "string" || typeof direct === "number") return String(direct);
-  for (const nested of [property.contents, item.contents, property.elements, item.elements]) {
-    const result = cardCodeText(nested);
-    if (result) return result;
-  }
-  return "";
-};
-
 const CARD_RENDER_MAX_DEPTH = 64;
 const CARD_RENDER_MAX_NODES = 2_000;
 const CARD_RENDER_MAX_CHARS = 64_000;
@@ -287,15 +273,66 @@ interface CardRenderState {
   nodes: number;
 }
 
+const accountCardRenderNode = (state: CardRenderState, depth: number): void => {
+  if (depth > CARD_RENDER_MAX_DEPTH) {
+    throw new RangeError(`Feishu card exceeds maximum render depth ${CARD_RENDER_MAX_DEPTH}`);
+  }
+  state.nodes += 1;
+  if (state.nodes > CARD_RENDER_MAX_NODES) {
+    throw new RangeError(`Feishu card exceeds maximum render nodes ${CARD_RENDER_MAX_NODES}`);
+  }
+};
+
+const cardElementProperty = (item: Record<string, unknown>): Record<string, unknown> => {
+  const property = record(item.property);
+  return Object.keys(property).length > 0 ? property : item;
+};
+
+/**
+ * Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
+ * SPDX-License-Identifier: MIT
+ *
+ * CardKit code-node traversal follows openclaw-lark's tag-specific CardConverter.
+ */
+const cardCodeBlockText = (
+  property: Record<string, unknown>,
+  state: CardRenderState,
+  depth: number,
+): string => {
+  if (typeof property.content === "string") return property.content;
+  if (!Array.isArray(property.contents)) return "";
+  let code = "";
+  for (const rawLine of property.contents) {
+    accountCardRenderNode(state, depth + 1);
+    const line = record(rawLine);
+    if (Object.keys(line).length === 0) continue;
+    const lineProperty = cardElementProperty(line);
+    if (typeof lineProperty.content === "string") {
+      code += lineProperty.content;
+      continue;
+    }
+    if (!Array.isArray(lineProperty.contents)) continue;
+    for (const rawFragment of lineProperty.contents) {
+      accountCardRenderNode(state, depth + 2);
+      const fragment = record(rawFragment);
+      if (Object.keys(fragment).length === 0) continue;
+      const fragmentProperty = cardElementProperty(fragment);
+      if (typeof fragmentProperty.content === "string") code += fragmentProperty.content;
+    }
+  }
+  return code;
+};
+
+const cardCodeSpanText = (property: Record<string, unknown>): string =>
+  typeof property.content === "string" ? property.content : "";
+
 const renderInteractive = (
   value: unknown,
   rawCard: boolean,
   state: CardRenderState,
   depth = 0,
 ): string[] => {
-  if (depth > CARD_RENDER_MAX_DEPTH) throw new RangeError(`Feishu card exceeds maximum render depth ${CARD_RENDER_MAX_DEPTH}`);
-  state.nodes += 1;
-  if (state.nodes > CARD_RENDER_MAX_NODES) throw new RangeError(`Feishu card exceeds maximum render nodes ${CARD_RENDER_MAX_NODES}`);
+  accountCardRenderNode(state, depth);
   if (Array.isArray(value)) return value.flatMap((item) => renderInteractive(item, rawCard, state, depth + 1));
   if (typeof value === "string") {
     const result = value.trim();
@@ -332,8 +369,11 @@ const renderInteractive = (
   if (tag === "heading") return cardText(item) ? [`### ${cardText(item)}`] : [];
   if (tag === "blockquote") return cardText(item) ? [`> ${cardText(item)}`] : [];
   if (["code_block", "code_span"].includes(tag)) {
-    const code = cardCodeText(property.contents ?? item.contents ?? item).trim();
-    const language = text(property.language) || text(item.language);
+    const codeProperty = cardElementProperty(item);
+    const code = (tag === "code_block"
+      ? cardCodeBlockText(codeProperty, state, depth)
+      : cardCodeSpanText(codeProperty)).trim();
+    const language = text(codeProperty.language) || "plaintext";
     return code ? [tag === "code_span" ? `\`${code}\`` : `\`\`\`${language}\n${code}\n\`\`\``] : [];
   }
   const lines: string[] = [];

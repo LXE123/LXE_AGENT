@@ -58,14 +58,17 @@ const passImageProcessor: InboundImageProcessorPort = {
   }),
 };
 
-const finalCard = (content: string): JsonObject => buildFinalCard({
+const finalCard = (
+  content: string,
+  toolSteps: Parameters<typeof buildFinalCard>[0]["toolSteps"] = [],
+): JsonObject => buildFinalCard({
   content,
   thinking: "",
   redactedCount: 0,
   thinkingElapsedMs: 0,
   toolPending: false,
   toolElapsedMs: 0,
-  toolSteps: [],
+  toolSteps,
   metrics: {
     status: "completed",
     elapsed_ms: 1_200,
@@ -77,7 +80,7 @@ const finalCard = (content: string): JsonObject => buildFinalCard({
     context_tokens: 15,
     context_window_tokens: 200_000,
   },
-}, loadFeishuConfig({}).cardDisplay);
+}, loadFeishuConfig(toolSteps.length > 0 ? { FEISHU_TOOL_USE_MODE: "full" } : {}).cardDisplay);
 
 interface SetupOptions {
   failStart?: boolean;
@@ -320,7 +323,19 @@ describe("FeishuAdapter lifecycle and delivery", () => {
           body: { content: path === "/im/v1/messages/mget"
             ? JSON.stringify({
                 card_schema: 2,
-                json_card: JSON.stringify(finalCard("**Actual card body**\n\n```text\n/Users/example/skills\n```")),
+                json_card: JSON.stringify(finalCard(
+                  "**Actual card body**\n\n```text\n/Users/example/skills\n```",
+                  [{
+                    id: "tool-1",
+                    name: "read",
+                    title: "Read skill file",
+                    detail: "/Users/example/skills/SKILL.md",
+                    icon_token: "file-link-docx_outlined",
+                    status: "error",
+                    duration_ms: 120,
+                    error_block: { language: "text", content: "ENOENT: fixture error" },
+                  }],
+                )),
               })
             : JSON.stringify({ json_card: "{invalid" }) },
         }] },
@@ -343,6 +358,8 @@ describe("FeishuAdapter lifecycle and delivery", () => {
     });
     expect(inbound[0]?.user_input).toContain("Actual card body");
     expect(inbound[0]?.user_input).toContain("/Users/example/skills");
+    expect(inbound[0]?.user_input).toContain("Read skill file");
+    expect(inbound[0]?.user_input).toContain("ENOENT: fixture error");
     expect(inbound[0]?.diagnostics).toEqual([]);
     expect(state.apiRequests.map((request) => request.path)).toEqual([
       `/im/v1/messages/${parentId}`,
