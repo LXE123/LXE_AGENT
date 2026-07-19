@@ -249,7 +249,8 @@ export function createAgentRuntimeHost(
     providerManager,
     environment,
     traceController: configureRuntimeTracing({
-      projectRoot: options.dataRoot,
+      projectRoot: options.resourceRoot,
+      stateRoot: options.dataRoot,
       environment,
     }),
     tools,

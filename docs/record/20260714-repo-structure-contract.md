@@ -7,7 +7,7 @@ Status: `Current`
 ## 三条原则
 
 1. **按运行时世界分区**：目录第一层只回答"属于哪个世界"——TypeScript 应用与包（`apps`/`packages`）、Python LXE Skill CLI 闭包（`python/lxeskill_cli`）、技能资产（`skills`）、配置与装配（`config`/`scripts`/`data`）、文档（`docs`）。当前 Desktop 应用与基础包布局见 [Desktop 技术手册](../desktop/README.md)。
-2. **代码、配置、状态、文档四分离**：程序管理的易失状态进入逻辑 data root；源码默认使用仓库 `var/`，Desktop 使用应用数据目录。`artifacts/` 是模型可见的输出面，不和数据库、日志混写。
+2. **代码、配置、状态、文档四分离**：程序管理的状态进入项目 `var/`；源码 Desktop 使用仓库或 worktree 的 `var/`，Windows 安装包使用安装目录的 `var/`。`artifacts/` 是模型可见的输出面，不和数据库、日志混写。
 3. **规范必须有校验器兜底**：约定不写进测试就必然漂移。
 
 ## 命名规范
@@ -23,7 +23,7 @@ Status: `Current`
 
 ## 逻辑状态根
 
-源码 checkout 未设置 `LXE_DATA_ROOT` 时，程序状态继续使用仓库下的 `var/`：
+`LXE_DATA_ROOT` 表示规范 `var` 根，而不是项目根。源码 checkout 未设置该变量时，程序状态继续使用仓库下的 `var/`：
 
 ```
 var/logs/   ← 所有日志与 trace（Bun JSONL + Python 文本，同一路径分流）
@@ -31,7 +31,7 @@ var/tmp/    ← gateway 运行目录、lxeskill 会话锁等 scratch
 var/db/     ← 源码模式数据库、sessions.json、machine_identity.json、session_transcripts/
 ```
 
-Desktop 会把 `LXE_DATA_ROOT` 指向应用数据目录，不把运行状态写进只读安装资源：
+Desktop dev/preview 固定使用 `<checkout>/var`；Windows 安装包固定使用 `LXE Agent.exe` 同级的 `<install-root>/var`。Desktop 解析完成后再把该绝对路径作为 `LXE_DATA_ROOT` 下发：
 
 ```
 <data-root>/db/         ← gateway.sqlite3、agent.sqlite3、lxeskill.sqlite3、sessions.json、transcript
@@ -40,7 +40,7 @@ Desktop 会把 `LXE_DATA_ROOT` 指向应用数据目录，不把运行状态写�
 <data-root>/config/     ← 用户本地 MCP 与 connector 状态
 ```
 
-源码工作区中的 `var/db`、`var/logs` 继续受模型写保护；Desktop data root 位于工作区之外，也不会暴露给普通文件写工具。具体数据库所有权见 [本地状态与数据库](../database/local_agent.md)。
+源码工作区中的 `var/db`、`var/logs` 继续受模型写保护。安装包的只读资源仍位于 `resources/`，不与可写状态混用。具体数据库所有权见 [本地状态与数据库](../database/local_agent.md)。
 
 ## 后续批次
 

@@ -341,7 +341,7 @@ def test_browser_command_tolerates_batch_that_stopped_before_vision(monkeypatch)
 
 def test_browser_command_wraps_schema_validation_as_invalid_arguments(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
-        store_driver_session_module, "internal_root", lambda: tmp_path,
+        store_driver_session_module, "state_root", lambda: tmp_path,
     )
 
     with pytest.raises(lxeskill_browser.BrowserCliError) as captured:

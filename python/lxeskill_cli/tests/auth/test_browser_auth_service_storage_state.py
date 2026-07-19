@@ -11,7 +11,6 @@ def test_state_file_uses_lxeskill_database_root(tmp_path, monkeypatch) -> None:
 
     assert state_file == (
         tmp_path
-        / "var"
         / "db"
         / "lxeskill"
         / "browser_auth_service"

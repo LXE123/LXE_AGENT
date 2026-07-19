@@ -32,7 +32,7 @@ def get_logger(name: str | None = None) -> logging.Logger:
     return logging.getLogger(safe_name) if safe_name else logging.getLogger()
 
 
-def _repo_root() -> Path:
+def _state_root() -> Path:
     return state_root()
 
 
@@ -213,7 +213,7 @@ def _runtime_log_path() -> Path | None:
     day = datetime.now().strftime("%Y%m%d")
     # LOG_FILE is shared with the Bun gateway, which owns the plain name as a
     # JSONL sink. Python text logs get a "-py" suffix so the formats never mix.
-    return (_repo_root() / "var" / "logs" / "runtime" / day / _python_log_file_name(file_name)).resolve()
+    return (_state_root() / "logs" / "runtime" / day / _python_log_file_name(file_name)).resolve()
 
 
 def _browser_auth_log_path() -> Path | None:
@@ -224,7 +224,7 @@ def _browser_auth_log_path() -> Path | None:
     if not file_name or file_name in {".", ".."}:
         return None
     day = datetime.now().strftime("%Y%m%d")
-    return (_repo_root() / "var" / "logs" / "browser_auth_service" / day / file_name).resolve()
+    return (_state_root() / "logs" / "browser_auth_service" / day / file_name).resolve()
 
 
 def _build_runtime_file_handler(path: Path) -> logging.Handler:
@@ -252,7 +252,7 @@ def setup_logging() -> None:
     if runtime_log_path is not None:
         from shared.log_retention import cleanup_local_logs
 
-        cleanup_local_logs(repo_root=_repo_root())
+        cleanup_local_logs(state_root_path=_state_root())
     if runtime_log_path is not None and local_logs_enabled():
         managed_handlers.append(_build_runtime_file_handler(runtime_log_path))
     browser_auth_log_path = _browser_auth_log_path()

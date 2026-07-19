@@ -33,4 +33,4 @@ def test_state_root_separates_writable_desktop_data_from_assets(tmp_path: Path) 
     writable = tmp_path / "桌面数据"
 
     assert state_root(environment={"LXE_DATA_ROOT": str(writable)}) == writable.resolve()
-    assert state_root(environment={}) == repository_root()
+    assert state_root(environment={}) == (repository_root() / "var").resolve()

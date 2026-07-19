@@ -1,8 +1,8 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   app,
   BrowserWindow,
+  dialog,
   Menu,
   protocol,
   safeStorage,
@@ -38,14 +38,14 @@ import { DesktopGateway } from "./main/desktop-gateway";
 import { DesktopLoggingManager } from "./main/logging";
 import { registerDesktopIpc, type DesktopIpcApplication } from "./main/ipc";
 import {
-  desktopPreviewDataRoot,
   isAllowedDesktopNavigation,
   resolveDesktopLaunchMode,
   usesPackagedRuntime,
   usesProductionRenderer,
 } from "./main/launch-mode";
-import { bootstrapDesktopState, migrateLegacyArtifacts } from "./main/migration";
+import { bootstrapDesktopState } from "./main/migration";
 import { resolveDesktopPaths } from "./main/paths";
+import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./main/runtime-state";
 import { desktopWindowAppearance } from "./main/window-options";
 import { WindowsWireGuardProvisioner } from "./main/wireguard-provisioner";
 import { normalizeDesktopPlatform } from "./platform";
@@ -68,16 +68,33 @@ const launchMode = resolveDesktopLaunchMode({
 });
 const productionRenderer = usesProductionRenderer(launchMode);
 const packagedRuntime = usesPackagedRuntime(launchMode);
-const previewDataRoot = launchMode === "preview"
-  ? desktopPreviewDataRoot(app.getPath("appData"))
-  : undefined;
-if (previewDataRoot) {
-  app.setPath("userData", previewDataRoot);
-  process.stderr.write(`LXE Agent production preview: app://lxe/ with source runtime\nPreview data: ${previewDataRoot}\n`);
+const desktopPaths = resolveDesktopPaths({
+  packaged: packagedRuntime,
+  appPath: app.getAppPath(),
+  executablePath: process.execPath,
+  resourcesPath: process.resourcesPath,
+  documentsPath: app.getPath("documents"),
+  environment: process.env,
+});
+let runtimeStateReady = false;
+try {
+  const runtimeState = prepareDesktopRuntimeState(desktopPaths.dataRoot);
+  configureElectronRuntimeState(app, runtimeState);
+  runtimeStateReady = true;
+  if (launchMode === "preview") {
+    process.stderr.write(
+      `LXE Agent production preview: app://lxe/ with source runtime\nPreview data: ${desktopPaths.dataRoot}\n`,
+    );
+  }
+} catch (error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`LXE Agent startup failed: ${detail}\n`);
+  dialog.showErrorBox("LXE Agent 无法启动", detail);
+  app.exit(1);
 }
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
-if (!hasSingleInstanceLock) app.quit();
+const hasSingleInstanceLock = runtimeStateReady && app.requestSingleInstanceLock();
+if (runtimeStateReady && !hasSingleInstanceLock) app.quit();
 const desktopPlatform = normalizeDesktopPlatform(process.platform);
 
 let window: BrowserWindow | undefined;
@@ -117,17 +134,8 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
 };
 
 async function bootstrap(): Promise<void> {
-  const desktopEnvironment = previewDataRoot
-    ? { ...process.env, LXE_DATA_ROOT: previewDataRoot }
-    : process.env;
-  const paths = resolveDesktopPaths({
-    packaged: packagedRuntime,
-    appPath: app.getAppPath(),
-    resourcesPath: process.resourcesPath,
-    userDataPath: app.getPath("userData"),
-    documentsPath: app.getPath("documents"),
-    environment: desktopEnvironment,
-  });
+  const desktopEnvironment = process.env;
+  const paths = desktopPaths;
   const brandAssets = resolveDesktopBrandAssets({
     packaged: app.isPackaged,
     platform: desktopPlatform,
@@ -135,10 +143,6 @@ async function bootstrap(): Promise<void> {
     sourceRoot: paths.sourceRoot,
   });
   bootstrapDesktopState(paths.resourceRoot, paths.dataRoot);
-  migrateLegacyArtifacts({
-    legacyRoot: join(homedir(), ".lxe_agent"),
-    dataRoot: paths.dataRoot,
-  });
   const config = new DesktopConfigStore(
     paths.dataRoot,
     paths.defaultWorkspaceRoot,
@@ -257,7 +261,7 @@ async function bootstrap(): Promise<void> {
     activateCloudEnrollment: (input: DesktopCloudActivationInput) => cloud.activate(input),
     getCloudState: () => cloud.state(),
     retryCloudConnection: () => cloud.retry(),
-    logsDirectory: join(paths.dataRoot, "var", "logs"),
+    logsDirectory: join(paths.dataRoot, "logs"),
   };
   removeIpcHandlers = registerDesktopIpc(ipcApplication);
 

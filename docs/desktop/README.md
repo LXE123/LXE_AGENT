@@ -51,7 +51,7 @@ python.exe -I -m lxeskill ...
 
 ## 桌面配置与安全
 
-首次启动向导负责模型凭证和默认工作区，可按需增加紫鸟、马帮、飞书和日志配置。首次启动与后续设置共用同一表单，并可从本机 `.env` 或 `.env.local` 一键导入。选择文件后 Main 只向界面返回检测分组、覆盖范围、待补全字段和警告；用户确认后才提交配置。模型 API Key、紫鸟密码、马帮密码和飞书 App Secret 通过 Electron `safeStorage` 加密保存在应用数据目录，配置读取接口只返回“是否已配置”，不会回显明文。
+首次启动向导负责模型凭证和默认工作区，可按需增加紫鸟、马帮、飞书和日志配置。首次启动与后续设置共用同一表单，并可从本机 `.env` 或 `.env.local` 一键导入。选择文件后 Main 只向界面返回检测分组、覆盖范围、待补全字段和警告；用户确认后才提交配置。模型 API Key、紫鸟密码、马帮密码、飞书 App Secret 和 Data Server API Key 通过 Electron `safeStorage` 加密写入 `var/config/secrets.bin`，公开配置写入 `var/config/desktop.json`；配置读取接口只返回“是否已配置”，不会回显明文。
 
 导入使用一次性、十分钟有效的内存草稿，不修改或删除源文件。只导入非空值，空值和未出现的字段保留当前设置；重复变量以第一次出现为准。部分集成会保存为“待补全”，但不会注入运行环境。紫鸟 APP 路径不符合当前平台要求时同样保持停用，用户可在设置中重新选择路径。导入排障日志配置前必须确认其可能包含消息正文、账号标识和页面上下文。
 
@@ -109,7 +109,7 @@ bun run desktop:dev
 bun run desktop:preview
 ```
 
-生产预览不启动 Vite 或本地 Dashboard HTTP Server，页面从 `app://lxe/` 加载。其配置、加密凭据、日志和数据库持久保存在系统应用数据目录下的 `LXE Agent Preview`，不会复用正式应用数据；它不替代 Unpacked 或安装包验收。
+生产预览不启动 Vite 或本地 Dashboard HTTP Server，页面从 `app://lxe/` 加载。其配置、加密凭据、日志、数据库和 Electron 会话统一写入当前仓库或 worktree 的 `var/`；它不替代 Unpacked 或安装包验收。
 
 运行完整源码检查：
 
@@ -157,7 +157,9 @@ bun run verify:platform:win
 LOCAL_LOGS_ENABLED=1
 ```
 
-Desktop/Gateway、私有 Agent 和 Python 分别写入 `desktop.log`、`runtime.log` 和 `runtime-py.log`，统一位于应用数据目录的 `var/logs/runtime/<YYYYMMDD>/`。Provider traces 和飞书诊断也统一放在 `var/logs/`；设置页会显示两个 TypeScript sink 的实际路径与失败原因。日志格式、脱敏和保留策略见 [Logging and runtime traces](../harness/logger.md)。
+Desktop/Gateway、私有 Agent 和 Python 分别写入 `desktop.log`、`runtime.log` 和 `runtime-py.log`，统一位于项目 `var/logs/runtime/<YYYYMMDD>/`。Provider traces 和飞书诊断也统一放在 `var/logs/`；设置页会显示两个 TypeScript sink 的实际路径与失败原因。日志格式、脱敏和保留策略见 [Logging and runtime traces](../harness/logger.md)。
+
+Windows 安装包把全部受管运行状态放在 `LXE Agent.exe` 同级的 `var/`。升级始终保留该目录；卸载页默认也保留，只有用户主动勾选“同时删除 LXE Agent 本地运行数据”才会删除，并同时请求 UAC 清理 `WireGuardTunnel$lxe-agent`。业务 workspace 和用户技能不属于卸载范围。旧 AppData/Application Support 数据不会自动迁移或删除。
 
 桌面设置提供 Gateway、agent-cli 和 lxeskill 健康状态，以及后台组件重启和诊断入口。关闭窗口只隐藏到托盘；从托盘退出 LXE 时，Main 会依次停止 Gateway、Agent 和相关子进程。
 

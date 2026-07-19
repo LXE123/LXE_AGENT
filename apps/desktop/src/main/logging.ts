@@ -33,6 +33,7 @@ export class DesktopLoggingManager {
   configure(): DesktopLoggingSinkStatus {
     this.controller = configureLogging({
       projectRoot: this.options.dataRoot,
+      stateRoot: this.options.dataRoot,
       environment: {
         ...this.options.environment(),
         LOG_FILE: "desktop.log",

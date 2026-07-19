@@ -22,6 +22,13 @@ def _trace_text(trace_dir) -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in sorted(trace_dir.rglob("*.jsonl")))
 
 
+def test_default_trace_dir_uses_canonical_state_root(monkeypatch, tmp_path):
+    monkeypatch.delenv("ZINIAO_DIAGNOSTIC_TRACE_DIR", raising=False)
+    monkeypatch.setattr(ziniao_trace, "state_root", lambda: tmp_path)
+
+    assert ziniao_trace._trace_dir() == tmp_path / "logs" / "ziniao_traces"
+
+
 def test_trace_disabled_does_not_create_file(monkeypatch, tmp_path):
     trace_dir = tmp_path / "ziniao-traces"
     monkeypatch.setenv("ZINIAO_DIAGNOSTIC_TRACE_ENABLED", "0")

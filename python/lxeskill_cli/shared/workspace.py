@@ -12,30 +12,25 @@ logger = get_logger(__name__)
 _PROJECT_ROOT = repository_root()
 _LOCK = RLock()
 _workspace_root = _PROJECT_ROOT
-_internal_root = _PROJECT_ROOT
-_artifact_root = _PROJECT_ROOT / "artifacts"
+_internal_root = state_root() / "lxeskill"
+_artifact_root = state_root() / "artifacts"
 
 
 def activate_project_workspace() -> Path:
-    """Use the repository root and preserve the historical artifacts/** layout."""
+    """Use the selected business workspace with app-managed state under ``var``."""
     global _workspace_root, _internal_root, _artifact_root
     with _LOCK:
         configured_workspace = str(os.getenv("LXE_WORKSPACE_ROOT") or "").strip()
-        configured_data = str(os.getenv("LXE_DATA_ROOT") or "").strip()
         _workspace_root = (
             Path(configured_workspace).expanduser().resolve()
             if configured_workspace
             else _PROJECT_ROOT
         )
-        if configured_data:
-            writable_root = state_root()
-            _internal_root = writable_root / "lxeskill"
-            _artifact_root = writable_root / "artifacts"
-            _internal_root.mkdir(parents=True, exist_ok=True)
-            _artifact_root.mkdir(parents=True, exist_ok=True)
-        else:
-            _internal_root = _PROJECT_ROOT
-            _artifact_root = _PROJECT_ROOT / "artifacts"
+        writable_root = state_root()
+        _internal_root = writable_root / "lxeskill"
+        _artifact_root = writable_root / "artifacts"
+        _internal_root.mkdir(parents=True, exist_ok=True)
+        _artifact_root.mkdir(parents=True, exist_ok=True)
     return _workspace_root
 
 

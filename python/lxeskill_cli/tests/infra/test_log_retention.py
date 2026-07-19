@@ -33,10 +33,10 @@ def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, m
     current_date = "20260704"
 
     for relative_root in (
-        "var/logs/agent_traces",
-        "var/logs/sse_wire_traces",
-        "var/logs/feishu_msg",
-        "var/logs/runtime",
+        "logs/agent_traces",
+        "logs/sse_wire_traces",
+        "logs/feishu_msg",
+        "logs/runtime",
     ):
         root = tmp_path / relative_root
         _mkdir(root / old_date)
@@ -46,7 +46,7 @@ def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, m
         _mkdir(root / "20261301")
         _touch(root / old_file_date)
 
-    raw_root = tmp_path / "var" / "logs" / "feishu_raw_events"
+    raw_root = tmp_path / "logs" / "feishu_raw_events"
     _touch(raw_root / f"{old_date}.jsonl")
     _touch(raw_root / f"{cutoff_date}.jsonl")
     _touch(raw_root / f"{current_date}.jsonl")
@@ -57,23 +57,23 @@ def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, m
     result = cleanup_local_logs(
         retention_days=7,
         today=date(2026, 7, 4),
-        repo_root=tmp_path,
+        state_root_path=tmp_path,
     )
 
     assert result.cutoff_date == date(2026, 6, 28)
     assert result.retention_days == 7
     assert result.failed_paths == ()
-    assert not (tmp_path / "var" / "logs" / "agent_traces" / old_date).exists()
-    assert not (tmp_path / "var" / "logs" / "sse_wire_traces" / old_date).exists()
-    assert not (tmp_path / "var" / "logs" / "feishu_msg" / old_date).exists()
-    assert not (tmp_path / "var" / "logs" / "runtime" / old_date).exists()
+    assert not (tmp_path / "logs" / "agent_traces" / old_date).exists()
+    assert not (tmp_path / "logs" / "sse_wire_traces" / old_date).exists()
+    assert not (tmp_path / "logs" / "feishu_msg" / old_date).exists()
+    assert not (tmp_path / "logs" / "runtime" / old_date).exists()
     assert not (raw_root / f"{old_date}.jsonl").exists()
 
     for relative_root in (
-        "var/logs/agent_traces",
-        "var/logs/sse_wire_traces",
-        "var/logs/feishu_msg",
-        "var/logs/runtime",
+        "logs/agent_traces",
+        "logs/sse_wire_traces",
+        "logs/feishu_msg",
+        "logs/runtime",
     ):
         root = tmp_path / relative_root
         assert (root / cutoff_date).exists()
@@ -102,9 +102,9 @@ def test_cleanup_local_logs_runs_regardless_of_local_logs_switch(
         monkeypatch.delenv("LOCAL_LOGS_ENABLED", raising=False)
     else:
         monkeypatch.setenv("LOCAL_LOGS_ENABLED", local_logs_enabled)
-    old_path = _mkdir(tmp_path / "var" / "logs" / "agent_traces" / "20260601")
+    old_path = _mkdir(tmp_path / "logs" / "agent_traces" / "20260601")
 
-    cleanup_local_logs(retention_days=7, today=date(2026, 7, 4), repo_root=tmp_path)
+    cleanup_local_logs(retention_days=7, today=date(2026, 7, 4), state_root_path=tmp_path)
 
     assert not old_path.exists()
 

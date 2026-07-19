@@ -13,7 +13,7 @@ def database_path() -> Path:
     configured = str(os.getenv("LXE_SQLITE_DB_PATH") or "").strip()
     if configured:
         return Path(configured).expanduser()
-    return state_root() / "var" / "db" / "local_agent.sqlite3"
+    return state_root() / "db" / "local_agent.sqlite3"
 
 
 def connect() -> sqlite3.Connection:

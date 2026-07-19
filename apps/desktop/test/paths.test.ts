@@ -4,25 +4,25 @@ import { usesPackagedRuntime } from "../src/main/launch-mode";
 import { resolveDesktopPaths } from "../src/main/paths";
 
 describe("desktop private runtime paths", () => {
-  test("keeps production preview on source runtime paths and isolated data", () => {
+  test("keeps production preview runtime state in the source checkout var directory", () => {
     const sourceRoot = "/Users/tester/Projects/LXE_AGENT_LOCAL_FBA";
-    const previewRoot = "/Users/tester/Library/Application Support/LXE Agent Preview";
     const paths = resolveDesktopPaths({
       packaged: usesPackagedRuntime("preview"),
       appPath: posix.join(sourceRoot, "apps", "desktop"),
+      executablePath: "/Applications/Electron.app/Contents/MacOS/Electron",
       resourcesPath: posix.join(sourceRoot, "node_modules", "electron", "dist"),
-      userDataPath: previewRoot,
       documentsPath: "/Users/tester/Documents",
       environment: {
         LXE_SOURCE_ROOT: sourceRoot,
-        LXE_DATA_ROOT: previewRoot,
+        LXE_DATA_ROOT: "/Users/tester/Library/Application Support/ignored",
       },
       platform: "darwin",
       pathExists: () => true,
     });
 
     expect(paths.resourceRoot).toBe(sourceRoot);
-    expect(paths.dataRoot).toBe(previewRoot);
+    expect(paths.projectRoot).toBe(sourceRoot);
+    expect(paths.dataRoot).toBe(posix.join(sourceRoot, "var"));
     expect(paths.dashboardRoot).toBe(posix.join(sourceRoot, "apps", "dashboard", "dist"));
     expect(paths.agentCommand).toBe("bun");
     expect(paths.agentArguments).toEqual([posix.join(sourceRoot, "apps", "agent-cli", "src", "main.ts")]);
@@ -31,16 +31,20 @@ describe("desktop private runtime paths", () => {
 
   test("uses Windows paths when Windows is the target platform", () => {
     const root = "C:\\Program Files\\LXE Agent\\resources";
+    const executablePath = "D:\\Apps\\LXE Agent\\LXE Agent.exe";
     const paths = resolveDesktopPaths({
       packaged: true,
       appPath: win32.join(root, "app.asar"),
+      executablePath,
       resourcesPath: root,
-      userDataPath: "C:\\Users\\tester\\AppData\\Roaming\\LXE Agent",
       documentsPath: "C:\\Users\\tester\\Documents",
+      environment: { LXE_DATA_ROOT: "C:\\Users\\tester\\AppData\\Roaming\\ignored" },
       platform: "win32",
       pathExists: () => true,
     });
 
+    expect(paths.projectRoot).toBe("D:\\Apps\\LXE Agent");
+    expect(paths.dataRoot).toBe("D:\\Apps\\LXE Agent\\var");
     expect(paths.agentCommand).toBe(win32.join(root, "runtime", "agent-cli", "agent-cli.exe"));
     expect(paths.agentArguments).toEqual([]);
     expect(paths.lxeskillModulePath).toBe(
@@ -61,13 +65,14 @@ describe("desktop private runtime paths", () => {
       const paths = resolveDesktopPaths({
         packaged: true,
         appPath: posix.join(root, "app.asar"),
+        executablePath: "/opt/lxe-agent/LXE Agent",
         resourcesPath: root,
-        userDataPath: "/Users/tester/Library/Application Support/LXE Agent",
         documentsPath: "/Users/tester/Documents",
         platform,
         pathExists: () => true,
       });
 
+      expect(paths.dataRoot).toBe("/opt/lxe-agent/var");
       expect(paths.agentCommand).toBe(posix.join(root, "runtime", "agent-cli", "agent-cli"));
       expect(paths.managedPythonPath).toBe(posix.join(root, "runtime", "python", "bin", "python3"));
       expect(paths.managedPath.split(":")).toContain(posix.join(root, "runtime", "python", "bin"));

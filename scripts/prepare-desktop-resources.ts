@@ -115,6 +115,10 @@ copyFile(
   join(outputRoot, "wireguard", "provision-wireguard.ps1"),
 );
 copyFile(
+  join(repositoryRoot, "apps", "desktop", "resources", "wireguard", "remove-lxe-tunnel.ps1"),
+  join(outputRoot, "wireguard", "remove-lxe-tunnel.ps1"),
+);
+copyFile(
   join(repositoryRoot, "apps", "desktop", "resources", "wireguard", "LICENSE.txt"),
   join(outputRoot, "wireguard", "LICENSE.txt"),
 );

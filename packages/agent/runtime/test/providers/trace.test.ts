@@ -19,6 +19,20 @@ const day = (): string => {
 };
 
 describe("runtime traces", () => {
+  test("accepts a canonical state root without nesting var twice", () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "lxe-trace-state-root-"));
+    roots.push(projectRoot);
+    const stateRoot = join(projectRoot, "var");
+    const controller = configureRuntimeTracing({
+      projectRoot,
+      stateRoot,
+      environment: { LOCAL_LOGS_ENABLED: "1", AGENT_STREAM_TRACE_ENABLED: "1" },
+    });
+    controller.startTurn("session", "turn").record("started", { ok: true });
+    expect(existsSync(join(stateRoot, "logs", "agent_traces", day()))).toBeTrue();
+    expect(existsSync(join(stateRoot, "var"))).toBeFalse();
+  });
+
   test("writes main-compatible per-attempt wire records without losing large collections", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-trace-"));
     roots.push(root);

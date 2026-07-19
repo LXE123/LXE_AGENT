@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-  desktopPreviewDataRoot,
   isAllowedDesktopNavigation,
   resolveDesktopLaunchMode,
   usesPackagedRuntime,
@@ -27,13 +26,6 @@ describe("desktop launch mode", () => {
   test("requires the exact internal preview flag", () => {
     expect(resolveDesktopLaunchMode({ packaged: false, previewFlag: "true" })).toBe("development");
     expect(resolveDesktopLaunchMode({ packaged: false, previewFlag: " 1 " })).toBe("development");
-  });
-
-  test("uses an isolated persistent preview directory on Windows and macOS", () => {
-    expect(desktopPreviewDataRoot("C:\\Users\\tester\\AppData\\Roaming", "win32"))
-      .toBe("C:\\Users\\tester\\AppData\\Roaming\\LXE Agent Preview");
-    expect(desktopPreviewDataRoot("/Users/tester/Library/Application Support", "darwin"))
-      .toBe("/Users/tester/Library/Application Support/LXE Agent Preview");
   });
 
   test("allows only the selected Renderer origin", () => {

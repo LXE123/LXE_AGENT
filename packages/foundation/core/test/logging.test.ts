@@ -183,6 +183,24 @@ describe("structured logger", () => {
     }));
   });
 
+  test("accepts a canonical state root without adding a second var segment", async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), "lxe-logging-state-root-"));
+    roots.push(projectRoot);
+    const stateRoot = join(projectRoot, "var");
+    const controller = logging.configureLogging({
+      projectRoot,
+      stateRoot,
+      environment: { LOCAL_LOGS_ENABLED: "1", LOG_FILE: "desktop.log" },
+    });
+    controllers.push(controller);
+    logging.createLogger("desktop").info("state_root_contract");
+    await controller.flush();
+
+    expect(controller.filePath!.startsWith(join(stateRoot, "logs", "runtime"))).toBeTrue();
+    expect(controller.filePath).not.toContain(join("var", "var"));
+    expect(readFileSync(controller.filePath!, "utf8")).toContain("state_root_contract");
+  });
+
   test("honors logger overrides, disabled files, and retention", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-logging-policy-"));
     roots.push(root);

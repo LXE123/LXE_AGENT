@@ -47,10 +47,10 @@ def repository_root() -> Path:
 
 
 def state_root(*, environment: Mapping[str, str] | None = None) -> Path:
-    """Return the writable runtime root, separate from packaged read-only assets."""
+    """Return the canonical writable ``var`` root."""
     env = os.environ if environment is None else environment
     configured = str(env.get("LXE_DATA_ROOT") or "").strip()
-    return Path(configured).expanduser().resolve() if configured else repository_root()
+    return Path(configured).expanduser().resolve() if configured else (repository_root() / "var").resolve()
 
 
 __all__ = ["find_repository_root", "repository_root", "state_root"]

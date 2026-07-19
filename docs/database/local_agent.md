@@ -19,7 +19,7 @@ Desktop 不再把所有状态塞进一个 `local_agent.sqlite3`。Electron Main�
 | `db/session_transcripts/<session>.jsonl` | Runtime | 原始消息、turn metadata 和 `context_patch` |
 | `db/machine_identity.json` | Desktop 与 Runtime maintenance（共用 Core 实现） | Cloud、WireGuard 和可选 Data Server 共用的本机身份 |
 
-这些路径都位于 Desktop 的应用数据目录。源码开发没有显式设置 `LXE_DATA_ROOT` 时，逻辑 data root 默认落在仓库的 `var/` 下。
+这些路径都位于规范 `var` 根。Desktop dev/preview 使用仓库或 worktree 的 `var/`，Windows 安装包使用安装目录的 `var/`；`LXE_DATA_ROOT` 下发的就是这个目录本身。
 
 测试 fixture 或旧源码环境里仍可能出现 `local_agent.sqlite3` 这个文件名；它不是 Desktop 当前默认的单库布局。
 

@@ -25,7 +25,7 @@ class LocalLogRetentionResult:
     failed_paths: tuple[Path, ...]
 
 
-def _repo_root() -> Path:
+def _state_root() -> Path:
     return state_root()
 
 
@@ -33,11 +33,11 @@ def local_log_retention_days() -> int:
     return env_int("LOCAL_LOG_RETENTION_DAYS", 7, minimum=1)
 
 
-def _resolve_log_path(name: str, default: str, *, repo_root: Path) -> Path:
+def _resolve_log_path(name: str, default: str, *, state_root_path: Path) -> Path:
     raw = env_text(name, default)
     path = Path(raw or default)
     if not path.is_absolute():
-        path = repo_root / path
+        path = state_root_path / path
     return path.resolve()
 
 
@@ -64,18 +64,18 @@ def _parse_date_jsonl_name(value: str) -> date | None:
     return _parse_date_name(value[:8])
 
 
-def _date_dir_roots(*, repo_root: Path) -> tuple[Path, ...]:
+def _date_dir_roots(*, state_root_path: Path) -> tuple[Path, ...]:
     return (
-        _resolve_log_path("AGENT_STREAM_TRACE_DIR", "var/logs/agent_traces", repo_root=repo_root),
-        _resolve_log_path("AGENT_SSE_WIRE_TRACE_DIR", "var/logs/sse_wire_traces", repo_root=repo_root),
-        (repo_root / "var" / "logs" / "feishu_msg").resolve(),
-        (repo_root / "var" / "logs" / "runtime").resolve(),
+        _resolve_log_path("AGENT_STREAM_TRACE_DIR", "logs/agent_traces", state_root_path=state_root_path),
+        _resolve_log_path("AGENT_SSE_WIRE_TRACE_DIR", "logs/sse_wire_traces", state_root_path=state_root_path),
+        (state_root_path / "logs" / "feishu_msg").resolve(),
+        (state_root_path / "logs" / "runtime").resolve(),
     )
 
 
-def _date_jsonl_roots(*, repo_root: Path) -> tuple[Path, ...]:
+def _date_jsonl_roots(*, state_root_path: Path) -> tuple[Path, ...]:
     return (
-        _resolve_log_path("FEISHU_RAW_EVENT_DUMP_DIR", "var/logs/feishu_raw_events", repo_root=repo_root),
+        _resolve_log_path("FEISHU_RAW_EVENT_DUMP_DIR", "logs/feishu_raw_events", state_root_path=state_root_path),
     )
 
 
@@ -108,23 +108,23 @@ def cleanup_local_logs(
     *,
     retention_days: int | None = None,
     today: date | datetime | None = None,
-    repo_root: Path | None = None,
+    state_root_path: Path | None = None,
 ) -> LocalLogRetentionResult:
     safe_days = max(1, int(retention_days if retention_days is not None else local_log_retention_days()))
     safe_today = _today(today)
     cutoff_date = safe_today - timedelta(days=safe_days - 1)
-    root = Path(repo_root).resolve() if repo_root is not None else _repo_root()
+    root = Path(state_root_path).resolve() if state_root_path is not None else _state_root()
     deleted: list[Path] = []
     failed: list[Path] = []
 
-    for log_root in _date_dir_roots(repo_root=root):
+    for log_root in _date_dir_roots(state_root_path=root):
         for child in _iter_children(log_root, failed=failed):
             entry_date = _parse_date_name(child.name)
             if entry_date is None or entry_date >= cutoff_date or not child.is_dir() or child.is_symlink():
                 continue
             _remove_path(child, deleted=deleted, failed=failed)
 
-    for log_root in _date_jsonl_roots(repo_root=root):
+    for log_root in _date_jsonl_roots(state_root_path=root):
         for child in _iter_children(log_root, failed=failed):
             entry_date = _parse_date_jsonl_name(child.name)
             if entry_date is None or entry_date >= cutoff_date:

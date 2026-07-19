@@ -62,7 +62,7 @@ def _store_session() -> SimpleNamespace:
 
 
 def _patch_store_driver_session(monkeypatch, tmp_path, service, driver, calls) -> None:
-    monkeypatch.setattr(store_driver_session_module, "internal_root", lambda: tmp_path)
+    monkeypatch.setattr(store_driver_session_module, "state_root", lambda: tmp_path)
     monkeypatch.setattr(store_driver_session_module, "StoreSessionService", lambda: service)
     monkeypatch.setattr(
         store_driver_session_module,
@@ -145,7 +145,7 @@ def test_store_driver_session_restarts_store_when_attach_fails(monkeypatch, tmp_
         calls.append(("attached_driver", kwargs))
         return _DriverContext(driver, calls)
 
-    monkeypatch.setattr(store_driver_session_module, "internal_root", lambda: tmp_path)
+    monkeypatch.setattr(store_driver_session_module, "state_root", lambda: tmp_path)
     monkeypatch.setattr(store_driver_session_module, "StoreSessionService", lambda: service)
     monkeypatch.setattr(store_driver_session_module, "attached_driver", flaky_attached_driver)
     monkeypatch.setattr(store_driver_session_module, "select_first_normal_tab", lambda selected_driver, **kwargs: None)
@@ -161,7 +161,7 @@ def test_executor_reports_store_busy_when_store_lock_times_out(monkeypatch, tmp_
     def busy_lock(path, **kwargs):
         raise InterProcessLockTimeout("timed out waiting for lock")
 
-    monkeypatch.setattr(store_driver_session_module, "internal_root", lambda: tmp_path)
+    monkeypatch.setattr(store_driver_session_module, "state_root", lambda: tmp_path)
     monkeypatch.setattr(store_driver_session_module, "interprocess_lock", busy_lock)
 
     result = executor.execute_browser_tool(
@@ -179,7 +179,7 @@ def test_open_store_selects_blank_capable_tab_before_ip_check(monkeypatch, tmp_p
     driver = object()
     service = _FakeStoreSessionService(_store_session(), calls)
 
-    monkeypatch.setattr(store_driver_session_module, "internal_root", lambda: tmp_path)
+    monkeypatch.setattr(store_driver_session_module, "state_root", lambda: tmp_path)
     monkeypatch.setattr(dispatcher, "_store_session_service", lambda: service)
     monkeypatch.setattr(dispatcher, "_client_running", lambda: True)
     monkeypatch.setattr(

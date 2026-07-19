@@ -1,4 +1,8 @@
 const root = new URL("../../..", import.meta.url).pathname;
+const desktopEnvironment: Record<string, string | undefined> = { ...process.env };
+delete desktopEnvironment.LXE_DATA_ROOT;
+desktopEnvironment.LXE_SOURCE_ROOT = root;
+desktopEnvironment.LXE_DASHBOARD_DEV_URL = "http://127.0.0.1:5173";
 const dashboard = Bun.spawn(["bun", "run", "--cwd", "apps/dashboard", "dev"], {
   cwd: root,
   stdout: "inherit",
@@ -21,11 +25,7 @@ const electron = Bun.spawn(["bunx", "electron", "."], {
   cwd: new URL("..", import.meta.url).pathname,
   stdout: "inherit",
   stderr: "inherit",
-  env: {
-    ...process.env,
-    LXE_SOURCE_ROOT: root,
-    LXE_DASHBOARD_DEV_URL: "http://127.0.0.1:5173",
-  },
+  env: desktopEnvironment,
 });
 
 const stop = (): void => {

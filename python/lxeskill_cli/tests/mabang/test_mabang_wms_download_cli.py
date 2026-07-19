@@ -10,7 +10,7 @@ from services.agent_cli.mabang import download_wms_consignment_excel as cli
 from services.mabang.amazon.fba import consignment_excel as consignment_source
 import services.mabang.auth as mabang_auth
 import services.mabang.amazon.fba.wms as wms_module
-from shared.repository import repository_root
+from shared.repository import state_root
 
 
 def _write_consignment_excel(path: Path, box_count: int) -> None:
@@ -59,9 +59,8 @@ def _read_excel(path: str | Path):
     return pd.read_excel(path, sheet_name="FBA装箱任务")
 
 
-def test_relative_wms_dirs_resolve_from_workspace_root():
-    workspace_root = repository_root()
-    expected = workspace_root / "artifacts" / "mabang_wms_consignment"
+def test_relative_wms_dirs_resolve_from_canonical_state_root():
+    expected = state_root() / "artifacts" / "mabang_wms_consignment"
 
     assert consignment_source.resolve_consignment_excel_dir() == expected
     assert wms_module._resolve_excel_dir() == expected

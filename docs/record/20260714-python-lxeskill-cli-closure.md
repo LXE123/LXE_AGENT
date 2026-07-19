@@ -33,7 +33,7 @@ pytest 的默认发现根收窄到 `python/lxeskill_cli/tests`；仓库 `test:py
 
 源码模式下，LXE Skill CLI 是仓库内独立闭包，不是可脱离仓库分发的独立产品。它继续读取
 仓库根的 `skills/`、`config/`、`data/`，并写根 `artifacts/` 与 `var/`。Desktop
-安装包读取只读资源副本，业务产物和程序状态分别写入用户工作区与应用数据目录。
+安装包读取只读资源副本，业务工作区由用户选择，程序状态与受管产物写入安装目录的 `var/`。
 仓库根由共享定位器根据稳定项目标记向上发现，不再由各模块硬编码
 `Path(__file__).parents[N]`。
 

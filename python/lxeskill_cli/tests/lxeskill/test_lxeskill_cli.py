@@ -232,7 +232,7 @@ def test_invalid_declared_artifact_is_a_structured_business_error(monkeypatch, c
 
 
 def test_output_file_must_be_under_artifacts_or_skill_assets(tmp_path) -> None:
-    artifact = Path(lxeskill.PROJECT_ROOT) / "artifacts" / "lxeskill-test.txt"
+    artifact = artifact_root() / "lxeskill-test.txt"
     artifact.parent.mkdir(parents=True, exist_ok=True)
     artifact.write_text("ok", encoding="utf-8")
     try:
@@ -296,7 +296,7 @@ def test_desktop_project_workspace_uses_private_writable_roots(tmp_path, monkeyp
         activate_project_workspace()
 
 
-def test_workspace_override_alone_does_not_create_a_data_root(tmp_path, monkeypatch) -> None:
+def test_workspace_override_alone_uses_repository_var_for_managed_state(tmp_path, monkeypatch) -> None:
     workspace = tmp_path / "工作区"
     workspace.mkdir()
     monkeypatch.setenv("LXE_WORKSPACE_ROOT", str(workspace))
@@ -304,9 +304,10 @@ def test_workspace_override_alone_does_not_create_a_data_root(tmp_path, monkeypa
     try:
         assert activate_project_workspace() == workspace.resolve()
         assert workspace_root() == workspace.resolve()
-        assert internal_root() == Path(lxeskill.PROJECT_ROOT)
-        assert artifact_root() == Path(lxeskill.PROJECT_ROOT) / "artifacts"
-        assert not (Path(lxeskill.PROJECT_ROOT) / "lxeskill").exists()
+        assert internal_root() == Path(lxeskill.PROJECT_ROOT) / "var" / "lxeskill"
+        assert artifact_root() == Path(lxeskill.PROJECT_ROOT) / "var" / "artifacts"
+        assert internal_root().is_dir()
+        assert artifact_root().is_dir()
     finally:
         monkeypatch.delenv("LXE_WORKSPACE_ROOT")
         activate_project_workspace()

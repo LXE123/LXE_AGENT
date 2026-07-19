@@ -34,6 +34,7 @@ win:
 mac:
   icon: icon-mac.png
 nsis:
+  include: resources/installer.nsh
   oneClick: false
   perMachine: false
   allowElevation: true

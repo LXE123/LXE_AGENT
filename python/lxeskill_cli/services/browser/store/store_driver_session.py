@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from shared.process_lock import interprocess_lock
-from shared.workspace import internal_root
+from shared.repository import state_root
 
 from services.browser.store.store_session_service import StoreSessionService
 from services.browser.store.ziniao_trace import trace_event
@@ -15,7 +15,7 @@ from services.browser.tools.driver_session import attached_driver, select_first_
 
 def _store_lock_path(store_id: str) -> Path:
     digest = sha256(str(store_id or "").encode("utf-8")).hexdigest()[:24]
-    return internal_root() / "var" / "tmp" / "lxeskill" / f"store-{digest}.lock"
+    return state_root() / "tmp" / "lxeskill" / f"store-{digest}.lock"
 
 
 @contextmanager

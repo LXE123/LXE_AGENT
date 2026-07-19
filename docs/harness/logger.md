@@ -51,8 +51,9 @@ File responsibilities are intentionally separate:
 - Feishu raw events: `var/logs/feishu_raw_events/YYYYMMDD.jsonl`.
 - Provider traces: `var/logs/agent_traces/` and `var/logs/sse_wire_traces/`.
 
-Desktop resolves every path above from `LXE_DATA_ROOT` and exposes `LXE_DATA_ROOT/var/logs` as the canonical diagnostics
-directory. The older `LXE_DATA_ROOT/logs` trace location is not migrated or deleted.
+`LXE_DATA_ROOT` is the canonical `var` root. Desktop resolves every path above from it and exposes
+`LXE_DATA_ROOT/logs` as the diagnostics directory. Desktop does not read, migrate, or delete the former
+AppData/Application Support state tree.
 
 ## Record Shape And Context
 

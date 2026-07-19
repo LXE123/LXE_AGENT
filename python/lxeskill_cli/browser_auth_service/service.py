@@ -148,7 +148,7 @@ def _resolve_credentials(scope: str, account: str) -> tuple[str, str]:
 
 
 def _storage_root() -> Path:
-    root = state_root() / "var" / "db" / "lxeskill" / "browser_auth_service" / "mabang_erp"
+    root = state_root() / "db" / "lxeskill" / "browser_auth_service" / "mabang_erp"
     root.mkdir(parents=True, exist_ok=True)
     return root
 

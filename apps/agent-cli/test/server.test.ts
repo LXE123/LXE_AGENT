@@ -316,7 +316,8 @@ describe("AgentProtocolServer", () => {
         && !Array.isArray(response.result.logging)
         ? response.result.logging.file_path
         : "");
-      expect(filePath).toMatch(/var[\\/]logs[\\/]runtime[\\/]\d{8}[\\/]runtime\.log$/u);
+      expect(filePath).toMatch(/logs[\\/]runtime[\\/]\d{8}[\\/]runtime\.log$/u);
+      expect(filePath).not.toMatch(/var[\\/]var[\\/]/u);
       expect(existsSync(filePath)).toBe(true);
       const content = readFileSync(filePath, "utf8");
       expect(content).toContain('"message":"logging_configured"');

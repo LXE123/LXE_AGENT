@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 interface DevToolsTarget {
   type?: string;
@@ -320,19 +320,19 @@ export async function smokePackagedDesktop(
   const executable = resolve(executablePath);
   const port = await reservePort();
   const probeRoot = mkdtempSync(join(tmpdir(), "lxe-packaged-desktop-smoke-"));
-  const dataRoot = join(probeRoot, "data");
-  const userDataRoot = join(probeRoot, "chromium");
+  const dataRoot = join(dirname(executable), "var");
+  if (existsSync(dataRoot)) {
+    rmSync(probeRoot, { recursive: true, force: true });
+    throw new Error(`Packaged desktop smoke requires a disposable app tree without existing state: ${dataRoot}`);
+  }
+  const childEnvironment: NodeJS.ProcessEnv = { ...process.env, ELECTRON_ENABLE_LOGGING: "1" };
+  delete childEnvironment.LXE_DATA_ROOT;
   const child = spawn(executable, [
-    `--user-data-dir=${userDataRoot}`,
     `--remote-debugging-port=${port}`,
     "--remote-debugging-address=127.0.0.1",
     "--enable-logging=stderr",
   ], {
-    env: {
-      ...process.env,
-      ELECTRON_ENABLE_LOGGING: "1",
-      LXE_DATA_ROOT: dataRoot,
-    },
+    env: childEnvironment,
     stdio: "pipe",
     windowsHide: true,
   });
@@ -380,7 +380,7 @@ export async function smokePackagedDesktop(
     if (result.setupAfter.loggingProfile !== "standard") {
       throw new Error(`Desktop setup persisted an unexpected log profile: ${String(result.setupAfter.loggingProfile)}`);
     }
-    if (result.setupAfter.loggingDirectory !== join(dataRoot, "var", "logs")) {
+    if (result.setupAfter.loggingDirectory !== join(dataRoot, "logs")) {
       throw new Error(`Desktop setup exposed an unexpected log directory: ${String(result.setupAfter.loggingDirectory)}`);
     }
     if (!result.postSaveHealth || typeof result.postSaveHealth !== "object") {
@@ -419,6 +419,7 @@ export async function smokePackagedDesktop(
     failure = error;
   } finally {
     await stopProcessTree(child);
+    rmSync(dataRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     rmSync(probeRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 

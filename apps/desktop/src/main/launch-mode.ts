@@ -1,5 +1,3 @@
-import { posix, win32 } from "node:path";
-
 export type DesktopLaunchMode = "development" | "preview" | "packaged";
 
 export interface DesktopLaunchModeOptions {
@@ -17,14 +15,6 @@ export const usesProductionRenderer = (mode: DesktopLaunchMode): boolean =>
 
 export const usesPackagedRuntime = (mode: DesktopLaunchMode): boolean =>
   mode === "packaged";
-
-export function desktopPreviewDataRoot(
-  appDataPath: string,
-  platform: NodeJS.Platform = process.platform,
-): string {
-  const targetPath = platform === "win32" ? win32 : posix;
-  return targetPath.join(appDataPath, "LXE Agent Preview");
-}
 
 export function isAllowedDesktopNavigation(
   target: string,

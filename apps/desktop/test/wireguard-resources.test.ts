@@ -37,4 +37,19 @@ describe("packaged WireGuard resources", () => {
     expect(provision).toContain("/api/v1/agent-data/devices/activate");
     expect(provision).toContain("This device file is already bound to another computer");
   });
+
+  test("ships a narrow elevated cleanup for only the LXE-managed tunnel", () => {
+    const cleanup = readFileSync(
+      resolve(repositoryRoot, "apps/desktop/resources/wireguard/remove-lxe-tunnel.ps1"),
+      "utf8",
+    );
+    const staging = readFileSync(resolve(repositoryRoot, "scripts/prepare-desktop-resources.ts"), "utf8");
+    expect(cleanup).toContain('$TunnelName = "lxe-agent"');
+    expect(cleanup).toContain("/uninstalltunnelservice $TunnelName");
+    expect(cleanup).toContain("-Verb RunAs");
+    expect(cleanup).toContain("$SecureConfiguration");
+    expect(cleanup).not.toContain("/uninstallmanagerservice");
+    expect(cleanup).not.toContain("msiexec");
+    expect(staging).toContain("remove-lxe-tunnel.ps1");
+  });
 });

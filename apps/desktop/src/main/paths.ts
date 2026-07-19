@@ -3,6 +3,7 @@ import { posix, win32 } from "node:path";
 
 export interface DesktopPaths {
   sourceRoot: string;
+  projectRoot: string;
   resourceRoot: string;
   dataRoot: string;
   defaultWorkspaceRoot: string;
@@ -19,8 +20,8 @@ export interface DesktopPaths {
 export interface DesktopPathOptions {
   packaged: boolean;
   appPath: string;
+  executablePath: string;
   resourcesPath: string;
-  userDataPath: string;
   documentsPath: string;
   environment?: Record<string, string | undefined>;
   platform?: NodeJS.Platform;
@@ -41,7 +42,10 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
   const resourceRoot = options.packaged
     ? targetPath.join(options.resourcesPath, "project")
     : sourceRoot;
-  const dataRoot = targetPath.resolve(String(environment.LXE_DATA_ROOT ?? "").trim() || options.userDataPath);
+  const projectRoot = options.packaged
+    ? targetPath.dirname(targetPath.resolve(options.executablePath))
+    : sourceRoot;
+  const dataRoot = targetPath.join(projectRoot, "var");
   const executable = platform === "win32" ? ".exe" : "";
   const agentCommand = options.packaged
     ? targetPath.join(options.resourcesPath, "runtime", "agent-cli", `agent-cli${executable}`)
@@ -69,6 +73,7 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     : [targetPath.join(sourceRoot, ".venv", platform === "win32" ? "Scripts" : "bin")];
   return {
     sourceRoot,
+    projectRoot,
     resourceRoot,
     dataRoot,
     defaultWorkspaceRoot: targetPath.join(options.documentsPath, "LXE Agent"),

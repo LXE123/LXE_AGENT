@@ -183,6 +183,7 @@ export class AgentProtocolServer {
     Object.assign(this.environment, environment);
     this.logging = configureLogging({
       projectRoot: payload.data_root,
+      stateRoot: payload.data_root,
       environment,
       onStatusChange: (status) => this.publishLoggingStatus(status),
     });

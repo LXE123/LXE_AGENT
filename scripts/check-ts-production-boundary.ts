@@ -53,6 +53,16 @@ requireText("package.json", /"desktop:preview"\s*:\s*"bun run dashboard:build &&
 requireText("apps/desktop/package.json", /"preview"\s*:\s*"bun run build && bun src\/preview\.ts"/, "desktop package must build Main and Preload before preview");
 requireText("apps/desktop/src/preview.ts", /LXE_DESKTOP_PREVIEW\s*=\s*"1"/, "preview launcher must select the internal preview mode");
 requireText("apps/desktop/src/preview.ts", /delete environment\.LXE_DATA_ROOT/, "preview launcher must discard external desktop data roots");
+requireText("apps/desktop/src/dev.ts", /delete desktopEnvironment\.LXE_DATA_ROOT/, "development launcher must discard external desktop data roots");
+requireText("apps/desktop/src/main/paths.ts", /targetPath\.join\(projectRoot, "var"\)/, "desktop state must use the project-local var root");
+forbidText("apps/desktop/src/main/paths.ts", /environment\.LXE_DATA_ROOT|userDataPath/, "desktop state roots must not fall back to external application data");
+for (const pathName of ["userData", "sessionData", "temp", "logs", "crashDumps"]) {
+  requireText(
+    "apps/desktop/src/main/runtime-state.ts",
+    new RegExp(`setPath\\(\\"${pathName}\\"`),
+    `Electron ${pathName} must be routed into the project var root`,
+  );
+}
 forbidText("apps/desktop/src/preview.ts", /https?:\/\/|\bfetch\b|VITE|5173|8765|LXE_DASHBOARD_DEV_URL\s*=/, "production preview must not start or target an HTTP Renderer");
 requireText("apps/desktop/src/main.ts", /usesProductionRenderer\(launchMode\)/, "desktop must select the Renderer independently from packaging");
 requireText("apps/desktop/src/main.ts", /usesPackagedRuntime\(launchMode\)/, "desktop must keep preview on the source Runtime");

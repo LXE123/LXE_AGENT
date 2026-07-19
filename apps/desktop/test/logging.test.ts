@@ -38,7 +38,8 @@ describe("DesktopLoggingManager", () => {
       console_level: "error",
       file_level: "info",
     });
-    expect(active.file_path).toMatch(/var[\\/]logs[\\/]runtime[\\/]\d{8}[\\/]desktop\.log$/u);
+    expect(active.file_path).toMatch(/logs[\\/]runtime[\\/]\d{8}[\\/]desktop\.log$/u);
+    expect(active.file_path).not.toMatch(/var[\\/]var[\\/]/u);
     createLogger("gateway.desktop_test").debug("standard_filtered_record");
     createLogger("gateway.desktop_test").info("desktop_test_record");
     const activeContent = readFileSync(active.file_path, "utf8");

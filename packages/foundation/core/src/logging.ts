@@ -52,6 +52,7 @@ export interface LogSanitizePolicy {
 
 export interface ConfigureLoggingOptions {
   projectRoot: string;
+  stateRoot?: string;
   environment: Environment;
   onStatusChange?: (status: LoggingStatus) => void;
 }
@@ -286,15 +287,23 @@ const dateValue = (name: string): number | undefined => {
 
 const failureText = (error: unknown): string => truncate(error instanceof Error ? error.message : String(error), 1_000);
 
-const cleanupRetention = (projectRoot: string, environment: Environment, today = new Date()): RetentionResult => {
+const cleanupRetention = (
+  projectRoot: string,
+  stateRoot: string,
+  explicitStateRoot: boolean,
+  environment: Environment,
+  today = new Date(),
+): RetentionResult => {
   const result: RetentionResult = { deleted: [], failures: [] };
   const retentionDays = envInteger(environment, "LOCAL_LOG_RETENTION_DAYS", 7, { min: 1 });
   const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (retentionDays - 1)).getTime();
+  const configuredRoot = explicitStateRoot ? stateRoot : projectRoot;
+  const managedPrefix = explicitStateRoot ? "logs" : "var/logs";
   const directoryRoots = [
-    resolveConfiguredPath(envText(environment, "AGENT_STREAM_TRACE_DIR"), "var/logs/agent_traces", projectRoot),
-    resolveConfiguredPath(envText(environment, "AGENT_SSE_WIRE_TRACE_DIR"), "var/logs/sse_wire_traces", projectRoot),
-    resolve(projectRoot, "var", "logs", "feishu_msg"),
-    resolve(projectRoot, "var", "logs", "runtime"),
+    resolveConfiguredPath(envText(environment, "AGENT_STREAM_TRACE_DIR"), `${managedPrefix}/agent_traces`, configuredRoot),
+    resolveConfiguredPath(envText(environment, "AGENT_SSE_WIRE_TRACE_DIR"), `${managedPrefix}/sse_wire_traces`, configuredRoot),
+    resolve(stateRoot, "logs", "feishu_msg"),
+    resolve(stateRoot, "logs", "runtime"),
   ];
   for (const root of directoryRoots) {
     if (!existsSync(root)) continue;
@@ -319,7 +328,11 @@ const cleanupRetention = (projectRoot: string, environment: Environment, today =
       }
     }
   }
-  const rawEventRoot = resolveConfiguredPath(envText(environment, "FEISHU_RAW_EVENT_DUMP_DIR"), "var/logs/feishu_raw_events", projectRoot);
+  const rawEventRoot = resolveConfiguredPath(
+    envText(environment, "FEISHU_RAW_EVENT_DUMP_DIR"),
+    `${managedPrefix}/feishu_raw_events`,
+    configuredRoot,
+  );
   if (!existsSync(rawEventRoot)) return result;
   let names: string[];
   try {
@@ -454,6 +467,8 @@ const statusSnapshot = (status: MutableLoggingStatus): LoggingStatus => ({
 export function configureLogging(options: ConfigureLoggingOptions): LoggingController {
   processSink?.close();
   const projectRoot = resolve(options.projectRoot);
+  const explicitStateRoot = Boolean(String(options.stateRoot ?? "").trim());
+  const stateRoot = explicitStateRoot ? resolve(options.stateRoot!) : resolve(projectRoot, "var");
   const environment = options.environment;
   const consoleLevel = parseLevel(envText(environment, "LOG_LEVEL", "INFO"), "info");
   const fileLevel = parseLevel(envText(environment, "RUNTIME_LOG_LEVEL", "DEBUG"), "debug");
@@ -461,9 +476,11 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
   const enabled = envFlag(environment, "LOCAL_LOGS_ENABLED", false);
   const fileName = basename(envText(environment, "LOG_FILE"));
   const filePath = enabled && fileName && ![".", ".."].includes(fileName)
-    ? resolve(projectRoot, "var", "logs", "runtime", localDay(), fileName)
+    ? resolve(stateRoot, "logs", "runtime", localDay(), fileName)
     : undefined;
-  const retention = enabled ? cleanupRetention(projectRoot, environment) : { deleted: [], failures: [] };
+  const retention = enabled
+    ? cleanupRetention(projectRoot, stateRoot, explicitStateRoot, environment)
+    : { deleted: [], failures: [] };
   if (filePath) {
     try {
       mkdirSync(dirname(filePath), { recursive: true });
