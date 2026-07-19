@@ -16,28 +16,34 @@ Claude Code's stream JSON mode:
 - lifecycle and turn progress are independent event envelopes.
 
 The protocol is private to the Electron application. It is not installed on the
-system `PATH` and is versioned independently. The current typed Dashboard RPC
-cutover uses `version: 2`.
+system `PATH` and is versioned independently. The current strict steering
+handoff contract uses `version: 3`; version 2 is rejected instead of running a
+mixed Desktop/agent-cli pair.
 
 ## Request and response envelopes
 
 ```json
-{"version":2,"id":"request-1","command":"health","payload":{}}
-{"version":2,"id":"request-1","ok":true,"result":{"ready":true}}
+{"version":3,"id":"request-1","command":"has_pending_events","payload":{"session_id":"session-1"}}
+{"version":3,"id":"request-1","ok":true,"result":{"pending":false}}
 ```
 
 Errors preserve the request ID:
 
 ```json
-{"version":2,"id":"request-1","ok":false,"error":{"code":"RunUnavailable","message":"run not found"}}
+{"version":3,"id":"request-1","ok":false,"error":{"code":"RunUnavailable","message":"run not found"}}
 ```
 
 Supported commands are `initialize`, `run_turn`, `cancel_turn`, `steer_turn`,
-the session and pending-event storage operations, `dashboard_call`, `health`,
-and `shutdown`. `dashboard_call` carries a validated `{ operation, input }`
+`ensure_session`, `append_pending_event`, `has_pending_events`,
+`dashboard_call`, and `shutdown`. `dashboard_call` carries a validated `{ operation, input }`
 envelope and returns the operation result directly; it has no HTTP method, path,
 status, `Request`, or `Response`. `initialize` supplies resource, data, and workspace roots before
 any stateful command is accepted.
+
+Every successful `run_turn` result includes `remaining_steering`, even when it
+is an empty array. The Gateway validates the complete result and rejects a
+missing array, malformed message, or invalid usage counter as an
+`AgentProtocolError`; it never substitutes an empty handoff.
 
 ## Events and session continuity
 

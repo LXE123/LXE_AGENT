@@ -25,7 +25,7 @@ Step 开始动态读取 `ToolExposureState.schemas()`。因此 `tool_search`、M
 4. ContextPipeline 接收 cloned messages、system prompt 和本 step schemas。
 5. prepare 返回可发送 messages 和 token/compaction 结果。
 
-Heartbeat pending events 已在 Router/job 层进入用户输入上下文，不由 Context 自行查询平台或 queue。
+Runtime 在进入 ContextPipeline 前从自己的 Store pop pending events，并把它们放入当前用户内容；它们不经过 Router 或 `AgentJob.raw_data`。Context 本身不查询平台、Gateway queue 或 pending-event Store。
 
 ## Prepare 流程
 

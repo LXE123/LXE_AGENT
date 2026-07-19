@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
   AGENT_PROTOCOL_VERSION,
+  AgentProtocolError,
   isAgentResponse,
+  parseAgentRunTurnResult,
   parseAgentWireMessage,
   parseDashboardRpcCall,
 } from "../src";
@@ -24,6 +26,59 @@ describe("desktop agent protocol", () => {
       ok: true,
       result: null,
     }))).toThrow("unsupported agent protocol version");
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      version: 2,
+      id: "request-v2",
+      ok: true,
+      result: null,
+    }))).toThrow("unsupported agent protocol version: 2");
+  });
+
+  test("strictly parses run_turn results", () => {
+    expect(parseAgentRunTurnResult({
+      status: "completed",
+      reply: "done",
+      input_tokens: 1,
+      output_tokens: 2,
+      tool_calls: 3,
+      remaining_steering: [
+        { text: "  follow up  ", response_route_id: " route-2 ", message_id: " m-2 " },
+      ],
+    })).toEqual({
+      status: "completed",
+      reply: "done",
+      input_tokens: 1,
+      output_tokens: 2,
+      tool_calls: 3,
+      remaining_steering: [
+        { text: "follow up", response_route_id: "route-2", message_id: "m-2" },
+      ],
+    });
+  });
+
+  test("rejects incomplete or malformed run_turn results", () => {
+    const valid = {
+      status: "completed",
+      reply: "done",
+      input_tokens: 1,
+      output_tokens: 2,
+      tool_calls: 3,
+      remaining_steering: [],
+    };
+    expect(() => parseAgentRunTurnResult({ ...valid, remaining_steering: undefined }))
+      .toThrow(AgentProtocolError);
+    expect(() => parseAgentRunTurnResult({ ...valid, remaining_steering: {} }))
+      .toThrow("remaining_steering must be an array");
+    expect(() => parseAgentRunTurnResult({ ...valid, remaining_steering: [{ text: " " }] }))
+      .toThrow("text must be a non-empty string");
+    expect(() => parseAgentRunTurnResult({
+      ...valid,
+      remaining_steering: [{ text: "follow up", response_route_id: 1 }],
+    })).toThrow("response_route_id must be a string");
+    for (const counter of [-1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1, "1"]) {
+      expect(() => parseAgentRunTurnResult({ ...valid, input_tokens: counter }))
+        .toThrow("input_tokens must be a non-negative safe integer");
+    }
   });
 
   test("rejects non-object payloads", () => {

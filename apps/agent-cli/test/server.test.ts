@@ -18,6 +18,24 @@ const workspace = (root: string) => ({
   worktree: root,
 });
 
+const turnJob = (root: string) => ({
+  job_id: "job-1",
+  session_id: "session-1",
+  session_key: "session-1",
+  response_route_id: "route-1",
+  user_id: "user-1",
+  conversation_id: "conversation-1",
+  is_group: false,
+  message_id: "message-1",
+  user_input: "hello",
+  job_kind: "turn",
+  sender_nick: "tester",
+  source: {},
+  raw_data: {},
+  user_content_blocks: [],
+  workspace: workspace(root),
+});
+
 const fakeHost: CreateHost = (() => ({
   start: async () => {
     createLogger("runtime.maintenance").info("data_sync_uploaded", {
@@ -92,25 +110,7 @@ describe("AgentProtocolServer", () => {
       version: AGENT_PROTOCOL_VERSION,
       id: "turn-1",
       command: "run_turn",
-      payload: {
-        job: {
-          job_id: "job-1",
-          session_id: "session-1",
-          session_key: "session-1",
-          response_route_id: "route-1",
-          user_id: "user-1",
-          conversation_id: "conversation-1",
-          is_group: false,
-          message_id: "message-1",
-          user_input: "hello",
-          job_kind: "turn",
-          sender_nick: "tester",
-          source: {},
-          raw_data: {},
-          user_content_blocks: [],
-          workspace: workspace(root),
-        },
-      },
+      payload: { job: turnJob(root) },
     }));
 
     const response = output.find((message): message is AgentResponse =>
@@ -128,6 +128,44 @@ describe("AgentProtocolServer", () => {
         ],
       },
     });
+    await server.shutdown();
+  });
+
+  test("run_turn returns an empty steering array when every message was consumed", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    const root = process.cwd();
+    const createHost = (() => ({
+      start: async () => undefined,
+      stop: async () => undefined,
+      health: () => ({ ready: true }),
+      runTurn: async () => ({
+        status: "completed",
+        reply: "ok",
+        input_tokens: 1,
+        output_tokens: 2,
+        tool_calls: 0,
+      }),
+    })) as unknown as CreateHost;
+    const server = new AgentProtocolServer({
+      write: (message) => { output.push(message); },
+      createHost,
+      environment: { LOCAL_LOGS_ENABLED: "0" },
+    });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "initialize-empty-steering",
+      command: "initialize",
+      payload: { resource_root: root, data_root: root, legacy_workspace: workspace(root) },
+    }));
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "turn-empty-steering",
+      command: "run_turn",
+      payload: { job: turnJob(root) },
+    }));
+
+    expect(output.find((message) => !("type" in message) && message.id === "turn-empty-steering"))
+      .toMatchObject({ ok: true, result: { remaining_steering: [] } });
     await server.shutdown();
   });
 

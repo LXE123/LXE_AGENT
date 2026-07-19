@@ -62,7 +62,14 @@ describe("direct Gateway composition", () => {
       stop: async () => { order.push("runtime:stop"); },
       runTurn: async () => {
         order.push("runtime:turn");
-        return { status: "completed" as const, reply: "done", input_tokens: 1, output_tokens: 1, tool_calls: 0 };
+        return {
+          status: "completed" as const,
+          reply: "done",
+          input_tokens: 1,
+          output_tokens: 1,
+          tool_calls: 0,
+          remaining_steering: [],
+        };
       },
     };
     const composition = createDirectGatewayComposition({
@@ -100,9 +107,9 @@ describe("direct Gateway composition", () => {
           input_tokens: 1,
           output_tokens: 1,
           tool_calls: 0,
-          ...(jobs.length === 1
-            ? { remaining_steering: [{ text: "follow up", response_route_id: "route-2", message_id: "m-2" }] }
-            : {}),
+          remaining_steering: jobs.length === 1
+            ? [{ text: "follow up", response_route_id: "route-2", message_id: "m-2" }]
+            : [],
         };
       },
     };

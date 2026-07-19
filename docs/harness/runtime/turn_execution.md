@@ -22,7 +22,7 @@ Dashboard 的模型/thinking、MCP、connector 或 skill 状态变化不会改�
 
 ## 初始化
 
-飞书普通 turn best-effort 添加 typing reaction，并创建一个 `FinalAnswerStreamer`。Runtime load replay 后追加当前 user message；heartbeat job 的 pending events 已由 Router 放入 job source/context。
+飞书普通 turn best-effort 添加 typing reaction，并创建一个 `FinalAnswerStreamer`。每个 turn 开始时，Runtime 从自己的 Store pop pending events；普通 turn 把它们附加到当前 user content，heartbeat 则只处理这些事件。随后 Runtime load replay，并追加当前 user message。Router 和 `AgentJob.raw_data` 不承载 pending events。
 
 Runtime 同时初始化 turn/tool/skill usage counters。usage 最多写一次，即使 final delivery 或 post-turn maintenance 抛错也不能重复计数。
 

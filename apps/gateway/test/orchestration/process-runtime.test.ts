@@ -3,12 +3,31 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { AgentJob } from "@lxe/protocol";
+import { AgentProtocolError } from "@lxe/desktop-protocol";
 import { ProcessAgentRuntime } from "../../src/orchestration/process-runtime";
 import { RunHandle } from "../../src/orchestration/scheduler";
 import { testWorkspace, workspaceFor } from "../workspace";
 
 const runtimes: ProcessAgentRuntime[] = [];
 const temporaryRoots: string[] = [];
+const agentJob = (): AgentJob => ({
+  job_id: "job-1",
+  session_id: "session-1",
+  session_key: "session-1",
+  response_route_id: "route-1",
+  user_id: "user-1",
+  conversation_id: "conversation-1",
+  is_group: false,
+  message_id: "message-1",
+  user_input: "hello",
+  job_kind: "turn",
+  sender_nick: "tester",
+  source: {},
+  raw_data: {},
+  user_content_blocks: [],
+  workspace: testWorkspace,
+});
+
 afterEach(async () => {
   await Promise.allSettled(runtimes.splice(0).map((runtime) => runtime.stop()));
   for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -138,6 +157,35 @@ describe("ProcessAgentRuntime", () => {
       .toEqual({ items: [], total: 0 });
   }, 10_000);
 
+  test("rejects incomplete or malformed run_turn results", async () => {
+    const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");
+    const cases = [
+      ["missing_steering", "remaining_steering must be an array"],
+      ["malformed_steering", "message_id must be a string"],
+      ["negative_counter", "input_tokens must be a non-negative safe integer"],
+    ] as const;
+
+    for (const [resultMode, expectedMessage] of cases) {
+      const runtime = new ProcessAgentRuntime({
+        command: process.execPath,
+        arguments: [fixture],
+        cwd: process.cwd(),
+        environment: { ...process.env, FAKE_RUN_TURN_RESULT: resultMode },
+        resourceRoot: process.cwd(),
+        dataRoot: process.cwd(),
+        legacyWorkspace: testWorkspace,
+      });
+      runtimes.push(runtime);
+      await runtime.start();
+      const job = agentJob();
+      const error = await runtime.runTurn(job, new RunHandle(job)).catch((cause) => cause);
+      expect(error).toBeInstanceOf(AgentProtocolError);
+      expect(error).toHaveProperty("code", "AgentProtocolError");
+      expect(error).toHaveProperty("message", expect.stringContaining(expectedMessage));
+      await runtime.stop();
+    }
+  });
+
   test("forwards steering and deduplicates cancellation for an active turn", async () => {
     const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");
     const runtime = new ProcessAgentRuntime({
@@ -151,23 +199,7 @@ describe("ProcessAgentRuntime", () => {
     });
     runtimes.push(runtime);
     await runtime.start();
-    const job: AgentJob = {
-      job_id: "job-1",
-      session_id: "session-1",
-      session_key: "session-1",
-      response_route_id: "route-1",
-      user_id: "user-1",
-      conversation_id: "conversation-1",
-      is_group: false,
-      message_id: "message-1",
-      user_input: "hello",
-      job_kind: "turn",
-      sender_nick: "tester",
-      source: {},
-      raw_data: {},
-      user_content_blocks: [],
-      workspace: testWorkspace,
-    };
+    const job = agentJob();
     const handle = new RunHandle(job);
     const turn = runtime.runTurn(job, handle);
     await Bun.sleep(10);

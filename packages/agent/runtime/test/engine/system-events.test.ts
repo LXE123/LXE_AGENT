@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   formatPendingSystemEvents,
   heartbeatPrompt,
-  mergePendingSystemEvents,
   normalizePendingSystemEvents,
   sanitizeSystemPrefixedText,
   userContentWithSystemEvents,
@@ -16,25 +15,6 @@ describe("pending system events", () => {
     ]);
     expect(events[0]?.created_at).toBe(1_700_000_000);
     expect(events[1]?.created_at).toBe(1_704_067_200);
-  });
-
-  test("merges embedded and stored events while deduplicating non-empty event ids", () => {
-    expect(mergePendingSystemEvents(
-      [
-        { event_id: "shared", job_id: "embedded", text: "embedded first" },
-        { event_id: "", job_id: "anonymous-1", text: "anonymous first" },
-      ],
-      [
-        { event_id: "shared", job_id: "stored-duplicate", text: "stored duplicate" },
-        { event_id: "stored", job_id: "stored", text: "stored second" },
-        { event_id: "", job_id: "anonymous-2", text: "anonymous second" },
-      ],
-    ).map((event) => event.text)).toEqual([
-      "embedded first",
-      "anonymous first",
-      "stored second",
-      "anonymous second",
-    ]);
   });
 
   test("sanitizes user-authored System prefixes while keeping trusted events first", () => {

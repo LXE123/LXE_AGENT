@@ -51,11 +51,11 @@ Router 在 enqueue 前 upsert route；CardKit 创建后可 patch `platform_messa
 1. ensure session。
 2. 恢复 autonomy suspension。
 3. 保存 response route。
-4. pop 已持久化的 pending events，并附加到本轮输入上下文。
-5. 把文本、附件 blocks、source 和 raw metadata 组装成 `AgentJob`。
-6. 交给 `SessionScheduler.enqueue()`。
+4. 把文本、附件 blocks、source 和 raw metadata 组装成 `AgentJob`。
+5. 交给 `SessionScheduler.enqueue()`。
 
 用户消息不直接调用 Runtime。即使当前没有并发压力，也必须经过 scheduler，以保持 stop、steering 和 heartbeat 语义一致。
+pending events 不经过 Router 或 `AgentJob.raw_data`；Runtime 在 turn 开始时从自己的 Store pop，并附加到本轮用户上下文。
 
 ## 控制命令
 

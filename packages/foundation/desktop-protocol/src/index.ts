@@ -15,7 +15,16 @@ import {
 
 export * from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 2 as const;
+export const AGENT_PROTOCOL_VERSION = 3 as const;
+
+export class AgentProtocolError extends Error {
+  readonly code = "AgentProtocolError";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentProtocolError";
+  }
+}
 
 export type AgentInitializePayload = {
   resource_root: string;
@@ -56,8 +65,72 @@ export type AgentRunTurnResult = {
   output_tokens: number;
   tool_calls: number;
   /** Steering messages the agent never consumed before the turn ended. */
-  remaining_steering?: AgentSteeringMessage[];
+  remaining_steering: AgentSteeringMessage[];
 };
+
+export function parseAgentRunTurnResult(value: unknown): AgentRunTurnResult {
+  const object = objectValue(value);
+  if (!object) throw new AgentProtocolError("agent protocol run_turn result must be an object");
+
+  const status = object.status;
+  if (status !== "completed" && status !== "cancelled" && status !== "error") {
+    throw new AgentProtocolError("agent protocol run_turn result.status is invalid");
+  }
+  if (typeof object.reply !== "string") {
+    throw new AgentProtocolError("agent protocol run_turn result.reply must be a string");
+  }
+
+  const safeCounter = (name: "input_tokens" | "output_tokens" | "tool_calls"): number => {
+    const counter = object[name];
+    if (typeof counter !== "number" || !Number.isSafeInteger(counter) || counter < 0) {
+      throw new AgentProtocolError(`agent protocol run_turn result.${name} must be a non-negative safe integer`);
+    }
+    return counter;
+  };
+
+  if (!Array.isArray(object.remaining_steering)) {
+    throw new AgentProtocolError("agent protocol run_turn result.remaining_steering must be an array");
+  }
+  const remainingSteering = object.remaining_steering.map((value, index): AgentSteeringMessage => {
+    const item = objectValue(value);
+    if (!item) {
+      throw new AgentProtocolError(
+        `agent protocol run_turn result.remaining_steering[${index}] must be an object`,
+      );
+    }
+    if (typeof item.text !== "string" || !item.text.trim()) {
+      throw new AgentProtocolError(
+        `agent protocol run_turn result.remaining_steering[${index}].text must be a non-empty string`,
+      );
+    }
+    const responseRouteId = item.response_route_id;
+    const messageId = item.message_id;
+    for (const [field, fieldValue] of [
+      ["response_route_id", responseRouteId],
+      ["message_id", messageId],
+    ] as const) {
+      if (fieldValue !== undefined && typeof fieldValue !== "string") {
+        throw new AgentProtocolError(
+          `agent protocol run_turn result.remaining_steering[${index}].${field} must be a string`,
+        );
+      }
+    }
+    return {
+      text: item.text.trim(),
+      ...(typeof responseRouteId === "string" ? { response_route_id: responseRouteId.trim() } : {}),
+      ...(typeof messageId === "string" ? { message_id: messageId.trim() } : {}),
+    };
+  });
+
+  return {
+    status,
+    reply: object.reply,
+    input_tokens: safeCounter("input_tokens"),
+    output_tokens: safeCounter("output_tokens"),
+    tool_calls: safeCounter("tool_calls"),
+    remaining_steering: remainingSteering,
+  };
+}
 
 export type AgentRequest<C extends AgentCommand = AgentCommand> = C extends AgentCommand
   ? {
