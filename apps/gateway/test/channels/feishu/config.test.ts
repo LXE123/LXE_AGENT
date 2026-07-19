@@ -7,12 +7,14 @@ describe("Feishu config", () => {
       FEISHU_APP_ID: "cli_1234567890abcdef",
       FEISHU_APP_SECRET: "secret_1234567890",
       FEISHU_API_HOST: "https://open.larksuite.com/open-apis",
-      FEISHU_WS_AUTO_RESTART_ENABLED: "false",
-      FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS: "123",
+      LXE_FEISHU_GATEWAY_ENABLED: "false",
+      LXE_FEISHU_WS_AUTO_RESTART_ENABLED: "false",
+      LXE_FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS: "123",
     });
     expect(config.appId).toBe("cli_1234567890abcdef");
     expect(config.apiHost).toBe("https://open.larksuite.com/open-apis");
     expect(config.domain).toBe("lark");
+    expect(config.gatewayEnabled).toBe(false);
     expect(config.autoRestartEnabled).toBe(false);
     expect(config.autoRestartIntervalMs).toBe(123_000);
     expect(config.rawEventDumpEnabled).toBe(false);
@@ -28,6 +30,17 @@ describe("Feishu config", () => {
       app_id_masked: "cli_...cdef",
       api_host: "https://open.larksuite.com/open-apis",
     }));
+  });
+
+  test("keeps legacy Feishu runtime keys as compatibility fallbacks", () => {
+    const config = loadFeishuConfig({
+      FEISHU_GATEWAY_ENABLED: "false",
+      FEISHU_WS_AUTO_RESTART_ENABLED: "false",
+      FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS: "123",
+    });
+    expect(config.gatewayEnabled).toBe(false);
+    expect(config.autoRestartEnabled).toBe(false);
+    expect(config.autoRestartIntervalMs).toBe(123_000);
   });
 
   test("reports and rejects missing credentials without exposing secrets", () => {

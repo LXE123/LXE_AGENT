@@ -11,10 +11,22 @@ const envBoolean = (env: Environment, name: string, fallback: boolean): boolean 
   if (["0", "false", "no", "off"].includes(value)) return false;
   return fallback;
 };
+const envBooleanAlias = (
+  env: Environment,
+  name: string,
+  legacyName: string,
+  fallback: boolean,
+): boolean => envBoolean(env, env[name] === undefined ? legacyName : name, fallback);
 const envSeconds = (env: Environment, name: string, fallback: number): number => {
   const parsed = Number.parseInt(envText(env, name), 10);
   return Math.max(1, Number.isFinite(parsed) ? parsed : fallback) * 1_000;
 };
+const envSecondsAlias = (
+  env: Environment,
+  name: string,
+  legacyName: string,
+  fallback: number,
+): number => envSeconds(env, env[name] === undefined ? legacyName : name, fallback);
 const mask = (value: string): string => {
   if (!value) return "";
   if (value.length <= 8) return "*".repeat(value.length);
@@ -66,11 +78,31 @@ export function loadFeishuConfig(env: Environment = process.env): FeishuConfig {
   const appId = envText(env, "FEISHU_APP_ID");
   const appSecret = envText(env, "FEISHU_APP_SECRET");
   const apiHost = envText(env, "FEISHU_API_HOST", "https://open.feishu.cn/open-apis");
-  const gatewayEnabled = envBoolean(env, "FEISHU_GATEWAY_ENABLED", true);
-  const autoRestartEnabled = envBoolean(env, "FEISHU_WS_AUTO_RESTART_ENABLED", true);
-  const autoRestartIntervalMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS", 5_400);
-  const autoRestartIdleCheckMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS", 30);
-  const autoRestartRetryMs = envSeconds(env, "FEISHU_WS_AUTO_RESTART_RETRY_SECONDS", 60);
+  const gatewayEnabled = envBooleanAlias(env, "LXE_FEISHU_GATEWAY_ENABLED", "FEISHU_GATEWAY_ENABLED", true);
+  const autoRestartEnabled = envBooleanAlias(
+    env,
+    "LXE_FEISHU_WS_AUTO_RESTART_ENABLED",
+    "FEISHU_WS_AUTO_RESTART_ENABLED",
+    true,
+  );
+  const autoRestartIntervalMs = envSecondsAlias(
+    env,
+    "LXE_FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS",
+    "FEISHU_WS_AUTO_RESTART_INTERVAL_SECONDS",
+    5_400,
+  );
+  const autoRestartIdleCheckMs = envSecondsAlias(
+    env,
+    "LXE_FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS",
+    "FEISHU_WS_AUTO_RESTART_IDLE_CHECK_SECONDS",
+    30,
+  );
+  const autoRestartRetryMs = envSecondsAlias(
+    env,
+    "LXE_FEISHU_WS_AUTO_RESTART_RETRY_SECONDS",
+    "FEISHU_WS_AUTO_RESTART_RETRY_SECONDS",
+    60,
+  );
   const rawEventDumpEnabled = envBoolean(env, "LOCAL_LOGS_ENABLED", false)
     && envBoolean(env, "FEISHU_RAW_EVENT_DUMP_ENABLED", true);
   const rawEventDumpDir = envText(env, "FEISHU_RAW_EVENT_DUMP_DIR", "var/logs/feishu_raw_events");

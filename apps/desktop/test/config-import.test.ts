@@ -97,7 +97,7 @@ describe("DesktopConfigImportManager", () => {
       ZINIAO_REGISTER_PLANNER_TOOLS: "1",
       ZINIAO_PASSWORD: "ziniao-secret",
       MABANG_PASSWORD: "mabang-secret",
-      FEISHU_GATEWAY_ENABLED: "1",
+      LXE_FEISHU_GATEWAY_ENABLED: "1",
       FEISHU_APP_SECRET: "feishu-secret",
       LOCAL_LOGS_ENABLED: "1",
       RUNTIME_LOG_LEVEL: "DEBUG",
@@ -194,7 +194,7 @@ describe("DesktopConfigImportManager", () => {
       ZINIAO_CLIENT_PATH: "",
       MABANG_ACCOUNT: "",
       MABANG_PASSWORD: "",
-      FEISHU_GATEWAY_ENABLED: "0",
+      LXE_FEISHU_GATEWAY_ENABLED: "0",
       FEISHU_APP_SECRET: "",
     });
   });

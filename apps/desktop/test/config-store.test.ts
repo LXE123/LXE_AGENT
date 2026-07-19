@@ -65,7 +65,7 @@ describe("DesktopConfigStore", () => {
       ZINIAO_REGISTER_PLANNER_TOOLS: "1",
       ZINIAO_PASSWORD: "ziniao-secret",
       MABANG_PASSWORD: "mabang-secret",
-      FEISHU_GATEWAY_ENABLED: "1",
+      LXE_FEISHU_GATEWAY_ENABLED: "1",
       FEISHU_APP_SECRET: "feishu-secret",
       LOCAL_LOGS_ENABLED: "1",
       RUNTIME_LOG_LEVEL: "DEBUG",

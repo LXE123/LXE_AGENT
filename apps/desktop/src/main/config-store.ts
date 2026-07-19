@@ -716,7 +716,7 @@ export class DesktopConfigStore {
       ZINIAO_WEBDRIVER_PATH: ziniaoConfigured ? ziniao.webdriver_path : "",
       MABANG_ACCOUNT: mabangConfigured ? mabang.account : "",
       MABANG_PASSWORD: mabangConfigured ? secrets.mabang_password : "",
-      FEISHU_GATEWAY_ENABLED: feishuConfigured ? "1" : "0",
+      LXE_FEISHU_GATEWAY_ENABLED: feishuConfigured ? "1" : "0",
       FEISHU_APP_ID: feishuConfigured ? feishu.app_id : "",
       FEISHU_APP_SECRET: feishuConfigured ? secrets.feishu_app_secret : "",
       LOCAL_LOGS_ENABLED: logsEnabled ? "1" : "0",
