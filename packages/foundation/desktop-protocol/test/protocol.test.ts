@@ -27,11 +27,11 @@ describe("desktop agent protocol", () => {
       result: null,
     }))).toThrow("unsupported agent protocol version");
     expect(() => parseAgentWireMessage(JSON.stringify({
-      version: 2,
-      id: "request-v2",
+      version: 3,
+      id: "request-v3",
       ok: true,
       result: null,
-    }))).toThrow("unsupported agent protocol version: 2");
+    }))).toThrow("unsupported agent protocol version: 3");
   });
 
   test("strictly parses run_turn results", () => {

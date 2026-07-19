@@ -25,6 +25,7 @@ const agentJob = (): AgentJob => ({
   source: {},
   raw_data: {},
   user_content_blocks: [],
+  diagnostics: [],
   workspace: testWorkspace,
 });
 

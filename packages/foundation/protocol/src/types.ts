@@ -9,6 +9,25 @@ export interface WorkspaceContext extends JsonObject {
   worktree: string;
 }
 
+export type AgentDiagnostic = JsonObject & {
+  type: "operation_failure";
+  provider: string;
+  operation: string;
+  stage: string;
+  error_name: string;
+  observed_error: string;
+  redacted: boolean;
+  truncated: boolean;
+  cause_known: boolean;
+  verified_reason?: string;
+  mapping_id?: string;
+  http_status?: number;
+  provider_code?: number | string;
+  provider_subcode?: number | string;
+  log_id?: string;
+  endpoint?: string;
+};
+
 export interface SessionWorkspaceRequest {
   session_id: string;
   source: JsonObject;
@@ -29,6 +48,7 @@ export interface InboundEvent {
   source: JsonObject;
   raw_data: JsonObject;
   user_content_blocks: JsonObject[];
+  diagnostics: AgentDiagnostic[];
 }
 
 export interface AgentJob {
@@ -47,6 +67,7 @@ export interface AgentJob {
   source: JsonObject;
   raw_data: JsonObject;
   user_content_blocks: JsonObject[];
+  diagnostics: AgentDiagnostic[];
 }
 
 export type PendingSystemEvent = JsonObject & {

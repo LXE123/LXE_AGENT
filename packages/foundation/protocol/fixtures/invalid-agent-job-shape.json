@@ -12,5 +12,6 @@
   "sender_nick": "Alice",
   "source": {},
   "raw_data": {},
-  "user_content_blocks": []
+  "user_content_blocks": [],
+  "diagnostics": []
 }

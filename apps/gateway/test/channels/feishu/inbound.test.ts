@@ -36,6 +36,7 @@ const normalizer = () => new FeishuInboundNormalizer({
     userInput: resources.map((item) => `[${item.type}:${item.file_name || item.file_key}]`).join("\n"),
     userContentBlocks: resources.map((item) => ({ type: item.type, file_key: item.file_key })),
     resourceMetadata: resources.map((item) => ({ ...item })),
+    diagnostics: [],
   }),
 });
 
@@ -93,6 +94,7 @@ describe("Feishu inbound normalization", () => {
         resources: [],
       }),
       user_content_blocks: [],
+      diagnostics: [],
     });
   });
 
@@ -298,7 +300,16 @@ describe("Feishu inbound normalization", () => {
       ] } }),
     }))!;
     const degradedResult = await convertFeishuMessage(degraded);
-    expect(degradedResult).toEqual({ message: "[Interactive card]", resources: [] });
+    expect(degradedResult.message).toBe("");
+    expect(degradedResult.resources).toEqual([]);
+    expect(degradedResult.diagnostics).toEqual([
+      expect.objectContaining({
+        stage: "card_convert",
+        observed_error: "Feishu interactive card contains no readable text",
+        cause_known: true,
+        verified_reason: "interactive_card_has_no_readable_text",
+      }),
+    ]);
 
     const malformed = snapshotMessageEvent(baseEvent({
       message_id: "om_malformed_card",
@@ -306,7 +317,15 @@ describe("Feishu inbound normalization", () => {
       content: JSON.stringify({ json_card: "{invalid", json_attachment: "img_v3_secret" }),
     }))!;
     const malformedResult = await convertFeishuMessage(malformed);
-    expect(malformedResult).toEqual({ message: "[Interactive card content unavailable]", resources: [] });
+    expect(malformedResult.message).toBe("");
+    expect(malformedResult.resources).toEqual([]);
+    expect(malformedResult.diagnostics).toEqual([
+      expect.objectContaining({
+        stage: "raw_card_parse",
+        error_name: "SyntaxError",
+        observed_error: expect.stringContaining("Failed to parse Feishu raw card JSON"),
+      }),
+    ]);
     expect(JSON.stringify(malformedResult)).not.toContain("img_v3_secret");
   });
 
@@ -333,7 +352,7 @@ describe("Feishu inbound normalization", () => {
         content: JSON.stringify(content),
       }))!;
       const converted = await convertFeishuMessage(snapshot);
-      expect(converted.message || converted.resources.length > 0).toBeTruthy();
+      expect(converted.message || converted.resources.length > 0 || converted.diagnostics.length > 0).toBeTruthy();
     }
     expect(FEISHU_CONVERTER_TYPES).toEqual(expect.arrayContaining(Object.keys(fixtures)));
     const unknown = snapshotMessageEvent(baseEvent({

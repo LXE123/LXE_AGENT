@@ -1,4 +1,4 @@
-import type { JsonObject } from "@lxe/protocol";
+import type { AgentDiagnostic, JsonObject } from "@lxe/protocol";
 
 export interface SessionContext {
   platform: string;
@@ -13,6 +13,7 @@ export interface SessionContext {
   source: JsonObject;
   raw_data: JsonObject;
   user_content_blocks: JsonObject[];
+  diagnostics: AgentDiagnostic[];
 }
 
 export interface RouteDecision {

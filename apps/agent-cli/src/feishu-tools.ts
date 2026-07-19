@@ -10,6 +10,7 @@ import {
   type ToolRegistry,
 } from "@lxe/runtime";
 import type { AgentFeishuConfig } from "./feishu-runtime-config";
+import { findVerifiedFeishuFailureMapping } from "./feishu-failure-mappings";
 
 export interface FeishuImToolApi {
   get(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<JsonObject>;
@@ -38,22 +39,23 @@ const safeFeishuToolMessage = (value: unknown): string => safeToolFailureObserva
 
 const knownFeishuFailure = (
   operation: string,
-  code: "failed_precondition" | "not_found" | "permission_denied",
-  reason: string,
-  message: string,
-  extra: Partial<ToolFailureDetails> = {},
-): ToolExecutionError => new ToolExecutionError(code, message, {
-  type: "tool_failure",
-  operation,
-  cause_known: true,
-  observed_message: message,
-  verified_reason: reason,
-  provider: "feishu",
-  retryability: "not_retryable",
-  next_action: "Report the verified reason and do not retry the same resource request.",
-  inference_policy: "verified_reason_only",
-  ...extra,
-});
+  localCode: string,
+): ToolExecutionError => {
+  const mapping = findVerifiedFeishuFailureMapping({ operation, localCode });
+  if (!mapping) throw new Error(`Missing verified Feishu failure mapping for ${operation}:${localCode}`);
+  return new ToolExecutionError(mapping.errorCode, mapping.replacement, {
+    type: "tool_failure",
+    operation,
+    cause_known: true,
+    observed_message: mapping.replacement,
+    verified_reason: mapping.verifiedReason,
+    mapping_id: mapping.mappingId,
+    provider: "feishu",
+    retryability: mapping.retryability,
+    next_action: "Report the verified reason and do not retry the same resource request.",
+    inference_policy: "verified_reason_only",
+  });
+};
 
 export const normalizeFeishuToolError = (operation: string, cause: unknown): ToolExecutionError => {
   if (cause instanceof ToolExecutionError) return cause;
@@ -65,7 +67,6 @@ export const normalizeFeishuToolError = (operation: string, cause: unknown): Too
     : typeof rawCode === "string" && rawCode.trim()
       ? rawCode.trim()
       : undefined;
-  const numericProviderCode = Number(providerCode);
   const errorDetail = object(payload.error);
   const observedMessage = safeFeishuToolMessage(payload.msg ?? payload.message ?? observed.message)
     || "Feishu API request failed without an error message";
@@ -74,36 +75,31 @@ export const normalizeFeishuToolError = (operation: string, cause: unknown): Too
     ? rawSubcode
     : typeof rawSubcode === "string" && rawSubcode.trim()
       ? rawSubcode.trim()
-      : /ErrCode:\s*(\d+)/iu.exec(observedMessage)?.[1];
+      : undefined;
   const logId = text(payload.log_id ?? errorDetail.log_id);
-  const permissionMissing = numericProviderCode === 99991672;
-  const messageUnavailable = numericProviderCode === 230011 || numericProviderCode === 231003;
+  const mapping = findVerifiedFeishuFailureMapping({
+    operation,
+    ...(providerCode !== undefined ? { providerCode } : {}),
+    ...(providerSubcode !== undefined ? { providerSubcode } : {}),
+  });
   const details: ToolFailureDetails = {
     type: "tool_failure",
     operation,
-    cause_known: permissionMissing || messageUnavailable,
+    cause_known: Boolean(mapping),
     observed_message: observedMessage,
-    ...(permissionMissing ? { verified_reason: "missing_application_scope" } : {}),
-    ...(messageUnavailable ? { verified_reason: "message_unavailable" } : {}),
+    ...(mapping ? { verified_reason: mapping.verifiedReason, mapping_id: mapping.mappingId } : {}),
     provider: "feishu",
     ...(observed.httpStatus ? { http_status: observed.httpStatus } : {}),
     ...(providerCode !== undefined ? { provider_code: providerCode } : {}),
     ...(providerSubcode !== undefined ? { provider_subcode: providerSubcode } : {}),
     ...(logId ? { log_id: logId } : {}),
-    retryability: permissionMissing || messageUnavailable ? "not_retryable" : "unknown",
-    next_action: permissionMissing
-      ? "Report that the Feishu application is missing a required scope. Do not retry."
-      : messageUnavailable
-        ? "Report that Feishu marks the message unavailable. Do not retry."
-        : "Report only the observed API failure. Do not infer expiration, permissions, network, file format, or client version.",
+    retryability: mapping?.retryability ?? "unknown",
+    next_action: mapping
+      ? "Report the verified reason and follow the mapped retry policy."
+      : "Report only the observed API failure. Do not infer expiration, permissions, network, file format, or client version.",
     inference_policy: "verified_reason_only",
   };
-  const display = permissionMissing
-    ? "Feishu API request failed because the application is missing a required scope."
-    : messageUnavailable
-      ? "Feishu API request failed because the message is unavailable."
-      : "Feishu API request failed; the cause was not determined.";
-  return new ToolExecutionError(permissionMissing ? "permission_denied" : messageUnavailable ? "not_found" : "external_api_error", display, details);
+  return new ToolExecutionError(mapping?.errorCode ?? "external_api_error", mapping?.replacement ?? observedMessage, details);
 };
 const result = (payload: JsonObject, files?: string[]) => ({
   content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
@@ -236,27 +232,21 @@ const validateMessageResource = async (
   if (!item) {
     throw knownFeishuFailure(
       operation,
-      "not_found",
       "message_not_returned_by_feishu",
-      "Feishu did not return the message needed to validate this resource.",
     );
   }
   const messageType = text(item.msg_type ?? item.message_type).toLowerCase();
   if (messageType === "interactive") {
     throw knownFeishuFailure(
       operation,
-      "failed_precondition",
       "interactive_card_not_downloadable_resource",
-      "Interactive Card image and icon keys are not downloadable message resources.",
     );
   }
   const declaredType = declaredMessageResources(item).get(fileKey);
   if (declaredType !== type) {
     throw knownFeishuFailure(
       operation,
-      "failed_precondition",
       "resource_not_declared_by_message",
-      "The requested resource key and type are not declared by the Feishu message.",
     );
   }
 };

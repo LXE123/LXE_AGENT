@@ -6,6 +6,7 @@ import type { InboundEvent, JsonObject } from "@lxe/protocol";
 import type { OutboundRequest } from "../../../src/state/models";
 import { loadFeishuConfig } from "../../../src/channels/feishu/config";
 import { FeishuAdapter } from "../../../src/channels/feishu/adapter";
+import { buildFinalCard } from "../../../src/channels/feishu/card-builder";
 import type { InboundImageProcessorPort } from "../../../src/channels/feishu/image-contract";
 import type { FeishuSdkCallbacks, FeishuSdkServices } from "../../../src/channels/feishu/sdk";
 
@@ -56,6 +57,27 @@ const passImageProcessor: InboundImageProcessorPort = {
     },
   }),
 };
+
+const finalCard = (content: string): JsonObject => buildFinalCard({
+  content,
+  thinking: "",
+  redactedCount: 0,
+  thinkingElapsedMs: 0,
+  toolPending: false,
+  toolElapsedMs: 0,
+  toolSteps: [],
+  metrics: {
+    status: "completed",
+    elapsed_ms: 1_200,
+    model: "test-model",
+    input_tokens: 10,
+    output_tokens: 5,
+    cache_read_input_tokens: 0,
+    cache_creation_input_tokens: 0,
+    context_tokens: 15,
+    context_window_tokens: 200_000,
+  },
+}, loadFeishuConfig({}).cardDisplay);
 
 interface SetupOptions {
   failStart?: boolean;
@@ -286,6 +308,49 @@ describe("FeishuAdapter lifecycle and delivery", () => {
     await state.adapter.stop();
   });
 
+  test("falls back to mget when direct lookup succeeds but card conversion fails", async () => {
+    const parentId = "om_conversion_fallback";
+    const state = setup({
+      apiRequest: async (_method, path) => ({
+        code: 0,
+        data: { items: [{
+          message_id: parentId,
+          msg_type: "interactive",
+          sender: { id: "cli_agent", name: "LXE_Claw" },
+          body: { content: path === "/im/v1/messages/mget"
+            ? JSON.stringify({
+                card_schema: 2,
+                json_card: JSON.stringify(finalCard("**Actual card body**\n\n```text\n/Users/example/skills\n```")),
+              })
+            : JSON.stringify({ json_card: "{invalid" }) },
+        }] },
+      }),
+    });
+    const inbound: InboundEvent[] = [];
+    state.adapter.setInboundSink(async (event) => { inbound.push(event); });
+    await state.adapter.start();
+    await state.callbacks.onMessage({
+      sender: { sender_type: "user", sender_id: { open_id: "ou_user" } },
+      message: {
+        message_type: "text",
+        content: JSON.stringify({ text: "现在呢" }),
+        chat_type: "p2p",
+        chat_id: "oc_chat",
+        parent_id: parentId,
+        create_time: String(Date.now()),
+        message_id: "om_conversion_reply",
+      },
+    });
+    expect(inbound[0]?.user_input).toContain("Actual card body");
+    expect(inbound[0]?.user_input).toContain("/Users/example/skills");
+    expect(inbound[0]?.diagnostics).toEqual([]);
+    expect(state.apiRequests.map((request) => request.path)).toEqual([
+      `/im/v1/messages/${parentId}`,
+      "/im/v1/messages/mget",
+    ]);
+    await state.adapter.stop();
+  });
+
   test("reports unknown quote lookup failures without speculative causes or resources", async () => {
     const state = setup({
       apiRequest: async (_method, path) => {
@@ -313,17 +378,38 @@ describe("FeishuAdapter lifecycle and delivery", () => {
       },
     });
     const event = inbound[0];
-    expect(event?.user_input).toContain("cause_known=false");
+    expect(event?.user_input).toBe("现在呢");
     expect(event?.user_input).not.toContain("请升级至最新版本客户端");
     expect(event?.user_input).not.toContain("[image]");
     expect(event?.user_input).not.toContain("Unable to download");
     expect(event?.user_content_blocks).toEqual([]);
     expect(event?.raw_data.resources).toEqual([]);
+    expect(event?.diagnostics).toEqual([
+      expect.objectContaining({
+        operation: "quoted_message_read",
+        stage: "quote_lookup",
+        observed_error: "invalid request",
+        http_status: 400,
+        provider_code: 200000,
+        log_id: "log-direct",
+        cause_known: false,
+      }),
+      expect.objectContaining({
+        operation: "quoted_message_read",
+        stage: "quote_lookup",
+        observed_error: "Feishu get_messages failed with code 999999: lookup failed token=[redacted]",
+        provider_code: 999999,
+        log_id: "log-quote",
+        redacted: true,
+        cause_known: false,
+      }),
+    ]);
     expect(event?.raw_data.quoted_message).toMatchObject({
       message_id: "om_missing_quote",
       available: false,
       cause_known: false,
-      observed_message: expect.stringContaining("invalid request"),
+      failure_stages: ["quote_lookup"],
+      observed_errors: ["invalid request", expect.stringContaining("lookup failed token=[redacted]")],
     });
     expect(state.apiRequests.map((request) => request.path)).toEqual([
       "/im/v1/messages/om_missing_quote",

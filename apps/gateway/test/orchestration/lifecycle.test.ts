@@ -22,6 +22,7 @@ const inboundEvent = (): InboundEvent => ({
   source: {},
   raw_data: {},
   user_content_blocks: [],
+  diagnostics: [],
 });
 
 class FakeChannels implements LifecycleChannelsPort {

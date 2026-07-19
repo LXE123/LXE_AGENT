@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue } from "@lxe/protocol";
+import type { AgentDiagnostic, JsonObject, JsonValue } from "@lxe/protocol";
 import { inspectHttpError } from "@lxe/core";
 
 export interface FeishuApiEnvelope {
@@ -11,13 +11,29 @@ export interface FeishuApiEnvelope {
 const object = (value: JsonValue | undefined): JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {};
 
+const FEISHU_BEARER_SECRET = /\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+\/-]+=*/giu;
+const FEISHU_NAMED_SECRET = /(token|secret|password|api[-_]?key|authorization|cookie)\s*[=:]\s*[^\s,;]+/giu;
+
+export interface SafeFeishuObservation {
+  text: string;
+  redacted: boolean;
+  truncated: boolean;
+}
+
+export const safeFeishuObservation = (value: unknown, limit = 4_000): SafeFeishuObservation => {
+  const original = String(value ?? "").trim();
+  const withBearerRedacted = original.replace(FEISHU_BEARER_SECRET, "$1 [redacted]");
+  const sanitized = withBearerRedacted.replace(FEISHU_NAMED_SECRET, "$1=[redacted]");
+  const maximum = Math.max(1, Math.trunc(limit));
+  return {
+    text: sanitized.slice(0, maximum),
+    redacted: sanitized !== original || sanitized.includes("[redacted]"),
+    truncated: sanitized.length > maximum,
+  };
+};
+
 export const safeFeishuMessage = (value: unknown): string =>
-  String(value ?? "")
-    .replace(/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+\/-]+=*/gi, "$1 [redacted]")
-    .replace(/(token|secret|password|api[-_]?key|authorization|cookie)\s*[=:]\s*[^\s,;]+/gi, "$1=[redacted]")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 500);
+  safeFeishuObservation(value, 500).text.replace(/\s+/gu, " ").trim();
 
 export function parseFeishuEnvelope(result: JsonObject, operation: string): FeishuApiEnvelope {
   const rawCode = result.code;
@@ -29,7 +45,7 @@ export function parseFeishuEnvelope(result: JsonObject, operation: string): Feis
   }
   return {
     code,
-    msg: safeFeishuMessage(result.msg),
+    msg: safeFeishuObservation(result.msg).text,
     data: object(result.data),
     logId: String(result.log_id ?? "").trim(),
   };
@@ -134,6 +150,64 @@ export function feishuErrorFields(cause: unknown): JsonObject {
     ...(apiCode !== undefined ? { api_code: apiCode } : {}),
     ...(apiSubcode !== undefined ? { api_subcode: apiSubcode } : {}),
     ...(logId ? { log_id: logId } : {}),
+  };
+}
+
+export function createFeishuDiagnostic(
+  cause: unknown,
+  options: {
+    operation: string;
+    stage: string;
+    endpoint?: string;
+    causeKnown?: boolean;
+    verifiedReason?: string;
+    mappingId?: string;
+  },
+): AgentDiagnostic {
+  const fields = feishuErrorFields(cause);
+  const errorName = cause instanceof Error ? cause.name : String(fields.error_name ?? "Error");
+  const inspected = inspectHttpError(cause);
+  const responsePayload = record(inspected.responseData);
+  const providerObservation = String(responsePayload.msg ?? responsePayload.message ?? "").trim();
+  const rawError = providerObservation
+    || (cause instanceof Error && cause.message.trim() ? cause.message : String(fields.observed_message ?? cause));
+  const observed = safeFeishuObservation(rawError);
+  const httpStatus = Number(fields.http_status);
+  const providerCode = fields.api_code;
+  const providerSubcode = fields.api_subcode;
+  const logId = String(fields.log_id ?? "").trim();
+  const causeKnown = options.causeKnown === true;
+  return {
+    type: "operation_failure",
+    provider: "feishu",
+    operation: options.operation.trim().slice(0, 128) || "unknown_feishu_operation",
+    stage: options.stage.trim().slice(0, 64) || "unknown",
+    error_name: errorName.trim().slice(0, 128) || "Error",
+    observed_error: observed.text || errorName || "undefined",
+    redacted: observed.redacted,
+    truncated: observed.truncated,
+    cause_known: causeKnown,
+    ...(causeKnown && options.verifiedReason?.trim()
+      ? { verified_reason: options.verifiedReason.trim().slice(0, 256) }
+      : {}),
+    ...(causeKnown && options.mappingId?.trim()
+      ? { mapping_id: options.mappingId.trim().slice(0, 128) }
+      : {}),
+    ...(Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599
+      ? { http_status: httpStatus }
+      : {}),
+    ...(typeof providerCode === "number" && Number.isInteger(providerCode) && providerCode >= 0
+      ? { provider_code: providerCode }
+      : typeof providerCode === "string" && providerCode.trim()
+        ? { provider_code: providerCode.trim().slice(0, 128) }
+        : {}),
+    ...(typeof providerSubcode === "number" && Number.isInteger(providerSubcode) && providerSubcode >= 0
+      ? { provider_subcode: providerSubcode }
+      : typeof providerSubcode === "string" && providerSubcode.trim()
+        ? { provider_subcode: providerSubcode.trim().slice(0, 128) }
+        : {}),
+    ...(logId ? { log_id: logId.slice(0, 256) } : {}),
+    ...(options.endpoint?.trim() ? { endpoint: options.endpoint.trim().slice(0, 512) } : {}),
   };
 }
 

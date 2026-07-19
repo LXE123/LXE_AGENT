@@ -54,6 +54,7 @@ const event = (overrides: Partial<InboundEvent> = {}): InboundEvent => ({
   },
   raw_data: { app_id: "app-allowed", union_id: "union-alice", opaque: "keep" },
   user_content_blocks: [],
+  diagnostics: [],
   ...overrides,
 });
 
@@ -225,6 +226,7 @@ describe("SessionRouter permission and normal routes", () => {
         },
       },
       user_content_blocks: [],
+      diagnostics: [],
       workspace: testWorkspace,
     });
   });
@@ -408,6 +410,29 @@ describe("SessionRouter controls and steering", () => {
     expect(setupValue.scheduler.jobs.at(-1)?.job.user_content_blocks).toEqual([
       { type: "image", file_key: "file-1" },
     ]);
+
+    const diagnostic = {
+      type: "operation_failure" as const,
+      provider: "feishu",
+      operation: "quoted_message_read",
+      stage: "quote_lookup",
+      error_name: "Error",
+      observed_error: "actual lookup failure",
+      redacted: false,
+      truncated: false,
+      cause_known: false,
+    };
+    const diagnosed = await setupValue.router.routeMessage(event({
+      user_input: "keep this body",
+      message_id: "diagnostic-message",
+      diagnostics: [diagnostic],
+    }));
+    expect(diagnosed.route_kind).toBe("agent_message");
+    expect(setupValue.scheduler.steered).toHaveLength(1);
+    expect(setupValue.scheduler.jobs.at(-1)?.job).toMatchObject({
+      user_input: "keep this body",
+      diagnostics: [diagnostic],
+    });
   });
 
   test("queues plain text when an active run closes before steering is accepted", async () => {

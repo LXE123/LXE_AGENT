@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { InboundEvent, JsonObject } from "@lxe/protocol";
+import type { AgentDiagnostic, InboundEvent, JsonObject } from "@lxe/protocol";
+import { createFeishuDiagnostic } from "./response";
 
 export interface FeishuMention {
   key: string;
@@ -37,6 +38,7 @@ export interface ResolvedResources {
   userInput: string;
   userContentBlocks: JsonObject[];
   resourceMetadata: JsonObject[];
+  diagnostics: AgentDiagnostic[];
 }
 
 export interface FeishuInboundOptions {
@@ -54,6 +56,7 @@ export interface FeishuInboundOptions {
     metadata: JsonObject;
     userContentBlocks?: JsonObject[];
     resourceMetadata?: JsonObject[];
+    diagnostics?: AgentDiagnostic[];
   }>;
 }
 
@@ -124,6 +127,7 @@ const parseJson = (content: string): unknown => {
 export interface FeishuInboundConversion {
   message: string;
   resources: FeishuInboundResource[];
+  diagnostics: AgentDiagnostic[];
 }
 
 export interface FeishuMessageConverterContext {
@@ -141,7 +145,11 @@ export type FeishuMessageConverter = (
   depth: number,
 ) => Promise<FeishuInboundConversion>;
 
-const none = (message: string): FeishuInboundConversion => ({ message: message.trim(), resources: [] });
+const none = (message: string, diagnostics: AgentDiagnostic[] = []): FeishuInboundConversion => ({
+  message: message.trim(),
+  resources: [],
+  diagnostics,
+});
 const readableJson = (value: unknown): string => JSON.stringify(value, null, 2).slice(0, 4_000);
 const firstText = (value: unknown): string => {
   if (typeof value === "string") return value.trim();
@@ -231,7 +239,7 @@ const convertPost = async (
     const line = parts.join("").trim();
     if (line) lines.push(line);
   }
-  return { message: lines.join("\n").trim() || (resources.length ? "" : "[rich text message]"), resources };
+  return { message: lines.join("\n").trim() || (resources.length ? "" : "[rich text message]"), resources, diagnostics: [] };
 };
 
 const DEFAULT_CARD_FALLBACK = "请升级至最新版本客户端，以查看内容";
@@ -271,11 +279,24 @@ const cardCodeText = (value: unknown): string => {
   return "";
 };
 
+const CARD_RENDER_MAX_DEPTH = 64;
+const CARD_RENDER_MAX_NODES = 2_000;
+const CARD_RENDER_MAX_CHARS = 64_000;
+
+interface CardRenderState {
+  nodes: number;
+}
+
 const renderInteractive = (
   value: unknown,
   rawCard: boolean,
+  state: CardRenderState,
+  depth = 0,
 ): string[] => {
-  if (Array.isArray(value)) return value.flatMap((item) => renderInteractive(item, rawCard));
+  if (depth > CARD_RENDER_MAX_DEPTH) throw new RangeError(`Feishu card exceeds maximum render depth ${CARD_RENDER_MAX_DEPTH}`);
+  state.nodes += 1;
+  if (state.nodes > CARD_RENDER_MAX_NODES) throw new RangeError(`Feishu card exceeds maximum render nodes ${CARD_RENDER_MAX_NODES}`);
+  if (Array.isArray(value)) return value.flatMap((item) => renderInteractive(item, rawCard, state, depth + 1));
   if (typeof value === "string") {
     const result = value.trim();
     return result && result !== DEFAULT_CARD_FALLBACK ? [result] : [];
@@ -319,21 +340,24 @@ const renderInteractive = (
   const own = cardText(item);
   if (own && own !== DEFAULT_CARD_FALLBACK) lines.push(own);
   for (const child of [item.title, item.subtitle, item.text, item.header, item.body, item.elements, item.columns, item.actions, item.items, item.fields,
-    item.contents, property.title, property.subtitle, property.text, property.header, property.body, property.elements, property.columns,
-    property.actions, property.items, property.fields, property.contents]) {
-    lines.push(...renderInteractive(child, rawCard));
+    item.contents, item.footer, property.title, property.subtitle, property.text, property.header, property.body, property.elements, property.columns,
+    property.actions, property.items, property.fields, property.contents, property.footer]) {
+    lines.push(...renderInteractive(child, rawCard, state, depth + 1));
   }
   return lines.filter((line, index, all) => line && all.indexOf(line) === index);
 };
 
-const parseInteractiveCard = (value: Record<string, unknown>): { card: Record<string, unknown>; raw: boolean } | null => {
+const parseInteractiveCard = (value: Record<string, unknown>): { card: Record<string, unknown>; raw: boolean } => {
   if (typeof value.json_card !== "string") return { card: value, raw: false };
   try {
     const parsed = JSON.parse(value.json_card);
     const card = record(parsed);
-    return Object.keys(card).length > 0 ? { card, raw: true } : null;
-  } catch {
-    return null;
+    if (Object.keys(card).length === 0) throw new TypeError("Feishu raw card JSON must contain an object");
+    return { card, raw: true };
+  } catch (cause) {
+    if (cause instanceof TypeError && cause.message === "Feishu raw card JSON must contain an object") throw cause;
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new SyntaxError(`Failed to parse Feishu raw card JSON: ${detail}`);
   }
 };
 
@@ -342,24 +366,47 @@ const convertInteractive = async (
   snapshot: FeishuMessageSnapshot,
   context: FeishuMessageConverterContext,
 ): Promise<FeishuInboundConversion> => {
-  let resolvedContent = content;
-  if (typeof resolvedContent.json_card !== "string" && snapshot.message_id && context.fetchInteractiveContent) {
+  const candidates: Record<string, unknown>[] = [];
+  const diagnostics: AgentDiagnostic[] = [];
+  if (typeof content.json_card !== "string" && snapshot.message_id && context.fetchInteractiveContent) {
     try {
       const fetched = await context.fetchInteractiveContent(snapshot.message_id);
-      if (fetched) resolvedContent = record(parseJson(fetched));
-    } catch {
-      // The adapter records the structured fetch failure. Preserve the event fallback.
+      if (fetched) candidates.push(record(parseJson(fetched)));
+    } catch (cause) {
+      diagnostics.push(createFeishuDiagnostic(cause, {
+        operation: "interactive_card_read",
+        stage: "raw_card_fetch",
+      }));
     }
   }
-  const parsed = parseInteractiveCard(resolvedContent);
-  if (!parsed) return none("[Interactive card content unavailable]");
-  const lines = [
-    ...renderInteractive(parsed.card.header, parsed.raw),
-    ...renderInteractive(parsed.card.body, parsed.raw),
-    ...renderInteractive(parsed.card.elements, parsed.raw),
-    ...renderInteractive(parsed.card.footer, parsed.raw),
-  ].filter((line, index, all) => line && all.indexOf(line) === index);
-  return none(`[Interactive card]${lines.length > 0 ? `\n${lines.join("\n")}` : ""}`);
+  candidates.push(content);
+  for (const candidate of candidates) {
+    try {
+      const parsed = parseInteractiveCard(candidate);
+      const state: CardRenderState = { nodes: 0 };
+      const lines = renderInteractive(parsed.card, parsed.raw, state)
+        .filter((line, index, all) => line && all.indexOf(line) === index);
+      const rendered = lines.join("\n");
+      if (!rendered.trim()) throw new Error("Feishu interactive card contains no readable text");
+      if (rendered.length > CARD_RENDER_MAX_CHARS) {
+        throw new RangeError(`Feishu card rendered text exceeds maximum length ${CARD_RENDER_MAX_CHARS}`);
+      }
+      return none(`[Interactive card]\n${rendered}`);
+    } catch (cause) {
+      diagnostics.push(createFeishuDiagnostic(cause, {
+        operation: "interactive_card_read",
+        stage: cause instanceof SyntaxError ? "raw_card_parse" : "card_convert",
+        ...(cause instanceof Error && cause.message === "Feishu interactive card contains no readable text"
+          ? {
+              causeKnown: true,
+              verifiedReason: "interactive_card_has_no_readable_text",
+              mappingId: "local:interactive_card_has_no_readable_text:v1",
+            }
+          : {}),
+      }));
+    }
+  }
+  return none("", diagnostics);
 };
 
 const itemSnapshot = (item: Record<string, unknown>, parent: FeishuMessageSnapshot): FeishuMessageSnapshot => {
@@ -396,12 +443,37 @@ const convertMerged = async (
   context: FeishuMessageConverterContext,
   depth: number,
 ): Promise<FeishuInboundConversion> => {
-  if (depth >= Math.max(1, context.maxDepth ?? 8)) return none("<forwarded_messages depth_limit=\"true\"/>");
+  if (depth >= Math.max(1, context.maxDepth ?? 8)) {
+    const cause = new RangeError(`Feishu forwarded message exceeds maximum depth ${Math.max(1, context.maxDepth ?? 8)}`);
+    return none("", [createFeishuDiagnostic(cause, {
+      operation: "merge_forward_read",
+      stage: "message_convert",
+      causeKnown: true,
+      verifiedReason: "merge_forward_depth_limit_reached",
+      mappingId: "local:merge_forward_depth_limit_reached:v1",
+    })]);
+  }
   let items = array(content.messages).map(record);
   if (items.length === 0 && context.fetchSubMessages) {
-    try { items = (await context.fetchSubMessages(snapshot.message_id)).map(record); } catch { return none("<forwarded_messages/>"); }
+    try {
+      items = (await context.fetchSubMessages(snapshot.message_id)).map(record);
+    } catch (cause) {
+      return none("", [createFeishuDiagnostic(cause, {
+        operation: "merge_forward_read",
+        stage: "submessage_fetch",
+      })]);
+    }
   }
-  if (items.length === 0) return none("<forwarded_messages/>");
+  if (items.length === 0) {
+    const cause = new Error("Feishu forwarded message lookup returned no items");
+    return none("", [createFeishuDiagnostic(cause, {
+      operation: "merge_forward_read",
+      stage: "submessage_lookup",
+      causeKnown: true,
+      verifiedReason: "merge_forward_lookup_returned_no_items",
+      mappingId: "local:merge_forward_lookup_returned_no_items:v1",
+    })]);
+  }
   const children = new Map<string, Record<string, unknown>[]>();
   for (const item of items) {
     const messageId = text(item.message_id);
@@ -414,6 +486,7 @@ const convertMerged = async (
   }
   for (const bucket of children.values()) bucket.sort((left, right) => Number(left.create_time ?? 0) - Number(right.create_time ?? 0));
   const resources: FeishuInboundResource[] = [];
+  const diagnostics: AgentDiagnostic[] = [];
   const formatTree = async (parentId: string, level: number): Promise<string> => {
     const parts: string[] = [];
     for (const item of children.get(parentId) ?? []) {
@@ -424,11 +497,12 @@ const convertMerged = async (
       const senderName = text(sender.name) || resolved || senderId;
       let converted: FeishuInboundConversion;
       if (child.message_type === "merge_forward" && child.message_id && children.has(child.message_id)) {
-        converted = { message: await formatTree(child.message_id, level + 1), resources: [] };
+        converted = { message: await formatTree(child.message_id, level + 1), resources: [], diagnostics: [] };
       } else {
         converted = await convertFeishuMessage(child, context, depth + 1);
       }
       resources.push(...converted.resources);
+      diagnostics.push(...converted.diagnostics);
       const nested = child.message_type !== "merge_forward" && child.message_id && children.has(child.message_id)
         ? await formatTree(child.message_id, level + 1)
         : "";
@@ -440,7 +514,11 @@ const convertMerged = async (
   };
   const body = await formatTree(snapshot.message_id, 0);
   const title = firstText(content.title);
-  return { message: `<forwarded_messages${title ? ` title="${title}"` : ""}>\n${body}\n</forwarded_messages>`, resources };
+  return {
+    message: `<forwarded_messages${title ? ` title="${title}"` : ""}>\n${body}\n</forwarded_messages>`,
+    resources,
+    diagnostics,
+  };
 };
 
 const converters: Readonly<Record<string, FeishuMessageConverter>> = {
@@ -448,15 +526,15 @@ const converters: Readonly<Record<string, FeishuMessageConverter>> = {
   post: convertPost,
   image: async (content, snapshot) => {
     const key = text(content.image_key);
-    return { message: "", resources: key ? [resource(snapshot, "image", key)] : [] };
+    return { message: "", resources: key ? [resource(snapshot, "image", key)] : [], diagnostics: [] };
   },
   file: async (content, snapshot) => {
     const key = text(content.file_key);
-    return { message: "", resources: key ? [resource(snapshot, "file", key, text(content.file_name))] : [] };
+    return { message: "", resources: key ? [resource(snapshot, "file", key, text(content.file_name))] : [], diagnostics: [] };
   },
   audio: async (content, snapshot) => {
     const key = text(content.file_key);
-    return { message: "[Audio message]", resources: key ? [resource(snapshot, "audio", key, text(content.file_name))] : [] };
+    return { message: "[Audio message]", resources: key ? [resource(snapshot, "audio", key, text(content.file_name))] : [], diagnostics: [] };
   },
   video: async (content, snapshot) => {
     const key = text(content.file_key);
@@ -467,6 +545,7 @@ const converters: Readonly<Record<string, FeishuMessageConverter>> = {
         ...(key ? [resource(snapshot, "video", key, text(content.file_name))] : []),
         ...(imageKey ? [resource(snapshot, "image", imageKey, "video-cover")] : []),
       ],
+      diagnostics: [],
     };
   },
   location: async (content) => none([
@@ -476,7 +555,7 @@ const converters: Readonly<Record<string, FeishuMessageConverter>> = {
   ].filter(Boolean).join("\n")),
   sticker: async (content, snapshot) => {
     const key = text(content.file_key) || text(content.image_key);
-    return { message: "[Sticker]", resources: key ? [resource(snapshot, "image", key, "sticker")] : [] };
+    return { message: "[Sticker]", resources: key ? [resource(snapshot, "image", key, "sticker")] : [], diagnostics: [] };
   },
   calendar: async (content) => none([
     `[Calendar] ${firstText(content.summary) || firstText(content.title) || "Shared event"}`,
@@ -490,6 +569,7 @@ const converters: Readonly<Record<string, FeishuMessageConverter>> = {
     return {
       message: `[Shared folder] ${text(content.file_name) || text(content.name) || key || "Unknown folder"}`,
       resources: key ? [resource(snapshot, "folder", key, text(content.file_name) || text(content.name))] : [],
+      diagnostics: [],
     };
   },
   todo: async (content) => none([
@@ -516,7 +596,19 @@ export const convertFeishuMessage = async (
   context: FeishuMessageConverterContext = {},
   depth = 0,
 ): Promise<FeishuInboundConversion> => {
-  const parsed = record(parseJson(snapshot.content));
+  let parsed: Record<string, unknown>;
+  if (snapshot.message_type === "interactive") {
+    try {
+      parsed = record(JSON.parse(snapshot.content));
+    } catch (cause) {
+      return none("", [createFeishuDiagnostic(cause, {
+        operation: "interactive_card_read",
+        stage: "raw_card_parse",
+      })]);
+    }
+  } else {
+    parsed = record(parseJson(snapshot.content));
+  }
   const converter = converters[snapshot.message_type];
   if (converter) return converter(parsed, snapshot, context, depth);
   const fallback = firstText(parsed);
@@ -552,7 +644,7 @@ export class FeishuInboundNormalizer {
     if (rejected) return this.rejected(snapshot, rejected);
     const botOpenId = text(this.options.botOpenId);
     const mentions = snapshot.mentions;
-    let { message, resources } = await convertFeishuMessage(snapshot, this.options.converterContext);
+    let { message, resources, diagnostics } = await convertFeishuMessage(snapshot, this.options.converterContext);
     if (snapshot.chat_type === "group") {
       if (!botOpenId) return this.rejected(snapshot, "group_bot_identity_missing");
       if (!mentions.some((item) => mentionOpenId(item) === botOpenId)) return this.rejected(snapshot, "group_without_bot_mention");
@@ -570,15 +662,18 @@ export class FeishuInboundNormalizer {
             userInput: resources.map((item) => `[${item.type}:${item.file_name || item.file_key}]`).join("\n"),
             userContentBlocks: resources.map((item) => ({ ...item })),
             resourceMetadata: resources.map((item) => ({ ...item })),
+            diagnostics: [],
           };
       message = [message, resolved.userInput].map((item) => item.trim()).filter(Boolean).join("\n");
       blocks = resolved.userContentBlocks.map((item) => ({ ...item }));
       resourceMetadata = resolved.resourceMetadata.map((item) => ({ ...item }));
+      diagnostics = [...diagnostics, ...resolved.diagnostics];
     }
     let quotedMessage: JsonObject | undefined;
     if (snapshot.parent_id && this.options.loadQuote) {
       const quote = await this.options.loadQuote(snapshot.parent_id, snapshot.chat_id);
       quotedMessage = { ...quote.metadata };
+      diagnostics = [...diagnostics, ...(quote.diagnostics ?? [])];
       if (quote.text.trim()) message = `${quote.text.trim()}\n\n${message}`.trim();
       if (quote.userContentBlocks?.length) blocks = [...quote.userContentBlocks.map((item) => ({ ...item })), ...blocks];
       if (quote.resourceMetadata?.length) resourceMetadata = [
@@ -592,7 +687,9 @@ export class FeishuInboundNormalizer {
         ...blocks.filter((block) => block.type !== "text"),
       ];
     }
-    if (!message && blocks.length === 0) return this.rejected(snapshot, "empty_content", resources.length);
+    if (!message && blocks.length === 0 && diagnostics.length === 0) {
+      return this.rejected(snapshot, "empty_content", resources.length);
+    }
 
     const unionId = text(snapshot.sender_union_id);
     const senderNick = text(snapshot.sender_user_id) || unionId || userId;
@@ -654,6 +751,7 @@ export class FeishuInboundNormalizer {
       source,
       raw_data: rawData,
       user_content_blocks: blocks,
+      diagnostics: diagnostics.slice(0, 16),
     } };
   }
 

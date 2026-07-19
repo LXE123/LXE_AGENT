@@ -65,6 +65,7 @@ export interface ToolFailureDetails extends JsonObject {
   cause_known: boolean;
   observed_message: string;
   verified_reason?: string;
+  mapping_id?: string;
   provider?: string;
   http_status?: number;
   provider_code?: number | string;

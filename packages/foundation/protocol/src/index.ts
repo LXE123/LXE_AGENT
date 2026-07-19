@@ -1,4 +1,5 @@
 export type {
+  AgentDiagnostic,
   AgentJob,
   DisplayMetrics,
   EmitRequest,

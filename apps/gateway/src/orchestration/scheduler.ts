@@ -307,6 +307,7 @@ export class SessionScheduler {
       raw_data: rawData,
       source: { ...origin.source },
       user_content_blocks: [],
+      diagnostics: [],
     };
     const queue = this.pending.get(handle.sessionId) ?? [];
     queue.unshift(requeued);
@@ -514,6 +515,7 @@ export class HeartbeatWakeQueue {
         source: { ...session.source },
       },
       user_content_blocks: [],
+      diagnostics: [],
     };
     await runWithLogContext({
       session_id: job.session_id,

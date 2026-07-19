@@ -61,7 +61,7 @@ Artifact delivery 与工具业务执行分离。发送失败会报告 delivery e
 
 ## Result closure
 
-成功 result 使用原 `tool_call_id`。异常转换为 `is_error=true`。未分类异常不能把裸 `Error.message` 当成原因交给模型，而要生成统一的 `ToolFailureDetails`：`cause_known=false`、受限并脱敏的 `observed_message`、`retryability=unknown` 和 `inference_policy=verified_reason_only`。只有经过本地校验或明确映射的平台错误码才允许设置 `cause_known=true` 与 `verified_reason`。多个调用的 results 作为一个 tool message append；cancel 或 steering 会为尚未执行的调用生成 closure stub。Anthropic 的 `tool_use_id` 只存在于 Provider adapter 生成的 wire request。
+成功 result 使用原 `tool_call_id`。异常转换为 `is_error=true`。未分类异常把经过脱敏和有界截断的实际 `Error.message` 放入统一 `ToolFailureDetails.observed_message`，同时标记 `cause_known=false`、`retryability=unknown` 和 `inference_policy=verified_reason_only`；它不会用“原因未知”等占位文本替换实际错误。只有本地确定性错误码，或 operation 加明确 provider code/subcode 的 fixture-backed 精确映射，才允许设置 `cause_known=true`、`verified_reason` 与 `mapping_id`。多个调用的 results 作为一个 tool message append；cancel 或 steering 会为尚未执行的调用生成 closure stub。Anthropic 的 `tool_use_id` 只存在于 Provider adapter 生成的 wire request。
 
 Oversized content 在 append 前由 ContextPipeline 以总文本 10k token 预算裁剪。Image block 保留给当前 turn，并单独计 token。
 

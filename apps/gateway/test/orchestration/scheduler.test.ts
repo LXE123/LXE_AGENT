@@ -30,6 +30,7 @@ const job = (sessionId: string, jobId: string, overrides: Partial<AgentJob> = {}
   source: { platform: "feishu", chat_id: "chat", chat_type: "dm", user_id: "user" },
   raw_data: { keep: "yes", system_events: [{ id: "old" }] },
   user_content_blocks: [],
+  diagnostics: [],
   workspace: testWorkspace,
   ...overrides,
 });
@@ -177,7 +178,18 @@ describe("SessionScheduler", () => {
       maxConcurrency: 1,
       id: () => "requeued-id",
     });
-    await scheduler.enqueue(job("s1", "j1"));
+    const origin = job("s1", "j1", { diagnostics: [{
+      type: "operation_failure",
+      provider: "feishu",
+      operation: "quote",
+      stage: "lookup",
+      error_name: "Error",
+      observed_error: "already consumed",
+      redacted: false,
+      truncated: false,
+      cause_known: false,
+    }] });
+    await scheduler.enqueue(origin);
     await scheduler.enqueue(job("s1", "already-queued"));
     await tick();
 
@@ -196,13 +208,14 @@ describe("SessionScheduler", () => {
     expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "requeued-id"]);
     const requeued = runtime.started[1]!;
     expect(requeued).toEqual({
-      ...job("s1", "j1"),
+      ...origin,
       job_id: "requeued-id",
       response_route_id: "route-steer-2",
       message_id: "message-steer-2",
       user_input: "first\n\nsecond",
       raw_data: { keep: "yes" },
       user_content_blocks: [],
+      diagnostics: [],
     });
   });
 
@@ -393,6 +406,7 @@ describe("HeartbeatWakeQueue", () => {
           },
         },
         user_content_blocks: [],
+        diagnostics: [],
         workspace: testWorkspace,
       },
     ]);

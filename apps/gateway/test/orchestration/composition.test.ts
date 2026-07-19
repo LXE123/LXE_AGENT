@@ -18,6 +18,7 @@ const job = (): AgentJob => ({
   user_id: "u1", conversation_id: "c1", is_group: false, message_id: "m1",
   user_input: "hello", job_kind: "turn", sender_nick: "Tester",
   source: { platform: "test", chat_id: "c1" }, raw_data: {}, user_content_blocks: [],
+  diagnostics: [],
   workspace: testWorkspace,
 });
 

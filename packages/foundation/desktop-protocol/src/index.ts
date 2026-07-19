@@ -15,7 +15,7 @@ import {
 
 export * from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 3 as const;
+export const AGENT_PROTOCOL_VERSION = 4 as const;
 
 export class AgentProtocolError extends Error {
   readonly code = "AgentProtocolError";

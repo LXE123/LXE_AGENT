@@ -43,7 +43,7 @@ Gateway 位于 Electron Main，Runtime 位于 Electron 管理的私有 `agent-cl
 
 ## Turn 建立
 
-Router ensure session、保存 response route，并根据当前用户输入创建 `AgentJob`。Scheduler 创建 `RunHandle` 后，Runtime 从自己的 Store pop pending events、读取 session、验证不可变 WorkspaceContext、取得 Workspace Lease，再固定 provider generation、exposure state、system prompt、trace 和可选 `FinalAnswerStreamer`。pending events 直接附加到本轮用户上下文，不经过 Router 或 `AgentJob.raw_data`。同一 Lease 的 Skill、AGENTS Instructions 和搜索服务贯穿整个 Turn。
+Router ensure session、保存 response route，并根据当前用户输入创建 `AgentJob`。平台边界产生的真实失败观测放在 `AgentJob.diagnostics`，不会拼进 `user_input`。Scheduler 创建 `RunHandle` 后，Runtime 从自己的 Store pop pending events、读取 session、验证不可变 WorkspaceContext、取得 Workspace Lease，再固定 provider generation、exposure state、system prompt、trace 和可选 `FinalAnswerStreamer`。Runtime 只把 diagnostics 加到当前轮 volatile system prompt；它们不会写入 transcript，重排已消费 steering 时也不会重复携带。pending events 直接附加到本轮用户上下文，不经过 Router 或 `AgentJob.raw_data`。同一 Lease 的 Skill、AGENTS Instructions 和搜索服务贯穿整个 Turn。
 
 用户消息立即 append 到 transcript。之后每个 steering 也以独立 user message 持久化，确保进程退出后 replay 与模型实际看见的顺序一致。
 
@@ -77,7 +77,7 @@ Tool execute context 包含 handle、session、route、turn 和 exposure state�
 
 ## Cancel 与失败
 
-RunHandle 的 signal 同时中断 provider、summary、MCP 和 process。取消发生在多个 tool use 中间时，剩余调用写 cancelled stub。Provider retryable failure 在 step 内重试；context overflow 走一次强制 compaction；结构性错误或重复 overflow 终止 turn。
+RunHandle 的 signal 同时中断 provider、summary、MCP 和 process。取消发生在多个 tool use 中间时，剩余调用写 cancelled stub。Provider retryable failure 在 step 内重试；context overflow 走一次强制 compaction；结构性错误或重复 overflow 终止 turn。Agent 必须把诊断中的实际错误与解释分开；只有 `cause_known=true`、`verified_reason` 和经过测试的 `mapping_id` 同时存在时，固定替代文本才可代替错误原文。
 
 Runtime 返回 `completed|cancelled|error` outcome，Scheduler 释放 active slot。平台发送是独立 delivery 边界：发送失败不回滚已持久化 outcome，也不重放工具。
 

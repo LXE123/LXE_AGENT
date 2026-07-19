@@ -22,6 +22,7 @@
       "text": "check inventory"
     }
   ],
+  "diagnostics": [],
   "workspace": {
     "directory": "/workspace/project",
     "worktree": "/workspace"

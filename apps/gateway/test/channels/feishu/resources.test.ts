@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 describe("Feishu inbound resources", () => {
-  test("downloads images/files and degrades individual failures to readable placeholders", async () => {
+  test("downloads images/files and reports individual failures as diagnostics", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-feishu-resource-"));
     roots.push(root);
     const resolver = createFeishuInboundResourceResolver({
@@ -65,7 +65,7 @@ describe("Feishu inbound resources", () => {
     });
     expect(result.userContentBlocks[0]).toMatchObject({ type: "image", source: { type: "base64", media_type: "image/jpeg" } });
     expect(result.userInput).toContain("report.xlsx");
-    expect(result.userInput).toContain("Feishu file download failed; cause_known=false");
+    expect(result.userInput).not.toContain("download unavailable");
     expect(result.userInput).not.toContain("expired");
     expect(result.userInput).not.toContain("permission");
     expect(result.resourceMetadata.map((item) => item.download_status)).toEqual(["success", "success", "error"]);
@@ -73,6 +73,14 @@ describe("Feishu inbound resources", () => {
       cause_known: false,
       observed_message: "download unavailable",
     });
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        operation: "inbound_resource_read",
+        stage: "resource_download",
+        observed_error: "download unavailable",
+        cause_known: false,
+      }),
+    ]);
     const savedPath = String(result.resourceMetadata[1]?.saved_path ?? "");
     expect(readFileSync(savedPath, "utf8")).toBe("report");
     expect(result.resourceMetadata[0]).toMatchObject({

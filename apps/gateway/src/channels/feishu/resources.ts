@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join, parse, resolve } from "node:path";
-import type { JsonObject } from "@lxe/protocol";
+import type { AgentDiagnostic, JsonObject } from "@lxe/protocol";
 import type { FeishuInboundResource, FeishuMessageSnapshot, ResolvedResources } from "./inbound";
 import {
   InboundImageError,
   type InboundImageProcessorPort,
 } from "./image-contract";
-import { feishuErrorFields } from "./response";
+import { createFeishuDiagnostic, feishuErrorFields } from "./response";
 
 export interface FeishuInboundResourceApi {
   download(
@@ -44,9 +44,11 @@ export function createFeishuInboundResourceResolver(options: {
     const userInput: string[] = [];
     const userContentBlocks: JsonObject[] = [];
     const resourceMetadata: JsonObject[] = [];
+    const diagnostics: AgentDiagnostic[] = [];
     for (const resource of resources) {
       const requestedType = resource.type === "image" ? "image" : "file";
       const sourceMessageId = String(resource.message_id ?? snapshot.message_id).trim() || snapshot.message_id;
+      let stage = "resource_download";
       try {
         const downloaded = await options.api.download(
           sourceMessageId,
@@ -54,6 +56,7 @@ export function createFeishuInboundResourceResolver(options: {
           requestedType,
           options.signal,
         );
+        stage = "resource_store";
         const directory = resolve(
           options.projectRoot,
           "artifacts",
@@ -80,18 +83,24 @@ export function createFeishuInboundResourceResolver(options: {
             userContentBlocks.push(processed.modelBlock);
             resourceMetadata.push(processed.metadata);
           } catch (cause) {
-            const error = cause instanceof InboundImageError
-              ? cause
-              : new InboundImageError("ERR_IMAGE_DECODE_FAILED", cause instanceof Error ? cause.message : String(cause));
-            const placeholder = `[Unable to process Feishu image: ${fileName} (${error.code})]`;
-            userInput.push(placeholder);
-            userContentBlocks.push({ type: "text", text: placeholder });
+            const error = cause instanceof InboundImageError ? cause : undefined;
+            diagnostics.push(createFeishuDiagnostic(cause, {
+              operation: "inbound_image_prepare",
+              stage: "image_prepare",
+              ...(error ? {
+                causeKnown: true,
+                verifiedReason: error.code,
+                mappingId: `local:inbound_image_error:${error.code}:v1`,
+              } : {}),
+            }));
             resourceMetadata.push({
               ...resource,
               original: { mime, size_bytes: downloaded.data.byteLength, file_name: fileName },
               download_status: "success",
               processing_status: "error",
-              error: { code: error.code, message: error.message.slice(0, 500), stage: "image_prepare" },
+              error: error
+                ? { code: error.code, message: error.message.slice(0, 500), stage: "image_prepare", cause_known: true }
+                : { ...feishuErrorFields(cause), stage: "image_prepare", cause_known: false },
             });
           }
         } else {
@@ -111,9 +120,11 @@ export function createFeishuInboundResourceResolver(options: {
         }
       } catch (cause) {
         if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
-        const placeholder = `[Feishu ${resource.type} download failed; cause_known=false. The cause was not determined.]`;
-        userInput.push(placeholder);
-        userContentBlocks.push({ type: "text", text: placeholder });
+        diagnostics.push(createFeishuDiagnostic(cause, {
+          operation: "inbound_resource_read",
+          stage,
+          endpoint: `/im/v1/messages/${sourceMessageId}/resources/${resource.file_key}`,
+        }));
         resourceMetadata.push({
           ...resource,
           download_status: "error",
@@ -125,6 +136,7 @@ export function createFeishuInboundResourceResolver(options: {
       userInput: userInput.join("\n"),
       userContentBlocks,
       resourceMetadata,
+      diagnostics,
     };
   };
 }

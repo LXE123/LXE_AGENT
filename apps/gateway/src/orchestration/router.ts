@@ -108,6 +108,7 @@ export function contextFromEvent(
     source: source.toJSON() as JsonObject,
     raw_data: { ...event.raw_data },
     user_content_blocks: event.user_content_blocks.map((block) => ({ ...block })),
+    diagnostics: event.diagnostics.map((diagnostic) => ({ ...diagnostic })),
   };
 }
 
@@ -190,6 +191,7 @@ export class SessionRouter {
       source: { ...context.source },
       raw_data: rawData,
       user_content_blocks: context.user_content_blocks.map((block) => ({ ...block })),
+      diagnostics: context.diagnostics.map((diagnostic) => ({ ...diagnostic })),
     };
     await runWithLogContext({ session_id: job.session_id, turn_id: job.job_id }, async () => {
       await this.options.scheduler.enqueue(job);
@@ -246,7 +248,7 @@ export class SessionRouter {
 
   private async trySteer(sessionId: string, context: SessionContext): Promise<boolean> {
     if (!this.state.isSteeringEnabled(sessionId)) return false;
-    if (context.user_content_blocks.length > 0 || !context.user_input) return false;
+    if (context.user_content_blocks.length > 0 || context.diagnostics.length > 0 || !context.user_input) return false;
     const accepted = await this.options.scheduler.steerActive(sessionId, {
       text: context.user_input,
       response_route_id: context.response_route_id,

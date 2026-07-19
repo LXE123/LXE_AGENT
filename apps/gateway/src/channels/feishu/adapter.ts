@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue } from "@lxe/protocol";
+import type { AgentDiagnostic, JsonObject, JsonValue } from "@lxe/protocol";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { createLogger, runWithLogContext } from "@lxe/core";
@@ -6,15 +6,20 @@ import type { ChannelAdapter, InboundSink } from "../registry";
 import type { OutboundRequest, ResponseRoutePatch, ResponseRouteRecord } from "../../state/models";
 import { FeishuCardKit, type FeishuRouteContext } from "./cardkit";
 import type { FeishuConfig } from "./config";
-import { FeishuInboundNormalizer, convertFeishuMessage, snapshotMessageEvent } from "./inbound";
+import {
+  FeishuInboundNormalizer,
+  convertFeishuMessage,
+  snapshotMessageEvent,
+  type FeishuMessageConverterContext,
+} from "./inbound";
 import { FeishuMedia } from "./media";
 import { createFeishuInboundResourceResolver } from "./resources";
 import type { InboundImageProcessorPort } from "./image-contract";
 import {
   FeishuApiResponseError,
+  createFeishuDiagnostic,
   feishuErrorFields,
   parseFeishuEnvelope,
-  safeFeishuMessage,
 } from "./response";
 import { FeishuIdleRestart, type RestartClock } from "./restart";
 import type { FeishuSdkFactory, FeishuSdkServices } from "./sdk";
@@ -240,46 +245,29 @@ export class FeishuAdapter implements ChannelAdapter {
       });
       return messageItems(response, "get_messages");
     };
-    const fetchQuoteItem = async (messageId: string): Promise<Record<string, unknown>> => {
-      const attempts: JsonObject[] = [];
-      for (const [endpoint, fetcher] of [
-        [`/im/v1/messages/${encodeURIComponent(messageId)}`, fetchMessageItems],
-        ["/im/v1/messages/mget", fetchMessageById],
-      ] as const) {
-        try {
-          const items = await fetcher(messageId);
-          const item = items.find((candidate) => text(candidate.message_id as JsonValue | undefined) === messageId) ?? items[0];
-          if (item) return item;
-          attempts.push({ endpoint, observed_message: "Feishu message lookup returned no items" });
-        } catch (cause) {
-          attempts.push({ endpoint, ...feishuErrorFields(cause) });
-        }
-      }
-      const observedMessage = attempts.map((attempt) => text(attempt.observed_message)).filter(Boolean).join("; ")
-        || "Feishu message lookup returned no matching item";
-      this.logger.warn("feishu_quote_lookup_failed", {
-        quoted_message_id: messageId,
-        attempts,
-        cause_known: false,
-      });
-      throw new Error(safeFeishuMessage(observedMessage));
-    };
     const fetchInteractiveContent = async (messageId: string): Promise<string | undefined> => {
       try {
         const items = await fetchMessageItems(messageId);
         const item = items.find((candidate) => text(candidate.message_id as JsonValue | undefined) === messageId) ?? items[0];
+        if (!item) throw new Error("Feishu interactive message lookup returned no matching item");
         const body = object(item?.body as JsonValue | undefined);
         const content = text(body?.content);
-        return content || undefined;
+        if (!content) throw new Error("Feishu interactive message returned empty body content");
+        return content;
       } catch (error) {
         this.logger.warn("feishu_card_content_fetch_failed", { message_id: messageId, ...feishuErrorFields(error) });
-        return undefined;
+        throw error;
       }
     };
     const converterContext = {
       ...(resourceResolver ? { resolveResources: resourceResolver } : {}),
       fetchSubMessages: fetchMessageItems,
       fetchInteractiveContent,
+      resolveUserName: (userId: string) => userId,
+    };
+    const quoteConverterContext: FeishuMessageConverterContext = {
+      ...(resourceResolver ? { resolveResources: resourceResolver } : {}),
+      fetchSubMessages: fetchMessageItems,
       resolveUserName: (userId: string) => userId,
     };
     this.normalizer = new FeishuInboundNormalizer({
@@ -290,57 +278,141 @@ export class FeishuAdapter implements ChannelAdapter {
       ...(resourceResolver ? { resolveResources: resourceResolver } : {}),
       converterContext,
       loadQuote: async (parentId, chatId) => {
-        try {
-          const item = await fetchQuoteItem(parentId);
-          const body = object(item.body as JsonValue | undefined) ?? {};
-          const quotedSnapshot = snapshotMessageEvent({
-            sender: item.sender ?? {},
-            message: {
-              message_type: text(item.msg_type as JsonValue | undefined) || text(item.message_type as JsonValue | undefined) || "unknown",
-              content: text(body.content as JsonValue | undefined) || "{}",
-              chat_type: "p2p",
-              chat_id: chatId,
-              message_id: parentId,
-            },
-          });
-          const converted = quotedSnapshot
-            ? await convertFeishuMessage(quotedSnapshot, converterContext)
-            : { message: "", resources: [] };
-          const resolved = quotedSnapshot && converted.resources.length > 0 && resourceResolver
-            ? await resourceResolver(converted.resources, quotedSnapshot)
-            : { userInput: "", userContentBlocks: [], resourceMetadata: [] };
-          const sender = object(item.sender as JsonValue | undefined) ?? {};
-          const senderName = text(sender.name as JsonValue | undefined)
-            || text(sender.id as JsonValue | undefined)
-            || text(sender.open_id as JsonValue | undefined)
-            || "unknown";
-          const content = [converted.message, resolved.userInput].filter(Boolean).join("\n").trim() || "<empty>";
-          return {
-            text: `[Replying to message_id=${parentId}]\n${senderName}: ${content}`,
-            metadata: {
-              message_id: parentId,
-              available: true,
-              message_type: quotedSnapshot?.message_type ?? "unknown",
-              chat_id: chatId,
-              sender_name: senderName,
-              content,
-              resources: resolved.resourceMetadata,
-            },
-            userContentBlocks: resolved.userContentBlocks,
-            resourceMetadata: resolved.resourceMetadata,
-          };
-        } catch (cause) {
-          return {
-            text: "[Feishu system diagnostic: quoted message could not be retrieved. cause_known=false. Do not infer client version, expiration, permissions, network, or file format.]",
-            metadata: {
-              message_id: parentId,
-              chat_id: chatId,
-              available: false,
-              cause_known: false,
-              observed_message: safeFeishuMessage(cause instanceof Error ? cause.message : cause),
-            },
-          };
+        const diagnostics: AgentDiagnostic[] = [];
+        for (const [endpoint, fetcher] of [
+          [`/im/v1/messages/${encodeURIComponent(parentId)}`, fetchMessageItems],
+          ["/im/v1/messages/mget", fetchMessageById],
+        ] as const) {
+          let stage = "quote_lookup";
+          try {
+            const items = await fetcher(parentId);
+            const item = items.find((candidate) => text(candidate.message_id as JsonValue | undefined) === parentId) ?? items[0];
+            if (!item) {
+              const cause = new Error("Feishu message lookup returned no matching item");
+              diagnostics.push(createFeishuDiagnostic(cause, {
+                operation: "quoted_message_read",
+                stage,
+                endpoint,
+                causeKnown: true,
+                verifiedReason: "message_lookup_returned_no_items",
+                mappingId: "local:message_lookup_returned_no_items:v1",
+              }));
+              this.logger.warn("feishu_quote_attempt_failed", {
+                quoted_message_id: parentId,
+                endpoint,
+                stage,
+                diagnostic: diagnostics.at(-1),
+              });
+              continue;
+            }
+            stage = "quote_snapshot";
+            const body = object(item.body as JsonValue | undefined) ?? {};
+            const quotedSnapshot = snapshotMessageEvent({
+              sender: item.sender ?? {},
+              message: {
+                message_type: text(item.msg_type as JsonValue | undefined)
+                  || text(item.message_type as JsonValue | undefined)
+                  || "unknown",
+                content: text(body.content as JsonValue | undefined) || "{}",
+                chat_type: "p2p",
+                chat_id: chatId,
+                message_id: parentId,
+              },
+            });
+            if (!quotedSnapshot) throw new TypeError("Feishu quoted message could not be converted to a message snapshot");
+
+            stage = "quote_convert";
+            const converted = await convertFeishuMessage(quotedSnapshot, quoteConverterContext);
+            if (converted.diagnostics.length > 0) {
+              diagnostics.push(...converted.diagnostics.map((diagnostic) => ({
+                ...diagnostic,
+                endpoint: diagnostic.endpoint || endpoint,
+              })));
+              this.logger.warn("feishu_quote_attempt_failed", {
+                quoted_message_id: parentId,
+                endpoint,
+                stage,
+                diagnostics: converted.diagnostics,
+              });
+              continue;
+            }
+
+            stage = "quote_resource_resolve";
+            const resolved = converted.resources.length > 0 && resourceResolver
+              ? await resourceResolver(converted.resources, quotedSnapshot)
+              : { userInput: "", userContentBlocks: [], resourceMetadata: [], diagnostics: [] };
+            if (resolved.diagnostics.length > 0) {
+              diagnostics.push(...resolved.diagnostics.map((diagnostic) => ({
+                ...diagnostic,
+                endpoint: diagnostic.endpoint || endpoint,
+              })));
+              this.logger.warn("feishu_quote_attempt_failed", {
+                quoted_message_id: parentId,
+                endpoint,
+                stage,
+                diagnostics: resolved.diagnostics,
+              });
+              continue;
+            }
+
+            stage = "quote_assemble";
+            const content = [converted.message, resolved.userInput].filter(Boolean).join("\n").trim();
+            if (!content && resolved.userContentBlocks.length === 0) {
+              throw new Error("Feishu quoted message conversion produced no readable content");
+            }
+            const sender = object(item.sender as JsonValue | undefined) ?? {};
+            const senderName = text(sender.name as JsonValue | undefined)
+              || text(sender.id as JsonValue | undefined)
+              || text(sender.open_id as JsonValue | undefined)
+              || "unknown";
+            return {
+              text: `[Replying to message_id=${parentId}]\n${senderName}: ${content}`,
+              metadata: {
+                message_id: parentId,
+                available: true,
+                message_type: quotedSnapshot.message_type,
+                chat_id: chatId,
+                sender_name: senderName,
+                content,
+                resources: resolved.resourceMetadata,
+                endpoint,
+              },
+              userContentBlocks: resolved.userContentBlocks,
+              resourceMetadata: resolved.resourceMetadata,
+              diagnostics: [],
+            };
+          } catch (cause) {
+            const diagnostic = createFeishuDiagnostic(cause, {
+              operation: "quoted_message_read",
+              stage,
+              endpoint,
+            });
+            diagnostics.push(diagnostic);
+            this.logger.warn("feishu_quote_attempt_failed", {
+              quoted_message_id: parentId,
+              endpoint,
+              stage,
+              diagnostic,
+            });
+          }
         }
+        this.logger.warn("feishu_quote_read_failed", {
+          quoted_message_id: parentId,
+          diagnostics,
+        });
+        return {
+          text: "",
+          metadata: {
+            message_id: parentId,
+            chat_id: chatId,
+            available: false,
+            cause_known: diagnostics.length > 0 && diagnostics.every((diagnostic) => diagnostic.cause_known),
+            failure_stages: [...new Set(diagnostics.map((diagnostic) => diagnostic.stage))],
+            observed_errors: diagnostics.map((diagnostic) => diagnostic.observed_error),
+            diagnostics,
+          },
+          diagnostics,
+        };
       },
       ...(this.options.uuid ? { uuid: this.options.uuid } : {}),
     });

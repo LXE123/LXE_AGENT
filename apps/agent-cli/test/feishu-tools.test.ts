@@ -119,6 +119,7 @@ describe("native Feishu IM tools", () => {
     expect(cardError.details).toMatchObject({
       cause_known: true,
       verified_reason: "interactive_card_not_downloadable_resource",
+      mapping_id: "local:feishu_interactive_card_resource:v1",
       inference_policy: "verified_reason_only",
     });
     expect(JSON.parse(cardError.modelContent())).toMatchObject({
@@ -130,6 +131,34 @@ describe("native Feishu IM tools", () => {
     const mismatch = await call().catch((error) => error);
     expect(mismatch).toBeInstanceOf(ToolExecutionError);
     expect(mismatch.details).toMatchObject({ verified_reason: "resource_not_declared_by_message" });
+    expect(downloads).toBe(0);
+  });
+
+  test("uses the tested local mapping when Feishu returns no validation item", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-feishu-missing-message-"));
+    roots.push(root);
+    let downloads = 0;
+    const registry = new ToolRegistry();
+    registerFeishuImTools(registry, {
+      api: {
+        get: async () => ({ items: [] }),
+        download: async () => {
+          downloads += 1;
+          return { data: new Uint8Array(), contentType: "image/png", fileName: "x.png" };
+        },
+      },
+      sessionSource: async () => ({ platform: "feishu" }),
+    });
+    const failure = await registry.execute("feishu_im_bot_fetch_resource", {
+      message_id: "om_missing", file_key: "img_missing", type: "image",
+    }, context(root)).catch((error) => error);
+    expect(failure).toBeInstanceOf(ToolExecutionError);
+    expect(failure.details).toMatchObject({
+      cause_known: true,
+      verified_reason: "message_not_returned_by_feishu",
+      mapping_id: "local:feishu_message_not_returned:v1",
+      observed_message: "Feishu did not return the message needed to validate this resource.",
+    });
     expect(downloads).toBe(0);
   });
 
@@ -176,7 +205,7 @@ describe("native Feishu IM tools", () => {
       },
     });
     const normalized = normalizeFeishuToolError("GET /resource", error);
-    expect(normalized.message).toBe("Feishu API request failed; the cause was not determined.");
+    expect(normalized.message).toBe("invalid request authorization=[redacted] [redacted] token=[redacted]");
     expect(normalized.details).toMatchObject({
       cause_known: false,
       http_status: 400,
@@ -189,7 +218,7 @@ describe("native Feishu IM tools", () => {
     expect(normalized.details).not.toHaveProperty("verified_reason");
   });
 
-  test("states a Feishu cause only for a mapped provider code", () => {
+  test("does not replace a provider error without an exact fixture-backed mapping", () => {
     const error = Object.assign(new Error("Request failed with status code 400"), {
       response: {
         status: 400,
@@ -197,16 +226,18 @@ describe("native Feishu IM tools", () => {
       },
     });
     const normalized = normalizeFeishuToolError("GET /im/v1/messages", error);
-    expect(normalized.code).toBe("permission_denied");
+    expect(normalized.code).toBe("external_api_error");
+    expect(normalized.message).toBe("missing application scope");
     expect(normalized.details).toMatchObject({
-      cause_known: true,
-      verified_reason: "missing_application_scope",
+      cause_known: false,
       http_status: 400,
       provider_code: 99991672,
       log_id: "log-scope",
-      retryability: "not_retryable",
+      retryability: "unknown",
       inference_policy: "verified_reason_only",
     });
+    expect(normalized.details).not.toHaveProperty("verified_reason");
+    expect(normalized.details).not.toHaveProperty("mapping_id");
   });
 
   test("fails closed when resource provenance cannot be checked", async () => {

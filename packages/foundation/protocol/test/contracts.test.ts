@@ -34,6 +34,40 @@ describe("protocol contracts", () => {
     expect(validateAgentJob(invalidAgentJobShape)).toBe(false);
   });
 
+  test("strictly validates operation diagnostics", async () => {
+    const { validateAgentJob, validateInboundEvent } = await loadProtocol();
+    const diagnostic = {
+      type: "operation_failure",
+      provider: "feishu",
+      operation: "quote_lookup",
+      stage: "lookup",
+      error_name: "FeishuApiHttpError",
+      observed_error: "Feishu API GET failed: HTTP 400",
+      redacted: false,
+      truncated: false,
+      cause_known: false,
+      http_status: 400,
+    };
+    expect(validateAgentJob({ ...validAgentJob, diagnostics: [diagnostic] })).toBe(true);
+    expect(validateInboundEvent({ ...validInboundEvent, diagnostics: [diagnostic] })).toBe(true);
+    expect(validateAgentJob({ ...validAgentJob, diagnostics: [{ ...diagnostic, unexpected: true }] })).toBe(false);
+    expect(validateAgentJob({ ...validAgentJob, diagnostics: [{ ...diagnostic, observed_error: "x".repeat(4_001) }] })).toBe(false);
+    expect(validateAgentJob({ ...validAgentJob, diagnostics: Array.from({ length: 17 }, () => diagnostic) })).toBe(false);
+    expect(validateAgentJob({
+      ...validAgentJob,
+      diagnostics: [{ ...diagnostic, provider_code: Number.MAX_SAFE_INTEGER + 1 }],
+    })).toBe(false);
+    expect(validateAgentJob({ ...validAgentJob, diagnostics: [{ ...diagnostic, cause_known: true }] })).toBe(false);
+    expect(validateAgentJob({
+      ...validAgentJob,
+      diagnostics: [{ ...diagnostic, cause_known: true, verified_reason: "fixed_provider_code" }],
+    })).toBe(true);
+    expect(validateAgentJob({
+      ...validAgentJob,
+      diagnostics: [{ ...diagnostic, verified_reason: "not_allowed_without_known_cause" }],
+    })).toBe(false);
+  });
+
   test("enforces the final-answer stream discriminant", async () => {
     const { validateEmitRequest } = await loadProtocol();
     const stream = {

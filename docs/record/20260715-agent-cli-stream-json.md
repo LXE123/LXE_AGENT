@@ -17,20 +17,20 @@ Claude Code's stream JSON mode:
 
 The protocol is private to the Electron application. It is not installed on the
 system `PATH` and is versioned independently. The current strict steering
-handoff contract uses `version: 3`; version 2 is rejected instead of running a
+diagnostics contract uses `version: 4`; version 3 is rejected instead of running a
 mixed Desktop/agent-cli pair.
 
 ## Request and response envelopes
 
 ```json
-{"version":3,"id":"request-1","command":"has_pending_events","payload":{"session_id":"session-1"}}
-{"version":3,"id":"request-1","ok":true,"result":{"pending":false}}
+{"version":4,"id":"request-1","command":"has_pending_events","payload":{"session_id":"session-1"}}
+{"version":4,"id":"request-1","ok":true,"result":{"pending":false}}
 ```
 
 Errors preserve the request ID:
 
 ```json
-{"version":3,"id":"request-1","ok":false,"error":{"code":"RunUnavailable","message":"run not found"}}
+{"version":4,"id":"request-1","ok":false,"error":{"code":"RunUnavailable","message":"run not found"}}
 ```
 
 Supported commands are `initialize`, `run_turn`, `cancel_turn`, `steer_turn`,
@@ -44,6 +44,13 @@ Every successful `run_turn` result includes `remaining_steering`, even when it
 is an empty array. The Gateway validates the complete result and rejects a
 missing array, malformed message, or invalid usage counter as an
 `AgentProtocolError`; it never substitutes an empty handoff.
+
+Every `run_turn` AgentJob also carries a required `diagnostics` array. Each item
+is a bounded, strictly validated observation with provider, operation, stage,
+error name and redacted actual error. A known cause requires a
+`verified_reason`; a fixed replacement additionally requires a tested
+`mapping_id`. Diagnostics belong to the current turn's volatile system prompt,
+not `user_input` or transcript history.
 
 ## Events and session continuity
 

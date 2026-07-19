@@ -4,10 +4,21 @@ import { createOfficialFeishuSdk, FEISHU_EVENT_TYPES } from "../../../src/channe
 import {
   FeishuApiHttpError,
   FeishuApiResponseError,
+  createFeishuDiagnostic,
   feishuErrorFields,
 } from "../../../src/channels/feishu/response";
 
 describe("official Feishu SDK factory", () => {
+  test("preserves, redacts and explicitly truncates actual error observations", () => {
+    const diagnostic = createFeishuDiagnostic(
+      new Error(`provider exploded token=private ${"x".repeat(5_000)}`),
+      { operation: "quoted_message_read", stage: "quote_convert" },
+    );
+    expect(diagnostic.observed_error).toStartWith("provider exploded token=[redacted]");
+    expect(diagnostic.observed_error).toHaveLength(4_000);
+    expect(diagnostic).toMatchObject({ redacted: true, truncated: true, cause_known: false });
+  });
+
   test("keeps response-level provider subcodes without exposing credentials", () => {
     const error = new FeishuApiResponseError({
       apiCode: 230099,

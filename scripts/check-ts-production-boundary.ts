@@ -43,7 +43,7 @@ forbidText("apps/agent-cli/src/dashboard-service.ts", /\bRequest\b|\bResponse\b|
 forbidText("apps/agent-cli/src/runtime-host.ts", /dashboard_request|new Request|new URL|response\.status/, "Agent host must forward typed Dashboard RPC calls directly");
 forbidText("apps/desktop/src/main/ipc-validation.ts", /\/api\/|GET_PATHS|PATCH_PATHS/, "Desktop IPC must validate Dashboard operations instead of paths");
 forbidText("packages/foundation/desktop-protocol/src/index.ts", /dashboard_request|DashboardRequestPayload/, "agent protocol must not expose the retired pseudo-REST command");
-requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*3\s+as const/, "agent protocol must remain on the strict v3 contract");
+requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*4\s+as const/, "agent protocol must remain on the strict v4 diagnostics contract");
 forbidText("packages/foundation/desktop-protocol/src/index.ts", /remaining_steering\?\s*:/, "run_turn must always report remaining steering");
 forbidText("apps/gateway/src/orchestration/composition.ts", /remaining_steering\s*\?\?/, "Gateway must not default a missing steering handoff to an empty list");
 forbidText("packages/agent/runtime/src/engine/system-events.ts", /mergePendingSystemEvents/, "Runtime must not restore the retired embedded/stored pending-event merge");
@@ -88,6 +88,20 @@ for (const boundary of packageImportBoundaries) {
   for (const pattern of boundary.patterns) {
     for await (const path of new Bun.Glob(pattern).scan({ cwd: root, onlyFiles: true })) {
       if (boundary.importPattern.test(read(path))) failures.push(`${path}: ${boundary.message}`);
+    }
+  }
+}
+
+const forbiddenErrorSurrogates = [
+  /Feishu system diagnostic: quoted message could not be retrieved/,
+  /Feishu [^\n]+ download failed; cause_known=false/,
+  /Interactive card content unavailable/,
+  /Unable to process Feishu image/,
+] as const;
+for (const pattern of ["apps/**/src/**/*.ts", "packages/**/src/**/*.ts"]) {
+  for await (const path of new Bun.Glob(pattern).scan({ cwd: root, onlyFiles: true })) {
+    for (const forbidden of forbiddenErrorSurrogates) {
+      if (forbidden.test(read(path))) failures.push(`${path}: production code must preserve actual operation errors instead of injecting a fixed surrogate`);
     }
   }
 }

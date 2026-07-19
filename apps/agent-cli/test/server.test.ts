@@ -33,6 +33,7 @@ const turnJob = (root: string) => ({
   source: {},
   raw_data: {},
   user_content_blocks: [],
+  diagnostics: [],
   workspace: workspace(root),
 });
 
