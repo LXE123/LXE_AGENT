@@ -23,10 +23,10 @@ const route = (source = "om_source") => ({
 
 describe("Feishu media and card delivery", () => {
   test("markdown and files reply to source message, while no-source routes target chat", async () => {
-    const calls: Array<{ method: string; path: string; body: JsonObject }> = [];
+    const calls: Array<{ method: string; path: string; body: JsonObject; query: JsonObject }> = [];
     const api = {
-      request: async (method: string, path: string, body: JsonObject) => {
-        calls.push({ method, path, body });
+      request: async (method: string, path: string, options?: { body?: JsonObject; query?: JsonObject }) => {
+        calls.push({ method, path, body: options?.body ?? {}, query: options?.query ?? {} });
         return { code: 0, data: { message_id: "om_sent" } };
       },
       upload: async (path: string, kind: "image" | "file") => `${kind}_${path.split("/").at(-1)}`,
@@ -50,7 +50,8 @@ describe("Feishu media and card delivery", () => {
     ]);
     expect(calls[1]?.body.msg_type).toBe("file");
     expect(calls[2]?.body.msg_type).toBe("image");
-    expect(calls[3]?.path).toBe("/im/v1/messages?receive_id_type=chat_id");
+    expect(calls[3]?.path).toBe("/im/v1/messages");
+    expect(calls[3]?.query).toEqual({ receive_id_type: "chat_id" });
     expect(calls[3]?.body.receive_id).toBe("oc_chat");
   });
 

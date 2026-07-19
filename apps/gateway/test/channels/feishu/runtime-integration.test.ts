@@ -158,8 +158,8 @@ describe("Gateway emitter to Feishu CardKit delivery", () => {
     const store = routeStore(initialRoute());
     const sdkFactory = (callbacks: FeishuSdkCallbacks): FeishuSdkServices => ({
       api: {
-        request: async (_method, _path, body) => {
-          calls.push({ operation: "ordinary.reply", params: body });
+        request: async (_method, _path, options) => {
+          calls.push({ operation: "ordinary.reply", params: options?.body ?? {} });
           return { code: 0, msg: "success", data: { message_id: "om-fallback" } };
         },
         upload: async () => "file-key",

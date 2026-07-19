@@ -129,6 +129,7 @@ export interface FeishuInboundConversion {
 export interface FeishuMessageConverterContext {
   resolveResources?: (resources: FeishuInboundResource[], snapshot: FeishuMessageSnapshot) => Promise<ResolvedResources>;
   fetchSubMessages?: (messageId: string) => Promise<Record<string, unknown>[]>;
+  fetchInteractiveContent?: (messageId: string) => Promise<string | undefined>;
   resolveUserName?: (userId: string) => string | undefined | Promise<string | undefined>;
   maxDepth?: number;
 }
@@ -233,10 +234,17 @@ const convertPost = async (
   return { message: lines.join("\n").trim() || (resources.length ? "" : "[rich text message]"), resources };
 };
 
+const DEFAULT_CARD_FALLBACK = "请升级至最新版本客户端，以查看内容";
+
 const cardText = (value: unknown): string => {
   if (typeof value === "string") return value.trim();
   const item = record(value);
   const property = record(item.property);
+  const localized = record(property.i18nContent ?? property.i18n_content ?? item.i18nContent ?? item.i18n_content);
+  for (const locale of ["zh_cn", "en_us", "ja_jp"]) {
+    const result = firstText(localized[locale]);
+    if (result) return result;
+  }
   for (const candidate of [property.content, item.content, property.text, item.text, property.title, item.title,
     property.value, item.value, property.label, item.label, property.placeholder, item.placeholder, property.name, item.name]) {
     const nested = record(candidate);
@@ -249,23 +257,47 @@ const cardText = (value: unknown): string => {
   return "";
 };
 
+const cardCodeText = (value: unknown): string => {
+  if (typeof value === "string" || typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.map(cardCodeText).join("");
+  const item = record(value);
+  const property = record(item.property);
+  const direct = property.content ?? item.content ?? property.text ?? item.text;
+  if (typeof direct === "string" || typeof direct === "number") return String(direct);
+  for (const nested of [property.contents, item.contents, property.elements, item.elements]) {
+    const result = cardCodeText(nested);
+    if (result) return result;
+  }
+  return "";
+};
+
 const renderInteractive = (
   value: unknown,
-  snapshot: FeishuMessageSnapshot,
-  resources: FeishuInboundResource[],
+  rawCard: boolean,
 ): string[] => {
-  if (Array.isArray(value)) return value.flatMap((item) => renderInteractive(item, snapshot, resources));
-  if (typeof value === "string") return value.trim() ? [value.trim()] : [];
+  if (Array.isArray(value)) return value.flatMap((item) => renderInteractive(item, rawCard));
+  if (typeof value === "string") {
+    const result = value.trim();
+    return result && result !== DEFAULT_CARD_FALLBACK ? [result] : [];
+  }
   const item = record(value);
   if (Object.keys(item).length === 0) return [];
   const property = record(item.property);
   const tag = text(item.tag).toLowerCase();
-  if (["img", "image", "avatar"].includes(tag)) {
-    const key = text(item.image_key) || text(property.image_key);
-    if (key) resources.push(resource(snapshot, "image", key, cardText(item.alt) || cardText(property.alt)));
-    return [`[image] ${cardText(item.alt) || cardText(property.alt)}`.trim()];
+  if (["custom_icon", "standard_icon", "card_header"].includes(tag)) return [];
+  if (tag === "fallback_text") {
+    const fallback = cardText(item);
+    return fallback && fallback !== DEFAULT_CARD_FALLBACK ? [fallback] : [];
   }
-  if (tag === "button") return [`[button] ${cardText(item.text) || cardText(property.text) || cardText(item)}`.trim()];
+  if (["img", "image", "avatar"].includes(tag)) {
+    if (!rawCard) return [];
+    const alt = cardText(item.alt) || cardText(property.alt) || cardText(item.title) || cardText(property.title);
+    return [alt ? `[Card image: ${alt}]` : "[Card image]"];
+  }
+  if (tag === "button") {
+    const label = cardText(item.text) || cardText(property.text) || cardText(item);
+    return [label ? `[button] ${label}` : "[button]"];
+  }
   if (["link", "a"].includes(tag)) {
     const label = cardText(item.text) || cardText(property.text) || cardText(item.title);
     const href = text(item.href) || text(property.href) || text(item.url) || text(property.url);
@@ -279,17 +311,55 @@ const renderInteractive = (
   if (tag === "heading") return cardText(item) ? [`### ${cardText(item)}`] : [];
   if (tag === "blockquote") return cardText(item) ? [`> ${cardText(item)}`] : [];
   if (["code_block", "code_span"].includes(tag)) {
-    const code = cardText(item);
-    return code ? [tag === "code_span" ? `\`${code}\`` : `\`\`\`\n${code}\n\`\`\``] : [];
+    const code = cardCodeText(property.contents ?? item.contents ?? item).trim();
+    const language = text(property.language) || text(item.language);
+    return code ? [tag === "code_span" ? `\`${code}\`` : `\`\`\`${language}\n${code}\n\`\`\``] : [];
   }
   const lines: string[] = [];
   const own = cardText(item);
-  if (own) lines.push(own);
+  if (own && own !== DEFAULT_CARD_FALLBACK) lines.push(own);
   for (const child of [item.title, item.subtitle, item.text, item.header, item.body, item.elements, item.columns, item.actions, item.items, item.fields,
-    property.body, property.elements, property.columns, property.actions, property.items, property.fields]) {
-    lines.push(...renderInteractive(child, snapshot, resources));
+    item.contents, property.title, property.subtitle, property.text, property.header, property.body, property.elements, property.columns,
+    property.actions, property.items, property.fields, property.contents]) {
+    lines.push(...renderInteractive(child, rawCard));
   }
   return lines.filter((line, index, all) => line && all.indexOf(line) === index);
+};
+
+const parseInteractiveCard = (value: Record<string, unknown>): { card: Record<string, unknown>; raw: boolean } | null => {
+  if (typeof value.json_card !== "string") return { card: value, raw: false };
+  try {
+    const parsed = JSON.parse(value.json_card);
+    const card = record(parsed);
+    return Object.keys(card).length > 0 ? { card, raw: true } : null;
+  } catch {
+    return null;
+  }
+};
+
+const convertInteractive = async (
+  content: Record<string, unknown>,
+  snapshot: FeishuMessageSnapshot,
+  context: FeishuMessageConverterContext,
+): Promise<FeishuInboundConversion> => {
+  let resolvedContent = content;
+  if (typeof resolvedContent.json_card !== "string" && snapshot.message_id && context.fetchInteractiveContent) {
+    try {
+      const fetched = await context.fetchInteractiveContent(snapshot.message_id);
+      if (fetched) resolvedContent = record(parseJson(fetched));
+    } catch {
+      // The adapter records the structured fetch failure. Preserve the event fallback.
+    }
+  }
+  const parsed = parseInteractiveCard(resolvedContent);
+  if (!parsed) return none("[Interactive card content unavailable]");
+  const lines = [
+    ...renderInteractive(parsed.card.header, parsed.raw),
+    ...renderInteractive(parsed.card.body, parsed.raw),
+    ...renderInteractive(parsed.card.elements, parsed.raw),
+    ...renderInteractive(parsed.card.footer, parsed.raw),
+  ].filter((line, index, all) => line && all.indexOf(line) === index);
+  return none(`[Interactive card]${lines.length > 0 ? `\n${lines.join("\n")}` : ""}`);
 };
 
 const itemSnapshot = (item: Record<string, unknown>, parent: FeishuMessageSnapshot): FeishuMessageSnapshot => {
@@ -435,15 +505,7 @@ const converters: Readonly<Record<string, FeishuMessageConverter>> = {
     text(content.start_time), text(content.meeting_id),
   ].filter(Boolean).join("\n")),
   merge_forward: convertMerged,
-  interactive: async (content, snapshot) => {
-    const resources: FeishuInboundResource[] = [];
-    const lines = [
-      ...renderInteractive(content.header, snapshot, resources),
-      ...renderInteractive(content.body, snapshot, resources),
-      ...renderInteractive(content.elements, snapshot, resources),
-    ].filter((line, index, all) => line && all.indexOf(line) === index);
-    return { message: `[Interactive card]\n${lines.join("\n") || firstText(content) || readableJson(content)}`, resources };
-  },
+  interactive: convertInteractive,
   system: async (content) => none(`[System message] ${firstText(content) || readableJson(content)}`),
 };
 

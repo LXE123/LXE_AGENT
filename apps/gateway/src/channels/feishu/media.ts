@@ -5,7 +5,11 @@ import type { FeishuRouteContext } from "./cardkit";
 import { parseFeishuEnvelope } from "./response";
 
 export interface FeishuMediaApi {
-  request(method: string, path: string, body: JsonObject): Promise<JsonObject>;
+  request(
+    method: string,
+    path: string,
+    options?: { body?: JsonObject; query?: JsonObject },
+  ): Promise<JsonObject>;
   upload(path: string, kind: "image" | "file"): Promise<string>;
 }
 
@@ -56,12 +60,15 @@ export class FeishuMedia {
       ? await this.options.api.request(
           "POST",
           `/im/v1/messages/${sourceMessageId}/reply`,
-          { msg_type: messageType, ...payload },
+          { body: { msg_type: messageType, ...payload } },
         )
       : await this.options.api.request(
           "POST",
-          "/im/v1/messages?receive_id_type=chat_id",
-          { receive_id: route.conversation_id, msg_type: messageType, ...payload },
+          "/im/v1/messages",
+          {
+            body: { receive_id: route.conversation_id, msg_type: messageType, ...payload },
+            query: { receive_id_type: "chat_id" },
+          },
         );
     const response = parseFeishuEnvelope(result, `send_${messageType}`);
     if (response.code !== 0) {

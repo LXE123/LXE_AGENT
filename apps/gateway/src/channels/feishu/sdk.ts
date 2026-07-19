@@ -166,12 +166,13 @@ export function createOfficialFeishuSdk(
   });
 
   const api: FeishuSdkServices["api"] = {
-    request: async (method, path, body) => {
+    request: async (method, path, options = {}) => {
       try {
         const response = await client.request({
           method,
           url: `/open-apis${path}`,
-          data: body,
+          ...(options.body ? { data: options.body } : {}),
+          ...(options.query ? { params: options.query } : {}),
         });
         return apiResponse(response);
       } catch (cause) {

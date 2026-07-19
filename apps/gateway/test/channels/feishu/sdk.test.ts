@@ -9,6 +9,7 @@ describe("official Feishu SDK factory", () => {
     const starts: unknown[] = [];
     const closes: unknown[] = [];
     const typedCalls: Array<{ operation: string; payload: unknown }> = [];
+    const rawRequests: Record<string, unknown>[] = [];
     let clientOptions: Record<string, unknown> = {};
     let dispatcherOptions: Record<string, unknown> = {};
     let wsOptions: Record<string, unknown> = {};
@@ -54,7 +55,8 @@ describe("official Feishu SDK factory", () => {
         file: { create: async () => ({ file_key: "f" }) },
         image: { create: async () => ({ image_key: "i" }) },
       } };
-      request = async () => {
+      request = async (options: Record<string, unknown>) => {
+        rawRequests.push(options);
         if (apiError) throw apiError;
         return apiResponse;
       };
@@ -96,12 +98,33 @@ describe("official Feishu SDK factory", () => {
     await registered["im.message.reaction.created_v1"]?.({});
     await registered["im.message.reaction.deleted_v1"]?.({});
     expect(callbacks.slice(0, 3)).toEqual(["message", "reaction-created", "reaction-deleted"]);
-    expect(await sdk.api.request("POST", "/im/v1/messages/om-source/reply", {})).toEqual({
+    expect(await sdk.api.request("POST", "/im/v1/messages/om-source/reply", { body: { msg_type: "text" } })).toEqual({
       code: 0,
       msg: "success",
       data: { message_id: "om-raw" },
       log_id: "",
     });
+    await sdk.api.request("GET", "/im/v1/messages/mget", { query: {
+      message_ids: "om-card",
+      user_id_type: "open_id",
+      card_msg_content_type: "raw_card_content",
+    } });
+    expect(rawRequests.slice(-2)).toEqual([
+      {
+        method: "POST",
+        url: "/open-apis/im/v1/messages/om-source/reply",
+        data: { msg_type: "text" },
+      },
+      {
+        method: "GET",
+        url: "/open-apis/im/v1/messages/mget",
+        params: {
+          message_ids: "om-card",
+          user_id_type: "open_id",
+          card_msg_content_type: "raw_card_content",
+        },
+      },
+    ]);
     apiResponse = { data: { message_id: "missing-code" } };
     await expect(sdk.api.request("POST", "/im/v1/messages/om-source/reply", {})).rejects.toThrow("malformed Feishu response");
     apiError = Object.assign(new Error("Request failed with status code 400"), {

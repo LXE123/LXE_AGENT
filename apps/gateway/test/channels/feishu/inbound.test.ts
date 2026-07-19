@@ -246,6 +246,68 @@ describe("Feishu inbound normalization", () => {
     expect(converted.message).toContain("Shenzhen");
     expect(converted.message).toContain("**Low stock**");
     expect(converted.message).toContain("[button] Open report");
+    expect(converted.resources).toEqual([]);
+  });
+
+  test("converts raw CardKit content without treating card internals as message resources", async () => {
+    const snapshot = snapshotMessageEvent(baseEvent({
+      message_id: "om_raw_card",
+      message_type: "interactive",
+      content: JSON.stringify({
+        card_schema: 2,
+        json_attachment: JSON.stringify({ images: { internal: "img_private" } }),
+        json_card: JSON.stringify({
+          schema: "2.0",
+          header: { property: { title: { tag: "plain_text", property: { content: "Path report" } } } },
+          body: { property: { elements: [
+            { tag: "markdown", property: { content: "**Absolute path**\n\n```text\n/Users/example/skills\n```" } },
+            {
+              tag: "collapsible_panel",
+              property: {
+                header: { title: { tag: "plain_text", property: { content: "Tool steps" } } },
+                elements: [{ tag: "div", property: { text: { tag: "plain_text", property: { content: "read succeeded" } } } }],
+              },
+            },
+            { tag: "img", property: { imageID: "img_v3_internal", alt: { content: "Architecture" } } },
+            { tag: "custom_icon", property: { imgKey: "img_v3_loading" } },
+            { tag: "fallback_text", property: { text: { content: "请升级至最新版本客户端，以查看内容" } } },
+          ] } },
+          footer: { tag: "markdown", property: { content: "Completed · 1.2s" } },
+        }),
+      }),
+    }))!;
+    const converted = await convertFeishuMessage(snapshot);
+    expect(converted.message).toContain("Path report");
+    expect(converted.message).toContain("/Users/example/skills");
+    expect(converted.message).toContain("Tool steps");
+    expect(converted.message).toContain("read succeeded");
+    expect(converted.message).toContain("Completed · 1.2s");
+    expect(converted.message).toContain("[Card image: Architecture]");
+    expect(converted.message).not.toContain("img_v3");
+    expect(converted.message).not.toContain("请升级至最新版本客户端");
+    expect(converted.resources).toEqual([]);
+  });
+
+  test("drops legacy card fallback images and safely rejects malformed raw cards", async () => {
+    const degraded = snapshotMessageEvent(baseEvent({
+      message_id: "om_degraded_card",
+      message_type: "interactive",
+      content: JSON.stringify({ body: { elements: [
+        { tag: "img", image_key: "img_v3_not_a_message_attachment" },
+        { tag: "fallback_text", text: { content: "请升级至最新版本客户端，以查看内容" } },
+      ] } }),
+    }))!;
+    const degradedResult = await convertFeishuMessage(degraded);
+    expect(degradedResult).toEqual({ message: "[Interactive card]", resources: [] });
+
+    const malformed = snapshotMessageEvent(baseEvent({
+      message_id: "om_malformed_card",
+      message_type: "interactive",
+      content: JSON.stringify({ json_card: "{invalid", json_attachment: "img_v3_secret" }),
+    }))!;
+    const malformedResult = await convertFeishuMessage(malformed);
+    expect(malformedResult).toEqual({ message: "[Interactive card content unavailable]", resources: [] });
+    expect(JSON.stringify(malformedResult)).not.toContain("img_v3_secret");
   });
 
   test("converts the complete rich-message registry and preserves unknown messages", async () => {

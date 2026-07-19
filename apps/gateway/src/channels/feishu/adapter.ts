@@ -10,6 +10,7 @@ import { FeishuInboundNormalizer, convertFeishuMessage, snapshotMessageEvent } f
 import { FeishuMedia } from "./media";
 import { createFeishuInboundResourceResolver } from "./resources";
 import type { InboundImageProcessorPort } from "./image-contract";
+import { parseFeishuEnvelope } from "./response";
 import { FeishuIdleRestart, type RestartClock } from "./restart";
 import type { FeishuSdkFactory, FeishuSdkServices } from "./sdk";
 import { createOfficialFeishuSdkFactory } from "./sdk";
@@ -39,6 +40,19 @@ const object = (value: JsonValue | undefined): JsonObject | undefined =>
 const text = (value: JsonValue | undefined): string => String(value ?? "").trim();
 const delayMilliseconds = (milliseconds: number): Promise<void> =>
   new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
+const rawCardQuery = (): JsonObject => ({
+  user_id_type: "open_id",
+  card_msg_content_type: "raw_card_content",
+});
+
+const messageItems = (response: JsonObject, operation: string): Record<string, unknown>[] => {
+  const envelope = parseFeishuEnvelope(response, operation);
+  if (envelope.code !== 0) {
+    throw new Error(`Feishu ${operation} failed with code ${envelope.code}${envelope.msg ? `: ${envelope.msg}` : ""}`);
+  }
+  return (Array.isArray(envelope.data.items) ? envelope.data.items : [])
+    .map((item) => object(item as JsonValue | undefined) ?? {});
+};
 
 export class FeishuAdapter implements ChannelAdapter {
   readonly platform = "feishu";
@@ -205,13 +219,33 @@ export class FeishuAdapter implements ChannelAdapter {
         })
       : undefined;
     const fetchMessageItems = async (messageId: string): Promise<Record<string, unknown>[]> => {
-      const response = await sdk.api.request("GET", `/im/v1/messages/${encodeURIComponent(messageId)}`, {});
-      const data = object(response.data);
-      return (Array.isArray(data?.items) ? data.items : []).map((item) => object(item as JsonValue | undefined) ?? {});
+      const response = await sdk.api.request("GET", `/im/v1/messages/${encodeURIComponent(messageId)}`, {
+        query: rawCardQuery(),
+      });
+      return messageItems(response, "get_message");
+    };
+    const fetchMessageById = async (messageId: string): Promise<Record<string, unknown>[]> => {
+      const response = await sdk.api.request("GET", "/im/v1/messages/mget", {
+        query: { ...rawCardQuery(), message_ids: messageId },
+      });
+      return messageItems(response, "get_messages");
+    };
+    const fetchInteractiveContent = async (messageId: string): Promise<string | undefined> => {
+      try {
+        const items = await fetchMessageItems(messageId);
+        const item = items.find((candidate) => text(candidate.message_id as JsonValue | undefined) === messageId) ?? items[0];
+        const body = object(item?.body as JsonValue | undefined);
+        const content = text(body?.content);
+        return content || undefined;
+      } catch (error) {
+        this.logger.warn("feishu_card_content_fetch_failed", { message_id: messageId, error });
+        return undefined;
+      }
     };
     const converterContext = {
       ...(resourceResolver ? { resolveResources: resourceResolver } : {}),
       fetchSubMessages: fetchMessageItems,
+      fetchInteractiveContent,
       resolveUserName: (userId: string) => userId,
     };
     this.normalizer = new FeishuInboundNormalizer({
@@ -223,7 +257,7 @@ export class FeishuAdapter implements ChannelAdapter {
       converterContext,
       loadQuote: async (parentId, chatId) => {
         try {
-          const items = await fetchMessageItems(parentId);
+          const items = await fetchMessageById(parentId);
           const item = items.find((candidate) => text(candidate.message_id as JsonValue | undefined) === parentId) ?? items[0] ?? {};
           const body = object(item.body as JsonValue | undefined) ?? {};
           const quotedSnapshot = snapshotMessageEvent({
