@@ -1,5 +1,8 @@
 // Usage statistics view (turns / skills / tools aggregates).
 import { useMemo, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
+import { CircleX, Coins, MessagesSquare, TriangleAlert, Wrench, Zap } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import {
   queryError,
@@ -25,34 +28,133 @@ export function useSkillUsageStats(days: number): Record<string, SkillStatPayloa
   }, [query.data]);
 }
 
+const CHART_TICK_COUNT = 4;
+
+function chartTicks(maxValue: number): { max: number; ticks: number[] } {
+  // Pick a 1/2/5 step so the axis tops out at four clean, integer-labelled ticks.
+  if (maxValue <= CHART_TICK_COUNT) {
+    return { max: CHART_TICK_COUNT, ticks: [1, 2, 3, 4] };
+  }
+  const roughStep = maxValue / CHART_TICK_COUNT;
+  const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+  const normalized = roughStep / magnitude;
+  const step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
+  return {
+    max: step * CHART_TICK_COUNT,
+    ticks: Array.from({ length: CHART_TICK_COUNT }, (_, index) => step * (index + 1))
+  };
+}
+
+type ChartTip = {
+  x: number;
+  y: number;
+  day: string;
+  turns: number;
+  executions: number;
+};
+
 function UsageDailyChart({ daily }: { daily: StatsOverviewPayload["daily"] }) {
   const t = useUiText();
+  const [tip, setTip] = useState<ChartTip | null>(null);
   if (!daily.length) {
     return null;
   }
-  const maxValue = Math.max(1, ...daily.map((entry) => Math.max(entry.turns, entry.executions)));
+  const { max, ticks } = chartTicks(
+    Math.max(1, ...daily.map((entry) => Math.max(entry.turns, entry.executions)))
+  );
+  const labelStep = Math.max(1, Math.ceil(daily.length / 15));
+  const showTip = (
+    event: ReactMouseEvent<HTMLDivElement>,
+    entry: StatsOverviewPayload["daily"][number]
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.max(80, Math.min(window.innerWidth - 80, rect.left + rect.width / 2));
+    setTip({ x, y: rect.top, day: entry.day, turns: entry.turns, executions: entry.executions });
+  };
   return (
-    <div className="usage-chart-shell">
+    <div className="usage-chart-body">
+      <div className="usage-chart-yaxis" aria-hidden="true">
+        {ticks.map((tick, index) => (
+          <span key={tick} style={{ bottom: `${((index + 1) / CHART_TICK_COUNT) * 100}%` }}>
+            {formatNumber(tick)}
+          </span>
+        ))}
+      </div>
       <div className="usage-chart" role="img" aria-label={t.usage.dailyTitle}>
-        {daily.map((entry) => (
-          <div className="usage-chart-day" key={entry.day} title={`${entry.day} · ${t.usage.dailyLegendTurns} ${formatNumber(entry.turns)} · ${t.usage.dailyLegendExecutions} ${formatNumber(entry.executions)}`}>
+        {daily.map((entry, index) => (
+          <div
+            className="usage-chart-day"
+            key={entry.day}
+            onMouseEnter={(event) => showTip(event, entry)}
+            onMouseLeave={() => setTip(null)}
+          >
             <div className="usage-chart-bars">
               <span
                 className="usage-chart-bar turns"
-                style={{ height: `${Math.max(3, (entry.turns / maxValue) * 100)}%` }}
+                style={{
+                  height: `${Math.max(entry.turns > 0 ? 2 : 0, (entry.turns / max) * 100)}%`,
+                  animationDelay: `${Math.min(index * 14, 420)}ms`
+                }}
               />
               <span
                 className="usage-chart-bar executions"
-                style={{ height: `${Math.max(entry.executions > 0 ? 3 : 0, (entry.executions / maxValue) * 100)}%` }}
+                style={{
+                  height: `${Math.max(entry.executions > 0 ? 2 : 0, (entry.executions / max) * 100)}%`,
+                  animationDelay: `${Math.min(index * 14 + 40, 460)}ms`
+                }}
               />
             </div>
-            <span className="usage-chart-label">{entry.day.slice(5)}</span>
+            <span className="usage-chart-label">
+              {index % labelStep === 0 ? entry.day.slice(5) : ""}
+            </span>
           </div>
         ))}
       </div>
-      <div className="usage-chart-legend">
-        <span><i className="usage-legend-dot turns" />{t.usage.dailyLegendTurns}</span>
-        <span><i className="usage-legend-dot executions" />{t.usage.dailyLegendExecutions}</span>
+      {tip ? (
+        <div className="usage-chart-tooltip" role="tooltip" style={{ left: tip.x, top: tip.y }}>
+          <strong>{tip.day}</strong>
+          <span>
+            <i className="usage-legend-dot turns" />
+            {t.usage.dailyLegendTurns}
+            <b>{formatNumber(tip.turns)}</b>
+          </span>
+          <span>
+            <i className="usage-legend-dot executions" />
+            {t.usage.dailyLegendExecutions}
+            <b>{formatNumber(tip.executions)}</b>
+          </span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const SKELETON_BAR_HEIGHTS = [42, 68, 30, 82, 56, 74, 46, 88, 60, 36, 70, 52];
+
+function StatsSkeleton() {
+  const t = useUiText();
+  return (
+    <div className="usage-page usage-skeleton" aria-busy="true" aria-label={t.usage.loading}>
+      <span className="usage-skel-block usage-skel-range" />
+      <div className="usage-summary-strip">
+        {Array.from({ length: 6 }, (_, index) => (
+          <div className="usage-skel-cell" key={index}>
+            <span className="usage-skel-block usage-skel-label" />
+            <span className="usage-skel-block usage-skel-value" />
+          </div>
+        ))}
+      </div>
+      <div className="usage-section usage-skel-chart">
+        <span className="usage-skel-block usage-skel-title" />
+        <div className="usage-skel-bars">
+          {SKELETON_BAR_HEIGHTS.map((height, index) => (
+            <span
+              className="usage-skel-bar"
+              key={index}
+              style={{ height: `${height}%`, animationDelay: `${index * 70}ms` }}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -77,7 +179,7 @@ export function StatsView() {
     .some((current) => current.isFetching && !current.isPending);
 
   if (loading) {
-    return <EmptyState label={t.usage.loading} />;
+    return <StatsSkeleton />;
   }
   if (error) {
     return <EmptyState label={t.common.errorPrefix(t.usage.errorLabel, error)} />;
@@ -104,13 +206,13 @@ export function StatsView() {
 
   const totals = overview.totals;
   const dangerTone = (value: number) => (value > 0 ? "tone-danger" : "tone-zero");
-  const totalCards = [
-    { label: t.usage.totalsTurns, value: formatNumber(totals.turns), tone: "" },
-    { label: t.usage.totalsErrorTurns, value: formatNumber(totals.error_turns), tone: dangerTone(totals.error_turns) },
-    { label: t.usage.totalsToolCalls, value: formatNumber(totals.tool_calls), tone: "" },
-    { label: t.usage.totalsExecutions, value: formatNumber(totals.skill_executions), tone: "" },
-    { label: t.usage.totalsFailures, value: formatNumber(totals.skill_failures), tone: dangerTone(totals.skill_failures) },
-    { label: t.usage.totalsTokens, value: formatNumber(totals.input_tokens + totals.output_tokens), tone: "" }
+  const totalCards: Array<{ label: string; value: string; tone: string; icon: LucideIcon }> = [
+    { label: t.usage.totalsTurns, value: formatNumber(totals.turns), tone: "", icon: MessagesSquare },
+    { label: t.usage.totalsErrorTurns, value: formatNumber(totals.error_turns), tone: dangerTone(totals.error_turns), icon: TriangleAlert },
+    { label: t.usage.totalsToolCalls, value: formatNumber(totals.tool_calls), tone: "", icon: Wrench },
+    { label: t.usage.totalsExecutions, value: formatNumber(totals.skill_executions), tone: "", icon: Zap },
+    { label: t.usage.totalsFailures, value: formatNumber(totals.skill_failures), tone: dangerTone(totals.skill_failures), icon: CircleX },
+    { label: t.usage.totalsTokens, value: formatNumber(totals.input_tokens + totals.output_tokens), tone: "", icon: Coins }
   ];
 
   return (
@@ -138,14 +240,23 @@ export function StatsView() {
       <div className="usage-summary-strip" aria-label={t.usage.title}>
         {totalCards.map((card) => (
           <div className={card.tone ? `usage-summary-item ${card.tone}` : "usage-summary-item"} key={card.label}>
-            <span className="usage-summary-label">{card.label}</span>
+            <span className="usage-summary-label">
+              <card.icon size={13} strokeWidth={2} aria-hidden="true" />
+              {card.label}
+            </span>
             <strong className="usage-summary-value">{card.value}</strong>
           </div>
         ))}
       </div>
 
-      <section className="usage-section">
-        <h3>{t.usage.dailyTitle}</h3>
+      <section className="usage-section usage-chart-section">
+        <div className="usage-chart-head">
+          <h3>{t.usage.dailyTitle}</h3>
+          <div className="usage-chart-legend">
+            <span><i className="usage-legend-dot turns" />{t.usage.dailyLegendTurns}</span>
+            <span><i className="usage-legend-dot executions" />{t.usage.dailyLegendExecutions}</span>
+          </div>
+        </div>
         <UsageDailyChart daily={overview.daily} />
       </section>
 

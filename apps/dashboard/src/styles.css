@@ -5666,10 +5666,16 @@ pre {
   font-size: 12.5px;
   cursor: pointer;
   white-space: nowrap;
+  transition: background 0.14s ease, color 0.14s ease, box-shadow 0.14s ease;
 }
 
 .usage-range-button:hover {
   color: var(--text-strong);
+}
+
+.usage-range-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .usage-range-button.active {
@@ -5686,29 +5692,40 @@ pre {
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .usage-summary-item {
   display: grid;
   min-width: 0;
-  gap: 3px;
-  padding: 12px 14px;
+  gap: 4px;
+  padding: 14px 16px 13px;
   border-right: 1px solid var(--border);
+  transition: background 0.14s ease;
 }
 
 .usage-summary-item:last-child {
   border-right: 0;
 }
 
+.usage-summary-item:hover {
+  background: var(--surface-muted);
+}
+
 .usage-summary-value {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 650;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.usage-summary-item.tone-danger,
+.usage-summary-item.tone-danger:hover {
+  background: var(--danger-soft);
 }
 
 .usage-summary-item.tone-danger .usage-summary-value {
@@ -5720,6 +5737,9 @@ pre {
 }
 
 .usage-summary-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   overflow: hidden;
   color: var(--muted);
   font-size: 11px;
@@ -5727,16 +5747,35 @@ pre {
   white-space: nowrap;
 }
 
+.usage-summary-label svg {
+  flex: 0 0 auto;
+  color: var(--muted-light);
+}
+
+.usage-summary-item.tone-danger .usage-summary-label,
+.usage-summary-item.tone-danger .usage-summary-label svg {
+  color: var(--rate-bad);
+}
+
 .usage-section {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 16px 18px;
+  padding: 16px 18px 18px;
   box-shadow: var(--shadow-card);
 }
 
-.usage-section > h3 {
-  margin: 0 0 12px;
+.usage-chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 14px;
+}
+
+.usage-chart-head h3 {
+  margin: 0;
   font-size: 14px;
   font-weight: 650;
   letter-spacing: -0.01em;
@@ -5783,31 +5822,41 @@ pre {
   font-weight: 500;
 }
 
-.usage-chart-shell {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  padding: 0;
+.usage-chart-body {
+  position: relative;
+  padding-left: 38px;
+}
+
+.usage-chart-yaxis {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 30px;
+  height: 180px;
+}
+
+.usage-chart-yaxis span {
+  position: absolute;
+  right: 0;
+  transform: translateY(50%);
+  color: var(--muted-light);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .usage-chart {
   display: flex;
-  align-items: flex-end;
   gap: 4px;
-  height: 170px;
   overflow-x: auto;
   padding-bottom: 2px;
-  border-bottom: 1px solid var(--border);
 }
 
 .usage-chart-day {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  flex: 1 0 24px;
   min-width: 0;
-  height: 100%;
+  flex: 1 0 28px;
+  flex-direction: column;
   border-radius: 6px;
   transition: background 0.14s ease;
 }
@@ -5817,39 +5866,79 @@ pre {
 }
 
 .usage-chart-bars {
+  --usage-grid: color-mix(in srgb, var(--border) 62%, transparent);
+
   display: flex;
   align-items: flex-end;
-  gap: 2px;
-  flex: 1;
-  width: 100%;
+  gap: 3px;
   justify-content: center;
+  height: 180px;
+  padding: 0 2px;
+  background-image: linear-gradient(
+    to top,
+    var(--border-strong) 0 1px,
+    transparent 1px calc(25% - 1px),
+    var(--usage-grid) calc(25% - 1px) 25%,
+    transparent 25% calc(50% - 1px),
+    var(--usage-grid) calc(50% - 1px) 50%,
+    transparent 50% calc(75% - 1px),
+    var(--usage-grid) calc(75% - 1px) 75%,
+    transparent 75% calc(100% - 1px),
+    var(--usage-grid) calc(100% - 1px)
+  );
 }
 
 .usage-chart-bar {
   display: inline-block;
-  width: 11px;
+  width: 10px;
   border-radius: 3px 3px 0 0;
+  transform-origin: bottom;
+  animation: usage-bar-rise 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  transition: filter 0.14s ease, height 0.25s ease;
 }
 
 .usage-chart-bar.turns {
-  background: var(--accent-muted);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent-muted) 68%, var(--accent)),
+    var(--accent-muted)
+  );
 }
 
 .usage-chart-bar.executions {
-  background: var(--accent);
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+}
+
+.usage-chart-day:hover .usage-chart-bar {
+  filter: brightness(1.05) saturate(1.12);
+}
+
+@keyframes usage-bar-rise {
+  from {
+    transform: scaleY(0);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
 }
 
 .usage-chart-label {
-  font-size: 10.5px;
+  display: block;
+  min-height: 15px;
+  padding-top: 5px;
+  overflow: hidden;
   color: var(--muted-light);
-  white-space: nowrap;
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .usage-chart-legend {
   display: flex;
   gap: 14px;
-  margin-top: 10px;
   font-size: 12px;
   color: var(--muted);
 }
@@ -5868,11 +5957,128 @@ pre {
 }
 
 .usage-legend-dot.turns {
-  background: var(--accent-muted);
+  background: color-mix(in srgb, var(--accent-muted) 68%, var(--accent));
 }
 
 .usage-legend-dot.executions {
   background: var(--accent);
+}
+
+.usage-chart-tooltip {
+  position: fixed;
+  z-index: 90;
+  transform: translate(-50%, calc(-100% - 10px));
+  display: grid;
+  min-width: 132px;
+  gap: 4px;
+  padding: 8px 11px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px var(--shadow-strong);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  pointer-events: none;
+}
+
+.usage-chart-tooltip strong {
+  color: var(--text-strong);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-chart-tooltip span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.usage-chart-tooltip b {
+  margin-left: auto;
+  padding-left: 14px;
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------ usage loading skeleton */
+
+.usage-skel-block,
+.usage-skel-bar {
+  background: linear-gradient(
+    100deg,
+    var(--surface-muted) 36%,
+    var(--bg-soft) 50%,
+    var(--surface-muted) 64%
+  );
+  background-size: 220% 100%;
+  animation: usage-skel-sweep 1.5s linear infinite;
+}
+
+@keyframes usage-skel-sweep {
+  from {
+    background-position: 180% 0;
+  }
+
+  to {
+    background-position: -80% 0;
+  }
+}
+
+.usage-skel-range {
+  display: block;
+  width: 172px;
+  height: 31px;
+  border-radius: 10px;
+}
+
+.usage-skel-cell {
+  display: grid;
+  gap: 8px;
+  padding: 16px 16px 15px;
+  border-right: 1px solid var(--border);
+}
+
+.usage-skel-cell:last-child {
+  border-right: 0;
+}
+
+.usage-skel-label {
+  display: block;
+  width: 56%;
+  height: 10px;
+  border-radius: 5px;
+}
+
+.usage-skel-value {
+  display: block;
+  width: 34%;
+  height: 18px;
+  border-radius: 6px;
+}
+
+.usage-skel-chart {
+  display: grid;
+  gap: 18px;
+}
+
+.usage-skel-title {
+  display: block;
+  width: 96px;
+  height: 13px;
+  border-radius: 6px;
+}
+
+.usage-skel-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 180px;
+  padding-left: 38px;
+}
+
+.usage-skel-bar {
+  flex: 1;
+  border-radius: 4px 4px 0 0;
 }
 
 .usage-table th,
@@ -5881,9 +6087,10 @@ pre {
 }
 
 .usage-breakdown .table-shell {
+  width: auto;
+  max-height: 360px;
   margin: 0;
   border-top: 1px solid var(--border);
-  width: auto;
 }
 
 .usage-section .session-table {
@@ -5892,12 +6099,16 @@ pre {
 }
 
 .usage-section .session-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
   border-bottom: 1px solid var(--border);
+  background: var(--surface);
   padding: 8px 14px;
 }
 
@@ -5932,11 +6143,13 @@ pre {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .usage-summary-item:nth-child(3) {
+  .usage-summary-item:nth-child(3),
+  .usage-skel-cell:nth-child(3) {
     border-right: 0;
   }
 
-  .usage-summary-item:nth-child(-n + 3) {
+  .usage-summary-item:nth-child(-n + 3),
+  .usage-skel-cell:nth-child(-n + 3) {
     border-bottom: 1px solid var(--border);
   }
 }
@@ -6531,6 +6744,15 @@ pre {
   .runtime-status-trigger,
   .runtime-status-trigger-icons svg {
     transition: none;
+  }
+
+  .usage-chart-bar {
+    animation: none;
+  }
+
+  .usage-skel-block,
+  .usage-skel-bar {
+    animation: none;
   }
 }
 
