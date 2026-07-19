@@ -13,6 +13,7 @@
 - **状态归属**：`agent_sessions` 等会话表只属于 Bun 运行时；Python 侧禁止读写 agent DB，也禁止在 Python DB 里建影子表。浏览器的真实状态在外部（紫鸟客户端实时接口 + CDP 端口），本地只允许可丢弃的缓存。
 - **紫鸟浏览器页面自动化只允许官方配对的 Selenium 链路**（`SeleniumRunner` + 按 `core_version` 配对的 chromedriver）。禁止引入 Playwright / Puppeteer / 裸 CDP 做页面级操作——会被站点风控识别，有封店风险。依据与豁免清单见 `docs/harness/skill/reference/ziniao-webdriver-doc-1.0.0/reference/automation-framework-policy.md`。
 - **禁止共享或复制 `.venv`**：editable 安装的 `.pth` 指向创建它的 checkout 绝对路径，共享会导致"改的是这份代码、跑的却是另一份"。每个 worktree 各自 `uv sync`（几秒钟，`wt-claim` 已自动做对）。
+- **错误真实性**：必须让 AI 看到经过必要脱敏和显式截断的实际错误，不得用无事实依据的推测、通用提示或自写占位文本覆盖实际异常。只有错误形状固定，并有真实响应 fixture 或集成测试证明替代文本与原错误语义等价时，才允许使用固定替代文本；此时仍须在结构化诊断或日志中保留实际错误。
 
 ## 工具链
 
