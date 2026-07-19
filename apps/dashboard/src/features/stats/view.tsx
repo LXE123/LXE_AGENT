@@ -88,6 +88,11 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
     const chart = chartRef.current;
     if (!chart) return;
     const columns = Array.from(chart.querySelectorAll<HTMLElement>("[data-day]"));
+    // getBoundingClientRect() includes in-flight transforms; jump any running
+    // slide to its end state first so measurements reflect final layout only.
+    for (const column of columns) {
+      for (const animation of column.getAnimations()) animation.finish();
+    }
     const nextRects = new Map<string, { left: number; width: number }>();
     for (const column of columns) {
       const rect = column.getBoundingClientRect();
