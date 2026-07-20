@@ -29,7 +29,7 @@ class LxeSkillError(RuntimeError):
         message: str,
         *,
         exit_code: int = EXIT_INTERNAL,
-        recovery: dict[str, str] | None = None,
+        recovery: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -177,6 +177,40 @@ def _input_arguments(entry: dict[str, Any], argv: list[str]) -> tuple[dict[str, 
     return dict(payload), str(session_id or os.environ.get("LXE_AGENT_SESSION_ID") or "").strip()
 
 
+def _require_uploaded_file_inputs(entry: dict[str, Any], arguments: dict[str, Any]) -> None:
+    schema = dict(entry.get("input_schema") or {})
+    properties = dict(schema.get("properties") or {})
+    required = {str(name) for name in list(schema.get("required") or [])}
+    for name in required:
+        property_schema = dict(properties.get(name) or {})
+        upload = dict(property_schema.get("x-lxe-file-input") or {})
+        if not upload:
+            continue
+        value = arguments.get(name)
+        missing = value is None or (isinstance(value, str) and not value.strip()) or (
+            isinstance(value, list) and not value
+        )
+        if not missing:
+            continue
+        accepted_extensions = [
+            str(extension).strip()
+            for extension in list(upload.get("accepted_extensions") or [])
+            if str(extension).strip()
+        ]
+        instruction = str(upload.get("instruction") or "请上传所需文件，并使用附件保存后的真实绝对路径。")
+        raise LxeSkillError(
+            "input_required",
+            f"Required uploaded file is missing: {name}",
+            exit_code=EXIT_USAGE,
+            recovery={
+                "next_action": "ask_user_to_upload_file",
+                "field": name,
+                "accepted_extensions": accepted_extensions,
+                "instruction": instruction,
+            },
+        )
+
+
 def _execute_auth(arguments: dict[str, Any]) -> dict[str, Any]:
     bootstrap_network_policy(label="lxeskill_auth", emit=logger.info)
     from browser_auth_service.service import ensure_auth
@@ -233,6 +267,7 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
     command = _command_text(entry)
     _require_in_scope(entry)
     arguments, session_id = _input_arguments(entry, argv)
+    _require_uploaded_file_inputs(entry, arguments)
     if str(entry.get("session_mode") or "none") == "lxe_session" and not session_id:
         raise LxeSkillError("session_required", f"{command} requires an LXE session", exit_code=EXIT_ENVIRONMENT)
     if str(entry.get("visibility") or "") == "maintenance":

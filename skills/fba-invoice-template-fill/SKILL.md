@@ -15,7 +15,9 @@ commands:
 - 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只使用固定 CLI。
-- 不要手动编辑用户备货单或 `data/invoice_Template/invoice_Template.xlsx`。
+- 不要手动编辑用户备货单或发票模板。
+- 备货单和发票模板都必须来自当前对话附件；只使用附件下载结果中的真实绝对路径。禁止猜测路径、扫描系统目录或使用安装目录内的模板。
+- 任一必需附件缺失时停止执行并向用户索取文件，不要调用 CLI。
 - 不要自己拼接马帮 API 请求，不要手写或复用 Cookie/token。
 - 只使用本地已有 FBA 发货单 CSV 和 WMS 装箱数据；缺文件时转述 CLI 失败原因，不自动补下载。
 - WMS `装箱数量` 是发票模板的实际发货量来源；发货单 CSV 只提供 `MSKU -> 库存 SKU` 组成关系。
@@ -28,6 +30,7 @@ commands:
 ## Required Input
 
 - 一个备货 `.xlsx` 文件。
+- 一个发票模板 `.xlsx` 文件。
 - 文件名必须包含 `SP...` 单号和目的国。
 - 本地必须已存在对应的 FBA 发货单 CSV：`artifacts/mabang_fba_delivery/<SP单号>_*.csv`。
 - 本地必须已存在对应的 WMS 装箱数据 Excel。
@@ -36,7 +39,7 @@ commands:
 ## Command
 
 ```text
-lxeskill fba invoice fill --input-xlsx <备货单.xlsx>
+lxeskill fba invoice fill --input-xlsx <备货单.xlsx> --template-xlsx <发票模板.xlsx>
 ```
 
 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。

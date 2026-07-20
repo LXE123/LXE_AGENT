@@ -43,7 +43,6 @@ from services.mabang.stock_sku_export import (
 from shared.workspace import artifact_path, resolve_workspace_input
 
 SOURCE = "invoice_template_fill"
-DEFAULT_TEMPLATE_PATH = Path("data/invoice_Template/invoice_Template.xlsx")
 DEFAULT_OUTPUT_DIR = artifact_path("invoice_template")
 STOCK_SKU_OUTPUT_DIR = artifact_path("mabang_stock_sku")
 INVOICE_TEMPLATE_SHEET = "WS-通用发票导入模版"
@@ -653,7 +652,9 @@ def write_invoice_template(
     template_path: str | Path | None = None,
     output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    source_template = resolve_workspace_input(DEFAULT_TEMPLATE_PATH if template_path is None else template_path)
+    if template_path is None or not str(template_path).strip():
+        raise ValueError("template_xlsx 不能为空；请上传发票模板")
+    source_template = resolve_workspace_input(template_path)
     if not source_template.is_file():
         raise FileNotFoundError(f"找不到发票模板: {source_template}")
     target_dir = Path(DEFAULT_OUTPUT_DIR if output_dir is None else output_dir)
@@ -820,6 +821,8 @@ async def fill_invoice_template(
     delivery_csv: str | Path | None = None,
     consignment_excel: str | Path | None = None,
 ) -> dict[str, Any]:
+    if template_path is None or not str(template_path).strip():
+        raise ValueError("template_xlsx 不能为空；请上传发票模板")
     input_path = Path(input_xlsx).expanduser()
     sp_no = extract_sp_no_from_filename(input_path)
     destination_country = extract_destination_country_from_filename(input_path)
@@ -900,6 +903,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("input_xlsx 不能为空")
         return asyncio.run(fill_invoice_template(
             input_xlsx,
+            template_path=str(arguments.get("template_xlsx") or "").strip() or None,
             delivery_csv=str(arguments.get("delivery_csv") or "").strip() or None,
             consignment_excel=str(arguments.get("consignment_excel") or "").strip() or None,
         ))

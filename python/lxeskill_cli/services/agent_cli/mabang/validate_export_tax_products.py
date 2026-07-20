@@ -7,7 +7,6 @@ from typing import Any
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
-    EXPORT_TAX_PRODUCTS_PATH,
     EXPORT_TAX_PRODUCTS_SHEET,
     TAX_PRODUCT_NAME_COLUMN,
     TAX_PRODUCT_SKU_COLUMN,
@@ -53,8 +52,8 @@ def _read_products_frame(products_path: Path):
     return df
 
 
-def validate_export_tax_products(products_path: str | Path | None = None) -> dict[str, Any]:
-    source_path = Path(EXPORT_TAX_PRODUCTS_PATH if products_path is None else products_path)
+def validate_export_tax_products(products_path: str | Path) -> dict[str, Any]:
+    source_path = Path(products_path)
     if not source_path.is_file():
         raise RuntimeError(f"找不到出口退税产品表: {source_path}")
 
@@ -106,8 +105,10 @@ def validate_export_tax_products(products_path: str | Path | None = None) -> dic
 
 def run(arguments: dict[str, Any]) -> dict[str, Any]:
     """lxeskill entrypoint — the catalog input_schema is the argument contract."""
-    products_path = str(arguments.get("path") or EXPORT_TAX_PRODUCTS_PATH).strip()
+    products_path = str(arguments.get("path") or "").strip()
     try:
+        if not products_path:
+            raise ValueError("path 不能为空；请上传出口退税产品表")
         return validate_export_tax_products(products_path)
     except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
         return {

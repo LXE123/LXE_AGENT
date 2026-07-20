@@ -118,10 +118,6 @@ def test_load_export_tax_products_reads_sheet1_columns(tmp_path):
     }
 
 
-def test_export_tax_products_default_path_is_xlsx():
-    assert cli.EXPORT_TAX_PRODUCTS_PATH.name == "export_tax_products.xlsx"
-
-
 def test_load_export_tax_products_missing_file_raises(tmp_path):
     with pytest.raises(RuntimeError, match="找不到出口退税产品表"):
         cli.load_export_tax_products(tmp_path / "missing.xlsx")
@@ -233,7 +229,6 @@ def test_main_success_generates_xlsx_with_unmatched_product_names(monkeypatch, t
     _write_tax_products(products_path, [{"sku": "DP230828103", "产品名称": "产品A"}])
     monkeypatch.setattr(cli, "DELIVERY_CSV_DIR", csv_dir)
     monkeypatch.setattr(cli, "OUTPUT_DIR", output_dir)
-    monkeypatch.setattr(cli, "EXPORT_TAX_PRODUCTS_PATH", products_path)
 
     async def fake_export_stock_sku_names(skus, *, delivery_no="", output_dir=None, **kwargs):
         assert skus == ["DP230828106"]
@@ -246,7 +241,7 @@ def test_main_success_generates_xlsx_with_unmatched_product_names(monkeypatch, t
 
     monkeypatch.setattr(cli, "export_stock_sku_names", fake_export_stock_sku_names)
 
-    payload = cli.run({"delivery_no": "SP260508022"})
+    payload = cli.run({"delivery_no": "SP260508022", "products_path": str(products_path)})
     assert payload["success"] is True
     assert payload["delivery_no"] == "SP260508022"
     assert payload["sku_count"] == 2

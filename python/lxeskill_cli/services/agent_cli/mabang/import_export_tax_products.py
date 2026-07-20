@@ -10,17 +10,17 @@ from typing import Any
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
-    EXPORT_TAX_PRODUCTS_PATH,
     EXPORT_TAX_PRODUCTS_SHEET,
     TAX_PRODUCT_NAME_COLUMN,
     TAX_PRODUCT_SKU_COLUMN,
 )
 from services.agent_cli.mabang.validate_export_tax_products import validate_export_tax_products
 from services.mabang.stock_sku_export import export_stock_sku_names
-from shared.workspace import artifact_path
+from shared.workspace import artifact_path, resolve_workspace_input
 
 SOURCE = "export_tax_products_import"
 DEFAULT_BACKUP_DIR = artifact_path("export_tax_products_backup")
+DEFAULT_OUTPUT_DIR = artifact_path("export_tax_products")
 SKU_TOKEN_SPLIT_PATTERN = re.compile(r"[\s,，;；]+")
 WHITESPACE_PATTERN = re.compile(r"\s+")
 
@@ -61,6 +61,20 @@ def _backup_products_file(products_path: Path, backup_dir: str | Path | None = N
     index = 2
     while target.exists():
         target = directory / f"{stem}_{_timestamp()}_{index}{suffix}"
+        index += 1
+    shutil.copy2(products_path, target)
+    return target
+
+
+def _copy_products_file(products_path: Path, output_dir: str | Path | None = None) -> Path:
+    directory = Path(DEFAULT_OUTPUT_DIR if output_dir is None else output_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = products_path.stem or "export_tax_products"
+    suffix = products_path.suffix or ".xlsx"
+    target = directory / f"{stem}_updated_{_timestamp()}{suffix}"
+    index = 2
+    while target.exists():
+        target = directory / f"{stem}_updated_{_timestamp()}_{index}{suffix}"
         index += 1
     shutil.copy2(products_path, target)
     return target
@@ -113,18 +127,21 @@ def _append_product_row(worksheet: Any, *, sku_col: int, name_col: int, sku: str
 async def import_export_tax_products(
     skus: list[str] | tuple[str, ...],
     *,
-    products_path: str | Path | None = None,
+    products_path: str | Path,
     backup_dir: str | Path | None = None,
+    output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     requested_skus = normalize_input_skus(skus)
     if not requested_skus:
         raise ValueError("sku 不能为空")
 
-    source_path = Path(EXPORT_TAX_PRODUCTS_PATH if products_path is None else products_path)
+    source_path = resolve_workspace_input(products_path)
     validate_export_tax_products(source_path)
     workbook, worksheet, sku_col, name_col = _load_products_workbook(source_path)
-
-    existing_keys = _existing_sku_keys(worksheet, sku_col=sku_col)
+    try:
+        existing_keys = _existing_sku_keys(worksheet, sku_col=sku_col)
+    finally:
+        workbook.close()
     skipped_duplicate_skus: list[str] = []
     lookup_skus: list[str] = []
     for sku in requested_skus:
@@ -150,24 +167,31 @@ async def import_export_tax_products(
         imported_rows.append((sku, product_name))
 
     backup_path = ""
+    output_xlsx = ""
     if imported_rows:
         backup = _backup_products_file(source_path, backup_dir=backup_dir)
         backup_path = str(backup)
-        for sku, product_name in imported_rows:
-            _append_product_row(
-                worksheet,
-                sku_col=sku_col,
-                name_col=name_col,
-                sku=sku,
-                product_name=product_name,
-            )
-            imported_skus.append(sku)
-        workbook.save(source_path)
+        output_path = _copy_products_file(source_path, output_dir=output_dir)
+        output_xlsx = str(output_path)
+        output_workbook, output_worksheet, output_sku_col, output_name_col = _load_products_workbook(output_path)
         try:
-            validate_export_tax_products(source_path)
+            for sku, product_name in imported_rows:
+                _append_product_row(
+                    output_worksheet,
+                    sku_col=output_sku_col,
+                    name_col=output_name_col,
+                    sku=sku,
+                    product_name=product_name,
+                )
+                imported_skus.append(sku)
+            output_workbook.save(output_path)
+        finally:
+            output_workbook.close()
+        try:
+            validate_export_tax_products(output_path)
         except Exception as exc:
-            shutil.copy2(backup, source_path)
-            raise RuntimeError(f"导入后校验失败，已恢复备份: {backup}, error={exc}") from exc
+            output_path.unlink(missing_ok=True)
+            raise RuntimeError(f"导入后校验失败，输入文件未修改: {source_path}, error={exc}") from exc
 
     return {
         "success": True,
@@ -178,7 +202,9 @@ async def import_export_tax_products(
         "imported_skus": imported_skus,
         "skipped_duplicate_skus": skipped_duplicate_skus,
         "skipped_not_found_skus": skipped_not_found_skus,
-        "products_path": str(source_path),
+        "input_products_path": str(source_path),
+        "products_path": output_xlsx or str(source_path),
+        "output_xlsx": output_xlsx,
         "backup_path": backup_path,
         "source": SOURCE,
     }
@@ -189,10 +215,14 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
     try:
         raw_skus = arguments.get("sku")
         skus = [raw_skus] if isinstance(raw_skus, str) else list(raw_skus or [])
+        if not normalize_input_skus(skus):
+            raise ValueError("sku 不能为空")
+        products_path = str(arguments.get("products_path") or "").strip()
+        if not products_path:
+            raise ValueError("products_path 不能为空；请上传出口退税产品表")
         return asyncio.run(import_export_tax_products(
             skus,
-            products_path=str(arguments.get("products_path") or EXPORT_TAX_PRODUCTS_PATH),
-            backup_dir=str(arguments.get("backup_dir") or DEFAULT_BACKUP_DIR),
+            products_path=products_path,
         ))
     except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
         return {

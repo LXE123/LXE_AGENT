@@ -42,7 +42,7 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
     records = _records(capsys)
     assert len(records) == 1
     assert records[0]["data"]["command"] == "fba customs fill"
-    assert records[0]["data"]["input_schema"]["required"] == ["input_xlsx"]
+    assert records[0]["data"]["input_schema"]["required"] == ["input_xlsx", "template_xlsx"]
 
 
 def test_normal_commands_do_not_load_skill_contract_or_yaml(tmp_path, monkeypatch, capsys) -> None:
@@ -159,7 +159,7 @@ def test_stdin_json_normalizes_progress_and_terminal_result(monkeypatch, capsys)
         return True, [{"type": "text", "text": '{"success":true,"value":7}'}], [], None
 
     monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
-    monkeypatch.setattr(sys, "stdin", io.StringIO('{"delivery_no":"SP123"}'))
+    monkeypatch.setattr(sys, "stdin", io.StringIO('{"delivery_no":"SP123","products_path":"C:/uploads/products.xlsx"}'))
 
     assert lxeskill.main(["fba", "export-tax", "delivery-summary", "--stdin-json"]) == 0
     captured = capsys.readouterr()
@@ -168,7 +168,36 @@ def test_stdin_json_normalizes_progress_and_terminal_result(monkeypatch, capsys)
     assert sum(record["type"] == "result" for record in records) == 1
     assert records[-1]["data"] == {"success": True, "value": 7}
     assert "legacy progress text" in captured.err
-    assert calls[0][1] == {"delivery_no": "SP123"}
+    assert calls[0][1] == {"delivery_no": "SP123", "products_path": "C:/uploads/products.xlsx"}
+
+
+@pytest.mark.parametrize(
+    ("arguments", "field"),
+    [
+        (["fba", "customs", "fill", "--input-xlsx", "C:/uploads/order.xlsx"], "template_xlsx"),
+        (["fba", "customs", "fill", "--template-xlsx", "C:/uploads/template.xlsx"], "input_xlsx"),
+        (["fba", "invoice", "fill", "--input-xlsx", "C:/uploads/order.xlsx"], "template_xlsx"),
+        (["fba", "export-tax", "delivery-summary", "--delivery-no", "SP260508022"], "products_path"),
+        (["fba", "export-tax", "products-import", "--sku", "SKU-1"], "products_path"),
+    ],
+)
+def test_missing_user_workbook_returns_structured_input_required(arguments, field, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        lxeskill,
+        "execute_module_json",
+        lambda *_args, **_kwargs: pytest.fail("business module must not run without the uploaded workbook"),
+    )
+
+    assert lxeskill.main(arguments) == lxeskill.EXIT_USAGE
+    record = _records(capsys)[0]
+    assert record["error"] == {
+        "code": "input_required",
+        "message": f"Required uploaded file is missing: {field}",
+    }
+    assert record["recovery"]["next_action"] == "ask_user_to_upload_file"
+    assert record["recovery"]["field"] == field
+    assert record["recovery"]["accepted_extensions"] == [".xlsx"]
+    assert "上传" in record["recovery"]["instruction"]
 
 
 def test_legacy_alias_is_hidden_but_dispatches_same_command(monkeypatch, capsys) -> None:

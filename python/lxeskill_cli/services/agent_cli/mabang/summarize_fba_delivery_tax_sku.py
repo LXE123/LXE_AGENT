@@ -17,7 +17,6 @@ from shared.workspace import artifact_path, resolve_workspace_input
 DELIVERY_CSV_DIR = artifact_path("mabang_fba_delivery")
 OUTPUT_DIR = artifact_path("mabang_fba_tax_summary")
 STOCK_SKU_OUTPUT_DIR = artifact_path("mabang_stock_sku")
-EXPORT_TAX_PRODUCTS_PATH = Path("data/export_tax/export_tax_products.xlsx")
 EXPORT_TAX_PRODUCTS_SHEET = "Sheet1"
 SKU_SHIP_QTY_COLUMN = "SKU发货量"
 TAX_PRODUCT_SKU_COLUMN = "sku"
@@ -143,9 +142,9 @@ def summarize_tax_sku_quantities(csv_path: str | Path) -> OrderedDict[str, Decim
 
 
 def load_export_tax_products(
-    products_path: str | Path | None = None,
+    products_path: str | Path,
 ) -> OrderedDict[str, dict[str, str]]:
-    source_path = resolve_workspace_input(EXPORT_TAX_PRODUCTS_PATH if products_path is None else products_path)
+    source_path = resolve_workspace_input(products_path)
     if not source_path.is_file():
         raise RuntimeError(f"找不到出口退税产品表: {source_path}")
 
@@ -262,7 +261,7 @@ async def summarize_delivery_tax_sku(
     *,
     csv_dir: str | Path | None = None,
     output_dir: str | Path | None = None,
-    products_path: str | Path | None = None,
+    products_path: str | Path,
     stock_sku_output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     target = _require_delivery_no(delivery_no)
@@ -312,7 +311,14 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
     try:
         raw = str(arguments.get("delivery_no") or "")
         delivery_no = normalize_delivery_no(raw)
-        return asyncio.run(summarize_delivery_tax_sku(_require_delivery_no(raw)))
+        target = _require_delivery_no(raw)
+        products_path = str(arguments.get("products_path") or "").strip()
+        if not products_path:
+            raise ValueError("products_path 不能为空；请上传出口退税产品表")
+        return asyncio.run(summarize_delivery_tax_sku(
+            target,
+            products_path=products_path,
+        ))
     except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
         return {
             "success": False,

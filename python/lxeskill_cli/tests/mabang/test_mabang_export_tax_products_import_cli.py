@@ -54,6 +54,7 @@ def test_normalize_input_skus_dedupes_and_ignores_empty_values():
 def test_import_skips_existing_and_not_found_then_appends_found(monkeypatch, tmp_path):
     products_path = tmp_path / "products.xlsx"
     backup_dir = tmp_path / "backup"
+    output_dir = tmp_path / "artifacts"
     _write_products(
         products_path,
         [
@@ -76,6 +77,7 @@ def test_import_skips_existing_and_not_found_then_appends_found(monkeypatch, tmp
             ["SKU-EXIST", "SKU-NEW", "SKU-MISSING"],
             products_path=products_path,
             backup_dir=backup_dir,
+            output_dir=output_dir,
         )
     )
 
@@ -90,6 +92,12 @@ def test_import_skips_existing_and_not_found_then_appends_found(monkeypatch, tmp
     assert payload["backup_path"] == str(backup_dir / "products_20260512_120000.xlsx")
     assert Path(payload["backup_path"]).is_file()
     assert _read_rows(products_path) == [
+        ("sku", "产品名称"),
+        ("SKU-EXIST", "已有产品"),
+    ]
+    assert payload["input_products_path"] == str(products_path)
+    assert payload["output_xlsx"] == str(output_dir / "products_updated_20260512_120000.xlsx")
+    assert _read_rows(Path(payload["output_xlsx"])) == [
         ("sku", "产品名称"),
         ("SKU-EXIST", "已有产品"),
         ("SKU-NEW", "新产品"),
@@ -121,6 +129,7 @@ def test_import_does_not_write_or_call_api_when_all_duplicate(monkeypatch, tmp_p
     assert payload["imported_count"] == 0
     assert payload["skipped_duplicate_skus"] == ["SKU-EXIST"]
     assert payload["backup_path"] == ""
+    assert payload["output_xlsx"] == ""
     assert not backup_dir.exists()
     assert _read_rows(products_path) == [
         ("sku", "产品名称"),
@@ -150,6 +159,7 @@ def test_import_does_not_write_when_api_finds_no_skus(monkeypatch, tmp_path):
     assert payload["imported_count"] == 0
     assert payload["skipped_not_found_skus"] == ["SKU-MISSING"]
     assert payload["backup_path"] == ""
+    assert payload["output_xlsx"] == ""
     assert not backup_dir.exists()
 
 
@@ -163,10 +173,14 @@ def test_main_success_outputs_json(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(cli, "export_stock_sku_names", fake_export_stock_sku_names)
     monkeypatch.setattr(cli, "_timestamp", lambda: "20260512_120000")
+    monkeypatch.setattr(cli, "DEFAULT_BACKUP_DIR", backup_dir)
+    monkeypatch.setattr(cli, "DEFAULT_OUTPUT_DIR", tmp_path / "artifacts")
 
-    payload = cli.run({"sku": "SKU-NEW", "products_path": str(products_path), "backup_dir": str(backup_dir)})
+    payload = cli.run({"sku": "SKU-NEW", "products_path": str(products_path)})
     assert payload["success"] is True
-    assert payload["products_path"] == str(products_path)
+    assert payload["input_products_path"] == str(products_path)
+    assert payload["products_path"] == str(tmp_path / "artifacts" / "products_updated_20260512_120000.xlsx")
+    assert payload["output_xlsx"] == payload["products_path"]
     assert payload["backup_path"] == str(backup_dir / "products_20260512_120000.xlsx")
     assert payload["source"] == "export_tax_products_import"
 

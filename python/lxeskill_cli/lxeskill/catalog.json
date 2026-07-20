@@ -49,7 +49,7 @@
       "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}],
       "timeout_ms": 600000,
       "exposed": true,
-      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "array", "items": {"type": "string"}}, "template_xlsx": {"type": "string"}, "output_dir": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "array", "items": {"type": "string"}, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传备货 Excel，并使用附件保存后的真实绝对路径。"}}, "template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传报关资料模板，并使用附件保存后的真实绝对路径。"}}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx", "template_xlsx"], "additionalProperties": false}
     },
     {
       "name": "mabang_summarize_fba_delivery_tax_sku",
@@ -59,7 +59,7 @@
       "session_mode": "none",
       "module": "services.agent_cli.mabang.summarize_fba_delivery_tax_sku",
       "owner_skills": ["fba-export-tax-delivery-summary"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}}, "required": ["delivery_no"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "products_path": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税产品表，并使用附件保存后的真实绝对路径。"}}}, "required": ["delivery_no", "products_path"], "additionalProperties": false}
     },
     {
       "name": "mabang_import_export_tax_products",
@@ -68,8 +68,8 @@
       "visibility": "business",
       "session_mode": "none",
       "module": "services.agent_cli.mabang.import_export_tax_products",
-      "owner_skills": ["fba-export-tax-products-manage"], "artifact_paths": [{"field": "backup_path", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"sku": {"type": "array", "items": {"type": "string"}}, "products_path": {"type": "string"}, "backup_dir": {"type": "string"}}, "required": ["sku"], "additionalProperties": false}
+      "owner_skills": ["fba-export-tax-products-manage"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "backup_path", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"sku": {"type": "array", "items": {"type": "string"}}, "products_path": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传当前出口退税产品表，并使用附件保存后的真实绝对路径。"}}}, "required": ["sku", "products_path"], "additionalProperties": false}
     },
     {
       "name": "mabang_fill_invoice_template",
@@ -79,7 +79,7 @@
       "session_mode": "none",
       "module": "services.agent_cli.mabang.fill_invoice_template",
       "owner_skills": ["fba-invoice-template-fill"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string"}, "delivery_csv": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传备货 Excel，并使用附件保存后的真实绝对路径。"}}, "template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传发票模板，并使用附件保存后的真实绝对路径。"}}, "delivery_csv": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx", "template_xlsx"], "additionalProperties": false}
     },
     {
       "name": "mabang_download_msku_detail_excel", "module": "services.agent_cli.mabang.download_msku_detail_excel",

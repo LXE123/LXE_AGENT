@@ -15,7 +15,9 @@ commands:
 - 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
 
 - 只使用固定 CLI。
-- 不要手动编辑用户上传的 xlsx 或 `data/customs_declaration/custom_declaration_documents.xlsx`。
+- 不要手动编辑用户上传的备货单或报关资料模板。
+- 备货单和模板都必须来自当前对话附件；只使用附件下载结果中的真实绝对路径。禁止猜测路径、扫描系统目录或使用安装目录内的模板。
+- 任一必需附件缺失时停止执行并向用户索取文件，不要调用 CLI。
 - 模板原件不能修改；CLI 会复制模板到 `artifacts/customs_declaration/` 后填写副本。
 - CLI 会填写申报要素、报关单明细、发票、箱单、合同，并保留模板公式和默认字段。
 - CLI 根据文件名里的 `SP...` 查找本地 WMS 装箱数据；WMS `装箱数量` 是正式报关资料的实际发货量来源，同时用于计算毛重、净重和件数。
@@ -30,6 +32,7 @@ commands:
 ## Required Input
 
 - 至少一个用户提供的 `.xlsx` 备货单路径。
+- 一个用户提供的 `.xlsx` 报关资料模板路径。
 - 每个文件名必须包含 `SP...` 发货单号和目的国。
 - 多文件目的国必须一致；仅支持 `日本`、`澳大利亚`、`德国`、`英国`、`美国`、`加拿大`。
 - 本地必须已存在每个 SP 对应的装箱数据：`artifacts/mabang_wms_consignment/<SP单号>.xls|xlsx`。
@@ -38,13 +41,13 @@ commands:
 ## Command
 
 ```text
-lxeskill fba customs fill --input-xlsx <uploaded_xlsx_path>
+lxeskill fba customs fill --input-xlsx <uploaded_xlsx_path> --template-xlsx <uploaded_template_xlsx_path>
 ```
 
 多个备货单重复传参：
 
 ```text
-lxeskill fba customs fill --input-xlsx <path_1> --input-xlsx <path_2>
+lxeskill fba customs fill --input-xlsx <path_1> --input-xlsx <path_2> --template-xlsx <uploaded_template_xlsx_path>
 ```
 
 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。

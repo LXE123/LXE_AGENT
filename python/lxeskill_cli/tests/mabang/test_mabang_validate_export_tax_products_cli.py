@@ -97,7 +97,3 @@ def test_main_success_outputs_json(tmp_path, capsys):
     assert payload["valid_sku_count"] == 2
     assert payload["duplicate_sku_count"] == 0
     assert payload["source"] == "export_tax_products_validation"
-
-
-def test_default_path_is_xlsx():
-    assert cli.EXPORT_TAX_PRODUCTS_PATH.name == "export_tax_products.xlsx"
