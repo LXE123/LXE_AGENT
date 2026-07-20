@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -8,6 +8,32 @@ interface DevToolsTarget {
   type?: string;
   url?: string;
   webSocketDebuggerUrl?: string;
+}
+
+const APP_CONFIGURATION_PREFIXES = ["LXE_", "AGENT_", "FEISHU_", "ZINIAO_", "MABANG_"] as const;
+const APP_CONFIGURATION_NAMES = new Set([
+  "KIMI_CODE_API_KEY",
+  "DEEPSEEK_API",
+  "GLM_API_KEY",
+  "LOCAL_LOGS_ENABLED",
+  "LOCAL_LOG_RETENTION_DAYS",
+  "RUNTIME_LOG_LEVEL",
+]);
+
+export function packagedSmokeEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const childEnvironment: NodeJS.ProcessEnv = { ...environment, ELECTRON_ENABLE_LOGGING: "1" };
+  for (const name of Object.keys(childEnvironment)) {
+    if (
+      APP_CONFIGURATION_NAMES.has(name)
+      || APP_CONFIGURATION_PREFIXES.some((prefix) => name.startsWith(prefix))
+    ) delete childEnvironment[name];
+  }
+  // The smoke verifies startup and setup persistence, not scheduled browser
+  // authentication. Disabling it keeps the probe offline and deterministic.
+  childEnvironment.LXE_MAINTENANCE_AUTH_ENABLED = "0";
+  return childEnvironment;
 }
 
 export interface PackagedDesktopProbeResult {
@@ -320,13 +346,13 @@ export async function smokePackagedDesktop(
   const executable = resolve(executablePath);
   const port = await reservePort();
   const probeRoot = mkdtempSync(join(tmpdir(), "lxe-packaged-desktop-smoke-"));
+  const expectedWorkspaceRoot = realpathSync.native(probeRoot);
   const dataRoot = join(dirname(executable), "var");
   if (existsSync(dataRoot)) {
     rmSync(probeRoot, { recursive: true, force: true });
     throw new Error(`Packaged desktop smoke requires a disposable app tree without existing state: ${dataRoot}`);
   }
-  const childEnvironment: NodeJS.ProcessEnv = { ...process.env, ELECTRON_ENABLE_LOGGING: "1" };
-  delete childEnvironment.LXE_DATA_ROOT;
+  const childEnvironment = packagedSmokeEnvironment();
   const child = spawn(executable, [
     `--remote-debugging-port=${port}`,
     "--remote-debugging-address=127.0.0.1",
@@ -374,8 +400,10 @@ export async function smokePackagedDesktop(
     if (result.setupAfter.provider !== "kimi_coding") {
       throw new Error(`Desktop setup persisted an unexpected provider: ${String(result.setupAfter.provider)}`);
     }
-    if (result.setupAfter.workspaceRoot !== probeRoot) {
-      throw new Error(`Desktop setup persisted an unexpected workspace: ${String(result.setupAfter.workspaceRoot)}`);
+    if (result.setupAfter.workspaceRoot !== expectedWorkspaceRoot) {
+      throw new Error(
+        `Desktop setup persisted an unexpected workspace: actual=${String(result.setupAfter.workspaceRoot)} expected=${expectedWorkspaceRoot}`,
+      );
     }
     if (result.setupAfter.loggingProfile !== "standard") {
       throw new Error(`Desktop setup persisted an unexpected log profile: ${String(result.setupAfter.loggingProfile)}`);
