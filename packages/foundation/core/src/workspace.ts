@@ -24,7 +24,7 @@ const canonicalDirectory = (value: string, label: string): string => {
   const path = resolve(requested);
   const info = statSync(path);
   if (!info.isDirectory()) throw new Error(`${label} is not a directory: ${path}`);
-  return realpathSync(path);
+  return realpathSync.native(path);
 };
 
 export interface WorkspaceResolverOptions {

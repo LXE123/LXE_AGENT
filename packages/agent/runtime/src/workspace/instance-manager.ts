@@ -561,9 +561,10 @@ export class WorkspaceInstanceManager {
     view: WorkspaceView,
     forced: boolean,
   ): Promise<WorkspaceReloadResult> {
-    let result = await this.reloadView(instance, view, forced);
-    if (view.dirty) result = await this.reloadView(instance, view, forced);
-    return result;
+    const initial = await this.reloadView(instance, view, forced);
+    if (!view.dirty) return initial;
+    const final = await this.reloadView(instance, view, forced);
+    return { ...final, changed: initial.changed || final.changed };
   }
 
   private markAllDirty(): void {

@@ -198,7 +198,11 @@ describe("WorkspaceInstanceManager", () => {
     before.release();
     writeFileSync(path, "Watcher after", "utf8");
     for (const listener of listeners) listener("AGENTS.md");
-    await Bun.sleep(10);
+    const deadline = performance.now() + 2_000;
+    while (Number(manager.diagnostics().generation) <= generation) {
+      if (performance.now() >= deadline) throw new Error("timed out waiting for watcher reload");
+      await Bun.sleep(10);
+    }
     expect(Number(manager.diagnostics().generation)).toBeGreaterThan(generation);
     const after = await manager.acquire(workspace());
     expect(after.snapshot.instructions_prompt).toContain("Watcher after");

@@ -232,7 +232,7 @@ describe("DesktopConfigStore", () => {
       provider: "glm",
       workspace_root: nextWorkspace,
     });
-    expect(state.workspace_root).toBe(realpathSync(nextWorkspace));
+    expect(state.workspace_root).toBe(realpathSync.native(nextWorkspace));
     expect(store.environment()).toEqual(before);
     expect(store.environment()).not.toHaveProperty("LXE_WORKSPACE_ROOT");
   });

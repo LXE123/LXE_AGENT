@@ -40,12 +40,12 @@ describe("WorkspaceContext resolution", () => {
     mkdirSync(nested, { recursive: true });
 
     expect(resolveWorkspaceContext(nested)).toEqual({
-      directory: realpathSync(nested),
-      worktree: realpathSync(root),
+      directory: realpathSync.native(nested),
+      worktree: realpathSync.native(root),
     });
     expect(resolveWorkspaceContext(plain)).toEqual({
-      directory: realpathSync(plain),
-      worktree: realpathSync(plain),
+      directory: realpathSync.native(plain),
+      worktree: realpathSync.native(plain),
     });
   });
 
@@ -62,8 +62,8 @@ describe("WorkspaceContext resolution", () => {
     const nested = join(worktree, "nested");
     mkdirSync(nested);
 
-    expect(resolveWorkspaceContext(nested).worktree).toBe(realpathSync(worktree));
-    expect(resolveWorkspaceContext(nested).worktree).not.toBe(realpathSync(repository));
+    expect(resolveWorkspaceContext(nested).worktree).toBe(realpathSync.native(worktree));
+    expect(resolveWorkspaceContext(nested).worktree).not.toBe(realpathSync.native(repository));
   });
 
   test("canonicalizes symlinks and refuses a stored context after its Git boundary changes", () => {
@@ -76,7 +76,7 @@ describe("WorkspaceContext resolution", () => {
     symlinkSync(nested, link, process.platform === "win32" ? "junction" : "dir");
 
     const resolved = resolveWorkspaceContext(link);
-    expect(resolved.directory).toBe(realpathSync(nested));
+    expect(resolved.directory).toBe(realpathSync.native(nested));
     expect(sameWorkspaceContext(resolved, workspaceContextFrom(resolved))).toBe(true);
     expect(() => assertWorkspaceAvailable({ ...resolved, worktree: linkRoot })).toThrow("no longer matches");
   });

@@ -84,7 +84,7 @@ describe("DesktopConfigImportManager", () => {
       complete: true,
       provider: "deepseek",
       provider_key_configured: true,
-      workspace_root: realpathSync(join(root, "workspace")),
+      workspace_root: realpathSync.native(join(root, "workspace")),
       ziniao: { configured: true, company: "First Company", password_configured: true },
       mabang: { configured: true, password_configured: true },
       feishu: { configured: true, app_secret_configured: true },
@@ -117,7 +117,7 @@ describe("DesktopConfigImportManager", () => {
     store.save({
       provider: "deepseek",
       api_key: "existing-deepseek-key",
-      workspace_root: realpathSync(workspace),
+      workspace_root: realpathSync.native(workspace),
       mabang: { action: "save", account: "existing-account", password: "existing-password" },
     });
     const first = manager.select(writeEnv(root, [
@@ -129,7 +129,7 @@ describe("DesktopConfigImportManager", () => {
     ].join("\n")));
     expect(manager.apply(first.import_id).state).toMatchObject({
       provider: "deepseek",
-      workspace_root: realpathSync(workspace),
+      workspace_root: realpathSync.native(workspace),
       mabang: { account: "existing-account", configured: true },
     });
     expect(store.environment()).toMatchObject({
