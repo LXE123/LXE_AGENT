@@ -77,34 +77,23 @@ describe("RunHandle", () => {
 });
 
 describe("SessionScheduler", () => {
-  test("keeps a rejected start active until the Runtime terminates it while unhealthy", async () => {
-    const startFailures: Array<{ runId: string; error: unknown }> = [];
+  test("keeps a rejected start active until its completion event arrives", async () => {
     const runtime = new RecordingRuntime();
     runtime.startTurn = async (value: AgentJob): Promise<void> => {
       runtime.started.push(value);
       if (value.job_id === "j1") throw new Error("runtime unavailable");
     };
-    const scheduler = new SessionScheduler({
-      runtime,
-      maxConcurrency: 1,
-      onStartFailure: (handle, error) => startFailures.push({ runId: handle.runId, error }),
-    });
+    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
     await scheduler.enqueue(job("s1", "j1"));
     await scheduler.enqueue(job("s1", "j2"));
     await tick();
 
     expect(runtime.started.map((item) => item.job_id)).toEqual(["j1"]);
     expect(scheduler.activeRun("s1")?.jobId).toBe("j1");
-    expect(startFailures).toHaveLength(1);
 
-    scheduler.setRuntimeReady(false);
-    expect(scheduler.terminateActiveRun("j1", "s1")).toBe(true);
-    expect(scheduler.terminateActiveRun("j1", "s1")).toBe(false);
-    expect(scheduler.activeRun("s1")).toBeUndefined();
-    await tick();
-    expect(runtime.started.map((item) => item.job_id)).toEqual(["j1"]);
-
-    scheduler.setRuntimeReady(true);
+    expect(
+      scheduler.handleRuntimeEvent(completion("j1", "s1", { status: "failed", session_id: "s1", job_id: "j1" })),
+    ).toBe(true);
     await tick();
     expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "j2"]);
   });
@@ -144,15 +133,13 @@ describe("SessionScheduler", () => {
     expect(runtime.started.map((item) => item.job_id)).toEqual(["j1", "j3", "j4", "j2"]);
   });
 
-  test("does not release on start acknowledgement and ignores stale or mismatched completions", async () => {
+  test("does not release before completion and ignores stale or mismatched completions", async () => {
     const runtime = new RecordingRuntime();
     const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
     await scheduler.enqueue(job("s1", "j1"));
     await scheduler.enqueue(job("s1", "j2"));
     await tick();
 
-    scheduler.handleStartAcknowledged("j1");
-    await tick();
     expect(runtime.started.map((item) => item.job_id)).toEqual(["j1"]);
     expect(scheduler.handleRuntimeEvent(completion("stale", "s1"))).toBe(false);
     expect(scheduler.handleRuntimeEvent(completion("j1", "wrong"))).toBe(false);

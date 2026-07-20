@@ -43,10 +43,8 @@ export class RunHandle {
   readonly runId: string;
   readonly responseRouteId: string;
   readonly startedAt: number;
-  startAcknowledged = false;
   cancelRequested = false;
   closing = false;
-  startError: unknown;
   cancelRequest: Promise<boolean> | undefined;
   private readonly abortController = new AbortController();
   private readonly processes = new Set<ManagedProcess>();
@@ -100,7 +98,6 @@ export interface SchedulerOptions {
   maxConcurrency: number;
   id?: () => string;
   now?: () => number;
-  onStartFailure?: (handle: RunHandle, error: unknown) => void;
 }
 
 const clean = (value: unknown): string => String(value ?? "").trim();
@@ -115,7 +112,6 @@ export class SessionScheduler {
   private readonly maxConcurrency: number;
   private readonly id: () => string;
   private readonly now: () => number;
-  private readonly onStartFailure: ((handle: RunHandle, error: unknown) => void) | undefined;
   private readonly pending = new Map<string, AgentJob[]>();
   private readonly ready: string[] = [];
   private readonly readySet = new Set<string>();
@@ -129,7 +125,6 @@ export class SessionScheduler {
     this.maxConcurrency = Math.max(1, Math.trunc(options.maxConcurrency || 1));
     this.id = options.id ?? (() => randomUUID().replaceAll("-", ""));
     this.now = options.now ?? Date.now;
-    this.onStartFailure = options.onStartFailure;
   }
 
   setRuntimeReady(ready: boolean): void {
@@ -137,20 +132,6 @@ export class SessionScheduler {
     this.runtimeReady = ready;
     this.logger.debug("scheduler_runtime_readiness_changed", { ready });
     if (!wasReady && ready) this.drain();
-  }
-
-  terminateActiveRun(runId: string, sessionId = ""): boolean {
-    const handle = this.activeByRun.get(clean(runId));
-    if (!handle) return false;
-    const expectedSessionId = clean(sessionId);
-    if (expectedSessionId && handle.sessionId !== expectedSessionId) return false;
-    handle.closing = true;
-    this.activeByRun.delete(handle.runId);
-    this.activeBySession.delete(handle.sessionId);
-    this.logger.warn("scheduler_run_terminated", { session_id: handle.sessionId, turn_id: handle.jobId });
-    this.markReady(handle.sessionId);
-    this.drain();
-    return true;
   }
 
   async enqueue(job: AgentJob, options: { front?: boolean } = {}): Promise<void> {
@@ -241,13 +222,6 @@ export class SessionScheduler {
       turn_id: handle.jobId,
       steering_chars: safeMessage.text.length,
     });
-    return true;
-  }
-
-  handleStartAcknowledged(runId: string): boolean {
-    const handle = this.activeByRun.get(clean(runId));
-    if (!handle) return false;
-    handle.startAcknowledged = true;
     return true;
   }
 
@@ -353,8 +327,7 @@ export class SessionScheduler {
           turn_id: handle.jobId,
           response_route_id: handle.responseRouteId,
           message_id: next.message_id,
-        }, () => this.runtime.startTurn(next, handle)).then(
-          () => this.handleStartAcknowledged(handle.runId),
+        }, () => this.runtime.startTurn(next, handle)).catch(
           (error: unknown) => this.handleStartFailed(handle, error),
         );
       }
@@ -365,13 +338,11 @@ export class SessionScheduler {
 
   private handleStartFailed(handle: RunHandle, error: unknown): void {
     if (this.activeByRun.get(handle.runId) !== handle) return;
-    handle.startError = error;
     this.logger.error("scheduler_job_start_failed", {
       session_id: handle.sessionId,
       turn_id: handle.jobId,
       error,
     });
-    this.onStartFailure?.(handle, error);
   }
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { gatewaySettings, loadProjectEnv, parseEnvFile } from "../../src/bootstrap/env";
+import { loadProjectEnv, parseEnvFile } from "../../src/bootstrap/env";
 
 describe("project environment", () => {
   test("keeps the first value across process, .env, local, and runtime layers", () => {
@@ -44,17 +44,5 @@ describe("project environment", () => {
       ["中文变量", "ok"],
       ["ALSO_GOOD", "value=with=equals"],
     ]);
-  });
-
-  test("builds typed settings with Python-compatible defaults and minimums", () => {
-    expect(gatewaySettings({}, () => "host-a")).toEqual({
-      gatewayId: "host-a-agent",
-      agentMaxConcurrency: 2,
-    });
-    expect(
-      gatewaySettings({ GATEWAY_ID: " custom ", AGENT_MAX_CONCURRENCY: "0" }, () => "host"),
-    ).toEqual({ gatewayId: "custom", agentMaxConcurrency: 1 });
-    expect(gatewaySettings({ AGENT_MAX_CONCURRENCY: "3x" }, () => "host").agentMaxConcurrency).toBe(2);
-    expect(gatewaySettings({ AGENT_MAX_CONCURRENCY: "3.0" }, () => "host").agentMaxConcurrency).toBe(2);
   });
 });

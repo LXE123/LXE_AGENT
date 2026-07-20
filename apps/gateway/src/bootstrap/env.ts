@@ -1,4 +1,3 @@
-import { hostname } from "node:os";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 
@@ -8,11 +7,6 @@ export interface ProjectEnvOptions {
   projectRoot: string;
   initial?: Readonly<Record<string, string | undefined>>;
   readFile?: (path: string) => string | undefined;
-}
-
-export interface GatewaySettings {
-  gatewayId: string;
-  agentMaxConcurrency: number;
 }
 
 const validEnvName = (name: string): boolean => {
@@ -83,17 +77,4 @@ export function loadProjectEnv(options: ProjectEnvOptions): Environment {
     }
   }
   return result;
-}
-
-export function gatewaySettings(
-  env: Readonly<Record<string, string | undefined>>,
-  getHostname: () => string = hostname,
-): GatewaySettings {
-  const gatewayId = String(env.GATEWAY_ID ?? "").trim() || `${getHostname()}-agent`;
-  const rawConcurrency = String(env.AGENT_MAX_CONCURRENCY ?? "2").trim() || "2";
-  const parsed = /^[+-]?\d+$/.test(rawConcurrency) ? Number(rawConcurrency) : 2;
-  return {
-    gatewayId,
-    agentMaxConcurrency: Math.max(1, Number.isFinite(parsed) ? parsed : 2),
-  };
 }
