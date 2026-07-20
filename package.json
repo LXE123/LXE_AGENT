@@ -29,6 +29,7 @@
     "desktop:runtime:win": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-desktop-runtime.ps1",
     "desktop:resources": "bun scripts/prepare-desktop-resources.ts",
     "desktop:sizes:win": "bun scripts/report-desktop-resource-sizes.ts",
+    "desktop:pack:win": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-windows.ps1 -PackageTarget Unpacked",
     "desktop:dist:win": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-windows.ps1",
     "transcript:migrate": "bun scripts/migrate-transcripts-v2.ts",
     "check:ts-boundary": "bun scripts/check-ts-production-boundary.ts",

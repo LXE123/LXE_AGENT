@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "bun test test",
     "validate:config": "bun scripts/validate-builder-config.ts",
+    "pack:win": "electron-builder --config electron-builder.yml --dir --x64 --config.directories.output=../../dist/desktop-unpacked",
     "dist:win": "electron-builder --config electron-builder.yml --win nsis --x64"
   },
   "dependencies": {

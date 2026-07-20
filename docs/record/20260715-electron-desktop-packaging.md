@@ -56,7 +56,18 @@ These five environment variables remain supported as per-field overrides for
 custom build infrastructure. `LXE_DESKTOP_RUNTIME_DESCRIPTOR` can point resource
 staging at a non-default descriptor.
 
-Then run:
+For daily packaged-layout validation without NSIS compression, run:
+
+```powershell
+bun run desktop:pack:win
+```
+
+This writes `dist/desktop-unpacked/win-unpacked/LXE Agent.exe`, enforces the same
+resource size budgets, and runs the packaged preload/IPC smoke. It does not
+exercise installer directory selection, shortcuts, upgrade preservation,
+uninstall behavior, or WireGuard provisioning.
+
+For a release installer, run:
 
 ```powershell
 bun run desktop:dist:win
@@ -70,10 +81,12 @@ every development platform and is included in `bun run verify`:
 bun run desktop:validate:config
 ```
 
-Only after that check passes does the Windows command prepare or reuse the
-managed runtime, inject it into the build subprocess environment, rebuild the
-current LXE wheel, compile `agent-cli.exe`, install the wheel into the staged
-private Python, stage the remaining resources, and create the NSIS installer.
+Only after that check passes does the shared Windows wrapper prepare or reuse
+the managed runtime, inject it into the build subprocess environment, rebuild
+the current LXE wheel, compile `agent-cli.exe`, install the wheel into the staged
+private Python, and stage the remaining resources. The unpacked route stops
+after Electron Builder creates the runnable directory; the release route also
+creates the NSIS installer. Both routes print per-stage timings.
 
 The managed build image is intentionally larger than the installed runtime.
 It retains npm/npx, the npm content cache, and uv so that an offline build can
@@ -109,11 +122,13 @@ Git-tracked project resources are copied, so local `.env`, authentication,
 sessions, and business artifacts cannot leak into the installer.
 
 After electron-builder creates `win-unpacked`,
-`scripts/report-desktop-resource-sizes.ts` writes
-`dist/desktop/desktop-resource-sizes.json`. It reports logical bytes and file
-counts for Electron, Node, Python, Playwright, agent-cli, tools, Dashboard, and
-project resources. The Windows build fails when the managed runtime exceeds
-950 MiB or the complete unpacked application exceeds 1.30 GiB.
+`scripts/report-desktop-resource-sizes.ts` writes the report beside the selected
+output root: `dist/desktop-unpacked/desktop-resource-sizes.json` for the fast
+route or `dist/desktop/desktop-resource-sizes.json` for the release route. It
+reports logical bytes and file counts for Electron, Node, Python, Playwright,
+agent-cli, tools, Dashboard, and project resources. Both Windows builds fail
+when the managed runtime exceeds 950 MiB or the complete unpacked application
+exceeds 1.30 GiB.
 
 ## Windows size baseline
 
@@ -146,7 +161,8 @@ internal test machines.
 Run `bun run verify:platform:win` on Windows x64. It covers the production
 boundary, the complete Bun and Python suites, all workspace type checks, the
 wheel, native Agent CLI, Dashboard, Gateway, Electron build, and the complete
-NSIS pipeline.
+NSIS pipeline. It deliberately invokes `desktop:dist:win`, not the faster
+unpacked route.
 
 Run `bun run verify:platform:mac` on macOS. It runs the same source, test, type,
 wheel, native Agent CLI, Dashboard, Gateway, Electron build, and Builder schema

@@ -3,7 +3,9 @@ param(
     [string]$RuntimeRoot,
     [string]$CacheRoot,
     [switch]$Offline,
-    [switch]$Force
+    [switch]$Force,
+    [ValidateSet("Nsis", "Unpacked")]
+    [string]$PackageTarget = "Nsis"
 )
 
 Set-StrictMode -Version Latest
@@ -21,6 +23,47 @@ if ($env:OS -ne "Windows_NT" -or -not [Environment]::Is64BitProcess) {
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $prepareScript = Join-Path $PSScriptRoot "prepare-desktop-runtime.ps1"
 $prepareWireGuardScript = Join-Path $PSScriptRoot "prepare-wireguard-windows.ps1"
+$buildTimings = [System.Collections.Generic.List[object]]::new()
+
+function Add-LxeDesktopBuildTiming {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][System.Diagnostics.Stopwatch]$Stopwatch
+    )
+
+    $Stopwatch.Stop()
+    $elapsedSeconds = [Math]::Round($Stopwatch.Elapsed.TotalSeconds, 2)
+    $script:buildTimings.Add([pscustomobject]@{
+        Stage = $Label
+        Seconds = $elapsedSeconds
+    })
+    Write-Host ("<== {0} completed in {1:N2}s" -f $Label, $elapsedSeconds)
+}
+
+function Invoke-LxeDesktopTimedAction {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][scriptblock]$Action
+    )
+
+    Write-Host "==> $Label"
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        & $Action
+    }
+    finally {
+        Add-LxeDesktopBuildTiming -Label $Label -Stopwatch $stopwatch
+    }
+}
+
+function Write-LxeDesktopBuildTimingSummary {
+    $totalSeconds = ($script:buildTimings | Measure-Object -Property Seconds -Sum).Sum
+    Write-Host "==> Desktop $PackageTarget build timings"
+    foreach ($timing in $script:buildTimings) {
+        Write-Host ("    {0,-42} {1,8:N2}s" -f $timing.Stage, $timing.Seconds)
+    }
+    Write-Host ("    {0,-42} {1,8:N2}s" -f "Total", $totalSeconds)
+}
 
 $bunCommand = Get-Command bun -ErrorAction SilentlyContinue
 if ($null -eq $bunCommand) {
@@ -31,16 +74,17 @@ if ($LASTEXITCODE -ne 0 -or $bunVersion -ne "1.3.14") {
     throw "Bun 1.3.14 is required; found '$bunVersion' at $($bunCommand.Source)."
 }
 
-Push-Location $repositoryRoot
-try {
-    Write-Host "==> Validate electron-builder configuration"
-    & $bunCommand.Source run desktop:validate:config
-    if ($LASTEXITCODE -ne 0) {
-        throw "electron-builder configuration validation failed with exit code $LASTEXITCODE."
+Invoke-LxeDesktopTimedAction -Label "Validate electron-builder configuration" -Action {
+    Push-Location $repositoryRoot
+    try {
+        & $bunCommand.Source run desktop:validate:config
+        if ($LASTEXITCODE -ne 0) {
+            throw "electron-builder configuration validation failed with exit code $LASTEXITCODE."
+        }
     }
-}
-finally {
-    Pop-Location
+    finally {
+        Pop-Location
+    }
 }
 
 $prepareParameters = @{}
@@ -48,7 +92,9 @@ if (-not [string]::IsNullOrWhiteSpace($RuntimeRoot)) { $prepareParameters.Runtim
 if (-not [string]::IsNullOrWhiteSpace($CacheRoot)) { $prepareParameters.CacheRoot = $CacheRoot }
 if ($Offline) { $prepareParameters.Offline = $true }
 if ($Force) { $prepareParameters.Force = $true }
-& $prepareScript @prepareParameters
+Invoke-LxeDesktopTimedAction -Label "Prepare managed desktop runtime" -Action {
+    & $prepareScript @prepareParameters
+}
 
 $descriptorPath = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_RUNTIME_DESCRIPTOR")
 if ([string]::IsNullOrWhiteSpace($descriptorPath)) {
@@ -123,7 +169,9 @@ New-Item -ItemType Directory -Path $env:UV_CACHE_DIR -Force | Out-Null
 $wireGuardParameters = @{ CacheRoot = $effectiveCacheRoot }
 if ($Offline) { $wireGuardParameters.Offline = $true }
 if ($Force) { $wireGuardParameters.Force = $true }
-& $prepareWireGuardScript @wireGuardParameters
+Invoke-LxeDesktopTimedAction -Label "Prepare WireGuard resources" -Action {
+    & $prepareWireGuardScript @wireGuardParameters
+}
 
 $wheelRoot = Join-Path $repositoryRoot "build\desktop-wheel"
 if (Test-Path -LiteralPath $wheelRoot) {
@@ -137,15 +185,15 @@ function Invoke-LxeDesktopBuildStep {
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
 
-    Write-Host "==> $Label"
-    & $bunCommand.Source @Arguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label failed with exit code $LASTEXITCODE."
+    Invoke-LxeDesktopTimedAction -Label $Label -Action {
+        & $bunCommand.Source @Arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "$Label failed with exit code $LASTEXITCODE."
+        }
     }
 }
 
 function Build-LxeDesktopProjectWheel {
-    Write-Host "==> Build current LXE project wheel"
     $arguments = @(
         "build",
         "--wheel",
@@ -174,23 +222,58 @@ function Build-LxeDesktopProjectWheel {
 
 Push-Location $repositoryRoot
 try {
-    Build-LxeDesktopProjectWheel
+    Invoke-LxeDesktopTimedAction -Label "Build current LXE project wheel" -Action {
+        Build-LxeDesktopProjectWheel
+    }
     Invoke-LxeDesktopBuildStep -Label "Compile private agent-cli" -Arguments @("run", "agent-cli:compile")
     Invoke-LxeDesktopBuildStep -Label "Build Dashboard and Electron" -Arguments @("run", "desktop:build")
     Invoke-LxeDesktopBuildStep -Label "Stage desktop resources" -Arguments @("run", "desktop:resources")
-    Invoke-LxeDesktopBuildStep -Label "Build NSIS installer" -Arguments @("run", "--cwd", "apps/desktop", "dist:win")
-    $packagedExecutable = Join-Path $repositoryRoot "dist\desktop\win-unpacked\LXE Agent.exe"
+
+    if ($PackageTarget -eq "Unpacked") {
+        $packageOutputRoot = Join-Path $repositoryRoot "dist\desktop-unpacked"
+        if (Test-Path -LiteralPath $packageOutputRoot) {
+            Remove-Item -LiteralPath $packageOutputRoot -Recurse -Force
+        }
+        Invoke-LxeDesktopBuildStep -Label "Build unpacked Electron application" -Arguments @(
+            "run",
+            "--cwd",
+            "apps/desktop",
+            "pack:win"
+        )
+        $packagedExecutable = Join-Path $packageOutputRoot "win-unpacked\LXE Agent.exe"
+        $sizeReport = Join-Path $packageOutputRoot "desktop-resource-sizes.json"
+        $unexpectedArtifacts = @(Get-ChildItem -LiteralPath $packageOutputRoot -File -ErrorAction SilentlyContinue | Where-Object {
+            $_.Extension -in @(".exe", ".blockmap")
+        })
+        if ($unexpectedArtifacts.Count -gt 0) {
+            throw "Unpacked build unexpectedly produced installer artifacts: $($unexpectedArtifacts.FullName -join ', ')"
+        }
+    }
+    else {
+        Invoke-LxeDesktopBuildStep -Label "Build NSIS installer" -Arguments @(
+            "run",
+            "--cwd",
+            "apps/desktop",
+            "dist:win"
+        )
+        $packageOutputRoot = Join-Path $repositoryRoot "dist\desktop"
+        $packagedExecutable = Join-Path $packageOutputRoot "win-unpacked\LXE Agent.exe"
+        $sizeReport = Join-Path $packageOutputRoot "desktop-resource-sizes.json"
+    }
+
     if (-not (Test-Path -LiteralPath $packagedExecutable -PathType Leaf)) {
         throw "Packaged desktop executable is missing: $packagedExecutable"
     }
     Invoke-LxeDesktopBuildStep -Label "Enforce desktop resource size budgets" -Arguments @(
-        "run",
-        "desktop:sizes:win"
+        "scripts/report-desktop-resource-sizes.ts",
+        (Split-Path -Parent $packagedExecutable),
+        $sizeReport
     )
     Invoke-LxeDesktopBuildStep -Label "Smoke packaged Electron preload and IPC" -Arguments @(
         "apps/desktop/scripts/smoke-packaged-app.ts",
         $packagedExecutable
     )
+    Write-LxeDesktopBuildTimingSummary
 }
 finally {
     Pop-Location

@@ -50,7 +50,10 @@ forbidText("packages/agent/runtime/src/engine/system-events.ts", /mergePendingSy
 forbidText("packages/agent/runtime/src/engine/runtime.ts", /job\.raw_data\.system_events/, "Runtime pending events must come only from its Store");
 requireText("apps/desktop/src/main.ts", /registerDashboardProtocol/, "packaged Renderer must load through the Electron app protocol");
 requireText("package.json", /"desktop:preview"\s*:\s*"bun run dashboard:build && bun run --cwd apps\/desktop preview"/, "workspace must expose the production Renderer preview");
+requireText("package.json", /"desktop:pack:win"\s*:\s*"[^"]*-PackageTarget Unpacked"/, "workspace must expose the Windows unpacked verification route");
+requireText("package.json", /"verify:platform:win"\s*:\s*"[^"]*desktop:dist:win"/, "Windows release verification must retain the complete NSIS route");
 requireText("apps/desktop/package.json", /"preview"\s*:\s*"bun run build && bun src\/preview\.ts"/, "desktop package must build Main and Preload before preview");
+requireText("apps/desktop/package.json", /"pack:win"\s*:\s*"electron-builder [^"]*--dir --x64 [^"]*dist\/desktop-unpacked"/, "desktop package must keep unpacked output separate from release artifacts");
 requireText("apps/desktop/src/preview.ts", /LXE_DESKTOP_PREVIEW\s*=\s*"1"/, "preview launcher must select the internal preview mode");
 requireText("apps/desktop/src/preview.ts", /delete environment\.LXE_DATA_ROOT/, "preview launcher must discard external desktop data roots");
 requireText("apps/desktop/src/dev.ts", /delete desktopEnvironment\.LXE_DATA_ROOT/, "development launcher must discard external desktop data roots");

@@ -111,6 +111,15 @@ bun run desktop:preview
 
 生产预览不启动 Vite 或本地 Dashboard HTTP Server，页面从 `app://lxe/` 加载。其配置、加密凭据、日志、数据库和 Electron 会话统一写入当前仓库或 worktree 的 `var/`；它不替代 Unpacked 或安装包验收。
 
+四条桌面运行与验证路线按边界逐级增强：
+
+| 命令 | 用途 | 不覆盖的边界 |
+| --- | --- | --- |
+| `bun run desktop:dev` | Vite 热更新开发 | 生产 Renderer 和打包布局 |
+| `bun run desktop:preview` | 生产 Renderer + 源码 Runtime | 私有运行时和打包布局 |
+| `bun run desktop:pack:win` | 真实 Unpacked 布局 + packaged smoke | NSIS 安装、升级和卸载 |
+| `bun run desktop:dist:win` | 完整 Windows NSIS 发布验证 | 无 |
+
 运行完整源码检查：
 
 ```bash
@@ -133,6 +142,14 @@ Windows x64 构建机只需要 PowerShell 和仓库锁定的 Bun。准备或复�
 bun run desktop:runtime:win
 ```
 
+日常验证真实打包布局时生成独立的 Unpacked 应用，不执行耗时的 NSIS 压缩：
+
+```powershell
+bun run desktop:pack:win
+```
+
+可执行文件位于 `dist/desktop-unpacked/win-unpacked/LXE Agent.exe`。该路线仍执行 wheel、私有 Agent CLI、资源裁剪、体积门禁和 preload/IPC smoke，但不验证安装目录选择、快捷方式、升级保留、卸载或 WireGuard 安装器行为。
+
 生成完整 NSIS 安装包：
 
 ```powershell
@@ -145,7 +162,7 @@ bun run desktop:dist:win
 bun run verify:platform:win
 ```
 
-构建顺序会先校验 Electron Builder 配置，再准备运行时、构建 wheel 和 `agent-cli.exe`、装配 Dashboard 与私有资源、执行冒烟验证，最后生成 NSIS 并检查体积预算。产物位于 `dist/desktop/`，安装程序命名为 `LXE-Agent-<version>-windows-x64.exe`。
+两条 Windows 路线共用同一包装器：先校验 Electron Builder 配置，再准备运行时、构建 wheel 和 `agent-cli.exe`、装配 Dashboard 与私有资源，最后执行体积门禁和冒烟验证。每个阶段都会输出耗时。正式路线另外生成 NSIS；产物位于 `dist/desktop/`，安装程序命名为 `LXE-Agent-<version>-windows-x64.exe`。`verify:platform:win` 始终执行正式路线，不会降级为 Unpacked 验证。
 
 首次联网构建会缓存固定版本的 Node、Python、uv、ripgrep、Playwright Chromium 和 WireGuard 1.1 MSI；WireGuard 资源必须同时通过固定 SHA-256 与 Authenticode 签名校验。后续可使用缓存离线重建，员工安装和激活阶段不会下载 WireGuard。完整的运行时锁定、缓存、资源裁剪、体积基线和平台门禁说明见 [Electron desktop packaging](../record/20260715-electron-desktop-packaging.md)。
 
