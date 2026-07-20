@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DesktopConfigImportManager } from "../src/main/config-import";
 import { DesktopConfigStore } from "../src/main/config-store";
+import { prepareDesktopRuntimeState } from "../src/main/runtime-state";
 
 const roots: string[] = [];
 
@@ -159,6 +160,35 @@ describe("DesktopConfigImportManager", () => {
       issues: ["缺少所选模型服务的 API Key"],
     });
     expect(manager.apply(preview.import_id).state.complete).toBe(false);
+  });
+
+  test("uses the managed var workspace when an API key import omits LXE_WORKSPACE_ROOT", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-config-import-managed-workspace-"));
+    roots.push(root);
+    const dataRoot = join(root, "var");
+    const runtimeState = prepareDesktopRuntimeState(dataRoot);
+    const store = new DesktopConfigStore(dataRoot, runtimeState.workspace, safeStorage);
+    const manager = new DesktopConfigImportManager(store);
+
+    const preview = manager.select(writeEnv(root, "KIMI_CODE_API_KEY=model-key\n"));
+    const result = manager.apply(preview.import_id);
+
+    expect(result.state).toMatchObject({
+      complete: true,
+      provider: "kimi_coding",
+      provider_key_configured: true,
+      workspace_root: runtimeState.workspace,
+    });
+  });
+
+  test("does not create an explicitly imported workspace that is missing", () => {
+    const { root, manager } = createFixture();
+    const missing = join(root, "missing-explicit-workspace");
+    expect(() => manager.select(writeEnv(root, [
+      "KIMI_CODE_API_KEY=model-key",
+      `LXE_WORKSPACE_ROOT=${missing}`,
+    ].join("\n")))).toThrow();
+    expect(existsSync(missing)).toBeFalse();
   });
 
   test("persists partial integrations but never injects an invalid Ziniao path", () => {

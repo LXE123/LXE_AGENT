@@ -348,6 +348,7 @@ export async function smokePackagedDesktop(
   const probeRoot = mkdtempSync(join(tmpdir(), "lxe-packaged-desktop-smoke-"));
   const expectedWorkspaceRoot = realpathSync.native(probeRoot);
   const dataRoot = join(dirname(executable), "var");
+  const expectedDefaultWorkspaceRoot = join(dataRoot, "workspace");
   if (existsSync(dataRoot)) {
     rmSync(probeRoot, { recursive: true, force: true });
     throw new Error(`Packaged desktop smoke requires a disposable app tree without existing state: ${dataRoot}`);
@@ -393,6 +394,18 @@ export async function smokePackagedDesktop(
     if (result.healthError) throw new Error(`Desktop health IPC failed: ${result.healthError}`);
     if (!result.health || typeof result.health !== "object") {
       throw new Error("Desktop health IPC returned no object");
+    }
+    const initialHealth = result.health as { workspace_root?: unknown };
+    if (initialHealth.workspace_root !== expectedDefaultWorkspaceRoot) {
+      throw new Error(
+        `Desktop exposed an unexpected default workspace: actual=${String(initialHealth.workspace_root)} expected=${expectedDefaultWorkspaceRoot}`,
+      );
+    }
+    if (!existsSync(expectedDefaultWorkspaceRoot)) {
+      throw new Error(`Desktop did not create its managed default workspace: ${expectedDefaultWorkspaceRoot}`);
+    }
+    if (result.setupBeforeComplete !== false) {
+      throw new Error(`Fresh desktop setup unexpectedly reported complete: ${String(result.setupBeforeComplete)}`);
     }
     if (result.setupAfter?.complete !== true || result.setupAfter.providerKeyConfigured !== true) {
       throw new Error(`Desktop setup did not become complete: ${JSON.stringify(result.setupAfter)}`);

@@ -89,6 +89,31 @@ describe("desktop configuration import application", () => {
     ]);
   });
 
+  test("starts the Gateway when an import completes first-run setup", async () => {
+    let environment: Record<string, string> = {};
+    let restarted = 0;
+    let stopped = 0;
+
+    await applyDesktopConfigImport({
+      importId: "import-first-run",
+      apply: () => {
+        environment = { KIMI_CODE_API_KEY: "configured" };
+        return result(true);
+      },
+      currentEnvironment: () => environment,
+      currentState: () => state(false),
+      configureLogging: () => undefined,
+      restartGateway: async () => { restarted += 1; },
+      stopGateway: async () => { stopped += 1; },
+      invalidateDashboard: () => undefined,
+      broadcastHealth: () => undefined,
+      logger: testLogger([]),
+    });
+
+    expect(restarted).toBe(1);
+    expect(stopped).toBe(0);
+  });
+
   test("reports the real restart error after persistence and still refreshes Desktop state", async () => {
     const events: Array<{ level: string; message: string; fields: unknown }> = [];
     let environment = { PROVIDER: "old" };

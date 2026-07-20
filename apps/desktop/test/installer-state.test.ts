@@ -12,6 +12,10 @@ describe("Windows installer runtime state", () => {
 
   test("keeps local data by default and exposes an explicit deletion choice", () => {
     expect(installer).toContain("同时删除 LXE Agent 本地运行数据");
+    expect(installer).toContain("默认工作区内的全部文件");
+    expect(installer).toContain("此操作不可恢复");
+    expect(installer).toContain("MB_DEFBUTTON2");
+    expect(installer).toContain("IDYES confirm_delete_data");
     expect(installer).toContain('StrCpy $LxeDeleteDataRequested "0"');
     expect(installer).toContain('"/DELETE_LXE_DATA="');
     expect(installer).toContain('${If} $LxeDeleteDataRequested == "1"');
@@ -24,6 +28,7 @@ describe("Windows installer runtime state", () => {
     expect(installer).toContain("Call un.atomicRMDir");
     expect(installer).toContain("Call un.restoreFiles");
     expect(installer).toContain("Call un.LxeRestorePreservedVar");
+    expect(installer).toContain('Rename "$INSTDIR\\var" "$LxePreservedVarPath"');
   });
 
   test("retains var when managed tunnel cleanup cannot complete", () => {

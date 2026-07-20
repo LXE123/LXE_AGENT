@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 export interface DesktopRuntimeStatePaths {
   dataRoot: string;
+  workspace: string;
   userData: string;
   sessionData: string;
   diskCache: string;
@@ -35,6 +36,7 @@ const defaultIo: RuntimeStateIo = {
 export function desktopRuntimeStatePaths(dataRoot: string): DesktopRuntimeStatePaths {
   return {
     dataRoot,
+    workspace: join(dataRoot, "workspace"),
     userData: join(dataRoot, "electron", "user-data"),
     sessionData: join(dataRoot, "electron", "session-data"),
     diskCache: join(dataRoot, "electron", "cache"),
@@ -57,6 +59,7 @@ export function prepareDesktopRuntimeState(
     join(paths.dataRoot, "artifacts"),
     join(paths.dataRoot, "lxeskill"),
     join(paths.dataRoot, "migrations"),
+    paths.workspace,
     paths.userData,
     paths.sessionData,
     paths.diskCache,
@@ -65,18 +68,23 @@ export function prepareDesktopRuntimeState(
     paths.temporary,
   ]) io.mkdir(path);
 
-  const probe = join(paths.dataRoot, `.lxe-write-probe-${process.pid}-${randomUUID()}`);
-  try {
-    io.writeProbe(probe);
-    io.removeProbe(probe);
-  } catch (cause) {
+  for (const [label, directory] of [
+    ["LXE_DATA_ROOT", paths.dataRoot],
+    ["LXE default workspace", paths.workspace],
+  ] as const) {
+    const probe = join(directory, `.lxe-write-probe-${process.pid}-${randomUUID()}`);
     try {
+      io.writeProbe(probe);
       io.removeProbe(probe);
-    } catch {
-      // Preserve the original filesystem error, which is the actionable failure.
+    } catch (cause) {
+      try {
+        io.removeProbe(probe);
+      } catch {
+        // Preserve the original filesystem error, which is the actionable failure.
+      }
+      const detail = cause instanceof Error ? cause.message : String(cause);
+      throw new Error(`${label} is not writable: ${directory}: ${detail}`, { cause });
     }
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    throw new Error(`LXE_DATA_ROOT is not writable: ${paths.dataRoot}: ${detail}`, { cause });
   }
   return paths;
 }

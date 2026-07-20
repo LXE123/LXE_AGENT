@@ -74,7 +74,6 @@ const desktopPaths = resolveDesktopPaths({
   appPath: app.getAppPath(),
   executablePath: process.execPath,
   resourcesPath: process.resourcesPath,
-  documentsPath: app.getPath("documents"),
   environment: process.env,
 });
 let runtimeStateReady = false;

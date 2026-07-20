@@ -11,7 +11,6 @@ describe("desktop private runtime paths", () => {
       appPath: posix.join(sourceRoot, "apps", "desktop"),
       executablePath: "/Applications/Electron.app/Contents/MacOS/Electron",
       resourcesPath: posix.join(sourceRoot, "node_modules", "electron", "dist"),
-      documentsPath: "/Users/tester/Documents",
       environment: {
         LXE_SOURCE_ROOT: sourceRoot,
         LXE_DATA_ROOT: "/Users/tester/Library/Application Support/ignored",
@@ -23,6 +22,7 @@ describe("desktop private runtime paths", () => {
     expect(paths.resourceRoot).toBe(sourceRoot);
     expect(paths.projectRoot).toBe(sourceRoot);
     expect(paths.dataRoot).toBe(posix.join(sourceRoot, "var"));
+    expect(paths.defaultWorkspaceRoot).toBe(posix.join(sourceRoot, "var", "workspace"));
     expect(paths.dashboardRoot).toBe(posix.join(sourceRoot, "apps", "dashboard", "dist"));
     expect(paths.agentCommand).toBe("bun");
     expect(paths.agentArguments).toEqual([posix.join(sourceRoot, "apps", "agent-cli", "src", "main.ts")]);
@@ -37,7 +37,6 @@ describe("desktop private runtime paths", () => {
       appPath: win32.join(root, "app.asar"),
       executablePath,
       resourcesPath: root,
-      documentsPath: "C:\\Users\\tester\\Documents",
       environment: { LXE_DATA_ROOT: "C:\\Users\\tester\\AppData\\Roaming\\ignored" },
       platform: "win32",
       pathExists: () => true,
@@ -45,6 +44,7 @@ describe("desktop private runtime paths", () => {
 
     expect(paths.projectRoot).toBe("D:\\Apps\\LXE Agent");
     expect(paths.dataRoot).toBe("D:\\Apps\\LXE Agent\\var");
+    expect(paths.defaultWorkspaceRoot).toBe("D:\\Apps\\LXE Agent\\var\\workspace");
     expect(paths.agentCommand).toBe(win32.join(root, "runtime", "agent-cli", "agent-cli.exe"));
     expect(paths.agentArguments).toEqual([]);
     expect(paths.lxeskillModulePath).toBe(
@@ -67,12 +67,12 @@ describe("desktop private runtime paths", () => {
         appPath: posix.join(root, "app.asar"),
         executablePath: "/opt/lxe-agent/LXE Agent",
         resourcesPath: root,
-        documentsPath: "/Users/tester/Documents",
         platform,
         pathExists: () => true,
       });
 
       expect(paths.dataRoot).toBe("/opt/lxe-agent/var");
+      expect(paths.defaultWorkspaceRoot).toBe("/opt/lxe-agent/var/workspace");
       expect(paths.agentCommand).toBe(posix.join(root, "runtime", "agent-cli", "agent-cli"));
       expect(paths.managedPythonPath).toBe(posix.join(root, "runtime", "python", "bin", "python3"));
       expect(paths.managedPath.split(":")).toContain(posix.join(root, "runtime", "python", "bin"));

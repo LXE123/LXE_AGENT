@@ -22,7 +22,6 @@ export interface DesktopPathOptions {
   appPath: string;
   executablePath: string;
   resourcesPath: string;
-  documentsPath: string;
   environment?: Record<string, string | undefined>;
   platform?: NodeJS.Platform;
   pathExists?: (path: string) => boolean;
@@ -76,7 +75,7 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     projectRoot,
     resourceRoot,
     dataRoot,
-    defaultWorkspaceRoot: targetPath.join(options.documentsPath, "LXE Agent"),
+    defaultWorkspaceRoot: targetPath.join(dataRoot, "workspace"),
     dashboardRoot: options.packaged
       ? targetPath.join(options.resourcesPath, "dashboard")
       : targetPath.join(sourceRoot, "apps", "dashboard", "dist"),

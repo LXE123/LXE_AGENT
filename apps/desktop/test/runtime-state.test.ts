@@ -33,6 +33,7 @@ describe("desktop runtime state", () => {
 
   test("routes Electron and child process state into the canonical var root", () => {
     const paths = desktopRuntimeStatePaths("/project/var");
+    expect(paths.workspace).toBe(join("/project/var", "workspace"));
     const assigned = new Map<string, string>();
     const switches = new Map<string, string>();
     const removedSwitches: string[] = [];
@@ -58,5 +59,19 @@ describe("desktop runtime state", () => {
       TEMP: join("/project/var", "tmp"),
       TMPDIR: join("/project/var", "tmp"),
     });
+  });
+
+  test("checks that the managed default workspace is writable", () => {
+    const removed: string[] = [];
+    expect(() => prepareDesktopRuntimeState("/chosen/project/var", {
+      mkdir: () => {},
+      writeProbe: (path) => {
+        if (path.includes(join("var", "workspace", ".lxe-write-probe-"))) {
+          throw new Error("EACCES: workspace denied");
+        }
+      },
+      removeProbe: (path) => { removed.push(path); },
+    })).toThrow("LXE default workspace is not writable");
+    expect(removed).toHaveLength(2);
   });
 });

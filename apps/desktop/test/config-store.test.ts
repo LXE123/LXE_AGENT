@@ -200,7 +200,7 @@ describe("DesktopConfigStore", () => {
     expect(existsSync(join(root, "config", "desktop.json"))).toBe(false);
   });
 
-  test("requires the selected default workspace to already exist", () => {
+  test("requires an explicitly selected workspace to already exist", () => {
     const root = createRoot();
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
     const missing = join(root, "missing-workspace");
@@ -215,6 +215,26 @@ describe("DesktopConfigStore", () => {
       api_key: "secret",
       workspace_root: "relative-workspace",
     })).toThrow("absolute path");
+  });
+
+  test("does not report setup complete after its configured workspace is removed", () => {
+    const root = createRoot();
+    const workspace = join(root, "workspace");
+    const canonicalWorkspace = realpathSync.native(workspace);
+    const store = new DesktopConfigStore(root, workspace, safeStorage);
+    expect(store.save({
+      provider: "glm",
+      api_key: "secret",
+      workspace_root: workspace,
+    }).complete).toBeTrue();
+
+    rmSync(workspace, { recursive: true, force: true });
+
+    expect(store.state()).toMatchObject({
+      complete: false,
+      provider_key_configured: true,
+      workspace_root: canonicalWorkspace,
+    });
   });
 
   test("keeps a default-workspace-only change out of the process environment", () => {

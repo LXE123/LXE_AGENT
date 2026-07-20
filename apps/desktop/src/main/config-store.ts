@@ -218,6 +218,7 @@ export class DesktopConfigStore {
     const secrets = this.readSecrets();
     const providerKey = text(secrets.provider_keys[config.provider]);
     const workspaceRoot = config.workspace_root || this.defaultWorkspaceRoot;
+    const workspaceAvailable = this.workspaceAvailable(workspaceRoot);
     const ziniao = config.integrations.ziniao;
     const mabang = config.integrations.mabang;
     const feishu = config.integrations.feishu;
@@ -228,7 +229,7 @@ export class DesktopConfigStore {
     const mabangConfigured = mabang.managed && mabangIssues.length === 0;
     const feishuConfigured = feishu.managed && feishuIssues.length === 0;
     return {
-      complete: Boolean(providerKey && workspaceRoot),
+      complete: Boolean(providerKey && workspaceAvailable),
       provider: config.provider,
       provider_key_configured: Boolean(providerKey),
       workspace_root: workspaceRoot,
@@ -805,6 +806,18 @@ export class DesktopConfigStore {
     const workspace = resolveWorkspaceContext(requestedWorkspace);
     accessSync(workspace.directory, constants.R_OK | constants.W_OK | constants.X_OK);
     return workspace.directory;
+  }
+
+  private workspaceAvailable(value: string): boolean {
+    const workspaceRoot = text(value);
+    if (!workspaceRoot) return false;
+    try {
+      if (!this.pathExists(workspaceRoot) || !this.pathIsDirectory(workspaceRoot)) return false;
+      accessSync(workspaceRoot, constants.R_OK | constants.W_OK | constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private readConfig(): DesktopConfig {

@@ -15,7 +15,7 @@ Function un.LxeDeleteDataPageCreate
   ${If} $0 == error
     Abort
   ${EndIf}
-  ${NSD_CreateCheckbox} 0 18u 100% 28u "同时删除 LXE Agent 本地运行数据（配置、密钥、数据库、日志、登录会话和缓存）"
+  ${NSD_CreateCheckbox} 0 18u 100% 36u "同时删除 LXE Agent 本地运行数据（包括默认工作区内的全部文件，此操作不可恢复）"
   Pop $LxeDeleteDataCheckbox
   ${If} $LxeDeleteDataRequested == "1"
     ${NSD_Check} $LxeDeleteDataCheckbox
@@ -28,6 +28,11 @@ FunctionEnd
 Function un.LxeDeleteDataPageLeave
   ${NSD_GetState} $LxeDeleteDataCheckbox $0
   ${If} $0 == ${BST_CHECKED}
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION|MB_DEFBUTTON2 "这将永久删除配置、密钥、数据库、日志、登录会话、缓存，以及默认工作区内的全部文件。此操作不可恢复，是否继续？" IDYES confirm_delete_data
+    ${NSD_Uncheck} $LxeDeleteDataCheckbox
+    StrCpy $LxeDeleteDataRequested "0"
+    Abort
+  confirm_delete_data:
     StrCpy $LxeDeleteDataRequested "1"
   ${Else}
     StrCpy $LxeDeleteDataRequested "0"
