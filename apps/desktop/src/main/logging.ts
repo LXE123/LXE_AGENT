@@ -71,7 +71,6 @@ export class DesktopLoggingManager {
     const controller = this.controller;
     this.controller = undefined;
     if (!controller) return;
-    await controller.flush();
     await controller.close();
   }
 

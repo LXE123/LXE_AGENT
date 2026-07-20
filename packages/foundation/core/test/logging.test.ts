@@ -13,7 +13,6 @@ interface LoggingController {
     consoleLevel: string;
     fileLevel: string;
   };
-  flush(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -165,7 +164,6 @@ describe("structured logger", () => {
     controllers.push(controller);
 
     logger.debug("stream contract", { session_id: "session-1" });
-    await controller.flush();
 
     expect(controller.filePath).toMatch(/logs[\\/]runtime[\\/]\d{8}[\\/]runtime\.log$/);
     expect(controller.status).toEqual(expect.objectContaining({
@@ -194,7 +192,6 @@ describe("structured logger", () => {
     });
     controllers.push(controller);
     logging.createLogger("desktop").info("state_root_contract");
-    await controller.flush();
 
     expect(controller.filePath!.startsWith(join(stateRoot, "logs", "runtime"))).toBeTrue();
     expect(controller.filePath).not.toContain(join("var", "var"));
@@ -225,7 +222,6 @@ describe("structured logger", () => {
     const logger = logging.createLogger("runtime.child");
     logger.info("filtered");
     logger.warn("kept");
-    await controller.flush();
 
     const content = readFileSync(controller.filePath!, "utf8");
     expect(content).not.toContain("filtered");

@@ -352,7 +352,6 @@ export class AgentProtocolServer {
         logger.error("agent_host_stop_failed", { error });
       }
       if (this.host || this.logging) logger.info("agent_cli_stopped");
-      await this.logging?.flush();
       await this.options.write({
         version: AGENT_PROTOCOL_VERSION,
         type: "system.status",
@@ -372,7 +371,6 @@ export class AgentProtocolServer {
     const logging = this.logging;
     this.logging = undefined;
     if (!logging) return;
-    await logging.flush();
     await logging.close();
   }
 }

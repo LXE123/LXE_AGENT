@@ -120,7 +120,6 @@ test("Preview repository env uploads to the configured Data Server without loggi
     });
     let log = "";
     for (let attempt = 0; attempt < 100; attempt += 1) {
-      await logging.flush();
       log = readFileSync(logging.filePath!, "utf8");
       if (log.includes('"message":"data_sync_uploaded"')) break;
       await Bun.sleep(1);

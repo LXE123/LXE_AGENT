@@ -30,7 +30,6 @@ export interface Logger {
 export interface LoggingController {
   readonly filePath?: string;
   readonly status: LoggingStatus;
-  flush(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -555,7 +554,6 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
   return {
     ...(filePath ? { filePath } : {}),
     get status() { return statusSnapshot(status); },
-    flush: async () => undefined,
     close: async () => sink.close(),
   };
 }

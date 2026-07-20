@@ -338,7 +338,6 @@ describe("MaintenanceScheduler", () => {
       url: "https://cloud.example/api/v1/agent-data/snapshots",
       authorization: "Bearer cloud-secret",
     }]);
-    await logging.flush();
     const runtimeLog = readFileSync(logging.filePath!, "utf8");
     expect(runtimeLog).toContain('"message":"data_sync_uploaded"');
     expect(runtimeLog).toContain('"target":"cloud"');
