@@ -14,6 +14,7 @@ export type {
   ChannelHealthPayload,
   CliCommandPayload,
   ConnectorPayload,
+  DashboardContentTruncationPayload,
   McpServerListPayload,
   McpServerPayload,
   MessagesPagePayload,

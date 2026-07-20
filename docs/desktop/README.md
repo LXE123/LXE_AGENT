@@ -27,6 +27,8 @@ Electron 自身会创建 Main、Renderer、GPU 和 utility 等多个进程。LXE
 
 Renderer 只能访问 preload 暴露的白名单接口。Dashboard 业务请求始终通过类型化 IPC 进入 Main；开发模式仅由 Vite 提供 Renderer 资源，不提供浏览器版业务 Transport。Main 会校验 operation 和结构化 input，Renderer 不能直接访问 Node.js、文件系统或 Shell。
 
+会话数据更新由 Agent 协议 v5 的 `session.changed` 持久化事件驱动。message 或 turn usage 成功提交后，Desktop 将 session ID 合并进固定两秒窗口，再通过 IPC 失效对应查询；流式 `item.completed` 只负责渠道展示，不能触发 Dashboard 重载。Session 列表和详情不使用定时轮询，超大 tool result 只在 Dashboard DTO 中返回带真实字节标记的有界预览。
+
 Main 与 `agent-cli` 使用 NDJSON 协议通信：每行是一个完整 JSON 消息，通过标准输入输出传递初始化、执行回合、取消、关闭、状态和错误事件。两个进程分别拥有自己的 SQLite 数据库，禁止并发写入同一个数据库。Main 内的 Gateway 不依赖 Runtime package；`agent-cli` 也不依赖 Gateway package。
 
 ## 私有运行时与工具

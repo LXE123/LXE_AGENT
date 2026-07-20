@@ -232,6 +232,12 @@ export class AgentProtocolServer {
             payload: wake,
           });
         },
+        onSessionChanged: (sessionId, change) => this.options.write({
+          version: AGENT_PROTOCOL_VERSION,
+          type: "session.changed",
+          thread_id: sessionId,
+          payload: { changes: [change] },
+        }),
       });
       await host.start();
       this.host = host;

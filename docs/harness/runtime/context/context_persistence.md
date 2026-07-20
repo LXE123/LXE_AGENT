@@ -42,7 +42,7 @@ Context 持久化解决两个问题：进程重启后还能继续对话，以及
 同一份 transcript 会产生两个用途不同的视图：
 
 - **模型 replay**：按顺序读取 `message`，再应用每个 `context_patch`，得到 provider 下一次真正看见的 history。
-- **Dashboard 展示**：按原始事件分页，保留历史消息，并在压缩或重置位置插入说明标记，不把旧审计内容藏起来。
+- **Dashboard 展示**：按原始事件分页，保留历史消息，并在压缩或重置位置插入说明标记；超大的 tool result 只在 Dashboard DTO 中返回有明确字节标记的有界预览，磁盘 transcript 不变。
 
 所以“模型已经不再携带某段原始工具输出”不等于“Dashboard 或磁盘上删除了这段记录”。
 

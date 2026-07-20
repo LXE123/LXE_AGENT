@@ -97,6 +97,111 @@ const integer = (value: number | undefined, fallback: number, minimum: number, m
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 
+export const DASHBOARD_TOOL_RESULT_PREVIEW_BYTES = 32 * 1024;
+export const DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES = 256 * 1024;
+
+const utf8Bytes = (value: string): number => Buffer.byteLength(value, "utf8");
+
+const utf8Prefix = (value: string, maximumBytes: number): string => {
+  if (maximumBytes <= 0) return "";
+  if (utf8Bytes(value) <= maximumBytes) return value;
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (utf8Bytes(value.slice(0, middle)) <= maximumBytes) low = middle;
+    else high = middle - 1;
+  }
+  let end = low;
+  if (end > 0 && end < value.length) {
+    const last = value.charCodeAt(end - 1);
+    if (last >= 0xD800 && last <= 0xDBFF) end -= 1;
+  }
+  return value.slice(0, end);
+};
+
+const utf8Suffix = (value: string, maximumBytes: number): string => {
+  if (maximumBytes <= 0) return "";
+  if (utf8Bytes(value) <= maximumBytes) return value;
+  let low = 0;
+  let high = value.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (utf8Bytes(value.slice(value.length - middle)) <= maximumBytes) low = middle;
+    else high = middle - 1;
+  }
+  let start = value.length - low;
+  if (start > 0 && start < value.length) {
+    const first = value.charCodeAt(start);
+    if (first >= 0xDC00 && first <= 0xDFFF) start += 1;
+  }
+  return value.slice(start);
+};
+
+const toolResultText = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value ?? "", null, 2);
+  } catch {
+    return String(value ?? "");
+  }
+};
+
+const truncateToolResult = (
+  value: unknown,
+  maximumBytes: number,
+): { content: string; originalBytes: number; previewBytes: number } => {
+  const original = toolResultText(value);
+  const originalBytes = utf8Bytes(original);
+  if (originalBytes <= maximumBytes) {
+    return { content: original, originalBytes, previewBytes: originalBytes };
+  }
+  const marker = `\n… [Dashboard preview truncated; original ${originalBytes} bytes] …\n`;
+  const markerBytes = utf8Bytes(marker);
+  if (maximumBytes <= markerBytes) {
+    const content = utf8Prefix(marker, maximumBytes);
+    return { content, originalBytes, previewBytes: utf8Bytes(content) };
+  }
+  const contentBytes = maximumBytes - markerBytes;
+  const head = utf8Prefix(original, Math.floor(contentBytes * 0.75));
+  const tail = utf8Suffix(original, contentBytes - utf8Bytes(head));
+  const content = `${head}${marker}${tail}`;
+  return { content, originalBytes, previewBytes: utf8Bytes(content) };
+};
+
+export const dashboardSessionDetailPreview = (detail: JsonObject): JsonObject => {
+  const preview = structuredClone(detail);
+  const messages = Array.isArray(preview.messages) ? preview.messages : [];
+  const results: Array<Record<string, unknown>> = [];
+  for (const message of messages) {
+    const record = object(message);
+    if (!Array.isArray(record.content)) continue;
+    for (const candidate of record.content) {
+      const block = object(candidate);
+      if (block.type === "tool_result") results.push(block);
+    }
+  }
+  let remainingBytes = DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES;
+  for (let index = 0; index < results.length; index += 1) {
+    const block = results[index]!;
+    const remainingResults = results.length - index;
+    const allocation = Math.min(
+      DASHBOARD_TOOL_RESULT_PREVIEW_BYTES,
+      Math.max(0, Math.floor(remainingBytes / remainingResults)),
+    );
+    const result = truncateToolResult(block.content, allocation);
+    remainingBytes = Math.max(0, remainingBytes - result.previewBytes);
+    if (result.originalBytes <= result.previewBytes) continue;
+    block.content = result.content;
+    block.dashboard_truncation = {
+      truncated: true,
+      original_bytes: result.originalBytes,
+      preview_bytes: result.previewBytes,
+    };
+  }
+  return preview;
+};
+
 const recursiveFiles = (root: string, predicate: (path: string) => boolean): string[] => {
   if (!existsSync(root)) return [];
   const output: string[] = [];
@@ -221,7 +326,7 @@ export class DashboardService {
         ? {}
         : { page: integer(input.message_page, 1, 1, Number.MAX_SAFE_INTEGER) }),
     });
-    return detail ?? rpcError("not_found", "session not found");
+    return detail ? dashboardSessionDetailPreview(detail) : rpcError("not_found", "session not found");
   }
 
   private async reloadWorkspace(

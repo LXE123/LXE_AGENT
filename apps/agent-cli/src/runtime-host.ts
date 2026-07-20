@@ -8,6 +8,7 @@ import type {
 } from "@lxe/protocol";
 import {
   DashboardRpcError,
+  type AgentSessionChange,
   type AgentDashboardRpcCall,
   type AgentDashboardRpcOperation,
   type DashboardRpcResult,
@@ -53,6 +54,7 @@ export interface AgentRuntimeHostOptions {
   emitter: RuntimeEmitter;
   allowedSkillTypes?: ReadonlySet<string>;
   onWake?: (payload: JsonObject) => void;
+  onSessionChanged?: (sessionId: string, change: AgentSessionChange) => Promise<void> | void;
   logger?: Logger;
 }
 
@@ -263,6 +265,7 @@ export function createAgentRuntimeHost(
       showFullPaths: feishu.cardDisplay.showFullPaths,
     },
     emitter: options.emitter,
+    ...(options.onSessionChanged ? { onSessionChanged: options.onSessionChanged } : {}),
     systemPrompt: (context) => buildSystemPrompt({
       soul: context.workspaceSnapshot?.soul ?? "",
       workspace: context.workspace,

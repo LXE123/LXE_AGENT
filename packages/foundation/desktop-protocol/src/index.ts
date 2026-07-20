@@ -15,7 +15,7 @@ import {
 
 export * from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 4 as const;
+export const AGENT_PROTOCOL_VERSION = 5 as const;
 
 export class AgentProtocolError extends Error {
   readonly code = "AgentProtocolError";
@@ -160,6 +160,12 @@ export type AgentErrorResponse = {
 
 export type AgentResponse = AgentSuccessResponse | AgentErrorResponse;
 
+export type AgentSessionChange = "messages" | "usage";
+
+export type AgentSessionChangedPayload = {
+  changes: AgentSessionChange[];
+};
+
 export type AgentEvent =
   | {
       version: typeof AGENT_PROTOCOL_VERSION;
@@ -185,6 +191,12 @@ export type AgentEvent =
       version: typeof AGENT_PROTOCOL_VERSION;
       type: "agent.wake";
       payload: JsonObject;
+    }
+  | {
+      version: typeof AGENT_PROTOCOL_VERSION;
+      type: "session.changed";
+      thread_id: string;
+      payload: AgentSessionChangedPayload;
     }
   | {
       version: typeof AGENT_PROTOCOL_VERSION;
@@ -432,6 +444,7 @@ const agentEventTypes = new Set<AgentEvent["type"]>([
   "item.completed",
   "typing.changed",
   "agent.wake",
+  "session.changed",
   "system.ready",
   "system.status",
   "thread.started",
@@ -537,6 +550,24 @@ export function parseAgentWireMessage(line: string): AgentWireMessage {
   if (typeof object.type === "string" && objectValue(object.payload)) {
     if (!agentEventTypes.has(object.type as AgentEvent["type"])) {
       throw new Error(`unsupported agent protocol event: ${object.type}`);
+    }
+    if (object.type === "session.changed") {
+      if (typeof object.thread_id !== "string" || !object.thread_id.trim()) {
+        throw new Error("agent protocol session.changed.thread_id must be a non-empty string");
+      }
+      const payload = objectValue(object.payload)!;
+      const unsupported = Object.keys(payload).filter((name) => name !== "changes");
+      if (unsupported.length > 0) {
+        throw new Error(`agent protocol session.changed payload has unsupported fields: ${unsupported.join(", ")}`);
+      }
+      if (!Array.isArray(payload.changes) || payload.changes.length === 0) {
+        throw new Error("agent protocol session.changed.changes must be a non-empty array");
+      }
+      const changes = [...new Set(payload.changes)];
+      if (changes.some((change) => change !== "messages" && change !== "usage")) {
+        throw new Error("agent protocol session.changed.changes contains an unsupported change type");
+      }
+      payload.changes = changes;
     }
     return object as AgentEvent;
   }

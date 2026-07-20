@@ -25,23 +25,19 @@ export interface DashboardInvalidationDraft {
 export function dashboardInvalidationForAgentEvent(
   event: AgentEvent,
 ): DashboardInvalidationDraft | undefined {
-  if (
-    event.type !== "thread.started"
-    && event.type !== "turn.started"
-    && event.type !== "turn.completed"
-    && event.type !== "turn.failed"
-    && event.type !== "item.completed"
-  ) {
-    return undefined;
+  if (event.type === "session.changed") {
+    return {
+      domains: ["sessions"],
+      sessionIds: event.thread_id.trim() ? [event.thread_id] : [],
+    };
   }
-  const domains: DesktopDashboardDataDomain[] = ["sessions"];
   if (event.type === "turn.completed" || event.type === "turn.failed") {
-    domains.push("stats", "background_tasks");
+    return {
+      domains: ["stats", "background_tasks"],
+      sessionIds: [],
+    };
   }
-  return {
-    domains,
-    sessionIds: event.thread_id.trim() ? [event.thread_id] : [],
-  };
+  return undefined;
 }
 
 export function dashboardDomainsForMutation(operation: DashboardRpcOperation): DesktopDashboardDataDomain[] {
@@ -69,7 +65,7 @@ export class DashboardInvalidationBatcher {
 
   constructor(
     private readonly publish: (invalidation: DesktopDashboardInvalidation) => void,
-    private readonly delayMs = 200,
+    private readonly delayMs = 2_000,
     private readonly schedule: Schedule = setTimeout,
     private readonly cancelSchedule: CancelSchedule = clearTimeout,
   ) {}

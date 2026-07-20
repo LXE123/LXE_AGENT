@@ -83,6 +83,12 @@ export type SessionMessage = {
   [key: string]: unknown;
 };
 
+export type DashboardContentTruncationPayload = {
+  truncated: true;
+  original_bytes: number;
+  preview_bytes: number;
+};
+
 export type MessagesPagePayload = {
   total: number;
   raw_message_total: number;

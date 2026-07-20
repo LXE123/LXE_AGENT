@@ -16,21 +16,21 @@ Claude Code's stream JSON mode:
 - lifecycle and turn progress are independent event envelopes.
 
 The protocol is private to the Electron application. It is not installed on the
-system `PATH` and is versioned independently. The current strict steering
-diagnostics contract uses `version: 4`; version 3 is rejected instead of running a
+system `PATH` and is versioned independently. The current persisted-session
+change contract uses `version: 5`; version 4 is rejected instead of running a
 mixed Desktop/agent-cli pair.
 
 ## Request and response envelopes
 
 ```json
-{"version":4,"id":"request-1","command":"has_pending_events","payload":{"session_id":"session-1"}}
-{"version":4,"id":"request-1","ok":true,"result":{"pending":false}}
+{"version":5,"id":"request-1","command":"has_pending_events","payload":{"session_id":"session-1"}}
+{"version":5,"id":"request-1","ok":true,"result":{"pending":false}}
 ```
 
 Errors preserve the request ID:
 
 ```json
-{"version":4,"id":"request-1","ok":false,"error":{"code":"RunUnavailable","message":"run not found"}}
+{"version":5,"id":"request-1","ok":false,"error":{"code":"RunUnavailable","message":"run not found"}}
 ```
 
 Supported commands are `initialize`, `run_turn`, `cancel_turn`, `steer_turn`,
@@ -56,7 +56,12 @@ not `user_input` or transcript history.
 
 Turn execution emits `thread.started`, `turn.started`, `item.completed`,
 `turn.completed`, and `turn.failed` events. Typing and scheduled wake events use
-`typing.changed` and `agent.wake`. The stable `thread_id` is the LXE session ID;
+`typing.changed` and `agent.wake`. A successful transcript message commit emits
+`session.changed` with `changes:["messages"]`; a successful turn-usage commit emits
+the same event with `changes:["usage"]`. The event contains no transcript body.
+Desktop session invalidation is driven only by these persistence events and is
+coalesced into fixed two-second windows; outbound `item.completed` stream frames
+never invalidate Dashboard data. The stable `thread_id` is the LXE session ID;
 reusing it resumes the existing session state after the process or desktop app
 restarts.
 

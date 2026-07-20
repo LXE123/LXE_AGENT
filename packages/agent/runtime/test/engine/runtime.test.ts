@@ -104,6 +104,76 @@ const lxeSkillInvocationError = (details: JsonObject = {
 );
 
 describe("TypeScriptAgentRuntime", () => {
+  test("reports persisted message and usage changes without reporting failed writes", async () => {
+    const changes: string[] = [];
+    const store = new MemoryStore();
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async () => ({
+          content: [{ type: "text", text: "done" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+      onSessionChanged: (sessionId, change) => { changes.push(`${sessionId}:${change}`); },
+    });
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+    expect(changes).toEqual(["s1:messages", "s1:messages", "s1:usage"]);
+    await runtime.stop();
+
+    const failedUsageChanges: string[] = [];
+    const failedUsageStore = new MemoryStore();
+    failedUsageStore.recordTurn = async () => { throw new Error("usage write failed"); };
+    const failedUsageRuntime = new TypeScriptAgentRuntime({
+      store: failedUsageStore,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async () => ({
+          content: [{ type: "text", text: "done" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+      onSessionChanged: (_sessionId, change) => { failedUsageChanges.push(change); },
+    });
+    await failedUsageRuntime.start();
+    await failedUsageRuntime.runTurn(job(), handle());
+    expect(failedUsageChanges).toEqual(["messages", "messages"]);
+    await failedUsageRuntime.stop();
+
+    const failedMessageChanges: string[] = [];
+    const failedMessageStore = new MemoryStore();
+    failedMessageStore.appendMessage = async () => { throw new Error("message write failed"); };
+    const failedMessageRuntime = new TypeScriptAgentRuntime({
+      store: failedMessageStore,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async () => ({
+          content: [{ type: "text", text: "unreachable" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+      onSessionChanged: (_sessionId, change) => { failedMessageChanges.push(change); },
+    });
+    await failedMessageRuntime.start();
+    expect((await failedMessageRuntime.runTurn(job(), handle())).status).toBe("error");
+    expect(failedMessageChanges).toEqual(["usage"]);
+    await failedMessageRuntime.stop();
+  });
+
   test("holds one workspace snapshot lease across prompt and tool execution", async () => {
     const store = new MemoryStore();
     const tools = new ToolRegistry();

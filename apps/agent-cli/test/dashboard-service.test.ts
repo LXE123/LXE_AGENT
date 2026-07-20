@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteRuntimeStore, ToolRegistry, type RuntimeProviderManager } from "@lxe/runtime";
 import type { AgentDashboardRpcCall } from "@lxe/desktop-protocol";
-import { DashboardService } from "../src/dashboard-service";
+import {
+  DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES,
+  DASHBOARD_TOOL_RESULT_PREVIEW_BYTES,
+  DashboardService,
+  dashboardSessionDetailPreview,
+} from "../src/dashboard-service";
 
 const workspaceFor = (directory: string, worktree = directory) => ({ directory, worktree });
 const persistedEnvironment = (root: string, initial: Record<string, string>): Record<string, string> => {
@@ -23,6 +28,48 @@ afterEach(() => {
 });
 
 describe("DashboardService", () => {
+  test("bounds Dashboard tool result previews without mutating transcript data", () => {
+    const large = `HEAD-${"表".repeat(700_000)}-TAIL`;
+    const detail = {
+      session: { session_id: "large-session" },
+      messages: [{
+        role: "tool",
+        content: Array.from({ length: 12 }, (_, index) => ({
+          type: "tool_result",
+          tool_call_id: `tool-${index}`,
+          content: large,
+        })),
+      }],
+      messages_page: { current_page: 1 },
+    };
+
+    const preview = dashboardSessionDetailPreview(detail) as {
+      messages: Array<{ content: Array<Record<string, unknown>> }>;
+    };
+    expect(detail.messages[0]!.content[0]!.content).toBe(large);
+    const results = preview.messages[0]!.content;
+    let previewBytes = 0;
+    for (const result of results) {
+      const content = String(result.content ?? "");
+      const truncation = result.dashboard_truncation as {
+        truncated: boolean;
+        original_bytes: number;
+        preview_bytes: number;
+      };
+      const bytes = Buffer.byteLength(content, "utf8");
+      previewBytes += bytes;
+      expect(content.startsWith("HEAD-")).toBe(true);
+      expect(content.endsWith("-TAIL")).toBe(true);
+      expect(bytes).toBeLessThanOrEqual(DASHBOARD_TOOL_RESULT_PREVIEW_BYTES);
+      expect(truncation).toEqual({
+        truncated: true,
+        original_bytes: Buffer.byteLength(large, "utf8"),
+        preview_bytes: bytes,
+      });
+    }
+    expect(previewBytes).toBeLessThanOrEqual(DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES);
+  });
+
   test("serves the production session, docs, skill, connector, tool, stats, and task contracts", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-api-"));
     roots.push(root);

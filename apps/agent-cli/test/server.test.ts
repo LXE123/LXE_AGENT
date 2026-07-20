@@ -52,6 +52,53 @@ const fakeHost: CreateHost = (() => ({
 })) as unknown as CreateHost;
 
 describe("AgentProtocolServer", () => {
+  test("wraps persisted session changes in content-free protocol events", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    let notify: NonNullable<Parameters<CreateHost>[0]["onSessionChanged"]> | undefined;
+    const createHost = ((options: Parameters<CreateHost>[0]) => {
+      const callback = options.onSessionChanged;
+      notify = callback;
+      return {
+        start: async () => undefined,
+        stop: async () => undefined,
+        health: () => ({ ready: true }),
+      };
+    }) as unknown as CreateHost;
+    const root = process.cwd();
+    const server = new AgentProtocolServer({
+      write: (message) => { output.push(message); },
+      createHost,
+      environment: { LOCAL_LOGS_ENABLED: "0" },
+    });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "initialize-session-change",
+      command: "initialize",
+      payload: { resource_root: root, data_root: root, legacy_workspace: workspace(root) },
+    }));
+    await notify?.("session-1", "messages");
+    await notify?.("session-1", "usage");
+
+    const changes = output.filter((message): message is Extract<AgentEvent, { type: "session.changed" }> =>
+      "type" in message && message.type === "session.changed");
+    expect(changes).toEqual([
+      {
+        version: AGENT_PROTOCOL_VERSION,
+        type: "session.changed",
+        thread_id: "session-1",
+        payload: { changes: ["messages"] },
+      },
+      {
+        version: AGENT_PROTOCOL_VERSION,
+        type: "session.changed",
+        thread_id: "session-1",
+        payload: { changes: ["usage"] },
+      },
+    ]);
+    expect(JSON.stringify(changes)).not.toContain("content");
+    await server.shutdown();
+  });
+
   test("rejects commands before initialize", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     const server = new AgentProtocolServer({ write: (message) => { output.push(message); } });

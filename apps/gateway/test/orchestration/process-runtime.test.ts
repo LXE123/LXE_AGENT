@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { AgentJob } from "@lxe/protocol";
-import { AgentProtocolError } from "@lxe/desktop-protocol";
+import { AGENT_PROTOCOL_VERSION, AgentProtocolError, type AgentEvent } from "@lxe/desktop-protocol";
 import { ProcessAgentRuntime } from "../../src/orchestration/process-runtime";
 import { RunHandle } from "../../src/orchestration/scheduler";
 import { testWorkspace, workspaceFor } from "../workspace";
@@ -35,6 +35,37 @@ afterEach(async () => {
 });
 
 describe("ProcessAgentRuntime", () => {
+  test("forwards content-free persisted session change events", async () => {
+    const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");
+    const events: AgentEvent[] = [];
+    const runtime = new ProcessAgentRuntime({
+      command: process.execPath,
+      arguments: [fixture],
+      cwd: process.cwd(),
+      environment: { ...process.env, FAKE_SESSION_CHANGE_EVENT: "1" },
+      resourceRoot: process.cwd(),
+      dataRoot: process.cwd(),
+      legacyWorkspace: testWorkspace,
+      onEvent: (event) => { events.push(event); },
+    });
+    runtimes.push(runtime);
+    await runtime.start();
+    const deadline = performance.now() + 2_000;
+    while (!events.some((event) => event.type === "session.changed") && performance.now() < deadline) {
+      await Bun.sleep(10);
+    }
+
+    const change = events.find((event): event is Extract<AgentEvent, { type: "session.changed" }> =>
+      event.type === "session.changed");
+    expect(change).toEqual({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "session.changed",
+      thread_id: "session-1",
+      payload: { changes: ["messages"] },
+    });
+    expect(JSON.stringify(change)).not.toContain("content");
+  });
+
   test("uses stream-json stdio and keeps request responses correlated", async () => {
     const states: string[] = [];
     const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");

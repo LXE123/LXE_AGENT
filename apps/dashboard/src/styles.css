@@ -5054,6 +5054,12 @@ code {
   background: var(--tool-soft);
 }
 
+.tool-result-truncation {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

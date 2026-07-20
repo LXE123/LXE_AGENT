@@ -203,6 +203,9 @@ function ToolResultBlock({ block }: { block: Record<string, unknown> }) {
   const [copied, setCopied] = useState(false);
   const resultText = displayText(sanitizeForDisplay(block.content ?? "", { truncateStrings: false }));
   const copyLabel = copied ? t.common.copied : t.message.copyResult;
+  const truncation = isRecord(block.dashboard_truncation) ? block.dashboard_truncation : null;
+  const originalBytes = Math.max(0, Number(truncation?.original_bytes) || 0);
+  const previewBytes = Math.max(0, Number(truncation?.preview_bytes) || 0);
 
   const handleCopy = async () => {
     try {
@@ -229,6 +232,11 @@ function ToolResultBlock({ block }: { block: Record<string, unknown> }) {
           </button>
         </div>
       </div>
+      {truncation?.truncated === true ? (
+        <div className="tool-result-truncation">
+          {t.message.toolResultTruncated(formatNumber(previewBytes), formatNumber(originalBytes))}
+        </div>
+      ) : null}
       <pre className="message-json tool-result-full">{resultText}</pre>
     </div>
   );

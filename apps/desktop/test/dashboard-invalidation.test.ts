@@ -7,32 +7,91 @@ import {
   dashboardInvalidationForAgentEvent,
 } from "../src/main/dashboard-invalidation";
 
-const event = (
-  type: "thread.started" | "turn.started" | "turn.completed" | "turn.failed" | "item.completed",
+const lifecycleEvent = (
+  type: "thread.started" | "turn.started" | "turn.completed" | "turn.failed",
 ): AgentEvent => ({
   version: AGENT_PROTOCOL_VERSION,
   type,
   thread_id: "session-1",
   ...(type === "thread.started" ? {} : { turn_id: "turn-1" }),
-  ...(type === "item.completed"
-    ? { payload: { session_id: "session-1", message: { role: "assistant", content: "secret" } } }
-    : { payload: {} }),
+  payload: {},
+} as AgentEvent);
+
+const sessionChanged = (changes: Array<"messages" | "usage"> = ["messages"]): AgentEvent => ({
+  version: AGENT_PROTOCOL_VERSION,
+  type: "session.changed",
+  thread_id: "session-1",
+  payload: { changes },
+});
+
+const itemCompleted = (
+  emitKind: "stream" | "final" | "tool" | "progress",
+  state: "delta" | "final" | "error" | "" = "",
+): AgentEvent => ({
+  version: AGENT_PROTOCOL_VERSION,
+  type: "item.completed",
+  thread_id: "session-1",
+  turn_id: "turn-1",
+  payload: {
+    session_id: "session-1",
+    turn_id: "turn-1",
+    response_route_id: "route-1",
+    content: "secret",
+    thinking: "",
+    redacted_thinking_count: 0,
+    thinking_elapsed_ms: 0,
+    tool_pending: false,
+    tool_elapsed_ms: 0,
+    tool_steps: [],
+    files: [],
+    emit_id: "emit-1",
+    ...(emitKind === "stream"
+      ? {
+          emit_kind: "stream" as const,
+          stream_type: "final_answer" as const,
+          state: state as "delta" | "final" | "error",
+          seq: 1,
+          display_metrics: {
+            status: "running" as const,
+            elapsed_ms: 1,
+            model: "test",
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_read_input_tokens: 0,
+            cache_creation_input_tokens: 0,
+            context_tokens: 0,
+            context_window_tokens: 1,
+          },
+        }
+      : { emit_kind: emitKind, stream_type: "" as const, state: "" as const, seq: 0 as const }),
+  },
 } as AgentEvent);
 
 describe("Dashboard invalidation bridge", () => {
   test("maps runtime events to the minimum data domains", () => {
-    expect(dashboardInvalidationForAgentEvent(event("thread.started"))).toEqual({
+    expect(dashboardInvalidationForAgentEvent(sessionChanged(["messages", "usage"]))).toEqual({
       domains: ["sessions"],
       sessionIds: ["session-1"],
     });
-    expect(dashboardInvalidationForAgentEvent(event("item.completed"))).toEqual({
-      domains: ["sessions"],
-      sessionIds: ["session-1"],
+    expect(dashboardInvalidationForAgentEvent(lifecycleEvent("turn.completed"))).toEqual({
+      domains: ["stats", "background_tasks"],
+      sessionIds: [],
     });
-    expect(dashboardInvalidationForAgentEvent(event("turn.completed"))).toEqual({
-      domains: ["sessions", "stats", "background_tasks"],
-      sessionIds: ["session-1"],
+    expect(dashboardInvalidationForAgentEvent(lifecycleEvent("turn.failed"))).toEqual({
+      domains: ["stats", "background_tasks"],
+      sessionIds: [],
     });
+    expect(dashboardInvalidationForAgentEvent(lifecycleEvent("thread.started"))).toBeUndefined();
+    expect(dashboardInvalidationForAgentEvent(lifecycleEvent("turn.started"))).toBeUndefined();
+  });
+
+  test("never derives session invalidation from outbound item events", () => {
+    expect(dashboardInvalidationForAgentEvent(itemCompleted("stream", "delta"))).toBeUndefined();
+    expect(dashboardInvalidationForAgentEvent(itemCompleted("stream", "final"))).toBeUndefined();
+    expect(dashboardInvalidationForAgentEvent(itemCompleted("stream", "error"))).toBeUndefined();
+    expect(dashboardInvalidationForAgentEvent(itemCompleted("final"))).toBeUndefined();
+    expect(dashboardInvalidationForAgentEvent(itemCompleted("tool"))).toBeUndefined();
+    expect(dashboardInvalidationForAgentEvent(itemCompleted("progress"))).toBeUndefined();
   });
 
   test("maps successful mutation operations to their related domains", () => {
@@ -43,13 +102,13 @@ describe("Dashboard invalidation bridge", () => {
     expect(dashboardDomainsForMutation("sessions.list")).toEqual([]);
   });
 
-  test("coalesces events for 200ms and never forwards event bodies", () => {
+  test("coalesces events for two seconds and preserves a trailing window", () => {
     const published: DesktopDashboardInvalidation[] = [];
     let callback: (() => void) | undefined;
     let delay = 0;
     const batcher = new DashboardInvalidationBatcher(
       (invalidation) => published.push(invalidation),
-      200,
+      2_000,
       ((next, timeout) => {
         callback = next;
         delay = timeout;
@@ -60,7 +119,7 @@ describe("Dashboard invalidation bridge", () => {
 
     batcher.push(["sessions"], ["session-1"]);
     batcher.push(["stats", "sessions"], ["session-1", "session-2"]);
-    expect(delay).toBe(200);
+    expect(delay).toBe(2_000);
     expect(published).toEqual([]);
     callback?.();
 
@@ -73,5 +132,15 @@ describe("Dashboard invalidation bridge", () => {
     expect(wire).not.toContain("secret");
     expect(wire).not.toContain("password");
     expect(wire).not.toContain("path");
+
+    batcher.push(["sessions"], ["session-3"]);
+    expect(published).toHaveLength(1);
+    expect(delay).toBe(2_000);
+    callback?.();
+    expect(published[1]).toEqual({
+      revision: 2,
+      domains: ["sessions"],
+      session_ids: ["session-3"],
+    });
   });
 });

@@ -27,11 +27,38 @@ describe("desktop agent protocol", () => {
       result: null,
     }))).toThrow("unsupported agent protocol version");
     expect(() => parseAgentWireMessage(JSON.stringify({
-      version: 3,
-      id: "request-v3",
+      version: 4,
+      id: "request-v4",
       ok: true,
       result: null,
-    }))).toThrow("unsupported agent protocol version: 3");
+    }))).toThrow("unsupported agent protocol version: 4");
+  });
+
+  test("strictly parses session change events", () => {
+    expect(parseAgentWireMessage(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "session.changed",
+      thread_id: "session-1",
+      payload: { changes: ["messages", "usage", "messages"] },
+    }))).toEqual({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "session.changed",
+      thread_id: "session-1",
+      payload: { changes: ["messages", "usage"] },
+    });
+
+    for (const payload of [
+      { changes: [] },
+      { changes: ["metadata"] },
+      { changes: ["messages"], message: { role: "user", content: "must not cross the boundary" } },
+    ]) {
+      expect(() => parseAgentWireMessage(JSON.stringify({
+        version: AGENT_PROTOCOL_VERSION,
+        type: "session.changed",
+        thread_id: "session-1",
+        payload,
+      }))).toThrow("session.changed");
+    }
   });
 
   test("strictly parses run_turn results", () => {

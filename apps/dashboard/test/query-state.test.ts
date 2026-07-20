@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import type {
   DashboardRpcCall,
   DashboardRpcOperation,
@@ -15,8 +16,8 @@ import {
 } from "../src/api/query-client";
 import { dashboardQueryKeys } from "../src/api/query-keys";
 import {
-  ACTIVE_DATA_REFRESH_INTERVAL_MS,
   ACTIVE_DATA_STALE_TIME_MS,
+  BACKGROUND_TASKS_REFRESH_INTERVAL_MS,
   flattenSessionPages,
 } from "../src/api/queries";
 import type { SessionListPayload, SessionPayload } from "../src/api/payloads";
@@ -61,7 +62,23 @@ describe("Dashboard Query state", () => {
     expect(options.queries?.refetchOnWindowFocus).toBe(true);
     expect(options.queries?.refetchOnReconnect).toBe(false);
     expect(ACTIVE_DATA_STALE_TIME_MS).toBe(5_000);
-    expect(ACTIVE_DATA_REFRESH_INTERVAL_MS).toBe(15_000);
+    expect(BACKGROUND_TASKS_REFRESH_INTERVAL_MS).toBe(15_000);
+  });
+
+  test("keeps session list and detail push-driven without polling", () => {
+    const source = readFileSync(new URL("../src/api/queries.ts", import.meta.url), "utf8");
+    const sessions = source.slice(
+      source.indexOf("export function useSessionsInfiniteQuery"),
+      source.indexOf("export function flattenSessionPages"),
+    );
+    const detail = source.slice(
+      source.indexOf("export function useSessionDetailQuery"),
+      source.indexOf("export function useStatsOverviewQuery"),
+    );
+    expect(sessions).not.toContain("refetchInterval");
+    expect(detail).not.toContain("refetchInterval");
+    const clientSource = readFileSync(new URL("../src/api/query-client.tsx", import.meta.url), "utf8");
+    expect(clientSource).toContain("refetchOnWindowFocus: true");
   });
 
   test("deduplicates concurrent requests for one query key", async () => {
