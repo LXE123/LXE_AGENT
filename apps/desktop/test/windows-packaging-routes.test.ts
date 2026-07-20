@@ -35,6 +35,9 @@ describe("Windows desktop packaging routes", () => {
     expect(wrapper).toContain('if ($PackageTarget -eq "Unpacked")');
     expect(wrapper).toContain('"dist\\desktop-unpacked"');
     expect(wrapper).toContain('"Build unpacked Electron application"');
+    expect(wrapper).toMatch(
+      /else \{\s+\$packageOutputRoot = Join-Path \$repositoryRoot "dist\\desktop"\s+if \(Test-Path -LiteralPath \$packageOutputRoot\) \{\s+Remove-Item -LiteralPath \$packageOutputRoot -Recurse -Force\s+\}\s+Invoke-LxeDesktopBuildStep -Label "Build NSIS installer"/u,
+    );
     expect(wrapper).toContain('"Build NSIS installer"');
     expect(wrapper).toContain('"Audit packaged desktop resource scope"');
     expect(wrapper).toContain('"Enforce desktop resource size budgets"');

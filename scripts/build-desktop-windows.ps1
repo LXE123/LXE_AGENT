@@ -250,13 +250,16 @@ try {
         }
     }
     else {
+        $packageOutputRoot = Join-Path $repositoryRoot "dist\desktop"
+        if (Test-Path -LiteralPath $packageOutputRoot) {
+            Remove-Item -LiteralPath $packageOutputRoot -Recurse -Force
+        }
         Invoke-LxeDesktopBuildStep -Label "Build NSIS installer" -Arguments @(
             "run",
             "--cwd",
             "apps/desktop",
             "dist:win"
         )
-        $packageOutputRoot = Join-Path $repositoryRoot "dist\desktop"
         $packagedExecutable = Join-Path $packageOutputRoot "win-unpacked\LXE Agent.exe"
         $sizeReport = Join-Path $packageOutputRoot "desktop-resource-sizes.json"
     }
