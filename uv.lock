@@ -229,6 +229,7 @@ dependencies = [
     { name = "beautifulsoup4" },
     { name = "openpyxl" },
     { name = "pandas" },
+    { name = "pillow" },
     { name = "playwright" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -238,7 +239,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "pillow" },
     { name = "pytest" },
 ]
 
@@ -248,6 +248,7 @@ requires-dist = [
     { name = "beautifulsoup4", specifier = ">=4.12.0" },
     { name = "openpyxl", specifier = ">=3.1.0" },
     { name = "pandas", specifier = "==3.0.0" },
+    { name = "pillow", specifier = ">=10.0.0" },
     { name = "playwright", specifier = ">=1.40.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = "==2.32.5" },
@@ -256,10 +257,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "pillow", specifier = ">=10.0.0" },
-    { name = "pytest" },
-]
+dev = [{ name = "pytest" }]
 
 [[package]]
 name = "multidict"

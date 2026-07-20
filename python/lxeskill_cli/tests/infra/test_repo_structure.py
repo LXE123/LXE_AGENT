@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tomllib
 from pathlib import Path
 
 from shared.repository import repository_root
@@ -180,6 +181,16 @@ def _runtime_env_keys() -> set[str]:
     return keys
 
 
+def _production_dependency_names() -> set[str]:
+    configuration = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
+    dependencies = configuration.get("project", {}).get("dependencies", [])
+    return {
+        match.group(0).lower().replace("_", "-")
+        for dependency in dependencies
+        if (match := re.match(r"[A-Za-z0-9_.-]+", str(dependency)))
+    }
+
+
 def test_top_level_directories_stay_in_the_frozen_set() -> None:
     unexpected = _repository_top_level_directories() - ALLOWED_TOP_LEVEL_DIRECTORIES
     assert unexpected == set(), (
@@ -190,6 +201,10 @@ def test_top_level_directories_stay_in_the_frozen_set() -> None:
 
 def test_python_world_contains_only_the_lxeskill_cli_closure() -> None:
     assert _repository_directories_below("python") == ALLOWED_PYTHON_DIRECTORIES
+
+
+def test_desktop_image_runtime_keeps_pillow_in_production_dependencies() -> None:
+    assert "pillow" in _production_dependency_names()
 
 
 def test_lxeskill_cli_closure_contains_only_frozen_domains() -> None:
