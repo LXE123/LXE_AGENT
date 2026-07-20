@@ -93,8 +93,9 @@ describe("SqliteRuntimeStore", () => {
     const migrated = new Database(databasePath);
     const migratedColumns = migrated.query("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
     expect(migratedColumns.map((column) => column.name)).not.toContain(retiredWorkspaceColumn);
-    expect(migrated.query("SELECT session_id FROM turn_usage WHERE turn_id = 'preserved-turn'").get())
-      .toEqual({ session_id: "legacy" });
+    expect(migrated.query(`
+      SELECT session_id, sequence, platform FROM turn_usage WHERE turn_id = 'preserved-turn'
+    `).get()).toEqual({ session_id: "legacy", sequence: 1, platform: "feishu" });
     migrated.close(true);
 
     const idempotent = new SqliteRuntimeStore(databasePath, { legacyWorkspace: different });
@@ -349,6 +350,32 @@ describe("SqliteRuntimeStore", () => {
     ]));
     expect(JSON.stringify(exported)).not.toContain('"kind":"skill"');
     expect(JSON.stringify(exported)).not.toContain("legacy command");
+    const firstBatch = store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 2);
+    expect(firstBatch).toMatchObject({
+      acknowledged_sequence: 0,
+      has_more: true,
+      turns: [
+        expect.objectContaining({ sequence: 1, turn_id: "turn-1" }),
+        expect.objectContaining({ sequence: 2, turn_id: "turn-2" }),
+      ],
+    });
+    expect(JSON.stringify(firstBatch)).not.toContain("session_id");
+    expect(JSON.stringify(firstBatch)).not.toContain("replenish store resolve");
+    store.acknowledgeTurnUsage("https://cloud.example", 2);
+    expect(store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 2).turns)
+      .toEqual([expect.objectContaining({ sequence: 3, turn_id: "turn-3" })]);
+    expect(store.exportTurnUsageBatch("https://fallback.example", startedAt - 1, 1).turns)
+      .toEqual([expect.objectContaining({ sequence: 1, turn_id: "turn-1" })]);
+    const direct = new Database(databasePath);
+    direct.query("DELETE FROM turn_usage WHERE turn_id = 'turn-3'").run();
+    direct.close(true);
+    await store.recordTurn("s1", {
+      turn_id: "turn-4", started_at: startedAt + 3, status: "completed", elapsed_ms: 1,
+      input_tokens: 0, output_tokens: 0, tool_calls: 0, api_calls: 0,
+      tools: [], activations: [], executions: [],
+    });
+    expect(store.exportTurnUsageBatch("https://cloud.example", startedAt - 1, 2).turns)
+      .toEqual([expect.objectContaining({ sequence: 4, turn_id: "turn-4" })]);
     store.clearSessionRuntimeState("s1");
     expect((await store.getSession("s1"))?.source.tool_state).toBeUndefined();
     await store.stop();

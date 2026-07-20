@@ -108,6 +108,12 @@ export interface SkillExecutionUsage extends JsonObject {
 export interface RuntimeTurnUsageRecord extends JsonObject {
   turn_id: string;
   started_at: number;
+  platform?: string;
+  bot_app_id?: string;
+  bot_id?: string;
+  bot_name?: string;
+  provider?: string;
+  model?: string;
   status: string;
   elapsed_ms: number;
   input_tokens: number;

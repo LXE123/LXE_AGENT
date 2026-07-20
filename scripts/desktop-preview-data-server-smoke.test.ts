@@ -18,11 +18,16 @@ test("Preview repository env uploads to the configured Data Server without loggi
     hostname: "127.0.0.1",
     port: 0,
     fetch: async (request) => {
+      const body = await request.text();
       uploads.push({
         authorization: request.headers.get("authorization") ?? "",
-        body: await request.text(),
+        body,
       });
-      return Response.json({ sessions_received: 1, messages_received: 1 });
+      const turns = (JSON.parse(body) as { turns: Array<{ sequence: number }> }).turns;
+      return Response.json({
+        accepted_count: turns.length,
+        accepted_through_sequence: turns.at(-1)?.sequence ?? 0,
+      });
     },
   });
   mkdirSync(join(root, "config"), { recursive: true });
@@ -35,7 +40,6 @@ test("Preview repository env uploads to the configured Data Server without loggi
     "LXE_DATA_SERVER_ENABLED=0",
     "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS=3600",
     "LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS=30",
-    "LXE_DATA_SERVER_SESSION_LIMIT=1000",
   ].join("\n"), "utf8");
 
   const sourceEnvironment = loadProjectEnv({ projectRoot: root, initial: {} });
@@ -70,6 +74,22 @@ test("Preview repository env uploads to the configured Data Server without loggi
     workspace: { directory: root, worktree: root },
   });
   await store.appendMessage("preview-session", { role: "user", content: "preview upload" });
+  await store.recordTurn("preview-session", {
+    turn_id: "preview-turn",
+    started_at: Date.now() / 1_000,
+    platform: "preview-smoke",
+    provider: "custom",
+    model: "preview-model",
+    status: "completed",
+    elapsed_ms: 12,
+    api_calls: 1,
+    tool_calls: 0,
+    input_tokens: 2,
+    output_tokens: 3,
+    tools: [],
+    activations: [],
+    executions: [],
+  });
   const intervals: unknown[] = [];
   const initialTasks: Array<() => void> = [];
   const scheduler = new MaintenanceScheduler({
@@ -115,9 +135,12 @@ test("Preview repository env uploads to the configured Data Server without loggi
     expect(uploads).toHaveLength(1);
     expect(uploads[0]?.authorization).toBe(`Bearer ${apiKey}`);
     expect(JSON.parse(uploads[0]?.body ?? "{}")).toMatchObject({
+      protocol_version: 1,
       gateway_id: "preview-gateway",
-      sessions: [{ session_id: "preview-session" }],
+      turns: [{ turn_id: "preview-turn", platform: "preview-smoke" }],
     });
+    expect(uploads[0]?.body).not.toContain("preview-session");
+    expect(uploads[0]?.body).not.toContain("preview upload");
     let log = "";
     for (let attempt = 0; attempt < 100; attempt += 1) {
       log = readFileSync(logging.filePath!, "utf8");

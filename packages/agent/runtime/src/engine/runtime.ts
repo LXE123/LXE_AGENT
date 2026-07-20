@@ -191,6 +191,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const skillActivations = new Map<string, SkillActivationUsage>();
     const skillExecutions: SkillExecutionUsage[] = [];
     const descriptor = providerSnapshot?.descriptor;
+    const sourceExtra = session.source.extra !== null && typeof session.source.extra === "object" &&
+      !Array.isArray(session.source.extra) ? session.source.extra as JsonObject : {};
     const observer = new RuntimeTurnObserver({
       ...(this.options.environment ? { environment: this.options.environment } : {}),
     });
@@ -248,6 +250,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         await this.options.store.recordTurn(job.session_id, {
           turn_id: job.job_id,
           started_at: startedAt,
+          platform: String(session.source.platform ?? job.source.platform ?? "").trim(),
+          bot_app_id: String(sourceExtra.bot_app_id ?? job.raw_data.app_id ?? "").trim(),
+          bot_id: String(sourceExtra.bot_id ?? "").trim(),
+          bot_name: String(sourceExtra.bot_name ?? "").trim(),
+          provider: descriptor?.name ?? "custom",
+          model: descriptor?.model ?? this.options.display?.model ?? "",
           status,
           elapsed_ms: elapsedMs,
           input_tokens: inputTokens,

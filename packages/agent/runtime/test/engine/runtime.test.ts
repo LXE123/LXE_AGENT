@@ -51,7 +51,14 @@ class MemoryStore implements RuntimeStore {
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
   async getSession(): Promise<{ session_id: string; source: JsonObject; workspace: typeof workspace }> {
-    return { session_id: "s1", source: { platform: "feishu" }, workspace };
+    return {
+      session_id: "s1",
+      source: {
+        platform: "feishu",
+        extra: { bot_app_id: "cli_app", bot_id: "ou_bot", bot_name: "Shop Bot" },
+      },
+      workspace,
+    };
   }
   async popPendingEvents(): Promise<JsonObject[]> {
     return this.pendingEvents.splice(0);
@@ -125,6 +132,14 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.start();
     await runtime.runTurn(job(), handle());
     expect(changes).toEqual(["s1:messages", "s1:messages", "s1:usage"]);
+    expect(store.metrics[0]).toMatchObject({
+      platform: "feishu",
+      bot_app_id: "cli_app",
+      bot_id: "ou_bot",
+      bot_name: "Shop Bot",
+      provider: "custom",
+      model: "",
+    });
     await runtime.stop();
 
     const failedUsageChanges: string[] = [];

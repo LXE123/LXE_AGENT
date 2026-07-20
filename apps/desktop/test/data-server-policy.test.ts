@@ -21,7 +21,6 @@ describe("desktop data server policy", () => {
         "LXE_DATA_SERVER_ENABLED=0",
         "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS=3600",
         "LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS=30",
-        "LXE_DATA_SERVER_SESSION_LIMIT=1000",
       ].join("\n"),
     };
     const sourceEnvironment = loadProjectEnv({
@@ -48,7 +47,6 @@ describe("desktop data server policy", () => {
       LXE_DATA_SERVER_API_KEY: "source-secret",
       LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "3600",
       LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS: "30",
-      LXE_DATA_SERVER_SESSION_LIMIT: "1000",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "1",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
       LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:18001",

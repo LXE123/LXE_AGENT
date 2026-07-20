@@ -70,6 +70,13 @@ const envInteger = (env: Environment, name: string, fallback: number, minimum: n
   return Math.max(minimum, Number.isFinite(value) ? value : fallback);
 };
 
+const TURN_USAGE_RETENTION_SECONDS = 365 * 86_400;
+const TURN_USAGE_BATCH_LIMIT = 200;
+const TURN_USAGE_BATCH_TARGET_BYTES = 1024 * 1024;
+const TURN_USAGE_MAX_BATCHES_PER_RUN = 10;
+const TURN_USAGE_BACKLOG_DELAY_MS = 60_000;
+const INITIAL_DATA_SYNC_DELAY_MS = 5 * 60_000;
+
 export class MaintenanceScheduler {
   private readonly logger = createLogger("runtime.maintenance");
   private readonly fetch: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
@@ -78,7 +85,8 @@ export class MaintenanceScheduler {
   private readonly active = new Set<Promise<unknown>>();
   private readonly controllers = new Set<AbortController>();
   private readonly flights = new Map<"auth" | "data", { running?: Promise<void>; rerun: boolean }>();
-  private initialTimer: unknown | undefined;
+  private readonly initialTimers: unknown[] = [];
+  private backlogTimer: unknown | undefined;
   private stopped = true;
 
   constructor(private readonly options: MaintenanceSchedulerOptions) {
@@ -115,20 +123,31 @@ export class MaintenanceScheduler {
       );
       this.intervalTimers.push(syncTimer);
     }
-    if (authEnabled || dataEnabled) {
-      this.initialTimer = this.clock.setTimeout(() => {
-        this.initialTimer = undefined;
+    if (authEnabled) {
+      const timer = this.clock.setTimeout(() => {
+        const index = this.initialTimers.indexOf(timer);
+        if (index >= 0) this.initialTimers.splice(index, 1);
         if (this.stopped) return;
-        if (authEnabled) void this.requestSingleFlight("auth", () => this.refreshAuth());
-        if (dataEnabled) void this.requestSingleFlight("data", () => this.syncDataServer());
+        void this.requestSingleFlight("auth", () => this.refreshAuth());
       }, 0);
+      this.initialTimers.push(timer);
+    }
+    if (dataEnabled) {
+      const timer = this.clock.setTimeout(() => {
+        const index = this.initialTimers.indexOf(timer);
+        if (index >= 0) this.initialTimers.splice(index, 1);
+        if (this.stopped) return;
+        void this.requestSingleFlight("data", () => this.syncDataServer());
+      }, INITIAL_DATA_SYNC_DELAY_MS);
+      this.initialTimers.push(timer);
     }
   }
 
   async stop(): Promise<void> {
     this.stopped = true;
-    if (this.initialTimer !== undefined) this.clock.clearTimeout(this.initialTimer);
-    this.initialTimer = undefined;
+    for (const timer of this.initialTimers.splice(0)) this.clock.clearTimeout(timer);
+    if (this.backlogTimer !== undefined) this.clock.clearTimeout(this.backlogTimer);
+    this.backlogTimer = undefined;
     for (const timer of this.intervalTimers.splice(0)) this.clock.clearInterval(timer);
     for (const flight of this.flights.values()) flight.rerun = false;
     for (const controller of this.controllers) controller.abort(new Error("maintenance stopped"));
@@ -156,40 +175,8 @@ export class MaintenanceScheduler {
       this.logger.info("data_sync_skipped", { reason: "missing_config" });
       return { uploaded: false, skipped_reason: "missing_config" };
     }
-    const sessionLimit = envInteger(this.options.environment, "LXE_DATA_SERVER_SESSION_LIMIT", 1_000, 1);
-    const usageDays = envInteger(this.options.environment, "LXE_DATA_SERVER_USAGE_DAYS", 30, 1);
-    const sessions: JsonObject[] = [];
-    for (let offset = 0; sessions.length < sessionLimit; offset += 200) {
-      const listed = this.options.store.listSessions({ limit: Math.min(200, sessionLimit - sessions.length), offset });
-      if (listed.items.length === 0) break;
-      for (const session of listed.items) {
-        const sessionId = String(session.session_id ?? "");
-        const first = await this.options.store.sessionDetail(sessionId, { limit: 200, page: 1 });
-        const messages = [...(Array.isArray(first?.messages) ? first.messages : [])];
-        const totalPages = Number((first?.messages_page as JsonObject | undefined)?.total_pages ?? 1);
-        for (let page = 2; page <= totalPages; page += 1) {
-          const next = await this.options.store.sessionDetail(sessionId, { limit: 200, page });
-          if (Array.isArray(next?.messages)) messages.push(...next.messages);
-        }
-        const { workspace: _localWorkspace, ...portableSession } = session;
-        sessions.push({ ...portableSession, messages });
-      }
-      if (listed.items.length < 200) break;
-    }
-    if (sessions.length === 0) {
-      this.logger.info("data_sync_skipped", { reason: "no_sessions" });
-      return { uploaded: false, skipped_reason: "no_sessions" };
-    }
-    const snapshot: JsonObject = {
-      machine_id: this.machineId(),
-      gateway_id: this.options.gatewayId,
-      hostname: hostname(),
-      uploaded_at: Date.now() / 1_000,
-      sessions,
-      turn_usage: { days: usageDays, turns: this.options.store.exportTurnUsage(usageDays) },
-    };
     try {
-      return await this.uploadSnapshot(cloud, snapshot, sessions.length);
+      return await this.syncTurnUsageTarget(cloud);
     } catch (error) {
       if (!(error instanceof DataServerUploadError) || !error.fallbackEligible || this.stopped) {
         throw error;
@@ -200,7 +187,7 @@ export class MaintenanceScheduler {
         target: fallback.name,
         reason: error.message,
       });
-      return this.uploadSnapshot(fallback, snapshot, sessions.length);
+      return this.syncTurnUsageTarget(fallback);
     }
   }
 
@@ -232,11 +219,85 @@ export class MaintenanceScheduler {
     );
   }
 
-  private async uploadSnapshot(
+  private async syncTurnUsageTarget(target: DataServerTarget): Promise<JsonObject> {
+    const machineId = this.machineId();
+    const cutoff = Date.now() / 1_000 - TURN_USAGE_RETENTION_SECONDS;
+    let acceptedCount = 0;
+    let acceptedThroughSequence = this.options.store.turnUsageAcknowledgedSequence(target.serverUrl) ?? 0;
+    let batches = 0;
+    let hasMore = false;
+    for (; batches < TURN_USAGE_MAX_BATCHES_PER_RUN; batches += 1) {
+      const exported = this.options.store.exportTurnUsageBatch(target.serverUrl, cutoff, TURN_USAGE_BATCH_LIMIT);
+      if (exported.turns.length === 0) {
+        hasMore = false;
+        break;
+      }
+      const turns: JsonObject[] = [];
+      let body = "";
+      for (const turn of exported.turns) {
+        const candidate = [...turns, turn];
+        const candidateBody = JSON.stringify({
+          protocol_version: 1,
+          machine_id: machineId,
+          gateway_id: this.options.gatewayId,
+          hostname: hostname(),
+          turns: candidate,
+        });
+        if (new TextEncoder().encode(candidateBody).byteLength > TURN_USAGE_BATCH_TARGET_BYTES) {
+          if (turns.length === 0) {
+            throw new DataServerUploadError(
+              target.name,
+              `${target.name} turn usage record exceeds 1 MiB client batch limit`,
+              false,
+            );
+          }
+          break;
+        }
+        turns.push(turn);
+        body = candidateBody;
+      }
+      const lastSequence = Number(turns.at(-1)?.sequence ?? 0);
+      const acknowledged = await this.uploadTurnUsageBatch(target, body, turns.length, lastSequence);
+      this.options.store.acknowledgeTurnUsage(target.serverUrl, acknowledged.acceptedThroughSequence);
+      acceptedCount += acknowledged.acceptedCount;
+      acceptedThroughSequence = acknowledged.acceptedThroughSequence;
+      hasMore = turns.length < exported.turns.length || exported.has_more;
+      this.logger.info("data_sync_batch_uploaded", {
+        target: target.name,
+        turn_count: turns.length,
+        batch_bytes: new TextEncoder().encode(body).byteLength,
+        accepted_count: acknowledged.acceptedCount,
+        accepted_through_sequence: acknowledged.acceptedThroughSequence,
+      });
+      if (!hasMore) {
+        batches += 1;
+        break;
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+    if (hasMore) this.scheduleBacklogSync();
+    if (batches === 0) {
+      this.logger.info("data_sync_skipped", { reason: "no_turns", target: target.name });
+      return { uploaded: false, target: target.name, skipped_reason: "no_turns", has_more: false };
+    }
+    const result: JsonObject = {
+      uploaded: true,
+      target: target.name,
+      accepted_count: acceptedCount,
+      accepted_through_sequence: acceptedThroughSequence,
+      batches,
+      has_more: hasMore,
+    };
+    this.logger.info("data_sync_uploaded", result);
+    return result;
+  }
+
+  private async uploadTurnUsageBatch(
     target: DataServerTarget,
-    snapshot: JsonObject,
-    sessionCount: number,
-  ): Promise<JsonObject> {
+    body: string,
+    turnCount: number,
+    lastSequence: number,
+  ): Promise<{ acceptedCount: number; acceptedThroughSequence: number }> {
     const controller = new AbortController();
     this.controllers.add(controller);
     const timeout = setTimeout(() => controller.abort(new Error("data server request timed out")),
@@ -244,10 +305,10 @@ export class MaintenanceScheduler {
     try {
       let response: Response;
       try {
-        response = await this.fetch(`${target.serverUrl}/api/v1/agent-data/snapshots`, {
+        response = await this.fetch(`${target.serverUrl}/api/v1/agent-data/turn-usage/batches`, {
           method: "POST",
           headers: { authorization: `Bearer ${target.apiKey}`, "content-type": "application/json" },
-          body: JSON.stringify(snapshot),
+          body,
           signal: controller.signal,
         });
       } catch (error) {
@@ -267,26 +328,25 @@ export class MaintenanceScheduler {
         );
       }
       const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-      const result: JsonObject = {
-        uploaded: true,
-        target: target.name,
-        sessions_received: Number(payload.sessions_received ?? sessionCount),
-        messages_received: Number(payload.messages_received ?? 0),
-      };
-      this.logger.info("data_sync_uploaded", {
-        target: target.name,
-        session_count: sessionCount,
-        usage_turn_count: Array.isArray((snapshot.turn_usage as JsonObject).turns)
-          ? ((snapshot.turn_usage as JsonObject).turns as unknown[]).length
-          : 0,
-        sessions_received: result.sessions_received,
-        messages_received: result.messages_received,
-      });
-      return result;
+      const acceptedCount = Number(payload.accepted_count);
+      const acceptedThroughSequence = Number(payload.accepted_through_sequence);
+      if (!Number.isSafeInteger(acceptedCount) || acceptedCount !== turnCount ||
+        !Number.isSafeInteger(acceptedThroughSequence) || acceptedThroughSequence !== lastSequence) {
+        throw new DataServerUploadError(target.name, `${target.name} data server returned an invalid ACK`, false);
+      }
+      return { acceptedCount, acceptedThroughSequence };
     } finally {
       clearTimeout(timeout);
       this.controllers.delete(controller);
     }
+  }
+
+  private scheduleBacklogSync(): void {
+    if (this.stopped || this.backlogTimer !== undefined) return;
+    this.backlogTimer = this.clock.setTimeout(() => {
+      this.backlogTimer = undefined;
+      if (!this.stopped) void this.requestSingleFlight("data", () => this.syncDataServer());
+    }, TURN_USAGE_BACKLOG_DELAY_MS);
   }
 
   private async refreshAuth(): Promise<void> {

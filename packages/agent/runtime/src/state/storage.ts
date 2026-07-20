@@ -53,6 +53,7 @@ const mergeObjects = (base: JsonObject, patch: JsonObject): JsonObject => {
 };
 
 const text = (value: unknown): string => String(value ?? "").trim();
+const clippedText = (value: unknown, maximum: number): string => text(value).slice(0, maximum);
 const retiredWorkspaceColumn = ["workspace", "server", "scope"].join("_");
 
 const imagePlaceholder = (): JsonObject => ({
@@ -261,8 +262,15 @@ export class SqliteRuntimeStore implements RuntimeStore {
         );
         CREATE TABLE IF NOT EXISTS turn_usage (
           turn_id TEXT PRIMARY KEY,
+          sequence INTEGER,
           session_id TEXT NOT NULL,
           started_at REAL NOT NULL,
+          platform TEXT NOT NULL DEFAULT '',
+          bot_app_id TEXT NOT NULL DEFAULT '',
+          bot_id TEXT NOT NULL DEFAULT '',
+          bot_name TEXT NOT NULL DEFAULT '',
+          provider TEXT NOT NULL DEFAULT '',
+          model TEXT NOT NULL DEFAULT '',
           status TEXT NOT NULL DEFAULT '',
           elapsed_ms INTEGER NOT NULL DEFAULT 0,
           llm_calls INTEGER NOT NULL DEFAULT 0,
@@ -282,6 +290,15 @@ export class SqliteRuntimeStore implements RuntimeStore {
           errors INTEGER NOT NULL DEFAULT 0,
           duration_ms INTEGER NOT NULL DEFAULT 0,
           detail TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS turn_usage_sync_state (
+          target_url TEXT PRIMARY KEY,
+          acknowledged_sequence INTEGER NOT NULL DEFAULT 0,
+          updated_at REAL NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS turn_usage_sequence_state (
+          singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+          next_sequence INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS transcript_file_state (
           session_id TEXT PRIMARY KEY,
@@ -331,6 +348,55 @@ export class SqliteRuntimeStore implements RuntimeStore {
       if (columns.some((column) => column.name === retiredWorkspaceColumn)) {
         database.exec(`ALTER TABLE agent_sessions DROP COLUMN ${retiredWorkspaceColumn}`);
       }
+      const usageColumns = this.allPrepared<{ name: string }>("PRAGMA table_info(turn_usage)");
+      for (const [name, declaration] of [
+        ["sequence", "INTEGER"],
+        ["platform", "TEXT NOT NULL DEFAULT ''"],
+        ["bot_app_id", "TEXT NOT NULL DEFAULT ''"],
+        ["bot_id", "TEXT NOT NULL DEFAULT ''"],
+        ["bot_name", "TEXT NOT NULL DEFAULT ''"],
+        ["provider", "TEXT NOT NULL DEFAULT ''"],
+        ["model", "TEXT NOT NULL DEFAULT ''"],
+      ] as const) {
+        if (!usageColumns.some((column) => column.name === name)) {
+          database.exec(`ALTER TABLE turn_usage ADD COLUMN ${name} ${declaration}`);
+        }
+      }
+      database.exec(`
+        UPDATE turn_usage SET sequence = rowid WHERE sequence IS NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_turn_usage_sequence ON turn_usage (sequence);
+        INSERT OR IGNORE INTO turn_usage_sequence_state (singleton, next_sequence)
+        SELECT 1, COALESCE(MAX(sequence), 0) + 1 FROM turn_usage;
+        UPDATE turn_usage_sequence_state SET next_sequence = MAX(
+          next_sequence,
+          (SELECT COALESCE(MAX(sequence), 0) + 1 FROM turn_usage)
+        ) WHERE singleton = 1;
+        UPDATE turn_usage SET
+          platform = COALESCE(NULLIF(platform, ''), (
+            SELECT CASE WHEN json_valid(agent_sessions.source)
+              THEN COALESCE(json_extract(agent_sessions.source, '$.platform'), '') ELSE '' END
+            FROM agent_sessions WHERE agent_sessions.session_id = turn_usage.session_id
+          ), ''),
+          bot_app_id = COALESCE(NULLIF(bot_app_id, ''), (
+            SELECT CASE WHEN json_valid(agent_sessions.source)
+              THEN COALESCE(json_extract(agent_sessions.source, '$.extra.bot_app_id'), '') ELSE '' END
+            FROM agent_sessions WHERE agent_sessions.session_id = turn_usage.session_id
+          ), ''),
+          bot_id = COALESCE(NULLIF(bot_id, ''), (
+            SELECT CASE WHEN json_valid(agent_sessions.source)
+              THEN COALESCE(json_extract(agent_sessions.source, '$.extra.bot_id'), '') ELSE '' END
+            FROM agent_sessions WHERE agent_sessions.session_id = turn_usage.session_id
+          ), ''),
+          bot_name = COALESCE(NULLIF(bot_name, ''), (
+            SELECT CASE WHEN json_valid(agent_sessions.source)
+              THEN COALESCE(json_extract(agent_sessions.source, '$.extra.bot_name'), '') ELSE '' END
+            FROM agent_sessions WHERE agent_sessions.session_id = turn_usage.session_id
+          ), ''),
+          model = COALESCE(NULLIF(model, ''), (
+            SELECT agent_sessions.model FROM agent_sessions
+            WHERE agent_sessions.session_id = turn_usage.session_id
+          ), '');
+      `);
       database.exec("COMMIT");
       await this.catchUpTranscriptIndexes();
     } catch (error) {
@@ -659,14 +725,40 @@ export class SqliteRuntimeStore implements RuntimeStore {
         Number(metrics.tool_calls ?? 0), Number(metrics.api_calls ?? metrics.llm_calls ?? 0), safeSessionId,
       );
       this.db().query(`
-        INSERT OR REPLACE INTO turn_usage
-          (turn_id, session_id, started_at, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO turn_usage
+          (sequence, turn_id, session_id, started_at, platform, bot_app_id, bot_id, bot_name,
+           provider, model, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens)
+        VALUES ((SELECT next_sequence FROM turn_usage_sequence_state WHERE singleton = 1), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(turn_id) DO UPDATE SET
+          session_id = excluded.session_id,
+          started_at = excluded.started_at,
+          platform = excluded.platform,
+          bot_app_id = excluded.bot_app_id,
+          bot_id = excluded.bot_id,
+          bot_name = excluded.bot_name,
+          provider = excluded.provider,
+          model = excluded.model,
+          status = excluded.status,
+          elapsed_ms = excluded.elapsed_ms,
+          llm_calls = excluded.llm_calls,
+          tool_calls = excluded.tool_calls,
+          input_tokens = excluded.input_tokens,
+          output_tokens = excluded.output_tokens
       `).run(
-        turnId, safeSessionId, startedAt, text(metrics.status), Number(metrics.elapsed_ms ?? 0),
+        turnId, safeSessionId, startedAt,
+        clippedText(metrics.platform, 64), clippedText(metrics.bot_app_id, 256),
+        clippedText(metrics.bot_id, 256), clippedText(metrics.bot_name, 256),
+        clippedText(metrics.provider, 128), clippedText(metrics.model, 256),
+        text(metrics.status), Number(metrics.elapsed_ms ?? 0),
         Number(metrics.api_calls ?? metrics.llm_calls ?? 0), Number(metrics.tool_calls ?? 0),
         Number(metrics.input_tokens ?? 0), Number(metrics.output_tokens ?? 0),
       );
+      this.db().query(`
+        UPDATE turn_usage_sequence_state SET next_sequence = MAX(
+          next_sequence,
+          (SELECT COALESCE(MAX(sequence), 0) + 1 FROM turn_usage)
+        ) WHERE singleton = 1
+      `).run();
       this.db().query("DELETE FROM turn_usage_items WHERE turn_id = ?").run(turnId);
       for (const tool of tools) {
         const name = text(tool.name);
@@ -847,11 +939,16 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const byId = new Map(turns.map((turn) => [turn.turn_id, turn]));
     if (turns.length > 0) {
       const items = this.allPrepared<Record<string, unknown>>(`
-        SELECT turn_id, kind, name, module, calls, errors, duration_ms, detail
-        FROM turn_usage_items
-        WHERE started_at >= ? AND kind IN ('tool', 'skill_activation', 'skill_execution')
-        ORDER BY item_id ASC
-      `, cutoff);
+        SELECT item.turn_id, item.kind, item.name, item.module, item.calls, item.errors,
+               item.duration_ms, item.detail
+        FROM turn_usage_items AS item
+        JOIN (
+          SELECT turn_id FROM turn_usage
+          WHERE started_at >= ? ORDER BY started_at ASC LIMIT ?
+        ) AS selected ON selected.turn_id = item.turn_id
+        WHERE item.kind IN ('tool', 'skill_activation', 'skill_execution')
+        ORDER BY item.item_id ASC
+      `, cutoff, Math.max(1, Math.min(Math.trunc(limit), 50_000)));
       for (const row of items) {
         byId.get(text(row.turn_id))?.items.push({
           kind: text(row.kind), name: text(row.name), module: text(row.module), calls: Number(row.calls ?? 0),
@@ -860,6 +957,113 @@ export class SqliteRuntimeStore implements RuntimeStore {
       }
     }
     return turns;
+  }
+
+  exportTurnUsageBatch(
+    targetUrl: string,
+    cutoff: number,
+    limit = 200,
+  ): { turns: JsonObject[]; acknowledged_sequence: number; has_more: boolean } {
+    const safeTargetUrl = text(targetUrl);
+    if (!safeTargetUrl) throw new Error("turn usage sync target URL required");
+    const safeCutoff = Number.isFinite(cutoff) ? cutoff : Date.now() / 1_000 - 365 * 86_400;
+    const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 200));
+    this.db().query(`
+      INSERT OR IGNORE INTO turn_usage_sync_state (target_url, acknowledged_sequence, updated_at)
+      VALUES (
+        ?,
+        COALESCE(
+          (SELECT MIN(sequence) - 1 FROM turn_usage WHERE started_at >= ?),
+          (SELECT MAX(sequence) FROM turn_usage),
+          0
+        ),
+        ?
+      )
+    `).run(safeTargetUrl, safeCutoff, Date.now() / 1_000);
+    const state = this.getPrepared<{ acknowledged_sequence: number }>(`
+      SELECT acknowledged_sequence FROM turn_usage_sync_state WHERE target_url = ?
+    `, safeTargetUrl);
+    const acknowledgedSequence = Number(state?.acknowledged_sequence ?? 0);
+    const rows = this.allPrepared<Record<string, unknown>>(`
+      SELECT sequence, turn_id, started_at, platform, bot_app_id, bot_id, bot_name,
+             provider, model, status, elapsed_ms, llm_calls, tool_calls, input_tokens, output_tokens
+      FROM turn_usage
+      WHERE sequence > ? AND started_at >= ?
+      ORDER BY sequence ASC LIMIT ?
+    `, acknowledgedSequence, safeCutoff, safeLimit);
+    const turns = rows.map((row) => ({
+      sequence: Number(row.sequence ?? 0),
+      turn_id: clippedText(row.turn_id, 256),
+      started_at: Number(row.started_at ?? 0),
+      platform: clippedText(row.platform, 64),
+      bot_app_id: clippedText(row.bot_app_id, 256),
+      bot_id: clippedText(row.bot_id, 256),
+      bot_name: clippedText(row.bot_name, 256),
+      provider: clippedText(row.provider, 128),
+      model: clippedText(row.model, 256),
+      status: clippedText(row.status, 32),
+      elapsed_ms: Number(row.elapsed_ms ?? 0),
+      llm_calls: Number(row.llm_calls ?? 0),
+      tool_calls: Number(row.tool_calls ?? 0),
+      input_tokens: Number(row.input_tokens ?? 0),
+      output_tokens: Number(row.output_tokens ?? 0),
+      items: [] as JsonObject[],
+    }));
+    const byId = new Map(turns.map((turn) => [String(turn.turn_id), turn]));
+    if (turns.length > 0) {
+      const items = this.allPrepared<Record<string, unknown>>(`
+        SELECT item.turn_id, item.kind, item.name, item.module, item.calls, item.errors,
+               item.duration_ms
+        FROM turn_usage_items AS item
+        JOIN (
+          SELECT turn_id FROM turn_usage
+          WHERE sequence > ? AND started_at >= ?
+          ORDER BY sequence ASC LIMIT ?
+        ) AS selected ON selected.turn_id = item.turn_id
+        WHERE item.kind IN ('tool', 'skill_activation', 'skill_execution')
+        ORDER BY item.item_id ASC
+      `, acknowledgedSequence, safeCutoff, safeLimit);
+      const itemCounts = new Map<string, number>();
+      for (const row of items) {
+        const turnId = text(row.turn_id);
+        const turn = byId.get(turnId);
+        const count = itemCounts.get(turnId) ?? 0;
+        if (!turn || count >= 500) continue;
+        itemCounts.set(turnId, count + 1);
+        turn.items.push({
+          kind: clippedText(row.kind, 32),
+          name: clippedText(row.name, 256),
+          module: clippedText(row.module, 256),
+          calls: Number(row.calls ?? 0),
+          errors: Number(row.errors ?? 0),
+          duration_ms: Number(row.duration_ms ?? 0),
+        });
+      }
+    }
+    const lastSequence = Number(turns.at(-1)?.sequence ?? acknowledgedSequence);
+    const more = this.getPrepared<{ present: number }>(`
+      SELECT 1 AS present FROM turn_usage
+      WHERE sequence > ? AND started_at >= ? LIMIT 1
+    `, lastSequence, safeCutoff);
+    return { turns, acknowledged_sequence: acknowledgedSequence, has_more: Boolean(more?.present) };
+  }
+
+  acknowledgeTurnUsage(targetUrl: string, sequence: number): void {
+    const safeTargetUrl = text(targetUrl);
+    const safeSequence = Math.max(0, Math.trunc(sequence));
+    const result = this.db().query(`
+      UPDATE turn_usage_sync_state SET
+        acknowledged_sequence = MAX(acknowledged_sequence, ?), updated_at = ?
+      WHERE target_url = ?
+    `).run(safeSequence, Date.now() / 1_000, safeTargetUrl);
+    if (Number(result.changes ?? 0) !== 1) throw new Error(`turn usage sync target not initialized: ${safeTargetUrl}`);
+  }
+
+  turnUsageAcknowledgedSequence(targetUrl: string): number | undefined {
+    const row = this.getPrepared<{ acknowledged_sequence: number }>(`
+      SELECT acknowledged_sequence FROM turn_usage_sync_state WHERE target_url = ?
+    `, text(targetUrl));
+    return row ? Number(row.acknowledged_sequence) : undefined;
   }
 
   listSessions(options: DashboardSessionListOptions): {
