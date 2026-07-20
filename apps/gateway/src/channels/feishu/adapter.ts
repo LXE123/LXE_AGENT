@@ -143,7 +143,6 @@ export class FeishuAdapter implements ChannelAdapter {
       if (!path) throw new Error("missing Feishu file path");
       return this.media.sendFile(route, path);
     }
-    if (request.action === "react") return;
     throw new Error(`unsupported Feishu outbound action: ${request.action}`);
   }
 
@@ -176,8 +175,6 @@ export class FeishuAdapter implements ChannelAdapter {
     const sdkFactory = this.options.sdkFactory ?? createOfficialFeishuSdkFactory(this.options.config);
     const sdk = sdkFactory({
       onMessage: (data) => this.handleMessage(data),
-      onReactionCreated: () => undefined,
-      onReactionDeleted: () => undefined,
       onReady: () => {
         if (!this.desiredStarted) return;
         this.ready = true;

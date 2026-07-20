@@ -11,14 +11,10 @@ import { normalizeFeishuTransportError } from "./response";
 
 export const FEISHU_EVENT_TYPES = [
   "im.message.receive_v1",
-  "im.message.reaction.created_v1",
-  "im.message.reaction.deleted_v1",
 ] as const;
 
 export interface FeishuSdkCallbacks {
   onMessage(data: unknown): Promise<void> | void;
-  onReactionCreated(data: unknown): Promise<void> | void;
-  onReactionDeleted(data: unknown): Promise<void> | void;
   onReady(): void;
   onError(error: Error): void;
   onReconnecting(): void;
@@ -145,8 +141,6 @@ export function createOfficialFeishuSdk(
   }) as LooseClient;
   const handlers = {
     "im.message.receive_v1": callbacks.onMessage,
-    "im.message.reaction.created_v1": callbacks.onReactionCreated,
-    "im.message.reaction.deleted_v1": callbacks.onReactionDeleted,
   };
   const dispatcher = new constructors.EventDispatcher({ loggerLevel: Lark.LoggerLevel.fatal, logger: sdkLogger });
   dispatcher.register(handlers);

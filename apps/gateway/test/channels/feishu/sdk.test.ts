@@ -113,8 +113,6 @@ describe("official Feishu SDK factory", () => {
     const callbacks: string[] = [];
     const sdk = createOfficialFeishuSdk(config, {
       onMessage: async () => { callbacks.push("message"); },
-      onReactionCreated: async () => { callbacks.push("reaction-created"); },
-      onReactionDeleted: async () => { callbacks.push("reaction-deleted"); },
       onReady: () => callbacks.push("ready"),
       onError: () => callbacks.push("error"),
       onReconnecting: () => callbacks.push("reconnecting"),
@@ -127,9 +125,7 @@ describe("official Feishu SDK factory", () => {
     expect(wsOptions.loggerLevel).toBe(0);
     expect(clientOptions.logger).toBe(wsOptions.logger);
     await registered["im.message.receive_v1"]?.({});
-    await registered["im.message.reaction.created_v1"]?.({});
-    await registered["im.message.reaction.deleted_v1"]?.({});
-    expect(callbacks.slice(0, 3)).toEqual(["message", "reaction-created", "reaction-deleted"]);
+    expect(callbacks[0]).toBe("message");
     expect(await sdk.api.request("POST", "/im/v1/messages/om-source/reply", { body: { msg_type: "text" } })).toEqual({
       code: 0,
       msg: "success",
