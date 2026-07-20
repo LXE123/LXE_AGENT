@@ -42,6 +42,12 @@ describe("RuntimeTurnObserver", () => {
       message: "provider_attempt_completed", tool_use_count: 1,
     }));
     expect(records).toContainEqual(expect.objectContaining({
+      message: "tool_started", tool: "read", tool_use_id: "tool-1",
+    }));
+    expect(records).toContainEqual(expect.objectContaining({
+      message: "tool_completed", tool: "read", status: "success", duration_ms: 15,
+    }));
+    expect(records).toContainEqual(expect.objectContaining({
       message: "turn_completed", status: "completed", context_delta_tokens: -5, compacted: true,
     }));
     expect(lines.join("\n")).not.toContain("secret reply");

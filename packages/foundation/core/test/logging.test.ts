@@ -203,8 +203,13 @@ describe("structured logger", () => {
     roots.push(root);
     const expired = join(root, "var", "logs", "runtime", "20000101");
     const unrelated = join(root, "var", "logs", "runtime", "manual");
+    const legacyAgentTraceRoot = join(root, "var", "logs", "agent_traces");
+    const expiredLegacyAgentTrace = join(legacyAgentTraceRoot, "20000101");
+    const ignoredOverride = join(root, "custom-agent-traces", "20000101");
     mkdirSync(expired, { recursive: true });
     mkdirSync(unrelated, { recursive: true });
+    mkdirSync(expiredLegacyAgentTrace, { recursive: true });
+    mkdirSync(ignoredOverride, { recursive: true });
     writeFileSync(join(expired, "runtime.log"), "expired", "utf8");
 
     const controller = logging.configureLogging({
@@ -216,6 +221,7 @@ describe("structured logger", () => {
         RUNTIME_LOG_LEVEL: "DEBUG",
         LOG_LEVELS: "runtime=WARN",
         LOCAL_LOG_RETENTION_DAYS: "7",
+        AGENT_STREAM_TRACE_DIR: join(root, "custom-agent-traces"),
       },
     });
     controllers.push(controller);
@@ -228,6 +234,8 @@ describe("structured logger", () => {
     expect(content).toContain("kept");
     expect(existsSync(expired)).toBe(false);
     expect(existsSync(unrelated)).toBe(true);
+    expect(existsSync(legacyAgentTraceRoot)).toBe(false);
+    expect(existsSync(ignoredOverride)).toBe(true);
 
     await controller.close();
     const disabled = logging.configureLogging({

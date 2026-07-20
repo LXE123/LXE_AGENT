@@ -3,10 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  configureRuntimeTracing,
-  sanitizeTraceValue,
+  configureRuntimeWireTracing,
   sanitizeWireTraceValue,
-} from "../../src/providers/trace";
+} from "../../src/providers/wire-trace";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -18,38 +17,36 @@ const day = (): string => {
   return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
 };
 
-describe("runtime traces", () => {
-  test("accepts a canonical state root without nesting var twice", () => {
+describe("provider wire traces", () => {
+  test("accepts a canonical state root without nesting var twice or creating agent traces", () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "lxe-trace-state-root-"));
     roots.push(projectRoot);
     const stateRoot = join(projectRoot, "var");
-    const controller = configureRuntimeTracing({
+    const controller = configureRuntimeWireTracing({
       projectRoot,
       stateRoot,
-      environment: { LOCAL_LOGS_ENABLED: "1", AGENT_STREAM_TRACE_ENABLED: "1" },
+      environment: { LOCAL_LOGS_ENABLED: "1", AGENT_SSE_WIRE_TRACE_ENABLED: "1" },
     });
-    controller.startTurn("session", "turn").record("started", { ok: true });
-    expect(existsSync(join(stateRoot, "logs", "agent_traces", day()))).toBeTrue();
+    const attempt = controller.startTurn("session", "turn").startProviderAttempt({
+      step: 0, attempt: 1, provider: "demo", model: "model", endpoint: "", timeoutMs: 0,
+    });
+    attempt?.requestStart({}, {});
+    expect(existsSync(join(stateRoot, "logs", "sse_wire_traces", day()))).toBeTrue();
+    expect(existsSync(join(stateRoot, "logs", "agent_traces"))).toBeFalse();
     expect(existsSync(join(stateRoot, "var"))).toBeFalse();
   });
 
   test("writes main-compatible per-attempt wire records without losing large collections", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-trace-"));
     roots.push(root);
-    const controller = configureRuntimeTracing({
+    const controller = configureRuntimeWireTracing({
       projectRoot: root,
       environment: {
         LOCAL_LOGS_ENABLED: "1",
-        AGENT_STREAM_TRACE_ENABLED: "1",
         AGENT_SSE_WIRE_TRACE_ENABLED: "1",
       },
     });
     const trace = controller.startTurn("session-1", "turn-1");
-    trace.record("tool_start", {
-      authorization: "Bearer secret",
-      path: "C:\\Users\\Administrator\\secret.txt",
-      source: { data: "A".repeat(1_000) },
-    });
     const attempt = trace.startProviderAttempt({
       step: 0,
       attempt: 1,
@@ -82,14 +79,9 @@ describe("runtime traces", () => {
     attempt!.end(false, "duplicate terminal");
     attempt!.event("after_end", { text: "ignored" });
 
-    const traceRoot = join(root, "var", "logs", "agent_traces", day());
-    const sessionDir = readdirSync(traceRoot)[0]!;
-    const turnTrace = readFileSync(join(traceRoot, sessionDir, "turn-1.jsonl"), "utf8");
-    expect(turnTrace).toContain("tool_start");
-    expect(turnTrace).not.toContain("Bearer secret");
-    expect(turnTrace).not.toContain("Administrator");
-
-    const wireDirectory = join(root, "var", "logs", "sse_wire_traces", day(), sessionDir, "turn-1");
+    const wireDayRoot = join(root, "var", "logs", "sse_wire_traces", day());
+    const sessionDir = readdirSync(wireDayRoot)[0]!;
+    const wireDirectory = join(wireDayRoot, sessionDir, "turn-1");
     expect(readdirSync(wireDirectory)).toEqual(["step_0_attempt_1.jsonl"]);
     expect(existsSync(join(wireDirectory, "provider.jsonl"))).toBe(false);
     const wireText = readFileSync(join(wireDirectory, "step_0_attempt_1.jsonl"), "utf8");
@@ -131,13 +123,14 @@ describe("runtime traces", () => {
   test("sanitizes recursive values and preserves wire strings up to the main limit", () => {
     const value: Record<string, unknown> = { text: "ok" };
     value.self = value;
-    expect(sanitizeTraceValue(value)).toEqual({ text: "ok", self: "[recursive]" });
     const wire = sanitizeWireTraceValue({
+      recursive: value,
       text: "x".repeat(9_000),
       signature_delta: "private",
       binary: new Uint8Array([1, 2, 3]),
     }) as Record<string, unknown>;
     expect(String(wire.text).length).toBeLessThanOrEqual(8_192);
+    expect((wire.recursive as Record<string, unknown>).self).toBe("[recursive]");
     expect(wire.signature_delta).toBe("***");
     expect(String(wire.binary)).toContain("3 bytes");
   });
@@ -145,7 +138,7 @@ describe("runtime traces", () => {
   test("does not invent response_start when an attempt fails before connection", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-trace-preconnect-"));
     roots.push(root);
-    const trace = configureRuntimeTracing({
+    const trace = configureRuntimeWireTracing({
       projectRoot: root,
       environment: { LOCAL_LOGS_ENABLED: "1", AGENT_SSE_WIRE_TRACE_ENABLED: "1" },
     }).startTurn("session", "turn");
@@ -162,24 +155,28 @@ describe("runtime traces", () => {
     expect(records[1]).toEqual(expect.objectContaining({ ok: false, event_count: 0, error: "connection failed" }));
   });
 
-  test("contains trace initialization and write failures", () => {
+  test("contains wire trace initialization and write failures", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-trace-failure-"));
     roots.push(root);
-    const blocked = join(root, "var", "logs", "agent_traces");
+    const blocked = join(root, "var", "logs", "sse_wire_traces");
     mkdirSync(join(root, "var", "logs"), { recursive: true });
     writeFileSync(blocked, "not a directory", "utf8");
-    const controller = configureRuntimeTracing({
+    const controller = configureRuntimeWireTracing({
       projectRoot: root,
       environment: {
         LOCAL_LOGS_ENABLED: "1",
-        AGENT_STREAM_TRACE_ENABLED: "1",
         AGENT_SSE_WIRE_TRACE_ENABLED: "1",
       },
     });
-    expect(() => controller.startTurn("session", "turn").record("event", { ok: true })).not.toThrow();
+    const attempt = controller.startTurn("session", "turn").startProviderAttempt({
+      step: 0, attempt: 1, provider: "demo", model: "model", endpoint: "", timeoutMs: 1_000,
+    });
+    expect(() => attempt?.requestStart({}, { model: "model" })).not.toThrow();
+    expect(() => attempt?.event("message_start", { type: "message_start" })).not.toThrow();
+    expect(() => attempt?.end(false, "failed safely")).not.toThrow();
 
-    const writable = controller.startTurn("session", "turn-2");
-    const attempt = writable.startProviderAttempt({
+    rmSync(blocked, { force: true });
+    const writableAttempt = controller.startTurn("session", "turn-2").startProviderAttempt({
       step: 0,
       attempt: 1,
       provider: "demo",
@@ -192,22 +189,28 @@ describe("runtime traces", () => {
     const turnDirectory = join(wireDayRoot, wireSession, "turn-2");
     rmSync(turnDirectory, { recursive: true, force: true });
     writeFileSync(turnDirectory, "blocks attempt file", "utf8");
-    expect(() => attempt.requestStart({}, { model: "model" })).not.toThrow();
-    expect(() => attempt.event("message_start", { type: "message_start" })).not.toThrow();
-    expect(() => attempt.end(false, "failed safely")).not.toThrow();
+    expect(() => writableAttempt.requestStart({}, { model: "model" })).not.toThrow();
+    expect(() => writableAttempt.event("message_start", { type: "message_start" })).not.toThrow();
+    expect(() => writableAttempt.end(false, "failed safely")).not.toThrow();
   });
 
   test("does not create wire directories unless both local and feature gates are enabled", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-trace-disabled-"));
     roots.push(root);
-    const controller = configureRuntimeTracing({
+    const controller = configureRuntimeWireTracing({
       projectRoot: root,
-      environment: { LOCAL_LOGS_ENABLED: "1", AGENT_SSE_WIRE_TRACE_ENABLED: "0" },
+      environment: {
+        LOCAL_LOGS_ENABLED: "1",
+        AGENT_SSE_WIRE_TRACE_ENABLED: "0",
+        AGENT_STREAM_TRACE_ENABLED: "1",
+        AGENT_STREAM_TRACE_DIR: "ignored-agent-traces",
+      },
     });
     const trace = controller.startTurn("session", "turn");
     expect(trace.startProviderAttempt({
       step: 0, attempt: 1, provider: "demo", model: "model", endpoint: "", timeoutMs: 0,
     })).toBeUndefined();
     expect(existsSync(join(root, "var", "logs", "sse_wire_traces"))).toBe(false);
+    expect(existsSync(join(root, "ignored-agent-traces"))).toBe(false);
   });
 });

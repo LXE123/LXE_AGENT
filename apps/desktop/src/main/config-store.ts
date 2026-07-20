@@ -422,7 +422,6 @@ export class DesktopConfigStore {
       if (logsEnabled) {
         config.logging.profile = flag(logsEnabled)
           ? ([
-              "AGENT_STREAM_TRACE_ENABLED",
               "AGENT_SSE_WIRE_TRACE_ENABLED",
               "ZINIAO_DIAGNOSTIC_TRACE_ENABLED",
               "FEISHU_RAW_EVENT_DUMP_ENABLED",
@@ -615,7 +614,6 @@ export class DesktopConfigStore {
       "LOCAL_LOGS_ENABLED",
       "LOCAL_LOG_RETENTION_DAYS",
       "RUNTIME_LOG_LEVEL",
-      "AGENT_STREAM_TRACE_ENABLED",
       "AGENT_SSE_WIRE_TRACE_ENABLED",
       "ZINIAO_DIAGNOSTIC_TRACE_ENABLED",
       "FEISHU_RAW_EVENT_DUMP_ENABLED",
@@ -624,7 +622,6 @@ export class DesktopConfigStore {
       LOCAL_LOGS_ENABLED: "文件日志",
       LOCAL_LOG_RETENTION_DAYS: "保留周期",
       RUNTIME_LOG_LEVEL: "日志级别",
-      AGENT_STREAM_TRACE_ENABLED: "模型流式轨迹",
       AGENT_SSE_WIRE_TRACE_ENABLED: "SSE Wire Trace",
       ZINIAO_DIAGNOSTIC_TRACE_ENABLED: "紫鸟诊断",
       FEISHU_RAW_EVENT_DUMP_ENABLED: "飞书原始事件",
@@ -723,7 +720,6 @@ export class DesktopConfigStore {
       LOCAL_LOGS_ENABLED: logsEnabled ? "1" : "0",
       LOCAL_LOG_RETENTION_DAYS: String(config.logging.retention_days),
       RUNTIME_LOG_LEVEL: diagnostic ? "DEBUG" : "INFO",
-      AGENT_STREAM_TRACE_ENABLED: diagnostic ? "1" : "0",
       AGENT_SSE_WIRE_TRACE_ENABLED: diagnostic ? "1" : "0",
       ZINIAO_DIAGNOSTIC_TRACE_ENABLED: diagnostic ? "1" : "0",
       FEISHU_RAW_EVENT_DUMP_ENABLED: diagnostic ? "1" : "0",

@@ -19,7 +19,7 @@ export * from "./tooling/process-output";
 export * from "./state/storage";
 export * from "./tooling/registry";
 export * from "./tooling/tool-search";
-export * from "./providers/trace";
+export * from "./providers/wire-trace";
 export * from "./engine/turn-observer";
 export * from "./engine/types";
 export * from "./tooling/workspace-search";

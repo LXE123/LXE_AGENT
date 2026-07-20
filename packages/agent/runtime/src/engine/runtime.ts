@@ -34,7 +34,7 @@ import {
   userContentWithSystemEvents,
 } from "./system-events";
 import { appendTurnDiagnostics } from "./system-prompt";
-import type { RuntimeTraceControllerPort, RuntimeWireTraceAttempt } from "../providers/trace";
+import type { RuntimeWireTraceAttempt, RuntimeWireTraceControllerPort } from "../providers/wire-trace";
 import type {
   AgentRuntime,
   RuntimeContentBlock,
@@ -61,7 +61,7 @@ export interface TypeScriptAgentRuntimeOptions {
   store: RuntimeStore;
   provider?: RuntimeProvider;
   providerManager?: RuntimeProviderManager;
-  traceController?: RuntimeTraceControllerPort;
+  wireTraceController?: RuntimeWireTraceControllerPort;
   tools: ToolRegistry;
   toolExposure?: ToolExposureOptions | (() => ToolExposureOptions);
   skillSnapshot?: (workspace: WorkspaceContext) => RuntimeSkillSnapshot;
@@ -196,13 +196,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const observer = new RuntimeTurnObserver({
       ...(this.options.environment ? { environment: this.options.environment } : {}),
     });
-    const trace = this.options.traceController?.startTurn(job.session_id, job.job_id);
-    trace?.record("turn_start", {
-      session_id: job.session_id,
-      turn_id: job.job_id,
-      provider: descriptor?.name ?? "custom",
-      model: descriptor?.model ?? this.options.display?.model ?? "",
-    });
+    const wireTraceTurn = this.options.wireTraceController?.startTurn(job.session_id, job.job_id);
     const contextWindowTokens = descriptor?.contextWindowTokens ?? this.options.contextWindowTokens ?? this.options.display?.contextWindowTokens;
     const contextPipeline = new ContextPipeline({
       provider,
@@ -270,14 +264,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       } catch (cause) {
         this.logger.warn("turn_usage_persist_failed", { error: cause });
       }
-      trace?.record("turn_end", {
-        status,
-        elapsed_ms: elapsedMs,
-        input_tokens: inputTokens,
-        output_tokens: outputTokens,
-        tool_calls: toolCalls,
-        api_calls: apiCalls,
-      });
       observer.complete({ status, inputTokens, outputTokens, toolCalls, apiCalls, ...(error === undefined ? {} : { error }) });
     };
     try {
@@ -426,11 +412,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           ...(wireTrace ? { wireTrace } : {}),
           onEvent: async (event: RuntimeStreamEvent) => {
             attemptObserver.stream(event);
-            trace?.record("stream_event", {
-              type: event.type,
-              ...(event.type === "text_delta" ? { chars: event.text.length } : {}),
-              ...(event.type === "thinking_delta" ? { chars: event.thinking.length } : {}),
-            });
             if (!isCancelled(handle)) await finalAnswerStreamer?.pushEvent(event);
           },
         });
@@ -446,8 +427,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               descriptor?.name ?? "custom",
               descriptor?.model ?? this.options.display?.model ?? "",
             );
-            trace?.record("provider_attempt", { step: step + 1, attempt: providerAttemptOrdinal });
-            const wireTrace = trace?.startProviderAttempt({
+            const wireTrace = wireTraceTurn?.startProviderAttempt({
               step,
               attempt: providerAttemptOrdinal,
               provider: descriptor?.name ?? "custom",
@@ -599,7 +579,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           usage.calls += 1;
           toolUsage.set(usageName, usage);
           observer.toolStarted(step + 1, call.name, call.id, commandId || undefined);
-          trace?.record("tool_start", { step: step + 1, tool: call.name, tool_use_id: call.id, input: call.arguments });
           await finalAnswerStreamer?.pushToolStart(call);
           let toolStatus: "success" | "error" = "success";
           let toolDisplayOutput: { result?: unknown; error?: unknown } | undefined;
@@ -678,7 +657,6 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
                 duration_ms: durationMs,
               });
             }
-            trace?.record("tool_end", { step: step + 1, tool: call.name, tool_use_id: call.id, status: toolStatus, duration_ms: durationMs });
             observer.toolCompleted(step + 1, call.name, call.id, toolStatus, durationMs, commandId || undefined);
             await finalAnswerStreamer?.pushToolFinish(call, toolStatus, durationMs, toolDisplayOutput);
           }

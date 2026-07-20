@@ -274,14 +274,18 @@ describe("DesktopConfigImportManager", () => {
       "LOCAL_LOGS_ENABLED=1",
       "RUNTIME_LOG_LEVEL=INFO",
       "AGENT_STREAM_TRACE_ENABLED=0",
+      "AGENT_STREAM_TRACE_DIR=var/logs/agent_traces",
     ].join("\n")));
+    expect(standard.unknown_variable_count).toBe(2);
     expect(manager.apply(standard.import_id).state.logging.profile).toBe("standard");
-    expect(store.environment()).toMatchObject({
+    const environment = store.environment();
+    expect(environment).toMatchObject({
       LOCAL_LOGS_ENABLED: "1",
       RUNTIME_LOG_LEVEL: "INFO",
-      AGENT_STREAM_TRACE_ENABLED: "0",
       AGENT_SSE_WIRE_TRACE_ENABLED: "0",
     });
+    expect(environment).not.toHaveProperty("AGENT_STREAM_TRACE_ENABLED");
+    expect(environment).not.toHaveProperty("AGENT_STREAM_TRACE_DIR");
   });
 
   test("expires, discards, and supersedes one-time drafts", () => {
@@ -312,6 +316,8 @@ describe("DesktopConfigImportManager", () => {
     writeFileSync(oversized, Buffer.from([0xc3, 0x28]));
     expect(() => manager.select(oversized)).toThrow("UTF-8");
     writeFileSync(oversized, "UNRELATED=value\n");
+    expect(() => manager.select(oversized)).toThrow("没有检测到");
+    writeFileSync(oversized, "AGENT_STREAM_TRACE_ENABLED=1\nAGENT_STREAM_TRACE_DIR=var/logs/agent_traces\n");
     expect(() => manager.select(oversized)).toThrow("没有检测到");
     expect(() => manager.select(writeEnv(root, "KIMI_CODE_API_KEY=secret", "config.env")))
       .toThrow("请选择 .env 或 .env.local");

@@ -66,7 +66,7 @@ def _parse_date_jsonl_name(value: str) -> date | None:
 
 def _date_dir_roots(*, state_root_path: Path) -> tuple[Path, ...]:
     return (
-        _resolve_log_path("AGENT_STREAM_TRACE_DIR", "logs/agent_traces", state_root_path=state_root_path),
+        (state_root_path / "logs" / "agent_traces").resolve(),
         _resolve_log_path("AGENT_SSE_WIRE_TRACE_DIR", "logs/sse_wire_traces", state_root_path=state_root_path),
         (state_root_path / "logs" / "feishu_msg").resolve(),
         (state_root_path / "logs" / "runtime").resolve(),
@@ -104,6 +104,28 @@ def _iter_children(root: Path, *, failed: list[Path]) -> list[Path]:
         return []
 
 
+def _remove_empty_legacy_agent_trace_root(
+    path: Path,
+    *,
+    deleted: list[Path],
+    failed: list[Path],
+) -> None:
+    try:
+        if not path.exists() or path.is_symlink() or not path.is_dir():
+            return
+        if next(path.iterdir(), None) is not None:
+            return
+        path.rmdir()
+        deleted.append(path)
+    except OSError as exc:
+        failed.append(path)
+        logger.warning(
+            "[LogRetention] failed to delete empty legacy agent trace root: path=%s error=%s",
+            path,
+            exc,
+        )
+
+
 def cleanup_local_logs(
     *,
     retention_days: int | None = None,
@@ -123,6 +145,12 @@ def cleanup_local_logs(
             if entry_date is None or entry_date >= cutoff_date or not child.is_dir() or child.is_symlink():
                 continue
             _remove_path(child, deleted=deleted, failed=failed)
+
+    _remove_empty_legacy_agent_trace_root(
+        (root / "logs" / "agent_traces").resolve(),
+        deleted=deleted,
+        failed=failed,
+    )
 
     for log_root in _date_jsonl_roots(state_root_path=root):
         for child in _iter_children(log_root, failed=failed):

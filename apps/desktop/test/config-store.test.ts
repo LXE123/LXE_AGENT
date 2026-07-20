@@ -60,7 +60,8 @@ describe("DesktopConfigStore", () => {
       expect(serializedState).not.toContain(secret);
       expect(readFileSync(join(root, "config", "desktop.json"), "utf8")).not.toContain(secret);
     }
-    expect(store.environment()).toMatchObject({
+    const environment = store.environment();
+    expect(environment).toMatchObject({
       KIMI_CODE_API_KEY: "model-secret",
       ZINIAO_REGISTER_PLANNER_TOOLS: "1",
       ZINIAO_PASSWORD: "ziniao-secret",
@@ -72,6 +73,8 @@ describe("DesktopConfigStore", () => {
       AGENT_SSE_WIRE_TRACE_ENABLED: "1",
       FEISHU_RAW_EVENT_DUMP_ENABLED: "1",
     });
+    expect(environment).not.toHaveProperty("AGENT_STREAM_TRACE_ENABLED");
+    expect(environment).not.toHaveProperty("AGENT_STREAM_TRACE_DIR");
   });
 
   test("preserves blank secret patches and explicitly clears an integration", () => {

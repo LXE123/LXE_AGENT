@@ -559,6 +559,8 @@ describe("TypeScriptAgentRuntime", () => {
     let calls = 0;
     let snapshotCalls = 0;
     let systemPromptCalls = 0;
+    let wireTurns = 0;
+    let wireAttempts = 0;
     const runtime = new TypeScriptAgentRuntime({
       store,
       tools: new ToolRegistry(),
@@ -578,6 +580,17 @@ describe("TypeScriptAgentRuntime", () => {
         systemPromptCalls += 1;
         return "test";
       },
+      wireTraceController: {
+        startTurn: () => {
+          wireTurns += 1;
+          return {
+            startProviderAttempt: () => {
+              wireAttempts += 1;
+              return undefined;
+            },
+          };
+        },
+      },
     });
     await runtime.start();
     const outcome = await runtime.runTurn({ ...job(), job_kind: "heartbeat", user_input: "" }, handle());
@@ -587,6 +600,9 @@ describe("TypeScriptAgentRuntime", () => {
     expect(store.turnContexts).toEqual([]);
     expect(snapshotCalls).toBe(0);
     expect(systemPromptCalls).toBe(0);
+    expect(wireTurns).toBe(1);
+    expect(wireAttempts).toBe(0);
+    expect(store.metrics).toContainEqual(expect.objectContaining({ status: "completed", api_calls: 0 }));
   });
 
   test("keeps concurrent turns on the skill snapshot acquired at their own start", async () => {
@@ -1550,9 +1566,8 @@ describe("TypeScriptAgentRuntime", () => {
           };
         },
       },
-      traceController: {
+      wireTraceController: {
         startTurn: () => ({
-          record: () => undefined,
           startProviderAttempt: (context) => {
             attempts.push({ step: context.step, attempt: context.attempt });
             return {

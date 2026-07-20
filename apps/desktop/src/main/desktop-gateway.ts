@@ -40,6 +40,7 @@ import {
   resolveDataServerRuntimeEnvironment,
   withoutDataServerEnvironment,
 } from "./data-server-policy";
+import { withoutRetiredAgentTraceEnvironment } from "./runtime-environment-policy";
 
 class SplitGatewayStorage implements DirectGatewayStorage {
   constructor(
@@ -115,15 +116,15 @@ export class DesktopGateway {
       return;
     }
     const legacyWorkspace = resolveWorkspaceContext(setup.workspace_root);
-    const configuredEnvironment = this.options.config.environment();
-    const resourceEnvironment = loadProjectEnv({
+    const configuredEnvironment = withoutRetiredAgentTraceEnvironment(this.options.config.environment());
+    const resourceEnvironment = withoutRetiredAgentTraceEnvironment(loadProjectEnv({
       projectRoot: this.options.paths.resourceRoot,
       initial: process.env,
-    });
-    const persistedEnvironment = loadProjectEnv({
+    }));
+    const persistedEnvironment = withoutRetiredAgentTraceEnvironment(loadProjectEnv({
       projectRoot: this.options.paths.dataRoot,
       initial: {},
-    });
+    }));
     delete configuredEnvironment.LXE_WORKSPACE_ROOT;
     delete resourceEnvironment.LXE_WORKSPACE_ROOT;
     delete persistedEnvironment.LXE_WORKSPACE_ROOT;
@@ -149,7 +150,6 @@ export class DesktopGateway {
       LXE_DATA_ROOT: this.options.paths.dataRoot,
       LXE_AGENT_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "agent.sqlite3"),
       LXE_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "lxeskill.sqlite3"),
-      AGENT_STREAM_TRACE_DIR: join(this.options.paths.dataRoot, "logs", "agent_traces"),
       AGENT_SSE_WIRE_TRACE_DIR: join(this.options.paths.dataRoot, "logs", "sse_wire_traces"),
       FEISHU_RAW_EVENT_DUMP_DIR: join(this.options.paths.dataRoot, "logs", "feishu_raw_events"),
       TMP: join(this.options.paths.dataRoot, "tmp"),

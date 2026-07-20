@@ -1,5 +1,5 @@
 import type { AgentJob, EmitRequest, JsonObject, JsonValue, WorkspaceContext } from "@lxe/protocol";
-import type { RuntimeWireTraceAttempt } from "../providers/trace";
+import type { RuntimeWireTraceAttempt } from "../providers/wire-trace";
 import type { WorkspaceLease, WorkspaceSnapshot } from "../workspace/instance-manager";
 
 export interface TextBlock extends JsonObject {

@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, rmdirSync, rmSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { envFlag, envInteger, envText, type Environment } from "./env";
 
@@ -298,8 +298,9 @@ const cleanupRetention = (
   const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (retentionDays - 1)).getTime();
   const configuredRoot = explicitStateRoot ? stateRoot : projectRoot;
   const managedPrefix = explicitStateRoot ? "logs" : "var/logs";
+  const legacyAgentTraceRoot = resolve(stateRoot, "logs", "agent_traces");
   const directoryRoots = [
-    resolveConfiguredPath(envText(environment, "AGENT_STREAM_TRACE_DIR"), `${managedPrefix}/agent_traces`, configuredRoot),
+    legacyAgentTraceRoot,
     resolveConfiguredPath(envText(environment, "AGENT_SSE_WIRE_TRACE_DIR"), `${managedPrefix}/sse_wire_traces`, configuredRoot),
     resolve(stateRoot, "logs", "feishu_msg"),
     resolve(stateRoot, "logs", "runtime"),
@@ -325,6 +326,16 @@ const cleanupRetention = (
       } catch (error) {
         result.failures.push({ path: entry, error: failureText(error) });
       }
+    }
+  }
+  if (existsSync(legacyAgentTraceRoot)) {
+    try {
+      if (readdirSync(legacyAgentTraceRoot).length === 0) {
+        rmdirSync(legacyAgentTraceRoot);
+        result.deleted.push(legacyAgentTraceRoot);
+      }
+    } catch (error) {
+      result.failures.push({ path: legacyAgentTraceRoot, error: failureText(error) });
     }
   }
   const rawEventRoot = resolveConfiguredPath(

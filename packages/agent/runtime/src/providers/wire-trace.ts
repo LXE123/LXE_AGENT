@@ -5,7 +5,6 @@ import {
   createLogger,
   envFlag,
   envText,
-  sanitizeLogValue,
   sanitizeLogValueWithPolicy,
   type Environment,
 } from "@lxe/core";
@@ -13,7 +12,7 @@ import {
 const ABSOLUTE_PATH = /(?:[A-Za-z]:\\|\/(?:home|Users|var|tmp)\/)[^\s"']+/gu;
 const WIRE_STRING_LIMIT = 8_192;
 const WIRE_COLLECTION_LIMIT = 10_000;
-const logger = createLogger("runtime.trace");
+const logger = createLogger("runtime.wire_trace");
 const localDay = (date: Date): string =>
   `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
 const localIso = (date = new Date()): string => {
@@ -40,23 +39,6 @@ const truncateWireText = (value: string): string => {
   tailLength = Math.max(1, available - headLength);
   return `${value.slice(0, headLength)}${marker}${value.slice(-tailLength)}`;
 };
-
-const traceValue = (value: unknown): JsonValue => {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "boolean" || typeof value === "number") return value;
-  if (typeof value === "string") {
-    if (value.length > 512 && /^[A-Za-z0-9+/=\r\n]+$/u.test(value)) return `[base64 omitted: ${value.length} chars]`;
-    return value.replaceAll(ABSOLUTE_PATH, "<path>");
-  }
-  if (typeof value !== "object") return String(value);
-  if (Array.isArray(value)) return value.map(traceValue);
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .map(([key, item]) => [key, traceValue(item)])) as JsonObject;
-};
-
-export function sanitizeTraceValue(value: unknown, key = ""): JsonValue {
-  return traceValue(sanitizeLogValue(value, key));
-}
 
 const normalizedKey = (value: string): string => value.toLowerCase().replaceAll(/[^a-z0-9]+/gu, "");
 const textLength = (value: unknown): number => typeof value === "string" ? value.length : 0;
@@ -138,13 +120,12 @@ export interface RuntimeWireTraceAttempt {
   end(ok: boolean, error?: string): void;
 }
 
-export interface RuntimeTracePort {
-  record(kind: string, payload?: JsonObject): void;
+export interface RuntimeWireTraceTurn {
   startProviderAttempt(context: RuntimeWireTraceAttemptContext): RuntimeWireTraceAttempt | undefined;
 }
 
-export interface RuntimeTraceControllerPort {
-  startTurn(sessionId: string, turnId: string): RuntimeTracePort;
+export interface RuntimeWireTraceControllerPort {
+  startTurn(sessionId: string, turnId: string): RuntimeWireTraceTurn;
 }
 
 interface WireTraceBaseRecord extends JsonObject {
@@ -273,29 +254,12 @@ class FileWireTraceAttempt implements RuntimeWireTraceAttempt {
   }
 }
 
-class FileRuntimeTrace implements RuntimeTracePort {
-  private traceFailed = false;
-
+class FileRuntimeWireTraceTurn implements RuntimeWireTraceTurn {
   constructor(
     private readonly sessionId: string,
     private readonly turnId: string,
-    private readonly tracePath?: string,
     private readonly wireDirectory?: string,
   ) {}
-
-  record(kind: string, payload: JsonObject = {}): void {
-    if (!this.tracePath || this.traceFailed) return;
-    try {
-      appendFileSync(this.tracePath, `${JSON.stringify({
-        timestamp: new Date().toISOString(),
-        kind,
-        payload: sanitizeTraceValue(payload),
-      })}\n`, "utf8");
-    } catch (error) {
-      this.traceFailed = true;
-      logger.warn("runtime_trace_write_failed", { trace_kind: kind, trace_path: this.tracePath, error });
-    }
-  }
 
   startProviderAttempt(context: RuntimeWireTraceAttemptContext): RuntimeWireTraceAttempt | undefined {
     if (!this.wireDirectory) return undefined;
@@ -310,21 +274,16 @@ class FileRuntimeTrace implements RuntimeTracePort {
   }
 }
 
-export function configureRuntimeTracing(options: {
+export function configureRuntimeWireTracing(options: {
   projectRoot: string;
   stateRoot?: string;
   environment: Environment;
-}): RuntimeTraceControllerPort {
+}): RuntimeWireTraceControllerPort {
   const enabled = envFlag(options.environment, "LOCAL_LOGS_ENABLED", false);
-  const traceEnabled = enabled && envFlag(options.environment, "AGENT_STREAM_TRACE_ENABLED", true);
   const wireEnabled = enabled && envFlag(options.environment, "AGENT_SSE_WIRE_TRACE_ENABLED", true);
   const explicitStateRoot = String(options.stateRoot ?? "").trim();
   const configuredRoot = explicitStateRoot ? resolve(explicitStateRoot) : resolve(options.projectRoot);
   const managedPrefix = explicitStateRoot ? "logs" : "var/logs";
-  const traceRoot = resolve(
-    configuredRoot,
-    envText(options.environment, "AGENT_STREAM_TRACE_DIR", `${managedPrefix}/agent_traces`),
-  );
   const wireRoot = resolve(
     configuredRoot,
     envText(options.environment, "AGENT_SSE_WIRE_TRACE_DIR", `${managedPrefix}/sse_wire_traces`),
@@ -337,21 +296,10 @@ export function configureRuntimeTracing(options: {
       const safeSession = sessionId.replaceAll(/[^A-Za-z0-9_-]+/gu, "_") || "session";
       const safeTurn = turnId.replaceAll(/[^A-Za-z0-9_-]+/gu, "_") || "turn";
       const directoryName = `${time}_${safeSession}`;
-      const traceDirectory = join(traceRoot, day, directoryName);
       const wireDirectory = join(wireRoot, day, directoryName, safeTurn);
-      let tracePath: string | undefined;
-      if (traceEnabled) {
-        try {
-          mkdirSync(traceDirectory, { recursive: true });
-          tracePath = join(traceDirectory, `${safeTurn}.jsonl`);
-        } catch (error) {
-          logger.warn("runtime_trace_initialize_failed", { trace_type: "turn", trace_path: traceDirectory, error });
-        }
-      }
-      return new FileRuntimeTrace(
+      return new FileRuntimeWireTraceTurn(
         sessionId,
         turnId,
-        tracePath,
         wireEnabled ? wireDirectory : undefined,
       );
     },

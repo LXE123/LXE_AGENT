@@ -24,7 +24,6 @@ def _mkdir(path: Path) -> Path:
 
 
 def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("AGENT_STREAM_TRACE_DIR", raising=False)
     monkeypatch.delenv("AGENT_SSE_WIRE_TRACE_DIR", raising=False)
     monkeypatch.delenv("FEISHU_RAW_EVENT_DUMP_DIR", raising=False)
     old_file_date = "20260626"
@@ -95,18 +94,23 @@ def test_cleanup_local_logs_runs_regardless_of_local_logs_switch(
     monkeypatch,
     local_logs_enabled: str | None,
 ) -> None:
-    monkeypatch.delenv("AGENT_STREAM_TRACE_DIR", raising=False)
     monkeypatch.delenv("AGENT_SSE_WIRE_TRACE_DIR", raising=False)
     monkeypatch.delenv("FEISHU_RAW_EVENT_DUMP_DIR", raising=False)
     if local_logs_enabled is None:
         monkeypatch.delenv("LOCAL_LOGS_ENABLED", raising=False)
     else:
         monkeypatch.setenv("LOCAL_LOGS_ENABLED", local_logs_enabled)
-    old_path = _mkdir(tmp_path / "logs" / "agent_traces" / "20260601")
+    legacy_root = tmp_path / "logs" / "agent_traces"
+    old_path = _mkdir(legacy_root / "20260601")
+    overridden_root = tmp_path / "custom-agent-traces"
+    overridden_old_path = _mkdir(overridden_root / "20260601")
+    monkeypatch.setenv("AGENT_STREAM_TRACE_DIR", str(overridden_root))
 
     cleanup_local_logs(retention_days=7, today=date(2026, 7, 4), state_root_path=tmp_path)
 
     assert not old_path.exists()
+    assert not legacy_root.exists()
+    assert overridden_old_path.exists()
 
 
 def test_local_log_retention_days_defaults_to_seven_and_allows_override(monkeypatch) -> None:

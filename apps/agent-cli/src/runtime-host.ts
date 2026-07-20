@@ -17,7 +17,7 @@ import { assertWorkspaceAvailable, createLogger, runWithLogContext, type Logger 
 import {
   AtomicRuntimeProviderManager,
   buildSystemPrompt,
-  configureRuntimeTracing,
+  configureRuntimeWireTracing,
   ExecShellAdapter,
   loadLxeSkillCommandCatalog,
   loadMcpConfig,
@@ -250,7 +250,7 @@ export function createAgentRuntimeHost(
     store,
     providerManager,
     environment,
-    traceController: configureRuntimeTracing({
+    wireTraceController: configureRuntimeWireTracing({
       projectRoot: options.resourceRoot,
       stateRoot: options.dataRoot,
       environment,

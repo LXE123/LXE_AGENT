@@ -114,7 +114,7 @@ Draft or archive：
 
 - `docs/harness/runtime/README.md`、`turn_execution.md` 和 `turn_step_lifecycle.md`：已按当前 Bun runtime 的 turn snapshot、step loop、tool execution、provider retry、取消和最终交付边界重建。
 - `docs/harness/runtime/runtime_flow.md`：已从旧 runtime 架构总览重写为端到端运行链路总览，作为跨 gateway/runtime/context/tools 的导航图。
-- `docs/harness/llm/`：已按 `packages/agent/runtime/src/providers/provider.ts` 与 `packages/agent/runtime/src/providers/trace.ts` 展开 provider catalog、原子模型切换、Anthropic-compatible streaming、provider history repair、错误分类、超时和 trace 脱敏。
+- `docs/harness/llm/`：已按 `packages/agent/runtime/src/providers/provider.ts` 与 `packages/agent/runtime/src/providers/wire-trace.ts` 展开 provider catalog、原子模型切换、Anthropic-compatible streaming、provider history repair、错误分类、超时和 trace 脱敏。
 - `docs/harness/gateway/`：已按当前 Bun gateway 展开生命周期、channel adapter、Feishu rich inbound/CardKit、路由权限、调度取消、steering、heartbeat、response-route isolation 和关闭顺序。
 - `docs/harness/runtime/context/`：已展开 canonical message、assembly、provider 前预算、summary-only compaction、JSONL append 与 replacement checkpoint。
 - `docs/harness/runtime/tools/tool_schema.md`：已从 context 文档中拆出，作为 runtime tools 下的 current tool schema 文档。

@@ -2,7 +2,7 @@
 
 Status: `Current`
 
-The shared logging implementation is `packages/foundation/core/src/logging.ts`. Runtime trace sanitization and trace-file layout are implemented by `packages/agent/runtime/src/providers/trace.ts`.
+The shared logging implementation is `packages/foundation/core/src/logging.ts`. Provider wire-trace sanitization and file layout are implemented by `packages/agent/runtime/src/providers/wire-trace.ts`.
 
 ## Logging Surfaces
 
@@ -12,7 +12,7 @@ The project separates three outputs with different audiences:
 | --- | --- | --- |
 | Terminal | concise operator-visible lifecycle and failures | `INFO` |
 | Runtime log file | detailed structured diagnostics | `DEBUG` or configured level |
-| Stream/wire trace | opt-in provider event investigation | verbose, sanitized |
+| Provider wire trace | opt-in provider protocol investigation | verbose, sanitized |
 
 Reducing terminal noise must not remove useful runtime diagnostics. Conversely, enabling detailed files must not print secrets or large payloads to the terminal.
 
@@ -25,7 +25,6 @@ Reducing terminal noise must not remove useful runtime diagnostics. Conversely, 
 - `LOCAL_LOGS_ENABLED=1` enables local file writers.
 - `LOG_FILE` selects the managed runtime-log base name.
 - `LOCAL_LOG_RETENTION_DAYS` controls cleanup of dated local log directories.
-- `AGENT_STREAM_TRACE_ENABLED` enables normalized stream traces.
 - `AGENT_SSE_WIRE_TRACE_ENABLED` enables lower-level provider wire traces.
 
 Local files are written below `var/logs/runtime/YYYYMMDD/` using the configured base name. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
@@ -49,7 +48,9 @@ File responsibilities are intentionally separate:
 - Private `agent-cli` and Runtime records (JSONL): `var/logs/runtime/YYYYMMDD/runtime.log`.
 - Python text logs (standalone `lxeskill` commands): `var/logs/runtime/YYYYMMDD/runtime-py.log`. Python derives the name from `LOG_FILE` by appending `-py` to the stem, so the two formats never share a file.
 - Feishu raw events: `var/logs/feishu_raw_events/YYYYMMDD.jsonl`.
-- Provider traces: `var/logs/agent_traces/` and `var/logs/sse_wire_traces/`.
+- Provider wire traces: `var/logs/sse_wire_traces/`.
+
+Runtime execution semantics are intentionally not duplicated into a second per-turn trace. Use `runtime.log` for correlated Turn, Provider-attempt, tool, cancellation, error, and usage summaries; durable usage remains in `turn_usage` SQLite. The retired `var/logs/agent_traces/` directory is no longer written and is removed naturally by the configured retention policy after its dated entries expire.
 
 `LXE_DATA_ROOT` is the canonical `var` root. Desktop resolves every path above from it and exposes
 `LXE_DATA_ROOT/logs` as the diagnostics directory. Desktop does not read, migrate, or delete the former
