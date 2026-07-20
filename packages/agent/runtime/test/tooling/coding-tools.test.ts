@@ -757,11 +757,13 @@ describe("native coding tools", () => {
           command: "lxeskill replenish store resolve",
           module: "services.agent_cli.mabang.resolve_fba_store",
           ownerSkills: ["replenishment-store-resolve"],
+          attributionSkill: "replenishment-store-resolve",
         },
         {
           command: "lxeskill fba shipment delivery-csv-download",
           module: "services.agent_cli.mabang.download_fba_delivery_csv",
           ownerSkills: ["fba-shipment-delivery-csv-download"],
+          attributionSkill: "fba-shipment-delivery-csv-download",
         },
       ],
     });
@@ -851,6 +853,7 @@ describe("native coding tools", () => {
       usageName: "lxeskill:replenish store resolve",
       commandId: "replenish store resolve",
       ownerSkills: ["replenishment-store-resolve"],
+      attributionSkill: "replenishment-store-resolve",
     });
     await expect(registry.execute("exec", {
       command: "lxeskill replenish store resolve",

@@ -227,6 +227,7 @@
       "legacy_aliases": ["mabang_resolve_fba_store"],
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["replenishment-store-resolve", "replenishment-unlinked-shipment-download", "replenishment-sales-analyze", "replenishment-real-inventory-report", "replenishment-msku-download", "replenishment-calculate", "replenishment-amazon-restock-inventory-snapshot"],
+      "attribution_skill": "replenishment-store-resolve",
       "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}],
       "timeout_ms": 180000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}}, "additionalProperties": false}

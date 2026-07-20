@@ -49,16 +49,27 @@ describe("lxeskill command recognition", () => {
       name: "browser_auth_refresh",
       visibility: "maintenance",
       ownerSkills: ["ziniao-browser"],
+      attributionSkill: "ziniao-browser",
     });
     expect(entries.find((entry) => entry.name === "mabang_download_fba_delivery_csv"))
       .toMatchObject({
         command: "lxeskill fba shipment delivery-csv-download",
         module: "services.agent_cli.mabang.download_fba_delivery_csv",
         ownerSkills: ["fba-shipment-delivery-csv-download"],
+        attributionSkill: "fba-shipment-delivery-csv-download",
       });
     expect(entries.find((entry) => entry.name === "ziniao_page")).toMatchObject({
       ownerSkills: ["ziniao-browser"],
       artifactPaths: [{ field: "screenshot_path", role: "model_input" }],
+      attributionSkill: "ziniao-browser",
     });
+    expect(entries.find((entry) => entry.name === "mabang_resolve_fba_store"))
+      .toMatchObject({
+        attributionSkill: "replenishment-store-resolve",
+        ownerSkills: expect.arrayContaining([
+          "replenishment-store-resolve",
+          "replenishment-unlinked-shipment-download",
+        ]),
+      });
   });
 });

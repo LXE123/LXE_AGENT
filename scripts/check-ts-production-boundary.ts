@@ -179,6 +179,7 @@ const scriptCatalog = JSON.parse(read(scriptCatalogPath)) as {
     name?: string;
     exposed?: boolean;
     owner_skills?: string[];
+    attribution_skill?: string;
     command_path?: string[];
     visibility?: string;
   }>;
@@ -188,6 +189,16 @@ const commandEntries = new Map((scriptCatalog.entries ?? []).map((entry) => [
   `lxeskill ${(entry.command_path ?? []).map(String).join(" ")}`.trim(),
   entry,
 ]));
+for (const [command, entry] of commandEntries) {
+  const owners = entry.owner_skills ?? [];
+  const attribution = String(entry.attribution_skill ?? "").trim();
+  if (owners.length > 1 && !attribution) {
+    failures.push(`${scriptCatalogPath}: ${command} has multiple owner_skills but no attribution_skill`);
+  }
+  if (attribution && !owners.includes(attribution)) {
+    failures.push(`${scriptCatalogPath}: ${command} attribution_skill is not an owner_skill`);
+  }
+}
 const declaredCommands = new Map<string, string>();
 for await (const path of new Bun.Glob("skills/**/SKILL.md").scan({ cwd: root, onlyFiles: true })) {
   const source = read(path);
@@ -208,7 +219,8 @@ for await (const path of new Bun.Glob("skills/**/SKILL.md").scan({ cwd: root, on
       failures.push(`${path}: unknown or non-business lxeskill command ${command}`);
       continue;
     }
-    const canonicalOwner = entry.owner_skills?.[0] ?? "";
+    const owners = entry.owner_skills ?? [];
+    const canonicalOwner = entry.attribution_skill ?? (owners.length === 1 ? owners[0] : "");
     if (canonicalOwner !== skillName) {
       failures.push(`${path}: lxeskill command ${command} is canonically owned by ${canonicalOwner || "nobody"}`);
     }
@@ -221,7 +233,8 @@ for await (const path of new Bun.Glob("skills/**/SKILL.md").scan({ cwd: root, on
 }
 for (const [command, entry] of commandEntries) {
   if (!["business", "browser"].includes(String(entry.visibility ?? ""))) continue;
-  const canonicalOwner = entry.owner_skills?.[0] ?? "";
+  const owners = entry.owner_skills ?? [];
+  const canonicalOwner = entry.attribution_skill ?? (owners.length === 1 ? owners[0] : "");
   if (!canonicalOwner) failures.push(`${scriptCatalogPath}: ${command} has no canonical owner skill`);
   else if (declaredCommands.get(command) !== canonicalOwner) {
     failures.push(`${scriptCatalogPath}: ${command} is missing from canonical owner skill ${canonicalOwner}`);

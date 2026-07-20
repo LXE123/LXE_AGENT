@@ -54,6 +54,16 @@ def load_catalog() -> dict[str, dict[str, Any]]:
         session_mode = str(entry.get("session_mode") or "").strip()
         if session_mode not in allowed_session_modes:
             raise RuntimeError(f"invalid lxeskill session mode for {name}: {session_mode}")
+        owners = [str(owner).strip() for owner in list(entry.get("owner_skills") or []) if str(owner).strip()]
+        entry["owner_skills"] = owners
+        explicit_attribution = str(entry.get("attribution_skill") or "").strip()
+        if len(owners) > 1 and not explicit_attribution:
+            raise RuntimeError(f"multi-owner lxeskill command requires attribution_skill: {name}")
+        if explicit_attribution and explicit_attribution not in owners:
+            raise RuntimeError(f"lxeskill attribution_skill must be an owner: {name}")
+        attribution_skill = explicit_attribution or (owners[0] if len(owners) == 1 else "")
+        if attribution_skill:
+            entry["attribution_skill"] = attribution_skill
         for declaration in list(entry.get("artifact_paths") or []):
             item = dict(declaration or {})
             selector = str(item.get("field") or "").strip()

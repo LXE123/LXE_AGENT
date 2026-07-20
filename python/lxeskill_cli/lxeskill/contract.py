@@ -145,7 +145,26 @@ def validate_skill_command_contract(
                 )
             )
             continue
-        canonical_owners[command] = owners[0]
+        explicit_attribution = str(entry.get("attribution_skill") or "").strip()
+        if len(owners) > 1 and not explicit_attribution:
+            violations.append(
+                SkillContractViolation(
+                    "catalog_attribution_missing",
+                    "lxeskill/catalog.json",
+                    f"Multi-owner catalog command has no attribution Skill: {command}",
+                )
+            )
+        if explicit_attribution and explicit_attribution not in owners:
+            violations.append(
+                SkillContractViolation(
+                    "catalog_attribution_not_owner",
+                    "lxeskill/catalog.json",
+                    f"Catalog attribution Skill is not an owner ({explicit_attribution}): {command}",
+                )
+            )
+        attribution_skill = explicit_attribution or (owners[0] if len(owners) == 1 else "")
+        if attribution_skill in owners:
+            canonical_owners[command] = attribution_skill
         owner_skills.update(owners)
         for owner in owners:
             owner_path = root / owner / "SKILL.md"

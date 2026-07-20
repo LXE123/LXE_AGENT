@@ -12,6 +12,7 @@ export interface LxeSkillCommandDefinition {
   module?: string;
   visibility: "business" | "browser" | "maintenance" | "internal";
   ownerSkills: string[];
+  attributionSkill?: string;
   artifactPaths?: ArtifactPathDeclaration[];
 }
 
@@ -59,12 +60,24 @@ export function loadLxeSkillCommandCatalog(path: string): LxeSkillCommandDefinit
       throw new Error(`invalid lxeskill catalog entry: ${entry.name}`);
     }
     const artifactPaths = artifactPathsOf(raw, entry.name);
+    const ownerSkills = Array.isArray(raw.owner_skills)
+      ? raw.owner_skills.map((item) => String(item).trim()).filter(Boolean)
+      : [];
+    const explicitAttribution = String(raw.attribution_skill ?? "").trim();
+    if (ownerSkills.length > 1 && !explicitAttribution) {
+      throw new Error(`multi-owner lxeskill command requires attribution_skill: ${entry.name}`);
+    }
+    if (explicitAttribution && !ownerSkills.includes(explicitAttribution)) {
+      throw new Error(`lxeskill attribution_skill must be an owner: ${entry.name}`);
+    }
+    const attributionSkill = explicitAttribution || (ownerSkills.length === 1 ? ownerSkills[0] : "");
     return {
       command: `lxeskill ${commandPath.join(" ")}`,
       name: entry.name,
       ...(String(raw.module ?? "").trim() ? { module: String(raw.module).trim() } : {}),
       visibility,
-      ownerSkills: Array.isArray(raw.owner_skills) ? raw.owner_skills.map((item) => String(item)) : [],
+      ownerSkills,
+      ...(attributionSkill ? { attributionSkill } : {}),
       ...(artifactPaths.length ? { artifactPaths } : {}),
     };
   });
@@ -74,6 +87,7 @@ export interface LxeSkillInvocation {
   command: string;
   commandId: string;
   ownerSkills?: string[];
+  attributionSkill?: string;
 }
 
 const normalize = (value: string): string => value.trim().replaceAll(/\s+/gu, " ");
@@ -81,6 +95,7 @@ const normalize = (value: string): string => value.trim().replaceAll(/\s+/gu, " 
 export function matchLxeSkillInvocation(
   rawCommand: unknown,
   knownCommands?: ReadonlyMap<string, readonly string[]>,
+  knownAttributions?: ReadonlyMap<string, string>,
 ): LxeSkillInvocation | undefined {
   const command = normalize(String(rawCommand ?? ""));
   if (!/^lxeskill(?:\.cmd)?\s+/iu.test(command)) return undefined;
@@ -96,10 +111,12 @@ export function matchLxeSkillInvocation(
     const matched = matches[0];
     if (!matched) return undefined;
     const stableCommand = normalize(matched[0]);
+    const attributionSkill = String(knownAttributions?.get(matched[0]) ?? "").trim();
     return {
       command: stableCommand,
       commandId: stableCommand.slice("lxeskill ".length),
       ownerSkills: [...matched[1]],
+      ...(attributionSkill ? { attributionSkill } : {}),
     };
   }
   const tokens = canonical.split(" ");
@@ -118,4 +135,9 @@ export function matchLxeSkillInvocation(
 export const classifyLxeSkillInput = (
   input: JsonObject,
   knownCommands: ReadonlyMap<string, readonly string[]>,
-): LxeSkillInvocation | undefined => matchLxeSkillInvocation(input.command, knownCommands);
+  knownAttributions?: ReadonlyMap<string, string>,
+): LxeSkillInvocation | undefined => matchLxeSkillInvocation(
+  input.command,
+  knownCommands,
+  knownAttributions,
+);

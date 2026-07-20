@@ -426,7 +426,16 @@ describe("TypeScriptAgentRuntime", () => {
       classifyInvocation: () => ({
         usageName: "lxeskill:replenish store resolve",
         commandId: "replenish store resolve",
-        ownerSkills: ["replenishment-store-resolve"],
+        ownerSkills: [
+          "replenishment-store-resolve",
+          "replenishment-unlinked-shipment-download",
+          "replenishment-sales-analyze",
+          "replenishment-real-inventory-report",
+          "replenishment-msku-download",
+          "replenishment-calculate",
+          "replenishment-amazon-restock-inventory-snapshot",
+        ],
+        attributionSkill: "replenishment-store-resolve",
       }),
       execute: async (input, context) => {
         executionSkillNames.push(context.skill_names ?? []);

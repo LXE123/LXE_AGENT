@@ -44,6 +44,7 @@ export interface LxeSkillRecoveryCommand {
   command: string;
   module?: string;
   ownerSkills: readonly string[];
+  attributionSkill?: string;
 }
 
 export type ProcessStatus = "running" | "completed" | "failed" | "timeout" | "killed";
@@ -887,6 +888,11 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   const businessCommands = options.businessCommands ?? new Map(
     commandCatalog.map((entry) => [entry.command, [...entry.ownerSkills]] as const),
   );
+  const businessAttributions = new Map(
+    commandCatalog
+      .filter((entry) => Boolean(entry.attributionSkill))
+      .map((entry) => [entry.command, entry.attributionSkill!] as const),
+  );
   const processes = new CodingProcessManager({
     maxOutputBytes: processOutputLimit,
     maxPendingBytes: 30_000,
@@ -1116,12 +1122,13 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
       additionalProperties: false,
     },
     classifyInvocation: (input) => {
-      const invocation = classifyLxeSkillInput(input, businessCommands);
+      const invocation = classifyLxeSkillInput(input, businessCommands, businessAttributions);
       if (!invocation) return undefined;
       return {
         usageName: `lxeskill:${invocation.commandId}`,
         commandId: invocation.commandId,
         ...(invocation.ownerSkills?.length ? { ownerSkills: invocation.ownerSkills } : {}),
+        ...(invocation.attributionSkill ? { attributionSkill: invocation.attributionSkill } : {}),
       };
     },
     execute: async (input, context) => {

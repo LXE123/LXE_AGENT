@@ -573,9 +573,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           const usageName = invocation?.usageName || call.name;
           const commandId = invocation?.commandId?.trim() ?? "";
           const usage = toolUsage.get(usageName) ?? { calls: 0, errors: 0, duration_ms: 0 };
-          const executionOwners = commandId
-            ? [...new Set((invocation?.ownerSkills ?? []).map((name) => name.trim()).filter(Boolean))]
-            : [];
+          const executionSkill = commandId ? String(invocation?.attributionSkill ?? "").trim() : "";
           usage.calls += 1;
           toolUsage.set(usageName, usage);
           observer.toolStarted(step + 1, call.name, call.id, commandId || undefined);
@@ -648,10 +646,10 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           } finally {
             const durationMs = Date.now() - startedToolAt;
             usage.duration_ms += durationMs;
-            for (const skillName of executionOwners) {
+            if (executionSkill) {
               skillExecutions.push({
-                skill: skillName,
-                module: skillModule(skillName),
+                skill: executionSkill,
+                module: skillModule(executionSkill),
                 command: commandId,
                 success: toolStatus === "success",
                 duration_ms: durationMs,

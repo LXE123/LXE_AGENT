@@ -6,12 +6,15 @@ from pathlib import Path
 from lxeskill.contract import validate_skill_command_contract
 
 
-def _entry(command: str, owners: list[str]) -> dict[str, object]:
-    return {
+def _entry(command: str, owners: list[str], attribution: str = "") -> dict[str, object]:
+    entry: dict[str, object] = {
         "command_path": command.split(),
         "visibility": "business",
         "owner_skills": owners,
     }
+    if attribution:
+        entry["attribution_skill"] = attribution
+    return entry
 
 
 def _write_skill(root: Path, name: str, frontmatter: str) -> Path:
@@ -29,7 +32,7 @@ def test_contract_collects_all_violations_and_reads_each_skill_once(tmp_path, mo
         _write_skill(tmp_path, "broken", "name: broken\ncommands: ["),
     ]
     catalog = {
-        "one": _entry("demo one", ["alpha", "missing-owner"]),
+        "one": _entry("demo one", ["alpha", "missing-owner"], "alpha"),
         "two": _entry("demo two", ["alpha"]),
         "ownerless": _entry("demo ownerless", []),
     }
@@ -112,3 +115,19 @@ def test_contract_supports_project_paths_with_chinese_and_spaces(tmp_path) -> No
 
     assert report.ok is True
     assert report.skill_files == 1
+
+
+def test_contract_requires_one_valid_attribution_for_multi_owner_commands(tmp_path) -> None:
+    _write_skill(tmp_path, "alpha", "name: alpha\ncommand: lxeskill demo one")
+
+    missing = validate_skill_command_contract(
+        {"one": _entry("demo one", ["alpha", "beta"])},
+        skills_root=tmp_path / "skills",
+    )
+    invalid = validate_skill_command_contract(
+        {"one": _entry("demo one", ["alpha", "beta"], "gamma")},
+        skills_root=tmp_path / "skills",
+    )
+
+    assert "catalog_attribution_missing" in {item.code for item in missing.violations}
+    assert "catalog_attribution_not_owner" in {item.code for item in invalid.violations}

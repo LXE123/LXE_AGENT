@@ -12,6 +12,7 @@ export interface ToolDefinition extends ToolSchema {
     usageName?: string;
     commandId?: string;
     ownerSkills?: string[];
+    attributionSkill?: string;
   } | undefined;
   execute(input: JsonObject, context: {
     handle: RuntimeHandle;

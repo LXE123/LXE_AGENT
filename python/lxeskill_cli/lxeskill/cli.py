@@ -62,6 +62,7 @@ def _public_entry(entry: dict[str, Any]) -> dict[str, Any]:
         "visibility": str(entry.get("visibility") or "business"),
         "session_mode": str(entry.get("session_mode") or "none"),
         "owner_skills": list(entry.get("owner_skills") or []),
+        "attribution_skill": str(entry.get("attribution_skill") or ""),
         "artifact_paths": list(entry.get("artifact_paths") or []),
         "input_schema": dict(entry.get("input_schema") or {}),
         "usage": f"lxeskill {_command_text(entry)} [options]",
