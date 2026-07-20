@@ -29,6 +29,7 @@ mac:
   icon: icon-mac.png
 nsis:
   include: resources/installer.nsh
+  useZip: true
   oneClick: false
   perMachine: false
   allowElevation: true

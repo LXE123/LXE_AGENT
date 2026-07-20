@@ -25,6 +25,7 @@ describe("electron-builder configuration", () => {
     expect(config).toMatch(/win:\r?\n  icon: icon-win\.png/u);
     expect(config).toMatch(/mac:\r?\n  icon: icon-mac\.png/u);
     expect(config).toMatch(/nsis:\r?\n  include: resources\/installer\.nsh/u);
+    expect(config).toMatch(/nsis:\r?\n  include: resources\/installer\.nsh\r?\n  useZip: true/u);
     expect(config).toMatch(/files:\r?\n  - dist\/main\.js\r?\n  - dist\/preload\.cjs/u);
     expect(config).not.toContain("dist/**/*");
     expect(config).not.toMatch(/from: build\r?\n    to: branding/u);

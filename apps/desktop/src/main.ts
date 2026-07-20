@@ -48,6 +48,7 @@ import { bootstrapDesktopState } from "./main/migration";
 import { resolveDesktopPaths } from "./main/paths";
 import { verifyDesktopResourceManifest } from "./main/resource-integrity";
 import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./main/runtime-state";
+import { reportDesktopStartupFailure } from "./main/startup-failure";
 import { desktopWindowAppearance } from "./main/window-options";
 import { WindowsWireGuardProvisioner } from "./main/wireguard-provisioner";
 import { normalizeDesktopPlatform } from "./platform";
@@ -88,9 +89,10 @@ try {
     );
   }
 } catch (error) {
-  const detail = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`LXE Agent startup failed: ${detail}\n`);
-  dialog.showErrorBox("LXE Agent 无法启动", detail);
+  reportDesktopStartupFailure(error, {
+    writeStderr: (message) => process.stderr.write(message),
+    showError: (title, detail) => dialog.showErrorBox(title, detail),
+  });
   app.exit(1);
 }
 
@@ -362,6 +364,10 @@ if (hasSingleInstanceLock) {
     return bootstrap();
   }).catch((error) => {
     logger.error("desktop_startup_failed", { error });
+    reportDesktopStartupFailure(error, {
+      writeStderr: (message) => process.stderr.write(message),
+      showError: (title, detail) => dialog.showErrorBox(title, detail),
+    });
     void shutdownApplication(1);
   });
 }
