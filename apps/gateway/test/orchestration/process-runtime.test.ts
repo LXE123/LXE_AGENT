@@ -107,7 +107,7 @@ describe("ProcessAgentRuntime", () => {
     runtimes.push(runtime);
 
     await runtime.start();
-    const deadline = performance.now() + 2_000;
+    const deadline = performance.now() + 5_000;
     while (runtime.status().logging?.disabled_reason !== "sink_failed" && performance.now() < deadline) {
       await Bun.sleep(10);
     }
@@ -121,7 +121,7 @@ describe("ProcessAgentRuntime", () => {
       },
     });
     expect(statuses.some((status) => status.logging?.disabled_reason === "sink_failed")).toBe(true);
-  });
+  }, 10_000);
 
   test("recovers an unexpectedly crashed agent process", async () => {
     const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");

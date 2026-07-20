@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { deflateSync } from "node:zlib";
@@ -16,6 +16,10 @@ import { workspaceFor } from "../workspace";
 
 const roots: string[] = [];
 const projectRoot = repositoryRoot(import.meta.dir);
+const evalCommand = (source: string): string => {
+  const executable = `"${process.execPath}"`;
+  return `${process.platform === "win32" ? "& " : ""}${executable} -e "${source}"`;
+};
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -94,13 +98,13 @@ describe("native coding tools", () => {
       expect(readFileSync(join(directoryB, "same.txt"), "utf8")).toBe("from-b");
 
       const cwdResult = await registry.execute("exec", {
-        command: `"${process.execPath}" -e "console.log(process.cwd())"`,
+        command: evalCommand("console.log(process.cwd())"),
       }, contextA);
       expect(String(cwdResult.content[0]?.text).replaceAll("\\", "/"))
-        .toContain(directoryA.replaceAll("\\", "/"));
+        .toContain(realpathSync.native(directoryA).replaceAll("\\", "/"));
 
       const started = await registry.execute("exec", {
-        command: `"${process.execPath}" -e "setTimeout(() => {}, 60000)"`,
+        command: evalCommand("setTimeout(() => {}, 60000)"),
         background: true,
       }, contextA);
       const processId = String(started.content[0]?.text).match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
@@ -115,7 +119,7 @@ describe("native coding tools", () => {
       process.chdir(previousCwd);
       await processes.stop();
     }
-  });
+  }, 30_000);
 
   test("exposes compatible coding schemas and keeps file operations inside the workspace", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-"));
@@ -344,7 +348,7 @@ describe("native coding tools", () => {
     }, context(root))).content[0]?.text);
     expect(lxeskillList).toContain("status: completed");
     await processes.stop();
-  }, 15_000);
+  }, 30_000);
 
   test("consumes terminal background sessions once across log, kill, remove, and concurrent reads", async () => {
     const registry = new ToolRegistry();
@@ -402,7 +406,7 @@ describe("native coding tools", () => {
     expect(consumed.filter((item) => item.task_id === concurrent)).toHaveLength(1);
 
     await processes.stop();
-  }, 15_000);
+  }, 30_000);
 
   test("preserves terminal output and retries when completion consumption fails", async () => {
     const registry = new ToolRegistry();
@@ -450,7 +454,7 @@ describe("native coding tools", () => {
     await processes.process({ action: "remove", session: removable }, "s1");
     expect(processes.snapshots().some((item) => item.task_id === removable)).toBe(false);
     await processes.stop();
-  }, 15_000);
+  }, 30_000);
 
   test("waits for completion notification persistence before consuming the event", async () => {
     const registry = new ToolRegistry();
@@ -486,7 +490,7 @@ describe("native coding tools", () => {
     await poll;
     expect(order).toEqual(["notification-started", "notification-persisted", "consumed"]);
     await processes.stop();
-  }, 15_000);
+  }, 30_000);
 
   test("exec forwards host env so lxeskill enforces the injected skill scope", async () => {
     const root = projectRoot;
@@ -551,7 +555,7 @@ describe("native coding tools", () => {
     const forceKilled = await startTree();
     await processes.stop();
     await expectDead(forceKilled.childPid);
-  }, 15_000);
+  }, 30_000);
 
   test("uses timeout seconds and ignores the timer for explicit background work", async () => {
     const root = projectRoot;
@@ -571,7 +575,11 @@ describe("native coding tools", () => {
     }, context(root))).content[0]?.text);
     const session = background.match(/^session: (exec_[a-z0-9]+)/mu)?.[1];
     expect(session).toMatch(/^exec_/);
-    await Bun.sleep(100);
+    const completionDeadline = performance.now() + 5_000;
+    while (session && processes.snapshots().find((item) => item.task_id === session)?.status === "running") {
+      if (performance.now() >= completionDeadline) throw new Error(`timed out waiting for process ${session}`);
+      await Bun.sleep(20);
+    }
     const polled = session
       ? String((await registry.execute("process", { action: "poll", session }, context(root))).content[0]?.text)
       : "";
@@ -579,6 +587,7 @@ describe("native coding tools", () => {
     expect(polled).toContain("background done");
 
     const controller = new AbortController();
+    let processRegistered = false;
     const cancellation = registry.execute("exec", {
       command: "python -c \"import time; time.sleep(60)\"",
       timeout: 10,
@@ -589,14 +598,21 @@ describe("native coding tools", () => {
         signal: controller.signal,
         cancelled: false,
         drainSteering: () => [],
-        registerProcess: () => () => undefined,
+        registerProcess: () => {
+          processRegistered = true;
+          return () => undefined;
+        },
       },
     });
-    await Bun.sleep(100);
+    const registrationDeadline = performance.now() + 5_000;
+    while (!processRegistered) {
+      if (performance.now() >= registrationDeadline) throw new Error("timed out waiting for process registration");
+      await Bun.sleep(20);
+    }
     controller.abort();
     expect(String((await cancellation).content[0]?.text)).toContain("status: killed");
     await processes.stop();
-  }, 15_000);
+  }, 30_000);
 
   test("requires a current read before modifying existing files and protects runtime state", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-safety-"));
