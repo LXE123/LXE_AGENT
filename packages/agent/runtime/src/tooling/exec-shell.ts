@@ -252,6 +252,7 @@ export class ExecShellAdapter {
       } else {
         try { process_.kill(); } catch { /* The process already exited. */ }
       }
+      await this.killLateWindowsDescendants(process_.pid);
       let exited = false;
       await Promise.race([
         process_.exited.then(() => { exited = true; }).catch(() => { exited = true; }),
@@ -270,6 +271,56 @@ export class ExecShellAdapter {
       if (this.processGroupAlive(process_.pid)) this.signalProcessGroup(process_.pid, "SIGKILL", process_);
     }
     await Promise.race([process_.exited.catch(() => undefined), Bun.sleep(this.terminationGraceMs)]);
+  }
+
+  private async killLateWindowsDescendants(rootPid: number): Promise<void> {
+    try {
+      this.windowsPowerShell ||= resolveWindowsPowerShell({ ...this.options, platform: this.platform });
+      const script = [
+        "$known = [System.Collections.Generic.HashSet[int]]::new()",
+        `[void]$known.Add(${rootPid})`,
+        "for ($round = 0; $round -lt 2; $round++) {",
+        "  $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)",
+        "  $changed = $true",
+        "  while ($changed) {",
+        "    $changed = $false",
+        "    foreach ($candidate in $processes) {",
+        "      if ($known.Contains([int]$candidate.ParentProcessId) -and $known.Add([int]$candidate.ProcessId)) {",
+        "        $changed = $true",
+        "      }",
+        "    }",
+        "  }",
+        `  foreach ($processId in @($known)) { if ($processId -ne ${rootPid}) {`,
+        "    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue",
+        "  } }",
+        "  if ($round -eq 0) { Start-Sleep -Milliseconds 50 }",
+        "}",
+      ].join("\n");
+      const cleanup = Bun.spawn([
+        this.windowsPowerShell,
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        script,
+      ], {
+        cwd: String(this.environment.SystemRoot ?? this.environment.WINDIR ?? "C:\\Windows"),
+        stdin: "ignore",
+        stdout: "ignore",
+        stderr: "ignore",
+        windowsHide: true,
+      });
+      const cleanupGraceMs = Math.max(this.terminationGraceMs, 5_000);
+      let exited = false;
+      await Promise.race([
+        cleanup.exited.then(() => { exited = true; }).catch(() => { exited = true; }),
+        Bun.sleep(cleanupGraceMs),
+      ]);
+      if (!exited) {
+        try { cleanup.kill(); } catch { /* The cleanup process already exited. */ }
+      }
+    } catch {
+      // The normal taskkill/process.kill path remains the fallback when process discovery is unavailable.
+    }
   }
 
   private processGroupAlive(pid: number): boolean {

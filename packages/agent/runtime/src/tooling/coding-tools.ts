@@ -404,11 +404,12 @@ export class CodingProcessManager {
   async start(): Promise<void> {}
 
   async stop(): Promise<void> {
-    await Promise.allSettled([...this.entries.values()].filter((entry) => entry.status === "running").map((entry) => {
-      entry.status = "killed";
+    const incomplete = [...this.entries.values()].filter((entry) => entry.endedAt === undefined);
+    await Promise.allSettled(incomplete.map((entry) => {
+      if (entry.status === "running") entry.status = "killed";
       return this.terminateObserved(entry, "process_force_killed");
     }));
-    await Promise.allSettled([...this.entries.values()].map((entry) => entry.completion));
+    await Promise.allSettled(incomplete.map((entry) => entry.completion));
   }
 
   snapshots(): JsonObject[] {
