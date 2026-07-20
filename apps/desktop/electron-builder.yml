@@ -11,20 +11,13 @@ directories:
   output: ../../dist/desktop
   buildResources: build
 files:
-  - dist/**/*
+  - dist/main.js
+  - dist/preload.cjs
 extraResources:
   - from: ../../build/desktop-resources
     to: .
     filter:
       - "**/*"
-  - from: build
-    to: branding
-    filter:
-      - icon-win.png
-      - icon-mac.png
-      - tray-win.ico
-      - tray-macTemplate.png
-      - tray-macTemplate@2x.png
 win:
   icon: icon-win.png
   target:

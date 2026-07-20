@@ -52,7 +52,13 @@ export interface DesktopResourceSizeReport {
       tools: SizeSummary;
     };
     dashboard: SizeSummary;
-    project: SizeSummary;
+    agent: SizeSummary;
+    skills: SizeSummary;
+    lxeskill: SizeSummary;
+    config: SizeSummary;
+    branding: SizeSummary;
+    wireguard: SizeSummary;
+    legal: SizeSummary;
     manifest: SizeSummary;
   };
   budgets: {
@@ -150,7 +156,13 @@ export const createDesktopResourceSizeReport = (unpackedRoot: string): DesktopRe
         tools: summarizePath(join(runtimeRoot, "tools")),
       },
       dashboard: summarizePath(join(resourcesRoot, "dashboard")),
-      project: summarizePath(join(resourcesRoot, "project")),
+      agent: summarizePath(join(resourcesRoot, "agent")),
+      skills: summarizePath(join(resourcesRoot, "skills")),
+      lxeskill: summarizePath(join(resourcesRoot, "lxeskill")),
+      config: summarizePath(join(resourcesRoot, "config")),
+      branding: summarizePath(join(resourcesRoot, "branding")),
+      wireguard: summarizePath(join(resourcesRoot, "wireguard")),
+      legal: summarizePath(join(resourcesRoot, "legal")),
       manifest: summarizePath(join(resourcesRoot, "manifest.json")),
     },
     budgets: {

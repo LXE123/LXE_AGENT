@@ -36,6 +36,7 @@ describe("Windows desktop packaging routes", () => {
     expect(wrapper).toContain('"dist\\desktop-unpacked"');
     expect(wrapper).toContain('"Build unpacked Electron application"');
     expect(wrapper).toContain('"Build NSIS installer"');
+    expect(wrapper).toContain('"Audit packaged desktop resource scope"');
     expect(wrapper).toContain('"Enforce desktop resource size budgets"');
     expect(wrapper).toContain('"Smoke packaged Electron preload and IPC"');
     expect(wrapper).toContain("Write-LxeDesktopBuildTimingSummary");

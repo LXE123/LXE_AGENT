@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "resources": [
+    {
+      "id": "agent",
+      "owner": "bun-agent-runtime",
+      "source": { "kind": "file", "path": "SOUL.md" },
+      "target": "agent/SOUL.md",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "editable",
+      "integrity": "presence-size-format"
+    },
+    {
+      "id": "skills",
+      "owner": "bun-skill-runtime",
+      "source": { "kind": "skill-tree", "path": "skills" },
+      "target": "skills",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "editable",
+      "integrity": "presence-size-format"
+    },
+    {
+      "id": "lxeskill",
+      "owner": "bun-lxeskill-runtime",
+      "source": { "kind": "file", "path": "python/lxeskill_cli/lxeskill/catalog.json" },
+      "target": "lxeskill/catalog.json",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    },
+    {
+      "id": "config",
+      "owner": "desktop-config",
+      "source": {
+        "kind": "file-list",
+        "paths": [
+          "config/llm/auth-profiles.json",
+          "config/llm/providers/deepseek.json",
+          "config/llm/providers/glm.json",
+          "config/llm/providers/kimi-coding.json",
+          "config/runtime.env",
+          "config/permission_policy.yaml",
+          "config/mcp_servers.default.yaml"
+        ]
+      },
+      "target": "config",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    },
+    {
+      "id": "runtime-agent-cli",
+      "owner": "managed-agent-cli-runtime",
+      "source": { "kind": "managed-build", "name": "agent-cli" },
+      "target": "runtime/agent-cli",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    },
+    {
+      "id": "runtime-node",
+      "owner": "managed-node-runtime",
+      "source": { "kind": "managed-build", "name": "node" },
+      "target": "runtime/node",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    },
+    {
+      "id": "runtime-playwright",
+      "owner": "managed-playwright-runtime",
+      "source": { "kind": "managed-build", "name": "playwright" },
+      "target": "runtime/playwright",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    },
+    {
+      "id": "runtime-python",
+      "owner": "managed-python-runtime",
+      "source": { "kind": "managed-build", "name": "python" },
+      "target": "runtime/python",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    },
+    {
+      "id": "runtime-tools",
+      "owner": "managed-tools-runtime",
+      "source": { "kind": "managed-build", "name": "tools" },
+      "target": "runtime/tools",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    },
+    {
+      "id": "dashboard",
+      "owner": "dashboard-runtime",
+      "source": { "kind": "production-build", "path": "apps/dashboard/dist" },
+      "target": "dashboard",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    },
+    {
+      "id": "wireguard",
+      "owner": "wireguard-runtime",
+      "source": { "kind": "managed-build", "name": "wireguard" },
+      "target": "wireguard",
+      "platforms": ["win32-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    },
+    {
+      "id": "branding",
+      "owner": "desktop-branding",
+      "source": {
+        "kind": "platform-file-list",
+        "path": "apps/desktop/build",
+        "paths_by_platform": {
+          "win32-x64": ["icon-win.png", "tray-win.ico"],
+          "darwin-arm64": ["icon-mac.png", "tray-macTemplate.png", "tray-macTemplate@2x.png"],
+          "darwin-x64": ["icon-mac.png", "tray-macTemplate.png", "tray-macTemplate@2x.png"]
+        }
+      },
+      "target": "branding",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    },
+    {
+      "id": "legal",
+      "owner": "product-legal",
+      "source": { "kind": "file", "path": "THIRD_PARTY_NOTICES.md" },
+      "target": "legal/THIRD_PARTY_NOTICES.md",
+      "platforms": ["win32-x64", "darwin-arm64", "darwin-x64"],
+      "policy": "immutable",
+      "integrity": "sha256"
+    }
+  ]
+}
