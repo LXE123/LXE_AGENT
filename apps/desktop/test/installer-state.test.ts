@@ -21,14 +21,33 @@ describe("Windows installer runtime state", () => {
     expect(installer).toContain('${If} $LxeDeleteDataRequested == "1"');
   });
 
-  test("always preserves var during updates and recovers interrupted preservation", () => {
+  test("preserves var in place during updates and default uninstall", () => {
     expect(installer).toContain('${if} ${isUpdated}');
-    expect(installer).toContain('StrCpy $LxeAtomicRemoval "1"');
-    expect(installer).toContain('$INSTDIR.__lxe_var_preserved');
+    expect(installer).toContain("Call un.LxeRemoveProgramFilesPreservingVar");
+    expect(installer).toContain('StrCmp $R1 "var" lxe_remove_next');
+    expect(installer).toContain('StrCmp $R1 "var" lxe_cleanup_next');
     expect(installer).toContain("Call un.atomicRMDir");
     expect(installer).toContain("Call un.restoreFiles");
-    expect(installer).toContain("Call un.LxeRestorePreservedVar");
-    expect(installer).toContain('Rename "$INSTDIR\\var" "$LxePreservedVarPath"');
+    expect(installer).not.toContain("LxePreservedVarPath");
+    expect(installer).not.toContain(".__lxe_var_preserved");
+    expect(installer).not.toContain('Rename "$INSTDIR\\var"');
+    expect(installer).not.toContain("${UNINSTALL_FILENAME}");
+  });
+
+  test("deletes var only after an explicit request and reports locked data", () => {
+    expect(installer).toContain("Function un.LxeDeleteInstallDirectory");
+    expect(installer).toContain('Call un.LxeDeleteInstallDirectory');
+    expect(installer).toContain('SetOutPath "$PLUGINSDIR"');
+    expect(installer).toContain('RMDir /r "$INSTDIR\\var"');
+    expect(installer).toContain('IfFileExists "$INSTDIR\\var\\*.*" lxe_delete_data_failed 0');
+    expect(installer).toContain('IfFileExists "$INSTDIR\\*.*" lxe_delete_root_failed lxe_delete_complete');
+    expect(installer).toContain("IfSilent lxe_delete_failed_silent lxe_delete_data_failed_interactive");
+    expect(installer).toContain("IfSilent lxe_delete_failed_silent lxe_delete_root_failed_interactive");
+    expect(installer).toContain("SetErrorLevel 5");
+    expect(installer).toContain("请关闭正在使用以下目录中文件的程序后重试");
+    expect(installer.indexOf('RMDir /r "$INSTDIR\\var"')).toBeLessThan(
+      installer.indexOf("Call un.LxeRemoveProgramFilesPreservingVar", installer.indexOf("Function un.LxeDeleteInstallDirectory")),
+    );
   });
 
   test("retains var when managed tunnel cleanup cannot complete", () => {

@@ -6,8 +6,6 @@
 
 Var LxeDeleteDataCheckbox
 Var LxeDeleteDataRequested
-Var LxePreservedVarPath
-Var LxeAtomicRemoval
 
 Function un.LxeDeleteDataPageCreate
   nsDialogs::Create 1018
@@ -71,72 +69,101 @@ Function un.LxeRemoveManagedTunnel
     MessageBox MB_OK|MB_ICONEXCLAMATION "安装目录缺少 WireGuard 清理脚本，本地运行数据已保留。$\n$INSTDIR\resources\wireguard\remove-lxe-tunnel.ps1"
 FunctionEnd
 
-Function un.LxeRestorePreservedVar
-  CreateDirectory "$INSTDIR"
-  ClearErrors
-  Rename "$LxePreservedVarPath" "$INSTDIR\var"
-  ${If} ${Errors}
-    MessageBox MB_OK|MB_ICONSTOP "无法恢复 LXE Agent 本地运行数据。数据仍保存在：$\n$LxePreservedVarPath"
-    Abort
-  ${EndIf}
+Function un.LxeRemoveProgramFilesPreservingVar
+  CreateDirectory "$PLUGINSDIR\old-install"
+  FindFirst $R0 $R1 "$INSTDIR\*.*"
+
+  lxe_remove_loop:
+    StrCmp $R1 "" lxe_remove_complete
+    StrCmp $R1 "." lxe_remove_next
+    StrCmp $R1 ".." lxe_remove_next
+    StrCmp $R1 "var" lxe_remove_next
+
+    IfFileExists "$INSTDIR\$R1\*.*" lxe_remove_directory lxe_remove_file
+
+    lxe_remove_directory:
+      CreateDirectory "$PLUGINSDIR\old-install\$R1"
+      Push "\$R1"
+      Call un.atomicRMDir
+      Pop $R2
+      ${If} $R2 != 0
+        Goto lxe_remove_failed
+      ${EndIf}
+      Goto lxe_remove_next
+
+    lxe_remove_file:
+      ClearErrors
+      Rename "$INSTDIR\$R1" "$PLUGINSDIR\old-install\$R1"
+      ${If} ${Errors}
+        StrCpy $R2 "$INSTDIR\$R1"
+        Goto lxe_remove_failed
+      ${EndIf}
+
+    lxe_remove_next:
+      FindNext $R0 $R1
+      Goto lxe_remove_loop
+
+  lxe_remove_failed:
+    FindClose $R0
+    Push ""
+    Call un.restoreFiles
+    Pop $R3
+    Abort "无法更新或卸载 LXE Agent，因为文件正在使用：$R2"
+
+  lxe_remove_complete:
+    FindClose $R0
+    RMDir /r "$PLUGINSDIR\old-install"
+
+    # atomicRMDir leaves the now-empty directory structure in place. Remove only
+    # those program directories; var remains untouched in its original location.
+    FindFirst $R0 $R1 "$INSTDIR\*.*"
+
+  lxe_cleanup_loop:
+    StrCmp $R1 "" lxe_cleanup_complete
+    StrCmp $R1 "." lxe_cleanup_next
+    StrCmp $R1 ".." lxe_cleanup_next
+    StrCmp $R1 "var" lxe_cleanup_next
+    RMDir /r "$INSTDIR\$R1"
+    Delete "$INSTDIR\$R1"
+
+  lxe_cleanup_next:
+    FindNext $R0 $R1
+    Goto lxe_cleanup_loop
+
+  lxe_cleanup_complete:
+    FindClose $R0
 FunctionEnd
 
-Function un.LxeRemoveFilesPreservingVar
-  StrCpy $LxePreservedVarPath "$INSTDIR.__lxe_var_preserved"
-  IfFileExists "$LxePreservedVarPath\*.*" 0 no_previous_backup
-    IfFileExists "$INSTDIR\var\*.*" conflicting_backup restore_previous_backup
-  restore_previous_backup:
-    Call un.LxeRestorePreservedVar
-    Goto no_previous_backup
-  conflicting_backup:
-    MessageBox MB_OK|MB_ICONSTOP "检测到两份 LXE Agent 本地运行数据，已停止卸载以避免覆盖：$\n$INSTDIR\var$\n$LxePreservedVarPath"
+Function un.LxeDeleteInstallDirectory
+  SetOutPath "$PLUGINSDIR"
+  RMDir /r "$INSTDIR\var"
+  IfFileExists "$INSTDIR\var\*.*" lxe_delete_data_failed 0
+
+  # Keep the installed program and its uninstaller intact until local data has
+  # been deleted successfully, so a failed deletion can be retried safely.
+  Call un.LxeRemoveProgramFilesPreservingVar
+  RMDir "$INSTDIR"
+  IfFileExists "$INSTDIR\*.*" lxe_delete_root_failed lxe_delete_complete
+
+  lxe_delete_data_failed:
+    IfSilent lxe_delete_failed_silent lxe_delete_data_failed_interactive
+
+  lxe_delete_data_failed_interactive:
+    MessageBox MB_OK|MB_ICONSTOP "无法删除 LXE Agent 本地运行数据。请关闭正在使用以下目录中文件的程序后重试：$\n$INSTDIR\var"
     Abort
 
-  no_previous_backup:
-  IfFileExists "$INSTDIR\var\*.*" preserve_var remove_without_var
-  preserve_var:
-    ClearErrors
-    Rename "$INSTDIR\var" "$LxePreservedVarPath"
-    ${If} ${Errors}
-      MessageBox MB_OK|MB_ICONSTOP "无法暂存 LXE Agent 本地运行数据，已停止卸载：$\n$INSTDIR\var"
-      Abort
-    ${EndIf}
+  lxe_delete_root_failed:
+    IfSilent lxe_delete_failed_silent lxe_delete_root_failed_interactive
 
-    ${If} $LxeAtomicRemoval == "1"
-      CreateDirectory "$PLUGINSDIR\old-install"
-      Push ""
-      Call un.atomicRMDir
-      Pop $0
-      ${If} $0 != 0
-        Push ""
-        Call un.restoreFiles
-        Pop $1
-        Call un.LxeRestorePreservedVar
-        Abort "Can't update LXE Agent because this file is busy: $0"
-      ${EndIf}
-    ${Else}
-      RMDir /r "$INSTDIR"
-    ${EndIf}
-    RMDir /r "$INSTDIR"
-    Call un.LxeRestorePreservedVar
-    Return
+  lxe_delete_root_failed_interactive:
+    MessageBox MB_OK|MB_ICONSTOP "本地运行数据已删除，但无法完全移除 LXE Agent 安装目录。请关闭正在使用安装目录中文件的程序后重试：$\n$INSTDIR"
+    Abort
 
-  remove_without_var:
-    ${If} $LxeAtomicRemoval == "1"
-      CreateDirectory "$PLUGINSDIR\old-install"
-      Push ""
-      Call un.atomicRMDir
-      Pop $0
-      ${If} $0 != 0
-        Push ""
-        Call un.restoreFiles
-        Pop $1
-        Abort "Can't update LXE Agent because this file is busy: $0"
-      ${EndIf}
-      RMDir /r "$INSTDIR"
-    ${Else}
-      RMDir /r "$INSTDIR"
-    ${EndIf}
+  lxe_delete_failed_silent:
+    SetErrorLevel 5
+    Abort
+
+  lxe_delete_complete:
 FunctionEnd
 
 !macro customUnWelcomePage
@@ -165,14 +192,12 @@ FunctionEnd
 
 !macro customRemoveFiles
   ${if} ${isUpdated}
-    StrCpy $LxeAtomicRemoval "1"
-    Call un.LxeRemoveFilesPreservingVar
+    Call un.LxeRemoveProgramFilesPreservingVar
   ${else}
     ${If} $LxeDeleteDataRequested == "1"
-      RMDir /r "$INSTDIR"
+      Call un.LxeDeleteInstallDirectory
     ${Else}
-      StrCpy $LxeAtomicRemoval "0"
-      Call un.LxeRemoveFilesPreservingVar
+      Call un.LxeRemoveProgramFilesPreservingVar
     ${EndIf}
   ${endif}
 !macroend
