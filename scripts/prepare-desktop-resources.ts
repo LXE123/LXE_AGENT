@@ -362,6 +362,7 @@ runSmoke("managed ripgrep", [join(outputRoot, "runtime", "tools", "rg.exe"), "--
 const lxeSkillOutput = runSmoke("managed Python lxeskill", [
   stagedPython,
   "-I",
+  "-B",
   "-m",
   "lxeskill",
   "list",
@@ -404,7 +405,7 @@ const pythonCatalogHash = createHash("sha256")
 if (bunCatalogHash !== pythonCatalogHash) {
   throw new Error(`Bun and Python LXE Skill catalogs differ: bun=${bunCatalogHash}, python=${pythonCatalogHash}`);
 }
-runSmoke("managed Python lxeskill doctor", [stagedPython, "-I", "-m", "lxeskill", "doctor"]);
+runSmoke("managed Python lxeskill doctor", [stagedPython, "-I", "-B", "-m", "lxeskill", "doctor"]);
 const removePythonBytecodeCaches = (directory: string): void => {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);

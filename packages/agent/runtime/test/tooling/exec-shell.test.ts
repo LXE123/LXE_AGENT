@@ -69,7 +69,7 @@ describe("ExecShellAdapter", () => {
       "'/work/demo/.venv/bin/python' -m pip install demo",
     );
     expect(posix.normalizeCommand("/work/demo", "lxeskill fba purchase contracts-fill --input-json args.json")).toBe(
-      "'/work/demo/.venv/bin/python' '-I' '-m' 'lxeskill' fba purchase contracts-fill --input-json args.json",
+      "'/work/demo/.venv/bin/python' '-I' '-B' '-m' 'lxeskill' fba purchase contracts-fill --input-json args.json",
     );
 
     const windows = new ExecShellAdapter({
@@ -83,7 +83,7 @@ describe("ExecShellAdapter", () => {
       "& 'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' -m pip install demo",
     );
     expect(windows.normalizeCommand("C:\\Work O'Brien", "lxeskill list")).toBe(
-      "& 'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' '-I' '-m' 'lxeskill' list",
+      "& 'C:\\Work O''Brien\\.venv\\Scripts\\python.exe' '-I' '-B' '-m' 'lxeskill' list",
     );
   });
 
@@ -94,7 +94,7 @@ describe("ExecShellAdapter", () => {
       fileExists: (path) => path.endsWith("/.venv/bin/python"),
     });
     expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(
-      "'/work/project/.venv/bin/python' '-I' '-m' 'lxeskill' list",
+      "'/work/project/.venv/bin/python' '-I' '-B' '-m' 'lxeskill' list",
     );
     expect(shell.childEnvironment("/work/project", {
       sessionId: "s1",
@@ -115,13 +115,14 @@ describe("ExecShellAdapter", () => {
     expect(shell.lxeSkillArgv("/Users/demo/Documents/LXE Agent")).toEqual([
       resourcePython,
       "-I",
+      "-B",
       "-m",
       "lxeskill",
     ]);
     expect(shell.normalizeCommand(
       "/Users/demo/Documents/LXE Agent",
       "lxeskill list",
-    )).toBe("'/resources/lxe/.venv/bin/python' '-I' '-m' 'lxeskill' list");
+    )).toBe("'/resources/lxe/.venv/bin/python' '-I' '-B' '-m' 'lxeskill' list");
   });
 
   test("keeps desktop managed tools ahead of the user workspace", () => {
@@ -203,11 +204,12 @@ describe("ExecShellAdapter", () => {
     expect(shell.lxeSkillArgv("/work/project")).toEqual([
       managedPython,
       "-I",
+      "-B",
       "-m",
       "lxeskill",
     ]);
     expect(shell.normalizeCommand("/work/project", "lxeskill list")).toBe(
-      `'/managed/python/bin/python' '-I' '-m' 'lxeskill' list`,
+      `'/managed/python/bin/python' '-I' '-B' '-m' 'lxeskill' list`,
     );
   });
 

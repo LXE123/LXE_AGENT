@@ -280,6 +280,10 @@ try {
         "apps/desktop/scripts/smoke-packaged-app.ts",
         $packagedExecutable
     )
+    Invoke-LxeDesktopBuildStep -Label "Re-audit packaged desktop resources after smoke" -Arguments @(
+        "scripts/audit-packaged-desktop.ts",
+        (Join-Path (Split-Path -Parent $packagedExecutable) "resources")
+    )
     Write-LxeDesktopBuildTimingSummary
 }
 finally {

@@ -42,6 +42,7 @@ describe("Windows desktop packaging routes", () => {
     expect(wrapper).toContain('"Audit packaged desktop resource scope"');
     expect(wrapper).toContain('"Enforce desktop resource size budgets"');
     expect(wrapper).toContain('"Smoke packaged Electron preload and IPC"');
+    expect(wrapper).toContain('"Re-audit packaged desktop resources after smoke"');
     expect(wrapper).toContain("Write-LxeDesktopBuildTimingSummary");
   });
 });

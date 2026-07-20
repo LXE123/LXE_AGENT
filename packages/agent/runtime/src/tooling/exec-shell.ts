@@ -139,7 +139,7 @@ export class ExecShellAdapter {
     const fileExists = this.options.fileExists ?? existsSync;
     const python = String(this.environment.LXE_MANAGED_PYTHON ?? "").trim()
       || projectPythonPath(root, this.platform);
-    return fileExists(python) ? [python, "-I", "-m", "lxeskill"] : undefined;
+    return fileExists(python) ? [python, "-I", "-B", "-m", "lxeskill"] : undefined;
   }
 
   normalizeCommand(root: string, rawCommand: string): string {
