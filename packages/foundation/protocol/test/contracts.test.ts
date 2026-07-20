@@ -3,21 +3,14 @@ import { describe, expect, test } from "bun:test";
 import invalidAgentJobShape from "../fixtures/invalid-agent-job-shape.json";
 import validAgentJob from "../fixtures/valid-agent-job.json";
 import validEmitRequest from "../fixtures/valid-emit-request.json";
-import validInboundEvent from "../fixtures/valid-inbound-event.json";
-
 async function loadProtocol() {
   return import("../src/index");
 }
 
 describe("protocol contracts", () => {
   test("accepts every valid cross-language fixture", async () => {
-    const {
-      validateAgentJob,
-      validateEmitRequest,
-      validateInboundEvent,
-    } = await loadProtocol();
+    const { validateAgentJob, validateEmitRequest } = await loadProtocol();
 
-    expect(validateInboundEvent(validInboundEvent)).toBe(true);
     expect(validateAgentJob(validAgentJob)).toBe(true);
     const retiredField = ["server", "scope"].join("_");
     expect(validateAgentJob({
@@ -35,7 +28,7 @@ describe("protocol contracts", () => {
   });
 
   test("strictly validates operation diagnostics", async () => {
-    const { validateAgentJob, validateInboundEvent } = await loadProtocol();
+    const { validateAgentJob } = await loadProtocol();
     const diagnostic = {
       type: "operation_failure",
       provider: "feishu",
@@ -49,7 +42,6 @@ describe("protocol contracts", () => {
       http_status: 400,
     };
     expect(validateAgentJob({ ...validAgentJob, diagnostics: [diagnostic] })).toBe(true);
-    expect(validateInboundEvent({ ...validInboundEvent, diagnostics: [diagnostic] })).toBe(true);
     expect(validateAgentJob({ ...validAgentJob, diagnostics: [{ ...diagnostic, unexpected: true }] })).toBe(false);
     expect(validateAgentJob({ ...validAgentJob, diagnostics: [{ ...diagnostic, observed_error: "x".repeat(4_001) }] })).toBe(false);
     expect(validateAgentJob({ ...validAgentJob, diagnostics: Array.from({ length: 17 }, () => diagnostic) })).toBe(false);

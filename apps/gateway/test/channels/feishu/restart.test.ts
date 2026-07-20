@@ -22,10 +22,9 @@ class ManualClock implements RestartClock {
 }
 
 describe("Feishu idle restart", () => {
-  test("defers for queued/inflight work, restarts when idle and remains single-flight", async () => {
+  test("defers for inflight work, restarts when idle and remains single-flight", async () => {
     const clock = new ManualClock();
     let inflight = true;
-    let queued = false;
     let calls = 0;
     const restart = new FeishuIdleRestart({
       clock,
@@ -33,7 +32,6 @@ describe("Feishu idle restart", () => {
       idleCheckMs: 10,
       retryMs: 20,
       hasInflight: () => inflight,
-      hasQueued: () => queued,
       restart: async () => { calls += 1; },
     });
     restart.start();
@@ -41,10 +39,6 @@ describe("Feishu idle restart", () => {
     expect(calls).toBe(0);
     expect(restart.health()).toEqual(expect.objectContaining({ restart_in_progress: false, deferred: true }));
     inflight = false;
-    queued = true;
-    expect(await clock.fire()).toBe(10);
-    expect(calls).toBe(0);
-    queued = false;
     expect(await clock.fire()).toBe(10);
     expect(calls).toBe(1);
     expect(restart.health()).toEqual(expect.objectContaining({ restart_count: 1, deferred: false }));
@@ -63,7 +57,6 @@ describe("Feishu idle restart", () => {
       idleCheckMs: 10,
       retryMs: 20,
       hasInflight: () => false,
-      hasQueued: () => false,
       restart: async () => {
         calls += 1;
         if (calls === 1) throw new Error("connect failed");
@@ -92,7 +85,6 @@ describe("Feishu idle restart", () => {
       retryMs: 20,
       stopTimeoutMs: 5,
       hasInflight: () => false,
-      hasQueued: () => false,
       restart: () => new Promise<void>(() => undefined),
     });
     restart.start();

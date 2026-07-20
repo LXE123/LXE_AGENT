@@ -18,7 +18,6 @@ export interface FeishuIdleRestartOptions {
   retryMs: number;
   stopTimeoutMs?: number;
   hasInflight(): boolean | Promise<boolean>;
-  hasQueued(): boolean | Promise<boolean>;
   restart(): Promise<void>;
 }
 
@@ -96,12 +95,10 @@ export class FeishuIdleRestart {
     const task = (async () => {
       if (!this.running || generation !== this.generation) return;
       const inflight = await this.options.hasInflight();
-      const queued = inflight ? false : await this.options.hasQueued();
-      const busy = inflight || queued;
       if (!this.running || generation !== this.generation) return;
-      if (busy) {
+      if (inflight) {
         this.deferred = true;
-        this.logger.info("feishu_restart_deferred", { reason: inflight ? "active_agent_jobs" : "queued_inbound_events" });
+        this.logger.info("feishu_restart_deferred", { reason: "active_agent_jobs" });
         this.schedule(this.options.idleCheckMs, generation);
         return;
       }

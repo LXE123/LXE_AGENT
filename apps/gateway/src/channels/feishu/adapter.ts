@@ -37,7 +37,6 @@ export interface FeishuAdapterOptions {
   imageProcessor: InboundImageProcessorPort;
   sdkFactory?: FeishuSdkFactory;
   hasInflight?: () => boolean | Promise<boolean>;
-  hasQueued?: () => boolean | Promise<boolean>;
   restartClock?: RestartClock;
   stopTimeoutMs?: number;
   delay?: (milliseconds: number) => Promise<void>;
@@ -430,7 +429,6 @@ export class FeishuAdapter implements ChannelAdapter {
           idleCheckMs: this.options.config.autoRestartIdleCheckMs,
           retryMs: this.options.config.autoRestartRetryMs,
           hasInflight: this.options.hasInflight ?? (() => false),
-          hasQueued: this.options.hasQueued ?? (() => false),
           restart: () => this.restartConnection(),
         });
         this.restart.start();
