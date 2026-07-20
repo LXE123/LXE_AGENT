@@ -47,6 +47,8 @@ requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL
 requireText("packages/foundation/desktop-protocol/src/index.ts", /type:\s*"session\.changed"/, "agent protocol must expose persisted session changes");
 forbidText("apps/desktop/src/main/dashboard-invalidation.ts", /item\.completed/, "outbound item events must not invalidate Dashboard session data");
 forbidText("apps/dashboard/src/api/queries.ts", /ACTIVE_DATA_REFRESH_INTERVAL_MS/, "session queries must remain push-driven instead of restoring shared polling");
+forbidText("apps/gateway/src/channels/feishu/cardkit.ts", /queues\s*=\s*new Map<string, Promise<void>>/, "CardKit full snapshots must not be restored to a per-frame Promise FIFO");
+requireText("apps/gateway/src/channels/feishu/cardkit.ts", /card_frame_coalesced/, "CardKit must retain observable latest-frame coalescing");
 forbidText("packages/foundation/desktop-protocol/src/index.ts", /remaining_steering\?\s*:/, "run_turn must always report remaining steering");
 forbidText("apps/gateway/src/orchestration/composition.ts", /remaining_steering\s*\?\?/, "Gateway must not default a missing steering handoff to an empty list");
 forbidText("packages/agent/runtime/src/engine/system-events.ts", /mergePendingSystemEvents/, "Runtime must not restore the retired embedded/stored pending-event merge");

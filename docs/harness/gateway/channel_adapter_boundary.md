@@ -63,10 +63,10 @@ Agent 进程中的 `feishu_im_bot_fetch_resource` 还会在下载前回读目标
 
 ## CardKit 状态
 
-CardKit state 由 adapter 内部维护，按 session/emit 串行化更新：
+CardKit state 由 adapter 内部维护，按 session/emit 串行化更新。流式帧是可互相替代的完整展示快照，不是必须逐条消费的增量事件：同一 emit 最多保留一个正在发送帧和一个最新待发送帧；新 delta 覆盖旧待发送 delta，final/error 覆盖所有待发送 delta，并在当前 HTTPS 请求完成后立即发送。不同 emit 不合并，前一轮终帧完成后才开始下一轮。
 
 - 第一帧创建卡片并保存 delivery handle。
-- sequence 必须单调增加，过期帧被拒绝或忽略。
+- source sequence 必须单调增加；重复、乱序和终帧后的晚到帧会被忽略，实际 CardKit sequence 只为真正发送的 API 请求递增。
 - thinking、tool 和 answer 复用同一张卡。
 - final/error 关闭 streaming mode，再替换最终结构并清理内存状态。
 - 新建卡片首次被 IM 引用时，只有精确的 `230099/11310/cardid is invalid` 会使用同一卡片按 1 秒间隔重试两次；恢复卡、更新操作和其它错误不重试。

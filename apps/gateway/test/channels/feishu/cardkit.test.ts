@@ -55,9 +55,29 @@ class FakeApi {
   readonly sendFailures: Error[] = [];
   failNext: Error | undefined;
   returnNext: JsonObject | undefined;
+  private blocker: {
+    operation: string;
+    started(): void;
+    released: Promise<void>;
+  } | undefined;
+
+  blockNext(operation: string): { started: Promise<void>; release(): void } {
+    let markStarted!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    this.blocker = { operation, started: markStarted, released };
+    return { started, release };
+  }
 
   private async execute(operation: string, params: JsonObject, fallback: JsonObject): Promise<JsonObject> {
     this.calls.push({ operation, params });
+    if (this.blocker?.operation === operation) {
+      const blocker = this.blocker;
+      this.blocker = undefined;
+      blocker.started();
+      await blocker.released;
+    }
     if (this.returnNext) {
       const result = this.returnNext;
       this.returnNext = undefined;
@@ -392,6 +412,100 @@ describe("Feishu CardKit stream state", () => {
       state.cardkit.handle(request("final", 3), state.route),
     ]);
     const sequences = state.api.calls.map((item) => item.params.sequence).filter((item) => typeof item === "number");
-    expect(sequences).toEqual([1, 2, 3, 4]);
+    expect(sequences).toEqual([1, 2]);
+    expect(JSON.stringify(state.api.calls.find((item) => item.operation === "card.update")?.params.card)).toContain("done");
+  });
+
+  test("keeps one in-flight delta and only the latest pending snapshot", async () => {
+    const lines: string[] = [];
+    const logger = createLogger("test.cardkit", { write: (line) => lines.push(line) });
+    const state = setup({ logger });
+    const gate = state.api.blockNext("card.update");
+    const first = state.cardkit.handle(request("delta", 1), state.route);
+    await gate.started;
+
+    const pending = Array.from({ length: 19 }, (_, index) =>
+      state.cardkit.handle(request("delta", index + 2), state.route));
+    await pending[0];
+    expect(state.api.calls.filter((item) => item.operation === "card.update")).toHaveLength(1);
+    expect(state.api.calls.filter((item) => item.operation === "cardElement.content")).toHaveLength(0);
+
+    gate.release();
+    await Promise.all([first, ...pending]);
+
+    const contentUpdates = state.api.calls.filter((item) => item.operation === "cardElement.content");
+    expect(contentUpdates).toHaveLength(1);
+    expect(String(contentUpdates[0]?.params.content)).toContain("answer-20");
+    expect(String(contentUpdates[0]?.params.content)).not.toContain("answer-19");
+    const coalesced = lines.map((line) => JSON.parse(line)).filter((record) => record.message === "card_frame_coalesced");
+    expect(coalesced).toHaveLength(18);
+    expect(JSON.stringify(coalesced)).not.toContain("answer-");
+  });
+
+  test("lets a terminal frame replace pending deltas but never replaces the in-flight request", async () => {
+    const state = setup();
+    const gate = state.api.blockNext("card.update");
+    const first = state.cardkit.handle(request("delta", 1), state.route);
+    await gate.started;
+    const obsolete = state.cardkit.handle(request("delta", 2), state.route);
+    const terminal = state.cardkit.handle(request("final", 3), state.route);
+
+    await obsolete;
+    expect(state.api.calls.some((item) => item.operation === "card.settings")).toBe(false);
+    gate.release();
+    await Promise.all([first, terminal]);
+
+    expect(state.api.calls.filter((item) => item.operation === "cardElement.content")).toHaveLength(0);
+    const sequences = state.api.calls.map((item) => item.params.sequence).filter((item): item is number => typeof item === "number");
+    expect(sequences).toEqual([1, 2, 3]);
+    expect(JSON.stringify(state.api.calls.filter((item) => item.operation === "card.update").at(-1)?.params.card))
+      .toContain("done");
+    await state.cardkit.handle(request("delta", 4), state.route);
+    expect(state.api.calls.map((item) => item.params.sequence).filter((item) => typeof item === "number"))
+      .toEqual([1, 2, 3]);
+  });
+
+  test("validates malformed frames before they can enter the coalescing slot", async () => {
+    const state = setup();
+    const gate = state.api.blockNext("card.update");
+    const first = state.cardkit.handle(request("delta", 1), state.route);
+    await gate.started;
+
+    await expect(state.cardkit.handle(request("delta", 2, { state: "broken" }), state.route))
+      .rejects.toThrow("unsupported Feishu stream state: broken");
+    await expect(state.cardkit.handle(request("delta", 2, { seq: 0 }), state.route))
+      .rejects.toThrow("invalid Feishu stream seq: 0");
+    expect(state.api.calls.filter((item) => item.operation === "card.update")).toHaveLength(1);
+
+    gate.release();
+    await first;
+  });
+
+  test("preserves the terminal barrier between emit ids and allows source sequences to restart", async () => {
+    const state = setup();
+    await state.cardkit.handle(request("delta", 1), state.route);
+    const gate = state.api.blockNext("card.settings");
+    const firstTerminal = state.cardkit.handle(request("final", 2), state.route);
+    await gate.started;
+
+    const secondDelta = state.cardkit.handle({
+      ...request("delta", 1),
+      turn_id: "turn-2",
+      event_id: "emit-2",
+    }, state.route);
+    const secondTerminal = state.cardkit.handle({
+      ...request("final", 2),
+      turn_id: "turn-2",
+      event_id: "emit-2",
+      payload: { ...request("final", 2).payload, content: "second done" },
+    }, state.route);
+    expect(state.api.calls.filter((item) => item.operation === "card.create")).toHaveLength(1);
+
+    gate.release();
+    await Promise.all([firstTerminal, secondDelta, secondTerminal]);
+
+    expect(state.api.calls.filter((item) => item.operation === "card.create")).toHaveLength(2);
+    const finalCards = state.api.calls.filter((item) => item.operation === "card.update");
+    expect(JSON.stringify(finalCards.at(-1)?.params.card)).toContain("second done");
   });
 });

@@ -2,7 +2,8 @@
  * Copyright (c) 2026 ByteDance Ltd. and/or its affiliates
  * SPDX-License-Identifier: MIT
  *
- * CardKit API calls and streaming card shapes are adapted from openclaw-lark.
+ * CardKit API calls, streaming card shapes, and the single-flight/latest-state
+ * delivery pattern are adapted from openclaw-lark.
  */
 
 import { createHash } from "node:crypto";
@@ -98,6 +99,27 @@ interface StreamWriter {
   displayMetrics: DisplayMetrics;
 }
 
+type StreamFrameState = "delta" | "final" | "error";
+
+interface PendingStreamFrame {
+  request: OutboundRequest;
+  route: FeishuRouteContext;
+  logger: Logger;
+  sourceSeq: number;
+  state: StreamFrameState;
+  resolve(): void;
+  reject(cause: unknown): void;
+}
+
+interface StreamDelivery {
+  sessionId: string;
+  emitId: string;
+  highestSeenSourceSeq: number;
+  terminalSeen: boolean;
+  pending: PendingStreamFrame | undefined;
+  wake: (() => void) | undefined;
+}
+
 const asObject = (value: JsonValue | undefined): JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {};
 const stringValue = (value: JsonValue | undefined): string => String(value ?? "").trim();
@@ -105,6 +127,8 @@ const integer = (value: JsonValue | undefined): number => Number.isInteger(value
 const errorValue = (cause: unknown): Error => cause instanceof Error ? cause : new Error(String(cause));
 const CARD_REFERENCE_MAX_ATTEMPTS = 3;
 const CARD_REFERENCE_RETRY_DELAY_MS = 1_000;
+const COMPLETED_STREAM_TOMBSTONE_LIMIT = 1_024;
+const STREAM_FRAME_STATES = new Set<JsonValue>(["delta", "final", "error"]);
 const isRetryableFreshCardReferenceError = (cause: unknown): cause is FeishuApiHttpError =>
   cause instanceof FeishuApiHttpError
   && cause.http_status === 400
@@ -176,7 +200,10 @@ const stateOf = (writer: StreamWriter): CardDisplayState => ({
 
 export class FeishuCardKit {
   private readonly writers = new Map<string, StreamWriter>();
-  private readonly queues = new Map<string, Promise<void>>();
+  private readonly streams = new Map<string, StreamDelivery>();
+  private readonly sessionTails = new Map<string, Promise<void>>();
+  private readonly completedStreamSourceSeq = new Map<string, number>();
+  private readonly completedStreamOrder: string[] = [];
   private readonly logger: Logger;
   private readonly delay: (milliseconds: number) => Promise<void>;
 
@@ -194,33 +221,149 @@ export class FeishuCardKit {
   handle(request: OutboundRequest, route: FeishuRouteContext): Promise<void> {
     const sessionId = String(request.session_id ?? "").trim();
     if (!sessionId) return Promise.reject(new Error("missing session_id for Feishu stream"));
-    const logger = this.logger.child({
-      session_id: sessionId,
-      turn_id: request.turn_id,
-      response_route_id: request.response_route_id,
-      emit_id: request.event_id,
-    });
-    const previous = this.queues.get(sessionId) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(() => this.handleLocked(sessionId, request, route, logger));
-    this.queues.set(sessionId, current);
-    return current.finally(() => {
-      if (this.queues.get(sessionId) === current) this.queues.delete(sessionId);
-    });
-  }
-
-  private async handleLocked(
-    sessionId: string,
-    request: OutboundRequest,
-    route: FeishuRouteContext,
-    logger: Logger,
-  ): Promise<void> {
+    const emitId = String(request.event_id ?? "").trim();
+    if (!emitId) return Promise.reject(new Error("missing emit_id for Feishu stream"));
     const payload = request.payload;
     const streamType = stringValue(payload.stream_type);
     const frameState = stringValue(payload.state);
     const sourceSeq = integer(payload.seq);
-    if (streamType !== "final_answer") throw new Error(`unsupported Feishu stream_type: ${streamType || "<empty>"}`);
-    if (!new Set(["delta", "final", "error"]).has(frameState)) throw new Error(`unsupported Feishu stream state: ${frameState || "<empty>"}`);
-    if (sourceSeq <= 0) throw new Error(`invalid Feishu stream seq: ${sourceSeq}`);
+    if (streamType !== "final_answer") {
+      return Promise.reject(new Error(`unsupported Feishu stream_type: ${streamType || "<empty>"}`));
+    }
+    if (!STREAM_FRAME_STATES.has(frameState)) {
+      return Promise.reject(new Error(`unsupported Feishu stream state: ${frameState || "<empty>"}`));
+    }
+    if (sourceSeq <= 0) return Promise.reject(new Error(`invalid Feishu stream seq: ${sourceSeq}`));
+    const logger = this.logger.child({
+      session_id: sessionId,
+      turn_id: request.turn_id,
+      response_route_id: request.response_route_id,
+      emit_id: emitId,
+    });
+    const streamKey = this.streamKey(sessionId, emitId);
+    const completedSourceSeq = this.completedStreamSourceSeq.get(streamKey);
+    if (completedSourceSeq !== undefined) {
+      logger.debug("card_frame_coalesced", {
+        reason: "completed_stream",
+        dropped_source_seq: sourceSeq,
+        retained_source_seq: completedSourceSeq,
+      });
+      return Promise.resolve();
+    }
+    let stream = this.streams.get(streamKey);
+    if (!stream) {
+      stream = {
+        sessionId,
+        emitId,
+        highestSeenSourceSeq: 0,
+        terminalSeen: false,
+        pending: undefined,
+        wake: undefined,
+      };
+      this.streams.set(streamKey, stream);
+      const previous = this.sessionTails.get(sessionId) ?? Promise.resolve();
+      const pump = previous.catch(() => undefined).then(() => this.pump(stream!));
+      this.sessionTails.set(sessionId, pump);
+      const cleanup = (): void => {
+        this.streams.delete(streamKey);
+        if (this.sessionTails.get(sessionId) === pump) this.sessionTails.delete(sessionId);
+      };
+      void pump.then(cleanup, cleanup);
+    }
+    return new Promise<void>((resolve, reject) => {
+      this.enqueue(stream!, {
+        request,
+        route,
+        logger,
+        sourceSeq,
+        state: frameState as StreamFrameState,
+        resolve,
+        reject,
+      });
+    });
+  }
+
+  private enqueue(stream: StreamDelivery, frame: PendingStreamFrame): void {
+    if (stream.terminalSeen) {
+      frame.logger.debug("card_frame_coalesced", {
+        reason: "terminal_already_queued",
+        dropped_source_seq: frame.sourceSeq,
+        retained_source_seq: stream.highestSeenSourceSeq,
+      });
+      frame.resolve();
+      return;
+    }
+    if (frame.sourceSeq <= stream.highestSeenSourceSeq) {
+      frame.logger.debug("card_frame_coalesced", {
+        reason: "stale",
+        dropped_source_seq: frame.sourceSeq,
+        retained_source_seq: stream.highestSeenSourceSeq,
+      });
+      frame.resolve();
+      return;
+    }
+    stream.highestSeenSourceSeq = frame.sourceSeq;
+    if (frame.state !== "delta") stream.terminalSeen = true;
+    const superseded = stream.pending;
+    if (superseded) {
+      frame.logger.debug("card_frame_coalesced", {
+        reason: frame.state === "delta" ? "newer_delta" : "terminal",
+        dropped_source_seq: superseded.sourceSeq,
+        retained_source_seq: frame.sourceSeq,
+      });
+      superseded.resolve();
+    }
+    stream.pending = frame;
+    const wake = stream.wake;
+    stream.wake = undefined;
+    wake?.();
+  }
+
+  private async pump(stream: StreamDelivery): Promise<void> {
+    while (true) {
+      const frame = await this.nextFrame(stream);
+      try {
+        await this.handleLocked(stream.sessionId, frame);
+        frame.resolve();
+      } catch (cause) {
+        frame.reject(cause);
+      }
+      if (frame.state !== "delta") {
+        this.rememberCompletedStream(stream);
+        return;
+      }
+    }
+  }
+
+  private async nextFrame(stream: StreamDelivery): Promise<PendingStreamFrame> {
+    while (!stream.pending) {
+      await new Promise<void>((resolve) => { stream.wake = resolve; });
+    }
+    const frame = stream.pending;
+    stream.pending = undefined;
+    return frame;
+  }
+
+  private rememberCompletedStream(stream: StreamDelivery): void {
+    const key = this.streamKey(stream.sessionId, stream.emitId);
+    if (this.completedStreamSourceSeq.has(key)) return;
+    this.completedStreamSourceSeq.set(key, stream.highestSeenSourceSeq);
+    this.completedStreamOrder.push(key);
+    if (this.completedStreamOrder.length <= COMPLETED_STREAM_TOMBSTONE_LIMIT) return;
+    const expired = this.completedStreamOrder.shift();
+    if (expired) this.completedStreamSourceSeq.delete(expired);
+  }
+
+  private streamKey(sessionId: string, emitId: string): string {
+    return `${sessionId}\u0000${emitId}`;
+  }
+
+  private async handleLocked(
+    sessionId: string,
+    frame: PendingStreamFrame,
+  ): Promise<void> {
+    const { request, route, logger, sourceSeq, state: frameState } = frame;
+    const payload = request.payload;
     let writer = this.writers.get(sessionId);
     if (!writer) {
       writer = {

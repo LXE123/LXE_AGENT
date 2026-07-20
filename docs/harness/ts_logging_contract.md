@@ -51,7 +51,7 @@ Each Runtime turn has exactly one `turn_started` and exactly one terminal `turn_
 | Heartbeat | `heartbeat_requested`, `heartbeat_deduplicated`, `heartbeat_deferred`, `heartbeat_dropped`, `heartbeat_enqueued` |
 | Feishu ingress | `feishu_inbound_rejected`, `feishu_inbound_normalized`, `feishu_inbound_sink_completed`, `feishu_inbound_failed`, `feishu_quote_lookup_failed`, `feishu_card_content_fetch_failed` |
 | Feishu connection | `feishu_connection_starting`, `feishu_connected`, `feishu_reconnecting`, `feishu_reconnected`, `feishu_connection_failed`, `feishu_connection_stopped` |
-| CardKit delivery | `card_created`, `card_reference_retry_scheduled`, `card_reference_retry_succeeded`, `card_reference_retry_exhausted`, `card_send_completed`, `card_dead`, `card_finalized` |
+| CardKit delivery | `card_created`, `card_frame_coalesced`, `card_reference_retry_scheduled`, `card_reference_retry_succeeded`, `card_reference_retry_exhausted`, `card_send_completed`, `card_dead`, `card_finalized` |
 | Stream fallback | `stream_fallback_started`, `stream_fallback_completed`, `stream_fallback_failed` |
 | Idle restart | `feishu_restart_scheduled`, `feishu_restart_deferred`, `feishu_restart_started`, `feishu_restart_completed`, `feishu_restart_failed`, `feishu_restart_stop_timed_out` |
 | Background process | `process_started`, `process_yielded_to_background`, `process_completed`, `process_timeout`, `process_killed`, `process_force_killed`, `process_notification_enqueued`, `process_wake_requested`, `process_wake_unavailable` |
