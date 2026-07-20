@@ -145,7 +145,7 @@ describe("SqliteRuntimeStore", () => {
     inspected.close(true);
   });
 
-  test("replays legacy tool messages, replacements, and session_messages fallback", async () => {
+  test("rejects legacy session_messages and v1 transcripts with a migration hint", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-legacy-store-"));
     roots.push(root);
     const store = new SqliteRuntimeStore(join(root, "local_agent.sqlite3"));
@@ -157,49 +157,30 @@ describe("SqliteRuntimeStore", () => {
       JSON.stringify({ role: "tool", content: [{ type: "tool_result", tool_call_id: "call-1", content: "ok" }] }),
       "",
     ].join("\n"), "utf8");
-    expect(await store.loadMessages("fallback")).toEqual([
-      { role: "assistant", content: [{ type: "tool_call", id: "call-1", name: "echo", arguments: { text: "hi" } }] },
-      { role: "tool", content: [{ type: "tool_result", tool_call_id: "call-1", content: "ok" }] },
-    ]);
+    await expect(store.loadMessages("fallback")).rejects.toThrow("scripts/migrate-transcripts-v2.ts");
 
     mkdirSync(join(root, "session_transcripts"), { recursive: true });
     writeFileSync(join(root, "session_transcripts", "replacement.jsonl"), [
       JSON.stringify({ kind: "message", message: { role: "user", content: "discard me" } }),
       JSON.stringify({
         kind: "compaction",
-        replacement_history: [
-          { role: "user", content: "summary" },
-          { role: "assistant", content: [{ type: "tool_call", id: "call-2", name: "echo", arguments: {} }] },
-          { role: "tool", content: [{ type: "tool_result", tool_call_id: "call-2", content: "done" }] },
-        ],
+        replacement_history: [{ role: "user", content: "summary" }],
       }),
-      JSON.stringify({ kind: "message", message: { role: "user", content: "after" } }),
       "",
     ].join("\n"), "utf8");
-    expect(await store.loadMessages("replacement")).toEqual([
-      { role: "user", content: "summary" },
-      { role: "assistant", content: [{ type: "tool_call", id: "call-2", name: "echo", arguments: {} }] },
-      { role: "tool", content: [{ type: "tool_result", tool_call_id: "call-2", content: "done" }] },
-      { role: "user", content: "after" },
-    ]);
+    await expect(store.loadMessages("replacement")).rejects.toThrow("scripts/migrate-transcripts-v2.ts");
 
     writeFileSync(join(root, "session_transcripts", "early-bun.jsonl"), [
       JSON.stringify({
         kind: "message",
         message: { role: "assistant", content: [{ type: "tool_use", id: "old-1", name: "exec", input: {} }] },
       }),
-      JSON.stringify({
-        kind: "message",
-        message: { role: "user", content: [{ type: "tool_result", tool_use_id: "old-1", content: "done" }] },
-      }),
       "",
     ].join("\n"), "utf8");
-    expect(await store.loadMessages("early-bun")).toEqual([
-      { role: "assistant", content: [{ type: "tool_call", id: "old-1", name: "exec", arguments: {} }] },
-      { role: "tool", content: [{ type: "tool_result", tool_call_id: "old-1", content: "done" }] },
-    ]);
-    expect((await store.loadTranscriptDisplayPage("early-bun", { limit: 10 })).messages)
-      .toEqual(expect.arrayContaining([expect.objectContaining({ role: "user" })]));
+    await expect(store.loadMessages("early-bun")).rejects.toThrow("scripts/migrate-transcripts-v2.ts");
+
+    // A session without any persisted history still loads as empty.
+    expect(await store.loadMessages("fresh")).toEqual([]);
     await store.stop();
   });
 

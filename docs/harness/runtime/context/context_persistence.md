@@ -71,7 +71,7 @@ Provider 密钥、cookie、authorization header 和本地 secret 不进入 Conte
 
 ## 旧数据兼容
 
-Runtime 仍能读取早期 message envelope、旧 tool role 和带 `replacement_history` 的整段替换记录，但这条兼容路径只负责读取旧用户数据。当前版本的新写入一律使用 Transcript v2 的最小 `context_patch`。
+Runtime 只直接读取 Transcript v2。带 `replacement_history` 的 v1 整段替换事件、v1 工具块命名（`tool_use`/`tool_use_id`）以及 transcript 机制之前的 `session_messages/*.jsonl`，在加载时都会抛出错误并提示先用 `scripts/migrate-transcripts-v2.ts` 迁移。当前版本的新写入一律使用 Transcript v2 的最小 `context_patch`。
 
 ## 故障处理
 

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import { appendFile, mkdir, open, readFile, stat, truncate } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -21,7 +21,7 @@ import {
 import {
   applyTranscriptEvent,
   createContextPatchEvent,
-  normalizeTranscriptMessages,
+  legacyTranscriptMigrationHint,
   scanTranscriptBuffer,
   transcriptDisplayMarker,
   transcriptHeader,
@@ -531,10 +531,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
       raw = await readFile(path);
     } catch (error) {
       this.removeReplayCacheEntry(safeSessionId);
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return this.loadLegacyMessages(safeSessionId);
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return this.loadMessagesWithoutTranscript(safeSessionId);
       throw error;
     }
-    if (raw.length === 0) return this.loadLegacyMessages(safeSessionId);
+    if (raw.length === 0) return this.loadMessagesWithoutTranscript(safeSessionId);
     let messages: RuntimeMessage[] = [];
     const scanned = scanTranscriptBuffer(raw, 0, true);
     for (const { event } of scanned.lines) messages = applyTranscriptEvent(messages, event);
@@ -1414,16 +1414,12 @@ export class SqliteRuntimeStore implements RuntimeStore {
     return join(dirname(this.path), "session_transcripts", `${safe}.jsonl`);
   }
 
-  private loadLegacyMessages(sessionId: string): RuntimeMessage[] {
-    const safe = text(sessionId).replaceAll(/[^A-Za-z0-9_.-]/g, "_");
-    const path = join(dirname(this.path), "session_messages", `${safe}.jsonl`);
-    let raw: string;
-    try {
-      raw = readFileSync(path, "utf8");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw error;
+  private loadMessagesWithoutTranscript(safeSessionId: string): RuntimeMessage[] {
+    const safe = text(safeSessionId).replaceAll(/[^A-Za-z0-9_.-]/g, "_");
+    const legacyPath = join(dirname(this.path), "session_messages", `${safe}.jsonl`);
+    if (existsSync(legacyPath)) {
+      throw new Error(`session ${safe} still uses the legacy session_messages format; ${legacyTranscriptMigrationHint}`);
     }
-    return normalizeTranscriptMessages(raw.split(/\r?\n/).filter((line) => line.trim()).map(parseObject));
+    return [];
   }
 }

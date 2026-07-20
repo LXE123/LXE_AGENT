@@ -7,9 +7,8 @@ import { SqliteRuntimeStore } from "../../src/state/storage";
 import {
   applyTranscriptEvent,
   createContextPatchEvent,
-  migrateTranscriptText,
+  normalizeTranscriptMessage,
   parseTranscriptText,
-  replayTranscript,
   scanTranscriptBuffer,
 } from "../../src/state/transcript";
 import type { RuntimeMessage } from "../../src/engine/types";
@@ -21,39 +20,24 @@ afterEach(() => {
 });
 
 describe("Transcript v2", () => {
-  test("migrates full replacements into minimal, replay-equivalent patches", () => {
-    const repeated = "old answer ".repeat(500);
-    const raw = [
-      JSON.stringify({ kind: "message", message: { role: "user", content: "question" }, ts: 1 }),
-      JSON.stringify({ kind: "message", message: { role: "assistant", content: repeated }, ts: 2 }),
-      JSON.stringify({
-        kind: "replacement",
-        replacement_kind: "compaction",
-        replacement_history: [
-          { role: "user", content: "summary" },
-          { role: "assistant", content: repeated },
-        ],
-        compacted_count: 2,
-        ts: 3,
-      }),
-      JSON.stringify({ kind: "message", message: { role: "user", content: "next" }, ts: 4 }),
-      "",
-    ].join("\n");
-
-    const migrated = migrateTranscriptText(raw, "session-1", "2026-07-15T00:00:00.000Z");
-    const sourceEvents = parseTranscriptText(raw);
-    const targetEvents = parseTranscriptText(migrated.text);
-    expect(targetEvents[0]).toEqual(expect.objectContaining({ kind: "transcript_header", version: 2 }));
-    expect(targetEvents.find((event) => event.kind === "context_patch")).toEqual(expect.objectContaining({
-      start: 0,
-      delete_count: 1,
-      insert_messages: [{ role: "user", content: "summary" }],
-      patch_kind: "compaction",
-    }));
-    expect(migrated.text).not.toContain("replacement_history");
-    expect(replayTranscript(targetEvents)).toEqual(replayTranscript(sourceEvents));
-    expect(migrated.targetBytes).toBeLessThan(migrated.sourceBytes);
-    expect(migrateTranscriptText(migrated.text, "session-1")).toEqual(expect.objectContaining({ changed: false }));
+  test("rejects legacy v1 events and tool blocks with a migration hint", () => {
+    expect(() => applyTranscriptEvent([], {
+      kind: "replacement",
+      replacement_kind: "compaction",
+      replacement_history: [],
+    })).toThrow("scripts/migrate-transcripts-v2.ts");
+    expect(() => applyTranscriptEvent([], {
+      kind: "compaction",
+      replacement_history: [],
+    })).toThrow("scripts/migrate-transcripts-v2.ts");
+    expect(() => normalizeTranscriptMessage({
+      role: "assistant",
+      content: [{ type: "tool_use", id: "old-1", name: "exec", input: {} }],
+    })).toThrow("scripts/migrate-transcripts-v2.ts");
+    expect(() => normalizeTranscriptMessage({
+      role: "tool",
+      content: [{ type: "tool_result", tool_use_id: "old-1", content: "done" }],
+    })).toThrow("scripts/migrate-transcripts-v2.ts");
   });
 
   test("retains common context around a patch and rejects invalid ranges", () => {

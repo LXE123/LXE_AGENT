@@ -18,26 +18,26 @@ const text = (value: unknown): string => String(value ?? "").trim();
 const object = (value: unknown): JsonObject =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as JsonObject : {};
 
+export const legacyTranscriptMigrationHint =
+  "migrate this session first with scripts/migrate-transcripts-v2.ts";
+
 const normalizeLegacyBlock = (value: unknown): JsonObject | undefined => {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const block = { ...(value as JsonObject) };
   const type = text(block.type);
-  if (type === "tool_call" || type === "tool_use") {
+  if (type === "tool_use" || (type === "tool_result" && text(block.tool_use_id))) {
+    throw new Error(`transcript contains a legacy v1 "${type}" block; ${legacyTranscriptMigrationHint}`);
+  }
+  if (type === "tool_call") {
     return {
       type: "tool_call",
       id: text(block.id),
       name: text(block.name),
-      arguments: object(type === "tool_call" ? block.arguments : block.input),
+      arguments: object(block.arguments),
     };
   }
   if (type === "tool_result") {
-    const normalized: JsonObject = {
-      ...block,
-      type: "tool_result",
-      tool_call_id: text(block.tool_call_id) || text(block.tool_use_id),
-    };
-    delete normalized.tool_use_id;
-    return normalized;
+    return { ...block, type: "tool_result", tool_call_id: text(block.tool_call_id) };
   }
   return block;
 };
@@ -109,15 +109,11 @@ export const applyTranscriptEvent = (
     }
     return [...previous.slice(0, start), ...inserted, ...previous.slice(start + deleteCount)];
   }
-  const kind = transcriptReplacementKind(event);
-  if (!replacementKinds.has(kind) || !Array.isArray(event.replacement_history)) return previous;
-  return normalizeTranscriptMessages(event.replacement_history);
-};
-
-export const replayTranscript = (events: readonly JsonObject[]): RuntimeMessage[] => {
-  let messages: RuntimeMessage[] = [];
-  for (const event of events) messages = applyTranscriptEvent(messages, event);
-  return messages;
+  const kind = text(event.kind);
+  if (kind === "replacement" || replacementKinds.has(kind)) {
+    throw new Error(`transcript contains a legacy v1 "${kind}" event; ${legacyTranscriptMigrationHint}`);
+  }
+  return previous;
 };
 
 const sameMessage = (left: RuntimeMessage, right: RuntimeMessage): boolean =>
@@ -231,100 +227,3 @@ export const parseTranscriptText = (raw: string): JsonObject[] => raw.split(/\r?
   .map((line) => line.trim())
   .filter(Boolean)
   .map((line, index) => parseEvent(line, index + 1));
-
-const displayProjection = (events: readonly JsonObject[]): JsonObject[] => {
-  const result: JsonObject[] = [];
-  for (const event of events) {
-    if (text(event.kind) === "message") {
-      const message = object(event.message);
-      if (text(message.role)) result.push(structuredClone(message));
-      continue;
-    }
-    const marker = transcriptDisplayMarker(event);
-    if (marker) result.push(marker);
-  }
-  return result;
-};
-
-export interface TranscriptMigrationResult {
-  text: string;
-  changed: boolean;
-  sourceBytes: number;
-  targetBytes: number;
-  rawMessageCount: number;
-  patchCount: number;
-}
-
-export const migrateTranscriptText = (
-  raw: string,
-  sessionId: string,
-  createdAt = new Date().toISOString(),
-): TranscriptMigrationResult => {
-  const sourceEvents = parseTranscriptText(raw);
-  const first = sourceEvents[0];
-  if (first?.kind === "transcript_header" && Number(first.version) === TRANSCRIPT_VERSION) {
-    replayTranscript(sourceEvents);
-    return {
-      text: raw,
-      changed: false,
-      sourceBytes: Buffer.byteLength(raw),
-      targetBytes: Buffer.byteLength(raw),
-      rawMessageCount: sourceEvents.filter((event) => event.kind === "message").length,
-      patchCount: sourceEvents.filter((event) => event.kind === "context_patch").length,
-    };
-  }
-
-  const targetEvents: JsonObject[] = [transcriptHeader(sessionId, createdAt)];
-  let modelView: RuntimeMessage[] = [];
-  let patchCount = 0;
-  for (const event of sourceEvents) {
-    const replacementKind = transcriptReplacementKind(event);
-    if (replacementKinds.has(replacementKind) && Array.isArray(event.replacement_history)) {
-      const next = normalizeTranscriptMessages(event.replacement_history);
-      if (next.length !== event.replacement_history.length) {
-        throw new Error(`legacy transcript replacement contains an invalid message: ${sessionId}`);
-      }
-      const metadata = { ...event };
-      delete metadata.kind;
-      delete metadata.replacement_kind;
-      delete metadata.replacement_history;
-      delete metadata.ts;
-      targetEvents.push(createContextPatchEvent(
-        modelView,
-        next,
-        replacementKind,
-        metadata,
-        Number.isFinite(Number(event.ts)) ? Number(event.ts) : 0,
-      ));
-      modelView = next;
-      patchCount += 1;
-      continue;
-    }
-    targetEvents.push(event);
-    modelView = applyTranscriptEvent(modelView, event);
-    if (event.kind === "context_patch") patchCount += 1;
-  }
-
-  const sourceModel = replayTranscript(sourceEvents);
-  const targetModel = replayTranscript(targetEvents);
-  if (JSON.stringify(sourceModel) !== JSON.stringify(targetModel)) {
-    throw new Error(`transcript model replay changed during migration: ${sessionId}`);
-  }
-  if (JSON.stringify(displayProjection(sourceEvents)) !== JSON.stringify(displayProjection(targetEvents))) {
-    throw new Error(`transcript display projection changed during migration: ${sessionId}`);
-  }
-  const sourceRawMessages = sourceEvents.filter((event) => event.kind === "message").length;
-  const targetRawMessages = targetEvents.filter((event) => event.kind === "message").length;
-  if (sourceRawMessages !== targetRawMessages) {
-    throw new Error(`transcript raw message count changed during migration: ${sessionId}`);
-  }
-  const migrated = `${targetEvents.map((event) => JSON.stringify(event)).join("\n")}\n`;
-  return {
-    text: migrated,
-    changed: true,
-    sourceBytes: Buffer.byteLength(raw),
-    targetBytes: Buffer.byteLength(migrated),
-    rawMessageCount: sourceRawMessages,
-    patchCount,
-  };
-};
