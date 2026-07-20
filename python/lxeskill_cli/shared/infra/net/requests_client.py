@@ -10,8 +10,6 @@ from requests.adapters import HTTPAdapter
 
 
 class RequestsPurpose(str, Enum):
-    LLM = "llm"
-    OCR = "ocr"
     EXTERNAL = "external"
     LOCAL_SERVICE = "local_service"
 
@@ -36,18 +34,6 @@ class ManagedRequestsSession(requests.Session):
 
 
 _SESSION_OPTIONS: Dict[RequestsPurpose, RequestsSessionOptions] = {
-    RequestsPurpose.LLM: RequestsSessionOptions(
-        pool_connections=16,
-        pool_maxsize=16,
-        timeout_s=30,
-        headers={"User-Agent": "RobotCoze-LLM/1.0"},
-    ),
-    RequestsPurpose.OCR: RequestsSessionOptions(
-        pool_connections=8,
-        pool_maxsize=8,
-        timeout_s=30,
-        headers={"User-Agent": "RobotCoze-OCR/1.0"},
-    ),
     RequestsPurpose.EXTERNAL: RequestsSessionOptions(
         pool_connections=16,
         pool_maxsize=16,
@@ -116,8 +102,6 @@ class RequestsSessionProxy:
         return getattr(RequestsSessionRegistry.get(self._purpose), name)
 
 
-llm_requests_session = RequestsSessionProxy(RequestsPurpose.LLM)
-ocr_requests_session = RequestsSessionProxy(RequestsPurpose.OCR)
 external_requests_session = RequestsSessionProxy(RequestsPurpose.EXTERNAL)
 local_service_requests_session = RequestsSessionProxy(RequestsPurpose.LOCAL_SERVICE)
 
@@ -132,7 +116,5 @@ __all__ = [
     "RequestsSessionRegistry",
     "close_all_requests_sessions",
     "external_requests_session",
-    "llm_requests_session",
     "local_service_requests_session",
-    "ocr_requests_session",
 ]

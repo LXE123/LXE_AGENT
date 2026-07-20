@@ -13,6 +13,7 @@ REMOVED_PATHS = (
     "python/lxeskill_cli/shared/db/sqlite/session_messages.py",
     "python/lxeskill_cli/shared/db/sqlite/session_transcripts.py",
     "python/lxeskill_cli/shared/agent_state.py",
+    "python/lxeskill_cli/shared/infra/artifact_io.py",
     "python/lxeskill_cli/shared/media",
     "python/lxeskill_cli/services/browser/store/agent_tool_state.py",
     "python/lxeskill_cli/services/agent_cli/browser/amazon_fba/login_verify.py",
@@ -37,13 +38,6 @@ REMOVED_SYMBOLS = {
     "python/lxeskill_cli/shared/env_files.py": (
         "upsert_project_env_values",
         "upsert_project_local_config_values",
-    ),
-    "python/lxeskill_cli/shared/infra/artifact_io.py": (
-        "EXCEL_COLUMN_HIGHLIGHTS",
-        "write_excel_sheets",
-        "write_excel_single",
-        "write_json",
-        "write_markdown",
     ),
     "python/lxeskill_cli/shared/infra/net/aiohttp_client.py": ("get_aiohttp_session",),
     "python/lxeskill_cli/shared/infra/net/requests_client.py": ("get_requests_session",),

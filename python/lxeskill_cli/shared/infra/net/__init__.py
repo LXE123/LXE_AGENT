@@ -16,9 +16,7 @@ from .requests_client import (
     RequestsPurpose,
     close_all_requests_sessions,
     external_requests_session,
-    llm_requests_session,
     local_service_requests_session,
-    ocr_requests_session,
 )
 
 
@@ -38,9 +36,7 @@ __all__ = [
     "erp_http_session",
     "external_http_session",
     "external_requests_session",
-    "llm_requests_session",
     "local_service_requests_session",
     "log_network_snapshot",
     "network_snapshot",
-    "ocr_requests_session",
 ]
