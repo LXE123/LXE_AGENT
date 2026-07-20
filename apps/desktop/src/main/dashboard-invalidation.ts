@@ -14,7 +14,6 @@ export const ALL_DASHBOARD_DATA_DOMAINS: readonly DesktopDashboardDataDomain[] =
   "connectors",
   "skills",
   "tools",
-  "docs",
 ];
 
 export interface DashboardInvalidationDraft {

@@ -128,18 +128,9 @@ describe("Dashboard Query state", () => {
     expect(client.getQueryState(dashboardQueryKeys.sessions.detail("s-2", "latest"))?.isInvalidated).toBe(false);
   });
 
-  test("maps docs invalidation to docs and commands without storing payload content", async () => {
-    const client = createDashboardQueryClient();
-    client.setQueryData(dashboardQueryKeys.docs.list, { items: [] });
-    client.setQueryData(dashboardQueryKeys.commands.all, { items: [] });
-    await applyDashboardInvalidation(client, { revision: 2, domains: ["docs"], session_ids: [] });
-    expect(client.getQueryState(dashboardQueryKeys.docs.list)?.isInvalidated).toBe(true);
-    expect(client.getQueryState(dashboardQueryKeys.commands.all)?.isInvalidated).toBe(true);
-  });
-
   test("clears lifecycle-static data when Gateway becomes ready again", async () => {
     const client = createDashboardQueryClient();
-    client.setQueryData(dashboardQueryKeys.docs.list, { items: [{ path: "README.md" }] });
+    client.setQueryData(dashboardQueryKeys.models.list, { items: [{ provider: "test" }] });
     await applyDashboardInvalidation(client, {
       revision: 3,
       domains: [
@@ -151,10 +142,9 @@ describe("Dashboard Query state", () => {
         "connectors",
         "skills",
         "tools",
-        "docs",
       ],
       session_ids: [],
     });
-    expect(client.getQueryData(dashboardQueryKeys.docs.list)).toBeUndefined();
+    expect(client.getQueryData(dashboardQueryKeys.models.list)).toBeUndefined();
   });
 });

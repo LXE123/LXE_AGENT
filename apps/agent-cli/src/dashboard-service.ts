@@ -7,7 +7,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import {
   DashboardRpcError,
   type AgentDashboardRpcCall,
@@ -22,7 +22,7 @@ import {
   normalizeThinkingEffort,
   providerPreferencePatch,
   readProviderPreference,
-  runtimeConfigPaths,
+  runtimeConfigPathsFromRoot,
   SkillCatalog,
   type McpConfig,
   type LxeSkillCommandDefinition,
@@ -36,10 +36,12 @@ type Environment = Record<string, string | undefined>;
 
 /** Agent-process dependencies required by the Dashboard query service. */
 interface DashboardServiceOptions {
-  /** Read-only application resources containing config schemas, skills, and docs. */
-  projectRoot: string;
-  /** Writable desktop/source state. Defaults to projectRoot for source compatibility. */
-  stateRoot?: string;
+  /** Writable desktop/source state. */
+  stateRoot: string;
+  /** Read-only provider schemas and auth profile metadata. */
+  llmConfigRoot: string;
+  /** Read-only repository-owned Skill directory. */
+  skillsRoot: string;
   environment: Environment;
   store: SqliteRuntimeStore;
   tools: ToolRegistry;
@@ -202,20 +204,6 @@ export const dashboardSessionDetailPreview = (detail: JsonObject): JsonObject =>
   return preview;
 };
 
-const recursiveFiles = (root: string, predicate: (path: string) => boolean): string[] => {
-  if (!existsSync(root)) return [];
-  const output: string[] = [];
-  const walk = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) walk(path);
-      else if (entry.isFile() && predicate(path)) output.push(path);
-    }
-  };
-  walk(root);
-  return output.sort((left, right) => left.localeCompare(right));
-};
-
 const safeChild = (root: string, rawPath: string, extension?: string): string | undefined => {
   const requested = rawPath.replaceAll("\\", "/");
   if (!requested || requested.startsWith("/") || requested.startsWith("~") || requested.includes(":")) return undefined;
@@ -227,19 +215,6 @@ const safeChild = (root: string, rawPath: string, extension?: string): string | 
   const relation = relative(rootPath, candidate);
   if (relation === ".." || relation.startsWith(`..${sep}`)) return undefined;
   return candidate;
-};
-
-const markdownTitle = (content: string, fallback: string): string => {
-  const heading = content.split(/\r?\n/).find((line) => line.trim().startsWith("# "));
-  return heading?.trim().slice(2).trim() || fallback;
-};
-
-const markdownStatus = (content: string): string => {
-  for (const line of content.split(/\r?\n/).slice(0, 20)) {
-    const match = line.trim().match(/^(?:status|状态)\s*[:：]\s*(.+)$/i);
-    if (match?.[1]) return match[1].trim().replace(/^['"]|['"]$/g, "");
-  }
-  return "";
 };
 
 const loadJson = (path: string): Record<string, unknown> => object(JSON.parse(readFileSync(path, "utf8")));
@@ -264,8 +239,6 @@ export class DashboardService {
     "skills.content": (input) => this.skillContent(input.name) as DashboardRpcResult<"skills.content">,
     "skills.reference": (input) => this.skillReference(input.name, input.path) as DashboardRpcResult<"skills.reference">,
     "commands.list": () => this.listPayload(this.options.cliCommands ?? []) as DashboardRpcResult<"commands.list">,
-    "docs.list": () => this.listPayload(this.docs()) as DashboardRpcResult<"docs.list">,
-    "docs.content": (input) => this.doc(input.path) as DashboardRpcResult<"docs.content">,
     "connectors.list": () => this.listPayload(this.connectors()) as DashboardRpcResult<"connectors.list">,
     "connectors.update": (input) => this.updateConnector(input) as Promise<DashboardRpcResult<"connectors.update">>,
     "toolsets.list": () => this.listPayload(this.toolsets()) as DashboardRpcResult<"toolsets.list">,
@@ -294,8 +267,10 @@ export class DashboardService {
   constructor(private readonly options: DashboardServiceOptions) {
     this.connectorStatePath = options.connectorStatePath
       ?? (text(options.environment.LXE_CONNECTOR_STATE_PATH)
-        || join(options.stateRoot ?? options.projectRoot, "config", "connector-states.local.json"));
-    this.skillCatalog = options.skillCatalog ?? new SkillCatalog(options.projectRoot);
+        || join(options.stateRoot, "config", "connector-states.local.json"));
+    this.skillCatalog = options.skillCatalog ?? new SkillCatalog(options.stateRoot, undefined, {
+      repositorySkillsRoot: options.skillsRoot,
+    });
   }
 
   async call<O extends AgentDashboardRpcOperation>(
@@ -390,32 +365,6 @@ export class DashboardService {
       references: manifest.references,
       ...(includeContent ? { content: manifest.content } : {}),
     };
-  }
-
-  private docs(): JsonObject[] {
-    const root = join(this.options.projectRoot, "docs");
-    return recursiveFiles(root, (path) => extname(path).toLowerCase() === ".md").map((path) => {
-      const content = readFileSync(path, "utf8");
-      const relativePath = relative(root, path).replaceAll("\\", "/");
-      const parent = dirname(relativePath).replaceAll("\\", "/");
-      return {
-        path: relativePath,
-        title: markdownTitle(content, basename(relativePath, ".md").replaceAll(/[-_]/g, " ")),
-        section: parent === "." ? "" : parent,
-        status: markdownStatus(content),
-        size: statSync(path).size,
-      };
-    });
-  }
-
-  private doc(path: string): JsonObject {
-    const file = safeChild(join(this.options.projectRoot, "docs"), path, ".md");
-    if (!file || !existsSync(file)) rpcError("not_found", "project doc not found");
-    const relativePath = relative(join(this.options.projectRoot, "docs"), file).replaceAll("\\", "/");
-    const item = this.docs().find((doc) => doc.path === relativePath);
-    return item
-      ? { ...item, content: readFileSync(file, "utf8") }
-      : rpcError("not_found", "project doc not found");
   }
 
   private connectorState(): { enabled: string[]; everConnected: string[]; userDisabled: string[] } {
@@ -545,7 +494,7 @@ export class DashboardService {
   }
 
   private providerSpecs(): Record<string, unknown>[] {
-    const providerRoot = runtimeConfigPaths(this.options.projectRoot).providers;
+    const providerRoot = runtimeConfigPathsFromRoot(this.options.llmConfigRoot).providers;
     if (!existsSync(providerRoot)) return [];
     return readdirSync(providerRoot)
       .filter((name) => name.endsWith(".json"))
@@ -667,7 +616,7 @@ export class DashboardService {
 
   private authEnvNames(provider: string): string[] {
     try {
-      const profiles = object(loadJson(runtimeConfigPaths(this.options.projectRoot).authProfiles).profiles);
+      const profiles = object(loadJson(runtimeConfigPathsFromRoot(this.options.llmConfigRoot).authProfiles).profiles);
       const names = object(profiles[provider]).env_names;
       return Array.isArray(names) ? names.map(text) : [];
     } catch {
@@ -780,7 +729,7 @@ export class DashboardService {
   }
 
   private persistEnvironment(values: Record<string, string>): void {
-    const path = join(this.options.stateRoot ?? this.options.projectRoot, ".env.local");
+    const path = join(this.options.stateRoot, ".env.local");
     let lines: string[] = [];
     try { lines = readFileSync(path, "utf8").split(/\r?\n/); } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

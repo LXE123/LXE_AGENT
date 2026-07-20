@@ -21,10 +21,10 @@ from services.mabang.amazon.fba.consignment_excel import (
     find_consignment_excel,
     resolve_column,
 )
-from shared.workspace import artifact_path, bundled_path
+from shared.workspace import artifact_path, resolve_workspace_input
 
 SOURCE = "customs_declaration_fill"
-DEFAULT_TEMPLATE_PATH = bundled_path("data", "customs_declaration", "custom_declaration_documents.xlsx")
+DEFAULT_TEMPLATE_PATH = Path("data/customs_declaration/custom_declaration_documents.xlsx")
 DEFAULT_OUTPUT_DIR = artifact_path("customs_declaration")
 SOURCE_WORKSHEET_NAME = SUMMARY_WORKSHEET_NAME
 INPUT_HEADERS = SUMMARY_HEADERS
@@ -1790,7 +1790,7 @@ def fill_customs_declaration(
         )
     )
 
-    template_path = Path(DEFAULT_TEMPLATE_PATH if template_xlsx is None else template_xlsx)
+    template_path = resolve_workspace_input(DEFAULT_TEMPLATE_PATH if template_xlsx is None else template_xlsx)
     if not template_path.is_file():
         raise FileNotFoundError(f"报关资料模板不存在: {template_path}")
 

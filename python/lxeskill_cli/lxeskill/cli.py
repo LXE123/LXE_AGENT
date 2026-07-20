@@ -10,7 +10,8 @@ from lxeskill.business import ArtifactPathError, execute_module_json, load_catal
 from lxeskill.browser import BrowserCliError, execute_browser_command
 from shared.infra.net import bootstrap_network_policy
 from shared.logging import get_logger, setup_logging
-from shared.workspace import activate_project_workspace, project_root, resolve_workspace_input
+from shared.repository import skills_root
+from shared.workspace import activate_project_workspace, resolve_workspace_input
 
 
 logger = get_logger(__name__)
@@ -19,7 +20,6 @@ EXIT_USAGE = 2
 EXIT_ENVIRONMENT = 3
 EXIT_BUSINESS = 4
 EXIT_INTERNAL = 5
-PROJECT_ROOT = project_root()
 
 
 class LxeSkillError(RuntimeError):
@@ -290,7 +290,7 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
 def _run_doctor(catalog: dict[str, dict[str, Any]]) -> int:
     from lxeskill.contract import validate_skill_command_contract
 
-    report = validate_skill_command_contract(catalog, project_root=PROJECT_ROOT)
+    report = validate_skill_command_contract(catalog, skills_root=skills_root())
     if report.ok:
         _emit({"type": "result", "command": "doctor", "ok": True, "data": report.stats_payload(), "files": []})
         return 0

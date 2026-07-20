@@ -20,7 +20,7 @@ import type {
   DesktopSetupInput,
   DesktopSetupState,
 } from "@lxe/desktop-protocol";
-import { loadProjectEnv } from "@lxe/gateway/desktop";
+import { loadProjectEnv, loadRuntimeEnv } from "@lxe/gateway/desktop";
 import { IPC_CHANNELS } from "./ipc-channels";
 import { registerDashboardProtocol } from "./main/app-protocol";
 import { createTrayIcon } from "./main/brand";
@@ -46,6 +46,7 @@ import {
 } from "./main/launch-mode";
 import { bootstrapDesktopState } from "./main/migration";
 import { resolveDesktopPaths } from "./main/paths";
+import { verifyDesktopResourceManifest } from "./main/resource-integrity";
 import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./main/runtime-state";
 import { desktopWindowAppearance } from "./main/window-options";
 import { WindowsWireGuardProvisioner } from "./main/wireguard-provisioner";
@@ -136,13 +137,20 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
 async function bootstrap(): Promise<void> {
   const desktopEnvironment = process.env;
   const paths = desktopPaths;
+  if (packagedRuntime) {
+    await verifyDesktopResourceManifest(
+      paths.resourceRoot,
+      paths.resourceManifestPath,
+      `${desktopPlatform}-${process.arch}`,
+    );
+  }
   const brandAssets = resolveDesktopBrandAssets({
     packaged: app.isPackaged,
     platform: desktopPlatform,
     resourcesPath: process.resourcesPath,
     sourceRoot: paths.sourceRoot,
   });
-  bootstrapDesktopState(paths.resourceRoot, paths.dataRoot);
+  bootstrapDesktopState(paths.mcpDefaultPath, paths.dataRoot);
   const config = new DesktopConfigStore(
     paths.dataRoot,
     paths.defaultWorkspaceRoot,
@@ -151,7 +159,7 @@ async function bootstrap(): Promise<void> {
   );
   config.migrateLegacyEnvironment({
     environment: {
-      ...loadProjectEnv({ projectRoot: paths.resourceRoot, initial: desktopEnvironment }),
+      ...loadRuntimeEnv({ runtimeEnvPath: paths.runtimeEnvPath, initial: desktopEnvironment }),
       ...loadProjectEnv({ projectRoot: paths.dataRoot, initial: {} }),
     },
     managedFiles: [join(paths.dataRoot, ".env"), join(paths.dataRoot, ".env.local")],
@@ -173,7 +181,7 @@ async function bootstrap(): Promise<void> {
   const logging = new DesktopLoggingManager({
     dataRoot: paths.dataRoot,
     environment: () => ({
-      ...loadProjectEnv({ projectRoot: paths.resourceRoot, initial: desktopEnvironment }),
+      ...loadRuntimeEnv({ runtimeEnvPath: paths.runtimeEnvPath, initial: desktopEnvironment }),
       ...loadProjectEnv({ projectRoot: paths.dataRoot, initial: {} }),
       ...config.environment(),
     }),

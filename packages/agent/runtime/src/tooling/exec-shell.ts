@@ -137,11 +137,8 @@ export class ExecShellAdapter {
 
   lxeSkillArgv(root: string): string[] | undefined {
     const fileExists = this.options.fileExists ?? existsSync;
-    const resourceRoot = String(
-      this.environment.LXE_RESOURCE_ROOT ?? this.environment.LXE_ROOT ?? "",
-    ).trim() || root;
     const python = String(this.environment.LXE_MANAGED_PYTHON ?? "").trim()
-      || projectPythonPath(resourceRoot, this.platform);
+      || projectPythonPath(root, this.platform);
     return fileExists(python) ? [python, "-I", "-m", "lxeskill"] : undefined;
   }
 
@@ -219,17 +216,22 @@ export class ExecShellAdapter {
     const managedPath = String(this.environment.LXE_MANAGED_PATH ?? "").trim();
     const pathEntries = (managedPath ? [managedPath, inheritedPath] : [projectBin, inheritedPath])
       .filter(Boolean);
-    const resourceRoot = String(this.environment.LXE_RESOURCE_ROOT ?? "").trim() || root;
     const projectVenv = projectVenvPath(root, this.platform);
+    const {
+      LXE_AGENT_SOUL_PATH: _agentSoulPath,
+      LXE_LXESKILL_CATALOG_PATH: _runtimeCatalogPath,
+      LXE_LLM_CONFIG_ROOT: _llmConfigRoot,
+      LXE_ROOT: _legacyRoot,
+      LXE_RESOURCE_ROOT: _legacyResourceRoot,
+      ...childEnvironment
+    } = this.environment;
     return {
-      ...this.environment,
+      ...childEnvironment,
       PATH: pathEntries.join(pathSeparator),
       ...(managedPath ? {} : { VIRTUAL_ENV: projectVenv }),
       PYTHONIOENCODING: "utf-8",
       PYTHONUTF8: "1",
       PYTHONNOUSERSITE: "1",
-      LXE_ROOT: resourceRoot,
-      LXE_RESOURCE_ROOT: resourceRoot,
       LXE_WORKSPACE_ROOT: root,
       LXE_AGENT_SESSION_ID: context.sessionId,
       LXE_RESPONSE_ROUTE_ID: context.responseRouteId,

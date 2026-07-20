@@ -12,7 +12,6 @@ from shared.repository import repository_root
 
 ALL = "*"
 POLICY_PATH_ENV = "LXE_PERMISSION_POLICY_PATH"
-DEFAULT_PERMISSION_POLICY_PATH = repository_root() / "config" / "permission_policy.yaml"
 
 
 class PermissionPolicyError(ValueError):
@@ -62,7 +61,7 @@ def permission_policy_path(path: str | Path | None = None) -> Path:
     configured = clean_text(os.getenv(POLICY_PATH_ENV))
     if configured:
         return Path(configured).expanduser()
-    return DEFAULT_PERMISSION_POLICY_PATH
+    return repository_root() / "config" / "permission_policy.yaml"
 
 
 def load_permission_policy_data(path: str | Path | None = None) -> dict[str, Any]:
@@ -197,7 +196,6 @@ def load_permission_policy(path: str | Path | None = None) -> PermissionPolicy:
 
 __all__ = [
     "ALL",
-    "DEFAULT_PERMISSION_POLICY_PATH",
     "POLICY_PATH_ENV",
     "PermissionPolicy",
     "PermissionPolicyError",

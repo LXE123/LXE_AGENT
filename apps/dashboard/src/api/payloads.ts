@@ -1,10 +1,7 @@
 // Dashboard wire payloads live with the RPC contract. This module keeps the
 // existing Renderer import surface and owns UI-only view models.
 
-import type {
-  ProjectDocPayload,
-  SessionMessage,
-} from "@lxe/desktop-protocol";
+import type { SessionMessage } from "@lxe/desktop-protocol";
 
 export type {
   ApiList,
@@ -21,8 +18,6 @@ export type {
   ModelMutationPayload,
   ModelOptionPayload,
   ModelPayload,
-  ProjectDocContentPayload,
-  ProjectDocPayload,
   SessionDetailPayload,
   SessionListPayload,
   SessionMessage,
@@ -61,21 +56,3 @@ export type SkillContentView = {
 };
 
 export type SkillContentMode = "preview" | "source";
-
-export type DocsContentMode = "preview" | "source";
-
-export type DocsTreeFileNode = {
-  kind: "file";
-  name: string;
-  path: string;
-  doc: ProjectDocPayload;
-};
-
-export type DocsTreeFolderNode = {
-  kind: "folder";
-  name: string;
-  path: string;
-  children: DocsTreeNode[];
-};
-
-export type DocsTreeNode = DocsTreeFileNode | DocsTreeFolderNode;

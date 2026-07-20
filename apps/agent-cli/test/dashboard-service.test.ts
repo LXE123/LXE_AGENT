@@ -70,11 +70,9 @@ describe("DashboardService", () => {
     expect(previewBytes).toBeLessThanOrEqual(DASHBOARD_TOOL_RESULT_PAGE_PREVIEW_BYTES);
   });
 
-  test("serves the production session, docs, skill, connector, tool, stats, and task contracts", async () => {
+  test("serves the production session, skill, connector, tool, stats, and task contracts", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-api-"));
     roots.push(root);
-    mkdirSync(join(root, "docs"), { recursive: true });
-    writeFileSync(join(root, "docs", "guide.md"), "# Guide\n\nstatus: ready\n", "utf8");
     mkdirSync(join(root, "skills", "demo", "references"), { recursive: true });
     writeFileSync(join(root, "skills", "demo", "SKILL.md"), [
       "---", "name: demo", "description: Demo skill", "type: default", "commands: [scripts.demo]", "references:",
@@ -183,7 +181,9 @@ describe("DashboardService", () => {
       },
     };
     const service = new DashboardService({
-      projectRoot: root,
+      stateRoot: root,
+      llmConfigRoot: join(root, "config", "llm"),
+      skillsRoot: join(root, "skills"),
       environment,
       store,
       tools,
@@ -224,12 +224,6 @@ describe("DashboardService", () => {
     expect(await call({ operation: "sessions.workspace.reload", input: { session_id: "session-one" } }))
       .toMatchObject({ changed: true, generation: 2 });
     expect(workspaceReloads).toEqual(["session-one"]);
-    expect(await call({ operation: "docs.list", input: {} }))
-      .toMatchObject({ items: [{ path: "guide.md", title: "Guide" }], total: 1 });
-    expect(await call({ operation: "docs.content", input: { path: "guide.md" } }))
-      .toMatchObject({ path: "guide.md", content: "# Guide\n\nstatus: ready\n" });
-    await expect(call({ operation: "docs.content", input: { path: "../SOUL.md" } }))
-      .rejects.toMatchObject({ code: "not_found", message: "project doc not found" });
     expect(await call({ operation: "skills.list", input: {} })).toMatchObject({
       items: [{ name: "demo", commands: ["scripts.demo"], references: [{ path: "references/help.md" }] }],
     });
@@ -330,7 +324,9 @@ describe("DashboardService", () => {
       DEEPSEEK_API: "deepseek-key",
     });
     const restartedService = new DashboardService({
-      projectRoot: root,
+      stateRoot: root,
+      llmConfigRoot: join(root, "config", "llm"),
+      skillsRoot: join(root, "skills"),
       environment: restartedEnvironment,
       store,
       tools,

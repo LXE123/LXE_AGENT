@@ -10,6 +10,14 @@ import { testWorkspace, workspaceFor } from "../workspace";
 
 const runtimes: ProcessAgentRuntime[] = [];
 const temporaryRoots: string[] = [];
+const resourcePaths = (root: string) => ({
+  agentSoulPath: join(root, "SOUL.md"),
+  skillsRoot: join(root, "skills"),
+  lxeskillCatalogPath: join(root, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
+  llmConfigRoot: join(root, "config", "llm"),
+  runtimeEnvPath: join(root, "config", "runtime.env"),
+  permissionPolicyPath: join(root, "config", "permission_policy.yaml"),
+});
 const agentJob = (): AgentJob => ({
   job_id: "job-1",
   session_id: "session-1",
@@ -43,7 +51,7 @@ describe("ProcessAgentRuntime", () => {
       arguments: [fixture],
       cwd: process.cwd(),
       environment: { ...process.env, FAKE_SESSION_CHANGE_EVENT: "1" },
-      resourceRoot: process.cwd(),
+      ...resourcePaths(process.cwd()),
       dataRoot: process.cwd(),
       legacyWorkspace: testWorkspace,
       onEvent: (event) => { events.push(event); },
@@ -74,7 +82,7 @@ describe("ProcessAgentRuntime", () => {
       arguments: [fixture],
       cwd: process.cwd(),
       environment: process.env,
-      resourceRoot: process.cwd(),
+      ...resourcePaths(process.cwd()),
       dataRoot: process.cwd(),
       legacyWorkspace: testWorkspace,
       onStatus: (status) => states.push(status.state),
@@ -106,7 +114,7 @@ describe("ProcessAgentRuntime", () => {
       arguments: [fixture],
       cwd: process.cwd(),
       environment: { ...process.env, FAKE_LXESKILL_UNAVAILABLE: "1" },
-      resourceRoot: process.cwd(),
+      ...resourcePaths(process.cwd()),
       dataRoot: process.cwd(),
       legacyWorkspace: testWorkspace,
     });
@@ -130,7 +138,7 @@ describe("ProcessAgentRuntime", () => {
       arguments: [fixture],
       cwd: process.cwd(),
       environment: { ...process.env, FAKE_LOGGING_FAILURE_EVENT: "1" },
-      resourceRoot: process.cwd(),
+      ...resourcePaths(process.cwd()),
       dataRoot: process.cwd(),
       legacyWorkspace: testWorkspace,
       onStatus: (status) => statuses.push(status),
@@ -165,7 +173,7 @@ describe("ProcessAgentRuntime", () => {
       arguments: [fixture],
       cwd: process.cwd(),
       environment: { ...process.env, FAKE_AGENT_CRASH_MARKER: crashMarker },
-      resourceRoot: process.cwd(),
+      ...resourcePaths(process.cwd()),
       dataRoot: root,
       legacyWorkspace: workspaceFor(root),
       requestTimeoutMs: 2_000,
@@ -203,7 +211,7 @@ describe("ProcessAgentRuntime", () => {
         arguments: [fixture],
         cwd: process.cwd(),
         environment: { ...process.env, FAKE_RUN_TURN_RESULT: resultMode },
-        resourceRoot: process.cwd(),
+        ...resourcePaths(process.cwd()),
         dataRoot: process.cwd(),
         legacyWorkspace: testWorkspace,
       });
@@ -225,7 +233,7 @@ describe("ProcessAgentRuntime", () => {
       arguments: [fixture],
       cwd: process.cwd(),
       environment: process.env,
-      resourceRoot: process.cwd(),
+      ...resourcePaths(process.cwd()),
       dataRoot: process.cwd(),
       legacyWorkspace: testWorkspace,
     });

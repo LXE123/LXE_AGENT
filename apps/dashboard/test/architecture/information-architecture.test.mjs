@@ -12,7 +12,7 @@ const tools = readFileSync(path.join(sourceDir, "features/tools/view.tsx"), "utf
 const integrations = readFileSync(path.join(sourceDir, "features/integrations/view.tsx"), "utf8");
 const skills = readFileSync(path.join(sourceDir, "features/skills/view.tsx"), "utf8");
 
-test("sidebar exposes four primary destinations and a separated docs utility", () => {
+test("sidebar exposes only the four primary destinations", () => {
   const primaryTabs = main.match(/const tabs:[^=]+ = \[([\s\S]*?)\n\s*\];/)?.[1] ?? "";
   for (const id of ["home", "sessions", "capabilities", "activity"]) {
     assert.match(primaryTabs, new RegExp(`\\{ id: "${id}", label:`));
@@ -20,8 +20,7 @@ test("sidebar exposes four primary destinations and a separated docs utility", (
   for (const id of ["models", "skills", "tools", "mcp", "connectors", "background-tasks", "stats", "docs"]) {
     assert.doesNotMatch(primaryTabs, new RegExp(`\\{ id: "${id}", label:`));
   }
-  assert.match(main, /className="sidebar-utility"/);
-  assert.match(styles, /\.sidebar-utility\s*\{[^}]*margin-top:\s*auto;[^}]*border-top:/);
+  assert.doesNotMatch(main, /sidebar-utility|tab-docs/);
 });
 
 test("capabilities and activity use compact child navigation", () => {

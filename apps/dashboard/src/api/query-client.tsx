@@ -31,7 +31,7 @@ export function createDashboardQueryClient(): QueryClient {
   });
 }
 
-const domainKeys: Record<Exclude<DesktopDashboardDataDomain, "sessions" | "docs">, readonly unknown[]> = {
+const domainKeys: Record<Exclude<DesktopDashboardDataDomain, "sessions">, readonly unknown[]> = {
   stats: dashboardQueryKeys.stats.all,
   background_tasks: dashboardQueryKeys.backgroundTasks.all,
   channels: dashboardQueryKeys.channelHealth.all,
@@ -50,7 +50,6 @@ const allDomains = new Set<DesktopDashboardDataDomain>([
   "connectors",
   "skills",
   "tools",
-  "docs",
 ]);
 
 export async function applyDashboardInvalidation(
@@ -80,11 +79,6 @@ export async function applyDashboardInvalidation(
       } else {
         tasks.push(queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.details }));
       }
-      continue;
-    }
-    if (domain === "docs") {
-      tasks.push(queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.docs.all }));
-      tasks.push(queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.commands.all }));
       continue;
     }
     tasks.push(queryClient.invalidateQueries({ queryKey: domainKeys[domain] }));

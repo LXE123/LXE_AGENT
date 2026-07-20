@@ -18,6 +18,17 @@ const workspace = (root: string) => ({
   worktree: root,
 });
 
+const initializePayload = (root: string) => ({
+  agent_soul_path: join(root, "SOUL.md"),
+  skills_root: join(root, "skills"),
+  lxeskill_catalog_path: join(root, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
+  llm_config_root: join(root, "config", "llm"),
+  runtime_env_path: join(root, "config", "runtime.env"),
+  permission_policy_path: join(root, "config", "permission_policy.yaml"),
+  data_root: root,
+  legacy_workspace: workspace(root),
+});
+
 const turnJob = (root: string) => ({
   job_id: "job-1",
   session_id: "session-1",
@@ -74,7 +85,7 @@ describe("AgentProtocolServer", () => {
       version: AGENT_PROTOCOL_VERSION,
       id: "initialize-session-change",
       command: "initialize",
-      payload: { resource_root: root, data_root: root, legacy_workspace: workspace(root) },
+      payload: initializePayload(root),
     }));
     await notify?.("session-1", "messages");
     await notify?.("session-1", "usage");
@@ -152,7 +163,7 @@ describe("AgentProtocolServer", () => {
       version: AGENT_PROTOCOL_VERSION,
       id: "initialize-1",
       command: "initialize",
-      payload: { resource_root: root, data_root: root, legacy_workspace: workspace(root) },
+      payload: initializePayload(root),
     }));
     await server.accept(JSON.stringify({
       version: AGENT_PROTOCOL_VERSION,
@@ -203,7 +214,7 @@ describe("AgentProtocolServer", () => {
       version: AGENT_PROTOCOL_VERSION,
       id: "initialize-empty-steering",
       command: "initialize",
-      payload: { resource_root: root, data_root: root, legacy_workspace: workspace(root) },
+      payload: initializePayload(root),
     }));
     await server.accept(JSON.stringify({
       version: AGENT_PROTOCOL_VERSION,
@@ -245,7 +256,7 @@ describe("AgentProtocolServer", () => {
       version: AGENT_PROTOCOL_VERSION,
       id: "initialize-dashboard",
       command: "initialize",
-      payload: { resource_root: root, data_root: root, legacy_workspace: workspace(root) },
+      payload: initializePayload(root),
     }));
     await server.accept(JSON.stringify({
       version: AGENT_PROTOCOL_VERSION,
@@ -279,7 +290,7 @@ describe("AgentProtocolServer", () => {
       version: AGENT_PROTOCOL_VERSION,
       id: "initialize-failed",
       command: "initialize",
-      payload: { resource_root: root, data_root: root, legacy_workspace: workspace(root) },
+      payload: initializePayload(root),
     }));
     await server.accept(JSON.stringify({
       version: AGENT_PROTOCOL_VERSION,
@@ -331,11 +342,7 @@ describe("AgentProtocolServer", () => {
         version: AGENT_PROTOCOL_VERSION,
         id: "initialize-1",
         command: "initialize",
-        payload: {
-          resource_root: root,
-          data_root: root,
-          legacy_workspace: workspace(root),
-        },
+        payload: initializePayload(root),
       }));
 
       const response = output.find((message): message is AgentResponse =>

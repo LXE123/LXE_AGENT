@@ -9,7 +9,8 @@ import re
 from typing import Any, Callable
 
 from shared.logging import get_logger
-from shared.workspace import artifact_root, project_root, resolve_workspace_input
+from shared.repository import skills_root
+from shared.workspace import artifact_root, resolve_workspace_input
 
 
 logger = get_logger(__name__)
@@ -102,7 +103,7 @@ def allowed_output_file(raw_path: str, *, owner_skills: list[str] | tuple[str, .
     if not resolved.is_file():
         raise ArtifactPathError(f"business CLI returned a path that is not a regular file: {raw_path}")
     roots = [artifact_root().resolve()]
-    roots.extend((project_root() / "skills" / skill / "assets").resolve() for skill in owner_skills)
+    roots.extend((skills_root() / skill / "assets").resolve() for skill in owner_skills)
     if not any(_is_within(resolved, root) for root in roots):
         raise ArtifactPathError(f"business CLI returned a file outside allowed artifact roots: {raw_path}")
     return resolved

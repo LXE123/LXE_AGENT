@@ -7,7 +7,10 @@ export interface RuntimeConfigPaths {
 }
 
 export function runtimeConfigPaths(projectRoot: string): RuntimeConfigPaths {
-  const root = join(projectRoot, "config", "llm");
+  return runtimeConfigPathsFromRoot(join(projectRoot, "config", "llm"));
+}
+
+export function runtimeConfigPathsFromRoot(root: string): RuntimeConfigPaths {
   return {
     root,
     providers: join(root, "providers"),

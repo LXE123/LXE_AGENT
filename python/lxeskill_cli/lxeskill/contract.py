@@ -53,18 +53,18 @@ def _command_text(entry: dict[str, Any]) -> str:
     return " ".join(str(item) for item in list(entry.get("command_path") or []))
 
 
-def _relative_path(path: Path, project_root: Path) -> str:
+def _relative_path(path: Path, skills_root: Path) -> str:
     try:
-        return path.relative_to(project_root).as_posix()
+        return f"skills/{path.relative_to(skills_root).as_posix()}"
     except ValueError:
         return path.name
 
 
 def _read_skill_commands(
     path: Path,
-    project_root: Path,
+    skills_root: Path,
 ) -> tuple[list[str], SkillContractViolation | None]:
-    relative_path = _relative_path(path, project_root)
+    relative_path = _relative_path(path, skills_root)
     try:
         content = path.read_text(encoding="utf-8")
     except OSError as exc:
@@ -105,11 +105,10 @@ def _read_skill_commands(
 def validate_skill_command_contract(
     catalog: dict[str, dict[str, Any]],
     *,
-    project_root: Path,
+    skills_root: Path,
 ) -> SkillContractReport:
-    root = project_root.resolve()
-    skills_root = root / "skills"
-    skill_paths = sorted(skills_root.glob("**/SKILL.md"))
+    root = skills_root.resolve()
+    skill_paths = sorted(root.glob("**/SKILL.md"))
     violations: list[SkillContractViolation] = []
     parsed_commands: dict[str, set[str]] = {}
     invalid_skills: set[str] = set()
@@ -141,7 +140,7 @@ def validate_skill_command_contract(
             violations.append(
                 SkillContractViolation(
                     "catalog_command_owner_missing",
-                    "python/lxeskill_cli/lxeskill/catalog.json",
+                    "lxeskill/catalog.json",
                     f"Catalog command has no owner Skill: {command}",
                 )
             )
@@ -149,7 +148,7 @@ def validate_skill_command_contract(
         canonical_owners[command] = owners[0]
         owner_skills.update(owners)
         for owner in owners:
-            owner_path = skills_root / owner / "SKILL.md"
+            owner_path = root / owner / "SKILL.md"
             if not owner_path.is_file():
                 violations.append(
                     SkillContractViolation(
@@ -161,7 +160,7 @@ def validate_skill_command_contract(
 
     declared_owners: dict[str, str] = {}
     for skill_name, commands in parsed_commands.items():
-        skill_path = skills_root / skill_name / "SKILL.md"
+        skill_path = root / skill_name / "SKILL.md"
         relative_path = _relative_path(skill_path, root)
         for command in sorted(commands):
             existing_owner = declared_owners.get(command)
@@ -199,7 +198,7 @@ def validate_skill_command_contract(
     for command, skill_name in canonical_owners.items():
         if skill_name in invalid_skills:
             continue
-        skill_path = skills_root / skill_name / "SKILL.md"
+        skill_path = root / skill_name / "SKILL.md"
         if not skill_path.is_file():
             continue
         if command not in parsed_commands.get(skill_name, set()):

@@ -5,13 +5,12 @@ from pathlib import Path
 from threading import RLock
 
 from shared.logging import get_logger
-from shared.repository import repository_root, state_root
+from shared.repository import state_root
 
 
 logger = get_logger(__name__)
-_PROJECT_ROOT = repository_root()
 _LOCK = RLock()
-_workspace_root = _PROJECT_ROOT
+_workspace_root = Path(str(os.getenv("LXE_WORKSPACE_ROOT") or Path.cwd())).expanduser().resolve()
 _internal_root = state_root() / "lxeskill"
 _artifact_root = state_root() / "artifacts"
 
@@ -24,7 +23,7 @@ def activate_project_workspace() -> Path:
         _workspace_root = (
             Path(configured_workspace).expanduser().resolve()
             if configured_workspace
-            else _PROJECT_ROOT
+            else Path.cwd().resolve()
         )
         writable_root = state_root()
         _internal_root = writable_root / "lxeskill"
@@ -72,23 +71,12 @@ def resolve_workspace_input(raw_path: str | os.PathLike[str]) -> Path:
     return path.resolve() if path.is_absolute() else (_workspace_root / path).resolve()
 
 
-def project_root() -> Path:
-    """Return the immutable package/project root used for bundled read-only assets."""
-    return _PROJECT_ROOT
-
-
-def bundled_path(*parts: str | os.PathLike[str]) -> Path:
-    return _PROJECT_ROOT.joinpath(*(Path(part) for part in parts))
-
-
 __all__ = [
     "activate_external_workspace",
     "activate_project_workspace",
     "artifact_path",
     "artifact_root",
-    "bundled_path",
     "internal_root",
-    "project_root",
     "resolve_workspace_input",
     "workspace_root",
 ]

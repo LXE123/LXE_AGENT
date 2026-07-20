@@ -13,7 +13,7 @@ import type {
   RuntimeStreamEvent,
   RuntimeTurnResponse,
 } from "../engine/types";
-import { runtimeConfigPaths } from "./config-paths";
+import { runtimeConfigPaths, runtimeConfigPathsFromRoot } from "./config-paths";
 import { classifyProviderError, RuntimeProviderError } from "./provider-errors";
 import { readProviderPreference } from "./provider-preferences";
 export { RuntimeProviderError } from "./provider-errors";
@@ -140,8 +140,14 @@ export const normalizeThinkingEffort = (
   return normalizedLevels.includes(candidate) ? candidate : fallback;
 };
 
-export function loadProviderDescriptor(projectRoot: string, env: Environment): ProviderDescriptor {
-  const paths = runtimeConfigPaths(projectRoot);
+export function loadProviderDescriptor(
+  projectRoot: string,
+  env: Environment,
+  options: { llmConfigRoot?: string } = {},
+): ProviderDescriptor {
+  const paths = options.llmConfigRoot
+    ? runtimeConfigPathsFromRoot(options.llmConfigRoot)
+    : runtimeConfigPaths(projectRoot);
   const providerDir = paths.providers;
   const specs = readdirSync(providerDir)
     .filter((name) => name.endsWith(".json"))
@@ -607,8 +613,9 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
     private readonly projectRoot: string,
     private readonly environment: Environment,
     private readonly factory: RuntimeProviderFactory = (descriptor) => new AnthropicRuntimeProvider(descriptor),
+    private readonly llmConfigRoot?: string,
   ) {
-    const descriptor = loadProviderDescriptor(projectRoot, environment);
+    const descriptor = loadProviderDescriptor(projectRoot, environment, llmConfigRoot ? { llmConfigRoot } : {});
     this.snapshot = { generation: 1, descriptor, provider: factory(descriptor) };
   }
 
@@ -626,7 +633,11 @@ export class AtomicRuntimeProviderManager implements RuntimeProviderManager {
     if (patch.thinkingEnabled !== undefined) environmentPatch.AGENT_LLM_THINKING_ENABLED = patch.thinkingEnabled ? "1" : "0";
     if (patch.thinkingEffort !== undefined) environmentPatch.AGENT_LLM_THINKING_EFFORT = patch.thinkingEffort;
     const candidateEnvironment = { ...this.environment, ...environmentPatch };
-    const descriptor = loadProviderDescriptor(this.projectRoot, candidateEnvironment);
+    const descriptor = loadProviderDescriptor(
+      this.projectRoot,
+      candidateEnvironment,
+      this.llmConfigRoot ? { llmConfigRoot: this.llmConfigRoot } : {},
+    );
     const provider = this.factory(descriptor);
     await persist?.(environmentPatch);
     Object.assign(this.environment, environmentPatch);

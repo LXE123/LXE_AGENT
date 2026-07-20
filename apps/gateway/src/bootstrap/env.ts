@@ -9,6 +9,12 @@ export interface ProjectEnvOptions {
   readFile?: (path: string) => string | undefined;
 }
 
+export interface RuntimeEnvOptions {
+  runtimeEnvPath: string;
+  initial?: Readonly<Record<string, string | undefined>>;
+  readFile?: (path: string) => string | undefined;
+}
+
 const validEnvName = (name: string): boolean => {
   const withoutUnderscores = name.replaceAll("_", "");
   return (
@@ -75,6 +81,19 @@ export function loadProjectEnv(options: ProjectEnvOptions): Environment {
     for (const [name, value] of parseEnvFile(content)) {
       if (!(name in result)) result[name] = value;
     }
+  }
+  return result;
+}
+
+export function loadRuntimeEnv(options: RuntimeEnvOptions): Environment {
+  const result: Environment = {};
+  for (const [name, value] of Object.entries(options.initial ?? process.env)) {
+    if (value !== undefined) result[name] = value;
+  }
+  const content = (options.readFile ?? defaultReadFile)(options.runtimeEnvPath);
+  if (content === undefined) return result;
+  for (const [name, value] of parseEnvFile(content)) {
+    if (!(name in result)) result[name] = value;
   }
   return result;
 }

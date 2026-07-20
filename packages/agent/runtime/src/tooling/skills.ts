@@ -37,6 +37,8 @@ export interface SkillCatalogSnapshot {
 export interface SkillCatalogOptions {
   refreshIntervalMs?: number;
   now?: () => number;
+  /** Explicit repository-owned skills directory used by packaged runtimes. */
+  repositorySkillsRoot?: string;
 }
 
 export class SkillCatalogError extends Error {
@@ -167,12 +169,14 @@ export class SkillCatalog {
   private readonly snapshotCache = new Map<string, CachedSkillCatalogSnapshot>();
   private readonly refreshIntervalMs: number;
   private readonly now: () => number;
+  private readonly repositorySkillsRoot: string;
 
   constructor(
     private readonly projectRoot: string,
     private readonly userSkillsRoot = join(homedir(), ".agents", "skills"),
     options: SkillCatalogOptions = {},
   ) {
+    this.repositorySkillsRoot = resolve(options.repositorySkillsRoot ?? join(projectRoot, "skills"));
     this.refreshIntervalMs = Math.max(0, Math.trunc(
       options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS,
     ));
@@ -198,7 +202,7 @@ export class SkillCatalog {
   }
 
   sourceRoots(): string[] {
-    return [join(this.projectRoot, "skills"), this.userSkillsRoot];
+    return [this.repositorySkillsRoot, this.userSkillsRoot];
   }
 
   get(name: string, options: SkillPromptOptions = {}): SkillManifest | undefined {
@@ -289,7 +293,10 @@ export class SkillCatalog {
   private refresh(force = false): boolean {
     const checkedAt = this.now();
     if (!force && this.initialized && checkedAt < this.nextRefreshAt) return false;
-    const repositoryRoot = join(this.projectRoot, "skills");
+    const repositoryRoot = this.repositorySkillsRoot;
+    if (!existsSync(repositoryRoot) || !statSync(repositoryRoot).isDirectory()) {
+      throw new SkillCatalogError(`repository Skill directory is missing: ${repositoryRoot}`);
+    }
     const paths = [
       ...manifestPaths(repositoryRoot).map((path) => ({ path, source: "repository" as const })),
       ...manifestPaths(this.userSkillsRoot).map((path) => ({ path, source: "user" as const })),

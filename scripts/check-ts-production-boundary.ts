@@ -43,7 +43,7 @@ forbidText("apps/agent-cli/src/dashboard-service.ts", /\bRequest\b|\bResponse\b|
 forbidText("apps/agent-cli/src/runtime-host.ts", /dashboard_request|new Request|new URL|response\.status/, "Agent host must forward typed Dashboard RPC calls directly");
 forbidText("apps/desktop/src/main/ipc-validation.ts", /\/api\/|GET_PATHS|PATCH_PATHS/, "Desktop IPC must validate Dashboard operations instead of paths");
 forbidText("packages/foundation/desktop-protocol/src/index.ts", /dashboard_request|DashboardRequestPayload/, "agent protocol must not expose the retired pseudo-REST command");
-requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*5\s+as const/, "agent protocol must remain on the strict v5 persisted-session contract");
+requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*6\s+as const/, "agent protocol must remain on the strict v6 explicit-resource contract");
 requireText("packages/foundation/desktop-protocol/src/index.ts", /type:\s*"session\.changed"/, "agent protocol must expose persisted session changes");
 forbidText("apps/desktop/src/main/dashboard-invalidation.ts", /item\.completed/, "outbound item events must not invalidate Dashboard session data");
 forbidText("apps/dashboard/src/api/queries.ts", /ACTIVE_DATA_REFRESH_INTERVAL_MS/, "session queries must remain push-driven instead of restoring shared polling");

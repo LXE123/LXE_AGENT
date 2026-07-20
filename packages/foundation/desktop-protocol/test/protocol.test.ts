@@ -123,7 +123,12 @@ describe("desktop agent protocol", () => {
       id: "request-workspace",
       command: "initialize",
       payload: {
-        resource_root: "/runtime/resources",
+        agent_soul_path: "/runtime/resources/agent/SOUL.md",
+        skills_root: "/runtime/resources/skills",
+        lxeskill_catalog_path: "/runtime/resources/lxeskill/catalog.json",
+        llm_config_root: "/runtime/resources/config/llm",
+        runtime_env_path: "/runtime/resources/config/runtime.env",
+        permission_policy_path: "/runtime/resources/config/permission_policy.yaml",
         data_root: "/runtime/data",
         legacy_workspace: { directory: "/workspace/project", worktree: "/workspace" },
       },

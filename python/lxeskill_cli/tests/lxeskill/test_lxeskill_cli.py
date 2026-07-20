@@ -49,7 +49,7 @@ def test_normal_commands_do_not_load_skill_contract_or_yaml(tmp_path, monkeypatc
     broken_skill = tmp_path / "skills" / "unrelated" / "SKILL.md"
     broken_skill.parent.mkdir(parents=True)
     broken_skill.write_text("---\ncommands: [\n---\n", encoding="utf-8")
-    monkeypatch.setattr(lxeskill, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setenv("LXE_SKILLS_ROOT", str(tmp_path / "skills"))
 
     assert lxeskill.main(["list"]) == 0
     records = _records(capsys)
@@ -130,7 +130,7 @@ def test_doctor_failure_is_an_environment_error_with_one_terminal(monkeypatch, c
             ),
         ),
     )
-    monkeypatch.setattr(lxeskill_contract, "validate_skill_command_contract", lambda catalog, *, project_root: report)
+    monkeypatch.setattr(lxeskill_contract, "validate_skill_command_contract", lambda catalog, *, skills_root: report)
 
     assert lxeskill.main(["doctor"]) == lxeskill.EXIT_ENVIRONMENT
     records = _records(capsys)
@@ -304,8 +304,8 @@ def test_workspace_override_alone_uses_repository_var_for_managed_state(tmp_path
     try:
         assert activate_project_workspace() == workspace.resolve()
         assert workspace_root() == workspace.resolve()
-        assert internal_root() == Path(lxeskill.PROJECT_ROOT) / "var" / "lxeskill"
-        assert artifact_root() == Path(lxeskill.PROJECT_ROOT) / "var" / "artifacts"
+        assert internal_root() == repository_root() / "var" / "lxeskill"
+        assert artifact_root() == repository_root() / "var" / "artifacts"
         assert internal_root().is_dir()
         assert artifact_root().is_dir()
     finally:

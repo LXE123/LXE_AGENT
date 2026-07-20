@@ -6,7 +6,6 @@ import {
 
 import { callDashboard } from "./client";
 import { dashboardQueryKeys } from "./query-keys";
-import { normalizeProjectDocs } from "../features/docs/model";
 import { normalizeSessionList } from "../features/sessions/model";
 import type {
   ApiList,
@@ -15,8 +14,6 @@ import type {
   CliCommandPayload,
   ConnectorPayload,
   ModelPayload,
-  ProjectDocContentPayload,
-  ProjectDocPayload,
   SessionDetailPayload,
   SessionListPayload,
   SessionPayload,
@@ -206,26 +203,6 @@ export function useToolsetsQuery(enabled = true) {
     queryFn: () => callDashboard({ operation: "toolsets.list", input: {} }),
     enabled,
     staleTime: CATALOG_STALE_TIME_MS,
-  });
-}
-
-export function useProjectDocsQuery(enabled = true) {
-  return useQuery({
-    queryKey: dashboardQueryKeys.docs.list,
-    queryFn: async () => normalizeProjectDocs(
-      await callDashboard({ operation: "docs.list", input: {} }),
-    ),
-    enabled,
-    staleTime: GATEWAY_LIFETIME_STALE_TIME_MS,
-  });
-}
-
-export function useProjectDocContentQuery(path: string, enabled = true) {
-  return useQuery({
-    queryKey: dashboardQueryKeys.docs.content(path),
-    queryFn: () => callDashboard({ operation: "docs.content", input: { path } }),
-    enabled: enabled && Boolean(path),
-    staleTime: GATEWAY_LIFETIME_STALE_TIME_MS,
   });
 }
 

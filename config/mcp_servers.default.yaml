@@ -1,4 +1,4 @@
-# Copy this file to config/mcp_servers.local.yaml or set LXE_MCP_CONFIG_PATH.
+# Default MCP server template copied to the writable desktop state directory.
 # Do not commit local secrets. Static header placeholders, env_headers and bearer
 # tokens are resolved only while connecting; missing variables keep the server unhealthy.
 

@@ -4,22 +4,17 @@ import asyncio
 import json
 import subprocess
 import sys
-from pathlib import Path
 from typing import Any
 
 from shared.infra.net import build_child_env
 from shared.logging import get_logger
-from shared.repository import repository_root
+from shared.workspace import workspace_root
 
 logger = get_logger(__name__)
 
 
 class BrowserAuthClientError(RuntimeError):
     """Raised when the browser auth CLI fails."""
-
-
-def _repo_root() -> Path:
-    return repository_root()
 
 
 def _mask_account(account: str) -> str:
@@ -99,7 +94,7 @@ def ensure_auth_sync(
 
     completed = subprocess.run(
         command,
-        cwd=str(_repo_root()),
+        cwd=str(workspace_root()),
         env=build_child_env(
             extra_env={
                 "PYTHONIOENCODING": "utf-8",

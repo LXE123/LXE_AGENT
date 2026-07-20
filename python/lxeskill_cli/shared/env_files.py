@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from shared.repository import repository_root
+from shared.repository import repository_root, runtime_env_path
 
 
 _ENV_LOADED = False
@@ -22,7 +22,7 @@ def project_local_config_path(path: str | Path | None = None) -> Path:
 
 
 def project_runtime_config_path(path: str | Path | None = None) -> Path:
-    return Path(path) if path is not None else _project_root() / "config" / "runtime.env"
+    return Path(path) if path is not None else runtime_env_path()
 
 
 def _unquote_env_value(value: str) -> str:
@@ -66,11 +66,15 @@ def load_project_env(
         return
     _ENV_LOADED = True
 
-    env_path = project_env_path(path)
+    explicit_runtime = str(os.getenv("LXE_RUNTIME_ENV_PATH") or "").strip()
+    source_defaults = path is not None or not explicit_runtime
+    env_path = project_env_path(path) if source_defaults else None
     resolved_local_path = (
         project_local_config_path(local_path)
-        if local_path is not None or path is None
-        else env_path.with_name(".env.local")
+        if local_path is not None
+        else project_local_config_path() if source_defaults and path is None
+        else env_path.with_name(".env.local") if env_path is not None
+        else None
     )
     resolved_runtime_path = (
         project_runtime_config_path(runtime_path)
@@ -78,8 +82,10 @@ def load_project_env(
         else env_path.parent / "config" / "runtime.env"
     )
 
-    _load_env_file(env_path)
-    _load_env_file(resolved_local_path)
+    if env_path is not None:
+        _load_env_file(env_path)
+    if resolved_local_path is not None:
+        _load_env_file(resolved_local_path)
     _load_env_file(resolved_runtime_path)
 
 

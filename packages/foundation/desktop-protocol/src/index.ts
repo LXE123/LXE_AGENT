@@ -15,7 +15,7 @@ import {
 
 export * from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 5 as const;
+export const AGENT_PROTOCOL_VERSION = 6 as const;
 
 export class AgentProtocolError extends Error {
   readonly code = "AgentProtocolError";
@@ -27,7 +27,12 @@ export class AgentProtocolError extends Error {
 }
 
 export type AgentInitializePayload = {
-  resource_root: string;
+  agent_soul_path: string;
+  skills_root: string;
+  lxeskill_catalog_path: string;
+  llm_config_root: string;
+  runtime_env_path: string;
+  permission_policy_path: string;
   data_root: string;
   legacy_workspace: WorkspaceContext;
   allowed_skill_types?: string[];
@@ -305,8 +310,7 @@ export type DesktopDashboardDataDomain =
   | "models"
   | "connectors"
   | "skills"
-  | "tools"
-  | "docs";
+  | "tools";
 
 export interface DesktopDashboardInvalidation {
   revision: number;
@@ -480,7 +484,12 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
   };
   switch (command) {
     case "initialize":
-      requireText("resource_root");
+      requireText("agent_soul_path");
+      requireText("skills_root");
+      requireText("lxeskill_catalog_path");
+      requireText("llm_config_root");
+      requireText("runtime_env_path");
+      requireText("permission_policy_path");
       requireText("data_root");
       requireWorkspace(payload.legacy_workspace, "initialize.legacy_workspace");
       if (payload.allowed_skill_types !== undefined

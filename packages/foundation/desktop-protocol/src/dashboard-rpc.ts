@@ -165,18 +165,6 @@ export type CliCommandPayload = {
   ownerSkills: string[];
 };
 
-export type ProjectDocPayload = {
-  path: string;
-  title: string;
-  section: string;
-  status: string;
-  size: number;
-};
-
-export type ProjectDocContentPayload = ProjectDocPayload & {
-  content: string;
-};
-
 export type ConnectorPayload = {
   id: string;
   name: string;
@@ -355,8 +343,6 @@ export interface DashboardRpcSpec {
     result: SkillReferenceContentPayload;
   };
   "commands.list": { input: DashboardRpcEmptyInput; result: ApiList<CliCommandPayload> };
-  "docs.list": { input: DashboardRpcEmptyInput; result: ApiList<ProjectDocPayload> };
-  "docs.content": { input: { path: string }; result: ProjectDocContentPayload };
   "connectors.list": { input: DashboardRpcEmptyInput; result: ApiList<ConnectorPayload> };
   "connectors.update": { input: { id: string; enabled: boolean }; result: ConnectorPayload };
   "toolsets.list": { input: DashboardRpcEmptyInput; result: ApiList<ToolsetPayload> };
@@ -518,7 +504,6 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
     case "skills.list":
     case "commands.list":
-    case "docs.list":
     case "connectors.list":
     case "toolsets.list":
     case "mcp.servers.list":
@@ -536,9 +521,6 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         name: textValue(input.name, `${operation}.name`)!,
         path: textValue(input.path, `${operation}.path`)!,
       } };
-    case "docs.content":
-      exactKeys(input, ["path"], `${operation}.input`);
-      return { operation, input: { path: textValue(input.path, `${operation}.path`)! } };
     case "connectors.update":
       exactKeys(input, ["id", "enabled"], `${operation}.input`);
       return { operation, input: {

@@ -12,12 +12,12 @@ from services.agent_cli._shared.json_cli import exception_text as _exception_tex
 from services.mabang.stock_sku_export import export_stock_sku_names
 from services.mabang.amazon.fba import download_fba_delivery_csv
 from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
-from shared.workspace import artifact_path, bundled_path
+from shared.workspace import artifact_path, resolve_workspace_input
 
 DELIVERY_CSV_DIR = artifact_path("mabang_fba_delivery")
 OUTPUT_DIR = artifact_path("mabang_fba_tax_summary")
 STOCK_SKU_OUTPUT_DIR = artifact_path("mabang_stock_sku")
-EXPORT_TAX_PRODUCTS_PATH = bundled_path("data", "export_tax", "export_tax_products.xlsx")
+EXPORT_TAX_PRODUCTS_PATH = Path("data/export_tax/export_tax_products.xlsx")
 EXPORT_TAX_PRODUCTS_SHEET = "Sheet1"
 SKU_SHIP_QTY_COLUMN = "SKU发货量"
 TAX_PRODUCT_SKU_COLUMN = "sku"
@@ -145,7 +145,7 @@ def summarize_tax_sku_quantities(csv_path: str | Path) -> OrderedDict[str, Decim
 def load_export_tax_products(
     products_path: str | Path | None = None,
 ) -> OrderedDict[str, dict[str, str]]:
-    source_path = Path(EXPORT_TAX_PRODUCTS_PATH if products_path is None else products_path)
+    source_path = resolve_workspace_input(EXPORT_TAX_PRODUCTS_PATH if products_path is None else products_path)
     if not source_path.is_file():
         raise RuntimeError(f"找不到出口退税产品表: {source_path}")
 

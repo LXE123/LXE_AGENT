@@ -53,7 +53,7 @@ export interface WorkspaceReloadResult extends JsonObject {
 }
 
 export interface WorkspaceInstanceManagerOptions {
-  resourceRoot: string;
+  soulPath: string;
   skillCatalog: SkillCatalog;
   skillOptions?: () => SkillPromptOptions;
   disabledConnectorIds?: () => ReadonlySet<string>;
@@ -260,7 +260,7 @@ export class WorkspaceInstanceManager {
     this.idleTtlMs = Math.max(0, Math.trunc(options.idleTtlMs ?? DEFAULT_IDLE_TTL_MS));
     this.sweepIntervalMs = Math.max(0, Math.trunc(options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS));
     this.maxInstances = Math.max(1, Math.trunc(options.maxInstances ?? DEFAULT_MAX_INSTANCES));
-    this.soulPath = join(options.resourceRoot, "SOUL.md");
+    this.soulPath = resolve(options.soulPath);
   }
 
   async acquire(workspace: WorkspaceContext): Promise<WorkspaceLease> {
@@ -475,9 +475,9 @@ export class WorkspaceInstanceManager {
     const fingerprint = cheapFileFingerprint(this.soulPath);
     let soulChanged = false;
     if (force || !this.globalInitialized || fingerprint !== this.soulFingerprint) {
-      const soul = existsSync(this.soulPath)
-        ? (await readUtf8File(this.soulPath, MAX_SOUL_BYTES, "SOUL.md")).trim()
-        : "";
+      if (!existsSync(this.soulPath)) throw new Error(`SOUL.md is missing: ${this.soulPath}`);
+      const soul = (await readUtf8File(this.soulPath, MAX_SOUL_BYTES, "SOUL.md")).trim();
+      if (!soul) throw new Error(`SOUL.md must not be empty: ${this.soulPath}`);
       const signature = sha256(soul);
       soulChanged = !this.globalInitialized || signature !== this.soulSignature;
       this.soul = soul;

@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { DesktopHealth } from "@lxe/desktop-protocol";
 import {
   ChartColumn,
-  FileText,
   House,
   MessageSquareText,
   PanelLeftClose,
@@ -26,8 +25,6 @@ import {
   useConnectorsQuery,
   useCurrentModelQuery,
   useModelsQuery,
-  useProjectDocContentQuery,
-  useProjectDocsQuery,
   useSessionDetailQuery,
   useSessionsInfiniteQuery,
   useSkillsQuery,
@@ -35,15 +32,6 @@ import {
 } from "./api/queries";
 import { EmptyState } from "./shared/components";
 import { formatDate, formatNumber } from "./shared/format";
-import {
-  copyTextToClipboard
-} from "./shared/content";
-import {
-  DOCS_ROUTE_PREFIX,
-  decodePathSegments,
-  docsHrefForPath,
-  normalizeDocPath
-} from "./features/docs/model";
 import {
   modelDisabledReasonLabel,
   modelWithOption,
@@ -64,10 +52,8 @@ import type {
   SessionPayload,
   ToolsetPayload
 } from "./api/payloads";
-import type { DocsContentMode } from "./api/payloads";
 import type { DetailTarget } from "./shared/ui/detail-target";
 import { DetailModal } from "./features/details/view";
-import { DocsShell } from "./features/docs/view";
 import { ConnectionsView } from "./features/integrations/view";
 import { DashboardHome } from "./features/home/view";
 import { ModelsView } from "./features/models/view";
@@ -146,11 +132,6 @@ function modelsWithCurrentModel(
   };
 }
 
-type AppRouteState = DashboardRouteSelection & {
-  docsOpen: boolean;
-  docPath: string;
-};
-
 function browserStorage(): Storage | undefined {
   try {
     return window.localStorage;
@@ -159,21 +140,9 @@ function browserStorage(): Storage | undefined {
   }
 }
 
-function routeStateFromLocation(): AppRouteState {
-  const pathname = window.location.pathname;
+function routeStateFromLocation(): DashboardRouteSelection {
   const storedCapabilityView = readStoredCapabilityView(browserStorage());
-  if (pathname === DOCS_ROUTE_PREFIX || pathname.startsWith(`${DOCS_ROUTE_PREFIX}/`)) {
-    const docPath = pathname.startsWith(`${DOCS_ROUTE_PREFIX}/`)
-      ? normalizeDocPath(decodePathSegments(pathname.slice(DOCS_ROUTE_PREFIX.length + 1)))
-      : "";
-    const fallback = dashboardRouteFromHistory(window.history.state, storedCapabilityView);
-    return { ...fallback, docsOpen: true, docPath };
-  }
-  return {
-    ...dashboardRouteFromHistory(window.history.state, storedCapabilityView),
-    docsOpen: false,
-    docPath: "",
-  };
+  return dashboardRouteFromHistory(window.history.state, storedCapabilityView);
 }
 
 function App({
@@ -193,29 +162,23 @@ function App({
   const [activeSection, setActiveSection] = useState<DashboardSection>(initialRoute.section);
   const [capabilityView, setCapabilityView] = useState<CapabilityView>(initialRoute.capabilityView);
   const [activityView, setActivityView] = useState<ActivityView>(initialRoute.activityView);
-  const [docsOpen, setDocsOpen] = useState(initialRoute.docsOpen);
-  const [lastDashboardSection, setLastDashboardSection] = useState<DashboardSection>(initialRoute.section);
   const [error, setError] = useState("");
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [docQuery, setDocQuery] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [sessionDetailPage, setSessionDetailPage] = useState<number | undefined>();
-  const [selectedDocPath, setSelectedDocPath] = useState(initialRoute.docPath);
-  const [docContentMode, setDocContentMode] = useState<DocsContentMode>("preview");
-  const [docCopied, setDocCopied] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
 
-  const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery, activeSection === "sessions" && !docsOpen);
+  const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery, activeSection === "sessions");
   const sessionDetailQuery = useSessionDetailQuery(
     selectedSessionId,
     sessionDetailPage,
-    activeSection === "sessions" && !docsOpen,
+    activeSection === "sessions",
   );
-  const capabilitiesOpen = activeSection === "capabilities" && !docsOpen;
-  const activityOpen = activeSection === "activity" && !docsOpen;
+  const capabilitiesOpen = activeSection === "capabilities";
+  const activityOpen = activeSection === "activity";
   const modelsQuery = useModelsQuery(capabilitiesOpen && capabilityView === "models");
   const currentModelQuery = useCurrentModelQuery();
   const connectorsQuery = useConnectorsQuery(capabilitiesOpen && capabilityView === "connections");
@@ -225,9 +188,6 @@ function App({
     capabilitiesOpen && (capabilityView === "tools" || capabilityView === "connections"),
   );
   const backgroundTasksQuery = useBackgroundTasksQuery(activityOpen && activityView === "background-tasks");
-  const docsQuery = useProjectDocsQuery(docsOpen);
-
-  const docs = docsQuery.data?.items ?? [];
   const sessions = flattenSessionPages(sessionsQuery.data?.pages);
 
   useEffect(() => {
@@ -236,12 +196,7 @@ function App({
       setActiveSection(nextRoute.section);
       setCapabilityView(nextRoute.capabilityView);
       setActivityView(nextRoute.activityView);
-      setDocsOpen(nextRoute.docsOpen);
-      setSelectedDocPath(nextRoute.docPath);
-      if (!nextRoute.docsOpen) {
-        setLastDashboardSection(nextRoute.section);
-      }
-      if (nextRoute.section === "home" && !nextRoute.docsOpen) {
+      if (nextRoute.section === "home") {
         setSelectedSessionId("");
         setSessionDetailPage(undefined);
       }
@@ -259,18 +214,6 @@ function App({
     storeCapabilityView(capabilityView, browserStorage());
   }, [capabilityView]);
 
-  const defaultDocPath = useMemo(() => {
-    if (!docs.length) {
-      return "";
-    }
-    return docs.find((doc) => doc.path === DOCS_HOME_PATH)?.path || docs[0].path;
-  }, [docs]);
-
-  const effectiveDocPath = docsOpen ? selectedDocPath || defaultDocPath : "";
-
-  const docContentQuery = useProjectDocContentQuery(effectiveDocPath, docsOpen);
-  const docContent = docContentQuery.data;
-
   function handleSessionQueryChange(value: string) {
     setQuery(value);
   }
@@ -287,8 +230,6 @@ function App({
     }
     pushDashboardRoute("sessions");
     setActiveSection("sessions");
-    setDocsOpen(false);
-    setLastDashboardSection("sessions");
     setSelectedSessionId("");
     setSessionDetailPage(undefined);
     setSessionSearchFocusKey((current) => current + 1);
@@ -300,11 +241,11 @@ function App({
 
   // Two-pane sessions view: keep the detail pane populated by default.
   useEffect(() => {
-    if (activeSection === "sessions" && !docsOpen && !selectedSessionId && sessions.items.length > 0) {
+    if (activeSection === "sessions" && !selectedSessionId && sessions.items.length > 0) {
       setSelectedSessionId(sessions.items[0].session_id);
       setSessionDetailPage(undefined);
     }
-  }, [activeSection, docsOpen, selectedSessionId, sessions.items]);
+  }, [activeSection, selectedSessionId, sessions.items]);
 
   function pushDashboardRoute(
     section: DashboardSection,
@@ -330,8 +271,6 @@ function App({
     pushDashboardRoute(section, capabilityView, nextActivityView);
     setActiveSection(section);
     setActivityView(nextActivityView);
-    setDocsOpen(false);
-    setLastDashboardSection(section);
     if (section === "sessions") {
       setSelectedSessionId("");
       setSessionDetailPage(undefined);
@@ -342,60 +281,17 @@ function App({
     pushDashboardRoute("capabilities", view, activityView);
     setActiveSection("capabilities");
     setCapabilityView(view);
-    setDocsOpen(false);
-    setLastDashboardSection("capabilities");
   }
 
   function openActivityView(view: ActivityView) {
     pushDashboardRoute("activity", capabilityView, view);
     setActiveSection("activity");
     setActivityView(view);
-    setDocsOpen(false);
-    setLastDashboardSection("activity");
-  }
-
-  function openDocRoute(path: string) {
-    const safePath = normalizeDocPath(path);
-    const nextUrl = docsHrefForPath(safePath);
-    if (window.location.pathname !== nextUrl) {
-      window.history.pushState({
-        section: lastDashboardSection,
-        tab: "docs",
-        docPath: safePath,
-        capabilityView,
-        activityView,
-      }, "", nextUrl);
-    }
-    setDocsOpen(true);
-    setSelectedDocPath(safePath);
-    setDocContentMode("preview");
-  }
-
-  function backToDashboard() {
-    pushDashboardRoute(lastDashboardSection);
-    setActiveSection(lastDashboardSection);
-    setDocsOpen(false);
-    setSelectedDocPath("");
-  }
-
-  async function copyCurrentDoc() {
-    if (!docContent?.content) {
-      return;
-    }
-    try {
-      await copyTextToClipboard(docContent.content);
-      setDocCopied(true);
-      window.setTimeout(() => setDocCopied(false), 1600);
-    } catch {
-      setDocCopied(false);
-    }
   }
 
   function openSession(session: SessionPayload) {
     pushDashboardRoute("sessions");
     setActiveSection("sessions");
-    setDocsOpen(false);
-    setLastDashboardSection("sessions");
     setSelectedSessionId(session.session_id);
     setSessionDetailPage(undefined);
   }
@@ -650,9 +546,7 @@ function App({
         ? `${formatDate(selectedSession.last_active_at)} · ${formatNumber(selectedSession.input_tokens + selectedSession.output_tokens)} ${t.sessions.tokenSuffix}`
         : ""
       : "";
-  const runtimeStatusNavigationKey = docsOpen
-    ? `docs:${effectiveDocPath}`
-    : `${activeSection}:${capabilityView}:${activityView}:${selectedSessionId}`;
+  const runtimeStatusNavigationKey = `${activeSection}:${capabilityView}:${activityView}:${selectedSessionId}`;
   const runtimeStatusPopover = (
     <RuntimeStatusPopover
       currentModel={currentModelQuery.data ?? null}
@@ -662,33 +556,6 @@ function App({
       onOpenSettings={(section) => onOpenDesktopSettings?.(section)}
     />
   );
-
-  if (docsOpen) {
-    return (
-      <>
-        <DocsShell
-          docs={docs}
-          docsLoading={docsQuery.isPending}
-          docsError={!docsQuery.data ? queryError(docsQuery.error) : ""}
-          docQuery={docQuery}
-          selectedPath={effectiveDocPath}
-          doc={docContent || null}
-          docLoading={Boolean(effectiveDocPath) && docContentQuery.isPending}
-          docError={!docContent ? queryError(docContentQuery.error) : ""}
-          mode={docContentMode}
-          copied={docCopied}
-          language={language}
-          onLanguageChange={onLanguageChange}
-          onDocQueryChange={setDocQuery}
-          onOpenDoc={openDocRoute}
-          onBackToDashboard={backToDashboard}
-          onModeChange={setDocContentMode}
-          onCopy={copyCurrentDoc}
-        />
-        {runtimeStatusPopover}
-      </>
-    );
-  }
 
   return (
     <>
@@ -734,17 +601,6 @@ function App({
               </button>
             ))}
           </nav>
-          <div className="sidebar-utility">
-            <button
-              className="tab tab-docs"
-              onClick={() => openDocRoute("")}
-              title={t.nav.docs}
-              type="button"
-            >
-              <FileText size={16} />
-              <span>{t.nav.docs}</span>
-            </button>
-          </div>
           <button
             aria-label={t.sidebar.statusAndSettings}
             className="sidebar-status-card"

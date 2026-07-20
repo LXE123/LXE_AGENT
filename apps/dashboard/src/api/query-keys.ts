@@ -36,11 +36,6 @@ export const dashboardQueryKeys = {
   tools: {
     all: ["tools"] as const,
   },
-  docs: {
-    all: ["docs"] as const,
-    list: ["docs", "list"] as const,
-    content: (path: string) => ["docs", "content", path] as const,
-  },
   commands: {
     all: ["commands"] as const,
   },

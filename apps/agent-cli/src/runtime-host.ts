@@ -47,7 +47,12 @@ import {
 type Environment = Record<string, string | undefined>;
 
 export interface AgentRuntimeHostOptions {
-  resourceRoot: string;
+  agentSoulPath: string;
+  skillsRoot: string;
+  lxeskillCatalogPath: string;
+  llmConfigRoot: string;
+  runtimeEnvPath: string;
+  permissionPolicyPath: string;
   dataRoot: string;
   legacyWorkspace: WorkspaceContext;
   environment: Environment;
@@ -77,25 +82,30 @@ export function createAgentRuntimeHost(
   const logger = options.logger ?? createLogger("agent.host");
   const environment: Environment = {
     ...options.environment,
-    LXE_ROOT: options.resourceRoot,
-    LXE_RESOURCE_ROOT: options.resourceRoot,
+    LXE_AGENT_SOUL_PATH: options.agentSoulPath,
+    LXE_SKILLS_ROOT: options.skillsRoot,
+    LXE_LXESKILL_CATALOG_PATH: options.lxeskillCatalogPath,
+    LXE_LLM_CONFIG_ROOT: options.llmConfigRoot,
+    LXE_RUNTIME_ENV_PATH: options.runtimeEnvPath,
+    LXE_PERMISSION_POLICY_PATH: options.permissionPolicyPath,
     LXE_DATA_ROOT: options.dataRoot,
   };
   const databasePath = String(environment.LXE_AGENT_SQLITE_DB_PATH ?? "").trim()
     || join(options.dataRoot, "db", "agent.sqlite3");
   const store = new SqliteRuntimeStore(databasePath, { legacyWorkspace: options.legacyWorkspace });
-  const providerManager = new AtomicRuntimeProviderManager(options.resourceRoot, environment);
+  const providerManager = new AtomicRuntimeProviderManager(
+    options.dataRoot,
+    environment,
+    undefined,
+    options.llmConfigRoot,
+  );
   const feishu = loadAgentFeishuConfig(environment);
   const tools = new ToolRegistry();
-  const skillCatalog = new SkillCatalog(options.resourceRoot);
+  const skillCatalog = new SkillCatalog(options.dataRoot, undefined, {
+    repositorySkillsRoot: options.skillsRoot,
+  });
   const connectorStatePath = join(options.dataRoot, "config", "connector-states.local.json");
-  const commandCatalogPath = join(
-    options.resourceRoot,
-    "python",
-    "lxeskill_cli",
-    "lxeskill",
-    "catalog.json",
-  );
+  const commandCatalogPath = options.lxeskillCatalogPath;
   const cliCommands = existsSync(commandCatalogPath)
     ? loadLxeSkillCommandCatalog(commandCatalogPath)
     : [];
@@ -107,17 +117,19 @@ export function createAgentRuntimeHost(
       .map((entry) => [entry.command, entry.ownerSkills] as const),
   );
   const execShell = new ExecShellAdapter({ environment });
-  const sourcePython = join(
-    options.resourceRoot,
+  const sourceRoot = String(environment.LXE_SOURCE_ROOT ?? "").trim();
+  const sourcePython = sourceRoot ? join(
+    sourceRoot,
     ".venv",
     process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
-  );
+  ) : "";
   const managedPython = String(environment.LXE_MANAGED_PYTHON ?? "").trim();
-  const lxeSkillArgv = execShell.lxeSkillArgv(options.resourceRoot);
+  if (!managedPython && sourcePython) environment.LXE_MANAGED_PYTHON = sourcePython;
+  const lxeSkillArgv = execShell.lxeSkillArgv(options.dataRoot);
   const selectedPython = String(lxeSkillArgv?.[0] ?? (managedPython || sourcePython)).trim();
-  const sourceRuntime = !managedPython && resolve(selectedPython) === resolve(sourcePython);
+  const sourceRuntime = Boolean(sourcePython) && !managedPython && resolve(selectedPython) === resolve(sourcePython);
   const recovery = sourceRuntime
-    ? `Run uv sync --frozen --all-groups --python 3.12.10 in ${options.resourceRoot}`
+    ? `Run uv sync --frozen --all-groups --python 3.12.10 in ${sourceRoot}`
     : "Reinstall or rebuild LXE Agent";
   const lxeSkillRunner = lxeSkillArgv ? new OneShotCliRunner({
     command: lxeSkillArgv,
@@ -146,7 +158,7 @@ export function createAgentRuntimeHost(
     logger,
   });
   const processes = registerCodingTools(tools, {
-    repositorySkillsRoot: join(options.resourceRoot, "skills"),
+    repositorySkillsRoot: options.skillsRoot,
     artifactRoot: join(options.dataRoot, "artifacts"),
     businessCommands,
     businessCommandCatalog: cliCommands,
@@ -206,8 +218,9 @@ export function createAgentRuntimeHost(
   runtimeServices.push(mcpManager);
   let workspaceInstances!: WorkspaceInstanceManager;
   const dashboardService = new DashboardService({
-    projectRoot: options.resourceRoot,
     stateRoot: options.dataRoot,
+    llmConfigRoot: options.llmConfigRoot,
+    skillsRoot: options.skillsRoot,
     environment,
     store,
     tools,
@@ -230,7 +243,7 @@ export function createAgentRuntimeHost(
     },
   });
   workspaceInstances = new WorkspaceInstanceManager({
-    resourceRoot: options.resourceRoot,
+    soulPath: options.agentSoulPath,
     connectorStatePath,
     skillCatalog,
     skillOptions: () => {
@@ -251,7 +264,7 @@ export function createAgentRuntimeHost(
     providerManager,
     environment,
     wireTraceController: configureRuntimeWireTracing({
-      projectRoot: options.resourceRoot,
+      projectRoot: options.dataRoot,
       stateRoot: options.dataRoot,
       environment,
     }),

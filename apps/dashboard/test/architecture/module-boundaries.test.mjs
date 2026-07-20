@@ -12,7 +12,7 @@ const expectedModules = [
   "api/queries.ts",
   "api/query-client.tsx",
   "api/query-keys.ts",
-  "features/docs/model.ts",
+  "shared/markdown.ts",
   "features/models/model.ts",
   "features/runtime-status/model.ts",
   "features/sessions/conversation.ts",
@@ -25,7 +25,6 @@ const expectedModules = [
   "shared/ui/detail-target.ts",
   "shared/ui/provider-brand-mark.tsx",
   "features/sessions/view.tsx",
-  "features/docs/view.tsx",
   "features/models/view.tsx",
   "features/runtime-status/view.tsx",
   "features/tools/view.tsx",
@@ -36,7 +35,6 @@ const expectedModules = [
 ];
 const expectedEntryImports = [
   "./features/details/view",
-  "./features/docs/view",
   "./features/integrations/view",
   "./features/models/view",
   "./features/runtime-status/view",
@@ -68,7 +66,7 @@ test("dashboard entry delegates feature views to dedicated modules", () => {
   });
   assert.doesNotMatch(
     main,
-    /^function (SessionDetailView|DocsShell|ModelsView|ToolsView|ConnectionsView|SkillsView|BackgroundTasksView|DetailModal)\(/m
+    /^function (SessionDetailView|ModelsView|ToolsView|ConnectionsView|SkillsView|BackgroundTasksView|DetailModal)\(/m
   );
   assert.doesNotMatch(main, /type DashboardData|setData\(|fetchJson|patchJson/);
   sourceFiles(sourceDir)

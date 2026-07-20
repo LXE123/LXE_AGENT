@@ -4,7 +4,16 @@ import { posix, win32 } from "node:path";
 export interface DesktopPaths {
   sourceRoot: string;
   projectRoot: string;
+  /** Diagnostic root only. Runtime consumers must use the explicit paths below. */
   resourceRoot: string;
+  resourceManifestPath: string;
+  agentSoulPath: string;
+  skillsRoot: string;
+  lxeskillCatalogPath: string;
+  llmConfigRoot: string;
+  runtimeEnvPath: string;
+  permissionPolicyPath: string;
+  mcpDefaultPath: string;
   dataRoot: string;
   defaultWorkspaceRoot: string;
   dashboardRoot: string;
@@ -38,9 +47,7 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     String(environment.LXE_SOURCE_ROOT ?? "").trim()
       || (options.packaged ? options.appPath : targetPath.join(options.appPath, "..", "..")),
   );
-  const resourceRoot = options.packaged
-    ? targetPath.join(options.resourcesPath, "project")
-    : sourceRoot;
+  const resourceRoot = options.packaged ? options.resourcesPath : sourceRoot;
   const projectRoot = options.packaged
     ? targetPath.dirname(targetPath.resolve(options.executablePath))
     : sourceRoot;
@@ -74,6 +81,28 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     sourceRoot,
     projectRoot,
     resourceRoot,
+    resourceManifestPath: targetPath.join(resourceRoot, "manifest.json"),
+    agentSoulPath: options.packaged
+      ? targetPath.join(options.resourcesPath, "agent", "SOUL.md")
+      : targetPath.join(sourceRoot, "SOUL.md"),
+    skillsRoot: options.packaged
+      ? targetPath.join(options.resourcesPath, "skills")
+      : targetPath.join(sourceRoot, "skills"),
+    lxeskillCatalogPath: options.packaged
+      ? targetPath.join(options.resourcesPath, "lxeskill", "catalog.json")
+      : targetPath.join(sourceRoot, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
+    llmConfigRoot: options.packaged
+      ? targetPath.join(options.resourcesPath, "config", "llm")
+      : targetPath.join(sourceRoot, "config", "llm"),
+    runtimeEnvPath: options.packaged
+      ? targetPath.join(options.resourcesPath, "config", "runtime.env")
+      : targetPath.join(sourceRoot, "config", "runtime.env"),
+    permissionPolicyPath: options.packaged
+      ? targetPath.join(options.resourcesPath, "config", "permission_policy.yaml")
+      : targetPath.join(sourceRoot, "config", "permission_policy.yaml"),
+    mcpDefaultPath: options.packaged
+      ? targetPath.join(options.resourcesPath, "config", "mcp_servers.default.yaml")
+      : targetPath.join(sourceRoot, "config", "mcp_servers.default.yaml"),
     dataRoot,
     defaultWorkspaceRoot: targetPath.join(dataRoot, "workspace"),
     dashboardRoot: options.packaged

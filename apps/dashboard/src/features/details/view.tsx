@@ -10,7 +10,7 @@ import {
 } from "../../api/queries";
 import { formatDate, formatDuration } from "../../shared/format";
 import { copyTextToClipboard } from "../../shared/content";
-import { markdownWithoutFrontMatter } from "../docs/model";
+import { markdownWithoutFrontMatter } from "../../shared/markdown";
 import { statusPillClass } from "../tasks/model";
 import { useUiText } from "../../shared/i18n";
 import type {

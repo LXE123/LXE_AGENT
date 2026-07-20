@@ -49,7 +49,7 @@ const setup = (options: {
   const connectorStatePath = join(root, "connector-state.json");
   if (options.connectorPolicy) writeFileSync(connectorStatePath, '{"version":1}', "utf8");
   const manager = new WorkspaceInstanceManager({
-    resourceRoot,
+    soulPath: join(resourceRoot, "SOUL.md"),
     skillCatalog: catalog,
     skillOptions: () => ({ allowedTypes: new Set(["default"]) }),
     checkIntervalMs: 0,

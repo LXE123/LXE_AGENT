@@ -20,6 +20,13 @@ describe("desktop private runtime paths", () => {
     });
 
     expect(paths.resourceRoot).toBe(sourceRoot);
+    expect(paths.agentSoulPath).toBe(posix.join(sourceRoot, "SOUL.md"));
+    expect(paths.skillsRoot).toBe(posix.join(sourceRoot, "skills"));
+    expect(paths.lxeskillCatalogPath).toBe(posix.join(sourceRoot, "python", "lxeskill_cli", "lxeskill", "catalog.json"));
+    expect(paths.llmConfigRoot).toBe(posix.join(sourceRoot, "config", "llm"));
+    expect(paths.runtimeEnvPath).toBe(posix.join(sourceRoot, "config", "runtime.env"));
+    expect(paths.permissionPolicyPath).toBe(posix.join(sourceRoot, "config", "permission_policy.yaml"));
+    expect(paths.mcpDefaultPath).toBe(posix.join(sourceRoot, "config", "mcp_servers.default.yaml"));
     expect(paths.projectRoot).toBe(sourceRoot);
     expect(paths.dataRoot).toBe(posix.join(sourceRoot, "var"));
     expect(paths.defaultWorkspaceRoot).toBe(posix.join(sourceRoot, "var", "workspace"));
@@ -43,6 +50,15 @@ describe("desktop private runtime paths", () => {
     });
 
     expect(paths.projectRoot).toBe("D:\\Apps\\LXE Agent");
+    expect(paths.resourceRoot).toBe(root);
+    expect(paths.agentSoulPath).toBe(win32.join(root, "agent", "SOUL.md"));
+    expect(paths.skillsRoot).toBe(win32.join(root, "skills"));
+    expect(paths.lxeskillCatalogPath).toBe(win32.join(root, "lxeskill", "catalog.json"));
+    expect(paths.llmConfigRoot).toBe(win32.join(root, "config", "llm"));
+    expect(paths.runtimeEnvPath).toBe(win32.join(root, "config", "runtime.env"));
+    expect(paths.permissionPolicyPath).toBe(win32.join(root, "config", "permission_policy.yaml"));
+    expect(paths.mcpDefaultPath).toBe(win32.join(root, "config", "mcp_servers.default.yaml"));
+    expect(paths.resourceManifestPath).toBe(win32.join(root, "manifest.json"));
     expect(paths.dataRoot).toBe("D:\\Apps\\LXE Agent\\var");
     expect(paths.defaultWorkspaceRoot).toBe("D:\\Apps\\LXE Agent\\var\\workspace");
     expect(paths.agentCommand).toBe(win32.join(root, "runtime", "agent-cli", "agent-cli.exe"));

@@ -19,8 +19,8 @@ import {
   createDirectGatewayComposition,
   loadFeishuConfig,
   loadProjectEnv,
+  loadRuntimeEnv,
   loadPermissionPolicy,
-  permissionPolicyPath,
   ProcessAgentRuntime,
   type DirectGatewayComposition,
   type DirectGatewayStorage,
@@ -117,8 +117,8 @@ export class DesktopGateway {
     }
     const legacyWorkspace = resolveWorkspaceContext(setup.workspace_root);
     const configuredEnvironment = withoutRetiredAgentTraceEnvironment(this.options.config.environment());
-    const resourceEnvironment = withoutRetiredAgentTraceEnvironment(loadProjectEnv({
-      projectRoot: this.options.paths.resourceRoot,
+    const resourceEnvironment = withoutRetiredAgentTraceEnvironment(loadRuntimeEnv({
+      runtimeEnvPath: this.options.paths.runtimeEnvPath,
       initial: process.env,
     }));
     const persistedEnvironment = withoutRetiredAgentTraceEnvironment(loadProjectEnv({
@@ -128,6 +128,10 @@ export class DesktopGateway {
     delete configuredEnvironment.LXE_WORKSPACE_ROOT;
     delete resourceEnvironment.LXE_WORKSPACE_ROOT;
     delete persistedEnvironment.LXE_WORKSPACE_ROOT;
+    for (const target of [configuredEnvironment, resourceEnvironment, persistedEnvironment]) {
+      delete target.LXE_ROOT;
+      delete target.LXE_RESOURCE_ROOT;
+    }
     const selectedProvider = configuredEnvironment.AGENT_LLM_PROVIDER;
     const previousProvider = persistedEnvironment.AGENT_LLM_PROVIDER
       || resourceEnvironment.AGENT_LLM_PROVIDER;
@@ -145,8 +149,12 @@ export class DesktopGateway {
       ...withoutDataServerEnvironment(resourceEnvironment),
       ...withoutDataServerEnvironment(persistedEnvironment),
       ...withoutDataServerEnvironment(configuredEnvironment),
-      LXE_ROOT: this.options.paths.resourceRoot,
-      LXE_RESOURCE_ROOT: this.options.paths.resourceRoot,
+      LXE_AGENT_SOUL_PATH: this.options.paths.agentSoulPath,
+      LXE_SKILLS_ROOT: this.options.paths.skillsRoot,
+      LXE_LXESKILL_CATALOG_PATH: this.options.paths.lxeskillCatalogPath,
+      LXE_LLM_CONFIG_ROOT: this.options.paths.llmConfigRoot,
+      LXE_RUNTIME_ENV_PATH: this.options.paths.runtimeEnvPath,
+      LXE_PERMISSION_POLICY_PATH: this.options.paths.permissionPolicyPath,
       LXE_DATA_ROOT: this.options.paths.dataRoot,
       LXE_AGENT_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "agent.sqlite3"),
       LXE_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "lxeskill.sqlite3"),
@@ -166,6 +174,7 @@ export class DesktopGateway {
         PLAYWRIGHT_NODEJS_PATH: join(process.resourcesPath, "runtime", "node", "node.exe"),
         NODE_PATH: join(process.resourcesPath, "runtime", "node", "node_modules"),
       } : {
+        LXE_SOURCE_ROOT: this.options.paths.sourceRoot,
         UV_PYTHON: this.options.paths.managedPythonPath,
         UV_PYTHON_DOWNLOADS: "never",
         UV_OFFLINE: "0",
@@ -177,10 +186,7 @@ export class DesktopGateway {
         machineIdentityPath: join(this.options.paths.dataRoot, "db", "machine_identity.json"),
       }),
     };
-    const policy = loadPermissionPolicy(permissionPolicyPath({
-      env: environment,
-      projectRoot: this.options.paths.resourceRoot,
-    }));
+    const policy = loadPermissionPolicy(this.options.paths.permissionPolicyPath);
     const feishu = loadFeishuConfig(environment);
     const permissionKey = policy.botIdToKey.get(feishu.appId);
     const allowedSkillTypes = permissionKey
@@ -192,7 +198,12 @@ export class DesktopGateway {
       arguments: this.options.paths.agentArguments,
       cwd: this.options.paths.dataRoot,
       environment,
-      resourceRoot: this.options.paths.resourceRoot,
+      agentSoulPath: this.options.paths.agentSoulPath,
+      skillsRoot: this.options.paths.skillsRoot,
+      lxeskillCatalogPath: this.options.paths.lxeskillCatalogPath,
+      llmConfigRoot: this.options.paths.llmConfigRoot,
+      runtimeEnvPath: this.options.paths.runtimeEnvPath,
+      permissionPolicyPath: this.options.paths.permissionPolicyPath,
       dataRoot: this.options.paths.dataRoot,
       legacyWorkspace,
       ...(allowedSkillTypes ? { allowedSkillTypes } : {}),
@@ -235,7 +246,7 @@ export class DesktopGateway {
     store.start();
     const splitStorage = new SplitGatewayStorage(store, runtime);
     composition = createDirectGatewayComposition({
-      projectRoot: this.options.paths.resourceRoot,
+      projectRoot: this.options.paths.dataRoot,
       defaultWorkspace: () => resolveWorkspaceContext(this.options.config.state().workspace_root),
       environment,
       policy,

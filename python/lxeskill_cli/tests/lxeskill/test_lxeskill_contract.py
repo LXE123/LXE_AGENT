@@ -42,7 +42,7 @@ def test_contract_collects_all_violations_and_reads_each_skill_once(tmp_path, mo
         return real_read_text(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "read_text", counted_read_text)
-    report = validate_skill_command_contract(catalog, project_root=tmp_path)
+    report = validate_skill_command_contract(catalog, skills_root=tmp_path / "skills")
 
     assert report.ok is False
     assert report.stats_payload() == {
@@ -71,7 +71,7 @@ def test_contract_accepts_legacy_scalar_command_and_ignores_non_lxeskill_command
 
     report = validate_skill_command_contract(
         {"one": _entry("demo one", ["alpha"])},
-        project_root=tmp_path,
+        skills_root=tmp_path / "skills",
     )
 
     assert report.ok is True
@@ -90,7 +90,7 @@ def test_contract_read_failure_does_not_expose_an_absolute_path(tmp_path, monkey
     monkeypatch.setattr(Path, "read_text", failed_read_text)
     report = validate_skill_command_contract(
         {"one": _entry("demo one", ["alpha"])},
-        project_root=tmp_path,
+        skills_root=tmp_path / "skills",
     )
 
     assert report.violations[0].to_payload() == {
@@ -107,7 +107,7 @@ def test_contract_supports_project_paths_with_chinese_and_spaces(tmp_path) -> No
 
     report = validate_skill_command_contract(
         {"one": _entry("demo one", ["alpha"])},
-        project_root=project_root,
+        skills_root=project_root / "skills",
     )
 
     assert report.ok is True

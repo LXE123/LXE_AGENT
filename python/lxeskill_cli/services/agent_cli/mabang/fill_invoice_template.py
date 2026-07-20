@@ -40,10 +40,10 @@ from services.mabang.stock_sku_export import (
     export_stock_sku_names,
     normalize_sku_key,
 )
-from shared.workspace import artifact_path, bundled_path
+from shared.workspace import artifact_path, resolve_workspace_input
 
 SOURCE = "invoice_template_fill"
-DEFAULT_TEMPLATE_PATH = bundled_path("data", "invoice_Template", "invoice_Template.xlsx")
+DEFAULT_TEMPLATE_PATH = Path("data/invoice_Template/invoice_Template.xlsx")
 DEFAULT_OUTPUT_DIR = artifact_path("invoice_template")
 STOCK_SKU_OUTPUT_DIR = artifact_path("mabang_stock_sku")
 INVOICE_TEMPLATE_SHEET = "WS-通用发票导入模版"
@@ -653,7 +653,7 @@ def write_invoice_template(
     template_path: str | Path | None = None,
     output_dir: str | Path | None = None,
 ) -> dict[str, Any]:
-    source_template = Path(DEFAULT_TEMPLATE_PATH if template_path is None else template_path).expanduser()
+    source_template = resolve_workspace_input(DEFAULT_TEMPLATE_PATH if template_path is None else template_path)
     if not source_template.is_file():
         raise FileNotFoundError(f"找不到发票模板: {source_template}")
     target_dir = Path(DEFAULT_OUTPUT_DIR if output_dir is None else output_dir)

@@ -37,15 +37,14 @@ test("runtime popover links to the existing model and settings destinations", ()
   assert.match(dashboardRpc, /export type ChannelHealthPayload = \{\s*ready\?: boolean;/);
 });
 
-test("home stays bounded while runtime status mounts once across dashboard and docs", () => {
+test("home stays bounded while runtime status mounts once", () => {
   assert.match(home, /\.items\.slice\(0, 6\)/);
   assert.match(home, /\.slice\(0, 5\)/);
   assert.match(styles, /\.home-page[\s\S]*?min-width:\s*0[\s\S]*?width:\s*min\(920px, 100%\)/);
   assert.match(styles, /\.home-columns[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.home-panel[\s\S]*?min-width:\s*0/);
   assert.equal((main.match(/<RuntimeStatusPopover/g) || []).length, 1);
-  assert.equal((main.match(/\{runtimeStatusPopover\}/g) || []).length, 2);
-  assert.match(main, /if \(docsOpen\)[\s\S]*?<DocsShell[\s\S]*?\{runtimeStatusPopover\}/);
+  assert.equal((main.match(/\{runtimeStatusPopover\}/g) || []).length, 1);
   assert.match(runtimeStatus, /className="runtime-status-popover"[\s\S]*?role="dialog"/);
   assert.match(runtimeStatus, /aria-expanded=\{open\}/);
   assert.match(runtimeStatus, /useEffect\(\(\) => \{\s*setOpen\(false\);\s*\}, \[navigationKey\]\)/);
@@ -56,7 +55,6 @@ test("home stays bounded while runtime status mounts once across dashboard and d
   assert.match(styles, /\.runtime-status-popover\s*\{[\s\S]*?position:\s*absolute[\s\S]*?width:\s*280px[\s\S]*?max-width:\s*calc\(100vw - 40px\)/);
   assert.match(styles, /@media \(max-width:\s*620px\)[\s\S]*?\.runtime-status-floating[\s\S]*?right:\s*16px[\s\S]*?bottom:\s*16px[\s\S]*?\.runtime-status-popover[\s\S]*?max-width:\s*calc\(100vw - 32px\)/);
   assert.match(styles, /\.content-panel[\s\S]*?padding:\s*24px 28px 92px/);
-  assert.match(styles, /\.docs-shell-content[\s\S]*?padding:\s*18px 34px 92px/);
   assert.match(styles, /@media \(prefers-reduced-motion:\s*reduce\)/);
   assert.doesNotMatch(home, /home-attention/);
   assert.doesNotMatch(home, /RuntimeStatus|runtime-status|home-runtime/);

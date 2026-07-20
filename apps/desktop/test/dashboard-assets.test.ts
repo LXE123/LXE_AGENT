@@ -19,7 +19,7 @@ describe("app:// Dashboard asset resolution", () => {
 
     expect(resolveDashboardAsset(root, "/assets/app.js"))
       .toEqual({ status: 200, path: join(root, "assets", "app.js") });
-    expect(resolveDashboardAsset(root, "/docs/getting-started"))
+    expect(resolveDashboardAsset(root, "/unknown/deep-link"))
       .toEqual({ status: 200, path: join(root, "index.html") });
     expect(resolveDashboardAsset(root, "/assets/missing.js")).toEqual({ status: 404 });
     expect(resolveDashboardAsset(root, "/api")).toEqual({ status: 404 });

@@ -198,7 +198,12 @@ export class AgentProtocolServer {
     let host: AgentRuntimeHost | undefined;
     try {
       host = this.createHost({
-        resourceRoot: payload.resource_root,
+        agentSoulPath: payload.agent_soul_path,
+        skillsRoot: payload.skills_root,
+        lxeskillCatalogPath: payload.lxeskill_catalog_path,
+        llmConfigRoot: payload.llm_config_root,
+        runtimeEnvPath: payload.runtime_env_path,
+        permissionPolicyPath: payload.permission_policy_path,
         dataRoot: payload.data_root,
         legacyWorkspace: payload.legacy_workspace,
         environment,

@@ -25,7 +25,7 @@ describe("ExecShellAdapter", () => {
         LXE_AGENT_TURN_ID: "turn",
         LXE_RESPONSE_ROUTE_ID: "route",
         LXE_EXEC_SESSION_ID: "exec",
-        LXE_ROOT: "/workspace",
+        LXE_WORKSPACE_ROOT: "/workspace",
       });
     });
   }
@@ -104,11 +104,11 @@ describe("ExecShellAdapter", () => {
     }).PATH).toBe("/work/project/.venv/bin:/fake/system/bin:/usr/bin");
   });
 
-  test("resolves the lxeskill fallback from the resource root, not the workspace", () => {
+  test("uses the explicit managed Python path without a generic resource root", () => {
     const resourcePython = "/resources/lxe/.venv/bin/python";
     const shell = new ExecShellAdapter({
       platform: "darwin",
-      environment: { LXE_RESOURCE_ROOT: "/resources/lxe" },
+      environment: { LXE_MANAGED_PYTHON: resourcePython },
       fileExists: (path) => path === resourcePython,
     });
 
@@ -150,6 +150,37 @@ describe("ExecShellAdapter", () => {
       "C:\\Users\\demo\\workspace",
       "uv run --frozen python scripts/report.py --format json",
     )).toBe("& 'C:\\LXE\\python\\python.exe' scripts/report.py --format json");
+  });
+
+  test("does not expose Bun-only SOUL, catalog, or LLM paths to Python commands", () => {
+    const shell = new ExecShellAdapter({
+      platform: "darwin",
+      environment: {
+        LXE_AGENT_SOUL_PATH: "/resources/agent/SOUL.md",
+        LXE_SKILLS_ROOT: "/resources/skills",
+        LXE_LXESKILL_CATALOG_PATH: "/resources/lxeskill/catalog.json",
+        LXE_LLM_CONFIG_ROOT: "/resources/config/llm",
+        LXE_RUNTIME_ENV_PATH: "/resources/config/runtime.env",
+        LXE_PERMISSION_POLICY_PATH: "/resources/config/permission_policy.yaml",
+        LXE_DATA_ROOT: "/state",
+        LXE_ROOT: "/legacy",
+        LXE_RESOURCE_ROOT: "/legacy/resources",
+      },
+    });
+    const environment = shell.childEnvironment("/workspace", {
+      sessionId: "s1", turnId: "t1", responseRouteId: "r1", execSessionId: "e1",
+    });
+
+    expect(environment.LXE_AGENT_SOUL_PATH).toBeUndefined();
+    expect(environment.LXE_LXESKILL_CATALOG_PATH).toBeUndefined();
+    expect(environment.LXE_LLM_CONFIG_ROOT).toBeUndefined();
+    expect(environment.LXE_ROOT).toBeUndefined();
+    expect(environment.LXE_RESOURCE_ROOT).toBeUndefined();
+    expect(environment.LXE_SKILLS_ROOT).toBe("/resources/skills");
+    expect(environment.LXE_RUNTIME_ENV_PATH).toBe("/resources/config/runtime.env");
+    expect(environment.LXE_PERMISSION_POLICY_PATH).toBe("/resources/config/permission_policy.yaml");
+    expect(environment.LXE_DATA_ROOT).toBe("/state");
+    expect(environment.LXE_WORKSPACE_ROOT).toBe("/workspace");
   });
 
   test("uses managed Python and ignores removed frozen-runtime overrides", () => {
