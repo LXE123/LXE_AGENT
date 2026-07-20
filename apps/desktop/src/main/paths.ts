@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
 
 export interface DesktopPaths {
@@ -9,6 +10,7 @@ export interface DesktopPaths {
   resourceManifestPath: string;
   agentSoulPath: string;
   skillsRoot: string;
+  userSkillsRoot: string;
   lxeskillCatalogPath: string;
   llmConfigRoot: string;
   runtimeEnvPath: string;
@@ -52,6 +54,15 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     ? targetPath.dirname(targetPath.resolve(options.executablePath))
     : sourceRoot;
   const dataRoot = targetPath.join(projectRoot, "var");
+  const userHome = platform === "win32"
+    ? String(environment.USERPROFILE ?? "").trim()
+      || `${String(environment.HOMEDRIVE ?? "").trim()}${String(environment.HOMEPATH ?? "").trim()}`
+      || homedir()
+    : String(environment.HOME ?? "").trim() || homedir();
+  const userSkillsRoot = targetPath.resolve(
+    String(environment.LXE_USER_SKILLS_ROOT ?? "").trim()
+      || targetPath.join(userHome, ".agents", "skills"),
+  );
   const executable = platform === "win32" ? ".exe" : "";
   const agentCommand = options.packaged
     ? targetPath.join(options.resourcesPath, "runtime", "agent-cli", `agent-cli${executable}`)
@@ -88,6 +99,7 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     skillsRoot: options.packaged
       ? targetPath.join(options.resourcesPath, "skills")
       : targetPath.join(sourceRoot, "skills"),
+    userSkillsRoot,
     lxeskillCatalogPath: options.packaged
       ? targetPath.join(options.resourcesPath, "lxeskill", "catalog.json")
       : targetPath.join(sourceRoot, "python", "lxeskill_cli", "lxeskill", "catalog.json"),

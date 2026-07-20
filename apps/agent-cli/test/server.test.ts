@@ -21,6 +21,7 @@ const workspace = (root: string) => ({
 const initializePayload = (root: string) => ({
   agent_soul_path: join(root, "SOUL.md"),
   skills_root: join(root, "skills"),
+  user_skills_root: join(root, "user-skills"),
   lxeskill_catalog_path: join(root, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
   llm_config_root: join(root, "config", "llm"),
   runtime_env_path: join(root, "config", "runtime.env"),

@@ -49,6 +49,7 @@ type Environment = Record<string, string | undefined>;
 export interface AgentRuntimeHostOptions {
   agentSoulPath: string;
   skillsRoot: string;
+  userSkillsRoot: string;
   lxeskillCatalogPath: string;
   llmConfigRoot: string;
   runtimeEnvPath: string;
@@ -84,6 +85,7 @@ export function createAgentRuntimeHost(
     ...options.environment,
     LXE_AGENT_SOUL_PATH: options.agentSoulPath,
     LXE_SKILLS_ROOT: options.skillsRoot,
+    LXE_USER_SKILLS_ROOT: options.userSkillsRoot,
     LXE_LXESKILL_CATALOG_PATH: options.lxeskillCatalogPath,
     LXE_LLM_CONFIG_ROOT: options.llmConfigRoot,
     LXE_RUNTIME_ENV_PATH: options.runtimeEnvPath,
@@ -101,7 +103,7 @@ export function createAgentRuntimeHost(
   );
   const feishu = loadAgentFeishuConfig(environment);
   const tools = new ToolRegistry();
-  const skillCatalog = new SkillCatalog(options.dataRoot, undefined, {
+  const skillCatalog = new SkillCatalog(options.dataRoot, options.userSkillsRoot, {
     repositorySkillsRoot: options.skillsRoot,
   });
   const connectorStatePath = join(options.dataRoot, "config", "connector-states.local.json");
@@ -131,19 +133,24 @@ export function createAgentRuntimeHost(
   const recovery = sourceRuntime
     ? `Run uv sync --frozen --all-groups --python 3.12.10 in ${sourceRoot}`
     : "Reinstall or rebuild LXE Agent";
+  const {
+    LXE_AGENT_SOUL_PATH: _agentSoulPath,
+    LXE_USER_SKILLS_ROOT: _userSkillsRoot,
+    ...lxeSkillEnvironment
+  } = environment;
   const lxeSkillRunner = lxeSkillArgv ? new OneShotCliRunner({
     command: lxeSkillArgv,
     cwd: options.dataRoot,
     timeoutMs: 3 * 60_000,
     maxOutputBytes: 10 * 1024 * 1024,
     env: {
-      ...environment,
+      ...lxeSkillEnvironment,
       LOG_FILE: String(environment.LOG_FILE ?? "").trim() || "runtime.log",
     },
     onStderr: (line) => logger.info("lxeskill", { line }),
   }) : undefined;
   const maintenance = lxeSkillRunner ? new MaintenanceScheduler({
-    environment,
+    environment: lxeSkillEnvironment,
     store,
     gatewayId: feishu.appId || crypto.randomUUID().replaceAll("-", ""),
     authRunner: lxeSkillRunner,
@@ -159,6 +166,7 @@ export function createAgentRuntimeHost(
   });
   const processes = registerCodingTools(tools, {
     repositorySkillsRoot: options.skillsRoot,
+    userSkillsRoot: options.userSkillsRoot,
     artifactRoot: join(options.dataRoot, "artifacts"),
     businessCommands,
     businessCommandCatalog: cliCommands,
@@ -221,6 +229,7 @@ export function createAgentRuntimeHost(
     stateRoot: options.dataRoot,
     llmConfigRoot: options.llmConfigRoot,
     skillsRoot: options.skillsRoot,
+    userSkillsRoot: options.userSkillsRoot,
     environment,
     store,
     tools,
@@ -315,6 +324,7 @@ export function createAgentRuntimeHost(
         model: providerManager.acquire().descriptor.model,
         lxeskill_available: lxeSkillStatus.available,
         lxeskill_message: lxeSkillStatus.message,
+        skill_diagnostics: skillCatalog.diagnostics(),
         workspace_instances: workspaceInstances.diagnostics(),
       };
     },

@@ -79,6 +79,12 @@ describe("DashboardService", () => {
       "  - path: references/help.md", "    description: Help", "---", "# Demo", "",
     ].join("\n"), "utf8");
     writeFileSync(join(root, "skills", "demo", "references", "help.md"), "# Help", "utf8");
+    mkdirSync(join(root, "user-skills", "demo"), { recursive: true });
+    writeFileSync(
+      join(root, "user-skills", "demo", "SKILL.md"),
+      "---\nname: demo\ndescription: User shadow\n---\n",
+      "utf8",
+    );
     mkdirSync(join(root, "config", "llm", "providers"), { recursive: true });
     writeFileSync(join(root, "config", "llm", "providers", "kimi-coding.json"), JSON.stringify({
       name: "kimi_coding",
@@ -184,6 +190,7 @@ describe("DashboardService", () => {
       stateRoot: root,
       llmConfigRoot: join(root, "config", "llm"),
       skillsRoot: join(root, "skills"),
+      userSkillsRoot: join(root, "user-skills"),
       environment,
       store,
       tools,
@@ -225,7 +232,13 @@ describe("DashboardService", () => {
       .toMatchObject({ changed: true, generation: 2 });
     expect(workspaceReloads).toEqual(["session-one"]);
     expect(await call({ operation: "skills.list", input: {} })).toMatchObject({
-      items: [{ name: "demo", commands: ["scripts.demo"], references: [{ path: "references/help.md" }] }],
+      items: [{
+        name: "demo",
+        source: "repository",
+        commands: ["scripts.demo"],
+        references: [{ path: "references/help.md" }],
+        diagnostics: [{ code: "user_skill_shadowed", skill_name: "demo" }],
+      }],
     });
     expect(await call({ operation: "commands.list", input: {} })).toEqual({
       items: [{ command: "lxeskill auth refresh", name: "browser_auth_refresh", visibility: "maintenance", ownerSkills: [] }],
@@ -327,6 +340,7 @@ describe("DashboardService", () => {
       stateRoot: root,
       llmConfigRoot: join(root, "config", "llm"),
       skillsRoot: join(root, "skills"),
+      userSkillsRoot: join(root, "user-skills"),
       environment: restartedEnvironment,
       store,
       tools,

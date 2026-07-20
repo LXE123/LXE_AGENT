@@ -15,7 +15,7 @@ import {
 
 export * from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 6 as const;
+export const AGENT_PROTOCOL_VERSION = 7 as const;
 
 export class AgentProtocolError extends Error {
   readonly code = "AgentProtocolError";
@@ -29,6 +29,7 @@ export class AgentProtocolError extends Error {
 export type AgentInitializePayload = {
   agent_soul_path: string;
   skills_root: string;
+  user_skills_root: string;
   lxeskill_catalog_path: string;
   llm_config_root: string;
   runtime_env_path: string;
@@ -486,6 +487,7 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
     case "initialize":
       requireText("agent_soul_path");
       requireText("skills_root");
+      requireText("user_skills_root");
       requireText("lxeskill_catalog_path");
       requireText("llm_config_root");
       requireText("runtime_env_path");

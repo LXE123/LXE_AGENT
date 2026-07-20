@@ -42,6 +42,8 @@ interface DashboardServiceOptions {
   llmConfigRoot: string;
   /** Read-only repository-owned Skill directory. */
   skillsRoot: string;
+  /** User-owned Skill directory. */
+  userSkillsRoot: string;
   environment: Environment;
   store: SqliteRuntimeStore;
   tools: ToolRegistry;
@@ -235,7 +237,9 @@ export class DashboardService {
     "sessions.list": (input) => this.sessions(input) as DashboardRpcResult<"sessions.list">,
     "sessions.detail": (input) => this.session(input) as Promise<DashboardRpcResult<"sessions.detail">>,
     "sessions.workspace.reload": (input) => this.reloadWorkspace(input),
-    "skills.list": () => this.listPayload(this.skills()) as DashboardRpcResult<"skills.list">,
+    "skills.list": () => this.listPayload(
+      this.skills().map((manifest) => this.skillPayload(manifest)),
+    ) as DashboardRpcResult<"skills.list">,
     "skills.content": (input) => this.skillContent(input.name) as DashboardRpcResult<"skills.content">,
     "skills.reference": (input) => this.skillReference(input.name, input.path) as DashboardRpcResult<"skills.reference">,
     "commands.list": () => this.listPayload(this.options.cliCommands ?? []) as DashboardRpcResult<"commands.list">,
@@ -268,7 +272,7 @@ export class DashboardService {
     this.connectorStatePath = options.connectorStatePath
       ?? (text(options.environment.LXE_CONNECTOR_STATE_PATH)
         || join(options.stateRoot, "config", "connector-states.local.json"));
-    this.skillCatalog = options.skillCatalog ?? new SkillCatalog(options.stateRoot, undefined, {
+    this.skillCatalog = options.skillCatalog ?? new SkillCatalog(options.stateRoot, options.userSkillsRoot, {
       repositorySkillsRoot: options.skillsRoot,
     });
   }
@@ -356,6 +360,8 @@ export class DashboardService {
   }
 
   private skillPayload(manifest: SkillManifest, includeContent = false): JsonObject {
+    const diagnostics = this.skillCatalog.diagnostics()
+      .filter((diagnostic) => diagnostic.skill_name === manifest.name);
     return {
       name: manifest.name,
       type: manifest.type,
@@ -363,6 +369,8 @@ export class DashboardService {
       commands: manifest.commands,
       location: manifest.location,
       references: manifest.references,
+      source: manifest.source,
+      ...(diagnostics.length ? { diagnostics } : {}),
       ...(includeContent ? { content: manifest.content } : {}),
     };
   }

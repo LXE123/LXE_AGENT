@@ -144,6 +144,14 @@ export type SkillPayload = {
   commands: string[];
   location: string;
   references: SkillReferencePayload[];
+  source?: "repository" | "user";
+  diagnostics?: Array<{
+    code: "user_skill_shadowed";
+    message: string;
+    skill_name: string;
+    repository_path: string;
+    user_path: string;
+  }>;
 };
 
 export type SkillContentPayload = SkillPayload & {

@@ -34,6 +34,14 @@ export interface SkillCatalogSnapshot {
   readonly modules: Readonly<Record<string, string>>;
 }
 
+export interface SkillCatalogDiagnostic extends JsonObject {
+  code: "user_skill_shadowed";
+  message: string;
+  skill_name: string;
+  repository_path: string;
+  user_path: string;
+}
+
 export interface SkillCatalogOptions {
   refreshIntervalMs?: number;
   now?: () => number;
@@ -47,6 +55,9 @@ export class SkillCatalogError extends Error {
     this.name = "SkillCatalogError";
   }
 }
+
+export const MAX_SKILL_MANIFEST_BYTES = 1024 * 1024;
+export const MAX_SKILL_REFERENCE_BYTES = 128 * 1024 * 1024;
 
 const object = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -77,6 +88,9 @@ const safeReference = (root: string, requested: string): string => {
   if (!existsSync(candidate) || !statSync(candidate).isFile()) {
     throw new SkillCatalogError(`skill reference does not exist: ${requested}`);
   }
+  if (statSync(candidate).size > MAX_SKILL_REFERENCE_BYTES) {
+    throw new SkillCatalogError(`skill reference exceeds ${MAX_SKILL_REFERENCE_BYTES} bytes: ${requested}`);
+  }
   const realRoot = realpathSync(root);
   const realCandidate = realpathSync(candidate);
   const realRelation = relative(realRoot, realCandidate);
@@ -87,16 +101,33 @@ const safeReference = (root: string, requested: string): string => {
 };
 
 const parseManifest = (path: string, source: SkillManifest["source"]): SkillManifest => {
+  const size = statSync(path).size;
+  if (size > MAX_SKILL_MANIFEST_BYTES) {
+    throw new SkillCatalogError(`skill manifest exceeds ${MAX_SKILL_MANIFEST_BYTES} bytes: ${path}`);
+  }
   const content = readFileSync(path, "utf8");
   const match = content.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
   if (!match?.[1]) throw new SkillCatalogError(`skill is missing YAML frontmatter: ${path}`);
-  const metadata = object(parse(match[1]));
+  let metadata: Record<string, unknown>;
+  try {
+    metadata = object(parse(match[1]));
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    throw new SkillCatalogError(`skill YAML is invalid: ${path}: ${message}`);
+  }
   const name = String(metadata.name ?? "").trim();
   if (!name) throw new SkillCatalogError(`skill name is required: ${path}`);
   const root = dirname(path);
   const references = Array.isArray(metadata.references) ? metadata.references.map((raw) => {
     const item = typeof raw === "string" ? { path: raw } : object(raw);
-    const referencePath = safeReference(root, String(item.path ?? "").trim());
+    const requested = String(item.path ?? "").trim();
+    let referencePath: string;
+    try {
+      referencePath = safeReference(root, requested);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      throw new SkillCatalogError(`${message} (declared by ${path})`);
+    }
     return { path: referencePath, description: String(item.description ?? "").trim() };
   }) : [];
   const rawCommands = Array.isArray(metadata.commands)
@@ -170,6 +201,7 @@ export class SkillCatalog {
   private readonly refreshIntervalMs: number;
   private readonly now: () => number;
   private readonly repositorySkillsRoot: string;
+  private catalogDiagnostics: SkillCatalogDiagnostic[] = [];
 
   constructor(
     private readonly projectRoot: string,
@@ -203,6 +235,11 @@ export class SkillCatalog {
 
   sourceRoots(): string[] {
     return [this.repositorySkillsRoot, this.userSkillsRoot];
+  }
+
+  diagnostics(): SkillCatalogDiagnostic[] {
+    this.refresh();
+    return this.catalogDiagnostics.map((diagnostic) => structuredClone(diagnostic));
   }
 
   get(name: string, options: SkillPromptOptions = {}): SkillManifest | undefined {
@@ -319,6 +356,7 @@ export class SkillCatalog {
       return false;
     }
     const byName = new Map<string, SkillManifest>();
+    const diagnostics: SkillCatalogDiagnostic[] = [];
     let externalSkipped = 0;
     for (const manifest of parsed) {
       const existing = byName.get(manifest.name);
@@ -328,9 +366,19 @@ export class SkillCatalog {
       }
       if (existing.source === "repository" && manifest.source === "user") {
         externalSkipped += 1;
-        this.logger.debug("skill_external_skipped", {
+        const diagnostic: SkillCatalogDiagnostic = {
+          code: "user_skill_shadowed",
+          message: `User Skill '${manifest.name}' is ignored because an official Skill has the same name`,
+          skill_name: manifest.name,
+          repository_path: existing.location,
+          user_path: manifest.location,
+        };
+        diagnostics.push(diagnostic);
+        this.logger.warn("skill_external_skipped", {
           skill_name: manifest.name,
           reason: "repository_precedence",
+          repository_path: existing.location,
+          user_path: manifest.location,
         });
         continue;
       }
@@ -351,6 +399,7 @@ export class SkillCatalog {
     const manifests = [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
     this.manifests = manifests;
     this.manifestsByName = new Map(manifests.map((manifest) => [manifest.name, manifest]));
+    this.catalogDiagnostics = diagnostics;
     this.signature = signature;
     this.contentSignature = contentSignature;
     this.generation += 1;

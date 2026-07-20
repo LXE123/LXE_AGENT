@@ -200,6 +200,7 @@ describe("native coding tools", () => {
     const registry = new ToolRegistry();
     const processes = registerCodingTools(registry, {
       repositorySkillsRoot,
+      userSkillsRoot: join(home, ".agents", "skills"),
       artifactRoot,
       homeDirectory: home,
       ripgrepPath: null,

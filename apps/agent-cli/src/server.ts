@@ -200,6 +200,7 @@ export class AgentProtocolServer {
       host = this.createHost({
         agentSoulPath: payload.agent_soul_path,
         skillsRoot: payload.skills_root,
+        userSkillsRoot: payload.user_skills_root,
         lxeskillCatalogPath: payload.lxeskill_catalog_path,
         llmConfigRoot: payload.llm_config_root,
         runtimeEnvPath: payload.runtime_env_path,

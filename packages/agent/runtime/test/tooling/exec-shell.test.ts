@@ -158,6 +158,7 @@ describe("ExecShellAdapter", () => {
       environment: {
         LXE_AGENT_SOUL_PATH: "/resources/agent/SOUL.md",
         LXE_SKILLS_ROOT: "/resources/skills",
+        LXE_USER_SKILLS_ROOT: "/home/tester/.agents/skills",
         LXE_LXESKILL_CATALOG_PATH: "/resources/lxeskill/catalog.json",
         LXE_LLM_CONFIG_ROOT: "/resources/config/llm",
         LXE_RUNTIME_ENV_PATH: "/resources/config/runtime.env",
@@ -172,6 +173,7 @@ describe("ExecShellAdapter", () => {
     });
 
     expect(environment.LXE_AGENT_SOUL_PATH).toBeUndefined();
+    expect(environment.LXE_USER_SKILLS_ROOT).toBeUndefined();
     expect(environment.LXE_LXESKILL_CATALOG_PATH).toBeUndefined();
     expect(environment.LXE_LLM_CONFIG_ROOT).toBeUndefined();
     expect(environment.LXE_ROOT).toBeUndefined();

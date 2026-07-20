@@ -2,7 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SkillCatalog, buildSkillIndexPrompt } from "../../src/tooling/skills";
+import {
+  MAX_SKILL_MANIFEST_BYTES,
+  SkillCatalog,
+  buildSkillIndexPrompt,
+} from "../../src/tooling/skills";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -87,6 +91,12 @@ describe("skill context", () => {
     const catalog = new SkillCatalog(root, userRoot, { refreshIntervalMs: 0 });
     expect(catalog.get("demo")?.description).toBe("Repository version");
     expect(catalog.get("demo")?.references).toEqual([{ path: "references/help.md", description: "" }]);
+    expect(catalog.diagnostics()).toEqual([expect.objectContaining({
+      code: "user_skill_shadowed",
+      skill_name: "demo",
+      repository_path: join(root, "skills", "demo", "SKILL.md"),
+      user_path: join(userRoot, "demo", "SKILL.md"),
+    })]);
 
     writeFileSync(join(root, "skills", "demo", "SKILL.md"), [
       "---", "name: demo", "type: default", "description: Repository version updated",
@@ -224,5 +234,22 @@ describe("skill context", () => {
       catalog.snapshot({ disabledNames: new Set([`unused-${index}`]) });
     }
     expect(catalog.snapshot(firstOptions)).not.toBe(first);
+  });
+
+  test("rejects oversized and malformed user Skill manifests with the exact path", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-user-skill-validation-"));
+    roots.push(root);
+    const userRoot = join(root, "user-skills");
+    const userSkillPath = join(userRoot, "broken", "SKILL.md");
+    mkdirSync(join(root, "skills", "official"), { recursive: true });
+    mkdirSync(join(userRoot, "broken"), { recursive: true });
+    writeFileSync(join(root, "skills", "official", "SKILL.md"), "---\nname: official\n---\n", "utf8");
+    writeFileSync(userSkillPath, "x".repeat(MAX_SKILL_MANIFEST_BYTES + 1), "utf8");
+    const catalog = new SkillCatalog(root, userRoot, { refreshIntervalMs: 0 });
+
+    expect(() => catalog.list()).toThrow(`skill manifest exceeds ${MAX_SKILL_MANIFEST_BYTES} bytes: ${userSkillPath}`);
+
+    writeFileSync(userSkillPath, "---\nname: [\n---\n", "utf8");
+    expect(() => catalog.list()).toThrow(`skill YAML is invalid: ${userSkillPath}`);
   });
 });

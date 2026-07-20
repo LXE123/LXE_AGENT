@@ -219,6 +219,7 @@ export class ExecShellAdapter {
     const projectVenv = projectVenvPath(root, this.platform);
     const {
       LXE_AGENT_SOUL_PATH: _agentSoulPath,
+      LXE_USER_SKILLS_ROOT: _userSkillsRoot,
       LXE_LXESKILL_CATALOG_PATH: _runtimeCatalogPath,
       LXE_LLM_CONFIG_ROOT: _llmConfigRoot,
       LXE_ROOT: _legacyRoot,

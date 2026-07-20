@@ -14,6 +14,7 @@ describe("desktop private runtime paths", () => {
       environment: {
         LXE_SOURCE_ROOT: sourceRoot,
         LXE_DATA_ROOT: "/Users/tester/Library/Application Support/ignored",
+        HOME: "/Users/tester",
       },
       platform: "darwin",
       pathExists: () => true,
@@ -22,6 +23,7 @@ describe("desktop private runtime paths", () => {
     expect(paths.resourceRoot).toBe(sourceRoot);
     expect(paths.agentSoulPath).toBe(posix.join(sourceRoot, "SOUL.md"));
     expect(paths.skillsRoot).toBe(posix.join(sourceRoot, "skills"));
+    expect(paths.userSkillsRoot).toBe("/Users/tester/.agents/skills");
     expect(paths.lxeskillCatalogPath).toBe(posix.join(sourceRoot, "python", "lxeskill_cli", "lxeskill", "catalog.json"));
     expect(paths.llmConfigRoot).toBe(posix.join(sourceRoot, "config", "llm"));
     expect(paths.runtimeEnvPath).toBe(posix.join(sourceRoot, "config", "runtime.env"));
@@ -44,7 +46,10 @@ describe("desktop private runtime paths", () => {
       appPath: win32.join(root, "app.asar"),
       executablePath,
       resourcesPath: root,
-      environment: { LXE_DATA_ROOT: "C:\\Users\\tester\\AppData\\Roaming\\ignored" },
+      environment: {
+        LXE_DATA_ROOT: "C:\\Users\\tester\\AppData\\Roaming\\ignored",
+        USERPROFILE: "C:\\Users\\tester",
+      },
       platform: "win32",
       pathExists: () => true,
     });
@@ -53,6 +58,7 @@ describe("desktop private runtime paths", () => {
     expect(paths.resourceRoot).toBe(root);
     expect(paths.agentSoulPath).toBe(win32.join(root, "agent", "SOUL.md"));
     expect(paths.skillsRoot).toBe(win32.join(root, "skills"));
+    expect(paths.userSkillsRoot).toBe("C:\\Users\\tester\\.agents\\skills");
     expect(paths.lxeskillCatalogPath).toBe(win32.join(root, "lxeskill", "catalog.json"));
     expect(paths.llmConfigRoot).toBe(win32.join(root, "config", "llm"));
     expect(paths.runtimeEnvPath).toBe(win32.join(root, "config", "runtime.env"));

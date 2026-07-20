@@ -63,6 +63,7 @@ export interface ProcessCompletionConsumeRequest {
 
 export interface CodingToolOptions {
   repositorySkillsRoot?: string;
+  userSkillsRoot?: string;
   artifactRoot?: string;
   homeDirectory?: string;
   maxOutputChars?: number;
@@ -831,7 +832,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   const ledger = new FileReadLedger();
   const imageProcessor = new ModelImageProcessor();
   const home = resolve(options.homeDirectory ?? homedir());
-  const userSkillsRoot = resolve(home, ".agents", "skills");
+  const userSkillsRoot = resolve(options.userSkillsRoot ?? join(home, ".agents", "skills"));
   const externalScopesByRoot = new Map<string, ReadableScope>();
   for (const scope of [
     ...(options.repositorySkillsRoot
@@ -904,7 +905,7 @@ export function registerCodingTools(registry: ToolRegistry, options: CodingToolO
   processes.onConsume = options.onProcessConsume;
   registry.register({
     name: "read",
-    description: "Read a text or image file from the workspace, bundled skills, runtime artifacts, or ~/.agents/skills. External roots are read-only. Reading records the file version required by edit/write.",
+    description: "Read a text or image file from the workspace, bundled skills, runtime artifacts, or the configured user Skill root. External roots are read-only. Reading records the file version required by edit/write.",
     input_schema: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["path"], additionalProperties: false },
     execute: async (input, context) => {
       const path = readable(context, input.path).path;

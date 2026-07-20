@@ -51,6 +51,7 @@ export interface ProcessAgentRuntimeOptions {
   environment: Environment;
   agentSoulPath: string;
   skillsRoot: string;
+  userSkillsRoot: string;
   lxeskillCatalogPath: string;
   llmConfigRoot: string;
   runtimeEnvPath: string;
@@ -197,6 +198,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
       this.remoteHealthSnapshot = objectValue(await this.request("initialize", {
         agent_soul_path: this.options.agentSoulPath,
         skills_root: this.options.skillsRoot,
+        user_skills_root: this.options.userSkillsRoot,
         lxeskill_catalog_path: this.options.lxeskillCatalogPath,
         llm_config_root: this.options.llmConfigRoot,
         runtime_env_path: this.options.runtimeEnvPath,
