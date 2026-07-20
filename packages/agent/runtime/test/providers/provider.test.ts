@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { repositoryRoot } from "@lxe/core";
-import parity from "../fixtures/main-production-parity.json";
+import providerCases from "./provider-cases.json";
 import {
   adaptMessagesForProvider,
   AnthropicRuntimeProvider,
@@ -486,7 +486,7 @@ describe("Anthropic-compatible provider", () => {
       .toEqual(expect.objectContaining({ retryable: false, contextOverflow: true }));
   });
 
-  test("consumes frozen main Kimi and DeepSeek request and error fixtures", () => {
+  test("matches Kimi and DeepSeek request and error expectations", () => {
     const projectRoot = repositoryRoot(import.meta.dir);
     const kimi = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "kimi_coding", AGENT_LLM_MODEL: "kimi-for-coding", KIMI_CODE_API_KEY: "secret-key",
@@ -494,7 +494,7 @@ describe("Anthropic-compatible provider", () => {
     const deepseek = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "deepseek", AGENT_LLM_MODEL: "deepseek-v4-pro", DEEPSEEK_API: "secret-key",
     });
-    for (const fixture of parity.provider.kimi_thinking_cases) {
+    for (const fixture of providerCases.kimi_thinking_cases) {
       expect(buildThinkingPayload({
         ...kimi,
         thinkingEnabled: fixture.enabled,
@@ -502,16 +502,16 @@ describe("Anthropic-compatible provider", () => {
         maxTokens: fixture.max_tokens,
       })).toEqual(fixture.expected);
     }
-    for (const fixture of parity.provider.deepseek_effort_cases) {
+    for (const fixture of providerCases.deepseek_effort_cases) {
       expect(buildThinkingPayload({ ...deepseek, thinkingEffort: fixture.configured })).toEqual({
         thinking: { type: "enabled" }, output_config: { effort: fixture.expected },
       });
     }
     expect(adaptMessagesForProvider(
-      parity.provider.deepseek_history.canonical as RuntimeMessage[],
+      providerCases.deepseek_history.canonical as RuntimeMessage[],
       deepseek,
-    )).toEqual(parity.provider.deepseek_history.expected as ProviderMessage[]);
-    for (const fixture of parity.provider.nested_error_cases) {
+    )).toEqual(providerCases.deepseek_history.expected as ProviderMessage[]);
+    for (const fixture of providerCases.nested_error_cases) {
       const descriptor = fixture.provider === "deepseek" ? deepseek : kimi;
       const source = { error: { type: "error", error: { message: "request failed", status_code: fixture.status } } };
       expect(providerErrorStatusCode(source)).toBe(fixture.status);
@@ -521,7 +521,7 @@ describe("Anthropic-compatible provider", () => {
         retryable: fixture.retryable,
       }));
     }
-    for (const fixture of parity.provider.context_error_cases) {
+    for (const fixture of providerCases.context_error_cases) {
       const descriptor = fixture.provider === "deepseek" ? deepseek : kimi;
       expect(normalizeProviderError({
         error: { error: { status_code: fixture.status, message: fixture.message } },
@@ -536,7 +536,7 @@ describe("Anthropic-compatible provider", () => {
 
   test("restores initial stream blocks without duplicating redacted thinking", async () => {
     const listeners = new Map<string, (...args: unknown[]) => void>();
-    const fixture = parity.provider.stream;
+    const fixture = providerCases.stream;
     const parseErrors: unknown[] = [];
     const runtimeEvents: RuntimeStreamEvent[] = [];
     const provider = new AnthropicRuntimeProvider(
