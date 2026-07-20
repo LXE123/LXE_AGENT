@@ -67,18 +67,39 @@ export function defaultEnabledThinkingLevel(model: Pick<ModelPayload, "thinking_
   return levels.find((level) => level !== "off") || "off";
 }
 
+function normalizedThinkingLevel(
+  value: string | undefined,
+  model: Pick<ModelPayload, "thinking_levels" | "thinking_default">
+): string {
+  const aliases: Record<string, string> = {
+    low: "low",
+    minimal: "low",
+    minimum: "low",
+    light: "low",
+    high: "high",
+    medium: "high",
+    max: "max",
+    xhigh: "max",
+    ultra: "max"
+  };
+  const requested = String(value || "").trim().toLowerCase();
+  const candidate = aliases[requested] || requested;
+  return model.thinking_levels.includes(candidate)
+    ? candidate
+    : defaultEnabledThinkingLevel(model);
+}
+
 export function thinkingStateForModelOption(option: ModelOptionPayload, previous?: ThinkingStatePayload): ThinkingStatePayload {
   const levels = option.thinking_levels || [];
-  const editable = levels.includes("off");
-  if (!previous?.enabled) {
+  const editable = levels.length > 1;
+  if (!previous?.enabled && levels.includes("off")) {
     return {
       enabled: false,
       level: "off",
       editable
     };
   }
-  const previousLevel = String(previous.level || "").trim().toLowerCase();
-  const nextLevel = levels.includes(previousLevel) ? previousLevel : defaultEnabledThinkingLevel(option);
+  const nextLevel = normalizedThinkingLevel(previous?.level, option);
   return {
     enabled: nextLevel !== "off",
     level: nextLevel,

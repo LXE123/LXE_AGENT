@@ -14,14 +14,15 @@
   },
   "models": {
     "kimi-for-coding": {
-      "context_window_tokens": 256000,
+      "context_window_tokens": 262144,
       "max_tokens": 32768,
       "supports_vision": true,
       "supports_thinking": true,
       "supports_temperature": false,
-      "thinking_request_style": "anthropic-adaptive",
-      "thinking_levels": ["off", "low", "medium", "high"],
-      "thinking_default": "medium"
+      "thinking_request_style": "anthropic-budget",
+      "thinking_budget_tokens": 16000,
+      "thinking_levels": ["low", "high", "max"],
+      "thinking_default": "high"
     },
     "k3": {
       "context_window_tokens": 262144,
@@ -29,9 +30,9 @@
       "supports_vision": true,
       "supports_thinking": true,
       "supports_temperature": false,
-      "thinking_request_style": "anthropic-adaptive",
-      "thinking_levels": ["off", "max"],
-      "thinking_default": "max"
+      "thinking_request_style": "anthropic-output-effort",
+      "thinking_levels": ["low", "high", "max"],
+      "thinking_default": "high"
     }
   }
 }

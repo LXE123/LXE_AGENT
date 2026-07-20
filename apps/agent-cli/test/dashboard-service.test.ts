@@ -43,13 +43,14 @@ describe("DashboardService", () => {
       default_model: "kimi-for-coding",
       models: {
         "kimi-for-coding": {
-          context_window_tokens: 256_000, max_tokens: 32_768, supports_vision: true, supports_thinking: true,
-          thinking_request_style: "anthropic-adaptive", thinking_levels: ["off", "low", "medium", "high"],
-          thinking_default: "medium",
+          context_window_tokens: 262_144, max_tokens: 32_768, supports_vision: true, supports_thinking: true,
+          thinking_request_style: "anthropic-budget", thinking_budget_tokens: 16_000,
+          thinking_levels: ["low", "high", "max"], thinking_default: "high",
         },
         k3: {
           context_window_tokens: 262_144, max_tokens: 131_072, supports_vision: true, supports_thinking: true,
-          thinking_request_style: "anthropic-adaptive", thinking_levels: ["off", "max"], thinking_default: "max",
+          thinking_request_style: "anthropic-output-effort",
+          thinking_levels: ["low", "high", "max"], thinking_default: "high",
         },
       },
     }), "utf8");
@@ -236,10 +237,11 @@ describe("DashboardService", () => {
     expect(kimiModel).toMatchObject({ provider: "kimi_coding", model: "kimi-for-coding", configured: true });
     const kimiOptions = kimiModel.model_options as Array<Record<string, unknown>>;
     expect(kimiOptions.find((option) => option.model === "kimi-for-coding")).toMatchObject({
-      thinking_levels: ["off", "low", "medium", "high"], thinking_default: "medium",
+      thinking_levels: ["low", "high", "max"], thinking_default: "high",
+      capabilities: { context_window_tokens: 262_144, max_output_tokens: 32_768 },
     });
     expect(kimiOptions.find((option) => option.model === "k3")).toMatchObject({
-      model: "k3", thinking_levels: ["off", "max"], thinking_default: "max",
+      model: "k3", thinking_levels: ["low", "high", "max"], thinking_default: "high",
       capabilities: { context_window_tokens: 262_144, max_output_tokens: 131_072 },
     });
     expect(modelList.items.find((model) => model.provider === "deepseek")).toMatchObject({
@@ -249,11 +251,11 @@ describe("DashboardService", () => {
     Object.assign(environment, {
       AGENT_LLM_MODEL: "k3",
       AGENT_LLM_THINKING_ENABLED: "0",
-      AGENT_LLM_THINKING_EFFORT: "low",
+      AGENT_LLM_THINKING_EFFORT: "off",
     });
     expect(await call({ operation: "models.current", input: {} })).toMatchObject({
       provider: "kimi_coding", model: "k3",
-      thinking_state: { enabled: false, level: "off", editable: true },
+      thinking_state: { enabled: true, level: "high", editable: true },
     });
     const deepseekSwitch = await call({
       operation: "models.update",
@@ -267,12 +269,12 @@ describe("DashboardService", () => {
     const modelsAfterDeepseek = await call({ operation: "models.list", input: {} }) as { items: Array<Record<string, unknown>> };
     expect(modelsAfterDeepseek.items.find((model) => model.provider === "kimi_coding")).toMatchObject({
       model: "k3",
-      thinking_state: { enabled: false, level: "off", editable: true },
+      thinking_state: { enabled: true, level: "high", editable: true },
     });
     const persistedAfterDeepseek = readFileSync(join(root, ".env.local"), "utf8");
     expect(persistedAfterDeepseek).toContain("AGENT_LLM_MODEL_KIMI_CODING=k3");
-    expect(persistedAfterDeepseek).toContain("AGENT_LLM_THINKING_ENABLED_KIMI_CODING=0");
-    expect(persistedAfterDeepseek).toContain("AGENT_LLM_THINKING_EFFORT_KIMI_CODING=off");
+    expect(persistedAfterDeepseek).toContain("AGENT_LLM_THINKING_ENABLED_KIMI_CODING=1");
+    expect(persistedAfterDeepseek).toContain("AGENT_LLM_THINKING_EFFORT_KIMI_CODING=high");
     expect(persistedAfterDeepseek).toContain("AGENT_LLM_MODEL_DEEPSEEK=deepseek-v4-pro");
     expect(persistedAfterDeepseek).toContain("AGENT_LLM_THINKING_EFFORT_DEEPSEEK=high");
 
@@ -293,7 +295,7 @@ describe("DashboardService", () => {
     }) as { items: Array<Record<string, unknown>> };
     expect(restartedModels.items.find((model) => model.provider === "kimi_coding")).toMatchObject({
       model: "k3",
-      thinking_state: { enabled: false, level: "off", editable: true },
+      thinking_state: { enabled: true, level: "high", editable: true },
     });
     await expect(restartedService.call({
       operation: "sessions.workspace.reload",
@@ -303,13 +305,13 @@ describe("DashboardService", () => {
     const kimiSwitch = await call({ operation: "models.update", input: { provider: "kimi_coding" } });
     expect(kimiSwitch).toMatchObject({
       provider: "kimi_coding", model: "k3", generation: 3, effective_from: "next_turn",
-      thinking_state: { enabled: false, level: "off", editable: true },
+      thinking_state: { enabled: true, level: "high", editable: true },
     });
 
     const k3Max = await call({ operation: "models.thinking.update", input: { level: "max" } });
     expect(k3Max).toMatchObject({
       provider: "kimi_coding", model: "k3", generation: 4, effective_from: "next_turn",
-      thinking_levels: ["off", "max"],
+      thinking_levels: ["low", "high", "max"],
       thinking_state: { enabled: true, level: "max", editable: true },
       capabilities: { context_window_tokens: 262_144, max_output_tokens: 131_072 },
     });
@@ -345,7 +347,7 @@ describe("DashboardService", () => {
     environment.DEEPSEEK_API = "deepseek-key";
     expect(reconfigured).toEqual([
       expect.objectContaining({ provider: "deepseek", model: "deepseek-v4-pro" }),
-      expect.objectContaining({ provider: "kimi_coding", model: "k3", thinkingEffort: "off" }),
+      expect.objectContaining({ provider: "kimi_coding", model: "k3", thinkingEffort: "high" }),
       expect.objectContaining({ thinkingEnabled: true, thinkingEffort: "max" }),
       expect.objectContaining({ provider: "deepseek", model: "deepseek-v4-pro" }),
       expect.objectContaining({ provider: "kimi_coding", model: "k3", thinkingEffort: "max" }),

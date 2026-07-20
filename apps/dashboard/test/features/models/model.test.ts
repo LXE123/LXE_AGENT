@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { modelsInDisplayOrder, reconcileModelSelections } from "../../../src/features/models/model";
+import {
+  modelsInDisplayOrder,
+  reconcileModelSelections,
+  thinkingStateForModelOption,
+} from "../../../src/features/models/model";
 
 describe("model display order", () => {
   test("shows Kimi, DeepSeek, and GLM in the product-defined order", () => {
@@ -65,5 +69,46 @@ describe("model selection reconciliation", () => {
       { provider: "kimi_coding", model: "k3" },
       { kimi_coding: "removed", deepseek: "removed" },
     )).toEqual({ kimi_coding: "k3", deepseek: "deepseek-v4-pro" });
+  });
+});
+
+describe("thinking state reconciliation", () => {
+  const kimiOption = {
+    model: "k3",
+    thinking_request_style: "anthropic-output-effort",
+    thinking_levels: ["low", "high", "max"],
+    thinking_level_labels: {},
+    thinking_default: "high",
+    capabilities: {
+      provider: "kimi_coding",
+      model: "k3",
+      context_window_tokens: 262_144,
+      max_tokens: 131_072,
+      max_output_tokens: 131_072,
+      supports_vision: true,
+      supports_thinking: true,
+      supports_temperature: false,
+    },
+  };
+
+  test("forces legacy disabled and off state back to the required high default", () => {
+    expect(thinkingStateForModelOption(kimiOption, {
+      enabled: false,
+      level: "off",
+      editable: true,
+    })).toEqual({ enabled: true, level: "high", editable: true });
+  });
+
+  test("maps legacy effort aliases while keeping all three required levels editable", () => {
+    expect(thinkingStateForModelOption(kimiOption, {
+      enabled: true,
+      level: "medium",
+      editable: true,
+    })).toEqual({ enabled: true, level: "high", editable: true });
+    expect(thinkingStateForModelOption(kimiOption, {
+      enabled: true,
+      level: "xhigh",
+      editable: true,
+    })).toEqual({ enabled: true, level: "max", editable: true });
   });
 });

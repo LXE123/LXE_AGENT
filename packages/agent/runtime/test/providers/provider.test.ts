@@ -10,6 +10,7 @@ import {
   buildSystemPayload,
   buildThinkingPayload,
   loadProviderDescriptor,
+  normalizeThinkingEffort,
   normalizeProviderError,
   ProviderIdleWatchdog,
   type ProviderMessage,
@@ -32,68 +33,84 @@ describe("Anthropic-compatible provider", () => {
       apiKey: "secret-key",
       maxTokens: 32768,
       defaultHeaders: expect.objectContaining({ "User-Agent": "KimiCLI/1.5" }),
-      thinkingLevels: ["off", "low", "medium", "high"],
-      thinkingDefault: "medium",
+      thinkingStyle: "anthropic-budget",
+      thinkingBudgetTokens: 16_000,
+      thinkingLevels: ["low", "high", "max"],
+      thinkingDefault: "high",
       thinkingEnabled: true,
-      thinkingEffort: "medium",
+      thinkingEffort: "high",
+      contextWindowTokens: 262_144,
       requestIdleTimeoutMs: 120_000,
     }));
   });
 
-  test("builds adaptive Kimi and effort-based DeepSeek request controls", () => {
+  test("builds fixed-budget K2.7 and output-effort-only K3 request controls", () => {
     const projectRoot = repositoryRoot(import.meta.dir);
     const kimi = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_MODEL: "kimi-for-coding",
       KIMI_CODE_API_KEY: "secret-key",
     });
-    for (const effort of ["low", "medium", "high"] as const) {
+    for (const effort of ["low", "high", "max"] as const) {
       expect(buildThinkingPayload({ ...kimi, thinkingEffort: effort })).toEqual({
-        thinking: { type: "adaptive", display: "omitted" },
-        output_config: { effort },
+        thinking: { type: "enabled", budget_tokens: 16_000 },
       });
     }
-    expect(buildThinkingPayload({ ...kimi, thinkingEnabled: false })).toEqual({ thinking: { type: "disabled" } });
-    expect(buildThinkingPayload({ ...kimi, thinkingEffort: "off" })).toEqual({ thinking: { type: "disabled" } });
     expect(buildThinkingPayload({ ...kimi, thinkingEffort: "wild" })).toEqual({
-      thinking: { type: "adaptive", display: "omitted" },
-      output_config: { effort: "medium" },
+      thinking: { type: "enabled", budget_tokens: 16_000 },
     });
-    expect(buildSummaryThinkingPayload(kimi)).toEqual({ thinking: { type: "disabled" } });
+    expect(buildSummaryThinkingPayload(kimi)).toEqual({
+      thinking: { type: "enabled", budget_tokens: 16_000 },
+    });
 
-    const k3Off = loadProviderDescriptor(projectRoot, {
+    const k3 = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_MODEL: "k3",
       AGENT_LLM_THINKING_ENABLED: "0",
-      AGENT_LLM_THINKING_EFFORT: "low",
+      AGENT_LLM_THINKING_EFFORT: "off",
       KIMI_CODE_API_KEY: "secret-key",
     });
-    expect(k3Off).toEqual(expect.objectContaining({
+    expect(k3).toEqual(expect.objectContaining({
       model: "k3",
       maxTokens: 131_072,
       contextWindowTokens: 262_144,
-      thinkingLevels: ["off", "max"],
-      thinkingDefault: "max",
-      thinkingEnabled: false,
-      thinkingEffort: "off",
+      thinkingStyle: "anthropic-output-effort",
+      thinkingLevels: ["low", "high", "max"],
+      thinkingDefault: "high",
+      thinkingEnabled: true,
+      thinkingEffort: "high",
     }));
-    expect(buildThinkingPayload(k3Off)).toEqual({ thinking: { type: "disabled" } });
-    expect(buildSummaryThinkingPayload(k3Off)).toEqual({ thinking: { type: "disabled" } });
+    expect(buildThinkingPayload(k3)).toEqual({ output_config: { effort: "high" } });
+    expect(buildSummaryThinkingPayload(k3)).toEqual({ output_config: { effort: "high" } });
 
-    const k3Max = loadProviderDescriptor(projectRoot, {
-      AGENT_LLM_PROVIDER: "kimi_coding",
-      AGENT_LLM_MODEL: "k3",
-      AGENT_LLM_THINKING_ENABLED: "1",
-      AGENT_LLM_THINKING_EFFORT: "low",
-      KIMI_CODE_API_KEY: "secret-key",
+    for (const effort of ["low", "high", "max"] as const) {
+      const payload = buildThinkingPayload({ ...k3, thinkingEffort: effort });
+      expect(payload).toEqual({ output_config: { effort } });
+      expect(payload).not.toHaveProperty("thinking");
+    }
+
+    const standardRequest = buildProviderRequest(kimi, {
+      system: "system", messages: [], tools: [], toolChoice: "none",
     });
-    const k3Thinking = {
-      thinking: { type: "adaptive", display: "omitted" },
-      output_config: { effort: "max" },
-    };
-    expect(k3Max).toEqual(expect.objectContaining({ thinkingEnabled: true, thinkingEffort: "max" }));
-    expect(buildThinkingPayload(k3Max)).toEqual(k3Thinking);
-    expect(buildSummaryThinkingPayload(k3Max)).toEqual({ thinking: { type: "disabled" } });
+    expect(standardRequest).toEqual(expect.objectContaining({
+      thinking: { type: "enabled", budget_tokens: 16_000 },
+    }));
+    expect(standardRequest).not.toHaveProperty("output_config");
+    expect(standardRequest).not.toHaveProperty("temperature");
+    const k3Request = buildProviderRequest({ ...k3, thinkingEffort: "low" }, {
+      system: "system", messages: [], tools: [], toolChoice: "none",
+    });
+    expect(k3Request).toEqual(expect.objectContaining({ output_config: { effort: "low" } }));
+    expect(k3Request).not.toHaveProperty("thinking");
+    expect(k3Request).not.toHaveProperty("temperature");
+
+    for (const [legacy, normalized] of [
+      ["low", "low"], ["minimal", "low"], ["minimum", "low"], ["light", "low"],
+      ["high", "high"], ["medium", "high"], ["max", "max"], ["xhigh", "max"], ["ultra", "max"],
+      ["off", "high"], ["none", "high"], ["wild", "high"],
+    ] as const) {
+      expect(normalizeThinkingEffort(legacy, ["low", "high", "max"], "high")).toBe(normalized);
+    }
 
     const deepseek = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "deepseek",
@@ -136,7 +153,7 @@ describe("Anthropic-compatible provider", () => {
     expect(buildSystemPayload(" system ")).toBe("system");
   });
 
-  test("disables optional K3 thinking during summaries", async () => {
+  test("uses K3 default high output effort during summaries", async () => {
     const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_MODEL: "k3",
@@ -169,9 +186,48 @@ describe("Anthropic-compatible provider", () => {
     expect(captured).toEqual(expect.objectContaining({
       model: "k3",
       max_tokens: 32_768,
-      thinking: { type: "disabled" },
+      output_config: { effort: "high" },
+    }));
+    expect(captured).not.toHaveProperty("thinking");
+    expect(captured).not.toHaveProperty("temperature");
+  });
+
+  test("uses the fixed K2.7 thinking budget during summaries", async () => {
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "kimi-for-coding",
+      AGENT_LLM_THINKING_EFFORT: "max",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
+    let captured: Record<string, unknown> = {};
+    const provider = new AnthropicRuntimeProvider(descriptor, {
+      messages: {
+        stream: (parameters) => {
+          captured = parameters;
+          return {
+            finalMessage: async () => ({
+              content: [{ type: "text", text: "summary" }],
+              stop_reason: "end_turn",
+              usage: { input_tokens: 3, output_tokens: 4 },
+            }),
+          };
+        },
+      },
+    });
+
+    await provider.summarize({
+      messages: [{ role: "user", content: "summarize" }],
+      signal: new AbortController().signal,
+      kind: "history",
+    });
+
+    expect(captured).toEqual(expect.objectContaining({
+      model: "kimi-for-coding",
+      max_tokens: 32_768,
+      thinking: { type: "enabled", budget_tokens: 16_000 },
     }));
     expect(captured).not.toHaveProperty("output_config");
+    expect(captured).not.toHaveProperty("temperature");
   });
 
   test("restores provider preferences and ignores an invalid remembered model", () => {
@@ -185,20 +241,20 @@ describe("Anthropic-compatible provider", () => {
     });
     expect(restored).toEqual(expect.objectContaining({
       model: "k3",
-      thinkingEnabled: false,
-      thinkingEffort: "off",
+      thinkingEnabled: true,
+      thinkingEffort: "high",
     }));
 
     const fallback = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "kimi_coding",
       AGENT_LLM_MODEL: "retired-model",
       AGENT_LLM_MODEL_KIMI_CODING: "retired-model",
-      AGENT_LLM_THINKING_EFFORT_KIMI_CODING: "max",
+      AGENT_LLM_THINKING_EFFORT_KIMI_CODING: "retired-effort",
       KIMI_CODE_API_KEY: "secret-key",
     });
     expect(fallback).toEqual(expect.objectContaining({
       model: "kimi-for-coding",
-      thinkingEffort: "medium",
+      thinkingEffort: "high",
     }));
     expect(() => loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "kimi_coding",

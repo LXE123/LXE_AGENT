@@ -38,6 +38,7 @@ export interface ProviderDescriptor {
   maxTokens: number;
   defaultHeaders: Record<string, string>;
   thinkingStyle: string;
+  thinkingBudgetTokens?: number;
   thinkingLevels: string[];
   thinkingDefault: string;
   thinkingEnabled: boolean;
@@ -111,6 +112,34 @@ const stringRecord = (value: unknown): Record<string, string> => {
     .filter(([key, item]) => Boolean(key && item)));
 };
 
+const THINKING_EFFORT_ALIASES: Readonly<Record<string, string>> = {
+  low: "low",
+  minimal: "low",
+  minimum: "low",
+  light: "low",
+  high: "high",
+  medium: "high",
+  max: "max",
+  xhigh: "max",
+  ultra: "max",
+};
+
+export const normalizeThinkingEffort = (
+  value: unknown,
+  levels: readonly string[],
+  defaultLevel: string,
+): string => {
+  const normalizedLevels = levels.map((level) => String(level ?? "").trim().toLowerCase()).filter(Boolean);
+  const normalizedDefault = String(defaultLevel ?? "").trim().toLowerCase();
+  const fallback = normalizedLevels.includes(normalizedDefault)
+    ? normalizedDefault
+    : normalizedLevels[0] ?? (normalizedDefault || "low");
+  const requested = String(value ?? "").trim().toLowerCase();
+  if (normalizedLevels.length === 0) return requested || fallback;
+  const candidate = THINKING_EFFORT_ALIASES[requested] ?? requested;
+  return normalizedLevels.includes(candidate) ? candidate : fallback;
+};
+
 export function loadProviderDescriptor(projectRoot: string, env: Environment): ProviderDescriptor {
   const paths = runtimeConfigPaths(projectRoot);
   const providerDir = paths.providers;
@@ -168,9 +197,7 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
     "AGENT_LLM_THINKING_EFFORT",
     preference.thinkingEffort || thinkingDefault,
   ).toLowerCase();
-  const normalizedThinkingEffort = thinkingLevels.length === 0 || thinkingLevels.includes(requestedThinkingEffort)
-    ? requestedThinkingEffort
-    : thinkingDefault;
+  const normalizedThinkingEffort = normalizeThinkingEffort(requestedThinkingEffort, thinkingLevels, thinkingDefault);
   const thinkingRequired = thinkingLevels.length > 0 && !thinkingLevels.includes("off");
   const configuredThinkingEnabled = envText(env, "AGENT_LLM_THINKING_ENABLED", "");
   const thinkingEnvironment = configuredThinkingEnabled || !preference.thinkingEnabled
@@ -200,6 +227,7 @@ export function loadProviderDescriptor(projectRoot: string, env: Environment): P
     maxTokens: configuredMax || Math.max(1, Number(selectedModel.max_tokens ?? 4096)),
     defaultHeaders,
     thinkingStyle: String(selectedModel.thinking_request_style ?? "none").trim(),
+    thinkingBudgetTokens: Math.max(0, Math.trunc(Number(selectedModel.thinking_budget_tokens ?? 0))),
     thinkingLevels,
     thinkingDefault,
     thinkingEnabled,
@@ -375,6 +403,15 @@ const safeBudgetTokens = (budget: number, maxTokens: number): number | undefined
 
 export const buildThinkingPayload = (descriptor: ProviderDescriptor): Record<string, unknown> => {
   const style = descriptor.thinkingStyle;
+  if (style === "anthropic-output-effort") {
+    const effort = normalizeThinkingEffort(
+      descriptor.thinkingEffort,
+      descriptor.thinkingLevels,
+      descriptor.thinkingDefault,
+    );
+    if (effort !== descriptor.thinkingEffort) warnThinkingNormalization(descriptor, effort);
+    return { output_config: { effort } };
+  }
   if (style === "anthropic-effort") {
     if (!descriptor.thinkingEnabled || descriptor.thinkingEffort === "off") return { thinking: { type: "disabled" } };
     const effort = ["xhigh", "max"].includes(descriptor.thinkingEffort)
@@ -397,7 +434,9 @@ export const buildThinkingPayload = (descriptor: ProviderDescriptor): Record<str
   if (!descriptor.thinkingEnabled) return {};
   if (style === "anthropic-budget" && descriptor.maxTokens > 1_024) {
     const budgets: Record<string, number> = { low: 4_000, medium: 8_000, high: 16_000, xhigh: 32_000 };
-    const budget = budgets[descriptor.thinkingEffort] ?? budgets.medium!;
+    const budget = descriptor.thinkingBudgetTokens && descriptor.thinkingBudgetTokens > 0
+      ? descriptor.thinkingBudgetTokens
+      : budgets[descriptor.thinkingEffort] ?? budgets.medium!;
     const budgetTokens = safeBudgetTokens(budget, descriptor.maxTokens);
     return budgetTokens === undefined ? {} : { thinking: { type: "enabled", budget_tokens: budgetTokens } };
   }

@@ -1,78 +1,35 @@
 {
   "kimi_thinking_cases": [
     {
-      "enabled": false,
-      "effort": "low",
-      "max_tokens": 4096,
-      "expected": {
-        "thinking": {
-          "type": "disabled"
-        }
-      }
-    },
-    {
-      "enabled": true,
-      "effort": "off",
-      "max_tokens": 4096,
-      "expected": {
-        "thinking": {
-          "type": "disabled"
-        }
-      }
-    },
-    {
       "enabled": true,
       "effort": "low",
-      "max_tokens": 1024,
+      "max_tokens": 32768,
       "expected": {
         "thinking": {
-          "type": "adaptive",
-          "display": "omitted"
-        },
-        "output_config": {
-          "effort": "low"
-        }
-      }
-    },
-    {
-      "enabled": true,
-      "effort": "medium",
-      "max_tokens": 4096,
-      "expected": {
-        "thinking": {
-          "type": "adaptive",
-          "display": "omitted"
-        },
-        "output_config": {
-          "effort": "medium"
+          "type": "enabled",
+          "budget_tokens": 16000
         }
       }
     },
     {
       "enabled": true,
       "effort": "high",
-      "max_tokens": 3000,
+      "max_tokens": 32768,
       "expected": {
         "thinking": {
-          "type": "adaptive",
-          "display": "omitted"
-        },
-        "output_config": {
-          "effort": "high"
+          "type": "enabled",
+          "budget_tokens": 16000
         }
       }
     },
     {
       "enabled": true,
-      "effort": "wild",
+      "effort": "max",
       "max_tokens": 32768,
       "expected": {
         "thinking": {
-          "type": "adaptive",
-          "display": "omitted"
-        },
-        "output_config": {
-          "effort": "medium"
+          "type": "enabled",
+          "budget_tokens": 16000
         }
       }
     }

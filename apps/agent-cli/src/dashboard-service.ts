@@ -19,6 +19,7 @@ import {
 import type { JsonObject } from "@lxe/protocol";
 import {
   mcpServerPrefix,
+  normalizeThinkingEffort,
   providerPreferencePatch,
   readProviderPreference,
   runtimeConfigPaths,
@@ -504,7 +505,7 @@ export class DashboardService {
     const levels = Array.isArray(selected.thinking_levels) ? selected.thinking_levels.map(text) : [];
     const defaultEffort = text(selected.thinking_default) || (levels[0] ?? "off");
     const configuredEffort = preference.thinkingEffort.toLowerCase() || defaultEffort;
-    const normalizedEffort = levels.length === 0 || levels.includes(configuredEffort) ? configuredEffort : defaultEffort;
+    const normalizedEffort = normalizeThinkingEffort(configuredEffort, levels, defaultEffort);
     const thinkingRequired = levels.length > 0 && !levels.includes("off");
     const thinkingEnabled = thinkingRequired
       || ((optionalFlag(preference.thinkingEnabled) ?? true) && normalizedEffort !== "off");
@@ -553,7 +554,7 @@ export class DashboardService {
       thinking_state: {
         enabled: thinkingEnabled,
         level: currentEffort,
-        editable: levels.includes("off"),
+        editable: levels.length > 1,
       },
       capabilities,
     };
@@ -599,9 +600,7 @@ export class DashboardService {
     const preferredEnabled = sameProvider
       ? (activeThinkingState.enabled === false ? "0" : "1")
       : savedModelMatches ? savedPreference.thinkingEnabled : "";
-    const normalizedEffort = levels.includes(text(preferredEffort).toLowerCase())
-      ? text(preferredEffort).toLowerCase()
-      : defaultEffort;
+    const normalizedEffort = normalizeThinkingEffort(preferredEffort, levels, defaultEffort);
     const effort = optionalFlag(preferredEnabled) === false && levels.includes("off")
       ? "off"
       : normalizedEffort;
