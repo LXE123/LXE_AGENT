@@ -1,4 +1,4 @@
-import type { SessionListPayload, SessionPayload, SessionSummaryPayload } from "../../api/payloads";
+import type { SessionListPayload, SessionSummaryPayload } from "../../api/payloads";
 
 export const EMPTY_SESSION_SUMMARY: SessionSummaryPayload = {
   total_sessions: 0,
@@ -20,19 +20,6 @@ export function normalizeSessionList(payload: SessionListPayload, pageSize: numb
       token_count: Math.max(0, Number(summary.token_count) || 0)
     }
   };
-}
-
-export function mergeSessionLists(current: SessionListPayload, next: SessionListPayload): SessionListPayload {
-  const seen = new Set<string>();
-  const items: SessionPayload[] = [];
-  [...current.items, ...next.items].forEach((session) => {
-    if (seen.has(session.session_id)) {
-      return;
-    }
-    seen.add(session.session_id);
-    items.push(session);
-  });
-  return { ...next, items };
 }
 
 export function shortId(value: string): string {

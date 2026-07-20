@@ -16,23 +16,6 @@ export function formatDate(value: number): string {
   }).format(new Date(value * 1000));
 }
 
-export function formatIsoDate(value: string | null | undefined): string {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    return "-";
-  }
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) {
-    return raw;
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(date);
-}
-
 export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(Math.max(0, Number(value) || 0));
 }
