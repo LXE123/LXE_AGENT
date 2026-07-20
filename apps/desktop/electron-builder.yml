@@ -3,6 +3,7 @@ productName: LXE Agent
 copyright: Copyright © 2026 LXE
 asar: true
 npmRebuild: false
+compression: normal
 electronLanguages:
   - en-US
   - zh-CN
