@@ -30,6 +30,9 @@ mac:
 nsis:
   include: resources/installer.nsh
   useZip: true
+  # electron-builder otherwise creates a differential 7z package while the
+  # generated installer still selects the ZIP extraction plug-in.
+  differentialPackage: false
   oneClick: false
   perMachine: false
   allowElevation: true
