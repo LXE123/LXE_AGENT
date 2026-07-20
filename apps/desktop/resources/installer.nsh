@@ -1,3 +1,5 @@
+!ifdef BUILD_UNINSTALLER
+
 !include "FileFunc.nsh"
 !include "LogicLib.nsh"
 !include "nsDialogs.nsh"
@@ -169,3 +171,5 @@ FunctionEnd
     ${EndIf}
   ${endif}
 !macroend
+
+!endif

@@ -5,6 +5,11 @@ import { resolve } from "node:path";
 const installer = readFileSync(resolve(import.meta.dirname, "../resources/installer.nsh"), "utf8");
 
 describe("Windows installer runtime state", () => {
+  test("defines uninstall code only while electron-builder compiles the uninstaller", () => {
+    expect(installer.trimStart()).toStartWith("!ifdef BUILD_UNINSTALLER");
+    expect(installer.trimEnd()).toEndWith("!endif");
+  });
+
   test("keeps local data by default and exposes an explicit deletion choice", () => {
     expect(installer).toContain("同时删除 LXE Agent 本地运行数据");
     expect(installer).toContain('StrCpy $LxeDeleteDataRequested "0"');
