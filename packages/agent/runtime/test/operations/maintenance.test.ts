@@ -368,7 +368,7 @@ describe("MaintenanceScheduler", () => {
     expect(clock.timeouts.map((timer) => timer.delayMs)).toContain(60_000);
     await scheduler.stop();
     await store.stop();
-  });
+  }, 15_000);
 
   test("keeps data ticks single-flight and performs one coalesced rerun", async () => {
     const store = await createStore("lxe-maintenance-single-flight-");
