@@ -35,6 +35,11 @@ export interface ResourceManifestFile {
 }
 
 const normalized = (path: string): string => path.replaceAll("\\", "/").replace(/^\.\//u, "");
+export const prohibitedPythonRuntimePath = (path: string): boolean => {
+  const normalizedPath = normalized(path);
+  return normalizedPath.split("/").some((part) => part.toLowerCase() === "__pycache__")
+    || /\.py[co]$/iu.test(normalizedPath);
+};
 const isWithinTarget = (path: string, target: string): boolean => {
   const file = normalized(path);
   const root = normalized(target).replace(/\/$/u, "");
@@ -220,6 +225,12 @@ export const auditDesktopResources = (
     if (name.endsWith(".map") || /(?:^|[._-])test(?:[._-]|$)/iu.test(name)
       || [".ts", ".tsx", ".jsx"].some((extension) => name.endsWith(extension))) {
       throw new Error(`Dashboard development file must not be packaged: ${normalized(relative(root, file))}`);
+    }
+  }
+  for (const file of walkFiles(join(root, "runtime", "python"))) {
+    const resourcePath = normalized(relative(root, file));
+    if (prohibitedPythonRuntimePath(resourcePath)) {
+      throw new Error(`Mutable Python bytecode cache must not be packaged: ${resourcePath}`);
     }
   }
   const productTopDirectories = [...new Set(scope.resources

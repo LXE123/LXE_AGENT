@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import {
   approvedSkillFile,
   loadResourceScope,
+  prohibitedPythonRuntimePath,
   scopeEntryForPath,
 } from "./desktop-resource-scope";
 
@@ -53,5 +54,13 @@ describe("desktop resource scope", () => {
     ]);
     expect(readFileSync(resolve(repositoryRoot, "config/mcp_servers.default.yaml"), "utf8"))
       .toContain("mcpServers:");
+  });
+
+  test("rejects mutable Python bytecode caches from the immutable runtime", () => {
+    expect(prohibitedPythonRuntimePath("runtime/python/Lib/__pycache__/__future__.cpython-312.pyc"))
+      .toBe(true);
+    expect(prohibitedPythonRuntimePath("runtime\\python\\Lib\\site-packages\\demo.pyo"))
+      .toBe(true);
+    expect(prohibitedPythonRuntimePath("runtime/python/Lib/__future__.py")).toBe(false);
   });
 });

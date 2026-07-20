@@ -145,6 +145,7 @@ describe("ExecShellAdapter", () => {
       "C:\\LXE\\node;C:\\LXE\\python;C:\\LXE\\tools;C:\\Windows\\System32",
     );
     expect(environment.VIRTUAL_ENV).toBeUndefined();
+    expect(environment.PYTHONDONTWRITEBYTECODE).toBe("1");
     expect(environment.PYTHONNOUSERSITE).toBe("1");
     expect(shell.normalizeCommand(
       "C:\\Users\\demo\\workspace",

@@ -91,6 +91,7 @@ export function createAgentRuntimeHost(
     LXE_RUNTIME_ENV_PATH: options.runtimeEnvPath,
     LXE_PERMISSION_POLICY_PATH: options.permissionPolicyPath,
     LXE_DATA_ROOT: options.dataRoot,
+    PYTHONDONTWRITEBYTECODE: "1",
   };
   const databasePath = String(environment.LXE_AGENT_SQLITE_DB_PATH ?? "").trim()
     || join(options.dataRoot, "db", "agent.sqlite3");

@@ -232,6 +232,7 @@ export class ExecShellAdapter {
       ...(managedPath ? {} : { VIRTUAL_ENV: projectVenv }),
       PYTHONIOENCODING: "utf-8",
       PYTHONUTF8: "1",
+      PYTHONDONTWRITEBYTECODE: "1",
       PYTHONNOUSERSITE: "1",
       LXE_WORKSPACE_ROOT: root,
       LXE_AGENT_SESSION_ID: context.sessionId,

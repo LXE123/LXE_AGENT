@@ -16,6 +16,7 @@ import {
   approvedSkillFile,
   auditDesktopResources,
   loadResourceScope,
+  prohibitedPythonRuntimePath,
 } from "./desktop-resource-scope";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
@@ -269,6 +270,7 @@ const smokeEnvironment = {
   LXE_MANAGED_PYTHON: stagedPython,
   PLAYWRIGHT_BROWSERS_PATH: stagedPlaywrightRoot,
   PLAYWRIGHT_NODEJS_PATH: join(stagedNodeRoot, "node.exe"),
+  PYTHONDONTWRITEBYTECODE: "1",
   PYTHONNOUSERSITE: "1",
 };
 
@@ -403,6 +405,18 @@ if (bunCatalogHash !== pythonCatalogHash) {
   throw new Error(`Bun and Python LXE Skill catalogs differ: bun=${bunCatalogHash}, python=${pythonCatalogHash}`);
 }
 runSmoke("managed Python lxeskill doctor", [stagedPython, "-I", "-m", "lxeskill", "doctor"]);
+const removePythonBytecodeCaches = (directory: string): void => {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name.toLowerCase() === "__pycache__") rmSync(path, { recursive: true, force: true });
+      else removePythonBytecodeCaches(path);
+    } else if (entry.isFile() && prohibitedPythonRuntimePath(path)) {
+      rmSync(path, { force: true });
+    }
+  }
+};
+removePythonBytecodeCaches(stagedPythonRoot);
 for (const forbiddenPath of [
   join(outputRoot, "runtime", "uv"),
   join(stagedNodeRoot, "npm.cmd"),
