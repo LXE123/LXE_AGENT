@@ -19,7 +19,8 @@
 
 - Python 一律用 `uv`（禁 pip），JS 一律用 `bun`（禁 npm/yarn）；安装带 `--frozen`，不要动 lockfile 之外的版本。
 - 测试必须从仓库根运行：`uv run pytest python/lxeskill_cli/tests`。从子目录运行会因相对路径假失败。
-- 合并前跑全量测试，不要只跑改动相关的子集。
+- 开发过程中只运行与改动直接相关的定向测试；每个任务的全量测试只在合并到 `main` 前、完成最终 rebase 后运行一次，不得在代码和基线均未变化时重复执行。
+- 如果全量测试后代码发生修改，或 `main` 的变化实际进入了当前分支，则原验证结果失效，需要重新运行；无变化的 rebase 不构成重复测试理由。
 
 ## 并行开发流程
 
@@ -32,8 +33,8 @@
 每个任务的完整流程：
 
 1. **领取**：在仓库任意位置执行 `scripts/wt-claim <task-slug>`（slug 用 kebab-case 描述任务，如 `fix-store-lock`）。脚本输出的最后一行是 worktree 路径，分支自动建为 `codex/<task-slug>`，bun/uv 依赖已同步好。之后所有开发、测试都在这个目录里进行。
-2. **开发与验证**：修改 → 完整验证（测试在 worktree 内跑，用它自己的 `.venv`）→ commit。
-3. **合并**：把 worktree 分支 rebase 到最新 `main` → 在 worktree 内再次验证 → 在主工作区 fast-forward 合并。多任务并行开发，但必须依次合并；后合并者先 rebase。
+2. **开发与提交**：修改 → 运行受影响模块的定向测试（在 worktree 内使用它自己的 `.venv`）→ commit；开发阶段不重复跑全量测试。
+3. **合并前唯一一次全量验证**：把 worktree 分支 rebase 到最新 `main` → 运行一次完整验证 → 在主工作区 fast-forward 合并。若 rebase 无变化，不在验证前后额外重复测试；多任务并行开发，但必须依次合并，后合并者先 rebase。
 4. **归还**：合并完成后执行 `scripts/wt-claim release <task-slug>`。脚本会自动删除已合并的分支并把 slot 还给池子；未合并的分支会保留并提示。
 
 硬性约束：
