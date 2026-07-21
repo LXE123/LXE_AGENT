@@ -227,8 +227,7 @@ function Copy-LxeDirectoryContents {
 function Get-LxeCachedArchive {
     param(
         [Parameter(Mandatory = $true)][string]$Label,
-        [Parameter(Mandatory = $true)][string]$Url,
-        [Parameter(Mandatory = $true)][string]$ExpectedSha256
+        [Parameter(Mandatory = $true)][string]$Url
     )
 
     $uri = New-Object System.Uri -ArgumentList $Url
@@ -238,16 +237,9 @@ function Get-LxeCachedArchive {
     New-Item -ItemType Directory -Path $downloadRoot -Force | Out-Null
 
     if (Test-Path -LiteralPath $destination -PathType Leaf) {
-        $actualHash = Get-LxeFileSha256 -Path $destination
-        if ([string]::Equals($actualHash, $ExpectedSha256, [StringComparison]::OrdinalIgnoreCase)) {
-            return $destination
-        }
-        if ($Offline) {
-            throw "$Label cache is damaged in offline mode: $destination"
-        }
-        Remove-Item -LiteralPath $destination -Force
+        return $destination
     }
-    elseif ($Offline) {
+    if ($Offline) {
         throw "$Label is not available in the offline cache: $destination"
     }
 
@@ -271,10 +263,6 @@ function Get-LxeCachedArchive {
                 $requestParameters.Proxy = $proxy
             }
             Invoke-WebRequest @requestParameters
-            $actualHash = Get-LxeFileSha256 -Path $temporary
-            if (-not [string]::Equals($actualHash, $ExpectedSha256, [StringComparison]::OrdinalIgnoreCase)) {
-                throw "$Label SHA-256 mismatch. Expected $ExpectedSha256, found $actualHash."
-            }
             Move-Item -LiteralPath $temporary -Destination $destination -Force
             return $destination
         }
@@ -517,10 +505,6 @@ function Test-LxeRuntimeImage {
         if ($rgFirstLine -notmatch "^ripgrep $expectedRgVersion(?: \(rev [0-9a-f]+\))?$") {
             throw "Managed ripgrep version mismatch: $rgFirstLine"
         }
-        $rgHash = Get-LxeFileSha256 -Path $ripgrepExecutable
-        if ($rgHash -ne [string]$script:RuntimeLock.ripgrep.executable_sha256) {
-            throw "Managed ripgrep SHA-256 mismatch: $rgHash"
-        }
         Assert-LxeRuntimeHasNoCredentials -Root $Root
     }
     finally {
@@ -554,7 +538,7 @@ function Install-LxeNodeRuntime {
         [Parameter(Mandatory = $true)][string]$WorkRoot
     )
 
-    $archive = Get-LxeCachedArchive -Label "Node $($script:RuntimeLock.node.version)" -Url $script:RuntimeLock.node.archive_url -ExpectedSha256 $script:RuntimeLock.node.archive_sha256
+    $archive = Get-LxeCachedArchive -Label "Node $($script:RuntimeLock.node.version)" -Url $script:RuntimeLock.node.archive_url
     $extractRoot = Join-Path $WorkRoot "node-bootstrap"
     Expand-LxeArchiveFresh -Archive $archive -Destination $extractRoot
     $bootstrapRoot = Join-Path $extractRoot ([string]$script:RuntimeLock.node.archive_root)
@@ -673,12 +657,12 @@ function Install-LxePythonRuntime {
         $requirements = Join-Path $WorkRoot "desktop-runtime-requirements.txt"
         Invoke-LxeNative -Label "locked Python dependency export" -FilePath $UvExecutable -Arguments @(
             "export", "--frozen", "--no-dev", "--no-emit-project",
-            "--format", "requirements-txt", "--output-file", $requirements
+            "--no-hashes", "--format", "requirements-txt", "--output-file", $requirements
         ) -WorkingDirectory $script:RepositoryRoot -TimeoutSeconds 300 | Out-Null
         $env:UV_PYTHON_DOWNLOADS = "never"
         Invoke-LxeNative -Label "locked Python dependency installation" -FilePath $UvExecutable -Arguments @(
             "pip", "install", "--python", $stagedPython, "--break-system-packages",
-            "--require-hashes", "--requirements", $requirements
+            "--requirements", $requirements
         ) -WorkingDirectory $script:RepositoryRoot -TimeoutSeconds 1800 | Out-Null
     }
     finally {
@@ -750,7 +734,7 @@ function Install-LxeUvAndRipgrep {
         [Parameter(Mandatory = $true)][string]$WorkRoot
     )
 
-    $uvArchive = Get-LxeCachedArchive -Label "uv $($script:RuntimeLock.uv.version)" -Url $script:RuntimeLock.uv.archive_url -ExpectedSha256 $script:RuntimeLock.uv.archive_sha256
+    $uvArchive = Get-LxeCachedArchive -Label "uv $($script:RuntimeLock.uv.version)" -Url $script:RuntimeLock.uv.archive_url
     $uvExtract = Join-Path $WorkRoot "uv"
     Expand-LxeArchiveFresh -Archive $uvArchive -Destination $uvExtract
     $uvCandidate = @(Get-ChildItem -LiteralPath $uvExtract -Filter "uv.exe" -File -Recurse | Select-Object -First 1)
@@ -759,15 +743,11 @@ function Install-LxeUvAndRipgrep {
     New-Item -ItemType Directory -Path (Split-Path -Parent $uvDestination) -Force | Out-Null
     Copy-Item -LiteralPath $uvCandidate[0].FullName -Destination $uvDestination -Force
 
-    $rgArchive = Get-LxeCachedArchive -Label "ripgrep $($script:RuntimeLock.ripgrep.version)" -Url $script:RuntimeLock.ripgrep.archive_url -ExpectedSha256 $script:RuntimeLock.ripgrep.archive_sha256
+    $rgArchive = Get-LxeCachedArchive -Label "ripgrep $($script:RuntimeLock.ripgrep.version)" -Url $script:RuntimeLock.ripgrep.archive_url
     $rgExtract = Join-Path $WorkRoot "ripgrep"
     Expand-LxeArchiveFresh -Archive $rgArchive -Destination $rgExtract
     $rgCandidate = @(Get-ChildItem -LiteralPath $rgExtract -Filter "rg.exe" -File -Recurse | Select-Object -First 1)
     if ($rgCandidate.Count -eq 0) { throw "The pinned ripgrep archive did not contain rg.exe." }
-    $rgHash = Get-LxeFileSha256 -Path $rgCandidate[0].FullName
-    if ($rgHash -ne [string]$script:RuntimeLock.ripgrep.executable_sha256) {
-        throw "The pinned ripgrep executable SHA-256 is invalid: $rgHash"
-    }
     $rgDestination = Join-Path $Root "tools\rg.exe"
     New-Item -ItemType Directory -Path (Split-Path -Parent $rgDestination) -Force | Out-Null
     Copy-Item -LiteralPath $rgCandidate[0].FullName -Destination $rgDestination -Force

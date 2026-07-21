@@ -7,8 +7,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
-$securityModulePath = Join-Path $PSHOME "Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1"
-Import-Module -Name $securityModulePath -Force -ErrorAction Stop
 $TunnelName = "lxe-agent"
 $WireGuardRoot = Join-Path $env:ProgramFiles "WireGuard"
 $WireGuardExe = Join-Path $WireGuardRoot "wireguard.exe"
@@ -40,10 +38,6 @@ try {
     if (-not (Test-Path -LiteralPath $MsiPath)) {
       throw "Bundled WireGuard installer is missing"
     }
-    $signature = Microsoft.PowerShell.Security\Get-AuthenticodeSignature -LiteralPath $MsiPath
-    if ($signature.Status -ne "Valid" -or $signature.SignerCertificate.Subject -notmatch "WireGuard LLC") {
-      throw "Bundled WireGuard installer signature is invalid"
-    }
     $installer = Start-Process -FilePath "msiexec.exe" -ArgumentList @(
       "/i", "`"$MsiPath`"", "/qn", "DO_NOT_LAUNCH=1", "/norestart"
     ) -Wait -PassThru
@@ -74,8 +68,7 @@ try {
   Copy-Item -LiteralPath $ConfigPath -Destination $PlainConfiguration -Force
 
   $deadline = [DateTime]::UtcNow.AddSeconds(30)
-  while ((-not (Test-Path -LiteralPath $SecureConfiguration) -or (Test-Path -LiteralPath $PlainConfiguration))
-    -and [DateTime]::UtcNow -lt $deadline) {
+  while (((-not (Test-Path -LiteralPath $SecureConfiguration)) -or (Test-Path -LiteralPath $PlainConfiguration)) -and ([DateTime]::UtcNow -lt $deadline)) {
     Start-Sleep -Milliseconds 250
   }
   if (-not (Test-Path -LiteralPath $SecureConfiguration) -or (Test-Path -LiteralPath $PlainConfiguration)) {

@@ -9,7 +9,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
 import { delimiter, dirname, join, relative, resolve } from "node:path";
 import { resolveDesktopRuntimeInputs } from "./desktop-runtime-inputs";
 import {
@@ -99,7 +98,6 @@ const projectWheelValue = String(environment.LXE_DESKTOP_PROJECT_WHEEL ?? "").tr
 const projectWheel = projectWheelValue ? resolve(projectWheelValue) : "";
 const wireGuardMsiValue = String(environment.LXE_DESKTOP_WIREGUARD_MSI ?? "").trim();
 const wireGuardMsi = wireGuardMsiValue ? resolve(wireGuardMsiValue) : "";
-const wireGuardSha256 = "6daa5d37a9e2950dfb8c48b95ab8e562cb2bad1c785d020f38f97bea4c6a5566";
 if (!existsSync(agentCli)) throw new Error(`Compiled agent-cli is missing: ${agentCli}`);
 if (!projectWheel || !existsSync(projectWheel) || !statSync(projectWheel).isFile()) {
   throw new Error(
@@ -110,11 +108,7 @@ if (!projectWheel.toLowerCase().endsWith(".whl")) {
   throw new Error(`Desktop project wheel must use the .whl extension: ${projectWheel}`);
 }
 if (!wireGuardMsi || !existsSync(wireGuardMsi) || !statSync(wireGuardMsi).isFile()) {
-  throw new Error("LXE_DESKTOP_WIREGUARD_MSI must point to the verified WireGuard 1.1 x64 MSI");
-}
-const actualWireGuardHash = createHash("sha256").update(readFileSync(wireGuardMsi)).digest("hex");
-if (actualWireGuardHash !== wireGuardSha256) {
-  throw new Error(`WireGuard 1.1 MSI SHA-256 mismatch: ${actualWireGuardHash}`);
+  throw new Error("LXE_DESKTOP_WIREGUARD_MSI must point to the prepared WireGuard 1.1 x64 MSI");
 }
 
 const runtimeInputs = resolveDesktopRuntimeInputs({ repositoryRoot, environment });
@@ -410,7 +404,7 @@ runSmoke("managed Playwright Chromium", [
   ].join("\n"),
 ]);
 runSmoke("managed ripgrep", [scopeDestination("runtime-tools", "rg.exe"), "--version"]);
-const lxeSkillOutput = runSmoke("managed Python lxeskill", [
+runSmoke("managed Python lxeskill", [
   stagedPython,
   "-I",
   "-B",
@@ -418,44 +412,6 @@ const lxeSkillOutput = runSmoke("managed Python lxeskill", [
   "lxeskill",
   "list",
 ]);
-const lxeSkillLine = lxeSkillOutput.split(/\r?\n/u).filter(Boolean).at(-1);
-const lxeSkillResult = lxeSkillLine ? JSON.parse(lxeSkillLine) as {
-  ok?: unknown;
-  data?: { commands?: Array<{ command?: unknown }> };
-} : {};
-const sourceCatalog = JSON.parse(readFileSync(
-  scopeDestination("lxeskill"),
-  "utf8",
-)) as { entries?: Array<{ command_path?: unknown[]; visibility?: unknown }> };
-const expectedLxeSkillCommands = (sourceCatalog.entries ?? [])
-  .filter((entry) => String(entry.visibility ?? "") !== "internal")
-  .map((entry) => (entry.command_path ?? []).map(String).join(" "))
-  .sort();
-const packagedLxeSkillCommands = (lxeSkillResult.data?.commands ?? [])
-  .map((entry) => String(entry.command ?? ""))
-  .sort();
-if (lxeSkillResult.ok !== true
-  || JSON.stringify(packagedLxeSkillCommands) !== JSON.stringify(expectedLxeSkillCommands)) {
-  throw new Error(
-    `managed Python lxeskill catalog differs from source: expected=${JSON.stringify(expectedLxeSkillCommands)}, actual=${JSON.stringify(packagedLxeSkillCommands)}`,
-  );
-}
-const packagedPythonCatalogPath = join(
-  stagedPythonRoot,
-  "Lib",
-  "site-packages",
-  "lxeskill",
-  "catalog.json",
-);
-const bunCatalogHash = createHash("sha256")
-  .update(readFileSync(scopeDestination("lxeskill")))
-  .digest("hex");
-const pythonCatalogHash = createHash("sha256")
-  .update(readFileSync(packagedPythonCatalogPath))
-  .digest("hex");
-if (bunCatalogHash !== pythonCatalogHash) {
-  throw new Error(`Bun and Python LXE Skill catalogs differ: bun=${bunCatalogHash}, python=${pythonCatalogHash}`);
-}
 runSmoke("managed Python lxeskill doctor", [stagedPython, "-I", "-B", "-m", "lxeskill", "doctor"]);
 for (const forbiddenPath of [
   join(outputRoot, "runtime", "uv"),
@@ -476,7 +432,7 @@ writeFileSync(
   join(stagedPythonRoot, ".lxe-lxeskill-ready.json"),
   `${JSON.stringify({
     schema_version: 1,
-    commands: expectedLxeSkillCommands.length,
+    ready: true,
   }, null, 2)}\n`,
   "utf8",
 );

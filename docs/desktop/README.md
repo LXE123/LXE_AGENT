@@ -166,7 +166,7 @@ bun run verify:platform:win
 
 两条 Windows 路线共用同一包装器：先校验 Electron Builder 配置，再准备运行时、构建 wheel 和 `agent-cli.exe`、装配 Dashboard 与私有资源，最后执行体积门禁和冒烟验证。每个阶段都会输出耗时。正式路线另外生成 NSIS；产物位于 `dist/desktop/`，安装程序命名为 `LXE-Agent-<version>-windows-x64.exe`。`verify:platform:win` 始终执行正式路线，不会降级为 Unpacked 验证。
 
-首次联网构建会缓存固定版本的 Node、Python、uv、ripgrep、Playwright Chromium 和 WireGuard 1.1 MSI；WireGuard 资源必须同时通过固定 SHA-256 与 Authenticode 签名校验。后续可使用缓存离线重建，员工安装和激活阶段不会下载 WireGuard。完整的运行时锁定、缓存、资源裁剪、体积基线和平台门禁说明见 [Electron desktop packaging](../record/20260715-electron-desktop-packaging.md)。
+首次联网构建会缓存固定 URL 和版本的 Node、Python、uv、ripgrep、Playwright Chromium 和 WireGuard 1.1 MSI；构建流程不再对这些下载物追加固定哈希或签名门禁。后续可使用缓存离线重建，员工安装和激活阶段不会下载 WireGuard。完整的运行时锁定、缓存、资源裁剪、体积基线和平台门禁说明见 [Electron desktop packaging](../record/20260715-electron-desktop-packaging.md)。
 
 ## 日志与诊断
 

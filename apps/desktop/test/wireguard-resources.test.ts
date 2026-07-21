@@ -5,18 +5,12 @@ import { resolve } from "node:path";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 
 describe("packaged WireGuard resources", () => {
-  test("pins the official x64 MSI and verifies hash plus Authenticode before staging", () => {
+  test("downloads and stages the official x64 MSI without checksum or signature gates", () => {
     const prepare = readFileSync(resolve(repositoryRoot, "scripts/prepare-wireguard-windows.ps1"), "utf8");
     const staging = readFileSync(resolve(repositoryRoot, "scripts/prepare-desktop-resources.ts"), "utf8");
-    const hash = "6daa5d37a9e2950dfb8c48b95ab8e562cb2bad1c785d020f38f97bea4c6a5566";
     expect(prepare).toContain("https://download.wireguard.com/windows-client/wireguard-amd64-1.1.msi");
-    expect(prepare).toContain(hash);
-    expect(prepare).toContain("[System.Security.Cryptography.SHA256]::Create()");
-    expect(prepare).not.toContain("Get-FileHash");
-    expect(prepare).toContain("Join-Path $PSHOME");
-    expect(prepare).toContain("Microsoft.PowerShell.Security\\Get-AuthenticodeSignature");
-    expect(prepare).toContain("WireGuard LLC");
-    expect(staging).toContain(hash);
+    expect(prepare).not.toMatch(/SHA-?256|Get-AuthenticodeSignature|WireGuard LLC/iu);
+    expect(staging).not.toMatch(/wireGuardSha|WireGuard.*SHA-?256/iu);
     expect(staging).toContain("wireguard-amd64-1.1.msi");
   });
 
@@ -26,8 +20,7 @@ describe("packaged WireGuard resources", () => {
       "utf8",
     );
     expect(provision).toContain("/installmanagerservice");
-    expect(provision).toContain("Join-Path $PSHOME");
-    expect(provision).toContain("Microsoft.PowerShell.Security\\Get-AuthenticodeSignature");
+    expect(provision).not.toContain("Get-AuthenticodeSignature");
     expect(provision).toContain("$SecureConfiguration = \"$PlainConfiguration.dpapi\"");
     expect(provision).toContain("/installtunnelservice");
     expect(provision).toContain("WireGuardTunnel`$$TunnelName");

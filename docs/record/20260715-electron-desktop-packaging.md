@@ -112,8 +112,7 @@ base runtime.
 > [物流服务退役记录](20260716-retire-logistics-service.md) 取代；打包现在比较源码与 wheel 的完整命令集合。
 
 `desktop:resources` installs the wheel with `--offline --no-deps --reinstall`,
-runs `python -I -m lxeskill list`, and fails unless its command set exactly matches
-the current source catalog.
+runs `python -I -m lxeskill list`, and fails when the installed CLI cannot run.
 The final resource tree must not contain `runtime/lxeskill`; the module lives in
 the private Python site-packages. A small readiness marker records the successful
 catalog smoke; desktop health requires the Python executable, module file, and marker. Only
@@ -122,6 +121,8 @@ sessions, and business artifacts cannot leak into the installer.
 
 > 2026-07-21：逐文件资源 manifest、打包前后 SHA-256 对比和启动时全量完整性扫描已经废弃。
 > 资源准备改为先清空 staging，再只复制构造式白名单允许的来源文件。
+> 同日后续调整删除了外部下载归档、WireGuard 和 ripgrep 的固定哈希/签名门禁，以及 Bun/Python
+> catalog 的构建时一致性比较；固定 URL、版本和真实可执行健康检查继续保留。
 
 After electron-builder creates `win-unpacked`,
 `scripts/report-desktop-resource-sizes.ts` writes the report beside the selected

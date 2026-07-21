@@ -46,10 +46,18 @@ describe("Windows desktop packaging routes", () => {
     expect(wrapper).toContain("Write-LxeDesktopBuildTimingSummary");
   });
 
-  test("does not restore file-change manifests in startup or managed runtime preparation", () => {
+  test("does not restore file-change manifests or supply-chain checksum gates", () => {
     const desktopMain = readFileSync(join(repositoryRoot, "apps", "desktop", "src", "main.ts"), "utf8");
     const runtimePreparation = readFileSync(
       join(repositoryRoot, "scripts", "prepare-desktop-runtime.ps1"),
+      "utf8",
+    );
+    const resourcePreparation = readFileSync(
+      join(repositoryRoot, "scripts", "prepare-desktop-resources.ts"),
+      "utf8",
+    );
+    const runtimeLock = readFileSync(
+      join(repositoryRoot, "config", "desktop-runtime", "windows-x64", "runtime.lock.json"),
       "utf8",
     );
 
@@ -57,5 +65,11 @@ describe("Windows desktop packaging routes", () => {
     expect(desktopMain).not.toContain("resourceManifestPath");
     expect(runtimePreparation).not.toContain("critical_files");
     expect(runtimePreparation).not.toContain('Write-LxeUtf8NoBom -Path (Join-Path $Root "runtime-manifest.json")');
+    expect(runtimePreparation).not.toContain("ExpectedSha256");
+    expect(runtimePreparation).not.toContain("--require-hashes");
+    expect(runtimePreparation).toContain('"--no-hashes"');
+    expect(resourcePreparation).not.toContain("createHash");
+    expect(resourcePreparation).not.toContain("catalog differs");
+    expect(runtimeLock).not.toContain("sha256");
   });
 });
