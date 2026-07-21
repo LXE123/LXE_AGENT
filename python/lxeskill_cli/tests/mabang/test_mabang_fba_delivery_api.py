@@ -43,7 +43,7 @@ def test_extract_delivery_id_rejects_multiple_matches():
         batch_delivery.extract_delivery_id(payload, "SP260508022")
 
 
-async def _fake_fetch_pending(task_id: int, *, token: str | None = None) -> dict:
+async def _fake_fetch_pending(task_id: int) -> dict:
     return {
         "taskId": task_id,
         "taskStatus": 0,
@@ -60,7 +60,6 @@ def test_wait_for_delivery_task_times_out(monkeypatch):
         asyncio.run(
             batch_delivery.wait_for_delivery_task(
                 370502,
-                token="token",
                 timeout_sec=0,
                 poll_interval_sec=0.1,
             )
@@ -72,7 +71,7 @@ def test_wait_for_delivery_task_uses_ten_second_min_poll_interval_and_logs_progr
     calls = {"count": 0}
     sleeps: list[float] = []
 
-    async def fake_fetch(task_id: int, *, token: str | None = None) -> dict:
+    async def fake_fetch(task_id: int) -> dict:
         calls["count"] += 1
         if calls["count"] == 1:
             return {
@@ -100,7 +99,6 @@ def test_wait_for_delivery_task_uses_ten_second_min_poll_interval_and_logs_progr
     task = asyncio.run(
         batch_delivery.wait_for_delivery_task(
             370502,
-            token="token",
             timeout_sec=30,
             poll_interval_sec=0.1,
             progress_label="[UnlinkedShipments] WMS待装箱",
@@ -114,7 +112,7 @@ def test_wait_for_delivery_task_uses_ten_second_min_poll_interval_and_logs_progr
 
 
 def test_wait_for_delivery_task_returns_completed(monkeypatch):
-    async def fake_fetch(task_id: int, *, token: str | None = None) -> dict:
+    async def fake_fetch(task_id: int) -> dict:
         return {
             "taskId": task_id,
             "taskStatus": 2,
@@ -126,7 +124,7 @@ def test_wait_for_delivery_task_returns_completed(monkeypatch):
 
     monkeypatch.setattr(batch_delivery, "fetch_task_report_row", fake_fetch)
 
-    task = asyncio.run(batch_delivery.wait_for_delivery_task(370502, token="token"))
+    task = asyncio.run(batch_delivery.wait_for_delivery_task(370502))
 
     assert task.task_id == 370502
     assert task.file_hash == "hash-1"
@@ -134,7 +132,7 @@ def test_wait_for_delivery_task_returns_completed(monkeypatch):
 
 
 def test_wait_for_delivery_task_rejects_failed_status(monkeypatch):
-    async def fake_fetch(task_id: int, *, token: str | None = None) -> dict:
+    async def fake_fetch(task_id: int) -> dict:
         return {
             "taskId": task_id,
             "taskStatus": 3,
@@ -146,7 +144,7 @@ def test_wait_for_delivery_task_rejects_failed_status(monkeypatch):
     monkeypatch.setattr(batch_delivery, "fetch_task_report_row", fake_fetch)
 
     with pytest.raises(batch_delivery.BatchDeliveryApiError, match="export failed"):
-        asyncio.run(batch_delivery.wait_for_delivery_task(370502, token="token"))
+        asyncio.run(batch_delivery.wait_for_delivery_task(370502))
 
 
 def test_completed_task_requires_file_hash():
@@ -218,6 +216,52 @@ class _FakeSession:
         return _FakeRequest(self.responses.pop(0))
 
 
+def test_each_fba_request_resolves_latest_token(monkeypatch) -> None:
+    payloads = [
+        _FakeResponse(
+            {
+                "code": 200,
+                "data": {
+                    "taskId": 370502,
+                    "fileHash": "hash-1",
+                    "fileName": "delivery.csv",
+                    "downloadUrl": "https://files.example/one.csv",
+                },
+            }
+        ),
+        _FakeResponse(
+            {
+                "code": 200,
+                "data": {
+                    "taskId": 370502,
+                    "fileHash": "hash-1",
+                    "fileName": "delivery.csv",
+                    "downloadUrl": "https://files.example/two.csv",
+                },
+            }
+        ),
+    ]
+    fake_session = _FakeSession(payloads)
+    tokens = iter(("token-a", "token-b"))
+
+    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
+        return next(tokens)
+
+    monkeypatch.setattr(batch_delivery, "erp_http_session", fake_session)
+    monkeypatch.setattr(batch_delivery, "get_fba_free_token", fake_get_token)
+
+    async def run_requests() -> None:
+        await batch_delivery.request_download_info(370502, "hash-1")
+        await batch_delivery.request_download_info(370502, "hash-1")
+
+    asyncio.run(run_requests())
+
+    assert [call["headers"]["Authorization"] for call in fake_session.calls] == [
+        "Bearer token-a",
+        "Bearer token-b",
+    ]
+
+
 def test_download_csv_from_url_does_not_send_authorization(monkeypatch, tmp_path):
     fake_session = _FakeSession([_FakeResponse(body=b"sku,qty\nA,1\n")])
     monkeypatch.setattr(batch_delivery, "external_http_session", fake_session)
@@ -243,9 +287,9 @@ def test_download_fba_delivery_csv_force_refreshes_once_after_auth_failure(monke
         token_calls.append(force_refresh)
         return "retry-token" if force_refresh else "cached-token"
 
-    async def fake_run(target: str, token: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
-        run_calls.append(token)
-        if token == "cached-token":
+    async def fake_run(target: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
+        run_calls.append(target)
+        if len(run_calls) == 1:
             raise batch_delivery.BatchDeliveryApiAuthError("查询FBA发货单鉴权失败(status=401)")
         return batch_delivery.BatchDeliveryCsvResult(
             delivery_no=target,
@@ -257,13 +301,13 @@ def test_download_fba_delivery_csv_force_refreshes_once_after_auth_failure(monke
         )
 
     monkeypatch.setattr(batch_delivery, "get_fba_free_token", fake_get_token)
-    monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_with_token", fake_run)
+    monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_once", fake_run)
 
     result = asyncio.run(batch_delivery.download_fba_delivery_csv("SP260529005", output_dir=tmp_path))
 
     assert result.delivery_no == "SP260529005"
-    assert token_calls == [False, True]
-    assert run_calls == ["cached-token", "retry-token"]
+    assert token_calls == [True]
+    assert run_calls == ["SP260529005", "SP260529005"]
 
 
 def test_download_fba_delivery_csv_does_not_retry_more_than_once(monkeypatch, tmp_path):
@@ -274,18 +318,18 @@ def test_download_fba_delivery_csv_does_not_retry_more_than_once(monkeypatch, tm
         token_calls.append(force_refresh)
         return "retry-token" if force_refresh else "cached-token"
 
-    async def fake_run(target: str, token: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
-        run_calls.append(token)
+    async def fake_run(target: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
+        run_calls.append(target)
         raise batch_delivery.BatchDeliveryApiAuthError("查询FBA发货单鉴权失败(status=403)")
 
     monkeypatch.setattr(batch_delivery, "get_fba_free_token", fake_get_token)
-    monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_with_token", fake_run)
+    monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_once", fake_run)
 
-    with pytest.raises(batch_delivery.BatchDeliveryApiAuthError, match="已强制刷新后重试仍失败"):
+    with pytest.raises(batch_delivery.BatchDeliveryApiAuthError, match="status=403"):
         asyncio.run(batch_delivery.download_fba_delivery_csv("SP260529005", output_dir=tmp_path))
 
-    assert token_calls == [False, True]
-    assert run_calls == ["cached-token", "retry-token"]
+    assert token_calls == [True]
+    assert run_calls == ["SP260529005", "SP260529005"]
 
 
 def test_download_fba_delivery_csv_does_not_force_refresh_non_auth_errors(monkeypatch, tmp_path):
@@ -295,13 +339,13 @@ def test_download_fba_delivery_csv_does_not_force_refresh_non_auth_errors(monkey
         token_calls.append(force_refresh)
         return "cached-token"
 
-    async def fake_run(target: str, token: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
+    async def fake_run(target: str, **kwargs) -> batch_delivery.BatchDeliveryCsvResult:
         raise batch_delivery.BatchDeliveryApiError("业务异常")
 
     monkeypatch.setattr(batch_delivery, "get_fba_free_token", fake_get_token)
-    monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_with_token", fake_run)
+    monkeypatch.setattr(batch_delivery, "_download_fba_delivery_csv_once", fake_run)
 
     with pytest.raises(batch_delivery.BatchDeliveryApiError, match="业务异常"):
         asyncio.run(batch_delivery.download_fba_delivery_csv("SP260529005", output_dir=tmp_path))
 
-    assert token_calls == [False]
+    assert token_calls == []

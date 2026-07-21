@@ -156,18 +156,12 @@ def test_private_amz_cookie_header_round_trips_through_stateless_session() -> No
 def test_export_pipeline_runs_stages_in_contract_order() -> None:
     events: list[str] = []
 
-    async def authorize() -> PrivateAmzExportAuth:
-        events.append("authorize")
-        return PrivateAmzExportAuth("amz-cookie", "private-cookie", "memcache-key")
-
-    async def fetch_ids(value: str, *, cookie_header: str) -> list[str]:
-        events.append(f"fetch:{value}:{cookie_header}")
+    async def fetch_ids(value: str) -> list[str]:
+        events.append(f"fetch:{value}")
         return ["123"]
 
-    async def request_file_url(
-        ids: list[str], *, cookie_header: str, memcache_key: str
-    ) -> str:
-        events.append(f"request:{ids}:{cookie_header}:{memcache_key}")
+    async def request_file_url(ids: list[str]) -> str:
+        events.append(f"request:{ids}")
         return "https://files.example/export.xlsx"
 
     async def download_file(file_url: str) -> str:
@@ -181,7 +175,6 @@ def test_export_pipeline_runs_stages_in_contract_order() -> None:
     result = asyncio.run(
         run_export_pipeline(
             ExportPipelineSpec(
-                authorize=authorize,
                 fetch_ids=fetch_ids,
                 fetch_args=("prepared",),
                 request_file_url=request_file_url,
@@ -193,9 +186,8 @@ def test_export_pipeline_runs_stages_in_contract_order() -> None:
 
     assert result == {"file_path": "/tmp/export.xlsx"}
     assert events == [
-        "authorize",
-        "fetch:prepared:amz-cookie",
-        "request:['123']:private-cookie:memcache-key",
+        "fetch:prepared",
+        "request:['123']",
         "download:https://files.example/export.xlsx",
         "transform:['123']:/tmp/export.xlsx",
     ]

@@ -621,8 +621,8 @@ def pick_shop_option(store_name: str, shops: list[ShopOption]) -> ShopOption:
     raise UnlinkedShipmentError(f"未找到店铺: {clean_store_name}{suffix}")
 
 
-async def fetch_shop_options(*, token: str | None = None) -> list[ShopOption]:
-    active_token = _clean_text(token) or await get_fba_free_token(purpose="fba_unlinked_shipments_shop_options")
+async def fetch_shop_options() -> list[ShopOption]:
+    active_token = await get_fba_free_token(purpose="fba_unlinked_shipments_shop_options")
     api_url = _configured_text("FBA_SHOP_COUNTRY_API_URL", DEFAULT_SHOP_COUNTRY_URL)
     async with erp_http_session.get(
         api_url,
@@ -633,8 +633,8 @@ async def fetch_shop_options(*, token: str | None = None) -> list[ShopOption]:
     return _shop_options(payload)
 
 
-async def resolve_shop_option(store_name: str, *, token: str | None = None) -> ShopOption:
-    return pick_shop_option(store_name, await fetch_shop_options(token=token))
+async def resolve_shop_option(store_name: str) -> ShopOption:
+    return pick_shop_option(store_name, await fetch_shop_options())
 
 
 def _list_total(payload: dict[str, Any]) -> int:
@@ -650,10 +650,8 @@ def _list_total(payload: dict[str, Any]) -> int:
 async def fetch_status_total(
     spec: UnlinkedShipmentStatusSpec,
     store_id: int,
-    *,
-    token: str | None = None,
 ) -> int:
-    active_token = _clean_text(token) or await get_fba_free_token(purpose="fba_unlinked_shipments_status_total")
+    active_token = await get_fba_free_token(purpose="fba_unlinked_shipments_status_total")
     api_url = _configured_text("FBA_DELIVERY_LIST_API_URL", DEFAULT_BATCH_DELIVERY_LIST_URL)
     payload = _status_payload(spec, store_id, page=1, pre_page=1)
     async with erp_http_session.post(api_url, json=payload, headers=_request_headers(active_token)) as resp:
@@ -665,10 +663,9 @@ async def create_unlinked_export_task(
     spec: UnlinkedShipmentStatusSpec,
     store_id: int,
     *,
-    token: str | None = None,
     report_date: str | date | None = None,
 ) -> int:
-    active_token = _clean_text(token) or await get_fba_free_token(purpose="fba_unlinked_shipments_export_task_create")
+    active_token = await get_fba_free_token(purpose="fba_unlinked_shipments_export_task_create")
     date_text = _today_text(report_date)
     api_url = _configured_text("FBA_DELIVERY_TASK_PUSH_URL", DEFAULT_TASK_PUSH_URL)
     payload = {
@@ -732,7 +729,6 @@ async def _download_status_file(
     *,
     store_name: str,
     store_id: int,
-    token: str,
     output_dir: str | Path | None,
     timeout_sec: float,
     poll_interval_sec: float,
@@ -740,17 +736,16 @@ async def _download_status_file(
     download_time: str,
 ) -> UnlinkedShipmentStatusResult:
     logger.info("[UnlinkedShipments] %s 开始查询", spec.status_name)
-    total = await fetch_status_total(spec, store_id, token=token)
+    total = await fetch_status_total(spec, store_id)
     logger.info("[UnlinkedShipments] %s total=%d", spec.status_name, total)
     if total <= 0:
         logger.info("[UnlinkedShipments] %s total=0，跳过导出", spec.status_name)
         return UnlinkedShipmentStatusResult(status_name=spec.status_name, total=0)
 
-    task_id = await create_unlinked_export_task(spec, store_id, token=token, report_date=report_date)
+    task_id = await create_unlinked_export_task(spec, store_id, report_date=report_date)
     logger.info("[UnlinkedShipments] %s 创建导出任务: taskId=%d", spec.status_name, task_id)
     task = await wait_for_delivery_task(
         task_id,
-        token=token,
         timeout_sec=timeout_sec,
         poll_interval_sec=poll_interval_sec,
         progress_label=f"[UnlinkedShipments] {spec.status_name}",
@@ -761,7 +756,7 @@ async def _download_status_file(
         task.task_id,
         task.file_hash,
     )
-    download_info = await request_download_info(task.task_id, task.file_hash, token=token)
+    download_info = await request_download_info(task.task_id, task.file_hash)
     logger.info(
         "[UnlinkedShipments] %s 获取下载地址成功: taskId=%d fileName=%s",
         spec.status_name,
@@ -788,9 +783,8 @@ async def _download_status_file(
     )
 
 
-async def _download_store_unlinked_shipments_with_token(
+async def _download_store_unlinked_shipments_once(
     clean_store_name: str,
-    token: str,
     *,
     timeout_sec: float,
     poll_interval_sec: float,
@@ -798,7 +792,7 @@ async def _download_store_unlinked_shipments_with_token(
     report_date: str | date | None,
     download_time: str | None,
 ) -> StoreUnlinkedShipmentDownloadResult:
-    shop = await resolve_shop_option(clean_store_name, token=token)
+    shop = await resolve_shop_option(clean_store_name)
     safe_timeout = safe_timeout_sec(timeout_sec)
     safe_poll_interval = safe_poll_interval_sec(poll_interval_sec)
     timestamp = _timestamp_text(download_time)
@@ -815,7 +809,6 @@ async def _download_store_unlinked_shipments_with_token(
                 spec,
                 store_name=clean_store_name,
                 store_id=shop.store_id,
-                token=token,
                 output_dir=output_dir,
                 timeout_sec=safe_timeout,
                 poll_interval_sec=safe_poll_interval,
@@ -850,12 +843,9 @@ async def download_store_unlinked_shipments(
         safe_timeout_sec(timeout_sec),
         safe_poll_interval_sec(poll_interval_sec),
     )
-    token = await get_fba_free_token(purpose="fba_unlinked_shipments_download")
-
     try:
-        return await _download_store_unlinked_shipments_with_token(
+        return await _download_store_unlinked_shipments_once(
             clean_store_name,
-            token,
             timeout_sec=timeout_sec,
             poll_interval_sec=poll_interval_sec,
             output_dir=output_dir,
@@ -865,22 +855,18 @@ async def download_store_unlinked_shipments(
     except BatchDeliveryApiAuthError:
         logger.warning("[FBAAuthRetry] 未关联货件鉴权失败，准备强制刷新 freeToken: store_name=%s", clean_store_name)
 
-    retry_token = await get_fba_free_token(
+    await get_fba_free_token(
         force_refresh=True,
         purpose="fba_unlinked_shipments_download_force_refresh",
     )
-    try:
-        result = await _download_store_unlinked_shipments_with_token(
-            clean_store_name,
-            retry_token,
-            timeout_sec=timeout_sec,
-            poll_interval_sec=poll_interval_sec,
-            output_dir=output_dir,
-            report_date=report_date,
-            download_time=download_time,
-        )
-    except BatchDeliveryApiAuthError as exc:
-        raise BatchDeliveryApiAuthError(f"{exc}，已强制刷新后重试仍失败") from exc
+    result = await _download_store_unlinked_shipments_once(
+        clean_store_name,
+        timeout_sec=timeout_sec,
+        poll_interval_sec=poll_interval_sec,
+        output_dir=output_dir,
+        report_date=report_date,
+        download_time=download_time,
+    )
 
     logger.info("[FBAAuthRetry] 未关联货件强制刷新后重试成功: store_name=%s", clean_store_name)
     return result

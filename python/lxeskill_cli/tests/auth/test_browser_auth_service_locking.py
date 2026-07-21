@@ -10,22 +10,26 @@ import pytest
 from browser_auth_service import service
 
 
-def _fba_payload(*, forced_at: int | None = None) -> dict:
-    payload = {
-        "cookies": [],
+def _fba_payload(token: str = "token") -> dict:
+    return {
+        "cookies": [
+            {
+                "name": "PHPSESSID",
+                "value": token,
+                "domain": ".mabangerp.com",
+                "path": "/",
+            }
+        ],
         "origins": [
             {
                 "origin": service.FBA_LOGISTICS_TOKEN_ORIGIN,
                 "localStorage": [
-                    {"name": service.FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY, "value": "token"},
+                    {"name": service.FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY, "value": token},
                 ],
             }
         ],
         "last_refreshed_at": int(time.time()),
     }
-    if forced_at is not None:
-        payload[service.AUTH_FORCE_REFRESH_METADATA_KEY] = {"fba": forced_at}
-    return payload
 
 
 def test_ensure_auth_locks_next_to_account_state_and_reloads_after_lock(tmp_path, monkeypatch) -> None:
@@ -59,7 +63,7 @@ def test_ensure_auth_locks_next_to_account_state_and_reloads_after_lock(tmp_path
     assert seen_payloads[0]["last_refreshed_at"] == 222
 
 
-def test_recent_forced_refresh_is_coalesced_but_first_force_is_not(tmp_path, monkeypatch) -> None:
+def test_consecutive_forced_refreshes_are_never_coalesced(tmp_path, monkeypatch) -> None:
     state_file = tmp_path / "state.json"
     calls: list[bool] = []
 
@@ -74,18 +78,55 @@ def test_recent_forced_refresh_is_coalesced_but_first_force_is_not(tmp_path, mon
     state_file.write_text(json.dumps(_fba_payload()), encoding="utf-8")
     service.ensure_auth("fba", force_refresh=True)
 
-    state_file.write_text(json.dumps(_fba_payload(forced_at=int(time.time()))), encoding="utf-8")
+    state_file.write_text(json.dumps(_fba_payload()), encoding="utf-8")
     service.ensure_auth("fba", force_refresh=True)
 
-    assert calls == [True, False]
+    assert calls == [True, True]
 
 
-def test_save_storage_state_preserves_metadata_and_atomically_replaces_file(tmp_path) -> None:
+def test_read_auth_reloads_state_after_account_lock(tmp_path, monkeypatch) -> None:
+    state_file = tmp_path / "account-a" / "state.json"
+    state_file.parent.mkdir(parents=True)
+    state_file.write_text(json.dumps(_fba_payload("token-a")), encoding="utf-8")
+    lock_paths: list[Path] = []
+
+    @contextmanager
+    def fake_lock(path, *, timeout_seconds):
+        lock_paths.append(Path(path))
+        state_file.write_text(json.dumps(_fba_payload("token-b")), encoding="utf-8")
+        yield
+
+    monkeypatch.setattr(service, "_state_file", lambda account: state_file)
+    monkeypatch.setattr(service, "interprocess_lock", fake_lock)
+    monkeypatch.setattr(service.mabang_settings, "MABANG_ACCOUNT", "account-a")
+
+    result = service.read_auth("fba")
+
+    assert result["source"] == "file"
+    assert result["free_token"] == "token-b"
+    assert lock_paths == [state_file.with_name(service.AUTH_REFRESH_LOCK_NAME)]
+
+
+def test_read_auth_does_not_cache_file_payload(tmp_path, monkeypatch) -> None:
+    state_file = tmp_path / "account-a" / "state.json"
+    state_file.parent.mkdir(parents=True)
+    monkeypatch.setattr(service, "_state_file", lambda account: state_file)
+    monkeypatch.setattr(service.mabang_settings, "MABANG_ACCOUNT", "account-a")
+
+    state_file.write_text(json.dumps(_fba_payload("token-a")), encoding="utf-8")
+    first = service.read_auth("fba")
+    state_file.write_text(json.dumps(_fba_payload("token-b")), encoding="utf-8")
+    second = service.read_auth("fba")
+
+    assert first["free_token"] == "token-a"
+    assert second["free_token"] == "token-b"
+    assert first["cookies_by_domain"]["mabangerp.com"][0]["value"] == "token-a"
+    assert second["cookies_by_domain"]["mabangerp.com"][0]["value"] == "token-b"
+
+
+def test_save_storage_state_atomically_replaces_file(tmp_path) -> None:
     state_file = tmp_path / "state.json"
-    state_file.write_text(
-        json.dumps({service.AUTH_REFRESH_METADATA_KEY: {"erp": 1}, "cookies": [{"name": "old"}]}),
-        encoding="utf-8",
-    )
+    state_file.write_text(json.dumps({"cookies": [{"name": "old"}]}), encoding="utf-8")
 
     class FakeContext:
         def storage_state(self):
@@ -94,14 +135,13 @@ def test_save_storage_state_preserves_metadata_and_atomically_replaces_file(tmp_
     payload = service._save_storage_state(
         FakeContext(),
         state_file,
-        extra_fields=service._refresh_metadata("fba", 2, force_refresh=True),
+        extra_fields={"last_refreshed_at": 2},
     )
 
     saved = json.loads(state_file.read_text(encoding="utf-8"))
     assert saved == payload
     assert saved["cookies"][0]["name"] == "new"
-    assert saved[service.AUTH_REFRESH_METADATA_KEY] == {"erp": 1, "fba": 2}
-    assert saved[service.AUTH_FORCE_REFRESH_METADATA_KEY] == {"fba": 2}
+    assert saved["last_refreshed_at"] == 2
     assert list(tmp_path.glob(".state.json.*.tmp")) == []
 
 

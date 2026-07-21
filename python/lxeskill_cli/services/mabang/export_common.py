@@ -7,7 +7,8 @@ from typing import Any, Awaitable, Callable, Generic, Iterable, TypeVar
 from urllib.parse import urlsplit
 
 from services.mabang import config as mabang_settings
-from services.mabang.auth import MabangAuthContext
+from services.mabang.auth import MabangAuthContext, get_auth_context
+from services.mabang.errors import MabangAuthError
 from services.mabang.auth_constants import PRIVATE_AMZ_HOST, PRIVATE_HOST
 from services.mabang.cookies import (
     build_cookie_header,
@@ -28,7 +29,6 @@ class PrivateAmzExportAuth:
 
 @dataclass(frozen=True)
 class ExportPipelineSpec(Generic[FileT, ResultT]):
-    authorize: Callable[[], Awaitable[PrivateAmzExportAuth]]
     fetch_ids: Callable[..., Awaitable[list[str]]]
     request_file_url: Callable[..., Awaitable[str]]
     download_file: Callable[[str], Awaitable[FileT]]
@@ -37,18 +37,21 @@ class ExportPipelineSpec(Generic[FileT, ResultT]):
 
 
 async def run_export_pipeline(spec: ExportPipelineSpec[FileT, ResultT]) -> ResultT:
-    auth = await spec.authorize()
-    ids = await spec.fetch_ids(
-        *spec.fetch_args,
-        cookie_header=auth.private_amz_cookie_header,
-    )
-    file_url = await spec.request_file_url(
-        ids,
-        cookie_header=auth.private_cookie_header,
-        memcache_key=auth.memcache_key,
-    )
-    downloaded = await spec.download_file(file_url)
-    return spec.transform_result(ids, downloaded)
+    async def run_once() -> ResultT:
+        ids = await spec.fetch_ids(*spec.fetch_args)
+        file_url = await spec.request_file_url(ids)
+        downloaded = await spec.download_file(file_url)
+        return spec.transform_result(ids, downloaded)
+
+    try:
+        return await run_once()
+    except MabangAuthError:
+        await get_auth_context(
+            scope="private_amz",
+            force_refresh=True,
+            purpose="private_amz_export_force_refresh",
+        )
+        return await run_once()
 
 
 def configured_text(name: str, default: str) -> str:

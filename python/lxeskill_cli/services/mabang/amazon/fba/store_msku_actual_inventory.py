@@ -660,12 +660,16 @@ def _step4_form_data(*, sn: str, task_id: str) -> list[tuple[str, str]]:
 async def _post_combo_export(
     form_data: list[tuple[str, str]],
     *,
-    cookie_header: str,
     action: str,
 ) -> dict[str, Any]:
+    cookie_header, memcache_key = await _resolve_private_auth()
+    active_form_data = [
+        (name, memcache_key if name == "memcacheKey" else value)
+        for name, value in form_data
+    ]
     async with erp_http_session.post(
         _combo_export_url(),
-        data=form_data,
+        data=active_form_data,
         headers=_private_request_headers(cookie_header),
     ) as resp:
         return await _read_json_response(resp, action=action)
@@ -674,10 +678,9 @@ async def _post_combo_export(
 async def prewarm_combo_sku_export(
     local_skus: list[str],
     *,
-    private_cookie_header: str,
-    private_amz_cookie_header: str,
     delay_sec: float = 1.0,
 ) -> None:
+    private_amz_cookie_header = await _resolve_private_amz_cookie()
     async with erp_http_session.post(
         _combo_list_url(),
         data=_combo_list_prewarm_form_data(local_skus),
@@ -687,6 +690,7 @@ async def prewarm_combo_sku_export(
 
     await asyncio.sleep(max(0.0, float(delay_sec)))
 
+    private_cookie_header, _ = await _resolve_private_auth()
     async with erp_http_session.post(
         _combo_export_template_url(),
         data=_combo_export_template_prewarm_form_data(local_skus),
@@ -735,7 +739,6 @@ async def _wait_for_combo_file_url(
     *,
     sn: str,
     task_id: str,
-    cookie_header: str,
     timeout_sec: float,
     poll_interval_sec: float,
 ) -> str:
@@ -747,7 +750,6 @@ async def _wait_for_combo_file_url(
     while True:
         payload = await _post_combo_export(
             _step4_form_data(sn=sn, task_id=task_id),
-            cookie_header=cookie_header,
             action="组合SKU导出 Step 4",
         )
         state = _clean_text(payload.get("state"))
@@ -792,35 +794,29 @@ async def export_combo_sku_xlsx(
     local_skus: list[str],
     *,
     store_name: str,
-    cookie_header: str,
-    memcache_key: str,
     output_dir: str | Path | None = None,
     timeout_sec: float = 180,
     poll_interval_sec: float = 3,
 ) -> Path:
     step1 = await _post_combo_export(
-        _combo_step1_form_data(local_skus, memcache_key=memcache_key),
-        cookie_header=cookie_header,
+        _combo_step1_form_data(local_skus, memcache_key=""),
         action="组合SKU导出 Step 1",
     )
     sn, subtask_num, _chunk_num = _normalize_step1_response(step1)
     for sub_no in range(1, subtask_num + 1):
         step2 = await _post_combo_export(
             _step2_form_data(sn=sn, sub_no=sub_no),
-            cookie_header=cookie_header,
             action="组合SKU导出 Step 2",
         )
         _validate_step2_response(step2, sub_no=sub_no)
     step3 = await _post_combo_export(
         _step3_form_data(sn=sn),
-        cookie_header=cookie_header,
         action="组合SKU导出 Step 3",
     )
     task_id = _normalize_step3_response(step3)
     file_url = await _wait_for_combo_file_url(
         sn=sn,
         task_id=task_id,
-        cookie_header=cookie_header,
         timeout_sec=timeout_sec,
         poll_interval_sec=poll_interval_sec,
     )
@@ -930,9 +926,10 @@ def _warehouse_search_form_data(stock_skus: list[str]) -> list[tuple[str, str]]:
     ]
 
 
-async def search_warehouse_stock(stock_skus: list[str], *, cookie_header: str) -> None:
+async def search_warehouse_stock(stock_skus: list[str]) -> None:
     if not stock_skus:
         return
+    cookie_header = await _resolve_private_amz_cookie()
     async with erp_http_session.post(
         _warehouse_search_url(),
         data=_warehouse_search_form_data(stock_skus),
@@ -943,10 +940,10 @@ async def search_warehouse_stock(stock_skus: list[str], *, cookie_header: str) -
 
 async def download_warehouse_stock_xlsx(
     *,
-    cookie_header: str,
     store_name: str,
     output_dir: str | Path | None = None,
 ) -> Path:
+    cookie_header = await _resolve_private_amz_cookie()
     directory = _resolve_output_dir(output_dir)
     target_path = directory / f"{_timestamp_text()}-{_safe_file_part(store_name)}_warehouse_stock.xlsx"
     async with erp_http_session.get(
@@ -1242,7 +1239,7 @@ def write_actual_inventory_xlsx(rows: list[ActualInventoryRow], output_path: str
     return target_path
 
 
-async def export_store_msku_actual_inventory(
+async def _export_store_msku_actual_inventory_once(
     store_name: str,
     *,
     input_dir: str | Path | None = None,
@@ -1256,18 +1253,10 @@ async def export_store_msku_actual_inventory(
     local_skus = _unique_text([row.local_sku for row in msku_rows])
 
     output_directory = _resolve_output_dir(output_dir)
-    private_cookie, memcache_key = await _resolve_private_auth()
-    private_amz_cookie = await _resolve_private_amz_cookie()
-    await prewarm_combo_sku_export(
-        local_skus,
-        private_cookie_header=private_cookie,
-        private_amz_cookie_header=private_amz_cookie,
-    )
+    await prewarm_combo_sku_export(local_skus)
     combo_xlsx_path = await export_combo_sku_xlsx(
         local_skus,
         store_name=clean_store_name,
-        cookie_header=private_cookie,
-        memcache_key=memcache_key,
         output_dir=output_directory,
         timeout_sec=timeout_sec,
         poll_interval_sec=poll_interval_sec,
@@ -1275,9 +1264,8 @@ async def export_store_msku_actual_inventory(
     combo_map = filter_combo_map_for_source(parse_combo_sku_xlsx(combo_xlsx_path), source_local_skus=local_skus)
     stock_skus = stock_skus_for_inventory(local_skus, combo_map)
 
-    await search_warehouse_stock(stock_skus, cookie_header=private_amz_cookie)
+    await search_warehouse_stock(stock_skus)
     stock_xlsx_path = await download_warehouse_stock_xlsx(
-        cookie_header=private_amz_cookie,
         store_name=clean_store_name,
         output_dir=output_directory,
     )
@@ -1304,6 +1292,34 @@ async def export_store_msku_actual_inventory(
         missing_local_sku_msku_row_count=len(inventory_groups.no_local_sku_rows),
         missing_warehouse_inventory_msku_row_count=len(inventory_groups.no_inventory_rows),
     )
+
+
+async def export_store_msku_actual_inventory(
+    store_name: str,
+    *,
+    input_dir: str | Path | None = None,
+    output_dir: str | Path | None = None,
+    timeout_sec: float = 180,
+    poll_interval_sec: float = 3,
+) -> ActualInventoryResult:
+    async def run_once() -> ActualInventoryResult:
+        return await _export_store_msku_actual_inventory_once(
+            store_name,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            timeout_sec=timeout_sec,
+            poll_interval_sec=poll_interval_sec,
+        )
+
+    try:
+        return await run_once()
+    except StoreMskuActualInventoryAuthError:
+        await get_auth_context(
+            scope="private_amz",
+            force_refresh=True,
+            purpose="store_msku_actual_inventory_force_refresh",
+        )
+        return await run_once()
 
 
 __all__ = [

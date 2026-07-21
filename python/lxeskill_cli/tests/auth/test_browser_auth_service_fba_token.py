@@ -126,36 +126,6 @@ def _token_payload(token_value: str = "cached-token") -> dict[str, object]:
     }
 
 
-def test_remove_storage_local_storage_key_removes_only_target_origin_token() -> None:
-    payload = _token_payload()
-
-    removed = service._remove_storage_local_storage_key(
-        payload,
-        "https://amz1-private.mabangerp.com",
-        "freeToken",
-    )
-
-    assert removed == 1
-    assert service._storage_lookup_token(payload, "https://amz1-private.mabangerp.com", "freeToken") == ""
-    assert service._storage_lookup_token(payload, "https://amz1.mabangerp.com", "freeToken") == "other-origin-token"
-
-
-def test_remove_storage_domain_cookies_removes_only_wms_domain() -> None:
-    payload = {
-        "cookies": [
-            {"name": "WMSID", "value": "old", "domain": "wms.private.mabangerp.com"},
-            {"name": "SUBWMS", "value": "old", "domain": "sub.wms.private.mabangerp.com"},
-            {"name": "PHPSESSID", "value": "keep", "domain": "private.mabangerp.com"},
-            {"name": "GLOBAL", "value": "keep", "domain": ".mabangerp.com"},
-        ]
-    }
-
-    removed = service._remove_storage_domain_cookies(payload, "wms.private.mabangerp.com")
-
-    assert removed == 2
-    assert [cookie["name"] for cookie in payload["cookies"]] == ["PHPSESSID", "GLOBAL"]
-
-
 def test_ensure_fba_auth_uses_cache_when_fresh_and_not_forced(tmp_path: Path, monkeypatch) -> None:
     payload = _token_payload("cached-token")
 
@@ -178,11 +148,12 @@ def test_ensure_fba_auth_uses_cache_when_fresh_and_not_forced(tmp_path: Path, mo
     assert result["free_token"] == "cached-token"
 
 
-def test_ensure_fba_auth_force_refresh_removes_cached_token_from_seed(tmp_path: Path, monkeypatch) -> None:
+def test_ensure_fba_auth_force_refresh_uses_clean_context(tmp_path: Path, monkeypatch) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text("{}", encoding="utf-8")
     payload = _token_payload("cached-token")
-    captured_seed: dict[str, object] = {}
+    captured_context: dict[str, object] = {}
+    login_calls: list[tuple[str, str]] = []
 
     class FakePage:
         def __init__(self) -> None:
@@ -220,7 +191,9 @@ def test_ensure_fba_auth_force_refresh_removes_cached_token_from_seed(tmp_path: 
             return None
 
     def fake_open_context(browser, state_file, can_reuse_state, storage_state_payload=None):
-        captured_seed["payload"] = storage_state_payload
+        captured_context["can_reuse_state"] = can_reuse_state
+        captured_context["storage_state_payload"] = storage_state_payload
+        captured_context["state_exists"] = state_file.exists()
         return FakeContext()
 
     def fake_save_storage_state(context, state_file, extra_fields=None):
@@ -236,7 +209,7 @@ def test_ensure_fba_auth_force_refresh_removes_cached_token_from_seed(tmp_path: 
 
     monkeypatch.setattr(service, "sync_playwright", lambda: FakePlaywright())
     monkeypatch.setattr(service, "_open_context", fake_open_context)
-    monkeypatch.setattr(service, "_is_login_page", lambda page: False)
+    monkeypatch.setattr(service, "_perform_login", lambda page, account, password: login_calls.append((account, password)))
     monkeypatch.setattr(service, "_extract_token", lambda page, origin, key: "fresh-token")
     monkeypatch.setattr(service, "_save_storage_state", fake_save_storage_state)
 
@@ -250,14 +223,17 @@ def test_ensure_fba_auth_force_refresh_removes_cached_token_from_seed(tmp_path: 
         force_refresh=True,
     )
 
-    seed_payload = captured_seed["payload"]
-    assert isinstance(seed_payload, dict)
-    assert service._storage_lookup_token(seed_payload, "https://amz1-private.mabangerp.com", "freeToken") == ""
-    assert result["source"] == "refresh"
+    assert captured_context == {
+        "can_reuse_state": False,
+        "storage_state_payload": None,
+        "state_exists": False,
+    }
+    assert login_calls == [("account", "password")]
+    assert result["source"] == "relogin"
     assert result["free_token"] == "fresh-token"
 
 
-def test_ensure_fba_auth_force_refresh_removes_wms_cookie_seed_when_required(
+def test_ensure_fba_auth_wms_force_refresh_uses_clean_context(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -268,7 +244,8 @@ def test_ensure_fba_auth_force_refresh_removes_wms_cookie_seed_when_required(
         {"name": "WMSID", "value": "old", "domain": "wms.private.mabangerp.com"},
         {"name": "PHPSESSID", "value": "keep", "domain": "private.mabangerp.com"},
     ]
-    captured_seed: dict[str, object] = {}
+    captured_context: dict[str, object] = {}
+    login_calls: list[tuple[str, str]] = []
 
     class FakePage:
         def __init__(self) -> None:
@@ -306,7 +283,9 @@ def test_ensure_fba_auth_force_refresh_removes_wms_cookie_seed_when_required(
             return None
 
     def fake_open_context(browser, state_file, can_reuse_state, storage_state_payload=None):
-        captured_seed["payload"] = storage_state_payload
+        captured_context["can_reuse_state"] = can_reuse_state
+        captured_context["storage_state_payload"] = storage_state_payload
+        captured_context["state_exists"] = state_file.exists()
         return FakeContext()
 
     def fake_save_storage_state(context, state_file, extra_fields=None):
@@ -322,7 +301,7 @@ def test_ensure_fba_auth_force_refresh_removes_wms_cookie_seed_when_required(
 
     monkeypatch.setattr(service, "sync_playwright", lambda: FakePlaywright())
     monkeypatch.setattr(service, "_open_context", fake_open_context)
-    monkeypatch.setattr(service, "_is_login_page", lambda page: False)
+    monkeypatch.setattr(service, "_perform_login", lambda page, account, password: login_calls.append((account, password)))
     monkeypatch.setattr(service, "_extract_token", lambda page, origin, key: "fresh-token")
     monkeypatch.setattr(service, "_collect_wms_cookie_header", lambda page, context, host, text: "fresh-wms=1")
     monkeypatch.setattr(service, "_save_storage_state", fake_save_storage_state)
@@ -337,8 +316,10 @@ def test_ensure_fba_auth_force_refresh_removes_wms_cookie_seed_when_required(
         force_refresh=True,
     )
 
-    seed_payload = captured_seed["payload"]
-    assert isinstance(seed_payload, dict)
-    seed_cookies = seed_payload["cookies"]
-    assert [cookie["name"] for cookie in seed_cookies] == ["PHPSESSID"]
+    assert captured_context == {
+        "can_reuse_state": False,
+        "storage_state_payload": None,
+        "state_exists": False,
+    }
+    assert login_calls == [("account", "password")]
     assert result["wms_cookie_header"] == "fresh-wms=1"

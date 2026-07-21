@@ -350,12 +350,13 @@ def parse_listsearch_ids(payload: dict[str, Any]) -> list[str]:
     return ids
 
 
-async def fetch_msku_detail_ids(mskus: list[str], *, cookie_header: str) -> list[str]:
+async def fetch_msku_detail_ids(mskus: list[str]) -> list[str]:
     unique = list(OrderedDict((msku, msku) for msku in mskus if _clean_cell(msku)).values())
     if not unique:
         raise ValueError("msku 不能为空")
+    auth = await resolve_msku_detail_auth()
     headers = _request_headers(
-        cookie_header,
+        auth.private_amz_cookie_header,
         origin=_configured_text("MABANG_MSKU_LISTSEARCH_ORIGIN", DEFAULT_PRIVATE_AMZ_ORIGIN),
         referer=_configured_text("MABANG_MSKU_LISTSEARCH_REFERER", DEFAULT_PRIVATE_AMZ_REFERER),
     )
@@ -438,21 +439,19 @@ def parse_export_gourl(payload: dict[str, Any]) -> str:
 
 async def export_msku_detail_file_url(
     ids: list[str],
-    *,
-    cookie_header: str,
-    memcache_key: str,
 ) -> str:
     clean_ids = [str(item or "").strip() for item in ids if str(item or "").strip()]
     if not clean_ids:
         raise ValueError("id 不能为空")
+    auth = await resolve_msku_detail_auth()
     headers = _request_headers(
-        cookie_header,
+        auth.private_cookie_header,
         origin=_configured_text("MABANG_MSKU_FBA_EXPORT_ORIGIN", DEFAULT_PRIVATE_ORIGIN),
         referer=_configured_text("MABANG_MSKU_FBA_EXPORT_REFERER", DEFAULT_PRIVATE_REFERER),
     )
     async with erp_http_session.post(
         _fba_export_url(),
-        data=_step2_form_data(clean_ids, memcache_key=memcache_key),
+        data=_step2_form_data(clean_ids, memcache_key=auth.memcache_key),
         headers=headers,
     ) as resp:
         payload = await _read_msku_json(resp, action="MSKU明细导出")
@@ -673,7 +672,6 @@ async def download_msku_detail_excel(
 
     return await run_export_pipeline(
         ExportPipelineSpec(
-            authorize=resolve_msku_detail_auth,
             fetch_ids=fetch_msku_detail_ids,
             fetch_args=(delivery_source.mskus,),
             request_file_url=export_msku_detail_file_url,

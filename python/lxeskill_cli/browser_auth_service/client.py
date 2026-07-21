@@ -126,6 +126,32 @@ def ensure_auth_sync(
     return payload
 
 
+def read_auth_sync(
+    scope: str,
+    account: str = "",
+    require_wms_cookie_header: bool = False,
+) -> dict[str, Any]:
+    masked_account = _mask_account(account)
+    try:
+        from .service import read_auth as read_auth_from_file
+
+        payload = read_auth_from_file(
+            scope=scope,
+            account=account,
+            require_wms_cookie_header=require_wms_cookie_header,
+        )
+    except Exception as exc:
+        message = str(exc or "读取 browser_auth_service 状态失败").strip()
+        logger.error(
+            f"[BrowserAuthClient] 本地认证状态读取失败: "
+            f"scope={str(scope or '').strip()} account={masked_account} message={message}"
+        )
+        raise BrowserAuthClientError(message) from exc
+    if not isinstance(payload, dict) or not payload.get("success"):
+        raise BrowserAuthClientError("读取 browser_auth_service 状态失败")
+    return payload
+
+
 async def ensure_auth(
     scope: str,
     account: str = "",
@@ -138,4 +164,17 @@ async def ensure_auth(
         account,
         require_wms_cookie_header,
         force_refresh,
+    )
+
+
+async def read_auth(
+    scope: str,
+    account: str = "",
+    require_wms_cookie_header: bool = False,
+) -> dict[str, Any]:
+    return await asyncio.to_thread(
+        read_auth_sync,
+        scope,
+        account,
+        require_wms_cookie_header,
     )

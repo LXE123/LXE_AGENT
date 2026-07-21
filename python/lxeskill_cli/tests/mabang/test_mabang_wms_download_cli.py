@@ -266,7 +266,7 @@ def test_wms_auth_failure_after_force_refresh_does_not_loop(monkeypatch, tmp_pat
     monkeypatch.setattr(wms_module, "_resolve_excel_dir", lambda: tmp_path)
     monkeypatch.setattr(wms_module.wms_settings, "FBA_LOGISTICS_WMS_EXPORT_RETRY", 0)
 
-    with pytest.raises(wms_module.WmsExcelDownloadError, match="已强制刷新后重试仍失败"):
+    with pytest.raises(wms_module.WmsExcelAuthError, match="登录页"):
         asyncio.run(wms_module.download_consignment_excel_from_wms("SP260627014"))
 
     assert token_calls == [False, True]

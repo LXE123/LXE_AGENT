@@ -264,12 +264,7 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
                 )
                 continue
 
-            last_error = WmsExcelAuthError(f"{exc}，已强制刷新后重试仍失败")
-            logger.warning(
-                f"[FBA Logistics][WMS] Excel 下载失败: shipNo={normalized}, "
-                f"attempt={idx}/{attempts}, error={last_error}"
-            )
-            break
+            raise
         except Exception as exc:
             last_error = exc
             logger.warning(f"[FBA Logistics][WMS] Excel 下载失败: shipNo={normalized}, attempt={idx}/{attempts}, error={exc}")

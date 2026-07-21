@@ -121,6 +121,14 @@ async def _fake_auth_without_memcache(*args, **kwargs) -> MabangAuthContext:
     )
 
 
+async def _fake_resolved_auth():
+    return msku.PrivateAmzExportAuth(
+        private_amz_cookie_header="PHPSESSID=sid",
+        private_cookie_header="PHPSESSID=sid",
+        memcache_key="memcache-key",
+    )
+
+
 def test_load_mskus_from_delivery_csv_dedupes_and_preserves_order(tmp_path):
     delivery_path = _write_csv(
         tmp_path / "SP260414001_1001.csv",
@@ -288,37 +296,39 @@ def test_resolve_auth_requires_memcache_cookie(monkeypatch):
 def test_fetch_ids_rejects_auth_failure(monkeypatch):
     fake_session = _FakeSession([_FakeResponse(status=403, text_body="forbidden")])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_msku_detail_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.MskuDetailDownloadAuthError, match="鉴权失败"):
-        asyncio.run(msku.fetch_msku_detail_ids(["MSKU-A"], cookie_header="PHPSESSID=sid"))
+        asyncio.run(msku.fetch_msku_detail_ids(["MSKU-A"]))
 
 
 def test_fetch_ids_rejects_non_json(monkeypatch):
     fake_session = _FakeSession([_FakeResponse(text_body="not-json")])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_msku_detail_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.MskuDetailDownloadError, match="返回非JSON对象"):
-        asyncio.run(msku.fetch_msku_detail_ids(["MSKU-A"], cookie_header="PHPSESSID=sid"))
+        asyncio.run(msku.fetch_msku_detail_ids(["MSKU-A"]))
 
 
 def test_fetch_ids_rejects_business_failure(monkeypatch):
     fake_session = _FakeSession([_FakeResponse({"success": False, "msg": "bad request"})])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_msku_detail_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.MskuDetailDownloadError, match="业务异常: bad request"):
-        asyncio.run(msku.fetch_msku_detail_ids(["MSKU-A"], cookie_header="PHPSESSID=sid"))
+        asyncio.run(msku.fetch_msku_detail_ids(["MSKU-A"]))
 
 
 def test_export_file_url_rejects_auth_failure(monkeypatch):
     fake_session = _FakeSession([_FakeResponse(status=403, text_body="forbidden")])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_msku_detail_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.MskuDetailDownloadAuthError, match="鉴权失败"):
         asyncio.run(
             msku.export_msku_detail_file_url(
                 ["1001"],
-                cookie_header="PHPSESSID=sid",
-                memcache_key="memcache-key",
             )
         )
 
@@ -326,13 +336,12 @@ def test_export_file_url_rejects_auth_failure(monkeypatch):
 def test_export_file_url_rejects_non_json(monkeypatch):
     fake_session = _FakeSession([_FakeResponse(text_body="not-json")])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_msku_detail_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.MskuDetailDownloadError, match="返回非JSON对象"):
         asyncio.run(
             msku.export_msku_detail_file_url(
                 ["1001"],
-                cookie_header="PHPSESSID=sid",
-                memcache_key="memcache-key",
             )
         )
 
@@ -340,13 +349,12 @@ def test_export_file_url_rejects_non_json(monkeypatch):
 def test_export_file_url_rejects_business_failure(monkeypatch):
     fake_session = _FakeSession([_FakeResponse({"success": False, "msg": "export failed"})])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_msku_detail_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.MskuDetailDownloadError, match="业务异常: export failed"):
         asyncio.run(
             msku.export_msku_detail_file_url(
                 ["1001"],
-                cookie_header="PHPSESSID=sid",
-                memcache_key="memcache-key",
             )
         )
 
@@ -354,13 +362,12 @@ def test_export_file_url_rejects_business_failure(monkeypatch):
 def test_export_file_url_requires_gourl(monkeypatch):
     fake_session = _FakeSession([_FakeResponse({"success": True})])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_msku_detail_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.MskuDetailDownloadError, match="缺少 gourl"):
         asyncio.run(
             msku.export_msku_detail_file_url(
                 ["1001"],
-                cookie_header="PHPSESSID=sid",
-                memcache_key="memcache-key",
             )
         )
 

@@ -100,15 +100,23 @@ async def _fake_auth_context(*args, **kwargs) -> MabangAuthContext:
     )
 
 
+async def _fake_resolved_auth():
+    return msku.PrivateAmzExportAuth(
+        private_amz_cookie_header="PHPSESSID=sid",
+        private_cookie_header="PHPSESSID=sid",
+        memcache_key="memcache-key",
+    )
+
+
 def test_fetch_store_msku_ids_posts_fba_warehouse_form(monkeypatch) -> None:
     fake_session = _FakeSession([_FakeResponse({"success": True, "id": "683425,618589"})])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_store_msku_auth", _fake_resolved_auth)
 
     result = asyncio.run(
         msku.fetch_store_msku_ids(
             "1039477",
             "fbaWarehouseIds[]",
-            cookie_header="PHPSESSID=sid",
         )
     )
 
@@ -128,12 +136,12 @@ def test_fetch_store_msku_ids_posts_fba_warehouse_form(monkeypatch) -> None:
 def test_fetch_store_msku_ids_posts_shop_id_form(monkeypatch) -> None:
     fake_session = _FakeSession([_FakeResponse({"success": True, "id": "697456821"})])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_store_msku_auth", _fake_resolved_auth)
 
     result = asyncio.run(
         msku.fetch_store_msku_ids(
             "697456821",
             "shopId",
-            cookie_header="PHPSESSID=sid",
         )
     )
 
@@ -141,6 +149,34 @@ def test_fetch_store_msku_ids_posts_shop_id_form(monkeypatch) -> None:
     call = fake_session.calls[0]
     assert "fbaWarehouseIds[]" not in [key for key, _ in call["data"]]
     assert _form_value(call, "shopId") == "697456821"
+
+
+def test_each_store_msku_request_resolves_latest_cookie(monkeypatch) -> None:
+    fake_session = _FakeSession(
+        [
+            _FakeResponse({"success": True, "id": "1"}),
+            _FakeResponse({"success": True, "id": "2"}),
+        ]
+    )
+    auth_headers = iter(("PHPSESSID=cookie-a", "PHPSESSID=cookie-b"))
+
+    async def fake_resolve():
+        header = next(auth_headers)
+        return msku.PrivateAmzExportAuth(header, header, "memcache-key")
+
+    monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_store_msku_auth", fake_resolve)
+
+    async def run_requests() -> None:
+        await msku.fetch_store_msku_ids("101", "fbaWarehouseIds[]")
+        await msku.fetch_store_msku_ids("101", "fbaWarehouseIds[]")
+
+    asyncio.run(run_requests())
+
+    assert [call["headers"]["Cookie"] for call in fake_session.calls] == [
+        "PHPSESSID=cookie-a",
+        "PHPSESSID=cookie-b",
+    ]
 
 
 def test_parse_store_msku_ids_rejects_empty() -> None:
@@ -151,12 +187,11 @@ def test_parse_store_msku_ids_rejects_empty() -> None:
 def test_export_store_msku_file_url_posts_full_export_form(monkeypatch) -> None:
     fake_session = _FakeSession([_FakeResponse({"success": True, "gourl": "https://upload.example.test/a.xls"})])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_store_msku_auth", _fake_resolved_auth)
 
     url = asyncio.run(
         msku.export_store_msku_file_url(
             ["719829", "616892"],
-            cookie_header="PHPSESSID=sid",
-            memcache_key="memcache-key",
         )
     )
 
@@ -316,36 +351,38 @@ def test_validate_store_msku_excel_headers_requires_core_columns(tmp_path) -> No
 def test_fetch_store_msku_ids_rejects_auth_failure(monkeypatch) -> None:
     fake_session = _FakeSession([_FakeResponse(status=403, text_body="forbidden")])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_store_msku_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.StoreMskuDownloadAuthError, match="鉴权失败"):
-        asyncio.run(msku.fetch_store_msku_ids("101", "fbaWarehouseIds[]", cookie_header="PHPSESSID=sid"))
+        asyncio.run(msku.fetch_store_msku_ids("101", "fbaWarehouseIds[]"))
 
 
 def test_fetch_store_msku_ids_rejects_non_json(monkeypatch) -> None:
     fake_session = _FakeSession([_FakeResponse(text_body="not-json")])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_store_msku_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.StoreMskuDownloadError, match="返回非JSON对象"):
-        asyncio.run(msku.fetch_store_msku_ids("101", "fbaWarehouseIds[]", cookie_header="PHPSESSID=sid"))
+        asyncio.run(msku.fetch_store_msku_ids("101", "fbaWarehouseIds[]"))
 
 
 def test_fetch_store_msku_ids_rejects_business_failure(monkeypatch) -> None:
     fake_session = _FakeSession([_FakeResponse({"success": False, "msg": "bad request"})])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_store_msku_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.StoreMskuDownloadError, match="业务异常: bad request"):
-        asyncio.run(msku.fetch_store_msku_ids("101", "fbaWarehouseIds[]", cookie_header="PHPSESSID=sid"))
+        asyncio.run(msku.fetch_store_msku_ids("101", "fbaWarehouseIds[]"))
 
 
 def test_export_store_msku_file_url_requires_gourl(monkeypatch) -> None:
     fake_session = _FakeSession([_FakeResponse({"success": True})])
     monkeypatch.setattr(msku, "erp_http_session", fake_session)
+    monkeypatch.setattr(msku, "resolve_store_msku_auth", _fake_resolved_auth)
 
     with pytest.raises(msku.StoreMskuDownloadError, match="缺少 gourl"):
         asyncio.run(
             msku.export_store_msku_file_url(
                 ["1001"],
-                cookie_header="PHPSESSID=sid",
-                memcache_key="memcache-key",
             )
         )

@@ -12,6 +12,10 @@ from services.mabang.auth import MabangAuthContext
 from services.mabang import stock_sku_export as stock
 
 
+async def _async_value(value):
+    return value
+
+
 class _FakeResponse:
     def __init__(self, payload: dict | None = None, *, status: int = 200, body: bytes = b"") -> None:
         self.status = status
@@ -200,6 +204,7 @@ def test_export_stock_sku_batch_rejects_failed_step2(monkeypatch):
         ]
     )
     monkeypatch.setattr(stock, "erp_http_session", fake_session)
+    monkeypatch.setattr(stock, "_resolve_private_auth", lambda: _async_value(("PHPSESSID=sid", "memcache-key")))
 
     with pytest.raises(stock.StockSkuExportError, match="Step 2 失败"):
         asyncio.run(
@@ -207,8 +212,6 @@ def test_export_stock_sku_batch_rejects_failed_step2(monkeypatch):
                 ["SKU-A"],
                 delivery_no="SP260508022",
                 batch_index=1,
-                cookie_header="PHPSESSID=sid",
-                memcache_key="memcache-key",
             )
         )
 
@@ -222,6 +225,7 @@ def test_export_stock_sku_batch_requires_step3_task_id(monkeypatch):
         ]
     )
     monkeypatch.setattr(stock, "erp_http_session", fake_session)
+    monkeypatch.setattr(stock, "_resolve_private_auth", lambda: _async_value(("PHPSESSID=sid", "memcache-key")))
 
     with pytest.raises(stock.StockSkuExportError, match="缺少 taskId"):
         asyncio.run(
@@ -229,8 +233,6 @@ def test_export_stock_sku_batch_requires_step3_task_id(monkeypatch):
                 ["SKU-A"],
                 delivery_no="SP260508022",
                 batch_index=1,
-                cookie_header="PHPSESSID=sid",
-                memcache_key="memcache-key",
             )
         )
 
@@ -245,6 +247,7 @@ def test_export_stock_sku_batch_times_out_waiting_for_file(monkeypatch):
         ]
     )
     monkeypatch.setattr(stock, "erp_http_session", fake_session)
+    monkeypatch.setattr(stock, "_resolve_private_auth", lambda: _async_value(("PHPSESSID=sid", "memcache-key")))
 
     with pytest.raises(stock.StockSkuExportTimeoutError, match="库存SKU导出超时"):
         asyncio.run(
@@ -252,8 +255,6 @@ def test_export_stock_sku_batch_times_out_waiting_for_file(monkeypatch):
                 ["SKU-A"],
                 delivery_no="SP260508022",
                 batch_index=1,
-                cookie_header="PHPSESSID=sid",
-                memcache_key="memcache-key",
                 timeout_sec=0,
                 poll_interval_sec=0.1,
             )

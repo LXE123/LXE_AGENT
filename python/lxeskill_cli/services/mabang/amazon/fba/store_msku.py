@@ -295,11 +295,10 @@ def parse_store_msku_ids(payload: dict[str, Any]) -> list[str]:
 async def fetch_store_msku_ids(
     store_id: str,
     id_type: str,
-    *,
-    cookie_header: str,
 ) -> list[str]:
+    auth = await resolve_store_msku_auth()
     headers = _request_headers(
-        cookie_header,
+        auth.private_amz_cookie_header,
         origin=_configured_text("MABANG_STORE_MSKU_LISTSEARCH_ORIGIN", DEFAULT_PRIVATE_AMZ_ORIGIN),
         referer=_configured_text("MABANG_STORE_MSKU_LISTSEARCH_REFERER", DEFAULT_PRIVATE_AMZ_REFERER),
     )
@@ -365,18 +364,16 @@ def parse_store_msku_export_gourl(payload: dict[str, Any]) -> str:
 
 async def export_store_msku_file_url(
     ids: list[str],
-    *,
-    cookie_header: str,
-    memcache_key: str,
 ) -> str:
+    auth = await resolve_store_msku_auth()
     headers = _request_headers(
-        cookie_header,
+        auth.private_cookie_header,
         origin=_configured_text("MABANG_STORE_MSKU_FBA_EXPORT_ORIGIN", DEFAULT_PRIVATE_ORIGIN),
         referer=_configured_text("MABANG_STORE_MSKU_FBA_EXPORT_REFERER", DEFAULT_PRIVATE_REFERER),
     )
     async with erp_http_session.post(
         _fba_export_url(),
-        data=_step2_form_data(ids, memcache_key=memcache_key),
+        data=_step2_form_data(ids, memcache_key=auth.memcache_key),
         headers=headers,
     ) as resp:
         payload = await _read_store_msku_json(resp, action="店铺MSKU导出")
@@ -529,7 +526,6 @@ async def download_store_msku_excel(
 
     return await run_export_pipeline(
         ExportPipelineSpec(
-            authorize=resolve_store_msku_auth,
             fetch_ids=fetch_store_msku_ids,
             fetch_args=(clean_store_id, clean_id_type),
             request_file_url=export_store_msku_file_url,

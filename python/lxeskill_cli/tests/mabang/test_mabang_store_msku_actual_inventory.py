@@ -13,6 +13,10 @@ from services.mabang.amazon.fba import store_msku_actual_inventory as inv
 from services.mabang.auth import MabangAuthContext
 
 
+async def _async_value(value):
+    return value
+
+
 def _write_xlsx(path: Path, rows: list[dict], *, columns: list[str]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(_xlsx_bytes(rows, columns=columns))
@@ -204,13 +208,12 @@ def test_combo_prewarm_forms_append_hsp022_once() -> None:
 def test_combo_prewarm_failure_blocks_export(monkeypatch) -> None:
     fake_session = _FakeSession([_FakeResponse(status=500, text_body="server error")])
     monkeypatch.setattr(inv, "erp_http_session", fake_session)
+    monkeypatch.setattr(inv, "_resolve_private_amz_cookie", lambda: _async_value("private-amz-cookie"))
 
     with pytest.raises(Exception, match="组合SKU预热 1请求失败"):
         asyncio.run(
             inv.prewarm_combo_sku_export(
                 ["SKU-A"],
-                private_cookie_header="private-cookie",
-                private_amz_cookie_header="private-amz-cookie",
                 delay_sec=0,
             )
         )

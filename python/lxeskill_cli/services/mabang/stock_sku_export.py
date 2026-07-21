@@ -260,12 +260,16 @@ def _step4_form_data(*, sn: str, task_id: str) -> list[tuple[str, str]]:
 async def _post_stock_export(
     form_data: list[tuple[str, str]],
     *,
-    cookie_header: str,
     action: str,
 ) -> dict[str, Any]:
+    cookie_header, memcache_key = await _resolve_private_auth()
+    active_form_data = [
+        (name, memcache_key if name == "memcacheKey" else value)
+        for name, value in form_data
+    ]
     async with erp_http_session.post(
         _stock_export_url(),
-        data=form_data,
+        data=active_form_data,
         headers=_request_headers(cookie_header),
     ) as resp:
         return await _read_stock_export_json(resp, action=action)
@@ -304,7 +308,6 @@ async def _wait_for_file_url(
     *,
     sn: str,
     task_id: str,
-    cookie_header: str,
     timeout_sec: float,
     poll_interval_sec: float,
 ) -> str:
@@ -316,7 +319,6 @@ async def _wait_for_file_url(
     while True:
         payload = await _post_stock_export(
             _step4_form_data(sn=sn, task_id=task_id),
-            cookie_header=cookie_header,
             action="库存SKU导出 Step 4",
         )
         state = str(payload.get("state") or "").strip()
@@ -405,8 +407,6 @@ async def export_stock_sku_batch(
     *,
     delivery_no: str,
     batch_index: int,
-    cookie_header: str,
-    memcache_key: str,
     timeout_sec: float = 180,
     poll_interval_sec: float = 3,
     output_dir: str | Path | None = None,
@@ -418,8 +418,7 @@ async def export_stock_sku_batch(
         raise ValueError(f"库存SKU单批最多支持 {MAX_SKUS_PER_BATCH} 个")
 
     step1 = await _post_stock_export(
-        _step1_form_data(unique, memcache_key=memcache_key),
-        cookie_header=cookie_header,
+        _step1_form_data(unique, memcache_key=""),
         action="库存SKU导出 Step 1",
     )
     sn, subtask_num, chunk_num = _normalize_step1_response(step1)
@@ -427,21 +426,18 @@ async def export_stock_sku_batch(
     for sub_no in range(1, subtask_num + 1):
         step2 = await _post_stock_export(
             _step2_form_data(sn=sn, sub_no=sub_no),
-            cookie_header=cookie_header,
             action="库存SKU导出 Step 2",
         )
         _validate_step2_response(step2, sub_no=sub_no)
 
     step3 = await _post_stock_export(
         _step3_form_data(sn=sn),
-        cookie_header=cookie_header,
         action="库存SKU导出 Step 3",
     )
     task_id = _normalize_step3_response(step3)
     file_url = await _wait_for_file_url(
         sn=sn,
         task_id=task_id,
-        cookie_header=cookie_header,
         timeout_sec=timeout_sec,
         poll_interval_sec=poll_interval_sec,
     )
@@ -463,7 +459,7 @@ async def export_stock_sku_batch(
     )
 
 
-async def export_stock_sku_names(
+async def _export_stock_sku_names_once(
     skus: list[str] | tuple[str, ...],
     *,
     delivery_no: str = "",
@@ -480,7 +476,6 @@ async def export_stock_sku_names(
             requested_sku_count=0,
         )
 
-    cookie_header, memcache_key = await _resolve_private_auth()
     names_by_key: OrderedDict[str, str] = OrderedDict()
     batches: list[StockSkuBatchExport] = []
 
@@ -489,8 +484,6 @@ async def export_stock_sku_names(
             batch_skus,
             delivery_no=delivery_no,
             batch_index=batch_index,
-            cookie_header=cookie_header,
-            memcache_key=memcache_key,
             timeout_sec=timeout_sec,
             poll_interval_sec=poll_interval_sec,
             output_dir=output_dir,
@@ -506,6 +499,34 @@ async def export_stock_sku_names(
         batches=batches,
         requested_sku_count=len(unique),
     )
+
+
+async def export_stock_sku_names(
+    skus: list[str] | tuple[str, ...],
+    *,
+    delivery_no: str = "",
+    timeout_sec: float = 180,
+    poll_interval_sec: float = 3,
+    output_dir: str | Path | None = None,
+) -> StockSkuNameExportResult:
+    async def run_once() -> StockSkuNameExportResult:
+        return await _export_stock_sku_names_once(
+            skus,
+            delivery_no=delivery_no,
+            timeout_sec=timeout_sec,
+            poll_interval_sec=poll_interval_sec,
+            output_dir=output_dir,
+        )
+
+    try:
+        return await run_once()
+    except StockSkuExportAuthError:
+        await get_auth_context(
+            scope="erp",
+            force_refresh=True,
+            purpose="stock_sku_export_force_refresh",
+        )
+        return await run_once()
 
 
 __all__ = [

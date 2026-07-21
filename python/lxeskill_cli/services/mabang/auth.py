@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from browser_auth_service.client import ensure_auth
+from browser_auth_service.client import BrowserAuthClientError, ensure_auth, read_auth
 from services.mabang import config as mabang_settings
 
 from . import auth_audit
@@ -53,12 +53,33 @@ async def ensure_mabang_auth_payload(
         raise MabangAuthError("scope 不能为空")
     resolved_account = _resolve_account(scope_text, account)
     try:
-        payload = await ensure_auth(
-            scope=scope_text,
-            account=resolved_account,
-            require_wms_cookie_header=require_wms_cookie_header,
-            force_refresh=force_refresh,
-        )
+        if force_refresh:
+            await ensure_auth(
+                scope=scope_text,
+                account=resolved_account,
+                require_wms_cookie_header=require_wms_cookie_header,
+                force_refresh=True,
+            )
+        try:
+            payload = await read_auth(
+                scope=scope_text,
+                account=resolved_account,
+                require_wms_cookie_header=require_wms_cookie_header,
+            )
+        except BrowserAuthClientError:
+            if force_refresh:
+                raise
+            await ensure_auth(
+                scope=scope_text,
+                account=resolved_account,
+                require_wms_cookie_header=require_wms_cookie_header,
+                force_refresh=False,
+            )
+            payload = await read_auth(
+                scope=scope_text,
+                account=resolved_account,
+                require_wms_cookie_header=require_wms_cookie_header,
+            )
     except Exception as exc:
         raise MabangAuthError(f"获取 Mabang 登录态失败: {exc}") from exc
     if not isinstance(payload, dict) or not payload.get("success"):

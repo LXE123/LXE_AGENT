@@ -386,7 +386,7 @@ async def _read_store_html(resp: Any) -> str:
     return text
 
 
-async def fetch_fba_stores() -> list[FbaStore]:
+async def _fetch_fba_stores_once() -> list[FbaStore]:
     auth = await resolve_fba_store_auth()
     async with erp_http_session.get(
         _store_list_url(),
@@ -395,6 +395,18 @@ async def fetch_fba_stores() -> list[FbaStore]:
     ) as resp:
         html = await _read_store_html(resp)
     return parse_fba_store_options(html)
+
+
+async def fetch_fba_stores() -> list[FbaStore]:
+    try:
+        return await _fetch_fba_stores_once()
+    except FbaStoreResolverAuthError:
+        await get_auth_context(
+            scope="private_amz",
+            force_refresh=True,
+            purpose="fba_store_resolver_force_refresh",
+        )
+        return await _fetch_fba_stores_once()
 
 
 async def list_fba_stores(*, output_dir: str | Path | None = None) -> FbaStoreListResult:
