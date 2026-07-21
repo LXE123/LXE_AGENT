@@ -2339,8 +2339,9 @@ h1 {
   align-items: center;
   width: 100%;
   min-width: 0;
+  flex: 0 0 auto;
   gap: 10px;
-  margin-top: 8px;
+  margin-top: auto;
   padding: 9px 10px;
   border: 1px solid var(--sidebar-border, var(--border));
   border-radius: 10px;
@@ -2353,7 +2354,6 @@ h1 {
 
 .app-sidebar.collapsed .sidebar-status-card {
   justify-content: center;
-  margin-top: 8px;
   padding: 8px 0;
 }
 

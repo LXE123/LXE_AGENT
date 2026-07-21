@@ -26,6 +26,14 @@ test("status and settings have one sidebar entry and no floating duplicate", () 
   assert.doesNotMatch(main, /DashboardStatusModal|dashboardStatusOpen|statusSessionsQuery/);
   assert.doesNotMatch(shell, /desktop-status-button/);
   assert.doesNotMatch(styles, /\.desktop-status-button/);
+
+  const statusCardRule = styles.match(/\.sidebar-status-card\s*\{([\s\S]*?)\}/)?.[1] || "";
+  assert.match(statusCardRule, /flex:\s*0 0 auto/);
+  assert.match(statusCardRule, /margin-top:\s*auto/);
+  const collapsedRule = styles.match(
+    /\.app-sidebar\.collapsed \.sidebar-status-card\s*\{([\s\S]*?)\}/,
+  )?.[1] || "";
+  assert.doesNotMatch(collapsedRule, /margin-top:/);
 });
 
 test("session layout follows content width and search stays contextual", () => {
