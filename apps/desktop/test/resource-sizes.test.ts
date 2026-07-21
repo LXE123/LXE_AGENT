@@ -33,11 +33,10 @@ describe("desktop resource size report", () => {
     writeFileSync(join(runtime, "node", "node_modules", "module.js"), Buffer.alloc(17));
     writeFileSync(join(runtime, "python", "python.exe"), Buffer.alloc(19));
     writeFileSync(join(runtime, "playwright", "chrome.exe"), Buffer.alloc(23));
-    writeFileSync(join(resources, "manifest.json"), Buffer.alloc(29));
 
     const report = createDesktopResourceSizeReport(root);
 
-    expect(report.total.bytes).toBe(112);
+    expect(report.total.bytes).toBe(83);
     expect(report.electron.bytes).toBe(11);
     expect(report.resources.runtime.total.bytes).toBe(72);
     expect(report.resources.runtime.node.node_modules.bytes).toBe(17);

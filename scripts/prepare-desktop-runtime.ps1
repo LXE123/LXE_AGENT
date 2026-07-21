@@ -471,43 +471,6 @@ function Assert-LxeRuntimeHasNoCredentials {
     }
 }
 
-function Assert-LxeRuntimeManifest {
-    param([Parameter(Mandatory = $true)][string]$Root)
-
-    $manifestPath = Join-Path $Root "runtime-manifest.json"
-    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
-        throw "Managed runtime manifest is missing: $manifestPath"
-    }
-    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ([int]$manifest.schema_version -ne 1 -or [string]$manifest.platform -ne "win32-x64") {
-        throw "Managed runtime manifest is incompatible: $manifestPath"
-    }
-    if ([string]$manifest.lock_sha256 -ne $script:LockSha256) {
-        throw "Managed runtime manifest has a stale lock fingerprint: $manifestPath"
-    }
-    foreach ($expectedFile in @($manifest.critical_files)) {
-        $relativePath = [string]$expectedFile.path
-        if ([System.IO.Path]::IsPathRooted($relativePath)) {
-            throw "Managed runtime manifest contains an absolute path: $relativePath"
-        }
-        $absolutePath = Join-Path $Root $relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar)
-        if (-not (Test-LxePathWithin -Candidate $absolutePath -Parent $Root)) {
-            throw "Managed runtime manifest path escapes the runtime root: $relativePath"
-        }
-        if (-not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
-            throw "Managed runtime file is missing: $relativePath"
-        }
-        $actualFile = Get-Item -LiteralPath $absolutePath
-        if ($actualFile.Length -ne [long]$expectedFile.size) {
-            throw "Managed runtime file size mismatch: $relativePath"
-        }
-        $actualHash = Get-LxeFileSha256 -Path $absolutePath
-        if ($actualHash -ne [string]$expectedFile.sha256) {
-            throw "Managed runtime file SHA-256 mismatch: $relativePath"
-        }
-    }
-}
-
 function Test-LxeRuntimeImage {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
@@ -526,7 +489,6 @@ function Test-LxeRuntimeImage {
         if ([string]$marker.lock_sha256 -ne $script:LockSha256) {
             throw "Managed runtime lock fingerprint is stale: $markerPath"
         }
-        Assert-LxeRuntimeManifest -Root $Root
     }
 
     $smokeHome = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-desktop-runtime-smoke-" + [Guid]::NewGuid().ToString("N"))
@@ -811,67 +773,15 @@ function Install-LxeUvAndRipgrep {
     Copy-Item -LiteralPath $rgCandidate[0].FullName -Destination $rgDestination -Force
 }
 
-function Write-LxeRuntimeMetadata {
+function Write-LxeRuntimeMarker {
     param([Parameter(Mandatory = $true)][string]$Root)
 
-    $criticalPaths = @(
-        "node/node.exe",
-        "node/npm.cmd",
-        "node/npx.cmd",
-        "node/node_modules/npm/package.json",
-        "node/node_modules/dingtalk-workspace-cli/package.json",
-        "node/node_modules/@larksuite/cli/package.json",
-        "node/node_modules/@larksuite/whiteboard-cli/package.json",
-        "python/python.exe",
-        "uv/uv.exe",
-        "tools/rg.exe"
-    )
-    $browserExecutable = @(Get-ChildItem -LiteralPath (Join-Path $Root "playwright") -File -Recurse | Where-Object {
-        $_.Name -eq "chrome.exe" -or $_.Name -eq "headless_shell.exe"
-    } | Select-Object -First 1)
-    if ($browserExecutable.Count -eq 0) {
-        throw "Playwright runtime does not contain a Chromium executable."
-    }
-    $criticalPaths += $browserExecutable[0].FullName.Substring($Root.Length).TrimStart([char[]]'\/').Replace('\', '/')
-
-    $files = @()
-    foreach ($relativePath in $criticalPaths) {
-        $absolutePath = Join-Path $Root $relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar)
-        if (-not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
-            throw "Critical runtime file is missing: $absolutePath"
-        }
-        $file = Get-Item -LiteralPath $absolutePath
-        $files += [ordered]@{
-            path = $relativePath.Replace('\', '/')
-            size = $file.Length
-            sha256 = Get-LxeFileSha256 -Path $absolutePath
-        }
-    }
-
-    $components = [ordered]@{
-        node = [string]$script:RuntimeLock.node.version
-        npm = [string]$script:RuntimeLock.node.npm_version
-        python = [string]$script:RuntimeLock.python.version
-        uv = [string]$script:RuntimeLock.uv.version
-        ripgrep = [string]$script:RuntimeLock.ripgrep.version
-        playwright = [string]$script:RuntimeLock.playwright.version
-        dingtalk_workspace_cli = [string](Get-LxeJsonProperty -Object $script:RuntimeLock.node.packages -Name "dingtalk-workspace-cli")
-        larksuite_cli = [string](Get-LxeJsonProperty -Object $script:RuntimeLock.node.packages -Name "@larksuite/cli")
-        larksuite_whiteboard_cli = [string](Get-LxeJsonProperty -Object $script:RuntimeLock.node.packages -Name "@larksuite/whiteboard-cli")
-    }
-    $manifest = [ordered]@{
-        schema_version = 1
-        platform = "win32-x64"
-        lock_sha256 = $script:LockSha256
-        components = $components
-        critical_files = $files
-    }
     $marker = [ordered]@{
         schema_version = 1
         platform = "win32-x64"
         lock_sha256 = $script:LockSha256
     }
-    Write-LxeUtf8NoBom -Path (Join-Path $Root "runtime-manifest.json") -Value (($manifest | ConvertTo-Json -Depth 8) + "`n")
+    Remove-Item -LiteralPath (Join-Path $Root "runtime-manifest.json") -Force -ErrorAction SilentlyContinue
     Write-LxeUtf8NoBom -Path (Join-Path $Root ".lxe-desktop-runtime.json") -Value (($marker | ConvertTo-Json -Depth 4) + "`n")
 }
 
@@ -992,6 +902,7 @@ New-Item -ItemType Directory -Path $script:ResolvedCacheRoot -Force | Out-Null
 if ((Test-Path -LiteralPath $script:ResolvedRuntimeRoot -PathType Container) -and -not $Force) {
     try {
         Test-LxeRuntimeImage -Root $script:ResolvedRuntimeRoot -RequireMarker
+        Write-LxeRuntimeMarker -Root $script:ResolvedRuntimeRoot
         Write-LxeRuntimeDescriptor -Root $script:ResolvedRuntimeRoot
         Write-Host "Reusing validated desktop runtime: $script:ResolvedRuntimeRoot"
         return
@@ -1037,7 +948,7 @@ try {
         Install-LxePythonRuntime -Destination (Join-Path $stagedRoot "python") -UvExecutable (Join-Path $stagedRoot "uv\uv.exe") -WorkRoot $workRoot
         Install-LxePlaywrightBrowser -PythonRoot (Join-Path $stagedRoot "python") -Destination (Join-Path $stagedRoot "playwright")
         Test-LxeRuntimeImage -Root $stagedRoot
-        Write-LxeRuntimeMetadata -Root $stagedRoot
+        Write-LxeRuntimeMarker -Root $stagedRoot
         Test-LxeRuntimeImage -Root $stagedRoot -RequireMarker
         Save-LxeRuntimeImageCache -Source $stagedRoot -Destination $runtimeImageCache
     }

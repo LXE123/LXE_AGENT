@@ -7,7 +7,6 @@ export interface DesktopPaths {
   projectRoot: string;
   /** Diagnostic root only. Runtime consumers must use the explicit paths below. */
   resourceRoot: string;
-  resourceManifestPath: string;
   agentSoulPath: string;
   skillsRoot: string;
   userSkillsRoot: string;
@@ -92,7 +91,6 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     sourceRoot,
     projectRoot,
     resourceRoot,
-    resourceManifestPath: targetPath.join(resourceRoot, "manifest.json"),
     agentSoulPath: options.packaged
       ? targetPath.join(options.resourcesPath, "agent", "SOUL.md")
       : targetPath.join(sourceRoot, "SOUL.md"),

@@ -10,13 +10,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { delimiter, dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, relative, resolve } from "node:path";
 import { resolveDesktopRuntimeInputs } from "./desktop-runtime-inputs";
 import {
+  approvedConstructiveResourcePath,
   approvedSkillFile,
-  auditDesktopResources,
   loadResourceScope,
-  prohibitedPythonRuntimePath,
+  requireResourceSourceDirectory,
+  requireResourceSourceFile,
+  validateSelectedSkills,
 } from "./desktop-resource-scope";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
@@ -31,13 +33,23 @@ const scopeEntry = (id: string) => {
   }
   return entry;
 };
+const scopeDestination = (id: string, ...suffix: string[]): string => {
+  const entry = scopeEntry(id);
+  return join(outputRoot, ...entry.target.split("/"), ...suffix);
+};
+const requireManagedScope = (id: string, name: string): void => {
+  const entry = scopeEntry(id);
+  if (entry.source.kind !== "managed-build" || entry.source.name !== name) {
+    throw new Error(`Desktop resource scope must declare managed build ${name}: ${id}`);
+  }
+};
 const copyScopedFile = (id: string): void => {
   const entry = scopeEntry(id);
   const source = String(entry.source.path ?? "");
   if (entry.source.kind !== "file" || !source) {
     throw new Error(`Desktop resource scope must declare a file source: ${id}`);
   }
-  copyFile(join(repositoryRoot, source), join(outputRoot, ...entry.target.split("/")));
+  copyFile(join(repositoryRoot, source), scopeDestination(id));
 };
 
 if ((process.platform !== "win32" || process.arch !== "x64")
@@ -45,12 +57,29 @@ if ((process.platform !== "win32" || process.arch !== "x64")
   throw new Error("Windows x64 desktop resources must be prepared on Windows x64");
 }
 
-const copyDirectory = (source: string, destination: string): void => {
+const copyDirectory = (source: string, destination: string, resourceTarget: string): void => {
+  requireResourceSourceDirectory(source);
+  const sourceRoot = resolve(source);
   mkdirSync(dirname(destination), { recursive: true });
-  cpSync(source, destination, { recursive: true, force: false, errorOnExist: true });
+  cpSync(sourceRoot, destination, {
+    recursive: true,
+    force: false,
+    errorOnExist: true,
+    filter: (candidate) => {
+      const sourcePath = resolve(candidate);
+      const relation = relative(sourceRoot, sourcePath).replaceAll("\\", "/");
+      const resourcePath = relation ? `${resourceTarget}/${relation}` : resourceTarget;
+      return approvedConstructiveResourcePath(resourcePath);
+    },
+  });
 };
 
 const copyFile = (source: string, destination: string): void => {
+  requireResourceSourceFile(source);
+  const resourcePath = relative(outputRoot, destination).replaceAll("\\", "/");
+  if (!approvedConstructiveResourcePath(resourcePath)) {
+    throw new Error(`Desktop resource source is outside the constructive whitelist: ${source}`);
+  }
   mkdirSync(dirname(destination), { recursive: true });
   copyFileSync(source, destination);
 };
@@ -126,12 +155,27 @@ if (!existsSync(join(pythonRoot, "python.exe"))) {
 
 rmSync(outputRoot, { recursive: true, force: true });
 mkdirSync(outputRoot, { recursive: true });
-copyFile(agentCli, join(outputRoot, "runtime", "agent-cli", "agent-cli.exe"));
-copyDirectory(nodeRoot, join(outputRoot, "runtime", "node"));
-copyDirectory(pythonRoot, join(outputRoot, "runtime", "python"));
-copyFile(ripgrepExecutable, join(outputRoot, "runtime", "tools", "rg.exe"));
-copyDirectory(playwrightRoot, join(outputRoot, "runtime", "playwright"));
-copyDirectory(join(repositoryRoot, "apps", "dashboard", "dist"), join(outputRoot, "dashboard"));
+requireManagedScope("runtime-agent-cli", "agent-cli");
+requireManagedScope("runtime-node", "node");
+requireManagedScope("runtime-python", "python");
+requireManagedScope("runtime-playwright", "playwright");
+requireManagedScope("runtime-tools", "tools");
+requireManagedScope("wireguard", "wireguard");
+copyFile(agentCli, scopeDestination("runtime-agent-cli", "agent-cli.exe"));
+copyDirectory(nodeRoot, scopeDestination("runtime-node"), scopeEntry("runtime-node").target);
+copyDirectory(pythonRoot, scopeDestination("runtime-python"), scopeEntry("runtime-python").target);
+copyFile(ripgrepExecutable, scopeDestination("runtime-tools", "rg.exe"));
+copyDirectory(
+  playwrightRoot,
+  scopeDestination("runtime-playwright"),
+  scopeEntry("runtime-playwright").target,
+);
+const dashboardScope = scopeEntry("dashboard");
+copyDirectory(
+  join(repositoryRoot, String(dashboardScope.source.path ?? "")),
+  scopeDestination("dashboard"),
+  dashboardScope.target,
+);
 copyScopedFile("agent");
 copyScopedFile("lxeskill");
 const configScope = scopeEntry("config");
@@ -140,7 +184,7 @@ if (configScope.source.kind !== "file-list" || !configScope.source.paths?.length
 }
 for (const path of configScope.source.paths) {
   if (!path.startsWith("config/")) throw new Error(`Desktop config source is outside config/: ${path}`);
-  copyFile(join(repositoryRoot, path), join(outputRoot, "config", path.slice("config/".length)));
+  copyFile(join(repositoryRoot, path), scopeDestination("config", path.slice("config/".length)));
 }
 copyScopedFile("legal");
 const brandingScope = scopeEntry("branding");
@@ -150,33 +194,42 @@ if (!brandingRoot || brandingFiles.length === 0) {
   throw new Error(`Desktop branding scope does not declare files for ${platform}`);
 }
 for (const path of brandingFiles) {
-  copyFile(join(repositoryRoot, brandingRoot, path), join(outputRoot, "branding", path));
+  copyFile(join(repositoryRoot, brandingRoot, path), scopeDestination("branding", path));
 }
-const trackedSkillFiles = gitFiles(["skills"]);
+const skillsScope = scopeEntry("skills");
+const skillsSource = String(skillsScope.source.path ?? "");
+if (skillsScope.source.kind !== "skill-tree" || skillsSource !== "skills") {
+  throw new Error("Desktop Skill scope must declare the repository skills tree");
+}
+const trackedSkillFiles = gitFiles([skillsSource]);
 const packagedSkillFiles = trackedSkillFiles.filter((path) => approvedSkillFile(repositoryRoot, path));
 if (packagedSkillFiles.length === 0 || !packagedSkillFiles.some((path) => path.endsWith("/SKILL.md"))) {
   throw new Error("Desktop Skill whitelist did not select any valid Skill manifests");
 }
+validateSelectedSkills(repositoryRoot, packagedSkillFiles);
 for (const path of packagedSkillFiles) {
-  copyFile(join(repositoryRoot, path), join(outputRoot, path));
+  copyFile(
+    join(repositoryRoot, path),
+    scopeDestination("skills", path.slice(`${skillsSource}/`.length)),
+  );
 }
-copyFile(wireGuardMsi, join(outputRoot, "wireguard", "wireguard-amd64-1.1.msi"));
+copyFile(wireGuardMsi, scopeDestination("wireguard", "wireguard-amd64-1.1.msi"));
 copyFile(
   join(repositoryRoot, "apps", "desktop", "resources", "wireguard", "provision-wireguard.ps1"),
-  join(outputRoot, "wireguard", "provision-wireguard.ps1"),
+  scopeDestination("wireguard", "provision-wireguard.ps1"),
 );
 copyFile(
   join(repositoryRoot, "apps", "desktop", "resources", "wireguard", "remove-lxe-tunnel.ps1"),
-  join(outputRoot, "wireguard", "remove-lxe-tunnel.ps1"),
+  scopeDestination("wireguard", "remove-lxe-tunnel.ps1"),
 );
 copyFile(
   join(repositoryRoot, "apps", "desktop", "resources", "wireguard", "LICENSE.txt"),
-  join(outputRoot, "wireguard", "LICENSE.txt"),
+  scopeDestination("wireguard", "LICENSE.txt"),
 );
 
-const stagedNodeRoot = join(outputRoot, "runtime", "node");
-const stagedPythonRoot = join(outputRoot, "runtime", "python");
-const stagedPlaywrightRoot = join(outputRoot, "runtime", "playwright");
+const stagedNodeRoot = scopeDestination("runtime-node");
+const stagedPythonRoot = scopeDestination("runtime-python");
+const stagedPlaywrightRoot = scopeDestination("runtime-playwright");
 for (const path of [
   join(stagedNodeRoot, "npm.cmd"),
   join(stagedNodeRoot, "npx.cmd"),
@@ -239,11 +292,9 @@ if (playwrightLocaleDirectories === 0) {
   throw new Error("Packaged Playwright Chromium does not contain a locales directory");
 }
 
-const stagedPython = join(outputRoot, "runtime", "python", "python.exe");
+const stagedPython = join(stagedPythonRoot, "python.exe");
 const stagedLxeSkillModule = join(
-  outputRoot,
-  "runtime",
-  "python",
+  stagedPythonRoot,
   "Lib",
   "site-packages",
   "lxeskill",
@@ -257,14 +308,14 @@ const smokeEnvironment = {
   ...process.env,
   PATH: [
     stagedNodeRoot,
-    join(outputRoot, "runtime", "python"),
-    join(outputRoot, "runtime", "tools"),
+    stagedPythonRoot,
+    scopeDestination("runtime-tools"),
     join(stagedNodeRoot, "node_modules", ".bin"),
     String(process.env.PATH ?? ""),
   ].filter(Boolean).join(delimiter),
-  LXE_SKILLS_ROOT: join(outputRoot, "skills"),
-  LXE_RUNTIME_ENV_PATH: join(outputRoot, "config", "runtime.env"),
-  LXE_PERMISSION_POLICY_PATH: join(outputRoot, "config", "permission_policy.yaml"),
+  LXE_SKILLS_ROOT: scopeDestination("skills"),
+  LXE_RUNTIME_ENV_PATH: scopeDestination("config", "runtime.env"),
+  LXE_PERMISSION_POLICY_PATH: scopeDestination("config", "permission_policy.yaml"),
   LXE_DATA_ROOT: smokeStateRoot,
   LXE_WORKSPACE_ROOT: smokeWorkspaceRoot,
   LXE_MANAGED_PYTHON: stagedPython,
@@ -358,7 +409,7 @@ runSmoke("managed Playwright Chromium", [
     "        browser.close()",
   ].join("\n"),
 ]);
-runSmoke("managed ripgrep", [join(outputRoot, "runtime", "tools", "rg.exe"), "--version"]);
+runSmoke("managed ripgrep", [scopeDestination("runtime-tools", "rg.exe"), "--version"]);
 const lxeSkillOutput = runSmoke("managed Python lxeskill", [
   stagedPython,
   "-I",
@@ -373,7 +424,7 @@ const lxeSkillResult = lxeSkillLine ? JSON.parse(lxeSkillLine) as {
   data?: { commands?: Array<{ command?: unknown }> };
 } : {};
 const sourceCatalog = JSON.parse(readFileSync(
-  join(outputRoot, "lxeskill", "catalog.json"),
+  scopeDestination("lxeskill"),
   "utf8",
 )) as { entries?: Array<{ command_path?: unknown[]; visibility?: unknown }> };
 const expectedLxeSkillCommands = (sourceCatalog.entries ?? [])
@@ -397,7 +448,7 @@ const packagedPythonCatalogPath = join(
   "catalog.json",
 );
 const bunCatalogHash = createHash("sha256")
-  .update(readFileSync(join(outputRoot, "lxeskill", "catalog.json")))
+  .update(readFileSync(scopeDestination("lxeskill")))
   .digest("hex");
 const pythonCatalogHash = createHash("sha256")
   .update(readFileSync(packagedPythonCatalogPath))
@@ -406,18 +457,6 @@ if (bunCatalogHash !== pythonCatalogHash) {
   throw new Error(`Bun and Python LXE Skill catalogs differ: bun=${bunCatalogHash}, python=${pythonCatalogHash}`);
 }
 runSmoke("managed Python lxeskill doctor", [stagedPython, "-I", "-B", "-m", "lxeskill", "doctor"]);
-const removePythonBytecodeCaches = (directory: string): void => {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name.toLowerCase() === "__pycache__") rmSync(path, { recursive: true, force: true });
-      else removePythonBytecodeCaches(path);
-    } else if (entry.isFile() && prohibitedPythonRuntimePath(path)) {
-      rmSync(path, { force: true });
-    }
-  }
-};
-removePythonBytecodeCaches(stagedPythonRoot);
 for (const forbiddenPath of [
   join(outputRoot, "runtime", "uv"),
   join(stagedNodeRoot, "npm.cmd"),
@@ -434,26 +473,14 @@ for (const forbiddenPath of [
   }
 }
 writeFileSync(
-  join(outputRoot, "runtime", "python", ".lxe-lxeskill-ready.json"),
+  join(stagedPythonRoot, ".lxe-lxeskill-ready.json"),
   `${JSON.stringify({
     schema_version: 1,
     commands: expectedLxeSkillCommands.length,
-    wheel_sha256: createHash("sha256").update(readFileSync(projectWheel)).digest("hex"),
   }, null, 2)}\n`,
   "utf8",
 );
 rmSync(smokeStateRoot, { recursive: true, force: true });
 rmSync(smokeWorkspaceRoot, { recursive: true, force: true });
 
-const manifestFiles = auditDesktopResources(outputRoot, resourceScope, platform);
-writeFileSync(join(outputRoot, "manifest.json"), `${JSON.stringify({
-  schema_version: 2,
-  platform,
-  generated_at: new Date().toISOString(),
-  bun: Bun.version,
-  files: manifestFiles,
-}, null, 2)}\n`, "utf8");
-
-auditDesktopResources(outputRoot, resourceScope, platform);
-
-console.log(`Prepared ${manifestFiles.length} desktop resource files in ${outputRoot}`);
+console.log(`Prepared constructive desktop resources in ${outputRoot}`);

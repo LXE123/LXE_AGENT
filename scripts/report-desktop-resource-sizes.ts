@@ -59,7 +59,6 @@ export interface DesktopResourceSizeReport {
     branding: SizeSummary;
     wireguard: SizeSummary;
     legal: SizeSummary;
-    manifest: SizeSummary;
   };
   budgets: {
     runtime: BudgetSummary;
@@ -163,7 +162,6 @@ export const createDesktopResourceSizeReport = (unpackedRoot: string): DesktopRe
       branding: summarizePath(join(resourcesRoot, "branding")),
       wireguard: summarizePath(join(resourcesRoot, "wireguard")),
       legal: summarizePath(join(resourcesRoot, "legal")),
-      manifest: summarizePath(join(resourcesRoot, "manifest.json")),
     },
     budgets: {
       runtime: budgetSummary(runtime, DESKTOP_RUNTIME_BUDGET_BYTES),

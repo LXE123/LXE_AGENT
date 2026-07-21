@@ -115,11 +115,13 @@ base runtime.
 runs `python -I -m lxeskill list`, and fails unless its command set exactly matches
 the current source catalog.
 The final resource tree must not contain `runtime/lxeskill`; the module lives in
-the private Python site-packages and is recorded in the SHA-256 manifest. A
-small readiness marker records the successful catalog smoke and wheel hash;
-desktop health requires the Python executable, module file, and marker. Only
+the private Python site-packages. A small readiness marker records the successful
+catalog smoke; desktop health requires the Python executable, module file, and marker. Only
 Git-tracked project resources are copied, so local `.env`, authentication,
 sessions, and business artifacts cannot leak into the installer.
+
+> 2026-07-21：逐文件资源 manifest、打包前后 SHA-256 对比和启动时全量完整性扫描已经废弃。
+> 资源准备改为先清空 staging，再只复制构造式白名单允许的来源文件。
 
 After electron-builder creates `win-unpacked`,
 `scripts/report-desktop-resource-sizes.ts` writes the report beside the selected

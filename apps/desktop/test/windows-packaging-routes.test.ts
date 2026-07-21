@@ -24,7 +24,7 @@ describe("Windows desktop packaging routes", () => {
     expect(desktopScripts["dist:win"]).toContain("--win nsis --x64");
   });
 
-  test("keeps packaged checks on both wrapper targets", () => {
+  test("keeps production steps without packaged resource re-audits", () => {
     const wrapper = readFileSync(
       join(repositoryRoot, "scripts", "build-desktop-windows.ps1"),
       "utf8",
@@ -39,10 +39,23 @@ describe("Windows desktop packaging routes", () => {
       /else \{\s+\$packageOutputRoot = Join-Path \$repositoryRoot "dist\\desktop"\s+if \(Test-Path -LiteralPath \$packageOutputRoot\) \{\s+Remove-Item -LiteralPath \$packageOutputRoot -Recurse -Force\s+\}\s+Invoke-LxeDesktopBuildStep -Label "Build NSIS installer"/u,
     );
     expect(wrapper).toContain('"Build NSIS installer"');
-    expect(wrapper).toContain('"Audit packaged desktop resource scope"');
     expect(wrapper).toContain('"Enforce desktop resource size budgets"');
     expect(wrapper).toContain('"Smoke packaged Electron preload and IPC"');
-    expect(wrapper).toContain('"Re-audit packaged desktop resources after smoke"');
+    expect(wrapper).not.toContain("audit-packaged-desktop");
+    expect(wrapper).not.toContain("Re-audit packaged desktop resources after smoke");
     expect(wrapper).toContain("Write-LxeDesktopBuildTimingSummary");
+  });
+
+  test("does not restore file-change manifests in startup or managed runtime preparation", () => {
+    const desktopMain = readFileSync(join(repositoryRoot, "apps", "desktop", "src", "main.ts"), "utf8");
+    const runtimePreparation = readFileSync(
+      join(repositoryRoot, "scripts", "prepare-desktop-runtime.ps1"),
+      "utf8",
+    );
+
+    expect(desktopMain).not.toContain("verifyDesktopResourceManifest");
+    expect(desktopMain).not.toContain("resourceManifestPath");
+    expect(runtimePreparation).not.toContain("critical_files");
+    expect(runtimePreparation).not.toContain('Write-LxeUtf8NoBom -Path (Join-Path $Root "runtime-manifest.json")');
   });
 });

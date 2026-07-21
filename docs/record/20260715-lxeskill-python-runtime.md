@@ -27,8 +27,8 @@ uv pip install --python <private-python> --break-system-packages \
   --offline --no-deps --reinstall <current-wheel>
 ```
 
-wheel 不复制进最终资源。manifest 应包含私有 Python `site-packages/lxeskill` 下的模块文件，且禁止
-出现旧 `runtime/lxeskill` 目录。uv 只属于构建和离线缓存边界，不复制到最终 `runtime/uv`；Skills
+wheel 不复制进最终资源。构造式资源白名单只复制私有 Python 中已安装的模块，且不创建旧
+`runtime/lxeskill` 目录。uv 只属于构建和离线缓存边界，不复制到最终 `runtime/uv`；Skills
 中的 `uv run --frozen python ...` 由 ExecShellAdapter 直接改写为受管 Python。
 
 ## 运行和健康边界
@@ -41,7 +41,7 @@ wheel 不复制进最终资源。manifest 应包含私有 Python `site-packages/
 > [物流服务退役记录](20260716-retire-logistics-service.md) 取代；打包现在比较源码与 wheel 的完整命令集合。
 
 桌面 IPC 与界面的 `lxeskill` 健康字段保持不变。打包阶段比较源码 catalog 与 wheel 中
-`lxeskill list` 返回的完整命令集合，不冻结命令数量；随后写入包含 wheel 哈希的 readiness
+`lxeskill list` 返回的完整命令集合，不冻结命令数量；随后写入最小 readiness
 marker。运行时启动还会真实执行一次 `lxeskill list`：成功后才启动依赖它的维护任务；失败时只把
 `lxeskill` 标记为异常，普通 Agent 能力继续运行，业务命令在创建子进程前返回不可重试的环境错误。
 

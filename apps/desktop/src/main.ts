@@ -46,7 +46,6 @@ import {
 } from "./main/launch-mode";
 import { bootstrapDesktopState } from "./main/migration";
 import { resolveDesktopPaths } from "./main/paths";
-import { verifyDesktopResourceManifest } from "./main/resource-integrity";
 import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./main/runtime-state";
 import { reportDesktopStartupFailure } from "./main/startup-failure";
 import { desktopWindowAppearance } from "./main/window-options";
@@ -139,13 +138,6 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
 async function bootstrap(): Promise<void> {
   const desktopEnvironment = process.env;
   const paths = desktopPaths;
-  if (packagedRuntime) {
-    await verifyDesktopResourceManifest(
-      paths.resourceRoot,
-      paths.resourceManifestPath,
-      `${desktopPlatform}-${process.arch}`,
-    );
-  }
   const brandAssets = resolveDesktopBrandAssets({
     packaged: app.isPackaged,
     platform: desktopPlatform,
