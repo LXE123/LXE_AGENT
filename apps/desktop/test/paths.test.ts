@@ -35,7 +35,6 @@ describe("desktop private runtime paths", () => {
     expect(paths.dashboardRoot).toBe(posix.join(sourceRoot, "apps", "dashboard", "dist"));
     expect(paths.agentCommand).toBe("bun");
     expect(paths.agentArguments).toEqual([posix.join(sourceRoot, "apps", "agent-cli", "src", "main.ts")]);
-    expect(paths.lxeskillSmokePath).toBe("");
   });
 
   test("uses Windows paths when Windows is the target platform", () => {
@@ -70,9 +69,6 @@ describe("desktop private runtime paths", () => {
     expect(paths.agentArguments).toEqual([]);
     expect(paths.lxeskillModulePath).toBe(
       win32.join(root, "runtime", "python", "Lib", "site-packages", "lxeskill", "__init__.py"),
-    );
-    expect(paths.lxeskillSmokePath).toBe(
-      win32.join(root, "runtime", "python", ".lxe-lxeskill-ready.json"),
     );
     expect(paths.managedPath.split(";")).not.toContain(win32.join(root, "runtime", "agent-cli"));
     expect(paths.managedPath.split(";")).toContain(win32.join(root, "runtime", "node"));

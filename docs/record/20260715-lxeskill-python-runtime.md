@@ -41,10 +41,10 @@ wheel 不复制进最终资源。构造式资源白名单只复制私有 Python 
 > [物流服务退役记录](20260716-retire-logistics-service.md) 取代；打包现在比较源码与 wheel 的完整命令集合。
 
 桌面 IPC 与界面的 `lxeskill` 健康字段保持不变。打包阶段不再比较 Bun 与 Python catalog，
-只要求 wheel 中的 `lxeskill list` 和 `doctor` 能够真实运行，随后写入最小 readiness marker。
-运行时启动还会真实执行一次 `lxeskill list`：成功后才启动依赖它的维护任务；失败时只把
+也不启动 `lxeskill list` 或 `doctor`，只负责把 wheel 安装到私有 Python。
+应用运行时会真实执行一次 `lxeskill list`：成功后才启动依赖它的维护任务；失败时只把
 `lxeskill` 标记为异常，普通 Agent 能力继续运行，业务命令在创建子进程前返回不可重试的环境错误。
 
 源码模式不会自动修改开发环境。若 `.venv` 的 editable 安装损坏，状态信息会提示操作者在资源仓库
 执行 `uv sync --frozen --all-groups --python 3.12.10`；打包模式则提示重新安装或重建应用。私有
-Python、模块文件和 readiness marker 仍是打包运行时的静态健康前提。
+Python 和模块文件仍是打包运行时的静态健康前提，不再生成 readiness marker。

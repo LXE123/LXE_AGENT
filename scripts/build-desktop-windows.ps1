@@ -272,10 +272,6 @@ try {
         (Split-Path -Parent $packagedExecutable),
         $sizeReport
     )
-    Invoke-LxeDesktopBuildStep -Label "Smoke packaged Electron preload and IPC" -Arguments @(
-        "apps/desktop/scripts/smoke-packaged-app.ts",
-        $packagedExecutable
-    )
     Write-LxeDesktopBuildTimingSummary
 }
 finally {

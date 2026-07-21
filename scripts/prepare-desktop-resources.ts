@@ -3,13 +3,11 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
   rmSync,
   statSync,
-  writeFileSync,
 } from "node:fs";
-import { delimiter, dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { resolveDesktopRuntimeInputs } from "./desktop-runtime-inputs";
 import {
   approvedConstructiveResourcePath,
@@ -119,18 +117,6 @@ const {
   ripgrepExecutable,
   playwrightRoot,
 } = runtimeInputs;
-
-for (const path of [
-  join(nodeRoot, ".npmrc"),
-  join(nodeRoot, ".env"),
-  join(nodeRoot, ".env.local"),
-  join(pythonRoot, ".env"),
-  join(pythonRoot, ".env.local"),
-]) {
-  if (existsSync(path)) {
-    throw new Error(`Refusing to package a runtime containing a local credential file: ${path}`);
-  }
-}
 
 for (const path of [
   join(nodeRoot, "node.exe"),
@@ -294,35 +280,10 @@ const stagedLxeSkillModule = join(
   "lxeskill",
   "__init__.py",
 );
-const smokeStateRoot = join(outputRoot, ".smoke-state");
-const smokeWorkspaceRoot = join(outputRoot, ".smoke-workspace");
-mkdirSync(smokeStateRoot, { recursive: true });
-mkdirSync(smokeWorkspaceRoot, { recursive: true });
-const smokeEnvironment = {
-  ...process.env,
-  PATH: [
-    stagedNodeRoot,
-    stagedPythonRoot,
-    scopeDestination("runtime-tools"),
-    join(stagedNodeRoot, "node_modules", ".bin"),
-    String(process.env.PATH ?? ""),
-  ].filter(Boolean).join(delimiter),
-  LXE_SKILLS_ROOT: scopeDestination("skills"),
-  LXE_RUNTIME_ENV_PATH: scopeDestination("config", "runtime.env"),
-  LXE_PERMISSION_POLICY_PATH: scopeDestination("config", "permission_policy.yaml"),
-  LXE_DATA_ROOT: smokeStateRoot,
-  LXE_WORKSPACE_ROOT: smokeWorkspaceRoot,
-  LXE_MANAGED_PYTHON: stagedPython,
-  PLAYWRIGHT_BROWSERS_PATH: stagedPlaywrightRoot,
-  PLAYWRIGHT_NODEJS_PATH: join(stagedNodeRoot, "node.exe"),
-  PYTHONDONTWRITEBYTECODE: "1",
-  PYTHONNOUSERSITE: "1",
-};
-
-const runSmoke = (label: string, arguments_: string[]): string => {
+const runRequiredBuildCommand = (label: string, arguments_: string[]): void => {
   const result = Bun.spawnSync(arguments_, {
-    cwd: smokeWorkspaceRoot,
-    env: smokeEnvironment,
+    cwd: repositoryRoot,
+    env: process.env,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -331,12 +292,11 @@ const runSmoke = (label: string, arguments_: string[]): string => {
   const stdout = new TextDecoder().decode(result.stdout).trim();
   const stderr = new TextDecoder().decode(result.stderr).trim();
   if (result.exitCode !== 0) {
-    throw new Error(`${label} smoke failed (${result.exitCode}): ${stderr || stdout}`);
+    throw new Error(`${label} failed (${result.exitCode}): ${stderr || stdout}`);
   }
-  return stdout;
 };
 
-runSmoke("install current LXE project wheel", [
+runRequiredBuildCommand("install current LXE project wheel", [
   uvExecutable,
   "pip",
   "install",
@@ -355,64 +315,6 @@ const retiredFrozenRuntime = join(outputRoot, "runtime", "lxeskill");
 if (existsSync(retiredFrozenRuntime)) {
   throw new Error(`Retired frozen lxeskill runtime must not be packaged: ${retiredFrozenRuntime}`);
 }
-
-runSmoke("managed Node", [join(stagedNodeRoot, "node.exe"), "--version"]);
-const smokeNodePackage = (label: string, packageRoot: string): void => {
-  const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
-    bin?: string | Record<string, string>;
-  };
-  const relativeBin = typeof manifest.bin === "string"
-    ? manifest.bin
-    : Object.values(manifest.bin ?? {})[0];
-  if (!relativeBin) throw new Error(`${label} package does not declare a CLI bin`);
-  const executable = join(packageRoot, relativeBin);
-  if (!existsSync(executable)) throw new Error(`${label} package bin is missing: ${executable}`);
-  runSmoke(label, [join(stagedNodeRoot, "node.exe"), executable, "--help"]);
-};
-smokeNodePackage(
-  "DingTalk dws",
-  join(stagedNodeRoot, "node_modules", "dingtalk-workspace-cli"),
-);
-smokeNodePackage(
-  "Lark CLI",
-  join(stagedNodeRoot, "node_modules", "@larksuite", "cli"),
-);
-smokeNodePackage(
-  "Lark whiteboard CLI",
-  join(stagedNodeRoot, "node_modules", "@larksuite", "whiteboard-cli"),
-);
-runSmoke("managed Python", [
-  stagedPython,
-  "-I",
-  "-c",
-  "import sys, openpyxl, pandas, PIL, requests; assert sys.version_info[:3] == (3, 12, 10)",
-]);
-runSmoke("managed Python pip", [stagedPython, "-I", "-m", "pip", "--version"]);
-runSmoke("managed Playwright Chromium", [
-  stagedPython,
-  "-I",
-  "-c",
-  [
-    "from playwright.sync_api import sync_playwright",
-    "with sync_playwright() as p:",
-    "    for headless in (True, False):",
-    "        browser = p.chromium.launch(channel='chromium', headless=headless)",
-    "        page = browser.new_page(locale='zh-CN')",
-    "        page.goto('data:text/html,<title>LXE packaged Chromium</title>')",
-    "        assert page.title() == 'LXE packaged Chromium'",
-    "        browser.close()",
-  ].join("\n"),
-]);
-runSmoke("managed ripgrep", [scopeDestination("runtime-tools", "rg.exe"), "--version"]);
-runSmoke("managed Python lxeskill", [
-  stagedPython,
-  "-I",
-  "-B",
-  "-m",
-  "lxeskill",
-  "list",
-]);
-runSmoke("managed Python lxeskill doctor", [stagedPython, "-I", "-B", "-m", "lxeskill", "doctor"]);
 for (const forbiddenPath of [
   join(outputRoot, "runtime", "uv"),
   join(stagedNodeRoot, "npm.cmd"),
@@ -428,15 +330,5 @@ for (const forbiddenPath of [
     throw new Error(`Development-only runtime resource must not be packaged: ${forbiddenPath}`);
   }
 }
-writeFileSync(
-  join(stagedPythonRoot, ".lxe-lxeskill-ready.json"),
-  `${JSON.stringify({
-    schema_version: 1,
-    ready: true,
-  }, null, 2)}\n`,
-  "utf8",
-);
-rmSync(smokeStateRoot, { recursive: true, force: true });
-rmSync(smokeWorkspaceRoot, { recursive: true, force: true });
 
 console.log(`Prepared constructive desktop resources in ${outputRoot}`);

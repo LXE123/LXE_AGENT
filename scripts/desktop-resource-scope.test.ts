@@ -67,6 +67,12 @@ describe("desktop resource scope", () => {
     expect(approvedConstructiveResourcePath("skills/demo/scripts/tool.ts")).toBe(true);
     expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/tests/example.js")).toBe(false);
     expect(approvedConstructiveResourcePath("runtime/python/Lib/site-packages/pkg/fixtures/input.json")).toBe(false);
+    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/.env.production")).toBe(false);
+    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/.npmrc")).toBe(false);
+    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/auth.json")).toBe(false);
+    expect(approvedConstructiveResourcePath("runtime/python/credentials.json")).toBe(false);
+    expect(approvedConstructiveResourcePath("runtime/python/.lxe-lxeskill-ready.json")).toBe(false);
+    expect(approvedConstructiveResourcePath("runtime/node/npm-cache/_logs/install.log")).toBe(false);
     expect(approvedConstructiveResourcePath("docs/internal.md")).toBe(false);
     expect(approvedConstructiveResourcePath("data/business.xlsx")).toBe(false);
     expect(prohibitedPythonRuntimePath("runtime/python/Lib/__pycache__/__future__.cpython-312.pyc"))

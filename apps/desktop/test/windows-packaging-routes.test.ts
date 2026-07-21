@@ -40,7 +40,8 @@ describe("Windows desktop packaging routes", () => {
     );
     expect(wrapper).toContain('"Build NSIS installer"');
     expect(wrapper).toContain('"Enforce desktop resource size budgets"');
-    expect(wrapper).toContain('"Smoke packaged Electron preload and IPC"');
+    expect(wrapper).not.toContain("smoke-packaged-app");
+    expect(wrapper).not.toContain("Smoke packaged Electron");
     expect(wrapper).not.toContain("audit-packaged-desktop");
     expect(wrapper).not.toContain("Re-audit packaged desktop resources after smoke");
     expect(wrapper).toContain("Write-LxeDesktopBuildTimingSummary");
@@ -60,6 +61,7 @@ describe("Windows desktop packaging routes", () => {
       join(repositoryRoot, "config", "desktop-runtime", "windows-x64", "runtime.lock.json"),
       "utf8",
     );
+    const desktopScripts = readJson("apps/desktop/package.json").scripts ?? {};
 
     expect(desktopMain).not.toContain("verifyDesktopResourceManifest");
     expect(desktopMain).not.toContain("resourceManifestPath");
@@ -70,6 +72,11 @@ describe("Windows desktop packaging routes", () => {
     expect(runtimePreparation).toContain('"--no-hashes"');
     expect(resourcePreparation).not.toContain("createHash");
     expect(resourcePreparation).not.toContain("catalog differs");
+    expect(resourcePreparation).not.toContain("runSmoke");
+    expect(resourcePreparation).not.toContain(".lxe-lxeskill-ready.json");
+    expect(runtimePreparation).not.toContain("Test-LxeRuntimeImage");
+    expect(runtimePreparation).not.toContain("Playwright Chromium smoke");
+    expect(desktopScripts["smoke:packaged"]).toBeUndefined();
     expect(runtimeLock).not.toContain("sha256");
   });
 });

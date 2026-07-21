@@ -119,7 +119,7 @@ bun run desktop:preview
 | --- | --- | --- |
 | `bun run desktop:dev` | Vite 热更新开发 | 生产 Renderer 和打包布局 |
 | `bun run desktop:preview` | 生产 Renderer + 源码 Runtime | 私有运行时和打包布局 |
-| `bun run desktop:pack:win` | 真实 Unpacked 布局 + packaged smoke | NSIS 安装、升级和卸载 |
+| `bun run desktop:pack:win` | 生成真实 Unpacked 布局 | NSIS 安装、升级、卸载和运行验收 |
 | `bun run desktop:dist:win` | 完整 Windows NSIS 发布验证 | 无 |
 
 运行完整源码检查：
@@ -150,7 +150,7 @@ bun run desktop:runtime:win
 bun run desktop:pack:win
 ```
 
-可执行文件位于 `dist/desktop-unpacked/win-unpacked/LXE Agent.exe`。该路线仍执行 wheel、私有 Agent CLI、资源裁剪、体积门禁和 preload/IPC smoke，但不验证安装目录选择、快捷方式、升级保留、卸载或 WireGuard 安装器行为。
+可执行文件位于 `dist/desktop-unpacked/win-unpacked/LXE Agent.exe`。该路线执行 wheel、私有 Agent CLI、资源裁剪和体积门禁，但不启动产物，也不验证安装目录选择、快捷方式、升级保留、卸载或 WireGuard 安装器行为。
 
 生成完整 NSIS 安装包：
 

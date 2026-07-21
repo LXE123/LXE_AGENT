@@ -21,7 +21,6 @@ export interface DesktopPaths {
   agentCommand: string;
   agentArguments: string[];
   lxeskillModulePath: string;
-  lxeskillSmokePath: string;
   managedPythonPath: string;
   managedPath: string;
   playwrightBrowsersPath: string;
@@ -72,9 +71,6 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
   const lxeskillModulePath = options.packaged
     ? targetPath.join(options.resourcesPath, "runtime", "python", "Lib", "site-packages", "lxeskill", "__init__.py")
     : targetPath.join(sourceRoot, "python", "lxeskill_cli", "lxeskill", "__init__.py");
-  const lxeskillSmokePath = options.packaged
-    ? targetPath.join(options.resourcesPath, "runtime", "python", ".lxe-lxeskill-ready.json")
-    : "";
   const managedPythonPath = options.packaged
     ? targetPath.join(options.resourcesPath, "runtime", "python", platform === "win32" ? "python.exe" : "bin/python3")
     : targetPath.join(sourceRoot, ".venv", platform === "win32" ? "Scripts/python.exe" : "bin/python");
@@ -121,7 +117,6 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     agentCommand,
     agentArguments,
     lxeskillModulePath,
-    lxeskillSmokePath,
     managedPythonPath,
     managedPath: existingDirectories(managedDirectories).join(targetPath.delimiter),
     playwrightBrowsersPath: options.packaged

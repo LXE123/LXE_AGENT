@@ -32,8 +32,15 @@ const prohibitedConstructiveDirectories = new Set([
   "cache",
   "tmp",
   "temp",
+  "_logs",
 ]);
 const prohibitedConstructiveNames = /^(?:readme(?:\..*)?|upstream\.md|.*(?:^|[._-])test(?:[._-].*)?|.*\.(?:xlsx?|xlsm|tmp|temp|bak|swp))$/iu;
+const prohibitedConstructiveExactNames = new Set([
+  ".npmrc",
+  ".lxe-lxeskill-ready.json",
+  "auth.json",
+  "credentials.json",
+]);
 
 export const approvedConstructiveResourcePath = (resourcePath: string): boolean => {
   const normalizedPath = normalized(resourcePath);
@@ -42,7 +49,9 @@ export const approvedConstructiveResourcePath = (resourcePath: string): boolean 
   if (parts.some((part) => prohibitedConstructiveDirectories.has(part.toLowerCase()))) {
     return false;
   }
-  if (prohibitedConstructiveNames.test(parts.at(-1) ?? "")) return false;
+  const name = (parts.at(-1) ?? "").toLowerCase();
+  if (prohibitedConstructiveNames.test(name)) return false;
+  if (name === ".env" || name.startsWith(".env.") || prohibitedConstructiveExactNames.has(name)) return false;
   if (normalizedPath.startsWith("dashboard/") && /\.(?:map|[cm]?ts|tsx|jsx)$/iu.test(normalizedPath)) {
     return false;
   }

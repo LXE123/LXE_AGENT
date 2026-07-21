@@ -62,8 +62,8 @@ For daily packaged-layout validation without NSIS compression, run:
 bun run desktop:pack:win
 ```
 
-This writes `dist/desktop-unpacked/win-unpacked/LXE Agent.exe`, enforces the same
-resource size budgets, and runs the packaged preload/IPC smoke. It does not
+This writes `dist/desktop-unpacked/win-unpacked/LXE Agent.exe` and enforces the same
+resource size budgets without starting the packaged application. It does not
 exercise installer directory selection, shortcuts, upgrade preservation,
 uninstall behavior, or WireGuard provisioning.
 
@@ -111,18 +111,18 @@ base runtime.
 > 2026-07-16：固定 28 命令门禁已由
 > [物流服务退役记录](20260716-retire-logistics-service.md) 取代；打包现在比较源码与 wheel 的完整命令集合。
 
-`desktop:resources` installs the wheel with `--offline --no-deps --reinstall`,
-runs `python -I -m lxeskill list`, and fails when the installed CLI cannot run.
+`desktop:resources` installs the wheel with `--offline --no-deps --reinstall`.
 The final resource tree must not contain `runtime/lxeskill`; the module lives in
-the private Python site-packages. A small readiness marker records the successful
-catalog smoke; desktop health requires the Python executable, module file, and marker. Only
+the private Python site-packages. No readiness marker is generated; desktop health
+uses the Python and module paths plus the Agent Runtime's real `lxeskill list` status. Only
 Git-tracked project resources are copied, so local `.env`, authentication,
 sessions, and business artifacts cannot leak into the installer.
 
 > 2026-07-21：逐文件资源 manifest、打包前后 SHA-256 对比和启动时全量完整性扫描已经废弃。
 > 资源准备改为先清空 staging，再只复制构造式白名单允许的来源文件。
 > 同日后续调整删除了外部下载归档、WireGuard 和 ripgrep 的固定哈希/签名门禁，以及 Bun/Python
-> catalog 的构建时一致性比较；固定 URL、版本和真实可执行健康检查继续保留。
+> catalog 的构建时一致性比较。随后又删除了 Runtime、资源 staging 和 Electron 打包后的全部
+> 自动 Smoke；固定 URL、版本和应用运行时的真实健康状态继续保留。
 
 After electron-builder creates `win-unpacked`,
 `scripts/report-desktop-resource-sizes.ts` writes the report beside the selected
@@ -152,8 +152,8 @@ The optimized 2026-07-16 Windows x64 build produced these measured results:
 The previous installed application measured 1,832.07 MiB. The optimized
 installation is 624.83 MiB smaller, a 34.1% reduction. The generated report
 confirmed zero packaged bytes for `runtime/uv`, `runtime/node/npm-cache`, and
-the Playwright driver-local Node executable. The unpacked, NSIS, and actual
-installed application all passed the packaged preload/IPC health probe.
+the Playwright driver-local Node executable. The historical baseline build passed
+the then-current packaged preload/IPC probe; the current pipeline no longer starts packaged output automatically.
 
 Authenticode signing uses electron-builder's standard `CSC_LINK` and
 `CSC_KEY_PASSWORD` environment variables. Unsigned output is intended only for
@@ -173,7 +173,7 @@ checks. The command deliberately does not produce a macOS application bundle:
 the managed private runtime and release signing/notarization pipeline are
 currently Windows-only. A macOS DMG must not be treated as supported until
 equivalent pinned Node, Python, uv, ripgrep, Playwright, wheel staging, signing,
-and installed-app smoke coverage exists.
+and manual installed-app acceptance coverage exists.
 
 Target-platform path tests inject Windows, macOS, and Linux explicitly. Code
 that accepts an injected platform must use `node:path`'s matching `win32` or

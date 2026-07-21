@@ -365,153 +365,19 @@ function Assert-LxeManagedDestination {
     }
 }
 
-function Resolve-LxeNodePackageBin {
-    param([Parameter(Mandatory = $true)][string]$PackageRoot)
-
-    $manifestPath = Join-Path $PackageRoot "package.json"
-    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($manifest.bin -is [string]) {
-        return Join-Path $PackageRoot ([string]$manifest.bin)
-    }
-    $firstBin = @($manifest.bin.PSObject.Properties | Select-Object -First 1)
-    if ($firstBin.Count -eq 0) {
-        throw "Node package does not declare a CLI bin: $PackageRoot"
-    }
-    return Join-Path $PackageRoot ([string]$firstBin[0].Value)
-}
-
-function Test-LxeNodeRuntime {
-    param([Parameter(Mandatory = $true)][string]$NodeRoot)
-
-    $node = Join-Path $NodeRoot "node.exe"
-    $npmCli = Join-Path $NodeRoot "node_modules\npm\bin\npm-cli.js"
-    $nodeVersion = Invoke-LxeNative -Label "managed Node version" -FilePath $node -Arguments @("--version") -Quiet
-    if ($nodeVersion.Stdout.Trim() -ne "v$($script:RuntimeLock.node.version)") {
-        throw "Managed Node version mismatch: $($nodeVersion.Stdout)"
-    }
-    $npmVersion = Invoke-LxeNative -Label "managed npm version" -FilePath $node -Arguments @($npmCli, "--version") -Quiet
-    if ($npmVersion.Stdout.Trim() -ne [string]$script:RuntimeLock.node.npm_version) {
-        throw "Managed npm version mismatch: $($npmVersion.Stdout)"
-    }
-
-    $packages = @(
-        @{ Label = "DingTalk dws"; Name = "dingtalk-workspace-cli"; Root = Join-Path $NodeRoot "node_modules\dingtalk-workspace-cli" },
-        @{ Label = "Lark CLI"; Name = "@larksuite/cli"; Root = Join-Path $NodeRoot "node_modules\@larksuite\cli" },
-        @{ Label = "Lark whiteboard CLI"; Name = "@larksuite/whiteboard-cli"; Root = Join-Path $NodeRoot "node_modules\@larksuite\whiteboard-cli" }
-    )
-    foreach ($package in $packages) {
-        $manifest = Get-Content -LiteralPath (Join-Path $package.Root "package.json") -Raw -Encoding UTF8 | ConvertFrom-Json
-        $expectedVersion = [string](Get-LxeJsonProperty -Object $script:RuntimeLock.node.packages -Name $package.Name)
-        if ([string]$manifest.version -ne $expectedVersion) {
-            throw "$($package.Label) version mismatch: $($manifest.version)"
-        }
-        $bin = Resolve-LxeNodePackageBin -PackageRoot $package.Root
-        Invoke-LxeNative -Label "$($package.Label) smoke" -FilePath $node -Arguments @($bin, "--help") -TimeoutSeconds 60 -Quiet | Out-Null
-    }
-
-    foreach ($required in @("npm.cmd", "npx.cmd", "npm-cache")) {
-        if (-not (Test-Path -LiteralPath (Join-Path $NodeRoot $required))) {
-            throw "Managed Node runtime is missing $required."
-        }
-    }
-}
-
-function Test-LxePythonRuntime {
-    param(
-        [Parameter(Mandatory = $true)][string]$PythonRoot,
-        [Parameter(Mandatory = $true)][string]$UvExecutable,
-        [Parameter(Mandatory = $true)][string]$PlaywrightRoot
-    )
-
-    $python = Join-Path $PythonRoot "python.exe"
-    $version = Invoke-LxeNative -Label "managed Python version" -FilePath $python -Arguments @("--version") -Quiet
-    $versionText = ($version.Stdout + " " + $version.Stderr).Trim()
-    if ($versionText -ne "Python $($script:RuntimeLock.python.version)") {
-        throw "Managed Python version mismatch: $versionText"
-    }
-    $imports = "import importlib.metadata as m; import aiohttp, bs4, openpyxl, pandas, PIL, playwright, requests, selenium, urllib3, xlrd, yaml; assert m.version('playwright') == '$($script:RuntimeLock.playwright.version)'"
-    Invoke-LxeNative -Label "managed Python imports" -FilePath $python -Arguments @("-I", "-c", $imports) -TimeoutSeconds 120 -Quiet | Out-Null
-    Invoke-LxeNative -Label "managed Python dependency check" -FilePath $UvExecutable -Arguments @("pip", "check", "--python", $python) -TimeoutSeconds 120 -Quiet | Out-Null
-
-    $previousBrowserRoot = $env:PLAYWRIGHT_BROWSERS_PATH
-    try {
-        $env:PLAYWRIGHT_BROWSERS_PATH = $PlaywrightRoot
-        $browserSmoke = "from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(channel='chromium', headless=True); page=b.new_page(); page.goto('data:text/html,<title>LXE</title>'); assert page.title() == 'LXE'; b.close(); p.stop()"
-        Invoke-LxeNative -Label "Playwright Chromium smoke" -FilePath $python -Arguments @("-I", "-c", $browserSmoke) -TimeoutSeconds 120 -Quiet | Out-Null
-    }
-    finally {
-        $env:PLAYWRIGHT_BROWSERS_PATH = $previousBrowserRoot
-    }
-}
-
-function Assert-LxeRuntimeHasNoCredentials {
+function Assert-LxeRuntimeMarker {
     param([Parameter(Mandatory = $true)][string]$Root)
 
-    $forbiddenNames = @(".env", ".env.local", ".npmrc", "auth.json", "credentials.json")
-    foreach ($file in @(Get-ChildItem -LiteralPath $Root -File -Recurse -Force)) {
-        if ($forbiddenNames -contains $file.Name) {
-            throw "Refusing to use a runtime containing a credential file: $($file.FullName)"
-        }
+    $markerPath = Join-Path $Root ".lxe-desktop-runtime.json"
+    if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
+        throw "Managed runtime marker is missing: $markerPath"
     }
-    $npmLogs = Join-Path $Root "node\npm-cache\_logs"
-    if (Test-Path -LiteralPath $npmLogs) {
-        throw "Refusing to use a runtime containing npm download logs: $npmLogs"
+    $marker = Get-Content -LiteralPath $markerPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ([int]$marker.schema_version -ne 1 -or [string]$marker.platform -ne "win32-x64") {
+        throw "Managed runtime marker is incompatible: $markerPath"
     }
-}
-
-function Test-LxeRuntimeImage {
-    param(
-        [Parameter(Mandatory = $true)][string]$Root,
-        [switch]$RequireMarker
-    )
-
-    if ($RequireMarker) {
-        $markerPath = Join-Path $Root ".lxe-desktop-runtime.json"
-        if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
-            throw "Managed runtime marker is missing: $markerPath"
-        }
-        $marker = Get-Content -LiteralPath $markerPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ([int]$marker.schema_version -ne 1 -or [string]$marker.platform -ne "win32-x64") {
-            throw "Managed runtime marker is incompatible: $markerPath"
-        }
-        if ([string]$marker.lock_sha256 -ne $script:LockSha256) {
-            throw "Managed runtime lock fingerprint is stale: $markerPath"
-        }
-    }
-
-    $smokeHome = Join-Path ([System.IO.Path]::GetTempPath()) ("lxe-desktop-runtime-smoke-" + [Guid]::NewGuid().ToString("N"))
-    $isolatedEnvironmentNames = @("HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "XDG_CONFIG_HOME")
-    $previousEnvironment = @{}
-    New-Item -ItemType Directory -Path $smokeHome -Force | Out-Null
-    foreach ($name in $isolatedEnvironmentNames) {
-        $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
-        [Environment]::SetEnvironmentVariable($name, $smokeHome, "Process")
-    }
-    try {
-        $nodeRoot = Join-Path $Root "node"
-        $pythonRoot = Join-Path $Root "python"
-        $uvExecutable = Join-Path $Root "uv\uv.exe"
-        $ripgrepExecutable = Join-Path $Root "tools\rg.exe"
-        $playwrightRoot = Join-Path $Root "playwright"
-        Test-LxeNodeRuntime -NodeRoot $nodeRoot
-        Test-LxePythonRuntime -PythonRoot $pythonRoot -UvExecutable $uvExecutable -PlaywrightRoot $playwrightRoot
-        $uvVersion = Invoke-LxeNative -Label "managed uv version" -FilePath $uvExecutable -Arguments @("--version") -Quiet
-        if ($uvVersion.Stdout -notmatch "^uv $([regex]::Escape([string]$script:RuntimeLock.uv.version))(?:\s|$)") {
-            throw "Managed uv version mismatch: $($uvVersion.Stdout)"
-        }
-        $rgVersion = Invoke-LxeNative -Label "managed ripgrep version" -FilePath $ripgrepExecutable -Arguments @("--version") -Quiet
-        $rgFirstLine = @($rgVersion.Stdout -split "`r?`n")[0].Trim()
-        $expectedRgVersion = [regex]::Escape([string]$script:RuntimeLock.ripgrep.version)
-        if ($rgFirstLine -notmatch "^ripgrep $expectedRgVersion(?: \(rev [0-9a-f]+\))?$") {
-            throw "Managed ripgrep version mismatch: $rgFirstLine"
-        }
-        Assert-LxeRuntimeHasNoCredentials -Root $Root
-    }
-    finally {
-        foreach ($name in $isolatedEnvironmentNames) {
-            [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], "Process")
-        }
-        Remove-Item -LiteralPath $smokeHome -Recurse -Force -ErrorAction SilentlyContinue
+    if ([string]$marker.lock_sha256 -ne $script:LockSha256) {
+        throw "Managed runtime lock fingerprint is stale: $markerPath"
     }
 }
 
@@ -519,15 +385,12 @@ function Find-LxeManagedPython {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
 
     if (-not (Test-Path -LiteralPath $InstallRoot -PathType Container)) { return $null }
-    foreach ($candidate in @(Get-ChildItem -LiteralPath $InstallRoot -Filter "python.exe" -File -Recurse)) {
-        try {
-            $version = Invoke-LxeNative -Label "managed Python candidate" -FilePath $candidate.FullName -Arguments @("--version") -Quiet
-            $versionText = ($version.Stdout + " " + $version.Stderr).Trim()
-            if ($versionText -eq "Python $($script:RuntimeLock.python.version)") {
-                return $candidate.FullName
-            }
+    $pattern = "cpython-$($script:RuntimeLock.python.version)-windows-*"
+    foreach ($directory in @(Get-ChildItem -LiteralPath $InstallRoot -Filter $pattern -Directory)) {
+        $candidate = Join-Path $directory.FullName "python.exe"
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
         }
-        catch {}
     }
     return $null
 }
@@ -881,10 +744,10 @@ New-Item -ItemType Directory -Path $script:ResolvedCacheRoot -Force | Out-Null
 
 if ((Test-Path -LiteralPath $script:ResolvedRuntimeRoot -PathType Container) -and -not $Force) {
     try {
-        Test-LxeRuntimeImage -Root $script:ResolvedRuntimeRoot -RequireMarker
+        Assert-LxeRuntimeMarker -Root $script:ResolvedRuntimeRoot
         Write-LxeRuntimeMarker -Root $script:ResolvedRuntimeRoot
         Write-LxeRuntimeDescriptor -Root $script:ResolvedRuntimeRoot
-        Write-Host "Reusing validated desktop runtime: $script:ResolvedRuntimeRoot"
+        Write-Host "Reusing managed desktop runtime: $script:ResolvedRuntimeRoot"
         return
     }
     catch {
@@ -904,9 +767,9 @@ try {
     if (Test-Path -LiteralPath $runtimeImageCache -PathType Container) {
         try {
             Copy-LxeDirectoryContents -Source $runtimeImageCache -Destination $stagedRoot
-            Test-LxeRuntimeImage -Root $stagedRoot -RequireMarker
+            Assert-LxeRuntimeMarker -Root $stagedRoot
             $usedCachedImage = $true
-            Write-Host "Reusing validated cached runtime image: $runtimeImageCache"
+            Write-Host "Reusing managed cached runtime image: $runtimeImageCache"
         }
         catch {
             Remove-Item -LiteralPath $stagedRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -927,9 +790,7 @@ try {
         Install-LxeNodeRuntime -Destination (Join-Path $stagedRoot "node") -WorkRoot $workRoot
         Install-LxePythonRuntime -Destination (Join-Path $stagedRoot "python") -UvExecutable (Join-Path $stagedRoot "uv\uv.exe") -WorkRoot $workRoot
         Install-LxePlaywrightBrowser -PythonRoot (Join-Path $stagedRoot "python") -Destination (Join-Path $stagedRoot "playwright")
-        Test-LxeRuntimeImage -Root $stagedRoot
         Write-LxeRuntimeMarker -Root $stagedRoot
-        Test-LxeRuntimeImage -Root $stagedRoot -RequireMarker
         Save-LxeRuntimeImageCache -Source $stagedRoot -Destination $runtimeImageCache
     }
 

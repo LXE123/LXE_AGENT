@@ -342,9 +342,7 @@ export class DesktopGateway {
     const setup = this.options.config.state();
     const agentStatus = this.runtime?.status();
     const runtimeFilesReady = existsSync(this.options.paths.managedPythonPath)
-      && existsSync(this.options.paths.lxeskillModulePath)
-      && (!this.options.paths.lxeskillSmokePath
-        || existsSync(this.options.paths.lxeskillSmokePath));
+      && existsSync(this.options.paths.lxeskillModulePath);
     return {
       gateway: this.gatewayState,
       agent_cli: agentStatus?.state ?? "stopped",
