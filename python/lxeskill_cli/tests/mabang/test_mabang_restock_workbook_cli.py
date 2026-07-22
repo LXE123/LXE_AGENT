@@ -77,9 +77,19 @@ def _purchase_row(
     tax_rate: object = None,
     average_price: object = None,
     average_total_price: object = None,
+    stock_sku_quantities: tuple[object, ...] | None = None,
 ) -> tuple[object, ...]:
+    displayed_stock_skus = stock_skus
+    if isinstance(stock_skus, str):
+        sku_lines = stock_skus.split("\n")
+        quantities = stock_sku_quantities or ((quantity,) if len(sku_lines) == 1 else ())
+        assert len(sku_lines) == len(quantities)
+        displayed_stock_skus = "\n".join(
+            f"{sku} × {sku_quantity}"
+            for sku, sku_quantity in zip(sku_lines, quantities, strict=True)
+        )
     return (
-        stock_skus,
+        displayed_stock_skus,
         product_names,
         source_delivery_nos,
         _first_line(stock_skus),
@@ -673,7 +683,17 @@ def test_generate_restock_workbook_merges_rows_by_model_with_multiline_skus(tmp_
     assert payload["manufacturer_count"] == 1
     assert _sheet_values(output_path, "厂家A") == [
         PURCHASE_COLUMNS,
-        _purchase_row("SKU-A\nSKU-B", "产品A\n产品A", "SP260508022", "JZ-19", 2, "厂家A", 5, 10),
+        _purchase_row(
+            "SKU-A\nSKU-B",
+            "产品A\n产品A",
+            "SP260508022",
+            "JZ-19",
+            2,
+            "厂家A",
+            5,
+            10,
+            stock_sku_quantities=(2, 3),
+        ),
         _purchase_total_row(5, 10),
     ]
     assert _cell_wrap_text(output_path, "厂家A", "A2") is True
@@ -709,7 +729,17 @@ def test_generate_restock_workbook_ignores_same_model_product_name_conflict(tmp_
 
     assert _sheet_values(Path(payload["output_xlsx"]), "厂家A") == [
         PURCHASE_COLUMNS,
-        _purchase_row("SKU-A\nSKU-B", "产品A\n产品B", "SP260508022", "JZ-19", 2, "厂家A", 5, 10),
+        _purchase_row(
+            "SKU-A\nSKU-B",
+            "产品A\n产品B",
+            "SP260508022",
+            "JZ-19",
+            2,
+            "厂家A",
+            5,
+            10,
+            stock_sku_quantities=(2, 3),
+        ),
         _purchase_total_row(5, 10),
     ]
 
@@ -1423,7 +1453,7 @@ def test_generate_fba_restock_workbook_writes_single_sp_restock_sheet(tmp_path):
         12.65,
         "个",
         0.3,
-        "SKU-B\nSKU-A",
+        "SKU-B × 3\nSKU-A × 2",
         "产品B\n产品A",
         None,
         None,
@@ -1586,7 +1616,7 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
         2.53,
         "个",
         0.3,
-        "SKU-A",
+        "SKU-A × 1",
         "产品A",
         3.38,
         3.38,
@@ -1608,7 +1638,7 @@ def test_generate_fba_restock_workbook_writes_zhengfei_average_sale_price(tmp_pa
         7.58,
         "个",
         0.3,
-        "SKU-B",
+        "SKU-B × 2",
         "产品B",
         3.38,
         6.76,
@@ -1733,7 +1763,7 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             2.53,
             "个",
             0.3,
-            "SKU-A",
+            "SKU-A × 1",
             "产品A",
             3.38,
             3.38,
@@ -1755,7 +1785,7 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             15.16,
             "个",
             0.3,
-            "SKU-C",
+            "SKU-C × 4",
             "产品C",
             None,
             None,
@@ -1784,7 +1814,7 @@ def test_generate_purchase_batch_workbooks_uses_batch_zhengfei_average_for_each_
             7.58,
             "个",
             0.3,
-            "SKU-B",
+            "SKU-B × 2",
             "产品B",
             3.38,
             6.76,
@@ -2045,7 +2075,7 @@ def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp
         5.06,
         "个",
         0.3,
-        "SKU-A",
+        "SKU-A × 2",
         "产品A",
         None,
         None,
@@ -2067,7 +2097,7 @@ def test_generate_fba_restock_workbook_warns_same_model_across_manufacturers(tmp
         7.59,
         "个",
         0.3,
-        "SKU-B",
+        "SKU-B × 3",
         "产品B",
         None,
         None,

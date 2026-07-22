@@ -599,6 +599,7 @@ def _build_restock_entries(
                 {
                     "stock_skus": [stock_sku],
                     "stock_sku_keys": {_sku_match_key(stock_sku)},
+                    "stock_sku_quantities": {_sku_match_key(stock_sku): quantity},
                     "product_names": [product_name],
                     "source_delivery_nos": source_values,
                     "model": model,
@@ -621,6 +622,7 @@ def _build_restock_entries(
             entry = {
                 "stock_skus": [stock_sku],
                 "stock_sku_keys": {_sku_match_key(stock_sku)},
+                "stock_sku_quantities": {_sku_match_key(stock_sku): quantity},
                 "product_names": [product_name],
                 "source_delivery_nos": source_values,
                 "model": model,
@@ -648,6 +650,8 @@ def _build_restock_entries(
             entry["stock_skus"].append(stock_sku)
             entry["product_names"].append(product_name)
             entry["stock_sku_keys"].add(stock_key)
+            entry["stock_sku_quantities"][stock_key] = Decimal("0")
+        entry["stock_sku_quantities"][stock_key] += quantity
         for source_value in source_values:
             if source_value not in entry["source_delivery_nos"]:
                 entry["source_delivery_nos"].append(source_value)
@@ -701,7 +705,10 @@ def build_restock_rows(
                 average_price = _decimal_to_cell_value(average)
                 average_total_price = _decimal_to_cell_value(_round_money_to_cents(average * entry["quantity"]))
         return [
-            "\n".join(entry["stock_skus"]),
+            "\n".join(
+                f"{stock_sku} × {_decimal_to_cell_value(entry['stock_sku_quantities'][_sku_match_key(stock_sku)])}"
+                for stock_sku in entry["stock_skus"]
+            ),
             "\n".join(entry["product_names"]),
             "\n".join(entry["source_delivery_nos"]),
             entry["stock_skus"][0] if entry["stock_skus"] else "",
