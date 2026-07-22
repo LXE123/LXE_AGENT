@@ -140,6 +140,8 @@ Electron Builder 配置的 schema、资源 scope 的 owner/目标/声明规则�
 
 ## Windows 构建与发布
 
+如果需要从“五类输入”开始了解 Main、Preload、Dashboard、Agent CLI、Python Runtime、electron-builder、NSIS、安装目录和启动链路，见 [Electron 桌面应用：构建、打包、安装与启动](packaging-pipeline.md)。
+
 Windows x64 构建机只需要 PowerShell 和仓库锁定的 Bun。准备或复用受管运行时：
 
 ```powershell
@@ -202,6 +204,7 @@ Windows 安装包把全部受管运行状态和默认工作区放在 `LXE Agent.
 
 ## 相关文档
 
+- [Electron 桌面应用：构建、打包、安装与启动](packaging-pipeline.md)
 - [产品分支与安装入口](../record/20260716-product-lines-branch-migration.md)
 - [LXE Skill CLI Python wheel 运行时](../record/20260715-lxeskill-python-runtime.md)
 - [Gateway](../harness/gateway/README.md)

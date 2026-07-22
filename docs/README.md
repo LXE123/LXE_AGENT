@@ -20,6 +20,7 @@
 
 - `Current` [Project README](../README.md)：产品概览、主要能力、支持平台和产品版本入口。
 - `Current` [Desktop 技术手册](desktop/README.md)：Electron 进程架构、私有运行时、配置、开发和 Windows 打包。
+- `Current` [Desktop 构建、打包、安装与启动](desktop/packaging-pipeline.md)：常用命令、五类输入、Windows 打包流水线、安装目录和启动链路。
 - `Current` [产品分支与安装入口](record/20260716-product-lines-branch-migration.md)：Desktop `main` 与源码 `lxe-agent-TUI` 的长期边界和迁移规则。
 - `Current` [LXE Skill CLI Python wheel 运行时](record/20260715-lxeskill-python-runtime.md)：源码 `.venv` 与 Electron 私有 Python 的统一模块调用规则。
 - `Current` [本地状态与数据库](database/local_agent.md)：Desktop 三个 SQLite、session binding 与 Transcript v2 的所有权边界。
