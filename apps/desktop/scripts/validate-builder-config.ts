@@ -18,8 +18,3 @@ export const validateDesktopBuilderConfig = async (
   );
   await packager.validateConfig();
 };
-
-if (import.meta.main) {
-  await validateDesktopBuilderConfig(process.argv[2]);
-  console.log("electron-builder configuration is valid");
-}

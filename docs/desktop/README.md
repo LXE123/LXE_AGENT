@@ -120,21 +120,23 @@ bun run desktop:preview
 | `bun run desktop:dev` | Vite 热更新开发 | 生产 Renderer 和打包布局 |
 | `bun run desktop:preview` | 生产 Renderer + 源码 Runtime | 私有运行时和打包布局 |
 | `bun run desktop:pack:win` | 生成真实 Unpacked 布局 | NSIS 安装、升级、卸载和运行验收 |
-| `bun run desktop:dist:win` | 完整 Windows NSIS 发布验证 | 无 |
+| `bun run desktop:dist:win` | 构造 Windows NSIS 发布产物 | 安装后的人工验收 |
 
-运行完整源码检查：
+运行一次源码验证（生产边界、类型检查、Bun 测试和 Python 测试）：
 
 ```bash
-bun run verify
+bun run verify:source
 ```
 
-macOS 可运行跨平台源码和构建门禁，但不会生成缺少私有运行时的伪 DMG：
+`bun run verify` 和 `bun run verify:platform` 是这个命令的兼容别名，不再构建 wheel、Agent CLI、Dashboard 或 Electron。
+
+macOS 只运行源码验证，不会生成缺少私有运行时的伪 DMG，也不再把本机源码检查称为完整发布验证：
 
 ```bash
 bun run verify:platform:mac
 ```
 
-完整检查覆盖 TypeScript 生产边界、typecheck、Bun 测试、Python/LXE Skill 测试、wheel、原生 Agent CLI、Dashboard、Gateway、Electron 构建和 Electron Builder 配置校验。
+Electron Builder 配置的 schema、资源 scope 的 owner/目标/声明规则，以及 Skill frontmatter、重名和引用规则由源码测试覆盖。正式打包不重复执行这些独立规则检查；electron-builder 在真正组装时自行校验其配置。
 
 ## Windows 构建与发布
 
@@ -158,13 +160,13 @@ bun run desktop:pack:win
 bun run desktop:dist:win
 ```
 
-运行 Windows 完整发布门禁：
+在正式发布前先做一次源码验证，再构造一次 NSIS 产物：
 
 ```powershell
 bun run verify:platform:win
 ```
 
-两条 Windows 路线共用同一包装器：先校验 Electron Builder 配置，再准备可直接发布的运行时、构建 wheel overlay、`agent-cli.exe`、Dashboard 与 Electron。electron-builder 从这些模块各自的生产目录直接组装 `win-unpacked`，不再经过统一的大型资源 staging。每个阶段都会输出耗时，正式路线另外生成 NSIS；产物位于 `dist/desktop/`，安装程序命名为 `LXE-Agent-<version>-windows-x64.exe`。`verify:platform:win` 始终执行正式路线，不会降级为 Unpacked 验证。
+两条 Windows 打包路线共用同一包装器：准备或复用可直接发布的运行时，只构建一次当前 wheel overlay、`agent-cli.exe`、Dashboard 与 Electron，再由 electron-builder 从模块各自的生产目录直接组装 `win-unpacked`，不经过统一的大型资源 staging，也不在包装器中提前重复校验 Builder 配置。每个阶段都会输出耗时，正式路线另外生成 NSIS；产物位于 `dist/desktop/`，安装程序命名为 `LXE-Agent-<version>-windows-x64.exe`。`verify:platform:win` 的顺序固定为一次 `verify:source` 加一次 `desktop:dist:win`。
 
 首次联网构建会缓存固定 URL 和版本的 Node、Python、uv、ripgrep、Playwright Chromium 和 WireGuard 1.1 MSI；构建流程不再对这些下载物追加固定哈希或签名门禁。后续可使用缓存离线重建，员工安装和激活阶段不会下载 WireGuard。完整的运行时锁定、缓存、资源裁剪、体积基线和平台门禁说明见 [Electron desktop packaging](../record/20260715-electron-desktop-packaging.md)。
 

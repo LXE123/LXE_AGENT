@@ -9,6 +9,27 @@ const readJson = (path: string): { scripts?: Record<string, string> } =>
   };
 
 describe("Windows desktop packaging routes", () => {
+  test("separates one source verification from one production build", () => {
+    const workspaceScripts = readJson("package.json").scripts ?? {};
+    const sourceVerification = workspaceScripts["verify:source"] ?? "";
+    const releaseVerification = workspaceScripts["verify:platform:win"] ?? "";
+
+    expect(sourceVerification).toContain("check:ts-boundary");
+    expect(sourceVerification).toContain("typecheck");
+    expect(sourceVerification).toContain("bun run test");
+    expect(sourceVerification).toContain("test:py-tools");
+    expect(sourceVerification).not.toMatch(/uv build|agent-cli:compile|desktop:build|desktop:dist:win/u);
+    expect(workspaceScripts.verify).toBe("bun run verify:source");
+    expect(workspaceScripts["verify:platform"]).toBe("bun run verify:source");
+    expect(releaseVerification).toBe(
+      "bun scripts/assert-host-platform.ts win32 x64 && bun run verify:source && bun run desktop:dist:win",
+    );
+    expect(workspaceScripts["verify:platform:mac"]).toBe(
+      "bun scripts/assert-host-platform.ts darwin && bun run verify:source",
+    );
+    expect(workspaceScripts["desktop:validate:config"]).toBeUndefined();
+  });
+
   test("exposes a distinct unpacked route without weakening the release gate", () => {
     const workspaceScripts = readJson("package.json").scripts ?? {};
     const desktopScripts = readJson("apps/desktop/package.json").scripts ?? {};
@@ -26,7 +47,7 @@ describe("Windows desktop packaging routes", () => {
     expect(desktopScripts["dist:win"]).toContain("build/desktop-publish/electron-builder.json");
   });
 
-  test("keeps production steps without packaged resource re-audits", () => {
+  test("keeps one set of production steps without independent pre-validation", () => {
     const wrapper = readFileSync(
       join(repositoryRoot, "scripts", "build-desktop-windows.ps1"),
       "utf8",
@@ -42,6 +63,11 @@ describe("Windows desktop packaging routes", () => {
     );
     expect(wrapper).toContain('"Build NSIS installer"');
     expect(wrapper).toContain('"Enforce desktop resource size budgets"');
+    expect(wrapper.match(/"Build current LXE project wheel"/gu)).toHaveLength(1);
+    expect(wrapper.match(/"Compile private agent-cli"/gu)).toHaveLength(1);
+    expect(wrapper.match(/"Build Dashboard and Electron"/gu)).toHaveLength(1);
+    expect(wrapper).not.toContain("desktop:validate:config");
+    expect(wrapper).not.toContain("Validate electron-builder configuration");
     expect(wrapper).not.toContain("smoke-packaged-app");
     expect(wrapper).not.toContain("Smoke packaged Electron");
     expect(wrapper).not.toContain("audit-packaged-desktop");
@@ -98,6 +124,21 @@ describe("Windows desktop packaging routes", () => {
     expect(runtimePreparation).not.toContain("Test-LxeRuntimeImage");
     expect(runtimePreparation).not.toContain("Playwright Chromium smoke");
     expect(desktopScripts["smoke:packaged"]).toBeUndefined();
+    expect(desktopScripts["validate:config"]).toBeUndefined();
     expect(runtimeLock).not.toContain("sha256");
+  });
+
+  test("resource preparation selects files without semantic scope or Skill validation", () => {
+    const resourcePreparation = readFileSync(
+      join(repositoryRoot, "scripts", "prepare-desktop-resources.ts"),
+      "utf8",
+    );
+
+    expect(resourcePreparation).toContain("readResourceScope");
+    expect(resourcePreparation).toContain("approvedSkillFile");
+    expect(resourcePreparation).toContain("gitFiles([skillsSource])");
+    expect(resourcePreparation).not.toContain("validateResourceScope");
+    expect(resourcePreparation).not.toContain("validateSelectedSkills");
+    expect(resourcePreparation).not.toContain("requireManagedScope");
   });
 });

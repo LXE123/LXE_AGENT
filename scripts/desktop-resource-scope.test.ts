@@ -1,21 +1,40 @@
-import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import {
   approvedConstructiveResourcePath,
   approvedSkillFile,
-  loadResourceScope,
   prohibitedPythonRuntimePath,
+  readResourceScope,
   requireResourceSourceFile,
   scopeEntryForPath,
   validateSelectedSkills,
+  validateResourceScope,
 } from "./desktop-resource-scope";
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
+const temporaryRoots: string[] = [];
+
+const temporaryRepository = (): string => {
+  const root = mkdtempSync(join(tmpdir(), "lxe-resource-scope-"));
+  temporaryRoots.push(root);
+  return root;
+};
+
+const writeTemporaryFile = (root: string, path: string, content: string): void => {
+  const absolute = join(root, ...path.split("/"));
+  mkdirSync(dirname(absolute), { recursive: true });
+  writeFileSync(absolute, content, "utf8");
+};
+
+afterEach(() => {
+  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 describe("desktop resource scope", () => {
   test("assigns every packaged owner without overlapping targets", () => {
-    const scope = loadResourceScope(repositoryRoot);
+    const scope = validateResourceScope(repositoryRoot);
     expect(scopeEntryForPath(scope, "agent/SOUL.md", "win32-x64")).toMatchObject({
       owner: "bun-agent-runtime",
     });
@@ -26,6 +45,28 @@ describe("desktop resource scope", () => {
     expect(rawScope).not.toMatch(/"(?:policy|integrity)"/u);
     expect(() => scopeEntryForPath(scope, "docs/internal.md", "win32-x64"))
       .toThrow("exactly one owner");
+  });
+
+  test("keeps scope reading separate from complete declaration validation", () => {
+    const scope = readResourceScope(repositoryRoot);
+    expect(scope.schema_version).toBe(2);
+    expect(validateResourceScope(repositoryRoot, structuredClone(scope))).toEqual(scope);
+
+    const incompleteOwner = structuredClone(scope);
+    incompleteOwner.resources[0]!.owner = "";
+    expect(() => validateResourceScope(repositoryRoot, incompleteOwner)).toThrow("entry is incomplete");
+
+    const overlappingTarget = structuredClone(scope);
+    overlappingTarget.resources[1]!.target = "agent";
+    expect(() => validateResourceScope(repositoryRoot, overlappingTarget)).toThrow("targets overlap");
+
+    const invalidKind = structuredClone(scope);
+    invalidKind.resources[0]!.source.kind = "unknown";
+    expect(() => validateResourceScope(repositoryRoot, invalidKind)).toThrow("source kind is invalid");
+
+    const prohibitedTarget = structuredClone(scope);
+    prohibitedTarget.resources[0]!.target = "docs/internal.md";
+    expect(() => validateResourceScope(repositoryRoot, prohibitedTarget)).toThrow("target is prohibited");
   });
 
   test("selects only approved Skill payloads", () => {
@@ -44,8 +85,33 @@ describe("desktop resource scope", () => {
     validateSelectedSkills(repositoryRoot, approved);
   });
 
+  test("rejects malformed, duplicate, and invalid Skill declarations", () => {
+    const missingFrontmatterRoot = temporaryRepository();
+    writeTemporaryFile(missingFrontmatterRoot, "skills/one/SKILL.md", "No frontmatter\n");
+    expect(() => validateSelectedSkills(missingFrontmatterRoot, ["skills/one/SKILL.md"]))
+      .toThrow("missing YAML frontmatter");
+
+    const duplicateRoot = temporaryRepository();
+    const duplicateManifest = "---\nname: duplicate\n---\n";
+    writeTemporaryFile(duplicateRoot, "skills/one/SKILL.md", duplicateManifest);
+    writeTemporaryFile(duplicateRoot, "skills/two/SKILL.md", duplicateManifest);
+    expect(() => validateSelectedSkills(duplicateRoot, [
+      "skills/one/SKILL.md",
+      "skills/two/SKILL.md",
+    ])).toThrow("Skill name is duplicated");
+
+    const referenceRoot = temporaryRepository();
+    writeTemporaryFile(
+      referenceRoot,
+      "skills/one/SKILL.md",
+      "---\nname: one\nreferences:\n  - references/missing.md\n---\n",
+    );
+    expect(() => validateSelectedSkills(referenceRoot, ["skills/one/SKILL.md"]))
+      .toThrow("reference is missing, escapes its Skill, or is outside the whitelist");
+  });
+
   test("declares the exact production configuration whitelist", () => {
-    const scope = loadResourceScope(repositoryRoot);
+    const scope = validateResourceScope(repositoryRoot);
     const config = scope.resources.find((entry) => entry.id === "config");
     expect(config?.source.paths).toEqual([
       "config/llm/auth-profiles.json",

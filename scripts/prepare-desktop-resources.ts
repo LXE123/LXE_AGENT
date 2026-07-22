@@ -10,10 +10,9 @@ import { join, relative, resolve } from "node:path";
 import { resolveDesktopRuntimeInputs } from "./desktop-runtime-inputs";
 import {
   approvedSkillFile,
-  loadResourceScope,
+  readResourceScope,
   requireResourceSourceDirectory,
   requireResourceSourceFile,
-  validateSelectedSkills,
 } from "./desktop-resource-scope";
 
 interface BuilderFileSet {
@@ -32,7 +31,7 @@ const publishRoot = join(repositoryRoot, "build", "desktop-publish");
 const generatedBuilderConfig = join(publishRoot, "electron-builder.json");
 const platform = "win32-x64";
 const environment = process.env;
-const resourceScope = loadResourceScope(repositoryRoot);
+const resourceScope = readResourceScope(repositoryRoot);
 
 const scopeEntry = (id: string) => {
   const entry = resourceScope.resources.find((candidate) => candidate.id === id);
@@ -40,13 +39,6 @@ const scopeEntry = (id: string) => {
     throw new Error(`Required desktop resource scope entry is missing for ${platform}: ${id}`);
   }
   return entry;
-};
-
-const requireManagedScope = (id: string, name: string): void => {
-  const entry = scopeEntry(id);
-  if (entry.source.kind !== "managed-build" || entry.source.name !== name) {
-    throw new Error(`Desktop resource scope must declare managed build ${name}: ${id}`);
-  }
 };
 
 const gitFiles = (prefixes: string[]): string[] => {
@@ -151,27 +143,17 @@ if (!existsSync(overlayLxeSkillModule)) {
   throw new Error(`Installed lxeskill publish overlay is missing: ${overlayLxeSkillModule}`);
 }
 
-requireManagedScope("runtime-agent-cli", "agent-cli");
-requireManagedScope("runtime-node", "node");
-requireManagedScope("runtime-python", "python");
-requireManagedScope("runtime-playwright", "playwright");
-requireManagedScope("runtime-tools", "tools");
-requireManagedScope("wireguard", "wireguard");
-
 const skillsScope = scopeEntry("skills");
 const skillsSource = String(skillsScope.source.path ?? "");
-if (skillsScope.source.kind !== "skill-tree" || skillsSource !== "skills") {
-  throw new Error("Desktop Skill scope must declare the repository skills tree");
-}
+if (!skillsSource) throw new Error("Desktop Skill source path is missing");
 const trackedSkillFiles = gitFiles([skillsSource]);
 const packagedSkillFiles = trackedSkillFiles.filter((path) => approvedSkillFile(repositoryRoot, path));
 if (packagedSkillFiles.length === 0 || !packagedSkillFiles.some((path) => path.endsWith("/SKILL.md"))) {
   throw new Error("Desktop Skill whitelist did not select any valid Skill manifests");
 }
-validateSelectedSkills(repositoryRoot, packagedSkillFiles);
 
 const configScope = scopeEntry("config");
-if (configScope.source.kind !== "file-list" || !configScope.source.paths?.length) {
+if (!configScope.source.paths?.length) {
   throw new Error("Desktop configuration scope must declare a non-empty file list");
 }
 const configRoot = join(repositoryRoot, "config");

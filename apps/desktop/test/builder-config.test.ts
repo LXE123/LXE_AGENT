@@ -8,7 +8,6 @@ import {
 } from "../scripts/validate-builder-config";
 
 const temporaryRoots: string[] = [];
-const validatorPath = join(import.meta.dir, "..", "scripts", "validate-builder-config.ts");
 
 afterEach(() => {
   for (const root of temporaryRoots.splice(0)) {
@@ -40,7 +39,7 @@ describe("electron-builder configuration", () => {
     expect(existsSync(join(desktopRoot, "resources", "installer.nsh"))).toBe(true);
   });
 
-  test("exits nonzero and identifies an unknown Windows option", () => {
+  test("identifies an unknown Windows option during source tests", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-builder-config-"));
     temporaryRoots.push(root);
 
@@ -58,14 +57,7 @@ describe("electron-builder configuration", () => {
     const invalidConfigPath = join(root, "electron-builder.yml");
     writeFileSync(invalidConfigPath, invalidConfig, "utf8");
 
-    const result = Bun.spawnSync({
-      cmd: [process.execPath, validatorPath, invalidConfigPath],
-      timeout: 20_000,
-      killSignal: "SIGKILL",
-    });
-
-    expect(result.exitCode).not.toBe(0);
-    expect(new TextDecoder().decode(result.stderr)).toContain(
+    await expect(validateDesktopBuilderConfig(invalidConfigPath)).rejects.toThrow(
       "configuration.win has an unknown property 'signingHashAlgorithms'",
     );
   }, 30_000);

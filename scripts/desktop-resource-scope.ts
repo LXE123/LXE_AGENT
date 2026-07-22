@@ -90,9 +90,16 @@ const isRelativeDeclaration = (path: string): boolean => {
   return Boolean(value) && !isAbsolute(path) && value !== ".." && !value.startsWith("../");
 };
 
-export const loadResourceScope = (repositoryRoot: string): ResourceScope => {
+export const readResourceScope = (repositoryRoot: string): ResourceScope => {
   const path = join(repositoryRoot, "config", "desktop-packaging", "resource-scope.json");
-  const scope = JSON.parse(readFileSync(path, "utf8")) as ResourceScope;
+  return JSON.parse(readFileSync(path, "utf8")) as ResourceScope;
+};
+
+export const validateResourceScope = (
+  repositoryRoot: string,
+  scope: ResourceScope = readResourceScope(repositoryRoot),
+): ResourceScope => {
+  const path = join(repositoryRoot, "config", "desktop-packaging", "resource-scope.json");
   if (scope.schema_version !== 2 || !Array.isArray(scope.resources) || scope.resources.length === 0) {
     throw new Error(`Desktop resource scope is invalid: ${path}`);
   }
@@ -105,6 +112,9 @@ export const loadResourceScope = (repositoryRoot: string): ResourceScope => {
     }
     if (!isRelativeDeclaration(entry.target)) {
       throw new Error(`Desktop resource scope target is invalid: ${entry.id}: ${entry.target}`);
+    }
+    if (!approvedConstructiveResourcePath(entry.target)) {
+      throw new Error(`Desktop resource scope target is prohibited: ${entry.id}: ${entry.target}`);
     }
     if (!entry.platforms.length) throw new Error(`Desktop resource scope platforms are invalid: ${entry.id}`);
     const sourcePaths = entry.source.paths ?? [];

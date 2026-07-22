@@ -34,11 +34,11 @@ runtime and cache on another drive. Explicit `-RuntimeRoot` and `-CacheRoot`
 parameters take precedence. The preparer never installs into system Node,
 system Python, or the repository `.venv`.
 
-The generated `build/desktop-runtime-inputs.json` supplies these resource
-staging paths automatically:
+The generated `build/desktop-runtime-inputs.json` supplies these direct resource
+assembly inputs automatically:
 
-- `LXE_DESKTOP_NODE_ROOT`: Node with `node.exe`, npm/npx, and the pinned DingTalk
-  and Lark CLI packages.
+- `LXE_DESKTOP_NODE_ROOT`: Node with `node.exe` and the pinned DingTalk and Lark
+  CLI packages; build-only npm/npx files are removed from the publish-ready tree.
 - `LXE_DESKTOP_PYTHON_ROOT`: relocatable Python 3.12.10 distribution.
   Production dependencies are exported from `uv.lock` and installed into the
   private copy with user site-packages disabled.
@@ -54,7 +54,7 @@ stale LXE source or copy the complete Python tree merely to update LXE code.
 
 These five environment variables remain supported as per-field overrides for
 custom build infrastructure. `LXE_DESKTOP_RUNTIME_DESCRIPTOR` can point resource
-staging at a non-default descriptor.
+assembly at a non-default descriptor.
 
 For daily packaged-layout validation without NSIS compression, run:
 
@@ -73,17 +73,12 @@ For a release installer, run:
 bun run desktop:dist:win
 ```
 
-The build first validates `electron-builder.yml` against the schema bundled
-with the pinned electron-builder version. The same fast check is available on
-every development platform and is included in `bun run verify`:
-
-```powershell
-bun run desktop:validate:config
-```
-
-Only after that check passes does the shared Windows wrapper prepare or reuse
-the publish-ready managed runtime, inject it into the build subprocess environment,
-rebuild the current LXE wheel, generate its Python overlay, and compile the
+The shared Windows wrapper does not run a separate Builder configuration check.
+The Builder validation function is imported directly by the source test suite,
+while electron-builder performs its own configuration validation during the real
+package operation. The wrapper prepares or reuses the publish-ready managed runtime,
+injects it into the build subprocess environment, rebuilds the current LXE wheel,
+generates its Python overlay, and compiles the
 Dashboard, Electron and `agent-cli.exe` outputs. Electron Builder reads these
 module-owned production directories directly. The unpacked route stops after it
 creates the runnable directory; the release route also creates the NSIS installer.
@@ -125,6 +120,10 @@ authentication, sessions, and business artifacts are not Builder inputs.
 > 同日后续调整删除了外部下载归档、WireGuard 和 ripgrep 的固定哈希/签名门禁，以及 Bun/Python
 > catalog 的构建时一致性比较。随后又删除了 Runtime、资源 staging 和 Electron 打包后的全部
 > 自动 Smoke；固定 URL、版本和应用运行时的真实健康状态继续保留。
+>
+> 2026-07-22：源码规则检查与正式构造进一步拆开。`verify:source` 只负责生产边界、类型和测试；
+> Windows 正式路线只构建一次 wheel、Agent CLI、Dashboard 和 Electron。资源 scope 的 owner、
+> 重叠、声明和 Skill 内容规则只在源码测试中执行，打包阶段只读取 scope、选择输入并判断必要路径存在。
 
 After electron-builder creates `win-unpacked`,
 `scripts/report-desktop-resource-sizes.ts` writes the report beside the selected
@@ -163,18 +162,16 @@ internal test machines.
 
 ## Platform quality gates
 
-Run `bun run verify:platform:win` on Windows x64. It covers the production
-boundary, the complete Bun and Python suites, all workspace type checks, the
-wheel, native Agent CLI, Dashboard, Gateway, Electron build, and the complete
-NSIS pipeline. It deliberately invokes `desktop:dist:win`, not the faster
-unpacked route.
+Run `bun run verify:platform:win` on Windows x64. It runs `verify:source` once,
+then invokes `desktop:dist:win` once. The release wrapper is the sole owner of
+the wheel, native Agent CLI, Dashboard, Electron and NSIS production builds;
+the source verification phase does not prebuild them.
 
-Run `bun run verify:platform:mac` on macOS. It runs the same source, test, type,
-wheel, native Agent CLI, Dashboard, Gateway, Electron build, and Builder schema
-checks. The command deliberately does not produce a macOS application bundle:
+Run `bun run verify:platform:mac` on macOS. It performs only the source boundary,
+test and type checks. The command deliberately does not produce a macOS application bundle:
 the managed private runtime and release signing/notarization pipeline are
 currently Windows-only. A macOS DMG must not be treated as supported until
-equivalent pinned Node, Python, uv, ripgrep, Playwright, wheel staging, signing,
+equivalent pinned Node, Python, uv, ripgrep, Playwright, wheel assembly, signing,
 and manual installed-app acceptance coverage exists.
 
 Target-platform path tests inject Windows, macOS, and Linux explicitly. Code

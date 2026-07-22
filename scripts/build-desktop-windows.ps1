@@ -74,19 +74,6 @@ if ($LASTEXITCODE -ne 0 -or $bunVersion -ne "1.3.14") {
     throw "Bun 1.3.14 is required; found '$bunVersion' at $($bunCommand.Source)."
 }
 
-Invoke-LxeDesktopTimedAction -Label "Validate electron-builder configuration" -Action {
-    Push-Location $repositoryRoot
-    try {
-        & $bunCommand.Source run desktop:validate:config
-        if ($LASTEXITCODE -ne 0) {
-            throw "electron-builder configuration validation failed with exit code $LASTEXITCODE."
-        }
-    }
-    finally {
-        Pop-Location
-    }
-}
-
 $prepareParameters = @{}
 if (-not [string]::IsNullOrWhiteSpace($RuntimeRoot)) { $prepareParameters.RuntimeRoot = $RuntimeRoot }
 if (-not [string]::IsNullOrWhiteSpace($CacheRoot)) { $prepareParameters.CacheRoot = $CacheRoot }
