@@ -15,7 +15,7 @@ var/db/lxeskill/browser_auth_service/mabang_erp/<account>/state.json
 
 认证材料唯一来源是本服务的 `state.json` 和 CLI JSON 返回值。`erp_http_session` / `external_http_session` 使用无状态 CookieJar，不参与认证状态；新流程如果依赖服务端 `Set-Cookie` 连续性，需要显式纳入认证材料或使用局部短命 HTTP session。
 
-## 用 CLI 测 4 条认证路径
+## 用 CLI 测统一认证路径
 
 建议先开可视化，方便看页面到底跳到哪里：
 
@@ -25,6 +25,10 @@ BROWSER_AUTH_HEADLESS=0 FBA_LOGISTICS_TOKEN_HEADLESS=0 .venv/bin/python -m brows
 BROWSER_AUTH_HEADLESS=0 FBA_LOGISTICS_TOKEN_HEADLESS=0 .venv/bin/python -m browser_auth_service.main ensure --scope fba
 BROWSER_AUTH_HEADLESS=0 FBA_LOGISTICS_TOKEN_HEADLESS=0 .venv/bin/python -m browser_auth_service.main ensure --scope fba --require-wms-cookie-header
 ```
+
+这四种调用保留了原有参数和返回结构，但真实刷新路线完全相同：登录 → 库存 SKU → FBA 发货单 → WMS。
+`--scope` 和 `--require-wms-cookie-header` 只控制返回字段，不再裁剪刷新步骤。只有本地文件同时包含完整
+Cookie、`freeToken` 和 WMS Cookie 时，普通 `ensure` 才会直接返回缓存；`--force` 每次都会完整刷新。
 
 Windows PowerShell 不支持上面的 Unix 环境变量写法，用这个：
 

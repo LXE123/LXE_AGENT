@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -28,7 +27,6 @@ def _fba_payload(token: str = "token") -> dict:
                 ],
             }
         ],
-        "last_refreshed_at": int(time.time()),
     }
 
 
@@ -43,7 +41,7 @@ def test_ensure_auth_locks_next_to_account_state_and_reloads_after_lock(tmp_path
     def fake_lock(path, *, timeout_seconds):
         lock_paths.append(Path(path))
         fresh = _fba_payload()
-        fresh["last_refreshed_at"] = 222
+        fresh["generation"] = 222
         state_file.write_text(json.dumps(fresh), encoding="utf-8")
         yield
 
@@ -54,13 +52,13 @@ def test_ensure_auth_locks_next_to_account_state_and_reloads_after_lock(tmp_path
     monkeypatch.setattr(service, "_resolve_credentials", lambda scope, account: ("account-a", "password"))
     monkeypatch.setattr(service, "_state_file", lambda account: state_file)
     monkeypatch.setattr(service, "interprocess_lock", fake_lock)
-    monkeypatch.setattr(service, "_ensure_fba_auth", fake_ensure)
+    monkeypatch.setattr(service, "_ensure_unified_auth", fake_ensure)
 
     result = service.ensure_auth("fba")
 
     assert result["source"] == "cache"
     assert lock_paths == [state_file.with_name(service.AUTH_REFRESH_LOCK_NAME)]
-    assert seen_payloads[0]["last_refreshed_at"] == 222
+    assert seen_payloads[0]["generation"] == 222
 
 
 def test_consecutive_forced_refreshes_are_never_coalesced(tmp_path, monkeypatch) -> None:
@@ -73,7 +71,7 @@ def test_consecutive_forced_refreshes_are_never_coalesced(tmp_path, monkeypatch)
 
     monkeypatch.setattr(service, "_resolve_credentials", lambda scope, account: ("account-a", "password"))
     monkeypatch.setattr(service, "_state_file", lambda account: state_file)
-    monkeypatch.setattr(service, "_ensure_fba_auth", fake_ensure)
+    monkeypatch.setattr(service, "_ensure_unified_auth", fake_ensure)
 
     state_file.write_text(json.dumps(_fba_payload()), encoding="utf-8")
     service.ensure_auth("fba", force_refresh=True)
@@ -135,13 +133,13 @@ def test_save_storage_state_atomically_replaces_file(tmp_path) -> None:
     payload = service._save_storage_state(
         FakeContext(),
         state_file,
-        extra_fields={"last_refreshed_at": 2},
+        extra_fields={"generation": 2},
     )
 
     saved = json.loads(state_file.read_text(encoding="utf-8"))
     assert saved == payload
     assert saved["cookies"][0]["name"] == "new"
-    assert saved["last_refreshed_at"] == 2
+    assert saved["generation"] == 2
     assert list(tmp_path.glob(".state.json.*.tmp")) == []
 
 

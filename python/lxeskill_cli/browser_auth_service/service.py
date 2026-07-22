@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -24,10 +25,8 @@ logger = get_logger(__name__)
 PHPSESSID_COOKIE_NAME = "PHPSESSID"
 PHPSESSID_HOST = "private.mabangerp.com"
 PHPSESSID_EXPIRY_SKEW_SECONDS = 300
-FBA_AUTH_TTL_SECONDS = 3600
 LOGIN_URL = "https://private.mabangerp.com/index.htm"
 FBA_HOME_URL = "https://private.mabangerp.com/"
-FBA_JUMP_WMS_URL = "https://private.mabangerp.com/index.php?mod=main.jumpToWms"
 FBA_LOGISTICS_TOKEN_TARGET_URL = "https://private.mabangerp.com/index.php?mod=main.fbaCargo&platform=amazon&version=1"
 FBA_LOGISTICS_TOKEN_ORIGIN = "https://amz1-private.mabangerp.com"
 FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY = "freeToken"
@@ -68,35 +67,15 @@ def ensure_auth(
         # collapses queued normal refreshes into the result written by the
         # process that held the lock first.
         payload = _load_storage_state_payload(state_file)
-        phpsessid_status = _get_phpsessid_status(payload)
-        if normalized_scope == "erp":
-            result = _ensure_erp_auth(
-                account=resolved_account,
-                password=password,
-                state_file=state_file,
-                payload=payload,
-                phpsessid_status=phpsessid_status,
-                force_refresh=bool(force_refresh),
-            )
-        elif normalized_scope == "private_amz":
-            result = _ensure_private_amz_auth(
-                account=resolved_account,
-                password=password,
-                state_file=state_file,
-                payload=payload,
-                phpsessid_status=phpsessid_status,
-                force_refresh=bool(force_refresh),
-            )
-        else:
-            result = _ensure_fba_auth(
-                account=resolved_account,
-                password=password,
-                state_file=state_file,
-                payload=payload,
-                phpsessid_status=phpsessid_status,
-                require_wms_cookie_header=require_wms_cookie_header,
-                force_refresh=bool(force_refresh),
-            )
+        result = _ensure_unified_auth(
+            account=resolved_account,
+            password=password,
+            state_file=state_file,
+            payload=payload,
+            scope=normalized_scope,
+            require_wms_cookie_header=require_wms_cookie_header,
+            force_refresh=bool(force_refresh),
+        )
     _log_ensure_result(result)
     return result
 
@@ -255,7 +234,12 @@ def _remove_dingtalk_storage_state(payload: dict[str, Any]) -> tuple[int, int]:
     return removed_cookies, removed_origins
 
 
-def _save_storage_state(context, state_file: Path, extra_fields: dict[str, Any] | None = None) -> dict[str, Any]:
+def _save_storage_state(
+    context,
+    state_file: Path,
+    extra_fields: dict[str, Any] | None = None,
+    validator: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     existing_payload = _load_storage_state_payload(state_file)
     storage_payload = context.storage_state()
     if not isinstance(storage_payload, dict):
@@ -273,6 +257,8 @@ def _save_storage_state(context, state_file: Path, extra_fields: dict[str, Any] 
         logger.info(
             f"[BrowserAuth] 剔除 Dingtalk storage_state: cookies={removed_cookies} origins={removed_origins}"
         )
+    if validator is not None:
+        validator(payload)
     _write_storage_state_payload(state_file, payload)
     return payload
 
@@ -616,26 +602,67 @@ def _has_private_amz_cookie_bundle(payload: dict[str, Any]) -> bool:
     )
 
 
-def _coerce_refresh_timestamp(value: Any) -> int | None:
-    try:
-        numeric = int(float(value))
-    except (TypeError, ValueError):
-        return None
-    if numeric <= 0:
-        return None
-    return numeric
+def _cookie_auth_errors(payload: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    phpsessid_status = _get_phpsessid_status(payload)
+    if not phpsessid_status.get("valid"):
+        errors.append(f"PHPSESSID({phpsessid_status.get('reason') or 'invalid'})")
+    errors.extend(
+        f"private-amz:{label}"
+        for label in _invalid_cookie_status_labels_for_host(
+            payload,
+            PRIVATE_AMZ_HOST,
+            PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
+        )
+    )
+    return errors
 
 
-def _storage_lookup_last_refreshed_at(payload: dict[str, Any]) -> int | None:
-    if not isinstance(payload, dict):
-        return None
-    return _coerce_refresh_timestamp(payload.get("last_refreshed_at"))
+def _complete_auth_material(payload: dict[str, Any]) -> tuple[str, str, list[str]]:
+    errors = _cookie_auth_errors(payload)
+    token = _storage_lookup_token(
+        payload,
+        FBA_LOGISTICS_TOKEN_ORIGIN,
+        FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY,
+    )
+    if not token:
+        errors.append("freeToken(missing)")
+
+    wms_cookies = _storage_lookup_domain_cookies(payload, FBA_LOGISTICS_WMS_HOST)
+    wms_cookie_header = _build_cookie_header(wms_cookies)
+    if not wms_cookie_header:
+        errors.append("WMS Cookie(missing)")
+    return token, wms_cookie_header, errors
 
 
-def _is_fba_refresh_fresh(last_refreshed_at: int | None, ttl_seconds: int = FBA_AUTH_TTL_SECONDS) -> bool:
-    if last_refreshed_at is None:
-        return False
-    return (time.time() - int(last_refreshed_at)) < max(0, int(ttl_seconds or 0))
+def _require_complete_auth_material(payload: dict[str, Any]) -> tuple[str, str]:
+    token, wms_cookie_header, errors = _complete_auth_material(payload)
+    if errors:
+        raise RuntimeError(f"统一认证状态不完整: {', '.join(errors)}")
+    return token, wms_cookie_header
+
+
+def _auth_result(
+    *,
+    scope: str,
+    account: str,
+    source: str,
+    payload: dict[str, Any],
+    token: str,
+    wms_cookie_header: str,
+    require_wms_cookie_header: bool,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "success": True,
+        "scope": scope,
+        "account": account,
+        "source": source,
+        "cookies_by_domain": _parse_cookies_by_domain(payload),
+    }
+    if scope == "fba":
+        result["free_token"] = token
+        result["wms_cookie_header"] = wms_cookie_header if require_wms_cookie_header else ""
+    return result
 
 
 def _build_cookie_header(cookies: list[dict[str, Any]]) -> str:
@@ -650,10 +677,6 @@ def _build_cookie_header(cookies: list[dict[str, Any]]) -> str:
 
 def _clear_state_file(state_file: Path) -> None:
     state_file.unlink(missing_ok=True)
-
-
-def _browser_auth_headless() -> bool:
-    return bool(auth_settings.BROWSER_AUTH_HEADLESS)
 
 
 def _launch_chromium(playwright, *, headless: bool):
@@ -758,98 +781,6 @@ def _open_context(
         return browser.new_context(accept_downloads=True, viewport={"width": 1920, "height": 1080})
 
 
-def _ensure_erp_auth(
-    account: str,
-    password: str,
-    state_file: Path,
-    payload: dict[str, Any],
-    phpsessid_status: dict[str, Any],
-    force_refresh: bool = False,
-) -> dict[str, Any]:
-    if phpsessid_status.get("valid") and not force_refresh:
-        return {
-            "success": True,
-            "scope": "erp",
-            "account": account,
-            "source": "cache",
-            "cookies_by_domain": _parse_cookies_by_domain(payload),
-        }
-
-    _clear_state_file(state_file)
-
-    with sync_playwright() as playwright:
-        browser = _launch_chromium(playwright, headless=_browser_auth_headless())
-        context = _open_context(browser, state_file, can_reuse_state=False)
-        try:
-            page = context.new_page()
-            _perform_login(page, account, password)
-            page.wait_for_timeout(1000)
-            saved_payload = _save_storage_state(
-                context,
-                state_file,
-            )
-        finally:
-            context.close()
-            browser.close()
-
-    return {
-        "success": True,
-        "scope": "erp",
-        "account": account,
-        "source": "relogin",
-        "cookies_by_domain": _parse_cookies_by_domain(saved_payload),
-    }
-
-
-def _ensure_private_amz_auth(
-    account: str,
-    password: str,
-    state_file: Path,
-    payload: dict[str, Any],
-    phpsessid_status: dict[str, Any],
-    force_refresh: bool = False,
-) -> dict[str, Any]:
-    if phpsessid_status.get("valid") and _has_private_amz_cookie_bundle(payload) and not force_refresh:
-        return {
-            "success": True,
-            "scope": "private_amz",
-            "account": account,
-            "source": "cache",
-            "cookies_by_domain": _parse_cookies_by_domain(payload),
-        }
-
-    _clear_state_file(state_file)
-
-    with sync_playwright() as playwright:
-        browser = _launch_chromium(playwright, headless=_browser_auth_headless())
-        context = _open_context(browser, state_file, can_reuse_state=False)
-        try:
-            page = context.new_page()
-            _perform_login(page, account, password)
-            page.wait_for_timeout(1000)
-            _visit_private_amz_cookie_refresh_page(page)
-            saved_payload = _save_storage_state(context, state_file)
-        finally:
-            context.close()
-            browser.close()
-
-    invalid = _invalid_cookie_status_labels_for_host(
-        saved_payload,
-        PRIVATE_AMZ_HOST,
-        PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
-    )
-    if invalid:
-        raise RuntimeError(f"private-amz 关键 Cookie 无效或过期: {', '.join(invalid)}")
-
-    return {
-        "success": True,
-        "scope": "private_amz",
-        "account": account,
-        "source": "relogin",
-        "cookies_by_domain": _parse_cookies_by_domain(saved_payload),
-    }
-
-
 def _visit_private_amz_cookie_refresh_page(page) -> None:
     page.goto(PRIVATE_AMZ_COOKIE_REFRESH_URL, wait_until="domcontentloaded")
     try:
@@ -859,12 +790,12 @@ def _visit_private_amz_cookie_refresh_page(page) -> None:
     page.wait_for_timeout(1500)
 
 
-def _ensure_fba_auth(
+def _ensure_unified_auth(
     account: str,
     password: str,
     state_file: Path,
     payload: dict[str, Any],
-    phpsessid_status: dict[str, Any],
+    scope: str,
     require_wms_cookie_header: bool,
     force_refresh: bool,
 ) -> dict[str, Any]:
@@ -873,42 +804,27 @@ def _ensure_fba_auth(
     target_url = FBA_LOGISTICS_TOKEN_TARGET_URL
     wms_host = FBA_LOGISTICS_WMS_HOST.strip().lower().lstrip(".")
     wms_entry_text = FBA_LOGISTICS_WMS_ENTRY_TEXT
-    headless = bool(auth_settings.FBA_LOGISTICS_TOKEN_HEADLESS)
+    headless = bool(auth_settings.BROWSER_AUTH_HEADLESS and auth_settings.FBA_LOGISTICS_TOKEN_HEADLESS)
 
-    cached_token = _storage_lookup_token(payload, token_origin, token_key)
-    cached_wms_cookies = _storage_lookup_domain_cookies(payload, wms_host)
-    last_refreshed_at = _storage_lookup_last_refreshed_at(payload)
-    is_fresh = _is_fba_refresh_fresh(last_refreshed_at)
+    cached_token, cached_wms_cookie_header, cache_errors = _complete_auth_material(payload)
     logger.info(
-        f"[BrowserAuth] FBA cache check: require_wms_cookie_header={require_wms_cookie_header}, "
-        f"force_refresh={force_refresh}, last_refreshed_at={last_refreshed_at}, fresh={is_fresh}, "
-        f"cached_token_present={bool(cached_token)}, "
-        f"cached_wms_cookies={_cookie_name_domain_summary(cached_wms_cookies)}"
+        f"[BrowserAuth] unified cache check: scope={scope}, force_refresh={force_refresh}, "
+        f"complete={not cache_errors}, missing={cache_errors or '-'}"
     )
-    if (
-        not force_refresh
-        and is_fresh
-        and cached_token
-        and (not require_wms_cookie_header or cached_wms_cookies)
-    ):
-        logger.info(
-            f"[BrowserAuth] FBA cache hit: require_wms_cookie_header={require_wms_cookie_header}, "
-            f"wms_cookie_header_present={bool(require_wms_cookie_header and cached_wms_cookies)}"
+    if not force_refresh and not cache_errors:
+        return _auth_result(
+            scope=scope,
+            account=account,
+            source="cache",
+            payload=payload,
+            token=cached_token,
+            wms_cookie_header=cached_wms_cookie_header,
+            require_wms_cookie_header=require_wms_cookie_header,
         )
-        return {
-            "success": True,
-            "scope": "fba",
-            "account": account,
-            "source": "cache",
-            "cookies_by_domain": _parse_cookies_by_domain(payload),
-            "free_token": cached_token,
-            "wms_cookie_header": _build_cookie_header(cached_wms_cookies) if require_wms_cookie_header else "",
-        }
 
-    can_reuse_state = False
     logger.info(
-        f"[BrowserAuth] FBA refresh start: can_reuse_state={can_reuse_state}, "
-        f"force_refresh={force_refresh}, require_wms_cookie_header={require_wms_cookie_header}"
+        f"[BrowserAuth] unified refresh start: scope={scope}, force_refresh={force_refresh}, "
+        f"headless={headless}"
     )
     _clear_state_file(state_file)
 
@@ -924,57 +840,47 @@ def _ensure_fba_auth(
             _perform_login(page, account, password)
             page.wait_for_timeout(1000)
 
+            _visit_private_amz_cookie_refresh_page(page)
+            cookie_errors = _cookie_auth_errors({"cookies": context.cookies()})
+            if cookie_errors:
+                raise RuntimeError(f"库存 SKU 页面认证状态不完整: {', '.join(cookie_errors)}")
+
             page.goto(target_url, wait_until="domcontentloaded")
             token = _extract_token(page, token_origin, token_key)
-            logger.info(
-                f"[BrowserAuth] FBA token page loaded: token_present={bool(token)}, page_url={page.url}"
-            )
+            if not token:
+                raise RuntimeError("FBA 发货单页面未获取到 freeToken")
 
-            wms_cookie_header = ""
-            if require_wms_cookie_header:
-                wms_cookie_header = _collect_wms_cookie_header(page, context, wms_host, wms_entry_text)
+            wms_cookie_header = _collect_wms_cookie_header(page, context, wms_host, wms_entry_text)
+            if not wms_cookie_header:
+                raise RuntimeError("WMS 页面未获取到 Cookie Header")
 
-            refreshed_at = int(time.time())
+            def validate_final_state(final_payload: dict[str, Any]) -> None:
+                _require_complete_auth_material(final_payload)
+
             saved_payload = _save_storage_state(
                 context,
                 state_file,
-                extra_fields={
-                    "last_refreshed_at": refreshed_at,
-                },
+                validator=validate_final_state,
             )
         finally:
             context.close()
             browser.close()
 
-    if not token:
-        token = _storage_lookup_token(saved_payload, token_origin, token_key)
-    if not token:
-        raise RuntimeError("未获取到 freeToken")
-
-    if require_wms_cookie_header and not wms_cookie_header:
-        wms_cookies = _storage_lookup_domain_cookies(saved_payload, wms_host)
-        wms_cookie_header = _build_cookie_header(wms_cookies)
-        logger.info(
-            f"[BrowserAuth] WMS cookie header fallback from saved state: "
-            f"cookies={_cookie_name_domain_summary(wms_cookies)}, header_present={bool(wms_cookie_header)}"
-        )
-    if require_wms_cookie_header and not wms_cookie_header:
-        raise RuntimeError("未获取到 WMS Cookie Header")
+    token, wms_cookie_header = _require_complete_auth_material(saved_payload)
 
     logger.info(
-        f"[BrowserAuth] FBA refresh done: source=relogin, "
+        f"[BrowserAuth] unified refresh done: scope={scope}, source=relogin, "
         f"token_present={bool(token)}, wms_cookie_header_present={bool(wms_cookie_header)}"
     )
-
-    return {
-        "success": True,
-        "scope": "fba",
-        "account": account,
-        "source": "relogin",
-        "cookies_by_domain": _parse_cookies_by_domain(saved_payload),
-        "free_token": token,
-        "wms_cookie_header": wms_cookie_header,
-    }
+    return _auth_result(
+        scope=scope,
+        account=account,
+        source="relogin",
+        payload=saved_payload,
+        token=token,
+        wms_cookie_header=wms_cookie_header,
+        require_wms_cookie_header=require_wms_cookie_header,
+    )
 
 
 def _frame_url(frame) -> str:
@@ -1061,20 +967,20 @@ def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str
         entry = page.locator(f"text={wms_entry_text}")
     if entry.count() == 0:
         entry = page.locator("a[href*='main.jumpToWms']")
+    if entry.count() == 0:
+        raise RuntimeError(f"FBA 首页未找到 WMS 入口: {wms_entry_text}")
 
     popup = None
     try:
         try:
             with page.expect_popup(timeout=20000) as popup_info:
-                if entry.count() > 0:
-                    entry.first.click(timeout=10000, force=True)
-                else:
-                    page.goto(FBA_JUMP_WMS_URL, wait_until="domcontentloaded")
+                entry.first.click(timeout=10000, force=True)
             popup = popup_info.value
             popup.wait_for_load_state("domcontentloaded")
             monitor_page = popup
-        except Exception:
-            page.goto(FBA_JUMP_WMS_URL, wait_until="domcontentloaded")
+        except Exception as exc:
+            if str(getattr(page, "url", "") or "").rstrip("/") == FBA_HOME_URL.rstrip("/"):
+                raise RuntimeError(f"点击 WMS 入口失败: {exc}") from exc
             monitor_page = page
 
         deadline = time.time() + 30
