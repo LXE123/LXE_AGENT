@@ -91,14 +91,19 @@ class _FakeContext:
         return copy.deepcopy(self.final_payload)
 
     def close(self) -> None:
-        return None
+        self.events.append("context-close")
 
 
 class _FakePlaywright:
+    def __init__(self, events: list[str]) -> None:
+        self.events = events
+
     def __enter__(self):
+        self.events.append("playwright-enter")
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
+        self.events.append("playwright-exit")
         return None
 
 
@@ -113,7 +118,7 @@ class _FakeBrowser:
         return self.context
 
     def close(self) -> None:
-        return None
+        self.context.events.append("browser-close")
 
 
 def _install_refresh_route(
@@ -133,7 +138,7 @@ def _install_refresh_route(
             raise wms_error
         return "WMSID=fresh-wms", f"https://{service.FBA_LOGISTICS_WMS_HOST}/redirect/40402/page"
 
-    monkeypatch.setattr(service, "sync_playwright", lambda: _FakePlaywright())
+    monkeypatch.setattr(service, "sync_playwright", lambda: _FakePlaywright(events))
     monkeypatch.setattr(
         service,
         "_launch_chromium",
@@ -160,7 +165,18 @@ def test_refresh_always_runs_one_complete_clean_route(tmp_path: Path, monkeypatc
 
     result = service.refresh_auth()
 
-    assert events == ["login", "inventory", "fba", "free-token", "wms", "storage-state"]
+    assert events == [
+        "playwright-enter",
+        "login",
+        "inventory",
+        "fba",
+        "free-token",
+        "wms",
+        "storage-state",
+        "context-close",
+        "browser-close",
+        "playwright-exit",
+    ]
     assert context.storage_state_calls == 1
     assert context_calls == [
         {
@@ -194,7 +210,18 @@ def test_consecutive_refreshes_both_run_complete_route(tmp_path: Path, monkeypat
     service.refresh_auth()
     service.refresh_auth()
 
-    one_route = ["login", "inventory", "fba", "free-token", "wms", "storage-state"]
+    one_route = [
+        "playwright-enter",
+        "login",
+        "inventory",
+        "fba",
+        "free-token",
+        "wms",
+        "storage-state",
+        "context-close",
+        "browser-close",
+        "playwright-exit",
+    ]
     assert events == one_route * 2
     assert context.storage_state_calls == 2
     assert len(context_calls) == 2
@@ -278,7 +305,17 @@ def test_wms_failure_reports_stage_and_leaves_no_state(tmp_path: Path, monkeypat
     assert captured.value.current_url == service.FBA_LOGISTICS_TOKEN_TARGET_URL
     assert captured.value.exception_type == "RuntimeError"
     assert str(captured.value) == "element is not visible"
-    assert events == ["login", "inventory", "fba", "free-token", "wms"]
+    assert events == [
+        "playwright-enter",
+        "login",
+        "inventory",
+        "fba",
+        "free-token",
+        "wms",
+        "context-close",
+        "browser-close",
+        "playwright-exit",
+    ]
     assert context.storage_state_calls == 0
     assert not state_file.exists()
 
@@ -322,68 +359,56 @@ def test_credentials_failure_is_structured(monkeypatch) -> None:
     }
 
 
-def test_wms_stage_uses_original_entry_lookup_and_forced_click() -> None:
+def test_refresh_closes_browser_resources_before_playwright_exit(tmp_path: Path, monkeypatch) -> None:
+    state_file = tmp_path / "state.json"
+    events, _, _ = _install_refresh_route(monkeypatch, state_file)
+
+    service.refresh_auth()
+
+    assert events[-3:] == ["context-close", "browser-close", "playwright-exit"]
+
+
+def test_wms_stage_navigates_hidden_entry_href_without_clicking() -> None:
     events: list[str] = []
+    jump_href = "/index.php?mod=main.jumpToWms"
+    jump_url = f"https://private.mabangerp.com{jump_href}"
+    final_url = f"https://{service.FBA_LOGISTICS_WMS_HOST}/redirect/40402/page"
 
     class Entry:
-        def count(self) -> int:
-            return 1
-
         @property
         def first(self):
             return self
 
-        def filter(self, *, has_text: str):
-            assert has_text == service.FBA_LOGISTICS_WMS_ENTRY_TEXT
-            return self
+        def wait_for(self, *, state: str, timeout: int) -> None:
+            assert state == "attached"
+            assert timeout == 10000
+            events.append("wait-wms-entry")
 
-        def click(self, timeout: int, force: bool) -> None:
-            assert force is True
-            events.append("click-wms")
+        def get_attribute(self, name: str) -> str:
+            assert name == "href"
+            events.append("read-wms-href")
+            return jump_href
 
-    class Popup:
-        url = f"https://{service.FBA_LOGISTICS_WMS_HOST}/redirect/40402/page"
-
-        def wait_for_load_state(self, state: str) -> None:
-            events.append("popup-loaded")
-
-        def wait_for_timeout(self, timeout_ms: int) -> None:
-            return None
-
-        def close(self) -> None:
-            events.append("popup-closed")
-
-    popup = Popup()
-
-    class PopupInfo:
-        value = popup
-
-    class PopupExpectation:
-        def __enter__(self):
-            return PopupInfo()
-
-        def __exit__(self, exc_type, exc, tb) -> None:
-            return None
+        def click(self, *args, **kwargs) -> None:
+            raise AssertionError("hidden WMS entry must not be clicked")
 
     class Page:
         url = service.FBA_HOME_URL
 
         def goto(self, url: str, wait_until: str) -> None:
+            assert wait_until == "domcontentloaded"
             events.append(f"goto:{url}")
-            self.url = url
+            self.url = final_url if url == jump_url else url
 
         def wait_for_timeout(self, timeout_ms: int) -> None:
             return None
 
-        def get_by_role(self, role: str) -> Entry:
-            assert role == "listitem"
+        def locator(self, selector: str) -> Entry:
+            assert selector == "a[href*='main.jumpToWms']"
             return Entry()
 
-        def locator(self, selector: str) -> Entry:
-            raise AssertionError(f"primary role lookup should win, got fallback: {selector}")
-
-        def expect_popup(self, timeout: int) -> PopupExpectation:
-            return PopupExpectation()
+        def expect_popup(self, *args, **kwargs):
+            raise AssertionError("direct navigation must not wait for a popup")
 
     class Context:
         def cookies(self, urls=None) -> list[dict]:
@@ -404,26 +429,26 @@ def test_wms_stage_uses_original_entry_lookup_and_forced_click() -> None:
     )
 
     assert header == "WMSID=fresh-wms"
-    assert final_url == popup.url
+    assert final_url == f"https://{service.FBA_LOGISTICS_WMS_HOST}/redirect/40402/page"
     assert events == [
         f"goto:{service.FBA_HOME_URL}",
-        "click-wms",
-        "popup-loaded",
+        "wait-wms-entry",
+        "read-wms-href",
+        f"goto:{jump_url}",
         "read-wms-cookies",
-        "popup-closed",
     ]
 
 
-def test_wms_stage_fails_after_all_original_entry_lookups_are_empty() -> None:
-    selectors: list[str] = []
+def test_wms_stage_reports_missing_entry_after_wait_timeout() -> None:
+    selected_selector = ""
 
     class EmptyEntry:
-        def count(self) -> int:
-            return 0
-
-        def filter(self, *, has_text: str):
-            assert has_text == service.FBA_LOGISTICS_WMS_ENTRY_TEXT
+        @property
+        def first(self):
             return self
+
+        def wait_for(self, *, state: str, timeout: int) -> None:
+            raise service.PlaywrightTimeoutError("waiting for WMS entry timed out")
 
     class Page:
         url = service.FBA_HOME_URL
@@ -434,15 +459,12 @@ def test_wms_stage_fails_after_all_original_entry_lookups_are_empty() -> None:
         def wait_for_timeout(self, timeout_ms: int) -> None:
             return None
 
-        def get_by_role(self, role: str) -> EmptyEntry:
-            assert role == "listitem"
-            return EmptyEntry()
-
         def locator(self, selector: str) -> EmptyEntry:
-            selectors.append(selector)
+            nonlocal selected_selector
+            selected_selector = selector
             return EmptyEntry()
 
-    with pytest.raises(service.BrowserAuthRefreshError, match="未找到 WMS 入口") as captured:
+    with pytest.raises(service.BrowserAuthRefreshError) as captured:
         service._collect_wms_cookie_header(
             Page(),
             object(),
@@ -452,37 +474,21 @@ def test_wms_stage_fails_after_all_original_entry_lookups_are_empty() -> None:
 
     assert captured.value.to_payload()["stage"] == "wms"
     assert captured.value.to_payload()["current_url"] == service.FBA_HOME_URL
-    assert selectors == [
-        f"text={service.FBA_LOGISTICS_WMS_ENTRY_TEXT}",
-        "a[href*='main.jumpToWms']",
-    ]
+    assert captured.value.to_payload()["exception_type"] == "RuntimeError"
+    assert str(captured.value) == f"FBA 首页未找到 WMS 入口: {service.FBA_LOGISTICS_WMS_ENTRY_TEXT}"
+    assert selected_selector == "a[href*='main.jumpToWms']"
 
 
-def test_wms_stage_preserves_forced_entry_click_error() -> None:
-    class FakePlaywrightError(Exception):
-        pass
-
+def test_wms_stage_reports_entry_without_href() -> None:
     class Entry:
-        def count(self) -> int:
-            return 1
-
         @property
         def first(self):
             return self
 
-        def filter(self, *, has_text: str):
-            assert has_text == service.FBA_LOGISTICS_WMS_ENTRY_TEXT
-            return self
+        def wait_for(self, *, state: str, timeout: int) -> None:
+            return None
 
-        def click(self, timeout: int, force: bool) -> None:
-            assert force is True
-            raise FakePlaywrightError("Locator.click: Element is not visible")
-
-    class PopupExpectation:
-        def __enter__(self):
-            return object()
-
-        def __exit__(self, exc_type, exc, tb) -> None:
+        def get_attribute(self, name: str) -> None:
             return None
 
     class Page:
@@ -491,18 +497,52 @@ def test_wms_stage_preserves_forced_entry_click_error() -> None:
         def goto(self, url: str, wait_until: str) -> None:
             self.url = url
 
-        def wait_for_timeout(self, timeout_ms: int) -> None:
-            return None
-
-        def get_by_role(self, role: str) -> Entry:
-            assert role == "listitem"
+        def locator(self, selector: str) -> Entry:
             return Entry()
 
-        def locator(self, selector: str) -> Entry:
-            raise AssertionError(f"primary role lookup should win, got fallback: {selector}")
+    with pytest.raises(service.BrowserAuthRefreshError) as captured:
+        service._collect_wms_cookie_header(
+            Page(),
+            object(),
+            service.FBA_LOGISTICS_WMS_HOST,
+            service.FBA_LOGISTICS_WMS_ENTRY_TEXT,
+        )
 
-        def expect_popup(self, timeout: int) -> PopupExpectation:
-            return PopupExpectation()
+    assert captured.value.to_payload() == {
+        "success": False,
+        "stage": "wms",
+        "current_url": service.FBA_HOME_URL,
+        "exception_type": "RuntimeError",
+        "message": f"FBA 首页 WMS 入口缺少 href: {service.FBA_LOGISTICS_WMS_ENTRY_TEXT}",
+    }
+
+
+def test_wms_stage_preserves_direct_navigation_error() -> None:
+    class FakePlaywrightError(Exception):
+        pass
+
+    class Entry:
+        @property
+        def first(self):
+            return self
+
+        def wait_for(self, *, state: str, timeout: int) -> None:
+            return None
+
+        def get_attribute(self, name: str) -> str:
+            return "/index.php?mod=main.jumpToWms"
+
+    class Page:
+        url = service.FBA_HOME_URL
+
+        def goto(self, url: str, wait_until: str) -> None:
+            if url == service.FBA_HOME_URL:
+                self.url = url
+                return
+            raise FakePlaywrightError("Page.goto: net::ERR_CONNECTION_RESET")
+
+        def locator(self, selector: str) -> Entry:
+            return Entry()
 
     with pytest.raises(service.BrowserAuthRefreshError) as captured:
         service._collect_wms_cookie_header(
@@ -517,5 +557,51 @@ def test_wms_stage_preserves_forced_entry_click_error() -> None:
         "stage": "wms",
         "current_url": service.FBA_HOME_URL,
         "exception_type": "FakePlaywrightError",
-        "message": "Locator.click: Element is not visible",
+        "message": "Page.goto: net::ERR_CONNECTION_RESET",
+    }
+
+
+def test_wms_stage_reports_redirect_timeout(monkeypatch) -> None:
+    jump_url = "https://private.mabangerp.com/index.php?mod=main.jumpToWms"
+
+    class Entry:
+        @property
+        def first(self):
+            return self
+
+        def wait_for(self, *, state: str, timeout: int) -> None:
+            return None
+
+        def get_attribute(self, name: str) -> str:
+            return "/index.php?mod=main.jumpToWms"
+
+    class Page:
+        url = service.FBA_HOME_URL
+
+        def goto(self, url: str, wait_until: str) -> None:
+            self.url = url
+
+        def locator(self, selector: str) -> Entry:
+            return Entry()
+
+        def wait_for_timeout(self, timeout_ms: int) -> None:
+            return None
+
+    clock = iter([100.0, 131.0])
+    monkeypatch.setattr(service.time, "monotonic", lambda: next(clock))
+
+    with pytest.raises(service.BrowserAuthRefreshError) as captured:
+        service._collect_wms_cookie_header(
+            Page(),
+            object(),
+            service.FBA_LOGISTICS_WMS_HOST,
+            service.FBA_LOGISTICS_WMS_ENTRY_TEXT,
+        )
+
+    assert captured.value.to_payload() == {
+        "success": False,
+        "stage": "wms",
+        "current_url": jump_url,
+        "exception_type": "RuntimeError",
+        "message": f"WMS 跳转超时，当前URL: {jump_url}",
     }

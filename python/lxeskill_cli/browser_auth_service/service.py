@@ -5,9 +5,10 @@ import os
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
@@ -722,6 +723,13 @@ def _open_context(browser):
     )
 
 
+def _close_browser_resource(resource, label: str) -> None:
+    try:
+        resource.close()
+    except Exception as exc:
+        logger.warning(f"[BrowserAuth] {label} close failed: {exc}")
+
+
 def _visit_private_amz_cookie_refresh_page(page) -> None:
     page.goto(PRIVATE_AMZ_COOKIE_REFRESH_URL, wait_until="domcontentloaded")
     try:
@@ -755,13 +763,13 @@ def _refresh_auth(
 
     stage = "browser"
     page = None
-    browser = None
-    context = None
     try:
-        with sync_playwright() as playwright:
+        with sync_playwright() as playwright, ExitStack() as browser_resources:
             _log_refresh_stage(stage=stage, status="start")
             browser = _launch_chromium(playwright, headless=headless)
+            browser_resources.callback(_close_browser_resource, browser, "browser")
             context = _open_context(browser)
+            browser_resources.callback(_close_browser_resource, context, "context")
             _log_refresh_stage(stage=stage, status="success")
             page = context.new_page()
 
@@ -822,17 +830,6 @@ def _refresh_auth(
             current_url=_page_url(page),
             cause=exc,
         ) from exc
-    finally:
-        if context is not None:
-            try:
-                context.close()
-            except Exception as exc:
-                logger.warning(f"[BrowserAuth] context close failed: {exc}")
-        if browser is not None:
-            try:
-                browser.close()
-            except Exception as exc:
-                logger.warning(f"[BrowserAuth] browser close failed: {exc}")
 
     return {
         "success": True,
@@ -919,33 +916,22 @@ def _extract_token(
 
 
 def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str) -> tuple[str, str]:
-    popup = None
     monitor_page = page
     try:
         page.goto(FBA_HOME_URL, wait_until="domcontentloaded")
-        page.wait_for_timeout(1000)
-
-        entry = page.get_by_role("listitem").filter(has_text=wms_entry_text)
-        if entry.count() == 0:
-            entry = page.locator(f"text={wms_entry_text}")
-        if entry.count() == 0:
-            entry = page.locator("a[href*='main.jumpToWms']")
-        if entry.count() == 0:
-            raise RuntimeError(f"FBA 首页未找到 WMS 入口: {wms_entry_text}")
-
         try:
-            with page.expect_popup(timeout=20000) as popup_info:
-                entry.first.click(timeout=10000, force=True)
-            popup = popup_info.value
-            popup.wait_for_load_state("domcontentloaded")
-            monitor_page = popup
-        except Exception:
-            if str(getattr(page, "url", "") or "").rstrip("/") == FBA_HOME_URL.rstrip("/"):
-                raise
-            monitor_page = page
+            entry = page.locator("a[href*='main.jumpToWms']").first
+            entry.wait_for(state="attached", timeout=10000)
+        except PlaywrightTimeoutError as exc:
+            raise RuntimeError(f"FBA 首页未找到 WMS 入口: {wms_entry_text}") from exc
 
-        deadline = time.time() + 30
-        while time.time() < deadline:
+        entry_href = str(entry.get_attribute("href") or "").strip()
+        if not entry_href:
+            raise RuntimeError(f"FBA 首页 WMS 入口缺少 href: {wms_entry_text}")
+        page.goto(urljoin(FBA_HOME_URL, entry_href), wait_until="domcontentloaded")
+
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
             current_url = str(monitor_page.url or "").lower()
             if wms_host in current_url:
                 break
@@ -971,9 +957,3 @@ def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str
             current_url=_page_url(monitor_page),
             cause=exc,
         ) from exc
-    finally:
-        if popup is not None:
-            try:
-                popup.close()
-            except Exception:
-                pass
