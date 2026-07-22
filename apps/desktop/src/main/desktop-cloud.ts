@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { join } from "node:path";
+import type { Logger } from "@lxe/core";
 import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 import type {
   DesktopCloudActivationInput,
@@ -16,6 +18,8 @@ interface DesktopCloudServiceOptions {
   config: DesktopConfigStore;
   enrollments: DesktopCloudEnrollmentManager;
   provisioner: WireGuardProvisionerPort;
+  logger: Logger;
+  now?: () => number;
   onConfigured(): Promise<void>;
   fetch?: typeof globalThis.fetch;
 }
@@ -24,10 +28,12 @@ export class DesktopCloudService {
   private connection: DesktopCloudState["connection"];
   private lastError = "";
   private readonly fetch: typeof globalThis.fetch;
+  private readonly now: () => number;
   private activation: Promise<DesktopCloudState> | undefined;
 
   constructor(private readonly options: DesktopCloudServiceOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
+    this.now = options.now ?? Date.now;
     const configured = options.config.cloudConfiguration().managed;
     this.connection = configured ? "connecting" : options.supported ? "not_configured" : "unsupported";
   }
@@ -69,21 +75,43 @@ export class DesktopCloudService {
     this.connection = "connecting";
     this.lastError = "";
     const environment = this.options.config.environment();
-    return this.verifyActivation(environment.LXE_DATA_SERVER_API_KEY ?? "", cloud.data_server_url);
+    const activationId = randomUUID();
+    const logger = this.options.logger.child({
+      activation_id: activationId,
+      device_id: cloud.device_id,
+      vpn_ip: cloud.vpn_ip,
+    });
+    return this.verifyActivation(
+      environment.LXE_DATA_SERVER_API_KEY ?? "",
+      cloud.data_server_url,
+      logger,
+    );
   }
 
   private async activateOnce(input: DesktopCloudActivationInput): Promise<DesktopCloudState> {
     if (!this.options.supported) throw new Error("公司云端仅支持 Windows 10/11 x64 安装包");
+    const activationId = randomUUID();
+    const startedAt = this.now();
+    let logger = this.options.logger.child({ activation_id: activationId });
+    let stage = "decrypt_enrollment";
+    logger.info("cloud_enrollment_activation_started");
     this.connection = "provisioning";
     this.lastError = "";
     let configured = false;
     try {
       const payload = this.options.enrollments.decrypt(input.enrollment_id, input.password);
-      await this.options.provisioner.provision(payload);
+      const vpnIp = payload.wireguard.address.replace(/\/32$/u, "");
+      logger = logger.child({ device_id: payload.device.id, vpn_ip: vpnIp });
+      logger.info("cloud_enrollment_decrypted", {
+        duration_ms: Math.max(0, this.now() - startedAt),
+      });
+      stage = "wireguard_provision";
+      await this.options.provisioner.provision(payload, activationId);
+      stage = "persist_configuration";
       this.options.config.saveCloudEnrollment({
         deviceId: payload.device.id,
         deviceName: payload.device.name,
-        vpnIp: payload.wireguard.address.replace(/\/32$/u, ""),
+        vpnIp,
         dataServerUrl: payload.data_server.url,
         syncIntervalSeconds: payload.data_server.sync_interval_seconds,
         tunnelName: "lxe-agent",
@@ -92,9 +120,17 @@ export class DesktopCloudService {
       configured = true;
       this.options.enrollments.complete(input.enrollment_id);
       this.connection = "connecting";
-      await this.verifyActivation(payload.data_server.api_token, payload.data_server.url);
+      stage = "activate_device";
+      await this.verifyActivation(payload.data_server.api_token, payload.data_server.url, logger);
       return this.state();
     } catch (error) {
+      if (stage !== "activate_device") {
+        logger.error("cloud_device_activation_failed", {
+          failed_stage: stage,
+          duration_ms: Math.max(0, this.now() - startedAt),
+          observed_error: this.diagnosticError(error),
+        });
+      }
       this.connection = "error";
       this.lastError = this.publicError(error);
       throw new Error(this.lastError);
@@ -103,7 +139,12 @@ export class DesktopCloudService {
     }
   }
 
-  private async verifyActivation(apiToken: string, dataServerUrl: string): Promise<DesktopCloudState> {
+  private async verifyActivation(
+    apiToken: string,
+    dataServerUrl: string,
+    logger: Logger,
+  ): Promise<DesktopCloudState> {
+    const startedAt = this.now();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
@@ -123,15 +164,33 @@ export class DesktopCloudService {
         if (String(payload.device_id ?? "") !== cloud.device_id
           || String(payload.wireguard_ip ?? "") !== cloud.vpn_ip
           || String(payload.machine_id ?? "") !== identity.machine_id) {
-          throw new Error("云端返回的设备身份不一致");
+          const error = new Error("云端返回的设备身份不一致");
+          logger.error("cloud_device_activation_failed", {
+            failed_stage: "validate_device_identity",
+            duration_ms: Math.max(0, this.now() - startedAt),
+            http_status: response.status,
+            observed_error: error.message,
+          });
+          throw error;
         }
         this.connection = "connected";
         this.lastError = "";
+        logger.info("cloud_device_activation_completed", {
+          duration_ms: Math.max(0, this.now() - startedAt),
+          http_status: response.status,
+          connection: this.connection,
+        });
         return this.state();
       }
       if (response.status >= 500) {
         this.connection = "offline";
         this.lastError = "公司云端暂时不可用";
+        logger.warn("cloud_device_activation_failed", {
+          failed_stage: "activate_device",
+          duration_ms: Math.max(0, this.now() - startedAt),
+          http_status: response.status,
+          connection: this.connection,
+        });
         return this.state();
       }
       this.connection = "error";
@@ -140,15 +199,31 @@ export class DesktopCloudService {
         : response.status === 401 || response.status === 403
           ? "设备凭证已失效，请联系管理员"
           : `公司云端拒绝激活（HTTP ${response.status}）`;
+      logger.warn("cloud_device_activation_failed", {
+        failed_stage: "activate_device",
+        duration_ms: Math.max(0, this.now() - startedAt),
+        http_status: response.status,
+        connection: this.connection,
+      });
       return this.state();
     } catch (error) {
       if (error instanceof Error && error.message === "云端返回的设备身份不一致") throw error;
       this.connection = "offline";
       this.lastError = "公司网络暂不可用，Agent 将自动重试";
+      logger.warn("cloud_device_activation_failed", {
+        failed_stage: "activate_device",
+        duration_ms: Math.max(0, this.now() - startedAt),
+        connection: this.connection,
+        observed_error: this.diagnosticError(error),
+      });
       return this.state();
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  private diagnosticError(error: unknown): string {
+    return (error instanceof Error ? error.message : String(error)).trim().slice(0, 500);
   }
 
   private publicError(error: unknown): string {

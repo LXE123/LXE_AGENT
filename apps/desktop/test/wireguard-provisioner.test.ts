@@ -2,10 +2,25 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Logger } from "@lxe/core";
 import type { CloudEnrollmentPayload } from "../src/main/cloud-enrollment";
 import { WindowsWireGuardProvisioner, windowsCommandLineQuote } from "../src/main/wireguard-provisioner";
 
 const roots: string[] = [];
+type LogEvent = { level: string; message: string; fields: Record<string, unknown> };
+const testLogger = (events: LogEvent[]): Logger => ({
+  debug: (message, fields = {}) => events.push({ level: "debug", message, fields: { ...fields } }),
+  info: (message, fields = {}) => events.push({ level: "info", message, fields: { ...fields } }),
+  warn: (message, fields = {}) => events.push({ level: "warn", message, fields: { ...fields } }),
+  error: (message, fields = {}) => events.push({ level: "error", message, fields: { ...fields } }),
+  child: (fields) => ({
+    ...testLogger(events),
+    debug: (message, next = {}) => events.push({ level: "debug", message, fields: { ...fields, ...next } }),
+    info: (message, next = {}) => events.push({ level: "info", message, fields: { ...fields, ...next } }),
+    warn: (message, next = {}) => events.push({ level: "warn", message, fields: { ...fields, ...next } }),
+    error: (message, next = {}) => events.push({ level: "error", message, fields: { ...fields, ...next } }),
+  }),
+});
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -42,6 +57,7 @@ describe("WindowsWireGuardProvisioner", () => {
     mkdirSync(resources, { recursive: true });
     writeFileSync(join(resources, "wireguard-amd64-1.1.msi"), "msi");
     writeFileSync(join(resources, "provision-wireguard.ps1"), "script");
+    const events: LogEvent[] = [];
     let calls = 0;
     const provisioner = new WindowsWireGuardProvisioner({
       platform: "win32",
@@ -49,6 +65,7 @@ describe("WindowsWireGuardProvisioner", () => {
       packaged: true,
       dataRoot: join(root, "data"),
       resourcesPath: join(root, "resources"),
+      logger: testLogger(events),
       runElevated: async (_script, arguments_) => {
         calls += 1;
         const configPath = arguments_[arguments_.indexOf("-ConfigPath") + 1]!;
@@ -65,25 +82,44 @@ describe("WindowsWireGuardProvisioner", () => {
       },
     });
 
-    await provisioner.provision(payload);
+    await provisioner.provision(payload, "activation-success");
     expect(calls).toBe(1);
     const staging = join(root, "data", "config", ".cloud-provisioning");
     expect(existsSync(staging)).toBe(true);
     expect(readdirSync(staging)).toEqual([]);
+    expect(events.map(({ message }) => message)).toEqual([
+      "wireguard_provision_started",
+      "wireguard_provision_completed",
+    ]);
+    expect(events[1]?.fields).toMatchObject({
+      activation_id: "activation-success",
+      device_id: payload.device.id,
+      vpn_ip: "10.88.0.8",
+      connection: "connected",
+    });
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain(payload.wireguard.private_key);
+    expect(serialized).not.toContain(payload.data_server.api_token);
   });
 
   test("rejects unsupported hosts before creating any plaintext", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-wireguard-unsupported-"));
     roots.push(root);
+    const events: LogEvent[] = [];
     const provisioner = new WindowsWireGuardProvisioner({
       platform: "darwin",
       arch: "arm64",
       packaged: false,
       dataRoot: join(root, "data"),
       resourcesPath: join(root, "resources"),
+      logger: testLogger(events),
     });
-    await expect(provisioner.provision(payload)).rejects.toThrow("Windows 10/11 x64");
+    await expect(provisioner.provision(payload, "activation-unsupported")).rejects.toThrow("Windows 10/11 x64");
     expect(existsSync(join(root, "data"))).toBe(false);
+    expect(events.at(-1)).toMatchObject({
+      message: "wireguard_provision_failed",
+      fields: { failed_stage: "validate_host" },
+    });
   });
 
   test("reports a device binding conflict without exposing elevated-script details", async () => {
@@ -93,22 +129,77 @@ describe("WindowsWireGuardProvisioner", () => {
     mkdirSync(resources, { recursive: true });
     writeFileSync(join(resources, "wireguard-amd64-1.1.msi"), "msi");
     writeFileSync(join(resources, "provision-wireguard.ps1"), "script");
+    const events: LogEvent[] = [];
     const provisioner = new WindowsWireGuardProvisioner({
       platform: "win32",
       arch: "x64",
       packaged: true,
       dataRoot: join(root, "data"),
       resourcesPath: join(root, "resources"),
+      logger: testLogger(events),
       runElevated: async (_script, arguments_) => {
         const resultPath = arguments_[arguments_.indexOf("-ResultPath") + 1]!;
         writeFileSync(resultPath, JSON.stringify({
           ok: false,
           message: "This device file is already bound to another computer: secret detail",
+          failed_stage: "activate_device",
         }));
       },
     });
 
-    await expect(provisioner.provision(payload)).rejects.toThrow("该设备文件已绑定到另一台电脑");
+    await expect(provisioner.provision(payload, "activation-conflict"))
+      .rejects.toThrow("该设备文件已绑定到另一台电脑");
     expect(readdirSync(join(root, "data", "config", ".cloud-provisioning"))).toEqual([]);
+    expect(events.at(-1)).toMatchObject({
+      message: "wireguard_provision_failed",
+      fields: {
+        activation_id: "activation-conflict",
+        failed_stage: "activate_device",
+        observed_error: "This device file is already bound to another computer: secret detail",
+      },
+    });
+  });
+
+  test("reads the elevated failure result before removing diagnostic and plaintext files", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-wireguard-elevated-failure-"));
+    roots.push(root);
+    const resources = join(root, "resources", "wireguard");
+    mkdirSync(resources, { recursive: true });
+    writeFileSync(join(resources, "wireguard-amd64-1.1.msi"), "msi");
+    writeFileSync(join(resources, "provision-wireguard.ps1"), "script");
+    const events: LogEvent[] = [];
+    const provisioner = new WindowsWireGuardProvisioner({
+      platform: "win32",
+      arch: "x64",
+      packaged: true,
+      dataRoot: join(root, "data"),
+      resourcesPath: join(root, "resources"),
+      logger: testLogger(events),
+      runElevated: async (_script, arguments_) => {
+        const resultPath = arguments_[arguments_.indexOf("-ResultPath") + 1]!;
+        writeFileSync(resultPath, JSON.stringify({
+          ok: false,
+          message: "WireGuard did not secure the tunnel configuration",
+          failed_stage: "secure_configuration",
+        }));
+        throw new Error("WireGuard 配置未完成");
+      },
+    });
+
+    await expect(provisioner.provision(payload, "activation-elevated-failure"))
+      .rejects.toThrow("WireGuard 配置未完成");
+
+    expect(readdirSync(join(root, "data", "config", ".cloud-provisioning"))).toEqual([]);
+    expect(events.at(-1)).toMatchObject({
+      message: "wireguard_provision_failed",
+      fields: {
+        activation_id: "activation-elevated-failure",
+        failed_stage: "secure_configuration",
+        observed_error: "WireGuard did not secure the tunnel configuration",
+      },
+    });
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain(payload.wireguard.private_key);
+    expect(serialized).not.toContain(payload.data_server.api_token);
   });
 });

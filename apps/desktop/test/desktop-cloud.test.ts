@@ -3,11 +3,20 @@ import { createCipheriv, randomBytes, scryptSync } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Logger } from "@lxe/core";
 import { DesktopCloudEnrollmentManager, type CloudEnrollmentPayload } from "../src/main/cloud-enrollment";
 import { DesktopConfigStore } from "../src/main/config-store";
 import { DesktopCloudService } from "../src/main/desktop-cloud";
 
 const roots: string[] = [];
+type LogEvent = { level: string; message: string; fields: Record<string, unknown> };
+const testLogger = (events: LogEvent[], parent: Record<string, unknown> = {}): Logger => ({
+  debug: (message, fields = {}) => events.push({ level: "debug", message, fields: { ...parent, ...fields } }),
+  info: (message, fields = {}) => events.push({ level: "info", message, fields: { ...parent, ...fields } }),
+  warn: (message, fields = {}) => events.push({ level: "warn", message, fields: { ...parent, ...fields } }),
+  error: (message, fields = {}) => events.push({ level: "error", message, fields: { ...parent, ...fields } }),
+  child: (fields) => testLogger(events, { ...parent, ...fields }),
+});
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
@@ -70,6 +79,7 @@ describe("DesktopCloudService", () => {
     let provisioned = 0;
     let restarted = 0;
     let online = false;
+    const events: LogEvent[] = [];
     const fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       if (!online) throw new Error("network unavailable");
       const request = JSON.parse(String(init?.body)) as { machine_id: string };
@@ -86,6 +96,7 @@ describe("DesktopCloudService", () => {
       supported: true,
       config,
       enrollments,
+      logger: testLogger(events),
       provisioner: { provision: async () => { provisioned += 1; } },
       onConfigured: async () => { restarted += 1; },
       fetch,
@@ -101,5 +112,88 @@ describe("DesktopCloudService", () => {
     online = true;
     expect(await service.retry()).toMatchObject({ configured: true, connection: "connected" });
     expect(provisioned).toBe(1);
+    expect(events.map(({ message }) => message)).toEqual([
+      "cloud_enrollment_activation_started",
+      "cloud_enrollment_decrypted",
+      "cloud_device_activation_failed",
+      "cloud_device_activation_completed",
+    ]);
+    expect(events[2]?.fields).toMatchObject({
+      failed_stage: "activate_device",
+      connection: "offline",
+      observed_error: "network unavailable",
+    });
+    const serialized = JSON.stringify(events);
+    expect(serialized).not.toContain(password);
+    expect(serialized).not.toContain(enrollmentPayload.wireguard.private_key);
+    expect(serialized).not.toContain(enrollmentPayload.data_server.api_token);
+  });
+
+  test("logs an enrollment decryption failure without provisioning or exposing the password", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-decrypt-failure-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    const enrollments = new DesktopCloudEnrollmentManager();
+    const enrollmentPath = join(root, "Finance-PC-01.lxe-enroll");
+    const password = "ABCD-EFGH-JKLM-NPQR-2345";
+    const wrongPassword = "ZZZZ-ZZZZ-ZZZZ-ZZZZ-9999";
+    writeFileSync(enrollmentPath, encryptedEnrollment(password));
+    const events: LogEvent[] = [];
+    let provisioned = 0;
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments,
+      logger: testLogger(events),
+      provisioner: { provision: async () => { provisioned += 1; } },
+      onConfigured: async () => undefined,
+    });
+    const selection = service.select(enrollmentPath);
+
+    await expect(service.activate({ enrollment_id: selection.enrollment_id, password: wrongPassword }))
+      .rejects.toThrow("设备文件或密码不正确");
+
+    expect(provisioned).toBe(0);
+    expect(events.map(({ message }) => message)).toEqual([
+      "cloud_enrollment_activation_started",
+      "cloud_device_activation_failed",
+    ]);
+    expect(events[1]?.fields).toMatchObject({
+      failed_stage: "decrypt_enrollment",
+      observed_error: "设备文件或密码不正确",
+    });
+    expect(JSON.stringify(events)).not.toContain(wrongPassword);
+  });
+
+  test("logs an HTTP credential rejection without changing the public cloud state", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-http-rejection-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    const enrollments = new DesktopCloudEnrollmentManager();
+    const enrollmentPath = join(root, "Finance-PC-01.lxe-enroll");
+    const password = "ABCD-EFGH-JKLM-NPQR-2345";
+    writeFileSync(enrollmentPath, encryptedEnrollment(password));
+    const events: LogEvent[] = [];
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments,
+      logger: testLogger(events),
+      provisioner: { provision: async () => undefined },
+      onConfigured: async () => undefined,
+      fetch: async () => new Response(null, { status: 403 }),
+    });
+    const selection = service.select(enrollmentPath);
+
+    const state = await service.activate({ enrollment_id: selection.enrollment_id, password });
+
+    expect(state).toMatchObject({ connection: "error", last_error: "设备凭证已失效，请联系管理员" });
+    expect(events.at(-1)).toMatchObject({
+      message: "cloud_device_activation_failed",
+      fields: { failed_stage: "activate_device", http_status: 403, connection: "error" },
+    });
+    expect(JSON.stringify(events)).not.toContain(enrollmentPayload.data_server.api_token);
   });
 });

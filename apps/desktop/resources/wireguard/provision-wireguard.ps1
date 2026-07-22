@@ -19,9 +19,18 @@ $managerInstalledHere = $false
 $existingTunnelWasInstalled = $false
 $existingTunnelRemoved = $false
 $tunnelInstalledHere = $false
+$Stage = "validate_host"
 
-function Write-Result([bool]$Ok, [string]$Message, [string]$Connection = "error") {
+function Write-Result(
+  [bool]$Ok,
+  [string]$Message,
+  [string]$Connection = "error",
+  [string]$FailedStage = ""
+) {
   $result = @{ ok = $Ok; message = $Message; tunnel = $TunnelName; connection = $Connection }
+  if (-not [string]::IsNullOrWhiteSpace($FailedStage)) {
+    $result.failed_stage = $FailedStage
+  }
   $result | ConvertTo-Json -Compress | Set-Content -LiteralPath $ResultPath -Encoding UTF8
 }
 
@@ -29,12 +38,14 @@ try {
   if (-not [Environment]::Is64BitOperatingSystem -or [Environment]::OSVersion.Version.Major -lt 10) {
     throw "Windows 10/11 x64 is required"
   }
+  $Stage = "inspect_installation"
   $requiresInstall = -not (Test-Path -LiteralPath $WireGuardExe)
   if (-not $requiresInstall) {
     $currentVersion = [version](Get-Item -LiteralPath $WireGuardExe).VersionInfo.ProductVersion
     $requiresInstall = $currentVersion -lt [version]"1.1.0"
   }
   if ($requiresInstall) {
+    $Stage = "install_wireguard"
     if (-not (Test-Path -LiteralPath $MsiPath)) {
       throw "Bundled WireGuard installer is missing"
     }
@@ -45,6 +56,7 @@ try {
       throw "WireGuard installation failed with exit code $($installer.ExitCode)"
     }
   }
+  $Stage = "inspect_installation"
   if (-not (Test-Path -LiteralPath $WireGuardExe)) {
     throw "WireGuard executable is missing after installation"
   }
@@ -53,12 +65,14 @@ try {
     throw "Installed WireGuard version $installedVersion is older than 1.1.0"
   }
 
+  $Stage = "ensure_manager"
   $managerWasInstalled = $null -ne (Get-Service -Name "WireGuardManager" -ErrorAction SilentlyContinue)
   if (-not $managerWasInstalled) {
     & $WireGuardExe /installmanagerservice | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Unable to start the WireGuard secure configuration service" }
     $managerInstalledHere = $true
   }
+  $Stage = "stage_configuration"
   New-Item -ItemType Directory -Path $ConfigurationRoot -Force | Out-Null
   if (Test-Path -LiteralPath $SecureConfiguration) {
     Copy-Item -LiteralPath $SecureConfiguration -Destination $BackupConfiguration -Force
@@ -67,6 +81,7 @@ try {
   Remove-Item -LiteralPath $SecureConfiguration -Force -ErrorAction SilentlyContinue
   Copy-Item -LiteralPath $ConfigPath -Destination $PlainConfiguration -Force
 
+  $Stage = "secure_configuration"
   $deadline = [DateTime]::UtcNow.AddSeconds(30)
   while (((-not (Test-Path -LiteralPath $SecureConfiguration)) -or (Test-Path -LiteralPath $PlainConfiguration)) -and ([DateTime]::UtcNow -lt $deadline)) {
     Start-Sleep -Milliseconds 250
@@ -75,6 +90,7 @@ try {
     throw "WireGuard did not secure the tunnel configuration"
   }
 
+  $Stage = "install_tunnel"
   $existingTunnel = Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction SilentlyContinue
   $existingTunnelWasInstalled = $null -ne $existingTunnel
   if ($existingTunnelWasInstalled) {
@@ -85,12 +101,14 @@ try {
   & $WireGuardExe /installtunnelservice $SecureConfiguration | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "Unable to install the WireGuard tunnel service" }
   $tunnelInstalledHere = $true
+  $Stage = "start_tunnel"
   $service = Get-Service -Name "WireGuardTunnel`$$TunnelName" -ErrorAction Stop
   if ($service.Status -ne "Running") {
     Start-Service -Name $service.Name
     $service.WaitForStatus("Running", [TimeSpan]::FromSeconds(20))
   }
 
+  $Stage = "activate_device"
   $activation = Get-Content -LiteralPath $ActivationPath -Raw | ConvertFrom-Json
   $activationState = "offline"
   try {
@@ -129,6 +147,12 @@ try {
   Write-Result $true "ok" $activationState
   exit 0
 } catch {
+  $failedStage = $Stage
+  $failureMessage = $_.Exception.Message
+  if ($failureMessage.Length -gt 500) {
+    $failureMessage = $failureMessage.Substring(0, 500)
+  }
+  Write-Result $false $failureMessage "error" $failedStage
   if ($tunnelInstalledHere) {
     & $WireGuardExe /uninstalltunnelservice $TunnelName | Out-Null
   }
@@ -143,7 +167,6 @@ try {
   } else {
     Remove-Item -LiteralPath $SecureConfiguration -Force -ErrorAction SilentlyContinue
   }
-  Write-Result $false $_.Exception.Message
   exit 1
 } finally {
   if ($managerInstalledHere) {

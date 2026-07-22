@@ -29,6 +29,20 @@ describe("packaged WireGuard resources", () => {
     expect(provision).toContain("$managerInstalledHere");
     expect(provision).toContain("/api/v1/agent-data/devices/activate");
     expect(provision).toContain("This device file is already bound to another computer");
+    for (const stage of [
+      "validate_host",
+      "inspect_installation",
+      "install_wireguard",
+      "ensure_manager",
+      "stage_configuration",
+      "secure_configuration",
+      "install_tunnel",
+      "start_tunnel",
+      "activate_device",
+    ]) {
+      expect(provision).toContain(`$Stage = "${stage}"`);
+    }
+    expect(provision).toContain("$result.failed_stage = $FailedStage");
   });
 
   test("ships a narrow elevated cleanup for only the LXE-managed tunnel", () => {

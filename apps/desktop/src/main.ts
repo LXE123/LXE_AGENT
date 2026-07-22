@@ -197,17 +197,20 @@ async function bootstrap(): Promise<void> {
     onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
   });
   activeGateway = gateway;
+  const cloudLogger = logger.child({ subsystem: "cloud_enrollment" });
   const cloud = new DesktopCloudService({
     dataRoot: paths.dataRoot,
     supported: packagedRuntime && desktopPlatform === "win32" && process.arch === "x64",
     config,
     enrollments: new DesktopCloudEnrollmentManager(),
+    logger: cloudLogger,
     provisioner: new WindowsWireGuardProvisioner({
       platform: process.platform,
       arch: process.arch,
       packaged: packagedRuntime,
       dataRoot: paths.dataRoot,
       resourcesPath: process.resourcesPath,
+      logger: cloudLogger,
     }),
     onConfigured: async () => {
       await gateway.restart();
