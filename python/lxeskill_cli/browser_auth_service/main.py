@@ -22,34 +22,40 @@ def main() -> int:
     _configure_utf8_stdio()
     setup_logging()
     bootstrap_network_policy(label="browser_auth_service", emit=logger.info)
-    from .service import ensure_auth
+    from .service import BrowserAuthRefreshError, refresh_auth
 
     parser = argparse.ArgumentParser(prog="browser_auth_service")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    ensure_parser = subparsers.add_parser("ensure")
-    ensure_parser.add_argument("--scope", required=True, choices=["fba", "erp", "private_amz"])
-    ensure_parser.add_argument("--account", default="")
-    ensure_parser.add_argument("--require-wms-cookie-header", action="store_true")
-    ensure_parser.add_argument("--force-refresh", action="store_true")
+    refresh_parser = subparsers.add_parser("refresh")
+    refresh_parser.add_argument("--account", default="")
 
     args = parser.parse_args()
 
     try:
-        if args.command != "ensure":
+        if args.command != "refresh":
             raise ValueError(f"未知命令: {args.command}")
 
-        result = ensure_auth(
-            scope=args.scope,
-            account=args.account,
-            require_wms_cookie_header=bool(args.require_wms_cookie_header),
-            force_refresh=bool(args.force_refresh),
-        )
+        result = refresh_auth(account=args.account)
         json.dump(result, sys.stdout, ensure_ascii=False)
         sys.stdout.write("\n")
         return 0
+    except BrowserAuthRefreshError as exc:
+        json.dump(exc.to_payload(), sys.stdout, ensure_ascii=False)
+        sys.stdout.write("\n")
+        return 1
     except Exception as exc:
-        json.dump({"success": False, "message": str(exc)}, sys.stdout, ensure_ascii=False)
+        json.dump(
+            {
+                "success": False,
+                "stage": "browser",
+                "current_url": "",
+                "exception_type": type(exc).__name__,
+                "message": str(exc),
+            },
+            sys.stdout,
+            ensure_ascii=False,
+        )
         sys.stdout.write("\n")
         return 1
 

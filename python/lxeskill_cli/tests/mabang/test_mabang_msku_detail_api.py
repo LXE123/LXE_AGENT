@@ -83,7 +83,6 @@ class _FakeSession:
 
 async def _fake_auth_context(*args, **kwargs) -> MabangAuthContext:
     return MabangAuthContext(
-        scope="erp",
         account="",
         source="test",
         cookies_by_domain={
@@ -105,19 +104,16 @@ async def _fake_auth_context(*args, **kwargs) -> MabangAuthContext:
         },
         free_token="",
         wms_cookie_header="",
-        raw={},
     )
 
 
 async def _fake_auth_without_memcache(*args, **kwargs) -> MabangAuthContext:
     return MabangAuthContext(
-        scope="erp",
         account="",
         source="test",
         cookies_by_domain={".mabangerp.com": [{"name": "PHPSESSID", "value": "sid", "domain": ".mabangerp.com"}]},
         free_token="",
         wms_cookie_header="",
-        raw={},
     )
 
 

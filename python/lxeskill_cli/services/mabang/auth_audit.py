@@ -102,9 +102,7 @@ def log_auth_material_acquired(
     *,
     purpose: str = "",
     caller: str = "",
-    scope: str = "",
     source: str = "",
-    force_refresh: bool = False,
     cookies_by_domain: dict[str, list] | None = None,
     free_token: str = "",
     wms_cookie_header: str = "",
@@ -112,8 +110,7 @@ def log_auth_material_acquired(
     logger.info(
         "[MabangAuthAudit] event=auth_material_acquired "
         f"purpose={_clean_label(purpose)} caller={_clean_label(caller)} "
-        f"scope={_clean_label(scope)} source={_clean_label(source)} "
-        f"force_refresh={bool(force_refresh)} token_present={bool(str(free_token or '').strip())} "
+        f"source={_clean_label(source)} token_present={bool(str(free_token or '').strip())} "
         f"cookies_by_domain={cookies_by_domain_summary(cookies_by_domain)} "
         f"wms_cookie_header={cookie_header_summary(wms_cookie_header)}"
     )
@@ -126,7 +123,6 @@ def log_auth_material_consumed(
     auth_kind: str = "",
     request_url: str = "",
     request_host: str = "",
-    force_refresh: bool = False,
     cookie_header: str = "",
     token_present: bool | None = None,
     session: Any = None,
@@ -138,7 +134,7 @@ def log_auth_material_consumed(
         "[MabangAuthAudit] event=auth_material_consumed "
         f"purpose={_clean_label(purpose)} caller={_clean_label(caller)} "
         f"auth_kind={_clean_label(auth_kind)} request_host={_clean_label(host)} "
-        f"force_refresh={bool(force_refresh)} token_present={token_text} "
+        f"token_present={token_text} "
         f"cookie_header={cookie_header_summary(cookie_header)} "
         f"session_cookie_jar={jar_summary}"
     )

@@ -13,7 +13,7 @@ from shared.infra.net import erp_http_session
 from shared.logging import get_logger
 
 from ... import auth_audit
-from ...auth import get_fba_wms_cookie_header
+from ...auth import get_fba_wms_cookie_header, refresh_mabang_auth
 from ...errors import MabangAuthError, MabangBusinessError
 from .consignment_paths import resolve_wms_consignment_dir
 from . import wms_config as wms_settings
@@ -198,23 +198,18 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
 
     idx = 0
     auth_refreshed = False
-    force_refresh_next = False
     while idx < attempts:
         idx += 1
         try:
-            active_force_refresh = force_refresh_next
             cookie_header = await get_fba_wms_cookie_header(
-                force_refresh=active_force_refresh,
                 purpose=WMS_CONSIGNMENT_EXCEL_PURPOSE,
             )
-            force_refresh_next = False
             api_url, _, _ = _resolve_request_meta()
             auth_audit.log_auth_material_consumed(
                 purpose=WMS_CONSIGNMENT_EXCEL_PURPOSE,
                 caller="services.mabang.amazon.fba.wms.download_consignment_excel_from_wms",
                 auth_kind="wms_cookie_header",
                 request_url=api_url,
-                force_refresh=active_force_refresh,
                 cookie_header=cookie_header,
                 session=erp_http_session,
             )
@@ -228,8 +223,7 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
             logger.info(
                 f"[MabangAuthAudit] event=auth_request_response purpose={WMS_CONSIGNMENT_EXCEL_PURPOSE} "
                 f"caller=services.mabang.amazon.fba.wms.download_consignment_excel_from_wms shipNo={normalized} "
-                f"attempt={idx}/{attempts}, force_refresh={active_force_refresh}, "
-                f"status={status}, content_type={content_type or '-'}"
+                f"attempt={idx}/{attempts}, status={status}, content_type={content_type or '-'}"
             )
             if status in AUTH_FAIL_STATUS:
                 raise WmsExcelAuthError(f"WMS 导出鉴权失败(status={status})")
@@ -255,13 +249,13 @@ async def download_consignment_excel_from_wms(ship_no: str) -> Path:
             if not auth_refreshed:
                 last_error = exc
                 auth_refreshed = True
-                force_refresh_next = True
                 if idx >= attempts:
                     attempts += 1
                 logger.warning(
-                    f"[FBA Logistics][WMS] 鉴权失败，准备强制刷新后重试: "
+                    f"[FBA Logistics][WMS] 鉴权失败，准备完整刷新后重试: "
                     f"shipNo={normalized}, attempt={idx}/{attempts}, error={exc}"
                 )
+                await refresh_mabang_auth(purpose="wms_consignment_excel_auth_retry")
                 continue
 
             raise

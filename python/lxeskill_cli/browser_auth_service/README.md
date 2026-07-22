@@ -1,6 +1,7 @@
 # browser_auth_service
 
-马帮登录态刷新 CLI。业务侧通过子进程调用它，用 Playwright 获取/刷新 cookies、FBA `freeToken`、WMS Cookie Header。
+马帮登录态刷新 CLI。业务请求平时直接读取本地状态；需要刷新时才通过子进程调用本服务，
+用 Playwright 重新获取 Cookie、FBA `freeToken` 和 WMS Cookie Header。
 
 状态文件在：
 
@@ -13,40 +14,34 @@ var/db/lxeskill/browser_auth_service/mabang_erp/<account>/state.json
 
 ## 认证材料边界
 
-认证材料唯一来源是本服务的 `state.json` 和 CLI JSON 返回值。`erp_http_session` / `external_http_session` 使用无状态 CookieJar，不参与认证状态；新流程如果依赖服务端 `Set-Cookie` 连续性，需要显式纳入认证材料或使用局部短命 HTTP session。
+认证材料的唯一来源是本服务的 `state.json`。刷新命令只返回状态摘要，不返回 Cookie 或 token。
+`erp_http_session` / `external_http_session` 使用无状态 CookieJar，不参与认证状态；新流程如果依赖服务端
+`Set-Cookie` 连续性，需要显式纳入认证材料或使用局部短命 HTTP session。
 
 ## 用 CLI 测统一认证路径
 
 建议先开可视化，方便看页面到底跳到哪里：
 
 ```bash
-BROWSER_AUTH_HEADLESS=0 FBA_LOGISTICS_TOKEN_HEADLESS=0 .venv/bin/python -m browser_auth_service.main ensure --scope erp
-BROWSER_AUTH_HEADLESS=0 FBA_LOGISTICS_TOKEN_HEADLESS=0 .venv/bin/python -m browser_auth_service.main ensure --scope private_amz
-BROWSER_AUTH_HEADLESS=0 FBA_LOGISTICS_TOKEN_HEADLESS=0 .venv/bin/python -m browser_auth_service.main ensure --scope fba
-BROWSER_AUTH_HEADLESS=0 FBA_LOGISTICS_TOKEN_HEADLESS=0 .venv/bin/python -m browser_auth_service.main ensure --scope fba --require-wms-cookie-header
+BROWSER_AUTH_HEADLESS=0 uv run --frozen python -m browser_auth_service.main refresh
 ```
 
-这四种调用保留了原有参数和返回结构，但真实刷新路线完全相同：登录 → 库存 SKU → FBA 发货单 → WMS。
-`--scope` 和 `--require-wms-cookie-header` 只控制返回字段，不再裁剪刷新步骤。只有本地文件同时包含完整
-Cookie、`freeToken` 和 WMS Cookie 时，普通 `ensure` 才会直接返回缓存；`--force` 每次都会完整刷新。
+刷新路线固定为：登录 → 库存 SKU → FBA 发货单 → 点击进入 WMS → 原子写入完整状态。
+每次 `refresh` 都会清除旧状态并真实执行整条路线，不存在 Scope、缓存命中或强刷开关。
 
 Windows PowerShell 不支持上面的 Unix 环境变量写法，用这个：
 
 ```powershell
 $env:BROWSER_AUTH_HEADLESS="0"
-$env:FBA_LOGISTICS_TOKEN_HEADLESS="0"
-.\.venv\Scripts\python.exe -m browser_auth_service.main ensure --scope erp
-.\.venv\Scripts\python.exe -m browser_auth_service.main ensure --scope private_amz
-.\.venv\Scripts\python.exe -m browser_auth_service.main ensure --scope fba
-.\.venv\Scripts\python.exe -m browser_auth_service.main ensure --scope fba --require-wms-cookie-header
+uv run --frozen python -m browser_auth_service.main refresh
 ```
 
-重点看输出 JSON：
+stderr 会实时输出各阶段的开始、成功、实际 URL 或真实错误；stdout 最后一行只输出状态 JSON。重点看：
 
 - `success`
-- `source`: `cache` / `refresh` / `relogin`
-- `free_token` 是否为空
-- `wms_cookie_header` 是否为空
+- `final_url`
+- `state_written`
+- 失败时的 `stage`、`current_url`、`exception_type` 和 `message`
 
 ## 看复盘日志
 
@@ -75,13 +70,13 @@ Get-Content -Wait "var\logs\browser_auth_service\$(Get-Date -Format yyyyMMdd)\br
 只跑 browser auth 相关单测：
 
 ```bash
-.venv/bin/python -m pytest -q python/lxeskill_cli/tests/auth/test_browser_auth_service_storage_state.py python/lxeskill_cli/tests/auth/test_browser_auth_service_fba_token.py
+uv run --frozen python -m pytest -q python/lxeskill_cli/tests/auth
 ```
 
 编译检查：
 
 ```bash
-.venv/bin/python -m compileall -q python/lxeskill_cli/browser_auth_service python/lxeskill_cli/tests
+uv run --frozen python -m compileall -q python/lxeskill_cli/browser_auth_service python/lxeskill_cli/tests
 ```
 
 ## 看 state 摘要
@@ -89,7 +84,7 @@ Get-Content -Wait "var\logs\browser_auth_service\$(Get-Date -Format yyyyMMdd)\br
 只打印域名和 localStorage key，不打印 value：
 
 ```bash
-.venv/bin/python - <<'PY'
+uv run --frozen python - <<'PY'
 import json
 from pathlib import Path
 

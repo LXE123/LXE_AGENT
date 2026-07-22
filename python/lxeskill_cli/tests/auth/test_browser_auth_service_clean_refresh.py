@@ -30,16 +30,14 @@ def _complete_payload(token: str = "fresh-token") -> dict:
             }
             for name in service.PRIVATE_AMZ_REQUIRED_COOKIE_NAMES
         ],
-    ]
-    cookies.append(
         {
             "name": "WMSID",
             "value": "fresh-wms",
             "domain": service.FBA_LOGISTICS_WMS_HOST,
             "path": "/",
             "expires": expires,
-        }
-    )
+        },
+    ]
     return {
         "cookies": cookies,
         "origins": [
@@ -105,11 +103,20 @@ class _FakePlaywright:
 
 
 class _FakeBrowser:
+    def __init__(self, context: _FakeContext, context_calls: list[dict], state_file: Path) -> None:
+        self.context = context
+        self.context_calls = context_calls
+        self.state_file = state_file
+
+    def new_context(self, **kwargs):
+        self.context_calls.append({**kwargs, "state_exists": self.state_file.exists()})
+        return self.context
+
     def close(self) -> None:
         return None
 
 
-def _install_unified_route(
+def _install_refresh_route(
     monkeypatch,
     state_file: Path,
     *,
@@ -120,25 +127,18 @@ def _install_unified_route(
     context = _FakeContext(events, final_payload or _complete_payload())
     context_calls: list[dict] = []
 
-    def fake_open_context(browser, path, can_reuse_state, storage_state_payload=None):
-        context_calls.append(
-            {
-                "can_reuse_state": can_reuse_state,
-                "storage_state_payload": storage_state_payload,
-                "state_exists": path.exists(),
-            }
-        )
-        return context
-
     def fake_collect_wms(page, browser_context, host, entry_text):
         events.append("wms")
         if wms_error is not None:
             raise wms_error
-        return "WMSID=fresh-wms"
+        return "WMSID=fresh-wms", f"https://{service.FBA_LOGISTICS_WMS_HOST}/redirect/40402/page"
 
     monkeypatch.setattr(service, "sync_playwright", lambda: _FakePlaywright())
-    monkeypatch.setattr(service, "_launch_chromium", lambda playwright, headless: _FakeBrowser())
-    monkeypatch.setattr(service, "_open_context", fake_open_context)
+    monkeypatch.setattr(
+        service,
+        "_launch_chromium",
+        lambda playwright, headless: _FakeBrowser(context, context_calls, state_file),
+    )
     monkeypatch.setattr(service, "_perform_login", lambda page, account, password: events.append("login"))
 
     def fake_extract_token(page, origin, key):
@@ -147,93 +147,81 @@ def _install_unified_route(
 
     monkeypatch.setattr(service, "_extract_token", fake_extract_token)
     monkeypatch.setattr(service, "_collect_wms_cookie_header", fake_collect_wms)
-    monkeypatch.setattr(service, "_resolve_credentials", lambda scope, account: ("account-a", "password"))
+    monkeypatch.setattr(service, "_resolve_credentials", lambda account: ("account-a", "password"))
     monkeypatch.setattr(service, "_state_file", lambda account: state_file)
     return events, context, context_calls
 
 
-@pytest.mark.parametrize(
-    ("scope", "require_wms_cookie_header"),
-    [
-        ("erp", False),
-        ("private_amz", False),
-        ("fba", False),
-        ("fba", True),
-    ],
-)
-def test_every_scope_force_refresh_uses_one_complete_clean_route(
-    scope: str,
-    require_wms_cookie_header: bool,
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_refresh_always_runs_one_complete_clean_route(tmp_path: Path, monkeypatch, caplog) -> None:
+    caplog.set_level("INFO")
     state_file = tmp_path / "state.json"
-    state_file.write_text(
-        '{"cookies":[{"name":"old"}],"last_refreshed_at":1}',
-        encoding="utf-8",
-    )
-    events, context, context_calls = _install_unified_route(monkeypatch, state_file)
+    state_file.write_text(json.dumps(_complete_payload("old-token")), encoding="utf-8")
+    events, context, context_calls = _install_refresh_route(monkeypatch, state_file)
 
-    result = service.ensure_auth(
-        scope,
-        require_wms_cookie_header=require_wms_cookie_header,
-        force_refresh=True,
-    )
+    result = service.refresh_auth()
 
     assert events == ["login", "inventory", "fba", "free-token", "wms", "storage-state"]
     assert context.storage_state_calls == 1
     assert context_calls == [
         {
-            "can_reuse_state": False,
-            "storage_state_payload": None,
+            "accept_downloads": True,
+            "viewport": {"width": 1920, "height": 1080},
             "state_exists": False,
         }
     ]
+    assert "storage_state" not in context_calls[0]
     saved_payload = json.loads(state_file.read_text(encoding="utf-8"))
     assert service._require_complete_auth_material(saved_payload)
-    assert "last_refreshed_at" not in saved_payload
-    assert result["scope"] == scope
-    assert result["source"] == "relogin"
-    if scope == "fba":
-        assert result["free_token"] == "fresh-token"
-        assert bool(result["wms_cookie_header"]) is require_wms_cookie_header
-    else:
-        assert "free_token" not in result
-        assert "wms_cookie_header" not in result
+    assert result == {
+        "success": True,
+        "account": "account-a",
+        "source": "refresh",
+        "final_url": f"https://{service.FBA_LOGISTICS_WMS_HOST}/redirect/40402/page",
+        "state_written": True,
+    }
+    assert "scope" not in result
+    assert "free_token" not in result
+    assert "wms_cookie_header" not in result
+    for stage in ("credentials", "browser", "login", "inventory_sku", "fba_delivery", "wms", "persist"):
+        assert f"stage={stage} status=start" in caplog.text
+        assert f"stage={stage} status=success" in caplog.text
 
 
-@pytest.mark.parametrize("scope", ["erp", "private_amz", "fba"])
-def test_complete_state_uses_cache_without_fba_ttl(
-    scope: str,
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_consecutive_refreshes_both_run_complete_route(tmp_path: Path, monkeypatch) -> None:
     state_file = tmp_path / "state.json"
-    payload = _complete_payload("cached-token")
-    payload["last_refreshed_at"] = 1
-    state_file.write_text(json.dumps(payload), encoding="utf-8")
-    monkeypatch.setattr(service, "_resolve_credentials", lambda requested_scope, account: ("account-a", "password"))
+    events, context, context_calls = _install_refresh_route(monkeypatch, state_file)
+
+    service.refresh_auth()
+    service.refresh_auth()
+
+    one_route = ["login", "inventory", "fba", "free-token", "wms", "storage-state"]
+    assert events == one_route * 2
+    assert context.storage_state_calls == 2
+    assert len(context_calls) == 2
+
+
+def test_read_auth_returns_all_complete_material_without_browser(tmp_path: Path, monkeypatch) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps(_complete_payload("cached-token")), encoding="utf-8")
     monkeypatch.setattr(service, "_state_file", lambda account: state_file)
+    monkeypatch.setattr(service.mabang_settings, "MABANG_ACCOUNT", "account-a")
     monkeypatch.setattr(
         service,
         "sync_playwright",
-        lambda: (_ for _ in ()).throw(AssertionError("complete cache must not open a browser")),
+        lambda: (_ for _ in ()).throw(AssertionError("file read must not open a browser")),
     )
 
-    result = service.ensure_auth(scope, require_wms_cookie_header=True)
+    result = service.read_auth()
 
-    assert result["source"] == "cache"
-    if scope == "fba":
-        assert result["free_token"] == "cached-token"
-        assert "WMSID=fresh-wms" in result["wms_cookie_header"]
+    assert result["source"] == "file"
+    assert result["free_token"] == "cached-token"
+    assert "WMSID=fresh-wms" in result["wms_cookie_header"]
+    assert result["cookies_by_domain"]
+    assert "scope" not in result
 
 
 @pytest.mark.parametrize("missing", ["private-cookie", "free-token", "wms-cookie"])
-def test_missing_any_required_material_runs_complete_refresh(
-    missing: str,
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
+def test_read_auth_rejects_any_incomplete_material(missing: str, tmp_path: Path, monkeypatch) -> None:
     state_file = tmp_path / "state.json"
     payload = _complete_payload("cached-token")
     if missing == "private-cookie":
@@ -254,26 +242,42 @@ def test_missing_any_required_material_runs_complete_refresh(
             )
         ]
     state_file.write_text(json.dumps(payload), encoding="utf-8")
-    events, _, _ = _install_unified_route(monkeypatch, state_file)
+    monkeypatch.setattr(service, "_state_file", lambda account: state_file)
+    monkeypatch.setattr(service.mabang_settings, "MABANG_ACCOUNT", "account-a")
 
-    result = service.ensure_auth("erp")
-
-    assert result["source"] == "relogin"
-    assert events == ["login", "inventory", "fba", "free-token", "wms", "storage-state"]
+    with pytest.raises(RuntimeError, match="统一认证状态不完整"):
+        service.read_auth()
 
 
-def test_wms_failure_leaves_no_state_or_partial_write(tmp_path: Path, monkeypatch) -> None:
+def test_read_auth_preserves_invalid_state_file_error(tmp_path: Path, monkeypatch) -> None:
     state_file = tmp_path / "state.json"
-    state_file.write_text('{"cookies":[{"name":"old"}]}', encoding="utf-8")
-    events, context, _ = _install_unified_route(
+    state_file.write_text("{not-json", encoding="utf-8")
+    monkeypatch.setattr(service, "_state_file", lambda account: state_file)
+    monkeypatch.setattr(service.mabang_settings, "MABANG_ACCOUNT", "account-a")
+
+    with pytest.raises(RuntimeError) as captured:
+        service.read_auth()
+
+    assert "JSONDecodeError" in str(captured.value)
+    assert "Expecting property name" in str(captured.value)
+
+
+def test_wms_failure_reports_stage_and_leaves_no_state(tmp_path: Path, monkeypatch) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps(_complete_payload("old-token")), encoding="utf-8")
+    events, context, _ = _install_refresh_route(
         monkeypatch,
         state_file,
-        wms_error=RuntimeError("wms failed"),
+        wms_error=RuntimeError("element is not visible"),
     )
 
-    with pytest.raises(RuntimeError, match="wms failed"):
-        service.ensure_auth("private_amz", force_refresh=True)
+    with pytest.raises(service.BrowserAuthRefreshError) as captured:
+        service.refresh_auth()
 
+    assert captured.value.stage == "wms"
+    assert captured.value.current_url == service.FBA_LOGISTICS_TOKEN_TARGET_URL
+    assert captured.value.exception_type == "RuntimeError"
+    assert str(captured.value) == "element is not visible"
     assert events == ["login", "inventory", "fba", "free-token", "wms"]
     assert context.storage_state_calls == 0
     assert not state_file.exists()
@@ -281,29 +285,47 @@ def test_wms_failure_leaves_no_state_or_partial_write(tmp_path: Path, monkeypatc
 
 def test_final_state_is_validated_before_atomic_write(tmp_path: Path, monkeypatch) -> None:
     state_file = tmp_path / "state.json"
-    state_file.write_text('{"cookies":[{"name":"old"}]}', encoding="utf-8")
+    state_file.write_text(json.dumps(_complete_payload("old-token")), encoding="utf-8")
     incomplete_payload = _complete_payload()
     incomplete_payload["origins"] = []
-    _, context, _ = _install_unified_route(
+    _, context, _ = _install_refresh_route(
         monkeypatch,
         state_file,
         final_payload=incomplete_payload,
     )
 
-    with pytest.raises(RuntimeError, match=r"freeToken\(missing\)"):
-        service.ensure_auth("fba", force_refresh=True)
+    with pytest.raises(service.BrowserAuthRefreshError) as captured:
+        service.refresh_auth()
 
+    assert captured.value.stage == "persist"
+    assert "freeToken(missing)" in str(captured.value)
     assert context.storage_state_calls == 1
     assert not state_file.exists()
 
 
-def test_wms_stage_returns_home_and_clicks_entry() -> None:
+def test_credentials_failure_is_structured(monkeypatch) -> None:
+    monkeypatch.setattr(
+        service,
+        "_resolve_credentials",
+        lambda account: (_ for _ in ()).throw(ValueError("Mabang 密码为空")),
+    )
+
+    with pytest.raises(service.BrowserAuthRefreshError) as captured:
+        service.refresh_auth()
+
+    assert captured.value.to_payload() == {
+        "success": False,
+        "stage": "credentials",
+        "current_url": "",
+        "exception_type": "ValueError",
+        "message": "Mabang 密码为空",
+    }
+
+
+def test_wms_stage_returns_home_and_clicks_visible_entry() -> None:
     events: list[str] = []
 
     class Entry:
-        def filter(self, *, has_text: str):
-            return self
-
         def count(self) -> int:
             return 1
 
@@ -311,7 +333,7 @@ def test_wms_stage_returns_home_and_clicks_entry() -> None:
         def first(self):
             return self
 
-        def click(self, timeout: int, force: bool) -> None:
+        def click(self, timeout: int) -> None:
             events.append("click-wms")
 
     class Popup:
@@ -348,8 +370,8 @@ def test_wms_stage_returns_home_and_clicks_entry() -> None:
         def wait_for_timeout(self, timeout_ms: int) -> None:
             return None
 
-        def get_by_role(self, role: str) -> Entry:
-            assert role == "listitem"
+        def locator(self, selector: str) -> Entry:
+            assert selector == "a[href*='main.jumpToWms']:visible"
             return Entry()
 
         def expect_popup(self, timeout: int) -> PopupExpectation:
@@ -366,7 +388,7 @@ def test_wms_stage_returns_home_and_clicks_entry() -> None:
                 }
             ]
 
-    header = service._collect_wms_cookie_header(
+    header, final_url = service._collect_wms_cookie_header(
         Page(),
         Context(),
         service.FBA_LOGISTICS_WMS_HOST,
@@ -374,6 +396,7 @@ def test_wms_stage_returns_home_and_clicks_entry() -> None:
     )
 
     assert header == "WMSID=fresh-wms"
+    assert final_url == popup.url
     assert events == [
         f"goto:{service.FBA_HOME_URL}",
         "click-wms",
@@ -383,11 +406,8 @@ def test_wms_stage_returns_home_and_clicks_entry() -> None:
     ]
 
 
-def test_wms_stage_fails_when_home_has_no_clickable_entry() -> None:
+def test_wms_stage_fails_when_home_has_no_visible_entry() -> None:
     class EmptyEntry:
-        def filter(self, *, has_text: str):
-            return self
-
         def count(self) -> int:
             return 0
 
@@ -400,16 +420,72 @@ def test_wms_stage_fails_when_home_has_no_clickable_entry() -> None:
         def wait_for_timeout(self, timeout_ms: int) -> None:
             return None
 
-        def get_by_role(self, role: str) -> EmptyEntry:
-            return EmptyEntry()
-
         def locator(self, selector: str) -> EmptyEntry:
+            assert selector == "a[href*='main.jumpToWms']:visible"
             return EmptyEntry()
 
-    with pytest.raises(RuntimeError, match="未找到 WMS 入口"):
+    with pytest.raises(service.BrowserAuthRefreshError, match="未找到可见 WMS 入口") as captured:
         service._collect_wms_cookie_header(
             Page(),
             object(),
             service.FBA_LOGISTICS_WMS_HOST,
             service.FBA_LOGISTICS_WMS_ENTRY_TEXT,
         )
+
+    assert captured.value.to_payload()["stage"] == "wms"
+    assert captured.value.to_payload()["current_url"] == service.FBA_HOME_URL
+
+
+def test_wms_stage_preserves_visible_entry_click_error() -> None:
+    class FakePlaywrightError(Exception):
+        pass
+
+    class Entry:
+        def count(self) -> int:
+            return 1
+
+        @property
+        def first(self):
+            return self
+
+        def click(self, timeout: int) -> None:
+            raise FakePlaywrightError("Locator.click: Element is not visible")
+
+    class PopupExpectation:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    class Page:
+        url = service.FBA_HOME_URL
+
+        def goto(self, url: str, wait_until: str) -> None:
+            self.url = url
+
+        def wait_for_timeout(self, timeout_ms: int) -> None:
+            return None
+
+        def locator(self, selector: str) -> Entry:
+            assert selector == "a[href*='main.jumpToWms']:visible"
+            return Entry()
+
+        def expect_popup(self, timeout: int) -> PopupExpectation:
+            return PopupExpectation()
+
+    with pytest.raises(service.BrowserAuthRefreshError) as captured:
+        service._collect_wms_cookie_header(
+            Page(),
+            object(),
+            service.FBA_LOGISTICS_WMS_HOST,
+            service.FBA_LOGISTICS_WMS_ENTRY_TEXT,
+        )
+
+    assert captured.value.to_payload() == {
+        "success": False,
+        "stage": "wms",
+        "current_url": service.FBA_HOME_URL,
+        "exception_type": "FakePlaywrightError",
+        "message": "Locator.click: Element is not visible",
+    }

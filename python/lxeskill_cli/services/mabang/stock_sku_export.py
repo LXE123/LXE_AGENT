@@ -18,7 +18,7 @@ from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session, external_http_session
 from shared.workspace import artifact_path
 
-from .auth import get_auth_context
+from .auth import get_auth_context, refresh_mabang_auth
 from .cookies import build_cookie_header, extract_named_cookies
 from .errors import MabangAuthError, MabangBusinessError, MabangRequestError
 
@@ -167,7 +167,7 @@ async def _read_stock_export_json(resp: Any, *, action: str) -> dict[str, Any]:
 
 
 async def _resolve_private_auth() -> tuple[str, str]:
-    context = await get_auth_context(scope="erp")
+    context = await get_auth_context()
     cookie_header = build_cookie_header(
         context.cookies_by_domain,
         request_host=PRIVATE_HOST,
@@ -521,11 +521,7 @@ async def export_stock_sku_names(
     try:
         return await run_once()
     except StockSkuExportAuthError:
-        await get_auth_context(
-            scope="erp",
-            force_refresh=True,
-            purpose="stock_sku_export_force_refresh",
-        )
+        await refresh_mabang_auth(purpose="stock_sku_export_auth_retry")
         return await run_once()
 
 

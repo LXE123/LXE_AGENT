@@ -302,7 +302,7 @@ async def _read_msku_json(resp: Any, *, action: str) -> dict[str, Any]:
 
 
 async def resolve_msku_detail_auth() -> PrivateAmzExportAuth:
-    context = await get_auth_context(scope="private_amz", purpose="msku_detail_download")
+    context = await get_auth_context(purpose="msku_detail_download")
     return build_private_amz_headers(
         context,
         required_names=PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,

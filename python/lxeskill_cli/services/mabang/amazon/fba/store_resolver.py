@@ -20,7 +20,7 @@ from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session
 from shared.workspace import artifact_path
 
-from ...auth import get_auth_context
+from ...auth import get_auth_context, refresh_mabang_auth
 from ...cookies import build_cookie_header, extract_named_cookies, list_cookie_names
 from ...errors import (
     MabangAuthError,
@@ -319,7 +319,7 @@ def match_fba_store(query: str, stores: list[FbaStore]) -> FbaStoreResolveResult
 
 
 async def resolve_fba_store_auth() -> FbaStoreResolverAuth:
-    context = await get_auth_context(scope="private_amz", purpose="fba_store_resolver")
+    context = await get_auth_context(purpose="fba_store_resolver")
     cookie_header = build_cookie_header(
         context.cookies_by_domain,
         request_host=PRIVATE_AMZ_HOST,
@@ -401,11 +401,7 @@ async def fetch_fba_stores() -> list[FbaStore]:
     try:
         return await _fetch_fba_stores_once()
     except FbaStoreResolverAuthError:
-        await get_auth_context(
-            scope="private_amz",
-            force_refresh=True,
-            purpose="fba_store_resolver_force_refresh",
-        )
+        await refresh_mabang_auth(purpose="fba_store_resolver_auth_retry")
         return await _fetch_fba_stores_once()
 
 

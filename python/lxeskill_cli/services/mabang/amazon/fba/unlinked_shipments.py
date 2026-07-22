@@ -15,7 +15,7 @@ from shared.infra.net import erp_http_session, external_http_session
 from shared.logging import get_logger
 from shared.workspace import artifact_path
 
-from ...auth import get_fba_free_token
+from ...auth import get_fba_free_token, refresh_mabang_auth
 from ...errors import MabangBusinessError, MabangRequestError
 from .batch_delivery import (
     DEFAULT_BATCH_DELIVERY_LIST_URL,
@@ -853,12 +853,9 @@ async def download_store_unlinked_shipments(
             download_time=download_time,
         )
     except BatchDeliveryApiAuthError:
-        logger.warning("[FBAAuthRetry] 未关联货件鉴权失败，准备强制刷新 freeToken: store_name=%s", clean_store_name)
+        logger.warning("[FBAAuthRetry] 未关联货件鉴权失败，准备刷新完整认证状态: store_name=%s", clean_store_name)
 
-    await get_fba_free_token(
-        force_refresh=True,
-        purpose="fba_unlinked_shipments_download_force_refresh",
-    )
+    await refresh_mabang_auth(purpose="fba_unlinked_shipments_download_auth_retry")
     result = await _download_store_unlinked_shipments_once(
         clean_store_name,
         timeout_sec=timeout_sec,
@@ -868,7 +865,7 @@ async def download_store_unlinked_shipments(
         download_time=download_time,
     )
 
-    logger.info("[FBAAuthRetry] 未关联货件强制刷新后重试成功: store_name=%s", clean_store_name)
+    logger.info("[FBAAuthRetry] 未关联货件刷新认证状态后重试成功: store_name=%s", clean_store_name)
     return result
 
 

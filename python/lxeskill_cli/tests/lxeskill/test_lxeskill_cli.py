@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from browser_auth_service import service as browser_auth_service
 from lxeskill import cli as lxeskill
 from lxeskill.business import ArtifactPathError, allowed_output_file, collect_declared_artifacts, load_catalog
 from shared.repository import repository_root
@@ -27,7 +28,79 @@ def test_catalog_defines_every_cli_command_and_hidden_alias() -> None:
     assert sum(entry.get("handler") == "browser" for entry in catalog.values()) == 2
     assert sum(entry.get("visibility") == "maintenance" for entry in catalog.values()) == 1
     assert len({tuple(entry["command_path"]) for entry in catalog.values()}) == len(catalog)
-    assert all(entry["legacy_aliases"] == [name] for name, entry in catalog.items())
+    assert "legacy_aliases" not in catalog["browser_auth_refresh"]
+    assert catalog["browser_auth_refresh"]["input_schema"] == {
+        "type": "object",
+        "properties": {"account": {"type": "string"}},
+        "additionalProperties": False,
+    }
+    assert all(
+        entry["legacy_aliases"] == [name]
+        for name, entry in catalog.items()
+        if name != "browser_auth_refresh"
+    )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["auth", "refresh", "--scope", "erp"],
+        ["auth", "refresh", "--require-wms-cookie-header"],
+        ["auth", "refresh", "--force"],
+        ["auth", "refresh", "--force-refresh"],
+        ["browser_auth_refresh"],
+    ],
+)
+def test_auth_refresh_rejects_removed_compatibility_interfaces(arguments, capsys) -> None:
+    assert lxeskill.main(arguments) == lxeskill.EXIT_USAGE
+    (record,) = _records(capsys)
+    assert record["ok"] is False
+    assert record["error"]["code"] in {"invalid_arguments", "unknown_command"}
+
+
+def test_auth_refresh_accepts_only_optional_account_and_always_calls_refresh(monkeypatch, capsys) -> None:
+    calls: list[str] = []
+
+    def fake_refresh(account: str = "") -> dict:
+        calls.append(account)
+        return {
+            "success": True,
+            "account": account,
+            "source": "refresh",
+            "final_url": "https://wms.private.mabangerp.com/",
+            "state_written": True,
+        }
+
+    monkeypatch.setattr(browser_auth_service, "refresh_auth", fake_refresh)
+
+    assert lxeskill.main(["auth", "refresh", "--account", "account-a"]) == 0
+    (record,) = _records(capsys)
+    assert calls == ["account-a"]
+    assert record["data"]["source"] == "refresh"
+    assert "scope" not in record["data"]
+
+
+def test_auth_refresh_final_error_preserves_stage_url_type_and_real_message(monkeypatch, capsys) -> None:
+    class FakePlaywrightError(Exception):
+        pass
+
+    def failed_refresh(account: str = "") -> dict:
+        raise browser_auth_service.BrowserAuthRefreshError(
+            stage="wms",
+            current_url="https://private.mabangerp.com/",
+            cause=FakePlaywrightError("Locator.click: Element is not visible"),
+        )
+
+    monkeypatch.setattr(browser_auth_service, "refresh_auth", failed_refresh)
+
+    assert lxeskill.main(["auth", "refresh"]) == lxeskill.EXIT_BUSINESS
+    (record,) = _records(capsys)
+    message = record["error"]["message"]
+    assert record["error"]["code"] == "auth_refresh_failed"
+    assert "stage=wms" in message
+    assert "current_url=https://private.mabangerp.com/" in message
+    assert "exception_type=FakePlaywrightError" in message
+    assert "Locator.click: Element is not visible" in message
 
 
 def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
@@ -232,7 +305,7 @@ def test_business_failure_preserves_payload_in_the_only_terminal(monkeypatch, ca
     assert records[0]["ok"] is False
     assert records[0]["data"]["context"] == {"stage": "download"}
     assert records[0]["error"] == {"code": "business_cli_failed", "message": "login expired"}
-    assert records[0]["recovery"] == {"command": "lxeskill auth refresh --scope fba --force"}
+    assert records[0]["recovery"] == {"command": "lxeskill auth refresh"}
 
 
 def test_catalog_failure_still_writes_one_internal_terminal(monkeypatch, capsys) -> None:

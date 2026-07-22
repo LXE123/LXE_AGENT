@@ -213,21 +213,24 @@ def _require_uploaded_file_inputs(entry: dict[str, Any], arguments: dict[str, An
 
 def _execute_auth(arguments: dict[str, Any]) -> dict[str, Any]:
     bootstrap_network_policy(label="lxeskill_auth", emit=logger.info)
-    from browser_auth_service.service import ensure_auth
+    from browser_auth_service.service import BrowserAuthRefreshError, refresh_auth
 
-    return ensure_auth(
-        scope=str(arguments.get("scope") or "erp"),
-        account=str(arguments.get("account") or ""),
-        require_wms_cookie_header=bool(arguments.get("require_wms_cookie_header")),
-        force_refresh=bool(arguments.get("force") or arguments.get("force_refresh")),
-    )
+    try:
+        return refresh_auth(account=str(arguments.get("account") or ""))
+    except BrowserAuthRefreshError as exc:
+        payload = exc.to_payload()
+        raise RuntimeError(
+            "browser_auth_service 刷新失败: "
+            f"stage={payload['stage']} current_url={payload['current_url'] or '-'} "
+            f"exception_type={payload['exception_type']} error={payload['message']}"
+        ) from exc
 
 
 def _recovery_for_auth_failure(code: str, message: str) -> dict[str, str] | None:
     text = f"{code} {message}".lower()
     if not any(marker in text for marker in ("auth", "cookie", "login", "登录", "401", "403", "认证")):
         return None
-    return {"command": "lxeskill auth refresh --scope fba --force"}
+    return {"command": "lxeskill auth refresh"}
 
 
 def _skill_scope() -> set[str] | None:

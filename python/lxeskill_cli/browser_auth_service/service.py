@@ -40,59 +40,60 @@ KNOWN_LOGIN_HOSTS: set[str] = set()
 AUTH_REFRESH_LOCK_NAME = ".refresh.lock"
 
 
-def ensure_auth(
-    scope: str,
-    account: str = "",
-    require_wms_cookie_header: bool = False,
-    force_refresh: bool = False,
-) -> dict[str, Any]:
-    normalized_scope = str(scope or "").strip().lower()
-    if normalized_scope not in {"fba", "erp", "private_amz"}:
-        raise ValueError("scope 仅支持 fba、erp 或 private_amz")
+class BrowserAuthRefreshError(RuntimeError):
+    def __init__(self, *, stage: str, current_url: str, cause: Exception) -> None:
+        self.stage = str(stage or "browser").strip()
+        self.current_url = str(current_url or "").strip()
+        self.exception_type = type(cause).__name__
+        message = str(cause or "").strip() or self.exception_type
+        super().__init__(message)
 
-    resolved_account, password = _resolve_credentials(normalized_scope, account)
-    state_file = _state_file(resolved_account)
-    logger.info(
-        f"[BrowserAuth] ensure start: scope={normalized_scope}, account={_mask_account(resolved_account)}, "
-        f"require_wms_cookie_header={bool(require_wms_cookie_header)}, force_refresh={bool(force_refresh)}, "
-        f"state_exists={state_file.exists()}"
-    )
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "success": False,
+            "stage": self.stage,
+            "current_url": self.current_url,
+            "exception_type": self.exception_type,
+            "message": str(self),
+        }
 
-    lock_file = state_file.with_name(AUTH_REFRESH_LOCK_NAME)
-    with interprocess_lock(
-        lock_file,
-        timeout_seconds=auth_settings.BROWSER_AUTH_LOCK_TIMEOUT_SECONDS,
-    ):
-        # Every caller reloads after acquiring the account lock. This is what
-        # collapses queued normal refreshes into the result written by the
-        # process that held the lock first.
-        payload = _load_storage_state_payload(state_file)
-        result = _ensure_unified_auth(
-            account=resolved_account,
-            password=password,
-            state_file=state_file,
-            payload=payload,
-            scope=normalized_scope,
-            require_wms_cookie_header=require_wms_cookie_header,
-            force_refresh=bool(force_refresh),
+
+def refresh_auth(account: str = "") -> dict[str, Any]:
+    stage = "credentials"
+    _log_refresh_stage(stage=stage, status="start")
+    try:
+        resolved_account, password = _resolve_credentials(account)
+    except Exception as exc:
+        raise _refresh_error(stage=stage, current_url="", cause=exc) from exc
+    _log_refresh_stage(stage=stage, status="success")
+
+    try:
+        state_file = _state_file(resolved_account)
+        logger.info(
+            f"[BrowserAuth] refresh start: account={_mask_account(resolved_account)}, "
+            f"state_exists={state_file.exists()}"
         )
-    _log_ensure_result(result)
-    return result
+        lock_file = state_file.with_name(AUTH_REFRESH_LOCK_NAME)
+        with interprocess_lock(
+            lock_file,
+            timeout_seconds=auth_settings.BROWSER_AUTH_LOCK_TIMEOUT_SECONDS,
+        ):
+            return _refresh_auth(
+                account=resolved_account,
+                password=password,
+                state_file=state_file,
+            )
+    except BrowserAuthRefreshError:
+        raise
+    except Exception as exc:
+        raise _refresh_error(stage="browser", current_url="", cause=exc) from exc
 
 
-def read_auth(
-    scope: str,
-    account: str = "",
-    require_wms_cookie_header: bool = False,
-) -> dict[str, Any]:
+def read_auth(account: str = "") -> dict[str, Any]:
     """Read the latest persisted auth material without launching a browser."""
-    normalized_scope = str(scope or "").strip().lower()
-    if normalized_scope not in {"fba", "erp", "private_amz"}:
-        raise ValueError("scope 仅支持 fba、erp 或 private_amz")
-
     resolved_account = str(account or mabang_settings.MABANG_ACCOUNT or "").strip()
     if not resolved_account:
-        raise ValueError(f"{normalized_scope} 账号为空")
+        raise ValueError("Mabang 账号为空")
     state_file = _state_file(resolved_account)
     lock_file = state_file.with_name(AUTH_REFRESH_LOCK_NAME)
     with interprocess_lock(
@@ -101,33 +102,17 @@ def read_auth(
     ):
         payload = _load_storage_state_payload(state_file)
     if not payload:
-        raise RuntimeError(f"本地认证状态不存在: scope={normalized_scope}")
+        raise RuntimeError("本地认证状态不存在")
 
-    result: dict[str, Any] = {
+    token, wms_cookie_header = _require_complete_auth_material(payload)
+    return {
         "success": True,
-        "scope": normalized_scope,
         "account": resolved_account,
         "source": "file",
         "cookies_by_domain": _parse_cookies_by_domain(payload),
+        "free_token": token,
+        "wms_cookie_header": wms_cookie_header,
     }
-    if normalized_scope == "fba":
-        token = _storage_lookup_token(
-            payload,
-            FBA_LOGISTICS_TOKEN_ORIGIN,
-            FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY,
-        )
-        if not token:
-            raise RuntimeError("本地认证状态缺少 freeToken")
-        result["free_token"] = token
-        if require_wms_cookie_header:
-            wms_cookies = _storage_lookup_domain_cookies(payload, FBA_LOGISTICS_WMS_HOST)
-            wms_cookie_header = _build_cookie_header(wms_cookies)
-            if not wms_cookie_header:
-                raise RuntimeError("本地认证状态缺少 WMS Cookie Header")
-            result["wms_cookie_header"] = wms_cookie_header
-        else:
-            result["wms_cookie_header"] = ""
-    return result
 
 
 def _mask_account(account: str) -> str:
@@ -139,25 +124,43 @@ def _mask_account(account: str) -> str:
     return f"{text[:3]}****{text[-4:]}"
 
 
-def _log_ensure_result(result: dict[str, Any]) -> None:
-    cookies_by_domain = result.get("cookies_by_domain")
-    domain_count = len(cookies_by_domain) if isinstance(cookies_by_domain, dict) else 0
-    logger.info(
-        f"[BrowserAuth] ensure done: scope={result.get('scope')}, "
-        f"account={_mask_account(str(result.get('account') or ''))}, source={result.get('source')}, "
-        f"domain_count={domain_count}, free_token_present={bool(str(result.get('free_token') or '').strip())}, "
-        f"wms_cookie_header_present={bool(str(result.get('wms_cookie_header') or '').strip())}"
+def _log_refresh_stage(
+    *,
+    stage: str,
+    status: str,
+    current_url: str = "",
+    cause: Exception | None = None,
+) -> None:
+    message = (
+        f"[BrowserAuth] stage={stage} status={status} "
+        f"url={str(current_url or '').strip() or '-'}"
+    )
+    if cause is None:
+        logger.info(message)
+        return
+    logger.error(
+        f"{message} exception_type={type(cause).__name__} error={str(cause or '').strip()}"
     )
 
 
-def _resolve_credentials(scope: str, account: str) -> tuple[str, str]:
+def _refresh_error(*, stage: str, current_url: str, cause: Exception) -> BrowserAuthRefreshError:
+    _log_refresh_stage(
+        stage=stage,
+        status="failed",
+        current_url=current_url,
+        cause=cause,
+    )
+    return BrowserAuthRefreshError(stage=stage, current_url=current_url, cause=cause)
+
+
+def _resolve_credentials(account: str) -> tuple[str, str]:
     resolved_account = str(account or mabang_settings.MABANG_ACCOUNT or "").strip()
     password = str(mabang_settings.MABANG_PASSWORD or "").strip()
 
     if not resolved_account:
-        raise ValueError(f"{scope} 账号为空")
+        raise ValueError("Mabang 账号为空")
     if not password:
-        raise ValueError(f"{scope} 密码为空")
+        raise ValueError("Mabang 密码为空")
     return resolved_account, password
 
 
@@ -177,10 +180,16 @@ def _load_storage_state_payload(state_file: Path) -> dict[str, Any]:
     if not state_file.exists():
         return {}
     try:
-        return json.loads(state_file.read_text(encoding="utf-8"))
+        payload = json.loads(state_file.read_text(encoding="utf-8"))
     except Exception as exc:
-        logger.warning(f"[BrowserAuth] 读取 storage_state 失败: file={state_file}, error={exc}")
-        return {}
+        raise RuntimeError(
+            f"读取本地认证状态失败: {type(exc).__name__}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(
+            f"读取本地认证状态失败: JSON 顶层必须是 object，实际为 {type(payload).__name__}"
+        )
+    return payload
 
 
 def _is_domain_or_subdomain(value: str, domain: str) -> bool:
@@ -237,21 +246,12 @@ def _remove_dingtalk_storage_state(payload: dict[str, Any]) -> tuple[int, int]:
 def _save_storage_state(
     context,
     state_file: Path,
-    extra_fields: dict[str, Any] | None = None,
     validator: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
-    existing_payload = _load_storage_state_payload(state_file)
     storage_payload = context.storage_state()
     if not isinstance(storage_payload, dict):
         raise RuntimeError("Playwright storage_state response must be an object")
-    payload = {
-        key: value
-        for key, value in existing_payload.items()
-        if key not in {"cookies", "origins"}
-    }
-    payload.update(storage_payload)
-    if extra_fields:
-        payload.update(dict(extra_fields))
+    payload = dict(storage_payload)
     removed_cookies, removed_origins = _remove_dingtalk_storage_state(payload)
     if removed_cookies or removed_origins:
         logger.info(
@@ -594,14 +594,6 @@ def _invalid_cookie_status_labels_for_host(
     return labels
 
 
-def _has_private_amz_cookie_bundle(payload: dict[str, Any]) -> bool:
-    return not _invalid_cookie_status_labels_for_host(
-        payload,
-        PRIVATE_AMZ_HOST,
-        PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
-    )
-
-
 def _cookie_auth_errors(payload: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     phpsessid_status = _get_phpsessid_status(payload)
@@ -642,29 +634,6 @@ def _require_complete_auth_material(payload: dict[str, Any]) -> tuple[str, str]:
     return token, wms_cookie_header
 
 
-def _auth_result(
-    *,
-    scope: str,
-    account: str,
-    source: str,
-    payload: dict[str, Any],
-    token: str,
-    wms_cookie_header: str,
-    require_wms_cookie_header: bool,
-) -> dict[str, Any]:
-    result: dict[str, Any] = {
-        "success": True,
-        "scope": scope,
-        "account": account,
-        "source": source,
-        "cookies_by_domain": _parse_cookies_by_domain(payload),
-    }
-    if scope == "fba":
-        result["free_token"] = token
-        result["wms_cookie_header"] = wms_cookie_header if require_wms_cookie_header else ""
-    return result
-
-
 def _build_cookie_header(cookies: list[dict[str, Any]]) -> str:
     ordered: dict[str, str] = {}
     for item in cookies:
@@ -682,17 +651,6 @@ def _clear_state_file(state_file: Path) -> None:
 def _launch_chromium(playwright, *, headless: bool):
     """Launch the single packaged Chromium build in headed or new-headless mode."""
     return playwright.chromium.launch(channel="chromium", headless=headless)
-
-
-def _playwright_storage_state_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    storage_state: dict[str, Any] = {}
-    cookies = payload.get("cookies")
-    origins = payload.get("origins")
-    if isinstance(cookies, list):
-        storage_state["cookies"] = cookies
-    if isinstance(origins, list):
-        storage_state["origins"] = origins
-    return storage_state
 
 
 def _is_login_url(url: str) -> bool:
@@ -757,28 +715,11 @@ def _perform_login(page, account: str, password: str) -> None:
         raise RuntimeError("登录失败")
 
 
-def _open_context(
-    browser,
-    state_file: Path,
-    can_reuse_state: bool,
-    storage_state_payload: dict[str, Any] | None = None,
-):
-    context_options: dict[str, Any] = {
-        "accept_downloads": True,
-        "viewport": {"width": 1920, "height": 1080},
-    }
-    if can_reuse_state and state_file.exists():
-        payload = storage_state_payload if storage_state_payload is not None else _load_storage_state_payload(state_file)
-        storage_state = _playwright_storage_state_payload(payload)
-        if storage_state:
-            context_options["storage_state"] = storage_state
-    try:
-        return browser.new_context(**context_options)
-    except Exception as exc:
-        if "storage_state" not in context_options:
-            raise
-        logger.warning(f"[BrowserAuth] 加载已保存 storage_state 失败，回退为干净上下文: error={exc}")
-        return browser.new_context(accept_downloads=True, viewport={"width": 1920, "height": 1080})
+def _open_context(browser):
+    return browser.new_context(
+        accept_downloads=True,
+        viewport={"width": 1920, "height": 1080},
+    )
 
 
 def _visit_private_amz_cookie_refresh_page(page) -> None:
@@ -790,97 +731,116 @@ def _visit_private_amz_cookie_refresh_page(page) -> None:
     page.wait_for_timeout(1500)
 
 
-def _ensure_unified_auth(
+def _page_url(page) -> str:
+    if page is None:
+        return ""
+    try:
+        return str(getattr(page, "url", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def _refresh_auth(
     account: str,
     password: str,
     state_file: Path,
-    payload: dict[str, Any],
-    scope: str,
-    require_wms_cookie_header: bool,
-    force_refresh: bool,
 ) -> dict[str, Any]:
     token_origin = FBA_LOGISTICS_TOKEN_ORIGIN
     token_key = FBA_LOGISTICS_TOKEN_LOCAL_STORAGE_KEY
     target_url = FBA_LOGISTICS_TOKEN_TARGET_URL
     wms_host = FBA_LOGISTICS_WMS_HOST.strip().lower().lstrip(".")
     wms_entry_text = FBA_LOGISTICS_WMS_ENTRY_TEXT
-    headless = bool(auth_settings.BROWSER_AUTH_HEADLESS and auth_settings.FBA_LOGISTICS_TOKEN_HEADLESS)
-
-    cached_token, cached_wms_cookie_header, cache_errors = _complete_auth_material(payload)
-    logger.info(
-        f"[BrowserAuth] unified cache check: scope={scope}, force_refresh={force_refresh}, "
-        f"complete={not cache_errors}, missing={cache_errors or '-'}"
-    )
-    if not force_refresh and not cache_errors:
-        return _auth_result(
-            scope=scope,
-            account=account,
-            source="cache",
-            payload=payload,
-            token=cached_token,
-            wms_cookie_header=cached_wms_cookie_header,
-            require_wms_cookie_header=require_wms_cookie_header,
-        )
-
-    logger.info(
-        f"[BrowserAuth] unified refresh start: scope={scope}, force_refresh={force_refresh}, "
-        f"headless={headless}"
-    )
+    headless = bool(auth_settings.BROWSER_AUTH_HEADLESS)
     _clear_state_file(state_file)
 
-    with sync_playwright() as playwright:
-        browser = _launch_chromium(playwright, headless=headless)
-        context = _open_context(
-            browser,
-            state_file,
-            can_reuse_state=False,
-        )
-        try:
+    stage = "browser"
+    page = None
+    browser = None
+    context = None
+    try:
+        with sync_playwright() as playwright:
+            _log_refresh_stage(stage=stage, status="start")
+            browser = _launch_chromium(playwright, headless=headless)
+            context = _open_context(browser)
+            _log_refresh_stage(stage=stage, status="success")
             page = context.new_page()
+
+            stage = "login"
+            _log_refresh_stage(stage=stage, status="start", current_url=LOGIN_URL)
             _perform_login(page, account, password)
             page.wait_for_timeout(1000)
+            _log_refresh_stage(stage=stage, status="success", current_url=_page_url(page))
 
+            stage = "inventory_sku"
+            _log_refresh_stage(
+                stage=stage,
+                status="start",
+                current_url=PRIVATE_AMZ_COOKIE_REFRESH_URL,
+            )
             _visit_private_amz_cookie_refresh_page(page)
             cookie_errors = _cookie_auth_errors({"cookies": context.cookies()})
             if cookie_errors:
                 raise RuntimeError(f"库存 SKU 页面认证状态不完整: {', '.join(cookie_errors)}")
+            _log_refresh_stage(stage=stage, status="success", current_url=_page_url(page))
 
+            stage = "fba_delivery"
+            _log_refresh_stage(stage=stage, status="start", current_url=target_url)
             page.goto(target_url, wait_until="domcontentloaded")
             token = _extract_token(page, token_origin, token_key)
             if not token:
                 raise RuntimeError("FBA 发货单页面未获取到 freeToken")
+            _log_refresh_stage(stage=stage, status="success", current_url=_page_url(page))
 
-            wms_cookie_header = _collect_wms_cookie_header(page, context, wms_host, wms_entry_text)
+            stage = "wms"
+            _log_refresh_stage(stage=stage, status="start", current_url=FBA_HOME_URL)
+            wms_cookie_header, final_url = _collect_wms_cookie_header(
+                page,
+                context,
+                wms_host,
+                wms_entry_text,
+            )
             if not wms_cookie_header:
                 raise RuntimeError("WMS 页面未获取到 Cookie Header")
+            _log_refresh_stage(stage=stage, status="success", current_url=final_url)
 
             def validate_final_state(final_payload: dict[str, Any]) -> None:
                 _require_complete_auth_material(final_payload)
 
-            saved_payload = _save_storage_state(
+            stage = "persist"
+            _log_refresh_stage(stage=stage, status="start", current_url=final_url)
+            _save_storage_state(
                 context,
                 state_file,
                 validator=validate_final_state,
             )
-        finally:
-            context.close()
-            browser.close()
+            _log_refresh_stage(stage=stage, status="success", current_url=final_url)
+    except BrowserAuthRefreshError:
+        raise
+    except Exception as exc:
+        raise _refresh_error(
+            stage=stage,
+            current_url=_page_url(page),
+            cause=exc,
+        ) from exc
+    finally:
+        if context is not None:
+            try:
+                context.close()
+            except Exception as exc:
+                logger.warning(f"[BrowserAuth] context close failed: {exc}")
+        if browser is not None:
+            try:
+                browser.close()
+            except Exception as exc:
+                logger.warning(f"[BrowserAuth] browser close failed: {exc}")
 
-    token, wms_cookie_header = _require_complete_auth_material(saved_payload)
-
-    logger.info(
-        f"[BrowserAuth] unified refresh done: scope={scope}, source=relogin, "
-        f"token_present={bool(token)}, wms_cookie_header_present={bool(wms_cookie_header)}"
-    )
-    return _auth_result(
-        scope=scope,
-        account=account,
-        source="relogin",
-        payload=saved_payload,
-        token=token,
-        wms_cookie_header=wms_cookie_header,
-        require_wms_cookie_header=require_wms_cookie_header,
-    )
+    return {
+        "success": True,
+        "account": account,
+        "source": "refresh",
+        "final_url": final_url,
+        "state_written": True,
+    }
 
 
 def _frame_url(frame) -> str:
@@ -958,29 +918,26 @@ def _extract_token(
     return ""
 
 
-def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str) -> str:
-    page.goto(FBA_HOME_URL, wait_until="domcontentloaded")
-    page.wait_for_timeout(1000)
-
-    entry = page.get_by_role("listitem").filter(has_text=wms_entry_text)
-    if entry.count() == 0:
-        entry = page.locator(f"text={wms_entry_text}")
-    if entry.count() == 0:
-        entry = page.locator("a[href*='main.jumpToWms']")
-    if entry.count() == 0:
-        raise RuntimeError(f"FBA 首页未找到 WMS 入口: {wms_entry_text}")
-
+def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str) -> tuple[str, str]:
     popup = None
+    monitor_page = page
     try:
+        page.goto(FBA_HOME_URL, wait_until="domcontentloaded")
+        page.wait_for_timeout(1000)
+
+        entry = page.locator("a[href*='main.jumpToWms']:visible")
+        if entry.count() == 0:
+            raise RuntimeError(f"FBA 首页未找到可见 WMS 入口: {wms_entry_text}")
+
         try:
             with page.expect_popup(timeout=20000) as popup_info:
-                entry.first.click(timeout=10000, force=True)
+                entry.first.click(timeout=10000)
             popup = popup_info.value
             popup.wait_for_load_state("domcontentloaded")
             monitor_page = popup
-        except Exception as exc:
+        except Exception:
             if str(getattr(page, "url", "") or "").rstrip("/") == FBA_HOME_URL.rstrip("/"):
-                raise RuntimeError(f"点击 WMS 入口失败: {exc}") from exc
+                raise
             monitor_page = page
 
         deadline = time.time() + 30
@@ -1001,7 +958,15 @@ def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str
             f"[BrowserAuth] WMS cookie collected: final_url={monitor_page.url}, "
             f"cookies={_cookie_name_domain_summary(filtered)}"
         )
-        return _build_cookie_header(filtered)
+        return _build_cookie_header(filtered), str(monitor_page.url or "")
+    except BrowserAuthRefreshError:
+        raise
+    except Exception as exc:
+        raise _refresh_error(
+            stage="wms",
+            current_url=_page_url(monitor_page),
+            cause=exc,
+        ) from exc
     finally:
         if popup is not None:
             try:

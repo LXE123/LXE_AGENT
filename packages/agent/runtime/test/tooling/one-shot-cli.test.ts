@@ -29,13 +29,13 @@ describe("OneShotCliRunner", () => {
     const runner = runnerFor(`
       console.error("diagnostic");
       console.log(JSON.stringify({protocol_version:"1",type:"progress",command:"auth refresh",step:"login",status:"running"}));
-      console.log(JSON.stringify({protocol_version:"1",type:"result",command:"auth refresh",ok:true,data:{source:"cache"},files:[]}));
+      console.log(JSON.stringify({protocol_version:"1",type:"result",command:"auth refresh",ok:true,data:{source:"refresh"},files:[]}));
     `, { stderr });
 
     const result = await runner.execute(["auth", "refresh"], new AbortController().signal);
 
     expect(result.ok).toBe(true);
-    expect(result.data).toEqual({ source: "cache" });
+    expect(result.data).toEqual({ source: "refresh" });
     expect(stderr).toEqual(["diagnostic"]);
   });
 

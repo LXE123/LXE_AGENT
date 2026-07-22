@@ -22,7 +22,7 @@ from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session, external_http_session
 from shared.workspace import artifact_path
 
-from ...auth import get_auth_context
+from ...auth import get_auth_context, refresh_mabang_auth
 from ...cookies import build_cookie_header, extract_named_cookies
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
 
@@ -495,7 +495,7 @@ async def _read_http_ok_response(resp: Any, *, action: str) -> None:
 
 
 async def _resolve_private_auth() -> tuple[str, str]:
-    context = await get_auth_context(scope="erp")
+    context = await get_auth_context()
     cookie_header = build_cookie_header(
         context.cookies_by_domain,
         request_host=PRIVATE_HOST,
@@ -512,7 +512,7 @@ async def _resolve_private_auth() -> tuple[str, str]:
 
 
 async def _resolve_private_amz_cookie() -> str:
-    context = await get_auth_context(scope="private_amz", purpose="store_msku_actual_inventory_download")
+    context = await get_auth_context(purpose="store_msku_actual_inventory_download")
     cookie_header = build_cookie_header(
         context.cookies_by_domain,
         request_host=PRIVATE_AMZ_HOST,
@@ -1314,11 +1314,7 @@ async def export_store_msku_actual_inventory(
     try:
         return await run_once()
     except StoreMskuActualInventoryAuthError:
-        await get_auth_context(
-            scope="private_amz",
-            force_refresh=True,
-            purpose="store_msku_actual_inventory_force_refresh",
-        )
+        await refresh_mabang_auth(purpose="store_msku_actual_inventory_auth_retry")
         return await run_once()
 
 

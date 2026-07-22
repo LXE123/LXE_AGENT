@@ -66,9 +66,7 @@ def test_log_auth_material_acquired_includes_purpose_and_material_summary(caplog
     auth_audit.log_auth_material_acquired(
         purpose="wms_consignment_excel_export",
         caller="services.mabang.auth.get_fba_wms_cookie_header",
-        scope="fba",
         source="refresh",
-        force_refresh=True,
         cookies_by_domain={"wms.private.mabangerp.com": [{"name": "PHPSESSID", "value": "secret"}]},
         free_token="secret-token",
         wms_cookie_header="PHPSESSID=secret",
@@ -77,7 +75,6 @@ def test_log_auth_material_acquired_includes_purpose_and_material_summary(caplog
     text = caplog.text
     assert "event=auth_material_acquired" in text
     assert "purpose=wms_consignment_excel_export" in text
-    assert "scope=fba" in text
     assert "source=refresh" in text
     assert "token_present=True" in text
     assert "PHPSESSID" in text

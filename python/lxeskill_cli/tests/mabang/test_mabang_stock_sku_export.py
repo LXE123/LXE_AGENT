@@ -59,7 +59,6 @@ class _FakeSession:
 
 async def _fake_auth_context(*args, **kwargs) -> MabangAuthContext:
     return MabangAuthContext(
-        scope="erp",
         account="",
         source="test",
         cookies_by_domain={
@@ -74,19 +73,16 @@ async def _fake_auth_context(*args, **kwargs) -> MabangAuthContext:
         },
         free_token="",
         wms_cookie_header="",
-        raw={},
     )
 
 
 async def _fake_auth_without_memcache(*args, **kwargs) -> MabangAuthContext:
     return MabangAuthContext(
-        scope="erp",
         account="",
         source="test",
         cookies_by_domain={".mabangerp.com": [{"name": "PHPSESSID", "value": "sid", "domain": ".mabangerp.com"}]},
         free_token="",
         wms_cookie_header="",
-        raw={},
     )
 
 
@@ -190,10 +186,19 @@ def test_export_stock_sku_names_splits_batches_over_3000(monkeypatch, tmp_path):
 
 
 def test_export_stock_sku_names_requires_memcache_cookie(monkeypatch):
+    refresh_calls: list[str] = []
+
+    async def fake_refresh(*, purpose: str = "") -> dict:
+        refresh_calls.append(purpose)
+        return {"success": True}
+
     monkeypatch.setattr(stock, "get_auth_context", _fake_auth_without_memcache)
+    monkeypatch.setattr(stock, "refresh_mabang_auth", fake_refresh)
 
     with pytest.raises(stock.StockSkuExportAuthError, match="MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE"):
         asyncio.run(stock.export_stock_sku_names(["SKU-A"]))
+
+    assert refresh_calls == ["stock_sku_export_auth_retry"]
 
 
 def test_export_stock_sku_batch_rejects_failed_step2(monkeypatch):

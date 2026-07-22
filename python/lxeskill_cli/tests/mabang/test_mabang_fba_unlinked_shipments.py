@@ -233,7 +233,7 @@ def test_create_unlinked_export_task_sends_taskreport_payload(monkeypatch) -> No
     )
     monkeypatch.setattr(ship, "erp_http_session", fake_session)
 
-    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
+    async def fake_get_token(purpose: str = "") -> str:
         return "token"
 
     monkeypatch.setattr(ship, "get_fba_free_token", fake_get_token)
@@ -293,7 +293,7 @@ def test_download_store_unlinked_shipments_skips_zero_totals_and_logs_progress(
 ) -> None:
     caplog.set_level(logging.INFO, logger="services.mabang.amazon.fba.unlinked_shipments")
 
-    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
+    async def fake_get_token(purpose: str = "") -> str:
         return "token"
 
     async def fake_resolve(store_name: str) -> ship.ShopOption:
@@ -426,13 +426,13 @@ def test_download_store_unlinked_shipments_skips_zero_totals_and_logs_progress(
     ]
 
 
-def test_download_store_unlinked_shipments_force_refreshes_once_after_shop_auth_failure(monkeypatch, tmp_path) -> None:
-    token_calls: list[bool] = []
+def test_download_store_unlinked_shipments_refreshes_once_after_shop_auth_failure(monkeypatch, tmp_path) -> None:
+    refresh_calls: list[str] = []
     run_calls: list[str] = []
 
-    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
-        token_calls.append(force_refresh)
-        return "retry-token" if force_refresh else "cached-token"
+    async def fake_refresh(*, purpose: str = "") -> dict:
+        refresh_calls.append(purpose)
+        return {"success": True}
 
     async def fake_run(clean_store_name: str, **kwargs) -> ship.StoreUnlinkedShipmentDownloadResult:
         run_calls.append(clean_store_name)
@@ -445,7 +445,7 @@ def test_download_store_unlinked_shipments_force_refreshes_once_after_shop_auth_
             status_results=[],
         )
 
-    monkeypatch.setattr(ship, "get_fba_free_token", fake_get_token)
+    monkeypatch.setattr(ship, "refresh_mabang_auth", fake_refresh)
     monkeypatch.setattr(ship, "_download_store_unlinked_shipments_once", fake_run)
 
     result = asyncio.run(
@@ -457,20 +457,20 @@ def test_download_store_unlinked_shipments_force_refreshes_once_after_shop_auth_
     )
 
     assert result.store_id == 697476809
-    assert token_calls == [True]
+    assert refresh_calls == ["fba_unlinked_shipments_download_auth_retry"]
     assert run_calls == ["Amazon-Test-US", "Amazon-Test-US"]
 
 
-def test_download_store_unlinked_shipments_force_refreshes_once_after_mid_flow_auth_failure(
+def test_download_store_unlinked_shipments_refreshes_once_after_mid_flow_auth_failure(
     monkeypatch,
     tmp_path,
 ) -> None:
-    token_calls: list[bool] = []
+    refresh_calls: list[str] = []
     run_calls: list[str] = []
 
-    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
-        token_calls.append(force_refresh)
-        return "retry-token" if force_refresh else "cached-token"
+    async def fake_refresh(*, purpose: str = "") -> dict:
+        refresh_calls.append(purpose)
+        return {"success": True}
 
     async def fake_run(clean_store_name: str, **kwargs) -> ship.StoreUnlinkedShipmentDownloadResult:
         run_calls.append(clean_store_name)
@@ -492,7 +492,7 @@ def test_download_store_unlinked_shipments_force_refreshes_once_after_mid_flow_a
             ],
         )
 
-    monkeypatch.setattr(ship, "get_fba_free_token", fake_get_token)
+    monkeypatch.setattr(ship, "refresh_mabang_auth", fake_refresh)
     monkeypatch.setattr(ship, "_download_store_unlinked_shipments_once", fake_run)
 
     result = asyncio.run(
@@ -504,23 +504,23 @@ def test_download_store_unlinked_shipments_force_refreshes_once_after_mid_flow_a
     )
 
     assert result.status_results[0].task_id == 370501
-    assert token_calls == [True]
+    assert refresh_calls == ["fba_unlinked_shipments_download_auth_retry"]
     assert run_calls == ["Amazon-Test-US", "Amazon-Test-US"]
 
 
 def test_download_store_unlinked_shipments_does_not_retry_more_than_once(monkeypatch, tmp_path) -> None:
-    token_calls: list[bool] = []
+    refresh_calls: list[str] = []
     run_calls: list[str] = []
 
-    async def fake_get_token(force_refresh: bool = False, purpose: str = "") -> str:
-        token_calls.append(force_refresh)
-        return "retry-token" if force_refresh else "cached-token"
+    async def fake_refresh(*, purpose: str = "") -> dict:
+        refresh_calls.append(purpose)
+        return {"success": True}
 
     async def fake_run(clean_store_name: str, **kwargs) -> ship.StoreUnlinkedShipmentDownloadResult:
         run_calls.append(clean_store_name)
         raise ship.BatchDeliveryApiAuthError("查询FBA店铺列表鉴权失败(status=401)")
 
-    monkeypatch.setattr(ship, "get_fba_free_token", fake_get_token)
+    monkeypatch.setattr(ship, "refresh_mabang_auth", fake_refresh)
     monkeypatch.setattr(ship, "_download_store_unlinked_shipments_once", fake_run)
 
     with pytest.raises(ship.BatchDeliveryApiAuthError, match="status=401"):
@@ -532,5 +532,5 @@ def test_download_store_unlinked_shipments_does_not_retry_more_than_once(monkeyp
             )
         )
 
-    assert token_calls == [True]
+    assert refresh_calls == ["fba_unlinked_shipments_download_auth_retry"]
     assert run_calls == ["Amazon-Test-US", "Amazon-Test-US"]

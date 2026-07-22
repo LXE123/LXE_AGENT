@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from browser_auth_service.client import BrowserAuthClientError, ensure_auth, read_auth
+from browser_auth_service.client import BrowserAuthClientError, read_auth, refresh_auth
 from services.mabang import config as mabang_settings
 
 from . import auth_audit
@@ -12,23 +12,18 @@ from .errors import MabangAuthError
 
 @dataclass(frozen=True)
 class MabangAuthContext:
-    scope: str
     account: str
     source: str
     cookies_by_domain: dict[str, list]
     free_token: str
     wms_cookie_header: str
-    raw: dict[str, Any]
 
 
-def _resolve_account(scope: str, account: str) -> str:
-    account_text = str(account or "").strip()
-    if account_text:
-        return account_text
-    normalized_scope = str(scope or "").strip().lower()
-    if normalized_scope in {"erp", "private_amz"}:
-        return str(mabang_settings.MABANG_ACCOUNT or "").strip()
-    return ""
+def _resolve_account(account: str) -> str:
+    resolved_account = str(account or mabang_settings.MABANG_ACCOUNT or "").strip()
+    if not resolved_account:
+        raise MabangAuthError("Mabang 账号为空")
+    return resolved_account
 
 
 def _normalize_cookies_by_domain(payload: dict[str, Any]) -> dict[str, list]:
@@ -42,108 +37,79 @@ def _normalize_cookies_by_domain(payload: dict[str, Any]) -> dict[str, list]:
     return normalized
 
 
-async def ensure_mabang_auth_payload(
-    scope: str,
+async def refresh_mabang_auth(
     account: str = "",
-    require_wms_cookie_header: bool = False,
-    force_refresh: bool = False,
-) -> dict[str, Any]:
-    scope_text = str(scope or "").strip().lower()
-    if not scope_text:
-        raise MabangAuthError("scope 不能为空")
-    resolved_account = _resolve_account(scope_text, account)
-    try:
-        if force_refresh:
-            await ensure_auth(
-                scope=scope_text,
-                account=resolved_account,
-                require_wms_cookie_header=require_wms_cookie_header,
-                force_refresh=True,
-            )
-        try:
-            payload = await read_auth(
-                scope=scope_text,
-                account=resolved_account,
-                require_wms_cookie_header=require_wms_cookie_header,
-            )
-        except BrowserAuthClientError:
-            if force_refresh:
-                raise
-            await ensure_auth(
-                scope=scope_text,
-                account=resolved_account,
-                require_wms_cookie_header=require_wms_cookie_header,
-                force_refresh=False,
-            )
-            payload = await read_auth(
-                scope=scope_text,
-                account=resolved_account,
-                require_wms_cookie_header=require_wms_cookie_header,
-            )
-    except Exception as exc:
-        raise MabangAuthError(f"获取 Mabang 登录态失败: {exc}") from exc
-    if not isinstance(payload, dict) or not payload.get("success"):
-        raise MabangAuthError("获取 Mabang 登录态失败: browser_auth_service 返回无效结果")
-    return payload
-
-
-async def get_auth_context(
-    scope: str,
-    account: str = "",
-    require_wms_cookie_header: bool = False,
-    force_refresh: bool = False,
     purpose: str = "",
+) -> dict[str, Any]:
+    resolved_account = _resolve_account(account)
+    try:
+        return await refresh_auth(account=resolved_account)
+    except Exception as exc:
+        purpose_label = str(purpose or "").strip() or "-"
+        raise MabangAuthError(
+            f"刷新 Mabang 登录态失败(purpose={purpose_label}): {exc}"
+        ) from exc
+
+
+async def _read_auth_context(
+    *,
+    account: str,
+    purpose: str,
 ) -> MabangAuthContext:
-    payload = await ensure_mabang_auth_payload(
-        scope=scope,
-        account=account,
-        require_wms_cookie_header=require_wms_cookie_header,
-        force_refresh=force_refresh,
-    )
-    resolved_account = _resolve_account(scope, account)
+    payload = await read_auth(account=account)
+    if not isinstance(payload, dict) or not payload.get("success"):
+        raise BrowserAuthClientError("读取 browser_auth_service 状态失败")
+
     cookies_by_domain = _normalize_cookies_by_domain(payload)
+    free_token = str(payload.get("free_token") or "").strip()
     wms_cookie_header = str(payload.get("wms_cookie_header") or "").strip()
     auth_audit.log_auth_material_acquired(
         purpose=purpose,
         caller="services.mabang.auth.get_auth_context",
-        scope=str(scope or "").strip().lower(),
         source=str(payload.get("source") or "").strip(),
-        force_refresh=force_refresh,
         cookies_by_domain=cookies_by_domain,
-        free_token=str(payload.get("free_token") or "").strip(),
+        free_token=free_token,
         wms_cookie_header=wms_cookie_header,
     )
     return MabangAuthContext(
-        scope=str(scope or "").strip().lower(),
-        account=resolved_account,
+        account=account,
         source=str(payload.get("source") or "").strip(),
         cookies_by_domain=cookies_by_domain,
-        free_token=str(payload.get("free_token") or "").strip(),
+        free_token=free_token,
         wms_cookie_header=wms_cookie_header,
-        raw=payload,
     )
 
 
-async def get_fba_free_token(force_refresh: bool = False, purpose: str = "") -> str:
-    context = await get_auth_context(
-        scope="fba",
-        require_wms_cookie_header=False,
-        force_refresh=force_refresh,
-        purpose=purpose,
-    )
+async def get_auth_context(
+    account: str = "",
+    purpose: str = "",
+) -> MabangAuthContext:
+    resolved_account = _resolve_account(account)
+    try:
+        try:
+            return await _read_auth_context(account=resolved_account, purpose=purpose)
+        except BrowserAuthClientError:
+            await refresh_mabang_auth(
+                account=resolved_account,
+                purpose=str(purpose or "").strip() or "missing_or_incomplete_state",
+            )
+            return await _read_auth_context(account=resolved_account, purpose=purpose)
+    except MabangAuthError:
+        raise
+    except Exception as exc:
+        raise MabangAuthError(f"获取 Mabang 登录态失败: {exc}") from exc
+
+
+async def get_fba_free_token(purpose: str = "") -> str:
+    context = await get_auth_context(purpose=purpose)
     token = str(context.free_token or "").strip()
     if not token:
         raise MabangAuthError("未获取到 freeToken")
     return token
 
 
-async def get_fba_wms_cookie_header(force_refresh: bool = False, purpose: str = "") -> str:
-    context = await get_auth_context(
-        scope="fba",
-        require_wms_cookie_header=True,
-        force_refresh=force_refresh,
-        purpose=purpose,
-    )
+async def get_fba_wms_cookie_header(purpose: str = "") -> str:
+    context = await get_auth_context(purpose=purpose)
     cookie_header = str(context.wms_cookie_header or "").strip()
     if not cookie_header:
         raise MabangAuthError("未获取到 WMS Cookie Header")

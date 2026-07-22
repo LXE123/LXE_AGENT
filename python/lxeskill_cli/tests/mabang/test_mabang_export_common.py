@@ -29,13 +29,11 @@ class _DomainAuthError(Exception):
 
 def _auth_context(cookies_by_domain: dict[str, list]) -> MabangAuthContext:
     return MabangAuthContext(
-        scope="private_amz",
         account="",
         source="test",
         cookies_by_domain=cookies_by_domain,
         free_token="",
         wms_cookie_header="",
-        raw={},
     )
 
 

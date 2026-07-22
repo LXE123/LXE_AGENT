@@ -14,7 +14,7 @@ from shared.infra.net import erp_http_session, external_http_session
 from shared.logging import get_logger
 from shared.workspace import artifact_path
 
-from ...auth import get_fba_free_token
+from ...auth import get_fba_free_token, refresh_mabang_auth
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
 
 logger = get_logger(__name__)
@@ -541,12 +541,9 @@ async def download_fba_delivery_csv(
             output_dir=output_dir,
         )
     except BatchDeliveryApiAuthError:
-        logger.warning("[FBAAuthRetry] FBA发货单鉴权失败，准备强制刷新 freeToken: delivery_no=%s", target)
+        logger.warning("[FBAAuthRetry] FBA发货单鉴权失败，准备刷新完整认证状态: delivery_no=%s", target)
 
-    await get_fba_free_token(
-        force_refresh=True,
-        purpose="fba_delivery_csv_download_force_refresh",
-    )
+    await refresh_mabang_auth(purpose="fba_delivery_csv_download_auth_retry")
     result = await _download_fba_delivery_csv_once(
         target,
         timeout_sec=timeout_sec,
@@ -555,7 +552,7 @@ async def download_fba_delivery_csv(
         output_dir=output_dir,
     )
 
-    logger.info("[FBAAuthRetry] FBA发货单强制刷新后重试成功: delivery_no=%s", target)
+    logger.info("[FBAAuthRetry] FBA发货单刷新认证状态后重试成功: delivery_no=%s", target)
     return result
 
 

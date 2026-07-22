@@ -29,11 +29,10 @@ def _valid_private_amz_cookies() -> list[dict[str, object]]:
     ]
 
 
-def test_private_amz_cookie_bundle_is_valid_when_required_cookies_are_fresh(monkeypatch) -> None:
+def test_private_amz_required_cookies_are_valid_when_fresh(monkeypatch) -> None:
     monkeypatch.setattr(service.time, "time", lambda: NOW_TS)
     payload = _private_amz_payload(*_valid_private_amz_cookies())
 
-    assert service._has_private_amz_cookie_bundle(payload)
     assert service._invalid_cookie_status_labels_for_host(
         payload,
         service.PRIVATE_AMZ_HOST,
@@ -41,7 +40,7 @@ def test_private_amz_cookie_bundle_is_valid_when_required_cookies_are_fresh(monk
     ) == []
 
 
-def test_private_amz_cookie_bundle_reports_missing_required_cookie(monkeypatch) -> None:
+def test_private_amz_required_cookies_report_missing_cookie(monkeypatch) -> None:
     monkeypatch.setattr(service.time, "time", lambda: NOW_TS)
     cookies = [
         item
@@ -50,7 +49,6 @@ def test_private_amz_cookie_bundle_reports_missing_required_cookie(monkeypatch) 
     ]
     payload = _private_amz_payload(*cookies)
 
-    assert not service._has_private_amz_cookie_bundle(payload)
     assert service._invalid_cookie_status_labels_for_host(
         payload,
         service.PRIVATE_AMZ_HOST,
@@ -58,13 +56,12 @@ def test_private_amz_cookie_bundle_reports_missing_required_cookie(monkeypatch) 
     ) == ["signed(missing)"]
 
 
-def test_private_amz_cookie_bundle_reports_expired_required_cookie(monkeypatch) -> None:
+def test_private_amz_required_cookies_report_expired_cookie(monkeypatch) -> None:
     monkeypatch.setattr(service.time, "time", lambda: NOW_TS)
     cookies = _valid_private_amz_cookies()
     cookies[1] = _cookie("MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE", NOW_TS - 1)
     payload = _private_amz_payload(*cookies)
 
-    assert not service._has_private_amz_cookie_bundle(payload)
     assert service._invalid_cookie_status_labels_for_host(
         payload,
         service.PRIVATE_AMZ_HOST,
@@ -72,13 +69,12 @@ def test_private_amz_cookie_bundle_reports_expired_required_cookie(monkeypatch) 
     ) == ["MABANG_ERP_PRO_MEMBERINFO_LOGIN_COOKIE(expired)"]
 
 
-def test_private_amz_cookie_bundle_reports_cookie_expiring_within_skew(monkeypatch) -> None:
+def test_private_amz_required_cookies_report_cookie_expiring_within_skew(monkeypatch) -> None:
     monkeypatch.setattr(service.time, "time", lambda: NOW_TS)
     cookies = _valid_private_amz_cookies()
     cookies[3] = _cookie("signed", NOW_TS + 299)
     payload = _private_amz_payload(*cookies)
 
-    assert not service._has_private_amz_cookie_bundle(payload)
     assert service._invalid_cookie_status_labels_for_host(
         payload,
         service.PRIVATE_AMZ_HOST,
@@ -86,20 +82,23 @@ def test_private_amz_cookie_bundle_reports_cookie_expiring_within_skew(monkeypat
     ) == ["signed(expires_soon)"]
 
 
-def test_private_amz_cookie_bundle_accepts_session_cookie_with_value(monkeypatch) -> None:
+def test_private_amz_required_cookies_accept_session_cookie_with_value(monkeypatch) -> None:
     monkeypatch.setattr(service.time, "time", lambda: NOW_TS)
     payload = _private_amz_payload(*_valid_private_amz_cookies())
 
-    assert service._has_private_amz_cookie_bundle(payload)
+    assert service._invalid_cookie_status_labels_for_host(
+        payload,
+        service.PRIVATE_AMZ_HOST,
+        service.PRIVATE_AMZ_REQUIRED_COOKIE_NAMES,
+    ) == []
 
 
-def test_private_amz_cookie_bundle_rejects_empty_session_cookie_value(monkeypatch) -> None:
+def test_private_amz_required_cookies_reject_empty_session_cookie_value(monkeypatch) -> None:
     monkeypatch.setattr(service.time, "time", lambda: NOW_TS)
     cookies = _valid_private_amz_cookies()
     cookies[4] = _cookie("route", -1, value="")
     payload = _private_amz_payload(*cookies)
 
-    assert not service._has_private_amz_cookie_bundle(payload)
     assert service._invalid_cookie_status_labels_for_host(
         payload,
         service.PRIVATE_AMZ_HOST,

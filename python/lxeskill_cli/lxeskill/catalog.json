@@ -29,14 +29,13 @@
     {
       "name": "browser_auth_refresh",
       "command_path": ["auth", "refresh"],
-      "legacy_aliases": ["browser_auth_refresh"],
       "visibility": "maintenance",
       "session_mode": "none",
       "handler": "internal",
       "owner_skills": ["ziniao-browser"],
       "timeout_ms": 180000,
       "exposed": false,
-      "input_schema": {"type": "object", "properties": {"scope": {"type": "string", "enum": ["erp", "fba", "private_amz"]}, "account": {"type": "string"}, "require_wms_cookie_header": {"type": "boolean"}, "force": {"type": "boolean"}, "force_refresh": {"type": "boolean"}}, "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"account": {"type": "string"}}, "additionalProperties": false}
     },
     {
       "name": "mabang_fill_customs_declaration",

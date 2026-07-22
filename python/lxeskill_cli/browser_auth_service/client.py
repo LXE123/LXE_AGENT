@@ -26,19 +26,6 @@ def _mask_account(account: str) -> str:
     return f"{text[:3]}****{text[-4:]}"
 
 
-def _reason_label(scope: str, require_wms_cookie_header: bool) -> str:
-    normalized_scope = str(scope or "").strip().lower()
-    if normalized_scope == "fba":
-        if require_wms_cookie_header:
-            return "获取装箱数据需要"
-        return "获取货件数据需要"
-    if normalized_scope == "erp":
-        return "执行Amazon补货流程需要"
-    if normalized_scope == "private_amz":
-        return "获取Amazon后台Cookie需要"
-    return "业务流程需要"
-
-
 def _decode_subprocess_output(raw: bytes | str | None) -> str:
     if raw is None:
         return ""
@@ -64,33 +51,30 @@ def _extract_protocol_payload(stdout_text: str) -> dict[str, Any]:
     return payload
 
 
-def ensure_auth_sync(
-    scope: str,
-    account: str = "",
-    require_wms_cookie_header: bool = False,
-    force_refresh: bool = False,
-) -> dict[str, Any]:
+def _refresh_failure_message(payload: dict[str, Any]) -> str:
+    stage = str(payload.get("stage") or "browser").strip()
+    current_url = str(payload.get("current_url") or "").strip() or "-"
+    exception_type = str(payload.get("exception_type") or "Error").strip()
+    message = str(payload.get("message") or "browser_auth_service 刷新失败").strip()
+    return (
+        f"browser_auth_service 刷新失败: stage={stage} current_url={current_url} "
+        f"exception_type={exception_type} error={message}"
+    )
+
+
+def refresh_auth_sync(account: str = "") -> dict[str, Any]:
     masked_account = _mask_account(account)
-    reason_label = _reason_label(scope, require_wms_cookie_header)
     logger.info(
-        f"[BrowserAuthClient][{reason_label}] 调用 browser_auth_service: "
-        f"scope={str(scope or '').strip()} account={masked_account} "
-        f"require_wms_cookie_header={require_wms_cookie_header} force_refresh={force_refresh}"
+        f"[BrowserAuthClient] 调用 browser_auth_service 完整刷新: account={masked_account}"
     )
     command = [
         sys.executable,
         "-m",
         "browser_auth_service.main",
-        "ensure",
-        "--scope",
-        str(scope or "").strip(),
+        "refresh",
     ]
     if str(account or "").strip():
         command.extend(["--account", str(account).strip()])
-    if require_wms_cookie_header:
-        command.append("--require-wms-cookie-header")
-    if force_refresh:
-        command.append("--force-refresh")
 
     completed = subprocess.run(
         command,
@@ -99,52 +83,40 @@ def ensure_auth_sync(
             extra_env={
                 "PYTHONIOENCODING": "utf-8",
                 "PYTHONUTF8": "1",
+                "PYTHONUNBUFFERED": "1",
             }
         ),
-        capture_output=True,
+        stdout=subprocess.PIPE,
     )
 
     stdout = _decode_subprocess_output(completed.stdout)
-    stderr = _decode_subprocess_output(completed.stderr)
-
     payload = _extract_protocol_payload(stdout)
 
     if completed.returncode != 0 or not payload.get("success"):
-        message = str(payload.get("message") or stderr or "browser_auth_service 执行失败").strip()
-        logger.error(
-            f"[BrowserAuthClient][{reason_label}] browser_auth_service 返回失败: "
-            f"scope={str(scope or '').strip()} account={masked_account} message={message}"
-        )
+        message = _refresh_failure_message(payload)
+        logger.error(f"[BrowserAuthClient] {message}")
         raise BrowserAuthClientError(message)
     logger.info(
-        f"[BrowserAuthClient][{reason_label}] browser_auth_service 返回成功: "
-        f"scope={str(scope or '').strip()} account={masked_account} "
-        f"source={payload.get('source')} "
-        f"free_token_present={bool(str(payload.get('free_token') or '').strip())} "
-        f"wms_cookie_header_present={bool(str(payload.get('wms_cookie_header') or '').strip())}"
+        f"[BrowserAuthClient] browser_auth_service 完整刷新成功: "
+        f"account={masked_account} final_url={payload.get('final_url')} "
+        f"state_written={bool(payload.get('state_written'))}"
     )
     return payload
 
 
 def read_auth_sync(
-    scope: str,
     account: str = "",
-    require_wms_cookie_header: bool = False,
 ) -> dict[str, Any]:
     masked_account = _mask_account(account)
     try:
         from .service import read_auth as read_auth_from_file
 
-        payload = read_auth_from_file(
-            scope=scope,
-            account=account,
-            require_wms_cookie_header=require_wms_cookie_header,
-        )
+        payload = read_auth_from_file(account=account)
     except Exception as exc:
         message = str(exc or "读取 browser_auth_service 状态失败").strip()
         logger.error(
             f"[BrowserAuthClient] 本地认证状态读取失败: "
-            f"scope={str(scope or '').strip()} account={masked_account} message={message}"
+            f"account={masked_account} message={message}"
         )
         raise BrowserAuthClientError(message) from exc
     if not isinstance(payload, dict) or not payload.get("success"):
@@ -152,29 +124,17 @@ def read_auth_sync(
     return payload
 
 
-async def ensure_auth(
-    scope: str,
-    account: str = "",
-    require_wms_cookie_header: bool = False,
-    force_refresh: bool = False,
-) -> dict[str, Any]:
+async def refresh_auth(account: str = "") -> dict[str, Any]:
     return await asyncio.to_thread(
-        ensure_auth_sync,
-        scope,
+        refresh_auth_sync,
         account,
-        require_wms_cookie_header,
-        force_refresh,
     )
 
 
 async def read_auth(
-    scope: str,
     account: str = "",
-    require_wms_cookie_header: bool = False,
 ) -> dict[str, Any]:
     return await asyncio.to_thread(
         read_auth_sync,
-        scope,
         account,
-        require_wms_cookie_header,
     )

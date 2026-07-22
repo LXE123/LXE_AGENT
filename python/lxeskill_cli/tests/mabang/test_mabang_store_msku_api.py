@@ -74,7 +74,6 @@ class _FakeSession:
 
 async def _fake_auth_context(*args, **kwargs) -> MabangAuthContext:
     return MabangAuthContext(
-        scope="private_amz",
         account="",
         source="test",
         cookies_by_domain={
@@ -96,7 +95,6 @@ async def _fake_auth_context(*args, **kwargs) -> MabangAuthContext:
         },
         free_token="",
         wms_cookie_header="",
-        raw={},
     )
 
 
