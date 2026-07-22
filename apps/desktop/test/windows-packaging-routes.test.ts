@@ -20,8 +20,10 @@ describe("Windows desktop packaging routes", () => {
 
     expect(desktopScripts["pack:win"]).toContain("--dir --x64");
     expect(desktopScripts["pack:win"]).toContain("dist/desktop-unpacked");
+    expect(desktopScripts["pack:win"]).toContain("build/desktop-publish/electron-builder.json");
     expect(desktopScripts["pack:win"]).not.toContain("nsis");
     expect(desktopScripts["dist:win"]).toContain("--win nsis --x64");
+    expect(desktopScripts["dist:win"]).toContain("build/desktop-publish/electron-builder.json");
   });
 
   test("keeps production steps without packaged resource re-audits", () => {
@@ -57,11 +59,19 @@ describe("Windows desktop packaging routes", () => {
       join(repositoryRoot, "scripts", "prepare-desktop-resources.ts"),
       "utf8",
     );
+    const runtimeInputs = readFileSync(
+      join(repositoryRoot, "scripts", "desktop-runtime-inputs.ts"),
+      "utf8",
+    );
     const runtimeLock = readFileSync(
       join(repositoryRoot, "config", "desktop-runtime", "windows-x64", "runtime.lock.json"),
       "utf8",
     );
     const desktopScripts = readJson("apps/desktop/package.json").scripts ?? {};
+    const builderConfig = readFileSync(
+      join(repositoryRoot, "apps", "desktop", "electron-builder.yml"),
+      "utf8",
+    );
 
     expect(desktopMain).not.toContain("verifyDesktopResourceManifest");
     expect(desktopMain).not.toContain("resourceManifestPath");
@@ -74,6 +84,17 @@ describe("Windows desktop packaging routes", () => {
     expect(resourcePreparation).not.toContain("catalog differs");
     expect(resourcePreparation).not.toContain("runSmoke");
     expect(resourcePreparation).not.toContain(".lxe-lxeskill-ready.json");
+    expect(resourcePreparation).not.toContain("cpSync");
+    expect(resourcePreparation).not.toContain("copyDirectory");
+    expect(resourcePreparation).not.toContain("copyFileSync");
+    expect(resourcePreparation).toContain("python-site-packages");
+    expect(resourcePreparation).toContain("exactFileSet(wireGuardMsi");
+    expect(resourcePreparation).toContain("builderConfig.extraResources = extraResources");
+    expect(builderConfig).not.toContain("build/desktop-resources");
+    expect(runtimePreparation).toContain("Finalize-LxePublishRuntime");
+    expect(runtimePreparation).not.toContain("Copy-LxeDirectoryContents -Source $npmCache");
+    expect(runtimePreparation).toContain("desktop-runtime-publish-layout=2");
+    expect(runtimeInputs).toContain('desktop-runtime-publish-layout=${desktopRuntimePublishLayout}');
     expect(runtimePreparation).not.toContain("Test-LxeRuntimeImage");
     expect(runtimePreparation).not.toContain("Playwright Chromium smoke");
     expect(desktopScripts["smoke:packaged"]).toBeUndefined();

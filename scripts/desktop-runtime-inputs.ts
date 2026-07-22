@@ -9,6 +9,7 @@ const lockInputPaths = [
   "pyproject.toml",
   "uv.lock",
 ] as const;
+const desktopRuntimePublishLayout = 2;
 
 const runtimeInputFields = [
   ["LXE_DESKTOP_NODE_ROOT", "node_root"],
@@ -52,6 +53,7 @@ export const desktopRuntimeLockSha256 = (repositoryRoot: string): string => {
     }
     return `${relativePath}=${sha256(readFileSync(absolutePath))}`;
   });
+  lines.push(`desktop-runtime-publish-layout=${desktopRuntimePublishLayout}`);
   return sha256(`${lines.join("\n")}\n`);
 };
 

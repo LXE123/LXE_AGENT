@@ -227,7 +227,7 @@ try {
     }
     Invoke-LxeDesktopBuildStep -Label "Compile private agent-cli" -Arguments @("run", "agent-cli:compile")
     Invoke-LxeDesktopBuildStep -Label "Build Dashboard and Electron" -Arguments @("run", "desktop:build")
-    Invoke-LxeDesktopBuildStep -Label "Stage desktop resources" -Arguments @("run", "desktop:resources")
+    Invoke-LxeDesktopBuildStep -Label "Prepare direct desktop publish inputs" -Arguments @("run", "desktop:resources")
 
     if ($PackageTarget -eq "Unpacked") {
         $packageOutputRoot = Join-Path $repositoryRoot "dist\desktop-unpacked"

@@ -13,11 +13,6 @@ directories:
 files:
   - dist/main.js
   - dist/preload.cjs
-extraResources:
-  - from: ../../build/desktop-resources
-    to: .
-    filter:
-      - "**/*"
 win:
   icon: icon-win.png
   target:

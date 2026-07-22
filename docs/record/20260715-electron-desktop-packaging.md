@@ -47,10 +47,10 @@ staging paths automatically:
 - `LXE_DESKTOP_PLAYWRIGHT_ROOT`: Playwright Chromium browser directory.
 
 The wrapper separately builds the current repository as a wheel on every run.
-It uses the persistent runtime `uv-cache`, and passes the resulting wheel to
-resource staging through the internal `LXE_DESKTOP_PROJECT_WHEEL` input. The
-wheel is never stored in the base runtime image, so rebuilding cannot reuse
-stale LXE source.
+It uses the persistent runtime `uv-cache`, and installs the resulting wheel into
+the small per-build `build/desktop-publish/python-site-packages` overlay. The
+wheel is never stored in the reusable base runtime, so rebuilding cannot reuse
+stale LXE source or copy the complete Python tree merely to update LXE code.
 
 These five environment variables remain supported as per-field overrides for
 custom build infrastructure. `LXE_DESKTOP_RUNTIME_DESCRIPTOR` can point resource
@@ -82,19 +82,19 @@ bun run desktop:validate:config
 ```
 
 Only after that check passes does the shared Windows wrapper prepare or reuse
-the managed runtime, inject it into the build subprocess environment, rebuild
-the current LXE wheel, compile `agent-cli.exe`, install the wheel into the staged
-private Python, and stage the remaining resources. The unpacked route stops
-after Electron Builder creates the runnable directory; the release route also
-creates the NSIS installer. Both routes print per-stage timings.
+the publish-ready managed runtime, inject it into the build subprocess environment,
+rebuild the current LXE wheel, generate its Python overlay, and compile the
+Dashboard, Electron and `agent-cli.exe` outputs. Electron Builder reads these
+module-owned production directories directly. The unpacked route stops after it
+creates the runnable directory; the release route also creates the NSIS installer.
+Both routes print per-stage timings.
 
-The managed build image is intentionally larger than the installed runtime.
-It retains npm/npx, the npm content cache, and uv so that an offline build can
-be reconstructed. Resource staging keeps `node.exe`, `python.exe`, pip, the
-three pinned Node CLIs, ripgrep, and the production Python packages, but it does
-not copy npm/npx, `npm-cache`, or `uv.exe` into the installer. The DWS package's
-post-install archives are also omitted after its native executable and shared
-skills have been validated.
+The managed Runtime is now itself publish-ready. npm/npx and their cache remain
+outside the published Node tree, while uv remains a build input that is not
+listed in Electron Builder's direct resource sources. The reusable Runtime keeps
+`node.exe`, `python.exe`, pip, the three pinned Node CLIs, ripgrep, Playwright and
+the production Python dependencies. DWS post-install archives are removed once
+when that Runtime layout is constructed, not after every package build.
 
 The packaged Playwright Python binding uses the private Node 22 executable via
 `PLAYWRIGHT_NODEJS_PATH`; its second driver-local `node.exe` is removed. Both
@@ -111,12 +111,14 @@ base runtime.
 > 2026-07-16：固定 28 命令门禁已由
 > [物流服务退役记录](20260716-retire-logistics-service.md) 取代；打包现在比较源码与 wheel 的完整命令集合。
 
-`desktop:resources` installs the wheel with `--offline --no-deps --reinstall`.
-The final resource tree must not contain `runtime/lxeskill`; the module lives in
-the private Python site-packages. No readiness marker is generated; desktop health
+`desktop:resources` installs the wheel with `--target --offline --no-deps --reinstall`
+into the per-build Python overlay and generates an Electron Builder configuration
+whose `extraResources` point directly at each module's production output. The final
+resource tree must not contain `runtime/lxeskill`; the module is merged into the
+private Python site-packages. No readiness marker is generated; desktop health
 uses the Python and module paths plus the Agent Runtime's real `lxeskill list` status. Only
-Git-tracked project resources are copied, so local `.env`, authentication,
-sessions, and business artifacts cannot leak into the installer.
+Git-tracked Skill payloads and explicit product files are selected, so local `.env`,
+authentication, sessions, and business artifacts are not Builder inputs.
 
 > 2026-07-21：逐文件资源 manifest、打包前后 SHA-256 对比和启动时全量完整性扫描已经废弃。
 > 资源准备改为先清空 staging，再只复制构造式白名单允许的来源文件。
