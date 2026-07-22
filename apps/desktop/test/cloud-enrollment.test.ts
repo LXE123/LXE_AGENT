@@ -31,6 +31,7 @@ const payload: CloudEnrollmentPayload & { format: string; version: number } = {
     api_token: "lxe_dev_0123456789abcdef0123456789abcdef.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef",
     sync_interval_seconds: 3_600,
   },
+  erp: { api_token: "erp-dedicated-secret" },
 };
 
 const encrypt = (password: string, value: unknown = payload): Buffer => {
@@ -61,7 +62,19 @@ describe("cloud enrollment", () => {
       device: payload.device,
       wireguard: payload.wireguard,
       data_server: payload.data_server,
+      erp: payload.erp,
     });
+  });
+
+  test("keeps legacy enrollment payloads usable without ERP credentials", () => {
+    const legacy = structuredClone(payload);
+    delete legacy.erp;
+    const result = decryptCloudEnrollment(
+      encrypt("ABCD-EFGH-JKLM-NPQR-2345", legacy),
+      "ABCD-EFGH-JKLM-NPQR-2345",
+    );
+    expect(result.erp).toBeUndefined();
+    expect(result.data_server).toEqual(payload.data_server);
   });
 
   test("rejects a wrong password, tampering, and routes wider than the server address", () => {

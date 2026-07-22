@@ -116,6 +116,7 @@ export class DesktopCloudService {
         syncIntervalSeconds: payload.data_server.sync_interval_seconds,
         tunnelName: "lxe-agent",
         apiKey: payload.data_server.api_token,
+        ...(payload.erp ? { erpApiKey: payload.erp.api_token } : {}),
       });
       configured = true;
       this.options.enrollments.complete(input.enrollment_id);

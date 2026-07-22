@@ -13,8 +13,8 @@ def _skill_text(name: str) -> str:
 
 def test_repository_skill_inventory_distinguishes_top_level_and_nested_manifests() -> None:
     skill_root = PROJECT_ROOT / "skills"
-    assert len(list(skill_root.glob("*/SKILL.md"))) == 26
-    assert len(list(skill_root.rglob("SKILL.md"))) == 53
+    assert len(list(skill_root.glob("*/SKILL.md"))) == 27
+    assert len(list(skill_root.rglob("SKILL.md"))) == 54
 
 
 def test_ziniao_is_independent_and_shipment_owns_only_four_stages() -> None:

@@ -44,6 +44,7 @@ const enrollmentPayload: CloudEnrollmentPayload & { format: string; version: num
     api_token: "lxe_dev_0123456789abcdef0123456789abcdef.ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef",
     sync_interval_seconds: 3_600,
   },
+  erp: { api_token: "erp-dedicated-secret" },
 };
 
 const encryptedEnrollment = (password: string): Buffer => {
@@ -109,6 +110,7 @@ describe("DesktopCloudService", () => {
     expect(provisioned).toBe(1);
     expect(restarted).toBe(1);
     expect(config.environment().LXE_DATA_SERVER_API_KEY).toBe(enrollmentPayload.data_server.api_token);
+    expect(config.environment().LXE_ERP_API_KEY).toBe(enrollmentPayload.erp?.api_token);
     online = true;
     expect(await service.retry()).toMatchObject({ configured: true, connection: "connected" });
     expect(provisioned).toBe(1);
@@ -127,6 +129,7 @@ describe("DesktopCloudService", () => {
     expect(serialized).not.toContain(password);
     expect(serialized).not.toContain(enrollmentPayload.wireguard.private_key);
     expect(serialized).not.toContain(enrollmentPayload.data_server.api_token);
+    expect(serialized).not.toContain(enrollmentPayload.erp?.api_token ?? "");
   });
 
   test("logs an enrollment decryption failure without provisioning or exposing the password", async () => {

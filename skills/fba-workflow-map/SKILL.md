@@ -1,6 +1,6 @@
 ---
 name: fba-workflow-map
-description: FBA 模块路由图。用户询问 FBA skill 关系、FBA 流程、只有 SP 单号该跑哪个、发货单 CSV 和 WMS 装箱 Excel 区别、发票报关流程、采购汇总表生成、采购合同填写、备货单生成、退税流程时使用；这是路由/解释 skill，不直接执行 CLI。
+description: FBA 模块路由图。用户询问 FBA skill 关系、FBA 流程、只有 SP 单号该跑哪个、发货单 CSV 和 WMS 装箱 Excel 区别、上传真实发货量到 ERP、发票报关流程、采购汇总表生成、采购合同填写、备货单生成、退税流程时使用；这是路由/解释 skill，不直接执行 CLI。
 type: amazon_fba
 ---
 
@@ -29,6 +29,7 @@ flowchart TD
   A --> D["fba-invoice-template-fill<br/>发票导入模板"]
 
   E["fba-shipment-wms-box-download<br/>WMS 装箱数据"] --> F["fba-shipment-create<br/>Amazon FBA 创建货件"]
+  E --> R["fba-erp-packing-upload<br/>ERP 真实发货量与库存 SKU 对账"]
   E --> D
   L["备货单 xlsx"] --> D
   A --> H["fba-customs-declaration-fill<br/>报关资料"]
@@ -51,6 +52,7 @@ flowchart TD
 |---|---|
 | 下载 FBA 发货单、发货单 SKU CSV、SP 发货单表格 | `fba-shipment-delivery-csv-download` |
 | 下载 WMS 装箱数据、托运单 Excel、装箱 Excel | `fba-shipment-wms-box-download` |
+| 上传真实发货量、同步装箱数据到 ERP、生成装箱对账 | `fba-erp-packing-upload` |
 | 创建 Amazon FBA 货件、上传装箱、确认承运人、填追踪号 | `fba-shipment-create` |
 | 按发货单准备库存 SKU Excel | `fba-stock-sku-download` |
 | 下载 MSKU 明细、发票前准备 MSKU 数据 | `fba-msku-detail-download` |
@@ -68,6 +70,7 @@ flowchart TD
 |---|---|
 | 发货单数据 | `fba-shipment-delivery-csv-download` |
 | 装箱与货件创建 | `fba-shipment-wms-box-download` -> `ziniao-browser` -> `fba-shipment-create` |
+| ERP 真实发货量 | 原始 WMS 装箱文件 -> `fba-erp-packing-upload` -> ERP 按采购批次 MSKU 映射展开库存 SKU 并对账 |
 | 发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill` |
 | 报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill` |
 | 采购汇总表与批量备货单生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-purchase-summary-create` |

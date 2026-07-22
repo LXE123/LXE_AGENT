@@ -66,6 +66,7 @@ interface DesktopSecrets {
   mabang_password: string;
   feishu_app_secret: string;
   data_server_api_key: string;
+  erp_api_key: string;
 }
 
 export interface DesktopCloudConfiguration {
@@ -87,6 +88,7 @@ export interface DesktopCloudEnrollmentConfig {
   syncIntervalSeconds: number;
   tunnelName: string;
   apiKey: string;
+  erpApiKey?: string;
 }
 
 export interface DesktopConfigStoreOptions {
@@ -158,6 +160,7 @@ const DEFAULT_SECRETS: DesktopSecrets = {
   mabang_password: "",
   feishu_app_secret: "",
   data_server_api_key: "",
+  erp_api_key: "",
 };
 
 const objectValue = (value: unknown): Record<string, unknown> =>
@@ -370,6 +373,7 @@ export class DesktopConfigStore {
       throw new Error("Cloud enrollment metadata is incomplete");
     }
     secrets.data_server_api_key = apiKey;
+    secrets.erp_api_key = text(input.erpApiKey);
     this.commit(config, secrets);
     return this.cloudConfiguration();
   }
@@ -726,6 +730,7 @@ export class DesktopConfigStore {
       LXE_DATA_SERVER_ENABLED: cloudEnabled ? "1" : "0",
       LXE_DATA_SERVER_URL: cloudEnabled ? config.cloud.data_server_url : "",
       LXE_DATA_SERVER_API_KEY: cloudEnabled ? secrets.data_server_api_key : "",
+      LXE_ERP_API_KEY: cloudEnabled ? secrets.erp_api_key : "",
       LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: String(config.cloud.sync_interval_seconds),
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
     };
@@ -900,6 +905,7 @@ export class DesktopConfigStore {
       mabang_password: text(value.mabang_password),
       feishu_app_secret: text(value.feishu_app_secret),
       data_server_api_key: text(value.data_server_api_key),
+      erp_api_key: text(value.erp_api_key),
     };
   }
 

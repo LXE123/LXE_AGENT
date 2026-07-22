@@ -165,6 +165,14 @@
       "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "split_mode": {"type": "string", "enum": ["auto", "original"]}}, "required": ["ship_no"], "additionalProperties": false}
     },
     {
+      "name": "mabang_erp_packing_upload", "module": "services.agent_cli.mabang.erp_packing_upload",
+      "command_path": ["fba", "erp", "packing-upload"],
+      "legacy_aliases": ["mabang_erp_packing_upload"],
+      "visibility": "business", "session_mode": "none",
+      "owner_skills": ["fba-erp-packing-upload"], "artifact_paths": [], "timeout_ms": 120000, "exposed": true,
+      "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "confirm_replace_snapshot_id": {"type": "string"}}, "required": ["ship_no"], "additionalProperties": false}
+    },
+    {
       "name": "mabang_download_stock_sku_excel", "module": "services.agent_cli.mabang.download_stock_sku_excel",
       "command_path": ["fba", "stock-sku", "download"],
       "legacy_aliases": ["mabang_download_stock_sku_excel"],

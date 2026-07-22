@@ -276,17 +276,22 @@ describe("DesktopConfigStore", () => {
       syncIntervalSeconds: 3_600,
       tunnelName: "lxe-agent",
       apiKey: "lxe_dev_0123456789abcdef0123456789abcdef.secret-value",
+      erpApiKey: "erp-dedicated-secret",
     });
 
     expect(cloud).toMatchObject({ managed: true, vpn_ip: "10.88.0.8", api_key_configured: true });
     const publicConfig = readFileSync(join(root, "config", "desktop.json"), "utf8");
     expect(publicConfig).toContain("Finance-PC-01");
     expect(publicConfig).not.toContain("secret-value");
-    expect(readFileSync(join(root, "config", "secrets.bin"), "utf8")).not.toContain("secret-value");
+    expect(publicConfig).not.toContain("erp-dedicated-secret");
+    const encryptedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
+    expect(encryptedSecrets).not.toContain("secret-value");
+    expect(encryptedSecrets).not.toContain("erp-dedicated-secret");
     expect(store.environment()).toMatchObject({
       LXE_DATA_SERVER_ENABLED: "1",
       LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
       LXE_DATA_SERVER_API_KEY: "lxe_dev_0123456789abcdef0123456789abcdef.secret-value",
+      LXE_ERP_API_KEY: "erp-dedicated-secret",
       LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "3600",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
     });

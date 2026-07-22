@@ -9,6 +9,7 @@ const DATA_SERVER_RUNTIME_KEYS = [
   "LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED",
   "LXE_DATA_SERVER_FALLBACK_URL",
   "LXE_DATA_SERVER_FALLBACK_API_KEY",
+  "LXE_ERP_API_KEY",
 ] as const;
 
 export interface DataServerRuntimeEnvironmentOptions {
@@ -20,7 +21,9 @@ export interface DataServerRuntimeEnvironmentOptions {
 
 export function withoutDataServerEnvironment(environment: Environment): Record<string, string | undefined> {
   return Object.fromEntries(
-    Object.entries(environment).filter(([name]) => !name.startsWith("LXE_DATA_SERVER_")),
+    Object.entries(environment).filter(
+      ([name]) => !name.startsWith("LXE_DATA_SERVER_") && name !== "LXE_ERP_API_KEY",
+    ),
   );
 }
 

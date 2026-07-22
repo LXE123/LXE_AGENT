@@ -1,0 +1,4 @@
+interface:
+  display_name: "FBA ERP 真实发货量上传"
+  short_description: "上传原始 WMS 装箱量到 ERP 并返回库存 SKU 对账"
+  default_prompt: "Use $fba-erp-packing-upload to upload an SP shipment packing snapshot to the FBA ERP and report reconciliation results."

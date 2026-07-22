@@ -22,6 +22,7 @@ export interface CloudEnrollmentPayload {
     api_token: string;
     sync_interval_seconds: 3600;
   };
+  erp?: { api_token: string };
 }
 
 interface PendingEnrollment {
@@ -76,6 +77,7 @@ const validatePayload = (value: unknown): CloudEnrollmentPayload => {
   const device = objectValue(payload.device, "Device");
   const wireguard = objectValue(payload.wireguard, "WireGuard");
   const dataServer = objectValue(payload.data_server, "Data server");
+  const erp = payload.erp === undefined ? undefined : objectValue(payload.erp, "ERP");
   const deviceId = exactText(device.id, "Device ID", 64);
   if (!/^[a-f0-9]{32}$/u.test(deviceId)) throw new Error("Device ID is invalid");
   const deviceName = exactText(device.name, "Device name", 128);
@@ -98,6 +100,7 @@ const validatePayload = (value: unknown): CloudEnrollmentPayload => {
     throw new Error("Device upload token is invalid");
   }
   if (dataServer.sync_interval_seconds !== 3_600) throw new Error("Data sync interval is invalid");
+  const erpApiToken = erp === undefined ? "" : exactText(erp.api_token, "ERP API token", 512);
   return {
     device: { id: deviceId, name: deviceName },
     wireguard: {
@@ -113,6 +116,7 @@ const validatePayload = (value: unknown): CloudEnrollmentPayload => {
       api_token: apiToken,
       sync_interval_seconds: 3_600,
     },
+    ...(erpApiToken ? { erp: { api_token: erpApiToken } } : {}),
   };
 };
 
