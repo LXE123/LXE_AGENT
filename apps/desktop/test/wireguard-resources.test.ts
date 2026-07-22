@@ -24,7 +24,12 @@ describe("packaged WireGuard resources", () => {
     expect(provision).toContain("$SecureConfiguration = \"$PlainConfiguration.dpapi\"");
     expect(provision).toContain("/installtunnelservice");
     expect(provision).toContain("WireGuardTunnel`$$TunnelName");
-    expect(provision).toContain("$currentVersion -lt [version]\"1.1.0\"");
+    expect(provision).toContain("function Test-WireGuardVersionSupported");
+    expect(provision).toContain("$VersionText -notmatch '^\\s*(\\d+)\\.(\\d+)'");
+    expect(provision).toContain("$major -gt 1 -or ($major -eq 1 -and $minor -ge 1)");
+    expect(provision).toContain("$requiresInstall = -not (Test-WireGuardVersionSupported $currentVersion)");
+    expect(provision).toContain("if (-not (Test-WireGuardVersionSupported $installedVersion))");
+    expect(provision).not.toContain('[version]"1.1.0"');
     expect(provision).toContain("$BackupConfiguration");
     expect(provision).toContain("$managerInstalledHere");
     expect(provision).toContain("/api/v1/agent-data/devices/activate");

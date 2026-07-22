@@ -34,6 +34,15 @@ function Write-Result(
   $result | ConvertTo-Json -Compress | Set-Content -LiteralPath $ResultPath -Encoding UTF8
 }
 
+function Test-WireGuardVersionSupported([string]$VersionText) {
+  if ($VersionText -notmatch '^\s*(\d+)\.(\d+)') {
+    return $false
+  }
+  $major = [int]$Matches[1]
+  $minor = [int]$Matches[2]
+  return $major -gt 1 -or ($major -eq 1 -and $minor -ge 1)
+}
+
 try {
   if (-not [Environment]::Is64BitOperatingSystem -or [Environment]::OSVersion.Version.Major -lt 10) {
     throw "Windows 10/11 x64 is required"
@@ -41,8 +50,8 @@ try {
   $Stage = "inspect_installation"
   $requiresInstall = -not (Test-Path -LiteralPath $WireGuardExe)
   if (-not $requiresInstall) {
-    $currentVersion = [version](Get-Item -LiteralPath $WireGuardExe).VersionInfo.ProductVersion
-    $requiresInstall = $currentVersion -lt [version]"1.1.0"
+    $currentVersion = (Get-Item -LiteralPath $WireGuardExe).VersionInfo.ProductVersion
+    $requiresInstall = -not (Test-WireGuardVersionSupported $currentVersion)
   }
   if ($requiresInstall) {
     $Stage = "install_wireguard"
@@ -60,9 +69,9 @@ try {
   if (-not (Test-Path -LiteralPath $WireGuardExe)) {
     throw "WireGuard executable is missing after installation"
   }
-  $installedVersion = [version](Get-Item -LiteralPath $WireGuardExe).VersionInfo.ProductVersion
-  if ($installedVersion -lt [version]"1.1.0") {
-    throw "Installed WireGuard version $installedVersion is older than 1.1.0"
+  $installedVersion = (Get-Item -LiteralPath $WireGuardExe).VersionInfo.ProductVersion
+  if (-not (Test-WireGuardVersionSupported $installedVersion)) {
+    throw "Installed WireGuard version $installedVersion is older than 1.1 or could not be parsed"
   }
 
   $Stage = "ensure_manager"
