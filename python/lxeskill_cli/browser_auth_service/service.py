@@ -925,13 +925,17 @@ def _collect_wms_cookie_header(page, context, wms_host: str, wms_entry_text: str
         page.goto(FBA_HOME_URL, wait_until="domcontentloaded")
         page.wait_for_timeout(1000)
 
-        entry = page.locator("a[href*='main.jumpToWms']:visible")
+        entry = page.get_by_role("listitem").filter(has_text=wms_entry_text)
         if entry.count() == 0:
-            raise RuntimeError(f"FBA 首页未找到可见 WMS 入口: {wms_entry_text}")
+            entry = page.locator(f"text={wms_entry_text}")
+        if entry.count() == 0:
+            entry = page.locator("a[href*='main.jumpToWms']")
+        if entry.count() == 0:
+            raise RuntimeError(f"FBA 首页未找到 WMS 入口: {wms_entry_text}")
 
         try:
             with page.expect_popup(timeout=20000) as popup_info:
-                entry.first.click(timeout=10000)
+                entry.first.click(timeout=10000, force=True)
             popup = popup_info.value
             popup.wait_for_load_state("domcontentloaded")
             monitor_page = popup

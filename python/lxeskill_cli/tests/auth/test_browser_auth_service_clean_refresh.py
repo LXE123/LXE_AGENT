@@ -322,7 +322,7 @@ def test_credentials_failure_is_structured(monkeypatch) -> None:
     }
 
 
-def test_wms_stage_returns_home_and_clicks_visible_entry() -> None:
+def test_wms_stage_uses_original_entry_lookup_and_forced_click() -> None:
     events: list[str] = []
 
     class Entry:
@@ -333,7 +333,12 @@ def test_wms_stage_returns_home_and_clicks_visible_entry() -> None:
         def first(self):
             return self
 
-        def click(self, timeout: int) -> None:
+        def filter(self, *, has_text: str):
+            assert has_text == service.FBA_LOGISTICS_WMS_ENTRY_TEXT
+            return self
+
+        def click(self, timeout: int, force: bool) -> None:
+            assert force is True
             events.append("click-wms")
 
     class Popup:
@@ -370,9 +375,12 @@ def test_wms_stage_returns_home_and_clicks_visible_entry() -> None:
         def wait_for_timeout(self, timeout_ms: int) -> None:
             return None
 
-        def locator(self, selector: str) -> Entry:
-            assert selector == "a[href*='main.jumpToWms']:visible"
+        def get_by_role(self, role: str) -> Entry:
+            assert role == "listitem"
             return Entry()
+
+        def locator(self, selector: str) -> Entry:
+            raise AssertionError(f"primary role lookup should win, got fallback: {selector}")
 
         def expect_popup(self, timeout: int) -> PopupExpectation:
             return PopupExpectation()
@@ -406,10 +414,16 @@ def test_wms_stage_returns_home_and_clicks_visible_entry() -> None:
     ]
 
 
-def test_wms_stage_fails_when_home_has_no_visible_entry() -> None:
+def test_wms_stage_fails_after_all_original_entry_lookups_are_empty() -> None:
+    selectors: list[str] = []
+
     class EmptyEntry:
         def count(self) -> int:
             return 0
+
+        def filter(self, *, has_text: str):
+            assert has_text == service.FBA_LOGISTICS_WMS_ENTRY_TEXT
+            return self
 
     class Page:
         url = service.FBA_HOME_URL
@@ -420,11 +434,15 @@ def test_wms_stage_fails_when_home_has_no_visible_entry() -> None:
         def wait_for_timeout(self, timeout_ms: int) -> None:
             return None
 
-        def locator(self, selector: str) -> EmptyEntry:
-            assert selector == "a[href*='main.jumpToWms']:visible"
+        def get_by_role(self, role: str) -> EmptyEntry:
+            assert role == "listitem"
             return EmptyEntry()
 
-    with pytest.raises(service.BrowserAuthRefreshError, match="未找到可见 WMS 入口") as captured:
+        def locator(self, selector: str) -> EmptyEntry:
+            selectors.append(selector)
+            return EmptyEntry()
+
+    with pytest.raises(service.BrowserAuthRefreshError, match="未找到 WMS 入口") as captured:
         service._collect_wms_cookie_header(
             Page(),
             object(),
@@ -434,9 +452,13 @@ def test_wms_stage_fails_when_home_has_no_visible_entry() -> None:
 
     assert captured.value.to_payload()["stage"] == "wms"
     assert captured.value.to_payload()["current_url"] == service.FBA_HOME_URL
+    assert selectors == [
+        f"text={service.FBA_LOGISTICS_WMS_ENTRY_TEXT}",
+        "a[href*='main.jumpToWms']",
+    ]
 
 
-def test_wms_stage_preserves_visible_entry_click_error() -> None:
+def test_wms_stage_preserves_forced_entry_click_error() -> None:
     class FakePlaywrightError(Exception):
         pass
 
@@ -448,7 +470,12 @@ def test_wms_stage_preserves_visible_entry_click_error() -> None:
         def first(self):
             return self
 
-        def click(self, timeout: int) -> None:
+        def filter(self, *, has_text: str):
+            assert has_text == service.FBA_LOGISTICS_WMS_ENTRY_TEXT
+            return self
+
+        def click(self, timeout: int, force: bool) -> None:
+            assert force is True
             raise FakePlaywrightError("Locator.click: Element is not visible")
 
     class PopupExpectation:
@@ -467,9 +494,12 @@ def test_wms_stage_preserves_visible_entry_click_error() -> None:
         def wait_for_timeout(self, timeout_ms: int) -> None:
             return None
 
-        def locator(self, selector: str) -> Entry:
-            assert selector == "a[href*='main.jumpToWms']:visible"
+        def get_by_role(self, role: str) -> Entry:
+            assert role == "listitem"
             return Entry()
+
+        def locator(self, selector: str) -> Entry:
+            raise AssertionError(f"primary role lookup should win, got fallback: {selector}")
 
         def expect_popup(self, timeout: int) -> PopupExpectation:
             return PopupExpectation()
