@@ -10,6 +10,7 @@ import type {
 } from "@lxe/desktop-protocol";
 import { DesktopCloudEnrollmentManager } from "./cloud-enrollment";
 import type { DesktopConfigStore } from "./config-store";
+import type { PreviewDataServerTarget } from "./data-server-policy";
 import type { WireGuardProvisionerPort } from "./wireguard-provisioner";
 
 export interface DesktopCloudClock {
@@ -37,6 +38,7 @@ const systemClock: DesktopCloudClock = {
 interface DesktopCloudServiceOptions {
   dataRoot: string;
   supported: boolean;
+  previewTarget?: PreviewDataServerTarget;
   config: DesktopConfigStore;
   enrollments: DesktopCloudEnrollmentManager;
   provisioner: WireGuardProvisionerPort;
@@ -48,6 +50,21 @@ interface DesktopCloudServiceOptions {
   onConfigured(): Promise<void>;
   onStateChanged?(state: DesktopCloudState): void;
   fetch?: typeof globalThis.fetch;
+}
+
+interface CloudProbeTarget {
+  source: "managed" | "preview";
+  dataServerUrl: string;
+  apiToken: string;
+  deviceId: string;
+  deviceName: string;
+  vpnIp: string;
+}
+
+interface CloudDeviceIdentity {
+  deviceId: string;
+  deviceName: string;
+  vpnIp: string;
 }
 
 const objectValue = (value: unknown): Record<string, unknown> | undefined =>
@@ -68,12 +85,13 @@ export class DesktopCloudService {
   private probeTimer: unknown | undefined;
   private lastPublished = "";
   private stopped = false;
+  private previewIdentity: CloudDeviceIdentity | undefined;
 
   constructor(private readonly options: DesktopCloudServiceOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
     this.now = options.now ?? Date.now;
     this.clock = options.clock ?? systemClock;
-    const configured = options.config.cloudConfiguration().managed;
+    const configured = Boolean(options.previewTarget) || options.config.cloudConfiguration().managed;
     this.connection = configured ? "connecting" : options.supported ? "not_configured" : "unsupported";
   }
 
@@ -83,6 +101,17 @@ export class DesktopCloudService {
   }
 
   state(): DesktopCloudState {
+    if (this.options.previewTarget) {
+      return {
+        configured: true,
+        device_name: this.previewIdentity?.deviceName ?? "",
+        device_id: this.previewIdentity?.deviceId ?? "",
+        vpn_ip: this.previewIdentity?.vpnIp ?? "",
+        connection: this.connection,
+        last_error: this.lastError,
+        last_checked_at: this.lastCheckedAt,
+      };
+    }
     const cloud = this.options.config.cloudConfiguration();
     return {
       configured: cloud.managed && cloud.api_key_configured,
@@ -97,7 +126,7 @@ export class DesktopCloudService {
 
   start(): Promise<DesktopCloudState> {
     this.stopped = false;
-    if (this.options.supported && this.probeTimer === undefined) {
+    if ((this.options.supported || this.options.previewTarget) && this.probeTimer === undefined) {
       this.probeTimer = this.clock.setInterval(() => {
         void this.check();
       }, Math.max(1, Math.trunc(this.options.probeIntervalMs ?? 60_000)));
@@ -135,27 +164,22 @@ export class DesktopCloudService {
   private checkConnection(showProgress: boolean): Promise<DesktopCloudState> {
     if (this.activation) return this.activation;
     if (this.probe) return this.probe;
-    if (!this.options.supported) {
+    if (!this.options.supported && !this.options.previewTarget) {
       return Promise.resolve(this.setConnection("unsupported", ""));
     }
-    const cloud = this.options.config.cloudConfiguration();
-    if (!cloud.managed || !cloud.api_key_configured) {
+    const target = this.probeTarget();
+    if (!target) {
       return Promise.resolve(this.setConnection("not_configured", ""));
     }
     if (showProgress) this.setConnection("connecting", "");
-    const environment = this.options.config.environment();
     const probeId = randomUUID();
     const logger = this.options.logger.child({
       probe_id: probeId,
-      device_id: cloud.device_id,
-      vpn_ip: cloud.vpn_ip,
+      ...(target.deviceId ? { device_id: target.deviceId } : {}),
+      ...(target.vpnIp ? { vpn_ip: target.vpnIp } : {}),
     });
     let tracked: Promise<DesktopCloudState>;
-    tracked = this.probeStatus(
-      environment.LXE_DATA_SERVER_API_KEY ?? "",
-      cloud.data_server_url,
-      logger,
-    ).finally(() => {
+    tracked = this.probeStatus(target, logger).finally(() => {
       if (this.probe === tracked) this.probe = undefined;
     });
     this.probe = tracked;
@@ -196,9 +220,16 @@ export class DesktopCloudService {
       this.setConnection("connecting", "");
       stage = "activate_device";
       return await this.verifyActivation(
-        payload.data_server.api_token,
-        payload.data_server.url,
+        {
+          source: "managed",
+          dataServerUrl: payload.data_server.url,
+          apiToken: payload.data_server.api_token,
+          deviceId: payload.device.id,
+          deviceName: payload.device.name,
+          vpnIp,
+        },
         logger,
+        { deviceId: payload.device.id, deviceName: payload.device.name, vpnIp },
       );
     } catch (error) {
       logger.error("cloud_device_activation_failed", {
@@ -214,25 +245,24 @@ export class DesktopCloudService {
   }
 
   private async probeStatus(
-    apiToken: string,
-    dataServerUrl: string,
+    target: CloudProbeTarget,
     logger: Logger,
   ): Promise<DesktopCloudState> {
     const startedAt = this.now();
     let response: Response;
     try {
       response = await this.request(
-        `${dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/devices/status`,
+        `${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/devices/status`,
         {
           method: "GET",
-          headers: { authorization: `Bearer ${apiToken}` },
+          headers: { authorization: `Bearer ${target.apiToken}` },
         },
       );
     } catch (error) {
       logger.warn("cloud_status_check_failed", {
         duration_ms: Math.max(0, this.now() - startedAt),
         connection: "offline",
-        observed_error: this.diagnosticError(error),
+        observed_error: this.diagnosticError(error, target),
       });
       return this.setConnection(
         "offline",
@@ -241,25 +271,33 @@ export class DesktopCloudService {
       );
     }
     if (!response.ok) {
-      return this.httpFailure(response, "status", logger, startedAt);
+      return this.httpFailure(response, "status", logger, startedAt, target);
     }
     const payload = objectValue(await response.json().catch(() => undefined));
     if (!payload || payload.status !== "ok" || typeof payload.activation_required !== "boolean") {
       return this.invalidCloudResponse(logger, startedAt, "invalid device status response");
     }
-    const cloud = this.options.config.cloudConfiguration();
-    if (String(payload.device_id ?? "") !== cloud.device_id
-      || String(payload.wireguard_ip ?? "") !== cloud.vpn_ip) {
+    const identity = this.responseIdentity(payload);
+    if (!identity) {
+      return this.invalidCloudResponse(logger, startedAt, "invalid device identity response");
+    }
+    const expectedIdentity = target.source === "preview" ? this.previewIdentity : {
+      deviceId: target.deviceId,
+      deviceName: target.deviceName,
+      vpnIp: target.vpnIp,
+    };
+    if (expectedIdentity && !this.targetIdentityMatches(target, identity, expectedIdentity)) {
       return this.invalidCloudResponse(logger, startedAt, "device identity mismatch");
     }
+    if (target.source === "preview") this.previewIdentity = identity;
     if (payload.activation_required) {
       logger.info("cloud_status_activation_required", {
         duration_ms: Math.max(0, this.now() - startedAt),
       });
-      return this.verifyActivation(apiToken, dataServerUrl, logger);
+      return this.verifyActivation(target, logger, identity);
     }
-    const identity = resolveMachineIdentity(join(this.options.dataRoot, "db", "machine_identity.json"));
-    if (String(payload.machine_id ?? "") !== identity.machine_id) {
+    const machineIdentity = resolveMachineIdentity(join(this.options.dataRoot, "db", "machine_identity.json"));
+    if (String(payload.machine_id ?? "") !== machineIdentity.machine_id) {
       return this.invalidCloudResponse(logger, startedAt, "machine identity mismatch");
     }
     logger.info("cloud_status_check_completed", {
@@ -271,20 +309,20 @@ export class DesktopCloudService {
   }
 
   private async verifyActivation(
-    apiToken: string,
-    dataServerUrl: string,
+    target: CloudProbeTarget,
     logger: Logger,
+    expectedIdentity: CloudDeviceIdentity,
   ): Promise<DesktopCloudState> {
     const startedAt = this.now();
     const identity = resolveMachineIdentity(join(this.options.dataRoot, "db", "machine_identity.json"));
     let response: Response;
     try {
       response = await this.request(
-        `${dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/devices/activate`,
+        `${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/devices/activate`,
         {
           method: "POST",
           headers: {
-            authorization: `Bearer ${apiToken}`,
+            authorization: `Bearer ${target.apiToken}`,
             "content-type": "application/json",
           },
           body: JSON.stringify({ machine_id: identity.machine_id, hostname: hostname() }),
@@ -295,7 +333,7 @@ export class DesktopCloudService {
         failed_stage: "activate_device",
         duration_ms: Math.max(0, this.now() - startedAt),
         connection: "offline",
-        observed_error: this.diagnosticError(error),
+        observed_error: this.diagnosticError(error, target),
       });
       return this.setConnection(
         "offline",
@@ -304,16 +342,16 @@ export class DesktopCloudService {
       );
     }
     if (!response.ok) {
-      return this.httpFailure(response, "activation", logger, startedAt);
+      return this.httpFailure(response, "activation", logger, startedAt, target);
     }
     const payload = objectValue(await response.json().catch(() => undefined));
-    const cloud = this.options.config.cloudConfiguration();
-    if (!payload || payload.status !== "ok"
-      || String(payload.device_id ?? "") !== cloud.device_id
-      || String(payload.wireguard_ip ?? "") !== cloud.vpn_ip
+    const responseIdentity = payload ? this.responseIdentity(payload) : undefined;
+    if (!payload || payload.status !== "ok" || !responseIdentity
+      || !this.targetIdentityMatches(target, responseIdentity, expectedIdentity)
       || String(payload.machine_id ?? "") !== identity.machine_id) {
       return this.invalidCloudResponse(logger, startedAt, "activation identity mismatch");
     }
+    if (target.source === "preview") this.previewIdentity = responseIdentity;
     logger.info("cloud_device_activation_completed", {
       duration_ms: Math.max(0, this.now() - startedAt),
       http_status: response.status,
@@ -322,13 +360,59 @@ export class DesktopCloudService {
     return this.setConnection("connected", "", true);
   }
 
+  private probeTarget(): CloudProbeTarget | undefined {
+    if (this.options.previewTarget) {
+      return {
+        source: "preview",
+        dataServerUrl: this.options.previewTarget.dataServerUrl,
+        apiToken: this.options.previewTarget.apiToken,
+        deviceId: this.previewIdentity?.deviceId ?? "",
+        deviceName: this.previewIdentity?.deviceName ?? "",
+        vpnIp: this.previewIdentity?.vpnIp ?? "",
+      };
+    }
+    const cloud = this.options.config.cloudConfiguration();
+    if (!cloud.managed || !cloud.api_key_configured) return undefined;
+    const apiToken = this.options.config.environment().LXE_DATA_SERVER_API_KEY ?? "";
+    if (!apiToken) return undefined;
+    return {
+      source: "managed",
+      dataServerUrl: cloud.data_server_url,
+      apiToken,
+      deviceId: cloud.device_id,
+      deviceName: cloud.device_name,
+      vpnIp: cloud.vpn_ip,
+    };
+  }
+
+  private responseIdentity(payload: Record<string, unknown>): CloudDeviceIdentity | undefined {
+    const deviceId = typeof payload.device_id === "string" ? payload.device_id.trim() : "";
+    const deviceName = typeof payload.display_name === "string" ? payload.display_name.trim() : "";
+    const vpnIp = typeof payload.wireguard_ip === "string" ? payload.wireguard_ip.trim() : "";
+    return deviceId && deviceName && vpnIp ? { deviceId, deviceName, vpnIp } : undefined;
+  }
+
+  private targetIdentityMatches(
+    target: CloudProbeTarget,
+    left: CloudDeviceIdentity,
+    right: CloudDeviceIdentity,
+  ): boolean {
+    return left.deviceId === right.deviceId
+      && left.vpnIp === right.vpnIp
+      && (target.source !== "preview" || left.deviceName === right.deviceName);
+  }
+
   private async httpFailure(
     response: Response,
     operation: "status" | "activation",
     logger: Logger,
     startedAt: number,
+    target: CloudProbeTarget,
   ): Promise<DesktopCloudState> {
-    const observedError = (await response.text().catch(() => "")).trim().slice(0, 500);
+    const observedError = this.redactSensitiveText(
+      await response.text().catch(() => ""),
+      target,
+    );
     const offline = response.status >= 500;
     const lastError = offline
       ? "公司云端暂时不可用"
@@ -402,8 +486,17 @@ export class DesktopCloudService {
     return state;
   }
 
-  private diagnosticError(error: unknown): string {
-    return (error instanceof Error ? error.message : String(error)).trim().slice(0, 500);
+  private diagnosticError(error: unknown, target?: CloudProbeTarget): string {
+    const message = error instanceof Error ? error.message : String(error);
+    return target ? this.redactSensitiveText(message, target) : message.trim().slice(0, 500);
+  }
+
+  private redactSensitiveText(value: string, target: CloudProbeTarget): string {
+    let redacted = value.trim();
+    for (const sensitive of [target.apiToken, target.dataServerUrl].filter(Boolean)) {
+      redacted = redacted.replaceAll(sensitive, "[redacted]");
+    }
+    return redacted.slice(0, 500);
   }
 
   private publicError(error: unknown): string {

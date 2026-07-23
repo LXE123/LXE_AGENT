@@ -3,10 +3,39 @@ import { join } from "node:path";
 import { loadProjectEnv } from "@lxe/gateway/desktop";
 import {
   resolveDataServerRuntimeEnvironment,
+  resolvePreviewDataServerTarget,
   withoutDataServerEnvironment,
 } from "../src/main/data-server-policy";
 
 describe("desktop data server policy", () => {
+  test("resolves a complete Preview target without exposing unrelated environment values", () => {
+    expect(resolvePreviewDataServerTarget({
+      LXE_DATA_SERVER_ENABLED: "yes",
+      LXE_DATA_SERVER_URL: " http://10.88.0.1:8000/ ",
+      LXE_DATA_SERVER_API_KEY: " device-secret ",
+      LXE_ERP_API_KEY: "unrelated-secret",
+    })).toEqual({
+      dataServerUrl: "http://10.88.0.1:8000",
+      apiToken: "device-secret",
+    });
+  });
+
+  test("does not enable Preview probing with disabled or incomplete source settings", () => {
+    expect(resolvePreviewDataServerTarget({
+      LXE_DATA_SERVER_ENABLED: "0",
+      LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
+      LXE_DATA_SERVER_API_KEY: "device-secret",
+    })).toBeUndefined();
+    expect(resolvePreviewDataServerTarget({
+      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
+    })).toBeUndefined();
+    expect(resolvePreviewDataServerTarget({
+      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_API_KEY: "device-secret",
+    })).toBeUndefined();
+  });
+
   test("uses the repository environment for source development and Preview", () => {
     const files: Record<string, string> = {
       [join("/worktree", ".env")]: "LXE_DATA_SERVER_API_KEY=source-secret\nLXE_ERP_API_KEY=source-erp-secret\n",

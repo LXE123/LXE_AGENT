@@ -103,6 +103,156 @@ const encryptedEnrollment = (password: string): Buffer => {
 };
 
 describe("DesktopCloudService", () => {
+  test("uses an in-memory Preview target on unsupported platforms and prefers it over managed config", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-preview-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
+    config.saveCloudEnrollment({
+      deviceId: "managed-device",
+      deviceName: "Managed device",
+      vpnIp: "10.88.0.99",
+      dataServerUrl: "http://managed.example",
+      syncIntervalSeconds: 3_600,
+      tunnelName: "lxe-agent",
+      apiKey: "managed-secret",
+    });
+    const machineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
+    const previewToken = "preview-device-secret";
+    const previewUrl = "http://10.88.0.1:8000";
+    const requests: Array<{ url: string; authorization: string }> = [];
+    const events: LogEvent[] = [];
+    let configured = 0;
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: false,
+      previewTarget: { dataServerUrl: previewUrl, apiToken: previewToken },
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger(events),
+      provisioner: { provision: async () => { throw new Error("must not provision WireGuard"); } },
+      onConfigured: async () => { configured += 1; },
+      fetch: async (input, init) => {
+        requests.push({
+          url: String(input),
+          authorization: String(new Headers(init?.headers).get("authorization")),
+        });
+        return Response.json({
+          status: "ok",
+          activation_required: false,
+          device_id: enrollmentPayload.device.id,
+          display_name: enrollmentPayload.device.name,
+          wireguard_ip: "10.88.0.8",
+          machine_id: machineId,
+        });
+      },
+    });
+
+    expect(service.state()).toMatchObject({
+      configured: true,
+      connection: "connecting",
+      device_id: "",
+      vpn_ip: "",
+    });
+    expect(() => service.select("ignored.lxe-enroll"))
+      .toThrow("公司云端仅支持 Windows 10/11 x64 安装包");
+    expect(await service.start()).toMatchObject({
+      configured: true,
+      connection: "connected",
+      device_id: enrollmentPayload.device.id,
+      device_name: enrollmentPayload.device.name,
+      vpn_ip: "10.88.0.8",
+    });
+    expect(requests).toEqual([{
+      url: `${previewUrl}/api/v1/agent-data/devices/status`,
+      authorization: `Bearer ${previewToken}`,
+    }]);
+    expect(configured).toBe(0);
+    expect(JSON.stringify(service.state())).not.toContain(previewToken);
+    expect(JSON.stringify(service.state())).not.toContain(previewUrl);
+    expect(JSON.stringify(events)).not.toContain(previewToken);
+    expect(JSON.stringify(events)).not.toContain(previewUrl);
+  });
+
+  test("auto-activates a Preview device and rejects an identity change in the same process", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-preview-activation-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
+    const expectedMachineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
+    const requests: Array<{ method: string; body: string }> = [];
+    let statusCalls = 0;
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: false,
+      previewTarget: {
+        dataServerUrl: enrollmentPayload.data_server.url,
+        apiToken: enrollmentPayload.data_server.api_token,
+      },
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => { throw new Error("must not provision WireGuard"); } },
+      onConfigured: async () => undefined,
+      fetch: async (input, init) => {
+        requests.push({ method: String(init?.method), body: String(init?.body ?? "") });
+        if (String(input).endsWith("/devices/activate")) {
+          const body = JSON.parse(String(init?.body)) as { machine_id: string };
+          return Response.json({
+            status: "ok",
+            device_id: enrollmentPayload.device.id,
+            display_name: enrollmentPayload.device.name,
+            wireguard_ip: "10.88.0.8",
+            machine_id: body.machine_id,
+          });
+        }
+        statusCalls += 1;
+        return Response.json({
+          status: "ok",
+          activation_required: statusCalls === 1,
+          device_id: enrollmentPayload.device.id,
+          display_name: statusCalls === 1 ? enrollmentPayload.device.name : "Unexpected device",
+          wireguard_ip: "10.88.0.8",
+          machine_id: statusCalls === 1 ? "" : expectedMachineId,
+        });
+      },
+    });
+
+    expect(await service.check()).toMatchObject({ connection: "connected" });
+    expect(requests.map(({ method }) => method)).toEqual(["GET", "POST"]);
+    expect(JSON.parse(requests[1]!.body)).toMatchObject({ machine_id: expectedMachineId });
+    expect(await service.check()).toMatchObject({
+      connection: "error",
+      last_error: "云端返回的设备身份不一致",
+    });
+  });
+
+  test("redacts the Preview URL and token from network diagnostics", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-preview-redaction-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
+    const dataServerUrl = "http://10.88.0.1:8000";
+    const apiToken = "preview-sensitive-token";
+    const events: LogEvent[] = [];
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: false,
+      previewTarget: { dataServerUrl, apiToken },
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger(events),
+      provisioner: { provision: async () => undefined },
+      onConfigured: async () => undefined,
+      fetch: async () => {
+        throw new Error(`request to ${dataServerUrl} failed for ${apiToken}`);
+      },
+    });
+
+    expect(await service.check()).toMatchObject({ connection: "offline" });
+    const serialized = JSON.stringify(events);
+    expect(serialized).toContain("[redacted]");
+    expect(serialized).not.toContain(dataServerUrl);
+    expect(serialized).not.toContain(apiToken);
+  });
+
   test("persists a provisioned device while offline and reconnects without reimporting secrets", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-cloud-service-"));
     roots.push(root);

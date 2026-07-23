@@ -32,6 +32,7 @@ import { applyDesktopConfigImport } from "./main/config-import-application";
 import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
 import { DesktopConfigStore } from "./main/config-store";
 import { DesktopCloudService } from "./main/desktop-cloud";
+import { resolvePreviewDataServerTarget } from "./main/data-server-policy";
 import {
   ALL_DASHBOARD_DATA_DOMAINS,
   DashboardInvalidationBatcher,
@@ -150,6 +151,12 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
 async function bootstrap(): Promise<void> {
   const desktopEnvironment = process.env;
   const paths = desktopPaths;
+  const previewCloudTarget = launchMode === "preview"
+    ? resolvePreviewDataServerTarget(loadProjectEnv({
+        projectRoot: paths.sourceRoot,
+        initial: desktopEnvironment,
+      }))
+    : undefined;
   const brandAssets = resolveDesktopBrandAssets({
     packaged: app.isPackaged,
     platform: desktopPlatform,
@@ -218,6 +225,7 @@ async function bootstrap(): Promise<void> {
   const cloud = new DesktopCloudService({
     dataRoot: paths.dataRoot,
     supported: packagedRuntime && desktopPlatform === "win32" && process.arch === "x64",
+    ...(previewCloudTarget ? { previewTarget: previewCloudTarget } : {}),
     config,
     enrollments: new DesktopCloudEnrollmentManager(),
     logger: cloudLogger,
