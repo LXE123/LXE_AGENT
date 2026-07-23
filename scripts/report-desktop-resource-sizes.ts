@@ -174,6 +174,12 @@ export const assertDesktopResourceSizeBudgets = (report: DesktopResourceSizeRepo
   const failures = Object.entries(report.budgets)
     .filter(([, budget]) => !budget.passed)
     .map(([name, budget]) => `${name} is ${budget.mib} MiB; limit is ${budget.limit_mib} MiB`);
+  const playwrightDriverNode = report.resources.runtime.python.playwright_driver_node;
+  if (playwrightDriverNode.files > 0) {
+    failures.push(
+      `Playwright driver contains a duplicate Node runtime (${playwrightDriverNode.mib} MiB)`,
+    );
+  }
   if (failures.length > 0) {
     throw new Error(`Desktop size budget exceeded: ${failures.join("; ")}`);
   }

@@ -47,6 +47,35 @@ describe("desktop resource size report", () => {
     expect(report.budgets.unpacked.limit_bytes).toBe(DESKTOP_UNPACKED_BUDGET_BYTES);
     expect(report.budgets.runtime.passed).toBe(true);
     expect(report.budgets.unpacked.passed).toBe(true);
+    expect(() => assertDesktopResourceSizeBudgets(report)).not.toThrow();
+  });
+
+  test("rejects a packaged Playwright driver containing its duplicate Node runtime", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-playwright-node-"));
+    temporaryRoots.push(root);
+    const driver = join(
+      root,
+      "resources",
+      "runtime",
+      "python",
+      "Lib",
+      "site-packages",
+      "playwright",
+      "driver",
+    );
+    mkdirSync(driver, { recursive: true });
+    writeFileSync(join(root, "LXE Agent.exe"), "desktop", "utf8");
+    writeFileSync(join(driver, "node.exe"), Buffer.alloc(1024));
+
+    const report = createDesktopResourceSizeReport(root);
+
+    expect(report.resources.runtime.python.playwright_driver_node).toMatchObject({
+      bytes: 1024,
+      files: 1,
+    });
+    expect(() => assertDesktopResourceSizeBudgets(report)).toThrow(
+      "Playwright driver contains a duplicate Node runtime",
+    );
   });
 
   test("fails explicitly when either size budget is exceeded", () => {

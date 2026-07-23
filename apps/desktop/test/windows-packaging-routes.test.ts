@@ -140,6 +140,31 @@ describe("Windows desktop packaging routes", () => {
     expect(runtimeLock).not.toContain("sha256");
   });
 
+  test("excludes only Playwright's embedded Node from the packaged Python runtime", () => {
+    const resourcePreparation = readFileSync(
+      join(repositoryRoot, "scripts", "prepare-desktop-resources.ts"),
+      "utf8",
+    );
+    const desktopGateway = readFileSync(
+      join(repositoryRoot, "apps", "desktop", "src", "main", "desktop-gateway.ts"),
+      "utf8",
+    );
+
+    expect(resourcePreparation).toContain(
+      'const playwrightEmbeddedNodeRelativePath = "Lib/site-packages/playwright/driver/node.exe"',
+    );
+    expect(resourcePreparation).toContain(
+      'filter: ["**/*", `!${playwrightEmbeddedNodeRelativePath}`]',
+    );
+    expect(resourcePreparation).toContain("playwrightEmbeddedNodeSource");
+    expect(resourcePreparation).not.toContain("!Lib/site-packages/playwright/**");
+    expect(resourcePreparation).not.toContain("rmSync(playwrightEmbeddedNodeSource");
+    expect(resourcePreparation).not.toContain("rmSync(pythonRoot");
+    expect(desktopGateway).toContain(
+      'PLAYWRIGHT_NODEJS_PATH: join(process.resourcesPath, "runtime", "node", "node.exe")',
+    );
+  });
+
   test("resource preparation selects files without semantic scope or Skill validation", () => {
     const resourcePreparation = readFileSync(
       join(repositoryRoot, "scripts", "prepare-desktop-resources.ts"),

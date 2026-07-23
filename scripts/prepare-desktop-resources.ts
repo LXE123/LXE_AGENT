@@ -32,6 +32,7 @@ const generatedBuilderConfig = join(publishRoot, "electron-builder.json");
 const platform = "win32-x64";
 const environment = process.env;
 const resourceScope = readResourceScope(repositoryRoot);
+const playwrightEmbeddedNodeRelativePath = "Lib/site-packages/playwright/driver/node.exe";
 
 const scopeEntry = (id: string) => {
   const entry = resourceScope.resources.find((candidate) => candidate.id === id);
@@ -109,12 +110,17 @@ const {
   ripgrepExecutable,
   playwrightRoot,
 } = runtimeInputs;
+const playwrightEmbeddedNodeSource = join(
+  pythonRoot,
+  ...playwrightEmbeddedNodeRelativePath.split("/"),
+);
 for (const path of [
   join(nodeRoot, "node.exe"),
   join(nodeRoot, "node_modules", "dingtalk-workspace-cli"),
   join(nodeRoot, "node_modules", "@larksuite", "cli"),
   join(nodeRoot, "node_modules", "@larksuite", "whiteboard-cli"),
   join(pythonRoot, "python.exe"),
+  playwrightEmbeddedNodeSource,
   ripgrepExecutable,
 ]) {
   if (!existsSync(path)) throw new Error(`Managed desktop runtime is incomplete: ${path}`);
@@ -183,7 +189,11 @@ const wireGuardResourceRoot = join(repositoryRoot, "apps", "desktop", "resources
 
 const extraResources: BuilderFileSet[] = [
   { from: nodeRoot, to: scopeEntry("runtime-node").target, filter: ["**/*"] },
-  { from: pythonRoot, to: scopeEntry("runtime-python").target, filter: ["**/*"] },
+  {
+    from: pythonRoot,
+    to: scopeEntry("runtime-python").target,
+    filter: ["**/*", `!${playwrightEmbeddedNodeRelativePath}`],
+  },
   {
     from: pythonOverlay,
     to: `${scopeEntry("runtime-python").target}/Lib/site-packages`,
