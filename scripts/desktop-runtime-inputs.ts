@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-const lockInputPaths = [
+export const desktopRuntimeLockInputPaths = [
   "config/desktop-runtime/windows-x64/runtime.lock.json",
   "config/desktop-runtime/windows-x64/node/package.json",
   "config/desktop-runtime/windows-x64/node/package-lock.json",
   "pyproject.toml",
+  "scripts/prepare-desktop-runtime.ps1",
   "uv.lock",
 ] as const;
 const desktopRuntimePublishLayout = 2;
@@ -46,7 +47,7 @@ const sha256 = (value: string | Buffer): string =>
   createHash("sha256").update(value).digest("hex");
 
 export const desktopRuntimeLockSha256 = (repositoryRoot: string): string => {
-  const lines = lockInputPaths.map((relativePath) => {
+  const lines = desktopRuntimeLockInputPaths.map((relativePath) => {
     const absolutePath = join(repositoryRoot, ...relativePath.split("/"));
     if (!existsSync(absolutePath)) {
       throw new Error(`Desktop runtime lock input is missing: ${absolutePath}`);

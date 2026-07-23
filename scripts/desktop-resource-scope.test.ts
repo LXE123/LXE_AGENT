@@ -5,7 +5,6 @@ import { dirname, join, resolve } from "node:path";
 import {
   approvedConstructiveResourcePath,
   approvedSkillFile,
-  prohibitedPythonRuntimePath,
   readResourceScope,
   requireResourceSourceFile,
   scopeEntryForPath,
@@ -110,6 +109,16 @@ describe("desktop resource scope", () => {
       .toThrow("reference is missing, escapes its Skill, or is outside the whitelist");
   });
 
+  test("distinguishes Skill test files from production files named testing", () => {
+    const root = temporaryRepository();
+    writeTemporaryFile(root, "skills/one/SKILL.md", "---\nname: one\n---\n");
+    writeTemporaryFile(root, "skills/one/scripts/testing.py", "VALUE = 1\n");
+    writeTemporaryFile(root, "skills/one/scripts/tool_test.py", "def test_tool(): pass\n");
+
+    expect(approvedSkillFile(root, "skills/one/scripts/testing.py")).toBe(true);
+    expect(approvedSkillFile(root, "skills/one/scripts/tool_test.py")).toBe(false);
+  });
+
   test("declares the exact production configuration whitelist", () => {
     const scope = validateResourceScope(repositoryRoot);
     const config = scope.resources.find((entry) => entry.id === "config");
@@ -126,26 +135,28 @@ describe("desktop resource scope", () => {
       .toContain("mcpServers:");
   });
 
-  test("constructs resources without development, business, or cache files", () => {
+  test("keeps managed dependencies intact while filtering project resources", () => {
     expect(approvedConstructiveResourcePath("dashboard/assets/index.js")).toBe(true);
     expect(approvedConstructiveResourcePath("dashboard/assets/index.js.map")).toBe(false);
     expect(approvedConstructiveResourcePath("dashboard/src/main.tsx")).toBe(false);
     expect(approvedConstructiveResourcePath("skills/demo/scripts/tool.ts")).toBe(true);
-    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/tests/example.js")).toBe(false);
-    expect(approvedConstructiveResourcePath("runtime/python/Lib/site-packages/pkg/fixtures/input.json")).toBe(false);
-    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/.env.production")).toBe(false);
-    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/.npmrc")).toBe(false);
-    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/auth.json")).toBe(false);
+    expect(approvedConstructiveResourcePath("runtime/python/Lib/site-packages/pandas/testing.py")).toBe(true);
+    expect(approvedConstructiveResourcePath("runtime/python/Lib/site-packages/pandas/tests/api/test_api.py")).toBe(true);
+    expect(approvedConstructiveResourcePath("runtime/python/Lib/site-packages/aiohttp/test_utils.py")).toBe(true);
+    expect(approvedConstructiveResourcePath("runtime/python/Lib/site-packages/pkg/fixtures/input.json")).toBe(true);
+    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/tests/example.js")).toBe(true);
+    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/.env.production")).toBe(true);
+    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/.npmrc")).toBe(true);
+    expect(approvedConstructiveResourcePath("runtime/node/node_modules/pkg/auth.json")).toBe(true);
+    expect(approvedConstructiveResourcePath("runtime/playwright/chromium/locales/fr.pak")).toBe(true);
     expect(approvedConstructiveResourcePath("runtime/python/credentials.json")).toBe(false);
     expect(approvedConstructiveResourcePath("runtime/python/.lxe-lxeskill-ready.json")).toBe(false);
     expect(approvedConstructiveResourcePath("runtime/node/npm-cache/_logs/install.log")).toBe(false);
+    expect(approvedConstructiveResourcePath("python/lxeskill_cli/tests/mabang/test_wms.py")).toBe(false);
+    expect(approvedConstructiveResourcePath("apps/desktop/test/window.test.ts")).toBe(false);
+    expect(approvedConstructiveResourcePath("packages/agent/runtime/test/engine/runtime.test.ts")).toBe(false);
     expect(approvedConstructiveResourcePath("docs/internal.md")).toBe(false);
     expect(approvedConstructiveResourcePath("data/business.xlsx")).toBe(false);
-    expect(prohibitedPythonRuntimePath("runtime/python/Lib/__pycache__/__future__.cpython-312.pyc"))
-      .toBe(true);
-    expect(prohibitedPythonRuntimePath("runtime\\python\\Lib\\site-packages\\demo.pyo"))
-      .toBe(true);
-    expect(prohibitedPythonRuntimePath("runtime/python/Lib/__future__.py")).toBe(false);
   });
 
   test("reports the exact missing constructive source path", () => {

@@ -326,6 +326,7 @@ function Get-LxeLockFingerprint {
         "config/desktop-runtime/windows-x64/node/package.json",
         "config/desktop-runtime/windows-x64/node/package-lock.json",
         "pyproject.toml",
+        "scripts/prepare-desktop-runtime.ps1",
         "uv.lock"
     )
     $lines = @()
@@ -588,70 +589,6 @@ function Install-LxePlaywrightBrowser {
     }
 }
 
-function Finalize-LxePublishRuntime {
-    param([Parameter(Mandatory = $true)][string]$Root)
-
-    $nodeRoot = Join-Path $Root "node"
-    $pythonRoot = Join-Path $Root "python"
-    $playwrightRoot = Join-Path $Root "playwright"
-
-    foreach ($path in @(
-        (Join-Path $nodeRoot "npm.cmd"),
-        (Join-Path $nodeRoot "npx.cmd"),
-        (Join-Path $nodeRoot "npm-cache"),
-        (Join-Path $nodeRoot "package.json"),
-        (Join-Path $nodeRoot "package-lock.json"),
-        (Join-Path $nodeRoot "node_modules\npm"),
-        (Join-Path $nodeRoot "node_modules\dingtalk-workspace-cli\assets")
-    )) {
-        Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
-    }
-    foreach ($shimName in @("npm", "npm.cmd", "npm.ps1", "npx", "npx.cmd", "npx.ps1")) {
-        Remove-Item -LiteralPath (Join-Path $nodeRoot "node_modules\.bin\$shimName") -Force -ErrorAction SilentlyContinue
-    }
-
-    $playwrightDriverNode = Join-Path $pythonRoot "Lib\site-packages\playwright\driver\node.exe"
-    if (-not (Test-Path -LiteralPath $playwrightDriverNode -PathType Leaf)) {
-        throw "Playwright driver Node executable is missing before publish preparation: $playwrightDriverNode"
-    }
-    Remove-Item -LiteralPath $playwrightDriverNode -Force
-
-    foreach ($directory in @(Get-ChildItem -LiteralPath $playwrightRoot -Directory -ErrorAction SilentlyContinue)) {
-        if ($directory.Name.StartsWith("chromium_headless_shell-", [StringComparison]::OrdinalIgnoreCase)) {
-            Remove-Item -LiteralPath $directory.FullName -Recurse -Force
-        }
-    }
-
-    $packagedLocales = @("en-US.pak", "zh-CN.pak")
-    foreach ($localeRoot in @(Get-ChildItem -LiteralPath $playwrightRoot -Directory -Filter "locales" -Recurse -ErrorAction SilentlyContinue)) {
-        foreach ($locale in @(Get-ChildItem -LiteralPath $localeRoot.FullName -File -Filter "*.pak")) {
-            if ($locale.Name -notin $packagedLocales) {
-                Remove-Item -LiteralPath $locale.FullName -Force
-            }
-        }
-    }
-
-    foreach ($file in @(Get-ChildItem -LiteralPath $Root -File -Recurse -Force -ErrorAction SilentlyContinue)) {
-        $lowerName = $file.Name.ToLowerInvariant()
-        if ($lowerName -in @(".npmrc", "auth.json", "credentials.json") -or
-            $lowerName -match '^readme(?:\..*)?$' -or $lowerName -eq "upstream.md" -or
-            $lowerName -match '(?:^|[._-])test(?:[._-].*)?' -or
-            $lowerName -eq ".env" -or $lowerName.StartsWith(".env.") -or
-            $lowerName.EndsWith(".pyc") -or $lowerName.EndsWith(".pyo") -or
-            $lowerName.EndsWith(".xls") -or $lowerName.EndsWith(".xlsx") -or $lowerName.EndsWith(".xlsm") -or
-            $lowerName.EndsWith(".tmp") -or $lowerName.EndsWith(".temp") -or
-            $lowerName.EndsWith(".bak") -or $lowerName.EndsWith(".swp")) {
-            Remove-Item -LiteralPath $file.FullName -Force
-        }
-    }
-    $forbiddenDirectoryNames = @("docs", "test", "tests", "fixture", "fixtures", "__pycache__", ".cache", "cache", "tmp", "temp", "_logs")
-    foreach ($directory in @(Get-ChildItem -LiteralPath $Root -Directory -Recurse -Force -ErrorAction SilentlyContinue | Sort-Object FullName -Descending)) {
-        if ($directory.Name.ToLowerInvariant() -in $forbiddenDirectoryNames) {
-            Remove-Item -LiteralPath $directory.FullName -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-}
-
 function Install-LxeUvAndRipgrep {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
@@ -851,7 +788,6 @@ try {
         Install-LxeNodeRuntime -Destination (Join-Path $stagedRoot "node") -WorkRoot $workRoot
         Install-LxePythonRuntime -Destination (Join-Path $stagedRoot "python") -UvExecutable (Join-Path $stagedRoot "uv\uv.exe") -WorkRoot $workRoot
         Install-LxePlaywrightBrowser -PythonRoot (Join-Path $stagedRoot "python") -Destination (Join-Path $stagedRoot "playwright")
-        Finalize-LxePublishRuntime -Root $stagedRoot
         Write-LxeRuntimeMarker -Root $stagedRoot
         Save-LxeRuntimeImageCache -Source $stagedRoot -Destination $runtimeImageCache
     }

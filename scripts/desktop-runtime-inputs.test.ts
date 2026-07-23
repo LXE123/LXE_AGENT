@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  desktopRuntimeLockInputPaths,
   desktopRuntimeLockSha256,
   resolveDesktopRuntimeInputs,
 } from "./desktop-runtime-inputs";
@@ -57,10 +58,38 @@ const writeDescriptor = (
 describe("desktop runtime input resolution", () => {
   test("computes a stable fingerprint from the tracked runtime locks", () => {
     const repositoryRoot = join(import.meta.dir, "..");
+    expect(desktopRuntimeLockInputPaths).toContain("scripts/prepare-desktop-runtime.ps1");
+    const runtimePreparation = readFileSync(
+      join(repositoryRoot, "scripts", "prepare-desktop-runtime.ps1"),
+      "utf8",
+    );
+    const fingerprintBlock = runtimePreparation.match(
+      /function Get-LxeLockFingerprint \{[\s\S]*?\$relativePaths = @\(([\s\S]*?)\n    \)/u,
+    )?.[1] ?? "";
+    const powershellInputs = [...fingerprintBlock.matchAll(/"([^"]+)"/gu)]
+      .map((match) => match[1]);
+    expect(powershellInputs).toEqual([...desktopRuntimeLockInputPaths]);
     expect(desktopRuntimeLockSha256(repositoryRoot)).toMatch(/^[a-f0-9]{64}$/u);
     expect(desktopRuntimeLockSha256(repositoryRoot)).toBe(
       desktopRuntimeLockSha256(repositoryRoot),
     );
+  });
+
+  test("invalidates the fingerprint when runtime construction changes", () => {
+    const root = temporaryRoot();
+    for (const relativePath of desktopRuntimeLockInputPaths) {
+      const path = join(root, ...relativePath.split("/"));
+      mkdirSync(join(path, ".."), { recursive: true });
+      writeFileSync(path, relativePath, "utf8");
+    }
+    const before = desktopRuntimeLockSha256(root);
+    writeFileSync(
+      join(root, "scripts", "prepare-desktop-runtime.ps1"),
+      "changed runtime construction",
+      "utf8",
+    );
+
+    expect(desktopRuntimeLockSha256(root)).not.toBe(before);
   });
 
   test("uses complete environment overrides without requiring a descriptor", () => {

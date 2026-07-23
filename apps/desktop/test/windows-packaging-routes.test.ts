@@ -117,7 +117,14 @@ describe("Windows desktop packaging routes", () => {
     expect(resourcePreparation).toContain("exactFileSet(wireGuardMsi");
     expect(resourcePreparation).toContain("builderConfig.extraResources = extraResources");
     expect(builderConfig).not.toContain("build/desktop-resources");
-    expect(runtimePreparation).toContain("Finalize-LxePublishRuntime");
+    expect(runtimePreparation).not.toContain("Finalize-LxePublishRuntime");
+    expect(runtimePreparation).not.toContain("$forbiddenDirectoryNames");
+    expect(runtimePreparation).not.toContain("$lowerName -match");
+    expect(runtimePreparation).not.toContain("node_modules\\dingtalk-workspace-cli\\assets");
+    expect(runtimePreparation).not.toContain("playwright\\driver\\node.exe");
+    expect(runtimePreparation).not.toContain("$packagedLocales");
+    expect(runtimePreparation).toContain('"scripts/prepare-desktop-runtime.ps1"');
+    expect(runtimeInputs).toContain('"scripts/prepare-desktop-runtime.ps1"');
     expect(runtimePreparation).not.toContain("Copy-LxeDirectoryContents -Source $npmCache");
     expect(runtimePreparation).toContain("desktop-runtime-publish-layout=2");
     expect(runtimeInputs).toContain('desktop-runtime-publish-layout=${desktopRuntimePublishLayout}');
@@ -133,6 +140,14 @@ describe("Windows desktop packaging routes", () => {
       join(repositoryRoot, "scripts", "prepare-desktop-resources.ts"),
       "utf8",
     );
+    const pyproject = Bun.TOML.parse(
+      readFileSync(join(repositoryRoot, "pyproject.toml"), "utf8"),
+    ) as {
+      tool?: { hatch?: { build?: { targets?: { wheel?: { packages?: string[] } } } } };
+    };
+    const builderConfig = Bun.YAML.parse(
+      readFileSync(join(repositoryRoot, "apps", "desktop", "electron-builder.yml"), "utf8"),
+    ) as { files?: string[] };
 
     expect(resourcePreparation).toContain("readResourceScope");
     expect(resourcePreparation).toContain("approvedSkillFile");
@@ -140,5 +155,12 @@ describe("Windows desktop packaging routes", () => {
     expect(resourcePreparation).not.toContain("validateResourceScope");
     expect(resourcePreparation).not.toContain("validateSelectedSkills");
     expect(resourcePreparation).not.toContain("requireManagedScope");
+    expect(pyproject.tool?.hatch?.build?.targets?.wheel?.packages).toEqual([
+      "python/lxeskill_cli/lxeskill",
+      "python/lxeskill_cli/services",
+      "python/lxeskill_cli/shared",
+      "python/lxeskill_cli/browser_auth_service",
+    ]);
+    expect(builderConfig.files).toEqual(["dist/main.js", "dist/preload.cjs"]);
   });
 });

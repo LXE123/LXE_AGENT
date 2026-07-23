@@ -21,6 +21,11 @@ export interface ResourceScope {
 }
 
 const normalized = (path: string): string => path.replaceAll("\\", "/").replace(/^\.\//u, "");
+const managedDependencyPrefixes = [
+  "runtime/python/lib/",
+  "runtime/node/node_modules/",
+  "runtime/playwright/",
+] as const;
 const prohibitedConstructiveDirectories = new Set([
   "docs",
   "test",
@@ -34,7 +39,7 @@ const prohibitedConstructiveDirectories = new Set([
   "temp",
   "_logs",
 ]);
-const prohibitedConstructiveNames = /^(?:readme(?:\..*)?|upstream\.md|.*(?:^|[._-])test(?:[._-].*)?|.*\.(?:xlsx?|xlsm|tmp|temp|bak|swp))$/iu;
+const prohibitedConstructiveNames = /^(?:readme(?:\..*)?|upstream\.md|.*\.(?:xlsx?|xlsm|tmp|temp|bak|swp))$/iu;
 const prohibitedConstructiveExactNames = new Set([
   ".npmrc",
   ".lxe-lxeskill-ready.json",
@@ -46,6 +51,10 @@ export const approvedConstructiveResourcePath = (resourcePath: string): boolean 
   const normalizedPath = normalized(resourcePath);
   const parts = normalizedPath.split("/").filter(Boolean);
   if (parts.length === 0) return false;
+  const lowerPath = normalizedPath.toLowerCase();
+  if (managedDependencyPrefixes.some((prefix) => lowerPath.startsWith(prefix))) {
+    return true;
+  }
   if (parts.some((part) => prohibitedConstructiveDirectories.has(part.toLowerCase()))) {
     return false;
   }
@@ -53,9 +62,6 @@ export const approvedConstructiveResourcePath = (resourcePath: string): boolean 
   if (prohibitedConstructiveNames.test(name)) return false;
   if (name === ".env" || name.startsWith(".env.") || prohibitedConstructiveExactNames.has(name)) return false;
   if (normalizedPath.startsWith("dashboard/") && /\.(?:map|[cm]?ts|tsx|jsx)$/iu.test(normalizedPath)) {
-    return false;
-  }
-  if (normalizedPath.startsWith("runtime/python/") && prohibitedPythonRuntimePath(normalizedPath)) {
     return false;
   }
   return true;
@@ -71,12 +77,6 @@ export const requireResourceSourceDirectory = (path: string): void => {
   if (!existsSync(path) || !statSync(path).isDirectory()) {
     throw new Error(`Desktop resource source directory is missing: ${path}`);
   }
-};
-
-export const prohibitedPythonRuntimePath = (path: string): boolean => {
-  const normalizedPath = normalized(path);
-  return normalizedPath.split("/").some((part) => part.toLowerCase() === "__pycache__")
-    || /\.py[co]$/iu.test(normalizedPath);
 };
 
 const isWithinTarget = (path: string, target: string): boolean => {
@@ -157,7 +157,7 @@ export const validateResourceScope = (
   return scope;
 };
 
-const prohibitedSkillNames = /^(?:readme(?:\..*)?|upstream\.md|.*(?:^|[._-])test(?:[._-].*)?|.*\.py[co])$/iu;
+const prohibitedSkillNames = /^(?:readme(?:\..*)?|upstream\.md|test_[^/]*\.py|[^/]*_test\.py|[^/]*\.test\.[^/]+|.*\.py[co])$/iu;
 const prohibitedSkillDirectories = new Set([
   "test", "tests", "fixture", "fixtures", "__pycache__", ".cache", "cache", "tmp", "temp",
 ]);
