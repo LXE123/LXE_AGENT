@@ -67,7 +67,7 @@ export function createFeishuInboundResourceResolver(options: {
         mkdirSync(directory, { recursive: true });
         const mime = normalizedMime(downloaded.contentType);
         const fallbackName = `${safePart(resource.type, "resource")}_${safePart(resource.file_key, "file")}`;
-        const fileName = safePart(basename(downloaded.fileName || resource.file_name || fallbackName), fallbackName);
+        const fileName = safePart(basename(resource.file_name || downloaded.fileName || fallbackName), fallbackName);
         if (requestedType === "image") {
           const imageName = `${safePart(parse(fileName).name, "image")}.jpg`;
           const path = collisionSafePath(directory, imageName);
