@@ -173,14 +173,6 @@
       "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "confirm_replace_snapshot_id": {"type": "string"}}, "required": ["ship_no"], "additionalProperties": false}
     },
     {
-      "name": "mabang_erp_opening_inventory_import", "module": "services.agent_cli.mabang.erp_opening_inventory_import",
-      "command_path": ["fba", "erp", "opening-inventory-import"],
-      "legacy_aliases": ["mabang_erp_opening_inventory_import"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-erp-opening-inventory-import"], "artifact_paths": [], "timeout_ms": 120000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传期初库存表，并使用附件保存后的真实绝对路径。"}}, "confirm_source_sha256": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
-    },
-    {
       "name": "mabang_download_stock_sku_excel", "module": "services.agent_cli.mabang.download_stock_sku_excel",
       "command_path": ["fba", "stock-sku", "download"],
       "legacy_aliases": ["mabang_download_stock_sku_excel"],
