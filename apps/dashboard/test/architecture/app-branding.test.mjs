@@ -30,3 +30,8 @@ test("every Renderer brand entry uses the approved local application logo", () =
   assert.ok(existsSync(path.join(sourceDir, "assets", "brand", "lxe-agent-logo.png")));
   assert.equal(existsSync(path.join(dashboardRoot, "public", "favicon.svg")), false);
 });
+
+test("desktop version comes from runtime health without a hard-coded product fallback", () => {
+  assert.match(shell, /health\?\.version \? `v\$\{health\.version\}` : "—"/);
+  assert.doesNotMatch(shell, /health\?\.version \|\| "0\.1\.0"/);
+});

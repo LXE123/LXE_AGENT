@@ -55,6 +55,11 @@ describe("Windows desktop packaging routes", () => {
 
     expect(wrapper).toMatch(/ValidateSet\("Nsis", "Unpacked"\)/u);
     expect(wrapper).toMatch(/\[string\]\$PackageTarget = "Nsis"/u);
+    expect(wrapper).toMatch(
+      /if \(\$PackageTarget -eq "Nsis"\) \{\s+\$versionSelector = Join-Path \$repositoryRoot "apps\\desktop\\scripts\\select-desktop-version\.ts"/u,
+    );
+    expect(wrapper).toContain('Write-Host "==> Select desktop product version"');
+    expect(wrapper.match(/select-desktop-version\.ts/gu)).toHaveLength(1);
     expect(wrapper).toContain('if ($PackageTarget -eq "Unpacked")');
     expect(wrapper).toContain('"dist\\desktop-unpacked"');
     expect(wrapper).toContain('"Build unpacked Electron application"');

@@ -28,6 +28,21 @@ Status: Current
 
 目前正式打包只支持 **Windows x64**。macOS 只能执行源码验证，不生成正式 DMG。
 
+### 正式打包时选择版本
+
+`desktop:dist:win` 在开始构建前读取 `apps/desktop/package.json`，显示当前桌面产品版本，并给出自动增加修订号后的版本：
+
+```text
+Current desktop version: 0.1.0
+Automatically bump patch version to 0.1.1? [Y/n]:
+```
+
+直接按回车或输入 `y`，就会使用 `0.1.1`。这里的自动升级只增加最后一段，例如 `0.1.9 → 0.1.10`。
+
+输入 `n` 可以手动填写纯数字 `x.y.z`。手动版本可以等于当前版本，方便上一次构建失败后用原版本重试；也可以高于当前版本，但不能降级。
+
+选定的版本会立即写回 `apps/desktop/package.json`，即使后续构建失败也不会自动回退。`desktop:pack:win` 是快速 Unpacked 路线，不会询问或修改版本。`verify:platform:win` 会先完成源码验证，随后进入 `desktop:dist:win` 时再询问版本。
+
 ## “构建”“打包”“安装”“启动”不是一回事
 
 这四个词经常被混在一起，其实它们分别解决不同的问题：

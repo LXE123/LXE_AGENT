@@ -74,6 +74,15 @@ if ($LASTEXITCODE -ne 0 -or $bunVersion -ne "1.3.14") {
     throw "Bun 1.3.14 is required; found '$bunVersion' at $($bunCommand.Source)."
 }
 
+if ($PackageTarget -eq "Nsis") {
+    $versionSelector = Join-Path $repositoryRoot "apps\desktop\scripts\select-desktop-version.ts"
+    Write-Host "==> Select desktop product version"
+    & $bunCommand.Source $versionSelector
+    if ($LASTEXITCODE -ne 0) {
+        throw "Desktop product version selection failed with exit code $LASTEXITCODE."
+    }
+}
+
 $prepareParameters = @{}
 if (-not [string]::IsNullOrWhiteSpace($RuntimeRoot)) { $prepareParameters.RuntimeRoot = $RuntimeRoot }
 if (-not [string]::IsNullOrWhiteSpace($CacheRoot)) { $prepareParameters.CacheRoot = $CacheRoot }

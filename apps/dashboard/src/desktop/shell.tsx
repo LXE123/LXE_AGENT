@@ -1315,7 +1315,7 @@ export function DesktopShell({
               </div>
             </div>
             <footer>
-              <span className="desktop-version">v{health?.version || "0.1.0"}</span>
+              <span className="desktop-version">{health?.version ? `v${health.version}` : "—"}</span>
               {activeSettingsSection !== "status" && activeSettingsSection !== "cloud" ? (
                 <button className="desktop-primary-button" disabled={saving || importApplying} type="submit">
                   {importApplying ? "正在应用配置…" : saving ? "保存中…" : "保存设置"}
