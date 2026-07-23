@@ -27,6 +27,7 @@ describe("preload bridge", () => {
       "getCloudState",
       "getHealth",
       "getSetupState",
+      "onCloudStateChanged",
       "onDashboardInvalidated",
       "onStatusChanged",
       "openLogsDirectory",
@@ -53,6 +54,22 @@ describe("preload bridge", () => {
     await bridge.desktop.selectZiniaoWebDriverDirectory();
     await bridge.desktop.openLogsDirectory();
     await bridge.desktop.getHealth();
+    let cloudConnection = "";
+    const unsubscribeCloud = bridge.desktop.onCloudStateChanged((state) => {
+      cloudConnection = state.connection;
+    });
+    listeners.get(IPC_CHANNELS.cloudStateChanged)?.({}, {
+      configured: true,
+      device_name: "Finance PC",
+      device_id: "device01",
+      vpn_ip: "10.88.0.3",
+      connection: "connected",
+      last_error: "",
+      last_checked_at: 123,
+    });
+    expect(cloudConnection).toBe("connected");
+    unsubscribeCloud();
+    expect(listeners.has(IPC_CHANNELS.cloudStateChanged)).toBe(false);
     const unsubscribe = bridge.desktop.onStatusChanged(() => undefined);
     expect(listeners.has(IPC_CHANNELS.statusChanged)).toBe(true);
     unsubscribe();

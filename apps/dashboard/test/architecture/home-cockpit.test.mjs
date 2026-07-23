@@ -27,12 +27,15 @@ test("global runtime status owns the channel query independently from home", () 
 });
 
 test("runtime popover links to the existing model and settings destinations", () => {
-  assert.equal((runtimeStatus.match(/<RuntimeStatusItem/g) || []).length, 4);
+  assert.equal((runtimeStatus.match(/<RuntimeStatusItem/g) || []).length, 5);
   assert.match(main, /<RuntimeStatusPopover[\s\S]*?onOpenModels=\{\(\) => openCapabilityView\("models"\)\}/);
+  assert.match(runtimeStatus, /onOpenSettings\("cloud"\)/);
+  assert.match(runtimeStatus, /cloudAggregateTone\(desktopCloud\.connection\)/);
   assert.doesNotMatch(main, /onOpenTasks=/);
   assert.doesNotMatch(main, /onOpenTask=/);
   assert.match(shell, /openSettings: \(section\?: DesktopSettingsSection\) => void/);
   assert.match(shell, /setActiveSettingsSection\(section\)/);
+  assert.match(shell, /desktop\.onCloudStateChanged\(\(nextCloud\)/);
   assert.match(payloads, /ChannelHealthPayload,/);
   assert.match(dashboardRpc, /export type ChannelHealthPayload = \{\s*ready\?: boolean;/);
 });

@@ -4,9 +4,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Logger } from "@lxe/core";
+import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 import { DesktopCloudEnrollmentManager, type CloudEnrollmentPayload } from "../src/main/cloud-enrollment";
 import { DesktopConfigStore } from "../src/main/config-store";
-import { DesktopCloudService } from "../src/main/desktop-cloud";
+import { DesktopCloudService, type DesktopCloudClock } from "../src/main/desktop-cloud";
 
 const roots: string[] = [];
 type LogEvent = { level: string; message: string; fields: Record<string, unknown> };
@@ -26,6 +27,39 @@ const safeStorage = {
   encryptString: (value: string) => Buffer.from(value, "utf8"),
   decryptString: (value: Buffer) => value.toString("utf8"),
 };
+
+class FakeClock implements DesktopCloudClock {
+  readonly intervals = new Set<() => void>();
+  readonly timeouts = new Set<() => void>();
+
+  setTimeout(callback: () => void): unknown {
+    this.timeouts.add(callback);
+    return callback;
+  }
+
+  clearTimeout(id: unknown): void {
+    this.timeouts.delete(id as () => void);
+  }
+
+  setInterval(callback: () => void): unknown {
+    this.intervals.add(callback);
+    return callback;
+  }
+
+  clearInterval(id: unknown): void {
+    this.intervals.delete(id as () => void);
+  }
+
+  fireIntervals(): void {
+    for (const callback of [...this.intervals]) callback();
+  }
+
+  fireTimeouts(): void {
+    const callbacks = [...this.timeouts];
+    this.timeouts.clear();
+    for (const callback of callbacks) callback();
+  }
+}
 
 const enrollmentPayload: CloudEnrollmentPayload & { format: string; version: number } = {
   format: "lxe-agent-enrollment-payload",
@@ -80,10 +114,22 @@ describe("DesktopCloudService", () => {
     let provisioned = 0;
     let restarted = 0;
     let online = false;
+    let activated = false;
     const events: LogEvent[] = [];
-    const fetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       if (!online) throw new Error("network unavailable");
+      if (String(input).endsWith("/devices/status")) {
+        return Response.json({
+          status: "ok",
+          activation_required: !activated,
+          device_id: enrollmentPayload.device.id,
+          display_name: enrollmentPayload.device.name,
+          wireguard_ip: "10.88.0.8",
+          machine_id: "",
+        });
+      }
       const request = JSON.parse(String(init?.body)) as { machine_id: string };
+      activated = true;
       return Response.json({
         status: "ok",
         device_id: enrollmentPayload.device.id,
@@ -118,6 +164,7 @@ describe("DesktopCloudService", () => {
       "cloud_enrollment_activation_started",
       "cloud_enrollment_decrypted",
       "cloud_device_activation_failed",
+      "cloud_status_activation_required",
       "cloud_device_activation_completed",
     ]);
     expect(events[2]?.fields).toMatchObject({
@@ -198,5 +245,146 @@ describe("DesktopCloudService", () => {
       fields: { failed_stage: "activate_device", http_status: 403, connection: "error" },
     });
     expect(JSON.stringify(events)).not.toContain(enrollmentPayload.data_server.api_token);
+  });
+
+  test("polls authenticated status every interval and stops cleanly", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-probe-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    config.saveCloudEnrollment({
+      deviceId: enrollmentPayload.device.id,
+      deviceName: enrollmentPayload.device.name,
+      vpnIp: "10.88.0.8",
+      dataServerUrl: enrollmentPayload.data_server.url,
+      syncIntervalSeconds: 3_600,
+      tunnelName: "lxe-agent",
+      apiKey: enrollmentPayload.data_server.api_token,
+    });
+    const machineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
+    const clock = new FakeClock();
+    const requests: Array<{ url: string; method: string }> = [];
+    const states: string[] = [];
+    let now = 1_000;
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => undefined },
+      onConfigured: async () => undefined,
+      onStateChanged: (state) => { states.push(`${state.connection}:${state.last_checked_at}`); },
+      clock,
+      now: () => now,
+      fetch: async (input, init) => {
+        requests.push({ url: String(input), method: String(init?.method) });
+        return Response.json({
+          status: "ok",
+          activation_required: false,
+          device_id: enrollmentPayload.device.id,
+          display_name: enrollmentPayload.device.name,
+          wireguard_ip: "10.88.0.8",
+          machine_id: machineId,
+        });
+      },
+    });
+
+    expect(await service.start()).toMatchObject({ connection: "connected", last_checked_at: 1 });
+    expect(requests).toEqual([{
+      url: "http://10.88.0.1:8000/api/v1/agent-data/devices/status",
+      method: "GET",
+    }]);
+    now = 61_000;
+    clock.fireIntervals();
+    await service.check();
+    expect(requests).toHaveLength(2);
+    expect(service.state()).toMatchObject({ connection: "connected", last_checked_at: 61 });
+    expect(states).toEqual(["connected:1", "connected:61"]);
+
+    await service.stop();
+    expect(clock.intervals.size).toBe(0);
+  });
+
+  test("coalesces concurrent probes and maps timeout, auth, version, and malformed failures", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-failures-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    config.saveCloudEnrollment({
+      deviceId: enrollmentPayload.device.id,
+      deviceName: enrollmentPayload.device.name,
+      vpnIp: "10.88.0.8",
+      dataServerUrl: enrollmentPayload.data_server.url,
+      syncIntervalSeconds: 3_600,
+      tunnelName: "lxe-agent",
+      apiKey: enrollmentPayload.data_server.api_token,
+    });
+    const clock = new FakeClock();
+    let calls = 0;
+    let complete: ((response: Response) => void) | undefined;
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => undefined },
+      onConfigured: async () => undefined,
+      clock,
+      fetch: async () => {
+        calls += 1;
+        return new Promise<Response>((resolve) => { complete = resolve; });
+      },
+    });
+
+    const first = service.check();
+    const second = service.retry();
+    expect(first).toBe(second);
+    expect(calls).toBe(1);
+    complete?.(new Response("missing", { status: 404 }));
+    expect(await first).toMatchObject({
+      connection: "error",
+      last_error: "公司云端版本不兼容，请联系管理员升级服务",
+    });
+
+    const responses = [
+      new Response("denied", { status: 401 }),
+      Response.json({ status: "ok", activation_required: "no" }),
+    ];
+    const mapped = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => undefined },
+      onConfigured: async () => undefined,
+      fetch: async () => responses.shift()!,
+    });
+    expect(await mapped.check()).toMatchObject({
+      connection: "error",
+      last_error: "设备凭证已失效，请联系管理员",
+    });
+    expect(await mapped.check()).toMatchObject({
+      connection: "error",
+      last_error: "公司云端返回了无效响应",
+    });
+
+    const timeoutClock = new FakeClock();
+    const timedOut = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => undefined },
+      onConfigured: async () => undefined,
+      clock: timeoutClock,
+      fetch: async (_input, init) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      }),
+    });
+    const pending = timedOut.check();
+    timeoutClock.fireTimeouts();
+    expect(await pending).toMatchObject({ connection: "offline" });
   });
 });

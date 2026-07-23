@@ -57,6 +57,14 @@ export const ZH_TEXT = {
     gateway: "Gateway",
     agent: "Agent",
     feishu: "飞书",
+    companyCloud: "公司云端",
+    lastChecked: (value: string) => `最近检查 ${value}`,
+    runtimeTones: {
+      healthy: "运行正常",
+      progress: "正在处理",
+      warning: "存在异常",
+      neutral: "状态待确认"
+    },
     componentStates: {
       ready: "运行中",
       starting: "启动中",
@@ -70,6 +78,15 @@ export const ZH_TEXT = {
       disabled: "已停用",
       unconfigured: "未配置",
       unavailable: "暂不可用"
+    },
+    cloudStates: {
+      not_configured: "未配置",
+      provisioning: "正在配置",
+      connecting: "连接中",
+      connected: "已连接",
+      offline: "离线",
+      error: "异常",
+      unsupported: "当前平台不支持"
     },
     recentSessions: "最近会话",
     activeSkills: "活跃技能 · 近 7 天",
@@ -386,6 +403,14 @@ export const UI_TEXT: Record<Language, UiText> = {
       gateway: "Gateway",
       agent: "Agent",
       feishu: "Feishu",
+      companyCloud: "Company cloud",
+      lastChecked: (value: string) => `Checked ${value}`,
+      runtimeTones: {
+        healthy: "Running normally",
+        progress: "In progress",
+        warning: "Needs attention",
+        neutral: "Status pending"
+      },
       componentStates: {
         ready: "Running",
         starting: "Starting",
@@ -399,6 +424,15 @@ export const UI_TEXT: Record<Language, UiText> = {
         disabled: "Disabled",
         unconfigured: "Not configured",
         unavailable: "Unavailable"
+      },
+      cloudStates: {
+        not_configured: "Not configured",
+        provisioning: "Provisioning",
+        connecting: "Connecting",
+        connected: "Connected",
+        offline: "Offline",
+        error: "Error",
+        unsupported: "Unsupported on this platform"
       },
       recentSessions: "Recent sessions",
       activeSkills: "Active skills · 7 days",

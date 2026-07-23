@@ -4,6 +4,8 @@ import type { DesktopHealth } from "@lxe/desktop-protocol";
 import {
   aggregateAgentState,
   aggregateRuntimeTone,
+  cloudAggregateTone,
+  cloudTone,
   summarizeChannelState,
 } from "../../../src/features/runtime-status/model";
 
@@ -63,5 +65,16 @@ describe("global runtime status model", () => {
     expect(aggregateRuntimeTone(["healthy", "neutral"])).toBe("neutral");
     expect(aggregateRuntimeTone(["healthy", "progress", "neutral"])).toBe("progress");
     expect(aggregateRuntimeTone(["progress", "warning", "healthy"])).toBe("warning");
+  });
+
+  test("maps configured cloud failures into the aggregate without penalizing optional states", () => {
+    expect(cloudTone("connected")).toBe("healthy");
+    expect(cloudTone("provisioning")).toBe("progress");
+    expect(cloudTone("connecting")).toBe("progress");
+    expect(cloudTone("offline")).toBe("warning");
+    expect(cloudTone("error")).toBe("warning");
+    expect(cloudAggregateTone("not_configured")).toBeUndefined();
+    expect(cloudAggregateTone("unsupported")).toBeUndefined();
+    expect(cloudAggregateTone("connected")).toBe("healthy");
   });
 });

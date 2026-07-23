@@ -801,6 +801,7 @@ export function DesktopShell({
   onLanguageChange,
 }: {
   children: (context: {
+    cloud: DesktopCloudState;
     health: DesktopHealth;
     openSettings: (section?: DesktopSettingsSection) => void;
   }) => ReactNode;
@@ -859,12 +860,16 @@ export function DesktopShell({
     }).catch((cause: unknown) => {
       if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
     });
-    const unsubscribe = desktop.onStatusChanged((nextHealth) => {
+    const unsubscribeHealth = desktop.onStatusChanged((nextHealth) => {
       if (!cancelled) setHealth(nextHealth);
+    });
+    const unsubscribeCloud = desktop.onCloudStateChanged((nextCloud) => {
+      if (!cancelled) setCloud(nextCloud);
     });
     return () => {
       cancelled = true;
-      unsubscribe();
+      unsubscribeCloud();
+      unsubscribeHealth();
     };
   }, [desktop]);
 
@@ -1263,7 +1268,7 @@ export function DesktopShell({
   return (
     <div className={frameClassName} data-lxe-root-state="ready">
       {dragRegion}
-      <div key={appGeneration}>{children({ health, openSettings })}</div>
+      <div key={appGeneration}>{children({ cloud, health, openSettings })}</div>
       {notice && !settingsOpen ? (
         <DesktopNoticeMessage
           className="desktop-import-toast"

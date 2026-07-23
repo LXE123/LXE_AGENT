@@ -90,6 +90,8 @@ Main 使用一次 UAC 授权安装或复用 WireGuard 1.1 及更高版本。配�
 
 设备上传 Token 通过 `safeStorage` 写入 `secrets.bin`，非敏感设备信息写入 `desktop.json`。正式安装包自动注入私网 Data Server 地址、设备 Token 和 3600 秒同步周期；网络不可用时 Agent 保持运行，并在后续定时同步或用户点击“重试连接”时恢复。源码开发和现有 Mac 手工 WireGuard 配置不受此流程影响。
 
+桌面主进程使用设备 Token 每 60 秒调用一次只读设备状态接口，验证私网链路、服务端、数据库、Token 和机器绑定均可用。结果通过受控 IPC 推送到右下角运行状态弹层；Renderer 不接收 Token 或 Data Server 地址。云端离线或授权异常会进入全局告警，未配置和不支持的平台保持中性状态。
+
 ## 本地开发
 
 安装固定依赖：

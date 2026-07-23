@@ -1,4 +1,8 @@
-import type { DesktopComponentState, DesktopHealth } from "@lxe/desktop-protocol";
+import type {
+  DesktopCloudConnectionState,
+  DesktopComponentState,
+  DesktopHealth,
+} from "@lxe/desktop-protocol";
 
 import type {
   ChannelHealthList,
@@ -39,6 +43,18 @@ export function channelTone(state: RuntimeChannelState): RuntimeTone {
   if (state === "connecting") return "progress";
   if (state === "error") return "warning";
   return "neutral";
+}
+
+export function cloudTone(state: DesktopCloudConnectionState): RuntimeTone {
+  if (state === "connected") return "healthy";
+  if (state === "connecting" || state === "provisioning") return "progress";
+  if (state === "offline" || state === "error") return "warning";
+  return "neutral";
+}
+
+export function cloudAggregateTone(state: DesktopCloudConnectionState): RuntimeTone | undefined {
+  if (state === "not_configured" || state === "unsupported") return undefined;
+  return cloudTone(state);
 }
 
 export function aggregateRuntimeTone(tones: RuntimeTone[]): RuntimeTone {

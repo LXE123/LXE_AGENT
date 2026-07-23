@@ -4,6 +4,7 @@ import {
   BrowserWindow,
   dialog,
   Menu,
+  powerMonitor,
   protocol,
   safeStorage,
   session,
@@ -15,6 +16,7 @@ import type {
   DashboardRpcOperation,
   DashboardRpcResult,
   DesktopCloudActivationInput,
+  DesktopCloudState,
   DesktopDashboardInvalidation,
   DesktopHealth,
   DesktopSetupInput,
@@ -106,13 +108,23 @@ let shutdownComplete = false;
 let shutdownPromise: Promise<void> | undefined;
 let removeIpcHandlers: (() => void) | undefined;
 let activeGateway: DesktopGateway | undefined;
+let activeCloud: DesktopCloudService | undefined;
 let activeInvalidationBatcher: DashboardInvalidationBatcher | undefined;
 let activeLogging: DesktopLoggingManager | undefined;
+let removeCloudResumeListener: (() => void) | undefined;
 
 const shutdownApplication = (exitCode = 0): Promise<void> => {
   if (shutdownPromise) return shutdownPromise;
   quitting = true;
   shutdownPromise = (async () => {
+    removeCloudResumeListener?.();
+    removeCloudResumeListener = undefined;
+    try {
+      await activeCloud?.stop();
+    } catch (error) {
+      logger.error("desktop_cloud_stop_failed", { error });
+    }
+    activeCloud = undefined;
     try {
       await activeGateway?.stop();
     } catch (error) {
@@ -162,6 +174,11 @@ async function bootstrap(): Promise<void> {
   const broadcastHealth = (health: DesktopHealth): void => {
     for (const browserWindow of BrowserWindow.getAllWindows()) {
       if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.statusChanged, health);
+    }
+  };
+  const broadcastCloudState = (state: DesktopCloudState): void => {
+    for (const browserWindow of BrowserWindow.getAllWindows()) {
+      if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.cloudStateChanged, state);
     }
   };
   const broadcastInvalidation = (invalidation: DesktopDashboardInvalidation): void => {
@@ -217,7 +234,12 @@ async function bootstrap(): Promise<void> {
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
       broadcastHealth(gateway.health());
     },
+    onStateChanged: broadcastCloudState,
   });
+  activeCloud = cloud;
+  const checkCloudAfterResume = (): void => { void cloud.check(); };
+  powerMonitor.on("resume", checkCloudAfterResume);
+  removeCloudResumeListener = () => powerMonitor.removeListener("resume", checkCloudAfterResume);
   const ipcApplication: DesktopIpcApplication = {
     dashboardCall: async <O extends DashboardRpcOperation>(
       call: DashboardRpcCall<O>,
@@ -294,7 +316,7 @@ async function bootstrap(): Promise<void> {
       logger.error("desktop_gateway_start_failed", { error });
     }
   }
-  if (config.cloudConfiguration().managed) void cloud.retry();
+  void cloud.start();
 
   window = new BrowserWindow({
     ...desktopWindowAppearance(desktopPlatform),

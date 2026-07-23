@@ -1,16 +1,19 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { DesktopHealth } from "@lxe/desktop-protocol";
-import { Activity, Bot, Radio, Server, X } from "lucide-react";
+import type { DesktopCloudState, DesktopHealth } from "@lxe/desktop-protocol";
+import { Activity, Bot, Cloud, Radio, Server, X } from "lucide-react";
 
 import { useChannelHealthQuery } from "../../api/queries";
 import type { ModelPayload } from "../../api/payloads";
 import type { DesktopSettingsSection } from "../../desktop/settings-model";
+import { formatDate } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
 import {
   aggregateAgentState,
   aggregateRuntimeTone,
   channelTone,
+  cloudAggregateTone,
+  cloudTone,
   componentTone,
   summarizeChannelState,
   type RuntimeTone,
@@ -58,12 +61,14 @@ function RuntimeStatusItem({
 
 export function RuntimeStatusPopover({
   currentModel,
+  desktopCloud,
   desktopHealth,
   navigationKey,
   onOpenModels,
   onOpenSettings,
 }: {
   currentModel: ModelPayload | null;
+  desktopCloud: DesktopCloudState;
   desktopHealth: DesktopHealth;
   navigationKey: string;
   onOpenModels: () => void;
@@ -79,12 +84,20 @@ export function RuntimeStatusPopover({
   const channelState = summarizeChannelState(channelsQuery.data, channelUnavailable);
   const componentStates = t.home.componentStates;
   const channelStates = t.home.channelStates;
+  const cloudRuntimeTone = cloudAggregateTone(desktopCloud.connection);
   const runtimeTone = aggregateRuntimeTone([
     currentModel ? "healthy" : "neutral",
     componentTone(desktopHealth.gateway),
     componentTone(agentState),
     channelTone(channelState),
+    ...(cloudRuntimeTone ? [cloudRuntimeTone] : []),
   ]);
+  const cloudChecked = desktopCloud.last_checked_at
+    ? t.home.lastChecked(formatDate(desktopCloud.last_checked_at))
+    : undefined;
+  const triggerLabel = `${open ? t.home.closeRuntimeStatus : t.home.openRuntimeStatus}：${
+    t.home.runtimeTones[runtimeTone]
+  }`;
 
   useEffect(() => {
     setOpen(false);
@@ -163,6 +176,14 @@ export function RuntimeStatusPopover({
               tone={channelTone(channelState)}
               value={channelStates[channelState]}
             />
+            <RuntimeStatusItem
+              icon={<Cloud size={16} />}
+              label={t.home.companyCloud}
+              meta={cloudChecked}
+              onClick={() => closeAndRun(() => onOpenSettings("cloud"))}
+              tone={cloudTone(desktopCloud.connection)}
+              value={t.home.cloudStates[desktopCloud.connection]}
+            />
           </div>
         </section>
       ) : null}
@@ -170,11 +191,11 @@ export function RuntimeStatusPopover({
         aria-controls="runtime-status-popover"
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label={open ? t.home.closeRuntimeStatus : t.home.openRuntimeStatus}
+        aria-label={triggerLabel}
         className={`runtime-status-trigger tone-${runtimeTone}${open ? " is-open" : ""}`}
         onClick={() => setOpen((current) => !current)}
         ref={triggerRef}
-        title={open ? t.home.closeRuntimeStatus : t.home.openRuntimeStatus}
+        title={triggerLabel}
         type="button"
       >
         <span className="runtime-status-trigger-icons" aria-hidden="true">

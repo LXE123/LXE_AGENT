@@ -262,6 +262,7 @@ export interface DesktopCloudState {
   vpn_ip: string;
   connection: DesktopCloudConnectionState;
   last_error: string;
+  last_checked_at: number;
 }
 
 export interface DesktopCloudEnrollmentSelection {
@@ -424,6 +425,7 @@ export interface LxeDesktopBridge {
     restartAgent(): Promise<DesktopHealth>;
     getSetupState(): Promise<DesktopSetupState>;
     saveSetup(input: DesktopSetupInput): Promise<DesktopSetupState>;
+    onCloudStateChanged(listener: (state: DesktopCloudState) => void): () => void;
     onDashboardInvalidated(listener: (invalidation: DesktopDashboardInvalidation) => void): () => void;
     onStatusChanged(listener: (health: DesktopHealth) => void): () => void;
   };

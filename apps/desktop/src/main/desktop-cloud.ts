@@ -12,6 +12,28 @@ import { DesktopCloudEnrollmentManager } from "./cloud-enrollment";
 import type { DesktopConfigStore } from "./config-store";
 import type { WireGuardProvisionerPort } from "./wireguard-provisioner";
 
+export interface DesktopCloudClock {
+  setTimeout(callback: () => void, delayMs: number): unknown;
+  clearTimeout(id: unknown): void;
+  setInterval(callback: () => void, delayMs: number): unknown;
+  clearInterval(id: unknown): void;
+}
+
+const systemClock: DesktopCloudClock = {
+  setTimeout: (callback, delayMs) => {
+    const timer = setTimeout(callback, delayMs);
+    timer.unref?.();
+    return timer;
+  },
+  clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+  setInterval: (callback, delayMs) => {
+    const timer = setInterval(callback, delayMs);
+    timer.unref?.();
+    return timer;
+  },
+  clearInterval: (id) => clearInterval(id as ReturnType<typeof setInterval>),
+};
+
 interface DesktopCloudServiceOptions {
   dataRoot: string;
   supported: boolean;
@@ -20,20 +42,37 @@ interface DesktopCloudServiceOptions {
   provisioner: WireGuardProvisionerPort;
   logger: Logger;
   now?: () => number;
+  clock?: DesktopCloudClock;
+  probeIntervalMs?: number;
+  requestTimeoutMs?: number;
   onConfigured(): Promise<void>;
+  onStateChanged?(state: DesktopCloudState): void;
   fetch?: typeof globalThis.fetch;
 }
+
+const objectValue = (value: unknown): Record<string, unknown> | undefined =>
+  value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
 
 export class DesktopCloudService {
   private connection: DesktopCloudState["connection"];
   private lastError = "";
+  private lastCheckedAt = 0;
   private readonly fetch: typeof globalThis.fetch;
   private readonly now: () => number;
+  private readonly clock: DesktopCloudClock;
+  private readonly controllers = new Set<AbortController>();
   private activation: Promise<DesktopCloudState> | undefined;
+  private probe: Promise<DesktopCloudState> | undefined;
+  private probeTimer: unknown | undefined;
+  private lastPublished = "";
+  private stopped = false;
 
   constructor(private readonly options: DesktopCloudServiceOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
     this.now = options.now ?? Date.now;
+    this.clock = options.clock ?? systemClock;
     const configured = options.config.cloudConfiguration().managed;
     this.connection = configured ? "connecting" : options.supported ? "not_configured" : "unsupported";
   }
@@ -52,40 +91,75 @@ export class DesktopCloudService {
       vpn_ip: cloud.vpn_ip,
       connection: this.connection,
       last_error: this.lastError,
+      last_checked_at: this.lastCheckedAt,
     };
+  }
+
+  start(): Promise<DesktopCloudState> {
+    this.stopped = false;
+    if (this.options.supported && this.probeTimer === undefined) {
+      this.probeTimer = this.clock.setInterval(() => {
+        void this.check();
+      }, Math.max(1, Math.trunc(this.options.probeIntervalMs ?? 60_000)));
+    }
+    return this.check();
+  }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    if (this.probeTimer !== undefined) this.clock.clearInterval(this.probeTimer);
+    this.probeTimer = undefined;
+    for (const controller of this.controllers) controller.abort(new Error("cloud service stopped"));
+    const probe = this.probe;
+    if (probe) await Promise.allSettled([probe]);
+  }
+
+  check(): Promise<DesktopCloudState> {
+    return this.checkConnection(false);
+  }
+
+  retry(): Promise<DesktopCloudState> {
+    return this.checkConnection(true);
   }
 
   activate(input: DesktopCloudActivationInput): Promise<DesktopCloudState> {
     if (this.activation) return this.activation;
-    this.activation = this.activateOnce(input).finally(() => { this.activation = undefined; });
-    return this.activation;
+    let tracked: Promise<DesktopCloudState>;
+    tracked = this.activateOnce(input).finally(() => {
+      if (this.activation === tracked) this.activation = undefined;
+    });
+    this.activation = tracked;
+    return tracked;
   }
 
-  async retry(): Promise<DesktopCloudState> {
+  private checkConnection(showProgress: boolean): Promise<DesktopCloudState> {
+    if (this.activation) return this.activation;
+    if (this.probe) return this.probe;
     if (!this.options.supported) {
-      this.connection = "unsupported";
-      return this.state();
+      return Promise.resolve(this.setConnection("unsupported", ""));
     }
     const cloud = this.options.config.cloudConfiguration();
     if (!cloud.managed || !cloud.api_key_configured) {
-      this.connection = "not_configured";
-      this.lastError = "";
-      return this.state();
+      return Promise.resolve(this.setConnection("not_configured", ""));
     }
-    this.connection = "connecting";
-    this.lastError = "";
+    if (showProgress) this.setConnection("connecting", "");
     const environment = this.options.config.environment();
-    const activationId = randomUUID();
+    const probeId = randomUUID();
     const logger = this.options.logger.child({
-      activation_id: activationId,
+      probe_id: probeId,
       device_id: cloud.device_id,
       vpn_ip: cloud.vpn_ip,
     });
-    return this.verifyActivation(
+    let tracked: Promise<DesktopCloudState>;
+    tracked = this.probeStatus(
       environment.LXE_DATA_SERVER_API_KEY ?? "",
       cloud.data_server_url,
       logger,
-    );
+    ).finally(() => {
+      if (this.probe === tracked) this.probe = undefined;
+    });
+    this.probe = tracked;
+    return tracked;
   }
 
   private async activateOnce(input: DesktopCloudActivationInput): Promise<DesktopCloudState> {
@@ -95,8 +169,7 @@ export class DesktopCloudService {
     let logger = this.options.logger.child({ activation_id: activationId });
     let stage = "decrypt_enrollment";
     logger.info("cloud_enrollment_activation_started");
-    this.connection = "provisioning";
-    this.lastError = "";
+    this.setConnection("provisioning", "");
     let configured = false;
     try {
       const payload = this.options.enrollments.decrypt(input.enrollment_id, input.password);
@@ -120,24 +193,81 @@ export class DesktopCloudService {
       });
       configured = true;
       this.options.enrollments.complete(input.enrollment_id);
-      this.connection = "connecting";
+      this.setConnection("connecting", "");
       stage = "activate_device";
-      await this.verifyActivation(payload.data_server.api_token, payload.data_server.url, logger);
-      return this.state();
+      return await this.verifyActivation(
+        payload.data_server.api_token,
+        payload.data_server.url,
+        logger,
+      );
     } catch (error) {
-      if (stage !== "activate_device") {
-        logger.error("cloud_device_activation_failed", {
-          failed_stage: stage,
-          duration_ms: Math.max(0, this.now() - startedAt),
-          observed_error: this.diagnosticError(error),
-        });
-      }
-      this.connection = "error";
-      this.lastError = this.publicError(error);
+      logger.error("cloud_device_activation_failed", {
+        failed_stage: stage,
+        duration_ms: Math.max(0, this.now() - startedAt),
+        observed_error: this.diagnosticError(error),
+      });
+      this.setConnection("error", this.publicError(error));
       throw new Error(this.lastError);
     } finally {
-      if (configured) await this.options.onConfigured();
+      if (configured && !this.stopped) await this.options.onConfigured();
     }
+  }
+
+  private async probeStatus(
+    apiToken: string,
+    dataServerUrl: string,
+    logger: Logger,
+  ): Promise<DesktopCloudState> {
+    const startedAt = this.now();
+    let response: Response;
+    try {
+      response = await this.request(
+        `${dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/devices/status`,
+        {
+          method: "GET",
+          headers: { authorization: `Bearer ${apiToken}` },
+        },
+      );
+    } catch (error) {
+      logger.warn("cloud_status_check_failed", {
+        duration_ms: Math.max(0, this.now() - startedAt),
+        connection: "offline",
+        observed_error: this.diagnosticError(error),
+      });
+      return this.setConnection(
+        "offline",
+        "公司网络暂不可用，Agent 将自动重试",
+        true,
+      );
+    }
+    if (!response.ok) {
+      return this.httpFailure(response, "status", logger, startedAt);
+    }
+    const payload = objectValue(await response.json().catch(() => undefined));
+    if (!payload || payload.status !== "ok" || typeof payload.activation_required !== "boolean") {
+      return this.invalidCloudResponse(logger, startedAt, "invalid device status response");
+    }
+    const cloud = this.options.config.cloudConfiguration();
+    if (String(payload.device_id ?? "") !== cloud.device_id
+      || String(payload.wireguard_ip ?? "") !== cloud.vpn_ip) {
+      return this.invalidCloudResponse(logger, startedAt, "device identity mismatch");
+    }
+    if (payload.activation_required) {
+      logger.info("cloud_status_activation_required", {
+        duration_ms: Math.max(0, this.now() - startedAt),
+      });
+      return this.verifyActivation(apiToken, dataServerUrl, logger);
+    }
+    const identity = resolveMachineIdentity(join(this.options.dataRoot, "db", "machine_identity.json"));
+    if (String(payload.machine_id ?? "") !== identity.machine_id) {
+      return this.invalidCloudResponse(logger, startedAt, "machine identity mismatch");
+    }
+    logger.info("cloud_status_check_completed", {
+      duration_ms: Math.max(0, this.now() - startedAt),
+      http_status: response.status,
+      connection: "connected",
+    });
+    return this.setConnection("connected", "", true);
   }
 
   private async verifyActivation(
@@ -146,81 +276,130 @@ export class DesktopCloudService {
     logger: Logger,
   ): Promise<DesktopCloudState> {
     const startedAt = this.now();
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    const identity = resolveMachineIdentity(join(this.options.dataRoot, "db", "machine_identity.json"));
+    let response: Response;
     try {
-      const identity = resolveMachineIdentity(join(this.options.dataRoot, "db", "machine_identity.json"));
-      const response = await this.fetch(`${dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/devices/activate`, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${apiToken}`,
-          "content-type": "application/json",
+      response = await this.request(
+        `${dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/devices/activate`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${apiToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ machine_id: identity.machine_id, hostname: hostname() }),
         },
-        body: JSON.stringify({ machine_id: identity.machine_id, hostname: hostname() }),
-        signal: controller.signal,
-      });
-      if (response.ok) {
-        const payload = await response.json() as Record<string, unknown>;
-        const cloud = this.options.config.cloudConfiguration();
-        if (String(payload.device_id ?? "") !== cloud.device_id
-          || String(payload.wireguard_ip ?? "") !== cloud.vpn_ip
-          || String(payload.machine_id ?? "") !== identity.machine_id) {
-          const error = new Error("云端返回的设备身份不一致");
-          logger.error("cloud_device_activation_failed", {
-            failed_stage: "validate_device_identity",
-            duration_ms: Math.max(0, this.now() - startedAt),
-            http_status: response.status,
-            observed_error: error.message,
-          });
-          throw error;
-        }
-        this.connection = "connected";
-        this.lastError = "";
-        logger.info("cloud_device_activation_completed", {
-          duration_ms: Math.max(0, this.now() - startedAt),
-          http_status: response.status,
-          connection: this.connection,
-        });
-        return this.state();
-      }
-      if (response.status >= 500) {
-        this.connection = "offline";
-        this.lastError = "公司云端暂时不可用";
-        logger.warn("cloud_device_activation_failed", {
-          failed_stage: "activate_device",
-          duration_ms: Math.max(0, this.now() - startedAt),
-          http_status: response.status,
-          connection: this.connection,
-        });
-        return this.state();
-      }
-      this.connection = "error";
-      this.lastError = response.status === 409
-        ? "该设备文件已绑定到另一台电脑"
-        : response.status === 401 || response.status === 403
-          ? "设备凭证已失效，请联系管理员"
-          : `公司云端拒绝激活（HTTP ${response.status}）`;
-      logger.warn("cloud_device_activation_failed", {
-        failed_stage: "activate_device",
-        duration_ms: Math.max(0, this.now() - startedAt),
-        http_status: response.status,
-        connection: this.connection,
-      });
-      return this.state();
+      );
     } catch (error) {
-      if (error instanceof Error && error.message === "云端返回的设备身份不一致") throw error;
-      this.connection = "offline";
-      this.lastError = "公司网络暂不可用，Agent 将自动重试";
       logger.warn("cloud_device_activation_failed", {
         failed_stage: "activate_device",
         duration_ms: Math.max(0, this.now() - startedAt),
-        connection: this.connection,
+        connection: "offline",
         observed_error: this.diagnosticError(error),
       });
-      return this.state();
-    } finally {
-      clearTimeout(timeout);
+      return this.setConnection(
+        "offline",
+        "公司网络暂不可用，Agent 将自动重试",
+        true,
+      );
     }
+    if (!response.ok) {
+      return this.httpFailure(response, "activation", logger, startedAt);
+    }
+    const payload = objectValue(await response.json().catch(() => undefined));
+    const cloud = this.options.config.cloudConfiguration();
+    if (!payload || payload.status !== "ok"
+      || String(payload.device_id ?? "") !== cloud.device_id
+      || String(payload.wireguard_ip ?? "") !== cloud.vpn_ip
+      || String(payload.machine_id ?? "") !== identity.machine_id) {
+      return this.invalidCloudResponse(logger, startedAt, "activation identity mismatch");
+    }
+    logger.info("cloud_device_activation_completed", {
+      duration_ms: Math.max(0, this.now() - startedAt),
+      http_status: response.status,
+      connection: "connected",
+    });
+    return this.setConnection("connected", "", true);
+  }
+
+  private async httpFailure(
+    response: Response,
+    operation: "status" | "activation",
+    logger: Logger,
+    startedAt: number,
+  ): Promise<DesktopCloudState> {
+    const observedError = (await response.text().catch(() => "")).trim().slice(0, 500);
+    const offline = response.status >= 500;
+    const lastError = offline
+      ? "公司云端暂时不可用"
+      : operation === "status" && response.status === 404
+        ? "公司云端版本不兼容，请联系管理员升级服务"
+        : response.status === 409
+          ? "该设备文件已绑定到另一台电脑"
+          : response.status === 401 || response.status === 403
+            ? "设备凭证已失效，请联系管理员"
+            : operation === "status"
+              ? `公司云端状态检查失败（HTTP ${response.status}）`
+              : `公司云端拒绝激活（HTTP ${response.status}）`;
+    logger.warn(operation === "status" ? "cloud_status_check_failed" : "cloud_device_activation_failed", {
+      ...(operation === "activation" ? { failed_stage: "activate_device" } : {}),
+      duration_ms: Math.max(0, this.now() - startedAt),
+      http_status: response.status,
+      connection: offline ? "offline" : "error",
+      ...(observedError ? { observed_error: observedError } : {}),
+    });
+    return this.setConnection(offline ? "offline" : "error", lastError, true);
+  }
+
+  private invalidCloudResponse(
+    logger: Logger,
+    startedAt: number,
+    observedError: string,
+  ): DesktopCloudState {
+    logger.error("cloud_status_response_invalid", {
+      duration_ms: Math.max(0, this.now() - startedAt),
+      connection: "error",
+      observed_error: observedError,
+    });
+    return this.setConnection(
+      "error",
+      observedError.includes("identity")
+        ? "云端返回的设备身份不一致"
+        : "公司云端返回了无效响应",
+      true,
+    );
+  }
+
+  private async request(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    this.controllers.add(controller);
+    const timeout = this.clock.setTimeout(
+      () => controller.abort(new Error("cloud request timed out")),
+      Math.max(1, Math.trunc(this.options.requestTimeoutMs ?? 10_000)),
+    );
+    try {
+      return await this.fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      this.clock.clearTimeout(timeout);
+      this.controllers.delete(controller);
+    }
+  }
+
+  private setConnection(
+    connection: DesktopCloudState["connection"],
+    lastError: string,
+    checked = false,
+  ): DesktopCloudState {
+    this.connection = connection;
+    this.lastError = lastError;
+    if (checked) this.lastCheckedAt = Math.floor(this.now() / 1_000);
+    const state = this.state();
+    const serialized = JSON.stringify(state);
+    if (serialized !== this.lastPublished) {
+      this.lastPublished = serialized;
+      this.options.onStateChanged?.(state);
+    }
+    return state;
   }
 
   private diagnosticError(error: unknown): string {

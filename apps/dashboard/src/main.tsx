@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { DesktopHealth } from "@lxe/desktop-protocol";
+import type { DesktopCloudState, DesktopHealth } from "@lxe/desktop-protocol";
 import {
   ChartColumn,
   House,
@@ -146,11 +146,13 @@ function routeStateFromLocation(): DashboardRouteSelection {
 }
 
 function App({
+  desktopCloud,
   desktopHealth,
   language,
   onLanguageChange,
   onOpenDesktopSettings,
 }: {
+  desktopCloud: DesktopCloudState;
   desktopHealth: DesktopHealth;
   language: Language;
   onLanguageChange: (language: Language) => void;
@@ -550,6 +552,7 @@ function App({
   const runtimeStatusPopover = (
     <RuntimeStatusPopover
       currentModel={currentModelQuery.data ?? null}
+      desktopCloud={desktopCloud}
       desktopHealth={desktopHealth}
       navigationKey={runtimeStatusNavigationKey}
       onOpenModels={() => openCapabilityView("models")}
@@ -778,8 +781,9 @@ function DashboardApplication() {
   return (
     <I18nContext.Provider value={t}>
       <DesktopShell language={language} onLanguageChange={setLanguage}>
-        {({ health, openSettings }) => (
+        {({ cloud, health, openSettings }) => (
           <App
+            desktopCloud={cloud}
             desktopHealth={health}
             language={language}
             onLanguageChange={setLanguage}
