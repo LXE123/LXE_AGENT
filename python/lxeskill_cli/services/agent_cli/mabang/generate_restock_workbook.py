@@ -787,7 +787,17 @@ def _has_column_value(rows: list[list[Any]], *, column_index: int) -> bool:
 def _append_total_row(worksheet: Any, columns: tuple[str, ...], rows: list[list[Any]]) -> None:
     total_row: list[Any] = [""] * len(columns)
     total_row[0] = "合计"
-    for column_name in ("数量", "总价", "总价（原价）", "总价（均价）", "总价（售价）", "总价（售价(均价)）"):
+    for column_name in (
+        "数量",
+        "计划发货量",
+        "本次采购量",
+        "留存库存抵扣量",
+        "总价",
+        "总价（原价）",
+        "总价（均价）",
+        "总价（售价）",
+        "总价（售价(均价)）",
+    ):
         if column_name not in columns:
             continue
         column_index = columns.index(column_name)

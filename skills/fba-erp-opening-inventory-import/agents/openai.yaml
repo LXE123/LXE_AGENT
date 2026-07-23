@@ -1,0 +1,4 @@
+interface:
+  display_name: "FBA ERP 期初库存导入"
+  short_description: "预览并确认导入历史库存批次到 FBA ERP 系统"
+  default_prompt: "Use $fba-erp-opening-inventory-import to preview and confirm importing an opening inventory workbook into the FBA ERP."

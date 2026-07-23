@@ -14,6 +14,7 @@ commands:
 - 只提供 SP 号。CLI 固定从 WMS 下载目录查找 `SP号.xls` 或 `SP号.xlsx`，不要传入其他文件路径。
 - 只上传原始完整装箱文件；禁止使用 `SP号-1.xlsx` 等拆分文件。
 - 不读取发货单 CSV、备货单或采购表，不在本地推导 MSKU 对应的库存 SKU，也不在本地计算留存量。
+- ERP 必须使用正式采购批次已冻结的 `quantity_per_msku`（每 1 个 MSKU 对应的准确库存 SKU 数量）展开真实量；不得用相对比例或采购阶段 MSKU 计划量猜测。
 - ERP 不可用时停止本次上传；不要排队、写本地影子数据或改走本地对账逻辑。
 - 先检查 terminal 的 `ok`。成功时读取 `data`；失败时读取 `data.error`、`data.recovery` 和 terminal `error`。
 - 失败时转述真实错误码和实际错误信息；不要用推测或通用提示覆盖。

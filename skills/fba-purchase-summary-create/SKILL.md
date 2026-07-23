@@ -1,6 +1,6 @@
 ---
 name: fba-purchase-summary-create
-description: 根据一批本地 FBA 发货单 CSV、用户提供的出口退税总表和毛利率，一次生成采购汇总表以及每个 SP 的备货单。用户要求按一批 SP 生成采购汇总、采购单、批量备货单、厂家分类采购表，或需要正飞按整批发货单统一均价时使用；不要用于 WMS 装箱数据、Amazon 创建货件、发票模板或报关资料。
+description: 根据一批本地 FBA 发货单 CSV、用户提供的出口退税总表和毛利率，默认与 FBA ERP 交互，预览并确认 FIFO 历史库存抵扣后生成正式采购汇总表和每个 SP 备货单；用户明确要求离线或草稿时使用 --draft。用户要求按一批 SP 生成采购汇总、批量备货单或 ERP 采购批次时使用；不要用于上传 WMS 真实装箱量。
 type: amazon_fba
 commands:
   - lxeskill fba purchase summary-create
@@ -10,57 +10,54 @@ commands:
 
 ## Hard Rules
 
-- 必须通过 exec 调用 frontmatter commands 中声明的 lxeskill 命令；禁止直接执行对应 Python 业务模块。
-- 下方均为真实 shell 命令；简单参数使用 flags，复杂对象写入 JSON 文件后使用 --input-json。
-- 先检查 terminal 的 `ok`；成功时读取 `data` 和 `files`，失败时读取 `error.message` 及可选的 `data.context`。
-
-- 只使用固定 CLI。
-- 不要手工解析 CSV，不要手工编辑 Excel。
-- 发货单 CSV 只从本地 `artifacts/mabang_fba_delivery/<SP>_*.csv` 查找；缺少时直接转述 CLI 失败原因，不自动下载。
-- 出口退税总表必须由用户提供，不使用默认路径。
-- `备用厂家` 暂不参与输出。
-- 日常采购/备货流程使用本批量入口；不要把一批 SP 拆开分别运行单 SP 备货单 CLI。
+- 必须通过 exec 调用 frontmatter 中声明的固定 CLI；禁止直接运行 Python 业务模块。
+- 发货单只从 `artifacts/mabang_fba_delivery/<SP>_*.csv` 查找；缺失时转述真实错误，不自动下载。
+- 默认是正式联网模式：本地上传计划需求和映射，ERP 计算库存抵扣、本次采购量、新合同号和新采购价。
+- ERP 返回确认要求时不生成任何正式文件；先展示真实库存来源后询问用户。
+- 正式模式连接 ERP 失败时停止；不得自动改走草稿。
+- `--draft` 不访问 ERP、不占用库存、不创建批次或正式合同号；不得与确认/替换参数同时使用。
+- 不要手工解析 CSV 或编辑输出 Excel。
 
 ## Required Input
 
-- `delivery_no`: 一个或多个 `SP` 开头的发货单号。
-- `master_xlsx`: 用户提供的出口退税总表 xlsx。
-- `gross_margin`: 用户指定的毛利率，必须在 `0.2` 到 `0.5` 之间。
-- 出口退税总表必须包含 `SKU表` sheet；其中库存 SKU 列名可写 `库存sku` 或 `库存SKU`。
-- 出口退税总表的 `供应商合同信息` sheet 用 `供货方` 匹配 `SKU表` 的 `厂家`，读取 `单位`、`合同产品名称`、`合同编号前缀` 和 `税率`；缺失或冲突时 CLI 会生成文件并在 `warnings` 中提醒。
-- 缺少 `SP...`、出口退税总表路径或毛利率时先追问，不要启动 CLI。
+- `delivery_no`：一个或多个 `SP` 开头的发货单号，顺序就是 ERP 跨 SP 分配库存的顺序。
+- `master_xlsx`：用户提供的出口退税总表。
+- `gross_margin`：`0.2`～`0.5`。
+- 正式模式要求发货单 CSV 包含 `MSKU`、`MSKU发货量`、`SKU发货量`；CLI 只上传每 1 个 MSKU 的准确 `quantity_per_msku`，不上传 MSKU 计划量。
+- 正式模式要求 `供应商合同信息` 中的 `单位`、`合同产品名称`、`合同编号前缀`、`税率` 完整且无冲突。
 
-## Command
+## Commands
 
-```text
-lxeskill fba purchase summary-create --delivery-no <delivery_no> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
-```
-
-一批多个发货单号时重复传入 `--delivery-no`：
+正式单 SP：
 
 ```text
-lxeskill fba purchase summary-create --delivery-no <delivery_no_1> --delivery-no <delivery_no_2> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
+lxeskill fba purchase summary-create --delivery-no <SP> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
 ```
 
-只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
+多 SP 重复传 `--delivery-no`。用户明确要求草稿/离线时追加：
+
+```text
+--draft
+```
+
+## ERP Confirmation
+
+当 `data.error.code=purchase_inventory_confirmation_required` 时：
+
+1. 展示 `data.erp.lines` 中每个型号的计划量、建议抵扣量和本次采购量；从 `inventory_sources` 逐条展示旧合同号、历史单价、可用量和建议使用量。
+2. 未取得用户明确确认前不要继续。
+3. 确认后重试原命令，追加 `--confirm-inventory-quote-id <data.erp.quote_id>`。
+
+- `purchase_inventory_quote_stale`：库存已变化，展示 `data.erp.latest_quote` 并重新询问，不沿用旧 quote ID。
+- `purchase_batch_replace_confirmation_required`：展示重复 SP 和当前批次；用户确认后使用 `--replace-batch-id`、`--expected-version-no` 和 `--change-reason`。
 
 ## Result Handling
 
-- `success=true`：告诉用户采购汇总表和各 SP 备货单已生成，并提供 `purchase_summary_xlsx` 和 `restock_xlsx_paths`。
-- terminal `files` 非空时逐个调用 `send_file`；本地 CSV 输入不作为附件发送。
-- 可简要转述 `sku_count`、`sku_source_count`、`matched_sku_count`、`unmatched_sku_count`、`restock_matched_sku_count`、`restock_unmatched_sku_count`、`manufacturer_count`、`contract_mapping_count`。
-- 如果 `warnings` 非空，必须转述给用户；例如出口退税总表存在完全相同的重复库存 SKU 且已自动去重、存在 `库存sku` 为空的行且已忽略，或 `供应商合同信息` sheet 的 `供货方` 映射缺失/冲突。
-- 说明第一个 sheet 是 `采购汇总`，第二个 sheet 是 `未匹配`，后续 sheet 是厂家分类。
-- 说明 `采购汇总` 和厂家 sheet 已按 `型号` 合并；同型号多个库存 SKU 会在 `库存sku` 单元格中按 `SKU × 数量` 分行显示，`产品名称` 按相同顺序分行显示，`来源SP单号` 按型号组去重并分行显示。
-- 说明 `采购汇总` 和厂家 sheet 额外提供 `库存sku（第一行）`、`产品名称（第一行）`，用于筛选或复制代表值。
-- 说明厂家名包含 `正飞` 的明细行会填写同厂家跨明细加权 `均价 = sum(原价 * 数量) / sum(数量)`，并四舍五入保留两位小数；同时填写 `总价（均价） = 均价 * 数量`；非正飞行 `均价` 和 `总价（均价）` 留空。
-- 说明每个单 SP 备货单的数量和 `库存sku` 中的 SKU 数量明细只来自自己的 SP，但正飞 `均价`、`总价（均价）`、`售价(均价)` 和 `总价（售价(均价)）` 使用整批 SP 的统一均价。
-- 说明每个单 SP 备货单的 `日期` 使用生成当天 `YYYY-MM-DD`，`采购订单号` 固定留空并填充颜色，方便业务人员后续补录。
-- 说明批量生成的每个 `备货单` 中，`厂家` 单元格已开启自动换行，长厂家名不会横向溢出到后续字段。
-- 说明批量生成的每个 `备货单` 中，`库存sku`、`产品名称`、`售价(均价)` 和 `总价（售价(均价)）` 位于最后四列，并使用灰色填充。
-- 说明 `采购汇总` 和厂家 sheet 最后一行是带填充色的 `合计` 行，会汇总 `数量`、`总价` 和 `总价（均价）`。
-- 说明输出表格所有列宽和行高已统一为 15。
-- 说明 `采购汇总` 和厂家 sheet 字段为 `库存sku`、`产品名称`、`来源SP单号`、`库存sku（第一行）`、`产品名称（第一行）`、`型号`、`原价`、`均价`、`厂家`、`单位`、`合同产品名称`、`合同编号前缀`、`税率`、`数量`、`总价`、`总价（均价）`。
-- 说明批量生成的每个 `备货单` 字段为 `日期`、`库存sku（第一行）`、`产品名称（第一行）`、`型号`、`数量`、`原价`、`厂家`、`采购订单号`、`总价（原价）`、`合同产品名称`、`均价`、`售价`、`总价（均价）`、`总价（售价）`、`单位`、`毛利率`、`库存sku`、`产品名称`、`售价(均价)`、`总价（售价(均价)）`。
-- 说明未匹配库存 SKU 会进入 `未匹配` sheet，字段为 `库存sku`、`来源SP单号`、`数量`、`问题说明`。
-- `success=false`：只转述 `exception`；不要重跑下载发货单 CLI。
+- `success=true`：对 terminal `files` 中的每个附件调用 `send_file`，并报告 `batch_no`、`version_no`、`contracts`、`purchase_lines`。
+- 正式采购汇总和备货单将 `数量` 拆为 `计划发货量`、`本次采购量`、`留存库存抵扣量`。
+- 备货单的新采购行在上方，使用新合同号；历史库存行在底部且整行黄色，使用旧合同号和历史单价。
+- 同一型号使用多个旧合同时，每个“旧合同号＋历史单价”单独一条黄色行。
+- 正飞正式 `均价` 只按 `本次采购量` 加权；黄色行不使用新均价。
+- `status=batch_committed_artifact_generation_failed`：ERP 已提交但本地文件失败。报告批次/合同 ID，不得当作网络失败重新创建。
+- `mode=draft`：明确说明文件名含 `DRAFT`、工作表含“草稿-未同步ERP”、没有正式合同号。
+- 失败时转述 `error.code`、`error.message` 和可用的 `http_status/detail`，不要用通用提示覆盖。

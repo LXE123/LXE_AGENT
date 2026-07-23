@@ -9,6 +9,7 @@ from typing import Any
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang import generate_fba_restock_workbook as restock_workbook
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
+from services.agent_cli.mabang import erp_purchase_batch
 
 SOURCE = "fba_purchase_batch_workbooks"
 
@@ -152,17 +153,110 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         delivery_nos = [raw] if isinstance(raw, str) else list(raw or [])
         master_xlsx = str(arguments.get("master_xlsx") or "")
         gross_margin = str(arguments.get("gross_margin") or "")
-        return generate_purchase_batch_workbooks(
+        restock_workbook._parse_gross_margin(gross_margin)
+        draft = bool(arguments.get("draft", False))
+        confirm_quote_id = str(arguments.get("confirm_inventory_quote_id") or "").strip()
+        replace_batch_id = str(arguments.get("replace_batch_id") or "").strip()
+        expected_version_raw = arguments.get("expected_version_no")
+        expected_version_no = int(expected_version_raw) if expected_version_raw not in (None, "") else None
+        change_reason = str(arguments.get("change_reason") or "").strip()
+        confirmation_arguments_present = any(
+            (
+                confirm_quote_id,
+                replace_batch_id,
+                expected_version_no is not None,
+                change_reason,
+            )
+        )
+        if draft and confirmation_arguments_present:
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "draft_arguments_conflict",
+                "--draft 不能与 ERP 确认或批次替换参数同时使用",
+            )
+        if replace_batch_id and (expected_version_no is None or not change_reason):
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "replacement_arguments_incomplete",
+                "--replace-batch-id 必须同时提供 --expected-version-no 和 --change-reason",
+            )
+        if not replace_batch_id and (expected_version_no is not None or change_reason):
+            raise erp_purchase_batch.PurchaseBatchClientError(
+                "replacement_arguments_incomplete",
+                "--expected-version-no/--change-reason 必须与 --replace-batch-id 同时使用",
+            )
+        if draft:
+            generated = generate_purchase_batch_workbooks(
+                delivery_nos,
+                master_xlsx=master_xlsx,
+                gross_margin=gross_margin,
+            )
+            return erp_purchase_batch.mark_draft_workbooks(generated)
+
+        request_payload, intent_context = erp_purchase_batch.build_purchase_intent(
             delivery_nos,
             master_xlsx=master_xlsx,
-            gross_margin=gross_margin,
+            confirm_inventory_quote_id=confirm_quote_id,
+            replace_batch_id=replace_batch_id,
+            expected_version_no=expected_version_no,
+            change_reason=change_reason,
         )
-    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        status_code, erp_result = erp_purchase_batch.import_purchase_intent(request_payload)
+        if status_code == 409:
+            return {
+                **erp_purchase_batch.confirmation_result(
+                    response=erp_result,
+                    status_code=status_code,
+                    request_payload=request_payload,
+                ),
+                "delivery_nos": intent_context["delivery_nos"],
+                "master_xlsx": master_xlsx,
+                "gross_margin": gross_margin,
+                "source": SOURCE,
+            }
+        try:
+            generated = generate_purchase_batch_workbooks(
+                delivery_nos,
+                master_xlsx=master_xlsx,
+                gross_margin=gross_margin,
+            )
+            return erp_purchase_batch.apply_formal_erp_result(generated, erp_result)
+        except Exception as exc:
+            return {
+                "success": False,
+                "status": "batch_committed_artifact_generation_failed",
+                "delivery_nos": intent_context["delivery_nos"],
+                "master_xlsx": master_xlsx,
+                "gross_margin": gross_margin,
+                "request_id": request_payload["request_id"],
+                "batch_id": erp_result.get("batch_id"),
+                "batch_no": erp_result.get("batch_no"),
+                "version_no": erp_result.get("version_no"),
+                "contracts": erp_result.get("contracts") or [],
+                "exception": _exception_text(exc),
+                "error": {
+                    "code": "batch_committed_artifact_generation_failed",
+                    "message": _exception_text(exc),
+                },
+                "erp": erp_result,
+                "source": SOURCE,
+            }
+    except (erp_purchase_batch.PurchaseBatchClientError, erp_purchase_batch.ErpHttpError) as exc:
         return {
             "success": False,
             "delivery_nos": delivery_nos,
             "master_xlsx": master_xlsx,
             "gross_margin": gross_margin,
             "exception": _exception_text(exc),
+            "error": erp_purchase_batch.client_error_payload(exc),
+            "source": SOURCE,
+        }
+    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
+        message = _exception_text(exc)
+        return {
+            "success": False,
+            "delivery_nos": delivery_nos,
+            "master_xlsx": master_xlsx,
+            "gross_margin": gross_margin,
+            "exception": message,
+            "error": {"code": "purchase_batch_generation_failed", "message": message},
             "source": SOURCE,
         }

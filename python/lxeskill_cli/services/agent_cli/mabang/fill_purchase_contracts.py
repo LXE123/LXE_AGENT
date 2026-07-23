@@ -24,11 +24,11 @@ REQUIRED_PURCHASE_COLUMNS = (
     "合同产品名称",
     "型号",
     "单位",
-    "数量",
     "原价",
     "总价",
     "税率",
 )
+PURCHASE_QUANTITY_COLUMNS = ("本次采购量", "数量")
 DETAIL_HEADER_MATCHERS = {
     "sequence": ("序号",),
     "product_name": ("产品名称",),
@@ -73,7 +73,7 @@ def _decimal_to_cell_value(value: Decimal) -> int | float:
 
 
 def _decimal_from_value(value: Any, *, field_name: str, row_number: int) -> Decimal:
-    text = _clean_cell(value)
+    text = str(value).strip() if value is not None else ""
     if not text:
         raise RuntimeError(f"采购汇总表 第{row_number}行 {field_name} 不能为空")
     try:
@@ -105,6 +105,16 @@ def _header_indexes(header_values: tuple[Any, ...]) -> dict[str, int]:
     missing = [header for header in REQUIRED_PURCHASE_COLUMNS if header not in indexes]
     if missing:
         raise RuntimeError(f"采购汇总表 {PURCHASE_SUMMARY_SHEET} sheet 缺少必需列: {', '.join(missing)}")
+    quantity_header = next(
+        (header for header in PURCHASE_QUANTITY_COLUMNS if header in indexes),
+        None,
+    )
+    if quantity_header is None:
+        raise RuntimeError(
+            f"采购汇总表 {PURCHASE_SUMMARY_SHEET} sheet 缺少必需列: "
+            f"{PURCHASE_QUANTITY_COLUMNS[0]} 或 {PURCHASE_QUANTITY_COLUMNS[1]}"
+        )
+    indexes["数量"] = indexes[quantity_header]
     return indexes
 
 
@@ -152,10 +162,17 @@ def load_purchase_summary_lines(
                 header: row[indexes[header] - 1] if indexes[header] - 1 < len(row) else None
                 for header in REQUIRED_PURCHASE_COLUMNS
             }
+            values["数量"] = (
+                row[indexes["数量"] - 1]
+                if indexes["数量"] - 1 < len(row)
+                else None
+            )
             manufacturer = _clean_cell(values["厂家"])
             if not manufacturer:
                 raise RuntimeError(f"采购汇总表 第{row_number}行 厂家不能为空")
             quantity = _decimal_from_value(values["数量"], field_name="数量", row_number=row_number)
+            if quantity <= 0:
+                continue
             tax_unit_price = _decimal_from_value(values["原价"], field_name="原价", row_number=row_number)
             tax_amount = _decimal_from_value(values["总价"], field_name="总价", row_number=row_number)
             if purchase_summary._is_zhengfei_manufacturer(manufacturer):

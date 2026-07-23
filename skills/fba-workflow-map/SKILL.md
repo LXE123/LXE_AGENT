@@ -1,6 +1,6 @@
 ---
 name: fba-workflow-map
-description: FBA 模块路由图。用户询问 FBA skill 关系、FBA 流程、只有 SP 单号该跑哪个、发货单 CSV 和 WMS 装箱 Excel 区别、上传真实发货量到 ERP、发票报关流程、采购汇总表生成、采购合同填写、备货单生成、退税流程时使用；这是路由/解释 skill，不直接执行 CLI。
+description: FBA 模块路由图。用户询问 FBA skill 关系、FBA 流程、ERP 期初库存导入、采购批次与 FIFO 抵扣、只有 SP 单号该跑哪个、发货单 CSV 和 WMS 装箱 Excel 区别、上传真实发货量到 ERP、发票报关流程、采购汇总表生成、采购合同填写、备货单生成、退税流程时使用；这是路由/解释 skill，不直接执行 CLI。
 type: amazon_fba
 ---
 
@@ -15,6 +15,7 @@ type: amazon_fba
 | FBA 发货单 / 发货单 SKU 数据 / 发货单表格 | 马帮 FBA 发货单导出的 SKU CSV | `fba-shipment-delivery-csv-download` |
 | WMS 装箱数据 / 托运单 Excel / 装箱 Excel | 马帮 WMS 托运单装箱数据 | `fba-shipment-wms-box-download` |
 | 出口退税总表 | 用户提供的库存 SKU、产品名称、型号、原价、厂家总表 | `fba-purchase-summary-create` / `fba-restock-workbook-create` |
+| 期初库存表 / 进销存表 | ERP 上线前人工维护的历史合同、单价和剩余量 | `fba-erp-opening-inventory-import` |
 | 合同汇总模板 | 用户提供的采购合同模板 xlsx，一个 sheet 对应一个公司/厂家 | `fba-purchase-contract-fill` |
 | Amazon FBA 创建货件 | 在 Seller Central 上传装箱并推进四阶段流程 | `fba-shipment-create` |
 
@@ -40,6 +41,9 @@ flowchart TD
   J["fba-export-tax-products-manage<br/>退税白名单"] --> I
   A --> M["fba-purchase-summary-create<br/>采购汇总表+批量备货单生成"]
   N["出口退税总表 xlsx"] --> M
+  X["历史进销存 xlsx"] --> Y["fba-erp-opening-inventory-import<br/>一次性期初库存"]
+  Y --> M
+  M --> R
   M --> P["fba-purchase-contract-fill<br/>采购合同填写"]
   Q["合同汇总模板 xlsx"] --> P
   A --> O["fba-restock-workbook-create<br/>单 SP 备货单兼容生成"]
@@ -53,6 +57,7 @@ flowchart TD
 | 下载 FBA 发货单、发货单 SKU CSV、SP 发货单表格 | `fba-shipment-delivery-csv-download` |
 | 下载 WMS 装箱数据、托运单 Excel、装箱 Excel | `fba-shipment-wms-box-download` |
 | 上传真实发货量、同步装箱数据到 ERP、生成装箱对账 | `fba-erp-packing-upload` |
+| 将现有进销存表初始化为 ERP 历史库存 | `fba-erp-opening-inventory-import` |
 | 创建 Amazon FBA 货件、上传装箱、确认承运人、填追踪号 | `fba-shipment-create` |
 | 按发货单准备库存 SKU Excel | `fba-stock-sku-download` |
 | 下载 MSKU 明细、发票前准备 MSKU 数据 | `fba-msku-detail-download` |
@@ -71,14 +76,15 @@ flowchart TD
 | 发货单数据 | `fba-shipment-delivery-csv-download` |
 | 装箱与货件创建 | `fba-shipment-wms-box-download` -> `ziniao-browser` -> `fba-shipment-create` |
 | ERP 真实发货量 | 原始 WMS 装箱文件 -> `fba-erp-packing-upload` -> ERP 按采购批次 MSKU 映射展开库存 SKU 并对账 |
+| ERP 期初库存 | 历史进销存 xlsx -> `fba-erp-opening-inventory-import` 预览 -> 用户确认 -> FIFO 库存批次 |
 | 发票资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-invoice-template-fill` |
 | 报关资料 | 备货单 + FBA 发货单 CSV + 本地 WMS 装箱数据 -> `fba-customs-declaration-fill` |
-| 采购汇总表与批量备货单生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-purchase-summary-create` |
+| 采购汇总表与批量备货单生成 | 一批 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> ERP FIFO 确认 -> `fba-purchase-summary-create` 正式文件 |
 | 采购合同填写 | 采购汇总表 + 合同汇总模板 -> `fba-purchase-contract-fill` |
 | 单 SP 备货单兼容生成 | 单个 FBA 发货单 CSV + 出口退税总表 + 毛利率 -> `fba-restock-workbook-create` |
 | 出口退税 | `fba-export-tax-products-manage` -> `fba-export-tax-delivery-summary` |
 
-日常采购流程应走 `fba-purchase-summary-create`，一次生成采购汇总表和每个 SP 的备货单；这样正飞 `均价` 会按整批 SP 统一计算。`fba-restock-workbook-create` 只作为单 SP 独立生成的兼容入口。
+日常正式采购流程应走 `fba-purchase-summary-create`，先由 ERP 确认 FIFO 库存抵扣再生成文件；正飞 `均价` 只按整批 SP 的本次新采购量计算。`fba-restock-workbook-create` 和 `fba-purchase-contract-fill` 只作为草稿/旧表兼容入口。
 
 ## Answering Rules
 
