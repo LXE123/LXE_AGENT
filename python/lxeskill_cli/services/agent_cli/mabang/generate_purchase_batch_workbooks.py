@@ -200,12 +200,12 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             change_reason=change_reason,
         )
         status_code, erp_result = erp_purchase_batch.import_purchase_intent(request_payload)
-        erp_purchase_batch.validate_purchase_response(
-            status_code=status_code,
-            response=erp_result,
-            request_payload=request_payload,
-        )
         if status_code == 409:
+            erp_purchase_batch.validate_purchase_response(
+                status_code=status_code,
+                response=erp_result,
+                request_payload=request_payload,
+            )
             return {
                 **erp_purchase_batch.confirmation_result(
                     response=erp_result,
@@ -218,6 +218,11 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "source": SOURCE,
             }
         try:
+            erp_purchase_batch.validate_purchase_response(
+                status_code=status_code,
+                response=erp_result,
+                request_payload=request_payload,
+            )
             generated = generate_purchase_batch_workbooks(
                 delivery_nos,
                 master_xlsx=master_xlsx,
@@ -230,6 +235,19 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             )
             return erp_purchase_batch.download_contract_workbooks(formal)
         except Exception as exc:
+            if isinstance(
+                exc,
+                (
+                    erp_purchase_batch.PurchaseBatchClientError,
+                    erp_purchase_batch.ErpHttpError,
+                ),
+            ):
+                artifact_error = erp_purchase_batch.client_error_payload(exc)
+            else:
+                artifact_error = {
+                    "code": type(exc).__name__,
+                    "message": _exception_text(exc),
+                }
             return {
                 "success": False,
                 "status": "batch_committed_artifact_generation_failed",
@@ -244,8 +262,12 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "exception": _exception_text(exc),
                 "error": {
                     "code": "batch_committed_artifact_generation_failed",
-                    "message": _exception_text(exc),
+                    "message": (
+                        "ERP 批次已经提交，但本地采购文件或合同附件生成失败: "
+                        f"{_exception_text(exc)}"
+                    ),
                 },
+                "artifact_error": artifact_error,
                 "erp": erp_result,
                 "source": SOURCE,
             }

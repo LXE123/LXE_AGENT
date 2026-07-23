@@ -108,16 +108,36 @@ def _sanitize_value(
     *,
     secrets: Sequence[str],
     depth: int = 0,
+    bounded: bool = True,
 ) -> Any:
-    if depth >= MAX_REMOTE_NESTING_DEPTH:
+    if bounded and depth >= MAX_REMOTE_NESTING_DEPTH:
         return f"[truncated at nesting depth {MAX_REMOTE_NESTING_DEPTH}]"
     if isinstance(value, str):
-        return _safe_text(value, secrets=secrets)
+        return (
+            _safe_text(value, secrets=secrets)
+            if bounded
+            else _redact_text(value, secrets=secrets)
+        )
     if isinstance(value, Mapping):
         result: dict[str, Any] = {}
+        existing_omitted = 0
         items = list(value.items())
-        for raw_key, raw_value in items[:MAX_REMOTE_MAPPING_ITEMS]:
-            key = _safe_text(raw_key, secrets=secrets, max_chars=256)
+        if bounded:
+            marker = value.get("_truncated_mapping_items")
+            if isinstance(marker, int) and marker > 0:
+                existing_omitted = marker
+                items = [
+                    (raw_key, raw_value)
+                    for raw_key, raw_value in items
+                    if raw_key != "_truncated_mapping_items"
+                ]
+        selected_items = items[:MAX_REMOTE_MAPPING_ITEMS] if bounded else items
+        for raw_key, raw_value in selected_items:
+            key = (
+                _safe_text(raw_key, secrets=secrets, max_chars=256)
+                if bounded
+                else _redact_text(str(raw_key), secrets=secrets)
+            )
             if _is_sensitive_key(raw_key):
                 result[key] = "[REDACTED]"
             else:
@@ -125,23 +145,41 @@ def _sanitize_value(
                     raw_value,
                     secrets=secrets,
                     depth=depth + 1,
+                    bounded=bounded,
                 )
-        omitted = len(items) - MAX_REMOTE_MAPPING_ITEMS
-        if omitted > 0:
+        omitted = len(items) - len(selected_items) + existing_omitted
+        if bounded and omitted > 0:
             result["_truncated_mapping_items"] = omitted
         return result
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        existing_omitted = 0
+        values = list(value)
+        if bounded and values and isinstance(values[-1], Mapping):
+            marker = values[-1].get("_truncated_sequence_items")
+            if isinstance(marker, int) and marker > 0:
+                existing_omitted = marker
+                values = values[:-1]
+        selected_values = values[:MAX_REMOTE_SEQUENCE_ITEMS] if bounded else values
         result = [
-            _sanitize_value(item, secrets=secrets, depth=depth + 1)
-            for item in value[:MAX_REMOTE_SEQUENCE_ITEMS]
+            _sanitize_value(
+                item,
+                secrets=secrets,
+                depth=depth + 1,
+                bounded=bounded,
+            )
+            for item in selected_values
         ]
-        omitted = len(value) - MAX_REMOTE_SEQUENCE_ITEMS
-        if omitted > 0:
+        omitted = len(values) - len(selected_values) + existing_omitted
+        if bounded and omitted > 0:
             result.append({"_truncated_sequence_items": omitted})
         return result
     if value is None or isinstance(value, (bool, int, float)):
         return value
-    return _safe_text(value, secrets=secrets)
+    return (
+        _safe_text(value, secrets=secrets)
+        if bounded
+        else _redact_text(str(value), secrets=secrets)
+    )
 
 
 def _timeout_seconds() -> float:
@@ -184,7 +222,12 @@ def _safe_remote_body(response: Any, *, secrets: Sequence[str]) -> str:
     return _safe_text(body, secrets=secrets, max_chars=MAX_REMOTE_BODY_CHARS)
 
 
-def _response_json(response: Any, *, secrets: Sequence[str]) -> dict[str, Any]:
+def _response_json(
+    response: Any,
+    *,
+    secrets: Sequence[str],
+    bounded: bool | None = None,
+) -> dict[str, Any]:
     try:
         payload = response.json()
     except Exception as exc:
@@ -200,7 +243,12 @@ def _response_json(response: Any, *, secrets: Sequence[str]) -> dict[str, Any]:
             f"ERP 返回 JSON 不是对象: HTTP {response.status_code}",
             http_status=int(response.status_code),
         )
-    sanitized = _sanitize_value(payload, secrets=secrets)
+    status_code = int(response.status_code)
+    sanitized = _sanitize_value(
+        payload,
+        secrets=secrets,
+        bounded=(not (200 <= status_code < 300)) if bounded is None else bounded,
+    )
     if not isinstance(sanitized, Mapping):
         raise ErpHttpError(
             "erp_response_invalid",
@@ -266,13 +314,18 @@ def request_json(
             f"连接 ERP 失败: {_safe_text(exception_text(exc), secrets=(api_key,))}",
         ) from exc
 
-    payload = _response_json(response, secrets=(api_key,))
     status_code = int(response.status_code)
     if 200 <= status_code < 300:
+        payload = _response_json(response, secrets=(api_key,), bounded=False)
         return status_code, payload
+    payload = _response_json(response, secrets=(api_key,), bounded=True)
     error = _remote_error(response, payload, secrets=(api_key,))
     if error.code in accepted_error_codes:
-        return status_code, payload
+        return status_code, _response_json(
+            response,
+            secrets=(api_key,),
+            bounded=False,
+        )
     raise error
 
 

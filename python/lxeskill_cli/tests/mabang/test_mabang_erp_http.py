@@ -146,7 +146,7 @@ def test_invalid_json_body_and_transport_exception_are_redacted(
     assert transport_message.count("[REDACTED]") >= 2
 
 
-def test_success_payload_is_sanitized_and_nested_collections_are_bounded(
+def test_success_payload_is_sanitized_without_truncating_business_collections(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     payload = {
@@ -169,8 +169,56 @@ def test_success_payload_is_sanitized_and_nested_collections_are_bounded(
 
     assert status == 200
     assert result["echo"] == "[REDACTED]"
-    assert result["items"][-1] == {"_truncated_sequence_items": 3}
-    assert result["mapping"]["_truncated_mapping_items"] == 2
+    assert len(result["items"]) == erp_http.MAX_REMOTE_SEQUENCE_ITEMS + 3
+    assert result["items"][-1] == "safe"
+    assert len(result["mapping"]) == erp_http.MAX_REMOTE_MAPPING_ITEMS + 2
+    assert "_truncated_mapping_items" not in result["mapping"]
+
+
+def test_error_payload_collections_remain_explicitly_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "detail": {
+            "code": "erp_backend_failed",
+            "message": "backend failed",
+            "items": ["safe"] * (erp_http.MAX_REMOTE_SEQUENCE_ITEMS + 3),
+        }
+    }
+    session = FakeSession([FakeResponse(503, payload)])
+    monkeypatch.setattr(erp_http, "local_service_requests_session", session)
+
+    with pytest.raises(erp_http.ErpHttpError) as captured:
+        erp_http.request_json("GET", "/api/v1/erp/test", operation="读取 ERP")
+
+    assert captured.value.detail["items"][-1] == {"_truncated_sequence_items": 3}
+
+
+def test_accepted_business_conflict_preserves_complete_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "error": {
+            "code": "purchase_inventory_confirmation_required",
+            "message": "confirmation required",
+        },
+        "lines": ["safe"] * (erp_http.MAX_REMOTE_SEQUENCE_ITEMS + 3),
+    }
+    session = FakeSession([FakeResponse(409, payload)])
+    monkeypatch.setattr(erp_http, "local_service_requests_session", session)
+
+    status, result = erp_http.request_json(
+        "POST",
+        "/api/v1/erp/purchase-batches/import",
+        operation="导入采购批次",
+        accepted_error_codes=frozenset(
+            {"purchase_inventory_confirmation_required"}
+        ),
+    )
+
+    assert status == 409
+    assert len(result["lines"]) == erp_http.MAX_REMOTE_SEQUENCE_ITEMS + 3
+    assert result["lines"][-1] == "safe"
 
 
 def test_request_bytes_returns_exact_file_and_sanitized_headers(

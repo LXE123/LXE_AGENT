@@ -471,7 +471,7 @@ def test_quote_response_must_preserve_inventory_source_lineage() -> None:
     assert "source_contract_no" in str(captured.value)
 
 
-def test_cli_returns_incomplete_code_before_generating_artifacts(monkeypatch) -> None:
+def test_cli_marks_success_validation_failure_as_committed(monkeypatch) -> None:
     response = deepcopy(_erp_result())
     response["purchase_lines"][0].pop("purchase_quantity")
     monkeypatch.setattr(
@@ -502,7 +502,72 @@ def test_cli_returns_incomplete_code_before_generating_artifacts(monkeypatch) ->
     )
 
     assert result["success"] is False
-    assert result["error"]["code"] == "erp_purchase_result_incomplete"
+    assert result["status"] == "batch_committed_artifact_generation_failed"
+    assert result["error"]["code"] == "batch_committed_artifact_generation_failed"
+    assert result["artifact_error"]["code"] == "erp_purchase_result_incomplete"
+    assert result["batch_id"] == response["batch_id"]
+
+
+def test_cli_preserves_contract_download_http_error_after_commit(monkeypatch) -> None:
+    response = deepcopy(_erp_result())
+    monkeypatch.setattr(
+        erp,
+        "build_purchase_intent",
+        lambda *args, **kwargs: (
+            _request_payload(),
+            {
+                "delivery_nos": ["SP260710001"],
+                "csv_paths": [],
+                "master_xlsx": "master.xlsx",
+            },
+        ),
+    )
+    monkeypatch.setattr(erp, "import_purchase_intent", lambda _payload: (201, response))
+    monkeypatch.setattr(
+        cli,
+        "generate_purchase_batch_workbooks",
+        lambda *args, **kwargs: {"success": True},
+    )
+    monkeypatch.setattr(
+        erp,
+        "apply_formal_erp_result",
+        lambda generated, erp_result, **kwargs: {**generated, **erp_result},
+    )
+    monkeypatch.setattr(
+        erp,
+        "download_contract_workbooks",
+        lambda _result: (_ for _ in ()).throw(
+            erp.ErpHttpError(
+                "contract_template_not_configured",
+                "contract template is unavailable",
+                http_status=503,
+                detail={
+                    "code": "contract_template_not_configured",
+                    "message": "contract template is unavailable",
+                },
+            )
+        ),
+    )
+
+    result = cli.run(
+        {
+            "delivery_no": ["SP260710001"],
+            "master_xlsx": "master.xlsx",
+            "gross_margin": "0.3",
+        }
+    )
+
+    assert result["status"] == "batch_committed_artifact_generation_failed"
+    assert result["batch_id"] == response["batch_id"]
+    assert result["artifact_error"] == {
+        "code": "contract_template_not_configured",
+        "message": "contract template is unavailable",
+        "http_status": 503,
+        "detail": {
+            "code": "contract_template_not_configured",
+            "message": "contract template is unavailable",
+        },
+    }
 
 
 def _xlsx_bytes() -> bytes:
