@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+from collections.abc import Sequence
 from typing import Any, Mapping
 
 import requests
@@ -11,6 +13,26 @@ from shared.infra.net import local_service_requests_session
 
 DEFAULT_TIMEOUT_SECONDS = 30.0
 MAX_REMOTE_BODY_CHARS = 4_000
+MAX_REMOTE_VALUE_CHARS = 4_000
+MAX_REMOTE_MAPPING_ITEMS = 500
+MAX_REMOTE_SEQUENCE_ITEMS = 1_000
+MAX_REMOTE_NESTING_DEPTH = 12
+
+_BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]+")
+_SENSITIVE_QUOTED_VALUE_PATTERN = re.compile(
+    r"(?i)([\"']?(?:authorization|x[-_]?api[-_]?key|api[-_]?key|"
+    r"access[-_]?token|refresh[-_]?token|token|password|passwd|secret)"
+    r"[\"']?\s*[:=]\s*)([\"'])(.*?)(\2)"
+)
+_AUTHORIZATION_PATTERN = re.compile(
+    r"(?i)([\"']?authorization[\"']?\s*[:=]\s*)([\"']?)"
+    r"(?:(?:bearer|basic)\s+)?([^\s,;}&\"']+)([\"']?)"
+)
+_SENSITIVE_VALUE_PATTERN = re.compile(
+    r"(?i)([\"']?(?:x[-_]?api[-_]?key|api[-_]?key|access[-_]?token|"
+    r"refresh[-_]?token|token|password|passwd|secret)[\"']?\s*[:=]\s*)"
+    r"([\"']?)([^\s,;}&\"']+)([\"']?)"
+)
 
 
 class ErpHttpError(RuntimeError):
@@ -23,11 +45,103 @@ class ErpHttpError(RuntimeError):
         detail: Mapping[str, Any] | None = None,
         payload: Mapping[str, Any] | None = None,
     ) -> None:
-        super().__init__(message)
-        self.code = code
+        secrets = _configured_secrets()
+        super().__init__(_safe_text(message, secrets=secrets))
+        self.code = _safe_text(code, secrets=secrets, max_chars=256)
         self.http_status = http_status
-        self.detail = dict(detail or {})
-        self.payload = dict(payload or {})
+        safe_detail = _sanitize_value(detail or {}, secrets=secrets)
+        safe_payload = _sanitize_value(payload or {}, secrets=secrets)
+        self.detail = dict(safe_detail) if isinstance(safe_detail, Mapping) else {}
+        self.payload = dict(safe_payload) if isinstance(safe_payload, Mapping) else {}
+
+
+def _configured_secrets() -> tuple[str, ...]:
+    api_key = str(os.getenv("LXE_ERP_API_KEY") or "").strip()
+    return (api_key,) if api_key else ()
+
+
+def _truncate_text(value: str, *, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+    omitted = len(value) - max_chars
+    marker = f"... [truncated {omitted} chars]"
+    visible_chars = max(0, max_chars - len(marker))
+    return f"{value[:visible_chars]}{marker}"
+
+
+def _redact_text(value: str, *, secrets: Sequence[str]) -> str:
+    redacted = value
+    for secret in sorted({item for item in secrets if item}, key=len, reverse=True):
+        redacted = redacted.replace(secret, "[REDACTED]")
+    redacted = _SENSITIVE_QUOTED_VALUE_PATTERN.sub(r"\1[REDACTED]", redacted)
+    redacted = _BEARER_PATTERN.sub("Bearer [REDACTED]", redacted)
+    redacted = _AUTHORIZATION_PATTERN.sub(r"\1[REDACTED]", redacted)
+    redacted = _SENSITIVE_VALUE_PATTERN.sub(r"\1[REDACTED]", redacted)
+    return redacted
+
+
+def _safe_text(
+    value: Any,
+    *,
+    secrets: Sequence[str] = (),
+    max_chars: int = MAX_REMOTE_VALUE_CHARS,
+) -> str:
+    return _truncate_text(_redact_text(str(value), secrets=secrets), max_chars=max_chars)
+
+
+def _is_sensitive_key(value: Any) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", "_", str(value).strip().lower()).strip("_")
+    return (
+        normalized in {"authorization", "password", "passwd", "secret"}
+        or normalized.endswith("_password")
+        or normalized.endswith("_passwd")
+        or normalized.endswith("_secret")
+        or normalized == "token"
+        or normalized.endswith("_token")
+        or normalized == "api_key"
+        or normalized.endswith("_api_key")
+    )
+
+
+def _sanitize_value(
+    value: Any,
+    *,
+    secrets: Sequence[str],
+    depth: int = 0,
+) -> Any:
+    if depth >= MAX_REMOTE_NESTING_DEPTH:
+        return f"[truncated at nesting depth {MAX_REMOTE_NESTING_DEPTH}]"
+    if isinstance(value, str):
+        return _safe_text(value, secrets=secrets)
+    if isinstance(value, Mapping):
+        result: dict[str, Any] = {}
+        items = list(value.items())
+        for raw_key, raw_value in items[:MAX_REMOTE_MAPPING_ITEMS]:
+            key = _safe_text(raw_key, secrets=secrets, max_chars=256)
+            if _is_sensitive_key(raw_key):
+                result[key] = "[REDACTED]"
+            else:
+                result[key] = _sanitize_value(
+                    raw_value,
+                    secrets=secrets,
+                    depth=depth + 1,
+                )
+        omitted = len(items) - MAX_REMOTE_MAPPING_ITEMS
+        if omitted > 0:
+            result["_truncated_mapping_items"] = omitted
+        return result
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        result = [
+            _sanitize_value(item, secrets=secrets, depth=depth + 1)
+            for item in value[:MAX_REMOTE_SEQUENCE_ITEMS]
+        ]
+        omitted = len(value) - MAX_REMOTE_SEQUENCE_ITEMS
+        if omitted > 0:
+            result.append({"_truncated_sequence_items": omitted})
+        return result
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return _safe_text(value, secrets=secrets)
 
 
 def _timeout_seconds() -> float:
@@ -65,19 +179,16 @@ def connection_settings(*, operation: str) -> tuple[str, str, float]:
     return base_url, api_key, _timeout_seconds()
 
 
-def _safe_remote_body(response: Any) -> str:
+def _safe_remote_body(response: Any, *, secrets: Sequence[str]) -> str:
     body = str(getattr(response, "text", "") or "")
-    if len(body) <= MAX_REMOTE_BODY_CHARS:
-        return body
-    omitted = len(body) - MAX_REMOTE_BODY_CHARS
-    return f"{body[:MAX_REMOTE_BODY_CHARS]}... [truncated {omitted} chars]"
+    return _safe_text(body, secrets=secrets, max_chars=MAX_REMOTE_BODY_CHARS)
 
 
-def _response_json(response: Any) -> dict[str, Any]:
+def _response_json(response: Any, *, secrets: Sequence[str]) -> dict[str, Any]:
     try:
         payload = response.json()
     except Exception as exc:
-        body = _safe_remote_body(response)
+        body = _safe_remote_body(response, secrets=secrets)
         raise ErpHttpError(
             "erp_response_invalid",
             f"ERP 返回了无法解析的 JSON: HTTP {response.status_code}, body={body}",
@@ -89,10 +200,22 @@ def _response_json(response: Any) -> dict[str, Any]:
             f"ERP 返回 JSON 不是对象: HTTP {response.status_code}",
             http_status=int(response.status_code),
         )
-    return dict(payload)
+    sanitized = _sanitize_value(payload, secrets=secrets)
+    if not isinstance(sanitized, Mapping):
+        raise ErpHttpError(
+            "erp_response_invalid",
+            f"ERP 返回 JSON 不是对象: HTTP {response.status_code}",
+            http_status=int(response.status_code),
+        )
+    return dict(sanitized)
 
 
-def _remote_error(response: Any, payload: Mapping[str, Any]) -> ErpHttpError:
+def _remote_error(
+    response: Any,
+    payload: Mapping[str, Any],
+    *,
+    secrets: Sequence[str],
+) -> ErpHttpError:
     raw_detail = payload.get("detail")
     raw_error = payload.get("error")
     detail = dict(raw_detail) if isinstance(raw_detail, dict) else {}
@@ -103,7 +226,7 @@ def _remote_error(response: Any, payload: Mapping[str, Any]) -> ErpHttpError:
         error_fields.get("message")
         or raw_detail
         or raw_error
-        or _safe_remote_body(response)
+        or _safe_remote_body(response, secrets=secrets)
         or f"ERP 请求失败: HTTP {response.status_code}"
     )
     return ErpHttpError(
@@ -140,17 +263,62 @@ def request_json(
     except requests.RequestException as exc:
         raise ErpHttpError(
             "erp_transport_error",
-            f"连接 ERP 失败: {exception_text(exc)}",
+            f"连接 ERP 失败: {_safe_text(exception_text(exc), secrets=(api_key,))}",
         ) from exc
 
-    payload = _response_json(response)
+    payload = _response_json(response, secrets=(api_key,))
     status_code = int(response.status_code)
     if 200 <= status_code < 300:
         return status_code, payload
-    error = _remote_error(response, payload)
+    error = _remote_error(response, payload, secrets=(api_key,))
     if error.code in accepted_error_codes:
         return status_code, payload
     raise error
+
+
+def request_bytes(
+    method: str,
+    path: str,
+    *,
+    operation: str,
+    accepted_status_codes: frozenset[int] = frozenset({200}),
+) -> tuple[int, bytes, Mapping[str, str]]:
+    base_url, api_key, timeout = connection_settings(operation=operation)
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, "
+            "application/octet-stream, application/json"
+        ),
+    }
+    try:
+        response = local_service_requests_session.request(
+            method,
+            f"{base_url}{path}",
+            headers=headers,
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        raise ErpHttpError(
+            "erp_transport_error",
+            f"连接 ERP 失败: {_safe_text(exception_text(exc), secrets=(api_key,))}",
+        ) from exc
+
+    status_code = int(response.status_code)
+    if status_code not in accepted_status_codes:
+        payload = _response_json(response, secrets=(api_key,))
+        raise _remote_error(response, payload, secrets=(api_key,))
+
+    content = bytes(getattr(response, "content", b"") or b"")
+    raw_headers = getattr(response, "headers", {}) or {}
+    safe_headers = {
+        _safe_text(key, secrets=(api_key,), max_chars=256): _safe_text(
+            value,
+            secrets=(api_key,),
+        )
+        for key, value in raw_headers.items()
+    }
+    return status_code, content, safe_headers
 
 
 def error_payload(exc: ErpHttpError) -> dict[str, Any]:
@@ -166,5 +334,6 @@ __all__ = [
     "ErpHttpError",
     "connection_settings",
     "error_payload",
+    "request_bytes",
     "request_json",
 ]

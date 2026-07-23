@@ -53,11 +53,11 @@ lxeskill fba purchase summary-create --delivery-no <SP> --master-xlsx "<出口�
 
 ## Result Handling
 
-- `success=true`：对 terminal `files` 中的每个附件调用 `send_file`，并报告 `batch_no`、`version_no`、`contracts`、`purchase_lines`。
+- `success=true`：对 terminal `files` 中的每个附件调用 `send_file`；附件包括采购汇总、各 SP 备货单以及 ERP 生成的正式合同，并报告 `batch_no`、`version_no`、`contracts`、`purchase_lines`。
 - 正式采购汇总和备货单将 `数量` 拆为 `计划发货量`、`本次采购量`、`留存库存抵扣量`。
 - 备货单的新采购行在上方，使用新合同号；历史库存行在底部且整行黄色，使用旧合同号和历史单价。
 - 同一型号使用多个旧合同时，每个“旧合同号＋历史单价”单独一条黄色行。
 - 正飞正式 `均价` 只按 `本次采购量` 加权；黄色行不使用新均价。
-- `status=batch_committed_artifact_generation_failed`：ERP 已提交但本地文件失败。报告批次/合同 ID，不得当作网络失败重新创建。
-- `mode=draft`：明确说明文件名含 `DRAFT`、工作表含“草稿-未同步ERP”、没有正式合同号。
+- `status=batch_committed_artifact_generation_failed`：ERP 已提交但本地文件或合同下载失败。报告批次/合同 ID；需要恢复时用完全相同的正式命令重试，让确定性请求 ID 只补齐缺失附件，不得改参数另建批次。
+- `mode=draft`：明确说明文件名含 `DRAFT`、工作表含“草稿-未同步ERP”、没有正式合同号；三个数量列仍存在，且草稿中 `计划发货量=本次采购量`、`留存库存抵扣量=0`。
 - 失败时转述 `error.code`、`error.message` 和可用的 `http_status/detail`，不要用通用提示覆盖。

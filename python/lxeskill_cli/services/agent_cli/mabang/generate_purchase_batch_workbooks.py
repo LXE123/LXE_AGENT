@@ -200,6 +200,11 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             change_reason=change_reason,
         )
         status_code, erp_result = erp_purchase_batch.import_purchase_intent(request_payload)
+        erp_purchase_batch.validate_purchase_response(
+            status_code=status_code,
+            response=erp_result,
+            request_payload=request_payload,
+        )
         if status_code == 409:
             return {
                 **erp_purchase_batch.confirmation_result(
@@ -218,7 +223,12 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 master_xlsx=master_xlsx,
                 gross_margin=gross_margin,
             )
-            return erp_purchase_batch.apply_formal_erp_result(generated, erp_result)
+            formal = erp_purchase_batch.apply_formal_erp_result(
+                generated,
+                erp_result,
+                request_payload=request_payload,
+            )
+            return erp_purchase_batch.download_contract_workbooks(formal)
         except Exception as exc:
             return {
                 "success": False,
