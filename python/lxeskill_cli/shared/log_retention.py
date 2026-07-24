@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from shared.env_config import env_int, env_text
+from shared.env_config import env_int
 from shared.logging import get_logger
 from shared.repository import state_root
 
@@ -31,14 +31,6 @@ def _state_root() -> Path:
 
 def local_log_retention_days() -> int:
     return env_int("LOCAL_LOG_RETENTION_DAYS", 7, minimum=1)
-
-
-def _resolve_log_path(name: str, default: str, *, state_root_path: Path) -> Path:
-    raw = env_text(name, default)
-    path = Path(raw or default)
-    if not path.is_absolute():
-        path = state_root_path / path
-    return path.resolve()
 
 
 def _today(value: date | datetime | None) -> date:
@@ -67,7 +59,7 @@ def _parse_date_jsonl_name(value: str) -> date | None:
 def _date_dir_roots(*, state_root_path: Path) -> tuple[Path, ...]:
     return (
         (state_root_path / "logs" / "agent_traces").resolve(),
-        _resolve_log_path("AGENT_SSE_WIRE_TRACE_DIR", "logs/sse_wire_traces", state_root_path=state_root_path),
+        (state_root_path / "logs" / "sse_wire_traces").resolve(),
         (state_root_path / "logs" / "feishu_msg").resolve(),
         (state_root_path / "logs" / "runtime").resolve(),
     )
@@ -75,7 +67,7 @@ def _date_dir_roots(*, state_root_path: Path) -> tuple[Path, ...]:
 
 def _date_jsonl_roots(*, state_root_path: Path) -> tuple[Path, ...]:
     return (
-        _resolve_log_path("FEISHU_RAW_EVENT_DUMP_DIR", "logs/feishu_raw_events", state_root_path=state_root_path),
+        (state_root_path / "logs" / "feishu_raw_events").resolve(),
     )
 
 

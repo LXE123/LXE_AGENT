@@ -4,7 +4,6 @@ import type { JsonObject, JsonValue } from "@lxe/protocol";
 import {
   createLogger,
   envFlag,
-  envText,
   sanitizeLogValueWithPolicy,
   type Environment,
 } from "@lxe/core";
@@ -281,13 +280,10 @@ export function configureRuntimeWireTracing(options: {
 }): RuntimeWireTraceControllerPort {
   const enabled = envFlag(options.environment, "LOCAL_LOGS_ENABLED", false);
   const wireEnabled = enabled && envFlag(options.environment, "AGENT_SSE_WIRE_TRACE_ENABLED", true);
-  const explicitStateRoot = String(options.stateRoot ?? "").trim();
-  const configuredRoot = explicitStateRoot ? resolve(explicitStateRoot) : resolve(options.projectRoot);
-  const managedPrefix = explicitStateRoot ? "logs" : "var/logs";
-  const wireRoot = resolve(
-    configuredRoot,
-    envText(options.environment, "AGENT_SSE_WIRE_TRACE_DIR", `${managedPrefix}/sse_wire_traces`),
-  );
+  const configuredRoot = String(options.stateRoot ?? "").trim()
+    ? resolve(options.stateRoot!)
+    : resolve(options.projectRoot, "var");
+  const wireRoot = resolve(configuredRoot, "logs", "sse_wire_traces");
   return {
     startTurn: (sessionId, turnId) => {
       const now = new Date();

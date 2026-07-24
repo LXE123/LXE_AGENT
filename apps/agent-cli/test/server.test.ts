@@ -331,7 +331,6 @@ describe("AgentProtocolServer", () => {
     const server = new AgentProtocolServer({
       environment: {
         LOCAL_LOGS_ENABLED: "1",
-        LOG_FILE: "",
         LOG_LEVEL: "ERROR",
         RUNTIME_LOG_LEVEL: "INFO",
       },

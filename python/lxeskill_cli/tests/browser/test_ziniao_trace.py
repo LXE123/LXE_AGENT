@@ -23,16 +23,16 @@ def _trace_text(trace_dir) -> str:
 
 
 def test_default_trace_dir_uses_canonical_state_root(monkeypatch, tmp_path):
-    monkeypatch.delenv("ZINIAO_DIAGNOSTIC_TRACE_DIR", raising=False)
     monkeypatch.setattr(ziniao_trace, "state_root", lambda: tmp_path)
+    monkeypatch.setenv("ZINIAO_DIAGNOSTIC_TRACE_DIR", str(tmp_path / "ignored"))
 
     assert ziniao_trace._trace_dir() == tmp_path / "logs" / "ziniao_traces"
 
 
 def test_trace_disabled_does_not_create_file(monkeypatch, tmp_path):
-    trace_dir = tmp_path / "ziniao-traces"
+    trace_dir = tmp_path / "logs" / "ziniao_traces"
+    monkeypatch.setattr(ziniao_trace, "state_root", lambda: tmp_path)
     monkeypatch.setenv("ZINIAO_DIAGNOSTIC_TRACE_ENABLED", "0")
-    monkeypatch.setenv("ZINIAO_DIAGNOSTIC_TRACE_DIR", str(trace_dir))
 
     ziniao_trace.trace_event("client.request", action="startBrowser", store_id="secret-store")
     with ziniao_trace.trace_context("ziniao_browser.open_store", store_id="secret-store"):
@@ -42,9 +42,9 @@ def test_trace_disabled_does_not_create_file(monkeypatch, tmp_path):
 
 
 def test_start_browser_trace_writes_allowlist_and_redacts_sensitive_values(monkeypatch, tmp_path):
-    trace_dir = tmp_path / "ziniao-traces"
+    trace_dir = tmp_path / "logs" / "ziniao_traces"
+    monkeypatch.setattr(ziniao_trace, "state_root", lambda: tmp_path)
     monkeypatch.setenv("ZINIAO_DIAGNOSTIC_TRACE_ENABLED", "1")
-    monkeypatch.setenv("ZINIAO_DIAGNOSTIC_TRACE_DIR", str(trace_dir))
 
     class FakeResponse:
         status_code = 200
@@ -104,9 +104,9 @@ def test_start_browser_trace_writes_allowlist_and_redacts_sensitive_values(monke
 
 
 def test_driver_resolution_failure_trace_includes_candidates(monkeypatch, tmp_path):
-    trace_dir = tmp_path / "ziniao-traces"
+    trace_dir = tmp_path / "logs" / "ziniao_traces"
+    monkeypatch.setattr(ziniao_trace, "state_root", lambda: tmp_path)
     monkeypatch.setenv("ZINIAO_DIAGNOSTIC_TRACE_ENABLED", "1")
-    monkeypatch.setenv("ZINIAO_DIAGNOSTIC_TRACE_DIR", str(trace_dir))
 
     browser_root = tmp_path / "browser-root"
     browser_root.mkdir()
@@ -142,9 +142,9 @@ def test_driver_resolution_failure_trace_includes_candidates(monkeypatch, tmp_pa
 
 
 def test_trace_context_error_redacts_store_id_from_exception_text(monkeypatch, tmp_path):
-    trace_dir = tmp_path / "ziniao-traces"
+    trace_dir = tmp_path / "logs" / "ziniao_traces"
+    monkeypatch.setattr(ziniao_trace, "state_root", lambda: tmp_path)
     monkeypatch.setenv("ZINIAO_DIAGNOSTIC_TRACE_ENABLED", "1")
-    monkeypatch.setenv("ZINIAO_DIAGNOSTIC_TRACE_DIR", str(trace_dir))
 
     with pytest.raises(RuntimeError, match="secret-store-oauth-value"):
         with ziniao_trace.trace_context("ziniao_browser.open_store", store_id="secret-store-oauth-value"):

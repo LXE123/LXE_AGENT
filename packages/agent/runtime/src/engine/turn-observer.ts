@@ -1,5 +1,8 @@
-import { createLogger, envInteger, type Environment, type Logger } from "@lxe/core";
+import { createLogger, type Logger } from "@lxe/core";
 import type { RuntimeStreamEvent, RuntimeTurnResponse } from "./types";
+
+const PROVIDER_STREAM_HEARTBEAT_MS = 1_000;
+const PROVIDER_STREAM_HEARTBEAT_CHARS = 300;
 
 export interface TurnStartObservation {
   jobKind: "turn" | "heartbeat";
@@ -142,15 +145,13 @@ export class RuntimeTurnObserver {
   private readonly tools = new Set<string>();
 
   constructor(options: {
-    environment?: Environment;
     logger?: Logger;
     now?: () => number;
   } = {}) {
     this.logger = options.logger ?? createLogger("runtime.turn");
     this.now = options.now ?? Date.now;
-    const environment = options.environment ?? process.env;
-    this.heartbeatMs = envInteger(environment, "AGENT_STREAM_HEARTBEAT_MS", 1_000, { min: 0 });
-    this.heartbeatChars = envInteger(environment, "AGENT_STREAM_HEARTBEAT_CHARS", 300, { min: 1 });
+    this.heartbeatMs = PROVIDER_STREAM_HEARTBEAT_MS;
+    this.heartbeatChars = PROVIDER_STREAM_HEARTBEAT_CHARS;
     this.startedAt = this.now();
   }
 

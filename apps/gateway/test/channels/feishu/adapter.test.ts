@@ -162,8 +162,8 @@ const setup = (options: SetupOptions = {}) => {
     config: loadFeishuConfig({
       FEISHU_APP_ID: "cli_test",
       FEISHU_APP_SECRET: "secret",
-      FEISHU_WS_AUTO_RESTART_ENABLED: "false",
       ...(options.rawDump ? { LOCAL_LOGS_ENABLED: "1" } : {}),
+      ...(options.projectRoot ? { LXE_DATA_ROOT: join(options.projectRoot, "var") } : {}),
     }),
     store,
     imageProcessor: options.imageProcessor ?? unusedImageProcessor,

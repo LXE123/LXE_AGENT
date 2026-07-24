@@ -112,7 +112,6 @@ describe("DesktopCloudService", () => {
       deviceName: "Managed device",
       vpnIp: "10.88.0.99",
       dataServerUrl: "http://managed.example",
-      syncIntervalSeconds: 3_600,
       tunnelName: "lxe-agent",
       apiKey: "managed-secret",
     });
@@ -406,7 +405,6 @@ describe("DesktopCloudService", () => {
       deviceName: enrollmentPayload.device.name,
       vpnIp: "10.88.0.8",
       dataServerUrl: enrollmentPayload.data_server.url,
-      syncIntervalSeconds: 3_600,
       tunnelName: "lxe-agent",
       apiKey: enrollmentPayload.data_server.api_token,
     });
@@ -464,7 +462,6 @@ describe("DesktopCloudService", () => {
       deviceName: enrollmentPayload.device.name,
       vpnIp: "10.88.0.8",
       dataServerUrl: enrollmentPayload.data_server.url,
-      syncIntervalSeconds: 3_600,
       tunnelName: "lxe-agent",
       apiKey: enrollmentPayload.data_server.api_token,
     });

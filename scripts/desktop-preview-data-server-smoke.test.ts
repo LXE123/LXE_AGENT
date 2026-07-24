@@ -38,13 +38,10 @@ test("Preview repository env uploads to the configured Data Server without loggi
   ].join("\n"), "utf8");
   writeFileSync(join(root, "config", "runtime.env"), [
     "LXE_DATA_SERVER_ENABLED=0",
-    "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS=3600",
-    "LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS=30",
   ].join("\n"), "utf8");
 
   const sourceEnvironment = loadProjectEnv({ projectRoot: root, initial: {} });
   const environment = {
-    LXE_MAINTENANCE_AUTH_ENABLED: "0",
     ...resolveDataServerRuntimeEnvironment({
       packaged: false,
       sourceEnvironment,
@@ -61,7 +58,6 @@ test("Preview repository env uploads to the configured Data Server without loggi
     stateRoot: dataRoot,
     environment: {
       LOCAL_LOGS_ENABLED: "1",
-      LOG_FILE: "runtime.log",
       LOG_LEVEL: "ERROR",
       RUNTIME_LOG_LEVEL: "INFO",
     },
@@ -94,6 +90,7 @@ test("Preview repository env uploads to the configured Data Server without loggi
   const initialTasks: Array<() => void> = [];
   const scheduler = new MaintenanceScheduler({
     environment,
+    authEnabled: false,
     store,
     gatewayId: "preview-gateway",
     authRunner: {

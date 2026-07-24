@@ -14,6 +14,8 @@ from shared.repository import state_root
 _MANAGED_HANDLER_ATTR = "_lxe_agent_logging_handler"
 _CONSOLE_FORMAT = "%(asctime)s %(levelname)-8s [%(display_name)s]%(log_context)s %(message)s"
 _RUNTIME_FORMAT = "%(asctime)s %(levelname)-8s [%(name)s]%(runtime_log_context)s %(message)s"
+_RUNTIME_LOG_FILE_NAME = "runtime-py.log"
+_BROWSER_AUTH_LOG_FILE_NAME = "browser_auth_service.log"
 _THIRD_PARTY_LOGGERS = ("httpx", "httpcore", "lark_oapi", "aiohttp", "asyncio")
 _BROWSER_AUTH_LOGGER_PREFIXES = (
     "browser_auth_service",
@@ -167,10 +169,6 @@ def _remove_managed_handlers(target_logger: logging.Logger) -> None:
 
 
 def _console_formatter() -> logging.Formatter:
-    log_format = env_text("LOG_FORMAT", "text").strip().lower()
-    if log_format not in {"", "text"}:
-        # LOG_FORMAT values beyond text are reserved for a later PR.
-        pass
     return _HumanReadableFormatter(_CONSOLE_FORMAT, datefmt="%H:%M:%S")
 
 
@@ -196,35 +194,14 @@ def _build_stderr_handler() -> logging.Handler:
     return handler
 
 
-def _python_log_file_name(file_name: str) -> str:
-    path = Path(file_name)
-    if path.stem.endswith("-py"):
-        return file_name
-    return f"{path.stem}-py{path.suffix}" if path.suffix else f"{file_name}-py"
-
-
-def _runtime_log_path() -> Path | None:
-    raw = env_text("LOG_FILE", "")
-    if not raw:
-        return None
-    file_name = Path(raw).name.strip()
-    if not file_name or file_name in {".", ".."}:
-        return None
+def _runtime_log_path() -> Path:
     day = datetime.now().strftime("%Y%m%d")
-    # LOG_FILE is shared with the Bun gateway, which owns the plain name as a
-    # JSONL sink. Python text logs get a "-py" suffix so the formats never mix.
-    return (_state_root() / "logs" / "runtime" / day / _python_log_file_name(file_name)).resolve()
+    return (_state_root() / "logs" / "runtime" / day / _RUNTIME_LOG_FILE_NAME).resolve()
 
 
-def _browser_auth_log_path() -> Path | None:
-    raw = env_text("BROWSER_AUTH_LOG_FILE", "")
-    if not raw:
-        return None
-    file_name = Path(raw).name.strip()
-    if not file_name or file_name in {".", ".."}:
-        return None
+def _browser_auth_log_path() -> Path:
     day = datetime.now().strftime("%Y%m%d")
-    return (_state_root() / "logs" / "browser_auth_service" / day / file_name).resolve()
+    return (_state_root() / "logs" / "browser_auth_service" / day / _BROWSER_AUTH_LOG_FILE_NAME).resolve()
 
 
 def _build_runtime_file_handler(path: Path) -> logging.Handler:
@@ -249,14 +226,13 @@ def setup_logging() -> None:
     _remove_managed_handlers(root)
     managed_handlers = [_build_stderr_handler()]
     runtime_log_path = _runtime_log_path()
-    if runtime_log_path is not None:
-        from shared.log_retention import cleanup_local_logs
+    from shared.log_retention import cleanup_local_logs
 
-        cleanup_local_logs(state_root_path=_state_root())
-    if runtime_log_path is not None and local_logs_enabled():
+    cleanup_local_logs(state_root_path=_state_root())
+    if local_logs_enabled():
         managed_handlers.append(_build_runtime_file_handler(runtime_log_path))
     browser_auth_log_path = _browser_auth_log_path()
-    if browser_auth_log_path is not None and local_logs_enabled():
+    if local_logs_enabled():
         managed_handlers.append(_build_browser_auth_file_handler(browser_auth_log_path))
     for handler in managed_handlers:
         root.addHandler(handler)

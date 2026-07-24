@@ -159,8 +159,6 @@ export class DesktopGateway {
       LXE_DATA_ROOT: this.options.paths.dataRoot,
       LXE_AGENT_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "agent.sqlite3"),
       LXE_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "lxeskill.sqlite3"),
-      AGENT_SSE_WIRE_TRACE_DIR: join(this.options.paths.dataRoot, "logs", "sse_wire_traces"),
-      FEISHU_RAW_EVENT_DUMP_DIR: join(this.options.paths.dataRoot, "logs", "feishu_raw_events"),
       TMP: join(this.options.paths.dataRoot, "tmp"),
       TEMP: join(this.options.paths.dataRoot, "tmp"),
       TMPDIR: join(this.options.paths.dataRoot, "tmp"),

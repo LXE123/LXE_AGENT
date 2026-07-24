@@ -1,6 +1,6 @@
 # getRunningInfo 脱敏响应样本
 
-抓取时间：2026-07-17。方法：店铺浏览器运行中，向本机控制端口（`ZINIAO_SOCKET_PORT`，默认 16851）POST `{"action": "getRunningInfo", "requestId": "..."}`，只读。下面的店铺标识、IP、用户目录和下载目录已脱敏。
+抓取时间：2026-07-17。方法：店铺浏览器运行中，向本机固定控制端口 16851 POST `{"action": "getRunningInfo", "requestId": "..."}`，只读。下面的店铺标识、IP、用户目录和下载目录已脱敏。
 
 紫鸟官方文档（见 [api-core.md](api-core.md)）未承诺 `getRunningInfo` 的完整字段集合，本样本用于确认实际字段。`debuggingPort` 已用 `GET /json/version`（CDP）验证真实可附着。
 

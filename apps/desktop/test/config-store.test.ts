@@ -273,7 +273,6 @@ describe("DesktopConfigStore", () => {
       deviceName: "Finance-PC-01",
       vpnIp: "10.88.0.8",
       dataServerUrl: "http://10.88.0.1:8000",
-      syncIntervalSeconds: 3_600,
       tunnelName: "lxe-agent",
       apiKey: "lxe_dev_0123456789abcdef0123456789abcdef.secret-value",
       erpApiKey: "erp-dedicated-secret",
@@ -292,7 +291,6 @@ describe("DesktopConfigStore", () => {
       LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
       LXE_DATA_SERVER_API_KEY: "lxe_dev_0123456789abcdef0123456789abcdef.secret-value",
       LXE_ERP_API_KEY: "erp-dedicated-secret",
-      LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "3600",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
     });
   });

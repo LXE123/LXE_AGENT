@@ -176,11 +176,7 @@ export class AgentProtocolServer {
   private async initialize(payload: AgentRequest<"initialize">["payload"]): Promise<JsonValue> {
     if (this.shuttingDown) throw new Error("agent-cli is shutting down");
     if (this.host) return this.health();
-    const environment = {
-      ...this.environment,
-      LOG_FILE: String(this.environment.LOG_FILE ?? "").trim() || "runtime.log",
-    };
-    Object.assign(this.environment, environment);
+    const environment = { ...this.environment };
     this.logging = configureLogging({
       projectRoot: payload.data_root,
       stateRoot: payload.data_root,

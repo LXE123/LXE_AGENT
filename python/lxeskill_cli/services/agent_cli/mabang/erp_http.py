@@ -11,7 +11,7 @@ from services.agent_cli._shared.json_cli import exception_text
 from shared.infra.net import local_service_requests_session
 
 
-DEFAULT_TIMEOUT_SECONDS = 30.0
+ERP_REQUEST_TIMEOUT_SECONDS = 30.0
 MAX_REMOTE_BODY_CHARS = 4_000
 MAX_REMOTE_VALUE_CHARS = 4_000
 MAX_REMOTE_MAPPING_ITEMS = 500
@@ -182,25 +182,6 @@ def _sanitize_value(
     )
 
 
-def _timeout_seconds() -> float:
-    raw = str(os.getenv("LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS") or "").strip()
-    if not raw:
-        return DEFAULT_TIMEOUT_SECONDS
-    try:
-        value = float(raw)
-    except ValueError as exc:
-        raise ErpHttpError(
-            "erp_environment_invalid",
-            f"LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS 格式无效: {raw}",
-        ) from exc
-    if value <= 0:
-        raise ErpHttpError(
-            "erp_environment_invalid",
-            "LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS 必须大于 0",
-        )
-    return value
-
-
 def connection_settings(*, operation: str) -> tuple[str, str, float]:
     base_url = str(os.getenv("LXE_DATA_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
@@ -214,7 +195,7 @@ def connection_settings(*, operation: str) -> tuple[str, str, float]:
             "erp_credentials_not_configured",
             f"LXE_ERP_API_KEY 未配置，无法{operation}",
         )
-    return base_url, api_key, _timeout_seconds()
+    return base_url, api_key, ERP_REQUEST_TIMEOUT_SECONDS
 
 
 def _safe_remote_body(response: Any, *, secrets: Sequence[str]) -> str:

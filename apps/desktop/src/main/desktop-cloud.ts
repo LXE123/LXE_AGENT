@@ -210,7 +210,6 @@ export class DesktopCloudService {
         deviceName: payload.device.name,
         vpnIp,
         dataServerUrl: payload.data_server.url,
-        syncIntervalSeconds: payload.data_server.sync_interval_seconds,
         tunnelName: "lxe-agent",
         apiKey: payload.data_server.api_token,
         ...(payload.erp ? { erpApiKey: payload.erp.api_token } : {}),

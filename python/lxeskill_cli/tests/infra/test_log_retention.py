@@ -24,8 +24,6 @@ def _mkdir(path: Path) -> Path:
 
 
 def test_cleanup_local_logs_removes_only_expired_strict_date_entries(tmp_path, monkeypatch) -> None:
-    monkeypatch.delenv("AGENT_SSE_WIRE_TRACE_DIR", raising=False)
-    monkeypatch.delenv("FEISHU_RAW_EVENT_DUMP_DIR", raising=False)
     old_file_date = "20260626"
     old_date = "20260627"
     cutoff_date = "20260628"
@@ -94,8 +92,6 @@ def test_cleanup_local_logs_runs_regardless_of_local_logs_switch(
     monkeypatch,
     local_logs_enabled: str | None,
 ) -> None:
-    monkeypatch.delenv("AGENT_SSE_WIRE_TRACE_DIR", raising=False)
-    monkeypatch.delenv("FEISHU_RAW_EVENT_DUMP_DIR", raising=False)
     if local_logs_enabled is None:
         monkeypatch.delenv("LOCAL_LOGS_ENABLED", raising=False)
     else:

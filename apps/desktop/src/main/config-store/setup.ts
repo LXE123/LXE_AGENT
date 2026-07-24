@@ -191,7 +191,6 @@ export class DesktopSetupService {
       LXE_DATA_SERVER_URL: cloudEnabled ? config.cloud.data_server_url : "",
       LXE_DATA_SERVER_API_KEY: cloudEnabled ? secrets.data_server_api_key : "",
       LXE_ERP_API_KEY: cloudEnabled ? secrets.erp_api_key : "",
-      LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: String(config.cloud.sync_interval_seconds),
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
     };
   }

@@ -24,11 +24,9 @@ The Dashboard and environment configuration select a provider/model pair. Runtim
 Relevant runtime controls include:
 
 - the selected provider and model;
-- the selected thinking or effort level;
-- `AGENT_LLM_MAX_TOKENS` for the requested output cap;
-- `LLM_REQUEST_TIMEOUT_S` for Provider idle timeout between connection/stream events, clamped to the supported range.
+- the selected thinking or effort level.
 
-The request timeout defaults to 30 seconds and is constrained between 10 and 3600 seconds. Model context limits come from catalog metadata rather than a global constant.
+The requested output cap comes from the selected model descriptor, with a conservative internal fallback when metadata is absent. Provider inactivity uses a fixed 120-second watchdog between connection and stream events. Model context limits come from catalog metadata rather than a global environment setting.
 
 ## Anthropic-Compatible Providers
 

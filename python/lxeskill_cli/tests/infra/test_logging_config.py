@@ -46,10 +46,7 @@ def _restore_logging_state(monkeypatch):
     }
     monkeypatch.delenv("LOG_LEVEL", raising=False)
     monkeypatch.delenv("LOG_LEVELS", raising=False)
-    monkeypatch.delenv("LOG_FORMAT", raising=False)
     monkeypatch.delenv("RUNTIME_LOG_LEVEL", raising=False)
-    monkeypatch.delenv("LOG_FILE", raising=False)
-    monkeypatch.delenv("BROWSER_AUTH_LOG_FILE", raising=False)
     monkeypatch.delenv("LOCAL_LOGS_ENABLED", raising=False)
     yield
     for handler in list(root.handlers):
@@ -183,7 +180,6 @@ def test_managed_text_formatter_includes_logger_name() -> None:
 def test_console_and_runtime_file_use_separate_levels_and_formats(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(logging_config, "_state_root", lambda: tmp_path)
     monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
-    monkeypatch.setenv("LOG_FILE", "runtime.log")
     monkeypatch.setenv("LOG_LEVEL", "INFO")
     monkeypatch.setenv("RUNTIME_LOG_LEVEL", "DEBUG")
 
@@ -231,7 +227,6 @@ def test_console_and_runtime_file_use_separate_levels_and_formats(tmp_path, monk
 def test_runtime_log_file_gets_python_suffix_to_stay_apart_from_bun_jsonl(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(logging_config, "_state_root", lambda: tmp_path)
     monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
-    monkeypatch.setenv("LOG_FILE", "runtime.log")
 
     setup_logging()
     runtime_handler = next(
@@ -243,16 +238,9 @@ def test_runtime_log_file_gets_python_suffix_to_stay_apart_from_bun_jsonl(tmp_pa
     assert Path(runtime_handler.baseFilename).name == "runtime-py.log"
 
 
-def test_python_log_file_name_derivation_is_idempotent() -> None:
-    assert logging_config._python_log_file_name("runtime.log") == "runtime-py.log"
-    assert logging_config._python_log_file_name("runtime-py.log") == "runtime-py.log"
-    assert logging_config._python_log_file_name("runtime") == "runtime-py"
-
-
 def test_runtime_log_level_defaults_to_debug_and_can_be_overridden(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(logging_config, "_state_root", lambda: tmp_path)
     monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
-    monkeypatch.setenv("LOG_FILE", "runtime.log")
     monkeypatch.setenv("LOG_LEVEL", "INFO")
 
     setup_logging()
@@ -280,7 +268,6 @@ def test_runtime_log_level_defaults_to_debug_and_can_be_overridden(tmp_path, mon
 def test_successful_dashboard_health_access_is_runtime_only(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(logging_config, "_state_root", lambda: tmp_path)
     monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
-    monkeypatch.setenv("LOG_FILE", "runtime.log")
 
     setup_logging()
     console_handler = next(
@@ -312,7 +299,7 @@ def test_successful_dashboard_health_access_is_runtime_only(tmp_path, monkeypatc
     assert 'GET /api/sessions HTTP/1.1" 200' in runtime_output
 
 
-def test_log_format_falls_back_to_text(monkeypatch) -> None:
+def test_retired_log_format_environment_is_ignored(monkeypatch) -> None:
     monkeypatch.setenv("LOG_FORMAT", "json")
 
     setup_logging()
@@ -404,7 +391,6 @@ def test_managed_formatter_uses_module_names() -> None:
     assert "[shared.other]" in output
 def test_runtime_file_logging_requires_global_local_logs_switch(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(logging_config, "_state_root", lambda: tmp_path)
-    monkeypatch.setenv("LOG_FILE", "runtime.log")
     monkeypatch.setenv("LOCAL_LOG_RETENTION_DAYS", "7")
     old_runtime_dir = tmp_path / "logs" / "runtime" / "20000101"
     old_runtime_dir.mkdir(parents=True)
@@ -433,8 +419,8 @@ def test_runtime_file_logging_requires_global_local_logs_switch(tmp_path, monkey
 def test_browser_auth_file_logging_filters_dedicated_modules(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(logging_config, "_state_root", lambda: tmp_path)
     monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
-    monkeypatch.setenv("LOG_FILE", "runtime.log")
-    monkeypatch.setenv("BROWSER_AUTH_LOG_FILE", "browser_auth_service.log")
+    monkeypatch.setenv("LOG_FILE", "custom-runtime.log")
+    monkeypatch.setenv("BROWSER_AUTH_LOG_FILE", "custom-browser.log")
 
     setup_logging()
     logging.getLogger("browser_auth_service.service").info("browser auth detail")
@@ -455,11 +441,9 @@ def test_browser_auth_file_logging_filters_dedicated_modules(tmp_path, monkeypat
     assert "gateway detail" not in text
 
 
-def test_browser_auth_file_logging_requires_explicit_file_env(tmp_path, monkeypatch) -> None:
+def test_browser_auth_file_logging_requires_local_logs(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(logging_config, "_state_root", lambda: tmp_path)
-    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "1")
-    monkeypatch.setenv("LOG_FILE", "runtime.log")
-    monkeypatch.delenv("BROWSER_AUTH_LOG_FILE", raising=False)
+    monkeypatch.setenv("LOCAL_LOGS_ENABLED", "0")
 
     setup_logging()
     logging.getLogger("browser_auth_service.service").info("browser auth detail")

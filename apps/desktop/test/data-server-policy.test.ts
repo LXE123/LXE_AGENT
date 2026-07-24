@@ -48,8 +48,6 @@ describe("desktop data server policy", () => {
       ].join("\n"),
       [join("/worktree", "config", "runtime.env")]: [
         "LXE_DATA_SERVER_ENABLED=0",
-        "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS=3600",
-        "LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS=30",
       ].join("\n"),
     };
     const sourceEnvironment = loadProjectEnv({
@@ -76,8 +74,6 @@ describe("desktop data server policy", () => {
       LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
       LXE_DATA_SERVER_API_KEY: "source-secret",
       LXE_ERP_API_KEY: "source-erp-secret",
-      LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "3600",
-      LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS: "30",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "1",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
       LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:18001",
@@ -94,7 +90,6 @@ describe("desktop data server policy", () => {
         LXE_DATA_SERVER_URL: "http://source.example",
         LXE_DATA_SERVER_API_KEY: "source-secret",
         LXE_ERP_API_KEY: "source-erp-secret",
-        LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS: "99",
         LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "1",
         LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
         LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:8000",
@@ -105,7 +100,6 @@ describe("desktop data server policy", () => {
         LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
         LXE_DATA_SERVER_API_KEY: "managed-secret",
         LXE_ERP_API_KEY: "managed-erp-secret",
-        LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "3600",
         LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
       },
       machineIdentityPath: "C:\\LXE Agent\\var\\db\\machine_identity.json",
@@ -116,7 +110,6 @@ describe("desktop data server policy", () => {
       LXE_DATA_SERVER_URL: "http://10.88.0.1:8000",
       LXE_DATA_SERVER_API_KEY: "managed-secret",
       LXE_ERP_API_KEY: "managed-erp-secret",
-      LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "3600",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ALLOWED: "0",
       LXE_DATA_SERVER_MACHINE_ID_PATH: "C:\\LXE Agent\\var\\db\\machine_identity.json",

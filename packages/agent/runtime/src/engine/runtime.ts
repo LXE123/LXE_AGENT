@@ -193,9 +193,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const descriptor = providerSnapshot?.descriptor;
     const sourceExtra = session.source.extra !== null && typeof session.source.extra === "object" &&
       !Array.isArray(session.source.extra) ? session.source.extra as JsonObject : {};
-    const observer = new RuntimeTurnObserver({
-      ...(this.options.environment ? { environment: this.options.environment } : {}),
-    });
+    const observer = new RuntimeTurnObserver();
     const wireTraceTurn = this.options.wireTraceController?.startTurn(job.session_id, job.job_id);
     const contextWindowTokens = descriptor?.contextWindowTokens ?? this.options.contextWindowTokens ?? this.options.display?.contextWindowTokens;
     const contextPipeline = new ContextPipeline({

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from shared.env_config import env_flag, env_path
+from shared.env_config import env_flag
 from shared.logging import get_logger
 from shared.repository import state_root
 
@@ -32,11 +32,7 @@ def _trace_enabled() -> bool:
 
 
 def _trace_dir() -> Path:
-    raw = env_path("ZINIAO_DIAGNOSTIC_TRACE_DIR", "logs/ziniao_traces")
-    path = Path(raw or "logs/ziniao_traces").expanduser()
-    if not path.is_absolute():
-        path = (state_root() / path).resolve()
-    return path
+    return (state_root() / "logs" / "ziniao_traces").resolve()
 
 
 def _now_iso() -> str:

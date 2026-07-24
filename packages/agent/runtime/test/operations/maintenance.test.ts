@@ -153,7 +153,6 @@ const schedulerFor = (
   options: { clock?: ManualMaintenanceClock; environment?: Record<string, string> } = {},
 ): MaintenanceScheduler => new MaintenanceScheduler({
   environment: {
-    LXE_MAINTENANCE_AUTH_ENABLED: "0",
     LXE_DATA_SERVER_ENABLED: "1",
     LXE_DATA_SERVER_URL: "https://cloud.example/",
     LXE_DATA_SERVER_API_KEY: "cloud-secret",
@@ -161,6 +160,7 @@ const schedulerFor = (
   },
   store,
   gatewayId: "gateway-one",
+  authEnabled: false,
   ...(options.clock ? { clock: options.clock } : {}),
   authRunner: { execute: async () => cliSuccess() },
   fetch,
@@ -175,10 +175,11 @@ describe("MaintenanceScheduler", () => {
     let authCalls = 0;
     const scheduler = new MaintenanceScheduler({
       environment: {
-        LXE_MAINTENANCE_AUTH_ENABLED: "1",
         LXE_DATA_SERVER_ENABLED: "1",
         LXE_DATA_SERVER_URL: "https://cloud.example",
         LXE_DATA_SERVER_API_KEY: "secret",
+        LXE_MAINTENANCE_AUTH_ENABLED: "0",
+        LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS: "30",
       },
       store,
       gatewayId: "gateway-one",

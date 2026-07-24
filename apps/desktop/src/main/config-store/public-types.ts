@@ -10,7 +10,6 @@ export interface DesktopCloudConfiguration {
   device_name: string;
   vpn_ip: string;
   data_server_url: string;
-  sync_interval_seconds: number;
   tunnel_name: string;
   api_key_configured: boolean;
 }
@@ -20,7 +19,6 @@ export interface DesktopCloudEnrollmentConfig {
   deviceName: string;
   vpnIp: string;
   dataServerUrl: string;
-  syncIntervalSeconds: number;
   tunnelName: string;
   apiKey: string;
   erpApiKey?: string;

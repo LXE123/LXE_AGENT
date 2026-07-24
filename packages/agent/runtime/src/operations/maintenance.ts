@@ -56,6 +56,7 @@ interface MaintenanceSchedulerOptions {
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
   clock?: MaintenanceClock;
   stopTimeoutMs?: number;
+  authEnabled?: boolean;
 }
 
 const envText = (env: Environment, name: string, fallback = ""): string => String(env[name] ?? fallback).trim();
@@ -65,17 +66,15 @@ const envBoolean = (env: Environment, name: string, fallback = false): boolean =
   if (["0", "false", "no", "off"].includes(value)) return false;
   return fallback;
 };
-const envInteger = (env: Environment, name: string, fallback: number, minimum: number): number => {
-  const value = Number.parseInt(envText(env, name), 10);
-  return Math.max(minimum, Number.isFinite(value) ? value : fallback);
-};
-
 const TURN_USAGE_RETENTION_SECONDS = 365 * 86_400;
 const TURN_USAGE_BATCH_LIMIT = 200;
 const TURN_USAGE_BATCH_TARGET_BYTES = 1024 * 1024;
 const TURN_USAGE_MAX_BATCHES_PER_RUN = 10;
 const TURN_USAGE_BACKLOG_DELAY_MS = 60_000;
 const INITIAL_DATA_SYNC_DELAY_MS = 5 * 60_000;
+const AUTH_REFRESH_INTERVAL_MS = 2 * 60 * 60_000;
+const DATA_SYNC_INTERVAL_MS = 3_600_000;
+const DATA_SERVER_REQUEST_TIMEOUT_MS = 30_000;
 
 export class MaintenanceScheduler {
   private readonly logger = createLogger("runtime.maintenance");
@@ -97,29 +96,27 @@ export class MaintenanceScheduler {
   async start(): Promise<void> {
     if (!this.stopped) return;
     this.stopped = false;
-    const authEnabled = envBoolean(this.options.environment, "LXE_MAINTENANCE_AUTH_ENABLED", true);
+    const authEnabled = this.options.authEnabled ?? true;
     const dataEnabled = envBoolean(this.options.environment, "LXE_DATA_SERVER_ENABLED");
-    const authIntervalMs = 2 * 60 * 60_000;
-    const dataIntervalMs = envInteger(this.options.environment, "LXE_DATA_SERVER_SYNC_INTERVAL_SECONDS", 3_600, 30) * 1_000;
     const localFallbackEnabled = this.localFallbackTarget() !== undefined;
     this.logger.info("maintenance_configured", {
       auth_enabled: authEnabled,
-      auth_interval_ms: authIntervalMs,
+      auth_interval_ms: AUTH_REFRESH_INTERVAL_MS,
       data_sync_enabled: dataEnabled,
-      data_sync_interval_ms: dataIntervalMs,
+      data_sync_interval_ms: DATA_SYNC_INTERVAL_MS,
       data_local_fallback_enabled: localFallbackEnabled,
     });
     if (authEnabled) {
       const authTimer = this.clock.setInterval(
         () => { void this.requestSingleFlight("auth", () => this.refreshAuth()); },
-        authIntervalMs,
+        AUTH_REFRESH_INTERVAL_MS,
       );
       this.intervalTimers.push(authTimer);
     }
     if (dataEnabled) {
       const syncTimer = this.clock.setInterval(
         () => { void this.requestSingleFlight("data", () => this.syncDataServer()); },
-        dataIntervalMs,
+        DATA_SYNC_INTERVAL_MS,
       );
       this.intervalTimers.push(syncTimer);
     }
@@ -300,8 +297,10 @@ export class MaintenanceScheduler {
   ): Promise<{ acceptedCount: number; acceptedThroughSequence: number }> {
     const controller = new AbortController();
     this.controllers.add(controller);
-    const timeout = setTimeout(() => controller.abort(new Error("data server request timed out")),
-      envInteger(this.options.environment, "LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS", 30, 1) * 1_000);
+    const timeout = setTimeout(
+      () => controller.abort(new Error("data server request timed out")),
+      DATA_SERVER_REQUEST_TIMEOUT_MS,
+    );
     try {
       let response: Response;
       try {

@@ -34,10 +34,8 @@ export class DesktopLoggingManager {
     this.controller = configureLogging({
       projectRoot: this.options.dataRoot,
       stateRoot: this.options.dataRoot,
-      environment: {
-        ...this.options.environment(),
-        LOG_FILE: "desktop.log",
-      },
+      fileName: "desktop.log",
+      environment: this.options.environment(),
       onStatusChange: (status) => this.notify(desktopLoggingStatus(status)),
     });
     const status = this.status();

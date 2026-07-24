@@ -22,10 +22,15 @@ describe("provider wire traces", () => {
     const projectRoot = mkdtempSync(join(tmpdir(), "lxe-trace-state-root-"));
     roots.push(projectRoot);
     const stateRoot = join(projectRoot, "var");
+    const ignoredRoot = join(projectRoot, "ignored-wire-traces");
     const controller = configureRuntimeWireTracing({
       projectRoot,
       stateRoot,
-      environment: { LOCAL_LOGS_ENABLED: "1", AGENT_SSE_WIRE_TRACE_ENABLED: "1" },
+      environment: {
+        LOCAL_LOGS_ENABLED: "1",
+        AGENT_SSE_WIRE_TRACE_ENABLED: "1",
+        AGENT_SSE_WIRE_TRACE_DIR: ignoredRoot,
+      },
     });
     const attempt = controller.startTurn("session", "turn").startProviderAttempt({
       step: 0, attempt: 1, provider: "demo", model: "model", endpoint: "", timeoutMs: 0,
@@ -34,6 +39,7 @@ describe("provider wire traces", () => {
     expect(existsSync(join(stateRoot, "logs", "sse_wire_traces", day()))).toBeTrue();
     expect(existsSync(join(stateRoot, "logs", "agent_traces"))).toBeFalse();
     expect(existsSync(join(stateRoot, "var"))).toBeFalse();
+    expect(existsSync(ignoredRoot)).toBeFalse();
   });
 
   test("writes main-compatible per-attempt wire records without losing large collections", () => {

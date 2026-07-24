@@ -7,7 +7,7 @@
 1. `apps/desktop/src/main.ts` 是 macOS/Windows 唯一产品入口。
 2. Electron Main 直接装配 Gateway 的 channel、router、scheduler 和 lifecycle。
 3. Gateway 通过版本化 NDJSON 协议管理私有 `agent-cli` 子进程，用户不能单独启动该进程作为产品。
-4. 同一 session 串行执行，不同 session 按 `AGENT_MAX_CONCURRENCY` 并发。
+4. 同一 session 串行执行，不同 session 当前最多并发执行 2 个。
 5. turn 的取消统一传递给 Runtime、LLM、MCP 和工具进程；停止桌面应用时先关闭 ingress，再清理活跃任务和子进程。
 6. Python 业务能力仅由 `agent-cli` 的 native exec 启动独立 `lxeskill ...` 命令，命令完成后退出。
 

@@ -50,7 +50,6 @@ class FakeSession:
 def _configure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LXE_DATA_SERVER_URL", "http://10.88.0.1:8000")
     monkeypatch.setenv("LXE_ERP_API_KEY", "current-exact-api-key")
-    monkeypatch.setenv("LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS", "9")
 
 
 def _serialized_error(exc: erp_http.ErpHttpError) -> str:
@@ -256,7 +255,7 @@ def test_request_bytes_returns_exact_file_and_sanitized_headers(
     assert session.calls[0]["headers"]["Authorization"] == (
         "Bearer current-exact-api-key"
     )
-    assert session.calls[0]["timeout"] == 9
+    assert session.calls[0]["timeout"] == 30
 
 
 def test_request_bytes_preserves_truthful_sanitized_json_error(

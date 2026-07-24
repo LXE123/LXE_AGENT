@@ -155,7 +155,6 @@ describe("structured logger", () => {
       projectRoot: root,
       environment: {
         LOCAL_LOGS_ENABLED: "1",
-        LOG_FILE: "runtime.log",
         LOG_LEVEL: "ERROR",
         RUNTIME_LOG_LEVEL: "DEBUG",
         LOCAL_LOG_RETENTION_DAYS: "7",
@@ -188,7 +187,8 @@ describe("structured logger", () => {
     const controller = logging.configureLogging({
       projectRoot,
       stateRoot,
-      environment: { LOCAL_LOGS_ENABLED: "1", LOG_FILE: "desktop.log" },
+      fileName: "desktop.log",
+      environment: { LOCAL_LOGS_ENABLED: "1" },
     });
     controllers.push(controller);
     logging.createLogger("desktop").info("state_root_contract");
@@ -216,7 +216,6 @@ describe("structured logger", () => {
       projectRoot: root,
       environment: {
         LOCAL_LOGS_ENABLED: "1",
-        LOG_FILE: "runtime.log",
         LOG_LEVEL: "ERROR",
         RUNTIME_LOG_LEVEL: "DEBUG",
         LOG_LEVELS: "runtime=WARN",
@@ -240,7 +239,7 @@ describe("structured logger", () => {
     await controller.close();
     const disabled = logging.configureLogging({
       projectRoot: root,
-      environment: { LOCAL_LOGS_ENABLED: "0", LOG_FILE: "runtime.log" },
+      environment: { LOCAL_LOGS_ENABLED: "0" },
     });
     controllers.push(disabled);
     expect(disabled.filePath).toBeUndefined();
@@ -250,15 +249,12 @@ describe("structured logger", () => {
     }));
 
     await disabled.close();
-    const missingFile = logging.configureLogging({
+    const fixedFile = logging.configureLogging({
       projectRoot: root,
-      environment: { LOCAL_LOGS_ENABLED: "1", LOG_FILE: "" },
+      environment: { LOCAL_LOGS_ENABLED: "1", LOG_FILE: "custom.log" },
     });
-    controllers.push(missingFile);
-    expect(missingFile.status).toEqual(expect.objectContaining({
-      localFileEnabled: false,
-      disabledReason: "missing_log_file",
-    }));
+    controllers.push(fixedFile);
+    expect(fixedFile.filePath).toMatch(/logs[\\/]runtime[\\/]\d{8}[\\/]runtime\.log$/);
   });
 
   test("renders a human-readable console line with compact context and error trailer", () => {
@@ -307,7 +303,7 @@ describe("structured logger", () => {
     roots.push(root);
     const environment = {
       LOCAL_LOGS_ENABLED: "1",
-      LOG_FILE: "runtime.log",
+      LOG_CONSOLE_FORMAT: "json",
       LOG_LEVEL: "INFO",
       RUNTIME_LOG_LEVEL: "DEBUG",
     };
@@ -330,15 +326,6 @@ describe("structured logger", () => {
         session_id: "session-42",
       }));
 
-      await controller.close();
-      printed.length = 0;
-      const jsonController = logging.configureLogging({
-        projectRoot: root,
-        environment: { ...environment, LOG_CONSOLE_FORMAT: "json" },
-      });
-      controllers.push(jsonController);
-      logging.createLogger("gateway.pretty").info("json line");
-      expect(JSON.parse(printed.at(-1)!)).toEqual(expect.objectContaining({ message: "json line" }));
     } finally {
       consoleSpy.mockRestore();
     }
@@ -352,7 +339,6 @@ describe("structured logger", () => {
       projectRoot: root,
       environment: {
         LOCAL_LOGS_ENABLED: "1",
-        LOG_FILE: "runtime.log",
         LOG_LEVEL: "ERROR",
         RUNTIME_LOG_LEVEL: "DEBUG",
       },

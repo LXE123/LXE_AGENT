@@ -50,7 +50,6 @@ def _configure(
         monkeypatch.setenv("LXE_ERP_API_KEY", api_key)
     else:
         monkeypatch.delenv("LXE_ERP_API_KEY", raising=False)
-    monkeypatch.setenv("LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS", "12")
 
 
 def _upload_response(*, status: str = "created") -> FakeResponse:
@@ -121,7 +120,7 @@ def test_upload_uses_latest_exact_original_file_and_aggregates_msku(
     assert result["reconciliation_lines_truncated"] == 5
     posted = session.calls[0]
     assert posted["url"] == "http://10.88.0.1:8000/api/v1/erp/packing-snapshots/import"
-    assert posted["timeout"] == 12
+    assert posted["timeout"] == 30
     assert posted["json"]["lines"] == [
         {"msku": "MSKU-A", "actual_quantity": "8"},
         {"msku": "MSKU-B", "actual_quantity": "12"},

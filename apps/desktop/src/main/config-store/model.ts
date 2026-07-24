@@ -33,7 +33,6 @@ export interface DesktopConfig {
     device_name: string;
     vpn_ip: string;
     data_server_url: string;
-    sync_interval_seconds: number;
     tunnel_name: string;
   };
 }
@@ -74,7 +73,6 @@ const DEFAULT_CONFIG: DesktopConfig = {
     device_name: "",
     vpn_ip: "",
     data_server_url: "",
-    sync_interval_seconds: 3_600,
     tunnel_name: "lxe-agent",
   },
 };
@@ -163,12 +161,6 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
       device_name: text(rawCloud.device_name),
       vpn_ip: text(rawCloud.vpn_ip),
       data_server_url: text(rawCloud.data_server_url),
-      sync_interval_seconds: Math.max(
-        30,
-        Number.isFinite(Number(rawCloud.sync_interval_seconds))
-          ? Math.trunc(Number(rawCloud.sync_interval_seconds))
-          : 3_600,
-      ),
       tunnel_name: text(rawCloud.tunnel_name) || "lxe-agent",
     },
   };

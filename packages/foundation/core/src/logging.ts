@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, rmdirSync, rmSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { envFlag, envInteger, envText, type Environment } from "./env";
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
@@ -52,6 +52,7 @@ export interface LogSanitizePolicy {
 export interface ConfigureLoggingOptions {
   projectRoot: string;
   stateRoot?: string;
+  fileName?: string;
   environment: Environment;
   onStatusChange?: (status: LoggingStatus) => void;
 }
@@ -60,8 +61,6 @@ interface ProcessLoggingSink {
   write(level: LogLevel, logger: string, record: Record<string, unknown>, line: string): void;
   close(): void;
 }
-
-export type ConsoleLogFormat = "pretty" | "json";
 
 interface MutableLoggingStatus {
   localFileEnabled: boolean;
@@ -269,11 +268,6 @@ const shouldWrite = (level: LogLevel, threshold: LogLevel, override?: LogLevel):
 const localDay = (date = new Date()): string =>
   `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}`;
 
-const resolveConfiguredPath = (raw: string, fallback: string, projectRoot: string): string => {
-  const configured = String(raw || fallback).trim() || fallback;
-  return resolve(isAbsolute(configured) ? configured : join(projectRoot, configured));
-};
-
 const dateValue = (name: string): number | undefined => {
   if (!/^\d{8}$/.test(name)) return undefined;
   const year = Number(name.slice(0, 4));
@@ -287,21 +281,17 @@ const dateValue = (name: string): number | undefined => {
 const failureText = (error: unknown): string => truncate(error instanceof Error ? error.message : String(error), 1_000);
 
 const cleanupRetention = (
-  projectRoot: string,
   stateRoot: string,
-  explicitStateRoot: boolean,
   environment: Environment,
   today = new Date(),
 ): RetentionResult => {
   const result: RetentionResult = { deleted: [], failures: [] };
   const retentionDays = envInteger(environment, "LOCAL_LOG_RETENTION_DAYS", 7, { min: 1 });
   const cutoff = new Date(today.getFullYear(), today.getMonth(), today.getDate() - (retentionDays - 1)).getTime();
-  const configuredRoot = explicitStateRoot ? stateRoot : projectRoot;
-  const managedPrefix = explicitStateRoot ? "logs" : "var/logs";
   const legacyAgentTraceRoot = resolve(stateRoot, "logs", "agent_traces");
   const directoryRoots = [
     legacyAgentTraceRoot,
-    resolveConfiguredPath(envText(environment, "AGENT_SSE_WIRE_TRACE_DIR"), `${managedPrefix}/sse_wire_traces`, configuredRoot),
+    resolve(stateRoot, "logs", "sse_wire_traces"),
     resolve(stateRoot, "logs", "feishu_msg"),
     resolve(stateRoot, "logs", "runtime"),
   ];
@@ -338,11 +328,7 @@ const cleanupRetention = (
       result.failures.push({ path: legacyAgentTraceRoot, error: failureText(error) });
     }
   }
-  const rawEventRoot = resolveConfiguredPath(
-    envText(environment, "FEISHU_RAW_EVENT_DUMP_DIR"),
-    `${managedPrefix}/feishu_raw_events`,
-    configuredRoot,
-  );
+  const rawEventRoot = resolve(stateRoot, "logs", "feishu_raw_events");
   if (!existsSync(rawEventRoot)) return result;
   let names: string[];
   try {
@@ -484,12 +470,12 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
   const fileLevel = parseLevel(envText(environment, "RUNTIME_LOG_LEVEL", "DEBUG"), "debug");
   const overrides = loggerLevels(envText(environment, "LOG_LEVELS"));
   const enabled = envFlag(environment, "LOCAL_LOGS_ENABLED", false);
-  const fileName = basename(envText(environment, "LOG_FILE"));
+  const fileName = basename(String(options.fileName ?? "runtime.log").trim() || "runtime.log");
   const filePath = enabled && fileName && ![".", ".."].includes(fileName)
     ? resolve(stateRoot, "logs", "runtime", localDay(), fileName)
     : undefined;
   const retention = enabled
-    ? cleanupRetention(projectRoot, stateRoot, explicitStateRoot, environment)
+    ? cleanupRetention(stateRoot, environment)
     : { deleted: [], failures: [] };
   if (filePath) {
     try {
@@ -505,10 +491,7 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
     consoleLevel,
     fileLevel,
   };
-  const consoleFormat: ConsoleLogFormat =
-    envText(environment, "LOG_CONSOLE_FORMAT", "pretty").toLowerCase() === "json" ? "json" : "pretty";
-  const consoleColors = consoleFormat === "pretty"
-    && Boolean(process.stdout?.isTTY)
+  const consoleColors = Boolean(process.stdout?.isTTY)
     && !envText(environment, "NO_COLOR")
     && !envText(environment, "CI");
   let closed = false;
@@ -529,7 +512,7 @@ export function configureLogging(options: ConfigureLoggingOptions): LoggingContr
       if (closed) return;
       const override = overrideLevel(logger, overrides);
       if (shouldWrite(level, consoleLevel, override)) {
-        safeConsole("log", consoleFormat === "json" ? line : formatConsoleLine(record, consoleColors));
+        safeConsole("log", formatConsoleLine(record, consoleColors));
       }
       if (filePath && fileUsable && shouldWrite(level, fileLevel, override)) {
         try {

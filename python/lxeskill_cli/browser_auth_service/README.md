@@ -45,7 +45,7 @@ stderr 会实时输出各阶段的开始、成功、实际 URL 或真实错误�
 
 ## 看复盘日志
 
-需要 `LOCAL_LOGS_ENABLED=1`，且 `BROWSER_AUTH_LOG_FILE=browser_auth_service.log`。
+需要 `LOCAL_LOGS_ENABLED=1`。日志文件名由系统固定为 `browser_auth_service.log`。
 
 专用日志在：
 

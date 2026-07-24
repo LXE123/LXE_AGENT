@@ -24,6 +24,9 @@ describe("Anthropic-compatible provider", () => {
     const descriptor = loadProviderDescriptor(projectRoot, {
       AGENT_LLM_PROVIDER: "kimi-coding",
       AGENT_LLM_MODEL: "kimi-code",
+      AGENT_LLM_MAX_TOKENS: "1",
+      AGENT_LLM_THINKING_DISPLAY: "summarized",
+      LLM_REQUEST_TIMEOUT_S: "1",
       KIMI_CODE_API_KEY: "secret-key",
     });
     expect(descriptor).toEqual(expect.objectContaining({
@@ -39,6 +42,7 @@ describe("Anthropic-compatible provider", () => {
       thinkingDefault: "high",
       thinkingEnabled: true,
       thinkingEffort: "high",
+      thinkingDisplay: "omitted",
       contextWindowTokens: 262_144,
       requestIdleTimeoutMs: 120_000,
     }));

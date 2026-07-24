@@ -28,7 +28,6 @@ export class DesktopCloudConfigService {
       device_name: text(input.deviceName),
       vpn_ip: text(input.vpnIp),
       data_server_url: text(input.dataServerUrl).replace(/\/+$/u, ""),
-      sync_interval_seconds: Math.max(30, Math.trunc(input.syncIntervalSeconds)),
       tunnel_name: text(input.tunnelName) || "lxe-agent",
     };
     if (!config.cloud.device_id || !config.cloud.device_name || !config.cloud.vpn_ip

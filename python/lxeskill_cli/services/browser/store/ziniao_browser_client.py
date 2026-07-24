@@ -32,7 +32,7 @@ def _client_path() -> str:
 def _control_port() -> int:
     safe_port = int(ziniao_settings.ZINIAO_SOCKET_PORT or 0)
     if safe_port <= 0:
-        raise RuntimeError("ZINIAO_SOCKET_PORT 未配置")
+        raise RuntimeError("紫鸟客户端控制端口无效")
     return safe_port
 
 

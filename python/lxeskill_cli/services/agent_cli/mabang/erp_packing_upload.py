@@ -12,6 +12,7 @@ from typing import Any, Mapping
 import requests
 
 from services.agent_cli._shared.json_cli import exception_text
+from services.agent_cli.mabang.erp_http import ERP_REQUEST_TIMEOUT_SECONDS
 from services.agent_cli.mabang.shipment_quantity_validation import (
     read_consignment_msku_quantities,
 )
@@ -23,7 +24,6 @@ from shared.infra.net import local_service_requests_session
 
 MAX_RECONCILIATION_LINES = 200
 MAX_REMOTE_BODY_CHARS = 4_000
-DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
 class PackingUploadError(RuntimeError):
@@ -131,25 +131,6 @@ def _request_id(payload: Mapping[str, Any]) -> str:
     return f"packing-{payload['sp_no']}-{digest}"
 
 
-def _timeout_seconds() -> float:
-    raw = str(os.getenv("LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS") or "").strip()
-    if not raw:
-        return DEFAULT_TIMEOUT_SECONDS
-    try:
-        value = float(raw)
-    except ValueError as exc:
-        raise PackingUploadError(
-            "erp_environment_invalid",
-            f"LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS 格式无效: {raw}",
-        ) from exc
-    if value <= 0:
-        raise PackingUploadError(
-            "erp_environment_invalid",
-            "LXE_DATA_SERVER_REQUEST_TIMEOUT_SECONDS 必须大于 0",
-        )
-    return value
-
-
 def _connection_settings() -> tuple[str, str, float]:
     base_url = str(os.getenv("LXE_DATA_SERVER_URL") or "").strip().rstrip("/")
     if not base_url:
@@ -163,7 +144,7 @@ def _connection_settings() -> tuple[str, str, float]:
             "erp_credentials_not_configured",
             "LXE_ERP_API_KEY 未配置，无法上传真实发货量",
         )
-    return base_url, api_key, _timeout_seconds()
+    return base_url, api_key, ERP_REQUEST_TIMEOUT_SECONDS
 
 
 def _safe_remote_body(response: Any) -> str:

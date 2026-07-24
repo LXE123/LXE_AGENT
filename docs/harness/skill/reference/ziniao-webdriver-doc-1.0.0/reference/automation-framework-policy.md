@@ -15,7 +15,7 @@
 仅限不触碰页面 JS 执行环境的带外操作：
 
 - 对 `debuggingPort` 的 CDP HTTP 元信息端点做只读健康检查（如 `GET /json/version`）；
-- 对紫鸟客户端控制端口（`ZINIAO_SOCKET_PORT`）的 `getBrowserList` / `getRunningInfo` 等只读查询。
+- 对紫鸟客户端固定控制端口 16851 的 `getBrowserList` / `getRunningInfo` 等只读查询。
 
 页面内容的读取、截图、导航、点击、输入一律不豁免。
 

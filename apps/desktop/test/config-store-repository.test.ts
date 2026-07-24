@@ -36,7 +36,7 @@ describe("DesktopConfigRepository", () => {
       migration_version: 0,
       provider: "kimi_coding",
       logging: { profile: "standard", retention_days: 7 },
-      cloud: { sync_interval_seconds: 3_600, tunnel_name: "lxe-agent" },
+      cloud: { tunnel_name: "lxe-agent" },
     });
     expect(repository.readSecrets()).toEqual(cloneSecrets());
 
@@ -55,7 +55,7 @@ describe("DesktopConfigRepository", () => {
       provider: "kimi_coding",
       integrations: { feishu: { managed: true, app_id: "legacy-app-id" } },
       logging: { profile: "standard", retention_days: 7 },
-      cloud: { sync_interval_seconds: 30, tunnel_name: "lxe-agent" },
+      cloud: { tunnel_name: "lxe-agent" },
     });
   });
 

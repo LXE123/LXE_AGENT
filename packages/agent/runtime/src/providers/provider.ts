@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import Anthropic from "@anthropic-ai/sdk";
 import type { JsonObject } from "@lxe/protocol";
-import { createLogger, envFlag, envInteger, envText, type Environment } from "@lxe/core";
+import { createLogger, envFlag, envText, type Environment } from "@lxe/core";
 import type {
   RuntimeContentBlock,
   RuntimeMessage,
@@ -21,6 +21,8 @@ export { RuntimeProviderError } from "./provider-errors";
 const logger = createLogger("runtime.provider");
 const warnedThinkingNormalizations = new Set<string>();
 const KIMI_CODING_USER_AGENT = "KimiCLI/1.5";
+const DEFAULT_MODEL_MAX_TOKENS = 4_096;
+const PROVIDER_REQUEST_IDLE_TIMEOUT_MS = 120_000;
 const DEEPSEEK_IMAGE_PLACEHOLDER = "[image omitted: DeepSeek Anthropic API does not support image content]";
 const DEEPSEEK_REDACTED_THINKING_PLACEHOLDER = "[redacted thinking omitted: DeepSeek Anthropic API does not support redacted_thinking content]";
 
@@ -220,7 +222,6 @@ export function loadProviderDescriptor(
   const envNames = Array.isArray(profile?.env_names) ? profile.env_names : [];
   const apiKey = envNames.map((envName) => envText(env, String(envName))).find(Boolean) ?? "";
   if (!apiKey && profile?.required !== false) throw new Error(`missing API key for provider: ${name}`);
-  const configuredMax = envInteger(env, "AGENT_LLM_MAX_TOKENS", 0, { min: 0 });
   const defaultHeaders = stringRecord(spec.default_headers);
   if (name === "kimi_coding" && !Object.keys(defaultHeaders).some((key) => key.toLowerCase() === "user-agent")) {
     defaultHeaders["User-Agent"] = KIMI_CODING_USER_AGENT;
@@ -230,7 +231,7 @@ export function loadProviderDescriptor(
     model,
     baseURL: String(spec.base_url ?? "").trim(),
     apiKey,
-    maxTokens: configuredMax || Math.max(1, Number(selectedModel.max_tokens ?? 4096)),
+    maxTokens: Math.max(1, Number(selectedModel.max_tokens ?? DEFAULT_MODEL_MAX_TOKENS)),
     defaultHeaders,
     thinkingStyle: String(selectedModel.thinking_request_style ?? "none").trim(),
     thinkingBudgetTokens: Math.max(0, Math.trunc(Number(selectedModel.thinking_budget_tokens ?? 0))),
@@ -238,9 +239,9 @@ export function loadProviderDescriptor(
     thinkingDefault,
     thinkingEnabled,
     thinkingEffort,
-    thinkingDisplay: envText(env, "AGENT_LLM_THINKING_DISPLAY", "omitted").toLowerCase(),
+    thinkingDisplay: "omitted",
     contextWindowTokens: Math.max(0, Math.trunc(Number(selectedModel.context_window_tokens ?? 0))),
-    requestIdleTimeoutMs: envInteger(env, "LLM_REQUEST_TIMEOUT_S", 120, { min: 1, max: 3_600 }) * 1_000,
+    requestIdleTimeoutMs: PROVIDER_REQUEST_IDLE_TIMEOUT_MS,
   };
 }
 

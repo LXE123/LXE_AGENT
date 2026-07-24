@@ -24,7 +24,6 @@ describe("DesktopLoggingManager", () => {
       dataRoot: root,
       environment: () => ({
         LOCAL_LOGS_ENABLED: profile === "off" ? "0" : "1",
-        LOG_FILE: "runtime.log",
         LOG_LEVEL: "ERROR",
         RUNTIME_LOG_LEVEL: profile === "diagnostic" ? "DEBUG" : "INFO",
       }),

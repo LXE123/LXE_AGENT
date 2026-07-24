@@ -9,7 +9,6 @@ describe("RuntimeTurnObserver", () => {
     const lines: string[] = [];
     let now = 1_000;
     const observer = new RuntimeTurnObserver({
-      environment: { AGENT_STREAM_HEARTBEAT_MS: "1000", AGENT_STREAM_HEARTBEAT_CHARS: "3" },
       logger: createLogger("runtime.turn", { write: (line) => lines.push(line) }),
       now: () => now,
     });
@@ -19,7 +18,7 @@ describe("RuntimeTurnObserver", () => {
     });
     observer.context({ beforeTokens: 30, afterTokens: 25, compacted: true, compactedCount: 2 });
     const attempt = observer.providerAttempt(1, 1, "anthropic", "model");
-    now += 10;
+    now += 1_000;
     attempt.stream({ type: "text_delta", text: "secret reply" });
     attempt.succeed({
       content: [{ type: "tool_call", id: "tool-1", name: "read", arguments: {} }],

@@ -19,15 +19,13 @@ Reducing terminal noise must not remove useful runtime diagnostics. Conversely, 
 ## Configuration
 
 - `LOG_LEVEL` controls the terminal threshold.
-- `LOG_CONSOLE_FORMAT` selects the Bun terminal rendering: `pretty` (default, aligned human-readable lines with compact context) or `json` (raw JSONL, for machine consumers of stdout). Managed files always receive JSONL regardless of this setting.
 - `RUNTIME_LOG_LEVEL` controls the managed runtime-file threshold.
 - `LOG_LEVELS` applies longest-prefix logger overrides for noisy or important modules.
 - `LOCAL_LOGS_ENABLED=1` enables local file writers.
-- `LOG_FILE` selects the managed runtime-log base name.
 - `LOCAL_LOG_RETENTION_DAYS` controls cleanup of dated local log directories.
 - `AGENT_SSE_WIRE_TRACE_ENABLED` enables lower-level provider wire traces.
 
-Local files are written below `var/logs/runtime/YYYYMMDD/` using the configured base name. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
+Terminal logs always use the human-readable pretty format; managed files use JSONL. Local files are written below the active `LXE_DATA_ROOT/logs/` tree with product-owned file names. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
 
 Wire traces use the main-compatible per-attempt layout:
 
@@ -46,9 +44,11 @@ File responsibilities are intentionally separate:
 
 - Electron Main and Gateway records (JSONL): `var/logs/runtime/YYYYMMDD/desktop.log`.
 - Private `agent-cli` and Runtime records (JSONL): `var/logs/runtime/YYYYMMDD/runtime.log`.
-- Python text logs (standalone `lxeskill` commands): `var/logs/runtime/YYYYMMDD/runtime-py.log`. Python derives the name from `LOG_FILE` by appending `-py` to the stem, so the two formats never share a file.
+- Python text logs (standalone `lxeskill` commands): `var/logs/runtime/YYYYMMDD/runtime-py.log`.
+- Browser-auth text logs: `var/logs/browser_auth_service/YYYYMMDD/browser_auth_service.log`.
 - Feishu raw events: `var/logs/feishu_raw_events/YYYYMMDD.jsonl`.
 - Provider wire traces: `var/logs/sse_wire_traces/`.
+- Ziniao diagnostic traces: `var/logs/ziniao_traces/`.
 
 Runtime execution semantics are intentionally not duplicated into a second per-turn trace. Use `runtime.log` for correlated Turn, Provider-attempt, tool, cancellation, error, and usage summaries; durable usage remains in `turn_usage` SQLite. The retired `var/logs/agent_traces/` directory is no longer written and is removed naturally by the configured retention policy after its dated entries expire.
 
@@ -106,7 +106,7 @@ Business CLI commands reserve stdout for their JSON protocol. Their diagnostics 
 ## Troubleshooting
 
 1. Confirm whether the missing information belongs in terminal logs, runtime files, or traces.
-2. Check `LOCAL_LOGS_ENABLED`, `LOG_FILE`, and the relevant level thresholds.
+2. Check `LOCAL_LOGS_ENABLED` and the relevant level thresholds.
 3. In Desktop settings, check both the Desktop/Gateway and `agent-cli` sink status, effective path, and safe failure detail.
 4. Check `LOG_LEVELS` for a prefix override.
 5. For provider streams, enable only the required trace surface and reproduce one turn.

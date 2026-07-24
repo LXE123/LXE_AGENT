@@ -144,10 +144,7 @@ export function createAgentRuntimeHost(
     cwd: options.dataRoot,
     timeoutMs: 3 * 60_000,
     maxOutputBytes: 10 * 1024 * 1024,
-    env: {
-      ...lxeSkillEnvironment,
-      LOG_FILE: String(environment.LOG_FILE ?? "").trim() || "runtime.log",
-    },
+    env: lxeSkillEnvironment,
     onStderr: (line) => logger.info("lxeskill", { line }),
   }) : undefined;
   const maintenance = lxeSkillRunner ? new MaintenanceScheduler({

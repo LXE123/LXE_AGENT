@@ -17,7 +17,7 @@ Scheduler 维护四类状态：
 - `activeBySession`：保证一个 session 最多一个 active run。
 - `activeByRun`：按 run id 校验 Runtime completion 与控制操作。
 
-全局 active session 数不得超过 `AGENT_MAX_CONCURRENCY`，默认值为 2，非法或小于 1 的配置回退到安全值。
+全局 active session 数不得超过 2。该限制由 Gateway composition 固定传入 Scheduler，不再由环境变量配置。
 
 ## Enqueue 与 dispatch
 
