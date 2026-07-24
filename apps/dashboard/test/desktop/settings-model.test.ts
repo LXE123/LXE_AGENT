@@ -72,6 +72,7 @@ describe("desktop settings navigation model", () => {
     const form = { ...baseline, mabangPassword: "new-secret" };
 
     expect(desktopSettingsSectionIsDirty("status", form, baseline)).toBe(false);
+    expect(desktopSettingsSectionIsDirty("appearance", form, baseline)).toBe(false);
     expect(desktopSettingsSectionIsDirty("base", form, baseline)).toBe(false);
     expect(desktopSettingsSectionIsDirty("mabang", form, baseline)).toBe(true);
     expect(desktopSettingsSectionIsDirty("feishu", form, baseline)).toBe(false);

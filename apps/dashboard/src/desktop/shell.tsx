@@ -25,6 +25,7 @@ import type {
 } from "@lxe/desktop-protocol";
 import { BrandMark } from "../shared/ui/brand-mark";
 import type { Language } from "../shared/i18n";
+import type { DashboardFontSize } from "../shared/appearance";
 import { LanguageSwitch } from "../shared/ui/language-switch";
 import { useDialogFocus } from "../shared/ui/use-dialog-focus";
 import {
@@ -50,6 +51,19 @@ type DesktopConfirmation =
   | { kind: "diagnostic" }
   | { kind: "clear-integration"; integration: IntegrationName; label: string };
 const setupForm = desktopSettingsForm;
+
+const FONT_SIZE_OPTIONS: ReadonlyArray<{
+  value: DashboardFontSize;
+  label: string;
+  description: string;
+}> = [
+  { value: "small", label: "小", description: "更紧凑" },
+  { value: "standard", label: "标准", description: "默认" },
+  { value: "large", label: "大", description: "更易阅读" },
+];
+
+const fontSizeLabel = (fontSize: DashboardFontSize): string =>
+  FONT_SIZE_OPTIONS.find((option) => option.value === fontSize)?.label ?? "标准";
 
 const stateLabel = (state: DesktopHealth["gateway"]): string => ({
   stopped: "已停止",
@@ -97,6 +111,7 @@ function DesktopSettingsNavigation({
   baseline,
   form,
   health,
+  fontSize,
   language,
   setup,
   cloud,
@@ -110,6 +125,7 @@ function DesktopSettingsNavigation({
   baseline: SetupForm;
   form: SetupForm;
   health: DesktopHealth | null;
+  fontSize: DashboardFontSize;
   language: Language;
   setup: DesktopSetupState;
   cloud: DesktopCloudState;
@@ -145,6 +161,7 @@ function DesktopSettingsNavigation({
     <nav aria-label="设置菜单" className="desktop-settings-nav">
       <div className="desktop-settings-nav-list">
         {showStatus ? item("status", "运行状态", stateLabel(health?.gateway ?? "starting")) : null}
+        {item("appearance", "外观", `字体：${fontSizeLabel(fontSize)}`)}
         {item("cloud", "公司云端", ({
           connected: "已连接",
           connecting: "连接中",
@@ -368,6 +385,48 @@ function DesktopStatusPanel({
           </details>
         ) : null}
       </div>
+    </section>
+  );
+}
+
+function DesktopAppearancePanel({
+  fontSize,
+  headingRef,
+  onFontSizeChange,
+}: {
+  fontSize: DashboardFontSize;
+  headingRef: RefObject<HTMLHeadingElement | null>;
+  onFontSizeChange: (fontSize: DashboardFontSize) => void;
+}) {
+  return (
+    <section className="desktop-settings-section desktop-appearance-panel">
+      <DesktopSectionHeading
+        badge={fontSizeLabel(fontSize)}
+        badgeClassName="desktop-appearance-badge"
+        description="调整整个界面的文字大小，选择后立即生效。"
+        headingRef={headingRef}
+        title="外观"
+      />
+      <div aria-label="字体大小" className="desktop-appearance-options" role="group">
+        {FONT_SIZE_OPTIONS.map((option) => (
+          <button
+            aria-pressed={fontSize === option.value}
+            className={`desktop-appearance-option${fontSize === option.value ? " active" : ""}`}
+            key={option.value}
+            onClick={() => onFontSizeChange(option.value)}
+            type="button"
+          >
+            <strong>{option.label}</strong>
+            <span>{option.description}</span>
+          </button>
+        ))}
+      </div>
+      <div className="desktop-appearance-preview">
+        <span>字体预览</span>
+        <strong>让每一次协作都清晰自然</strong>
+        <p>HarmonyOS Sans · LXE Agent Desktop</p>
+      </div>
+      <p className="desktop-form-hint">当前仅调整文字大小，不会缩放窗口、图标或内容区域。</p>
     </section>
   );
 }
@@ -801,7 +860,9 @@ function DesktopConfirmationDialog({
 
 export function DesktopShell({
   children,
+  fontSize,
   language,
+  onFontSizeChange,
   onLanguageChange,
 }: {
   children: (context: {
@@ -809,7 +870,9 @@ export function DesktopShell({
     health: DesktopHealth;
     openSettings: (section?: DesktopSettingsSection) => void;
   }) => ReactNode;
+  fontSize: DashboardFontSize;
   language: Language;
+  onFontSizeChange: (fontSize: DashboardFontSize) => void;
   onLanguageChange: (language: Language) => void;
 }) {
   const queryClient = useQueryClient();
@@ -1074,7 +1137,9 @@ export function DesktopShell({
   const save = (event: FormEvent): void => {
     event.preventDefault();
     if (importApplying) return;
-    if (activeSettingsSection === "cloud" || activeSettingsSection === "status") return;
+    if (activeSettingsSection === "appearance"
+      || activeSettingsSection === "cloud"
+      || activeSettingsSection === "status") return;
     if (form.logProfile === "diagnostic" && setup.logging.profile !== "diagnostic") {
       setConfirmation({ kind: "diagnostic" });
       return;
@@ -1142,6 +1207,7 @@ export function DesktopShell({
   };
   const baseline = setupForm(setup);
   const editableSection: EditableDesktopSettingsSection = activeSettingsSection === "status"
+    || activeSettingsSection === "appearance"
     || activeSettingsSection === "cloud"
     ? "base"
     : activeSettingsSection;
@@ -1180,6 +1246,12 @@ export function DesktopShell({
       onSelect={() => { void selectCloudEnrollment(); }}
       password={cloudPassword}
     />
+  ) : activeSettingsSection === "appearance" ? (
+    <DesktopAppearancePanel
+      fontSize={fontSize}
+      headingRef={sectionHeadingRef}
+      onFontSizeChange={onFontSizeChange}
+    />
   ) : settingsFields;
   const settingsBody = (
     <fieldset className="desktop-settings-fieldset" disabled={importApplying}>
@@ -1191,6 +1263,7 @@ export function DesktopShell({
       activeSection={activeSettingsSection}
       baseline={baseline}
       form={form}
+      fontSize={fontSize}
       health={health}
       cloud={cloud}
       configurationBusy={importApplying}
@@ -1248,8 +1321,12 @@ export function DesktopShell({
             </div>
           </div>
           <footer className="desktop-onboarding-footer">
-            <span>{activeSettingsSection === "cloud" ? "公司云端可以稍后配置" : "基础设置完成后即可启动"}</span>
-            {activeSettingsSection !== "cloud" ? (
+            <span>{activeSettingsSection === "appearance"
+              ? "外观选择会自动保存在当前设备"
+              : activeSettingsSection === "cloud"
+                ? "公司云端可以稍后配置"
+                : "基础设置完成后即可启动"}</span>
+            {activeSettingsSection !== "appearance" && activeSettingsSection !== "cloud" ? (
               <button className="desktop-primary-button" disabled={saving || importApplying} type="submit">
                 {importApplying ? "正在应用配置…" : saving ? "正在启动…" : "保存并启动"}
               </button>
@@ -1325,7 +1402,9 @@ export function DesktopShell({
             </div>
             <footer>
               <span className="desktop-version">{health?.version ? `v${health.version}` : "—"}</span>
-              {activeSettingsSection !== "status" && activeSettingsSection !== "cloud" ? (
+              {activeSettingsSection !== "status"
+                && activeSettingsSection !== "appearance"
+                && activeSettingsSection !== "cloud" ? (
                 <button className="desktop-primary-button" disabled={saving || importApplying} type="submit">
                   {importApplying ? "正在应用配置…" : saving ? "保存中…" : "保存设置"}
                 </button>

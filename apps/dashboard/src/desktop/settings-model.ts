@@ -24,6 +24,7 @@ export const desktopLoggingSinkView = (
 
 export type DesktopSettingsSection =
   | "status"
+  | "appearance"
   | "cloud"
   | "base"
   | "ziniao"
@@ -31,7 +32,7 @@ export type DesktopSettingsSection =
   | "feishu"
   | "logging";
 
-export type EditableDesktopSettingsSection = Exclude<DesktopSettingsSection, "status" | "cloud">;
+export type EditableDesktopSettingsSection = Exclude<DesktopSettingsSection, "status" | "appearance" | "cloud">;
 
 export interface DesktopSettingsFormValue {
   provider: DesktopSetupInput["provider"];
@@ -89,6 +90,7 @@ export const desktopSettingsSectionIsDirty = (
   form: DesktopSettingsFormValue,
   baseline: DesktopSettingsFormValue,
 ): boolean => section !== "status" && section !== "cloud"
+  && section !== "appearance"
   && SECTION_FIELDS[section].some((field) => form[field] !== baseline[field]);
 
 export const desktopSettingsSectionStatus = (

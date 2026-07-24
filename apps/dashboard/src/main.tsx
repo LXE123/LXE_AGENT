@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -44,6 +44,10 @@ import {
   initialLanguage
 } from "./shared/i18n";
 import type { Language } from "./shared/i18n";
+import {
+  FONT_SIZE_STORAGE_KEY,
+  initialDashboardFontSize,
+} from "./shared/appearance";
 import type {
   ApiList,
   ConnectorPayload,
@@ -767,7 +771,17 @@ function App({
 
 function DashboardApplication() {
   const [language, setLanguage] = useState<Language>(() => initialLanguage());
+  const [fontSize, setFontSize] = useState(() => initialDashboardFontSize());
   const t = UI_TEXT[language];
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.fontSize = fontSize;
+    try {
+      window.localStorage.setItem(FONT_SIZE_STORAGE_KEY, fontSize);
+    } catch {
+      // The selected font size still works when persistent storage is unavailable.
+    }
+  }, [fontSize]);
 
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
@@ -780,7 +794,12 @@ function DashboardApplication() {
 
   return (
     <I18nContext.Provider value={t}>
-      <DesktopShell language={language} onLanguageChange={setLanguage}>
+      <DesktopShell
+        fontSize={fontSize}
+        language={language}
+        onFontSizeChange={setFontSize}
+        onLanguageChange={setLanguage}
+      >
         {({ cloud, health, openSettings }) => (
           <App
             desktopCloud={cloud}
