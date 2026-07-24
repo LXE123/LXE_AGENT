@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveDashboardAsset } from "../src/main/dashboard-assets";
+import { dashboardAssetContentType, resolveDashboardAsset } from "../src/main/dashboard-assets";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -10,6 +10,12 @@ afterEach(() => {
 });
 
 describe("app:// Dashboard asset resolution", () => {
+  test("serves TrueType and existing Dashboard assets with explicit content types", () => {
+    expect(dashboardAssetContentType("/assets/HarmonyOS_Sans_SC.ttf")).toBe("font/ttf");
+    expect(dashboardAssetContentType("/assets/app.css")).toBe("text/css; charset=utf-8");
+    expect(dashboardAssetContentType("/assets/unknown.bin")).toBe("application/octet-stream");
+  });
+
   test("serves assets and falls back to the SPA for route refreshes", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-assets-"));
     roots.push(root);

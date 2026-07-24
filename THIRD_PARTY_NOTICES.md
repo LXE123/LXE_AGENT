@@ -1,5 +1,16 @@
 # Third-Party Notices
 
+## HarmonyOS Sans
+
+LXE Agent uses an unmodified copy of HarmonyOS Sans SC as its primary user
+interface font.
+
+Copyright 2021 Huawei Device Co., Ltd.
+
+HarmonyOS Sans Fonts Software is licensed under the HarmonyOS Sans Fonts
+License Agreement. The complete agreement is distributed with the Dashboard at
+`legal/HarmonyOS-Sans-LICENSE.txt`.
+
 ## openclaw-lark CardKit presentation
 
 Portions of `apps/gateway/src/channels/feishu/card-builder.ts` and

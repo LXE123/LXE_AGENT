@@ -1,20 +1,7 @@
 import { readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { protocol } from "electron";
-import { resolveDashboardAsset } from "./dashboard-assets";
-
-const CONTENT_TYPES: Record<string, string> = {
-  ".css": "text/css; charset=utf-8",
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-};
+import { dashboardAssetContentType, resolveDashboardAsset } from "./dashboard-assets";
 
 export function registerDashboardProtocol(dashboardRoot: string): void {
   protocol.handle("app", (request) => {
@@ -33,7 +20,7 @@ export function registerDashboardProtocol(dashboardRoot: string): void {
     return new Response(readFileSync(asset), {
       status: 200,
       headers: {
-        "Content-Type": CONTENT_TYPES[extname(asset).toLowerCase()] ?? "application/octet-stream",
+        "Content-Type": dashboardAssetContentType(asset),
         "Cache-Control": extname(asset).toLowerCase() === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
       },
     });

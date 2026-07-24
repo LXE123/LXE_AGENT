@@ -166,6 +166,10 @@ function DesktopSettingsNavigation({
           <span>界面语言</span>
           <LanguageSwitch language={language} onLanguageChange={onLanguageChange} />
         </div>
+        <p className="desktop-settings-font-credit">
+          <span>{language === "zh" ? "界面字体" : "Interface font"}</span>
+          <strong>HarmonyOS Sans</strong>
+        </p>
         <button
           className="desktop-settings-import-button"
           disabled={configurationBusy}

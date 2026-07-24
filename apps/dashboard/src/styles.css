@@ -1,5 +1,17 @@
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  src: url("./assets/fonts/HarmonyOS_Sans_SC.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
+  --font-sans:
+    "HarmonyOS Sans SC", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "PingFang SC", "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --bg: #faf8f5;
   --bg-soft: #ffffff;
   --surface: #ffffff;
@@ -60,9 +72,7 @@
   --rate-good-soft: #edf5ed;
   --rate-warn: #b07f1f;
   --rate-bad: #b3422f;
-  font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
-    "Hiragino Sans GB", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
   font-synthesis: none;
@@ -473,6 +483,21 @@ button {
 
 .desktop-settings-language .language-switch {
   width: 100%;
+}
+
+.desktop-settings-font-credit {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  padding: 0 9px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.desktop-settings-font-credit strong {
+  color: var(--text-soft);
+  font-weight: 600;
 }
 
 .desktop-settings-nav-item,
