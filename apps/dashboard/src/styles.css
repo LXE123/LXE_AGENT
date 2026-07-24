@@ -362,34 +362,6 @@ button {
   font-weight: 500;
 }
 
-.desktop-appearance-preview {
-  display: grid;
-  gap: 6px;
-  padding: 20px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface-muted);
-}
-
-.desktop-appearance-preview > span {
-  color: var(--muted);
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
-.desktop-appearance-preview strong {
-  color: var(--text-strong);
-  font-size: 1.25rem;
-  font-weight: 650;
-}
-
-.desktop-appearance-preview p {
-  margin: 0;
-  color: var(--text-soft);
-  font-size: 0.75rem;
-}
-
 .desktop-cloud-badge {
   flex: 0 0 auto;
   padding: 3px 8px;
@@ -572,21 +544,6 @@ button {
 
 .desktop-settings-language .language-switch {
   width: 100%;
-}
-
-.desktop-settings-font-credit {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0;
-  padding: 0 9px;
-  color: var(--muted);
-  font-size: 0.5625rem;
-}
-
-.desktop-settings-font-credit strong {
-  color: var(--text-soft);
-  font-weight: 600;
 }
 
 .desktop-settings-nav-item,

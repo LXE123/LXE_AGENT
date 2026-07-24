@@ -183,10 +183,6 @@ function DesktopSettingsNavigation({
           <span>界面语言</span>
           <LanguageSwitch language={language} onLanguageChange={onLanguageChange} />
         </div>
-        <p className="desktop-settings-font-credit">
-          <span>{language === "zh" ? "界面字体" : "Interface font"}</span>
-          <strong>HarmonyOS Sans</strong>
-        </p>
         <button
           className="desktop-settings-import-button"
           disabled={configurationBusy}
@@ -421,12 +417,6 @@ function DesktopAppearancePanel({
           </button>
         ))}
       </div>
-      <div className="desktop-appearance-preview">
-        <span>字体预览</span>
-        <strong>让每一次协作都清晰自然</strong>
-        <p>HarmonyOS Sans · LXE Agent Desktop</p>
-      </div>
-      <p className="desktop-form-hint">当前仅调整文字大小，不会缩放窗口、图标或内容区域。</p>
     </section>
   );
 }
