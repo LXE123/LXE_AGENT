@@ -52,14 +52,23 @@ interface DesktopCloudServiceOptions {
   fetch?: typeof globalThis.fetch;
 }
 
-interface CloudProbeTarget {
-  source: "managed" | "preview";
+interface CloudProbeTargetBase {
   dataServerUrl: string;
   apiToken: string;
+}
+
+interface PreviewCloudProbeTarget extends CloudProbeTargetBase {
+  source: "preview";
+}
+
+interface ManagedCloudProbeTarget extends CloudProbeTargetBase {
+  source: "managed";
   deviceId: string;
   deviceName: string;
   vpnIp: string;
 }
+
+type CloudProbeTarget = PreviewCloudProbeTarget | ManagedCloudProbeTarget;
 
 interface CloudDeviceIdentity {
   deviceId: string;
@@ -85,7 +94,6 @@ export class DesktopCloudService {
   private probeTimer: unknown | undefined;
   private lastPublished = "";
   private stopped = false;
-  private previewIdentity: CloudDeviceIdentity | undefined;
 
   constructor(private readonly options: DesktopCloudServiceOptions) {
     this.fetch = options.fetch ?? globalThis.fetch;
@@ -104,9 +112,9 @@ export class DesktopCloudService {
     if (this.options.previewTarget) {
       return {
         configured: true,
-        device_name: this.previewIdentity?.deviceName ?? "",
-        device_id: this.previewIdentity?.deviceId ?? "",
-        vpn_ip: this.previewIdentity?.vpnIp ?? "",
+        device_name: "",
+        device_id: "",
+        vpn_ip: "",
         connection: this.connection,
         last_error: this.lastError,
         last_checked_at: this.lastCheckedAt,
@@ -175,8 +183,9 @@ export class DesktopCloudService {
     const probeId = randomUUID();
     const logger = this.options.logger.child({
       probe_id: probeId,
-      ...(target.deviceId ? { device_id: target.deviceId } : {}),
-      ...(target.vpnIp ? { vpn_ip: target.vpnIp } : {}),
+      probe_kind: target.source === "preview" ? "admin" : "device",
+      ...(target.source === "managed" && target.deviceId ? { device_id: target.deviceId } : {}),
+      ...(target.source === "managed" && target.vpnIp ? { vpn_ip: target.vpnIp } : {}),
     });
     let tracked: Promise<DesktopCloudState>;
     tracked = this.probeStatus(target, logger).finally(() => {
@@ -248,10 +257,11 @@ export class DesktopCloudService {
     logger: Logger,
   ): Promise<DesktopCloudState> {
     const startedAt = this.now();
+    const statusPath = target.source === "preview" ? "admin/status" : "devices/status";
     let response: Response;
     try {
       response = await this.request(
-        `${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/devices/status`,
+        `${target.dataServerUrl.replace(/\/+$/u, "")}/api/v1/agent-data/${statusPath}`,
         {
           method: "GET",
           headers: { authorization: `Bearer ${target.apiToken}` },
@@ -273,6 +283,17 @@ export class DesktopCloudService {
       return this.httpFailure(response, "status", logger, startedAt, target);
     }
     const payload = objectValue(await response.json().catch(() => undefined));
+    if (target.source === "preview") {
+      if (!payload || payload.status !== "ok" || payload.role !== "admin") {
+        return this.invalidCloudResponse(logger, startedAt, "invalid admin status response");
+      }
+      logger.info("cloud_status_check_completed", {
+        duration_ms: Math.max(0, this.now() - startedAt),
+        http_status: response.status,
+        connection: "connected",
+      });
+      return this.setConnection("connected", "", true);
+    }
     if (!payload || payload.status !== "ok" || typeof payload.activation_required !== "boolean") {
       return this.invalidCloudResponse(logger, startedAt, "invalid device status response");
     }
@@ -280,15 +301,14 @@ export class DesktopCloudService {
     if (!identity) {
       return this.invalidCloudResponse(logger, startedAt, "invalid device identity response");
     }
-    const expectedIdentity = target.source === "preview" ? this.previewIdentity : {
+    const expectedIdentity = {
       deviceId: target.deviceId,
       deviceName: target.deviceName,
       vpnIp: target.vpnIp,
     };
-    if (expectedIdentity && !this.targetIdentityMatches(target, identity, expectedIdentity)) {
+    if (!this.targetIdentityMatches(identity, expectedIdentity)) {
       return this.invalidCloudResponse(logger, startedAt, "device identity mismatch");
     }
-    if (target.source === "preview") this.previewIdentity = identity;
     if (payload.activation_required) {
       logger.info("cloud_status_activation_required", {
         duration_ms: Math.max(0, this.now() - startedAt),
@@ -308,7 +328,7 @@ export class DesktopCloudService {
   }
 
   private async verifyActivation(
-    target: CloudProbeTarget,
+    target: ManagedCloudProbeTarget,
     logger: Logger,
     expectedIdentity: CloudDeviceIdentity,
   ): Promise<DesktopCloudState> {
@@ -346,11 +366,10 @@ export class DesktopCloudService {
     const payload = objectValue(await response.json().catch(() => undefined));
     const responseIdentity = payload ? this.responseIdentity(payload) : undefined;
     if (!payload || payload.status !== "ok" || !responseIdentity
-      || !this.targetIdentityMatches(target, responseIdentity, expectedIdentity)
+      || !this.targetIdentityMatches(responseIdentity, expectedIdentity)
       || String(payload.machine_id ?? "") !== identity.machine_id) {
       return this.invalidCloudResponse(logger, startedAt, "activation identity mismatch");
     }
-    if (target.source === "preview") this.previewIdentity = responseIdentity;
     logger.info("cloud_device_activation_completed", {
       duration_ms: Math.max(0, this.now() - startedAt),
       http_status: response.status,
@@ -365,9 +384,6 @@ export class DesktopCloudService {
         source: "preview",
         dataServerUrl: this.options.previewTarget.dataServerUrl,
         apiToken: this.options.previewTarget.apiToken,
-        deviceId: this.previewIdentity?.deviceId ?? "",
-        deviceName: this.previewIdentity?.deviceName ?? "",
-        vpnIp: this.previewIdentity?.vpnIp ?? "",
       };
     }
     const cloud = this.options.config.cloudConfiguration();
@@ -392,13 +408,11 @@ export class DesktopCloudService {
   }
 
   private targetIdentityMatches(
-    target: CloudProbeTarget,
     left: CloudDeviceIdentity,
     right: CloudDeviceIdentity,
   ): boolean {
     return left.deviceId === right.deviceId
-      && left.vpnIp === right.vpnIp
-      && (target.source !== "preview" || left.deviceName === right.deviceName);
+      && left.vpnIp === right.vpnIp;
   }
 
   private async httpFailure(
@@ -420,7 +434,9 @@ export class DesktopCloudService {
         : response.status === 409
           ? "该设备文件已绑定到另一台电脑"
           : response.status === 401 || response.status === 403
-            ? "设备凭证已失效，请联系管理员"
+            ? target.source === "preview"
+              ? "管理员凭证无效，请检查开发配置"
+              : "设备凭证已失效，请联系管理员"
             : operation === "status"
               ? `公司云端状态检查失败（HTTP ${response.status}）`
               : `公司云端拒绝激活（HTTP ${response.status}）`;
