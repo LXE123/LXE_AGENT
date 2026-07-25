@@ -47,3 +47,36 @@ to this repository and is not added to PATH.
 ripgrep is dual-licensed under the Unlicense and MIT licenses. The installer
 copies the upstream `LICENSE-MIT` and `UNLICENSE` files beside the executable.
 Upstream source and release artifacts: https://github.com/BurntSushi/ripgrep
+
+## Amazon Listing Optimizer
+
+Portions of the experimental Amazon Operations analysis heuristics are adapted
+from `amazon-listing-optimizer` 1.0.0 by avmw2025, distributed through ClawHub
+and the LinkFox skill marketplace.
+
+The machine-readable `skill.json` identifies the license as MIT. The associated
+`skill-card.md` identifies it as MIT-0; this discrepancy is retained here rather
+than silently changing the publisher metadata. The LXE adaptation preserves
+attribution and does not include the original marketplace metadata or reports.
+
+Source: https://clawhub.ai/avmw2025/amazon-listing-optimizer
+
+Copyright (c) avmw2025
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

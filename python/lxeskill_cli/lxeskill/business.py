@@ -86,6 +86,8 @@ def load_catalog() -> dict[str, dict[str, Any]]:
                 if module.startswith("services.agent_cli.mabang.")
                 else f"amazon_fba_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.browser.amazon_fba.")
+                else f"amazon_operations_{module.rsplit('.', 1)[-1]}"
+                if module.startswith("services.agent_cli.amazon_operations.")
                 else ""
             )
             if expected != name:

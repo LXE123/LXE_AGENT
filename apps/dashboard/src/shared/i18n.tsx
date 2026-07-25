@@ -336,6 +336,7 @@ export const ZH_TEXT = {
     default: "默认",
     amazon_fba: "Amazon FBA",
     amazon_replenish: "Amazon Replenish",
+    amazon_operations: "Amazon Operations",
     uncategorized: "未分类"
   },
   mermaid: {
@@ -682,6 +683,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       default: "Default",
       amazon_fba: "Amazon FBA",
       amazon_replenish: "Amazon Replenish",
+      amazon_operations: "Amazon Operations",
       uncategorized: "Uncategorized"
     },
     mermaid: {
