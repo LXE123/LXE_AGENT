@@ -53,7 +53,9 @@ python.exe -I -m lxeskill ...
 
 ## 桌面配置与安全
 
-首次启动向导负责模型凭证和默认工作区，可按需增加紫鸟、马帮、飞书和日志配置。未显式选择工作区时，Desktop 使用并自动创建安装目录下的 `var/workspace`；用户仍可选择其他已经存在且可访问的项目目录。首次启动与后续设置共用同一表单，并可从本机 `.env` 或 `.env.local` 一键导入。选择文件后 Main 只向界面返回检测分组、覆盖范围、待补全字段和警告；用户确认后才提交配置。模型 API Key、紫鸟密码、马帮密码、飞书 App Secret 和 Data Server API Key 通过 Electron `safeStorage` 加密写入 `var/config/secrets.bin`，公开配置写入 `var/config/desktop.json`；配置读取接口只返回“是否已配置”，不会回显明文。
+首次启动向导负责模型凭证和默认工作区，可按需增加紫鸟、马帮、飞书和日志配置。未显式选择工作区时，Desktop 使用并自动创建安装目录下的 `var/workspace`；用户仍可选择其他已经存在且可访问的项目目录。首次启动与后续设置共用同一表单，并可从本机 `.env` 一次性导入；旧 `.env.local` 仅在迁移窗口内作为兼容导入格式。选择文件后 Main 只向界面返回检测分组、覆盖范围、待补全字段和警告；用户确认后才提交配置。模型 API Key、紫鸟密码、马帮密码、飞书 App Secret 和 Data Server API Key 通过 Electron `safeStorage` 加密写入 `var/config/secrets.bin`，非敏感设置写入 `var/config/settings.json`；配置读取接口只返回“是否已配置”，不会回显明文。
+
+`settings.json` 使用版本化 schema，Desktop Main 是唯一写入者。写入使用锁文件、临时文件和原子替换；文件被外部修改或处于非法 JSON 状态时，应用拒绝覆盖并要求重新加载。旧 `desktop.json` 首次读取后迁移为 schema v4，并保留一份带迁移标记的短期备份。
 
 导入使用一次性、十分钟有效的内存草稿，不修改或删除源文件。只导入非空值，空值和未出现的字段保留当前设置；重复变量以第一次出现为准。部分集成会保存为“待补全”，但不会注入运行环境。紫鸟 APP 路径不符合当前平台要求时同样保持停用，用户可在设置中重新选择路径。导入排障日志配置前必须确认其可能包含消息正文、账号标识和页面上下文。
 
@@ -70,17 +72,20 @@ python.exe -I -m lxeskill ...
 - Setup 状态读取与保存。
 - 状态变化订阅。
 
-源码开发仍使用仓库配置分层：
+源码开发与安装版使用同一套配置职责：
 
 | 文件 | 用途 | 是否提交 Git |
 | --- | --- | --- |
-| `config/runtime.env` | 随项目分发的非敏感默认值 | 是 |
-| `.env` | 飞书、LLM、马帮、紫鸟等私有配置 | 否 |
-| `.env.local` | 本机非敏感覆盖项和 Dashboard 模型设置 | 否 |
-| `.env.example` | 私有配置示例 | 是 |
-| `.env.local.example` | 本地调试配置示例 | 是 |
+| `var/config/settings.json` | 模型偏好、集成身份、路径、日志和 Data Server 等非敏感本机设置 | 否 |
+| `.env` | 源码开发使用的密钥和密码；每次源码启动读取，安装版不读取 | 否 |
+| `var/config/secrets.bin` | 安装版由 `safeStorage` 加密保存的密钥和密码 | 否 |
+| `.env.example` | 源码开发 secret 模板 | 是 |
 
-Data Server 同步是可选能力，需要显式配置 `LXE_DATA_SERVER_ENABLED`、`LXE_DATA_SERVER_URL` 和 `LXE_DATA_SERVER_API_KEY`。`desktop:dev` 和 `desktop:preview` 固定从当前仓库或 worktree 根加载这些开发变量，并优先于 `var/config` 中的托管云端状态；Windows 安装包只使用 `desktop.json + safeStorage` 的托管配置。`desktop:preview` 的云端提示灯也复用这组变量完成设备探活和自动激活，macOS 开发者需自行保持 WireGuard 隧道在线。本地真实凭证、会话、业务数据和构建日志不会被资源装配器复制进安装包。
+产品默认值由代码负责。`permission_policy.yaml`、LLM catalog 和 MCP defaults 等 Git 文件是产品策略或契约，不是用户运行配置。
+
+Data Server 同步是可选能力。地址、启用状态和开发回退配置保存在 `settings.json`，API Key 保存在 `secrets.bin`；Desktop Preview、Gateway、Agent 和 Python 子进程都使用 Main 解析后注入的同一份内存环境。安装包不会读取仓库 dotenv 文件。本地真实凭证、会话、业务数据和构建日志不会被资源装配器复制进安装包。
+
+源码开发中的根目录 `.env` 不是迁移文件：Main 每次启动都读取其中允许的 secret，并仅在内存中覆盖 `secrets.bin` 的同名值。因此修改 `.env` 后重启源码 Desktop 即会生效，也不会把明文自动复制到应用数据目录。一次性迁移只处理旧 `desktop.json`、`.env.local` 和应用数据目录中的历史 dotenv 文件。
 
 ### 公司云端设备接入
 
@@ -88,7 +93,7 @@ Windows 10/11 x64 安装包支持管理员签发的 `.lxe-enroll` 设备文件�
 
 Main 使用一次 UAC 授权安装或复用 WireGuard 1.1 及更高版本。配置先由 WireGuard manager service 转换为 Local System 保护的 `.conf.dpapi`，再创建 `WireGuardTunnel$lxe-agent` 开机服务，所有明文临时配置随后删除。隧道只路由 `10.88.0.1/32`，不会接管员工电脑的普通上网流量。
 
-设备上传 Token 通过 `safeStorage` 写入 `secrets.bin`，非敏感设备信息写入 `desktop.json`。正式安装包自动注入私网 Data Server 地址、设备 Token 和 3600 秒同步周期；网络不可用时 Agent 保持运行，并在后续定时同步或用户点击“重试连接”时恢复。源码开发和现有 Mac 手工 WireGuard 配置不受此流程影响。
+设备上传 Token 通过 `safeStorage` 写入 `secrets.bin`，非敏感设备信息写入 `settings.json`。正式安装包自动注入私网 Data Server 地址和设备 Token；网络不可用时 Agent 保持运行，并在后续定时同步或用户点击“重试连接”时恢复。源码开发和现有 Mac 手工 WireGuard 配置不受此流程影响。
 
 桌面主进程使用设备 Token 每 60 秒调用一次只读设备状态接口，验证私网链路、服务端、数据库、Token 和机器绑定均可用。结果通过受控 IPC 推送到右下角运行状态弹层；Renderer 不接收 Token 或 Data Server 地址。云端离线或授权异常会进入全局告警，未配置和不支持的平台保持中性状态。
 
@@ -176,11 +181,7 @@ bun run verify:platform:win
 
 ## 日志与诊断
 
-全新桌面配置默认使用“标准”日志并保留 7 天；设置页还可选择“关闭”或需要二次确认的“排障”。源码开发也可在 `.env.local` 中设置：
-
-```text
-LOCAL_LOGS_ENABLED=1
-```
+全新桌面配置默认使用“标准”日志并保留 7 天；设置页还可选择“关闭”或需要二次确认的“排障”。Dashboard 和 Desktop 设置会把该偏好写入 `settings.json`，不再生成 `.env.local`。
 
 Desktop/Gateway、私有 Agent 和 Python 分别写入 `desktop.log`、`runtime.log` 和 `runtime-py.log`，统一位于项目 `var/logs/runtime/<YYYYMMDD>/`。Provider traces 和飞书诊断也统一放在 `var/logs/`；设置页会显示两个 TypeScript sink 的实际路径与失败原因。日志格式、脱敏和保留策略见 [Logging and runtime traces](../harness/logger.md)。
 

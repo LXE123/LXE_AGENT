@@ -18,8 +18,6 @@ import { resolveWorkspaceContext } from "@lxe/core";
 import {
   createDirectGatewayComposition,
   loadFeishuConfig,
-  loadProjectEnv,
-  loadRuntimeEnv,
   loadPermissionPolicy,
   ProcessAgentRuntime,
   type DirectGatewayComposition,
@@ -116,45 +114,24 @@ export class DesktopGateway {
       return;
     }
     const legacyWorkspace = resolveWorkspaceContext(setup.workspace_root);
-    const configuredEnvironment = withoutRetiredAgentTraceEnvironment(this.options.config.environment());
-    const resourceEnvironment = withoutRetiredAgentTraceEnvironment(loadRuntimeEnv({
-      runtimeEnvPath: this.options.paths.runtimeEnvPath,
-      initial: process.env,
-    }));
-    const persistedEnvironment = withoutRetiredAgentTraceEnvironment(loadProjectEnv({
-      projectRoot: this.options.paths.dataRoot,
-      initial: {},
-    }));
+    const configuredEnvironment = withoutRetiredAgentTraceEnvironment(
+      this.options.config.environment(),
+    );
+    const processEnvironment = withoutRetiredAgentTraceEnvironment(process.env);
     delete configuredEnvironment.LXE_WORKSPACE_ROOT;
-    delete resourceEnvironment.LXE_WORKSPACE_ROOT;
-    delete persistedEnvironment.LXE_WORKSPACE_ROOT;
-    for (const target of [configuredEnvironment, resourceEnvironment, persistedEnvironment]) {
+    delete processEnvironment.LXE_WORKSPACE_ROOT;
+    for (const target of [configuredEnvironment, processEnvironment]) {
       delete target.LXE_ROOT;
       delete target.LXE_RESOURCE_ROOT;
     }
-    const selectedProvider = configuredEnvironment.AGENT_LLM_PROVIDER;
-    const previousProvider = persistedEnvironment.AGENT_LLM_PROVIDER
-      || resourceEnvironment.AGENT_LLM_PROVIDER;
-    if (previousProvider && previousProvider !== selectedProvider) {
-      for (const name of [
-        "AGENT_LLM_MODEL",
-        "AGENT_LLM_THINKING_ENABLED",
-        "AGENT_LLM_THINKING_EFFORT",
-      ]) {
-        delete persistedEnvironment[name];
-        delete resourceEnvironment[name];
-      }
-    }
     const environment: Record<string, string | undefined> = {
-      ...withoutDataServerEnvironment(resourceEnvironment),
-      ...withoutDataServerEnvironment(persistedEnvironment),
+      ...withoutDataServerEnvironment(processEnvironment),
       ...withoutDataServerEnvironment(configuredEnvironment),
       LXE_AGENT_SOUL_PATH: this.options.paths.agentSoulPath,
       LXE_SKILLS_ROOT: this.options.paths.skillsRoot,
       LXE_USER_SKILLS_ROOT: this.options.paths.userSkillsRoot,
       LXE_LXESKILL_CATALOG_PATH: this.options.paths.lxeskillCatalogPath,
       LXE_LLM_CONFIG_ROOT: this.options.paths.llmConfigRoot,
-      LXE_RUNTIME_ENV_PATH: this.options.paths.runtimeEnvPath,
       LXE_PERMISSION_POLICY_PATH: this.options.paths.permissionPolicyPath,
       LXE_DATA_ROOT: this.options.paths.dataRoot,
       LXE_AGENT_SQLITE_DB_PATH: join(this.options.paths.dataRoot, "db", "agent.sqlite3"),
@@ -181,7 +158,7 @@ export class DesktopGateway {
       }),
       ...resolveDataServerRuntimeEnvironment({
         packaged: this.options.packaged,
-        sourceEnvironment: resourceEnvironment,
+        sourceEnvironment: { ...configuredEnvironment, ...processEnvironment },
         managedEnvironment: configuredEnvironment,
         machineIdentityPath: join(this.options.paths.dataRoot, "db", "machine_identity.json"),
       }),
@@ -203,7 +180,6 @@ export class DesktopGateway {
       userSkillsRoot: this.options.paths.userSkillsRoot,
       lxeskillCatalogPath: this.options.paths.lxeskillCatalogPath,
       llmConfigRoot: this.options.paths.llmConfigRoot,
-      runtimeEnvPath: this.options.paths.runtimeEnvPath,
       permissionPolicyPath: this.options.paths.permissionPolicyPath,
       dataRoot: this.options.paths.dataRoot,
       legacyWorkspace,
@@ -333,7 +309,20 @@ export class DesktopGateway {
       const items = await this.composition.parts.channels.healthSnapshot();
       return { items, total: Object.keys(items).length } as DashboardRpcResult<O>;
     }
-    return this.runtime.dashboardCall(call as AgentDashboardRpcCall) as Promise<DashboardRpcResult<O>>;
+    const result = await this.runtime.dashboardCall(call as AgentDashboardRpcCall) as DashboardRpcResult<O>;
+    if (call.operation === "models.update" || call.operation === "models.thinking.update") {
+      const model = result as unknown as {
+        provider: string;
+        model: string;
+        thinking_state: { level: string };
+      };
+      this.options.config.saveRuntimePreference(
+        model.provider,
+        model.model,
+        model.thinking_state.level,
+      );
+    }
+    return result;
   }
 
   health(): DesktopHealth {

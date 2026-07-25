@@ -3,10 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from shared.env_files import load_project_env
-
-load_project_env()
-
 
 def env_text(name: str, default: str = "") -> str:
     return str(os.getenv(name, default) or default).strip()

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteRuntimeStore, ToolRegistry, type RuntimeProviderManager } from "@lxe/runtime";
@@ -12,16 +12,6 @@ import {
 } from "../src/dashboard-service";
 
 const workspaceFor = (directory: string, worktree = directory) => ({ directory, worktree });
-const persistedEnvironment = (root: string, initial: Record<string, string>): Record<string, string> => {
-  const values = { ...initial };
-  for (const line of readFileSync(join(root, ".env.local"), "utf8").split(/\r?\n/u)) {
-    const separator = line.indexOf("=");
-    if (separator <= 0) continue;
-    values[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
-  }
-  return values;
-};
-
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
@@ -325,23 +315,21 @@ describe("DashboardService", () => {
       model: "k3",
       thinking_state: { enabled: true, level: "high", editable: true },
     });
-    const persistedAfterDeepseek = readFileSync(join(root, ".env.local"), "utf8");
-    expect(persistedAfterDeepseek).toContain("AGENT_LLM_MODEL_KIMI_CODING=k3");
-    expect(persistedAfterDeepseek).toContain("AGENT_LLM_THINKING_ENABLED_KIMI_CODING=1");
-    expect(persistedAfterDeepseek).toContain("AGENT_LLM_THINKING_EFFORT_KIMI_CODING=high");
-    expect(persistedAfterDeepseek).toContain("AGENT_LLM_MODEL_DEEPSEEK=deepseek-v4-pro");
-    expect(persistedAfterDeepseek).toContain("AGENT_LLM_THINKING_EFFORT_DEEPSEEK=high");
-
-    const restartedEnvironment = persistedEnvironment(root, {
-      KIMI_API_KEY: "test-key",
-      DEEPSEEK_API: "deepseek-key",
+    expect(environment).toMatchObject({
+      AGENT_LLM_MODEL_KIMI_CODING: "k3",
+      AGENT_LLM_THINKING_ENABLED_KIMI_CODING: "1",
+      AGENT_LLM_THINKING_EFFORT_KIMI_CODING: "high",
+      AGENT_LLM_MODEL_DEEPSEEK: "deepseek-v4-pro",
+      AGENT_LLM_THINKING_EFFORT_DEEPSEEK: "high",
     });
+    expect(existsSync(join(root, ".env.local"))).toBeFalse();
+
     const restartedService = new DashboardService({
       stateRoot: root,
       llmConfigRoot: join(root, "config", "llm"),
       skillsRoot: join(root, "skills"),
       userSkillsRoot: join(root, "user-skills"),
-      environment: restartedEnvironment,
+      environment: { ...environment },
       store,
       tools,
       mcpConfig: { servers: [] },

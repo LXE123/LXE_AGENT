@@ -16,7 +16,6 @@ const resourcePaths = (root: string) => ({
   userSkillsRoot: join(root, "user-skills"),
   lxeskillCatalogPath: join(root, "python", "lxeskill_cli", "lxeskill", "catalog.json"),
   llmConfigRoot: join(root, "config", "llm"),
-  runtimeEnvPath: join(root, "config", "runtime.env"),
   permissionPolicyPath: join(root, "config", "permission_policy.yaml"),
 });
 const agentJob = (): AgentJob => ({

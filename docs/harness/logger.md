@@ -16,14 +16,9 @@ The project separates three outputs with different audiences:
 
 Reducing terminal noise must not remove useful runtime diagnostics. Conversely, enabling detailed files must not print secrets or large payloads to the terminal.
 
-## Configuration
+## Runtime Projection
 
-- `LOG_LEVEL` controls the terminal threshold.
-- `RUNTIME_LOG_LEVEL` controls the managed runtime-file threshold.
-- `LOG_LEVELS` applies longest-prefix logger overrides for noisy or important modules.
-- `LOCAL_LOGS_ENABLED=1` enables local file writers.
-- `LOCAL_LOG_RETENTION_DAYS` controls cleanup of dated local log directories.
-- `AGENT_SSE_WIRE_TRACE_ENABLED` enables lower-level provider wire traces.
+Users select the `off`, `standard`, or `diagnostic` logging profile and retention period in Desktop settings. Desktop stores that choice in `var/config/settings.json` and projects the internal `LOG_LEVEL`, `RUNTIME_LOG_LEVEL`, `LOCAL_LOGS_ENABLED`, retention, and trace variables into child processes. Those environment names are process transport, not user-owned configuration files.
 
 Terminal logs always use the human-readable pretty format; managed files use JSONL. Local files are written below the active `LXE_DATA_ROOT/logs/` tree with product-owned file names. Trace writers use dated session/turn directories so one failing call can be inspected without scanning an entire process log.
 
@@ -35,10 +30,7 @@ var/logs/sse_wire_traces/YYYYMMDD/HHMM_<session>/<turn>/step_<zero-based-step>_a
 
 Each successful attempt records `request_start`, `response_start`, every SDK `wire_event`, and one `request_end`. A failure before an HTTP response omits `response_start`. Existing legacy `provider.jsonl` files are retained, but new turns do not create them.
 
-`LOCAL_LOGS_ENABLED` governs local file writes only. Ordinary console logging remains available when local logs are disabled.
-New Desktop installations use the `standard` profile, which enables `INFO` files with seven-day retention. The source
-runtime defaults remain disabled until `.env.local` opts in. Both Desktop processes emit `logging_configured` with the
-effective level, disabled reason, and resolved path during startup.
+`LOCAL_LOGS_ENABLED` governs local file writes only. Ordinary console logging remains available when local logs are disabled. New Desktop installations use the `standard` profile, which enables `INFO` files with seven-day retention. Both Desktop processes emit `logging_configured` with the effective level, disabled reason, and resolved path during startup.
 
 File responsibilities are intentionally separate:
 

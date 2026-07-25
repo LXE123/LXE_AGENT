@@ -27,8 +27,14 @@ export class DesktopConfigStore {
   ) {
     const validation = new DesktopConfigValidation(options);
     const repository = new DesktopConfigRepository(dataRoot, safeStorage, validation.platform);
-    this.setup = new DesktopSetupService(dataRoot, defaultWorkspaceRoot, repository, validation);
-    this.cloud = new DesktopCloudConfigService(repository);
+    this.setup = new DesktopSetupService(
+      dataRoot,
+      defaultWorkspaceRoot,
+      repository,
+      validation,
+      options.secretEnvironment,
+    );
+    this.cloud = new DesktopCloudConfigService(repository, options.secretEnvironment);
     this.environmentImport = new DesktopEnvironmentImport(repository, this.setup, validation);
     this.legacyEnvironment = new LegacyEnvironmentMigration(repository, this.setup, validation);
   }
@@ -39,6 +45,10 @@ export class DesktopConfigStore {
 
   save(input: DesktopSetupInput): DesktopSetupState {
     return this.setup.save(input);
+  }
+
+  saveRuntimePreference(provider: string, model: string, thinkingLevel: string): void {
+    this.setup.saveRuntimePreference(provider, model, thinkingLevel);
   }
 
   cloudConfiguration(): DesktopCloudConfiguration {

@@ -1,16 +1,21 @@
-import { join } from "node:path";
 import { readFileSync } from "node:fs";
 
 export type Environment = Record<string, string>;
 
-export interface ProjectEnvOptions {
-  projectRoot: string;
-  initial?: Readonly<Record<string, string | undefined>>;
-  readFile?: (path: string) => string | undefined;
-}
+export const DEVELOPMENT_SECRET_ENV_NAMES = new Set([
+  "DEEPSEEK_API",
+  "KIMI_CODE_API_KEY",
+  "GLM_API_KEY",
+  "FEISHU_APP_SECRET",
+  "MABANG_PASSWORD",
+  "ZINIAO_PASSWORD",
+  "LXE_DATA_SERVER_API_KEY",
+  "LXE_DATA_SERVER_FALLBACK_API_KEY",
+  "LXE_ERP_API_KEY",
+]);
 
-export interface RuntimeEnvOptions {
-  runtimeEnvPath: string;
+export interface EnvironmentFilesOptions {
+  paths: readonly string[];
   initial?: Readonly<Record<string, string | undefined>>;
   readFile?: (path: string) => string | undefined;
 }
@@ -64,18 +69,14 @@ const defaultReadFile = (path: string): string | undefined => {
   }
 };
 
-export function loadProjectEnv(options: ProjectEnvOptions): Environment {
+/** Legacy/import-only dotenv reader. Runtime composition must consume the resolved environment. */
+export function loadEnvironmentFiles(options: EnvironmentFilesOptions): Environment {
   const result: Environment = {};
   for (const [name, value] of Object.entries(options.initial ?? process.env)) {
     if (value !== undefined) result[name] = value;
   }
   const readFile = options.readFile ?? defaultReadFile;
-  const paths = [
-    join(options.projectRoot, ".env"),
-    join(options.projectRoot, ".env.local"),
-    join(options.projectRoot, "config", "runtime.env"),
-  ];
-  for (const path of paths) {
+  for (const path of options.paths) {
     const content = readFile(path);
     if (content === undefined) continue;
     for (const [name, value] of parseEnvFile(content)) {
@@ -85,15 +86,11 @@ export function loadProjectEnv(options: ProjectEnvOptions): Environment {
   return result;
 }
 
-export function loadRuntimeEnv(options: RuntimeEnvOptions): Environment {
+export function developmentSecretEnvironment(environment: Readonly<Record<string, string | undefined>>): Environment {
   const result: Environment = {};
-  for (const [name, value] of Object.entries(options.initial ?? process.env)) {
-    if (value !== undefined) result[name] = value;
-  }
-  const content = (options.readFile ?? defaultReadFile)(options.runtimeEnvPath);
-  if (content === undefined) return result;
-  for (const [name, value] of parseEnvFile(content)) {
-    if (!(name in result)) result[name] = value;
+  for (const name of DEVELOPMENT_SECRET_ENV_NAMES) {
+    const value = environment[name];
+    if (value !== undefined && value.trim()) result[name] = value;
   }
   return result;
 }

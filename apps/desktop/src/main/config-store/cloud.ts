@@ -4,15 +4,22 @@ import type {
   DesktopCloudEnrollmentConfig,
 } from "./public-types";
 import type { DesktopConfigRepository } from "./repository";
+import { effectiveDesktopSecrets } from "./secrets";
 
 export class DesktopCloudConfigService {
-  constructor(private readonly repository: DesktopConfigRepository) {}
+  constructor(
+    private readonly repository: DesktopConfigRepository,
+    private readonly secretEnvironment: Readonly<Record<string, string | undefined>> = {},
+  ) {}
 
   configuration(): DesktopCloudConfiguration {
     const cloud = this.repository.readConfig().cloud;
     return {
       ...cloud,
-      api_key_configured: Boolean(text(this.repository.readSecrets().data_server_api_key)),
+      api_key_configured: Boolean(text(effectiveDesktopSecrets(
+        this.repository.readSecrets(),
+        this.secretEnvironment,
+      ).data_server_api_key)),
     };
   }
 
@@ -28,6 +35,8 @@ export class DesktopCloudConfigService {
       device_name: text(input.deviceName),
       vpn_ip: text(input.vpnIp),
       data_server_url: text(input.dataServerUrl).replace(/\/+$/u, ""),
+      local_fallback_enabled: config.cloud.local_fallback_enabled,
+      local_fallback_url: config.cloud.local_fallback_url,
       tunnel_name: text(input.tunnelName) || "lxe-agent",
     };
     if (!config.cloud.device_id || !config.cloud.device_name || !config.cloud.vpn_ip

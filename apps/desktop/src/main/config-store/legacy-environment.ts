@@ -1,9 +1,10 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   flag,
   logRetention,
   MIGRATION_VERSION,
+  OUTPUT_DIRECTORY_ENV_NAMES,
   text,
   ziniaoVersion,
 } from "./model";
@@ -12,7 +13,17 @@ import type { DesktopConfigRepository } from "./repository";
 import type { DesktopSetupService } from "./setup";
 import type { DesktopConfigValidation } from "./validation";
 
-const SECRET_ENV_NAMES = new Set(["ZINIAO_PASSWORD", "MABANG_PASSWORD", "FEISHU_APP_SECRET"]);
+const SECRET_ENV_NAMES = new Set([
+  "DEEPSEEK_API",
+  "KIMI_CODE_API_KEY",
+  "GLM_API_KEY",
+  "ZINIAO_PASSWORD",
+  "MABANG_PASSWORD",
+  "FEISHU_APP_SECRET",
+  "LXE_DATA_SERVER_API_KEY",
+  "LXE_DATA_SERVER_FALLBACK_API_KEY",
+  "LXE_ERP_API_KEY",
+]);
 
 export class LegacyEnvironmentMigration {
   constructor(
@@ -28,6 +39,31 @@ export class LegacyEnvironmentMigration {
     const secrets = this.repository.readSecrets();
     const environment = options.environment;
     const legacyText = (name: string): string => text(environment[name]);
+
+    const providerKeys = {
+      kimi_coding: legacyText("KIMI_CODE_API_KEY"),
+      deepseek: legacyText("DEEPSEEK_API"),
+      glm: legacyText("GLM_API_KEY"),
+    } as const;
+    for (const [provider, key] of Object.entries(providerKeys)) {
+      if (key) secrets.provider_keys[provider as keyof typeof providerKeys] = key;
+    }
+    const rawProvider = legacyText("AGENT_LLM_PROVIDER").toLowerCase().replaceAll("-", "_");
+    if (rawProvider === "kimi_coding" || rawProvider === "deepseek" || rawProvider === "glm") {
+      config.llm.provider = rawProvider;
+    }
+    const model = legacyText("AGENT_LLM_MODEL");
+    const thinkingEnabled = legacyText("AGENT_LLM_THINKING_ENABLED");
+    const thinkingEffort = legacyText("AGENT_LLM_THINKING_EFFORT");
+    if (model || thinkingEnabled || thinkingEffort) {
+      const previous = config.llm.profiles[config.llm.provider];
+      config.llm.profiles[config.llm.provider] = {
+        model: model || previous?.model || "",
+        thinking_level: thinkingEnabled && !flag(thinkingEnabled)
+          ? "off"
+          : thinkingEffort || previous?.thinking_level || "off",
+      };
+    }
 
     const ziniaoValues = [
       legacyText("ZINIAO_COMPANY"),
@@ -64,6 +100,24 @@ export class LegacyEnvironmentMigration {
       };
       secrets.feishu_app_secret = legacyText("FEISHU_APP_SECRET") || secrets.feishu_app_secret;
     }
+    const dataServerUrl = legacyText("LXE_DATA_SERVER_URL");
+    const dataServerApiKey = legacyText("LXE_DATA_SERVER_API_KEY");
+    if (dataServerUrl || dataServerApiKey) {
+      config.cloud.managed = flag(legacyText("LXE_DATA_SERVER_ENABLED")) || config.cloud.managed;
+      config.cloud.data_server_url = dataServerUrl || config.cloud.data_server_url;
+      secrets.data_server_api_key = dataServerApiKey || secrets.data_server_api_key;
+    }
+    const fallbackUrl = legacyText("LXE_DATA_SERVER_FALLBACK_URL");
+    const fallbackApiKey = legacyText("LXE_DATA_SERVER_FALLBACK_API_KEY");
+    if (fallbackUrl || fallbackApiKey || legacyText("LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED")) {
+      config.cloud.local_fallback_enabled = flag(legacyText("LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED"));
+      config.cloud.local_fallback_url = fallbackUrl || config.cloud.local_fallback_url;
+      secrets.data_server_fallback_api_key = fallbackApiKey || secrets.data_server_fallback_api_key;
+    }
+    secrets.erp_api_key = legacyText("LXE_ERP_API_KEY") || secrets.erp_api_key;
+    for (const name of OUTPUT_DIRECTORY_ENV_NAMES) {
+      config.output_directories[name] = legacyText(name) || config.output_directories[name];
+    }
     if (this.repository.hadExistingConfig) {
       const logsEnabled = legacyText("LOCAL_LOGS_ENABLED");
       if (logsEnabled) {
@@ -84,6 +138,7 @@ export class LegacyEnvironmentMigration {
     config.migration_version = 0;
     this.repository.commit(config, secrets);
     for (const path of options.managedFiles ?? []) this.removeMigratedSecrets(path);
+    for (const path of options.retiredFiles ?? []) rmSync(path, { force: true });
     config.migration_version = MIGRATION_VERSION;
     this.repository.commit(config, secrets);
     return this.setup.state();

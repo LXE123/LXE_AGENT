@@ -13,6 +13,7 @@ REMOVED_PATHS = (
     "python/lxeskill_cli/shared/db/sqlite/session_messages.py",
     "python/lxeskill_cli/shared/db/sqlite/session_transcripts.py",
     "python/lxeskill_cli/shared/agent_state.py",
+    "python/lxeskill_cli/shared/env_files.py",
     "python/lxeskill_cli/shared/infra/artifact_io.py",
     "python/lxeskill_cli/shared/media",
     "python/lxeskill_cli/services/browser/store/agent_tool_state.py",
@@ -35,10 +36,6 @@ REMOVED_SYMBOLS = {
     ),
     "python/lxeskill_cli/shared/db/sqlite/engine.py": ("dispose",),
     "python/lxeskill_cli/shared/db/store_sessions_client.py": ("init_schema",),
-    "python/lxeskill_cli/shared/env_files.py": (
-        "upsert_project_env_values",
-        "upsert_project_local_config_values",
-    ),
     "python/lxeskill_cli/shared/infra/net/aiohttp_client.py": ("get_aiohttp_session",),
     "python/lxeskill_cli/shared/infra/net/requests_client.py": ("get_requests_session",),
     "python/lxeskill_cli/shared/log_retention.py": (

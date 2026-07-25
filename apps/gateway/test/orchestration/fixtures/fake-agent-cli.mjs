@@ -19,9 +19,9 @@ for await (const line of input) {
   const request = JSON.parse(line);
   if (request.command === "initialize") {
     const lxeskillAvailable = process.env.FAKE_LXESKILL_UNAVAILABLE !== "1";
-    write({ version: 7, type: "system.ready", payload: { state: "ready", logging: loggingStatus } });
+    write({ version: 8, type: "system.ready", payload: { state: "ready", logging: loggingStatus } });
     write({
-      version: 7,
+      version: 8,
       id: request.id,
       ok: true,
       result: {
@@ -39,7 +39,7 @@ for await (const line of input) {
         last_error: "disk unavailable",
       };
       setTimeout(() => write({
-        version: 7,
+        version: 8,
         type: "system.status",
         payload: {
           state: "ready",
@@ -49,7 +49,7 @@ for await (const line of input) {
     }
     if (process.env.FAKE_SESSION_CHANGE_EVENT === "1") {
       setTimeout(() => write({
-        version: 7,
+        version: 8,
         type: "session.changed",
         thread_id: "session-1",
         payload: { changes: ["messages"] },
@@ -71,7 +71,7 @@ for await (const line of input) {
       if (resultMode === "missing_steering") delete result.remaining_steering;
       if (resultMode === "malformed_steering") result.remaining_steering = [{ text: "follow up", message_id: 42 }];
       if (resultMode === "negative_counter") result.input_tokens = -1;
-      write({ version: 7, id: request.id, ok: true, result });
+      write({ version: 8, id: request.id, ok: true, result });
       continue;
     }
     activeRunRequest = request;
@@ -84,7 +84,7 @@ for await (const line of input) {
       process.exit(23);
     }
     write({
-      version: 7,
+      version: 8,
       id: request.id,
       ok: true,
       result: { items: [], total: 0 },
@@ -95,10 +95,10 @@ for await (const line of input) {
     cancelCount += 1;
     const active = activeRunRequest;
     activeRunRequest = undefined;
-    write({ version: 7, id: request.id, ok: true, result: { cancelled: Boolean(active) } });
+    write({ version: 8, id: request.id, ok: true, result: { cancelled: Boolean(active) } });
     if (active) {
       setTimeout(() => write({
-        version: 7,
+        version: 8,
         id: active.id,
         ok: true,
         result: {
@@ -121,18 +121,18 @@ for await (const line of input) {
         message_id: request.payload.message_id,
       });
     }
-    write({ version: 7, id: request.id, ok: true, result: { accepted: Boolean(activeRunRequest) } });
+    write({ version: 8, id: request.id, ok: true, result: { accepted: Boolean(activeRunRequest) } });
     continue;
   }
   if (request.command === "shutdown") {
-    write({ version: 7, type: "system.status", payload: { state: "stopped" } });
+    write({ version: 8, type: "system.status", payload: { state: "stopped" } });
     process.stdout.write(`${JSON.stringify({
-      version: 7,
+      version: 8,
       id: request.id,
       ok: true,
       result: { stopped: true },
     })}\n`, () => process.exit(0));
     continue;
   }
-  write({ version: 7, id: request.id, ok: true, result: {} });
+  write({ version: 8, id: request.id, ok: true, result: {} });
 }

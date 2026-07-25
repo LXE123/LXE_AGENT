@@ -58,7 +58,7 @@ describe("DesktopConfigStore", () => {
     const serializedState = JSON.stringify(state);
     for (const secret of ["model-secret", "ziniao-secret", "mabang-secret", "feishu-secret"]) {
       expect(serializedState).not.toContain(secret);
-      expect(readFileSync(join(root, "config", "desktop.json"), "utf8")).not.toContain(secret);
+      expect(readFileSync(join(root, "config", "settings.json"), "utf8")).not.toContain(secret);
     }
     const environment = store.environment();
     expect(environment).toMatchObject({
@@ -75,6 +75,43 @@ describe("DesktopConfigStore", () => {
     });
     expect(environment).not.toHaveProperty("AGENT_STREAM_TRACE_ENABLED");
     expect(environment).not.toHaveProperty("AGENT_STREAM_TRACE_DIR");
+  });
+
+  test("uses source-development secrets without migrating them into encrypted storage", () => {
+    const root = createRoot();
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, {
+      platform: "darwin",
+      secretEnvironment: {
+        KIMI_CODE_API_KEY: "source-model-secret",
+        DEEPSEEK_API: "source-deepseek-secret",
+        MABANG_PASSWORD: "source-mabang-secret",
+        FEISHU_APP_SECRET: "source-feishu-secret",
+      },
+    });
+
+    expect(store.state()).toMatchObject({ complete: true, provider_key_configured: true });
+    expect(store.save({
+      provider: "kimi_coding",
+      workspace_root: join(root, "workspace"),
+      mabang: { action: "save", account: "source-account" },
+      feishu: { action: "save", app_id: "source-app-id" },
+    })).toMatchObject({
+      complete: true,
+      mabang: { configured: true, password_configured: true },
+      feishu: { configured: true, app_secret_configured: true },
+    });
+    expect(store.environment()).toMatchObject({
+      KIMI_CODE_API_KEY: "source-model-secret",
+      DEEPSEEK_API: "source-deepseek-secret",
+      MABANG_PASSWORD: "source-mabang-secret",
+      FEISHU_APP_SECRET: "source-feishu-secret",
+    });
+    store.saveRuntimePreference("kimi_coding", "k3", "high");
+    const persistedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
+    expect(persistedSecrets).not.toContain("source-model-secret");
+    expect(persistedSecrets).not.toContain("source-deepseek-secret");
+    expect(persistedSecrets).not.toContain("source-mabang-secret");
+    expect(persistedSecrets).not.toContain("source-feishu-secret");
   });
 
   test("preserves blank secret patches and explicitly clears an integration", () => {
@@ -134,6 +171,7 @@ describe("DesktopConfigStore", () => {
       "FEISHU_APP_SECRET=legacy-plain-secret",
       "LOCAL_LOGS_ENABLED=0",
       "LOCAL_LOG_RETENTION_DAYS=30",
+      "LXE_DATA_SERVER_API_KEY=data-secret",
       "UNCHANGED=value",
     ].join("\n"));
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
@@ -145,6 +183,14 @@ describe("DesktopConfigStore", () => {
         FEISHU_APP_SECRET: "legacy-plain-secret",
         LOCAL_LOGS_ENABLED: "0",
         LOCAL_LOG_RETENTION_DAYS: "30",
+        AGENT_LLM_PROVIDER: "deepseek",
+        AGENT_LLM_MODEL: "deepseek-v4-pro",
+        AGENT_LLM_THINKING_ENABLED: "1",
+        AGENT_LLM_THINKING_EFFORT: "max",
+        MABANG_STOCK_SKU_EXPORT_DIR: "/tmp/legacy-stock-output",
+        LXE_DATA_SERVER_ENABLED: "1",
+        LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
+        LXE_DATA_SERVER_API_KEY: "data-secret",
       },
       managedFiles: [managedEnv],
     });
@@ -160,8 +206,35 @@ describe("DesktopConfigStore", () => {
     expect(cleaned).toContain("UNCHANGED=value");
     expect(cleaned).not.toContain("MABANG_PASSWORD");
     expect(cleaned).not.toContain("FEISHU_APP_SECRET");
+    expect(cleaned).not.toContain("LXE_DATA_SERVER_API_KEY");
+    expect(store.environment()).toMatchObject({
+      AGENT_LLM_MODEL: "deepseek-v4-pro",
+      AGENT_LLM_THINKING_EFFORT: "max",
+      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
+      LXE_DATA_SERVER_API_KEY: "data-secret",
+      MABANG_STOCK_SKU_EXPORT_DIR: "/tmp/legacy-stock-output",
+    });
     expect(store.migrateLegacyEnvironment({ environment: { MABANG_ACCOUNT: "changed" } }).mabang.account)
       .toBe("mabang-user");
+  });
+
+  test("deletes retired dotenv files only after their settings are committed", () => {
+    const root = createRoot();
+    const retired = join(root, ".env.local");
+    writeFileSync(retired, "AGENT_LLM_PROVIDER=kimi_coding\nLOCAL_LOGS_ENABLED=0\n");
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, {
+      secretEnvironment: { KIMI_CODE_API_KEY: "source-secret" },
+    });
+
+    const state = store.migrateLegacyEnvironment({
+      environment: { AGENT_LLM_PROVIDER: "kimi_coding", LOCAL_LOGS_ENABLED: "0" },
+      retiredFiles: [retired],
+    });
+
+    expect(state.legacy_environment_imported).toBeTrue();
+    expect(existsSync(retired)).toBeFalse();
+    expect(store.environment().KIMI_CODE_API_KEY).toBe("source-secret");
   });
 
   test("uses standard logging for a new install and validates platform app paths", () => {
@@ -200,7 +273,7 @@ describe("DesktopConfigStore", () => {
       api_key: "secret",
       workspace_root: join(root, "workspace"),
     })).toThrow("Secure credential storage is unavailable");
-    expect(existsSync(join(root, "config", "desktop.json"))).toBe(false);
+    expect(existsSync(join(root, "config", "settings.json"))).toBe(false);
   });
 
   test("requires an explicitly selected workspace to already exist", () => {
@@ -260,6 +333,35 @@ describe("DesktopConfigStore", () => {
     expect(store.environment()).not.toHaveProperty("LXE_WORKSPACE_ROOT");
   });
 
+  test("persists Dashboard model preferences in settings instead of dotenv", () => {
+    const root = createRoot();
+    const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage);
+    store.save({
+      provider: "kimi_coding",
+      api_key: "secret",
+      workspace_root: join(root, "workspace"),
+    });
+
+    store.saveRuntimePreference("kimi_coding", "k3", "max");
+
+    expect(store.environment()).toMatchObject({
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "k3",
+      AGENT_LLM_THINKING_ENABLED: "1",
+      AGENT_LLM_THINKING_EFFORT: "max",
+      AGENT_LLM_MODEL_KIMI_CODING: "k3",
+      AGENT_LLM_THINKING_EFFORT_KIMI_CODING: "max",
+    });
+    expect(existsSync(join(root, ".env.local"))).toBeFalse();
+    expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8"))).toMatchObject({
+      schema_version: 4,
+      llm: {
+        provider: "kimi_coding",
+        profiles: { kimi_coding: { model: "k3", thinking_level: "max" } },
+      },
+    });
+  });
+
   test("stores cloud metadata separately from the encrypted upload token", () => {
     const root = createRoot();
     const opaqueStorage = {
@@ -279,7 +381,7 @@ describe("DesktopConfigStore", () => {
     });
 
     expect(cloud).toMatchObject({ managed: true, vpn_ip: "10.88.0.8", api_key_configured: true });
-    const publicConfig = readFileSync(join(root, "config", "desktop.json"), "utf8");
+    const publicConfig = readFileSync(join(root, "config", "settings.json"), "utf8");
     expect(publicConfig).toContain("Finance-PC-01");
     expect(publicConfig).not.toContain("secret-value");
     expect(publicConfig).not.toContain("erp-dedicated-secret");

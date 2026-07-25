@@ -42,8 +42,12 @@ describe("DesktopConfigImportManager", () => {
     const file = writeEnv(root, [
       "# Existing deployment configuration",
       "export AGENT_LLM_PROVIDER=deepseek",
+      "AGENT_LLM_MODEL=deepseek-v4-pro",
+      "AGENT_LLM_THINKING_ENABLED=1",
+      "AGENT_LLM_THINKING_EFFORT=max",
       "DEEPSEEK_API='deepseek-secret'",
       "LXE_WORKSPACE_ROOT=./workspace",
+      "MABANG_STOCK_SKU_EXPORT_DIR=./exports/stock-sku",
       "ZINIAO_COMPANY=First Company",
       "ZINIAO_COMPANY=Ignored Duplicate",
       "ZINIAO_USERNAME=ziniao-user",
@@ -58,6 +62,10 @@ describe("DesktopConfigImportManager", () => {
       "LOCAL_LOGS_ENABLED=1",
       "LOCAL_LOG_RETENTION_DAYS=14",
       "RUNTIME_LOG_LEVEL=DEBUG",
+      "LXE_DATA_SERVER_ENABLED=1",
+      "LXE_DATA_SERVER_URL=http://127.0.0.1:18000",
+      "LXE_DATA_SERVER_API_KEY=data-server-secret",
+      "LXE_ERP_API_KEY=erp-secret",
       "UNRELATED_SETTING=ignored",
     ].join("\n"));
 
@@ -69,13 +77,15 @@ describe("DesktopConfigImportManager", () => {
     });
     expect(preview.groups.map((group) => [group.group, group.status])).toEqual([
       ["base", "ready"],
+      ["outputs", "ready"],
       ["ziniao", "ready"],
       ["mabang", "ready"],
       ["feishu", "ready"],
       ["logging", "ready"],
+      ["cloud", "ready"],
     ]);
     const serializedPreview = JSON.stringify(preview);
-    for (const secret of ["deepseek-secret", "ziniao-secret", "mabang-secret", "feishu-secret"]) {
+    for (const secret of ["deepseek-secret", "ziniao-secret", "mabang-secret", "feishu-secret", "data-server-secret", "erp-secret"]) {
       expect(serializedPreview).not.toContain(secret);
     }
     expect(serializedPreview).not.toContain(file);
@@ -102,13 +112,21 @@ describe("DesktopConfigImportManager", () => {
       FEISHU_APP_SECRET: "feishu-secret",
       LOCAL_LOGS_ENABLED: "1",
       RUNTIME_LOG_LEVEL: "DEBUG",
+      AGENT_LLM_MODEL: "deepseek-v4-pro",
+      AGENT_LLM_THINKING_EFFORT: "max",
+      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
+      LXE_DATA_SERVER_API_KEY: "data-server-secret",
+      LXE_ERP_API_KEY: "erp-secret",
+      MABANG_STOCK_SKU_EXPORT_DIR: join(root, "exports", "stock-sku"),
     });
-    const desktopJson = readFileSync(join(root, "config", "desktop.json"), "utf8");
+    const settingsJson = readFileSync(join(root, "config", "settings.json"), "utf8");
     const encryptedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
-    for (const secret of ["deepseek-secret", "ziniao-secret", "mabang-secret", "feishu-secret"]) {
-      expect(desktopJson).not.toContain(secret);
+    for (const secret of ["deepseek-secret", "ziniao-secret", "mabang-secret", "feishu-secret", "data-server-secret", "erp-secret"]) {
+      expect(settingsJson).not.toContain(secret);
       expect(encryptedSecrets).not.toContain(secret);
     }
+    expect(settingsJson).toContain(join(root, "exports", "stock-sku"));
     expect(() => manager.apply(preview.import_id)).toThrow("不存在或已失效");
   });
 
@@ -334,7 +352,7 @@ describe("DesktopConfigImportManager", () => {
     const manager = new DesktopConfigImportManager(store);
     const preview = manager.select(writeEnv(root, "KIMI_CODE_API_KEY=secret\n"));
     expect(() => manager.apply(preview.import_id)).toThrow("encryption failed");
-    expect(existsSync(join(root, "config", "desktop.json"))).toBe(false);
+    expect(existsSync(join(root, "config", "settings.json"))).toBe(false);
     expect(existsSync(join(root, "config", "secrets.bin"))).toBe(false);
   });
 });

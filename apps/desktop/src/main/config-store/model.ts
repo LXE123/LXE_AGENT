@@ -6,11 +6,32 @@ import type {
   DesktopZiniaoVersion,
 } from "@lxe/desktop-protocol";
 
+export const OUTPUT_DIRECTORY_ENV_NAMES = [
+  "MABANG_STOCK_SKU_EXPORT_DIR",
+  "MABANG_FBA_STORE_RESOLVER_OUTPUT_DIR",
+  "MABANG_STORE_MSKU_OUTPUT_DIR",
+  "MABANG_STORE_MSKU_ANALYSIS_OUTPUT_DIR",
+  "MABANG_STORE_MSKU_INVENTORY_OUTPUT_DIR",
+  "MABANG_STORE_MSKU_REPLENISHMENT_OUTPUT_DIR",
+  "MABANG_FBA_UNLINKED_SHIPMENTS_OUTPUT_DIR",
+  "MABANG_MSKU_DETAIL_OUTPUT_DIR",
+  "FBA_DELIVERY_CSV_DIR",
+] as const;
+
+export type OutputDirectoryEnvironmentName = typeof OUTPUT_DIRECTORY_ENV_NAMES[number];
+
 export interface DesktopConfig {
-  schema_version: 3;
+  schema_version: 4;
   migration_version: number;
-  provider: DesktopSetupInput["provider"];
+  llm: {
+    provider: DesktopSetupInput["provider"];
+    profiles: Partial<Record<DesktopSetupInput["provider"], {
+      model: string;
+      thinking_level: string;
+    }>>;
+  };
   workspace_root: string;
+  output_directories: Record<OutputDirectoryEnvironmentName, string>;
   integrations: {
     ziniao: {
       managed: boolean;
@@ -33,6 +54,8 @@ export interface DesktopConfig {
     device_name: string;
     vpn_ip: string;
     data_server_url: string;
+    local_fallback_enabled: boolean;
+    local_fallback_url: string;
     tunnel_name: string;
   };
 }
@@ -43,17 +66,28 @@ export interface DesktopSecrets {
   mabang_password: string;
   feishu_app_secret: string;
   data_server_api_key: string;
+  data_server_fallback_api_key: string;
   erp_api_key: string;
 }
 
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
-export const MIGRATION_VERSION = 1;
+export const MIGRATION_VERSION = 2;
+
+export const SETTINGS_SCHEMA_VERSION = 4 as const;
 
 const DEFAULT_CONFIG: DesktopConfig = {
-  schema_version: 3,
+  schema_version: SETTINGS_SCHEMA_VERSION,
   migration_version: 0,
-  provider: "kimi_coding",
+  llm: {
+    provider: "kimi_coding",
+    profiles: {
+      kimi_coding: { model: "kimi-for-coding", thinking_level: "high" },
+    },
+  },
   workspace_root: "",
+  output_directories: Object.fromEntries(
+    OUTPUT_DIRECTORY_ENV_NAMES.map((name) => [name, ""]),
+  ) as DesktopConfig["output_directories"],
   integrations: {
     ziniao: {
       managed: false,
@@ -73,6 +107,8 @@ const DEFAULT_CONFIG: DesktopConfig = {
     device_name: "",
     vpn_ip: "",
     data_server_url: "",
+    local_fallback_enabled: false,
+    local_fallback_url: "",
     tunnel_name: "lxe-agent",
   },
 };
@@ -83,6 +119,7 @@ const DEFAULT_SECRETS: DesktopSecrets = {
   mabang_password: "",
   feishu_app_secret: "",
   data_server_api_key: "",
+  data_server_fallback_api_key: "",
   erp_api_key: "",
 };
 
@@ -114,25 +151,156 @@ export const logProfile = (value: unknown): DesktopLogProfile => {
 export const cloneConfig = (): DesktopConfig => structuredClone(DEFAULT_CONFIG);
 export const cloneSecrets = (): DesktopSecrets => structuredClone(DEFAULT_SECRETS);
 
+const secretFieldPattern = /(?:secret|password|api[_-]?key|token)/iu;
+
+const assertNoSecretFields = (value: unknown, path = "settings"): void => {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoSecretFields(item, `${path}[${index}]`));
+    return;
+  }
+  for (const [name, item] of Object.entries(value as Record<string, unknown>)) {
+    if (secretFieldPattern.test(name)) throw new Error(`settings contains a secret field: ${path}.${name}`);
+    assertNoSecretFields(item, `${path}.${name}`);
+  }
+};
+
+const assertFieldTypes = (
+  value: Record<string, unknown>,
+  fields: Readonly<Record<string, "boolean" | "number" | "string">>,
+  path: string,
+): void => {
+  for (const [name, expected] of Object.entries(fields)) {
+    if (typeof value[name] !== expected) {
+      throw new Error(`${path}.${name} must be a ${expected}`);
+    }
+  }
+};
+
+const assertOnlyFields = (
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  path: string,
+): void => {
+  const allowedFields = new Set(allowed);
+  const unknown = Object.keys(value).find((name) => !allowedFields.has(name));
+  if (unknown) throw new Error(`${path}.${unknown} is not a supported setting`);
+};
+
+export const parseSettings = (raw: unknown, platform: DesktopPlatform): DesktopConfig => {
+  const value = objectValue(raw);
+  if (value.schema_version !== SETTINGS_SCHEMA_VERSION) {
+    throw new Error(`unsupported settings schema_version: ${String(value.schema_version ?? "missing")}`);
+  }
+  assertNoSecretFields(value);
+  assertOnlyFields(value, [
+    "schema_version",
+    "migration_version",
+    "llm",
+    "workspace_root",
+    "output_directories",
+    "integrations",
+    "logging",
+    "cloud",
+  ], "settings");
+  assertFieldTypes(value, { migration_version: "number", workspace_root: "string" }, "settings");
+  const llm = objectValue(value.llm);
+  assertOnlyFields(llm, ["provider", "profiles"], "settings.llm");
+  assertFieldTypes(llm, { provider: "string" }, "settings.llm");
+  if (!llm.profiles || typeof llm.profiles !== "object" || Array.isArray(llm.profiles)) {
+    throw new Error("settings.llm.profiles must be an object");
+  }
+  for (const [name, profile] of Object.entries(objectValue(llm.profiles))) {
+    if (!(["kimi_coding", "deepseek", "glm"] as string[]).includes(name)) {
+      throw new Error(`settings.llm.profiles.${name} is not a supported setting`);
+    }
+    const profileValue = objectValue(profile);
+    assertOnlyFields(profileValue, ["model", "thinking_level"], `settings.llm.profiles.${name}`);
+    assertFieldTypes(profileValue, { model: "string", thinking_level: "string" }, `settings.llm.profiles.${name}`);
+  }
+  const outputDirectories = objectValue(value.output_directories);
+  assertOnlyFields(outputDirectories, OUTPUT_DIRECTORY_ENV_NAMES, "settings.output_directories");
+  for (const name of OUTPUT_DIRECTORY_ENV_NAMES) {
+    if (value.output_directories !== undefined && typeof outputDirectories[name] !== "string") {
+      throw new Error(`settings.output_directories.${name} must be a string`);
+    }
+  }
+  const integrations = objectValue(value.integrations);
+  const ziniao = objectValue(integrations.ziniao);
+  const mabang = objectValue(integrations.mabang);
+  const feishu = objectValue(integrations.feishu);
+  assertOnlyFields(integrations, ["ziniao", "mabang", "feishu"], "settings.integrations");
+  assertOnlyFields(ziniao, [
+    "managed", "company", "username", "app_version", "app_path", "webdriver_path",
+  ], "settings.integrations.ziniao");
+  assertOnlyFields(mabang, ["managed", "account"], "settings.integrations.mabang");
+  assertOnlyFields(feishu, ["managed", "app_id"], "settings.integrations.feishu");
+  assertFieldTypes(ziniao, {
+    managed: "boolean", company: "string", username: "string", app_version: "string",
+    app_path: "string", webdriver_path: "string",
+  }, "settings.integrations.ziniao");
+  assertFieldTypes(mabang, { managed: "boolean", account: "string" }, "settings.integrations.mabang");
+  assertFieldTypes(feishu, { managed: "boolean", app_id: "string" }, "settings.integrations.feishu");
+  const logging = objectValue(value.logging);
+  const cloud = objectValue(value.cloud);
+  assertOnlyFields(logging, ["profile", "retention_days"], "settings.logging");
+  assertOnlyFields(cloud, [
+    "managed", "device_id", "device_name", "vpn_ip", "data_server_url",
+    "local_fallback_enabled", "local_fallback_url", "tunnel_name",
+  ], "settings.cloud");
+  assertFieldTypes(logging, { profile: "string", retention_days: "number" }, "settings.logging");
+  assertFieldTypes(cloud, {
+    managed: "boolean", device_id: "string", device_name: "string", vpn_ip: "string",
+    data_server_url: "string", local_fallback_enabled: "boolean", local_fallback_url: "string",
+    tunnel_name: "string",
+  }, "settings.cloud");
+  return parseConfig(value, platform);
+};
+
 export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopConfig => {
   const value = objectValue(raw);
-  const provider = text(value.provider);
+  const rawLlm = objectValue(value.llm);
+  const provider = text(rawLlm.provider || value.provider);
+  const rawProfiles = objectValue(rawLlm.profiles);
   const integrations = objectValue(value.integrations);
   const rawZiniao = objectValue(integrations.ziniao);
   const rawMabang = objectValue(integrations.mabang);
   const rawFeishu = objectValue(integrations.feishu);
   const rawLogging = objectValue(value.logging);
   const rawCloud = objectValue(value.cloud);
+  const rawOutputDirectories = objectValue(value.output_directories);
   const legacyFeishuAppId = text(value.feishu_app_id);
+  const normalizedProvider = ["kimi_coding", "deepseek", "glm"].includes(provider)
+    ? provider as DesktopConfig["llm"]["provider"]
+    : DEFAULT_CONFIG.llm.provider;
+  const profiles: DesktopConfig["llm"]["profiles"] = {};
+  for (const name of ["kimi_coding", "deepseek", "glm"] as const) {
+    const profile = objectValue(rawProfiles[name]);
+    const model = text(profile.model);
+    const thinkingLevel = text(profile.thinking_level);
+    if (model || thinkingLevel) {
+      profiles[name] = {
+        model,
+        thinking_level: thinkingLevel || "off",
+      };
+    }
+  }
+  if (Object.keys(profiles).length === 0 && normalizedProvider === "kimi_coding") {
+    profiles.kimi_coding = structuredClone(DEFAULT_CONFIG.llm.profiles.kimi_coding!);
+  }
   return {
-    schema_version: 3,
+    schema_version: SETTINGS_SCHEMA_VERSION,
     migration_version: Number.isFinite(Number(value.migration_version))
       ? Math.max(0, Math.trunc(Number(value.migration_version)))
       : 0,
-    provider: ["kimi_coding", "deepseek", "glm"].includes(provider)
-      ? provider as DesktopConfig["provider"]
-      : DEFAULT_CONFIG.provider,
+    llm: {
+      provider: normalizedProvider,
+      profiles,
+    },
     workspace_root: text(value.workspace_root),
+    output_directories: Object.fromEntries(
+      OUTPUT_DIRECTORY_ENV_NAMES.map((name) => [name, text(rawOutputDirectories[name])]),
+    ) as DesktopConfig["output_directories"],
     integrations: {
       ziniao: {
         managed: Boolean(rawZiniao.managed),
@@ -161,6 +329,8 @@ export const parseConfig = (raw: unknown, platform: DesktopPlatform): DesktopCon
       device_name: text(rawCloud.device_name),
       vpn_ip: text(rawCloud.vpn_ip),
       data_server_url: text(rawCloud.data_server_url),
+      local_fallback_enabled: Boolean(rawCloud.local_fallback_enabled),
+      local_fallback_url: text(rawCloud.local_fallback_url),
       tunnel_name: text(rawCloud.tunnel_name) || "lxe-agent",
     },
   };
@@ -179,6 +349,7 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
     mabang_password: text(value.mabang_password),
     feishu_app_secret: text(value.feishu_app_secret),
     data_server_api_key: text(value.data_server_api_key),
+    data_server_fallback_api_key: text(value.data_server_fallback_api_key),
     erp_api_key: text(value.erp_api_key),
   };
 };

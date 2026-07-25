@@ -44,12 +44,6 @@ def skills_root(*, environment: Mapping[str, str] | None = None) -> Path:
     return Path(configured).expanduser().resolve() if configured else (repository_root() / "skills").resolve()
 
 
-def runtime_env_path(*, environment: Mapping[str, str] | None = None) -> Path:
-    env = os.environ if environment is None else environment
-    configured = str(env.get("LXE_RUNTIME_ENV_PATH") or "").strip()
-    return Path(configured).expanduser().resolve() if configured else (repository_root() / "config" / "runtime.env").resolve()
-
-
 def state_root(*, environment: Mapping[str, str] | None = None) -> Path:
     """Return the canonical writable ``var`` root."""
     env = os.environ if environment is None else environment
@@ -62,4 +56,4 @@ def state_root(*, environment: Mapping[str, str] | None = None) -> Path:
         return (Path.cwd() / "var").resolve()
 
 
-__all__ = ["find_repository_root", "repository_root", "runtime_env_path", "skills_root", "state_root"]
+__all__ = ["find_repository_root", "repository_root", "skills_root", "state_root"]

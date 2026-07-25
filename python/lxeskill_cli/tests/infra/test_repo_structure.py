@@ -150,15 +150,6 @@ def _repository_directories_below(prefix: str) -> set[str]:
     return directories
 
 
-def _runtime_env_keys() -> set[str]:
-    keys: set[str] = set()
-    for line in (REPO_ROOT / "config" / "runtime.env").read_text("utf-8").splitlines():
-        match = re.match(r"([A-Z][A-Z0-9_]*)=", line.strip())
-        if match:
-            keys.add(match.group(1))
-    return keys
-
-
 def _production_dependency_names() -> set[str]:
     configuration = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text("utf-8"))
     dependencies = configuration.get("project", {}).get("dependencies", [])
@@ -239,15 +230,6 @@ def test_lxeskill_cli_container_is_not_a_python_package() -> None:
     container_init = REPO_ROOT / "python" / "lxeskill_cli" / "__init__.py"
     assert not container_init.exists(), (
         "python/lxeskill_cli is a source-closure container, not a public package"
-    )
-
-
-def test_new_runtime_env_keys_use_the_lxe_prefix() -> None:
-    added = _runtime_env_keys() - LEGACY_RUNTIME_ENV_KEYS
-    offenders = sorted(key for key in added if not key.startswith("LXE_"))
-    assert offenders == [], (
-        "new runtime env keys must use the LXE_ prefix "
-        f"(legacy prefixes are frozen): {offenders}"
     )
 
 

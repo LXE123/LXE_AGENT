@@ -122,6 +122,7 @@ Draft or archive：
 - `docs/harness/skill/` 敏感旧记录第一批：删除 1 个真正空占位文件，保留 7 篇脱敏旧 skill 流程记录；保留业务流程、关键 endpoint/selector 思路和字段说明，不把它们提升为当前运行时 skill 文档。
 - `docs/harness/skill/README.md` 和 `docs/harness/skill/current_skill_catalog.md`：已按当前 26 个顶层 repository skills（另含 27 个 Lark CLI 嵌套 manifest）重建 discovery、校验、权限/connector 过滤、按需激活、command ownership 和三类业务目录。
 - `docs/harness/logger.md`：已补终端/文件/trace 三层输出、级别覆盖、async context、敏感信息脱敏和本地保留策略。
+- `docs/desktop/README.md`：已补 `settings.json + secrets.bin` 配置职责、旧 dotenv 迁移、原子写入和子进程环境注入边界。
 - `docs/database/local_agent.md`：已补 SQLite 与 JSONL transcript 分工、light/full load path、replacement checkpoint、本地状态安全和备份恢复边界。
 - `docs/harness/skill/` 物理规范化：旧草稿、阶段记录、脱敏流程记录和紫鸟参考资料已分流到 `archive/` 和 `reference/`，归档目录已对齐当前 runtime skill slug，并统一标题、状态头和 truth source 说明；未修改 `/skills/*/SKILL.md`。
 
@@ -130,7 +131,6 @@ Draft or archive：
 后续批次优先补这些：
 
 - Dashboard 使用说明：本地 URL、功能 tab、API endpoints、模型切换、thinking 设置和后台任务视图。
-- 环境配置说明：`.env.example` 中 LLM、Feishu、Mabang、Ziniao、Dashboard、Data Server、trace 的配置含义。
 - Feishu 平台说明：消息进入、CardKit 回复、typing indicator、媒体处理和必要 app scopes。
 
 ## Notes

@@ -22,7 +22,11 @@ import type {
   DesktopSetupInput,
   DesktopSetupState,
 } from "@lxe/desktop-protocol";
-import { loadProjectEnv, loadRuntimeEnv } from "@lxe/gateway/desktop";
+import {
+  DEVELOPMENT_SECRET_ENV_NAMES,
+  developmentSecretEnvironment,
+  loadEnvironmentFiles,
+} from "@lxe/gateway/desktop";
 import { IPC_CHANNELS } from "./ipc-channels";
 import { registerDashboardProtocol } from "./main/app-protocol";
 import { createTrayIcon } from "./main/brand";
@@ -151,12 +155,6 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
 async function bootstrap(): Promise<void> {
   const desktopEnvironment = process.env;
   const paths = desktopPaths;
-  const previewCloudTarget = launchMode === "preview"
-    ? resolvePreviewDataServerTarget(loadProjectEnv({
-        projectRoot: paths.sourceRoot,
-        initial: desktopEnvironment,
-      }))
-    : undefined;
   const brandAssets = resolveDesktopBrandAssets({
     packaged: app.isPackaged,
     platform: desktopPlatform,
@@ -164,19 +162,39 @@ async function bootstrap(): Promise<void> {
     sourceRoot: paths.sourceRoot,
   });
   bootstrapDesktopState(paths.mcpDefaultPath, paths.dataRoot);
+  const sourceEnvironment = packagedRuntime
+    ? {}
+    : loadEnvironmentFiles({ paths: [join(paths.sourceRoot, ".env")], initial: {} });
+  const sourceSecretEnvironment = packagedRuntime
+    ? {}
+    : developmentSecretEnvironment({ ...sourceEnvironment, ...desktopEnvironment });
   const config = new DesktopConfigStore(
     paths.dataRoot,
     paths.defaultWorkspaceRoot,
     safeStorage,
-    { platform: desktopPlatform },
+    { platform: desktopPlatform, secretEnvironment: sourceSecretEnvironment },
   );
+  const sourceLegacyEnvironment = Object.fromEntries(
+    Object.entries(sourceEnvironment).filter(([name]) => !DEVELOPMENT_SECRET_ENV_NAMES.has(name)),
+  );
+  const legacyEnvironmentPaths = [
+    ...(!packagedRuntime ? [join(paths.sourceRoot, ".env.local")] : []),
+    join(paths.dataRoot, ".env"),
+    join(paths.dataRoot, ".env.local"),
+  ];
   config.migrateLegacyEnvironment({
-    environment: {
-      ...loadRuntimeEnv({ runtimeEnvPath: paths.runtimeEnvPath, initial: desktopEnvironment }),
-      ...loadProjectEnv({ projectRoot: paths.dataRoot, initial: {} }),
-    },
-    managedFiles: [join(paths.dataRoot, ".env"), join(paths.dataRoot, ".env.local")],
+    environment: loadEnvironmentFiles({
+      paths: legacyEnvironmentPaths,
+      initial: sourceLegacyEnvironment,
+    }),
+    retiredFiles: legacyEnvironmentPaths,
   });
+  const previewCloudTarget = launchMode === "preview"
+    ? resolvePreviewDataServerTarget({
+        ...config.environment(),
+        ...desktopEnvironment,
+      })
+    : undefined;
   const configImports = new DesktopConfigImportManager(config);
   const broadcastHealth = (health: DesktopHealth): void => {
     for (const browserWindow of BrowserWindow.getAllWindows()) {
@@ -199,8 +217,7 @@ async function bootstrap(): Promise<void> {
   const logging = new DesktopLoggingManager({
     dataRoot: paths.dataRoot,
     environment: () => ({
-      ...loadRuntimeEnv({ runtimeEnvPath: paths.runtimeEnvPath, initial: desktopEnvironment }),
-      ...loadProjectEnv({ projectRoot: paths.dataRoot, initial: {} }),
+      ...desktopEnvironment,
       ...config.environment(),
     }),
     onStatusChange: () => {

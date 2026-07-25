@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
-import { loadProjectEnv } from "@lxe/gateway/desktop";
 import {
   resolveDataServerRuntimeEnvironment,
   resolvePreviewDataServerTarget,
@@ -36,26 +34,16 @@ describe("desktop data server policy", () => {
     })).toBeUndefined();
   });
 
-  test("uses the repository environment for source development and Preview", () => {
-    const files: Record<string, string> = {
-      [join("/worktree", ".env")]: "LXE_DATA_SERVER_API_KEY=source-secret\nLXE_ERP_API_KEY=source-erp-secret\n",
-      [join("/worktree", ".env.local")]: [
-        "LXE_DATA_SERVER_ENABLED=1",
-        "LXE_DATA_SERVER_URL=http://127.0.0.1:18000",
-        "LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED=1",
-        "LXE_DATA_SERVER_FALLBACK_URL=http://127.0.0.1:18001",
-        "LXE_DATA_SERVER_FALLBACK_API_KEY=fallback-secret",
-      ].join("\n"),
-      [join("/worktree", "config", "runtime.env")]: [
-        "LXE_DATA_SERVER_ENABLED=0",
-      ].join("\n"),
+  test("uses the resolved settings environment for source development and Preview", () => {
+    const sourceEnvironment = {
+      LXE_DATA_SERVER_ENABLED: "1",
+      LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
+      LXE_DATA_SERVER_API_KEY: "source-secret",
+      LXE_ERP_API_KEY: "source-erp-secret",
+      LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "1",
+      LXE_DATA_SERVER_FALLBACK_URL: "http://127.0.0.1:18001",
+      LXE_DATA_SERVER_FALLBACK_API_KEY: "fallback-secret",
     };
-    const sourceEnvironment = loadProjectEnv({
-      projectRoot: "/worktree",
-      initial: {},
-      readFile: (path) => files[path],
-    });
-
     const environment = resolveDataServerRuntimeEnvironment({
       packaged: false,
       sourceEnvironment,

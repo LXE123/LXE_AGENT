@@ -1,46 +1,47 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { configureLogging } from "../packages/foundation/core/src/index";
 import { resolveDataServerRuntimeEnvironment } from "../apps/desktop/src/main/data-server-policy";
-import { loadProjectEnv } from "../apps/gateway/src/bootstrap/env";
 import { MaintenanceScheduler } from "../packages/agent/runtime/src/operations/maintenance";
 import { SqliteRuntimeStore } from "../packages/agent/runtime/src/state/storage";
 
-test("Preview repository env uploads to the configured Data Server without logging its API key", async () => {
+const serveOnAvailablePort = (fetch: (request: Request) => Promise<Response>) => {
+  const firstPort = 49_152 + (process.pid % 10_000);
+  for (let offset = 0; offset < 100; offset += 1) {
+    try {
+      return Bun.serve({ hostname: "127.0.0.1", port: firstPort + offset, fetch });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+    }
+  }
+  throw new Error("No available local port for Preview Data Server smoke test");
+};
+
+test("Preview settings environment uploads to the configured Data Server without logging its API key", async () => {
   const root = mkdtempSync(join(tmpdir(), "lxe-preview-data-server-smoke-"));
   const dataRoot = join(root, "var");
   const apiKey = "preview-only-secret";
   const managedSecret = "managed-secret-must-not-win";
   const uploads: Array<{ authorization: string; body: string }> = [];
-  const server = Bun.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    fetch: async (request) => {
-      const body = await request.text();
-      uploads.push({
-        authorization: request.headers.get("authorization") ?? "",
-        body,
-      });
-      const turns = (JSON.parse(body) as { turns: Array<{ sequence: number }> }).turns;
-      return Response.json({
-        accepted_count: turns.length,
-        accepted_through_sequence: turns.at(-1)?.sequence ?? 0,
-      });
-    },
+  const server = serveOnAvailablePort(async (request) => {
+    const body = await request.text();
+    uploads.push({
+      authorization: request.headers.get("authorization") ?? "",
+      body,
+    });
+    const turns = (JSON.parse(body) as { turns: Array<{ sequence: number }> }).turns;
+    return Response.json({
+      accepted_count: turns.length,
+      accepted_through_sequence: turns.at(-1)?.sequence ?? 0,
+    });
   });
-  mkdirSync(join(root, "config"), { recursive: true });
-  writeFileSync(join(root, ".env"), `LXE_DATA_SERVER_API_KEY=${apiKey}\n`, "utf8");
-  writeFileSync(join(root, ".env.local"), [
-    "LXE_DATA_SERVER_ENABLED=1",
-    `LXE_DATA_SERVER_URL=http://127.0.0.1:${server.port}`,
-  ].join("\n"), "utf8");
-  writeFileSync(join(root, "config", "runtime.env"), [
-    "LXE_DATA_SERVER_ENABLED=0",
-  ].join("\n"), "utf8");
-
-  const sourceEnvironment = loadProjectEnv({ projectRoot: root, initial: {} });
+  const sourceEnvironment = {
+    LXE_DATA_SERVER_ENABLED: "1",
+    LXE_DATA_SERVER_URL: `http://127.0.0.1:${server.port}`,
+    LXE_DATA_SERVER_API_KEY: apiKey,
+  };
   const environment = {
     ...resolveDataServerRuntimeEnvironment({
       packaged: false,

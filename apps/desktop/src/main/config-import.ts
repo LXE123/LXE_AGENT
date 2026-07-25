@@ -7,12 +7,21 @@ import type {
 } from "@lxe/desktop-protocol";
 import { parseEnvFile } from "@lxe/gateway/desktop";
 import type { DesktopConfigStore, PreparedDesktopConfigImport } from "./config-store";
+import { OUTPUT_DIRECTORY_ENV_NAMES } from "./config-store/model";
 
 const MAX_IMPORT_BYTES = 1024 * 1024;
 const IMPORT_TTL_MS = 10 * 60 * 1000;
-const PATH_VARIABLES = new Set(["LXE_WORKSPACE_ROOT", "ZINIAO_CLIENT_PATH", "ZINIAO_WEBDRIVER_PATH"]);
+const PATH_VARIABLES = new Set([
+  "LXE_WORKSPACE_ROOT",
+  "ZINIAO_CLIENT_PATH",
+  "ZINIAO_WEBDRIVER_PATH",
+  ...OUTPUT_DIRECTORY_ENV_NAMES,
+]);
 const SUPPORTED_VARIABLES = new Set([
   "AGENT_LLM_PROVIDER",
+  "AGENT_LLM_MODEL",
+  "AGENT_LLM_THINKING_ENABLED",
+  "AGENT_LLM_THINKING_EFFORT",
   "KIMI_CODE_API_KEY",
   "DEEPSEEK_API",
   "GLM_API_KEY",
@@ -33,6 +42,14 @@ const SUPPORTED_VARIABLES = new Set([
   "AGENT_SSE_WIRE_TRACE_ENABLED",
   "ZINIAO_DIAGNOSTIC_TRACE_ENABLED",
   "FEISHU_RAW_EVENT_DUMP_ENABLED",
+  "LXE_DATA_SERVER_ENABLED",
+  "LXE_DATA_SERVER_URL",
+  "LXE_DATA_SERVER_API_KEY",
+  "LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED",
+  "LXE_DATA_SERVER_FALLBACK_URL",
+  "LXE_DATA_SERVER_FALLBACK_API_KEY",
+  "LXE_ERP_API_KEY",
+  ...OUTPUT_DIRECTORY_ENV_NAMES,
 ]);
 
 interface ConfigImportDraft {

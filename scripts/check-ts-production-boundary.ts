@@ -36,14 +36,16 @@ const forbidDependency = (path: string, dependency: string, message: string): vo
 forbidText("package.json", /main\.py|agent_runtime\.worker/, "workspace scripts must not start Python production code");
 forbidText("package.json", /gateway:(?:dev|watch|start|stop|build)/, "workspace must not expose a standalone Gateway CLI");
 forbidText("apps/gateway/package.json", /"(?:dev|watch|start|stop|build)"\s*:/, "Gateway package must be a desktop library only");
-forbidText("config/runtime.env", /AGENT_DASHBOARD_(?:ENABLED|HOST|PORT|PORT_AUTO_FALLBACK|OPEN_BROWSER)/, "runtime must not expose browser Dashboard settings");
+forbidPath("config/runtime.env", "runtime defaults must be owned by code and settings.json");
+forbidPath(".env.local.example", "local preferences must be stored in settings.json");
 forbidText("apps/dashboard/src/api/client.ts", /\bfetch\b|VITE_API_BASE_URL|HttpDashboardTransport/, "Renderer API must use Electron IPC only");
 forbidText("apps/dashboard/src/api/queries.ts", /\/api\/|URLSearchParams|encodeURIComponent/, "Renderer queries must send typed Dashboard RPC inputs");
 forbidText("apps/agent-cli/src/dashboard-service.ts", /\bRequest\b|\bResponse\b|Response\.json|request\.json|new URL/, "Dashboard service must not emulate HTTP");
 forbidText("apps/agent-cli/src/runtime-host.ts", /dashboard_request|new Request|new URL|response\.status/, "Agent host must forward typed Dashboard RPC calls directly");
 forbidText("apps/desktop/src/main/ipc-validation.ts", /\/api\/|GET_PATHS|PATCH_PATHS/, "Desktop IPC must validate Dashboard operations instead of paths");
 forbidText("packages/foundation/desktop-protocol/src/index.ts", /dashboard_request|DashboardRequestPayload/, "agent protocol must not expose the retired pseudo-REST command");
-requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*7\s+as const/, "agent protocol must remain on the strict v7 explicit-resource contract");
+requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*8\s+as const/, "agent protocol must use the settings-store v8 contract");
+forbidText("packages/foundation/desktop-protocol/src/index.ts", /runtime_env_path/, "agent protocol must not expose a dotenv path");
 requireText("packages/foundation/desktop-protocol/src/index.ts", /type:\s*"session\.changed"/, "agent protocol must expose persisted session changes");
 forbidText("apps/desktop/src/main/dashboard-invalidation.ts", /item\.completed/, "outbound item events must not invalidate Dashboard session data");
 forbidText("apps/dashboard/src/api/queries.ts", /ACTIVE_DATA_REFRESH_INTERVAL_MS/, "session queries must remain push-driven instead of restoring shared polling");
@@ -74,13 +76,14 @@ for (const pathName of ["userData", "sessionData", "temp", "logs", "crashDumps"]
 forbidText("apps/desktop/src/preview.ts", /https?:\/\/|\bfetch\b|VITE|5173|8765|LXE_DASHBOARD_DEV_URL\s*=/, "production preview must not start or target an HTTP Renderer");
 requireText("apps/desktop/src/main.ts", /usesProductionRenderer\(launchMode\)/, "desktop must select the Renderer independently from packaging");
 requireText("apps/desktop/src/main.ts", /usesPackagedRuntime\(launchMode\)/, "desktop must keep preview on the source Runtime");
-requireText("apps/desktop/src/main/desktop-gateway.ts", /sourceEnvironment:\s*resourceEnvironment/, "source development and Preview must use the repository Data Server environment");
+requireText("apps/desktop/src/main/desktop-gateway.ts", /sourceEnvironment:\s*\{ \.\.\.configuredEnvironment, \.\.\.processEnvironment \}/, "source development and Preview must use the resolved settings environment");
 requireText("apps/desktop/src/main/desktop-gateway.ts", /managedEnvironment:\s*configuredEnvironment/, "packaged Desktop must use the managed Data Server environment");
 requireText("apps/desktop/src/main/desktop-gateway.ts", /withoutDataServerEnvironment\(configuredEnvironment\)/, "Gateway must remove inherited Data Server values before applying its mode policy");
 requireText("apps/desktop/src/main/desktop-gateway.ts", /machineIdentityPath:\s*join\(this\.options\.paths\.dataRoot, "db", "machine_identity\.json"\)/, "Data Server machine identity must remain under the canonical var root");
 requireText("scripts/install.sh", /REF="lxe-agent-TUI"/, "legacy shell installer must forward to the TUI product line");
 requireText("scripts/install.ps1", /\$Ref\s*=\s*"lxe-agent-TUI"/, "legacy PowerShell installer must forward to the TUI product line");
-forbidText("config/runtime.env", /LXE_SCRIPT_TOOL_BRIDGE_ENABLED/, "runtime configuration must not restore the retired bridge gate");
+forbidText("apps/agent-cli/src/dashboard-service.ts", /\.env\.local|persistEnvironment/, "Agent Dashboard must not persist dotenv files");
+requireText("apps/desktop/src/main/config-store/repository.ts", /"settings\.json"/, "Desktop configuration must persist to settings.json");
 
 forbidDependency("apps/agent-cli/package.json", "@lxe/gateway", "Agent host must not depend on Gateway");
 forbidDependency("apps/gateway/package.json", "@lxe/runtime", "Gateway must depend on runtime ports, not the concrete Runtime");

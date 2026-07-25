@@ -163,7 +163,6 @@ describe("ExecShellAdapter", () => {
         LXE_USER_SKILLS_ROOT: "/home/tester/.agents/skills",
         LXE_LXESKILL_CATALOG_PATH: "/resources/lxeskill/catalog.json",
         LXE_LLM_CONFIG_ROOT: "/resources/config/llm",
-        LXE_RUNTIME_ENV_PATH: "/resources/config/runtime.env",
         LXE_PERMISSION_POLICY_PATH: "/resources/config/permission_policy.yaml",
         LXE_DATA_ROOT: "/state",
         LXE_ROOT: "/legacy",
@@ -181,10 +180,34 @@ describe("ExecShellAdapter", () => {
     expect(environment.LXE_ROOT).toBeUndefined();
     expect(environment.LXE_RESOURCE_ROOT).toBeUndefined();
     expect(environment.LXE_SKILLS_ROOT).toBe("/resources/skills");
-    expect(environment.LXE_RUNTIME_ENV_PATH).toBe("/resources/config/runtime.env");
     expect(environment.LXE_PERMISSION_POLICY_PATH).toBe("/resources/config/permission_policy.yaml");
     expect(environment.LXE_DATA_ROOT).toBe("/state");
     expect(environment.LXE_WORKSPACE_ROOT).toBe("/workspace");
+  });
+
+  test("passes resolved Data Server settings to summary-create lxeskill children", () => {
+    const managedPython = "/managed/python/bin/python";
+    const shell = new ExecShellAdapter({
+      platform: "darwin",
+      environment: {
+        LXE_MANAGED_PYTHON: managedPython,
+        LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
+        LXE_ERP_API_KEY: "erp-test-secret",
+      },
+      fileExists: (path) => path === managedPython,
+    });
+
+    const environment = shell.childEnvironment("/workspace", {
+      sessionId: "s1", turnId: "t1", responseRouteId: "r1", execSessionId: "e1",
+    });
+    expect(environment.LXE_DATA_SERVER_URL).toBe("http://127.0.0.1:18000");
+    expect(environment.LXE_ERP_API_KEY).toBe("erp-test-secret");
+    expect(shell.normalizeCommand(
+      "/workspace",
+      "lxeskill fba purchase summary-create --help",
+    )).toBe(
+      "'/managed/python/bin/python' '-I' '-B' '-m' 'lxeskill' fba purchase summary-create --help",
+    );
   });
 
   test("uses managed Python and ignores removed frozen-runtime overrides", () => {

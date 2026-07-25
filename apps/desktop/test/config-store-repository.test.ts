@@ -32,9 +32,9 @@ describe("DesktopConfigRepository", () => {
     const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
     expect(repository.hadExistingConfig).toBeFalse();
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 3,
+      schema_version: 4,
       migration_version: 0,
-      provider: "kimi_coding",
+      llm: { provider: "kimi_coding" },
       logging: { profile: "standard", retention_days: 7 },
       cloud: { tunnel_name: "lxe-agent" },
     });
@@ -50,13 +50,15 @@ describe("DesktopConfigRepository", () => {
       cloud: { sync_interval_seconds: 1 },
     }));
     expect(repository.readConfig()).toMatchObject({
-      schema_version: 3,
+      schema_version: 4,
       migration_version: 0,
-      provider: "kimi_coding",
+      llm: { provider: "kimi_coding" },
       integrations: { feishu: { managed: true, app_id: "legacy-app-id" } },
       logging: { profile: "standard", retention_days: 7 },
       cloud: { tunnel_name: "lxe-agent" },
     });
+    expect(existsSync(join(root, "config", "settings.json"))).toBeTrue();
+    expect(existsSync(join(root, "config", "desktop.json.migrated-v3.bak"))).toBeTrue();
   });
 
   test("keeps every secret encrypted and fails closed without secure storage", () => {
@@ -77,7 +79,7 @@ describe("DesktopConfigRepository", () => {
     secrets.erp_api_key = "erp-secret";
     repository.commit(config, secrets);
 
-    const publicConfig = readFileSync(join(root, "config", "desktop.json"), "utf8");
+    const publicConfig = readFileSync(join(root, "config", "settings.json"), "utf8");
     const encryptedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
     for (const secret of [
       "provider-secret",
@@ -114,13 +116,13 @@ describe("DesktopConfigRepository", () => {
     const originalSecrets = cloneSecrets();
     originalSecrets.provider_keys.glm = "original-secret";
     repository.commit(originalConfig, originalSecrets);
-    const configPath = join(root, "config", "desktop.json");
+    const configPath = join(root, "config", "settings.json");
     const secretsPath = join(root, "config", "secrets.bin");
     const beforeConfig = readFileSync(configPath);
     const beforeSecrets = readFileSync(secretsPath);
 
     const changedConfig = cloneConfig();
-    changedConfig.provider = "glm";
+    changedConfig.llm.provider = "glm";
     const changedSecrets = cloneSecrets();
     changedSecrets.provider_keys.glm = "changed-secret";
     encryptionFails = true;
@@ -135,5 +137,64 @@ describe("DesktopConfigRepository", () => {
     expect(readFileSync(secretsPath)).toEqual(beforeSecrets);
     expect(existsSync(configPath)).toBeTrue();
     expect(existsSync(secretsPath)).toBeTrue();
+  });
+
+  test("rejects invalid or secret-bearing settings without overwriting them", () => {
+    const root = createRoot();
+    const configRoot = join(root, "config");
+    mkdirSync(configRoot, { recursive: true });
+    const settingsPath = join(configRoot, "settings.json");
+    writeFileSync(settingsPath, "{ invalid json", "utf8");
+    const invalidJson = new DesktopConfigRepository(root, safeStorage, "darwin");
+    expect(() => invalidJson.readConfig()).toThrow();
+    expect(readFileSync(settingsPath, "utf8")).toBe("{ invalid json");
+
+    const secretBearing = { ...cloneConfig(), api_key: "must-not-be-public" };
+    writeFileSync(settingsPath, JSON.stringify(secretBearing), "utf8");
+    const invalidSecret = new DesktopConfigRepository(root, safeStorage, "darwin");
+    expect(() => invalidSecret.readConfig()).toThrow("settings contains a secret field");
+    expect(readFileSync(settingsPath, "utf8")).toContain("must-not-be-public");
+
+    const invalidOutputDirectory = cloneConfig() as unknown as Record<string, unknown>;
+    invalidOutputDirectory.output_directories = { MABANG_STOCK_SKU_EXPORT_DIR: 42 };
+    writeFileSync(settingsPath, JSON.stringify(invalidOutputDirectory), "utf8");
+    const invalidOutput = new DesktopConfigRepository(root, safeStorage, "darwin");
+    expect(() => invalidOutput.readConfig())
+      .toThrow("settings.output_directories.MABANG_STOCK_SKU_EXPORT_DIR must be a string");
+
+    const unknownSetting = { ...cloneConfig(), workspace_rooot: "/typo" };
+    writeFileSync(settingsPath, JSON.stringify(unknownSetting), "utf8");
+    const invalidUnknown = new DesktopConfigRepository(root, safeStorage, "darwin");
+    expect(() => invalidUnknown.readConfig())
+      .toThrow("settings.workspace_rooot is not a supported setting");
+  });
+
+  test("refuses to overwrite settings changed outside the repository", () => {
+    const root = createRoot();
+    const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
+    const config = repository.readConfig();
+    repository.commit(config, repository.readSecrets());
+    const settingsPath = join(root, "config", "settings.json");
+    const external = cloneConfig();
+    external.workspace_root = "/external-edit";
+    writeFileSync(settingsPath, `${JSON.stringify(external, null, 2)}\n`, "utf8");
+
+    config.workspace_root = "/in-process-edit";
+    expect(() => repository.commit(config, repository.readSecrets())).toThrow("changed outside LXE Agent");
+    expect(JSON.parse(readFileSync(settingsPath, "utf8")).workspace_root).toBe("/external-edit");
+  });
+
+  test("refuses a concurrent write while the settings lock is active", () => {
+    const root = createRoot();
+    const repository = new DesktopConfigRepository(root, safeStorage, "darwin");
+    const config = repository.readConfig();
+    repository.commit(config, repository.readSecrets());
+    writeFileSync(join(root, "config", "settings.lock"), "active", "utf8");
+
+    config.workspace_root = "/concurrent-edit";
+    expect(() => repository.commit(config, repository.readSecrets()))
+      .toThrow("settings.json is being updated by another process");
+    expect(JSON.parse(readFileSync(join(root, "config", "settings.json"), "utf8")).workspace_root)
+      .toBe("");
   });
 });

@@ -12,7 +12,6 @@ export interface DesktopPaths {
   userSkillsRoot: string;
   lxeskillCatalogPath: string;
   llmConfigRoot: string;
-  runtimeEnvPath: string;
   permissionPolicyPath: string;
   mcpDefaultPath: string;
   dataRoot: string;
@@ -100,9 +99,6 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     llmConfigRoot: options.packaged
       ? targetPath.join(options.resourcesPath, "config", "llm")
       : targetPath.join(sourceRoot, "config", "llm"),
-    runtimeEnvPath: options.packaged
-      ? targetPath.join(options.resourcesPath, "config", "runtime.env")
-      : targetPath.join(sourceRoot, "config", "runtime.env"),
     permissionPolicyPath: options.packaged
       ? targetPath.join(options.resourcesPath, "config", "permission_policy.yaml")
       : targetPath.join(sourceRoot, "config", "permission_policy.yaml"),

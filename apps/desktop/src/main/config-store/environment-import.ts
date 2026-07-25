@@ -8,6 +8,7 @@ import {
   flag,
   LOG_RETENTION_DAYS,
   MIGRATION_VERSION,
+  OUTPUT_DIRECTORY_ENV_NAMES,
   text,
   ziniaoVersion,
 } from "./model";
@@ -68,16 +69,31 @@ export class DesktopEnvironmentImport {
     }
     if (explicitProvider) {
       if (secrets.provider_keys[explicitProvider]) {
-        if (config.provider !== explicitProvider) baseOverwrites.push("模型服务");
-        config.provider = explicitProvider;
+        if (config.llm.provider !== explicitProvider) baseOverwrites.push("模型服务");
+        config.llm.provider = explicitProvider;
       } else {
         warnings.push("文件指定的模型服务没有对应 API Key，已保留当前模型服务");
       }
-    } else if (!secrets.provider_keys[config.provider]) {
-      if (importedProviders.length === 1) config.provider = importedProviders[0]!;
+    } else if (!secrets.provider_keys[config.llm.provider]) {
+      if (importedProviders.length === 1) config.llm.provider = importedProviders[0]!;
       else if (importedProviders.length > 1) {
         warnings.push("检测到多个模型 API Key，无法自动选择模型服务，请在导入后手动选择");
       }
+    }
+    const importedModel = imported("AGENT_LLM_MODEL");
+    const importedThinkingEnabled = imported("AGENT_LLM_THINKING_ENABLED");
+    const importedThinkingEffort = imported("AGENT_LLM_THINKING_EFFORT");
+    if (importedModel || importedThinkingEnabled || importedThinkingEffort) {
+      const previous = config.llm.profiles[config.llm.provider];
+      const thinkingLevel = importedThinkingEnabled && !flag(importedThinkingEnabled)
+        ? "off"
+        : importedThinkingEffort || previous?.thinking_level || "off";
+      config.llm.profiles[config.llm.provider] = {
+        model: importedModel || previous?.model || "",
+        thinking_level: thinkingLevel,
+      };
+      baseFields.push("模型运行偏好");
+      if (previous) baseOverwrites.push("模型运行偏好");
     }
     const workspaceRoot = imported("LXE_WORKSPACE_ROOT");
     if (workspaceRoot) {
@@ -89,7 +105,7 @@ export class DesktopEnvironmentImport {
       config.workspace_root = validatedWorkspace;
     }
     if (baseFields.length > 0) {
-      const issues = secrets.provider_keys[config.provider] ? [] : ["缺少所选模型服务的 API Key"];
+      const issues = secrets.provider_keys[config.llm.provider] ? [] : ["缺少所选模型服务的 API Key"];
       groups.push({
         group: "base",
         label: "基础设置",
@@ -97,6 +113,26 @@ export class DesktopEnvironmentImport {
         detected_fields: baseFields,
         overwritten_fields: [...new Set(baseOverwrites)],
         issues,
+      });
+    }
+
+    const outputFields: string[] = [];
+    const outputOverwrites: string[] = [];
+    for (const name of OUTPUT_DIRECTORY_ENV_NAMES) {
+      const value = imported(name);
+      if (!value) continue;
+      outputFields.push(name);
+      if (previousConfig.output_directories[name]) outputOverwrites.push(name);
+      config.output_directories[name] = resolve(value);
+    }
+    if (outputFields.length > 0) {
+      groups.push({
+        group: "outputs",
+        label: "业务输出目录",
+        status: "ready",
+        detected_fields: outputFields,
+        overwritten_fields: outputOverwrites,
+        issues: [],
       });
     }
 
@@ -251,6 +287,59 @@ export class DesktopEnvironmentImport {
           ? loggingFields
           : [],
         issues: [],
+      });
+    }
+
+    const cloudFields: string[] = [];
+    const cloudOverwrites: string[] = [];
+    const dataServerUrl = imported("LXE_DATA_SERVER_URL");
+    if (dataServerUrl) {
+      cloudFields.push("Data Server 地址");
+      if (config.cloud.data_server_url) cloudOverwrites.push("Data Server 地址");
+      config.cloud.data_server_url = dataServerUrl;
+    }
+    const dataServerKey = imported("LXE_DATA_SERVER_API_KEY");
+    if (dataServerKey) {
+      cloudFields.push("Data Server API Key（秘密）");
+      if (previousSecrets.data_server_api_key) cloudOverwrites.push("Data Server API Key（秘密）");
+      secrets.data_server_api_key = dataServerKey;
+    }
+    const erpKey = imported("LXE_ERP_API_KEY");
+    if (erpKey) {
+      cloudFields.push("ERP API Key（秘密）");
+      if (previousSecrets.erp_api_key) cloudOverwrites.push("ERP API Key（秘密）");
+      secrets.erp_api_key = erpKey;
+    }
+    const fallbackUrl = imported("LXE_DATA_SERVER_FALLBACK_URL");
+    if (fallbackUrl) {
+      cloudFields.push("本地回退地址");
+      if (config.cloud.local_fallback_url) cloudOverwrites.push("本地回退地址");
+      config.cloud.local_fallback_url = fallbackUrl;
+    }
+    const fallbackKey = imported("LXE_DATA_SERVER_FALLBACK_API_KEY");
+    if (fallbackKey) {
+      cloudFields.push("本地回退 API Key（秘密）");
+      if (previousSecrets.data_server_fallback_api_key) cloudOverwrites.push("本地回退 API Key（秘密）");
+      secrets.data_server_fallback_api_key = fallbackKey;
+    }
+    if (cloudFields.length > 0) {
+      config.cloud.managed = imported("LXE_DATA_SERVER_ENABLED")
+        ? flag(imported("LXE_DATA_SERVER_ENABLED"))
+        : Boolean(config.cloud.data_server_url && secrets.data_server_api_key);
+      config.cloud.local_fallback_enabled = imported("LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED")
+        ? flag(imported("LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED"))
+        : config.cloud.local_fallback_enabled;
+      const issues = [
+        !config.cloud.data_server_url && "缺少 Data Server 地址",
+        !secrets.data_server_api_key && "缺少 Data Server API Key",
+      ].filter((value): value is string => Boolean(value));
+      groups.push({
+        group: "cloud",
+        label: "Data Server",
+        status: issues.length === 0 ? "ready" : "pending",
+        detected_fields: cloudFields,
+        overwritten_fields: cloudOverwrites,
+        issues,
       });
     }
 

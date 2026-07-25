@@ -692,7 +692,6 @@ export class DashboardService {
           ...values,
           ...providerPreferencePatch(provider, values),
         };
-        this.persistEnvironment(persistedValues);
         Object.assign(this.options.environment, persistedValues);
       })
       : undefined;
@@ -720,7 +719,6 @@ export class DashboardService {
     const snapshot = this.options.providerManager
       ? await this.options.providerManager.reconfigure({ thinkingEnabled: level !== "off", thinkingEffort: level }, (values) => {
         const persistedValues = { ...values, ...providerPreferencePatch(provider, values) };
-        this.persistEnvironment(persistedValues);
         Object.assign(this.options.environment, persistedValues);
       })
       : undefined;
@@ -732,24 +730,6 @@ export class DashboardService {
   }
 
   private updateEnvironment(values: Record<string, string>): void {
-    this.persistEnvironment(values);
     Object.assign(this.options.environment, values);
-  }
-
-  private persistEnvironment(values: Record<string, string>): void {
-    const path = join(this.options.stateRoot, ".env.local");
-    let lines: string[] = [];
-    try { lines = readFileSync(path, "utf8").split(/\r?\n/); } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    for (const [key, value] of Object.entries(values)) {
-      const index = lines.findIndex((line) => line.trimStart().startsWith(`${key}=`));
-      if (index >= 0) lines[index] = `${key}=${value}`;
-      else lines.push(`${key}=${value}`);
-    }
-    mkdirSync(dirname(path), { recursive: true });
-    const temporary = `${path}.${process.pid}.tmp`;
-    writeFileSync(temporary, `${lines.filter((line, index) => line || index < lines.length - 1).join("\n")}\n`, "utf8");
-    renameSync(temporary, path);
   }
 }
