@@ -5482,6 +5482,11 @@ pre {
   box-shadow: var(--shadow-card);
 }
 
+.usage-chart-section {
+  --series-turns: color-mix(in srgb, var(--muted-light) 46%, var(--surface));
+  --series-executions: var(--accent);
+}
+
 .usage-chart-head {
   display: flex;
   align-items: baseline;
@@ -5608,7 +5613,6 @@ pre {
   display: inline-block;
   width: 38%;
   min-width: 2px;
-  max-width: 13px;
   border-radius: 3px 3px 0 0;
   transform-origin: bottom;
   animation: usage-bar-rise 0.5s cubic-bezier(0.2, 0.7, 0.3, 1) both;
@@ -5616,19 +5620,15 @@ pre {
 }
 
 .usage-chart-bar.turns {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent-muted) 68%, var(--accent)),
-    var(--accent-muted)
-  );
+  background: var(--series-turns);
 }
 
 .usage-chart-bar.executions {
-  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+  background: var(--series-executions);
 }
 
 .usage-chart-day:hover .usage-chart-bar {
-  filter: brightness(1.05) saturate(1.12);
+  filter: brightness(0.94) saturate(1.15);
 }
 
 @keyframes usage-bar-rise {
@@ -5674,11 +5674,11 @@ pre {
 }
 
 .usage-legend-dot.turns {
-  background: color-mix(in srgb, var(--accent-muted) 68%, var(--accent));
+  background: var(--series-turns);
 }
 
 .usage-legend-dot.executions {
-  background: var(--accent);
+  background: var(--series-executions);
 }
 
 .usage-chart-tooltip {

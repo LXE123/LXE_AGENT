@@ -126,6 +126,8 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
     Math.max(1, ...filled.map((entry) => Math.max(entry.turns, entry.executions)))
   );
   const labelStep = Math.max(1, Math.ceil(filled.length / 15));
+  // Fewer days leaves more room per column; let the bars grow into it.
+  const barMaxWidth = days <= 7 ? 34 : days <= 30 ? 16 : 8;
   const showTip = (
     event: ReactMouseEvent<HTMLDivElement>,
     entry: StatsOverviewPayload["daily"][number]
@@ -137,6 +139,7 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
   return (
     <div className="usage-chart-body">
       <div className="usage-chart-yaxis" aria-hidden="true">
+        <span style={{ bottom: "0%" }}>0</span>
         {ticks.map((tick, index) => (
           <span key={tick} style={{ bottom: `${((index + 1) / CHART_TICK_COUNT) * 100}%` }}>
             {formatNumber(tick)}
@@ -157,6 +160,7 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
                 className="usage-chart-bar turns"
                 style={{
                   height: `${Math.max(entry.turns > 0 ? 2 : 0, (entry.turns / max) * 100)}%`,
+                  maxWidth: barMaxWidth,
                   animationDelay: `${Math.min(index * 14, 420)}ms`
                 }}
               />
@@ -164,6 +168,7 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
                 className="usage-chart-bar executions"
                 style={{
                   height: `${Math.max(entry.executions > 0 ? 2 : 0, (entry.executions / max) * 100)}%`,
+                  maxWidth: barMaxWidth,
                   animationDelay: `${Math.min(index * 14 + 40, 460)}ms`
                 }}
               />
