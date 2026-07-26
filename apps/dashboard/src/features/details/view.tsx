@@ -196,6 +196,45 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
   );
 }
 
+function ToolParameters({ parameters }: { parameters: Record<string, unknown> }) {
+  const t = useUiText();
+  const properties =
+    parameters.properties && typeof parameters.properties === "object" && !Array.isArray(parameters.properties)
+      ? (parameters.properties as Record<string, unknown>)
+      : {};
+  const required = new Set(
+    Array.isArray(parameters.required)
+      ? parameters.required.filter((name): name is string => typeof name === "string")
+      : []
+  );
+  const entries = Object.entries(properties);
+  if (!entries.length) {
+    return <p className="muted param-empty">{t.detailModal.noParameters}</p>;
+  }
+  return (
+    <div className="param-list">
+      {entries.map(([name, schema]) => {
+        const descriptor = schema && typeof schema === "object" ? (schema as Record<string, unknown>) : {};
+        const type = Array.isArray(descriptor.type) ? descriptor.type.join(" | ") : descriptor.type;
+        const description = typeof descriptor.description === "string" ? descriptor.description : "";
+        const isRequired = required.has(name);
+        return (
+          <div className="param-row" key={name}>
+            <div className="param-heading">
+              <span className="mono">{name}</span>
+              <span className={isRequired ? "param-badge required" : "param-badge"}>
+                {isRequired ? t.detailModal.paramRequired : t.detailModal.paramOptional}
+              </span>
+              {type ? <span className="param-type mono">{String(type)}</span> : null}
+            </div>
+            {description ? <p>{description}</p> : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function DetailModal({ target, onClose }: { target: DetailTarget; onClose: () => void }) {
   const t = useUiText();
   const dialogRef = useDialogFocus<HTMLElement>(Boolean(target), onClose);
@@ -229,7 +268,7 @@ export function DetailModal({ target, onClose }: { target: DetailTarget; onClose
             <p>{target.item.description}</p>
             <div className="schema-block">
               <div className="schema-title">{t.detailModal.inputSchema}</div>
-              <pre>{JSON.stringify(target.item.parameters, null, 2)}</pre>
+              <ToolParameters parameters={target.item.parameters} />
             </div>
           </div>
         ) : target.type === "skill" ? (

@@ -3986,13 +3986,25 @@ h1 {
 
 .empty-state {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   min-height: 180px;
-  gap: 8px;
+  gap: 10px;
   border-radius: 8px;
   background: var(--surface-subtle);
   color: var(--muted);
+}
+
+.empty-state-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted-light);
 }
 
 .session-detail {
@@ -4863,6 +4875,64 @@ code {
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 600;
+}
+
+.param-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.param-row {
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.param-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.param-heading > .mono {
+  color: var(--text-strong);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.param-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: 0.625rem;
+  font-weight: 650;
+}
+
+.param-badge.required {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.param-type {
+  margin-left: auto;
+  color: var(--muted-light);
+  font-size: 0.6875rem;
+}
+
+.param-row p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.param-empty {
+  margin: 0;
+  padding: 12px;
 }
 
 .skill-content-title {

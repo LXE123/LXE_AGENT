@@ -1,4 +1,5 @@
-import { Plug } from "lucide-react";
+import { Feather, MessageSquare, Plug } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 import { EmptyState } from "../../shared/components";
 import { formatNumber } from "../../shared/format";
@@ -8,6 +9,17 @@ import type {
   McpServerPayload,
   ToolsetPayload,
 } from "../../api/payloads";
+
+function connectorIcon(connector: ConnectorPayload): LucideIcon {
+  switch (connector.id) {
+    case "feishu":
+      return Feather;
+    case "dingtalk":
+      return MessageSquare;
+    default:
+      return Plug;
+  }
+}
 
 function McpServerRow({
   server,
@@ -95,10 +107,11 @@ export function ConnectionsView({
           <div className="connection-list">
             {connectors.map((connector) => {
               const saving = savingId === connector.id;
+              const ConnectorIcon = connectorIcon(connector);
               return (
                 <article className="connection-row" key={connector.id}>
                   <div className="connection-row-main">
-                    <span className="connection-row-icon"><Plug size={16} /></span>
+                    <span className="connection-row-icon"><ConnectorIcon size={16} /></span>
                     <div className="connection-row-copy">
                       <strong>{connector.name}</strong>
                       <span>{connector.description || connector.kind || t.common.unknown}</span>

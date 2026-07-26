@@ -1,12 +1,12 @@
 // Small shared presentational components.
-import { Info } from "lucide-react";
+import { Inbox } from "lucide-react";
 
 import { formatNumber } from "./format";
 
 export function EmptyState({ label }: { label: string }) {
   return (
     <div className="empty-state">
-      <Info size={18} />
+      <span className="empty-state-icon"><Inbox size={18} /></span>
       <span>{label}</span>
     </div>
   );
