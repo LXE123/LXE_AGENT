@@ -5588,6 +5588,35 @@ pre {
   gap: 4px;
 }
 
+.usage-chart-trend {
+  position: absolute;
+  top: 0;
+  left: 38px;
+  width: calc(100% - 38px);
+  height: 180px;
+  overflow: visible;
+  pointer-events: none;
+  animation: usage-trend-fade 0.45s ease both;
+}
+
+.usage-chart-trend polyline {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@keyframes usage-trend-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 .usage-chart-day {
   display: flex;
   min-width: 0;
@@ -5671,6 +5700,14 @@ pre {
   width: 9px;
   height: 9px;
   border-radius: 3px;
+}
+
+.usage-legend-line {
+  display: inline-block;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent-strong);
 }
 
 .usage-legend-dot.turns {
@@ -6463,7 +6500,8 @@ pre {
     transition: none;
   }
 
-  .usage-chart-bar {
+  .usage-chart-bar,
+  .usage-chart-trend {
     animation: none;
   }
 

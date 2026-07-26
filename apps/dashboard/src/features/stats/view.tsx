@@ -82,6 +82,15 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
   const chartRef = useRef<HTMLDivElement | null>(null);
   const previousRectsRef = useRef<Map<string, { left: number; width: number }> | null>(null);
   const filled = useMemo(() => fillDailyRange(daily, days), [daily, days]);
+  // 7-day trailing moving average of skill executions, drawn as a trend line.
+  const trend = useMemo(() => {
+    let windowSum = 0;
+    return filled.map((entry, index) => {
+      windowSum += entry.executions;
+      if (index >= 7) windowSum -= filled[index - 7].executions;
+      return windowSum / Math.min(index + 1, 7);
+    });
+  }, [filled]);
 
   useLayoutEffect(() => {
     // FLIP: columns that survive a range change slide to their new positions.
@@ -128,6 +137,15 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
   const labelStep = Math.max(1, Math.ceil(filled.length / 15));
   // Fewer days leaves more room per column; let the bars grow into it.
   const barMaxWidth = days <= 7 ? 34 : days <= 30 ? 16 : 8;
+  // Column centers in percent of the chart width, so the SVG overlay can use a
+  // squashed 100x100 viewBox and still land on the right day.
+  const trendPoints = trend
+    .map((value, index) => {
+      const x = (((index + 0.5) / trend.length) * 100).toFixed(3);
+      const y = (100 - (value / max) * 100).toFixed(3);
+      return `${x},${y}`;
+    })
+    .join(" ");
   const showTip = (
     event: ReactMouseEvent<HTMLDivElement>,
     entry: StatsOverviewPayload["daily"][number]
@@ -179,6 +197,14 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
           </div>
         ))}
       </div>
+      <svg
+        aria-hidden="true"
+        className="usage-chart-trend"
+        preserveAspectRatio="none"
+        viewBox="0 0 100 100"
+      >
+        <polyline points={trendPoints} vectorEffect="non-scaling-stroke" />
+      </svg>
       {tip ? (
         <div className="usage-chart-tooltip" role="tooltip" style={{ left: tip.x, top: tip.y }}>
           <strong>{tip.day}</strong>
@@ -324,6 +350,7 @@ export function StatsView() {
           <div className="usage-chart-legend">
             <span><i className="usage-legend-dot turns" />{t.usage.dailyLegendTurns}</span>
             <span><i className="usage-legend-dot executions" />{t.usage.dailyLegendExecutions}</span>
+            <span><i className="usage-legend-line" />{t.usage.dailyLegendTrend}</span>
           </div>
         </div>
         <UsageDailyChart daily={overview.daily} days={days} />
