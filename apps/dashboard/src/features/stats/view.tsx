@@ -91,6 +91,16 @@ function UsageDailyChart({
   const previousRectsRef = useRef<Map<string, { left: number; width: number }> | null>(null);
   const lastDaysRef = useRef(days);
   const filled = useMemo(() => fillDailyRange(daily, days), [daily, days]);
+  const { max, ticks } = chartTicks(
+    Math.max(1, ...filled.map((entry) => Math.max(entry.turns, entry.executions)))
+  );
+  const turnsPolylineRef = useRef<SVGPolylineElement | null>(null);
+  const executionsPolylineRef = useRef<SVGPolylineElement | null>(null);
+  const previousLineRef = useRef<{
+    count: number;
+    max: number;
+    byDay: Map<string, { index: number; turns: number; executions: number }>;
+  } | null>(null);
 
   useLayoutEffect(() => {
     // FLIP: columns that survive a range change slide to their new positions.
@@ -136,12 +146,63 @@ function UsageDailyChart({
     }
   }, [filled, days]);
 
+  useLayoutEffect(() => {
+    // Morph the polylines between layouts: shared days glide from their old
+    // coordinates to the new ones, days missing before rise from the baseline.
+    if (mode !== "line") {
+      previousLineRef.current = null;
+      return;
+    }
+    const next = {
+      count: filled.length,
+      max,
+      byDay: new Map(
+        filled.map((entry, index) => [entry.day, { index, turns: entry.turns, executions: entry.executions }])
+      )
+    };
+    const previous = previousLineRef.current;
+    previousLineRef.current = next;
+    const turnsLine = turnsPolylineRef.current;
+    const executionsLine = executionsPolylineRef.current;
+    if (!previous || !turnsLine || !executionsLine) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const pointIn = (
+      layout: typeof next,
+      day: string,
+      key: "turns" | "executions"
+    ): [number, number] | null => {
+      const entry = layout.byDay.get(day);
+      return entry
+        ? [((entry.index + 0.5) / layout.count) * 100, 100 - (entry[key] / layout.max) * 100]
+        : null;
+    };
+    let raf = 0;
+    const startTime = performance.now();
+    const step = (now: number) => {
+      const progress = Math.min(1, (now - startTime) / FLIP_DURATION_MS);
+      const eased = 1 - (1 - progress) ** 3;
+      const points = (key: "turns" | "executions") =>
+        filled
+          .map((entry, index) => {
+            const start = pointIn(previous, entry.day, key)
+              ?? ([((index + 0.5) / next.count) * 100, 100] as [number, number]);
+            const end = pointIn(next, entry.day, key) as [number, number];
+            const x = start[0] + (end[0] - start[0]) * eased;
+            const y = start[1] + (end[1] - start[1]) * eased;
+            return `${x.toFixed(3)},${y.toFixed(3)}`;
+          })
+          .join(" ");
+      turnsLine.setAttribute("points", points("turns"));
+      executionsLine.setAttribute("points", points("executions"));
+      if (progress < 1) raf = requestAnimationFrame(step);
+    };
+    step(startTime);
+    return () => cancelAnimationFrame(raf);
+  }, [filled, days, mode, max]);
+
   if (!daily.length) {
     return null;
   }
-  const { max, ticks } = chartTicks(
-    Math.max(1, ...filled.map((entry) => Math.max(entry.turns, entry.executions)))
-  );
   const labelStep = Math.max(1, Math.ceil(filled.length / 15));
   // Fewer days leaves more room per column; let the bars grow into it.
   const barMaxWidth = days <= 7 ? 34 : days <= 30 ? 16 : 8;
@@ -217,15 +278,24 @@ function UsageDailyChart({
           <svg
             aria-hidden="true"
             className="usage-chart-lines"
-            key={`lines-${days}`}
             preserveAspectRatio="none"
             viewBox="0 0 100 100"
           >
-            <polyline className="turns" points={turnsLinePoints} vectorEffect="non-scaling-stroke" />
-            <polyline className="executions" points={executionsLinePoints} vectorEffect="non-scaling-stroke" />
+            <polyline
+              className="turns"
+              points={turnsLinePoints}
+              ref={turnsPolylineRef}
+              vectorEffect="non-scaling-stroke"
+            />
+            <polyline
+              className="executions"
+              points={executionsLinePoints}
+              ref={executionsPolylineRef}
+              vectorEffect="non-scaling-stroke"
+            />
           </svg>
           {days <= 30 ? (
-            <div aria-hidden="true" className="usage-chart-points" key={`points-${days}`}>
+            <div aria-hidden="true" className="usage-chart-points">
               {filled.map((entry, index) => {
                 const x = ((index + 0.5) / filled.length) * 100;
                 return (

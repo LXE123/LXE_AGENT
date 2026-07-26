@@ -5632,6 +5632,20 @@ pre {
   height: 5px;
   border-radius: 999px;
   transform: translate(-50%, -50%);
+  animation: usage-point-pop 0.25s ease-out both;
+  transition:
+    left 0.38s cubic-bezier(0.22, 0.68, 0.26, 1),
+    top 0.38s cubic-bezier(0.22, 0.68, 0.26, 1);
+}
+
+@keyframes usage-point-pop {
+  from {
+    transform: translate(-50%, -50%) scale(0);
+  }
+
+  to {
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 .usage-chart-point.turns {
@@ -6529,8 +6543,13 @@ pre {
 
   .usage-chart-bar,
   .usage-chart-lines,
-  .usage-chart-points {
+  .usage-chart-points,
+  .usage-chart-point {
     animation: none;
+  }
+
+  .usage-chart-point {
+    transition: none;
   }
 
   .usage-skel-block,
