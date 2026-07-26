@@ -5,7 +5,18 @@ import { createFeishuDiagnostic } from "./response";
 export interface FeishuMention {
   key: string;
   name: string;
-  id: { open_id: string; union_id: string };
+  id: { open_id: string; user_id: string; union_id: string };
+}
+
+export interface FeishuRestMessageSender {
+  id: string;
+  id_type: string;
+  sender_type: string;
+  tenant_key: string;
+  name: string;
+  open_id: string;
+  user_id: string;
+  union_id: string;
 }
 
 export interface FeishuMessageSnapshot {
@@ -79,6 +90,49 @@ const record = (value: unknown): Record<string, unknown> =>
 const text = (value: unknown, fallback = ""): string => String(value ?? fallback).trim();
 const array = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 
+const typedIds = (
+  value: unknown,
+  idTypeValue: unknown,
+  legacy: Record<string, unknown> = {},
+): { id: string; id_type: string; open_id: string; user_id: string; union_id: string } => {
+  const idObject = record(value);
+  const idType = text(idTypeValue);
+  const scalarId = typeof value === "string" || typeof value === "number" ? text(value) : "";
+  const openId = text(idObject.open_id) || text(legacy.open_id) || (idType === "open_id" ? scalarId : "");
+  const userId = text(idObject.user_id) || text(legacy.user_id) || (idType === "user_id" ? scalarId : "");
+  const unionId = text(idObject.union_id) || text(legacy.union_id) || (idType === "union_id" ? scalarId : "");
+  const id = scalarId || openId || userId || unionId;
+  return {
+    id,
+    id_type: idType || (openId ? "open_id" : userId ? "user_id" : unionId ? "union_id" : ""),
+    open_id: openId,
+    user_id: userId,
+    union_id: unionId,
+  };
+};
+
+export const parseRestMessageSender = (value: unknown): FeishuRestMessageSender => {
+  const sender = record(value);
+  const ids = typedIds(sender.id, sender.id_type, sender);
+  const legacyId = record(sender.id);
+  return {
+    ...ids,
+    sender_type: text(sender.sender_type),
+    tenant_key: text(sender.tenant_key),
+    name: text(sender.sender_name) || text(sender.name) || text(legacyId.name),
+  };
+};
+
+const parseRestMessageMentions = (value: unknown): FeishuMention[] => array(value).map((raw): FeishuMention => {
+  const mention = record(raw);
+  const ids = typedIds(mention.id, mention.id_type, mention);
+  return {
+    key: text(mention.key),
+    name: text(mention.name),
+    id: { open_id: ids.open_id, user_id: ids.user_id, union_id: ids.union_id },
+  };
+});
+
 export function snapshotMessageEvent(value: unknown): FeishuMessageSnapshot | null {
   const root = record(value);
   const header = record(root.header);
@@ -93,11 +147,11 @@ export function snapshotMessageEvent(value: unknown): FeishuMessageSnapshot | nu
     return {
       key: text(mention.key),
       name: text(mention.name),
-      id: { open_id: text(id.open_id), union_id: text(id.union_id) },
+      id: { open_id: text(id.open_id), user_id: text(id.user_id), union_id: text(id.union_id) },
     };
   });
   return {
-    app_id: text(header.app_id),
+    app_id: text(root.app_id) || text(event.app_id) || text(header.app_id),
     message_type: text(message.message_type, "text") || "text",
     content: String(message.content ?? "{}"),
     chat_type: text(message.chat_type, "p2p") || "p2p",
@@ -113,6 +167,38 @@ export function snapshotMessageEvent(value: unknown): FeishuMessageSnapshot | nu
     sender_open_id: text(senderId.open_id),
     sender_user_id: text(senderId.user_id),
     sender_union_id: text(senderId.union_id),
+  };
+}
+
+export function snapshotRestMessageItem(
+  value: unknown,
+  defaults: Partial<FeishuMessageSnapshot> = {},
+): FeishuMessageSnapshot | null {
+  const item = record(value);
+  if (Object.keys(item).length === 0) return null;
+  const sender = parseRestMessageSender(item.sender);
+  const body = record(item.body);
+  return {
+    app_id: text(item.app_id) || text(defaults.app_id),
+    message_type: text(item.msg_type) || text(item.message_type) || text(defaults.message_type, "unknown") || "unknown",
+    content: typeof item.content === "string"
+      ? item.content
+      : typeof body.content === "string"
+        ? body.content
+        : String(defaults.content ?? "{}"),
+    chat_type: text(item.chat_type) || text(defaults.chat_type, "p2p") || "p2p",
+    chat_id: text(item.chat_id) || text(defaults.chat_id),
+    thread_id: text(item.thread_id) || text(defaults.thread_id),
+    root_id: text(item.root_id) || text(defaults.root_id),
+    parent_id: text(item.parent_id) || text(item.upper_message_id) || text(defaults.parent_id),
+    create_time: text(item.create_time) || text(defaults.create_time),
+    update_time: text(item.update_time) || text(defaults.update_time),
+    message_id: text(item.message_id) || text(defaults.message_id),
+    mentions: parseRestMessageMentions(item.mentions),
+    sender_type: sender.sender_type,
+    sender_open_id: sender.open_id,
+    sender_user_id: sender.user_id,
+    sender_union_id: sender.union_id,
   };
 }
 
@@ -188,8 +274,14 @@ const mentionName = async (
   const userId = text(item.user_id);
   if (userId === "all") return "@all";
   const mention = snapshot.mentions.find((candidate) =>
-    candidate.id.open_id === userId || candidate.key === text(item.key));
-  if (mention) return mention.key || `@${mention.name || mention.id.open_id}`;
+    candidate.id.open_id === userId
+    || candidate.id.user_id === userId
+    || candidate.id.union_id === userId
+    || candidate.key === text(item.key));
+  if (mention) {
+    const fallbackId = mention.id.open_id || mention.id.user_id || mention.id.union_id;
+    return mention.name ? `@${mention.name}` : mention.key || (fallbackId ? `@${fallbackId}` : "");
+  }
   const resolved = userId && context.resolveUserName ? await context.resolveUserName(userId) : undefined;
   return resolved ? `@${resolved}` : text(item.user_name) ? `@${text(item.user_name)}` : userId ? `@${userId}` : "";
 };
@@ -450,25 +542,13 @@ const convertInteractive = async (
 };
 
 const itemSnapshot = (item: Record<string, unknown>, parent: FeishuMessageSnapshot): FeishuMessageSnapshot => {
-  const sender = record(item.sender);
-  const body = record(item.body);
-  return {
-    ...parent,
-    message_type: text(item.msg_type) || text(item.message_type) || "unknown",
-    content: typeof item.content === "string" ? item.content : String(body.content ?? "{}"),
-    message_id: text(item.message_id),
-    parent_id: text(item.upper_message_id),
-    create_time: text(item.create_time),
-    sender_type: text(sender.sender_type),
-    sender_open_id: text(sender.id) || text(sender.open_id),
-    sender_user_id: text(sender.user_id),
-    sender_union_id: text(sender.union_id),
-    mentions: array(item.mentions).map((raw): FeishuMention => {
-      const mention = record(raw);
-      const id = record(mention.id);
-      return { key: text(mention.key), name: text(mention.name), id: { open_id: text(id.open_id) || text(mention.open_id), union_id: text(id.union_id) } };
-    }),
-  };
+  return snapshotRestMessageItem(item, {
+    app_id: parent.app_id,
+    chat_type: parent.chat_type,
+    chat_id: parent.chat_id,
+    thread_id: parent.thread_id,
+    root_id: parent.root_id,
+  }) ?? parent;
 };
 
 const formattedTimestamp = (value: string): string => {
@@ -531,10 +611,10 @@ const convertMerged = async (
     const parts: string[] = [];
     for (const item of children.get(parentId) ?? []) {
       const child = itemSnapshot(item, snapshot);
-      const sender = record(item.sender);
-      const senderId = text(sender.id) || text(sender.open_id) || child.sender_open_id || "unknown";
+      const sender = parseRestMessageSender(item.sender);
+      const senderId = sender.id || child.sender_open_id || child.sender_user_id || child.sender_union_id || "unknown";
       const resolved = context.resolveUserName ? await context.resolveUserName(senderId) : undefined;
-      const senderName = text(sender.name) || resolved || senderId;
+      const senderName = sender.name || resolved || senderId;
       let converted: FeishuInboundConversion;
       if (child.message_type === "merge_forward" && child.message_id && children.has(child.message_id)) {
         converted = { message: await formatTree(child.message_id, level + 1), resources: [], diagnostics: [] };

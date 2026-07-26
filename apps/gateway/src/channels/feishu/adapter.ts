@@ -9,7 +9,9 @@ import type { FeishuConfig } from "./config";
 import {
   FeishuInboundNormalizer,
   convertFeishuMessage,
+  parseRestMessageSender,
   snapshotMessageEvent,
+  snapshotRestMessageItem,
   type FeishuMessageConverterContext,
 } from "./inbound";
 import { FeishuMedia } from "./media";
@@ -302,18 +304,10 @@ export class FeishuAdapter implements ChannelAdapter {
               continue;
             }
             stage = "quote_snapshot";
-            const body = object(item.body as JsonValue | undefined) ?? {};
-            const quotedSnapshot = snapshotMessageEvent({
-              sender: item.sender ?? {},
-              message: {
-                message_type: text(item.msg_type as JsonValue | undefined)
-                  || text(item.message_type as JsonValue | undefined)
-                  || "unknown",
-                content: text(body.content as JsonValue | undefined) || "{}",
-                chat_type: "p2p",
-                chat_id: chatId,
-                message_id: parentId,
-              },
+            const quotedSnapshot = snapshotRestMessageItem(item, {
+              chat_type: "p2p",
+              chat_id: chatId,
+              message_id: parentId,
             });
             if (!quotedSnapshot) throw new TypeError("Feishu quoted message could not be converted to a message snapshot");
 
@@ -356,11 +350,8 @@ export class FeishuAdapter implements ChannelAdapter {
             if (!content && resolved.userContentBlocks.length === 0) {
               throw new Error("Feishu quoted message conversion produced no readable content");
             }
-            const sender = object(item.sender as JsonValue | undefined) ?? {};
-            const senderName = text(sender.name as JsonValue | undefined)
-              || text(sender.id as JsonValue | undefined)
-              || text(sender.open_id as JsonValue | undefined)
-              || "unknown";
+            const sender = parseRestMessageSender(item.sender);
+            const senderName = sender.name || sender.id || "unknown";
             return {
               text: `[Replying to message_id=${parentId}]\n${senderName}: ${content}`,
               metadata: {

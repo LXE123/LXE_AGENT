@@ -64,7 +64,18 @@ describe("native Feishu IM tools", () => {
           };
         }
         return {
-          items: [{ message_id: "om_1", msg_type: "text", body: { content: "{\"text\":\"你好\"}" }, sender: { id: "ou_1" } }],
+          items: [{
+            message_id: "om_1",
+            msg_type: "text",
+            body: { content: "{\"text\":\"你好 @_user_1\"}" },
+            sender: {
+              id: "on_sender",
+              id_type: "union_id",
+              sender_type: "user",
+              sender_name: "Alice",
+            },
+            mentions: [{ key: "@_user_1", id: "u_bob", id_type: "user_id", name: "Bob" }],
+          }],
           has_more: false,
         };
       },
@@ -78,8 +89,20 @@ describe("native Feishu IM tools", () => {
 
     const messages = await registry.execute("feishu_im_bot_get_messages", { page_size: 20 }, context(root));
     expect(JSON.parse(String(messages.content[0]?.text))).toMatchObject({
-      chat_id: "oc_current", messages: [{ message_id: "om_1", content: "你好" }],
+      chat_id: "oc_current",
+      messages: [{
+        message_id: "om_1",
+        content: "你好 @Bob",
+        sender: {
+          id: "on_sender",
+          id_type: "union_id",
+          name: "Alice",
+          union_id: "on_sender",
+        },
+        mentions: [{ id: "u_bob", id_type: "user_id", name: "Bob", user_id: "u_bob" }],
+      }],
     });
+    expect(JSON.parse(String(messages.content[0]?.text)).messages[0].sender).not.toHaveProperty("open_id");
     expect(calls[0]).toMatchObject({ path: "/im/v1/messages", params: { container_id: "oc_current", page_size: "20" } });
 
     const resource = await registry.execute("feishu_im_bot_fetch_resource", {
@@ -92,6 +115,81 @@ describe("native Feishu IM tools", () => {
       path: "/im/v1/messages/om_1",
       params: { user_id_type: "open_id", card_msg_content_type: "raw_card_content" },
     });
+  });
+
+  test("returns only real group-list fields without fetching per-group details", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-feishu-groups-"));
+    roots.push(root);
+    const calls: Array<{ path: string; params: Record<string, string> }> = [];
+    const registry = new ToolRegistry();
+    registerFeishuImTools(registry, {
+      api: {
+        get: async (path, params) => {
+          calls.push({ path, params });
+          return {
+            items: [{
+              chat_id: "oc_ops",
+              avatar: "https://example.test/avatar.png",
+              name: "Ops",
+              description: "Operations",
+              owner_id: "ou_owner",
+              owner_id_type: "open_id",
+              external: false,
+              tenant_key: "tenant-1",
+              labels: ["warehouse", "priority"],
+              chat_status: "normal",
+            }, {
+              chat_id: "oc_legacy",
+              name: "Legacy extension",
+              chat_mode: "group",
+            }],
+            has_more: true,
+            page_token: "next-page",
+          };
+        },
+        download: async () => ({ data: new Uint8Array(), contentType: "application/octet-stream", fileName: "" }),
+      },
+      sessionSource: async () => ({ platform: "feishu" }),
+    });
+
+    const response = await registry.execute("feishu_im_bot_list_groups", {
+      page_size: 2,
+      page_token: "current-page",
+    }, context(root));
+    const payload = JSON.parse(String(response.content[0]?.text));
+    expect(calls).toEqual([{
+      path: "/im/v1/chats",
+      params: { page_size: "2", page_token: "current-page" },
+    }]);
+    expect(payload).toMatchObject({
+      has_more: true,
+      page_token: "next-page",
+      groups: [{
+        chat_id: "oc_ops",
+        avatar: "https://example.test/avatar.png",
+        name: "Ops",
+        description: "Operations",
+        owner_id: "ou_owner",
+        owner_id_type: "open_id",
+        external: false,
+        tenant_key: "tenant-1",
+        labels: ["warehouse", "priority"],
+        chat_status: "normal",
+      }, {
+        chat_id: "oc_legacy",
+        chat_mode: "group",
+      }],
+    });
+    expect(payload.groups[0]).not.toHaveProperty("chat_mode");
+    expect(payload.groups[1]).toEqual({
+      chat_id: "oc_legacy",
+      name: "Legacy extension",
+      chat_mode: "group",
+    });
+    for (const group of payload.groups) {
+      expect(group).not.toHaveProperty("chat_type");
+      expect(group).not.toHaveProperty("member_count");
+    }
   });
 
   test("rejects card and undeclared resource keys before download", async () => {

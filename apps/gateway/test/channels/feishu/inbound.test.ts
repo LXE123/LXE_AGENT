@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { FEISHU_CONVERTER_TYPES, FeishuInboundNormalizer, convertFeishuMessage, snapshotMessageEvent } from "../../../src/channels/feishu/inbound";
+import {
+  FEISHU_CONVERTER_TYPES,
+  FeishuInboundNormalizer,
+  convertFeishuMessage,
+  snapshotMessageEvent,
+  snapshotRestMessageItem,
+} from "../../../src/channels/feishu/inbound";
 
 const baseEvent = (patch: Record<string, unknown> = {}) => ({
   header: { app_id: "cli_test" },
@@ -49,6 +55,58 @@ const normalizeEvent = async (
 };
 
 describe("Feishu inbound normalization", () => {
+  test("reads WebSocket app_id from the official top level with legacy fallbacks", () => {
+    const fixture = baseEvent();
+    expect(snapshotMessageEvent({
+      ...fixture,
+      app_id: "cli_top",
+      event: { ...fixture.event, app_id: "cli_event" },
+    })?.app_id).toBe("cli_top");
+    expect(snapshotMessageEvent({
+      ...fixture,
+      event: { ...fixture.event, app_id: "cli_event" },
+    })?.app_id).toBe("cli_event");
+    expect(snapshotMessageEvent(fixture)?.app_id).toBe("cli_test");
+  });
+
+  test("maps REST sender and mention IDs by id_type without relabeling them as open_id", async () => {
+    const snapshot = snapshotRestMessageItem({
+      message_id: "om_rest",
+      msg_type: "post",
+      sender: {
+        id: "on_sender",
+        id_type: "union_id",
+        sender_type: "user",
+        sender_name: "Union Sender",
+      },
+      mentions: [
+        { key: "@_user_1", id: "u_alice", id_type: "user_id", name: "Alice" },
+        { key: "@_user_2", id: "on_bob", id_type: "union_id", name: "Bob" },
+        {
+          key: "@_user_3",
+          id: { open_id: "ou_legacy", user_id: "u_legacy", union_id: "on_legacy" },
+          name: "Legacy",
+        },
+      ],
+      body: { content: JSON.stringify({ zh_cn: { content: [[
+        { tag: "at", user_id: "u_alice" },
+        { tag: "text", text: " and " },
+        { tag: "at", user_id: "on_bob" },
+      ]] } }) },
+    });
+    expect(snapshot).toMatchObject({
+      sender_open_id: "",
+      sender_user_id: "",
+      sender_union_id: "on_sender",
+      mentions: [
+        { name: "Alice", id: { open_id: "", user_id: "u_alice", union_id: "" } },
+        { name: "Bob", id: { open_id: "", user_id: "", union_id: "on_bob" } },
+        { name: "Legacy", id: { open_id: "ou_legacy", user_id: "u_legacy", union_id: "on_legacy" } },
+      ],
+    });
+    expect((await convertFeishuMessage(snapshot!)).message).toBe("@Alice and @Bob");
+  });
+
   test("snapshots p2p identity, thread, quote and union fields", async () => {
     const snapshot = snapshotMessageEvent(baseEvent());
     expect(snapshot).not.toBeNull();
@@ -185,7 +243,7 @@ describe("Feishu inbound normalization", () => {
     const converted = await convertFeishuMessage(snapshot);
     expect(converted.message).toContain("***Ready***");
     expect(converted.message).toContain("[docs](https://example.test/docs)");
-    expect(converted.message).toContain("@_user_2");
+    expect(converted.message).toContain("@Alice");
     expect(converted.resources).toEqual([
       { type: "image", file_key: "img-inline", file_name: "", message_id: "om_rich" },
       { type: "file", file_key: "file-inline", file_name: "补货 表.xlsx", message_id: "om_rich" },
@@ -208,7 +266,7 @@ describe("Feishu inbound normalization", () => {
           upper_message_id: "om_forward",
           msg_type: "text",
           create_time: "1700000000000",
-          sender: { id: "ou_alice", sender_type: "user" },
+          sender: { id: "ou_alice", id_type: "open_id", sender_type: "user", sender_name: "Alice" },
           body: { content: JSON.stringify({ text: "first" }) },
         },
         {
@@ -216,11 +274,10 @@ describe("Feishu inbound normalization", () => {
           upper_message_id: "om_child",
           msg_type: "image",
           create_time: "1700000001000",
-          sender: { id: "ou_bob", sender_type: "user" },
+          sender: { id: "on_bob", id_type: "union_id", sender_type: "user", sender_name: "Bob" },
           body: { content: JSON.stringify({ image_key: "img-nested" }) },
         },
       ],
-      resolveUserName: (id) => ({ ou_alice: "Alice", ou_bob: "Bob" })[id],
     });
     expect(converted.message).toContain("<forwarded_messages title=\"History\">");
     expect(converted.message).toContain("Alice:");

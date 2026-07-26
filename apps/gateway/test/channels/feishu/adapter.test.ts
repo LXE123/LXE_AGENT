@@ -210,7 +210,12 @@ describe("FeishuAdapter lifecycle and delivery", () => {
         return { code: 0, data: { items: [{
           message_id: parentId,
           msg_type: "interactive",
-          sender: { id: "cli_agent", name: "LXE_Claw" },
+          sender: {
+            id: "cli_agent",
+            id_type: "app_id",
+            sender_type: "app",
+            sender_name: "LXE_Claw",
+          },
           body: { content: JSON.stringify({ json_card: JSON.stringify({
             schema: "2.0",
             body: { elements: [{ tag: "markdown", content: "direct quote body" }] },
@@ -234,6 +239,7 @@ describe("FeishuAdapter lifecycle and delivery", () => {
       },
     });
     expect(inbound[0]?.user_input).toContain("direct quote body");
+    expect(inbound[0]?.user_input).toContain("LXE_Claw:");
     expect(state.apiRequests).toEqual([{
       method: "GET",
       path: `/im/v1/messages/${parentId}`,
@@ -242,6 +248,53 @@ describe("FeishuAdapter lifecycle and delivery", () => {
         card_msg_content_type: "raw_card_content",
       } },
     }]);
+    await state.adapter.stop();
+  });
+
+  test("preserves official REST mention names when converting quoted posts", async () => {
+    const parentId = "om_mention_quote";
+    const state = setup({
+      apiRequest: async (_method, path) => {
+        if (path !== `/im/v1/messages/${parentId}`) throw new Error(`unexpected path: ${path}`);
+        return { code: 0, data: { items: [{
+          message_id: parentId,
+          msg_type: "post",
+          sender: {
+            id: "ou_author",
+            id_type: "open_id",
+            sender_type: "user",
+            sender_name: "Warehouse Bot",
+          },
+          mentions: [{ key: "@_user_1", id: "u_alice", id_type: "user_id", name: "Alice" }],
+          body: { content: JSON.stringify({ zh_cn: {
+            title: "Status",
+            content: [[
+              { tag: "text", text: "Ping " },
+              { tag: "at", user_id: "u_alice" },
+            ]],
+          } }) },
+        }] } };
+      },
+    });
+    const inbound: InboundEvent[] = [];
+    state.adapter.setInboundSink(async (event) => { inbound.push(event); });
+    await state.adapter.start();
+    await state.callbacks.onMessage({
+      app_id: "cli_test",
+      sender: { sender_type: "user", sender_id: { open_id: "ou_user" } },
+      message: {
+        message_type: "text",
+        content: JSON.stringify({ text: "ack" }),
+        chat_type: "p2p",
+        chat_id: "oc_chat",
+        parent_id: parentId,
+        create_time: String(Date.now()),
+        message_id: "om_mention_reply",
+      },
+    });
+    expect(inbound[0]?.user_input).toContain("Warehouse Bot:");
+    expect(inbound[0]?.user_input).toContain("Ping @Alice");
+    expect(inbound[0]?.user_input).not.toContain("@_user_1");
     await state.adapter.stop();
   });
 

@@ -37,6 +37,56 @@ const object = (value: unknown): Record<string, unknown> =>
 const text = (value: unknown): string => String(value ?? "").trim();
 const safeFeishuToolMessage = (value: unknown): string => safeToolFailureObservation(text(value));
 
+interface RestTypedIds {
+  id: string;
+  id_type: string;
+  open_id: string;
+  user_id: string;
+  union_id: string;
+}
+
+const restTypedIds = (
+  value: unknown,
+  idTypeValue: unknown,
+  legacy: Record<string, unknown> = {},
+): RestTypedIds => {
+  const idObject = object(value);
+  const idType = text(idTypeValue);
+  const scalarId = typeof value === "string" || typeof value === "number" ? text(value) : "";
+  const openId = text(idObject.open_id) || text(legacy.open_id) || (idType === "open_id" ? scalarId : "");
+  const userId = text(idObject.user_id) || text(legacy.user_id) || (idType === "user_id" ? scalarId : "");
+  const unionId = text(idObject.union_id) || text(legacy.union_id) || (idType === "union_id" ? scalarId : "");
+  return {
+    id: scalarId || openId || userId || unionId,
+    id_type: idType || (openId ? "open_id" : userId ? "user_id" : unionId ? "union_id" : ""),
+    open_id: openId,
+    user_id: userId,
+    union_id: unionId,
+  };
+};
+
+const restMessageSender = (value: unknown) => {
+  const sender = object(value);
+  const ids = restTypedIds(sender.id, sender.id_type, sender);
+  const legacyId = object(sender.id);
+  return {
+    ...ids,
+    sender_type: text(sender.sender_type),
+    tenant_key: text(sender.tenant_key),
+    name: text(sender.sender_name) || text(sender.name) || text(legacyId.name),
+  };
+};
+
+const restMessageMentions = (value: unknown) => (Array.isArray(value) ? value : []).map((raw) => {
+  const mention = object(raw);
+  const ids = restTypedIds(mention.id, mention.id_type, mention);
+  return {
+    key: text(mention.key),
+    name: text(mention.name),
+    ...ids,
+  };
+});
+
 const knownFeishuFailure = (
   operation: string,
   localCode: string,
@@ -155,27 +205,46 @@ const messageContent = (item: Record<string, unknown>): string => {
   const raw = text(object(item.body).content);
   let body: Record<string, unknown> = {};
   try { body = object(JSON.parse(raw)); } catch { return raw; }
-  if (typeof body.text === "string") return body.text;
+  let content = "";
+  if (typeof body.text === "string") content = body.text;
   if (typeof body.title === "string" || Array.isArray(body.content)) {
     const rows = Array.isArray(body.content) ? body.content : [];
     const cells = rows.flatMap((row) => Array.isArray(row) ? row : []).map(object);
-    return [text(body.title), ...cells.map((cell) => text(cell.text) || text(cell.name))].filter(Boolean).join("\n");
+    content = [text(body.title), ...cells.map((cell) => text(cell.text) || text(cell.name))].filter(Boolean).join("\n");
   }
-  return raw;
+  if (!content) content = raw;
+  for (const mention of restMessageMentions(item.mentions)) {
+    if (mention.key && mention.name) content = content.replaceAll(mention.key, `@${mention.name}`);
+  }
+  return content;
 };
 
 const messagePayload = (raw: unknown): JsonObject => {
   const item = object(raw);
-  const sender = object(item.sender);
-  const senderId = object(sender.id);
+  const sender = restMessageSender(item.sender);
+  const mentions = restMessageMentions(item.mentions);
   return {
     message_id: text(item.message_id),
     msg_type: text(item.msg_type) || "unknown",
     content: messageContent(item),
     sender: {
-      open_id: text(senderId.open_id) || text(sender.id) || text(sender.open_id),
-      name: text(sender.name) || text(senderId.name) || text(senderId.user_id),
+      id: sender.id,
+      id_type: sender.id_type,
+      sender_type: sender.sender_type,
+      name: sender.name || sender.id,
+      ...(sender.open_id ? { open_id: sender.open_id } : {}),
+      ...(sender.user_id ? { user_id: sender.user_id } : {}),
+      ...(sender.union_id ? { union_id: sender.union_id } : {}),
     },
+    mentions: mentions.map((mention) => ({
+      key: mention.key,
+      name: mention.name,
+      id: mention.id,
+      id_type: mention.id_type,
+      ...(mention.open_id ? { open_id: mention.open_id } : {}),
+      ...(mention.user_id ? { user_id: mention.user_id } : {}),
+      ...(mention.union_id ? { union_id: mention.union_id } : {}),
+    })),
     create_time: text(item.create_time),
     thread_id: text(item.thread_id),
     chat_id: text(item.chat_id),
@@ -296,10 +365,28 @@ export function registerFeishuImTools(registry: ToolRegistry, options: RegisterF
       const data = await options.api.get("/im/v1/chats", params, context.handle.signal);
       const items = Array.isArray(data.items) ? data.items.map(object) : [];
       return result({
-        groups: items.map((item) => ({
-          chat_id: text(item.chat_id), name: text(item.name), chat_mode: text(item.chat_mode), chat_type: text(item.chat_type),
-          description: text(item.description), member_count: Number(item.member_count ?? 0),
-        })),
+        groups: items.map((item) => {
+          const avatar = text(item.avatar);
+          const description = text(item.description);
+          const ownerId = text(item.owner_id);
+          const ownerIdType = text(item.owner_id_type);
+          const tenantKey = text(item.tenant_key);
+          const chatStatus = text(item.chat_status);
+          const chatMode = text(item.chat_mode);
+          return {
+            chat_id: text(item.chat_id),
+            name: text(item.name),
+            ...(avatar ? { avatar } : {}),
+            ...(description ? { description } : {}),
+            ...(ownerId ? { owner_id: ownerId } : {}),
+            ...(ownerIdType ? { owner_id_type: ownerIdType } : {}),
+            ...(typeof item.external === "boolean" ? { external: item.external } : {}),
+            ...(tenantKey ? { tenant_key: tenantKey } : {}),
+            ...(Array.isArray(item.labels) ? { labels: item.labels.map(text).filter(Boolean) } : {}),
+            ...(chatStatus ? { chat_status: chatStatus } : {}),
+            ...(chatMode ? { chat_mode: chatMode } : {}),
+          };
+        }),
         has_more: data.has_more === true,
         page_token: text(data.page_token),
       });

@@ -7,7 +7,11 @@ import type { FeishuConfig } from "./config";
 import type { FeishuMediaApi } from "./media";
 import type { FeishuInboundResourceApi } from "./resources";
 import type { FeishuReactionPort } from "./typing";
-import { normalizeFeishuTransportError } from "./response";
+import {
+  FeishuApiResponseError,
+  normalizeFeishuTransportError,
+  parseFeishuEnvelope,
+} from "./response";
 
 export const FEISHU_EVENT_TYPES = [
   "im.message.receive_v1",
@@ -307,7 +311,16 @@ export function createOfficialFeishuSdk(
       status: () => jsonObject(ws.getConnectionStatus?.() ?? { state: "unknown" }),
     },
     probeBotIdentity: async () => {
-      const response = await client.request({ method: "GET", url: "/open-apis/bot/v3/info" });
+      const response = jsonObject(await client.request({ method: "GET", url: "/open-apis/bot/v3/info" }));
+      const envelope = parseFeishuEnvelope(response, "probe_bot_identity");
+      if (envelope.code !== 0) {
+        throw new FeishuApiResponseError({
+          apiCode: envelope.code,
+          logId: envelope.logId,
+          operation: "probe_bot_identity",
+          message: `Feishu probe_bot_identity failed with code ${envelope.code}${envelope.msg ? `: ${envelope.msg}` : ""}`,
+        });
+      }
       const outer = object(response);
       const payload = object(outer.data ?? outer);
       const bot = object(payload.bot);

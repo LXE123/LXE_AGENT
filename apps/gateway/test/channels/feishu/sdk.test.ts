@@ -219,6 +219,19 @@ describe("official Feishu SDK factory", () => {
     expect(await sdk.probeBotIdentity()).toEqual({ openId: "ou-name", name: "Name Bot" });
     apiResponse = { code: 0, msg: "success", bot: { open_id: "ou-no-name" } };
     expect(await sdk.probeBotIdentity()).toEqual({ openId: "ou-no-name", name: "" });
+    apiResponse = {
+      code: 230001,
+      msg: "bot lookup rejected token=private",
+      log_id: "log-bot-probe",
+    };
+    const probeError = await sdk.probeBotIdentity().catch((error) => error);
+    expect(probeError).toBeInstanceOf(FeishuApiResponseError);
+    expect(probeError).toEqual(expect.objectContaining({
+      api_code: 230001,
+      log_id: "log-bot-probe",
+      operation: "probe_bot_identity",
+      message: "Feishu probe_bot_identity failed with code 230001: bot lookup rejected token=[redacted]",
+    }));
 
     const card = { schema: "2.0", config: { streaming_mode: true }, body: { elements: [] } };
     expect(await sdk.cardkit.createCardEntity(card)).toEqual({
