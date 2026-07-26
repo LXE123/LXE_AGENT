@@ -53,6 +53,8 @@ forbidText("apps/gateway/src/channels/feishu/cardkit.ts", /queues\s*=\s*new Map<
 requireText("apps/gateway/src/channels/feishu/cardkit.ts", /card_frame_coalesced/, "CardKit must retain observable latest-frame coalescing");
 forbidText("packages/foundation/desktop-protocol/src/index.ts", /remaining_steering\?\s*:/, "run_turn must always report remaining steering");
 forbidText("apps/gateway/src/orchestration/composition.ts", /remaining_steering\s*\?\?/, "Gateway must not default a missing steering handoff to an empty list");
+forbidText("apps/gateway/src/orchestration/composition.ts", /\blet\s+runtimeReady\b/, "Gateway composition must read readiness from the Runtime port");
+forbidText("apps/desktop/src/main/desktop-gateway.ts", /parts\.scheduler\.setRuntimeReady/, "Desktop must synchronize Runtime readiness through the Gateway composition boundary");
 forbidText("packages/agent/runtime/src/engine/system-events.ts", /mergePendingSystemEvents/, "Runtime must not restore the retired embedded/stored pending-event merge");
 forbidText("packages/agent/runtime/src/engine/runtime.ts", /job\.raw_data\.system_events/, "Runtime pending events must come only from its Store");
 requireText("apps/desktop/src/main.ts", /registerDashboardProtocol/, "packaged Renderer must load through the Electron app protocol");

@@ -22,6 +22,7 @@ import type { ResponseRoutePatch, ResponseRouteRecord } from "../state/models";
 export type DirectRuntimeOutcome = AgentRunTurnResult;
 
 export interface DirectAgentRuntime {
+  readonly isReady: boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
   runTurn(job: AgentJob, handle: RunHandle): Promise<DirectRuntimeOutcome>;
@@ -77,6 +78,7 @@ export interface DirectGatewayComposition {
   start(): Promise<void>;
   stop(): Promise<void>;
   health(): Promise<JsonObject>;
+  syncRuntimeReadiness(): void;
 }
 
 export function createDirectGatewayComposition(options: DirectGatewayCompositionOptions): DirectGatewayComposition {
@@ -136,6 +138,9 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   };
   scheduler = new SessionScheduler({ runtime: runtimePort, maxConcurrency: options.maxConcurrency ?? 2 });
   scheduler.setRuntimeReady(false);
+  const syncRuntimeReadiness = (): void => {
+    scheduler.setRuntimeReady(options.runtime.isReady);
+  };
 
   const heartbeatQueue = new HeartbeatWakeQueue({
     scheduler,
@@ -168,19 +173,17 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     state: runtimeState,
     ...(options.feishuAppId ? { feishuAppId: options.feishuAppId } : {}),
   });
-  let runtimeReady = false;
   const runtimeLifecycle = {
-    get isReady(): boolean { return runtimeReady; },
+    get isReady(): boolean { return options.runtime.isReady; },
     start: async (): Promise<void> => {
       await options.runtime.start();
-      runtimeReady = true;
-      scheduler.setRuntimeReady(true);
+      syncRuntimeReadiness();
     },
     stop: async (): Promise<void> => {
-      runtimeReady = false;
       scheduler.setRuntimeReady(false);
       await Promise.allSettled([...active.values()].map(({ promise }) => promise));
       await options.runtime.stop();
+      syncRuntimeReadiness();
     },
     failActiveRuns: async (): Promise<void> => {
       await Promise.allSettled([...active.values()].map(({ handle }) => handle.abort()));
@@ -216,5 +219,6 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     start: () => lifecycle.start(),
     stop: () => lifecycle.stop(),
     health: () => lifecycle.healthSnapshot(),
+    syncRuntimeReadiness,
   };
 }

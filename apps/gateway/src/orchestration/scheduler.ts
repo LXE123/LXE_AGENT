@@ -129,6 +129,7 @@ export class SessionScheduler {
 
   setRuntimeReady(ready: boolean): void {
     const wasReady = this.runtimeReady;
+    if (wasReady === ready) return;
     this.runtimeReady = ready;
     this.logger.debug("scheduler_runtime_readiness_changed", { ready });
     if (!wasReady && ready) this.drain();

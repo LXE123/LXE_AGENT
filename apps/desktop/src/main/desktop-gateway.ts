@@ -98,7 +98,7 @@ export class DesktopGateway {
   private runtime: ProcessAgentRuntime | undefined;
   private store: NodeGatewayStore | undefined;
   private gatewayState: DesktopHealth["gateway"] = "stopped";
-  private runtimeReady = false;
+  private dashboardObservedRuntimeReady = false;
   private lastError = "";
 
   constructor(private readonly options: DesktopGatewayOptions) {}
@@ -205,11 +205,11 @@ export class DesktopGateway {
       restartDelaysMs: [1_000, 2_000, 5_000],
       onStatus: (status) => {
         const ready = status.state === "ready";
-        composition?.parts.scheduler.setRuntimeReady(ready);
-        if (ready && !this.runtimeReady) {
+        composition?.syncRuntimeReadiness();
+        if (ready && !this.dashboardObservedRuntimeReady) {
           this.options.onDashboardInvalidated?.([...ALL_DASHBOARD_DATA_DOMAINS], []);
         }
-        this.runtimeReady = ready;
+        this.dashboardObservedRuntimeReady = ready;
         this.publishHealth();
       },
       onStderr: (line) => {
@@ -272,7 +272,7 @@ export class DesktopGateway {
     this.store?.stop();
     this.store = undefined;
     this.runtime = undefined;
-    this.runtimeReady = false;
+    this.dashboardObservedRuntimeReady = false;
     this.gatewayState = "stopped";
     this.publishHealth();
   }
