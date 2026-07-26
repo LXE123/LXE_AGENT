@@ -5484,7 +5484,15 @@ pre {
 
 .usage-chart-section {
   --series-turns: color-mix(in srgb, var(--muted-light) 46%, var(--surface));
+  --series-turns-line: color-mix(in srgb, var(--muted-light) 70%, var(--muted));
   --series-executions: var(--accent);
+}
+
+.usage-chart-side {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
 }
 
 .usage-chart-head {
@@ -5588,26 +5596,53 @@ pre {
   gap: 4px;
 }
 
-.usage-chart-trend {
+.usage-chart-lines,
+.usage-chart-points {
   position: absolute;
   top: 0;
   left: 38px;
   width: calc(100% - 38px);
   height: 180px;
-  overflow: visible;
   pointer-events: none;
-  animation: usage-trend-fade 0.45s ease both;
+  animation: usage-lines-fade 0.45s ease both;
 }
 
-.usage-chart-trend polyline {
+.usage-chart-lines {
+  overflow: visible;
+}
+
+.usage-chart-lines polyline {
   fill: none;
-  stroke: var(--accent-strong);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-@keyframes usage-trend-fade {
+.usage-chart-lines polyline.turns {
+  stroke: var(--series-turns-line);
+}
+
+.usage-chart-lines polyline.executions {
+  stroke: var(--series-executions);
+}
+
+.usage-chart-point {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+}
+
+.usage-chart-point.turns {
+  background: var(--series-turns-line);
+}
+
+.usage-chart-point.executions {
+  background: var(--series-executions);
+}
+
+@keyframes usage-lines-fade {
   from {
     opacity: 0;
   }
@@ -5700,14 +5735,6 @@ pre {
   width: 9px;
   height: 9px;
   border-radius: 3px;
-}
-
-.usage-legend-line {
-  display: inline-block;
-  width: 14px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--accent-strong);
 }
 
 .usage-legend-dot.turns {
@@ -6501,7 +6528,8 @@ pre {
   }
 
   .usage-chart-bar,
-  .usage-chart-trend {
+  .usage-chart-lines,
+  .usage-chart-points {
     animation: none;
   }
 

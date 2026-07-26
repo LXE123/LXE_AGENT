@@ -76,22 +76,21 @@ function fillDailyRange(
   return filled;
 }
 
-function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]; days: number }) {
+function UsageDailyChart({
+  daily,
+  days,
+  mode
+}: {
+  daily: StatsOverviewPayload["daily"];
+  days: number;
+  mode: "bars" | "line";
+}) {
   const t = useUiText();
   const [tip, setTip] = useState<ChartTip | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const previousRectsRef = useRef<Map<string, { left: number; width: number }> | null>(null);
   const lastDaysRef = useRef(days);
   const filled = useMemo(() => fillDailyRange(daily, days), [daily, days]);
-  // 7-day trailing moving average of skill executions, drawn as a trend line.
-  const trend = useMemo(() => {
-    let windowSum = 0;
-    return filled.map((entry, index) => {
-      windowSum += entry.executions;
-      if (index >= 7) windowSum -= filled[index - 7].executions;
-      return windowSum / Math.min(index + 1, 7);
-    });
-  }, [filled]);
 
   useLayoutEffect(() => {
     // FLIP: columns that survive a range change slide to their new positions.
@@ -148,13 +147,16 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
   const barMaxWidth = days <= 7 ? 34 : days <= 30 ? 16 : 8;
   // Column centers in percent of the chart width, so the SVG overlay can use a
   // squashed 100x100 viewBox and still land on the right day.
-  const trendPoints = trend
-    .map((value, index) => {
-      const x = (((index + 0.5) / trend.length) * 100).toFixed(3);
-      const y = (100 - (value / max) * 100).toFixed(3);
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const linePoints = (values: number[]) =>
+    values
+      .map((value, index) => {
+        const x = (((index + 0.5) / values.length) * 100).toFixed(3);
+        const y = (100 - (value / max) * 100).toFixed(3);
+        return `${x},${y}`;
+      })
+      .join(" ");
+  const turnsLinePoints = linePoints(filled.map((entry) => entry.turns));
+  const executionsLinePoints = linePoints(filled.map((entry) => entry.executions));
   const showTip = (
     event: ReactMouseEvent<HTMLDivElement>,
     entry: StatsOverviewPayload["daily"][number]
@@ -183,22 +185,26 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
             onMouseLeave={() => setTip(null)}
           >
             <div className="usage-chart-bars">
-              <span
-                className="usage-chart-bar turns"
-                style={{
-                  height: `${Math.max(entry.turns > 0 ? 2 : 0, (entry.turns / max) * 100)}%`,
-                  maxWidth: barMaxWidth,
-                  animationDelay: `${Math.min(index * 14, 420)}ms`
-                }}
-              />
-              <span
-                className="usage-chart-bar executions"
-                style={{
-                  height: `${Math.max(entry.executions > 0 ? 2 : 0, (entry.executions / max) * 100)}%`,
-                  maxWidth: barMaxWidth,
-                  animationDelay: `${Math.min(index * 14 + 40, 460)}ms`
-                }}
-              />
+              {mode === "bars" ? (
+                <>
+                  <span
+                    className="usage-chart-bar turns"
+                    style={{
+                      height: `${Math.max(entry.turns > 0 ? 2 : 0, (entry.turns / max) * 100)}%`,
+                      maxWidth: barMaxWidth,
+                      animationDelay: `${Math.min(index * 14, 420)}ms`
+                    }}
+                  />
+                  <span
+                    className="usage-chart-bar executions"
+                    style={{
+                      height: `${Math.max(entry.executions > 0 ? 2 : 0, (entry.executions / max) * 100)}%`,
+                      maxWidth: barMaxWidth,
+                      animationDelay: `${Math.min(index * 14 + 40, 460)}ms`
+                    }}
+                  />
+                </>
+              ) : null}
             </div>
             <span className="usage-chart-label">
               {index % labelStep === 0 ? entry.day.slice(5) : ""}
@@ -206,14 +212,39 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
           </div>
         ))}
       </div>
-      <svg
-        aria-hidden="true"
-        className="usage-chart-trend"
-        preserveAspectRatio="none"
-        viewBox="0 0 100 100"
-      >
-        <polyline points={trendPoints} vectorEffect="non-scaling-stroke" />
-      </svg>
+      {mode === "line" ? (
+        <>
+          <svg
+            aria-hidden="true"
+            className="usage-chart-lines"
+            key={`lines-${days}`}
+            preserveAspectRatio="none"
+            viewBox="0 0 100 100"
+          >
+            <polyline className="turns" points={turnsLinePoints} vectorEffect="non-scaling-stroke" />
+            <polyline className="executions" points={executionsLinePoints} vectorEffect="non-scaling-stroke" />
+          </svg>
+          {days <= 30 ? (
+            <div aria-hidden="true" className="usage-chart-points" key={`points-${days}`}>
+              {filled.map((entry, index) => {
+                const x = ((index + 0.5) / filled.length) * 100;
+                return (
+                  <span key={entry.day}>
+                    <i
+                      className="usage-chart-point turns"
+                      style={{ left: `${x}%`, top: `${100 - (entry.turns / max) * 100}%` }}
+                    />
+                    <i
+                      className="usage-chart-point executions"
+                      style={{ left: `${x}%`, top: `${100 - (entry.executions / max) * 100}%` }}
+                    />
+                  </span>
+                );
+              })}
+            </div>
+          ) : null}
+        </>
+      ) : null}
       {tip ? (
         <div className="usage-chart-tooltip" role="tooltip" style={{ left: tip.x, top: tip.y }}>
           <strong>{tip.day}</strong>
@@ -267,6 +298,7 @@ function StatsSkeleton() {
 export function StatsView() {
   const t = useUiText();
   const [days, setDays] = useState(30);
+  const [chartMode, setChartMode] = useState<"bars" | "line">("bars");
   const overviewQuery = useStatsOverviewQuery(days);
   const skillStatsQuery = useSkillStatsQuery(days);
   const toolStatsQuery = useToolStatsQuery(days);
@@ -356,13 +388,30 @@ export function StatsView() {
       <section className="usage-section usage-chart-section">
         <div className="usage-chart-head">
           <h3>{t.usage.dailyTitle}</h3>
-          <div className="usage-chart-legend">
-            <span><i className="usage-legend-dot turns" />{t.usage.dailyLegendTurns}</span>
-            <span><i className="usage-legend-dot executions" />{t.usage.dailyLegendExecutions}</span>
-            <span><i className="usage-legend-line" />{t.usage.dailyLegendTrend}</span>
+          <div className="usage-chart-side">
+            <div className="usage-chart-legend">
+              <span><i className="usage-legend-dot turns" />{t.usage.dailyLegendTurns}</span>
+              <span><i className="usage-legend-dot executions" />{t.usage.dailyLegendExecutions}</span>
+            </div>
+            <div className="usage-range" role="group" aria-label={t.usage.chartModeAria}>
+              <button
+                className={chartMode === "bars" ? "usage-range-button active" : "usage-range-button"}
+                type="button"
+                onClick={() => setChartMode("bars")}
+              >
+                {t.usage.chartModeBars}
+              </button>
+              <button
+                className={chartMode === "line" ? "usage-range-button active" : "usage-range-button"}
+                type="button"
+                onClick={() => setChartMode("line")}
+              >
+                {t.usage.chartModeLine}
+              </button>
+            </div>
           </div>
         </div>
-        <UsageDailyChart daily={overview.daily} days={days} />
+        <UsageDailyChart daily={overview.daily} days={days} mode={chartMode} />
       </section>
 
       {overview.modules.length ? (
