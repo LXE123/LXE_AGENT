@@ -79,7 +79,6 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
 
   return (
     <div className="modal-content">
-      <p>{skill.description}</p>
       {skill.commands.length ? (
         <div className="schema-block">
           <div className="schema-title">{t.skillModal.commands}</div>
@@ -235,6 +234,14 @@ export function DetailModal({ target, onClose }: { target: DetailTarget; onClose
           <div>
             <div className="modal-kicker">{modalType}</div>
             <h2>{target.title}</h2>
+            {target.type !== "task" && target.item.description ? (
+              <div className="modal-subtitle">
+                <p>{target.item.description}</p>
+                {target.item.description.length > 48 ? (
+                  <div className="modal-subtitle-tip" role="tooltip">{target.item.description}</div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label={t.detailModal.close}>
             <X size={18} />
@@ -242,7 +249,6 @@ export function DetailModal({ target, onClose }: { target: DetailTarget; onClose
         </div>
         {target.type === "tool" ? (
           <div className="modal-content">
-            <p>{target.item.description}</p>
             <div className="schema-block">
               <div className="schema-title">{t.detailModal.inputSchema}</div>
               <ToolParameters parameters={target.item.parameters} />

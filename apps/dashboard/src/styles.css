@@ -4844,12 +4844,68 @@ code {
   font-size: 1.25rem;
 }
 
+.modal-header > div:first-child {
+  min-width: 0;
+}
+
 .modal-kicker {
   margin-bottom: 4px;
   color: var(--muted);
   font-size: 0.75rem;
   font-weight: 600;
   text-transform: uppercase;
+}
+
+.modal-subtitle {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.modal-subtitle p {
+  max-width: 100%;
+  margin: 6px 0 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modal-subtitle-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  max-width: min(520px, 100%);
+  max-height: 200px;
+  padding: 8px 11px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 10px 28px var(--shadow-strong);
+  color: var(--text-soft);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease,
+    visibility 0s linear 0.14s;
+  visibility: hidden;
+  white-space: pre-wrap;
+  pointer-events: none;
+}
+
+.modal-subtitle:hover .modal-subtitle-tip,
+.modal-subtitle:focus-within .modal-subtitle-tip {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+  transition-delay: 0.25s;
 }
 
 .icon-button {
