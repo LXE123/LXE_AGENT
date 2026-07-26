@@ -101,6 +101,10 @@ function UsageDailyChart({
     max: number;
     byDay: Map<string, { index: number; turns: number; executions: number }>;
   } | null>(null);
+  const renderedPointsRef = useRef<{
+    turns: [number, number][];
+    executions: [number, number][];
+  } | null>(null);
 
   useLayoutEffect(() => {
     // FLIP: columns that survive a range change slide to their new positions.
@@ -151,8 +155,10 @@ function UsageDailyChart({
     // coordinates to the new ones, days missing before rise from the baseline.
     if (mode !== "line") {
       previousLineRef.current = null;
+      renderedPointsRef.current = null;
       return;
     }
+    type SeriesKey = "turns" | "executions";
     const next = {
       count: filled.length,
       max,
@@ -160,45 +166,59 @@ function UsageDailyChart({
         filled.map((entry, index) => [entry.day, { index, turns: entry.turns, executions: entry.executions }])
       )
     };
+    const finalFor = (key: SeriesKey): [number, number][] =>
+      filled.map((entry, index): [number, number] => [
+        ((index + 0.5) / next.count) * 100,
+        100 - (entry[key] / next.max) * 100
+      ]);
+    const nextFinal = { turns: finalFor("turns"), executions: finalFor("executions") };
     const previous = previousLineRef.current;
     previousLineRef.current = next;
     const turnsLine = turnsPolylineRef.current;
     const executionsLine = executionsPolylineRef.current;
-    if (!previous || !turnsLine || !executionsLine) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const pointIn = (
-      layout: typeof next,
-      day: string,
-      key: "turns" | "executions"
-    ): [number, number] | null => {
-      const entry = layout.byDay.get(day);
-      return entry
-        ? [((entry.index + 0.5) / layout.count) * 100, 100 - (entry[key] / layout.max) * 100]
-        : null;
-    };
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!previous || !turnsLine || !executionsLine || reducedMotion) {
+      renderedPointsRef.current = nextFinal;
+      return;
+    }
+    // A same-width retarget (placeholder swap on first visit, refetch) keeps
+    // going from the on-screen mid-flight points instead of restarting.
+    const rendered = renderedPointsRef.current;
+    const sameCount = previous.count === next.count;
+    const startFor = (key: SeriesKey): [number, number][] =>
+      filled.map((entry, index): [number, number] => {
+        if (sameCount && rendered?.[key][index]) return rendered[key][index];
+        const old = previous.byDay.get(entry.day);
+        return old
+          ? [((old.index + 0.5) / previous.count) * 100, 100 - (old[key] / previous.max) * 100]
+          : [((index + 0.5) / next.count) * 100, 100];
+      });
+    const start = { turns: startFor("turns"), executions: startFor("executions") };
     let raf = 0;
     const startTime = performance.now();
     const step = (now: number) => {
       const progress = Math.min(1, (now - startTime) / FLIP_DURATION_MS);
       const eased = 1 - (1 - progress) ** 3;
-      const points = (key: "turns" | "executions") =>
+      const current = { turns: [] as [number, number][], executions: [] as [number, number][] };
+      const points = (key: SeriesKey) =>
         filled
-          .map((entry, index) => {
-            const start = pointIn(previous, entry.day, key)
-              ?? ([((index + 0.5) / next.count) * 100, 100] as [number, number]);
-            const end = pointIn(next, entry.day, key) as [number, number];
-            const x = start[0] + (end[0] - start[0]) * eased;
-            const y = start[1] + (end[1] - start[1]) * eased;
+          .map((_, index) => {
+            const [startX, startY] = start[key][index];
+            const [endX, endY] = nextFinal[key][index];
+            const x = startX + (endX - startX) * eased;
+            const y = startY + (endY - startY) * eased;
+            current[key].push([x, y]);
             return `${x.toFixed(3)},${y.toFixed(3)}`;
           })
           .join(" ");
       turnsLine.setAttribute("points", points("turns"));
       executionsLine.setAttribute("points", points("executions"));
+      renderedPointsRef.current = current;
       if (progress < 1) raf = requestAnimationFrame(step);
     };
     step(startTime);
     return () => cancelAnimationFrame(raf);
-  }, [filled, days, mode, max]);
+  }, [filled, mode, max]);
 
   if (!daily.length) {
     return null;
