@@ -81,6 +81,7 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
   const [tip, setTip] = useState<ChartTip | null>(null);
   const chartRef = useRef<HTMLDivElement | null>(null);
   const previousRectsRef = useRef<Map<string, { left: number; width: number }> | null>(null);
+  const lastDaysRef = useRef(days);
   const filled = useMemo(() => fillDailyRange(daily, days), [daily, days]);
   // 7-day trailing moving average of skill executions, drawn as a trend line.
   const trend = useMemo(() => {
@@ -97,10 +98,17 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
     const chart = chartRef.current;
     if (!chart) return;
     const columns = Array.from(chart.querySelectorAll<HTMLElement>("[data-day]"));
-    // getBoundingClientRect() includes in-flight transforms; jump any running
-    // slide to its end state first so measurements reflect final layout only.
-    for (const column of columns) {
-      for (const animation of column.getAnimations()) animation.finish();
+    const daysChanged = lastDaysRef.current !== days;
+    // Column positions depend only on the day count, so data-only updates
+    // (placeholder swap, background refetch) never move them: skip measuring
+    // while a slide is in flight, and never cut the slide short for them.
+    if (!daysChanged && columns.some((column) => column.getAnimations().length > 0)) return;
+    if (daysChanged) {
+      // getBoundingClientRect() includes in-flight transforms; jump any running
+      // slide to its end state first so measurements reflect final layout only.
+      for (const column of columns) {
+        for (const animation of column.getAnimations()) animation.finish();
+      }
     }
     const nextRects = new Map<string, { left: number; width: number }>();
     for (const column of columns) {
@@ -109,7 +117,8 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
     }
     const previousRects = previousRectsRef.current;
     previousRectsRef.current = nextRects;
-    if (!previousRects || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    lastDaysRef.current = days;
+    if (!daysChanged || !previousRects || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     for (const column of columns) {
       const day = column.dataset.day ?? "";
       const previous = previousRects.get(day);
@@ -126,7 +135,7 @@ function UsageDailyChart({ daily, days }: { daily: StatsOverviewPayload["daily"]
         { duration: FLIP_DURATION_MS, easing: "cubic-bezier(0.22, 0.68, 0.26, 1)" }
       );
     }
-  }, [filled]);
+  }, [filled, days]);
 
   if (!daily.length) {
     return null;
