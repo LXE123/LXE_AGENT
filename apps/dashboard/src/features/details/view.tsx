@@ -8,7 +8,7 @@ import {
   useSkillContentQuery,
   useSkillReferenceQuery,
 } from "../../api/queries";
-import { formatDate, formatDuration } from "../../shared/format";
+import { formatDate, formatDuration, skillTypeLabel } from "../../shared/format";
 import { copyTextToClipboard } from "../../shared/content";
 import { markdownWithoutFrontMatter } from "../../shared/markdown";
 import { statusPillClass } from "../tasks/model";
@@ -16,8 +16,7 @@ import { useUiText } from "../../shared/i18n";
 import type {
   SkillContentMode,
   SkillContentView,
-  SkillPayload,
-  SkillReferencePayload
+  SkillPayload
 } from "../../api/payloads";
 import { markdownComponents } from "../../shared/ui/markdown";
 import type { DetailTarget } from "../../shared/ui/detail-target";
@@ -65,22 +64,6 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
     setContentMode("preview");
   }, [skill.name]);
 
-  function openReference(reference: SkillReferencePayload) {
-    if (referenceLoading === reference.path) {
-      return;
-    }
-    setCopied(false);
-    setSelectedReferencePath(reference.path);
-  }
-
-  function showSkillBody() {
-    if (!payload) {
-      return;
-    }
-    setSelectedReferencePath("");
-    setCopied(false);
-  }
-
   async function copyCurrentContent() {
     if (!contentView?.content) {
       return;
@@ -109,87 +92,78 @@ function SkillDetailContent({ skill }: { skill: SkillPayload }) {
           </div>
         </div>
       ) : null}
-      <div className="schema-block">
-        <div className="schema-title">{t.skillModal.references}</div>
-        {references.length ? (
-          <div className="reference-list">
-            {payload ? (
-              <button
-                className={contentView?.title === "SKILL.md" ? "reference-button active" : "reference-button"}
-                disabled={Boolean(referenceLoading)}
-                onClick={showSkillBody}
-                type="button"
-              >
-                <span className="mono">SKILL.md</span>
-                <small>{payload.description || skill.description}</small>
-              </button>
-            ) : null}
-            {references.map((reference) => {
-              const active = contentView?.title === reference.path;
-              const loadingReference = referenceLoading === reference.path;
-              return (
-                <button
-                  className={active ? "reference-button active" : "reference-button"}
-                  disabled={Boolean(referenceLoading)}
-                  key={reference.path}
-                  onClick={() => openReference(reference)}
-                  type="button"
-                >
-                  <span className="mono">{reference.path}</span>
-                  <small>{loadingReference ? t.skillModal.loadingReference : reference.description}</small>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="muted reference-empty">{t.skillModal.noReferences}</p>
-        )}
-      </div>
       <div className="schema-block skill-content-block">
         <div className="schema-title skill-content-title">
-          <div>
-            <span>{contentView?.title || "SKILL.md"}</span>
+          {references.length ? (
+            <select
+              aria-label={t.skillModal.references}
+              className="skill-file-select"
+              disabled={Boolean(referenceLoading)}
+              onChange={(event) => {
+                setCopied(false);
+                setSelectedReferencePath(event.target.value);
+              }}
+              value={selectedReferencePath}
+            >
+              <option value="">SKILL.md</option>
+              {references.map((reference) => (
+                <option key={reference.path} value={reference.path}>
+                  {reference.path}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div>
+              <span>{contentView?.title || "SKILL.md"}</span>
+            </div>
+          )}
+          <div className="skill-content-actions">
+            {!loading && contentView ? (
+              <div className="skill-content-mode-row" role="group" aria-label={t.skillModal.modeAria}>
+                <button
+                  className={contentMode === "preview" ? "skill-mode-button active" : "skill-mode-button"}
+                  onClick={() => setContentMode("preview")}
+                  type="button"
+                >
+                  {t.skillModal.preview}
+                </button>
+                <button
+                  className={contentMode === "source" ? "skill-mode-button active" : "skill-mode-button"}
+                  onClick={() => setContentMode("source")}
+                  type="button"
+                >
+                  {t.skillModal.source}
+                </button>
+              </div>
+            ) : null}
+            <button
+              className="skill-copy-button"
+              disabled={copyDisabled}
+              onClick={copyCurrentContent}
+              type="button"
+            >
+              {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
+              <span>{copied ? t.common.copied : t.skillModal.copySource}</span>
+            </button>
           </div>
-          <button
-            className="skill-copy-button"
-            disabled={copyDisabled}
-            onClick={copyCurrentContent}
-            type="button"
-          >
-            {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
-            <span>{copied ? t.common.copied : t.skillModal.copySource}</span>
-          </button>
         </div>
+        {selectedReferencePath ? (
+          <p className="skill-file-subtitle">
+            {referenceLoading ? t.skillModal.loadingReference : contentView?.subtitle}
+          </p>
+        ) : null}
         {error ? <div className="skill-content-status error">{error}</div> : null}
         {loading ? <div className="skill-content-status">{t.skillModal.loadingContent}</div> : null}
         {!loading && contentView ? (
-          <>
-            <div className="skill-content-mode-row" role="group" aria-label={t.skillModal.modeAria}>
-              <button
-                className={contentMode === "preview" ? "skill-mode-button active" : "skill-mode-button"}
-                onClick={() => setContentMode("preview")}
-                type="button"
-              >
-                {t.skillModal.preview}
-              </button>
-              <button
-                className={contentMode === "source" ? "skill-mode-button active" : "skill-mode-button"}
-                onClick={() => setContentMode("source")}
-                type="button"
-              >
-                {t.skillModal.source}
-              </button>
+          contentMode === "preview" ? (
+            <div className="skill-markdown">
+              <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+                {previewContent}
+              </ReactMarkdown>
             </div>
-            {contentMode === "preview" ? (
-              <div className="skill-markdown">
-                <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
-                  {previewContent}
-                </ReactMarkdown>
-              </div>
-            ) : (
-              <pre className="skill-content-pre">{contentView.content}</pre>
-            )}
-          </>
+          ) : (
+            <pre className="skill-content-pre">{contentView.content}</pre>
+          )
         ) : null}
       </div>
     </div>
@@ -241,7 +215,10 @@ export function DetailModal({ target, onClose }: { target: DetailTarget; onClose
   if (!target) {
     return null;
   }
-  const modalType = target.type === "tool" ? t.detailModal.tool : target.type === "skill" ? t.detailModal.skill : t.detailModal.task;
+  const modalType =
+    target.type === "tool" ? t.detailModal.tool
+    : target.type === "skill" ? skillTypeLabel(target.item.type, t)
+    : t.detailModal.task;
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();

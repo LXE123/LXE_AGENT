@@ -4968,16 +4968,22 @@ code {
   gap: 12px;
 }
 
-.skill-content-title div {
+.skill-content-title > div:first-child {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
+.skill-content-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
 .skill-content-mode-row {
   display: inline-flex;
   gap: 4px;
-  padding: 10px 12px 0;
 }
 
 .skill-mode-button {
@@ -5084,8 +5090,22 @@ pre {
   color: var(--muted);
 }
 
-.reference-empty {
-  padding: 12px;
+.skill-file-select {
+  max-width: 280px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.71875rem;
+}
+
+.skill-file-subtitle {
+  margin: 0;
+  padding: 8px 12px 0;
+  color: var(--muted);
+  font-size: 0.75rem;
 }
 
 .skill-content-block {
