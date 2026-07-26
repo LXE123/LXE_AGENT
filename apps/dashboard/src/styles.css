@@ -3237,11 +3237,6 @@ h1 {
   white-space: nowrap;
 }
 
-.skill-icon {
-  background: var(--warning-soft);
-  color: var(--warning);
-}
-
 .connector-icon {
   background: var(--info-soft);
   color: var(--info);
@@ -3787,6 +3782,17 @@ h1 {
   box-shadow: 0 0 0 3px var(--rate-good-soft);
 }
 
+.catalog-section.is-disabled {
+  --catalog-hue: var(--muted-light);
+  --catalog-hue-strong: var(--muted);
+  --catalog-soft: var(--surface-muted);
+  --catalog-ring: var(--border);
+}
+
+.catalog-section.is-disabled .catalog-section-toggle h2 {
+  color: var(--muted);
+}
+
 .catalog-section-toggle .section-chevron {
   color: var(--catalog-hue-strong);
 }
@@ -3803,7 +3809,7 @@ h1 {
 }
 
 .catalog-grid {
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 12px;
   padding: 14px;
   border-top: 1px solid var(--border);
@@ -3817,7 +3823,6 @@ h1 {
 .catalog-item {
   position: relative;
   display: flex;
-  min-height: 158px;
   flex-direction: column;
   padding: 15px;
   overflow: hidden;
@@ -3862,14 +3867,16 @@ h1 {
 }
 
 .catalog-item .item-heading h3 {
+  min-width: 0;
   color: var(--text-strong);
-  font-size: 0.84375rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
   font-weight: 680;
 }
 
 .catalog-item .description {
-  min-height: 42px;
-  margin-top: 13px;
+  min-height: 0;
+  margin-top: 8px;
   color: var(--text-soft);
   font-size: 0.75rem;
   line-height: 1.55;
@@ -3877,7 +3884,7 @@ h1 {
 
 .catalog-item .pill-row {
   margin-top: auto;
-  padding-top: 13px;
+  padding-top: 10px;
 }
 
 .catalog-item .pill {
@@ -3898,14 +3905,6 @@ h1 {
   overflow: hidden;
   color: var(--catalog-hue-strong);
   text-overflow: ellipsis;
-}
-
-.maintenance-command-card {
-  min-height: 132px;
-}
-
-.maintenance-command-card .description {
-  min-height: 0;
 }
 
 .maintenance-command-name {

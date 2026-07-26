@@ -195,7 +195,6 @@ export const ZH_TEXT = {
   },
   tools: {
     subtitle: "查看并管理可供 Agent 调用的工具集。",
-    toolsetDescription: "展开查看此工具集包含的能力",
     parameters: (count: string) => `${count} 个参数`,
     resource: (name: string) => `资源 · ${name}`,
     itemUnit: "个工具",
@@ -223,7 +222,6 @@ export const ZH_TEXT = {
   },
   skills: {
     subtitle: "浏览 Agent 可加载的技能、命令与参考资料。",
-    groupDescription: "展开浏览该分类下的技能",
     itemUnit: "个技能",
     empty: "当前 agent 暂无可用 skill。",
     refs: (count: string) => `${count} 个引用`,
@@ -542,7 +540,6 @@ export const UI_TEXT: Record<Language, UiText> = {
     },
     tools: {
       subtitle: "View and manage the toolsets available to the agent.",
-      toolsetDescription: "Expand to browse the capabilities in this toolset",
       parameters: (count: string) => `${count} parameters`,
       resource: (name: string) => `Resource · ${name}`,
       itemUnit: "tools",
@@ -570,7 +567,6 @@ export const UI_TEXT: Record<Language, UiText> = {
     },
     skills: {
       subtitle: "Browse the skills, commands, and references available to the agent.",
-      groupDescription: "Expand to browse skills in this group",
       itemUnit: "skills",
       empty: "No skills are available for the current agent.",
       refs: (count: string) => `${count} refs`,

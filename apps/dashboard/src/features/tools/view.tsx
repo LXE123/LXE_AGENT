@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Boxes, ChevronRight, SlidersHorizontal, Wrench } from "lucide-react";
+import { Boxes, ChevronRight, Plug, SlidersHorizontal, Wrench } from "lucide-react";
 
 import { EmptyState } from "../../shared/components";
 import { formatNumber } from "../../shared/format";
@@ -12,6 +12,16 @@ function toolParameterCount(tool: ToolPayload): number {
   return properties && typeof properties === "object" && !Array.isArray(properties)
     ? Object.keys(properties).length
     : 0;
+}
+
+function toolsetIcon(toolset: ToolsetPayload) {
+  if (toolset.name === "coding") {
+    return Wrench;
+  }
+  if (toolset.name.startsWith("mcp:")) {
+    return Plug;
+  }
+  return Boxes;
 }
 
 export function ToolsView({
@@ -33,8 +43,12 @@ export function ToolsView({
       <div className="toolset-stack">
         {toolsets.map((toolset, toolsetIndex) => {
           const expanded = expandedToolsets[toolset.name] ?? (toolsetIndex === 0);
+          const ToolsetIcon = toolsetIcon(toolset);
           return (
-            <section className="toolset-section catalog-section" key={toolset.name}>
+            <section
+              className={toolset.enabled ? "toolset-section catalog-section" : "toolset-section catalog-section is-disabled"}
+              key={toolset.name}
+            >
               <button
                 className="section-title-button catalog-section-toggle"
                 type="button"
@@ -42,11 +56,10 @@ export function ToolsView({
                 onClick={() => setExpandedToolsets((current) => ({ ...current, [toolset.name]: !expanded }))}
               >
                 <span className="catalog-section-icon">
-                  <Boxes size={18} />
+                  <ToolsetIcon size={18} />
                 </span>
                 <div>
                   <h2>{toolset.label}</h2>
-                  <p>{t.tools.toolsetDescription}</p>
                 </div>
                 <span className={toolset.enabled ? "catalog-section-status on" : "catalog-section-status"}>
                   <span aria-hidden="true" />
@@ -68,12 +81,7 @@ export function ToolsView({
                         onClick={() => onOpen({ type: "tool", item: tool, title: tool.name })}
                       >
                         <div className="item-heading">
-                          <div className="item-icon">
-                            <Wrench size={18} />
-                          </div>
-                          <div>
-                            <h3>{tool.name}</h3>
-                          </div>
+                          <h3>{tool.name}</h3>
                           <ChevronRight className="chevron" size={18} />
                         </div>
                         <p className="description">{tool.description}</p>

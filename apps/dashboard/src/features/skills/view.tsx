@@ -5,8 +5,11 @@ import {
   ChevronRight,
   Gauge,
   Layers3,
+  PackagePlus,
   Sparkles,
-  TerminalSquare
+  Store,
+  TerminalSquare,
+  Warehouse
 } from "lucide-react";
 
 import { EmptyState, successRateText } from "../../shared/components";
@@ -15,6 +18,21 @@ import { useUiText } from "../../shared/i18n";
 import type { CliCommandPayload, SkillPayload } from "../../api/payloads";
 import type { DetailTarget } from "../../shared/ui/detail-target";
 import { SKILL_BADGE_STATS_DAYS, useSkillUsageStats } from "../stats/view";
+
+function skillGroupIcon(type: string) {
+  switch (type) {
+    case "amazon_fba":
+      return Warehouse;
+    case "amazon_replenish":
+      return PackagePlus;
+    case "amazon_operations":
+      return Store;
+    case "default":
+      return Sparkles;
+    default:
+      return Layers3;
+  }
+}
 
 export function SkillsView({
   skills,
@@ -82,6 +100,7 @@ export function SkillsView({
         ) : null}
         {groups.map((group, groupIndex) => {
           const expanded = expandedSkillGroups[group.type] ?? (groupIndex === 0);
+          const GroupIcon = skillGroupIcon(group.type);
           return (
             <section className="toolset-section catalog-section" key={group.type}>
               <button
@@ -91,11 +110,10 @@ export function SkillsView({
                 onClick={() => setExpandedSkillGroups((current) => ({ ...current, [group.type]: !expanded }))}
               >
                 <span className="catalog-section-icon">
-                  <Layers3 size={18} />
+                  <GroupIcon size={18} />
                 </span>
                 <div>
                   <h2>{group.label}</h2>
-                  <p>{t.skills.groupDescription}</p>
                 </div>
                 <span className="catalog-count-badge">
                   {t.common.countItems(formatNumber(group.skills.length), t.skills.itemUnit)}
@@ -114,12 +132,7 @@ export function SkillsView({
                         onClick={() => onOpen({ type: "skill", item: skill, title: skill.name })}
                       >
                         <div className="item-heading">
-                          <div className="item-icon skill-icon">
-                            <Sparkles size={18} />
-                          </div>
-                          <div>
-                            <h3>{skill.name}</h3>
-                          </div>
+                          <h3>{skill.name}</h3>
                           <ChevronRight className="chevron" size={18} />
                         </div>
                         <p className="description">{skill.description}</p>
