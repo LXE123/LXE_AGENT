@@ -267,8 +267,7 @@ export const ZH_TEXT = {
     columnErrors: "错误",
     columnLastUsed: "最近使用",
     executionsBadge: (count: string) => `${count} 次执行`,
-    successRateBadge: (pct: string) => `成功率 ${pct}`,
-    neverUsed: "近 30 天未使用"
+    successRateBadge: (pct: string) => `成功率 ${pct}`
   },
   connectors: {
     subtitle: "控制 agent 是否能看到平台 CLI skills。",
@@ -813,8 +812,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       columnErrors: "Errors",
       columnLastUsed: "Last Used",
       executionsBadge: (count: string) => `${count} runs`,
-      successRateBadge: (pct: string) => `${pct} success`,
-      neverUsed: "Unused in 30 days"
+      successRateBadge: (pct: string) => `${pct} success`
     },
     connectors: {
       subtitle: "Control whether agents can see platform CLI skills.",

@@ -13,20 +13,9 @@ import {
 import { EmptyState, FailureCount, SuccessRateCell } from "../../shared/components";
 import { formatDate, formatDurationMs, formatNumber, skillTypeLabel } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
-import type { SkillStatPayload, StatsOverviewPayload } from "../../api/payloads";
+import type { StatsOverviewPayload } from "../../api/payloads";
 
 export const USAGE_RANGE_OPTIONS = [7, 30, 90];
-export const SKILL_BADGE_STATS_DAYS = 30;
-
-export function useSkillUsageStats(days: number): Record<string, SkillStatPayload> | null {
-  const query = useSkillStatsQuery(days);
-  return useMemo(() => {
-    if (!query.data) return null;
-    const stats: Record<string, SkillStatPayload> = {};
-    for (const item of query.data.items) stats[item.name] = item;
-    return stats;
-  }, [query.data]);
-}
 
 const CHART_TICK_COUNT = 4;
 

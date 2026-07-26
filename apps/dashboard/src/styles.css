@@ -3808,6 +3808,32 @@ h1 {
   background: linear-gradient(100deg, var(--catalog-soft), var(--surface) 55%);
 }
 
+.catalog-collapsible {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.24s ease;
+}
+
+.catalog-collapsible.expanded {
+  grid-template-rows: 1fr;
+}
+
+.catalog-collapsible-inner {
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 0.18s ease,
+    visibility 0s linear 0.24s;
+}
+
+.catalog-collapsible.expanded .catalog-collapsible-inner {
+  visibility: visible;
+  opacity: 1;
+  transition: opacity 0.18s ease 0.06s;
+}
+
 .catalog-grid {
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 12px;
@@ -6073,11 +6099,6 @@ pre {
   font-weight: 650;
 }
 
-.pill.usage-muted {
-  color: var(--muted-light);
-  border-style: dashed;
-}
-
 /* ------------------------------------------------------------- home page */
 
 .dashboard-home-panel .content-panel {
@@ -6616,6 +6637,11 @@ pre {
   .usage-chart-points,
   .usage-chart-point {
     animation: none;
+  }
+
+  .catalog-collapsible,
+  .catalog-collapsible-inner {
+    transition: none;
   }
 
   .usage-chart-point {
