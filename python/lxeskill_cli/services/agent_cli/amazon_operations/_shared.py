@@ -12,7 +12,7 @@ from shared.infra.net.requests_client import external_requests_session
 from shared.workspace import artifact_path
 
 
-SOURCE = "amazon_web_experimental"
+SOURCE = "amazon_public_web"
 SUPPORTED_MARKETPLACE = "com"
 REQUEST_TIMEOUT_SECONDS = 15
 _BLOCKED_HTTP_STATUSES = {403, 429, 503}
@@ -40,7 +40,7 @@ class WebResponse:
 def validate_marketplace(value: Any) -> str:
     marketplace = str(value or SUPPORTED_MARKETPLACE).strip().lower()
     if marketplace != SUPPORTED_MARKETPLACE:
-        raise ValueError("marketplace must be 'com' for this experimental release")
+        raise ValueError("marketplace must be 'com' for this release")
     return marketplace
 
 

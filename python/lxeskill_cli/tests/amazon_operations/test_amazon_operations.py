@@ -58,17 +58,28 @@ def test_listing_complete_page_is_normalized_and_scored(monkeypatch: pytest.Monk
 
     assert result["success"] is True
     assert result["status"] == "complete"
+    assert result["source"] == "amazon_public_web"
     assert result["listing"]["title"].startswith("Acme & Co")
     assert result["listing"]["brand"] == "Acme"
     assert result["listing"]["review_count"] == 1234
     assert result["listing"]["images_count"] == 7
-    assert result["scores"]["overall"] is not None
-    assert result["scores"]["grade"] is not None
+    assert result["scores"] == {
+        "title": 80,
+        "bullets": 65,
+        "images": 100,
+        "reviews": 100,
+        "overall": 85,
+        "grade": "A",
+    }
+    assert result["missing_fields"] == []
+    assert result["data_completeness"] == 1.0
     assert result["diagnostics"]["confidence"] == "high"
     assert Path(result["report_path"]).is_file()
 
 
-def test_listing_partial_page_never_invents_overall_score(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_listing_partial_page_keeps_upstream_score_and_reports_completeness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     partial = """
     <span id="productTitle">Acme Example Product Title</span>
     <div id="feature-bullets"><span class="a-list-item">A useful observed product detail.</span></div>
@@ -80,16 +91,56 @@ def test_listing_partial_page_never_invents_overall_score(monkeypatch: pytest.Mo
 
     assert result["success"] is True
     assert result["status"] == "partial"
-    assert result["scores"]["overall"] is None
-    assert result["scores"]["grade"] is None
-    assert result["diagnostics"]["score_available"] is False
+    assert result["scores"] == {
+        "title": 35,
+        "bullets": 10,
+        "images": 20,
+        "reviews": 0,
+        "overall": 18,
+        "grade": "F",
+    }
+    assert result["missing_fields"] == ["rating", "review_count"]
+    assert result["data_completeness"] == 0.6
+    assert result["diagnostics"]["score_available"] is True
     assert result["diagnostics"]["missing_fields"] == ["rating", "review_count"]
+
+
+def test_upstream_scoring_golden_case_uses_original_thresholds_and_flooring() -> None:
+    scores, _recommendations = analyze_listing.score_listing(
+        {
+            "title": "Acme Example Product Title",
+            "bullets": ["A useful observed product detail."],
+            "images_count": 3,
+            "rating": 4.2,
+            "review_count": 50,
+        },
+    )
+
+    assert scores == {
+        "title": 35,
+        "bullets": 10,
+        "images": 50,
+        "reviews": 70,
+        "overall": 39,
+        "grade": "F",
+    }
+
+
+def test_upstream_bullet_benefit_vocabulary_is_preserved() -> None:
+    score, _feedback = analyze_listing._score_bullets(
+        ["BEST GUARANTEED SATISFACTION for practical everyday use."],
+    )
+
+    assert score == 45
 
 
 @pytest.mark.parametrize(
     ("response", "marker"),
     [
         (_response("<h1>Robot Check</h1>"), "robot check"),
+        (_response("<form action='validateCaptcha'>challenge</form>"), "validatecaptcha"),
+        (_response("Forbidden", status=403), "http_403"),
+        (_response("Too many requests", status=429), "http_429"),
         (_response("Service unavailable", status=503), "http_503"),
     ],
 )
@@ -129,6 +180,29 @@ def test_fetch_web_preserves_timeout_type_and_message(monkeypatch: pytest.Monkey
     assert result.error == "read timed out"
 
 
+def test_listing_timeout_fails_without_scoring(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        analyze_listing,
+        "fetch_web",
+        lambda *_args, **_kwargs: _shared.WebResponse(
+            requested_url="https://www.amazon.com/dp/B0DC6F1MTD",
+            final_url="https://www.amazon.com/dp/B0DC6F1MTD",
+            status_code=None,
+            text="",
+            content_type="",
+            exception_type="Timeout",
+            error="read timed out",
+        ),
+    )
+
+    result = analyze_listing.run({"asin": "B0DC6F1MTD"})
+
+    assert result["success"] is False
+    assert result["status"] == "failed"
+    assert result["source"] == "amazon_public_web"
+    assert "scores" not in result
+
+
 def test_keyword_research_returns_compact_summary_and_full_report(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(research_keywords, "_REQUEST_PAUSE_SECONDS", 0)
 
@@ -144,6 +218,7 @@ def test_keyword_research_returns_compact_summary_and_full_report(monkeypatch: p
 
     assert result["success"] is True
     assert result["status"] == "complete"
+    assert result["source"] == "amazon_public_web"
     assert result["total_keywords"] == 3
     assert len(result["top_keywords"]) == 3
     assert result["diagnostics"]["request_count"] == 27
@@ -229,6 +304,7 @@ def test_competitor_research_only_accepts_explicit_empty_page(monkeypatch: pytes
     confirmed = research_competitors.run({"query": "unusual phrase", "limit": 5})
 
     assert confirmed["success"] is True
+    assert confirmed["source"] == "amazon_public_web"
     assert confirmed["total_results"] == 0
     assert confirmed["diagnostics"]["empty_result_confirmed"] is True
 

@@ -50,7 +50,7 @@ Upstream source and release artifacts: https://github.com/BurntSushi/ripgrep
 
 ## Amazon Listing Optimizer
 
-Portions of the experimental Amazon Operations analysis heuristics are adapted
+Portions of the Amazon Operations analysis heuristics are adapted
 from `amazon-listing-optimizer` 1.0.0 by avmw2025, distributed through ClawHub
 and the LinkFox skill marketplace.
 

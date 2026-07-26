@@ -12,7 +12,7 @@ The repository currently contains 28 top-level workflow and default runtime skil
 | --- | ---: | --- |
 | `amazon_fba` | 14 | shipment, customs, purchase, contract, and export-tax workflows |
 | `amazon_replenish` | 9 | inventory snapshots, sales analysis, parameters, and replenishment calculation |
-| `amazon_operations` | 1 | experimental listing analysis, keyword research, and competitor discovery |
+| `amazon_operations` | 1 | listing analysis, keyword research, and competitor discovery |
 | `default` | 3 | general connector and workbook capabilities |
 | `ziniao_browser` | 1 | controlled Ziniao browser lifecycle and page operations |
 
@@ -55,9 +55,9 @@ Start with `replenishment-workflow-map`. Snapshot and analysis skills prepare ex
 
 ## Amazon Operations
 
-- `amazon-listing-optimizer`: experimental Amazon.com listing analysis, autocomplete keyword research, and competitor discovery.
+- `amazon-listing-optimizer`: Amazon.com listing analysis, autocomplete keyword research, and competitor discovery.
 
-Results from this module must retain their completeness and confidence diagnostics. It is not a formal operational data source.
+LXE formally maintains this module's command and failure contracts. Its results come from Amazon public pages and an undocumented autocomplete endpoint, so agents must retain completeness and confidence diagnostics and must not describe the results as Amazon-authorized data.
 
 ## Default Skills
 

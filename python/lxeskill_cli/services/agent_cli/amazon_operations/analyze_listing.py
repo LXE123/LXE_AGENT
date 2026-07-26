@@ -85,9 +85,9 @@ def parse_listing_page(source: str, asin: str) -> dict[str, Any]:
     }
 
 
-def _score_title(title: str) -> tuple[int | None, list[str]]:
+def _score_title(title: str) -> tuple[int, list[str]]:
     if not title:
-        return None, ["Title was not observed."]
+        return 0, ["Title was not observed."]
     score = 0
     feedback: list[str] = []
     length = len(title)
@@ -126,9 +126,9 @@ def _score_title(title: str) -> tuple[int | None, list[str]]:
     return min(score, 100), feedback
 
 
-def _score_bullets(bullets: list[str]) -> tuple[int | None, list[str]]:
+def _score_bullets(bullets: list[str]) -> tuple[int, list[str]]:
     if not bullets:
-        return None, ["Bullet points were not observed."]
+        return 0, ["Bullet points were not observed."]
     score = 25 if len(bullets) >= 5 else 15 if len(bullets) >= 3 else 5
     feedback: list[str] = []
     if len(bullets) < 5:
@@ -146,8 +146,11 @@ def _score_bullets(bullets: list[str]) -> tuple[int | None, list[str]]:
         "enjoy",
         "perfect",
         "ideal",
+        "best",
         "premium",
         "quality",
+        "guaranteed",
+        "satisfaction",
         "easy",
         "comfortable",
     )
@@ -160,26 +163,33 @@ def _score_bullets(bullets: list[str]) -> tuple[int | None, list[str]]:
     return min(score, 100), feedback
 
 
-def _score_images(count: int | None) -> tuple[int | None, list[str]]:
-    if count is None:
-        return None, ["Product images were not observed."]
-    if count >= 7:
+def _score_images(count: int | None) -> tuple[int, list[str]]:
+    # The upstream parser treated an unobserved image set as one image.
+    normalized_count = max(int(count or 1), 1)
+    if normalized_count >= 7:
         return 100, []
-    if count >= 5:
-        return 75, [f"Add {7 - count} more useful product images if available."]
-    if count >= 3:
+    if normalized_count >= 5:
+        return 75, [f"Add {7 - normalized_count} more useful product images if available."]
+    if normalized_count >= 3:
         return 50, ["Add lifestyle, detail, and size-reference images."]
     return 20, ["Very few product images were observed."]
 
 
-def _score_reviews(rating: float | None, count: int | None) -> tuple[int | None, list[str]]:
-    if rating is None or count is None:
-        return None, ["Rating or review count was not observed."]
-    score = 50 if rating >= 4.5 else 40 if rating >= 4.0 else 25 if rating >= 3.5 else 10
-    score += 50 if count >= 1000 else 40 if count >= 500 else 30 if count >= 100 else 20 if count >= 50 else 10
-    feedback = [] if rating >= 4.0 else ["The observed rating may reduce conversion."]
-    if count < 50:
-        feedback.append("The observed review count provides limited social proof.")
+def _score_reviews(rating: float | None, count: int | None) -> tuple[int, list[str]]:
+    score = 0
+    feedback: list[str] = []
+    if rating is None:
+        feedback.append("Rating was not observed.")
+    else:
+        score += 50 if rating >= 4.5 else 35 if rating >= 4.0 else 20 if rating >= 3.5 else 5
+        if rating < 4.0:
+            feedback.append("The observed rating may reduce conversion.")
+    if count is None:
+        feedback.append("Review count was not observed.")
+    else:
+        score += 50 if count >= 100 else 35 if count >= 30 else 20 if count >= 10 else 5
+        if count < 30:
+            feedback.append("The observed review count provides limited social proof.")
     return min(score, 100), feedback
 
 
@@ -194,29 +204,25 @@ def score_listing(listing: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
         "images": image_score,
         "reviews": review_score,
     }
-    if all(value is not None for value in components.values()):
-        overall = round(
-            float(title_score) * 0.30
-            + float(bullet_score) * 0.25
-            + float(image_score) * 0.25
-            + float(review_score) * 0.20
-        )
-        grade = (
-            "A+"
-            if overall >= 90
-            else "A"
-            if overall >= 80
-            else "B"
-            if overall >= 70
-            else "C"
-            if overall >= 60
-            else "D"
-            if overall >= 50
-            else "F"
-        )
-    else:
-        overall = None
-        grade = None
+    overall = int(
+        title_score * 0.30
+        + bullet_score * 0.25
+        + image_score * 0.25
+        + review_score * 0.20
+    )
+    grade = (
+        "A+"
+        if overall >= 90
+        else "A"
+        if overall >= 80
+        else "B"
+        if overall >= 70
+        else "C"
+        if overall >= 60
+        else "D"
+        if overall >= 50
+        else "F"
+    )
     return {**components, "overall": overall, "grade": grade}, [
         *title_feedback,
         *bullet_feedback,
@@ -269,6 +275,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         )
 
     missing_fields = [field for field in _CRITICAL_FIELDS if listing.get(field) in (None, "", [])]
+    data_completeness = round((len(_CRITICAL_FIELDS) - len(missing_fields)) / len(_CRITICAL_FIELDS), 2)
     scores, recommendations = score_listing(listing)
     status = "complete" if not missing_fields else "partial"
     confidence = "high" if not missing_fields else "medium" if len(missing_fields) <= 2 else "low"
@@ -280,11 +287,13 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         "listing": listing,
         "scores": scores,
         "recommendations": recommendations[:12],
+        "missing_fields": missing_fields,
+        "data_completeness": data_completeness,
         "diagnostics": {
             **diagnostics,
             "confidence": confidence,
             "missing_fields": missing_fields,
-            "score_available": scores["overall"] is not None,
+            "score_available": True,
         },
     }
     return persist_report("listing", raw_asin, payload)
