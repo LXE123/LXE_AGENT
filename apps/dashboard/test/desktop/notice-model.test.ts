@@ -5,6 +5,9 @@ import {
   desktopProgressNotice,
   desktopSuccessNotice,
 } from "../../src/desktop/notice-model";
+import { ZH_TEXT } from "../../src/shared/i18n";
+
+const text = ZH_TEXT.desktop;
 
 describe("desktop notice model", () => {
   test("keeps progress visible and makes success dismissible for six seconds", () => {
@@ -23,11 +26,16 @@ describe("desktop notice model", () => {
   });
 
   test("preserves the complete import summary", () => {
-    expect(configImportSuccessMessage({
+    expect(configImportSuccessMessage(text, {
       state: {} as never,
       applied_groups: ["基础设置", "飞书"],
       pending_groups: ["马帮"],
       warnings: ["warning"],
-    }, 5)).toBe("已导入：基础设置、飞书；待补全：马帮；已跳过 5 个未知变量；1 项注意事项");
+    }, 5)).toBe(
+      text.configImport.successImported(["基础设置", "飞书"].join(text.listSeparator))
+        + text.configImport.successPending("马帮")
+        + text.configImport.successSkipped("5")
+        + text.configImport.successWarnings("1"),
+    );
   });
 });

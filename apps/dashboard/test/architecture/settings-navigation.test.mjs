@@ -10,8 +10,8 @@ const shell = readFileSync(path.join(sourceDir, "desktop/shell.tsx"), "utf8");
 const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
 
 test("desktop settings render one navigable panel instead of stacked integrations", () => {
-  for (const label of ["运行状态", "外观", "基础设置", "紫鸟自动化", "马帮", "飞书", "日志与排障"]) {
-    assert.match(shell, new RegExp(`>${label}<|\"${label}\"`));
+  for (const key of ["status", "appearance", "base", "ziniao", "mabang", "feishu", "logging"]) {
+    assert.match(shell, new RegExp(`sectionTitles\\.${key}`));
   }
   assert.match(shell, /aria-current=\{active \? "page" : undefined\}/);
   assert.match(shell, /settingsNavigation\(false\)/);

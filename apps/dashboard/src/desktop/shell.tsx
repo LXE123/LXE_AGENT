@@ -24,7 +24,8 @@ import type {
   DesktopZiniaoVersion,
 } from "@lxe/desktop-protocol";
 import { BrandMark } from "../shared/ui/brand-mark";
-import type { Language } from "../shared/i18n";
+import { useUiText } from "../shared/i18n";
+import type { Language, UiText } from "../shared/i18n";
 import type { DashboardFontSize } from "../shared/appearance";
 import { LanguageSwitch } from "../shared/ui/language-switch";
 import { useDialogFocus } from "../shared/ui/use-dialog-focus";
@@ -52,25 +53,10 @@ type DesktopConfirmation =
   | { kind: "clear-integration"; integration: IntegrationName; label: string };
 const setupForm = desktopSettingsForm;
 
-const FONT_SIZE_OPTIONS: ReadonlyArray<{
-  value: DashboardFontSize;
-  label: string;
-  description: string;
-}> = [
-  { value: "small", label: "小", description: "更紧凑" },
-  { value: "standard", label: "标准", description: "默认" },
-  { value: "large", label: "大", description: "更易阅读" },
-];
+const FONT_SIZE_VALUES: ReadonlyArray<DashboardFontSize> = ["small", "standard", "large"];
 
-const fontSizeLabel = (fontSize: DashboardFontSize): string =>
-  FONT_SIZE_OPTIONS.find((option) => option.value === fontSize)?.label ?? "标准";
-
-const stateLabel = (state: DesktopHealth["gateway"]): string => ({
-  stopped: "已停止",
-  starting: "启动中",
-  ready: "运行中",
-  error: "异常",
-})[state];
+const fontSizeLabel = (text: UiText["desktop"], fontSize: DashboardFontSize): string =>
+  text.fontSizeOptions[fontSize].label;
 
 const integrationStatusClass = (managed: boolean, configured: boolean): string =>
   `desktop-integration-status ${configured ? "configured" : managed ? "incomplete" : "optional"}`;
@@ -93,7 +79,8 @@ function LoggingSinkCard({
   label: string;
   status: DesktopHealth["logging"]["agent_cli"];
 }) {
-  const view = desktopLoggingSinkView(status);
+  const t = useUiText();
+  const view = desktopLoggingSinkView(t.desktop, status);
   return (
     <div className={`desktop-logging-sink state-${view.tone}`}>
       <div>
@@ -135,6 +122,7 @@ function DesktopSettingsNavigation({
   onSelectConfigImport: () => void;
   configurationBusy: boolean;
 }) {
+  const t = useUiText();
   const item = (section: DesktopSettingsSection, label: string, status: string) => {
     const dirty = desktopSettingsSectionIsDirty(section, form, baseline);
     const active = activeSection === section;
@@ -151,36 +139,28 @@ function DesktopSettingsNavigation({
           <small>{status}</small>
         </span>
         {dirty ? (
-          <i aria-label="有未保存修改" className="desktop-settings-dirty-dot" title="有未保存修改" />
+          <i aria-label={t.desktop.unsavedChanges} className="desktop-settings-dirty-dot" title={t.desktop.unsavedChanges} />
         ) : null}
       </button>
     );
   };
 
   return (
-    <nav aria-label="设置菜单" className="desktop-settings-nav">
+    <nav aria-label={t.desktop.menuAria} className="desktop-settings-nav">
       <div className="desktop-settings-nav-list">
-        {showStatus ? item("status", "运行状态", stateLabel(health?.gateway ?? "starting")) : null}
-        {item("appearance", "外观", `字体：${fontSizeLabel(fontSize)}`)}
-        {item("cloud", "公司云端", ({
-          connected: "已连接",
-          connecting: "连接中",
-          provisioning: "配置中",
-          offline: "离线",
-          error: "需处理",
-          unsupported: "仅 Windows",
-          not_configured: "未配置",
-        } as const)[cloud.connection])}
-        {item("base", "基础设置", desktopSettingsSectionStatus("base", setup))}
-        <p className="desktop-settings-nav-group">业务集成</p>
-        {item("ziniao", "紫鸟自动化", desktopSettingsSectionStatus("ziniao", setup))}
-        {item("mabang", "马帮", desktopSettingsSectionStatus("mabang", setup))}
-        {item("feishu", "飞书", desktopSettingsSectionStatus("feishu", setup))}
-        {item("logging", "日志与排障", desktopSettingsSectionStatus("logging", setup))}
+        {showStatus ? item("status", t.desktop.sectionTitles.status, t.home.componentStates[health?.gateway ?? "starting"]) : null}
+        {item("appearance", t.desktop.sectionTitles.appearance, t.desktop.fontSizeStatus(fontSizeLabel(t.desktop, fontSize)))}
+        {item("cloud", t.desktop.sectionTitles.cloud, t.desktop.cloudStates[cloud.connection])}
+        {item("base", t.desktop.sectionTitles.base, desktopSettingsSectionStatus(t.desktop, "base", setup))}
+        <p className="desktop-settings-nav-group">{t.desktop.integrationsGroup}</p>
+        {item("ziniao", t.desktop.sectionTitles.ziniao, desktopSettingsSectionStatus(t.desktop, "ziniao", setup))}
+        {item("mabang", t.desktop.sectionTitles.mabang, desktopSettingsSectionStatus(t.desktop, "mabang", setup))}
+        {item("feishu", t.desktop.sectionTitles.feishu, desktopSettingsSectionStatus(t.desktop, "feishu", setup))}
+        {item("logging", t.desktop.sectionTitles.logging, desktopSettingsSectionStatus(t.desktop, "logging", setup))}
       </div>
       <div className="desktop-settings-nav-footer">
         <div className="desktop-settings-language">
-          <span>界面语言</span>
+          <span>{t.desktop.interfaceLanguage}</span>
           <LanguageSwitch language={language} onLanguageChange={onLanguageChange} />
         </div>
         <button
@@ -190,7 +170,7 @@ function DesktopSettingsNavigation({
           type="button"
         >
           <FileUp size={15} />
-          <span><strong>从 .env 导入</strong><small>读取本地配置文件</small></span>
+          <span><strong>{t.desktop.importEnv}</strong><small>{t.desktop.importEnvHint}</small></span>
         </button>
       </div>
     </nav>
@@ -206,11 +186,12 @@ function DesktopNoticeMessage({
   notice: DesktopNoticeState;
   onDismiss: () => void;
 }) {
+  const t = useUiText();
   return (
     <div aria-live="polite" className={`${className} desktop-notice-message`} role="status">
       <span>{notice.message}</span>
       {notice.dismissible ? (
-        <button aria-label="关闭提示" onClick={onDismiss} title="关闭提示" type="button">
+        <button aria-label={t.desktop.closeNotice} onClick={onDismiss} title={t.desktop.closeNotice} type="button">
           <X aria-hidden size={14} />
         </button>
       ) : null}
@@ -239,16 +220,23 @@ function DesktopCloudPanel({
   onRetry: () => void;
   onSelect: () => void;
 }) {
+  const t = useUiText();
   const connected = cloud.connection === "connected";
   const supported = cloud.connection !== "unsupported";
   return (
     <section className="desktop-settings-section desktop-cloud-panel">
       <DesktopSectionHeading
-        badge={connected ? "已连接" : cloud.configured ? "已配置" : supported ? "未配置" : "仅 Windows"}
+        badge={connected
+          ? t.desktop.cloud.connectedBadge
+          : cloud.configured
+            ? t.desktop.cloud.configuredBadge
+            : supported
+              ? t.desktop.cloud.unconfiguredBadge
+              : t.desktop.cloud.unsupportedBadge}
         badgeClassName={connected ? "desktop-cloud-badge connected" : "desktop-cloud-badge"}
-        description="连接公司内网并启用每小时云端同步。"
+        description={t.desktop.cloud.description}
         headingRef={headingRef}
-        title="公司云端"
+        title={t.desktop.sectionTitles.cloud}
       />
       {cloud.configured ? (
         <div className="desktop-cloud-identity">
@@ -257,20 +245,20 @@ function DesktopCloudPanel({
         </div>
       ) : null}
       {!supported ? (
-        <p className="desktop-form-hint">请在 Windows 10/11 x64 安装包中导入管理员提供的设备文件。</p>
+        <p className="desktop-form-hint">{t.desktop.cloud.unsupportedHint}</p>
       ) : !cloud.configured ? (
         <div className="desktop-cloud-activation">
           <button className="desktop-path-button" disabled={activating} onClick={onSelect} type="button">
             <FileKey2 size={17} />
-            {enrollment?.file_name || "选择 .lxe-enroll 设备文件"}
+            {enrollment?.file_name || t.desktop.cloud.selectEnrollment}
           </button>
           <label>
-            <span>一次性密码</span>
+            <span>{t.desktop.cloud.oneTimePassword}</span>
             <input
               autoComplete="off"
               disabled={activating}
               onChange={(event) => onPasswordChange(event.target.value)}
-              placeholder="输入管理员单独发送的密码"
+              placeholder={t.desktop.cloud.passwordPlaceholder}
               type="password"
               value={password}
             />
@@ -282,17 +270,17 @@ function DesktopCloudPanel({
             type="button"
           >
             <Cloud size={17} />
-            {activating ? "正在配置…" : "激活"}
+            {activating ? t.desktop.cloud.activating : t.desktop.cloud.activate}
           </button>
         </div>
       ) : null}
       {cloud.configured ? (
         <div className={`desktop-cloud-status ${cloud.connection}`}>
-          <span>{connected ? "公司云端连接正常" : cloud.last_error || "正在检查公司网络"}</span>
+          <span>{connected ? t.desktop.cloud.connected : cloud.last_error || t.desktop.cloud.checking}</span>
           {!connected ? (
             <button disabled={activating} onClick={onRetry} type="button">
               <RotateCcw size={15} />
-              重试连接
+              {t.desktop.cloud.retry}
             </button>
           ) : null}
         </div>
@@ -336,15 +324,16 @@ function DesktopStatusPanel({
   restarting: boolean;
   onRestart: () => void;
 }) {
+  const t = useUiText();
   const hasHealthError = health
     ? [health.gateway, health.agent_cli, health.lxeskill].includes("error")
     : false;
   return (
     <section className="desktop-settings-section desktop-status-panel">
       <DesktopSectionHeading
-        description="查看桌面核心组件、运行目录和当前后台状态。"
+        description={t.desktop.status.description}
         headingRef={headingRef}
-        title="运行状态"
+        title={t.desktop.sectionTitles.status}
       />
       <div className="desktop-health-grid">
         {([
@@ -354,7 +343,7 @@ function DesktopStatusPanel({
         ] as const).map(([label, value]) => (
           <div className={`desktop-health-card state-${value ?? "stopped"}`} key={label}>
             <span>{label}</span>
-            <strong>{stateLabel(value ?? "stopped")}</strong>
+            <strong>{t.home.componentStates[value ?? "stopped"]}</strong>
           </div>
         ))}
       </div>
@@ -362,21 +351,21 @@ function DesktopStatusPanel({
       <div className="desktop-maintenance-panel">
         <div className="desktop-maintenance-heading">
           <div>
-            <strong>运行维护</strong>
-            <span>查看目录或重新启动桌面后台。</span>
+            <strong>{t.desktop.status.maintenance}</strong>
+            <span>{t.desktop.status.maintenanceHint}</span>
           </div>
           <button className="desktop-restart-button" disabled={restarting} onClick={onRestart} type="button">
             <RotateCcw size={15} />
-            {restarting ? "重启中…" : "重启后台"}
+            {restarting ? t.desktop.status.restarting : t.desktop.status.restart}
           </button>
         </div>
         {health ? (
           <details className="desktop-diagnostics">
-            <summary>运行目录</summary>
+            <summary>{t.desktop.status.directories}</summary>
             <dl>
-              <div><dt>资源目录</dt><dd>{health.resource_root}</dd></div>
-              <div><dt>数据目录</dt><dd>{health.data_root}</dd></div>
-              <div><dt>新会话默认工作区</dt><dd>{health.workspace_root}</dd></div>
+              <div><dt>{t.desktop.status.resourceRoot}</dt><dd>{health.resource_root}</dd></div>
+              <div><dt>{t.desktop.status.dataRoot}</dt><dd>{health.data_root}</dd></div>
+              <div><dt>{t.desktop.status.workspaceRoot}</dt><dd>{health.workspace_root}</dd></div>
             </dl>
           </details>
         ) : null}
@@ -394,28 +383,32 @@ function DesktopAppearancePanel({
   headingRef: RefObject<HTMLHeadingElement | null>;
   onFontSizeChange: (fontSize: DashboardFontSize) => void;
 }) {
+  const t = useUiText();
   return (
     <section className="desktop-settings-section desktop-appearance-panel">
       <DesktopSectionHeading
-        badge={fontSizeLabel(fontSize)}
+        badge={fontSizeLabel(t.desktop, fontSize)}
         badgeClassName="desktop-appearance-badge"
-        description="调整整个界面的文字大小，选择后立即生效。"
+        description={t.desktop.appearance.description}
         headingRef={headingRef}
-        title="外观"
+        title={t.desktop.sectionTitles.appearance}
       />
-      <div aria-label="字体大小" className="desktop-appearance-options" role="group">
-        {FONT_SIZE_OPTIONS.map((option) => (
-          <button
-            aria-pressed={fontSize === option.value}
-            className={`desktop-appearance-option${fontSize === option.value ? " active" : ""}`}
-            key={option.value}
-            onClick={() => onFontSizeChange(option.value)}
-            type="button"
-          >
-            <strong>{option.label}</strong>
-            <span>{option.description}</span>
-          </button>
-        ))}
+      <div aria-label={t.desktop.appearance.fontSizeAria} className="desktop-appearance-options" role="group">
+        {FONT_SIZE_VALUES.map((value) => {
+          const option = t.desktop.fontSizeOptions[value];
+          return (
+            <button
+              aria-pressed={fontSize === value}
+              className={`desktop-appearance-option${fontSize === value ? " active" : ""}`}
+              key={value}
+              onClick={() => onFontSizeChange(value)}
+              type="button"
+            >
+              <strong>{option.label}</strong>
+              <span>{option.description}</span>
+            </button>
+          );
+        })}
       </div>
     </section>
   );
@@ -450,19 +443,20 @@ function DesktopSettingsForm({
   onOpenLogsDirectory: () => void;
   onClearIntegration: (name: IntegrationName) => void;
 }) {
+  const t = useUiText();
   if (activeSection === "base") {
     return (
       <section className="desktop-settings-section">
         <DesktopSectionHeading
-          badge="必填"
+          badge={t.desktop.sectionStatus.required}
           badgeClassName="desktop-required-badge"
-          description="启动 LXE Agent 所需的模型与本地工作区。"
+          description={t.desktop.base.description}
           headingRef={headingRef}
-          title="基础设置"
+          title={t.desktop.sectionTitles.base}
         />
         <div className="desktop-field-grid">
           <label>
-            <span>模型服务</span>
+            <span>{t.desktop.base.provider}</span>
             <select value={form.provider} onChange={(event) => onChange({ provider: event.target.value as Provider, apiKey: "" })}>
               <option value="kimi_coding">Kimi Coding</option>
               <option value="deepseek">DeepSeek</option>
@@ -470,20 +464,20 @@ function DesktopSettingsForm({
             </select>
           </label>
           <label>
-            <span>API Key{requireKey ? "（必填）" : "（留空则保持不变）"}</span>
+            <span>API Key{requireKey ? t.desktop.base.apiKeySuffixRequired : t.desktop.keepBlankSuffix}</span>
             <input
               autoComplete="new-password"
               onChange={(event) => onChange({ apiKey: event.target.value })}
-              placeholder={requireKey ? "输入模型 API Key" : "已通过系统安全存储保存"}
+              placeholder={requireKey ? t.desktop.base.apiKeyPlaceholder : t.desktop.base.apiKeyStoredPlaceholder}
               type="password"
               value={form.apiKey}
             />
           </label>
           <label className="desktop-field-wide">
-            <span>新会话默认工作区</span>
+            <span>{t.desktop.base.workspace}</span>
             <span className="desktop-path-input">
               <input onChange={(event) => onChange({ workspaceRoot: event.target.value })} value={form.workspaceRoot} />
-              <button onClick={onSelectWorkspace} title="选择文件夹" type="button"><FolderOpen size={17} /></button>
+              <button onClick={onSelectWorkspace} title={t.desktop.base.selectFolder} type="button"><FolderOpen size={17} /></button>
             </span>
           </label>
         </div>
@@ -492,48 +486,48 @@ function DesktopSettingsForm({
   }
 
   if (activeSection === "ziniao") {
-    const status = desktopSettingsSectionStatus("ziniao", setup);
+    const status = desktopSettingsSectionStatus(t.desktop, "ziniao", setup);
     return (
       <section className="desktop-settings-section">
         <DesktopSectionHeading
           badge={status}
           badgeClassName={integrationStatusClass(setup.ziniao.managed, setup.ziniao.configured)}
-          description="整组留空即可跳过；开始填写后，所有字段都需要完整。"
+          description={t.desktop.ziniao.description}
           headingRef={headingRef}
-          title="紫鸟自动化"
+          title={t.desktop.sectionTitles.ziniao}
         />
         <div className="desktop-integration-fields">
           <IntegrationIssues issues={setup.ziniao.issues} />
           <div className="desktop-field-grid">
             <label>
-              <span>公司名</span>
+              <span>{t.desktop.ziniao.company}</span>
               <input
                 onChange={(event) => onChange({ ziniaoCompany: event.target.value })}
-                placeholder="公司名"
+                placeholder={t.desktop.ziniao.company}
                 value={form.ziniaoCompany}
               />
             </label>
             <label>
-              <span>账号</span>
+              <span>{t.desktop.ziniao.account}</span>
               <input
                 autoComplete="username"
                 onChange={(event) => onChange({ ziniaoUsername: event.target.value })}
-                placeholder="紫鸟账号"
+                placeholder={t.desktop.ziniao.accountPlaceholder}
                 value={form.ziniaoUsername}
               />
             </label>
             <label>
-              <span>密码{setup.ziniao.password_configured ? "（留空则保持不变）" : ""}</span>
+              <span>{t.desktop.ziniao.password}{setup.ziniao.password_configured ? t.desktop.keepBlankSuffix : ""}</span>
               <input
                 autoComplete="new-password"
                 onChange={(event) => onChange({ ziniaoPassword: event.target.value })}
-                placeholder={setup.ziniao.password_configured ? "已安全保存" : "紫鸟密码"}
+                placeholder={setup.ziniao.password_configured ? t.desktop.storedPlaceholder : t.desktop.ziniao.passwordPlaceholder}
                 type="password"
                 value={form.ziniaoPassword}
               />
             </label>
             <label>
-              <span>APP 版本</span>
+              <span>{t.desktop.ziniao.appVersion}</span>
               <select
                 disabled={platform === "darwin"}
                 onChange={(event) => onChange({ ziniaoVersion: event.target.value as DesktopZiniaoVersion })}
@@ -544,27 +538,27 @@ function DesktopSettingsForm({
               </select>
             </label>
             <label className="desktop-field-wide">
-              <span>紫鸟 APP 文件地址</span>
+              <span>{t.desktop.ziniao.appPath}</span>
               <span className="desktop-path-input">
                 <input
                   onChange={(event) => onChange({ ziniaoAppPath: event.target.value })}
-                  placeholder={platform === "darwin" ? "/Applications/紫鸟浏览器.app" : "C:\\Program Files\\ZiNiao\\ZiNiao.exe"}
+                  placeholder={platform === "darwin" ? t.desktop.ziniao.appPathPlaceholderMac : t.desktop.ziniao.appPathPlaceholderWindows}
                   value={form.ziniaoAppPath}
                 />
-                <button onClick={onSelectZiniaoApp} title="选择紫鸟 APP" type="button">
+                <button onClick={onSelectZiniaoApp} title={t.desktop.ziniao.selectApp} type="button">
                   <FolderOpen size={17} />
                 </button>
               </span>
             </label>
             <label className="desktop-field-wide">
-              <span>浏览器驱动安装目录</span>
+              <span>{t.desktop.ziniao.webdriverPath}</span>
               <span className="desktop-path-input">
                 <input
                   onChange={(event) => onChange({ ziniaoWebDriverPath: event.target.value })}
-                  placeholder="驱动可以在首次运行时自动下载"
+                  placeholder={t.desktop.ziniao.webdriverPlaceholder}
                   value={form.ziniaoWebDriverPath}
                 />
-                <button onClick={onSelectZiniaoWebDriverDirectory} title="选择驱动目录" type="button">
+                <button onClick={onSelectZiniaoWebDriverDirectory} title={t.desktop.ziniao.selectWebdriver} type="button">
                   <FolderOpen size={17} />
                 </button>
               </span>
@@ -572,7 +566,7 @@ function DesktopSettingsForm({
           </div>
           {setup.ziniao.managed ? (
             <button className="desktop-clear-integration" onClick={() => onClearIntegration("ziniao")} type="button">
-              <Trash2 size={14} />清除配置并停用
+              <Trash2 size={14} />{t.desktop.clearIntegration}
             </button>
           ) : null}
         </div>
@@ -581,21 +575,21 @@ function DesktopSettingsForm({
   }
 
   if (activeSection === "mabang") {
-    const status = desktopSettingsSectionStatus("mabang", setup);
+    const status = desktopSettingsSectionStatus(t.desktop, "mabang", setup);
     return (
       <section className="desktop-settings-section">
         <DesktopSectionHeading
           badge={status}
           badgeClassName={integrationStatusClass(setup.mabang.managed, setup.mabang.configured)}
-          description="账号与密码必须成对填写；整组留空即可跳过。"
+          description={t.desktop.mabang.description}
           headingRef={headingRef}
-          title="马帮"
+          title={t.desktop.sectionTitles.mabang}
         />
         <div className="desktop-integration-fields">
           <IntegrationIssues issues={setup.mabang.issues} />
           <div className="desktop-field-grid">
             <label>
-              <span>马帮账号</span>
+              <span>{t.desktop.mabang.account}</span>
               <input
                 autoComplete="username"
                 onChange={(event) => onChange({ mabangAccount: event.target.value })}
@@ -603,11 +597,11 @@ function DesktopSettingsForm({
               />
             </label>
             <label>
-              <span>马帮密码{setup.mabang.password_configured ? "（留空则保持不变）" : ""}</span>
+              <span>{t.desktop.mabang.password}{setup.mabang.password_configured ? t.desktop.keepBlankSuffix : ""}</span>
               <input
                 autoComplete="new-password"
                 onChange={(event) => onChange({ mabangPassword: event.target.value })}
-                placeholder={setup.mabang.password_configured ? "已安全保存" : "输入马帮密码"}
+                placeholder={setup.mabang.password_configured ? t.desktop.storedPlaceholder : t.desktop.mabang.passwordPlaceholder}
                 type="password"
                 value={form.mabangPassword}
               />
@@ -615,7 +609,7 @@ function DesktopSettingsForm({
           </div>
           {setup.mabang.managed ? (
             <button className="desktop-clear-integration" onClick={() => onClearIntegration("mabang")} type="button">
-              <Trash2 size={14} />清除配置并停用
+              <Trash2 size={14} />{t.desktop.clearIntegration}
             </button>
           ) : null}
         </div>
@@ -624,15 +618,15 @@ function DesktopSettingsForm({
   }
 
   if (activeSection === "feishu") {
-    const status = desktopSettingsSectionStatus("feishu", setup);
+    const status = desktopSettingsSectionStatus(t.desktop, "feishu", setup);
     return (
       <section className="desktop-settings-section">
         <DesktopSectionHeading
           badge={status}
           badgeClassName={integrationStatusClass(setup.feishu.managed, setup.feishu.configured)}
-          description="App ID 与 App Secret 必须成对填写；整组留空即可跳过。"
+          description={t.desktop.feishu.description}
           headingRef={headingRef}
-          title="飞书"
+          title={t.desktop.sectionTitles.feishu}
         />
         <div className="desktop-integration-fields">
           <IntegrationIssues issues={setup.feishu.issues} />
@@ -646,11 +640,11 @@ function DesktopSettingsForm({
               />
             </label>
             <label>
-              <span>App Secret{setup.feishu.app_secret_configured ? "（留空则保持不变）" : ""}</span>
+              <span>{t.desktop.feishu.appSecret}{setup.feishu.app_secret_configured ? t.desktop.keepBlankSuffix : ""}</span>
               <input
                 autoComplete="new-password"
                 onChange={(event) => onChange({ feishuAppSecret: event.target.value })}
-                placeholder={setup.feishu.app_secret_configured ? "已安全保存" : "输入 App Secret"}
+                placeholder={setup.feishu.app_secret_configured ? t.desktop.storedPlaceholder : t.desktop.feishu.appSecretPlaceholder}
                 type="password"
                 value={form.feishuAppSecret}
               />
@@ -658,7 +652,7 @@ function DesktopSettingsForm({
           </div>
           {setup.feishu.managed ? (
             <button className="desktop-clear-integration" onClick={() => onClearIntegration("feishu")} type="button">
-              <Trash2 size={14} />清除配置并停用
+              <Trash2 size={14} />{t.desktop.clearIntegration}
             </button>
           ) : null}
         </div>
@@ -669,32 +663,34 @@ function DesktopSettingsForm({
   return (
     <section className="desktop-settings-section">
       <DesktopSectionHeading
-        description="标准日志适合长期运行，排障日志仅建议在复现问题时开启。"
+        description={t.desktop.logging.description}
         headingRef={headingRef}
-        title="日志与排障"
+        title={t.desktop.sectionTitles.logging}
       />
       <div className="desktop-field-grid">
         <label>
-          <span>日志档位</span>
+          <span>{t.desktop.logging.profile}</span>
           <select onChange={(event) => onChange({ logProfile: event.target.value as DesktopLogProfile })} value={form.logProfile}>
-            <option value="off">关闭</option><option value="standard">标准</option><option value="diagnostic">排障</option>
+            <option value="off">{t.desktop.logProfiles.off}</option>
+            <option value="standard">{t.desktop.logProfiles.standard}</option>
+            <option value="diagnostic">{t.desktop.logProfiles.diagnostic}</option>
           </select>
         </label>
         <label>
-          <span>保留周期</span>
+          <span>{t.desktop.logging.retention}</span>
           <select
             disabled={form.logProfile === "off"}
             onChange={(event) => onChange({ logRetentionDays: Number(event.target.value) as DesktopLogRetentionDays })}
             value={form.logRetentionDays}
           >
-            {[3, 7, 14, 30].map((days) => <option key={days} value={days}>{days} 天</option>)}
+            {[3, 7, 14, 30].map((days) => <option key={days} value={days}>{t.desktop.logging.retentionDays(String(days))}</option>)}
           </select>
         </label>
       </div>
       {form.logProfile === "diagnostic" ? (
         <div className="desktop-diagnostic-warning">
           <AlertTriangle size={16} />
-          <span>排障日志会记录模型通信、紫鸟诊断和飞书原始事件，可能包含消息正文与账号标识。</span>
+          <span>{t.desktop.logging.diagnosticWarning}</span>
         </div>
       ) : null}
       <div className="desktop-logging-sinks">
@@ -702,8 +698,8 @@ function DesktopSettingsForm({
         <LoggingSinkCard label="agent-cli" status={health.logging.agent_cli} />
       </div>
       <div className="desktop-log-directory">
-        <div><span>日志目录</span><code>{setup.logging.directory}</code></div>
-        <button onClick={onOpenLogsDirectory} type="button"><ExternalLink size={14} />打开目录</button>
+        <div><span>{t.desktop.logging.directory}</span><code>{setup.logging.directory}</code></div>
+        <button onClick={onOpenLogsDirectory} type="button"><ExternalLink size={14} />{t.desktop.logging.openDirectory}</button>
       </div>
     </section>
   );
@@ -724,6 +720,7 @@ function ConfigImportDialog({
   onCancel: () => void;
   onApply: () => void;
 }) {
+  const t = useUiText();
   const closeDialog = () => {
     if (!applying) onCancel();
   };
@@ -742,11 +739,11 @@ function ConfigImportDialog({
       >
         <header>
           <div>
-            <p className="desktop-eyebrow">配置导入预览</p>
-            <h2 id="desktop-config-import-title">确认导入 {preview.file_name}</h2>
-            <p>这里只显示检测结果，API Key、密码和 App Secret 不会返回界面。</p>
+            <p className="desktop-eyebrow">{t.desktop.configImport.eyebrow}</p>
+            <h2 id="desktop-config-import-title">{t.desktop.configImport.title(preview.file_name)}</h2>
+            <p>{t.desktop.configImport.hint}</p>
           </div>
-          <button aria-label="取消导入" disabled={applying} onClick={onCancel} type="button">
+          <button aria-label={t.desktop.configImport.cancelAria} disabled={applying} onClick={onCancel} type="button">
             <X size={18} />
           </button>
         </header>
@@ -755,18 +752,18 @@ function ConfigImportDialog({
             <article className={`desktop-config-import-group status-${group.status}`} key={group.group}>
               <div>
                 <strong>{group.label}</strong>
-                <span>{group.status === "ready" ? "可应用" : "待补全"}</span>
+                <span>{group.status === "ready" ? t.desktop.configImport.ready : t.desktop.configImport.pending}</span>
               </div>
-              <p>检测到：{group.detected_fields.join("、")}</p>
+              <p>{t.desktop.configImport.detected(group.detected_fields.join(t.desktop.listSeparator))}</p>
               {group.overwritten_fields.length > 0 ? (
-                <p className="desktop-config-import-overwrite">将覆盖：{group.overwritten_fields.join("、")}</p>
+                <p className="desktop-config-import-overwrite">{t.desktop.configImport.overwrite(group.overwritten_fields.join(t.desktop.listSeparator))}</p>
               ) : null}
               <IntegrationIssues issues={group.issues} />
             </article>
           ))}
         </div>
         {preview.unknown_variable_count > 0 ? (
-          <p className="desktop-config-import-note">另有 {preview.unknown_variable_count} 个无关变量会被忽略。</p>
+          <p className="desktop-config-import-note">{t.desktop.configImport.unknownVariables(String(preview.unknown_variable_count))}</p>
         ) : null}
         {preview.warnings.length > 0 ? (
           <ul className="desktop-config-import-warnings">
@@ -780,18 +777,18 @@ function ConfigImportDialog({
               onChange={(event) => onDiagnosticConfirmed(event.target.checked)}
               type="checkbox"
             />
-            <span>我了解排障日志可能包含飞书消息正文、账号标识和页面上下文。</span>
+            <span>{t.desktop.configImport.diagnosticConfirm}</span>
           </label>
         ) : null}
         <footer>
-          <button disabled={applying} onClick={onCancel} type="button">取消</button>
+          <button disabled={applying} onClick={onCancel} type="button">{t.desktop.cancel}</button>
           <button
             className="desktop-primary-button"
             disabled={applying || (preview.diagnostic_logging && !diagnosticConfirmed)}
             onClick={onApply}
             type="button"
           >
-            {applying ? "正在导入…" : "确认导入并应用"}
+            {applying ? t.desktop.configImport.applying : t.desktop.configImport.apply}
           </button>
         </footer>
       </section>
@@ -808,12 +805,13 @@ function DesktopConfirmationDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const t = useUiText();
   const dialogRef = useDialogFocus<HTMLElement>(true, onCancel);
   const diagnostic = confirmation.kind === "diagnostic";
-  const title = diagnostic ? "开启排障日志？" : `清除${confirmation.label}配置？`;
+  const title = diagnostic ? t.desktop.confirm.diagnosticTitle : t.desktop.confirm.clearTitle(confirmation.label);
   const description = diagnostic
-    ? "排障日志可能包含飞书消息正文、账号标识和页面上下文。仅建议在复现问题时开启，完成后请恢复为标准或关闭。"
-    : `保存的${confirmation.label}密码也会被删除，相关集成将立即停用。`;
+    ? t.desktop.confirm.diagnosticDescription
+    : t.desktop.confirm.clearDescription(confirmation.label);
   return (
     <div className="modal-backdrop desktop-confirm-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onCancel();
@@ -834,13 +832,13 @@ function DesktopConfirmationDialog({
           <p>{description}</p>
         </div>
         <footer>
-          <button onClick={onCancel} type="button">取消</button>
+          <button onClick={onCancel} type="button">{t.desktop.cancel}</button>
           <button
             className={diagnostic ? "desktop-primary-button" : "desktop-primary-button desktop-danger-button"}
             onClick={onConfirm}
             type="button"
           >
-            {diagnostic ? "确认开启并保存" : "清除并停用"}
+            {diagnostic ? t.desktop.confirm.diagnosticConfirm : t.desktop.confirm.clearConfirm}
           </button>
         </footer>
       </section>
@@ -866,6 +864,7 @@ export function DesktopShell({
   onLanguageChange: (language: Language) => void;
 }) {
   const queryClient = useQueryClient();
+  const t = useUiText();
   const desktop = window.lxe?.desktop;
   const [setup, setSetup] = useState<DesktopSetupState | null>(null);
   const [health, setHealth] = useState<DesktopHealth | null>(null);
@@ -940,7 +939,7 @@ export function DesktopShell({
   }, [notice]);
 
   if (!desktop) {
-    return <main className="desktop-loading" data-lxe-root-state="fatal">桌面 preload bridge 不可用，LXE Agent 无法在普通浏览器中运行。</main>;
+    return <main className="desktop-loading" data-lxe-root-state="fatal">{t.desktop.preloadUnavailable}</main>;
   }
   const frameClassName = `desktop-window-frame desktop-platform-${desktop.platform}`;
   const dragRegion = <div aria-hidden className="desktop-window-drag-region" />;
@@ -948,7 +947,7 @@ export function DesktopShell({
     return (
       <main className={`desktop-loading ${frameClassName}`} data-lxe-root-state="loading">
         {dragRegion}
-        {error || "正在加载 LXE Agent…"}
+        {error || t.desktop.loading}
       </main>
     );
   }
@@ -1009,7 +1008,7 @@ export function DesktopShell({
       if (nextCloud.configured) {
         setCloudEnrollment(null);
         setCloudPassword("");
-        showSuccessNotice(nextCloud.connection === "connected" ? "公司云端已连接" : "公司云端已配置，将自动重试连接");
+        showSuccessNotice(nextCloud.connection === "connected" ? t.desktop.cloud.activatedConnected : t.desktop.cloud.activatedRetry);
       }
     } catch (cause) {
       setCloud(await desktop.getCloudState());
@@ -1049,11 +1048,11 @@ export function DesktopShell({
     setImportDiagnosticConfirmed(false);
     setConfirmation(null);
     setError("");
-    showProgressNotice("正在导入配置并重启服务…");
+    showProgressNotice(t.desktop.configImport.progress);
     try {
       const result = await desktop.applyConfigImport(preview.import_id);
       await refreshSetup(result.state);
-      showSuccessNotice(configImportSuccessMessage(result, preview.unknown_variable_count));
+      showSuccessNotice(configImportSuccessMessage(t.desktop, result, preview.unknown_variable_count));
     } catch (cause) {
       setNotice(null);
       try {
@@ -1167,8 +1166,7 @@ export function DesktopShell({
   };
   const clearIntegration = (name: IntegrationName): void => {
     if (importApplying) return;
-    const labels = { ziniao: "紫鸟", mabang: "马帮", feishu: "飞书" } as const;
-    setConfirmation({ kind: "clear-integration", integration: name, label: labels[name] });
+    setConfirmation({ kind: "clear-integration", integration: name, label: t.desktop.integrationNames[name] });
   };
   const confirmPendingAction = (): void => {
     if (importApplying) return;
@@ -1291,9 +1289,9 @@ export function DesktopShell({
           <div className="desktop-onboarding-header">
             <div className="desktop-onboarding-mark"><BrandMark title="LXE Agent" /></div>
             <div>
-              <p className="desktop-eyebrow">首次启动</p>
-              <h1>配置你的 LXE Agent</h1>
-              <p className="desktop-onboarding-copy">基础设置完成即可启动，业务集成也可以稍后在设置中补充。</p>
+              <p className="desktop-eyebrow">{t.desktop.onboarding.eyebrow}</p>
+              <h1>{t.desktop.onboarding.title}</h1>
+              <p className="desktop-onboarding-copy">{t.desktop.onboarding.copy}</p>
             </div>
           </div>
           <div className="desktop-settings-workspace">
@@ -1312,13 +1310,13 @@ export function DesktopShell({
           </div>
           <footer className="desktop-onboarding-footer">
             <span>{activeSettingsSection === "appearance"
-              ? "外观选择会自动保存在当前设备"
+              ? t.desktop.onboarding.footerAppearance
               : activeSettingsSection === "cloud"
-                ? "公司云端可以稍后配置"
-                : "基础设置完成后即可启动"}</span>
+                ? t.desktop.onboarding.footerCloud
+                : t.desktop.onboarding.footerBase}</span>
             {activeSettingsSection !== "appearance" && activeSettingsSection !== "cloud" ? (
               <button className="desktop-primary-button" disabled={saving || importApplying} type="submit">
-                {importApplying ? "正在应用配置…" : saving ? "正在启动…" : "保存并启动"}
+                {importApplying ? t.desktop.onboarding.applying : saving ? t.desktop.onboarding.starting : t.desktop.onboarding.submit}
               </button>
             ) : null}
           </footer>
@@ -1363,9 +1361,9 @@ export function DesktopShell({
             <header>
               <div>
                 <p className="desktop-eyebrow">LXE Agent Desktop</p>
-                <h2 id="desktop-settings-title">设置</h2>
+                <h2 id="desktop-settings-title">{t.desktop.settingsTitle}</h2>
               </div>
-              <button aria-label="关闭设置" className="desktop-close-button" onClick={closeSettings} type="button">
+              <button aria-label={t.desktop.closeSettings} className="desktop-close-button" onClick={closeSettings} type="button">
                 <X size={18} />
               </button>
             </header>
@@ -1396,7 +1394,7 @@ export function DesktopShell({
                 && activeSettingsSection !== "appearance"
                 && activeSettingsSection !== "cloud" ? (
                 <button className="desktop-primary-button" disabled={saving || importApplying} type="submit">
-                  {importApplying ? "正在应用配置…" : saving ? "保存中…" : "保存设置"}
+                  {importApplying ? t.desktop.settings.applying : saving ? t.desktop.settings.saving : t.desktop.settings.submit}
                 </button>
               ) : null}
             </footer>

@@ -6,6 +6,9 @@ import {
   desktopSettingsSectionIsDirty,
   desktopSettingsSectionStatus,
 } from "../../src/desktop/settings-model";
+import { ZH_TEXT } from "../../src/shared/i18n";
+
+const text = ZH_TEXT.desktop;
 
 const setupState = (patch: Partial<DesktopSetupState> = {}): DesktopSetupState => ({
   complete: true,
@@ -60,11 +63,11 @@ describe("desktop settings navigation model", () => {
   test("reports persisted status for every editable menu section", () => {
     const setup = setupState();
 
-    expect(desktopSettingsSectionStatus("base", setup)).toBe("已完成");
-    expect(desktopSettingsSectionStatus("ziniao", setup)).toBe("可选");
-    expect(desktopSettingsSectionStatus("mabang", setup)).toBe("待补全");
-    expect(desktopSettingsSectionStatus("feishu", setup)).toBe("已配置");
-    expect(desktopSettingsSectionStatus("logging", setup)).toBe("标准");
+    expect(desktopSettingsSectionStatus(text, "base", setup)).toBe(text.sectionStatus.complete);
+    expect(desktopSettingsSectionStatus(text, "ziniao", setup)).toBe(text.sectionStatus.optional);
+    expect(desktopSettingsSectionStatus(text, "mabang", setup)).toBe(text.sectionStatus.incomplete);
+    expect(desktopSettingsSectionStatus(text, "feishu", setup)).toBe(text.sectionStatus.configured);
+    expect(desktopSettingsSectionStatus(text, "logging", setup)).toBe(text.logProfiles.standard);
   });
 
   test("marks only the section containing an unsaved change", () => {
@@ -83,43 +86,43 @@ describe("desktop settings navigation model", () => {
     const baseline = desktopSettingsForm(setup);
     const form = { ...baseline, feishuAppId: "cli_edited" };
 
-    expect(desktopSettingsSectionStatus("feishu", setup)).toBe("已配置");
+    expect(desktopSettingsSectionStatus(text, "feishu", setup)).toBe(text.sectionStatus.configured);
     expect(desktopSettingsSectionIsDirty("feishu", form, baseline)).toBe(true);
   });
 
   test("presents logging sinks without promoting disabled logging to an error", () => {
-    expect(desktopLoggingSinkView(undefined)).toEqual({ label: "未启动", tone: "neutral" });
-    expect(desktopLoggingSinkView({
+    expect(desktopLoggingSinkView(text, undefined)).toEqual({ label: text.sinkStates.notStarted, tone: "neutral" });
+    expect(desktopLoggingSinkView(text, {
       local_file_enabled: true,
       file_path: "/data/var/logs/runtime.log",
       disabled_reason: "",
       last_error: "",
       console_level: "info",
       file_level: "info",
-    })).toEqual({ label: "写入中", tone: "ready" });
-    expect(desktopLoggingSinkView({
+    })).toEqual({ label: text.sinkStates.writing, tone: "ready" });
+    expect(desktopLoggingSinkView(text, {
       local_file_enabled: false,
       file_path: "",
       disabled_reason: "disabled_by_config",
       last_error: "",
       console_level: "info",
       file_level: "info",
-    })).toEqual({ label: "已关闭", tone: "neutral" });
-    expect(desktopLoggingSinkView({
+    })).toEqual({ label: text.sinkStates.disabled, tone: "neutral" });
+    expect(desktopLoggingSinkView(text, {
       local_file_enabled: false,
       file_path: "",
       disabled_reason: "missing_log_file",
       last_error: "",
       console_level: "info",
       file_level: "info",
-    })).toEqual({ label: "配置缺失", tone: "warning" });
-    expect(desktopLoggingSinkView({
+    })).toEqual({ label: text.sinkStates.missingConfig, tone: "warning" });
+    expect(desktopLoggingSinkView(text, {
       local_file_enabled: false,
       file_path: "/data/var/logs/runtime.log",
       disabled_reason: "sink_failed",
       last_error: "disk full",
       console_level: "info",
       file_level: "debug",
-    })).toEqual({ label: "写入失败", tone: "error" });
+    })).toEqual({ label: text.sinkStates.failed, tone: "error" });
   });
 });

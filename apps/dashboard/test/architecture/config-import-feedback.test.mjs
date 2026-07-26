@@ -13,7 +13,7 @@ const applyImport = shell.slice(
 
 test("configuration import closes its preview before awaiting the restart", () => {
   const closePreview = applyImport.indexOf("setImportPreview(null)");
-  const showProgress = applyImport.indexOf('showProgressNotice("正在导入配置并重启服务…")');
+  const showProgress = applyImport.indexOf("showProgressNotice(t.desktop.configImport.progress)");
   const apply = applyImport.indexOf("await desktop.applyConfigImport");
   assert.ok(closePreview >= 0 && closePreview < apply);
   assert.ok(showProgress >= 0 && showProgress < apply);
@@ -32,5 +32,5 @@ test("success notices auto-dismiss and expose a close button while progress does
   assert.match(shell, /if \(!notice\?\.autoDismissMs\) return/);
   assert.match(shell, /window\.setTimeout\(\(\) =>/);
   assert.match(shell, /\{notice\.dismissible \? \(/);
-  assert.match(shell, /aria-label="关闭提示"/);
+  assert.match(shell, /aria-label=\{t\.desktop\.closeNotice\}/);
 });

@@ -74,7 +74,7 @@ export function ModelsView({
         {onConfigureCredentials ? (
           <button className="desktop-inline-settings" onClick={onConfigureCredentials} type="button">
             <Settings2 size={14} />
-            配置凭证
+            {t.connectors.configureCredentials}
           </button>
         ) : null}
       </section>

@@ -6,20 +6,22 @@ import type {
   DesktopSetupState,
   DesktopZiniaoVersion,
 } from "@lxe/desktop-protocol";
+import type { UiText } from "../shared/i18n";
 
 export interface DesktopLoggingSinkView {
-  label: "写入中" | "已关闭" | "配置缺失" | "写入失败" | "未启动";
+  label: string;
   tone: "ready" | "neutral" | "warning" | "error";
 }
 
 export const desktopLoggingSinkView = (
+  text: UiText["desktop"],
   status: DesktopLoggingSinkStatus | undefined,
 ): DesktopLoggingSinkView => {
-  if (!status) return { label: "未启动", tone: "neutral" };
-  if (status.local_file_enabled) return { label: "写入中", tone: "ready" };
-  if (status.disabled_reason === "sink_failed") return { label: "写入失败", tone: "error" };
-  if (status.disabled_reason === "missing_log_file") return { label: "配置缺失", tone: "warning" };
-  return { label: "已关闭", tone: "neutral" };
+  if (!status) return { label: text.sinkStates.notStarted, tone: "neutral" };
+  if (status.local_file_enabled) return { label: text.sinkStates.writing, tone: "ready" };
+  if (status.disabled_reason === "sink_failed") return { label: text.sinkStates.failed, tone: "error" };
+  if (status.disabled_reason === "missing_log_file") return { label: text.sinkStates.missingConfig, tone: "warning" };
+  return { label: text.sinkStates.disabled, tone: "neutral" };
 };
 
 export type DesktopSettingsSection =
@@ -94,13 +96,16 @@ export const desktopSettingsSectionIsDirty = (
   && SECTION_FIELDS[section].some((field) => form[field] !== baseline[field]);
 
 export const desktopSettingsSectionStatus = (
+  text: UiText["desktop"],
   section: EditableDesktopSettingsSection,
   setup: DesktopSetupState,
 ): string => {
-  if (section === "base") return setup.complete ? "已完成" : "必填";
-  if (section === "logging") {
-    return ({ off: "关闭", standard: "标准", diagnostic: "排障" } as const)[setup.logging.profile];
-  }
+  if (section === "base") return setup.complete ? text.sectionStatus.complete : text.sectionStatus.required;
+  if (section === "logging") return text.logProfiles[setup.logging.profile];
   const integration = setup[section];
-  return integration.configured ? "已配置" : integration.managed ? "待补全" : "可选";
+  return integration.configured
+    ? text.sectionStatus.configured
+    : integration.managed
+      ? text.sectionStatus.incomplete
+      : text.sectionStatus.optional;
 };

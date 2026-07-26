@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { UI_TEXT, initialLanguage } from "./shared/i18n";
 import { BrandMark } from "./shared/ui/brand-mark";
 
 interface DashboardRootErrorBoundaryProps {
@@ -15,16 +16,17 @@ export function reloadDesktopRenderer(reload: () => void = () => window.location
 }
 
 export function RendererFailureView(): ReactNode {
+  const t = UI_TEXT[initialLanguage()].fatal;
   return (
     <main className="desktop-fatal desktop-window-frame" data-lxe-root-state="fatal" role="alert">
       <div aria-hidden className="desktop-window-drag-region" />
       <section className="desktop-fatal-card">
         <div className="desktop-fatal-mark"><BrandMark title="LXE Agent" /></div>
         <p className="desktop-eyebrow">LXE Agent Desktop</p>
-        <h1>界面启动失败</h1>
-        <p>应用没有完成界面初始化。请重新加载；如果问题持续出现，请查看终端或应用日志。</p>
+        <h1>{t.title}</h1>
+        <p>{t.description}</p>
         <button className="desktop-primary-button" onClick={() => reloadDesktopRenderer()} type="button">
-          重新加载
+          {t.reload}
         </button>
       </section>
     </main>

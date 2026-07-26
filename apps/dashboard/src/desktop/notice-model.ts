@@ -1,4 +1,5 @@
 import type { DesktopConfigImportApplyResult } from "@lxe/desktop-protocol";
+import type { UiText } from "../shared/i18n";
 
 export const DESKTOP_SUCCESS_NOTICE_MS = 6_000;
 
@@ -23,20 +24,21 @@ export const desktopSuccessNotice = (id: number, message: string): DesktopNotice
 });
 
 export function configImportSuccessMessage(
+  text: UiText["desktop"],
   result: DesktopConfigImportApplyResult,
   unknownVariableCount: number,
 ): string {
   const imported = result.applied_groups.length > 0
-    ? `已导入：${result.applied_groups.join("、")}`
-    : "配置文件已处理";
+    ? text.configImport.successImported(result.applied_groups.join(text.listSeparator))
+    : text.configImport.successProcessed;
   const pending = result.pending_groups.length > 0
-    ? `；待补全：${result.pending_groups.join("、")}`
+    ? text.configImport.successPending(result.pending_groups.join(text.listSeparator))
     : "";
   const skipped = unknownVariableCount > 0
-    ? `；已跳过 ${unknownVariableCount} 个未知变量`
+    ? text.configImport.successSkipped(String(unknownVariableCount))
     : "";
   const warnings = result.warnings.length > 0
-    ? `；${result.warnings.length} 项注意事项`
+    ? text.configImport.successWarnings(String(result.warnings.length))
     : "";
   return `${imported}${pending}${skipped}${warnings}`;
 }
