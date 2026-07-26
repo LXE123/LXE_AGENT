@@ -197,6 +197,29 @@ describe("official Feishu SDK factory", () => {
     }));
     apiError = undefined;
 
+    apiResponse = {
+      code: 0,
+      msg: "success",
+      bot: { open_id: "ou-bot", app_name: "Inventory Bot", bot_name: "Legacy Bot" },
+    };
+    expect(await sdk.probeBotIdentity()).toEqual({
+      openId: "ou-bot",
+      name: "Inventory Bot",
+    });
+    apiResponse = {
+      code: 0,
+      msg: "success",
+      bot: { open_id: "ou-legacy", bot_name: "Legacy Bot" },
+    };
+    expect(await sdk.probeBotIdentity()).toEqual({
+      openId: "ou-legacy",
+      name: "Legacy Bot",
+    });
+    apiResponse = { code: 0, msg: "success", bot: { open_id: "ou-name", name: "Name Bot" } };
+    expect(await sdk.probeBotIdentity()).toEqual({ openId: "ou-name", name: "Name Bot" });
+    apiResponse = { code: 0, msg: "success", bot: { open_id: "ou-no-name" } };
+    expect(await sdk.probeBotIdentity()).toEqual({ openId: "ou-no-name", name: "" });
+
     const card = { schema: "2.0", config: { streaming_mode: true }, body: { elements: [] } };
     expect(await sdk.cardkit.createCardEntity(card)).toEqual({
       code: 0,

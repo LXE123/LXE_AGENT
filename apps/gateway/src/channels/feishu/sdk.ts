@@ -313,7 +313,7 @@ export function createOfficialFeishuSdk(
       const bot = object(payload.bot);
       return {
         openId: String(bot.open_id ?? "").trim(),
-        name: String(bot.bot_name ?? bot.name ?? "").trim(),
+        name: String(bot.app_name ?? bot.bot_name ?? bot.name ?? "").trim(),
       };
     },
   };
