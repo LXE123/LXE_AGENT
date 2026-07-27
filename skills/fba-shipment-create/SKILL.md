@@ -42,7 +42,7 @@ commands:
 
 ## Context File
 
-执行 CLI 前，用 `write` 工具创建 `artifacts/amazon_fba/context_<consignment_no>.json`；不要把 JSON 直接塞进命令行参数。
+执行 CLI 前，用 `write` 工具创建 `artifacts/fba/shipment/context_<consignment_no>.json`；不要把 JSON 直接塞进命令行参数。
 
 ```json
 {
@@ -57,10 +57,10 @@ commands:
 
 | Stage | 前置条件 | Command | 成功标志 | 附件行为 | 下一步 |
 |---|---|---|---|---|---|
-| 1 `prepare_upload` | context 已写好 | `lxeskill fba shipment prepare-upload --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `finished=true` 且 notice 提示第一阶段完成 | 发送 terminal `files` | 第二段 |
-| 2 `prepare_multi_box_excel` | 第一段成功 | `lxeskill fba shipment prepare-multi-box --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "第二阶段完成，已可选择自己的承运人，请执行第三阶段CLI。"` | 发送 terminal `files` | 第三段 |
-| 3 `confirm_own_carrier` | 已到自己的承运人页面 | `lxeskill fba shipment confirm-own-carrier --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "恭喜第三步完成，现在需要输入追踪编码，请运行第四阶段脚本"` | 发送 terminal `files` | 第四段 |
-| 4 `enter_tracking_codes` | 第三段完成 | `lxeskill fba shipment enter-tracking-codes --context-file "artifacts/amazon_fba/context_<consignment_no>.json"` | `notice == "恭喜！创建货件流程完整结束！"` | 无附件要求 | 结束 |
+| 1 `prepare_upload` | context 已写好 | `lxeskill fba shipment prepare-upload --context-file "artifacts/fba/shipment/context_<consignment_no>.json"` | `finished=true` 且 notice 提示第一阶段完成 | 发送 terminal `files` | 第二段 |
+| 2 `prepare_multi_box_excel` | 第一段成功 | `lxeskill fba shipment prepare-multi-box --context-file "artifacts/fba/shipment/context_<consignment_no>.json"` | `notice == "第二阶段完成，已可选择自己的承运人，请执行第三阶段CLI。"` | 发送 terminal `files` | 第三段 |
+| 3 `confirm_own_carrier` | 已到自己的承运人页面 | `lxeskill fba shipment confirm-own-carrier --context-file "artifacts/fba/shipment/context_<consignment_no>.json"` | `notice == "恭喜第三步完成，现在需要输入追踪编码，请运行第四阶段脚本"` | 发送 terminal `files` | 第四段 |
+| 4 `enter_tracking_codes` | 第三段完成 | `lxeskill fba shipment enter-tracking-codes --context-file "artifacts/fba/shipment/context_<consignment_no>.json"` | `notice == "恭喜！创建货件流程完整结束！"` | 无附件要求 | 结束 |
 
 ## Result Handling
 

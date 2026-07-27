@@ -40,11 +40,12 @@ from services.mabang.stock_sku_export import (
     export_stock_sku_names,
     normalize_sku_key,
 )
-from shared.workspace import artifact_path, resolve_workspace_input
+from shared.datasets import dataset_dir
+from shared.workspace import resolve_workspace_input
 
 SOURCE = "invoice_template_fill"
-DEFAULT_OUTPUT_DIR = artifact_path("invoice_template")
-STOCK_SKU_OUTPUT_DIR = artifact_path("mabang_stock_sku")
+DEFAULT_OUTPUT_DIR = dataset_dir("fba_invoices")
+STOCK_SKU_OUTPUT_DIR = dataset_dir("fba_stock_sku")
 INVOICE_TEMPLATE_SHEET = "WS-通用发票导入模版"
 STOCK_SKU_IMAGE_COLUMN = "库存sku图片"
 IMAGE_MAX_WIDTH = 80

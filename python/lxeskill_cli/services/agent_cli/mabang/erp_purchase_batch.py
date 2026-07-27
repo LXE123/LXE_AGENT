@@ -16,7 +16,7 @@ from services.agent_cli.mabang import generate_fba_restock_workbook as restock_w
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
 from services.agent_cli.mabang.erp_http import ErpHttpError, error_payload, request_json
 from services.agent_cli.mabang.shipment_quantity_validation import read_delivery_msku_infos
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 
 PURCHASE_CONFIRMATION_CODES = frozenset(
@@ -28,7 +28,7 @@ PURCHASE_CONFIRMATION_CODES = frozenset(
 )
 FORMAL_QUANTITY_COLUMNS = ("计划发货量", "本次采购量", "留存库存抵扣量")
 INVENTORY_ROW_FILL_COLOR = "FFFFFF00"
-CONTRACT_OUTPUT_DIR = artifact_path("mabang_purchase_contracts")
+CONTRACT_OUTPUT_DIR = dataset_dir("fba_purchase_contracts")
 _INVALID_FILE_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
 

@@ -10,11 +10,11 @@ from typing import Any
 
 from services.mabang import config as mabang_settings
 from services.mabang.export_common import clean_text as _clean_text
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 from .store_msku_actual_inventory import find_latest_store_msku_file
 
-DEFAULT_SNAPSHOT_DIR = artifact_path("amazon_restock_inventory_snapshots")
+DEFAULT_SNAPSHOT_DIR = dataset_dir("replenish_restock_inventory_snapshots")
 SOURCE = "amazon_restock_inventory_snapshot"
 AMAZON_RESTOCK_INVENTORY_SNAPSHOT_FILE_SUFFIX = "亚马逊补充库存快照"
 SUMMARY_SHEET = "亚马逊补充库存汇总"

@@ -87,7 +87,7 @@ CLI 会执行硬校验，任一失败都不会生成 snapshot：
   "store_name": "Amazon-YRZ-US",
   "snapshot_time": "202606211530",
   "snapshot_date": "20260621",
-  "snapshot_xlsx_path": "artifacts/amazon_restock_inventory_snapshots/202606211530-Amazon-YRZ-US_亚马逊补充库存快照.xlsx",
+  "snapshot_xlsx_path": "artifacts/replenish/restock_inventory_snapshots/202606211530-Amazon-YRZ-US_亚马逊补充库存快照.xlsx",
   "amazon_restock_inventory_validation": {
     "country": "US",
     "mabang_site": "美国站",

@@ -26,8 +26,8 @@ commands:
 - `默认` 是系统参数方案，不允许覆盖、删除或替换。
 - `US-一组`、`UK-一组`、`DE-一组` 也是系统参数方案，不允许覆盖、删除、替换或重命名。
 - 海运开关是必填参数；旧参数方案缺少 `sea.enabled` 时需要重新导出配置表并导入。
-- 自定义参数方案保存在 `artifacts/mabang_replenishment_templates/templates.json`，不进入 git。
-- 用户编辑 xlsx 保存在 `artifacts/mabang_replenishment_templates/editable/`，不进入 git。
+- 自定义参数方案保存在 `artifacts/replenish/algorithm_templates/templates.json`，不进入 git。
+- 用户编辑 xlsx 保存在 `artifacts/replenish/algorithm_templates/editable/`，不进入 git。
 
 ## Commands
 

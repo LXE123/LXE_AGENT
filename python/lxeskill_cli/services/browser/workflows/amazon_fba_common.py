@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 from services.browser.browser.actions import execute_browser_action
 from services.browser.browser.snapshot import build_page_snapshot
 
 
 def workflow_output_dir(session_id: str) -> Path:
-    return artifact_path("browser", "workflows", str(session_id or "unknown"))
+    return dataset_dir("browser_workflows", str(session_id or "unknown"))
 
 
 class WorkflowBrowserSession:

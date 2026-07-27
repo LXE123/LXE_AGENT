@@ -28,7 +28,7 @@ from services.mabang.export_common import (
 )
 from services.mabang.export_common import request_headers as _request_headers
 from shared.infra.net import erp_http_session, external_http_session
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 from ...auth import get_auth_context
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
@@ -40,8 +40,8 @@ DEFAULT_PRIVATE_AMZ_ORIGIN = "https://private-amz.mabangerp.com"
 DEFAULT_PRIVATE_AMZ_REFERER = "https://private-amz.mabangerp.com/"
 DEFAULT_PRIVATE_ORIGIN = "https://private.mabangerp.com"
 DEFAULT_PRIVATE_REFERER = "https://private.mabangerp.com/"
-DEFAULT_OUTPUT_DIR = artifact_path("mabang_msku_detail")
-DEFAULT_DELIVERY_FILE_DIR = artifact_path("mabang_fba_delivery")
+DEFAULT_OUTPUT_DIR = dataset_dir("fba_msku_detail")
+DEFAULT_DELIVERY_FILE_DIR = dataset_dir("fba_delivery_csv")
 AUTH_FAIL_STATUS = {401, 403}
 SOURCE = "mabang_msku_detail"
 MSKU_COLUMN = "MSKU"

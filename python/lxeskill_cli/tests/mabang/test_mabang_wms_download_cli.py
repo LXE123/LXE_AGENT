@@ -61,7 +61,9 @@ def _read_excel(path: str | Path):
 
 
 def test_relative_wms_dirs_resolve_from_canonical_state_root():
-    expected = state_root() / "artifacts" / "mabang_wms_consignment"
+    from shared.datasets import dataset
+
+    expected = state_root() / "artifacts" / dataset("fba_wms_consignment").dir
 
     assert consignment_source.resolve_consignment_excel_dir() == expected
     assert wms_module._resolve_excel_dir() == expected

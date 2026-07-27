@@ -18,7 +18,7 @@ from services.mabang.auth_constants import (
 from services.mabang.export_common import clean_text as _clean_text
 from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 from ...auth import get_auth_context, refresh_mabang_auth
 from ...cookies import build_cookie_header, extract_named_cookies, list_cookie_names
@@ -31,7 +31,7 @@ from ...errors import (
 
 DEFAULT_STORE_LIST_URL = "https://private-amz.mabangerp.com/index.php"
 DEFAULT_PRIVATE_AMZ_REFERER = "https://private-amz.mabangerp.com/"
-DEFAULT_OUTPUT_DIR = artifact_path("mabang_fba_store_resolver")
+DEFAULT_OUTPUT_DIR = dataset_dir("replenish_store_resolver")
 AUTH_FAIL_STATUS = {401, 403}
 SOURCE = "mabang_fba_store_resolver"
 WHITESPACE_PATTERN = re.compile(r"\s+")

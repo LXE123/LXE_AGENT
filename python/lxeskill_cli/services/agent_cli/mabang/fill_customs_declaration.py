@@ -21,10 +21,11 @@ from services.mabang.amazon.fba.consignment_excel import (
     find_consignment_excel,
     resolve_column,
 )
-from shared.workspace import artifact_path, resolve_workspace_input
+from shared.datasets import dataset_dir
+from shared.workspace import resolve_workspace_input
 
 SOURCE = "customs_declaration_fill"
-DEFAULT_OUTPUT_DIR = artifact_path("customs_declaration")
+DEFAULT_OUTPUT_DIR = dataset_dir("fba_customs_declaration")
 SOURCE_WORKSHEET_NAME = SUMMARY_WORKSHEET_NAME
 INPUT_HEADERS = SUMMARY_HEADERS
 TARGET_HEADERS = (

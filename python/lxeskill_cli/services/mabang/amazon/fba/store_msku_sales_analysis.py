@@ -10,10 +10,10 @@ from typing import Any
 from services.mabang import config as mabang_settings
 from services.mabang.export_common import clean_text as _clean_text
 from services.mabang.export_common import safe_store_msku_file_part as _safe_file_part
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
-DEFAULT_INPUT_DIR = artifact_path("mabang_store_msku")
-DEFAULT_OUTPUT_DIR = artifact_path("mabang_store_msku_analysis")
+DEFAULT_INPUT_DIR = dataset_dir("replenish_store_msku")
+DEFAULT_OUTPUT_DIR = dataset_dir("replenish_sales_analysis")
 SOURCE = "mabang_store_msku_sales_analysis"
 EXCEL_ROW_HEIGHT = 15
 EXCEL_COLUMN_WIDTH = 15

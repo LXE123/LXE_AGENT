@@ -9,7 +9,7 @@ from typing import Any, Mapping
 import requests
 
 from shared.infra.net.requests_client import external_requests_session
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 
 SOURCE = "amazon_public_web"
@@ -133,7 +133,7 @@ def failure_payload(
 
 
 def persist_report(category: str, identity: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-    directory = artifact_path("amazon_operations", category)
+    directory = dataset_dir("amazon_operations", category)
     directory.mkdir(parents=True, exist_ok=True)
     safe_identity = _SAFE_STEM.sub("-", identity).strip("-._")[:60] or "report"
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")

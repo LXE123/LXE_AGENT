@@ -59,7 +59,7 @@ def _response(
 
 @pytest.fixture(autouse=True)
 def _reports_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_shared, "artifact_path", lambda *parts: tmp_path.joinpath(*map(str, parts)))
+    monkeypatch.setattr(_shared, "dataset_dir", lambda dataset_id, *parts: tmp_path.joinpath(dataset_id, *map(str, parts)))
 
 
 def _sequence(monkeypatch: pytest.MonkeyPatch, *responses: _shared.WebResponse) -> None:

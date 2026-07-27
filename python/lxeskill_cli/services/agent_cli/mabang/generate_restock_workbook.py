@@ -20,9 +20,9 @@ from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
     _sku_match_key,
     find_latest_delivery_csv,
 )
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
-OUTPUT_DIR = artifact_path("mabang_purchase_summary")
+OUTPUT_DIR = dataset_dir("fba_purchase_summary")
 SOURCE = "fba_purchase_summary"
 
 MASTER_REQUIRED_HEADERS = ("库存sku", "产品名称", "型号", "原价", "厂家", "备用厂家")

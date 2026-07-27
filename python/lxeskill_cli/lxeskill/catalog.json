@@ -299,5 +299,33 @@
       "owner_skills": ["replenishment-unlinked-shipment-download"], "artifact_paths": [{"field": "status_results[].raw_file_path", "role": "deliverable"}, {"field": "snapshot.snapshot_xlsx_path", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
       "input_schema": {"type": "object", "properties": {"store_name": {"type": "string"}, "timeout_sec": {"type": "number"}, "poll_interval_sec": {"type": "number"}, "output_dir": {"type": "string"}}, "required": ["store_name"], "additionalProperties": false}
     }
-  ]
+  ],
+  "datasets": {
+    "fba_delivery_csv": {"dir": "fba/delivery_csv", "holds": "FBA 发货单 CSV，命名 <SP单号>_*.csv；报关、发票、采购、退税汇总都从这里读。", "legacy_dirs": ["mabang_fba_delivery"]},
+    "fba_stock_sku": {"dir": "fba/stock_sku", "holds": "马帮库存 SKU Excel，按发货单 SKU发货量 列导出；SKU 多时分批成多个文件。", "legacy_dirs": ["mabang_stock_sku"]},
+    "fba_msku_detail": {"dir": "fba/msku_detail", "holds": "马帮 MSKU 明细 Excel。", "legacy_dirs": ["mabang_msku_detail"]},
+    "fba_tax_summary": {"dir": "fba/tax_summary", "holds": "出口退税发货单 SKU 汇总表 Excel。", "legacy_dirs": ["mabang_fba_tax_summary"]},
+    "fba_export_tax_products": {"dir": "fba/export_tax_products", "holds": "退税商品资料导入产物 Excel。", "legacy_dirs": ["export_tax_products"]},
+    "fba_export_tax_products_backup": {"dir": "fba/export_tax_products_backup", "holds": "退税商品资料导入前的原表备份。", "legacy_dirs": ["export_tax_products_backup"]},
+    "fba_customs_declaration": {"dir": "fba/customs_declaration", "holds": "填好的报关资料 Excel（模板副本，原模板不改）。", "legacy_dirs": ["customs_declaration"]},
+    "fba_invoices": {"dir": "fba/invoices", "holds": "填好的发票 Excel（模板副本，原模板不改）。", "legacy_dirs": ["invoice_template"]},
+    "fba_purchase_contracts": {"dir": "fba/purchase_contracts", "holds": "填好的采购合同 Excel。", "legacy_dirs": ["mabang_purchase_contracts"]},
+    "fba_purchase_summary": {"dir": "fba/purchase_summary", "holds": "采购汇总表 Excel。", "legacy_dirs": ["mabang_purchase_summary"]},
+    "fba_restock_workbook": {"dir": "fba/restock_workbook", "holds": "FBA 备货工作簿 Excel。", "legacy_dirs": ["mabang_restock_workbook"]},
+    "fba_wms_consignment": {"dir": "fba/wms_consignment", "holds": "WMS 装箱数据，命名 <SP单号>.xls|xlsx；报关填写的前置输入。", "legacy_dirs": ["mabang_wms_consignment"]},
+    "fba_shipment": {"dir": "fba/shipment", "holds": "创建货件四阶段流程的 context JSON 与各阶段附件（attachments 子目录）。", "legacy_dirs": ["amazon_fba"]},
+    "replenish_store_msku": {"dir": "replenish/store_msku", "holds": "店铺 MSKU 数据 Excel；销量分析、真实库存、补货计算的共同输入。", "legacy_dirs": ["mabang_store_msku"]},
+    "replenish_sales_analysis": {"dir": "replenish/sales_analysis", "holds": "店铺 MSKU 销量分析结果 Excel。", "legacy_dirs": ["mabang_store_msku_analysis"]},
+    "replenish_actual_inventory": {"dir": "replenish/actual_inventory", "holds": "真实库存报表 Excel（含深圳仓库口径）。", "legacy_dirs": ["mabang_store_msku_inventory"]},
+    "replenish_calculation": {"dir": "replenish/calculation", "holds": "补货计算结果 Excel。", "legacy_dirs": ["mabang_store_msku_replenishment"]},
+    "replenish_algorithm_templates": {"dir": "replenish/algorithm_templates", "holds": "备货算法参数方案：templates.json 为自定义方案存档，editable/ 为用户可编辑的 xlsx。用户资产，勿随产物清理。", "legacy_dirs": ["mabang_replenishment_templates"]},
+    "replenish_fba_inventory_snapshots": {"dir": "replenish/fba_inventory_snapshots", "holds": "亚马逊 FBA 库存快照。", "legacy_dirs": ["amazon_fba_inventory_snapshots"]},
+    "replenish_restock_inventory_snapshots": {"dir": "replenish/restock_inventory_snapshots", "holds": "亚马逊补货库存快照 Excel。", "legacy_dirs": ["amazon_restock_inventory_snapshots"]},
+    "replenish_unlinked_shipments": {"dir": "replenish/unlinked_shipments", "holds": "未关联货件原始下载文件。", "legacy_dirs": ["mabang_fba_unlinked_shipments"]},
+    "replenish_unlinked_shipments_snapshots": {"dir": "replenish/unlinked_shipments_snapshots", "holds": "未关联货件快照 Excel。", "legacy_dirs": ["mabang_fba_unlinked_shipments_snapshots"]},
+    "replenish_store_resolver": {"dir": "replenish/store_resolver", "holds": "店铺名解析结果缓存。", "legacy_dirs": ["mabang_fba_store_resolver"]},
+    "amazon_operations": {"dir": "amazon/operations", "holds": "亚马逊运营分析报告 JSON，按 listing/review/competitor/keyword 分子目录。", "legacy_dirs": ["amazon_operations"]},
+    "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器店铺会话的截图与页面快照，按 session_id 分子目录。", "legacy_dirs": []},
+    "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []}
+  }
 }

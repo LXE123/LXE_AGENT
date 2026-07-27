@@ -11,9 +11,9 @@ from typing import Any
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
-OUTPUT_DIR = artifact_path("mabang_purchase_contracts")
+OUTPUT_DIR = dataset_dir("fba_purchase_contracts")
 SOURCE = "fba_purchase_contract_fill"
 
 PURCHASE_SUMMARY_SHEET = purchase_summary.SUMMARY_SHEET_NAME

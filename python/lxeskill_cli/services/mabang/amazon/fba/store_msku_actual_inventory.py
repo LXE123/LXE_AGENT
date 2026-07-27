@@ -20,14 +20,14 @@ from services.mabang.auth_constants import (
 )
 from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session, external_http_session
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 from ...auth import get_auth_context, refresh_mabang_auth
 from ...cookies import build_cookie_header, extract_named_cookies
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
 
-DEFAULT_STORE_MSKU_DIR = artifact_path("mabang_store_msku")
-DEFAULT_OUTPUT_DIR = artifact_path("mabang_store_msku_inventory")
+DEFAULT_STORE_MSKU_DIR = dataset_dir("replenish_store_msku")
+DEFAULT_OUTPUT_DIR = dataset_dir("replenish_actual_inventory")
 DEFAULT_COMBO_EXPORT_URL = "https://private.mabangerp.com/index.php?mod=combosku.doExportFileNew"
 DEFAULT_COMBO_LIST_URL = "https://private-amz.mabangerp.com/index.php?mod=combosku.getCombosSkuList"
 DEFAULT_COMBO_EXPORT_TEMPLATE_URL = "https://private.mabangerp.com/index.php"

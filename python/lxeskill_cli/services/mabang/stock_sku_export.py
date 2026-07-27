@@ -16,7 +16,7 @@ from services.mabang.auth_constants import PRIVATE_HOST
 from services.mabang.export_common import clean_cell as _clean_cell
 from services.mabang.export_common import configured_text as _configured_text
 from shared.infra.net import erp_http_session, external_http_session
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 from .auth import get_auth_context, refresh_mabang_auth
 from .cookies import build_cookie_header, extract_named_cookies
@@ -25,7 +25,7 @@ from .errors import MabangAuthError, MabangBusinessError, MabangRequestError
 DEFAULT_STOCK_EXPORT_URL = "https://private.mabangerp.com/index.php?mod=export.doStockExportFile"
 DEFAULT_STOCK_EXPORT_ORIGIN = "https://private.mabangerp.com"
 DEFAULT_STOCK_EXPORT_REFERER = "https://private.mabangerp.com/"
-DEFAULT_OUTPUT_DIR = artifact_path("mabang_stock_sku")
+DEFAULT_OUTPUT_DIR = dataset_dir("fba_stock_sku")
 MAX_SKUS_PER_BATCH = 3000
 STOCK_SKU_COLUMN = "库存SKU"
 STOCK_SKU_NAME_COLUMN = "库存SKU中文名称"

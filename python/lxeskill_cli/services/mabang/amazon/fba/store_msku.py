@@ -34,7 +34,7 @@ from services.mabang.export_common import (
     safe_store_msku_file_part as _safe_file_part,
 )
 from shared.infra.net import erp_http_session, external_http_session
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 from ...auth import get_auth_context
 from ...errors import MabangAuthError, MabangBusinessError, MabangRequestError
@@ -46,7 +46,7 @@ DEFAULT_PRIVATE_AMZ_ORIGIN = "https://private-amz.mabangerp.com"
 DEFAULT_PRIVATE_AMZ_REFERER = "https://private-amz.mabangerp.com/"
 DEFAULT_PRIVATE_ORIGIN = "https://private.mabangerp.com"
 DEFAULT_PRIVATE_REFERER = "https://private.mabangerp.com/"
-DEFAULT_OUTPUT_DIR = artifact_path("mabang_store_msku")
+DEFAULT_OUTPUT_DIR = dataset_dir("replenish_store_msku")
 AUTH_FAIL_STATUS = {401, 403}
 SOURCE = "mabang_store_msku_download"
 STORE_MSKU_FILE_SUFFIX = "店铺MSKU数据"

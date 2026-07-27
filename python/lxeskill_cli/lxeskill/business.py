@@ -8,6 +8,7 @@ from pathlib import Path
 import re
 from typing import Any, Callable
 
+from shared.datasets import load_datasets
 from shared.logging import get_logger
 from shared.repository import skills_root
 from shared.workspace import artifact_root, resolve_workspace_input
@@ -27,6 +28,8 @@ def load_catalog() -> dict[str, dict[str, Any]]:
     document = json.loads(path.read_text(encoding="utf-8"))
     if str(document.get("protocol_version") or "") != "1":
         raise RuntimeError("invalid script tool catalog protocol")
+    # Fails loudly on a malformed dataset registry, same as the entry contract.
+    load_datasets()
     entries: dict[str, dict[str, Any]] = {}
     modules: set[str] = set()
     command_paths: set[tuple[str, ...]] = set()

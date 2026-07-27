@@ -51,7 +51,7 @@ lxeskill replenish store resolve --store-name "<店铺名>"
   "store_count": 149,
   "fba_warehouse_count": 80,
   "shop_count": 69,
-  "xlsx_path": "artifacts/mabang_fba_store_resolver/FBA店铺列表_20260521_153000.xlsx",
+  "xlsx_path": "artifacts/replenish/store_resolver/FBA店铺列表_20260521_153000.xlsx",
   "source": "mabang_fba_store_resolver"
 }
 ```
@@ -103,7 +103,7 @@ lxeskill replenish store resolve --store-name "<店铺名>"
   "query": "Amazon",
   "exception": "店铺名不唯一: query=Amazon, count=149",
   "candidate_count": 149,
-  "candidates_xlsx_path": "artifacts/mabang_fba_store_resolver/FBA店铺候选_Amazon_20260521_153000.xlsx"
+  "candidates_xlsx_path": "artifacts/replenish/store_resolver/FBA店铺候选_Amazon_20260521_153000.xlsx"
 }
 ```
 

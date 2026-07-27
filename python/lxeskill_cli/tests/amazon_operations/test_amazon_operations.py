@@ -49,7 +49,7 @@ def _response(text: str, *, status: int = 200, content_type: str = "text/html") 
 
 @pytest.fixture(autouse=True)
 def _reports_in_tmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_shared, "artifact_path", lambda *parts: tmp_path.joinpath(*map(str, parts)))
+    monkeypatch.setattr(_shared, "dataset_dir", lambda dataset_id, *parts: tmp_path.joinpath(dataset_id, *map(str, parts)))
 
 
 def test_listing_complete_page_is_normalized_and_scored(monkeypatch: pytest.MonkeyPatch) -> None:

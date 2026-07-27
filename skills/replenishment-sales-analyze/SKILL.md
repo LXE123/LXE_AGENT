@@ -46,13 +46,13 @@ lxeskill replenish sales analyze --store-name "<店铺名>"
 {
   "success": true,
   "store_name": "Amazon-Lerxiuer-FR",
-  "source_xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
+  "source_xlsx_path": "artifacts/replenish/store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
   "source_data_time": "202605251530",
   "data_is_stale": true,
   "link_count": 18,
   "asin_count": 72,
   "msku_count": 180,
-  "report_xlsx_path": "artifacts/mabang_store_msku_analysis/202605251530-Amazon-Lerxiuer-FR_销量分析.xlsx",
+  "report_xlsx_path": "artifacts/replenish/sales_analysis/202605251530-Amazon-Lerxiuer-FR_销量分析.xlsx",
   "source": "mabang_store_msku_sales_analysis"
 }
 ```

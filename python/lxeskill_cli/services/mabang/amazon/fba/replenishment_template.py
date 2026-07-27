@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from services.mabang.export_common import clean_text as _clean_text
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 DEFAULT_TEMPLATE_NAME = "默认"
 US_GROUP_1_TEMPLATE_NAME = "US-一组"
@@ -34,8 +34,8 @@ BUILTIN_TEMPLATE_NAMES = (
     DE_GROUP_1_TEMPLATE_NAME,
     US_LIN_MEIQI_GROUP_2_TEMPLATE_NAME,
 )
-DEFAULT_CUSTOM_TEMPLATE_STORE = artifact_path("mabang_replenishment_templates", "templates.json")
-DEFAULT_EDITABLE_OUTPUT_DIR = artifact_path("mabang_replenishment_templates", "editable")
+DEFAULT_CUSTOM_TEMPLATE_STORE = dataset_dir("replenish_algorithm_templates", "templates.json")
+DEFAULT_EDITABLE_OUTPUT_DIR = dataset_dir("replenish_algorithm_templates", "editable")
 
 SOURCE_DEFAULT = "default"
 SOURCE_CUSTOM = "custom"

@@ -18,7 +18,7 @@ commands:
 - 不要手工解析 CSV，不要手工编辑 Excel。
 - 一次只能处理一个 `SP` 发货单号；多个 SP 要拆成多次运行，每个 SP 一个文件。
 - 这是兼容入口；如果用户在处理一批 SP，或要求正飞按整批统一均价，必须改用 `fba-purchase-summary-create`。
-- 发货单 CSV 只从本地 `artifacts/mabang_fba_delivery/<SP>_*.csv` 查找；缺少时直接转述 CLI 失败原因，不自动下载。
+- 发货单 CSV 只从本地 `artifacts/fba/delivery_csv/<SP>_*.csv` 查找；缺少时直接转述 CLI 失败原因，不自动下载。
 - 出口退税总表必须由用户提供，不使用默认路径。
 - 不生成厂家分类 sheet。
 

@@ -72,9 +72,9 @@ lxeskill replenish calculate --store-name "<店铺名>" --amazon-restock-invento
   "sea_count": 35,
   "no_ship_count": 42,
   "sample_insufficient_count": 15,
-  "report_xlsx_path": "artifacts/mabang_store_msku_replenishment/202605251530-Amazon-Lerxiuer-FR_备货建议.xlsx",
-  "unlinked_shipments_snapshot_path": "artifacts/mabang_fba_unlinked_shipments_snapshots/202605251735-Amazon-Lerxiuer-FR_未关联货件快照.xlsx",
-  "amazon_restock_inventory_snapshot_path": "artifacts/amazon_restock_inventory_snapshots/202605251735-Amazon-Lerxiuer-FR_亚马逊补充库存快照.xlsx",
+  "report_xlsx_path": "artifacts/replenish/calculation/202605251530-Amazon-Lerxiuer-FR_备货建议.xlsx",
+  "unlinked_shipments_snapshot_path": "artifacts/replenish/unlinked_shipments_snapshots/202605251735-Amazon-Lerxiuer-FR_未关联货件快照.xlsx",
+  "amazon_restock_inventory_snapshot_path": "artifacts/replenish/restock_inventory_snapshots/202605251735-Amazon-Lerxiuer-FR_亚马逊补充库存快照.xlsx",
   "source": "mabang_store_msku_replenishment"
 }
 ```

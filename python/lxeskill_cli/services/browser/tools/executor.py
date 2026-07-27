@@ -7,7 +7,7 @@ from typing import Any, Iterator
 
 from shared.logging import get_logger
 from shared.process_lock import InterProcessLockTimeout
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 from services.browser.tools.dispatcher import dispatch_ziniao_browser, dispatch_ziniao_page
 from services.browser.tools.models import ExecuteToolResult
@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 
 
 def _artifacts_dir(session_id: str) -> Path:
-    return artifact_path("browser", "amazon_store_agent", str(session_id or "unknown"))
+    return dataset_dir("browser_store_agent", str(session_id or "unknown"))
 
 
 def _tool_target_text(tool_call) -> str:

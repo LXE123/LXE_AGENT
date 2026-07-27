@@ -49,7 +49,7 @@ lxeskill replenish inventory actual-export --store-name "<店铺名>"
   "store_name": "Amazon-Lerxiuer-FR",
   "warehouse_id": "1014318",
   "warehouse_name": "深圳仓库",
-  "source_msku_xlsx_path": "artifacts/mabang_store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
+  "source_msku_xlsx_path": "artifacts/replenish/store_msku/202605251530-Amazon-Lerxiuer-FR_店铺MSKU数据.xlsx",
   "source_msku_data_time": "202605251530",
   "unique_local_sku_count": 120,
   "detected_combo_sku_count": 8,
@@ -59,7 +59,7 @@ lxeskill replenish inventory actual-export --store-name "<店铺名>"
   "missing_warehouse_inventory_msku_row_count": 2,
   "missing_warehouse_stock_sku_count": 2,
   "missing_warehouse_stock_skus": ["SKU-A", "SKU-B"],
-  "shenzhen_warehouse_inventory_report_xlsx_path": "artifacts/mabang_store_msku_inventory/202605251530-Amazon-Lerxiuer-FR_真实库存（深圳仓库）.xlsx",
+  "shenzhen_warehouse_inventory_report_xlsx_path": "artifacts/replenish/actual_inventory/202605251530-Amazon-Lerxiuer-FR_真实库存（深圳仓库）.xlsx",
   "result_source": "mabang_store_msku_shenzhen_warehouse_inventory"
 }
 ```

@@ -9,10 +9,10 @@ from typing import Any
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang import generate_restock_workbook as _purchase
-from shared.workspace import artifact_path
+from shared.datasets import dataset_dir
 
 DELIVERY_CSV_DIR = _purchase.DELIVERY_CSV_DIR
-OUTPUT_DIR = artifact_path("mabang_restock_workbook")
+OUTPUT_DIR = dataset_dir("fba_restock_workbook")
 SOURCE = "fba_restock_workbook"
 RESTOCK_SHEET_NAME = "备货单"
 COUNTRY_COLUMN = "国家"

@@ -11,7 +11,7 @@ commands:
 ## Hard Rules
 
 - 必须通过 exec 调用 frontmatter 中声明的固定 CLI；禁止直接运行 Python 业务模块。
-- 发货单只从 `artifacts/mabang_fba_delivery/<SP>_*.csv` 查找；缺失时转述真实错误，不自动下载。
+- 发货单只从 `artifacts/fba/delivery_csv/<SP>_*.csv` 查找；缺失时转述真实错误，不自动下载。
 - 默认是正式联网模式：本地上传计划需求和映射，ERP 计算库存抵扣、本次采购量、新合同号和新采购价。
 - ERP 返回确认要求时不生成任何正式文件；先展示真实库存来源后询问用户。
 - 正式模式连接 ERP 失败时停止；不得自动改走草稿。

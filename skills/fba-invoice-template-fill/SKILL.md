@@ -32,7 +32,7 @@ commands:
 - 一个备货 `.xlsx` 文件。
 - 一个发票模板 `.xlsx` 文件。
 - 文件名必须包含 `SP...` 单号和目的国。
-- 本地必须已存在对应的 FBA 发货单 CSV：`artifacts/mabang_fba_delivery/<SP单号>_*.csv`。
+- 本地必须已存在对应的 FBA 发货单 CSV：`artifacts/fba/delivery_csv/<SP单号>_*.csv`。
 - 本地必须已存在对应的 WMS 装箱数据 Excel。
 - 缺少文件时先追问，不要启动 CLI。
 

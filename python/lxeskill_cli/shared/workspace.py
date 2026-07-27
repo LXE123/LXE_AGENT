@@ -15,6 +15,31 @@ _internal_root = state_root() / "lxeskill"
 _artifact_root = state_root() / "artifacts"
 
 
+def _migrate_legacy_artifact_dirs(root: Path) -> None:
+    """Rename pre-registry artifact directories into their registered layout.
+
+    Idempotent: a legacy directory moves only when its target does not exist yet.
+    When both exist the legacy one is left alone and reported, so that no data is
+    silently merged.
+    """
+    from shared.datasets import load_datasets
+
+    for entry in load_datasets().values():
+        target = root / entry.dir
+        for legacy_name in entry.legacy_dirs:
+            legacy = root / legacy_name
+            if not legacy.is_dir():
+                continue
+            if target.exists():
+                logger.warning(
+                    "artifact_dir_migration_skipped: %s and %s both exist", legacy, target
+                )
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            legacy.rename(target)
+            logger.info("artifact_dir_migrated: %s -> %s", legacy, target)
+
+
 def activate_project_workspace() -> Path:
     """Use the selected business workspace with app-managed state under ``var``."""
     global _workspace_root, _internal_root, _artifact_root
@@ -30,6 +55,7 @@ def activate_project_workspace() -> Path:
         _artifact_root = writable_root / "artifacts"
         _internal_root.mkdir(parents=True, exist_ok=True)
         _artifact_root.mkdir(parents=True, exist_ok=True)
+        _migrate_legacy_artifact_dirs(_artifact_root)
     return _workspace_root
 
 

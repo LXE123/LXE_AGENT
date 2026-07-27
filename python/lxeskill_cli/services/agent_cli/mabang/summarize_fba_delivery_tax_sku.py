@@ -12,11 +12,12 @@ from services.agent_cli._shared.json_cli import exception_text as _exception_tex
 from services.mabang.stock_sku_export import export_stock_sku_names
 from services.mabang.amazon.fba import download_fba_delivery_csv
 from services.mabang.amazon.fba.batch_delivery import normalize_delivery_no
-from shared.workspace import artifact_path, resolve_workspace_input
+from shared.datasets import dataset_dir
+from shared.workspace import resolve_workspace_input
 
-DELIVERY_CSV_DIR = artifact_path("mabang_fba_delivery")
-OUTPUT_DIR = artifact_path("mabang_fba_tax_summary")
-STOCK_SKU_OUTPUT_DIR = artifact_path("mabang_stock_sku")
+DELIVERY_CSV_DIR = dataset_dir("fba_delivery_csv")
+OUTPUT_DIR = dataset_dir("fba_tax_summary")
+STOCK_SKU_OUTPUT_DIR = dataset_dir("fba_stock_sku")
 EXPORT_TAX_PRODUCTS_SHEET = "Sheet1"
 SKU_SHIP_QTY_COLUMN = "SKU发货量"
 TAX_PRODUCT_SKU_COLUMN = "sku"

@@ -16,11 +16,12 @@ from services.agent_cli.mabang.summarize_fba_delivery_tax_sku import (
 )
 from services.agent_cli.mabang.validate_export_tax_products import validate_export_tax_products
 from services.mabang.stock_sku_export import export_stock_sku_names
-from shared.workspace import artifact_path, resolve_workspace_input
+from shared.datasets import dataset_dir
+from shared.workspace import resolve_workspace_input
 
 SOURCE = "export_tax_products_import"
-DEFAULT_BACKUP_DIR = artifact_path("export_tax_products_backup")
-DEFAULT_OUTPUT_DIR = artifact_path("export_tax_products")
+DEFAULT_BACKUP_DIR = dataset_dir("fba_export_tax_products_backup")
+DEFAULT_OUTPUT_DIR = dataset_dir("fba_export_tax_products")
 SKU_TOKEN_SPLIT_PATTERN = re.compile(r"[\s,，;；]+")
 WHITESPACE_PATTERN = re.compile(r"\s+")
 
