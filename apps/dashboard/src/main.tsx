@@ -1,8 +1,12 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { DesktopCloudState, DesktopHealth } from "@lxe/desktop-protocol";
+import type {
+  DesktopCloudState,
+  DesktopConversationActivityPayload,
+  DesktopHealth,
+} from "@lxe/desktop-protocol";
 import {
   ChartColumn,
   House,
@@ -25,7 +29,8 @@ import {
   useConnectorsQuery,
   useCurrentModelQuery,
   useModelsQuery,
-  useSessionDetailQuery,
+  useConversationActivityQuery,
+  useSessionConversationQuery,
   useSessionsInfiniteQuery,
   useSkillsQuery,
   useToolsetsQuery,
@@ -54,6 +59,7 @@ import type {
   ModelPayload,
   McpServerPayload,
   SessionPayload,
+  SessionDetailPayload,
   ToolsetPayload
 } from "./api/payloads";
 import type { DetailTarget } from "./shared/ui/detail-target";
@@ -86,6 +92,15 @@ import type {
   DashboardSection,
 } from "./shared/navigation";
 const DOCS_HOME_PATH = "README.md";
+
+function mergeConversationPages(pages: SessionDetailPayload[] | undefined): SessionDetailPayload | null {
+  if (!pages?.length) return null;
+  const latest = pages.at(-1)!;
+  return {
+    ...latest,
+    messages: pages.flatMap((page) => page.messages),
+  };
+}
 
 function WorkspaceView<T extends string>({
   activeView,
@@ -173,15 +188,21 @@ function App({
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
-  const [sessionDetailPage, setSessionDetailPage] = useState<number | undefined>();
+  const [newConversation, setNewConversation] = useState(false);
+  const [conversationActivities, setConversationActivities] = useState<
+    Record<string, DesktopConversationActivityPayload>
+  >({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
 
   const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery, activeSection === "sessions");
-  const sessionDetailQuery = useSessionDetailQuery(
+  const sessionDetailQuery = useSessionConversationQuery(
     selectedSessionId,
-    sessionDetailPage,
-    activeSection === "sessions",
+    activeSection === "sessions" && !newConversation,
+  );
+  const conversationActivityQuery = useConversationActivityQuery(
+    selectedSessionId,
+    activeSection === "sessions" && !newConversation,
   );
   const capabilitiesOpen = activeSection === "capabilities";
   const activityOpen = activeSection === "activity";
@@ -197,6 +218,26 @@ function App({
   const sessions = flattenSessionPages(sessionsQuery.data?.pages);
 
   useEffect(() => {
+    const desktop = window.lxe?.desktop;
+    if (!desktop) return;
+    return desktop.onConversationEvent(({ activity }) => {
+      setConversationActivities((current) => ({ ...current, [activity.session_id]: activity }));
+      if (activity.latest) {
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists }),
+          queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(activity.session_id) }),
+        ]);
+      }
+    });
+  }, [queryClient]);
+
+  useEffect(() => {
+    const activity = conversationActivityQuery.data;
+    if (!activity) return;
+    setConversationActivities((current) => ({ ...current, [activity.session_id]: activity }));
+  }, [conversationActivityQuery.data]);
+
+  useEffect(() => {
     const handlePopState = () => {
       const nextRoute = routeStateFromLocation();
       setActiveSection(nextRoute.section);
@@ -204,7 +245,7 @@ function App({
       setActivityView(nextRoute.activityView);
       if (nextRoute.section === "home") {
         setSelectedSessionId("");
-        setSessionDetailPage(undefined);
+        setNewConversation(false);
       }
     };
     window.addEventListener("popstate", handlePopState);
@@ -237,7 +278,7 @@ function App({
     pushDashboardRoute("sessions");
     setActiveSection("sessions");
     setSelectedSessionId("");
-    setSessionDetailPage(undefined);
+    setNewConversation(false);
     setSessionSearchFocusKey((current) => current + 1);
   }
 
@@ -247,11 +288,10 @@ function App({
 
   // Two-pane sessions view: keep the detail pane populated by default.
   useEffect(() => {
-    if (activeSection === "sessions" && !selectedSessionId && sessions.items.length > 0) {
+    if (activeSection === "sessions" && !newConversation && !selectedSessionId && sessions.items.length > 0) {
       setSelectedSessionId(sessions.items[0].session_id);
-      setSessionDetailPage(undefined);
     }
-  }, [activeSection, selectedSessionId, sessions.items]);
+  }, [activeSection, newConversation, selectedSessionId, sessions.items]);
 
   function pushDashboardRoute(
     section: DashboardSection,
@@ -279,7 +319,7 @@ function App({
     setActivityView(nextActivityView);
     if (section === "sessions") {
       setSelectedSessionId("");
-      setSessionDetailPage(undefined);
+      setNewConversation(false);
     }
   }
 
@@ -299,11 +339,55 @@ function App({
     pushDashboardRoute("sessions");
     setActiveSection("sessions");
     setSelectedSessionId(session.session_id);
-    setSessionDetailPage(undefined);
+    setNewConversation(false);
   }
 
-  function loadSessionMessagesPage(page: number) {
-    setSessionDetailPage(page);
+  function startNewConversation() {
+    pushDashboardRoute("sessions");
+    setActiveSection("sessions");
+    setSelectedSessionId("");
+    setNewConversation(true);
+  }
+
+  async function sendConversation(text: string): Promise<void> {
+    const result = await callDashboard({
+      operation: "sessions.send",
+      input: { ...(selectedSessionId ? { session_id: selectedSessionId } : {}), text },
+    });
+    setConversationActivities((current) => current[result.session_id]
+      ? current
+      : {
+          ...current,
+          [result.session_id]: {
+            session_id: result.session_id,
+            active: result.state === "running" ? {
+              turn_id: result.turn_id,
+              message_id: result.message_id,
+              text,
+              state: "running",
+              user_message_persisted: false,
+            } : null,
+            queued: result.state === "queued" ? [{
+              turn_id: result.turn_id,
+              message_id: result.message_id,
+              text,
+              state: "queued",
+              user_message_persisted: false,
+            }] : [],
+            latest: null,
+          },
+        });
+    setSelectedSessionId(result.session_id);
+    setNewConversation(false);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists }),
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(result.session_id) }),
+    ]);
+  }
+
+  async function stopConversation(): Promise<void> {
+    if (!selectedSessionId) return;
+    await callDashboard({ operation: "sessions.stop", input: { session_id: selectedSessionId } });
   }
 
   const thinkingMutation = useMutation<
@@ -498,17 +582,22 @@ function App({
     if (!mcpMutation.isPending) mcpMutation.mutate(server);
   }
 
-  const sessionDetail = sessionDetailQuery.data?.session.session_id === selectedSessionId
-    ? sessionDetailQuery.data
-    : null;
+  const sessionDetail = useMemo(
+    () => mergeConversationPages(sessionDetailQuery.data?.pages),
+    [sessionDetailQuery.data?.pages],
+  );
   const selectedSession = sessions.items.find((session) => session.session_id === selectedSessionId)
     || sessionDetail?.session
     || null;
+  const conversationActivity = selectedSessionId
+    ? conversationActivities[selectedSessionId] ?? conversationActivityQuery.data ?? null
+    : null;
+  const conversationRuntimeReady = desktopHealth.gateway === "ready" && desktopHealth.agent_cli === "ready";
   const showDashboardHome = activeSection === "home";
   const hasEmbeddedPageHeader = activeSection === "capabilities" || activeSection === "activity";
   const mcpToolset = toolsetsQuery.data?.items.find((toolset) => toolset.name === "mcp");
   const activeQueries = activeSection === "sessions"
-    ? [sessionsQuery, sessionDetailQuery]
+    ? [sessionsQuery, sessionDetailQuery, conversationActivityQuery]
     : activeSection === "capabilities" && capabilityView === "models"
       ? [modelsQuery, currentModelQuery]
       : activeSection === "capabilities" && capabilityView === "tools"
@@ -543,7 +632,7 @@ function App({
   const pageTitle = activeSection === "home"
     ? t.home.title
     : activeSection === "sessions"
-      ? selectedSession?.title || t.sessions.title
+      ? newConversation ? t.conversation.newTitle : selectedSession?.title || t.sessions.title
       : t.app.title;
   const pageSubtitle = activeSection === "home"
     ? ""
@@ -659,21 +748,30 @@ function App({
                     selectedSessionId={selectedSessionId}
                     onQueryChange={handleSessionQueryChange}
                     onLoadMore={loadMoreSessions}
+                    onNew={startNewConversation}
                     onOpen={openSession}
                   />
                 </div>
                 <div className="sessions-split-detail">
-                  {selectedSession ? (
+                  {selectedSessionId || newConversation ? (
                     <SessionDetailView
                       fallbackSession={selectedSession}
                       detail={sessionDetail}
-                      loading={sessionDetailQuery.isPending}
-                      error={!sessionDetail ? queryError(sessionDetailQuery.error) : ""}
-                      pageLoading={sessionDetailQuery.isFetching && !sessionDetailQuery.isPending}
-                      pageError={sessionDetail && sessionDetailQuery.isError
+                      activity={conversationActivity}
+                      newConversation={newConversation}
+                      runtimeReady={conversationRuntimeReady}
+                      loading={!newConversation && sessionDetailQuery.isPending && !conversationActivity}
+                      error={!newConversation && !sessionDetail && !conversationActivity
                         ? queryError(sessionDetailQuery.error)
                         : ""}
-                      onPageChange={loadSessionMessagesPage}
+                      hasOlder={Boolean(sessionDetailQuery.hasPreviousPage)}
+                      loadingOlder={sessionDetailQuery.isFetchingPreviousPage}
+                      loadOlderError={sessionDetail && sessionDetailQuery.isFetchPreviousPageError
+                        ? queryError(sessionDetailQuery.error)
+                        : ""}
+                      onLoadOlder={() => sessionDetailQuery.fetchPreviousPage()}
+                      onSend={sendConversation}
+                      onStop={stopConversation}
                     />
                   ) : (
                     <EmptyState label={selectedSessionId ? t.sessionDetail.loading : t.sessions.selectPrompt} />

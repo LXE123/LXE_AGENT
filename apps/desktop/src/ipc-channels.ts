@@ -16,6 +16,7 @@ export const IPC_CHANNELS = {
   getSetupState: "lxe:desktop:get-setup-state",
   saveSetup: "lxe:desktop:save-setup",
   cloudStateChanged: "lxe:desktop:cloud-state-changed",
+  conversationEvent: "lxe:desktop:conversation-event",
   dashboardInvalidated: "lxe:desktop:dashboard-invalidated",
   statusChanged: "lxe:desktop:status-changed",
 } as const;

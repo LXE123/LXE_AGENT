@@ -28,6 +28,7 @@ describe("preload bridge", () => {
       "getHealth",
       "getSetupState",
       "onCloudStateChanged",
+      "onConversationEvent",
       "onDashboardInvalidated",
       "onStatusChanged",
       "openLogsDirectory",
@@ -70,6 +71,16 @@ describe("preload bridge", () => {
     expect(cloudConnection).toBe("connected");
     unsubscribeCloud();
     expect(listeners.has(IPC_CHANNELS.cloudStateChanged)).toBe(false);
+    let conversationSession = "";
+    const unsubscribeConversation = bridge.desktop.onConversationEvent((event) => {
+      conversationSession = event.activity.session_id;
+    });
+    listeners.get(IPC_CHANNELS.conversationEvent)?.({}, {
+      activity: { session_id: "session-1", active: null, queued: [], latest: null },
+    });
+    expect(conversationSession).toBe("session-1");
+    unsubscribeConversation();
+    expect(listeners.has(IPC_CHANNELS.conversationEvent)).toBe(false);
     const unsubscribe = bridge.desktop.onStatusChanged(() => undefined);
     expect(listeners.has(IPC_CHANNELS.statusChanged)).toBe(true);
     unsubscribe();

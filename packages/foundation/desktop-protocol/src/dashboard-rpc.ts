@@ -1,3 +1,5 @@
+import type { DisplayMetrics, ToolStep } from "@lxe/protocol";
+
 export type CapabilityPayload = {
   provider: string;
   model: string;
@@ -105,6 +107,61 @@ export type SessionDetailPayload = {
   session: SessionPayload;
   messages: SessionMessage[];
   messages_page: MessagesPagePayload;
+};
+
+export type DesktopConversationTurnState =
+  | "queued"
+  | "running"
+  | "stopping"
+  | "completed"
+  | "cancelled"
+  | "error";
+
+export type DesktopConversationStreamPayload = {
+  seq: number;
+  state: "delta" | "final" | "error";
+  content: string;
+  thinking: string;
+  redacted_thinking_count: number;
+  thinking_elapsed_ms: number;
+  tool_pending: boolean;
+  tool_elapsed_ms: number;
+  tool_steps: ToolStep[];
+  display_metrics: DisplayMetrics;
+};
+
+export type DesktopConversationTurnPayload = {
+  turn_id: string;
+  message_id: string;
+  text: string;
+  state: DesktopConversationTurnState;
+  user_message_persisted: boolean;
+  stream?: DesktopConversationStreamPayload;
+};
+
+export type DesktopConversationActivityPayload = {
+  session_id: string;
+  active: DesktopConversationTurnPayload | null;
+  queued: DesktopConversationTurnPayload[];
+  latest: DesktopConversationTurnPayload | null;
+};
+
+export type DesktopConversationEvent = {
+  activity: DesktopConversationActivityPayload;
+};
+
+export type DesktopConversationSendPayload = {
+  session_id: string;
+  turn_id: string;
+  message_id: string;
+  created: boolean;
+  state: "running" | "queued";
+};
+
+export type DesktopConversationStopPayload = {
+  session_id: string;
+  stopped_turn_id: string | null;
+  cleared_turn_ids: string[];
 };
 
 export type SessionSummaryPayload = {
@@ -340,6 +397,18 @@ export interface DashboardRpcSpec {
     input: { session_id: string; message_limit?: number; message_page?: number };
     result: SessionDetailPayload;
   };
+  "sessions.send": {
+    input: { session_id?: string; text: string };
+    result: DesktopConversationSendPayload;
+  };
+  "sessions.stop": {
+    input: { session_id: string };
+    result: DesktopConversationStopPayload;
+  };
+  "sessions.activity": {
+    input: { session_id: string };
+    result: DesktopConversationActivityPayload;
+  };
   "sessions.workspace.reload": {
     input: { session_id: string };
     result: WorkspaceReloadPayload;
@@ -379,7 +448,10 @@ export type DashboardRpcCall<
 export type DashboardRpcResult<O extends DashboardRpcOperation> =
   DashboardRpcSpec[O]["result"];
 
-export type AgentDashboardRpcOperation = Exclude<DashboardRpcOperation, "channels.health">;
+export type AgentDashboardRpcOperation = Exclude<
+  DashboardRpcOperation,
+  "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+>;
 
 export type AgentDashboardRpcCall<
   O extends AgentDashboardRpcOperation = AgentDashboardRpcOperation,
@@ -507,6 +579,18 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
           message_page: integerValue(input.message_page, `${operation}.message_page`, 1, 1, Number.MAX_SAFE_INTEGER),
         }),
       } };
+    case "sessions.send":
+      exactKeys(input, ["session_id", "text"], `${operation}.input`);
+      return { operation, input: {
+        ...(input.session_id === undefined
+          ? {}
+          : { session_id: textValue(input.session_id, `${operation}.session_id`)! }),
+        text: textValue(input.text, `${operation}.text`)!,
+      } };
+    case "sessions.stop":
+    case "sessions.activity":
+      exactKeys(input, ["session_id"], `${operation}.input`);
+      return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
     case "sessions.workspace.reload":
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
@@ -568,8 +652,11 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
 
 export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCall {
   const call = parseDashboardRpcCall(value);
-  if (call.operation === "channels.health") {
-    return rpcError("channels.health is owned by Electron Main");
+  if (call.operation === "channels.health"
+    || call.operation === "sessions.send"
+    || call.operation === "sessions.stop"
+    || call.operation === "sessions.activity") {
+    return rpcError(`${call.operation} is owned by Electron Main`);
   }
   return call;
 }

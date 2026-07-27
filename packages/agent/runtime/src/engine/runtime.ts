@@ -191,8 +191,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     const skillActivations = new Map<string, SkillActivationUsage>();
     const skillExecutions: SkillExecutionUsage[] = [];
     const descriptor = providerSnapshot?.descriptor;
-    const sourceExtra = session.source.extra !== null && typeof session.source.extra === "object" &&
-      !Array.isArray(session.source.extra) ? session.source.extra as JsonObject : {};
+    const metricSource = String(job.source.platform ?? "").trim() === "desktop" ? job.source : session.source;
+    const sourceExtra = metricSource.extra !== null && typeof metricSource.extra === "object" &&
+      !Array.isArray(metricSource.extra) ? metricSource.extra as JsonObject : {};
     const observer = new RuntimeTurnObserver();
     const wireTraceTurn = this.options.wireTraceController?.startTurn(job.session_id, job.job_id);
     const contextWindowTokens = descriptor?.contextWindowTokens ?? this.options.contextWindowTokens ?? this.options.display?.contextWindowTokens;
@@ -201,7 +202,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       store: this.options.store,
       ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
     });
-    const finalAnswerStreamer = job.response_route_id && String(session.source.platform ?? "").trim() === "feishu"
+    const turnPlatform = String(job.source.platform ?? session.source.platform ?? "").trim();
+    const finalAnswerStreamer = job.response_route_id && (turnPlatform === "feishu" || turnPlatform === "desktop")
       ? new FinalAnswerStreamer({
           sessionId: job.session_id,
           turnId: job.job_id,
@@ -242,7 +244,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         await this.options.store.recordTurn(job.session_id, {
           turn_id: job.job_id,
           started_at: startedAt,
-          platform: String(session.source.platform ?? job.source.platform ?? "").trim(),
+          platform: turnPlatform,
           bot_app_id: String(sourceExtra.bot_app_id ?? job.raw_data.app_id ?? "").trim(),
           bot_id: String(sourceExtra.bot_id ?? "").trim(),
           bot_name: String(sourceExtra.bot_name ?? "").trim(),
@@ -316,7 +318,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         },
       });
       const systemPromptContext: SystemPromptContext = {
-        platform: String(session.source.platform ?? "").trim(),
+        platform: turnPlatform,
         provider: descriptor?.name ?? "custom",
         model: descriptor?.model ?? this.options.display?.model ?? "",
         skillPrompt: skillSnapshot?.prompt ?? "",

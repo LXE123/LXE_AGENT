@@ -87,6 +87,13 @@ export interface RuntimePort {
   steerTurn(handle: RunHandle, message: Required<SteeringMessage>): Promise<void>;
 }
 
+export type SchedulerJobState = "queued" | "running" | "completed" | "cancelled" | "error" | "cleared";
+
+export interface SchedulerJobStateEvent {
+  state: SchedulerJobState;
+  job: AgentJob;
+}
+
 export interface RuntimeEvent {
   kind: string;
   run_id?: string | null;
@@ -98,6 +105,7 @@ export interface SchedulerOptions {
   maxConcurrency: number;
   id?: () => string;
   now?: () => number;
+  onJobState?: (event: SchedulerJobStateEvent) => void;
 }
 
 const clean = (value: unknown): string => String(value ?? "").trim();
@@ -112,6 +120,7 @@ export class SessionScheduler {
   private readonly maxConcurrency: number;
   private readonly id: () => string;
   private readonly now: () => number;
+  private readonly onJobState: ((event: SchedulerJobStateEvent) => void) | undefined;
   private readonly pending = new Map<string, AgentJob[]>();
   private readonly ready: string[] = [];
   private readonly readySet = new Set<string>();
@@ -125,6 +134,7 @@ export class SessionScheduler {
     this.maxConcurrency = Math.max(1, Math.trunc(options.maxConcurrency || 1));
     this.id = options.id ?? (() => randomUUID().replaceAll("-", ""));
     this.now = options.now ?? Date.now;
+    this.onJobState = options.onJobState;
   }
 
   setRuntimeReady(ready: boolean): void {
@@ -142,6 +152,7 @@ export class SessionScheduler {
     if (options.front) queue.unshift(job);
     else queue.push(job);
     this.pending.set(sessionId, queue);
+    this.publishJobState("queued", job);
     this.logger.debug("scheduler_job_enqueued", {
       session_id: sessionId,
       turn_id: job.job_id,
@@ -167,21 +178,33 @@ export class SessionScheduler {
   }
 
   clearPending(sessionId: string): number {
+    return this.clearPendingMatching(sessionId, () => true).length;
+  }
+
+  clearPendingMatching(sessionId: string, matches: (job: AgentJob) => boolean): AgentJob[] {
     const safe = clean(sessionId);
-    if (!safe) return 0;
-    const cleared = this.pending.get(safe)?.length ?? 0;
-    this.pending.delete(safe);
-    this.readySet.delete(safe);
-    for (let index = this.ready.length - 1; index >= 0; index -= 1) {
-      if (this.ready[index] === safe) this.ready.splice(index, 1);
+    if (!safe) return [];
+    const queue = this.pending.get(safe) ?? [];
+    const cleared = queue.filter(matches);
+    const retained = queue.filter((job) => !matches(job));
+    if (retained.length > 0) {
+      this.pending.set(safe, retained);
+    } else {
+      this.pending.delete(safe);
+      this.readySet.delete(safe);
+      for (let index = this.ready.length - 1; index >= 0; index -= 1) {
+        if (this.ready[index] === safe) this.ready.splice(index, 1);
+      }
     }
-    if (cleared > 0) this.logger.info("scheduler_pending_cleared", { session_id: safe, cleared });
+    for (const job of cleared) this.publishJobState("cleared", job);
+    if (cleared.length > 0) this.logger.info("scheduler_pending_cleared", { session_id: safe, cleared: cleared.length });
     return cleared;
   }
 
-  async requestStop(sessionId: string): Promise<boolean> {
+  async requestStop(sessionId: string, expectedJobId?: string): Promise<boolean> {
     const handle = this.activeRun(sessionId);
     if (!handle) return false;
+    if (expectedJobId && handle.jobId !== clean(expectedJobId)) return false;
     if (handle.cancelRequested) return true;
     if (handle.cancelRequest) return handle.cancelRequest;
     const request = Promise.resolve()
@@ -240,6 +263,10 @@ export class SessionScheduler {
     this.activeByRun.delete(handle.runId);
     this.activeBySession.delete(handle.sessionId);
     const cancelled = clean(event.payload.status) === "cancelled" || handle.cancelRequested;
+    const status: SchedulerJobState = cancelled
+      ? "cancelled"
+      : clean(event.payload.status) === "completed" ? "completed" : "error";
+    this.publishJobState(status, handle.originJob);
     if (!cancelled) this.requeueRemainingSteering(handle, event.payload.remaining_steering);
     this.markReady(handle.sessionId);
     this.logger.debug("scheduler_job_released", {
@@ -317,6 +344,7 @@ export class SessionScheduler {
         const handle = new RunHandle(next, this.now);
         this.activeBySession.set(sessionId, handle);
         this.activeByRun.set(handle.runId, handle);
+        this.publishJobState("running", next);
         this.logger.debug("scheduler_job_dispatched", {
           session_id: handle.sessionId,
           turn_id: handle.jobId,
@@ -344,6 +372,19 @@ export class SessionScheduler {
       turn_id: handle.jobId,
       error,
     });
+  }
+
+  private publishJobState(state: SchedulerJobState, job: AgentJob): void {
+    try {
+      this.onJobState?.({ state, job });
+    } catch (error) {
+      this.logger.warn("scheduler_job_state_observer_failed", {
+        session_id: job.session_id,
+        turn_id: job.job_id,
+        state,
+        error,
+      });
+    }
   }
 }
 

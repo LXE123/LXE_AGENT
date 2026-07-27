@@ -98,6 +98,39 @@ export function useSessionDetailQuery(sessionId: string, page: number | undefine
   });
 }
 
+export function useSessionConversationQuery(sessionId: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: dashboardQueryKeys.sessions.conversation(sessionId),
+    queryFn: ({ pageParam }) => callDashboard({
+      operation: "sessions.detail",
+      input: {
+        session_id: sessionId,
+        message_limit: SESSION_MESSAGE_PAGE_LIMIT,
+        ...(pageParam === undefined ? {} : { message_page: pageParam }),
+      },
+    }),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: () => undefined,
+    getPreviousPageParam: (firstPage) => firstPage.messages_page.has_previous
+      ? firstPage.messages_page.current_page - 1
+      : undefined,
+    enabled: enabled && Boolean(sessionId),
+    staleTime: ACTIVE_DATA_STALE_TIME_MS,
+  });
+}
+
+export function useConversationActivityQuery(sessionId: string, enabled = true) {
+  return useQuery({
+    queryKey: dashboardQueryKeys.sessions.activity(sessionId),
+    queryFn: () => callDashboard({
+      operation: "sessions.activity",
+      input: { session_id: sessionId },
+    }),
+    enabled: enabled && Boolean(sessionId),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
 export function useStatsOverviewQuery(days: number, enabled = true) {
   return useQuery({
     queryKey: dashboardQueryKeys.stats.byType("overview", days),

@@ -1033,6 +1033,45 @@ describe("TypeScriptAgentRuntime", () => {
     expect(services).toEqual(["start", "stop"]);
   });
 
+  test("streams a desktop turn while preserving a session originally created by Feishu", async () => {
+    const store = new MemoryStore();
+    const emitted: EmitRequest[] = [];
+    const promptPlatforms: string[] = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async (request) => {
+          await request.onEvent?.({ type: "text_delta", text: "desktop answer" });
+          return {
+            content: [{ type: "text", text: "desktop answer" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 2 },
+          };
+        },
+      },
+      emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
+      systemPrompt: (context) => {
+        promptPlatforms.push(context.platform);
+        return "test";
+      },
+    });
+    await runtime.start();
+    await runtime.runTurn({
+      ...job(),
+      source: { platform: "desktop", chat_id: "s1", chat_type: "dm" },
+      session_key: "agent:main:desktop:session:s1",
+    }, handle());
+
+    expect(promptPlatforms).toEqual(["desktop"]);
+    expect(emitted.some((request) => request.emit_kind === "stream" && request.content === "desktop answer"))
+      .toBe(true);
+    expect(store.metrics[0]).toMatchObject({ platform: "desktop" });
+    expect((await store.getSession()).source.platform).toBe("feishu");
+    await runtime.stop();
+  });
+
   test("persists tool state patches and emits returned files through the gateway", async () => {
     const responses: RuntimeTurnResponse[] = [
       {

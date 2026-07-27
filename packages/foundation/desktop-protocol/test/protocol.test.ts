@@ -179,6 +179,17 @@ describe("desktop agent protocol", () => {
       operation: "sessions.detail",
       input: { session_id: "session-1", message_limit: 10, message_page: 2 },
     });
+    expect(parseDashboardRpcCall({
+      operation: "sessions.send",
+      input: { session_id: " session-1 ", text: "  hello  " },
+    })).toEqual({
+      operation: "sessions.send",
+      input: { session_id: "session-1", text: "hello" },
+    });
+    expect(parseDashboardRpcCall({
+      operation: "sessions.send",
+      input: { text: " first message " },
+    })).toEqual({ operation: "sessions.send", input: { text: "first message" } });
   });
 
   test("rejects malformed and agent-local Dashboard RPC calls", () => {
@@ -192,6 +203,23 @@ describe("desktop agent protocol", () => {
       command: "dashboard_call",
       payload: { operation: "channels.health", input: {} },
     }))).toThrow("owned by Electron Main");
+    for (const operation of ["sessions.send", "sessions.stop", "sessions.activity"]) {
+      expect(() => parseAgentWireMessage(JSON.stringify({
+        version: AGENT_PROTOCOL_VERSION,
+        id: `request-${operation}`,
+        command: "dashboard_call",
+        payload: {
+          operation,
+          input: operation === "sessions.send" ? { text: "hello" } : { session_id: "session-1" },
+        },
+      }))).toThrow("owned by Electron Main");
+    }
+    expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: " " } }))
+      .toThrow("non-empty string");
+    expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: "x".repeat(8_193) } }))
+      .toThrow("too long");
+    expect(() => parseDashboardRpcCall({ operation: "sessions.stop", input: { session_id: "s", all: true } }))
+      .toThrow("unsupported fields");
     expect(() => parseDashboardRpcCall({
       operation: "sessions.search",
       input: {},

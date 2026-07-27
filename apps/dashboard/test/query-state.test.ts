@@ -53,6 +53,7 @@ describe("Dashboard Query state", () => {
   test("uses stable keys and the configured cache policy", () => {
     expect(dashboardQueryKeys.sessions.list("  order  ")).toEqual(["sessions", "list", "order"]);
     expect(dashboardQueryKeys.sessions.detail("s-1", 2)).toEqual(["sessions", "detail", "s-1", 2]);
+    expect(dashboardQueryKeys.sessions.activity("s-1")).toEqual(["sessions", "activity", "s-1"]);
     expect(dashboardQueryKeys.stats.byType("skills", 30)).toEqual(["stats", "skills", 30]);
 
     const options = createDashboardQueryClient().getDefaultOptions();

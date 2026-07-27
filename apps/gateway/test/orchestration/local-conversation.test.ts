@@ -1,0 +1,292 @@
+import { describe, expect, test } from "bun:test";
+import type { AgentJob, JsonObject, SessionWorkspaceRequest, WorkspaceContext } from "@lxe/protocol";
+import {
+  LocalConversationController,
+  LocalConversationSessionNotFoundError,
+  type LocalConversationStorage,
+} from "../../src/orchestration/local-conversation";
+import {
+  RunHandle,
+  SessionScheduler,
+  type RuntimePort,
+  type SchedulerJobStateEvent,
+} from "../../src/orchestration/scheduler";
+import { SessionRuntimeState } from "../../src/state/session-state";
+import type { ResponseRouteRecord } from "../../src/state/models";
+import { testWorkspace } from "../workspace";
+
+const tick = async (): Promise<void> => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
+class RecordingRuntime implements RuntimePort {
+  readonly started: AgentJob[] = [];
+  readonly cancelled: string[] = [];
+  async startTurn(job: AgentJob): Promise<void> { this.started.push(job); }
+  async cancelTurn(handle: RunHandle): Promise<void> { this.cancelled.push(handle.jobId); }
+  async steerTurn(): Promise<void> {}
+}
+
+class MemoryStorage implements LocalConversationStorage {
+  readonly sessions = new Map<string, { session_id: string; source: JsonObject; workspace: WorkspaceContext }>();
+  readonly ensured: SessionWorkspaceRequest[] = [];
+  readonly routes: JsonObject[] = [];
+  readonly pending: JsonObject[] = [];
+
+  async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
+    this.ensured.push(request);
+    this.sessions.set(request.session_id, {
+      session_id: request.session_id,
+      source: { ...request.source },
+      workspace: request.workspace,
+    });
+  }
+  async upsertResponseRoute(request: JsonObject): Promise<void> { this.routes.push(request); }
+  async getSession(sessionId: string) { return this.sessions.get(sessionId); }
+  async appendPendingEvent(_sessionId: string, event: JsonObject): Promise<void> { this.pending.push(event); }
+  async getResponseRoute(): Promise<ResponseRouteRecord | undefined> { return undefined; }
+}
+
+function harness(ids: string[]) {
+  const runtime = new RecordingRuntime();
+  const storage = new MemoryStorage();
+  const events: SchedulerJobStateEvent[] = [];
+  const activities: unknown[] = [];
+  let controller!: LocalConversationController;
+  const scheduler = new SessionScheduler({
+    runtime,
+    maxConcurrency: 1,
+    onJobState: (event) => {
+      events.push(event);
+      controller.handleSchedulerEvent(event);
+    },
+  });
+  controller = new LocalConversationController({
+    storage,
+    scheduler,
+    runtimeState: new SessionRuntimeState(),
+    defaultWorkspace: () => testWorkspace,
+    onActivity: (activity) => activities.push(activity),
+    id: () => {
+      const next = ids.shift();
+      if (!next) throw new Error("test id exhausted");
+      return next;
+    },
+  });
+  return { runtime, storage, scheduler, controller, events, activities };
+}
+
+const externalJob = (sessionId: string): AgentJob => ({
+  job_id: "external-turn",
+  session_id: sessionId,
+  session_key: `agent:main:feishu:dm:${sessionId}`,
+  response_route_id: "external-route",
+  user_id: "feishu-user",
+  conversation_id: "feishu-chat",
+  is_group: false,
+  message_id: "external-message",
+  user_input: "external",
+  job_kind: "turn",
+  sender_nick: "Feishu user",
+  workspace: testWorkspace,
+  source: { platform: "feishu", chat_id: "feishu-chat", chat_type: "dm" },
+  raw_data: {},
+  user_content_blocks: [],
+  diagnostics: [],
+});
+
+describe("LocalConversationController", () => {
+  test("continues an existing transcript without changing its source or workspace", async () => {
+    const h = harness(["turn-1", "message-1", "route-1"]);
+    const originalSource = { platform: "feishu", chat_id: "chat-1", chat_type: "dm", user_id: "user-1" };
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: originalSource,
+      workspace: testWorkspace,
+    });
+
+    const result = await h.controller.send({ session_id: "session-1", text: " continue here " });
+    await tick();
+
+    expect(result).toEqual({
+      session_id: "session-1",
+      turn_id: "turn-1",
+      message_id: "message-1",
+      created: false,
+      state: "running",
+    });
+    expect(h.storage.ensured).toEqual([]);
+    expect(h.storage.sessions.get("session-1")?.source).toEqual(originalSource);
+    expect(h.storage.routes[0]).toMatchObject({ platform: "desktop", response_route_id: "route-1" });
+    expect(h.runtime.started[0]).toMatchObject({
+      session_id: "session-1",
+      workspace: testWorkspace,
+      source: { platform: "desktop" },
+      user_input: "continue here",
+    });
+    expect(h.controller.activity("session-1").active?.state).toBe("running");
+    h.controller.dispose();
+  });
+
+  test("creates a desktop session lazily for the first message", async () => {
+    const h = harness(["new-session", "turn-1", "message-1", "route-1"]);
+    const result = await h.controller.send({ text: "hello" });
+    expect(result.created).toBe(true);
+    expect(result.session_id).toBe("new-session");
+    expect(h.storage.ensured[0]).toMatchObject({
+      session_id: "new-session",
+      entry_text: "hello",
+      source: { platform: "desktop", chat_id: "new-session" },
+      workspace: testWorkspace,
+    });
+    h.controller.dispose();
+  });
+
+  test("rejects a missing existing session", async () => {
+    const h = harness([]);
+    expect(h.controller.send({ session_id: "missing", text: "hello" }))
+      .rejects.toBeInstanceOf(LocalConversationSessionNotFoundError);
+    h.controller.dispose();
+  });
+
+  test("keeps a desktop turn queued behind external work and clears only the desktop turn", async () => {
+    const h = harness(["turn-1", "message-1", "route-1"]);
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: { platform: "feishu", chat_id: "chat-1" },
+      workspace: testWorkspace,
+    });
+    await h.scheduler.enqueue(externalJob("session-1"));
+    await tick();
+    const result = await h.controller.send({ session_id: "session-1", text: "local follow-up" });
+    expect(result.state).toBe("queued");
+
+    const stopped = await h.controller.stop("session-1");
+    expect(stopped).toEqual({
+      session_id: "session-1",
+      stopped_turn_id: null,
+      cleared_turn_ids: ["turn-1"],
+    });
+    expect(h.runtime.cancelled).toEqual([]);
+    expect(h.scheduler.activeRun("session-1")?.jobId).toBe("external-turn");
+    h.controller.dispose();
+  });
+
+  test("stops an active desktop turn without clearing work submitted by another entry", async () => {
+    const h = harness(["turn-1", "message-1", "route-1", "pending-event", "pending-job"]);
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: { platform: "feishu", chat_id: "chat-1" },
+      workspace: testWorkspace,
+    });
+    await h.controller.send({ session_id: "session-1", text: "local work" });
+    await tick();
+    await h.scheduler.enqueue(externalJob("session-1"));
+
+    const stopped = await h.controller.stop("session-1");
+    expect(stopped).toEqual({
+      session_id: "session-1",
+      stopped_turn_id: "turn-1",
+      cleared_turn_ids: [],
+    });
+    expect(h.runtime.cancelled).toEqual(["turn-1"]);
+    expect(h.storage.pending).toHaveLength(1);
+
+    expect(h.scheduler.handleRuntimeEvent({
+      kind: "runtime.turn.completed",
+      run_id: "turn-1",
+      payload: { session_id: "session-1", job_id: "turn-1", status: "cancelled" },
+    })).toBe(true);
+    await tick();
+    expect(h.scheduler.activeRun("session-1")?.jobId).toBe("external-turn");
+    h.controller.dispose();
+  });
+
+  test("keeps the completed turn visible while the next desktop turn starts", async () => {
+    const h = harness(["turn-1", "message-1", "route-1", "turn-2", "message-2", "route-2"]);
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: { platform: "desktop", chat_id: "session-1" },
+      workspace: testWorkspace,
+    });
+    await h.controller.send({ session_id: "session-1", text: "first" });
+    await h.controller.send({ session_id: "session-1", text: "second" });
+    expect(h.controller.activity("session-1").queued.map((turn) => turn.turn_id)).toEqual(["turn-2"]);
+
+    h.scheduler.handleRuntimeEvent({
+      kind: "runtime.turn.completed",
+      run_id: "turn-1",
+      payload: { session_id: "session-1", job_id: "turn-1", status: "completed" },
+    });
+    await tick();
+    const activity = h.controller.activity("session-1");
+    expect(activity.latest?.turn_id).toBe("turn-1");
+    expect(activity.latest?.state).toBe("completed");
+    expect(activity.active?.turn_id).toBe("turn-2");
+    h.controller.dispose();
+  });
+
+  test("publishes only allowlisted stream fields and marks the user message persisted", async () => {
+    const h = harness(["turn-1", "message-1", "route-1"]);
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: { platform: "desktop", chat_id: "session-1" },
+      workspace: testWorkspace,
+    });
+    await h.controller.send({ session_id: "session-1", text: "hello" });
+    h.controller.handleOutbound({
+      action: "stream_message",
+      platform: "desktop",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "secret-route",
+      event_id: "event-1",
+      payload: {
+        state: "delta",
+        seq: 1,
+        content: "answer",
+        thinking: "thought",
+        redacted_thinking_count: 0,
+        thinking_elapsed_ms: 10,
+        tool_pending: false,
+        tool_elapsed_ms: 0,
+        tool_steps: [{
+          id: "tool-1",
+          name: "read",
+          title: "Read",
+          detail: "/private/secret.txt",
+          icon_token: "file-link-text_outlined",
+          status: "running",
+          duration_ms: 0,
+        }],
+        display_metrics: {
+          status: "running",
+          elapsed_ms: 10,
+          model: "model",
+          input_tokens: 1,
+          output_tokens: 2,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          context_tokens: 1,
+          context_window_tokens: 100,
+        },
+        files: ["/private/secret.txt"],
+      },
+    });
+    h.controller.handleAgentEvent({
+      version: 8,
+      type: "session.changed",
+      thread_id: "session-1",
+      payload: { changes: ["messages"] },
+    });
+    const activity = h.controller.activity("session-1");
+    expect(activity.active?.user_message_persisted).toBe(true);
+    expect(activity.active?.stream?.content).toBe("answer");
+    expect(activity.active?.stream?.tool_steps[0]?.detail).toBe(".../secret.txt");
+    expect(JSON.stringify(activity)).not.toContain("secret-route");
+    expect(JSON.stringify(activity)).not.toContain("/private/secret.txt");
+    expect(JSON.stringify(activity)).not.toContain('"files"');
+    h.controller.dispose();
+  });
+});

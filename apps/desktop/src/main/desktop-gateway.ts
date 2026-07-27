@@ -1,10 +1,12 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { DashboardRpcError } from "@lxe/desktop-protocol";
 import type {
   AgentDashboardRpcCall,
   DashboardRpcCall,
   DashboardRpcOperation,
   DashboardRpcResult,
+  DesktopConversationActivityPayload,
   DesktopDashboardDataDomain,
   DesktopHealth,
   DesktopLoggingSinkStatus,
@@ -20,6 +22,7 @@ import {
   loadFeishuConfig,
   loadPermissionPolicy,
   ProcessAgentRuntime,
+  LocalConversationSessionNotFoundError,
   type DirectGatewayComposition,
   type DirectGatewayStorage,
   type ResponseRoutePatch,
@@ -33,6 +36,7 @@ import {
   ALL_DASHBOARD_DATA_DOMAINS,
   dashboardInvalidationForAgentEvent,
 } from "./dashboard-invalidation";
+import { publicDashboardChannelHealth } from "./dashboard-channel-health";
 import { desktopLxeSkillState } from "./lxeskill-health";
 import {
   resolveDataServerRuntimeEnvironment,
@@ -91,6 +95,7 @@ export interface DesktopGatewayOptions {
     domains: DesktopDashboardDataDomain[],
     sessionIds: string[],
   ) => void;
+  onConversationActivity?: (activity: DesktopConversationActivityPayload) => void;
 }
 
 export class DesktopGateway {
@@ -194,6 +199,7 @@ export class DesktopGateway {
       },
       onWake: (request) => composition?.parts.heartbeatBridge.handle(request),
       onEvent: (event) => {
+        composition?.parts.conversations.handleAgentEvent(event);
         const invalidation = dashboardInvalidationForAgentEvent(event);
         if (invalidation) {
           this.options.onDashboardInvalidated?.(
@@ -242,6 +248,9 @@ export class DesktopGateway {
         this.lastError = error.message;
         this.publishHealth();
       },
+      ...(this.options.onConversationActivity
+        ? { onConversationActivity: this.options.onConversationActivity }
+        : {}),
     });
     this.runtime = runtime;
     this.store = store;
@@ -306,8 +315,26 @@ export class DesktopGateway {
   async dashboardCall<O extends DashboardRpcOperation>(call: DashboardRpcCall<O>): Promise<DashboardRpcResult<O>> {
     if (!this.composition || !this.runtime?.isReady) throw new Error("Desktop Gateway is not ready");
     if (call.operation === "channels.health") {
-      const items = await this.composition.parts.channels.healthSnapshot();
+      const items = publicDashboardChannelHealth(
+        await this.composition.parts.channels.healthSnapshot(),
+      );
       return { items, total: Object.keys(items).length } as DashboardRpcResult<O>;
+    }
+    if (call.operation === "sessions.send") {
+      try {
+        return await this.composition.parts.conversations.send(call.input) as DashboardRpcResult<O>;
+      } catch (error) {
+        if (error instanceof LocalConversationSessionNotFoundError) {
+          throw new DashboardRpcError("not_found", error.message);
+        }
+        throw error;
+      }
+    }
+    if (call.operation === "sessions.stop") {
+      return await this.composition.parts.conversations.stop(call.input.session_id) as DashboardRpcResult<O>;
+    }
+    if (call.operation === "sessions.activity") {
+      return this.composition.parts.conversations.activity(call.input.session_id) as DashboardRpcResult<O>;
     }
     const result = await this.runtime.dashboardCall(call as AgentDashboardRpcCall) as DashboardRpcResult<O>;
     if (call.operation === "models.update" || call.operation === "models.thinking.update") {

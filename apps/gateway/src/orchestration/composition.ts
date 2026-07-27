@@ -6,7 +6,7 @@ import type {
   SessionWorkspaceRequest,
   WorkspaceContext,
 } from "@lxe/protocol";
-import type { AgentRunTurnResult } from "@lxe/desktop-protocol";
+import type { AgentRunTurnResult, DesktopConversationActivityPayload } from "@lxe/desktop-protocol";
 import { ChannelRegistry, type ChannelAdapter } from "../channels/registry";
 import { GatewayEmitter } from "../channels/emitter";
 import { FeishuAdapter, type FeishuAdapterOptions } from "../channels/feishu/adapter";
@@ -14,6 +14,7 @@ import { GatewayLifecycle } from "./lifecycle";
 import { HeartbeatBridge, type HeartbeatClock } from "./heartbeat-bridge";
 import type { PermissionPolicy } from "../security/permission-policy";
 import { SessionRouter } from "./router";
+import { DesktopConversationChannel, LocalConversationController } from "./local-conversation";
 import { HeartbeatWakeQueue, RunHandle, SessionScheduler, type RuntimePort, type SteeringMessage } from "./scheduler";
 import { SessionBindingStore } from "../state/session-bindings";
 import { SessionRuntimeState } from "../state/session-state";
@@ -60,6 +61,7 @@ export interface DirectGatewayCompositionOptions {
   heartbeatClock?: HeartbeatClock;
   onRunFailure?: (handle: RunHandle, error: Error) => void;
   onObserverError?: (error: Error) => void;
+  onConversationActivity?: (activity: DesktopConversationActivityPayload) => void;
 }
 
 export interface DirectGatewayComposition {
@@ -69,6 +71,7 @@ export interface DirectGatewayComposition {
     scheduler: SessionScheduler;
     runtime: DirectAgentRuntime;
     router: SessionRouter;
+    conversations: LocalConversationController;
     heartbeatQueue: HeartbeatWakeQueue;
     heartbeatBridge: HeartbeatBridge;
     channels: ChannelRegistry;
@@ -96,6 +99,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   for (const channel of options.channels ?? []) channels.register(channel);
 
   let scheduler!: SessionScheduler;
+  let conversations!: LocalConversationController;
   const active = new Map<string, { handle: RunHandle; promise: Promise<void> }>();
   const runtimePort: RuntimePort = {
     startTurn: async (job, handle) => {
@@ -136,7 +140,11 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
       await options.runtime.steerTurn?.(handle, message);
     },
   };
-  scheduler = new SessionScheduler({ runtime: runtimePort, maxConcurrency: options.maxConcurrency ?? 2 });
+  scheduler = new SessionScheduler({
+    runtime: runtimePort,
+    maxConcurrency: options.maxConcurrency ?? 2,
+    onJobState: (event) => conversations?.handleSchedulerEvent(event),
+  });
   scheduler.setRuntimeReady(false);
   const syncRuntimeReadiness = (): void => {
     scheduler.setRuntimeReady(options.runtime.isReady);
@@ -162,6 +170,14 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
       hasInflight: () => scheduler.hasInflightJobs(),
     }));
   }
+  conversations = new LocalConversationController({
+    storage: options.storage,
+    scheduler,
+    runtimeState,
+    defaultWorkspace: options.defaultWorkspace,
+    ...(options.onConversationActivity ? { onActivity: options.onConversationActivity } : {}),
+  });
+  channels.register(new DesktopConversationChannel((request) => conversations.handleOutbound(request)));
   const emitter = channels.keys().length > 0 ? new GatewayEmitter({ registry: channels, routes: options.storage }) : undefined;
   const router = new SessionRouter({
     policy: options.policy,
@@ -208,6 +224,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     scheduler,
     runtime: options.runtime,
     router,
+    conversations,
     heartbeatQueue,
     heartbeatBridge,
     channels,
@@ -217,7 +234,10 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
   return {
     parts,
     start: () => lifecycle.start(),
-    stop: () => lifecycle.stop(),
+    stop: async () => {
+      await lifecycle.stop();
+      conversations.dispose();
+    },
     health: () => lifecycle.healthSnapshot(),
     syncRuntimeReadiness,
   };

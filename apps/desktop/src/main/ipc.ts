@@ -102,6 +102,7 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     for (const channel of Object.values(IPC_CHANNELS)) {
       if (channel !== IPC_CHANNELS.statusChanged
         && channel !== IPC_CHANNELS.cloudStateChanged
+        && channel !== IPC_CHANNELS.conversationEvent
         && channel !== IPC_CHANNELS.dashboardInvalidated) {
         ipcMain.removeHandler(channel);
       }

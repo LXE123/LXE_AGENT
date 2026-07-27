@@ -6,7 +6,9 @@ export const dashboardQueryKeys = {
     details: ["sessions", "detail"] as const,
     detail: (sessionId: string, page: number | "latest") =>
       ["sessions", "detail", sessionId, page] as const,
+    conversation: (sessionId: string) => ["sessions", "detail", sessionId, "conversation"] as const,
     detailSession: (sessionId: string) => ["sessions", "detail", sessionId] as const,
+    activity: (sessionId: string) => ["sessions", "activity", sessionId] as const,
   },
   stats: {
     all: ["stats"] as const,

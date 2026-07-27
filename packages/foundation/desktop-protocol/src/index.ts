@@ -12,6 +12,7 @@ import {
   type AgentDashboardRpcCall,
   type DashboardTransport,
 } from "./dashboard-rpc";
+import type { DesktopConversationEvent } from "./dashboard-rpc";
 
 export * from "./dashboard-rpc";
 
@@ -433,6 +434,7 @@ export interface LxeDesktopBridge {
     getSetupState(): Promise<DesktopSetupState>;
     saveSetup(input: DesktopSetupInput): Promise<DesktopSetupState>;
     onCloudStateChanged(listener: (state: DesktopCloudState) => void): () => void;
+    onConversationEvent(listener: (event: DesktopConversationEvent) => void): () => void;
     onDashboardInvalidated(listener: (invalidation: DesktopDashboardInvalidation) => void): () => void;
     onStatusChanged(listener: (health: DesktopHealth) => void): () => void;
   };

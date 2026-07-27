@@ -17,6 +17,8 @@ import type {
   DashboardRpcResult,
   DesktopCloudActivationInput,
   DesktopCloudState,
+  DesktopConversationActivityPayload,
+  DesktopConversationEvent,
   DesktopDashboardInvalidation,
   DesktopHealth,
   DesktopSetupInput,
@@ -206,6 +208,12 @@ async function bootstrap(): Promise<void> {
       if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.cloudStateChanged, state);
     }
   };
+  const broadcastConversationActivity = (activity: DesktopConversationActivityPayload): void => {
+    const event: DesktopConversationEvent = { activity };
+    for (const browserWindow of BrowserWindow.getAllWindows()) {
+      if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.conversationEvent, event);
+    }
+  };
   const broadcastInvalidation = (invalidation: DesktopDashboardInvalidation): void => {
     for (const browserWindow of BrowserWindow.getAllWindows()) {
       if (!browserWindow.isDestroyed()) {
@@ -236,6 +244,7 @@ async function bootstrap(): Promise<void> {
     desktopLoggingStatus: () => logging.status(),
     onHealthChanged: broadcastHealth,
     onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
+    onConversationActivity: broadcastConversationActivity,
   });
   activeGateway = gateway;
   const cloudLogger = logger.child({ subsystem: "cloud_enrollment" });
