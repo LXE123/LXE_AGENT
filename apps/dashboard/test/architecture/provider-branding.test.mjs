@@ -69,7 +69,9 @@ test("Kimi and DeepSeek use distinct responsive card themes", () => {
     styles,
     /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.model-card\[data-provider="kimi_coding"\]\.item-active::after[\s\S]*?animation:\s*none/,
   );
-  assert.match(styles, /\.model-card\[data-provider="deepseek"\]::after[\s\S]*?repeating-linear-gradient/);
+  assert.match(styles, /\.model-card\[data-provider="deepseek"\]::after[\s\S]*?radial-gradient/);
+  assert.match(models, /className="model-deepseek-waves"/);
+  assert.match(styles, /\.model-deepseek-waves[\s\S]*?mask-image:\s*linear-gradient/);
   assert.match(styles, /\.models-current-summary\[data-provider="kimi_coding"\] \.models-current-icon/);
   assert.match(styles, /\.model-kimi-dust[\s\S]*?mask-image:\s*linear-gradient/);
   const kimiDustImage = styles.match(

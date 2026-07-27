@@ -115,6 +115,18 @@ export function ModelsView({
                 <div className="model-kimi-dust" aria-hidden="true">
                   <img alt="" draggable={false} src={kimiMoonDust} />
                 </div>
+              ) : brandKind === "deepseek" ? (
+                <>
+                  <div className="model-deepseek-waves" aria-hidden="true">
+                    <svg preserveAspectRatio="none" viewBox="0 0 600 120">
+                      <path className="wave-a" d="M0 70 C 90 50, 180 90, 300 72 S 480 52, 600 70 L600 120 L0 120 Z" />
+                      <path className="wave-b" d="M0 88 C 110 72, 220 104, 340 88 S 510 70, 600 88 L600 120 L0 120 Z" />
+                    </svg>
+                  </div>
+                  <div className="model-brand-watermark" aria-hidden="true">
+                    <ProviderBrandMark provider={model.provider} size={142} />
+                  </div>
+                </>
               ) : (
                 <div className="model-brand-watermark" aria-hidden="true">
                   <ProviderBrandMark provider={model.provider} size={142} />
@@ -127,7 +139,6 @@ export function ModelsView({
                   </div>
                   <div className="model-heading-copy">
                     <h3>{model.label}</h3>
-                    <div className="model-heading-model">{displayedModel.model}</div>
                   </div>
                 </div>
                 {providerActive ? (
@@ -233,8 +244,21 @@ export function ModelsView({
                       })}
                     </div>
                   ) : showThinkingReadout ? (
-                    <div className="thinking-level-readout">
-                      {thinkingLevels.map((level) => modelThinkingLevelLabel(displayedModel, level)).join(" / ")}
+                    <div
+                      className="thinking-level-control readonly"
+                      role="group"
+                      aria-label={`${model.label} thinking level`}
+                    >
+                      {thinkingLevels.map((level) => (
+                        <button
+                          className="thinking-level-button"
+                          disabled
+                          key={level}
+                          type="button"
+                        >
+                          {modelThinkingLevelLabel(displayedModel, level)}
+                        </button>
+                      ))}
                     </div>
                   ) : showThinkingManaged ? (
                     <div className="thinking-level-readout">{t.models.providerManaged}</div>

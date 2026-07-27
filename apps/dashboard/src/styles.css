@@ -3026,12 +3026,10 @@ h1 {
 }
 
 .model-card[data-provider="deepseek"]::after {
-  background:
-    repeating-linear-gradient(0deg, transparent 0 39px, rgba(77, 107, 254, 0.055) 40px 41px),
-    radial-gradient(circle at 88% 4%, rgba(77, 107, 254, 0.18), transparent 33%);
+  background: radial-gradient(circle at 88% 4%, rgba(77, 107, 254, 0.18), transparent 33%);
 }
 
-.model-card > :not(.model-brand-watermark, .model-kimi-dust) {
+.model-card > :not(.model-brand-watermark, .model-kimi-dust, .model-deepseek-waves) {
   position: relative;
   z-index: 1;
 }
@@ -3049,10 +3047,41 @@ h1 {
 }
 
 .model-card[data-provider="deepseek"] .model-brand-watermark {
-  top: 35px;
+  top: auto;
+  right: -18px;
+  bottom: -26px;
+  opacity: 0.09;
+  transform: scale(1.6);
+  transform-origin: bottom right;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 55%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 55%);
+}
+
+.model-deepseek-waves {
+  position: absolute;
   right: 0;
-  opacity: 0.08;
-  transform: scale(0.8);
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  height: 118px;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to top, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 55%, transparent 100%);
+}
+
+.model-deepseek-waves > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.model-deepseek-waves .wave-a {
+  fill: color-mix(in srgb, var(--model-hue) 10%, transparent);
+}
+
+.model-deepseek-waves .wave-b {
+  fill: color-mix(in srgb, var(--model-hue) 6%, transparent);
 }
 
 .model-kimi-dust {
@@ -3150,7 +3179,7 @@ h1 {
 }
 
 .models-grid .item-heading {
-  align-items: flex-start;
+  align-items: center;
 }
 
 .models-grid .item-icon {
@@ -3183,18 +3212,6 @@ h1 {
   object-fit: contain;
   pointer-events: none;
   user-select: none;
-}
-
-.provider-brand-mark[data-provider-mark="deepseek"] > svg {
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.75;
-}
-
-.provider-brand-mark[data-provider-mark="deepseek"] circle {
-  fill: currentColor;
-  stroke: none;
 }
 
 .model-card[data-provider="kimi_coding"] .item-icon {
@@ -3249,7 +3266,6 @@ h1 {
   display: grid;
   min-width: 0;
   gap: 5px;
-  padding-top: 1px;
 }
 
 .models-grid .model-heading-copy h3 {
@@ -3262,21 +3278,6 @@ h1 {
 .model-card[data-provider="kimi_coding"] .model-heading-copy h3 {
   font-weight: 720;
   letter-spacing: -0.02em;
-}
-
-.model-card[data-provider="kimi_coding"] .model-heading-model {
-  opacity: 0.78;
-}
-
-.model-heading-model {
-  overflow: hidden;
-  color: var(--model-card-muted);
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-  font-size: 0.71875rem;
-  font-weight: 600;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .connector-icon {
@@ -3375,11 +3376,8 @@ h1 {
   display: grid;
   gap: 7px;
   margin-top: 17px;
-  padding: 13px;
-  border: 1px solid var(--model-panel-border);
-  border-radius: 12px;
-  background: var(--model-panel-bg);
-  backdrop-filter: blur(8px);
+  padding: 13px 0 0;
+  border-top: 1px solid var(--model-panel-border);
 }
 
 .model-select-label {
@@ -3597,11 +3595,8 @@ h1 {
   display: grid;
   gap: 8px;
   margin-top: 15px;
-  padding: 14px 13px 13px;
-  border: 1px solid var(--model-panel-border);
-  border-radius: 12px;
-  background: var(--model-panel-bg);
-  backdrop-filter: blur(8px);
+  padding: 12px 0 0;
+  border-top: 1px solid var(--model-panel-border);
 }
 
 .model-thinking-title {
@@ -3675,17 +3670,17 @@ h1 {
 }
 
 .thinking-level-readout {
-  min-height: 34px;
-  padding: 9px 10px;
-  overflow: hidden;
-  border: 1px solid var(--model-panel-border);
-  border-radius: 9px;
-  background: var(--model-input-disabled-bg);
-  color: var(--model-card-soft-text);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--model-card-muted);
   font-size: 0.75rem;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.thinking-level-control.readonly .thinking-level-button {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .toolset-stack {
