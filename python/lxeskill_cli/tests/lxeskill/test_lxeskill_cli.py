@@ -115,7 +115,13 @@ def test_list_and_help_write_one_terminal_jsonl_record(capsys) -> None:
     records = _records(capsys)
     assert len(records) == 1
     assert records[0]["data"]["command"] == "fba customs fill"
-    assert records[0]["data"]["input_schema"]["required"] == ["input_xlsx", "template_xlsx"]
+    # template_xlsx is slot-backed: omitting it means "reuse the stored current
+    # version", so it is no longer required at the schema level.
+    assert records[0]["data"]["input_schema"]["required"] == ["input_xlsx"]
+    assert (
+        records[0]["data"]["input_schema"]["properties"]["template_xlsx"]["x-lxe-asset-slot"]
+        == "customs_template"
+    )
 
 
 def test_normal_commands_do_not_load_skill_contract_or_yaml(tmp_path, monkeypatch, capsys) -> None:
@@ -239,7 +245,16 @@ def test_stdin_json_normalizes_progress_and_terminal_result(monkeypatch, capsys)
     records = [json.loads(line) for line in captured.out.splitlines()]
     assert [record["type"] for record in records] == ["progress", "result"]
     assert sum(record["type"] == "result" for record in records) == 1
-    assert records[-1]["data"] == {"success": True, "value": 7}
+    data = records[-1]["data"]
+    # A caller-supplied path is reported as an upload; promotion of a path that
+    # does not exist is logged and skipped rather than failing the command.
+    assert data["asset_sources"] == {
+        "products_path": {"from": "upload", "slot": "export_tax_products"}
+    }
+    assert {key: value for key, value in data.items() if key != "asset_sources"} == {
+        "success": True,
+        "value": 7,
+    }
     assert "legacy progress text" in captured.err
     assert calls[0][1] == {"delivery_no": "SP123", "products_path": "C:/uploads/products.xlsx"}
 
@@ -271,6 +286,73 @@ def test_missing_user_workbook_returns_structured_input_required(arguments, fiel
     assert record["recovery"]["field"] == field
     assert record["recovery"]["accepted_extensions"] == [".xlsx"]
     assert "上传" in record["recovery"]["instruction"]
+
+
+def test_stored_asset_fills_an_omitted_slot_field_and_is_reported(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """A filled slot lets the user skip re-uploading a long-lived template."""
+    from shared import input_assets
+
+    monkeypatch.setattr(input_assets, "input_root", lambda: tmp_path / "inputs")
+    stored = tmp_path / "upload" / "报关模板 v3.xlsx"
+    stored.parent.mkdir(parents=True, exist_ok=True)
+    stored.write_text("template", encoding="utf-8")
+    input_assets.promote_asset("customs_template", stored)
+
+    seen: list[dict] = []
+
+    def fake_execute(entry, arguments, session, *, on_event, on_text):
+        seen.append(dict(arguments))
+        return True, [{"type": "text", "text": '{"success":true}'}], [], None
+
+    monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
+
+    assert lxeskill.main(["fba", "customs", "fill", "--input-xlsx", "C:/uploads/SP1-美国.xlsx"]) == 0
+
+    injected = Path(seen[0]["template_xlsx"])
+    assert injected.name == "报关模板 v3.xlsx"
+    assert injected.read_text(encoding="utf-8") == "template"
+
+    # The user must be able to see which version was used without asking.
+    source = _records(capsys)[-1]["data"]["asset_sources"]["template_xlsx"]
+    assert source["from"] == "stored"
+    assert source["file_name"] == "报关模板 v3.xlsx"
+    assert source["updated_at"]
+
+
+def test_supplied_asset_is_promoted_only_after_the_command_succeeds(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    from shared import input_assets
+
+    monkeypatch.setattr(input_assets, "input_root", lambda: tmp_path / "inputs")
+    uploaded = tmp_path / "upload" / "新版报关模板.xlsx"
+    uploaded.parent.mkdir(parents=True, exist_ok=True)
+    uploaded.write_text("fresh", encoding="utf-8")
+
+    monkeypatch.setattr(
+        lxeskill,
+        "execute_module_json",
+        lambda *_a, **_k: (False, [{"type": "text", "text": "{}"}], [], {"code": "business_failed", "message": "boom"}),
+    )
+    assert lxeskill.main([
+        "fba", "customs", "fill", "--input-xlsx", "C:/uploads/SP1-美国.xlsx",
+        "--template-xlsx", str(uploaded),
+    ]) == lxeskill.EXIT_BUSINESS
+    assert input_assets.current_asset("customs_template") is None, "a failed run must not promote"
+
+    monkeypatch.setattr(
+        lxeskill,
+        "execute_module_json",
+        lambda *_a, **_k: (True, [{"type": "text", "text": '{"success":true}'}], [], None),
+    )
+    assert lxeskill.main([
+        "fba", "customs", "fill", "--input-xlsx", "C:/uploads/SP1-美国.xlsx",
+        "--template-xlsx", str(uploaded),
+    ]) == 0
+    current = input_assets.current_asset("customs_template")
+    assert current is not None and current.file_name == "新版报关模板.xlsx"
 
 
 def test_legacy_alias_is_hidden_but_dispatches_same_command(monkeypatch, capsys) -> None:

@@ -9,6 +9,7 @@ from typing import Any
 from lxeskill.business import ArtifactPathError, execute_module_json, load_catalog
 from lxeskill.browser import BrowserCliError, execute_browser_command
 from shared.infra.net import bootstrap_network_policy
+from shared.input_assets import InputAssetError, current_asset, promote_asset
 from shared.logging import get_logger, setup_logging
 from shared.repository import skills_root
 from shared.workspace import activate_project_workspace, resolve_workspace_input
@@ -177,20 +178,78 @@ def _input_arguments(entry: dict[str, Any], argv: list[str]) -> tuple[dict[str, 
     return dict(payload), str(session_id or os.environ.get("LXE_AGENT_SESSION_ID") or "").strip()
 
 
+def _is_missing(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip()) or (
+        isinstance(value, list) and not value
+    )
+
+
+def _asset_slot_fields(entry: dict[str, Any]) -> dict[str, str]:
+    """Field -> slot id, for fields backed by a stored long-lived asset."""
+    properties = dict(dict(entry.get("input_schema") or {}).get("properties") or {})
+    return {
+        name: str(dict(schema or {}).get("x-lxe-asset-slot") or "")
+        for name, schema in properties.items()
+        if str(dict(schema or {}).get("x-lxe-asset-slot") or "")
+    }
+
+
+def _apply_stored_assets(entry: dict[str, Any], arguments: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Fill slot-backed fields from storage, and report where each value came from.
+
+    A caller-supplied path always wins and is promoted after the command
+    succeeds; only an omitted field falls back to the stored current version.
+    """
+    sources: dict[str, dict[str, str]] = {}
+    for name, slot_id in _asset_slot_fields(entry).items():
+        if not _is_missing(arguments.get(name)):
+            sources[name] = {"slot": slot_id, "from": "upload"}
+            continue
+        stored = current_asset(slot_id)
+        if stored is None:
+            continue
+        arguments[name] = str(stored.path)
+        sources[name] = {
+            "slot": slot_id,
+            "from": "stored",
+            "file_name": stored.file_name,
+            "updated_at": stored.updated_at,
+        }
+    return sources
+
+
+def _promote_supplied_assets(
+    entry: dict[str, Any],
+    arguments: dict[str, Any],
+    sources: dict[str, dict[str, str]],
+) -> None:
+    """After a successful run, keep the caller-supplied files as the new current."""
+    for name, info in sources.items():
+        if info.get("from") != "upload":
+            continue
+        try:
+            promoted = promote_asset(info["slot"], str(arguments.get(name) or ""))
+        except InputAssetError as exc:
+            logger.warning("input_asset_promote_failed: slot=%s error=%s", info["slot"], exc)
+            continue
+        info["file_name"] = promoted.file_name
+        info["updated_at"] = promoted.updated_at
+
+
 def _require_uploaded_file_inputs(entry: dict[str, Any], arguments: dict[str, Any]) -> None:
     schema = dict(entry.get("input_schema") or {})
     properties = dict(schema.get("properties") or {})
     required = {str(name) for name in list(schema.get("required") or [])}
-    for name in required:
+    slots = _asset_slot_fields(entry)
+    # Slot-backed fields are not in `required`, but a command still cannot run
+    # when the slot has never been filled — ask for the upload just the same.
+    for name in sorted(required | set(slots)):
         property_schema = dict(properties.get(name) or {})
         upload = dict(property_schema.get("x-lxe-file-input") or {})
         if not upload:
             continue
         value = arguments.get(name)
-        missing = value is None or (isinstance(value, str) and not value.strip()) or (
-            isinstance(value, list) and not value
-        )
-        if not missing:
+        if not _is_missing(value):
             continue
         accepted_extensions = [
             str(extension).strip()
@@ -270,6 +329,7 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
     command = _command_text(entry)
     _require_in_scope(entry)
     arguments, session_id = _input_arguments(entry, argv)
+    asset_sources = _apply_stored_assets(entry, arguments)
     _require_uploaded_file_inputs(entry, arguments)
     if str(entry.get("session_mode") or "none") == "lxe_session" and not session_id:
         raise LxeSkillError("session_required", f"{command} requires an LXE session", exit_code=EXIT_ENVIRONMENT)
@@ -322,6 +382,9 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
                 failure["recovery"] = recovery
             _emit(failure)
             return EXIT_BUSINESS
+    _promote_supplied_assets(entry, arguments, asset_sources)
+    if asset_sources and isinstance(data, dict):
+        data = {**data, "asset_sources": asset_sources}
     _emit({"type": "result", "command": command, "ok": True, "data": data, "files": files})
     return 0
 

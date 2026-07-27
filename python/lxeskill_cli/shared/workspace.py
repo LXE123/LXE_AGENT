@@ -13,6 +13,7 @@ _LOCK = RLock()
 _workspace_root = Path(str(os.getenv("LXE_WORKSPACE_ROOT") or Path.cwd())).expanduser().resolve()
 _internal_root = state_root() / "lxeskill"
 _artifact_root = state_root() / "artifacts"
+_input_root = state_root() / "inputs"
 
 
 def _migrate_legacy_artifact_dirs(root: Path) -> None:
@@ -42,7 +43,7 @@ def _migrate_legacy_artifact_dirs(root: Path) -> None:
 
 def activate_project_workspace() -> Path:
     """Use the selected business workspace with app-managed state under ``var``."""
-    global _workspace_root, _internal_root, _artifact_root
+    global _workspace_root, _internal_root, _artifact_root, _input_root
     with _LOCK:
         configured_workspace = str(os.getenv("LXE_WORKSPACE_ROOT") or "").strip()
         _workspace_root = (
@@ -53,15 +54,17 @@ def activate_project_workspace() -> Path:
         writable_root = state_root()
         _internal_root = writable_root / "lxeskill"
         _artifact_root = writable_root / "artifacts"
+        _input_root = writable_root / "inputs"
         _internal_root.mkdir(parents=True, exist_ok=True)
         _artifact_root.mkdir(parents=True, exist_ok=True)
+        _input_root.mkdir(parents=True, exist_ok=True)
         _migrate_legacy_artifact_dirs(_artifact_root)
     return _workspace_root
 
 
 def activate_external_workspace(cwd: str | os.PathLike[str] | None = None) -> Path:
     """Use a private .lxeskill directory without changing the caller's Git config."""
-    global _workspace_root, _internal_root, _artifact_root
+    global _workspace_root, _internal_root, _artifact_root, _input_root
     caller_root = Path(cwd or Path.cwd()).expanduser().resolve()
     internal_root = caller_root / ".lxeskill"
     internal_root.mkdir(parents=True, exist_ok=True)
@@ -72,6 +75,7 @@ def activate_external_workspace(cwd: str | os.PathLike[str] | None = None) -> Pa
         _workspace_root = caller_root
         _internal_root = internal_root
         _artifact_root = internal_root / "artifacts"
+        _input_root = internal_root / "inputs"
     logger.debug("Activated external lxeskill workspace: %s", internal_root)
     return internal_root
 
@@ -92,6 +96,11 @@ def artifact_path(*parts: str | os.PathLike[str]) -> Path:
     return _artifact_root.joinpath(*(Path(part) for part in parts))
 
 
+def input_root() -> Path:
+    """Root for long-lived user-supplied assets, kept apart from disposable output."""
+    return _input_root
+
+
 def resolve_workspace_input(raw_path: str | os.PathLike[str]) -> Path:
     path = Path(raw_path).expanduser()
     return path.resolve() if path.is_absolute() else (_workspace_root / path).resolve()
@@ -102,6 +111,7 @@ __all__ = [
     "activate_project_workspace",
     "artifact_path",
     "artifact_root",
+    "input_root",
     "internal_root",
     "resolve_workspace_input",
     "workspace_root",

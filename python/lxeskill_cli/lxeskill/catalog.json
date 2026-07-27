@@ -100,7 +100,7 @@
       "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}],
       "timeout_ms": 600000,
       "exposed": true,
-      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "array", "items": {"type": "string"}, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传备货 Excel，并使用附件保存后的真实绝对路径。"}}, "template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传报关资料模板，并使用附件保存后的真实绝对路径。"}}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx", "template_xlsx"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "array", "items": {"type": "string"}, "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传备货 Excel，并使用附件保存后的真实绝对路径。"}}, "template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传报关资料模板，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "customs_template"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
     },
     {
       "name": "mabang_summarize_fba_delivery_tax_sku",
@@ -110,7 +110,7 @@
       "session_mode": "none",
       "module": "services.agent_cli.mabang.summarize_fba_delivery_tax_sku",
       "owner_skills": ["fba-export-tax-delivery-summary"], "artifact_paths": [{"field": "xlsx_path", "role": "deliverable"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "products_path": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税产品表，并使用附件保存后的真实绝对路径。"}}}, "required": ["delivery_no", "products_path"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "string"}, "products_path": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税产品表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_products"}}, "required": ["delivery_no"], "additionalProperties": false}
     },
     {
       "name": "mabang_import_export_tax_products",
@@ -120,7 +120,7 @@
       "session_mode": "none",
       "module": "services.agent_cli.mabang.import_export_tax_products",
       "owner_skills": ["fba-export-tax-products-manage"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "backup_path", "role": "diagnostic"}], "timeout_ms": 180000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"sku": {"type": "array", "items": {"type": "string"}}, "products_path": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传当前出口退税产品表，并使用附件保存后的真实绝对路径。"}}}, "required": ["sku", "products_path"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"sku": {"type": "array", "items": {"type": "string"}}, "products_path": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传当前出口退税产品表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_products"}}, "required": ["sku"], "additionalProperties": false}
     },
     {
       "name": "mabang_fill_invoice_template",
@@ -130,7 +130,7 @@
       "session_mode": "none",
       "module": "services.agent_cli.mabang.fill_invoice_template",
       "owner_skills": ["fba-invoice-template-fill"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}, {"field": "validation_report_xlsx", "role": "diagnostic"}, {"field": "stock_sku_xlsx_paths[]", "role": "diagnostic"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传备货 Excel，并使用附件保存后的真实绝对路径。"}}, "template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传发票模板，并使用附件保存后的真实绝对路径。"}}, "delivery_csv": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx", "template_xlsx"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"input_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传备货 Excel，并使用附件保存后的真实绝对路径。"}}, "template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传发票模板，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "invoice_template"}, "delivery_csv": {"type": "string"}, "consignment_excel": {"type": "string"}}, "required": ["input_xlsx"], "additionalProperties": false}
     },
     {
       "name": "mabang_download_msku_detail_excel", "module": "services.agent_cli.mabang.download_msku_detail_excel",
@@ -146,7 +146,7 @@
       "legacy_aliases": ["mabang_fill_purchase_contracts"],
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["fba-purchase-contract-fill"], "artifact_paths": [{"field": "output_files[].output_xlsx", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"purchase_summary_xlsx": {"type": "string"}, "contract_template_xlsx": {"type": "string"}}, "required": ["purchase_summary_xlsx", "contract_template_xlsx"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"purchase_summary_xlsx": {"type": "string"}, "contract_template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传采购合同模板汇总，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "contract_template"}}, "required": ["purchase_summary_xlsx"], "additionalProperties": false}
     },
     {
       "name": "mabang_generate_purchase_batch_workbooks", "module": "services.agent_cli.mabang.generate_purchase_batch_workbooks",
@@ -154,7 +154,7 @@
       "legacy_aliases": ["mabang_generate_purchase_batch_workbooks"],
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["fba-purchase-summary-create"], "artifact_paths": [{"field": "purchase_summary_xlsx", "role": "deliverable"}, {"field": "restock_xlsx_paths[]", "role": "deliverable"}, {"field": "contract_xlsx_paths[]", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string"}, "gross_margin": {"type": ["number", "string"]}, "draft": {"type": "boolean"}, "confirm_inventory_quote_id": {"type": "string"}, "replace_batch_id": {"type": "string"}, "expected_version_no": {"type": "integer"}, "change_reason": {"type": "string"}}, "required": ["delivery_no", "master_xlsx", "gross_margin"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税总表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_master"}, "gross_margin": {"type": ["number", "string"]}, "draft": {"type": "boolean"}, "confirm_inventory_quote_id": {"type": "string"}, "replace_batch_id": {"type": "string"}, "expected_version_no": {"type": "integer"}, "change_reason": {"type": "string"}}, "required": ["delivery_no", "gross_margin"], "additionalProperties": false}
     },
     {
       "name": "mabang_generate_fba_restock_workbook", "module": "services.agent_cli.mabang.generate_fba_restock_workbook",
@@ -162,7 +162,7 @@
       "legacy_aliases": ["mabang_generate_fba_restock_workbook"],
       "visibility": "business", "session_mode": "none",
       "owner_skills": ["fba-restock-workbook-create"], "artifact_paths": [{"field": "output_xlsx", "role": "deliverable"}], "timeout_ms": 600000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string"}, "gross_margin": {"type": ["number", "string"]}}, "required": ["delivery_no", "master_xlsx", "gross_margin"], "additionalProperties": false}
+      "input_schema": {"type": "object", "properties": {"delivery_no": {"type": "array", "items": {"type": "string"}}, "master_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传出口退税总表，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "export_tax_master"}, "gross_margin": {"type": ["number", "string"]}}, "required": ["delivery_no", "gross_margin"], "additionalProperties": false}
     },
     {
       "name": "amazon_fba_confirm_own_carrier", "module": "services.agent_cli.browser.amazon_fba.confirm_own_carrier",
@@ -327,5 +327,12 @@
     "amazon_operations": {"dir": "amazon/operations", "holds": "亚马逊运营分析报告 JSON，按 listing/review/competitor/keyword 分子目录。", "legacy_dirs": ["amazon_operations"]},
     "browser_store_agent": {"dir": "browser/amazon_store_agent", "holds": "紫鸟浏览器店铺会话的截图与页面快照，按 session_id 分子目录。", "legacy_dirs": []},
     "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []}
+  },
+  "input_assets": {
+    "export_tax_master": {"dir": "fba/export_tax_master", "holds": "出口退税总表：SKU表 提供库存sku/型号/原价/厂家，供应商合同信息 提供供货方/单位/合同产品名称。"},
+    "contract_template": {"dir": "fba/contract_template", "holds": "采购合同模板汇总：附加件明细模板 + 每个供应商一个 sheet。"},
+    "customs_template": {"dir": "fba/customs_template", "holds": "报关资料模板；CLI 只复制副本填写，原件不改。"},
+    "invoice_template": {"dir": "fba/invoice_template", "holds": "发票模板；CLI 只复制副本填写，原件不改。"},
+    "export_tax_products": {"dir": "fba/export_tax_whitelist", "holds": "出口退税产品表（白名单）当前版：Sheet1，列 sku 与 产品名称。products-import 生成的更新副本落在产物目录 fba/export_tax_products，不自动成为当前版。"}
   }
 }
