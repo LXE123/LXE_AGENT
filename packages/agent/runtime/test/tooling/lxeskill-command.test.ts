@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   loadLxeSkillCommandCatalog,
+  loadLxeSkillDatasets,
   matchLxeSkillInvocation,
 } from "../../src/tooling/lxeskill-command";
 import { buildToolDisplayStep } from "../../src/tooling/tool-display";
@@ -38,6 +39,20 @@ describe("lxeskill command recognition", () => {
     expect(step.detail).toBe("");
     expect(JSON.stringify(step)).not.toContain("raw-secret");
     expect(JSON.stringify(step)).not.toContain("secret.json");
+  });
+
+  test("loads the artifact dataset registry with module-partitioned directories", () => {
+    const catalogPath = join(process.cwd(), "python", "lxeskill_cli", "lxeskill", "catalog.json");
+    const datasets = loadLxeSkillDatasets(catalogPath);
+
+    expect(datasets.length).toBeGreaterThan(0);
+    expect(datasets.find((entry) => entry.id === "fba_delivery_csv")?.dir).toBe("fba/delivery_csv");
+    // Every directory is owned by exactly one business module — the property the
+    // <module>/<data-type> layout depends on.
+    const modules = new Set(datasets.map((entry) => entry.dir.split("/")[0]));
+    expect([...modules].sort()).toEqual(["amazon", "browser", "fba", "replenish"]);
+    expect(new Set(datasets.map((entry) => entry.dir)).size).toBe(datasets.length);
+    expect(datasets.every((entry) => entry.holds.length > 0)).toBe(true);
   });
 
   test("loads stable commands, owners, modules, and artifact declarations", () => {

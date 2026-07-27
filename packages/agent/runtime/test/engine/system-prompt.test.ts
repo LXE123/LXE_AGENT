@@ -32,4 +32,42 @@ describe("system prompt builder", () => {
     expect(volatile).toContain("Git worktree root: /workspace");
     expect(volatile).not.toContain(`Server ${"scope"}`);
   });
+
+  test("caches the dataset map with the prefix and keeps the absolute root volatile", () => {
+    const prompt = buildSystemPrompt({
+      platform: "feishu",
+      provider: "anthropic",
+      model: "claude-test",
+      skillPrompt: "",
+      workspace: { directory: "/workspace/project", worktree: "/workspace" },
+      datasets: [
+        { id: "fba_delivery_csv", dir: "fba/delivery_csv", holds: "FBA 发货单 CSV。" },
+        { id: "replenish_store_msku", dir: "replenish/store_msku", holds: "店铺 MSKU 数据。" },
+      ],
+      artifactRoot: "/data/var/artifacts",
+      now: new Date("2026-07-12T00:00:00Z"),
+    });
+    const [stable, volatile] = prompt.split(SYSTEM_PROMPT_CACHE_BREAKPOINT);
+    // The map never changes between turns, so it must sit inside the cached prefix.
+    expect(stable).toContain("## Data Directories");
+    expect(stable).toContain("fba/delivery_csv — FBA 发货单 CSV。");
+    expect(stable).toContain("### replenish");
+    expect(stable).not.toContain("/data/var/artifacts");
+    // The root depends on the install, so it belongs with the other runtime facts.
+    expect(volatile).toContain("Artifact root: /data/var/artifacts");
+    expect(volatile).not.toContain("## Data Directories");
+  });
+
+  test("omits the dataset section entirely when no registry is supplied", () => {
+    const prompt = buildSystemPrompt({
+      platform: "feishu",
+      provider: "anthropic",
+      model: "claude-test",
+      skillPrompt: "",
+      workspace: { directory: "/workspace/project", worktree: "/workspace" },
+      now: new Date("2026-07-12T00:00:00Z"),
+    });
+    expect(prompt).not.toContain("## Data Directories");
+    expect(prompt).not.toContain("Artifact root:");
+  });
 });

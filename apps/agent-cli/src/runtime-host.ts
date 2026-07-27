@@ -20,6 +20,7 @@ import {
   configureRuntimeWireTracing,
   ExecShellAdapter,
   loadLxeSkillCommandCatalog,
+  loadLxeSkillDatasets,
   loadMcpConfig,
   LxeSkillRuntimeService,
   MaintenanceScheduler,
@@ -109,6 +110,9 @@ export function createAgentRuntimeHost(
   const commandCatalogPath = options.lxeskillCatalogPath;
   const cliCommands = existsSync(commandCatalogPath)
     ? loadLxeSkillCommandCatalog(commandCatalogPath)
+    : [];
+  const cliDatasets = existsSync(commandCatalogPath)
+    ? loadLxeSkillDatasets(commandCatalogPath)
     : [];
   const businessCommands = new Map(
     cliCommands
@@ -292,6 +296,8 @@ export function createAgentRuntimeHost(
       model: context.model,
       skillPrompt: context.workspaceSnapshot?.skills.prompt ?? context.skillPrompt,
       workspaceInstructions: context.workspaceSnapshot?.instructions_prompt ?? "",
+      datasets: cliDatasets,
+      artifactRoot: join(options.dataRoot, "artifacts"),
     }),
     services: runtimeServices,
   });

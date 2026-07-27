@@ -24,6 +24,45 @@ interface LxeSkillCatalogEntry {
 interface LxeSkillCatalogDocument {
   protocol_version: "1";
   entries: LxeSkillCatalogEntry[];
+  datasets?: Record<string, unknown>;
+}
+
+/** A registered artifact directory: where a class of CLI output lands. */
+export interface LxeSkillDataset {
+  id: string;
+  /** Module-partitioned path relative to the artifact root, e.g. "fba/delivery_csv". */
+  dir: string;
+  /** One line describing what the directory holds, shown to the model. */
+  holds: string;
+}
+
+const DATASET_ID = /^[a-z][a-z0-9_]*$/u;
+const DATASET_DIR = /^[a-z][a-z0-9_]*(?:\/[a-z][a-z0-9_]*)*$/u;
+
+/**
+ * Read the artifact dataset registry. Mirrors shared/datasets.py so both
+ * runtimes fail on the same malformed contract.
+ */
+export function loadLxeSkillDatasets(path: string): LxeSkillDataset[] {
+  const document = JSON.parse(readFileSync(path, "utf8")) as LxeSkillCatalogDocument;
+  const raw = document.datasets;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("invalid lxeskill dataset registry");
+  }
+  const seenDirs = new Set<string>();
+  return Object.entries(raw).map(([id, value]) => {
+    const item = value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+    const dir = String(item.dir ?? "").trim();
+    const holds = String(item.holds ?? "").trim();
+    if (!DATASET_ID.test(id) || !DATASET_DIR.test(dir) || !dir.includes("/") || !holds) {
+      throw new Error(`invalid lxeskill dataset declaration: ${id}`);
+    }
+    if (seenDirs.has(dir)) throw new Error(`duplicate lxeskill dataset dir: ${dir}`);
+    seenDirs.add(dir);
+    return { id, dir, holds };
+  });
 }
 
 const artifactPathsOf = (

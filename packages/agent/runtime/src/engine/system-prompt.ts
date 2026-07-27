@@ -1,5 +1,6 @@
 import { platform, release } from "node:os";
 import type { AgentDiagnostic, WorkspaceContext } from "@lxe/protocol";
+import type { LxeSkillDataset } from "../tooling/lxeskill-command";
 
 export const SYSTEM_PROMPT_CACHE_BREAKPOINT = "<<system-prompt-cache-breakpoint>>";
 
@@ -26,6 +27,22 @@ const ATTACHMENTS = `Attachment metadata is context, not an implicit request to 
 
 const SKILLS = `Before replying, inspect the available skill descriptions. If exactly one skill clearly applies, read its SKILL.md and follow it. If several apply, choose the most specific. If none clearly applies, do not read a SKILL.md. Resolve relative paths from the skill directory and avoid unnecessary external API writes.`;
 
+const DATA_DIRECTORIES_INTRO = `Where lxeskill CLI output lands, relative to the artifact root given under Workspace. Directories are partitioned by business module; a directory is shared by every skill in its module, so an upstream skill's output is where a downstream skill reads its input. Use this to know before a call which files a command needs and where its results will appear. Exact filenames are decided at run time — take those from the tool result, not from guesses.`;
+
+const buildDataDirectories = (datasets: readonly LxeSkillDataset[]): string => {
+  if (datasets.length === 0) return "";
+  const byModule = new Map<string, LxeSkillDataset[]>();
+  for (const dataset of [...datasets].sort((left, right) => left.dir.localeCompare(right.dir))) {
+    const module = dataset.dir.split("/")[0] ?? "";
+    byModule.set(module, [...(byModule.get(module) ?? []), dataset]);
+  }
+  const sections = [...byModule.entries()].map(([module, entries]) => [
+    `### ${module}`,
+    ...entries.map((entry) => `- ${entry.dir} — ${entry.holds}`),
+  ].join("\n"));
+  return ["## Data Directories", DATA_DIRECTORIES_INTRO, ...sections].join("\n\n");
+};
+
 export interface BuildSystemPromptOptions {
   soul?: string;
   platform: string;
@@ -34,6 +51,10 @@ export interface BuildSystemPromptOptions {
   skillPrompt: string;
   workspaceInstructions?: string;
   workspace: WorkspaceContext;
+  /** Artifact dataset registry; stable across turns, so it is cached with the prefix. */
+  datasets?: readonly LxeSkillDataset[];
+  /** Absolute artifact root the directories above resolve against. */
+  artifactRoot?: string;
   now?: Date;
 }
 
@@ -47,6 +68,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
     `## Error Truthfulness\n${ERROR_EPISTEMICS}`,
     `## Attachment Handling\n${ATTACHMENTS}`,
     `## Skills (mandatory)\n${SKILLS}`,
+    buildDataDirectories(options.datasets ?? []),
   ].filter(Boolean).join("\n\n");
   const date = options.now ?? new Date();
   const volatile = [
@@ -57,6 +79,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
       "## Workspace",
       `Working directory: ${options.workspace.directory}`,
       `Git worktree root: ${options.workspace.worktree}`,
+      ...(options.artifactRoot ? [`Artifact root: ${options.artifactRoot}`] : []),
       "Relative paths start from the working directory.",
       "File operations are limited to the Git worktree root. Root-level .env* files and var/db, var/logs are write-protected.",
     ].join("\n"),
