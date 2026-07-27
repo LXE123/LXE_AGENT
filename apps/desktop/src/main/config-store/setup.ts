@@ -233,6 +233,7 @@ export class DesktopSetupService {
         ? secrets.data_server_fallback_api_key
         : "",
       LXE_ERP_API_KEY: cloudEnabled ? secrets.erp_api_key : "",
+      LXE_SAIHU_MCP_API_KEY: secrets.saihu_mcp_api_key,
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: config.cloud.local_fallback_enabled ? "1" : "0",
       LXE_DATA_SERVER_FALLBACK_URL: config.cloud.local_fallback_url,
       BROWSER_AUTH_HEADLESS: "1",

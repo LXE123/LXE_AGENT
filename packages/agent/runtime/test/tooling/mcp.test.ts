@@ -18,6 +18,25 @@ afterEach(() => {
 });
 
 describe("MCP manager", () => {
+  test("ships the disabled cloud Saihu connector with its independent bearer key", () => {
+    const path = join(process.cwd(), "config", "mcp_servers.default.yaml");
+    const environment = { LXE_SAIHU_MCP_API_KEY: "developer-secret" };
+    const server = loadMcpConfig(path, environment).servers.find(
+      (candidate) => candidate.name === "lxe-saihu",
+    );
+
+    expect(server).toMatchObject({
+      enabled: false,
+      transport: "streamable-http",
+      url: "http://10.88.0.1:8000/mcp/",
+      bearerTokenEnvVar: "LXE_SAIHU_MCP_API_KEY",
+      connectorId: "lxe-saihu",
+    });
+    expect(resolveMcpHttpHeaders(server!, environment)).toEqual({
+      Authorization: "Bearer developer-secret",
+    });
+  });
+
   test("loads existing YAML shape, registers enabled tools, and closes clients", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-mcp-"));
     roots.push(root);

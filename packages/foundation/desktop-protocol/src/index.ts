@@ -282,6 +282,7 @@ export type DesktopConfigImportGroupName =
   | "mabang"
   | "feishu"
   | "logging"
+  | "saihu"
   | "cloud";
 
 export interface DesktopConfigImportGroupPreview {

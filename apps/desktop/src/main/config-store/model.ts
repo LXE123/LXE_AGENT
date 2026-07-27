@@ -68,10 +68,11 @@ export interface DesktopSecrets {
   data_server_api_key: string;
   data_server_fallback_api_key: string;
   erp_api_key: string;
+  saihu_mcp_api_key: string;
 }
 
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
-export const MIGRATION_VERSION = 2;
+export const MIGRATION_VERSION = 3;
 
 export const SETTINGS_SCHEMA_VERSION = 4 as const;
 
@@ -121,6 +122,7 @@ const DEFAULT_SECRETS: DesktopSecrets = {
   data_server_api_key: "",
   data_server_fallback_api_key: "",
   erp_api_key: "",
+  saihu_mcp_api_key: "",
 };
 
 export const objectValue = (value: unknown): Record<string, unknown> =>
@@ -351,5 +353,6 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
     data_server_api_key: text(value.data_server_api_key),
     data_server_fallback_api_key: text(value.data_server_fallback_api_key),
     erp_api_key: text(value.erp_api_key),
+    saihu_mcp_api_key: text(value.saihu_mcp_api_key),
   };
 };

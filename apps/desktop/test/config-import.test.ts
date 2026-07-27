@@ -66,6 +66,7 @@ describe("DesktopConfigImportManager", () => {
       "LXE_DATA_SERVER_URL=http://127.0.0.1:18000",
       "LXE_DATA_SERVER_API_KEY=data-server-secret",
       "LXE_ERP_API_KEY=erp-secret",
+      "LXE_SAIHU_MCP_API_KEY=saihu-mcp-secret",
       "UNRELATED_SETTING=ignored",
     ].join("\n"));
 
@@ -82,10 +83,11 @@ describe("DesktopConfigImportManager", () => {
       ["mabang", "ready"],
       ["feishu", "ready"],
       ["logging", "ready"],
+      ["saihu", "ready"],
       ["cloud", "ready"],
     ]);
     const serializedPreview = JSON.stringify(preview);
-    for (const secret of ["deepseek-secret", "ziniao-secret", "mabang-secret", "feishu-secret", "data-server-secret", "erp-secret"]) {
+    for (const secret of ["deepseek-secret", "ziniao-secret", "mabang-secret", "feishu-secret", "data-server-secret", "erp-secret", "saihu-mcp-secret"]) {
       expect(serializedPreview).not.toContain(secret);
     }
     expect(serializedPreview).not.toContain(file);
@@ -118,16 +120,44 @@ describe("DesktopConfigImportManager", () => {
       LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
       LXE_DATA_SERVER_API_KEY: "data-server-secret",
       LXE_ERP_API_KEY: "erp-secret",
+      LXE_SAIHU_MCP_API_KEY: "saihu-mcp-secret",
       MABANG_STOCK_SKU_EXPORT_DIR: join(root, "exports", "stock-sku"),
     });
     const settingsJson = readFileSync(join(root, "config", "settings.json"), "utf8");
     const encryptedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
-    for (const secret of ["deepseek-secret", "ziniao-secret", "mabang-secret", "feishu-secret", "data-server-secret", "erp-secret"]) {
+    for (const secret of ["deepseek-secret", "ziniao-secret", "mabang-secret", "feishu-secret", "data-server-secret", "erp-secret", "saihu-mcp-secret"]) {
       expect(settingsJson).not.toContain(secret);
       expect(encryptedSecrets).not.toContain(secret);
     }
     expect(settingsJson).toContain(join(root, "exports", "stock-sku"));
     expect(() => manager.apply(preview.import_id)).toThrow("不存在或已失效");
+  });
+
+  test("imports a Saihu MCP key without enabling or requiring Data Server cloud", () => {
+    const { root, store, manager } = createFixture();
+    const preview = manager.select(writeEnv(
+      root,
+      "LXE_SAIHU_MCP_API_KEY=independent-saihu-secret\n",
+    ));
+
+    expect(preview.groups).toEqual([{
+      group: "saihu",
+      label: "Saihu MCP",
+      status: "ready",
+      detected_fields: ["Saihu MCP API Key（秘密）"],
+      overwritten_fields: [],
+      issues: [],
+    }]);
+    const result = manager.apply(preview.import_id);
+    expect(result.pending_groups).toEqual([]);
+    expect(store.environment()).toMatchObject({
+      LXE_DATA_SERVER_ENABLED: "0",
+      LXE_SAIHU_MCP_API_KEY: "independent-saihu-secret",
+    });
+    expect(readFileSync(join(root, "config", "settings.json"), "utf8"))
+      .not.toContain("independent-saihu-secret");
+    expect(readFileSync(join(root, "config", "secrets.bin"), "utf8"))
+      .not.toContain("independent-saihu-secret");
   });
 
   test("keeps blank values and the current usable provider, then permits an explicit saved provider", () => {

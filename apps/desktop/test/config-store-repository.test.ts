@@ -77,6 +77,7 @@ describe("DesktopConfigRepository", () => {
     secrets.feishu_app_secret = "feishu-secret";
     secrets.data_server_api_key = "upload-secret";
     secrets.erp_api_key = "erp-secret";
+    secrets.saihu_mcp_api_key = "saihu-mcp-secret";
     repository.commit(config, secrets);
 
     const publicConfig = readFileSync(join(root, "config", "settings.json"), "utf8");
@@ -88,6 +89,7 @@ describe("DesktopConfigRepository", () => {
       "feishu-secret",
       "upload-secret",
       "erp-secret",
+      "saihu-mcp-secret",
     ]) {
       expect(publicConfig).not.toContain(secret);
       expect(encryptedSecrets).not.toContain(`\"${secret}\"`);

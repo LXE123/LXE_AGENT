@@ -23,6 +23,7 @@ const SECRET_ENV_NAMES = new Set([
   "LXE_DATA_SERVER_API_KEY",
   "LXE_DATA_SERVER_FALLBACK_API_KEY",
   "LXE_ERP_API_KEY",
+  "LXE_SAIHU_MCP_API_KEY",
 ]);
 
 export class LegacyEnvironmentMigration {
@@ -115,6 +116,7 @@ export class LegacyEnvironmentMigration {
       secrets.data_server_fallback_api_key = fallbackApiKey || secrets.data_server_fallback_api_key;
     }
     secrets.erp_api_key = legacyText("LXE_ERP_API_KEY") || secrets.erp_api_key;
+    secrets.saihu_mcp_api_key = legacyText("LXE_SAIHU_MCP_API_KEY") || secrets.saihu_mcp_api_key;
     for (const name of OUTPUT_DIRECTORY_ENV_NAMES) {
       config.output_directories[name] = legacyText(name) || config.output_directories[name];
     }

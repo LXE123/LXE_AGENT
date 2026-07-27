@@ -290,6 +290,21 @@ export class DesktopEnvironmentImport {
       });
     }
 
+    const saihuMcpKey = imported("LXE_SAIHU_MCP_API_KEY");
+    if (saihuMcpKey) {
+      const label = "Saihu MCP API Key（秘密）";
+      const overwritten = previousSecrets.saihu_mcp_api_key ? [label] : [];
+      secrets.saihu_mcp_api_key = saihuMcpKey;
+      groups.push({
+        group: "saihu",
+        label: "Saihu MCP",
+        status: "ready",
+        detected_fields: [label],
+        overwritten_fields: overwritten,
+        issues: [],
+      });
+    }
+
     const cloudFields: string[] = [];
     const cloudOverwrites: string[] = [];
     const dataServerUrl = imported("LXE_DATA_SERVER_URL");

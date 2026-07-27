@@ -53,9 +53,11 @@ describe("project environment", () => {
       FEISHU_APP_ID: "must-come-from-settings",
       AGENT_LLM_PROVIDER: "must-come-from-settings",
       LXE_DATA_SERVER_URL: "must-come-from-settings",
+      LXE_SAIHU_MCP_API_KEY: "saihu-mcp-secret",
     })).toEqual({
       KIMI_CODE_API_KEY: "secret",
       FEISHU_APP_SECRET: "feishu-secret",
+      LXE_SAIHU_MCP_API_KEY: "saihu-mcp-secret",
     });
   });
 });

@@ -12,6 +12,7 @@ export const DEVELOPMENT_SECRET_ENV_NAMES = new Set([
   "LXE_DATA_SERVER_API_KEY",
   "LXE_DATA_SERVER_FALLBACK_API_KEY",
   "LXE_ERP_API_KEY",
+  "LXE_SAIHU_MCP_API_KEY",
 ]);
 
 export interface EnvironmentFilesOptions {

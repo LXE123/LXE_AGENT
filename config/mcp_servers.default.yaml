@@ -6,11 +6,11 @@ mcpServers:
   lxe-saihu:
     enabled: false
     type: streamable-http
-    url: "http://127.0.0.1:8000/mcp/"
-    bearer_token_env_var: LXE_DATA_SERVER_API_KEY
+    url: "http://10.88.0.1:8000/mcp/"
+    bearer_token_env_var: LXE_SAIHU_MCP_API_KEY
     startup_timeout_s: 10
     tool_timeout_s: 60
     exposure: deferred
     connector_id: lxe-saihu
     connector_name: Saihu
-    connector_description: Local Saihu data tools from LXE_AGENT_TELEMETRY_SERVER.
+    connector_description: Cloud Saihu data tools from LXE_AGENT_TELEMETRY_SERVER.

@@ -86,6 +86,7 @@ describe("DesktopConfigStore", () => {
         DEEPSEEK_API: "source-deepseek-secret",
         MABANG_PASSWORD: "source-mabang-secret",
         FEISHU_APP_SECRET: "source-feishu-secret",
+        LXE_SAIHU_MCP_API_KEY: "source-saihu-secret",
       },
     });
 
@@ -105,6 +106,7 @@ describe("DesktopConfigStore", () => {
       DEEPSEEK_API: "source-deepseek-secret",
       MABANG_PASSWORD: "source-mabang-secret",
       FEISHU_APP_SECRET: "source-feishu-secret",
+      LXE_SAIHU_MCP_API_KEY: "source-saihu-secret",
     });
     store.saveRuntimePreference("kimi_coding", "k3", "high");
     const persistedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
@@ -112,6 +114,7 @@ describe("DesktopConfigStore", () => {
     expect(persistedSecrets).not.toContain("source-deepseek-secret");
     expect(persistedSecrets).not.toContain("source-mabang-secret");
     expect(persistedSecrets).not.toContain("source-feishu-secret");
+    expect(persistedSecrets).not.toContain("source-saihu-secret");
   });
 
   test("preserves blank secret patches and explicitly clears an integration", () => {
@@ -172,6 +175,7 @@ describe("DesktopConfigStore", () => {
       "LOCAL_LOGS_ENABLED=0",
       "LOCAL_LOG_RETENTION_DAYS=30",
       "LXE_DATA_SERVER_API_KEY=data-secret",
+      "LXE_SAIHU_MCP_API_KEY=saihu-mcp-secret",
       "UNCHANGED=value",
     ].join("\n"));
     const store = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "darwin" });
@@ -191,6 +195,7 @@ describe("DesktopConfigStore", () => {
         LXE_DATA_SERVER_ENABLED: "1",
         LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
         LXE_DATA_SERVER_API_KEY: "data-secret",
+        LXE_SAIHU_MCP_API_KEY: "saihu-mcp-secret",
       },
       managedFiles: [managedEnv],
     });
@@ -207,12 +212,14 @@ describe("DesktopConfigStore", () => {
     expect(cleaned).not.toContain("MABANG_PASSWORD");
     expect(cleaned).not.toContain("FEISHU_APP_SECRET");
     expect(cleaned).not.toContain("LXE_DATA_SERVER_API_KEY");
+    expect(cleaned).not.toContain("LXE_SAIHU_MCP_API_KEY");
     expect(store.environment()).toMatchObject({
       AGENT_LLM_MODEL: "deepseek-v4-pro",
       AGENT_LLM_THINKING_EFFORT: "max",
       LXE_DATA_SERVER_ENABLED: "1",
       LXE_DATA_SERVER_URL: "http://127.0.0.1:18000",
       LXE_DATA_SERVER_API_KEY: "data-secret",
+      LXE_SAIHU_MCP_API_KEY: "saihu-mcp-secret",
       MABANG_STOCK_SKU_EXPORT_DIR: "/tmp/legacy-stock-output",
     });
     expect(store.migrateLegacyEnvironment({ environment: { MABANG_ACCOUNT: "changed" } }).mabang.account)
