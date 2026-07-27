@@ -303,10 +303,16 @@ button {
   font-weight: 700;
 }
 
+/* The heading only receives programmatic focus to announce the new section
+   to screen readers after a switch; it should never show a focus ring. */
+.desktop-section-heading h3:focus-visible {
+  outline: none;
+}
+
 .desktop-section-heading p {
   margin: 4px 0 0;
   color: var(--muted);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   line-height: 1.5;
 }
 
@@ -542,8 +548,22 @@ button {
   font-weight: 650;
 }
 
+.desktop-settings-language > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-settings-language > span > svg {
+  flex: 0 0 auto;
+  color: var(--muted-light);
+}
+
 .desktop-settings-language .language-switch {
-  width: 100%;
+  width: fit-content;
 }
 
 .desktop-settings-nav-item,
@@ -579,9 +599,19 @@ button {
   color: var(--accent-strong);
 }
 
+.desktop-settings-nav-item > svg {
+  flex: 0 0 auto;
+  color: var(--muted-light);
+}
+
+.desktop-settings-nav-item.active > svg {
+  color: var(--accent-strong);
+}
+
 .desktop-settings-nav-item > span,
 .desktop-settings-import-button > span {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
   gap: 2px;
 }
@@ -1386,11 +1416,11 @@ button {
 .desktop-health-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 9px;
+  gap: 8px;
 }
 
 .desktop-status-panel {
-  gap: 16px;
+  gap: 12px;
 }
 
 .desktop-health-card {
@@ -1408,8 +1438,20 @@ button {
 }
 
 .desktop-health-card strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--text-strong);
   font-size: 0.75rem;
+}
+
+.desktop-health-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
 }
 
 .desktop-settings-modal > footer {

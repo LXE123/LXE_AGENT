@@ -1,17 +1,26 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  Activity,
   AlertTriangle,
   Cloud,
   ExternalLink,
+  Feather,
   FileKey2,
   FileUp,
   FolderOpen,
+  Globe,
+  Languages,
+  Palette,
   RotateCcw,
+  ScrollText,
+  Settings2,
   ShieldCheck,
+  Store,
   Trash2,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import type {
   DesktopConfigImportPreview,
   DesktopCloudEnrollmentSelection,
@@ -123,7 +132,7 @@ function DesktopSettingsNavigation({
   configurationBusy: boolean;
 }) {
   const t = useUiText();
-  const item = (section: DesktopSettingsSection, label: string, status: string) => {
+  const item = (section: DesktopSettingsSection, label: string, status: string, Icon: LucideIcon) => {
     const dirty = desktopSettingsSectionIsDirty(section, form, baseline);
     const active = activeSection === section;
     return (
@@ -134,6 +143,7 @@ function DesktopSettingsNavigation({
         onClick={() => onSelect(section)}
         type="button"
       >
+        <Icon aria-hidden size={15} />
         <span>
           <strong>{label}</strong>
           <small>{status}</small>
@@ -148,19 +158,19 @@ function DesktopSettingsNavigation({
   return (
     <nav aria-label={t.desktop.menuAria} className="desktop-settings-nav">
       <div className="desktop-settings-nav-list">
-        {showStatus ? item("status", t.desktop.sectionTitles.status, t.home.componentStates[health?.gateway ?? "starting"]) : null}
-        {item("appearance", t.desktop.sectionTitles.appearance, t.desktop.fontSizeStatus(fontSizeLabel(t.desktop, fontSize)))}
-        {item("cloud", t.desktop.sectionTitles.cloud, t.desktop.cloudStates[cloud.connection])}
-        {item("base", t.desktop.sectionTitles.base, desktopSettingsSectionStatus(t.desktop, "base", setup))}
+        {showStatus ? item("status", t.desktop.sectionTitles.status, t.home.componentStates[health?.gateway ?? "starting"], Activity) : null}
+        {item("appearance", t.desktop.sectionTitles.appearance, t.desktop.fontSizeStatus(fontSizeLabel(t.desktop, fontSize)), Palette)}
+        {item("cloud", t.desktop.sectionTitles.cloud, t.desktop.cloudStates[cloud.connection], Cloud)}
+        {item("base", t.desktop.sectionTitles.base, desktopSettingsSectionStatus(t.desktop, "base", setup), Settings2)}
         <p className="desktop-settings-nav-group">{t.desktop.integrationsGroup}</p>
-        {item("ziniao", t.desktop.sectionTitles.ziniao, desktopSettingsSectionStatus(t.desktop, "ziniao", setup))}
-        {item("mabang", t.desktop.sectionTitles.mabang, desktopSettingsSectionStatus(t.desktop, "mabang", setup))}
-        {item("feishu", t.desktop.sectionTitles.feishu, desktopSettingsSectionStatus(t.desktop, "feishu", setup))}
-        {item("logging", t.desktop.sectionTitles.logging, desktopSettingsSectionStatus(t.desktop, "logging", setup))}
+        {item("ziniao", t.desktop.sectionTitles.ziniao, desktopSettingsSectionStatus(t.desktop, "ziniao", setup), Globe)}
+        {item("mabang", t.desktop.sectionTitles.mabang, desktopSettingsSectionStatus(t.desktop, "mabang", setup), Store)}
+        {item("feishu", t.desktop.sectionTitles.feishu, desktopSettingsSectionStatus(t.desktop, "feishu", setup), Feather)}
+        {item("logging", t.desktop.sectionTitles.logging, desktopSettingsSectionStatus(t.desktop, "logging", setup), ScrollText)}
       </div>
       <div className="desktop-settings-nav-footer">
         <div className="desktop-settings-language">
-          <span>{t.desktop.interfaceLanguage}</span>
+          <span><Languages aria-hidden size={15} />{t.desktop.interfaceLanguage}</span>
           <LanguageSwitch language={language} onLanguageChange={onLanguageChange} />
         </div>
         <button
@@ -343,7 +353,7 @@ function DesktopStatusPanel({
         ] as const).map(([label, value]) => (
           <div className={`desktop-health-card state-${value ?? "stopped"}`} key={label}>
             <span>{label}</span>
-            <strong>{t.home.componentStates[value ?? "stopped"]}</strong>
+            <strong><i aria-hidden="true" className="desktop-health-dot" />{t.home.componentStates[value ?? "stopped"]}</strong>
           </div>
         ))}
       </div>
