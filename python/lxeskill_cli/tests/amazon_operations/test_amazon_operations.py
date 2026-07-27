@@ -8,6 +8,7 @@ import requests
 
 from services.agent_cli.amazon_operations import _shared
 from services.agent_cli.amazon_operations import analyze_listing
+from services.agent_cli.amazon_operations import analyze_reviews
 from services.agent_cli.amazon_operations import research_competitors
 from services.agent_cli.amazon_operations import research_keywords
 
@@ -318,7 +319,7 @@ def test_competitor_research_only_accepts_explicit_empty_page(monkeypatch: pytes
     assert unknown["diagnostics"]["page_kind"] == "unrecognized"
 
 
-def test_catalog_attributes_all_amazon_operations_commands_to_one_skill() -> None:
+def test_catalog_attributes_amazon_operations_commands_to_their_source_skills() -> None:
     from lxeskill.business import load_catalog
 
     entries = [
@@ -327,8 +328,17 @@ def test_catalog_attributes_all_amazon_operations_commands_to_one_skill() -> Non
         if list(entry.get("command_path") or [])[:1] == ["amazon"]
     ]
 
-    assert len(entries) == 3
-    assert all(entry["owner_skills"] == ["amazon-listing-optimizer"] for entry in entries)
+    assert len(entries) == 4
+    owners = {tuple(entry["command_path"]): entry["owner_skills"] for entry in entries}
+    assert owners[("amazon", "reviews", "analyze")] == ["amazon-review-monitor"]
+    assert all(
+        owners[path] == ["amazon-listing-optimizer"]
+        for path in (
+            ("amazon", "listing", "analyze"),
+            ("amazon", "keywords", "research"),
+            ("amazon", "competitors", "research"),
+        )
+    )
     assert all(entry["artifact_paths"] == [{"field": "report_path", "role": "diagnostic"}] for entry in entries)
 
 
@@ -340,6 +350,7 @@ def test_catalog_attributes_all_amazon_operations_commands_to_one_skill() -> Non
         (research_keywords.run, {"seed": "", "depth": 1}, "seed is required"),
         (research_keywords.run, {"seed": "seed", "depth": 3}, "depth must be between 1 and 2"),
         (research_competitors.run, {"query": "query", "limit": 11}, "limit must be between 1 and 10"),
+        (analyze_reviews.run, {"asin": "B0DC6F1MTD", "pages": 4}, "pages must be between 1 and 3"),
     ],
 )
 def test_public_input_validation(runner, arguments: dict, message: str) -> None:

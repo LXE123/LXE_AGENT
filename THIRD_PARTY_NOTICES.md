@@ -48,18 +48,21 @@ ripgrep is dual-licensed under the Unlicense and MIT licenses. The installer
 copies the upstream `LICENSE-MIT` and `UNLICENSE` files beside the executable.
 Upstream source and release artifacts: https://github.com/BurntSushi/ripgrep
 
-## Amazon Listing Optimizer
+## Amazon Operations Skills
 
 Portions of the Amazon Operations analysis heuristics are adapted
-from `amazon-listing-optimizer` 1.0.0 by avmw2025, distributed through ClawHub
-and the LinkFox skill marketplace.
+from `amazon-listing-optimizer` 1.0.0 and `amazon-review-monitor` 1.0.0 by
+avmw2025, distributed through ClawHub and the LinkFox skill marketplace.
 
 The machine-readable `skill.json` identifies the license as MIT. The associated
 `skill-card.md` identifies it as MIT-0; this discrepancy is retained here rather
 than silently changing the publisher metadata. The LXE adaptation preserves
 attribution and does not include the original marketplace metadata or reports.
 
-Source: https://clawhub.ai/avmw2025/amazon-listing-optimizer
+Sources:
+
+- https://clawhub.ai/avmw2025/amazon-listing-optimizer
+- https://clawhub.ai/avmw2025/skills/amazon-review-monitor
 
 Copyright (c) avmw2025
 

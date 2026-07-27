@@ -51,6 +51,19 @@
       "input_schema": {"type": "object", "properties": {"asin": {"type": "string", "pattern": "^[A-Z0-9]{10}$", "description": "Amazon.com ASIN，10 位字母或数字。"}, "marketplace": {"type": "string", "enum": ["com"], "description": "首版仅支持 com。"}}, "required": ["asin"], "additionalProperties": false}
     },
     {
+      "name": "amazon_operations_analyze_reviews",
+      "command_path": ["amazon", "reviews", "analyze"],
+      "legacy_aliases": ["amazon_operations_analyze_reviews"],
+      "visibility": "business",
+      "session_mode": "none",
+      "module": "services.agent_cli.amazon_operations.analyze_reviews",
+      "owner_skills": ["amazon-review-monitor"],
+      "artifact_paths": [{"field": "report_path", "role": "diagnostic"}],
+      "timeout_ms": 60000,
+      "exposed": true,
+      "input_schema": {"type": "object", "properties": {"asin": {"type": "string", "pattern": "^[A-Z0-9]{10}$", "description": "Amazon.com ASIN，10 位字母或数字。"}, "marketplace": {"type": "string", "enum": ["com"], "description": "首版仅支持 com。"}, "pages": {"type": "integer", "minimum": 1, "maximum": 3, "description": "最近评论页数，默认 1，最多 3。"}}, "required": ["asin"], "additionalProperties": false}
+    },
+    {
       "name": "amazon_operations_research_keywords",
       "command_path": ["amazon", "keywords", "research"],
       "legacy_aliases": ["amazon_operations_research_keywords"],

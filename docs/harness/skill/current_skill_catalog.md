@@ -6,19 +6,19 @@ This page is a navigation inventory, not a second source of runtime prompt truth
 
 ## Inventory
 
-The repository currently contains 28 top-level workflow and default runtime skills:
+The repository currently contains 29 top-level workflow and default runtime skills:
 
 | Type | Count | Purpose |
 | --- | ---: | --- |
 | `amazon_fba` | 14 | shipment, customs, purchase, contract, and export-tax workflows |
 | `amazon_replenish` | 9 | inventory snapshots, sales analysis, parameters, and replenishment calculation |
-| `amazon_operations` | 1 | listing analysis, keyword research, and competitor discovery |
+| `amazon_operations` | 2 | listing, keyword, competitor, and public-review analysis |
 | `default` | 3 | general connector and workbook capabilities |
 | `ziniao_browser` | 1 | controlled Ziniao browser lifecycle and page operations |
 
 Counts describe top-level repository skills before per-agent permission and connector filtering. The
 bundled Lark CLI contributes another 27 nested connector-specific Skill manifests, so recursive runtime
-discovery sees 55 repository manifests in total.
+discovery sees 56 repository manifests in total.
 
 ## Amazon FBA
 
@@ -56,8 +56,9 @@ Start with `replenishment-workflow-map`. Snapshot and analysis skills prepare ex
 ## Amazon Operations
 
 - `amazon-listing-optimizer`: Amazon.com listing analysis, autocomplete keyword research, and competitor discovery.
+- `amazon-review-monitor`: one-shot Amazon.com review sampling with product-summary fallback and internal issue themes.
 
-LXE formally maintains this module's command and failure contracts. Its results come from Amazon public pages and an undocumented autocomplete endpoint, so agents must retain completeness and confidence diagnostics and must not describe the results as Amazon-authorized data.
+LXE formally maintains these modules' command and failure contracts. Their results come from Amazon public pages and an undocumented autocomplete endpoint, so agents must retain completeness and confidence diagnostics and must not describe the results as Amazon-authorized data. Review-page failures may preserve product-page rating aggregates as a partial result, but they must never be reported as evidence that a product has no reviews.
 
 ## Default Skills
 
