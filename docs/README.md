@@ -29,6 +29,7 @@
 - `Current` [Runtime](harness/runtime/README.md)：agent runtime 架构、turn execution、context 和 tools 文档入口。
 - `Current` [LLM Integration](harness/llm/README.md)：模型供应商 catalog、Anthropic-compatible streaming 和 provider 边界。
 - `Current` [Logging and runtime traces](harness/logger.md)：终端日志、runtime 文件日志、trace 脱敏和保留策略。
+- `Current` [Incident records](incidents/README.md)：运行故障、影响范围、已确认事实和后续排查状态。
 - `Current` [Gateway](harness/gateway/README.md)：gateway 生命周期、平台边界、路由权限、调度取消和出站唤醒。
 - `Current` [Skill docs and catalog](harness/skill/README.md)：当前运行中 skill catalog 和旧 skill 文档分类入口。
 - `Current` [本机业务数据目录](../data/README.md)：私有 Excel/template 文件路径。
