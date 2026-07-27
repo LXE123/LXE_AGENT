@@ -24,13 +24,26 @@ commands:
 
 - `purchase_summary_xlsx`: 由 `fba-purchase-summary-create` 生成的采购汇总表。
 - 新版汇总表按 `本次采购量` 填合同，零采购行跳过；旧版表仍兼容 `数量`。
-- `contract_template_xlsx`: 用户提供的合同汇总模板，一个 sheet 对应一个公司/厂家，sheet 名应等于或包含厂家名；必须包含统一的 `附加件明细模板` sheet。
-- 缺少任一 xlsx 路径时先追问，不要启动 CLI。
+- `contract_template_xlsx`: 合同汇总模板，一个 sheet 对应一个公司/厂家，sheet 名应等于或包含厂家名；必须包含统一的 `附加件明细模板` sheet。由系统记忆，见下方「长期资产」。
+- 缺少 `purchase_summary_xlsx` 时先追问，不要启动 CLI。
+
+## 长期资产（自动记忆）
+
+- `contract_template_xlsx`（采购合同模板汇总）是**长期资产**：系统记住当前版，**平时不要传这个参数**。
+- 只有用户在本轮对话里上传了新版本时才传它的绝对路径；CLI 会自动把它升为当前版，旧版留一份可回退。
+- 用户没上传、系统也没存过时，CLI 会返回 `input_required`，这时才向用户索取。
+- 结果里的 `asset_sources.contract_template_xlsx` 必须转述给用户，例如「使用采购合同模板汇总：xxx.xlsx（文件日期 07-06）」，让用户能发现用错了版本。
 
 ## Command
 
 ```text
-lxeskill fba purchase contracts-fill --purchase-summary-xlsx "<采购汇总表.xlsx>" --contract-template-xlsx "<合同汇总模板.xlsx>"
+lxeskill fba purchase contracts-fill --purchase-summary-xlsx "<采购汇总表.xlsx>"
+```
+
+用户上传了新版本时（只有这种情况才传该参数）：
+
+```text
+lxeskill fba purchase contracts-fill --purchase-summary-xlsx "<采购汇总表.xlsx>" --contract-template-xlsx "<新版合同汇总模板.xlsx>"
 ```
 
 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。

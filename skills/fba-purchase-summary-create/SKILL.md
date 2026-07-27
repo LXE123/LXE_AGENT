@@ -21,17 +21,30 @@ commands:
 ## Required Input
 
 - `delivery_no`：一个或多个 `SP` 开头的发货单号，顺序就是 ERP 跨 SP 分配库存的顺序。
-- `master_xlsx`：用户提供的出口退税总表。
+- `master_xlsx`：出口退税总表，由系统记忆，见下方「长期资产」。
 - `gross_margin`：`0.2`～`0.5`。
 - 正式模式要求发货单 CSV 包含 `MSKU`、`MSKU发货量`、`SKU发货量`；CLI 只上传每 1 个 MSKU 的准确 `quantity_per_msku`，不上传 MSKU 计划量。
 - 正式模式要求 `供应商合同信息` 中的 `单位`、`合同产品名称`、`合同编号前缀`、`税率` 完整且无冲突。
+
+## 长期资产（自动记忆）
+
+- `master_xlsx`（出口退税总表）是**长期资产**：系统记住当前版，**平时不要传这个参数**。
+- 只有用户在本轮对话里上传了新版本时才传它的绝对路径；CLI 会自动把它升为当前版，旧版留一份可回退。
+- 用户没上传、系统也没存过时，CLI 会返回 `input_required`，这时才向用户索取。
+- 结果里的 `asset_sources.master_xlsx` 必须转述给用户，例如「使用出口退税总表：xxx.xlsx（文件日期 07-06）」，让用户能发现用错了版本。
 
 ## Commands
 
 正式单 SP：
 
 ```text
-lxeskill fba purchase summary-create --delivery-no <SP> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
+lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利率>
+```
+
+用户上传了新版本时（只有这种情况才传该参数）：
+
+```text
+lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利率> --master-xlsx "<新版出口退税总表.xlsx>"
 ```
 
 多 SP 重复传 `--delivery-no`。用户明确要求草稿/离线时追加：

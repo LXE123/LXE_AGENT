@@ -16,7 +16,8 @@ commands:
 
 - 只使用固定 CLI。
 - 不要手动编辑用户上传的备货单或报关资料模板。
-- 备货单和模板都必须来自当前对话附件；只使用附件下载结果中的真实绝对路径。禁止猜测路径、扫描系统目录或使用安装目录内的模板。
+- 备货单必须来自当前对话附件；只使用附件下载结果中的真实绝对路径。禁止猜测路径、扫描系统目录或使用安装目录内的文件。
+- 模板由系统记忆，见下方「长期资产」；只有用户上传新版模板时才传 `template_xlsx`。
 - 任一必需附件缺失时停止执行并向用户索取文件，不要调用 CLI。
 - 模板原件不能修改；CLI 会复制模板到 `artifacts/fba/customs_declaration/` 后填写副本。
 - CLI 会填写申报要素、报关单明细、发票、箱单、合同，并保留模板公式和默认字段。
@@ -32,22 +33,42 @@ commands:
 ## Required Input
 
 - 至少一个用户提供的 `.xlsx` 备货单路径。
-- 一个用户提供的 `.xlsx` 报关资料模板路径。
 - 每个文件名必须包含 `SP...` 发货单号和目的国。
 - 多文件目的国必须一致；仅支持 `日本`、`澳大利亚`、`德国`、`英国`、`美国`、`加拿大`。
 - 本地必须已存在每个 SP 对应的装箱数据：`artifacts/fba/wms_consignment/<SP单号>.xls|xlsx`。
 - 本地必须已存在每个 SP 对应的 FBA 发货单 CSV：`artifacts/fba/delivery_csv/<SP单号>_*.csv`。
 
+## 长期资产（自动记忆）
+
+- `template_xlsx`（报关资料模板）是**长期资产**：系统记住当前版，**平时不要传这个参数**。
+- 只有用户在本轮对话里上传了新版本时才传它的绝对路径；CLI 会自动把它升为当前版，旧版留一份可回退。
+- 用户没上传、系统也没存过时，CLI 会返回 `input_required`，这时才向用户索取。
+- 结果里的 `asset_sources.template_xlsx` 必须转述给用户，例如「使用报关资料模板：xxx.xlsx（文件日期 07-06）」，让用户能发现用错了版本。
+
+## 上传分流
+
+同一条消息里的 `.xlsx` 附件要分清用途，**不要猜**：
+
+- 文件名含 `SP` 单号（如 `6.2-SP260601002-新棱镜备货-美国.xlsx`）→ 本次备货单，传给 `input_xlsx`。
+- 文件名不含 `SP` 单号 → 报关资料模板，传给 `template_xlsx`。
+- 判断不了就直接问用户，不要试。
+
 ## Command
 
 ```text
-lxeskill fba customs fill --input-xlsx <uploaded_xlsx_path> --template-xlsx <uploaded_template_xlsx_path>
+lxeskill fba customs fill --input-xlsx <uploaded_xlsx_path>
+```
+
+用户上传了新版本时（只有这种情况才传该参数）：
+
+```text
+lxeskill fba customs fill --input-xlsx <uploaded_xlsx_path> --template-xlsx <新版模板路径>
 ```
 
 多个备货单重复传参：
 
 ```text
-lxeskill fba customs fill --input-xlsx <path_1> --input-xlsx <path_2> --template-xlsx <uploaded_template_xlsx_path>
+lxeskill fba customs fill --input-xlsx <path_1> --input-xlsx <path_2>
 ```
 
 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。

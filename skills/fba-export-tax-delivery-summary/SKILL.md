@@ -24,13 +24,26 @@ commands:
 ## Required Input
 
 - `delivery_no`: `SP` 开头的发货单号。
-- `products_path`: 用户上传的出口退税产品表 `.xlsx` 的真实绝对路径。
+- `products_path`: 出口退税产品表，由系统记忆，见下方「长期资产」。
 - 缺少 `SP...` 时先追问，不要启动 CLI。
+
+## 长期资产（自动记忆）
+
+- `products_path`（出口退税产品表）是**长期资产**：系统记住当前版，**平时不要传这个参数**。
+- 只有用户在本轮对话里上传了新版本时才传它的绝对路径；CLI 会自动把它升为当前版，旧版留一份可回退。
+- 用户没上传、系统也没存过时，CLI 会返回 `input_required`，这时才向用户索取。
+- 结果里的 `asset_sources.products_path` 必须转述给用户，例如「使用出口退税产品表：xxx.xlsx（文件日期 07-06）」，让用户能发现用错了版本。
 
 ## Command
 
 ```text
-lxeskill fba export-tax delivery-summary --delivery-no <delivery_no> --products-path <uploaded_products_xlsx_path>
+lxeskill fba export-tax delivery-summary --delivery-no <delivery_no>
+```
+
+用户上传了新版本时（只有这种情况才传该参数）：
+
+```text
+lxeskill fba export-tax delivery-summary --delivery-no <delivery_no> --products-path <新版产品表路径>
 ```
 
 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。
