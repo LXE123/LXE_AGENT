@@ -92,6 +92,8 @@ export type DashboardContentTruncationPayload = {
 };
 
 export type MessagesPagePayload = {
+  /** Epoch milliseconds at which this page was read from the transcript. */
+  fetched_at: number;
   total: number;
   raw_message_total: number;
   start: number;
@@ -130,12 +132,19 @@ export type DesktopConversationStreamPayload = {
   display_metrics: DisplayMetrics;
 };
 
+/**
+ * Transcript watermarks in epoch milliseconds; 0 means "not reached yet".
+ * The renderer drops an optimistic card once its transcript snapshot was
+ * fetched at or after the matching watermark, so nothing depends on message
+ * text surviving the runtime's system-event prefixing untouched.
+ */
 export type DesktopConversationTurnPayload = {
   turn_id: string;
   message_id: string;
   text: string;
   state: DesktopConversationTurnState;
-  user_message_persisted: boolean;
+  user_persisted_at: number;
+  settled_at: number;
   stream?: DesktopConversationStreamPayload;
 };
 

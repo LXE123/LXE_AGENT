@@ -216,6 +216,13 @@ describe("DashboardService", () => {
       messages: [{ role: "assistant" }, { role: "tool" }, { role: "assistant" }],
       messages_page: { total: 2, raw_message_total: 4, current_page: 2 },
     });
+    const stampedBefore = Date.now();
+    const stamped = await call({
+      operation: "sessions.detail",
+      input: { session_id: "session-one" },
+    }) as { messages_page: { fetched_at: number } };
+    expect(stamped.messages_page.fetched_at).toBeGreaterThanOrEqual(stampedBefore);
+    expect(stamped.messages_page.fetched_at).toBeLessThanOrEqual(Date.now());
     await expect(call({ operation: "sessions.detail", input: { session_id: "missing" } }))
       .rejects.toMatchObject({ code: "not_found", message: "session not found" });
     expect(await call({ operation: "sessions.workspace.reload", input: { session_id: "session-one" } }))

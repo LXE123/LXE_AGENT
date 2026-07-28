@@ -385,19 +385,15 @@ function ToolTurnGroup({
   );
 }
 
-function messageText(message: SessionMessage): string {
-  if (typeof message.content === "string") return message.content.trim();
-  if (!Array.isArray(message.content)) return "";
-  return message.content
-    .filter((block) => isRecord(block) && block.type === "text")
-    .map((block) => String((block as Record<string, unknown>).text ?? ""))
-    .join("\n")
-    .trim();
-}
-
-function transcriptContains(messages: SessionMessage[], role: string, text: string): boolean {
-  const expected = text.trim();
-  return Boolean(expected) && messages.some((message) => roleLabel(message.role) === role && messageText(message) === expected);
+/**
+ * An optimistic card is redundant once the transcript on screen was fetched at
+ * or after the runtime persisted that part of the turn. Comparing watermarks
+ * rather than message text keeps this working when the runtime rewrites the
+ * stored text (system-event prefixes, sanitisation); a `0` watermark means the
+ * transcript never received it, so the card must stay.
+ */
+function transcriptCaughtUp(watermark: number, transcriptFetchedAt: number): boolean {
+  return watermark > 0 && transcriptFetchedAt >= watermark;
 }
 
 function LiveAssistantCard({ stream }: { stream: DesktopConversationStreamPayload }) {
@@ -447,12 +443,16 @@ function LiveAssistantCard({ stream }: { stream: DesktopConversationStreamPayloa
   );
 }
 
-function LocalTurnCards({ turn, messages }: { turn: DesktopConversationTurnPayload; messages: SessionMessage[] }) {
+function LocalTurnCards({
+  turn,
+  transcriptFetchedAt,
+}: {
+  turn: DesktopConversationTurnPayload;
+  transcriptFetchedAt: number;
+}) {
   const t = useUiText();
-  const userPersisted = turn.user_message_persisted && transcriptContains(messages, "user", turn.text);
-  const assistantPersisted = turn.stream?.content
-    ? transcriptContains(messages, "assistant", turn.stream.content)
-    : false;
+  const userPersisted = transcriptCaughtUp(turn.user_persisted_at, transcriptFetchedAt);
+  const assistantPersisted = transcriptCaughtUp(turn.settled_at, transcriptFetchedAt);
   const statusLabel = turn.state === "queued"
     ? t.conversation.queued
     : turn.state === "completed"
@@ -462,18 +462,23 @@ function LocalTurnCards({ turn, messages }: { turn: DesktopConversationTurnPaylo
         : turn.state === "error"
           ? t.conversation.error
           : turn.state === "stopping" ? t.conversation.stopping : t.conversation.running;
+  const stateBadge = <span className={`conversation-turn-state state-${turn.state}`}>{statusLabel}</span>;
+  // The badge outlives the optimistic card so a cancelled or failed turn keeps
+  // saying so after the transcript catches up and the card is dropped.
+  const showStandaloneBadge = userPersisted && turn.state !== "completed" && turn.state !== "running";
   return (
     <div className="local-turn" data-turn-id={turn.turn_id}>
       {!userPersisted ? (
         <article className="message-card role-user optimistic-message">
           <div className="message-header">
             <RoleBadge role="user" />
-            <span className={`conversation-turn-state state-${turn.state}`}>{statusLabel}</span>
+            {stateBadge}
           </div>
           <MessageMarkdown text={turn.text} />
         </article>
       ) : null}
       {turn.stream && !assistantPersisted ? <LiveAssistantCard stream={turn.stream} /> : null}
+      {showStandaloneBadge ? <div className="conversation-turn-state-row">{stateBadge}</div> : null}
     </div>
   );
 }
@@ -585,6 +590,7 @@ export function SessionDetailView({
   activity,
   newConversation,
   runtimeReady,
+  transcriptFetchedAt,
   loading,
   error,
   hasOlder,
@@ -599,6 +605,7 @@ export function SessionDetailView({
   activity: DesktopConversationActivityPayload | null;
   newConversation: boolean;
   runtimeReady: boolean;
+  transcriptFetchedAt: number;
   loading: boolean;
   error: string;
   hasOlder: boolean;
@@ -742,7 +749,9 @@ export function SessionDetailView({
               })}
             </div>
           ) : null}
-          {liveTurns.map((turn) => <LocalTurnCards key={turn.turn_id} messages={messages} turn={turn} />)}
+          {liveTurns.map((turn) => (
+            <LocalTurnCards key={turn.turn_id} transcriptFetchedAt={transcriptFetchedAt} turn={turn} />
+          ))}
           {showEmpty ? (
             <EmptyState label={newConversation ? t.conversation.newHint : t.sessionDetail.empty} />
           ) : null}

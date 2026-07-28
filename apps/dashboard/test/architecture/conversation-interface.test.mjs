@@ -17,6 +17,15 @@ test("sessions view exposes text conversation controls and IME-safe keyboard beh
   assert.match(view, /session-new-button/);
 });
 
+test("optimistic cards retire on transcript watermarks, never on message text", () => {
+  assert.match(view, /transcriptCaughtUp\(turn\.user_persisted_at, transcriptFetchedAt\)/);
+  assert.match(view, /transcriptCaughtUp\(turn\.settled_at, transcriptFetchedAt\)/);
+  // The runtime prefixes system events onto the stored user message, so any
+  // text comparison against the transcript silently stops matching.
+  assert.doesNotMatch(view, /transcriptContains/);
+  assert.match(main, /transcriptFetchedAt=\{sessionDetail\?\.messages_page\.fetched_at/);
+});
+
 test("dashboard sends through Main, restores activity, and uses latest-first history paging", () => {
   assert.match(main, /operation: "sessions\.send"/);
   assert.match(main, /operation: "sessions\.stop"/);

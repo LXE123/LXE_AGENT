@@ -4256,6 +4256,12 @@ h1 {
   color: var(--danger);
 }
 
+.conversation-turn-state-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 2px 4px;
+}
+
 .live-assistant {
   display: grid;
   gap: 8px;

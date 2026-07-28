@@ -305,7 +305,13 @@ export class DashboardService {
         ? {}
         : { page: integer(input.message_page, 1, 1, Number.MAX_SAFE_INTEGER) }),
     });
-    return detail ? dashboardSessionDetailPreview(detail) : rpcError("not_found", "session not found");
+    if (!detail) return rpcError("not_found", "session not found");
+    const preview = dashboardSessionDetailPreview(detail);
+    // Stamped per page so the desktop conversation view can tell whether the
+    // newest page it holds already contains a turn. Paging backwards through
+    // history must not make an older snapshot of the newest page look fresh.
+    preview.messages_page = { ...object(preview.messages_page), fetched_at: Date.now() };
+    return preview;
   }
 
   private async reloadWorkspace(

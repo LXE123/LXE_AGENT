@@ -53,6 +53,7 @@ function harness(ids: string[]) {
   const storage = new MemoryStorage();
   const events: SchedulerJobStateEvent[] = [];
   const activities: unknown[] = [];
+  const clock = { value: 1_000 };
   let controller!: LocalConversationController;
   const scheduler = new SessionScheduler({
     runtime,
@@ -73,8 +74,9 @@ function harness(ids: string[]) {
       if (!next) throw new Error("test id exhausted");
       return next;
     },
+    now: () => (clock.value += 1),
   });
-  return { runtime, storage, scheduler, controller, events, activities };
+  return { runtime, storage, scheduler, controller, events, activities, clock };
 }
 
 const externalJob = (sessionId: string): AgentJob => ({
@@ -281,12 +283,66 @@ describe("LocalConversationController", () => {
       payload: { changes: ["messages"] },
     });
     const activity = h.controller.activity("session-1");
-    expect(activity.active?.user_message_persisted).toBe(true);
+    expect(activity.active?.user_persisted_at).toBeGreaterThan(0);
     expect(activity.active?.stream?.content).toBe("answer");
     expect(activity.active?.stream?.tool_steps[0]?.detail).toBe(".../secret.txt");
     expect(JSON.stringify(activity)).not.toContain("secret-route");
     expect(JSON.stringify(activity)).not.toContain("/private/secret.txt");
     expect(JSON.stringify(activity)).not.toContain('"files"');
+    h.controller.dispose();
+  });
+
+  test("watermarks the turn as the transcript receives it, regardless of stored text", async () => {
+    const h = harness(["turn-1", "message-1", "route-1"]);
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: { platform: "desktop", chat_id: "session-1" },
+      workspace: testWorkspace,
+    });
+    await h.controller.send({ session_id: "session-1", text: "hello" });
+    await tick();
+    expect(h.controller.activity("session-1").active?.user_persisted_at).toBe(0);
+
+    // The runtime prefixes pending system events onto the stored user message,
+    // so persistence is signalled by the event, never by matching text.
+    h.controller.handleAgentEvent({
+      version: 8,
+      type: "session.changed",
+      thread_id: "session-1",
+      payload: { changes: ["messages"] },
+    });
+    const persistedAt = h.controller.activity("session-1").active?.user_persisted_at ?? 0;
+    expect(persistedAt).toBeGreaterThan(0);
+
+    h.scheduler.handleRuntimeEvent({
+      kind: "runtime.turn.completed",
+      run_id: "turn-1",
+      payload: { session_id: "session-1", job_id: "turn-1", status: "completed" },
+    });
+    await tick();
+    const latest = h.controller.activity("session-1").latest;
+    expect(latest?.user_persisted_at).toBe(persistedAt);
+    expect(latest?.settled_at).toBeGreaterThan(persistedAt);
+    h.controller.dispose();
+  });
+
+  test("leaves the user watermark unset when a queued turn is cancelled before it runs", async () => {
+    const h = harness(["turn-1", "message-1", "route-1"]);
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: { platform: "feishu", chat_id: "chat-1" },
+      workspace: testWorkspace,
+    });
+    await h.scheduler.enqueue(externalJob("session-1"));
+    await tick();
+    await h.controller.send({ session_id: "session-1", text: "never ran" });
+
+    await h.controller.stop("session-1");
+    const latest = h.controller.activity("session-1").latest;
+    expect(latest?.state).toBe("cancelled");
+    expect(latest?.settled_at).toBeGreaterThan(0);
+    // Nothing reached the transcript, so the message must stay on screen.
+    expect(latest?.user_persisted_at).toBe(0);
     h.controller.dispose();
   });
 });

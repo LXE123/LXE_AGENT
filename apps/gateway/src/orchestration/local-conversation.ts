@@ -69,6 +69,7 @@ export interface LocalConversationControllerOptions {
   defaultWorkspace(): WorkspaceContext;
   onActivity?: (activity: DesktopConversationActivityPayload) => void;
   id?: () => string;
+  now?: () => number;
 }
 
 export class DesktopConversationChannel implements ChannelAdapter {
@@ -84,11 +85,13 @@ export class DesktopConversationChannel implements ChannelAdapter {
 export class LocalConversationController {
   private readonly logger = createLogger("gateway.local-conversation");
   private readonly id: () => string;
+  private readonly now: () => number;
   private readonly turns = new Map<string, InternalTurn>();
   private readonly sessions = new Map<string, InternalActivity>();
 
   constructor(private readonly options: LocalConversationControllerOptions) {
     this.id = options.id ?? (() => randomUUID().replaceAll("-", ""));
+    this.now = options.now ?? Date.now;
   }
 
   async send(input: { session_id?: string; text: string }): Promise<DesktopConversationSendPayload> {
@@ -155,7 +158,8 @@ export class LocalConversationController {
         message_id: messageId,
         text,
         state: "queued",
-        user_message_persisted: false,
+        user_persisted_at: 0,
+        settled_at: 0,
       },
     };
     this.turns.set(turnId, turn);
@@ -257,6 +261,7 @@ export class LocalConversationController {
       activity.queuedTurnIds = activity.queuedTurnIds.filter((value) => value !== turnId);
       if (activity.activeTurnId === turnId) activity.activeTurnId = undefined;
       turn.payload.state = event.state === "cleared" ? "cancelled" : event.state;
+      turn.payload.settled_at = this.now();
       if (activity.latestTurnId && activity.latestTurnId !== turnId) {
         this.turns.delete(activity.latestTurnId);
       }
@@ -269,8 +274,8 @@ export class LocalConversationController {
     if (event.type !== "session.changed" || !event.payload.changes.includes("messages")) return;
     const activity = this.sessions.get(clean(event.thread_id));
     const turn = activity?.activeTurnId ? this.turns.get(activity.activeTurnId) : undefined;
-    if (!turn || turn.payload.user_message_persisted) return;
-    turn.payload.user_message_persisted = true;
+    if (!turn || turn.payload.user_persisted_at > 0) return;
+    turn.payload.user_persisted_at = this.now();
     this.publish(event.thread_id);
   }
 

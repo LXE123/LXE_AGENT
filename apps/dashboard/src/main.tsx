@@ -365,14 +365,16 @@ function App({
               message_id: result.message_id,
               text,
               state: "running",
-              user_message_persisted: false,
+              user_persisted_at: 0,
+              settled_at: 0,
             } : null,
             queued: result.state === "queued" ? [{
               turn_id: result.turn_id,
               message_id: result.message_id,
               text,
               state: "queued",
-              user_message_persisted: false,
+              user_persisted_at: 0,
+              settled_at: 0,
             }] : [],
             latest: null,
           },
@@ -760,6 +762,7 @@ function App({
                       activity={conversationActivity}
                       newConversation={newConversation}
                       runtimeReady={conversationRuntimeReady}
+                      transcriptFetchedAt={sessionDetail?.messages_page.fetched_at ?? 0}
                       loading={!newConversation && sessionDetailQuery.isPending && !conversationActivity}
                       error={!newConversation && !sessionDetail && !conversationActivity
                         ? queryError(sessionDetailQuery.error)
