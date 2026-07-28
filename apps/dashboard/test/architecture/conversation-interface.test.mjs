@@ -26,6 +26,14 @@ test("optimistic cards retire on transcript watermarks, never on message text", 
   assert.match(main, /transcriptFetchedAt=\{sessionDetail\?\.messages_page\.fetched_at/);
 });
 
+test("tool files reach the conversation and open through Main", () => {
+  assert.match(view, /turn-file-chip/);
+  assert.match(view, /turn\.files\.length/);
+  assert.match(main, /operation: "sessions\.file\.open"/);
+  // The OS failure text is what surfaces, not a stand-in message.
+  assert.match(main, /if \(!result\.opened\) throw new Error\(result\.error\)/);
+});
+
 test("dashboard sends through Main, restores activity, and uses latest-first history paging", () => {
   assert.match(main, /operation: "sessions\.send"/);
   assert.match(main, /operation: "sessions\.stop"/);

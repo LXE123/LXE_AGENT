@@ -160,6 +160,7 @@ export class LocalConversationController {
         state: "queued",
         user_persisted_at: 0,
         settled_at: 0,
+        files: [],
       },
     };
     this.turns.set(turnId, turn);
@@ -279,10 +280,31 @@ export class LocalConversationController {
     this.publish(event.thread_id);
   }
 
+  /** Main asks before opening, so a renderer cannot name a path of its own. */
+  hasFile(sessionIdInput: string, pathInput: string): boolean {
+    const sessionId = clean(sessionIdInput);
+    const path = clean(pathInput);
+    if (!sessionId || !path) return false;
+    const activity = this.sessions.get(sessionId);
+    if (!activity) return false;
+    const turnIds = [
+      ...(activity.activeTurnId ? [activity.activeTurnId] : []),
+      ...(activity.latestTurnId ? [activity.latestTurnId] : []),
+      ...activity.queuedTurnIds,
+    ];
+    return turnIds.some((turnId) => this.turns.get(turnId)?.payload.files.some((file) => file.path === path));
+  }
+
   handleOutbound(request: OutboundRequest): void {
     const turn = this.turns.get(clean(request.turn_id));
     if (!turn) return;
-    if (request.action === "send_file") return;
+    if (request.action === "send_file") {
+      const path = clean(request.payload.path);
+      if (!path || turn.payload.files.some((file) => file.path === path)) return;
+      turn.payload.files.push({ path, name: basename(path.replaceAll("\\", "/")) || path });
+      this.publish(request.session_id);
+      return;
+    }
     if (request.action === "stream_message") {
       const stream = sanitizeStream(request.payload);
       if (!stream || (turn.payload.stream && stream.seq <= turn.payload.stream.seq)) return;
@@ -330,6 +352,7 @@ export class LocalConversationController {
     if (!turn) return null;
     return {
       ...turn.payload,
+      files: turn.payload.files.map((file) => ({ ...file })),
       ...(turn.payload.stream ? {
         stream: {
           ...turn.payload.stream,

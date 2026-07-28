@@ -190,6 +190,13 @@ describe("desktop agent protocol", () => {
       operation: "sessions.send",
       input: { text: " first message " },
     })).toEqual({ operation: "sessions.send", input: { text: "first message" } });
+    expect(parseDashboardRpcCall({
+      operation: "sessions.file.open",
+      input: { session_id: " session-1 ", path: " /tmp/exports/orders.xlsx " },
+    })).toEqual({
+      operation: "sessions.file.open",
+      input: { session_id: "session-1", path: "/tmp/exports/orders.xlsx" },
+    });
   });
 
   test("rejects malformed and agent-local Dashboard RPC calls", () => {
@@ -203,17 +210,24 @@ describe("desktop agent protocol", () => {
       command: "dashboard_call",
       payload: { operation: "channels.health", input: {} },
     }))).toThrow("owned by Electron Main");
-    for (const operation of ["sessions.send", "sessions.stop", "sessions.activity"]) {
+    const mainOwnedInput: Record<string, unknown> = {
+      "sessions.send": { text: "hello" },
+      "sessions.file.open": { session_id: "session-1", path: "/tmp/orders.xlsx" },
+    };
+    for (const operation of ["sessions.send", "sessions.stop", "sessions.activity", "sessions.file.open"]) {
       expect(() => parseAgentWireMessage(JSON.stringify({
         version: AGENT_PROTOCOL_VERSION,
         id: `request-${operation}`,
         command: "dashboard_call",
-        payload: {
-          operation,
-          input: operation === "sessions.send" ? { text: "hello" } : { session_id: "session-1" },
-        },
+        payload: { operation, input: mainOwnedInput[operation] ?? { session_id: "session-1" } },
       }))).toThrow("owned by Electron Main");
     }
+    expect(() => parseDashboardRpcCall({ operation: "sessions.file.open", input: { session_id: "s" } }))
+      .toThrow("sessions.file.open.path must be a string");
+    expect(() => parseDashboardRpcCall({
+      operation: "sessions.file.open",
+      input: { session_id: "s", path: "/tmp/a", reveal: true },
+    })).toThrow("unsupported fields");
     expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: " " } }))
       .toThrow("non-empty string");
     expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: "x".repeat(8_193) } }))

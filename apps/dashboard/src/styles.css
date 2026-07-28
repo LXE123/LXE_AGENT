@@ -4262,6 +4262,50 @@ h1 {
   padding: 2px 4px;
 }
 
+.turn-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+}
+
+.turn-file-label {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.turn-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.turn-file-chip:hover {
+  border-color: var(--border-strong);
+}
+
+.turn-file-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-file-error {
+  flex-basis: 100%;
+  color: var(--danger);
+  font-size: 0.75rem;
+}
+
 .live-assistant {
   display: grid;
   gap: 8px;

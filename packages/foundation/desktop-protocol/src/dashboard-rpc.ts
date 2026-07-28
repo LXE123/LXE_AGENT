@@ -138,6 +138,16 @@ export type DesktopConversationStreamPayload = {
  * fetched at or after the matching watermark, so nothing depends on message
  * text surviving the runtime's system-event prefixing untouched.
  */
+/**
+ * A file a tool produced during the turn. `path` is absolute on the machine
+ * running the desktop app and is what `sessions.file.open` takes back; Main
+ * only opens paths a turn actually emitted, so the renderer cannot name one.
+ */
+export type DesktopConversationFilePayload = {
+  path: string;
+  name: string;
+};
+
 export type DesktopConversationTurnPayload = {
   turn_id: string;
   message_id: string;
@@ -145,6 +155,7 @@ export type DesktopConversationTurnPayload = {
   state: DesktopConversationTurnState;
   user_persisted_at: number;
   settled_at: number;
+  files: DesktopConversationFilePayload[];
   stream?: DesktopConversationStreamPayload;
 };
 
@@ -171,6 +182,12 @@ export type DesktopConversationStopPayload = {
   session_id: string;
   stopped_turn_id: string | null;
   cleared_turn_ids: string[];
+};
+
+/** `error` carries the operating system's own failure text, never a stand-in. */
+export type DesktopConversationFileOpenPayload = {
+  opened: boolean;
+  error: string;
 };
 
 export type SessionSummaryPayload = {
@@ -418,6 +435,10 @@ export interface DashboardRpcSpec {
     input: { session_id: string };
     result: DesktopConversationActivityPayload;
   };
+  "sessions.file.open": {
+    input: { session_id: string; path: string };
+    result: DesktopConversationFileOpenPayload;
+  };
   "sessions.workspace.reload": {
     input: { session_id: string };
     result: WorkspaceReloadPayload;
@@ -459,7 +480,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
-  "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+  "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity" | "sessions.file.open"
 >;
 
 export type AgentDashboardRpcCall<
@@ -600,6 +621,12 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
     case "sessions.activity":
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
+    case "sessions.file.open":
+      exactKeys(input, ["session_id", "path"], `${operation}.input`);
+      return { operation, input: {
+        session_id: textValue(input.session_id, `${operation}.session_id`)!,
+        path: textValue(input.path, `${operation}.path`)!,
+      } };
     case "sessions.workspace.reload":
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
@@ -664,7 +691,8 @@ export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCal
   if (call.operation === "channels.health"
     || call.operation === "sessions.send"
     || call.operation === "sessions.stop"
-    || call.operation === "sessions.activity") {
+    || call.operation === "sessions.activity"
+    || call.operation === "sessions.file.open") {
     return rpcError(`${call.operation} is owned by Electron Main`);
   }
   return call;

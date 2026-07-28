@@ -288,7 +288,72 @@ describe("LocalConversationController", () => {
     expect(activity.active?.stream?.tool_steps[0]?.detail).toBe(".../secret.txt");
     expect(JSON.stringify(activity)).not.toContain("secret-route");
     expect(JSON.stringify(activity)).not.toContain("/private/secret.txt");
-    expect(JSON.stringify(activity)).not.toContain('"files"');
+    // A stream emit's own `files` field is not a delivery channel: only an
+    // explicit send_file outbound puts a file on the turn.
+    expect(activity.active?.stream).not.toHaveProperty("files");
+    expect(activity.active?.files).toEqual([]);
+    h.controller.dispose();
+  });
+
+  test("surfaces tool files and only opens paths a turn actually emitted", async () => {
+    const h = harness(["turn-1", "message-1", "route-1"]);
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: { platform: "desktop", chat_id: "session-1" },
+      workspace: testWorkspace,
+    });
+    await h.controller.send({ session_id: "session-1", text: "export the report" });
+    const emitFile = (path: string): void => h.controller.handleOutbound({
+      action: "send_file",
+      platform: "desktop",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      event_id: "event-1",
+      payload: { path },
+    });
+    emitFile("/tmp/exports/orders.xlsx");
+    emitFile("/tmp/exports/orders.xlsx");
+    emitFile("/tmp/exports/summary.pdf");
+
+    expect(h.controller.activity("session-1").active?.files).toEqual([
+      { path: "/tmp/exports/orders.xlsx", name: "orders.xlsx" },
+      { path: "/tmp/exports/summary.pdf", name: "summary.pdf" },
+    ]);
+    expect(h.controller.hasFile("session-1", "/tmp/exports/orders.xlsx")).toBe(true);
+    expect(h.controller.hasFile("session-1", "/etc/passwd")).toBe(false);
+    expect(h.controller.hasFile("other-session", "/tmp/exports/orders.xlsx")).toBe(false);
+    h.controller.dispose();
+  });
+
+  test("keeps files reachable after the turn settles", async () => {
+    const h = harness(["turn-1", "message-1", "route-1"]);
+    h.storage.sessions.set("session-1", {
+      session_id: "session-1",
+      source: { platform: "desktop", chat_id: "session-1" },
+      workspace: testWorkspace,
+    });
+    await h.controller.send({ session_id: "session-1", text: "export the report" });
+    h.controller.handleOutbound({
+      action: "send_file",
+      platform: "desktop",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      event_id: "event-1",
+      payload: { path: "/tmp/exports/orders.xlsx" },
+    });
+    h.scheduler.handleRuntimeEvent({
+      kind: "runtime.turn.completed",
+      run_id: "turn-1",
+      payload: { session_id: "session-1", job_id: "turn-1", status: "completed" },
+    });
+    await tick();
+
+    expect(h.controller.activity("session-1").latest?.files).toEqual([
+      { path: "/tmp/exports/orders.xlsx", name: "orders.xlsx" },
+    ]);
+    expect(h.controller.hasFile("session-1", "/tmp/exports/orders.xlsx")).toBe(true);
     h.controller.dispose();
   });
 

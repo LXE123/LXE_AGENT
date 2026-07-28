@@ -33,6 +33,7 @@ import type { UiText } from "../../shared/i18n";
 import type {
   ConversationToolGroup,
   DesktopConversationActivityPayload,
+  DesktopConversationFilePayload,
   DesktopConversationStreamPayload,
   DesktopConversationTurnPayload,
   SessionDetailPayload,
@@ -443,12 +444,51 @@ function LiveAssistantCard({ stream }: { stream: DesktopConversationStreamPayloa
   );
 }
 
+function TurnFileList({
+  files,
+  onOpenFile,
+}: {
+  files: DesktopConversationFilePayload[];
+  onOpenFile: (path: string) => Promise<void>;
+}) {
+  const t = useUiText();
+  const [error, setError] = useState("");
+  const open = async (path: string) => {
+    setError("");
+    try {
+      await onOpenFile(path);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  return (
+    <div className="turn-file-list">
+      <span className="turn-file-label">{t.conversation.files}</span>
+      {files.map((file) => (
+        <button
+          className="turn-file-chip"
+          key={file.path}
+          onClick={() => void open(file.path)}
+          title={t.conversation.openFile(file.name)}
+          type="button"
+        >
+          <FileText size={14} />
+          <span>{file.name}</span>
+        </button>
+      ))}
+      {error ? <div className="turn-file-error" role="alert">{t.conversation.openFileFailed(error)}</div> : null}
+    </div>
+  );
+}
+
 function LocalTurnCards({
   turn,
   transcriptFetchedAt,
+  onOpenFile,
 }: {
   turn: DesktopConversationTurnPayload;
   transcriptFetchedAt: number;
+  onOpenFile: (path: string) => Promise<void>;
 }) {
   const t = useUiText();
   const userPersisted = transcriptCaughtUp(turn.user_persisted_at, transcriptFetchedAt);
@@ -478,6 +518,9 @@ function LocalTurnCards({
         </article>
       ) : null}
       {turn.stream && !assistantPersisted ? <LiveAssistantCard stream={turn.stream} /> : null}
+      {/* Files are an emit artifact, not a transcript message, so they stay
+          with the live turn rather than following the persistence watermark. */}
+      {turn.files.length ? <TurnFileList files={turn.files} onOpenFile={onOpenFile} /> : null}
       {showStandaloneBadge ? <div className="conversation-turn-state-row">{stateBadge}</div> : null}
     </div>
   );
@@ -599,6 +642,7 @@ export function SessionDetailView({
   onLoadOlder,
   onSend,
   onStop,
+  onOpenFile,
 }: {
   fallbackSession: SessionPayload | null;
   detail: SessionDetailPayload | null;
@@ -614,6 +658,7 @@ export function SessionDetailView({
   onLoadOlder: () => Promise<unknown>;
   onSend: (text: string) => Promise<void>;
   onStop: () => Promise<void>;
+  onOpenFile: (path: string) => Promise<void>;
 }) {
   const t = useUiText();
   const session = detail?.session || fallbackSession;
@@ -750,7 +795,12 @@ export function SessionDetailView({
             </div>
           ) : null}
           {liveTurns.map((turn) => (
-            <LocalTurnCards key={turn.turn_id} transcriptFetchedAt={transcriptFetchedAt} turn={turn} />
+            <LocalTurnCards
+              key={turn.turn_id}
+              onOpenFile={onOpenFile}
+              transcriptFetchedAt={transcriptFetchedAt}
+              turn={turn}
+            />
           ))}
           {showEmpty ? (
             <EmptyState label={newConversation ? t.conversation.newHint : t.sessionDetail.empty} />

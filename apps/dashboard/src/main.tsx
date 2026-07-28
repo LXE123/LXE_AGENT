@@ -367,6 +367,7 @@ function App({
               state: "running",
               user_persisted_at: 0,
               settled_at: 0,
+              files: [],
             } : null,
             queued: result.state === "queued" ? [{
               turn_id: result.turn_id,
@@ -375,6 +376,7 @@ function App({
               state: "queued",
               user_persisted_at: 0,
               settled_at: 0,
+              files: [],
             }] : [],
             latest: null,
           },
@@ -390,6 +392,16 @@ function App({
   async function stopConversation(): Promise<void> {
     if (!selectedSessionId) return;
     await callDashboard({ operation: "sessions.stop", input: { session_id: selectedSessionId } });
+  }
+
+  async function openConversationFile(path: string): Promise<void> {
+    if (!selectedSessionId) return;
+    const result = await callDashboard({
+      operation: "sessions.file.open",
+      input: { session_id: selectedSessionId, path },
+    });
+    // The operating system's own message is the only useful thing to show here.
+    if (!result.opened) throw new Error(result.error);
   }
 
   const thinkingMutation = useMutation<
@@ -775,6 +787,7 @@ function App({
                       onLoadOlder={() => sessionDetailQuery.fetchPreviousPage()}
                       onSend={sendConversation}
                       onStop={stopConversation}
+                      onOpenFile={openConversationFile}
                     />
                   ) : (
                     <EmptyState label={selectedSessionId ? t.sessionDetail.loading : t.sessions.selectPrompt} />

@@ -14,6 +14,7 @@ export type {
   DashboardContentTruncationPayload,
   DesktopConversationActivityPayload,
   DesktopConversationEvent,
+  DesktopConversationFilePayload,
   DesktopConversationSendPayload,
   DesktopConversationStopPayload,
   DesktopConversationStreamPayload,
