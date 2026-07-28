@@ -37,6 +37,6 @@ lxeskill fba stock-sku download --delivery-no <SP单号>
 ## Result Handling
 
 - `success=true`：告诉用户库存 SKU Excel 已下载完成，并提供 `xlsx_paths`。
-- terminal `files` 非空时逐个调用 `send_file`。
+- terminal `files` 非空时一次调用 `send_files(paths=<terminal.files>)`。
 - `batch_count > 1`：说明 SKU 较多，文件已分批导出。
 - `success=false`：只转述 `exception`。

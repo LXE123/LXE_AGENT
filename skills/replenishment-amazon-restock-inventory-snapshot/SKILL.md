@@ -36,7 +36,7 @@ commands:
 4. 报告生成后，在对应 `.csv` 行点击 `下载`
 5. 将下载得到的 CSV 路径传给 snapshot CLI
 
-用户问“怎么点”、“发我截图”或“路径图”时，不要读取、不要解析、不要复述截图内容，直接按顺序调用 `send_file` 发送以下三张截图：
+用户问“怎么点”、“发我截图”或“路径图”时，不要读取、不要解析、不要复述截图内容，将以下三张截图按顺序放入 `paths`，一次调用 `send_files`：
 
 ```text
 skills/replenishment-amazon-restock-inventory-snapshot/assets/amazon_restock_inventory_download_step_1_menu.jpg

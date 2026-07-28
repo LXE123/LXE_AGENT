@@ -31,7 +31,6 @@ export interface CodingToolOptions {
   attachmentPaths?: (sessionId: string) => Promise<readonly string[]>;
   homeDirectory?: string;
   maxOutputChars?: number;
-  sendFile?: (request: { path: string; session_id: string; response_route_id: string }) => Promise<void>;
   onProcessComplete?: (snapshot: JsonObject) => Promise<void> | void;
   onProcessConsume?: (request: ProcessCompletionConsumeRequest) => Promise<void> | void;
   ripgrepPath?: string | null;

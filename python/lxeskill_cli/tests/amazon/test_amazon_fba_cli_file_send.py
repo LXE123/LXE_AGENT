@@ -170,12 +170,12 @@ def test_archive_selected_result_files_keeps_safe_fallback_for_unknown_allowed_k
     ).read_bytes() == b"note"
 
 
-def test_fba_shipment_create_skill_requires_parent_send_file():
+def test_fba_shipment_create_skill_requires_parent_send_files():
     skill_path = repository_root() / "skills" / "fba-shipment-create" / "SKILL.md"
     text = skill_path.read_text(encoding="utf-8")
 
     assert "terminal `files` 非空" in text
-    assert "send_file" in text
+    assert "send_files(paths=<terminal.files>)" in text
     assert "不重跑 CLI" in text
 
 

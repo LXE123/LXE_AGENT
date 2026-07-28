@@ -52,6 +52,6 @@ lxeskill fba export-tax products-import --sku <sku1> --sku <sku2> --products-pat
 
 - `success=true`：告诉用户 `imported_count`、`skipped_duplicate_count`、`skipped_not_found_count`。
 - `backup_path` 非空：说明导入前已自动备份。
-- `output_xlsx` 非空：terminal `files` 中会包含受管 artifacts 生成的更新后产品表，逐个调用 `send_file`；用户上传的原文件保持不变。
-- `backup_path` 是诊断备份，不属于正式交付文件，不主动调用 `send_file`。
+- `output_xlsx` 非空：terminal `files` 中会包含受管 artifacts 生成的更新后产品表，一次调用 `send_files(paths=<terminal.files>)`；用户上传的原文件保持不变。
+- `backup_path` 是诊断备份，不属于正式交付文件，不主动调用 `send_files`。
 - `success=false`：只转述 `exception`。

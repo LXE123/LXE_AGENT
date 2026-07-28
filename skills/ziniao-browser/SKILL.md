@@ -90,7 +90,7 @@ lxeskill browser page --action browser_vision --store-id <store_id> --full
 
 1. 从 terminal `data.screenshot_path` 读取已规范化绝对路径。
 2. 使用 `read` 工具读取该图片，再根据画面继续判断。
-3. 不要把截图路径当作普通文本回复，不要默认调用 `send_file`；只有用户明确索要截图文件时才发送。
+3. 不要把截图路径当作普通文本回复，不要默认调用 `send_files`；只有用户明确索要截图文件时才发送。
 4. 截图结果不含 base64；路径缺失、越界或文件不存在都视为命令失败。
 
 ## 错误恢复

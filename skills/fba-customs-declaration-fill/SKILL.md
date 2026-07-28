@@ -76,7 +76,7 @@ lxeskill fba customs fill --input-xlsx <path_1> --input-xlsx <path_2>
 ## Result Handling
 
 - `success=true`：告诉用户报关资料文件已生成，并提供 `output_xlsx`；确认 `quantity_basis=actual`。
-- terminal `files` 中只有正式报关资料；非空时逐个调用 `send_file`。校验报告属于诊断文件，不主动发送。
+- terminal `files` 中只有正式报关资料；非空时一次调用 `send_files(paths=<terminal.files>)`。校验报告属于诊断文件，不主动发送。
 - 始终检查 `validation_report_xlsx`、`quantity_validation_status` 和 `quantity_validation_summary`；数量不一致或无法校验时，把报告路径一并告诉用户。
 - 简要说明数量校验报告包含 `数量校验`、`汇总表计算前后对比`、`数据来源`，可用于查看期望发货量、实际发货量、MSKU 来源和汇总表前后差异。
 - 可简要说明 `sp_nos`、`box_count`、`total_gross_weight`、`total_amount_upper`。

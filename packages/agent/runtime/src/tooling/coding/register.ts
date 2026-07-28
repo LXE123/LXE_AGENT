@@ -8,7 +8,7 @@ import { CodingPathPolicy } from "./path-policy";
 import { CodingProcessManager } from "./process-manager";
 import type { CodingToolOptions } from "./public-types";
 import { createSearchTools } from "./search-tools";
-import { createSendFileTool } from "./send-file-tool";
+import { createSendFilesTool } from "./send-files-tool";
 
 export function registerCodingTools(
   registry: ToolRegistry,
@@ -51,10 +51,7 @@ export function registerCodingTools(
   })) {
     registry.register(tool);
   }
-  registry.register(createSendFileTool({
-    paths,
-    ...(options.sendFile === undefined ? {} : { sendFile: options.sendFile }),
-  }));
+  registry.register(createSendFilesTool({ paths }));
   for (const tool of createExecTools({ paths, processes, execShell, options })) {
     registry.register(tool);
   }

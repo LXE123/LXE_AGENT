@@ -129,8 +129,22 @@ describe("native coding tools", () => {
       businessCommands: new Map([["lxeskill replenish store resolve", ["replenishment-store-resolve"]]]),
     });
     expect(registry.schemas().map((item) => item.name)).toEqual([
-      "read", "write", "edit", "grep", "find", "ls", "send_file", "exec", "process",
+      "read", "write", "edit", "grep", "find", "ls", "send_files", "exec", "process",
     ]);
+    expect(registry.definition("send_file")).toBeUndefined();
+    expect(registry.definition("send_files")?.input_schema).toEqual({
+      type: "object",
+      properties: {
+        paths: {
+          type: "array",
+          items: { type: "string" },
+          minItems: 1,
+          uniqueItems: true,
+        },
+      },
+      required: ["paths"],
+      additionalProperties: false,
+    });
     await registry.execute("write", { file_path: "src/a.txt", content: "hello\nworld\n" }, context(root));
     expect(readFileSync(join(root, "src", "a.txt"), "utf8")).toBe("hello\nworld\n");
     await registry.execute("edit", { file_path: "src/a.txt", old_string: "world", new_string: "Bun" }, context(root));
@@ -236,9 +250,24 @@ describe("native coding tools", () => {
     }, context(root));
     expect(String(grepped.content[0]?.text).replaceAll("\\", "/")).toContain(skillPath.replaceAll("\\", "/"));
 
-    expect((await registry.execute("send_file", { path: assetPath }, context(root))).files).toEqual([assetPath]);
-    expect((await registry.execute("send_file", { path: artifactPath }, context(root))).files).toEqual([artifactPath]);
-    await expect(registry.execute("send_file", { path: skillPath }, context(root))).rejects.toThrow("skill assets");
+    const sent = await registry.execute("send_files", {
+      paths: [assetPath, artifactPath, `${artifactRoot}/nested/../report.txt`],
+    }, context(root));
+    expect(sent.files).toEqual([assetPath, artifactPath]);
+    expect(String(sent.content[0]?.text)).toContain("Sent 2 files:");
+    expect(String(sent.content[0]?.text)).toContain(assetPath);
+    expect(String(sent.content[0]?.text)).toContain(artifactPath);
+    await expect(registry.execute("send_files", { paths: [artifactPath, skillPath] }, context(root)))
+      .rejects.toThrow("skill assets");
+    await expect(registry.execute("send_files", {
+      paths: [artifactPath, join(artifactRoot, "missing.txt")],
+    }, context(root))).rejects.toThrow("file not found");
+    await expect(registry.execute("send_files", { paths: [] }, context(root)))
+      .rejects.toThrow("non-empty array");
+    await expect(registry.execute("send_files", { paths: [artifactPath, ""] }, context(root)))
+      .rejects.toThrow("paths[1]");
+    await expect(registry.execute("send_files", { path: artifactPath }, context(root)))
+      .rejects.toThrow("non-empty array");
     await expect(registry.execute("read", { path: outsidePath }, context(root))).rejects.toThrow("approved read-only roots");
     await expect(registry.execute("read", {
       path: join(skillRoot, "escaped", "secret.txt"),
@@ -277,7 +306,7 @@ describe("native coding tools", () => {
         .rejects.toThrow("escapes workspace");
       await expect(registry.execute("write", { file_path: attached, content: "changed" }, context(workspaceRoot)))
         .rejects.toThrow("escapes workspace");
-      await expect(registry.execute("send_file", { path: attached }, context(workspaceRoot)))
+      await expect(registry.execute("send_files", { paths: [attached] }, context(workspaceRoot)))
         .rejects.toThrow("escapes workspace");
 
       rmSync(attached);
@@ -810,9 +839,9 @@ describe("native coding tools", () => {
       pattern: "beta", path: "src", output_mode: "count", type: "py",
     }, context(root));
     expect(String(count.content[0]?.text).replaceAll("\\", "/")).toContain("src/a.py:2");
-    await expect(registry.execute("send_file", { path: "src/a.py" }, context(root))).rejects.toThrow("artifacts");
+    await expect(registry.execute("send_files", { paths: ["src/a.py"] }, context(root))).rejects.toThrow("artifacts");
     await registry.execute("write", { file_path: "artifacts/a.txt", content: "ok" }, context(root));
-    expect((await registry.execute("send_file", { path: "artifacts/a.txt" }, context(root))).files).toHaveLength(1);
+    expect((await registry.execute("send_files", { paths: ["artifacts/a.txt"] }, context(root))).files).toHaveLength(1);
     const rejected = async (
       command: string,
       executionContext: Parameters<ToolRegistry["execute"]>[2] = context(root),

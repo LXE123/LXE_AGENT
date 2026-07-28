@@ -42,7 +42,7 @@ lxeskill fba restock workbook-create --delivery-no <delivery_no> --master-xlsx "
 ## Result Handling
 
 - `success=true`：告诉用户备货单已生成，并提供 `output_xlsx`。
-- terminal `files` 非空时逐个调用 `send_file`；本地 CSV 输入不作为附件发送。
+- terminal `files` 非空时一次调用 `send_files(paths=<terminal.files>)`；本地 CSV 输入不作为附件发送。
 - 可简要转述 `sku_count`、`sku_source_count`、`matched_sku_count`、`unmatched_sku_count`、`manufacturer_count`、`contract_mapping_count`。
 - 如果 `warnings` 非空，必须转述给用户；尤其是出现“不同厂家有相同型号”、发货单 CSV `国家` 缺失/为空/存在多个不同国家，或 `供应商合同信息` sheet 的 `供货方` 映射缺失/冲突时，明确提醒业务人员需要核查。
 - 说明输出文件名格式为 `M.D-<SP>-新棱镜备货-<国家>.xlsx`；日期使用生成当天，国家来自发货单 CSV 的 `国家` 字段，缺失时使用 `未知国家`。

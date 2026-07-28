@@ -41,6 +41,8 @@ const descriptors: Record<string, { title: string; icon: string; keys: string[] 
   grep: { title: "Search text", icon: "doc-search_outlined", keys: ["pattern", "path"] },
   find: { title: "Search files", icon: "folder_outlined", keys: ["pattern", "path"] },
   ls: { title: "List files", icon: "folder_outlined", keys: ["path"] },
+  send_files: { title: "Send files", icon: "file-link-text_outlined", keys: ["paths"] },
+  // Retained for rendering historical transcript entries after the model tool was renamed.
   send_file: { title: "Send file", icon: "file-link-text_outlined", keys: ["path"] },
   exec: { title: "Run command", icon: "setting_outlined", keys: ["command"] },
   process: { title: "Process", icon: "setting-inter_outlined", keys: ["action", "session"] },
@@ -102,9 +104,19 @@ export function buildToolDisplayStep(
     icon: "setting-inter_outlined",
     keys: ["action", "path", "file_path", "command", "query", "url", "description", "target"],
   };
-  const detail = descriptor.keys.map((key) => scalar(input[key])).filter(Boolean).join(" ");
+  const detail = descriptor.keys.map((key) => {
+    const value = input[key];
+    if (safeName.toLowerCase() === "send_files" && key === "paths" && Array.isArray(value)) {
+      return value.map((item) => scalar(item)).filter(Boolean).join("\n");
+    }
+    return scalar(value);
+  }).filter(Boolean).join(" ");
   const showFullPaths = options.showFullPaths === true;
-  const safeDetail = isAbsolute(detail) && !showFullPaths ? `.../${basename(detail) || "path"}` : sanitize(detail, showFullPaths);
+  const safeDetail = safeName.toLowerCase() === "send_files"
+    ? sanitize(detail, showFullPaths)
+    : isAbsolute(detail) && !showFullPaths
+      ? `.../${basename(detail) || "path"}`
+      : sanitize(detail, showFullPaths);
   const resultBlock = status === "success" && options.showResultDetails
     ? stringifyDisplay(options.result, RESULT_LIMIT, showFullPaths)
     : undefined;

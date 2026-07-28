@@ -46,6 +46,6 @@ def test_fba_docs_send_only_declared_deliverables() -> None:
     for owner in deliverable_owners:
         text = _skill_text(owner)
         assert "terminal `files`" in text, owner
-        assert "send_file" in text, owner
+        assert "send_files(paths=<terminal.files>)" in text, owner
 
-    assert "不主动调用 `send_file`" in _skill_text("fba-export-tax-products-manage")
+    assert "不主动调用 `send_files`" in _skill_text("fba-export-tax-products-manage")

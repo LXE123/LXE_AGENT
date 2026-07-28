@@ -84,7 +84,8 @@ def test_build_error_returns_failure_json(monkeypatch, capsys) -> None:
 
 def test_replenishment_amazon_restock_inventory_snapshot_skill_contract() -> None:
     text = Path("skills/replenishment-amazon-restock-inventory-snapshot/SKILL.md").read_text(encoding="utf-8")
-    assert "send_file" in text
+    assert "send_files" in text
+    assert "按顺序放入 `paths`" in text
     assert "不要读取、不要解析、不要复述截图内容" in text
     assert "lxeskill replenish inventory restock-snapshot-build" in text
     assert "services.agent_cli" not in text

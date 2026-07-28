@@ -8,7 +8,7 @@ const PROTECTED_ROOT_FILES = new Set([
 ]);
 
 // Program-managed state the model must never write into. var/tmp stays
-// writable (scratch), as does the root artifacts/ send_file output surface.
+// writable (scratch), as does the root artifacts/ send_files output surface.
 const PROTECTED_PATH_PREFIXES = ["var/db", "var/logs"];
 
 const containsPath = (root: string, path: string): boolean => {
@@ -168,7 +168,7 @@ export class CodingPathPolicy {
     const artifact = artifactRoots.some((artifactRoot) => containsCanonicalPath(artifactRoot, target.path));
     const skillAsset = skillRoots.some((skillRoot) => isSkillAsset(skillRoot, target.path));
     if (!artifact && !skillAsset) {
-      throw new Error("send_file only allows workspace/runtime artifacts or skill assets/**");
+      throw new Error("send_files only allows workspace/runtime artifacts or skill assets/**");
     }
   }
 

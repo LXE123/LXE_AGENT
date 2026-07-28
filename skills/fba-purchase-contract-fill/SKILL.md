@@ -51,7 +51,7 @@ lxeskill fba purchase contracts-fill --purchase-summary-xlsx "<采购汇总表.x
 ## Result Handling
 
 - `success=true`：告诉用户采购合同已填写，并提供 `output_files[*].output_xlsx`。
-- terminal `files` 非空时逐个调用 `send_file`，不要从 `data` 猜测或重建路径。
+- terminal `files` 非空时一次调用 `send_files(paths=<terminal.files>)`，不要从 `data` 猜测或重建路径。
 - 说明输出为每家公司一个 xlsx；每个文件保留对应公司合同 sheet 和 `补充协议附加件明细` sheet。
 - 简要转述 `generated_count`、`skipped_manufacturer_count`。
 - 如果 `warnings` 非空，必须转述给用户；常见情况是找不到厂家模板 sheet、同一厂家匹配多个 sheet、模板缺少日期/税率/明细表位置。

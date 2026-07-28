@@ -36,5 +36,5 @@ lxeskill fba shipment delivery-csv-download --delivery-no <delivery_no>
 ## Result Handling
 
 - `success=true`：告诉用户 FBA 发货单 CSV 已下载完成，并提供 `csv_path`。
-- terminal `files` 非空时逐个调用 `send_file`；不要直接发送未经校验的 `data.csv_path`。
+- terminal `files` 非空时一次调用 `send_files(paths=<terminal.files>)`；不要直接发送未经校验的 `data.csv_path`。
 - `success=false`：只转述 `exception`。

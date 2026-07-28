@@ -20,13 +20,13 @@ Runtime 只 dispatch 当前 assistant message 中结构有效的 tool use。每�
 
 ## Native 工具
 
-Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、edit、grep、find、exec、process 和 send_file：
+Native handler 与 Runtime 同进程执行。Coding tools 包括 read、write、edit、grep、find、exec、process 和 send_files：
 
 - 路径先规范化并限制在 workspace/允许边界。
 - read 输出稳定行号，并记录 session read version。
 - 修改现有文件要求 read-before-modify；外部 mtime/content 变化导致 stale edit。
 - root private env、用户 session DB 和 runtime state 不可写。
-- binary 不通过文本 read；artifact 使用 send_file。
+- binary 不通过文本 read；一个或多个 artifact 使用 `send_files(paths=[...])` 一次交付。
 - background exec 返回 task id，由 process tools poll/log/remove。
 
 Process stdout/stderr 有大小限制，cancel 会终止登记的进程树。

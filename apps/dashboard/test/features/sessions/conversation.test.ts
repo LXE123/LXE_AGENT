@@ -55,9 +55,9 @@ describe("session conversation projection", () => {
     ]);
     const items = buildConversationItems([
       { role: "user", content: "send me the report" },
-      ...step("c1", "send_file"),
+      ...step("c1", "send_files"),
       ...step("c2", "find"),
-      ...step("c3", "send_file"),
+      ...step("c3", "send_files"),
       { role: "assistant", content: [{ type: "text", text: "已发送" }] },
     ]);
 
@@ -117,7 +117,7 @@ describe("session conversation projection", () => {
 
   test("reports tool errors so the group can open itself", () => {
     const failing = [
-      { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "send_file", arguments: {} }] },
+      { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "send_files", arguments: {} }] },
       {
         role: "tool",
         content: [{ type: "tool_result", tool_call_id: "c1", content: "file not found", is_error: true }],
@@ -135,7 +135,7 @@ describe("session conversation projection", () => {
     const artifacts = toolGroupArtifacts([
       {
         role: "assistant",
-        content: [{ type: "tool_call", id: "c1", name: "send_file", arguments: {} }],
+        content: [{ type: "tool_call", id: "c1", name: "send_files", arguments: {} }],
         artifacts: [{ artifact_id: "a1", turn_id: "t1", tool_call_id: "c1", name: "report.xlsx" }],
       },
       {
@@ -154,7 +154,7 @@ describe("session conversation projection", () => {
       { role: "user", content: "make the reports" },
       {
         role: "assistant",
-        content: [{ type: "tool_call", id: "c1", name: "send_file", arguments: {} }],
+        content: [{ type: "tool_call", id: "c1", name: "send_files", arguments: {} }],
       },
       {
         role: "tool",
@@ -167,7 +167,7 @@ describe("session conversation projection", () => {
         role: "assistant",
         content: [
           { type: "thinking", thinking: "one more" },
-          { type: "tool_call", id: "c2", name: "send_file", arguments: {} },
+          { type: "tool_call", id: "c2", name: "send_files", arguments: {} },
         ],
       },
       {
@@ -223,7 +223,7 @@ describe("session conversation projection", () => {
       {
         role: "assistant",
         content: [
-          { type: "tool_call", id: "c1", name: "send_file", input: { path: "artifacts/report.json" } },
+          { type: "tool_call", id: "c1", name: "send_files", input: { path: "artifacts/report.json" } },
           { type: "tool_call", id: "c2", name: "find", input: { pattern: "report-*.json", path: "var/" } },
         ],
       },
@@ -238,7 +238,7 @@ describe("session conversation projection", () => {
 
     // Results are matched by id, not by arrival order.
     expect(operations.map((operation) => [operation.name, operation.argument, operation.status])).toEqual([
-      ["send_file", "artifacts/report.json", "error"],
+      ["send_files", "artifacts/report.json", "error"],
       ["find", "report-*.json", "success"],
     ]);
     expect(operations[0]?.result).toMatchObject({ content: "file not found" });

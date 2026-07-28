@@ -69,6 +69,6 @@ commands:
 - 如果 `exception` 显示失败原因不明，提醒用户检查亚马逊 Seller Central 是否未切换到简体中文界面。
 - `finished=true`：按 `notice` 判断阶段状态；不要自行解释页面原因。
 - `data.file_path` 只为兼容旧调用方保留；正式附件唯一以 terminal `files` 为准。
-- CLI 成功后，如果 terminal `files` 非空，必须逐个调用 `send_file(path="<terminal.files item>")`。
-- 如果 `send_file` 失败，只汇报对应路径和工具错误，不重跑 CLI。
+- CLI 成功后，如果 terminal `files` 非空，必须一次调用 `send_files(paths=<terminal.files>)`。
+- 如果 `send_files` 失败，只汇报工具返回的失败路径和错误，不重跑 CLI。
 - 后续步骤优先读最新 CLI 结果里的 `context`，不要靠长对话记忆。
