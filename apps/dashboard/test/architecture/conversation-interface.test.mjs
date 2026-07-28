@@ -89,3 +89,15 @@ test("thinking, tool activity and replies each read at one level", () => {
   assert.match(view, /className="tool-op-list"/);
   assert.match(view, /className="tool-op-argument"/);
 });
+
+test("a tool reads the same live as it does in history", () => {
+  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
+  // Live steps carry a curated title as well as the name the model called; a
+  // tool that changes label when it scrolls into history reads as two tools.
+  assert.match(view, /<span>\{step\.name\}<\/span>/);
+  assert.doesNotMatch(view, /<span>\{step\.title\}<\/span>/);
+  // Beside a growing textarea the composer buttons must not be squeezed until
+  // their label breaks one character per line.
+  assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button \{[^}]*flex: 0 0 auto/);
+  assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button \{[^}]*white-space: nowrap/);
+});

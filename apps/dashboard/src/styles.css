@@ -4446,6 +4446,8 @@ h1 {
 
 .conversation-compose-box textarea {
   width: 100%;
+  min-width: 0;
+  flex: 1;
   min-height: 38px;
   max-height: 180px;
   resize: none;
@@ -4465,6 +4467,7 @@ h1 {
 .conversation-compose-actions {
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   gap: 6px;
 }
 
@@ -4474,12 +4477,16 @@ h1 {
   align-items: center;
   justify-content: center;
   min-height: 34px;
+  /* Beside a flex:1 textarea these would otherwise be squeezed until the label
+     broke onto its own line, one character per row. */
+  flex: 0 0 auto;
   gap: 6px;
   border-radius: 9px;
   cursor: pointer;
   font: inherit;
   font-size: 0.75rem;
   font-weight: 650;
+  white-space: nowrap;
 }
 
 .conversation-send-button {

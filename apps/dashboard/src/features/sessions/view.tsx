@@ -476,9 +476,12 @@ function LiveAssistantCard({ stream }: { stream: DesktopConversationStreamPayloa
       {stream.tool_steps.length ? (
         <div className="live-tool-list">
           {stream.tool_steps.map((step) => (
+            // The raw tool name, matching how the same call reads once it is
+            // history: a curated title cannot be searched for or matched
+            // against a log, and the detail beside it already says what it did.
             <div className={`live-tool-step state-${step.status}`} key={step.id || `${step.name}-${step.title}`}>
               <Wrench size={14} />
-              <span>{step.title}</span>
+              <span>{step.name}</span>
               {step.detail ? <small>{step.detail}</small> : null}
             </div>
           ))}
