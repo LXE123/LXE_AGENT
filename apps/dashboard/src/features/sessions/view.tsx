@@ -13,6 +13,8 @@ import {
   LoaderCircle,
   PackageCheck,
   Paperclip,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Search,
   SendHorizontal,
@@ -52,6 +54,7 @@ import type {
   SourceSummary
 } from "../../api/payloads";
 import { markdownComponents } from "../../shared/ui/markdown";
+import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 
 /** How close to the bottom still counts as "following the reply". */
 const BOTTOM_PIN_THRESHOLD_PX = 80;
@@ -470,10 +473,12 @@ function LiveAssistantCard({ stream }: { stream: DesktopConversationStreamPayloa
       aria-live="polite"
       role={metrics.status === "error" ? "alert" : undefined}
     >
-      <div className="message-header">
-        <RoleBadge role="assistant" />
-        {stream.state === "delta" ? <LoaderCircle className="conversation-spinner" size={13} /> : null}
-      </div>
+      {stream.state === "delta" ? (
+        <div className="live-response-status">
+          <LoaderCircle className="conversation-spinner" size={13} />
+          <span>{statusLabel}</span>
+        </div>
+      ) : null}
       {stream.thinking ? <ThinkingBlock block={{ thinking: stream.thinking }} /> : null}
       {stream.tool_pending ? <div className="live-tool-pending"><LoaderCircle size={14} />{t.conversation.toolPending}</div> : null}
       {stream.tool_steps.length ? (
@@ -617,14 +622,11 @@ function LocalTurnCards({
     <div className="local-turn" data-turn-id={turn.turn_id}>
       {!userPersisted ? (
         <article className="message-card role-user optimistic-message">
-          <div className="message-header">
-            <RoleBadge role="user" />
-            {stateBadge}
-          </div>
           {turn.text ? <MessageMarkdown text={turn.text} /> : null}
           {turn.attachments?.length ? (
             <InputAttachmentList attachments={turn.attachments} />
           ) : null}
+          <div className="optimistic-message-state">{stateBadge}</div>
         </article>
       ) : null}
       {turn.stream && !assistantPersisted ? <LiveAssistantCard stream={turn.stream} /> : null}
@@ -656,6 +658,7 @@ function ConversationComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const previousConversationKey = useRef(conversationKey);
   const hasWork = Boolean(activity?.active || activity?.queued.length);
+  const showCharacterCount = text.length >= Math.floor(8192 * 0.75);
   const addAttachments = useCallback((selected: DesktopInputAttachmentPayload[]) => {
     setAttachments((current) => {
       const known = new Set(current.map((item) => item.attachment_id));
@@ -757,10 +760,10 @@ function ConversationComposer({
   return (
     <div className={`conversation-composer ${dragActive ? "drag-active" : ""}`}>
       {dragActive ? <div className="conversation-drop-hint">{t.conversation.dropFiles}</div> : null}
-      {attachments.length ? (
-        <InputAttachmentList attachments={attachments} onRemove={removeAttachment} />
-      ) : null}
       <div className="conversation-compose-box">
+        {attachments.length ? (
+          <InputAttachmentList attachments={attachments} onRemove={removeAttachment} />
+        ) : null}
         <textarea
           aria-label={t.conversation.placeholder}
           disabled={!runtimeReady}
@@ -781,37 +784,45 @@ function ConversationComposer({
           value={text}
         />
         <div className="conversation-compose-actions">
-          <button
-            aria-label={t.conversation.addFiles}
-            className="conversation-attach-button"
-            disabled={!runtimeReady || sending || attachments.length >= 5}
-            onClick={() => void selectFiles()}
-            title={t.conversation.addFiles}
-            type="button"
-          >
-            <Paperclip size={17} />
-          </button>
-          {hasWork ? (
-            <button className="conversation-stop-button" disabled={stopping} onClick={() => void stop()} type="button">
-              {stopping ? <LoaderCircle className="conversation-spinner" size={15} /> : <Square size={14} />}
-              <span>{stopping ? t.conversation.stopping : t.conversation.stop}</span>
+          <div className="conversation-compose-leading">
+            <button
+              aria-label={t.conversation.addFiles}
+              className="conversation-attach-button"
+              disabled={!runtimeReady || sending || attachments.length >= 5}
+              onClick={() => void selectFiles()}
+              title={t.conversation.addFiles}
+              type="button"
+            >
+              <Paperclip size={17} />
             </button>
-          ) : null}
-          <button
-            aria-label={sending ? t.conversation.sending : t.conversation.send}
-            className="conversation-send-button"
-            disabled={!runtimeReady || sending || (!text.trim() && attachments.length === 0)}
-            onClick={() => void submit()}
-            title={sending ? t.conversation.sending : t.conversation.send}
-            type="button"
-          >
-            {sending ? <LoaderCircle className="conversation-spinner" size={17} /> : <SendHorizontal size={17} />}
-          </button>
+            <span className="conversation-input-hint">
+              {runtimeReady ? t.conversation.inputHint : t.conversation.unavailable}
+            </span>
+          </div>
+          <div className="conversation-compose-trailing">
+            {showCharacterCount ? (
+              <span className="conversation-character-count">
+                {t.conversation.characterCount(formatNumber(text.length), formatNumber(8192))}
+              </span>
+            ) : null}
+            {hasWork ? (
+              <button className="conversation-stop-button" disabled={stopping} onClick={() => void stop()} type="button">
+                {stopping ? <LoaderCircle className="conversation-spinner" size={15} /> : <Square size={14} />}
+                <span>{stopping ? t.conversation.stopping : t.conversation.stop}</span>
+              </button>
+            ) : null}
+            <button
+              aria-label={sending ? t.conversation.sending : t.conversation.send}
+              className="conversation-send-button"
+              disabled={!runtimeReady || sending || (!text.trim() && attachments.length === 0)}
+              onClick={() => void submit()}
+              title={sending ? t.conversation.sending : t.conversation.send}
+              type="button"
+            >
+              {sending ? <LoaderCircle className="conversation-spinner" size={17} /> : <SendHorizontal size={17} />}
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="conversation-compose-meta">
-        <span>{runtimeReady ? t.conversation.inputHint : t.conversation.unavailable}</span>
-        <span>{t.conversation.characterCount(formatNumber(text.length), formatNumber(8192))}</span>
       </div>
       {activity?.queued.length ? (
         <div className="conversation-queue-status" role="status">
@@ -840,6 +851,8 @@ export function SessionDetailView({
   onStop,
   onOpenFile,
   onOpenAttachment,
+  sidebarExpanded,
+  onToggleSidebar,
 }: {
   fallbackSession: SessionPayload | null;
   detail: SessionDetailPayload | null;
@@ -857,12 +870,16 @@ export function SessionDetailView({
   onStop: () => Promise<void>;
   onOpenFile: (artifactId: string) => Promise<void>;
   onOpenAttachment: (attachmentId: string) => Promise<void>;
+  sidebarExpanded: boolean;
+  onToggleSidebar: () => void;
 }) {
   const t = useUiText();
   const session = detail?.session || fallbackSession;
   const messages = detail?.messages || [];
   const renderItems = useMemo(() => buildConversationItems(messages), [messages]);
   const [sessionInfoOpen, setSessionInfoOpen] = useState(false);
+  const closeSessionInfo = () => setSessionInfoOpen(false);
+  const sessionInfoRef = useDialogFocus<HTMLElement>(sessionInfoOpen, closeSessionInfo);
   // Only the groups the reader has explicitly toggled; everything else follows
   // the default, which opens a group that contains an error.
   const [toolGroupOverrides, setToolGroupOverrides] = useState<Map<string, boolean>>(() => new Map());
@@ -929,10 +946,26 @@ export function SessionDetailView({
   };
   const showEmpty = !loading && !error && !messages.length && !liveTurns.length;
   const showJumpToLatest = !pinnedToBottom && (Boolean(messages.length) || Boolean(liveTurns.length));
+  const title = newConversation ? t.conversation.newTitle : session?.title || t.sessions.title;
   return (
     <div className="session-detail conversation-view">
-      {session ? (
-        <div className="session-detail-toolbar">
+      <header className="conversation-header">
+        <button
+          aria-controls="app-sidebar"
+          aria-expanded={sidebarExpanded}
+          aria-label={sidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
+          className="conversation-header-sidebar-toggle"
+          onClick={onToggleSidebar}
+          title={sidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
+          type="button"
+        >
+          {sidebarExpanded ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+        </button>
+        <div className="conversation-header-copy">
+          <h2>{title}</h2>
+          {session ? <span>{sourceLabel(session.source_summary || session.source)}</span> : null}
+        </div>
+        {session ? (
           <button
             className="session-detail-toggle"
             type="button"
@@ -943,109 +976,135 @@ export function SessionDetailView({
             <span>{sessionInfoOpen ? t.sessionDetail.hideDetails : t.sessionDetail.details}</span>
             <ChevronRight size={15} className={sessionInfoOpen ? "expanded" : ""} />
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </header>
       {sessionInfoOpen && session ? (
-        <section className="session-detail-panel">
-          <div className="session-detail-grid">
-            {detailItems.map((item) => (
-              <div className="session-detail-field" key={item.label}>
-                <span>{item.label}</span>
-                <strong className={item.mono ? "mono" : ""}>{item.value}</strong>
+        <>
+          <button
+            aria-label={t.sessionDetail.hideDetails}
+            className="session-detail-scrim"
+            onClick={closeSessionInfo}
+            type="button"
+          />
+          <section
+            aria-label={t.sessionDetail.details}
+            aria-modal="true"
+            className="session-detail-panel"
+            ref={sessionInfoRef}
+            role="dialog"
+            tabIndex={-1}
+          >
+            <header className="session-detail-panel-header">
+              <div>
+                <span>{t.sessionDetail.eyebrow}</span>
+                <h3>{title}</h3>
               </div>
-            ))}
-          </div>
-        </section>
+              <button aria-label={t.sessionDetail.hideDetails} onClick={closeSessionInfo} type="button">
+                <X size={17} />
+              </button>
+            </header>
+            <dl className="session-detail-grid">
+              {detailItems.map((item) => (
+                <div className="session-detail-field" key={item.label}>
+                  <dt>{item.label}</dt>
+                  <dd className={item.mono ? "mono" : ""}>{item.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+        </>
       ) : null}
       {loading ? <EmptyState label={t.sessionDetail.loading} /> : null}
       {error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, error)} /> : null}
       {!loading && !error ? (
         <div className="conversation-scroll-area">
           <div className="conversation-transcript" onScroll={handleTranscriptScroll} ref={transcriptRef}>
-            {hasOlder ? (
-              <button className="conversation-load-earlier" disabled={loadingOlder} onClick={() => void loadOlder()} type="button">
-                {loadingOlder ? <LoaderCircle className="conversation-spinner" size={14} /> : null}
-                {loadingOlder ? t.sessionDetail.loadingEarlier : t.sessionDetail.loadEarlier}
-              </button>
-            ) : null}
-            {loadOlderError ? <div className="message-page-error">{loadOlderError}</div> : null}
-            {messages.length ? (
-              <div className="message-list">
-                {renderItems.map((item, itemIndex) => {
-                  if (item.type === "tool_group") {
-                    return <ToolTurnGroup expanded={toolGroupExpanded(item.group)} group={item.group}
-                      key={item.group.key} onOpenFile={onOpenFile}
-                      onToggle={() => toggleToolGroup(item.group)} />;
-                  }
-                  const { message, index, toolGroups } = item;
-                  const role = roleLabel(message.role);
-                  // A step that only thought and called a tool gets no card,
-                  // no role badge: it reads as one line of process, and the
-                  // thinking stays where it happened instead of being swept
-                  // into the tool group beside it.
-                  if (role === "assistant" && !hasReaderFacingText(message)) {
-                    return (
-                      <div className="process-step" key={`process-${index}`}>
-                        <MessageContent content={message.content} message={message} />
-                        {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}
-                          group={group} key={group.key} onOpenFile={onOpenFile}
-                          onToggle={() => toggleToolGroup(group)} />)}
-                      </div>
-                    );
-                  }
-                  const previousItem = renderItems[itemIndex - 1];
-                  const nextItem = renderItems[itemIndex + 1];
-                  const isAssistantReply = (candidate: typeof previousItem): boolean =>
-                    candidate?.type === "message"
-                    && roleLabel(candidate.message.role) === "assistant"
-                    && hasReaderFacingText(candidate.message);
-                  const previousIsAssistant = isAssistantReply(previousItem);
-                  const nextIsAssistant = isAssistantReply(nextItem);
-                  const showRoleBadge = !(role === "assistant" && previousIsAssistant);
-                  const hasMessageHeader = showRoleBadge || Boolean(message.tool_name || message.tool_call_id);
-                  const chainClass = role === "assistant"
-                    ? [previousIsAssistant ? "assistant-chain-from-previous" : "", nextIsAssistant ? "assistant-chain-to-next" : ""]
-                      .filter(Boolean).join(" ")
-                    : "";
-                  // Tool activity sits beside the reply, never inside it, so a
-                  // group is always read at the same level wherever it occurs.
-                  return (
-                    <React.Fragment key={`${role}-${index}`}>
-                      <article className={`message-card role-${role} ${chainClass}`}>
-                        {hasMessageHeader ? (
-                          <div className="message-header">
-                            {showRoleBadge ? <RoleBadge role={role} /> : null}
-                            {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
-                            {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
-                          </div>
-                        ) : null}
-                        <MessageContent content={message.content} message={message} />
-                        {message.attachments?.length ? (
-                          <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} />
-                        ) : null}
-                      </article>
-                      {toolGroups.length ? (
-                        <div className="process-step">
+            <div className="conversation-feed">
+              {hasOlder ? (
+                <button className="conversation-load-earlier" disabled={loadingOlder} onClick={() => void loadOlder()} type="button">
+                  {loadingOlder ? <LoaderCircle className="conversation-spinner" size={14} /> : null}
+                  {loadingOlder ? t.sessionDetail.loadingEarlier : t.sessionDetail.loadEarlier}
+                </button>
+              ) : null}
+              {loadOlderError ? <div className="message-page-error">{loadOlderError}</div> : null}
+              {messages.length ? (
+                <div className="message-list">
+                  {renderItems.map((item, itemIndex) => {
+                    if (item.type === "tool_group") {
+                      return <ToolTurnGroup expanded={toolGroupExpanded(item.group)} group={item.group}
+                        key={item.group.key} onOpenFile={onOpenFile}
+                        onToggle={() => toggleToolGroup(item.group)} />;
+                    }
+                    const { message, index, toolGroups } = item;
+                    const role = roleLabel(message.role);
+                    // A step that only thought and called a tool gets no card,
+                    // no role badge: it reads as one line of process, and the
+                    // thinking stays where it happened instead of being swept
+                    // into the tool group beside it.
+                    if (role === "assistant" && !hasReaderFacingText(message)) {
+                      return (
+                        <div className="process-step" key={`process-${index}`}>
+                          <MessageContent content={message.content} message={message} />
                           {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}
                             group={group} key={group.key} onOpenFile={onOpenFile}
                             onToggle={() => toggleToolGroup(group)} />)}
                         </div>
-                      ) : null}
-                    </React.Fragment>
-                  );
-                })}
-              </div>
-            ) : null}
-            {liveTurns.map((turn) => (
-              <LocalTurnCards
-                key={turn.turn_id}
-                transcriptFetchedAt={transcriptFetchedAt}
-                turn={turn}
-              />
-            ))}
-            {showEmpty ? (
-              <EmptyState label={newConversation ? t.conversation.newHint : t.sessionDetail.empty} />
-            ) : null}
+                      );
+                    }
+                    const previousItem = renderItems[itemIndex - 1];
+                    const nextItem = renderItems[itemIndex + 1];
+                    const isAssistantReply = (candidate: typeof previousItem): boolean =>
+                      candidate?.type === "message"
+                      && roleLabel(candidate.message.role) === "assistant"
+                      && hasReaderFacingText(candidate.message);
+                    const previousIsAssistant = isAssistantReply(previousItem);
+                    const nextIsAssistant = isAssistantReply(nextItem);
+                    const showRoleBadge = role !== "assistant" && role !== "user";
+                    const hasMessageHeader = showRoleBadge || Boolean(message.tool_name || message.tool_call_id);
+                    const chainClass = role === "assistant"
+                      ? [previousIsAssistant ? "assistant-chain-from-previous" : "", nextIsAssistant ? "assistant-chain-to-next" : ""]
+                        .filter(Boolean).join(" ")
+                      : "";
+                    // Tool activity sits beside the reply, never inside it, so a
+                    // group is always read at the same level wherever it occurs.
+                    return (
+                      <React.Fragment key={`${role}-${index}`}>
+                        <article className={`message-card role-${role} ${chainClass}`}>
+                          {hasMessageHeader ? (
+                            <div className="message-header">
+                              {showRoleBadge ? <RoleBadge role={role} /> : null}
+                              {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
+                              {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
+                            </div>
+                          ) : null}
+                          <MessageContent content={message.content} message={message} />
+                          {message.attachments?.length ? (
+                            <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} />
+                          ) : null}
+                        </article>
+                        {toolGroups.length ? (
+                          <div className="process-step">
+                            {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}
+                              group={group} key={group.key} onOpenFile={onOpenFile}
+                              onToggle={() => toggleToolGroup(group)} />)}
+                          </div>
+                        ) : null}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {liveTurns.map((turn) => (
+                <LocalTurnCards
+                  key={turn.turn_id}
+                  transcriptFetchedAt={transcriptFetchedAt}
+                  turn={turn}
+                />
+              ))}
+              {showEmpty ? (
+                <EmptyState label={newConversation ? t.conversation.newHint : t.sessionDetail.empty} />
+              ) : null}
+            </div>
           </div>
           {showJumpToLatest ? (
             <button className="conversation-jump-latest" onClick={scrollToLatest} type="button">
@@ -1055,18 +1114,20 @@ export function SessionDetailView({
           ) : null}
         </div>
       ) : null}
-      <div className="conversation-live-status" aria-live="polite">
-        {activity?.active?.state === "stopping"
-          ? t.conversation.stopping
-          : activity?.active ? t.conversation.running : activity?.queued.length ? t.conversation.queued : ""}
+      <div className="conversation-composer-dock">
+        <div className="conversation-live-status" aria-live="polite">
+          {activity?.active?.state === "stopping"
+            ? t.conversation.stopping
+            : activity?.active ? t.conversation.running : activity?.queued.length ? t.conversation.queued : ""}
+        </div>
+        <ConversationComposer
+          activity={activity}
+          conversationKey={session?.session_id ?? (newConversation ? "new" : "")}
+          runtimeReady={runtimeReady}
+          onSend={onSend}
+          onStop={onStop}
+        />
       </div>
-      <ConversationComposer
-        activity={activity}
-        conversationKey={session?.session_id ?? (newConversation ? "new" : "")}
-        runtimeReady={runtimeReady}
-        onSend={onSend}
-        onStop={onStop}
-      />
     </div>
   );
 }
@@ -1082,6 +1143,7 @@ export function SessionsIndex({
   loadMoreError,
   selectedSessionId,
   onQueryChange,
+  onSearchClose,
   onLoadMore,
   onNew,
   onOpen
@@ -1096,6 +1158,7 @@ export function SessionsIndex({
   loadMoreError: string;
   selectedSessionId: string;
   onQueryChange: (value: string) => void;
+  onSearchClose: () => void;
   onLoadMore: () => void;
   onNew: () => void;
   onOpen: (session: SessionPayload) => void;
@@ -1144,8 +1207,19 @@ export function SessionsIndex({
             placeholder={t.sessions.searchPlaceholder}
             aria-label={t.sessions.searchAria}
           />
+          <button
+            aria-label={t.sessions.closeSearch}
+            className="session-search-close"
+            onClick={onSearchClose}
+            type="button"
+          >
+            <X size={14} />
+          </button>
         </div>
       ) : null}
+      <div className="session-index-heading">
+        <span>{trimmedQuery ? t.sessions.searchResults(formatNumber(sessions.length)) : t.sessions.recent}</span>
+      </div>
       {error ? <EmptyState label={t.common.errorPrefix(t.sessions.errorLabel, error)} /> : null}
       {!showTable && loading && !error ? <EmptyState label={t.sessions.loading} /> : null}
       {!showTable && !loading && !error ? <EmptyState label={emptyLabel} /> : null}
@@ -1163,11 +1237,11 @@ export function SessionsIndex({
               >
                 <span className="primary-cell">{session.title || t.common.unnamedSession}</span>
                 <span className="session-meta-line">
-                  <span>{formatDate(session.last_active_at)}</span>
+                  <span>{sourceLabel(session.source_summary || session.source)}</span>
                   <span aria-hidden="true" className="session-meta-separator">
                     ·
                   </span>
-                  <span>{formatNumber(session.input_tokens + session.output_tokens)} {t.sessions.tokenSuffix}</span>
+                  <span>{formatDate(session.last_active_at)}</span>
                 </span>
               </button>
             );

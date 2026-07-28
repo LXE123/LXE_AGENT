@@ -36,11 +36,16 @@ test("status and settings have one sidebar entry and no floating duplicate", () 
   assert.doesNotMatch(collapsedRule, /margin-top:/);
 });
 
-test("session layout follows content width and search stays contextual", () => {
+test("sessions use the application sidebar and a compact overlay below 1180px", () => {
   assert.match(styles, /container-name:\s*dashboard-main/);
-  assert.match(styles, /@container dashboard-main \(max-width:\s*760px\)[\s\S]*?\.sessions-split/);
-  assert.match(main, /!sidebarCollapsed && activeSection === "sessions"/);
-  assert.match(styles, /\.main-header\.tab-sessions \.main-title h2::before/);
+  assert.equal((main.match(/<SessionsIndex/g) || []).length, 1);
+  assert.match(main, /activeSection === "sessions" && sessionSidebarExpanded/);
+  assert.match(main, /className="sidebar-session-section"/);
+  assert.match(main, /useDialogFocus<HTMLElement>\([\s\S]*?sessionSidebarDialogOpen/);
+  assert.match(styles, /@media \(max-width:\s*1180px\)[\s\S]*?\.session-sidebar-scrim/);
+  assert.doesNotMatch(main, /sessions-split/);
+  assert.doesNotMatch(styles, /\.sessions-split/);
+  assert.match(main, /activeSection === "sessions";?\s*$/m);
   assert.doesNotMatch(styles, /\.main-header\.tab-home \.main-title h2::before/);
 });
 

@@ -42,14 +42,34 @@ test("the transcript stays scrollable back through history", () => {
   assert.match(view, /conversation-jump-latest/);
 });
 
-test("the conversation takes its height from the panel, not a guess at the chrome", () => {
+test("the focused conversation takes the full panel without a second session column", () => {
   const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
-  // Guessing the surrounding chrome left the columns ending at different
-  // heights and pushed the composer under the fixed runtime-status trigger.
+  // The old nested session panel competed with both the transcript and the
+  // composer for width and height. The application sidebar owns that list now.
   assert.doesNotMatch(styles, /\.conversation-view \{[^}]*height: calc\(100vh/);
-  assert.doesNotMatch(styles, /\.sessions-split-index \{[^}]*max-height: calc\(100vh/);
-  assert.match(styles, /\.sessions-split \{[^}]*align-items: stretch/s);
+  assert.doesNotMatch(styles, /\.sessions-split/);
+  assert.doesNotMatch(main, /sessions-split/);
+  assert.match(styles, /\.sessions-conversation-shell \{[^}]*height:\s*100%[^}]*min-height:\s*0/s);
   assert.match(main, /"content-panel content-panel-fill"/);
+});
+
+test("conversation messages and composer share the same focused reading axis", () => {
+  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
+  assert.match(styles, /\.conversation-feed \{[^}]*width:\s*min\(820px,/s);
+  assert.match(styles, /\.conversation-live-status,\s*\.conversation-composer \{[^}]*width:\s*min\(820px,/s);
+  assert.match(styles, /\.conversation-feed \.message-card\.role-assistant,[\s\S]*?background:\s*transparent/);
+  assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(640px, 76%\)/s);
+  assert.match(view, /const showCharacterCount = text\.length >= Math\.floor\(8192 \* 0\.75\)/);
+  assert.match(view, /showRoleBadge = role !== "assistant" && role !== "user"/);
+});
+
+test("details and runtime status overlay the conversation without moving the reading axis", () => {
+  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
+  assert.match(view, /useDialogFocus<HTMLElement>\(sessionInfoOpen, closeSessionInfo\)/);
+  assert.match(view, /className="session-detail-panel"[\s\S]*?role="dialog"/);
+  assert.match(styles, /\.session-detail-panel \{[^}]*position:\s*absolute[^}]*width:\s*min\(380px,/s);
+  assert.match(main, /runtime-status-host sessions-focus/);
+  assert.match(styles, /@media \(max-width:\s*1060px\)[\s\S]*?\.sessions-focus \.runtime-status-floating \{[^}]*bottom:\s*114px/s);
 });
 
 test("tool files reach the conversation and open through Main", () => {

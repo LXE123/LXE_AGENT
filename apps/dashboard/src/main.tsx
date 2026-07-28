@@ -55,6 +55,7 @@ import {
   FONT_SIZE_STORAGE_KEY,
   initialDashboardFontSize,
 } from "./shared/appearance";
+import { useDialogFocus } from "./shared/ui/use-dialog-focus";
 import type {
   ApiList,
   ConnectorPayload,
@@ -196,7 +197,19 @@ function App({
     Record<string, DesktopConversationActivityPayload>
   >({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sessionSidebarOverlayOpen, setSessionSidebarOverlayOpen] = useState(false);
+  const [compactSessionLayout, setCompactSessionLayout] = useState(
+    () => window.matchMedia("(max-width: 1180px)").matches,
+  );
+  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
+  const sessionSidebarDialogOpen = activeSection === "sessions"
+    && compactSessionLayout
+    && sessionSidebarOverlayOpen;
+  const sessionSidebarRef = useDialogFocus<HTMLElement>(
+    sessionSidebarDialogOpen,
+    closeSessionSidebarOverlay,
+  );
 
   const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery, activeSection === "sessions");
   const sessionDetailQuery = useSessionConversationQuery(
@@ -261,6 +274,19 @@ function App({
   }, [query]);
 
   useEffect(() => {
+    const media = window.matchMedia("(max-width: 1180px)");
+    const update = () => setCompactSessionLayout(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (activeSection !== "sessions" || !compactSessionLayout) {
+      setSessionSidebarOverlayOpen(false);
+    }
+  }, [activeSection, compactSessionLayout]);
+
+  useEffect(() => {
     storeCapabilityView(capabilityView, browserStorage());
   }, [capabilityView]);
 
@@ -275,21 +301,27 @@ function App({
   }
 
   function handleSessionSearchToggle() {
-    if (sidebarCollapsed) {
-      setSidebarCollapsed(false);
-    }
+    if (compactSessionLayout) setSessionSidebarOverlayOpen(true);
+    else if (sidebarCollapsed) setSidebarCollapsed(false);
     pushDashboardRoute("sessions");
     setActiveSection("sessions");
-    setSelectedSessionId("");
-    setNewConversation(false);
+    setSessionSearchOpen(true);
     setSessionSearchFocusKey((current) => current + 1);
   }
 
   function handleSidebarToggle() {
+    if (activeSection === "sessions" && compactSessionLayout) {
+      setSessionSidebarOverlayOpen((current) => !current);
+      return;
+    }
     setSidebarCollapsed((current) => !current);
   }
 
-  // Two-pane sessions view: keep the detail pane populated by default.
+  function closeSessionSidebarOverlay() {
+    if (compactSessionLayout) setSessionSidebarOverlayOpen(false);
+  }
+
+  // Keep the focused conversation populated by default.
   useEffect(() => {
     if (activeSection === "sessions" && !newConversation && !selectedSessionId && sessions.items.length > 0) {
       setSelectedSessionId(sessions.items[0].session_id);
@@ -626,7 +658,8 @@ function App({
   const showDashboardHome = activeSection === "home";
   const hasEmbeddedPageHeader = activeSection === "capabilities"
     || activeSection === "activity"
-    || activeSection === "workbench";
+    || activeSection === "workbench"
+    || activeSection === "sessions";
   const mcpToolset = toolsetsQuery.data?.items.find((toolset) => toolset.name === "mcp");
   const activeQueries = activeSection === "sessions"
     ? [sessionsQuery, sessionDetailQuery, conversationActivityQuery]
@@ -685,17 +718,44 @@ function App({
       onOpenSettings={(section) => onOpenDesktopSettings?.(section)}
     />
   );
+  const sessionSidebarExpanded = activeSection === "sessions"
+    ? compactSessionLayout ? sessionSidebarOverlayOpen : !sidebarCollapsed
+    : !sidebarCollapsed;
+  const effectiveSidebarCollapsed = !sessionSidebarExpanded;
+  const shellClassName = [
+    "app-shell",
+    effectiveSidebarCollapsed ? "sidebar-collapsed" : "",
+    activeSection === "sessions" ? "sessions-focus" : "",
+    activeSection === "sessions" && compactSessionLayout ? "sessions-compact" : "",
+    sessionSidebarOverlayOpen ? "session-sidebar-overlay-open" : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <>
-      <main className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
-        <aside className={sidebarCollapsed ? "app-sidebar collapsed" : "app-sidebar"}>
+      <main className={shellClassName}>
+        {activeSection === "sessions" && compactSessionLayout && sessionSidebarOverlayOpen ? (
+          <button
+            aria-label={t.sidebar.collapse}
+            className="session-sidebar-scrim"
+            onClick={() => setSessionSidebarOverlayOpen(false)}
+            type="button"
+          />
+        ) : null}
+        <aside
+          aria-label={t.nav.aria}
+          aria-modal={sessionSidebarDialogOpen ? "true" : undefined}
+          className={effectiveSidebarCollapsed ? "app-sidebar collapsed" : "app-sidebar"}
+          id="app-sidebar"
+          ref={sessionSidebarRef}
+          role={sessionSidebarDialogOpen ? "dialog" : undefined}
+          tabIndex={sessionSidebarDialogOpen ? -1 : undefined}
+        >
           <div className="sidebar-topbar">
             <div className="sidebar-topbar-actions">
-              {!sidebarCollapsed && activeSection === "sessions" ? (
+              {activeSection === "sessions" ? (
                 <button
                   aria-label={t.sessions.searchAria}
-                  className="sidebar-icon-button active"
+                  className={sessionSearchOpen ? "sidebar-icon-button active" : "sidebar-icon-button"}
                   onClick={handleSessionSearchToggle}
                   title={t.sessions.searchAria}
                   type="button"
@@ -704,13 +764,15 @@ function App({
                 </button>
               ) : null}
               <button
-                aria-label={sidebarCollapsed ? t.sidebar.expand : t.sidebar.collapse}
+                aria-controls="app-sidebar"
+                aria-expanded={sessionSidebarExpanded}
+                aria-label={sessionSidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
                 className="sidebar-icon-button"
                 onClick={handleSidebarToggle}
-                title={sidebarCollapsed ? t.sidebar.expand : t.sidebar.collapse}
+                title={sessionSidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
                 type="button"
               >
-                {sidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+                {sessionSidebarExpanded ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
               </button>
             </div>
           </div>
@@ -730,6 +792,37 @@ function App({
               </button>
             ))}
           </nav>
+          {activeSection === "sessions" && sessionSidebarExpanded ? (
+            <div className="sidebar-session-section">
+              <SessionsIndex
+                sessions={sessions.items}
+                query={query}
+                searchOpen={sessionSearchOpen}
+                searchFocusKey={sessionSearchFocusKey}
+                loading={sessionsQuery.isFetching}
+                error={!sessions.items.length ? queryError(sessionsQuery.error) : ""}
+                hasMore={Boolean(sessionsQuery.hasNextPage)}
+                loadMoreError={sessions.items.length && sessionsQuery.isFetchNextPageError
+                  ? queryError(sessionsQuery.error)
+                  : ""}
+                selectedSessionId={selectedSessionId}
+                onQueryChange={handleSessionQueryChange}
+                onSearchClose={() => {
+                  setSessionSearchOpen(false);
+                  setQuery("");
+                }}
+                onLoadMore={loadMoreSessions}
+                onNew={() => {
+                  closeSessionSidebarOverlay();
+                  startNewConversation();
+                }}
+                onOpen={(session) => {
+                  closeSessionSidebarOverlay();
+                  openSession(session);
+                }}
+              />
+            </div>
+          ) : null}
           <button
             aria-label={t.sidebar.statusAndSettings}
             className="sidebar-status-card"
@@ -765,54 +858,35 @@ function App({
               <div className="dashboard-refresh-indicator" role="status">{t.common.updating}</div>
             ) : null}
             {activeSection === "sessions" ? (
-              <section className="sessions-split">
-                <div className="sessions-split-index">
-                  <SessionsIndex
-                    sessions={sessions.items}
-                    query={query}
-                    searchOpen
-                    searchFocusKey={sessionSearchFocusKey}
-                    loading={sessionsQuery.isFetching}
-                    error={!sessions.items.length ? queryError(sessionsQuery.error) : ""}
-                    hasMore={Boolean(sessionsQuery.hasNextPage)}
-                    loadMoreError={sessions.items.length && sessionsQuery.isFetchNextPageError
-                      ? queryError(sessionsQuery.error)
+              <section className="sessions-conversation-shell">
+                {selectedSessionId || newConversation ? (
+                  <SessionDetailView
+                    fallbackSession={selectedSession}
+                    detail={sessionDetail}
+                    activity={conversationActivity}
+                    newConversation={newConversation}
+                    runtimeReady={conversationRuntimeReady}
+                    transcriptFetchedAt={sessionDetail?.messages_page.fetched_at ?? 0}
+                    loading={!newConversation && sessionDetailQuery.isPending && !conversationActivity}
+                    error={!newConversation && !sessionDetail && !conversationActivity
+                      ? queryError(sessionDetailQuery.error)
                       : ""}
-                    selectedSessionId={selectedSessionId}
-                    onQueryChange={handleSessionQueryChange}
-                    onLoadMore={loadMoreSessions}
-                    onNew={startNewConversation}
-                    onOpen={openSession}
+                    hasOlder={Boolean(sessionDetailQuery.hasPreviousPage)}
+                    loadingOlder={sessionDetailQuery.isFetchingPreviousPage}
+                    loadOlderError={sessionDetail && sessionDetailQuery.isFetchPreviousPageError
+                      ? queryError(sessionDetailQuery.error)
+                      : ""}
+                    onLoadOlder={() => sessionDetailQuery.fetchPreviousPage()}
+                    onSend={sendConversation}
+                    onStop={stopConversation}
+                    onOpenFile={openConversationFile}
+                    onOpenAttachment={openConversationAttachment}
+                    sidebarExpanded={sessionSidebarExpanded}
+                    onToggleSidebar={handleSidebarToggle}
                   />
-                </div>
-                <div className="sessions-split-detail">
-                  {selectedSessionId || newConversation ? (
-                    <SessionDetailView
-                      fallbackSession={selectedSession}
-                      detail={sessionDetail}
-                      activity={conversationActivity}
-                      newConversation={newConversation}
-                      runtimeReady={conversationRuntimeReady}
-                      transcriptFetchedAt={sessionDetail?.messages_page.fetched_at ?? 0}
-                      loading={!newConversation && sessionDetailQuery.isPending && !conversationActivity}
-                      error={!newConversation && !sessionDetail && !conversationActivity
-                        ? queryError(sessionDetailQuery.error)
-                        : ""}
-                      hasOlder={Boolean(sessionDetailQuery.hasPreviousPage)}
-                      loadingOlder={sessionDetailQuery.isFetchingPreviousPage}
-                      loadOlderError={sessionDetail && sessionDetailQuery.isFetchPreviousPageError
-                        ? queryError(sessionDetailQuery.error)
-                        : ""}
-                      onLoadOlder={() => sessionDetailQuery.fetchPreviousPage()}
-                      onSend={sendConversation}
-                      onStop={stopConversation}
-                      onOpenFile={openConversationFile}
-                      onOpenAttachment={openConversationAttachment}
-                    />
-                  ) : (
-                    <EmptyState label={selectedSessionId ? t.sessionDetail.loading : t.sessions.selectPrompt} />
-                  )}
-                </div>
+                ) : (
+                  <EmptyState label={selectedSessionId ? t.sessionDetail.loading : t.sessions.selectPrompt} />
+                )}
               </section>
             ) : null}
             {activeSection === "home" ? (
@@ -899,7 +973,9 @@ function App({
 
         <DetailModal target={detailTarget} onClose={() => setDetailTarget(null)} />
       </main>
-      {runtimeStatusPopover}
+      <div className={activeSection === "sessions" ? "runtime-status-host sessions-focus" : "runtime-status-host"}>
+        {runtimeStatusPopover}
+      </div>
     </>
   );
 }
