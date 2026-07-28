@@ -241,6 +241,19 @@ export const ZH_TEXT = {
     thinking: "正在思考",
     runningTool: "正在运行工具",
     generatingAnswer: "正在生成回答",
+    process: "处理过程",
+    workedFor: (duration: string) => `处理了 ${duration}`,
+    processFailed: (duration: string) => duration ? `处理失败 · ${duration}` : "处理失败",
+    processCancelled: (duration: string) => duration ? `已停止 · ${duration}` : "已停止",
+    elapsedDuration: (milliseconds: number) => {
+      const seconds = Math.max(0, Math.round(milliseconds / 1_000));
+      if (seconds < 1) return "不足1秒";
+      const hours = Math.floor(seconds / 3_600);
+      const minutes = Math.floor((seconds % 3_600) / 60);
+      const remainder = seconds % 60;
+      return [hours ? `${hours}小时` : "", minutes ? `${minutes}分` : "", remainder ? `${remainder}秒` : ""]
+        .filter(Boolean).join("");
+    },
     sending: "正在发送…",
     jumpToLatest: "跳到最新",
     files: (count: string) => `产出文件 · ${count}`,
@@ -880,6 +893,19 @@ export const UI_TEXT: Record<Language, UiText> = {
       thinking: "Thinking",
       runningTool: "Running tools",
       generatingAnswer: "Generating response",
+      process: "Process",
+      workedFor: (duration: string) => `Worked for ${duration}`,
+      processFailed: (duration: string) => duration ? `Failed after ${duration}` : "Process failed",
+      processCancelled: (duration: string) => duration ? `Stopped after ${duration}` : "Stopped",
+      elapsedDuration: (milliseconds: number) => {
+        const seconds = Math.max(0, Math.round(milliseconds / 1_000));
+        if (seconds < 1) return "<1s";
+        const hours = Math.floor(seconds / 3_600);
+        const minutes = Math.floor((seconds % 3_600) / 60);
+        const remainder = seconds % 60;
+        return [hours ? `${hours}h` : "", minutes ? `${minutes}m` : "", remainder ? `${remainder}s` : ""]
+          .filter(Boolean).join(" ");
+      },
       sending: "Sending…",
       jumpToLatest: "Jump to latest",
       files: (count: string) => `Output files · ${count}`,

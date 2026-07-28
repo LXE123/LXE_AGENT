@@ -18,8 +18,8 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
     await store.start();
     await store.ensureSession({ workspace: testWorkspace, session_id: "s-1", source: { platform: "feishu", chat_type: "p2p" } });
-    await store.appendMessage("s-1", { role: "user", content: "hello" });
-    await store.appendMessage("s-1", { role: "assistant", content: "world" });
+    await store.appendMessage("s-1", { role: "user", content: "hello" }, "turn_input", "turn-1");
+    await store.appendMessage("s-1", { role: "assistant", content: "world" }, "assistant_response", "turn-1");
     await store.recordTurn("s-1", {
       turn_id: "turn-1", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 20,
       input_tokens: 7, output_tokens: 3, tool_calls: 2, api_calls: 1,
@@ -37,7 +37,12 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     const previousCursor = String((detail?.messages_page as { previous_cursor: string }).previous_cursor);
     expect(detail).toMatchObject({ session: { workspace: testWorkspace } });
     expect(detail?.messages).toEqual([
-      { display_group_id: expect.any(String), role: "assistant", content: "world" },
+      {
+        display_group_id: expect.any(String),
+        role: "assistant",
+        content: "world",
+        turn: { turn_id: "turn-1", status: "completed", elapsed_ms: 20 },
+      },
     ]);
     expect(new Set((detail?.messages as Array<{ display_group_id: string }>)
       .map((message) => message.display_group_id)).size).toBe(1);
@@ -51,7 +56,16 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       has_previous: true,
     });
     expect((await store.sessionDetail("s-1", { limit: 1, before: previousCursor }))?.messages)
-      .toEqual([{ display_group_id: expect.any(String), role: "user", content: "hello" }]);
+      .toEqual([{
+        display_group_id: expect.any(String),
+        role: "user",
+        content: "hello",
+        turn: { turn_id: "turn-1", status: "completed", elapsed_ms: 20 },
+      }]);
+    expect(await store.loadMessages("s-1")).toEqual([
+      { role: "user", content: "hello" },
+      { role: "assistant", content: "world" },
+    ]);
     expect(await store.sessionDetail("missing", { limit: 10 })).toBeUndefined();
     expect(store.usageOverview(30)).toMatchObject({ totals: { turns: 1, tool_calls: 2, llm_calls: 1, input_tokens: 7, output_tokens: 3 } });
     expect(store.toolUsageStats(30)).toEqual([expect.objectContaining({ name: "read", calls: 2, errors: 0 })]);
@@ -128,6 +142,56 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       previous_cursor: expect.any(String),
       has_previous: true,
     });
+    await store.stop();
+  });
+
+  test("persists terminal turn errors for display without adding them to model replay or message counts", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-turn-error-"));
+    roots.push(root);
+    const databasePath = join(root, "agent.sqlite3");
+    let store = new SqliteRuntimeStore(databasePath);
+    await store.start();
+    await store.ensureSession({
+      workspace: testWorkspace,
+      session_id: "error-session",
+      source: { platform: "desktop" },
+    });
+    await store.appendMessage("error-session", { role: "user", content: "try it" }, "turn_input", "turn-error");
+    await store.appendTurnError("error-session", "turn-error", "执行失败: provider offline");
+    await store.recordTurn("error-session", {
+      turn_id: "turn-error", started_at: 100, status: "error", elapsed_ms: 2500,
+      input_tokens: 1, output_tokens: 0, tool_calls: 0, api_calls: 1,
+      tools: [], activations: [], executions: [],
+    });
+
+    expect(await store.loadMessages("error-session")).toEqual([{ role: "user", content: "try it" }]);
+    const detail = await store.sessionDetail("error-session", { limit: 10 });
+    expect(detail?.session).toMatchObject({ message_count: 1 });
+    expect(detail?.messages_page).toMatchObject({ total: 2, raw_message_total: 1 });
+    expect(detail?.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "try it" }),
+      expect.objectContaining({
+        role: "assistant",
+        content: [{ type: "text", text: "执行失败: provider offline" }],
+        turn: { turn_id: "turn-error", status: "error", elapsed_ms: 2500 },
+      }),
+    ]);
+    const errorGroupId = String((detail?.messages as Array<{ display_group_id: string }>)[1]?.display_group_id);
+    await store.stop();
+
+    rmSync(databasePath, { force: true });
+    rmSync(`${databasePath}-wal`, { force: true });
+    rmSync(`${databasePath}-shm`, { force: true });
+    store = new SqliteRuntimeStore(databasePath);
+    await store.start();
+    await store.ensureSession({
+      workspace: testWorkspace,
+      session_id: "error-session",
+      source: { platform: "desktop" },
+    });
+    const rebuilt = await store.sessionDetail("error-session", { limit: 10 });
+    expect((rebuilt?.messages as Array<{ display_group_id: string }>)[1]?.display_group_id).toBe(errorGroupId);
+    expect(await store.loadMessages("error-session")).toEqual([{ role: "user", content: "try it" }]);
     await store.stop();
   });
 

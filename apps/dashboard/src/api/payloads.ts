@@ -1,7 +1,11 @@
 // Dashboard wire payloads live with the RPC contract. This module keeps the
 // existing Renderer import surface and owns UI-only view models.
 
-import type { SessionArtifactPayload, SessionMessage } from "@lxe/desktop-protocol";
+import type {
+  SessionArtifactPayload,
+  SessionMessage,
+  SessionTurnDisplayPayload,
+} from "@lxe/desktop-protocol";
 
 export type {
   ApiList,
@@ -29,6 +33,7 @@ export type {
   SessionArtifactPayload,
   SessionListPayload,
   SessionMessage,
+  SessionTurnDisplayPayload,
   SessionPayload,
   SessionSummaryPayload,
   SkillContentPayload,
@@ -59,9 +64,23 @@ export type ConversationArtifactGroup = {
   key: string;
 };
 
+export type ConversationProcessItem =
+  | { type: "message"; message: SessionMessage; key: string }
+  | { type: "tool_group"; group: ConversationToolGroup };
+
+export type ConversationResponseGroup = {
+  displayGroupId: string;
+  messages: SessionMessage[];
+  process: ConversationProcessItem[];
+  finalMessage?: SessionMessage;
+  turn?: SessionTurnDisplayPayload;
+  key: string;
+};
+
 export type ConversationRenderItem =
   | { type: "message"; message: SessionMessage; index: number; toolGroups: ConversationToolGroup[] }
   | { type: "tool_group"; group: ConversationToolGroup }
+  | { type: "response_group"; group: ConversationResponseGroup }
   | { type: "artifact_group"; group: ConversationArtifactGroup };
 
 export type SkillContentView = {

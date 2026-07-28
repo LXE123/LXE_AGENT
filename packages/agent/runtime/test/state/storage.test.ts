@@ -13,6 +13,46 @@ afterEach(() => {
 });
 
 describe("SqliteRuntimeStore", () => {
+  test("upgrades and invalidates the rebuildable display index when turn ownership is missing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-runtime-display-index-"));
+    roots.push(root);
+    const databasePath = join(root, "local_agent.sqlite3");
+    const legacy = new Database(databasePath, { create: true });
+    legacy.exec(`
+      CREATE TABLE transcript_display_groups (
+        session_id TEXT NOT NULL,
+        group_number INTEGER NOT NULL,
+        byte_start INTEGER NOT NULL,
+        byte_end INTEGER NOT NULL,
+        group_kind TEXT NOT NULL,
+        PRIMARY KEY (session_id, group_number)
+      );
+      CREATE TABLE transcript_file_state (
+        session_id TEXT PRIMARY KEY,
+        file_size INTEGER NOT NULL DEFAULT 0,
+        mtime_ms REAL NOT NULL DEFAULT 0,
+        indexed_bytes INTEGER NOT NULL DEFAULT 0,
+        event_count INTEGER NOT NULL DEFAULT 0,
+        raw_message_count INTEGER NOT NULL DEFAULT 0,
+        display_group_count INTEGER NOT NULL DEFAULT 0,
+        last_display_kind TEXT NOT NULL DEFAULT '',
+        updated_at REAL NOT NULL DEFAULT 0
+      );
+      INSERT INTO transcript_file_state (session_id) VALUES ('stale');
+    `);
+    legacy.close(false);
+
+    const store = new SqliteRuntimeStore(databasePath);
+    await store.start();
+    const inspected = new Database(databasePath, { readonly: true });
+    const columns = inspected.query("PRAGMA table_info(transcript_display_groups)").all() as Array<{ name: string }>;
+    expect(columns.map((column) => column.name)).toContain("turn_id");
+    expect(inspected.query("SELECT COUNT(*) AS count FROM transcript_file_state").get())
+      .toEqual({ count: 0 });
+    inspected.close(false);
+    await store.stop();
+  });
+
   test("persists local file references while projecting only safe attachment metadata", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-attachments-"));
     roots.push(root);

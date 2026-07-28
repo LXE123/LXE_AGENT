@@ -50,7 +50,9 @@ class MemoryStore implements RuntimeStore {
   statePatches: JsonObject[] = [];
   replacements: RuntimeMessage[][] = [];
   artifacts: RuntimeArtifactRecord[] = [];
+  turnErrors: Array<{ turn_id: string; message: string }> = [];
   operations: string[] = [];
+  messageTurnIds: string[] = [];
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
   async getSession(): Promise<{ session_id: string; source: JsonObject; workspace: typeof workspace }> {
@@ -75,13 +77,23 @@ class MemoryStore implements RuntimeStore {
     this.artifacts.push(structuredClone(artifact));
     this.operations.push("artifact");
   }
+  async appendTurnError(_sessionId: string, turnId: string, message: string): Promise<void> {
+    this.turnErrors.push({ turn_id: turnId, message });
+    this.operations.push("turn_error");
+  }
   async resolveArtifact(_sessionId: string, artifactId: string): Promise<RuntimeArtifactRecord | undefined> {
     return this.artifacts.find((artifact) => artifact.artifact_id === artifactId);
   }
   async resolveAttachment(): Promise<undefined> { return undefined; }
   async attachmentPaths(): Promise<string[]> { return []; }
-  async appendMessage(_sessionId: string, message: RuntimeMessage): Promise<void> {
+  async appendMessage(
+    _sessionId: string,
+    message: RuntimeMessage,
+    _reason?: string,
+    turnId?: string,
+  ): Promise<void> {
     this.messages.push(message);
+    this.messageTurnIds.push(turnId ?? "");
     this.operations.push("message");
   }
   async replaceMessages(_sessionId: string, messages: RuntimeMessage[]): Promise<void> {
@@ -144,6 +156,7 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.start();
     await runtime.runTurn(job(), handle());
     expect(changes).toEqual(["s1:messages", "s1:messages", "s1:usage"]);
+    expect(store.messageTurnIds).toEqual(["j1", "j1"]);
     expect(store.metrics[0]).toMatchObject({
       platform: "feishu",
       bot_app_id: "cli_app",
@@ -197,7 +210,7 @@ describe("TypeScriptAgentRuntime", () => {
     });
     await failedMessageRuntime.start();
     expect((await failedMessageRuntime.runTurn(job(), handle())).status).toBe("error");
-    expect(failedMessageChanges).toEqual(["usage"]);
+    expect(failedMessageChanges).toEqual(["messages", "usage"]);
     await failedMessageRuntime.stop();
   });
 
@@ -1470,6 +1483,8 @@ describe("TypeScriptAgentRuntime", () => {
       status: "error",
       reply: "执行失败: provider offline",
     }));
+    expect(store.turnErrors).toEqual([{ turn_id: "j1", message: "执行失败: provider offline" }]);
+    expect(store.messages).toEqual([{ role: "user", content: "hello" }]);
     expect(store.metrics.at(-1)).toEqual(expect.objectContaining({ status: "error" }));
     await runtime.stop();
   });
@@ -1754,6 +1769,7 @@ describe("TypeScriptAgentRuntime", () => {
       calls: number;
       contexts: number;
       snapshots: number;
+      turnErrors: Array<{ turn_id: string; message: string }>;
       outcome: Awaited<ReturnType<TypeScriptAgentRuntime["runTurn"]>>;
     }> => {
       const store = new MemoryStore();
@@ -1784,13 +1800,14 @@ describe("TypeScriptAgentRuntime", () => {
       await runtime.start();
       const outcome = await runtime.runTurn(job(), handle());
       await runtime.stop();
-      return { calls, contexts: store.turnContexts.length, snapshots, outcome };
+      return { calls, contexts: store.turnContexts.length, snapshots, turnErrors: store.turnErrors, outcome };
     };
     const retryable = await run(true);
     expect(retryable.calls).toBe(3);
     expect(retryable.contexts).toBe(1);
     expect(retryable.snapshots).toBe(1);
     expect(retryable.outcome.reply).toBe("执行失败: Kimi Coding 服务暂时异常，请稍后重试。");
+    expect(retryable.turnErrors).toEqual([{ turn_id: "j1", message: retryable.outcome.reply }]);
     const fatal = await run(false);
     expect(fatal.calls).toBe(1);
     expect(fatal.contexts).toBe(1);

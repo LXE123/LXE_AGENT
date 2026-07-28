@@ -62,7 +62,7 @@ test("conversation messages and composer share the same focused reading axis", (
   const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
   assert.match(styles, /\.conversation-feed \{[^}]*width:\s*min\(820px,/s);
   assert.match(styles, /\.conversation-composer \{[^}]*width:\s*min\(820px,/s);
-  assert.match(styles, /\.conversation-feed \.message-card\.role-assistant,[\s\S]*?background:\s*transparent/);
+  assert.match(styles, /\.conversation-feed \.message-card\.role-assistant \{[^}]*background:\s*transparent/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(620px, 78%\)[^}]*border:\s*1px solid var\(--border\)[^}]*background:\s*var\(--surface-subtle\)/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-user \.message-markdown > :last-child \{[^}]*margin-bottom:\s*0/s);
   assert.match(view, /const showCharacterCount = text\.length >= Math\.floor\(8192 \* 0\.75\)/);
@@ -120,7 +120,10 @@ test("dashboard sends through Main, restores activity, and merges cursor history
   assert.match(main, /operation: "sessions\.send"/);
   assert.match(main, /operation: "sessions\.stop"/);
   assert.match(main, /onConversationEvent/);
+  assert.match(main, /setQueryData\(\s*dashboardQueryKeys\.sessions\.activity\(activity\.session_id\)/s);
   assert.match(main, /useConversationActivityQuery/);
+  assert.doesNotMatch(main, /conversationActivities|setConversationActivities/);
+  assert.doesNotMatch(main, /if \(section === "sessions"\) \{\s*setSelectedSessionId\(""\)/s);
   assert.match(queries, /operation: "sessions\.activity"/);
   assert.match(queries, /message_before: before/);
   assert.match(queries, /mergeLatestConversationWindow/);
@@ -128,22 +131,20 @@ test("dashboard sends through Main, restores activity, and merges cursor history
   assert.doesNotMatch(main, /response_route_id/);
 });
 
-test("thinking, tool activity and replies each read at one level", () => {
-  // The group header leads with which tools ran; a lone call shows what it ran
-  // rather than a step count that always reads the same.
+test("thinking and tools fold into one response process while the final answer stays outside", () => {
   assert.match(view, /<div className="tool-turn-title">\{stats\.title\}<\/div>/);
   assert.match(view, /stats\.detailIsArgument \? "tool-turn-subtitle argument" : "tool-turn-subtitle"/);
   assert.match(view, /const single = callCount === 1 \? operations\[0\] : undefined/);
-  // A group that failed opens itself; everything else stays collapsed until
-  // the reader asks for it.
-  assert.match(view, /toolGroupOverrides\.get\(group\.key\) \?\? hasToolError\(group\.messages\)/);
-  // Thinking keeps its own bare row and tool groups sit beside a reply rather
-  // than inside it, so neither ever appears at two different nesting levels.
-  assert.match(view, /role === "assistant" && !hasReaderFacingText\(message\)/);
-  assert.match(view, /className="process-step"/);
+  assert.match(conversation, /type: "response_group"/);
+  assert.match(conversation, /finalMessage/);
+  assert.match(view, /className="response-process-summary"/);
+  assert.match(view, /response-final-answer/);
+  assert.match(view, /className="process-thinking-text"/);
+  assert.doesNotMatch(view, /stream\.thinking \? <ThinkingBlock/);
+  assert.match(view, /liveOwnedTurnIds/);
+  assert.match(view, /item\.type === "response_group" && item\.group\.turn\?\.turn_id/);
+  assert.doesNotMatch(view, /similarity|startsWith\(stream\.content\)/);
   assert.doesNotMatch(view, /assistant-tool-stack/);
-  assert.match(conversation, /function splitAssistantThinking/);
-  // Expanded, the group is one line per operation, not a dump of each message.
   assert.match(view, /className="tool-op-list"/);
   assert.match(view, /className="tool-op-argument"/);
 });

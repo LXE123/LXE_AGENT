@@ -171,10 +171,11 @@ export interface RuntimeStore {
   loadMessages(sessionId: string): Promise<RuntimeMessage[]>;
   appendTurnContext(sessionId: string, context: RuntimeTurnContextRecord): Promise<void>;
   appendArtifact(sessionId: string, artifact: RuntimeArtifactRecord): Promise<void>;
+  appendTurnError(sessionId: string, turnId: string, message: string): Promise<void>;
   resolveArtifact(sessionId: string, artifactId: string): Promise<RuntimeArtifactRecord | undefined>;
   resolveAttachment(sessionId: string, attachmentId: string): Promise<RuntimeAttachmentRecord | undefined>;
   attachmentPaths(sessionId: string): Promise<string[]>;
-  appendMessage(sessionId: string, message: RuntimeMessage, reason?: string): Promise<void>;
+  appendMessage(sessionId: string, message: RuntimeMessage, reason?: string, turnId?: string): Promise<void>;
   replaceMessages(
     sessionId: string,
     messages: RuntimeMessage[],

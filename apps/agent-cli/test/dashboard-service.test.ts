@@ -116,16 +116,21 @@ describe("DashboardService", () => {
     const store = new SqliteRuntimeStore(join(root, "data", "agent.sqlite3"));
     await store.start();
     await store.ensureSession({ workspace: workspaceFor(root), session_id: "session-one", source: { platform: "feishu", chat_type: "p2p" } });
-    await store.appendMessage("session-one", { role: "user", content: "hello" });
+    await store.appendMessage("session-one", { role: "user", content: "hello" }, "turn_input", "turn-one");
     await store.appendMessage("session-one", {
       role: "assistant",
       content: [{ type: "tool_call", id: "call-1", name: "demo_tool", arguments: {} }],
-    });
+    }, "assistant_response", "turn-one");
     await store.appendMessage("session-one", {
       role: "tool",
       content: [{ type: "tool_result", tool_call_id: "call-1", content: "ok" }],
-    });
-    await store.appendMessage("session-one", { role: "assistant", content: "done" });
+    }, "tool_results", "turn-one");
+    await store.appendMessage(
+      "session-one",
+      { role: "assistant", content: "done" },
+      "assistant_response",
+      "turn-one",
+    );
     await store.recordTurn("session-one", {
       turn_id: "turn-one", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 15,
       input_tokens: 3, output_tokens: 2, tool_calls: 1, api_calls: 1,
@@ -213,16 +218,20 @@ describe("DashboardService", () => {
       operation: "sessions.detail",
       input: { session_id: "session-one", message_limit: 1 },
     }) as {
-      messages: Array<{ display_group_id: string; role: string }>;
+      messages: Array<{
+        display_group_id: string;
+        role: string;
+        turn?: { turn_id: string; status: string | null; elapsed_ms: number | null };
+      }>;
       messages_page: { previous_cursor: string };
     };
     const previousCursor = latestDetail.messages_page.previous_cursor;
     expect(latestDetail).toMatchObject({
       session: { session_id: "session-one" },
       messages: [
-        { display_group_id: expect.any(String), role: "assistant" },
-        { display_group_id: expect.any(String), role: "tool" },
-        { display_group_id: expect.any(String), role: "assistant" },
+        { display_group_id: expect.any(String), role: "assistant", turn: { turn_id: "turn-one", status: "completed", elapsed_ms: 15 } },
+        { display_group_id: expect.any(String), role: "tool", turn: { turn_id: "turn-one", status: "completed", elapsed_ms: 15 } },
+        { display_group_id: expect.any(String), role: "assistant", turn: { turn_id: "turn-one", status: "completed", elapsed_ms: 15 } },
       ],
       messages_page: {
         total: 2,

@@ -63,6 +63,23 @@ const transcriptArtifact = (event: JsonObject): RuntimeArtifactRecord | undefine
   return artifact;
 };
 
+interface TranscriptTurnError {
+  turn_id: string;
+  message: string;
+  ts: number;
+}
+
+const transcriptTurnError = (event: JsonObject): TranscriptTurnError | undefined => {
+  if (text(event.kind) !== "turn_error") return undefined;
+  const error = {
+    turn_id: text(event.turn_id),
+    message: text(event.message),
+    ts: Number(event.ts ?? 0),
+  };
+  if (!error.turn_id || !error.message || !Number.isFinite(error.ts) || error.ts < 0) return undefined;
+  return error;
+};
+
 const publicArtifact = (artifact: RuntimeArtifactRecord): JsonObject => ({
   artifact_id: artifact.artifact_id,
   turn_id: artifact.turn_id,
@@ -259,6 +276,11 @@ const transcriptDisplayPage = (
       pendingEnd = index + 1;
       continue;
     }
+    if (transcriptTurnError(event)) {
+      pendingStart ??= index;
+      pendingEnd = index + 1;
+      continue;
+    }
     if (!transcriptDisplayMarker(event)) continue;
     flushPending();
     ranges.push([index, index + 1]);
@@ -290,6 +312,16 @@ const transcriptDisplayPage = (
         visibleArtifactPaths.add(key);
         const existing = Array.isArray(latestMessage.artifacts) ? latestMessage.artifacts : [];
         latestMessage.artifacts = [...existing, publicArtifact(artifact)];
+        continue;
+      }
+      const turnError = transcriptTurnError(event);
+      if (turnError) {
+        latestMessage = {
+          role: "assistant",
+          content: [{ type: "text", text: turnError.message }],
+          display_group_id: displayGroupId,
+        };
+        messages.push(latestMessage);
         continue;
       }
       const marker = transcriptDisplayMarker(event);
@@ -466,6 +498,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
           byte_start INTEGER NOT NULL,
           byte_end INTEGER NOT NULL,
           group_kind TEXT NOT NULL,
+          turn_id TEXT NOT NULL DEFAULT '',
           PRIMARY KEY (session_id, group_number)
         );
         CREATE TABLE IF NOT EXISTS transcript_artifacts (
@@ -535,6 +568,16 @@ export class SqliteRuntimeStore implements RuntimeStore {
         if (!usageColumns.some((column) => column.name === name)) {
           database.exec(`ALTER TABLE turn_usage ADD COLUMN ${name} ${declaration}`);
         }
+      }
+      const displayGroupColumns = this.allPrepared<{ name: string }>(
+        "PRAGMA table_info(transcript_display_groups)",
+      );
+      if (!displayGroupColumns.some((column) => column.name === "turn_id")) {
+        database.exec(`
+          ALTER TABLE transcript_display_groups ADD COLUMN turn_id TEXT NOT NULL DEFAULT '';
+          DELETE FROM transcript_display_groups;
+          DELETE FROM transcript_file_state;
+        `);
       }
       database.exec(`
         UPDATE turn_usage SET sequence = rowid WHERE sequence IS NULL;
@@ -795,7 +838,12 @@ export class SqliteRuntimeStore implements RuntimeStore {
     return await this.readIndexedDisplayPage(safeSessionId, path, state, options);
   }
 
-  async appendMessage(sessionId: string, message: RuntimeMessage, reason = "runtime"): Promise<void> {
+  async appendMessage(
+    sessionId: string,
+    message: RuntimeMessage,
+    reason = "runtime",
+    turnId = "",
+  ): Promise<void> {
     const safeSessionId = text(sessionId);
     await this.enqueueSessionWrite(safeSessionId, async () => {
       const path = this.transcriptPath(safeSessionId);
@@ -805,6 +853,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         kind: "message",
         message: persisted as unknown as JsonObject,
         reason,
+        ...(text(turnId) ? { turn_id: text(turnId) } : {}),
         ts: Date.now() / 1_000,
       });
       const title = sessionTitle(message, reason);
@@ -836,6 +885,27 @@ export class SqliteRuntimeStore implements RuntimeStore {
         context_window_tokens: Math.max(0, Math.trunc(Number(context.context_window_tokens ?? 0))),
         ts: Number(context.ts ?? Date.now() / 1_000),
       });
+      if (cached) await this.refreshReplayCacheMetadata(safeSessionId, path, cached);
+      await this.enqueueIndexSync(safeSessionId, path);
+    });
+  }
+
+  async appendTurnError(sessionId: string, turnId: string, message: string): Promise<void> {
+    const safeSessionId = text(sessionId);
+    const safeTurnId = text(turnId);
+    const safeMessage = text(message);
+    if (!safeSessionId || !safeTurnId || !safeMessage) throw new Error("invalid transcript turn error");
+    await this.enqueueSessionWrite(safeSessionId, async () => {
+      const path = this.transcriptPath(safeSessionId);
+      const cached = this.validCacheBeforeWrite(safeSessionId, path);
+      await this.appendTranscriptEvent(safeSessionId, {
+        kind: "turn_error",
+        turn_id: safeTurnId,
+        message: safeMessage,
+        ts: Date.now() / 1_000,
+      });
+      this.db().query("UPDATE agent_sessions SET last_active_at = ? WHERE session_id = ?")
+        .run(Date.now() / 1_000, safeSessionId);
       if (cached) await this.refreshReplayCacheMetadata(safeSessionId, path, cached);
       await this.enqueueIndexSync(safeSessionId, path);
     });
@@ -1757,27 +1827,29 @@ export class SqliteRuntimeStore implements RuntimeStore {
             }
           }
           const role = text(message.role).toLowerCase();
+          const turnId = text(event.turn_id) || text(latestContext?.turn_id);
           if (role === "assistant" || role === "tool") {
             if (lastDisplayKind === "assistant_tool" && displayGroupCount > 0) {
               this.db().query(`
-                UPDATE transcript_display_groups SET byte_end = ?
+                UPDATE transcript_display_groups SET
+                  byte_end = ?, turn_id = CASE WHEN turn_id = '' THEN ? ELSE turn_id END
                 WHERE session_id = ? AND group_number = ?
-              `).run(line.byteEnd, sessionId, displayGroupCount - 1);
+              `).run(line.byteEnd, turnId, sessionId, displayGroupCount - 1);
             } else {
               this.db().query(`
                 INSERT INTO transcript_display_groups
-                  (session_id, group_number, byte_start, byte_end, group_kind)
-                VALUES (?, ?, ?, ?, 'assistant_tool')
-              `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd);
+                  (session_id, group_number, byte_start, byte_end, group_kind, turn_id)
+                VALUES (?, ?, ?, ?, 'assistant_tool', ?)
+              `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd, turnId);
               displayGroupCount += 1;
             }
             lastDisplayKind = "assistant_tool";
           } else if (role) {
             this.db().query(`
               INSERT INTO transcript_display_groups
-                (session_id, group_number, byte_start, byte_end, group_kind)
-              VALUES (?, ?, ?, ?, 'message')
-            `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd);
+                (session_id, group_number, byte_start, byte_end, group_kind, turn_id)
+              VALUES (?, ?, ?, ?, 'message', ?)
+            `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd, turnId);
             displayGroupCount += 1;
             lastDisplayKind = "message";
           }
@@ -1800,15 +1872,35 @@ export class SqliteRuntimeStore implements RuntimeStore {
           );
           if (lastDisplayKind === "assistant_tool" && displayGroupCount > 0) {
             this.db().query(`
-              UPDATE transcript_display_groups SET byte_end = ?
+              UPDATE transcript_display_groups SET
+                byte_end = ?, turn_id = CASE WHEN turn_id = '' THEN ? ELSE turn_id END
               WHERE session_id = ? AND group_number = ?
-            `).run(line.byteEnd, sessionId, displayGroupCount - 1);
+            `).run(line.byteEnd, artifact.turn_id, sessionId, displayGroupCount - 1);
           } else {
             this.db().query(`
               INSERT INTO transcript_display_groups
-                (session_id, group_number, byte_start, byte_end, group_kind)
-              VALUES (?, ?, ?, ?, 'artifact')
-            `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd);
+                (session_id, group_number, byte_start, byte_end, group_kind, turn_id)
+              VALUES (?, ?, ?, ?, 'artifact', ?)
+            `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd, artifact.turn_id);
+            displayGroupCount += 1;
+          }
+          lastDisplayKind = "assistant_tool";
+          continue;
+        }
+        const turnError = transcriptTurnError(event);
+        if (turnError) {
+          if (lastDisplayKind === "assistant_tool" && displayGroupCount > 0) {
+            this.db().query(`
+              UPDATE transcript_display_groups SET
+                byte_end = ?, turn_id = CASE WHEN turn_id = '' THEN ? ELSE turn_id END
+              WHERE session_id = ? AND group_number = ?
+            `).run(line.byteEnd, turnError.turn_id, sessionId, displayGroupCount - 1);
+          } else {
+            this.db().query(`
+              INSERT INTO transcript_display_groups
+                (session_id, group_number, byte_start, byte_end, group_kind, turn_id)
+              VALUES (?, ?, ?, ?, 'assistant_tool', ?)
+            `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd, turnError.turn_id);
             displayGroupCount += 1;
           }
           lastDisplayKind = "assistant_tool";
@@ -1817,8 +1909,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
         if (transcriptDisplayMarker(event)) {
           this.db().query(`
             INSERT INTO transcript_display_groups
-              (session_id, group_number, byte_start, byte_end, group_kind)
-            VALUES (?, ?, ?, ?, 'marker')
+              (session_id, group_number, byte_start, byte_end, group_kind, turn_id)
+            VALUES (?, ?, ?, ?, 'marker', '')
           `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd);
           displayGroupCount += 1;
           lastDisplayKind = "marker";
@@ -1887,10 +1979,21 @@ export class SqliteRuntimeStore implements RuntimeStore {
   ): Promise<TranscriptDisplayPage> {
     const total = state.display_group_count;
     const { limit, start, end } = displayWindow(sessionId, total, options);
-    const groups = this.allPrepared<{ group_number: number; byte_start: number; byte_end: number }>(`
-      SELECT group_number, byte_start, byte_end FROM transcript_display_groups
-      WHERE session_id = ? AND group_number >= ? AND group_number < ?
-      ORDER BY group_number ASC
+    const groups = this.allPrepared<{
+      group_number: number;
+      byte_start: number;
+      byte_end: number;
+      turn_id: string;
+      turn_status: string | null;
+      turn_elapsed_ms: number | null;
+    }>(`
+      SELECT groups.group_number, groups.byte_start, groups.byte_end, groups.turn_id,
+             usage.status AS turn_status, usage.elapsed_ms AS turn_elapsed_ms
+      FROM transcript_display_groups AS groups
+      LEFT JOIN turn_usage AS usage
+        ON usage.session_id = groups.session_id AND usage.turn_id = groups.turn_id
+      WHERE groups.session_id = ? AND groups.group_number >= ? AND groups.group_number < ?
+      ORDER BY groups.group_number ASC
     `, sessionId, start, end);
     const messages: JsonObject[] = [];
     if (groups.length > 0) {
@@ -1903,12 +2006,28 @@ export class SqliteRuntimeStore implements RuntimeStore {
         const groupEnd = Number(group.byte_end);
         const groupBytes = bytes.subarray(groupStart - byteStart, groupEnd - byteStart);
         const displayGroupId = displayGroupCursor(sessionId, Number(group.group_number));
+        const turnId = text(group.turn_id);
+        const turnStatus = ["completed", "cancelled", "error"].includes(text(group.turn_status))
+          ? text(group.turn_status)
+          : null;
+        const elapsed = group.turn_elapsed_ms === null
+          ? null
+          : Math.max(0, Math.trunc(Number(group.turn_elapsed_ms)));
+        const turn = turnId ? {
+          turn_id: turnId,
+          status: turnStatus,
+          elapsed_ms: Number.isFinite(elapsed) ? elapsed : null,
+        } : undefined;
         let latestMessage: JsonObject | undefined;
         for (const { event } of scanTranscriptBuffer(groupBytes, groupStart, true).lines) {
           if (text(event.kind) === "message") {
             const message = parseObject(event.message);
             if (text(message.role)) {
-              latestMessage = { ...publicMessage(message), display_group_id: displayGroupId };
+              latestMessage = {
+                ...publicMessage(message),
+                display_group_id: displayGroupId,
+                ...(turn ? { turn } : {}),
+              };
               messages.push(latestMessage);
             }
             continue;
@@ -1920,6 +2039,17 @@ export class SqliteRuntimeStore implements RuntimeStore {
             visibleArtifactPaths.add(key);
             const existing = Array.isArray(latestMessage.artifacts) ? latestMessage.artifacts : [];
             latestMessage.artifacts = [...existing, publicArtifact(artifact)];
+            continue;
+          }
+          const turnError = transcriptTurnError(event);
+          if (turnError) {
+            latestMessage = {
+              role: "assistant",
+              content: [{ type: "text", text: turnError.message }],
+              display_group_id: displayGroupId,
+              ...(turn ? { turn } : {}),
+            };
+            messages.push(latestMessage);
             continue;
           }
           const marker = transcriptDisplayMarker(event);

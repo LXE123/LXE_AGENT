@@ -11,38 +11,72 @@ import {
 import type { SessionMessage } from "../../../src/api/payloads";
 
 describe("session conversation projection", () => {
-  test("keeps the thinking step out of the tool group it triggered", () => {
+  const group = (displayGroupId: string, messages: Array<Omit<SessionMessage, "display_group_id">>): SessionMessage[] =>
+    messages.map((message) => ({ ...message, display_group_id: displayGroupId }));
+
+  test("folds thinking and tools into one response while leaving the final answer outside", () => {
     const items = buildConversationItems([
-      { role: "user", content: "run it" },
-      {
+      ...group("user-1", [{ role: "user", content: "run it" }]),
+      ...group("response-1", [{
         role: "assistant",
         content: [
           { type: "thinking", thinking: "checking" },
           { type: "tool_call", id: "call-1", name: "exec", arguments: { command: "pwd" } },
         ],
-      },
-      {
+      }, {
         role: "tool",
         content: [{ type: "tool_result", tool_call_id: "call-1", content: "ok" }],
-      },
-      { role: "assistant", content: [{ type: "text", text: "done" }] },
+      }, { role: "assistant", content: [{ type: "text", text: "done" }] }]),
     ]);
 
-    expect(items).toHaveLength(3);
-    // Thinking stays where it happened - the view strips the card chrome from
-    // it rather than sweeping it into the group.
-    const step = items[1];
-    expect(step?.type).toBe("message");
-    if (step?.type !== "message") throw new Error("assistant step required");
-    expect(hasReaderFacingText(step.message)).toBe(false);
-    expect(step.toolGroups).toHaveLength(1);
-    expect(step.toolGroups[0]?.messages.flatMap(toolCallBlocks)).toHaveLength(1);
-    expect(step.toolGroups[0]?.messages.flatMap(toolResultBlocks)).toHaveLength(1);
-    expect(items[2]).toMatchObject({ type: "message", message: { role: "assistant" } });
-    expect(hasReaderFacingText((items[2] as { message: SessionMessage }).message)).toBe(true);
+    expect(items.map((item) => item.type)).toEqual(["message", "response_group"]);
+    const response = items[1];
+    if (response?.type !== "response_group") throw new Error("response group required");
+    expect(response.group.process.map((item) => item.type)).toEqual(["message", "tool_group"]);
+    const tools = response.group.process[1];
+    if (tools?.type !== "tool_group") throw new Error("tool group required");
+    expect(tools.group.messages.flatMap(toolCallBlocks)).toHaveLength(1);
+    expect(tools.group.messages.flatMap(toolResultBlocks)).toHaveLength(1);
+    expect(response.group.finalMessage?.content).toEqual([{ type: "text", text: "done" }]);
   });
 
-  test("gives every step of a run its own thinking row and its own group", () => {
+  test("moves thinking from the terminal message into the process and preserves terminal turn metrics", () => {
+    const turn = { turn_id: "turn-1", status: "completed" as const, elapsed_ms: 80_000 };
+    const items = buildConversationItems(group("response-1", [{
+      role: "assistant",
+      turn,
+      content: [
+        { type: "thinking", thinking: "final check" },
+        { type: "text", text: "ready" },
+      ],
+    }]));
+
+    const response = items[0];
+    if (response?.type !== "response_group") throw new Error("response group required");
+    expect(response.group.turn).toEqual(turn);
+    expect(response.group.process).toHaveLength(1);
+    expect(response.group.finalMessage?.content).toEqual([{ type: "text", text: "ready" }]);
+  });
+
+  test("keeps a persisted real failure inside the collapsed process instead of presenting it as an answer", () => {
+    const items = buildConversationItems(group("response-1", [{
+      role: "assistant",
+      turn: { turn_id: "turn-1", status: "error", elapsed_ms: 1_200 },
+      content: [{ type: "text", text: "执行失败: provider unavailable" }],
+    }]));
+
+    const response = items[0];
+    if (response?.type !== "response_group") throw new Error("response group required");
+    expect(response.group.finalMessage).toBeUndefined();
+    expect(response.group.process).toEqual([
+      expect.objectContaining({
+        type: "message",
+        message: expect.objectContaining({ content: [{ type: "text", text: "执行失败: provider unavailable" }] }),
+      }),
+    ]);
+  });
+
+  test("keeps every intermediate step inside one ordered response process", () => {
     const step = (id: string, name: string) => ([
       {
         role: "assistant",
@@ -54,53 +88,49 @@ describe("session conversation projection", () => {
       { role: "tool", content: [{ type: "tool_result", tool_call_id: id, content: "ok" }] },
     ]);
     const items = buildConversationItems([
-      { role: "user", content: "send me the report" },
-      ...step("c1", "send_files"),
-      ...step("c2", "find"),
-      ...step("c3", "send_files"),
-      { role: "assistant", content: [{ type: "text", text: "已发送" }] },
+      ...group("user-1", [{ role: "user", content: "send me the report" }]),
+      ...group("response-1", [
+        ...step("c1", "send_files"),
+        ...step("c2", "find"),
+        ...step("c3", "send_files"),
+        { role: "assistant", content: [{ type: "text", text: "已发送" }] },
+      ]),
     ]);
 
-    expect(items.map((item) => item.type)).toEqual(["message", "message", "message", "message", "message"]);
-    const steps = items.slice(1, 4);
-    for (const item of steps) {
-      if (item.type !== "message") throw new Error("assistant step required");
-      expect(hasReaderFacingText(item.message)).toBe(false);
-      expect(item.toolGroups).toHaveLength(1);
-      expect(item.toolGroups[0]?.messages.flatMap(toolCallBlocks)).toHaveLength(1);
-    }
+    expect(items.map((item) => item.type)).toEqual(["message", "response_group"]);
+    const response = items[1];
+    if (response?.type !== "response_group") throw new Error("response group required");
+    expect(response.group.process.map((item) => item.type)).toEqual([
+      "message", "tool_group", "message", "tool_group", "message", "tool_group",
+    ]);
+    expect(response.group.finalMessage?.content).toEqual([{ type: "text", text: "已发送" }]);
   });
 
-  test("keeps an assistant message that actually says something out of the group", () => {
+  test("keeps narrated intermediate text in the process when it also calls a tool", () => {
     const items = buildConversationItems([
-      { role: "user", content: "go" },
-      {
+      ...group("user-1", [{ role: "user", content: "go" }]),
+      ...group("response-1", [{
         role: "assistant",
         content: [
           { type: "thinking", thinking: "planning" },
           { type: "text", text: "先查一下库存" },
           { type: "tool_call", id: "c1", name: "find", arguments: {} },
         ],
-      },
-      { role: "tool", content: [{ type: "tool_result", tool_call_id: "c1", content: "ok" }] },
+      }, { role: "tool", content: [{ type: "tool_result", tool_call_id: "c1", content: "ok" }] }]),
     ]);
 
-    // The thinking splits off into its own bare row so a reply card only ever
-    // holds what the reader is meant to read.
-    expect(items.map((item) => item.type)).toEqual(["message", "message", "message"]);
-    const thinkingOnly = items[1];
-    if (thinkingOnly?.type !== "message") throw new Error("thinking row required");
-    expect(hasReaderFacingText(thinkingOnly.message)).toBe(false);
-    expect(thinkingOnly.toolGroups).toHaveLength(0);
-
-    const narrated = items[2];
-    if (narrated?.type !== "message") throw new Error("assistant message required");
+    const response = items[1];
+    if (response?.type !== "response_group") throw new Error("response group required");
+    expect(response.group.finalMessage).toBeUndefined();
+    const narrated = response.group.process[0];
+    if (narrated?.type !== "message") throw new Error("process message required");
     expect(hasReaderFacingText(narrated.message)).toBe(true);
     expect((narrated.message.content as unknown[]).some(
       (block) => (block as { type?: string }).type === "thinking",
-    )).toBe(false);
-    expect(narrated.toolGroups).toHaveLength(1);
-    expect(narrated.toolGroups[0]?.messages.flatMap(toolCallBlocks)).toHaveLength(1);
+    )).toBe(true);
+    const tools = response.group.process[1];
+    if (tools?.type !== "tool_group") throw new Error("tool group required");
+    expect(tools.group.messages.flatMap(toolCallBlocks)).toHaveLength(1);
   });
 
   test("describes a lone call by what it ran, not by a step count", () => {
@@ -151,39 +181,35 @@ describe("session conversation projection", () => {
 
   test("collects one artifact group after the last file-producing step in a turn", () => {
     const items = buildConversationItems([
-      { role: "user", content: "make the reports" },
-      {
+      ...group("user-1", [{ role: "user", content: "make the reports" }]),
+      ...group("response-1", [{
         role: "assistant",
         content: [{ type: "tool_call", id: "c1", name: "send_files", arguments: {} }],
-      },
-      {
+      }, {
         role: "tool",
         content: [{ type: "tool_result", tool_call_id: "c1", content: "sent" }],
         artifacts: [
           { artifact_id: "a1", turn_id: "t1", tool_call_id: "c1", name: "first.xlsx" },
         ],
-      },
-      {
+      }, {
         role: "assistant",
         content: [
           { type: "thinking", thinking: "one more" },
           { type: "tool_call", id: "c2", name: "send_files", arguments: {} },
         ],
-      },
-      {
+      }, {
         role: "tool",
         content: [{ type: "tool_result", tool_call_id: "c2", content: "sent" }],
         artifacts: [
           { artifact_id: "a1", turn_id: "t1", tool_call_id: "c1", name: "first.xlsx" },
           { artifact_id: "a2", turn_id: "t1", tool_call_id: "c2", name: "second.xlsx" },
         ],
-      },
+      }]),
     ]);
 
     expect(items.map((item) => item.type)).toEqual([
       "message",
-      "tool_group",
-      "message",
+      "response_group",
       "artifact_group",
     ]);
     const files = items.at(-1);

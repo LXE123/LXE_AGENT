@@ -134,8 +134,14 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     sessionId: string,
     message: RuntimeMessage,
     reason: string,
+    turnId?: string,
   ): Promise<void> {
-    await this.options.store.appendMessage(sessionId, message, reason);
+    await this.options.store.appendMessage(sessionId, message, reason, turnId);
+    await this.notifySessionChanged(sessionId, "messages");
+  }
+
+  private async appendTurnError(sessionId: string, turnId: string, message: string): Promise<void> {
+    await this.options.store.appendTurnError(sessionId, turnId, message);
     await this.notifySessionChanged(sessionId, "messages");
   }
 
@@ -373,7 +379,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         contextCapacity: contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW_TOKENS,
         pendingEventCount: pendingEvents.length,
       });
-      await this.appendMessage(job.session_id, userMessage, heartbeat ? "heartbeat" : "turn_input");
+      await this.appendMessage(job.session_id, userMessage, heartbeat ? "heartbeat" : "turn_input", job.job_id);
       if (!heartbeat && job.user_content_blocks.some((block) => block.type === "local_file")) {
         await this.notifySessionChanged(job.session_id, "attachments");
       }
@@ -385,7 +391,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           if (!text) continue;
           const message: RuntimeMessage = { role: "user", content: text };
           messages.push(message);
-          await this.appendMessage(job.session_id, message, "steering");
+          await this.appendMessage(job.session_id, message, "steering", job.job_id);
           appended += 1;
         }
         return appended;
@@ -512,7 +518,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           : response.content;
         const assistant: RuntimeMessage = { role: "assistant", content: assistantContent };
         messages.push(assistant);
-        await this.appendMessage(job.session_id, assistant, "assistant_response");
+        await this.appendMessage(job.session_id, assistant, "assistant_response", job.job_id);
         if (calls.length === 0 || isLastStep) {
           const reply = forcedLastStepReply || textContent(response.content);
           const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.finish(reply) : false;
@@ -567,7 +573,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             }
             const steeredTools: RuntimeMessage = { role: "tool", content: results };
             messages.push(steeredTools);
-            await this.appendMessage(job.session_id, steeredTools, "tool_results_steered");
+            await this.appendMessage(job.session_id, steeredTools, "tool_results_steered", job.job_id);
             await appendSteering(steering);
             interruptedBySteering = true;
             break;
@@ -583,7 +589,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             }
             const cancelledTools: RuntimeMessage = { role: "tool", content: results };
             messages.push(cancelledTools);
-            await this.appendMessage(job.session_id, cancelledTools, "tool_results_cancelled");
+            await this.appendMessage(job.session_id, cancelledTools, "tool_results_cancelled", job.job_id);
             await finalAnswerStreamer?.cancel();
             await recordUsage("cancelled");
             return this.outcome("cancelled", "", inputTokens, outputTokens, toolCalls);
@@ -700,12 +706,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const trimmedResults = trimToolResultBlocks(results, contextPipeline.toolResultMaxTokens).results;
         const toolMessage: RuntimeMessage = { role: "tool", content: trimmedResults };
         messages.push(toolMessage);
-        await this.appendMessage(job.session_id, toolMessage, "tool_results");
+        await this.appendMessage(job.session_id, toolMessage, "tool_results", job.job_id);
       }
       const reply = MAX_STEP_REPLY;
       const terminal: RuntimeMessage = { role: "assistant", content: [{ type: "text", text: reply }] };
       messages.push(terminal);
-      await this.appendMessage(job.session_id, terminal, "assistant_max_steps");
+      await this.appendMessage(job.session_id, terminal, "assistant_max_steps", job.job_id);
       const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.finish(reply) : false;
       if (job.response_route_id && !streamDelivered) {
         if (finalAnswerStreamer) await this.emitStreamFallback(job, reply, "final");
@@ -723,6 +729,11 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         ? cause.userMessage
         : cause instanceof Error ? cause.message : String(cause);
       const reply = `执行失败: ${message}`;
+      try {
+        await this.appendTurnError(job.session_id, job.job_id, reply);
+      } catch (persistError) {
+        this.logger.warn("turn_error_persist_failed", { error: persistError });
+      }
       await recordUsage("error", cause);
       const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.fail(reply) : false;
       if (job.response_route_id && !streamDelivered) {

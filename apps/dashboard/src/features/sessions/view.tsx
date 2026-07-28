@@ -40,6 +40,8 @@ import { formatDate, formatDurationMs, formatNumber } from "../../shared/format"
 import { useUiText } from "../../shared/i18n";
 import type { UiText } from "../../shared/i18n";
 import type {
+  ConversationProcessItem,
+  ConversationResponseGroup,
   ConversationToolGroup,
   DesktopConversationActivityPayload,
   DesktopConversationStreamPayload,
@@ -293,6 +295,35 @@ function MessageContent({ content, message }: { content: unknown; message: Sessi
   );
 }
 
+function ProcessMessageContent({ message }: { message: SessionMessage }) {
+  const t = useUiText();
+  const content = message.content;
+  if (typeof content === "string") return <MessageMarkdown text={content} />;
+  if (!Array.isArray(content)) {
+    return content === undefined
+      ? null
+      : <pre className="message-json">{shortText(sanitizeForDisplay(content))}</pre>;
+  }
+  return (
+    <div className="process-message-content">
+      {content.map((block, index) => {
+        const type = isRecord(block) ? String(block.type || "") : "";
+        if (type === "thinking") {
+          const thinking = String((block as Record<string, unknown>).thinking || "").trim();
+          return thinking ? <div className="process-thinking-text" key={index}>{thinking}</div> : null;
+        }
+        if (type === "redacted_thinking") {
+          return <div className="process-thinking-text redacted" key={index}>{t.message.redactedThinking}</div>;
+        }
+        if (type === "text" && isRecord(block)) {
+          return <MessageMarkdown key={index} text={String(block.text || "")} />;
+        }
+        return <MessageBlock block={block} key={index} />;
+      })}
+    </div>
+  );
+}
+
 function messageToolNames(message: SessionMessage): string[] {
   const names: string[] = [];
   for (const block of toolCallBlocks(message)) {
@@ -437,6 +468,74 @@ function ToolOperationList({ group }: { group: ConversationToolGroup }) {
   );
 }
 
+function ProcessToolGroup({ group }: { group: ConversationToolGroup }) {
+  const [expanded, setExpanded] = useState(() => hasToolError(group.messages));
+  return (
+    <ToolTurnGroup
+      embedded
+      expanded={expanded}
+      group={group}
+      onToggle={() => setExpanded((current) => !current)}
+    />
+  );
+}
+
+function ProcessBody({ items }: { items: ConversationProcessItem[] }) {
+  return (
+    <div className="response-process-body">
+      {items.map((item) => item.type === "tool_group"
+        ? <ProcessToolGroup group={item.group} key={item.group.key} />
+        : <ProcessMessageContent key={item.key} message={item.message} />)}
+    </div>
+  );
+}
+
+function responseProcessLabel(group: ConversationResponseGroup, t: UiText): string {
+  const duration = group.turn?.elapsed_ms === null || group.turn?.elapsed_ms === undefined
+    ? ""
+    : t.conversation.elapsedDuration(group.turn.elapsed_ms);
+  switch (group.turn?.status) {
+    case "completed": return duration ? t.conversation.workedFor(duration) : t.conversation.process;
+    case "cancelled": return t.conversation.processCancelled(duration);
+    case "error": return t.conversation.processFailed(duration);
+    default: return t.conversation.process;
+  }
+}
+
+function PersistedResponseGroup({ group }: { group: ConversationResponseGroup }) {
+  const t = useUiText();
+  const [expanded, setExpanded] = useState(false);
+  const failed = group.turn?.status === "error";
+  const hasProcess = group.process.length > 0;
+  return (
+    <div className={`response-group${failed ? " has-error" : ""}`} data-turn-id={group.turn?.turn_id}>
+      {hasProcess || group.turn ? (
+        <section className="response-process">
+          <button
+            aria-expanded={expanded}
+            className="response-process-summary"
+            disabled={!hasProcess}
+            onClick={() => setExpanded((current) => !current)}
+            type="button"
+          >
+            {failed ? <CircleAlert aria-hidden="true" size={14} /> : <Brain aria-hidden="true" size={14} />}
+            <span>{responseProcessLabel(group, t)}</span>
+            {hasProcess
+              ? <ChevronRight aria-hidden="true" className={expanded ? "expanded" : ""} size={14} />
+              : null}
+          </button>
+          {expanded ? <ProcessBody items={group.process} /> : null}
+        </section>
+      ) : null}
+      {group.finalMessage ? (
+        <article className="message-card role-assistant response-final-answer">
+          <MessageContent content={group.finalMessage.content} message={group.finalMessage} />
+        </article>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * An optimistic card is redundant once the transcript on screen was fetched at
  * or after the runtime persisted that part of the turn. Comparing watermarks
@@ -469,74 +568,109 @@ function liveProgressLabel(
 
 function LiveProgressStatus({
   elapsedMs,
+  expanded,
   label,
+  onToggle,
   state,
 }: {
   elapsedMs: number;
+  expanded: boolean;
   label: string;
+  onToggle: () => void;
   state: DesktopConversationTurnPayload["state"];
 }) {
   const active = state === "running" || state === "stopping";
   const failed = state === "error";
   return (
-    <div
+    <button
       aria-live={failed ? "assertive" : "polite"}
+      aria-expanded={expanded}
       className={`live-progress-status state-${state}`}
-      role={failed ? "alert" : "status"}
+      onClick={onToggle}
+      type="button"
     >
       {active ? <LoaderCircle aria-hidden="true" className="conversation-spinner" size={13} /> : null}
       <span className="live-progress-label">{label}</span>
-      {elapsedMs >= 1_000 ? (
+      {active && elapsedMs >= 1_000 ? (
         <>
           <span aria-hidden="true" className="live-progress-separator">·</span>
           <span aria-hidden="true" className="live-progress-elapsed">{formatDurationMs(elapsedMs)}</span>
         </>
       ) : null}
-    </div>
+      <ChevronRight aria-hidden="true" className={expanded ? "expanded" : ""} size={14} />
+    </button>
   );
 }
 
-function LiveAssistantCard({
+function LiveResponseGroup({
   elapsedMs,
+  hasElapsed,
   stream,
   turnState,
 }: {
   elapsedMs: number;
-  stream: DesktopConversationStreamPayload;
+  hasElapsed: boolean;
+  stream?: DesktopConversationStreamPayload;
   turnState: DesktopConversationTurnPayload["state"];
 }) {
   const t = useUiText();
-  const metrics = stream.display_metrics;
-  const displayState = metrics.status === "running" ? turnState : metrics.status;
+  const active = turnState === "running" || turnState === "stopping";
+  const [expanded, setExpanded] = useState(active);
+  const wasActive = useRef(active);
+  useEffect(() => {
+    if (!wasActive.current && active) setExpanded(true);
+    if (wasActive.current && !active) setExpanded(false);
+    wasActive.current = active;
+  }, [active]);
+  const streamStatus = stream?.display_metrics.status;
+  const displayState = streamStatus && streamStatus !== "running" ? streamStatus : turnState;
+  const duration = hasElapsed ? t.conversation.elapsedDuration(elapsedMs) : "";
+  const label = displayState === "completed"
+    ? (duration ? t.conversation.workedFor(duration) : t.conversation.process)
+    : displayState === "cancelled"
+      ? t.conversation.processCancelled(duration)
+      : displayState === "error"
+        ? t.conversation.processFailed(duration)
+        : liveProgressLabel(stream, turnState, t);
+  const finalContent = displayState === "completed" ? stream?.content ?? "" : "";
+  const processContent = displayState === "completed" ? "" : stream?.content ?? "";
   return (
-    <article
-      className={`message-card role-assistant live-assistant state-${metrics.status}`}
-    >
-      {stream.thinking ? <ThinkingBlock block={{ thinking: stream.thinking }} /> : null}
-      {stream.tool_steps.length ? (
-        <div className="live-tool-list">
-          {stream.tool_steps.map((step) => (
-            // The raw tool name, matching how the same call reads once it is
-            // history: a curated title cannot be searched for or matched
-            // against a log, and the detail beside it already says what it did.
-            <div
-              className={`live-tool-step state-${step.status}${step.detail ? " has-detail" : ""}`}
-              key={step.id || `${step.name}-${step.title}`}
-            >
-              <Wrench size={14} />
-              <span className="live-tool-name">{step.name}</span>
-              {step.detail ? <small className="live-tool-detail">{step.detail}</small> : null}
-            </div>
-          ))}
-        </div>
+    <div className={`response-group live-response-group state-${displayState}`}>
+      <section className="response-process">
+        <LiveProgressStatus
+          elapsedMs={elapsedMs}
+          expanded={expanded}
+          label={label}
+          onToggle={() => setExpanded((current) => !current)}
+          state={displayState}
+        />
+        {expanded ? (
+          <div className="response-process-body">
+            {stream?.thinking ? <div className="process-thinking-text">{stream.thinking}</div> : null}
+            {stream?.tool_steps.length ? (
+              <div className="live-tool-list">
+                {stream.tool_steps.map((step) => (
+                  <div
+                    className={`live-tool-step state-${step.status}${step.detail ? " has-detail" : ""}`}
+                    key={step.id || `${step.name}-${step.title}`}
+                  >
+                    <Wrench size={14} />
+                    <span className="live-tool-name">{step.name}</span>
+                    {step.detail ? <small className="live-tool-detail">{step.detail}</small> : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {processContent ? <MessageMarkdown text={processContent} /> : null}
+          </div>
+        ) : null}
+      </section>
+      {finalContent ? (
+        <article className="message-card role-assistant response-final-answer">
+          <MessageMarkdown text={finalContent} />
+        </article>
       ) : null}
-      {stream.content ? <MessageMarkdown text={stream.content} /> : null}
-      <LiveProgressStatus
-        elapsedMs={elapsedMs}
-        label={liveProgressLabel(stream, turnState, t)}
-        state={displayState}
-      />
-    </article>
+    </div>
   );
 }
 
@@ -664,9 +798,11 @@ function InputAttachmentList({
 }
 
 function LocalTurnCards({
+  persistedResponse,
   turn,
   transcriptFetchedAt,
 }: {
+  persistedResponse: boolean;
   turn: DesktopConversationTurnPayload;
   transcriptFetchedAt: number;
 }) {
@@ -682,7 +818,7 @@ function LocalTurnCards({
   const elapsedEnd = ticking ? clock : turn.settled_at || clock;
   const elapsedMs = turn.started_at > 0 ? Math.max(0, elapsedEnd - turn.started_at) : 0;
   const userPersisted = transcriptCaughtUp(turn.user_persisted_at, transcriptFetchedAt);
-  const assistantPersisted = transcriptCaughtUp(turn.settled_at, transcriptFetchedAt);
+  const assistantPersisted = persistedResponse && transcriptCaughtUp(turn.settled_at, transcriptFetchedAt);
   const statusLabel = turn.state === "queued"
     ? t.conversation.queued
     : turn.state === "completed"
@@ -696,6 +832,7 @@ function LocalTurnCards({
   // The badge outlives the optimistic card so a cancelled or failed turn keeps
   // saying so after the transcript catches up and the card is dropped.
   const showStandaloneBadge = userPersisted
+    && !persistedResponse
     && (turn.state === "queued" || turn.state === "cancelled" || turn.state === "error");
   return (
     <div className="local-turn" data-turn-id={turn.turn_id}>
@@ -710,11 +847,13 @@ function LocalTurnCards({
           {!turn.stream ? <div className="optimistic-message-state">{stateBadge}</div> : null}
         </article>
       ) : null}
-      {turn.stream && !assistantPersisted ? (
-        <LiveAssistantCard elapsedMs={elapsedMs} stream={turn.stream} turnState={turn.state} />
-      ) : null}
-      {userPersisted && !assistantPersisted && !turn.stream && (turn.state === "running" || turn.state === "stopping") ? (
-        <LiveProgressStatus elapsedMs={elapsedMs} label={liveProgressLabel(undefined, turn.state, t)} state={turn.state} />
+      {!assistantPersisted && (turn.stream || (userPersisted && (turn.state === "running" || turn.state === "stopping"))) ? (
+        <LiveResponseGroup
+          elapsedMs={elapsedMs}
+          hasElapsed={turn.started_at > 0}
+          stream={turn.stream}
+          turnState={turn.state}
+        />
       ) : null}
       {showStandaloneBadge && (!turn.stream || assistantPersisted) ? (
         <div className="conversation-turn-state-row">{stateBadge}</div>
@@ -960,7 +1099,7 @@ export function SessionDetailView({
   const t = useUiText();
   const session = detail?.session || fallbackSession;
   const messages = detail?.messages || [];
-  const renderItems = useMemo(() => buildConversationItems(messages), [messages]);
+  const allRenderItems = useMemo(() => buildConversationItems(messages), [messages]);
   const [sessionInfoOpen, setSessionInfoOpen] = useState(false);
   const closeSessionInfo = () => setSessionInfoOpen(false);
   const sessionInfoRef = useDialogFocus<HTMLElement>(sessionInfoOpen, closeSessionInfo);
@@ -971,8 +1110,30 @@ export function SessionDetailView({
   const olderSentinelRef = useRef<HTMLDivElement>(null);
   const loadingOlderRef = useRef(false);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
-  const liveTurns = [activity?.latest, activity?.active, ...(activity?.queued ?? [])]
-    .filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn));
+  const liveTurns = [...new Map(
+    [activity?.latest, activity?.active, ...(activity?.queued ?? [])]
+      .filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn))
+      .map((turn) => [turn.turn_id, turn]),
+  ).values()];
+  const persistedResponseTurnIds = new Set(allRenderItems
+    .filter((item): item is Extract<(typeof allRenderItems)[number], { type: "response_group" }> =>
+      item.type === "response_group" && Boolean(item.group.turn?.turn_id))
+    .map((item) => item.group.turn!.turn_id));
+  const liveOwnedTurnIds = new Set(liveTurns
+    .filter((turn) => (turn.stream || turn.state === "running" || turn.state === "stopping")
+      && !transcriptCaughtUp(turn.settled_at, transcriptFetchedAt))
+    .map((turn) => turn.turn_id));
+  const liveArtifactGroups = new Map(allRenderItems
+    .filter((item): item is Extract<(typeof allRenderItems)[number], { type: "artifact_group" }> =>
+      item.type === "artifact_group" && liveOwnedTurnIds.has(item.group.turnId))
+    .map((item) => [item.group.turnId, item.group]));
+  const renderItems = allRenderItems.filter((item) => {
+    if (item.type === "response_group" && item.group.turn?.turn_id) {
+      return !liveOwnedTurnIds.has(item.group.turn.turn_id);
+    }
+    if (item.type === "artifact_group") return !liveOwnedTurnIds.has(item.group.turnId);
+    return true;
+  });
   const scrollToLatest = () => {
     const transcript = transcriptRef.current;
     if (!transcript) return;
@@ -1128,6 +1289,9 @@ export function SessionDetailView({
                     if (item.type === "artifact_group") {
                       return <TurnFileList files={item.group.files} key={item.group.key} onOpenFile={onOpenFile} />;
                     }
+                    if (item.type === "response_group") {
+                      return <PersistedResponseGroup group={item.group} key={item.group.key} />;
+                    }
                     if (item.type === "tool_group") {
                       return <ToolTurnGroup expanded={toolGroupExpanded(item.group)} group={item.group}
                         key={item.group.key}
@@ -1194,11 +1358,19 @@ export function SessionDetailView({
                 </div>
               ) : null}
               {liveTurns.map((turn) => (
-                <LocalTurnCards
-                  key={turn.turn_id}
-                  transcriptFetchedAt={transcriptFetchedAt}
-                  turn={turn}
-                />
+                <React.Fragment key={turn.turn_id}>
+                  <LocalTurnCards
+                    persistedResponse={persistedResponseTurnIds.has(turn.turn_id)}
+                    transcriptFetchedAt={transcriptFetchedAt}
+                    turn={turn}
+                  />
+                  {liveArtifactGroups.get(turn.turn_id) ? (
+                    <TurnFileList
+                      files={liveArtifactGroups.get(turn.turn_id)!.files}
+                      onOpenFile={onOpenFile}
+                    />
+                  ) : null}
+                </React.Fragment>
               ))}
               {showEmpty ? (
                 <EmptyState label={newConversation ? t.conversation.newHint : t.sessionDetail.empty} />

@@ -83,9 +83,16 @@ export type SessionMessage = {
   tool_call_id?: string;
   tool_name?: string;
   tool_calls?: unknown;
+  turn?: SessionTurnDisplayPayload;
   artifacts?: SessionArtifactPayload[];
   attachments?: DesktopInputAttachmentPayload[];
   [key: string]: unknown;
+};
+
+export type SessionTurnDisplayPayload = {
+  turn_id: string;
+  status: "completed" | "cancelled" | "error" | null;
+  elapsed_ms: number | null;
 };
 
 export type DesktopInputAttachmentPayload = {

@@ -158,8 +158,9 @@ describe("Transcript v2", () => {
       context_window_tokens: 256_000,
       ts: 1,
     });
-    await store.appendMessage("s1", { role: "user", content: "question" }, "turn_input");
-    await store.appendMessage("s1", { role: "assistant", content: "answer" }, "assistant_response");
+    await store.appendMessage("s1", { role: "user", content: "question" }, "turn_input", "turn-1");
+    await store.appendMessage("s1", { role: "assistant", content: "answer" }, "assistant_response", "turn-1");
+    await store.appendTurnError("s1", "turn-1", "执行失败: provider offline");
     await store.replaceMessages("s1", [{ role: "user", content: "summary" }], "compaction", {
       compacted_count: 2,
     });
@@ -167,8 +168,14 @@ describe("Transcript v2", () => {
     const path = join(root, "session_transcripts", "s1.jsonl");
     const events = parseTranscriptText(readFileSync(path, "utf8"));
     expect(events.map((event) => event.kind)).toEqual([
-      "transcript_header", "turn_context", "message", "message", "context_patch",
+      "transcript_header", "turn_context", "message", "message", "turn_error", "context_patch",
     ]);
+    expect(events.filter((event) => event.kind === "message").map((event) => event.turn_id))
+      .toEqual(["turn-1", "turn-1"]);
+    expect(events.find((event) => event.kind === "turn_error")).toMatchObject({
+      turn_id: "turn-1",
+      message: "执行失败: provider offline",
+    });
     expect(readFileSync(path, "utf8")).not.toContain("replacement_history");
     expect(await store.loadMessages("s1")).toEqual([{ role: "user", content: "summary" }]);
     expect((await store.sessionDetail("s1", { limit: 10 }))?.session).toEqual(expect.objectContaining({

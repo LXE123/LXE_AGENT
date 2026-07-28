@@ -1,6 +1,8 @@
 import type {
   ConversationArtifactGroup,
+  ConversationProcessItem,
   ConversationRenderItem,
+  ConversationResponseGroup,
   ConversationToolGroup,
   SessionArtifactPayload,
   SessionMessage,
@@ -71,6 +73,7 @@ export function toolGroupArtifacts(messages: SessionMessage[]): SessionArtifactP
 function renderItemArtifacts(item: ConversationRenderItem): SessionArtifactPayload[] {
   if (item.type === "artifact_group") return item.group.files;
   if (item.type === "tool_group") return toolGroupArtifacts(item.group.messages);
+  if (item.type === "response_group") return toolGroupArtifacts(item.group.messages);
   return toolGroupArtifacts([
     item.message,
     ...item.toolGroups.flatMap((group) => group.messages),
@@ -256,12 +259,8 @@ function splitAssistantInlineToolCalls(message: SessionMessage): {
 const isProcessBlock = (block: unknown): boolean =>
   blockType(block) === "thinking" || blockType(block) === "redacted_thinking";
 
-/**
- * Splits the thinking off an assistant message that also speaks, so thinking is
- * always its own bare row and a reply card only ever holds what the reader is
- * meant to read. Without this the same thinking control appears at two nesting
- * levels depending on whether the message happened to carry text.
- */
+/** Separate terminal thinking from reader-facing text so the former remains in
+ * the process disclosure while the actual answer can sit outside it. */
 function splitAssistantThinking(message: SessionMessage): {
   thinkingMessage: SessionMessage | null;
   message: SessionMessage;
@@ -278,55 +277,106 @@ function splitAssistantThinking(message: SessionMessage): {
   };
 }
 
-export function buildConversationItems(messages: SessionMessage[]): ConversationRenderItem[] {
-  const items: ConversationRenderItem[] = [];
-  let pending: SessionMessage[] = [];
-  let pendingStart = 0;
-  const flushPending = (): void => {
-    if (!pending.length) return;
-    const group: ConversationToolGroup = {
-      messages: pending,
-      startIndex: pendingStart,
-      key: `tools-${pendingStart}-${pending.length}`,
-    };
-    const previous = items[items.length - 1];
-    if (previous?.type === "message" && roleLabel(previous.message.role) === "assistant") {
-      const existingGroup = previous.toolGroups[previous.toolGroups.length - 1];
-      if (existingGroup) existingGroup.messages.push(...pending);
-      else previous.toolGroups.push(group);
-    } else {
-      items.push({ type: "tool_group", group });
-    }
-    pending = [];
+const hasRenderableContent = (message: SessionMessage): boolean => {
+  if (typeof message.content === "string") return Boolean(message.content.trim());
+  if (Array.isArray(message.content)) return message.content.length > 0;
+  return message.content !== undefined || message.tool_calls !== undefined;
+};
+
+const containsToolCall = (message: SessionMessage): boolean =>
+  toolCallBlocks(message).length > 0 || message.tool_calls !== undefined;
+
+function buildResponseGroup(
+  messages: SessionMessage[],
+  displayGroupId: string,
+  startIndex: number,
+): ConversationResponseGroup {
+  const turn = messages.find((message) => message.turn)?.turn;
+  const terminalIsReply = turn?.status !== "error" && turn?.status !== "cancelled";
+  const finalIndex = terminalIsReply
+    ? messages.reduce((candidate, message, index) =>
+      roleLabel(message.role) === "assistant" && hasReaderFacingText(message) && !containsToolCall(message)
+        ? index
+        : candidate, -1)
+    : -1;
+  const process: ConversationProcessItem[] = [];
+  let finalMessage: SessionMessage | undefined;
+  let pendingTools: SessionMessage[] = [];
+  let toolOrdinal = 0;
+  const flushTools = (): void => {
+    if (!pendingTools.length) return;
+    process.push({
+      type: "tool_group",
+      group: {
+        messages: pendingTools,
+        startIndex,
+        key: `tools-${displayGroupId}-${toolOrdinal}`,
+      },
+    });
+    toolOrdinal += 1;
+    pendingTools = [];
   };
 
   messages.forEach((message, index) => {
-    if (isToolGroupMessage(message)) {
-      if (!pending.length) pendingStart = index;
-      pending.push(message);
+    if (roleLabel(message.role) === "tool") {
+      pendingTools.push(message);
       return;
     }
-    flushPending();
+    flushTools();
     const split = splitAssistantInlineToolCalls(message);
     const thought = splitAssistantThinking(split.message);
-    if (thought.thinkingMessage) {
-      items.push({ type: "message", message: thought.thinkingMessage, index, toolGroups: [] });
-    }
-    const item: Extract<ConversationRenderItem, { type: "message" }> = {
-      type: "message",
-      message: thought.message,
-      index,
-      toolGroups: [],
-    };
-    if (split.toolCallMessage) {
-      item.toolGroups.push({
-        messages: [split.toolCallMessage],
-        startIndex: index,
-        key: `tools-${index}-inline`,
+    if (index === finalIndex) {
+      if (thought.thinkingMessage) {
+        process.push({
+          type: "message",
+          message: thought.thinkingMessage,
+          key: `process-${displayGroupId}-${index}-thinking`,
+        });
+      }
+      if (hasReaderFacingText(thought.message)) finalMessage = thought.message;
+    } else if (hasRenderableContent(split.message)) {
+      process.push({
+        type: "message",
+        message: split.message,
+        key: `process-${displayGroupId}-${index}`,
       });
     }
-    items.push(item);
+    if (split.toolCallMessage) pendingTools.push(split.toolCallMessage);
   });
-  flushPending();
+  flushTools();
+
+  return {
+    displayGroupId,
+    messages,
+    process,
+    ...(finalMessage ? { finalMessage } : {}),
+    ...(turn ? { turn } : {}),
+    key: `response-${displayGroupId}`,
+  };
+}
+
+export function buildConversationItems(messages: SessionMessage[]): ConversationRenderItem[] {
+  const items: ConversationRenderItem[] = [];
+  for (let index = 0; index < messages.length;) {
+    const message = messages[index]!;
+    const displayGroupId = String(message.display_group_id || `legacy-${index}`);
+    let end = index + 1;
+    while (end < messages.length && messages[end]?.display_group_id === message.display_group_id) end += 1;
+    const displayMessages = messages.slice(index, end);
+    const roles = displayMessages.map((entry) => roleLabel(entry.role));
+    if (roles.some((role) => role === "assistant") && roles.every((role) => role === "assistant" || role === "tool")) {
+      items.push({ type: "response_group", group: buildResponseGroup(displayMessages, displayGroupId, index) });
+    } else if (displayMessages.every(isToolGroupMessage)) {
+      items.push({
+        type: "tool_group",
+        group: { messages: displayMessages, startIndex: index, key: `tools-${displayGroupId}` },
+      });
+    } else {
+      displayMessages.forEach((entry, offset) => {
+        items.push({ type: "message", message: entry, index: index + offset, toolGroups: [] });
+      });
+    }
+    index = end;
+  }
   return appendArtifactGroups(items);
 }

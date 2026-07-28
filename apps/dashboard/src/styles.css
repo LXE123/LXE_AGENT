@@ -4406,26 +4406,6 @@ h1 {
   color: var(--text);
 }
 
-.live-assistant {
-  display: grid;
-  min-width: 0;
-  max-width: 100%;
-  gap: 8px;
-  background: var(--message-assistant-soft);
-}
-
-.live-assistant.state-error {
-  border-color: var(--danger-border);
-}
-
-.live-assistant > .message-markdown,
-.live-assistant > .thinking-block,
-.live-assistant > .live-tool-list {
-  width: min(100%, var(--assistant-content-width));
-  min-width: 0;
-  max-width: 100%;
-}
-
 .live-tool-step {
   display: flex;
   min-width: 0;
@@ -4482,9 +4462,15 @@ h1 {
   min-width: 0;
   align-items: center;
   gap: 6px;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
   color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
   font-size: 0.6875rem;
   font-weight: 600;
+  text-align: left;
 }
 
 .live-progress-status.state-error {
@@ -4495,6 +4481,22 @@ h1 {
 .live-progress-elapsed {
   color: var(--muted-light);
   font-weight: 500;
+}
+
+.live-progress-status > svg:last-child {
+  margin-left: 2px;
+  transition: transform 0.16s ease;
+}
+
+.live-progress-status > svg:last-child.expanded {
+  transform: rotate(90deg);
+}
+
+.live-progress-status:focus-visible,
+.response-process-summary:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .conversation-composer {
@@ -7767,12 +7769,106 @@ pre {
   gap: 4px;
 }
 
+.response-group {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.response-process {
+  display: grid;
+  width: min(100%, var(--assistant-content-width));
+  min-width: 0;
+  gap: 4px;
+}
+
+.response-process-summary {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.response-process-summary > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.response-process-summary > svg:last-child {
+  flex: 0 0 auto;
+  transition: transform 0.16s ease;
+}
+
+.response-process-summary > svg:last-child.expanded {
+  transform: rotate(90deg);
+}
+
+.response-process-summary:disabled {
+  cursor: default;
+}
+
+.response-group.has-error .response-process-summary,
+.live-response-group.state-error .live-progress-status {
+  color: var(--danger);
+}
+
+.response-process-body {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 2px 0 5px 20px;
+}
+
+.process-message-content {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.process-thinking-text {
+  min-width: 0;
+  padding: 3px 0 3px 12px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.process-thinking-text.redacted {
+  color: var(--muted-light);
+  font-style: italic;
+}
+
+.response-process-body > .message-markdown,
+.process-message-content > .message-markdown {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.response-group .response-final-answer {
+  margin-top: 0;
+}
+
 .conversation-feed .message-card {
   min-width: 0;
 }
 
-.conversation-feed .message-card.role-assistant,
-.conversation-feed .live-assistant {
+.conversation-feed .message-card.role-assistant {
   width: 100%;
   margin-top: 16px;
   padding: 0;

@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
   DesktopCloudState,
   DesktopConversationActivityPayload,
+  DesktopConversationTurnPayload,
   DesktopHealth,
   DesktopInputAttachmentPayload,
 } from "@lxe/desktop-protocol";
@@ -183,9 +184,6 @@ function App({
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [newConversation, setNewConversation] = useState(false);
-  const [conversationActivities, setConversationActivities] = useState<
-    Record<string, DesktopConversationActivityPayload>
-  >({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sessionSidebarOverlayOpen, setSessionSidebarOverlayOpen] = useState(false);
   const [compactSessionLayout, setCompactSessionLayout] = useState(
@@ -227,7 +225,10 @@ function App({
     const desktop = window.lxe?.desktop;
     if (!desktop) return;
     return desktop.onConversationEvent(({ activity }) => {
-      setConversationActivities((current) => ({ ...current, [activity.session_id]: activity }));
+      queryClient.setQueryData(
+        dashboardQueryKeys.sessions.activity(activity.session_id),
+        activity,
+      );
       if (activity.latest) {
         void Promise.all([
           queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists }),
@@ -238,21 +239,11 @@ function App({
   }, [queryClient]);
 
   useEffect(() => {
-    const activity = conversationActivityQuery.data;
-    if (!activity) return;
-    setConversationActivities((current) => ({ ...current, [activity.session_id]: activity }));
-  }, [conversationActivityQuery.data]);
-
-  useEffect(() => {
     const handlePopState = () => {
       const nextRoute = routeStateFromLocation();
       setActiveSection(nextRoute.section);
       setCapabilityView(nextRoute.capabilityView);
       setActivityView(nextRoute.activityView);
-      if (nextRoute.section === "home") {
-        setSelectedSessionId("");
-        setNewConversation(false);
-      }
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -342,10 +333,6 @@ function App({
     pushDashboardRoute(section, capabilityView, nextActivityView);
     setActiveSection(section);
     setActivityView(nextActivityView);
-    if (section === "sessions") {
-      setSelectedSessionId("");
-      setNewConversation(false);
-    }
   }
 
   function openCapabilityView(view: CapabilityView) {
@@ -383,35 +370,40 @@ function App({
         ...(attachments.length ? { attachment_ids: attachments.map((item) => item.attachment_id) } : {}),
       },
     });
-    setConversationActivities((current) => current[result.session_id]
-      ? current
-      : {
-          ...current,
-          [result.session_id]: {
-            session_id: result.session_id,
-            active: result.state === "running" ? {
-              turn_id: result.turn_id,
-              message_id: result.message_id,
-              text,
-              ...(attachments.length ? { attachments } : {}),
-              state: "running",
-              started_at: 0,
-              user_persisted_at: 0,
-              settled_at: 0,
-            } : null,
-            queued: result.state === "queued" ? [{
-              turn_id: result.turn_id,
-              message_id: result.message_id,
-              text,
-              ...(attachments.length ? { attachments } : {}),
-              state: "queued",
-              started_at: 0,
-              user_persisted_at: 0,
-              settled_at: 0,
-            }] : [],
-            latest: null,
-          },
-        });
+    queryClient.setQueryData<DesktopConversationActivityPayload>(
+      dashboardQueryKeys.sessions.activity(result.session_id),
+      (current) => {
+        const optimisticTurn: DesktopConversationTurnPayload = {
+          turn_id: result.turn_id,
+          message_id: result.message_id,
+          text,
+          ...(attachments.length ? { attachments } : {}),
+          state: result.state,
+          started_at: 0,
+          user_persisted_at: 0,
+          settled_at: 0,
+        };
+        const activity = current ?? {
+          session_id: result.session_id,
+          active: null,
+          queued: [],
+          latest: null,
+        };
+        if (result.state === "running") {
+          return {
+            ...activity,
+            active: optimisticTurn,
+            queued: activity.queued.filter((turn) => turn.turn_id !== result.turn_id),
+          };
+        }
+        return {
+          ...activity,
+          queued: activity.queued.some((turn) => turn.turn_id === result.turn_id)
+            ? activity.queued
+            : [...activity.queued, optimisticTurn],
+        };
+      },
+    );
     setSelectedSessionId(result.session_id);
     setNewConversation(false);
     await Promise.all([
@@ -641,7 +633,7 @@ function App({
     || sessionDetail?.session
     || null;
   const conversationActivity = selectedSessionId
-    ? conversationActivities[selectedSessionId] ?? conversationActivityQuery.data ?? null
+    ? conversationActivityQuery.data ?? null
     : null;
   const conversationRuntimeReady = desktopHealth.gateway === "ready" && desktopHealth.agent_cli === "ready";
   const showDashboardHome = activeSection === "home";
