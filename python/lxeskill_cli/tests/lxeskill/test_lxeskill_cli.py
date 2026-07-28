@@ -291,7 +291,16 @@ def test_stdin_json_normalizes_progress_and_terminal_result(monkeypatch, capsys)
         ),
     ],
 )
-def test_missing_user_workbook_returns_structured_input_required(arguments, field, monkeypatch, capsys) -> None:
+def test_missing_user_workbook_returns_structured_input_required(
+    arguments,
+    field,
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from shared import input_assets
+
+    monkeypatch.setattr(input_assets, "input_root", lambda: tmp_path / "inputs")
     monkeypatch.setattr(
         lxeskill,
         "execute_module_json",
