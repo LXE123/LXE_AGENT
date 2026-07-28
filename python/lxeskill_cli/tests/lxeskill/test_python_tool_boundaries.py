@@ -106,3 +106,37 @@ def test_business_adapter_requires_the_run_contract(monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "tests.fake_legacy_main_cli", legacy)
     with pytest.raises(RuntimeError, match="no callable run"):
         execute_module_json({"module": "tests.fake_legacy_main_cli"}, {}, {"session_id": "session"})
+
+
+def test_business_adapter_can_deliver_declared_artifacts_on_failure(monkeypatch) -> None:
+    module_name = "tests.fake_partial_artifact_business_cli"
+    module = ModuleType(module_name)
+    module.run = lambda _arguments: {  # type: ignore[attr-defined]
+        "success": False,
+        "purchase_summary_xlsx": "/safe/purchase.xlsx",
+        "exception": "contract generation failed",
+    }
+    monkeypatch.setitem(sys.modules, module_name, module)
+    monkeypatch.setattr(
+        "lxeskill.business.collect_declared_artifacts",
+        lambda _entry, _payload: ["/safe/purchase.xlsx"],
+    )
+
+    ok, _content, files, error = execute_module_json(
+        {
+            "module": module_name,
+            "deliver_artifacts_on_failure": True,
+            "artifact_paths": [
+                {"field": "purchase_summary_xlsx", "role": "deliverable"}
+            ],
+        },
+        {},
+        {"session_id": "session"},
+    )
+
+    assert ok is False
+    assert files == ["/safe/purchase.xlsx"]
+    assert error == {
+        "code": "business_cli_failed",
+        "message": "contract generation failed",
+    }

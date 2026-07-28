@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
+from services.agent_cli.mabang import fill_purchase_contracts as contract_workbook
 from services.agent_cli.mabang import generate_fba_restock_workbook as restock_workbook
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
 from services.agent_cli.mabang import erp_purchase_batch
@@ -147,11 +148,13 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
     """lxeskill entrypoint — the catalog input_schema is the argument contract."""
     delivery_nos: list[str] = []
     master_xlsx = ""
+    contract_template_xlsx = ""
     gross_margin = ""
     try:
         raw = arguments.get("delivery_no")
         delivery_nos = [raw] if isinstance(raw, str) else list(raw or [])
         master_xlsx = str(arguments.get("master_xlsx") or "")
+        contract_template_xlsx = str(arguments.get("contract_template_xlsx") or "")
         gross_margin = str(arguments.get("gross_margin") or "")
         restock_workbook._parse_gross_margin(gross_margin)
         draft = bool(arguments.get("draft", False))
@@ -199,6 +202,10 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             expected_version_no=expected_version_no,
             change_reason=change_reason,
         )
+        contract_workbook.validate_contract_template(
+            contract_template_xlsx,
+            [str(item.get("supplier_name") or "") for item in request_payload["contracts"]],
+        )
         status_code, erp_result = erp_purchase_batch.import_purchase_intent(request_payload)
         if status_code == 409:
             erp_purchase_batch.validate_purchase_response(
@@ -214,9 +221,11 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 ),
                 "delivery_nos": intent_context["delivery_nos"],
                 "master_xlsx": master_xlsx,
+                "contract_template_xlsx": contract_template_xlsx,
                 "gross_margin": gross_margin,
                 "source": SOURCE,
             }
+        formal: dict[str, Any] | None = None
         try:
             erp_purchase_batch.validate_purchase_response(
                 status_code=status_code,
@@ -233,7 +242,19 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 erp_result,
                 request_payload=request_payload,
             )
-            return erp_purchase_batch.download_contract_workbooks(formal)
+            contract_result = contract_workbook.fill_formal_purchase_contracts(
+                purchase_summary_xlsx=formal["purchase_summary_xlsx"],
+                contract_template_xlsx=contract_template_xlsx,
+                contracts=formal["contracts"],
+                purchase_lines=formal["purchase_lines"],
+            )
+            formal["contract_template_xlsx"] = contract_result["contract_template_xlsx"]
+            formal["contract_outputs"] = contract_result["output_files"]
+            formal["contract_xlsx_paths"] = [
+                item["output_xlsx"] for item in contract_result["output_files"]
+            ]
+            formal["status"] = "completed"
+            return formal
         except Exception as exc:
             if isinstance(
                 exc,
@@ -248,11 +269,12 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                     "code": type(exc).__name__,
                     "message": _exception_text(exc),
                 }
-            return {
+            failure = {
                 "success": False,
                 "status": "batch_committed_artifact_generation_failed",
                 "delivery_nos": intent_context["delivery_nos"],
                 "master_xlsx": master_xlsx,
+                "contract_template_xlsx": contract_template_xlsx,
                 "gross_margin": gross_margin,
                 "request_id": request_payload["request_id"],
                 "batch_id": erp_result.get("batch_id"),
@@ -271,11 +293,25 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
                 "erp": erp_result,
                 "source": SOURCE,
             }
+            if formal is not None:
+                failure["purchase_summary_xlsx"] = formal.get("purchase_summary_xlsx")
+                failure["restock_xlsx_paths"] = list(formal.get("restock_xlsx_paths") or [])
+                failure["restock_outputs"] = list(formal.get("restock_outputs") or [])
+            partial_contracts = getattr(exc, "output_files", None)
+            if isinstance(partial_contracts, list):
+                failure["contract_outputs"] = partial_contracts
+                failure["contract_xlsx_paths"] = [
+                    str(item.get("output_xlsx") or "")
+                    for item in partial_contracts
+                    if isinstance(item, dict) and item.get("output_xlsx")
+                ]
+            return failure
     except (erp_purchase_batch.PurchaseBatchClientError, erp_purchase_batch.ErpHttpError) as exc:
         return {
             "success": False,
             "delivery_nos": delivery_nos,
             "master_xlsx": master_xlsx,
+            "contract_template_xlsx": contract_template_xlsx,
             "gross_margin": gross_margin,
             "exception": _exception_text(exc),
             "error": erp_purchase_batch.client_error_payload(exc),
@@ -287,6 +323,7 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
             "success": False,
             "delivery_nos": delivery_nos,
             "master_xlsx": master_xlsx,
+            "contract_template_xlsx": contract_template_xlsx,
             "gross_margin": gross_margin,
             "exception": message,
             "error": {"code": "purchase_batch_generation_failed", "message": message},

@@ -274,6 +274,7 @@ def test_confirmation_response_does_not_generate_files(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(erp, "import_purchase_intent", lambda _payload: (409, response))
+    monkeypatch.setattr(contract_cli, "validate_contract_template", lambda *args, **kwargs: {})
     monkeypatch.setattr(
         cli,
         "generate_purchase_batch_workbooks",
@@ -284,6 +285,7 @@ def test_confirmation_response_does_not_generate_files(monkeypatch) -> None:
         {
             "delivery_no": ["SP260710001"],
             "master_xlsx": "master.xlsx",
+            "contract_template_xlsx": "contracts.xlsx",
             "gross_margin": "0.3",
         }
     )
@@ -306,11 +308,13 @@ def test_stale_quote_preserves_latest_server_quote(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(erp, "import_purchase_intent", lambda _payload: (409, response))
+    monkeypatch.setattr(contract_cli, "validate_contract_template", lambda *args, **kwargs: {})
 
     result = cli.run(
         {
             "delivery_no": ["SP260710001"],
             "master_xlsx": "master.xlsx",
+            "contract_template_xlsx": "contracts.xlsx",
             "gross_margin": "0.3",
         }
     )
@@ -487,6 +491,7 @@ def test_cli_marks_success_validation_failure_as_committed(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(erp, "import_purchase_intent", lambda _payload: (201, response))
+    monkeypatch.setattr(contract_cli, "validate_contract_template", lambda *args, **kwargs: {})
     monkeypatch.setattr(
         cli,
         "generate_purchase_batch_workbooks",
@@ -497,6 +502,7 @@ def test_cli_marks_success_validation_failure_as_committed(monkeypatch) -> None:
         {
             "delivery_no": ["SP260710001"],
             "master_xlsx": "master.xlsx",
+            "contract_template_xlsx": "contracts.xlsx",
             "gross_margin": "0.3",
         }
     )
@@ -508,8 +514,104 @@ def test_cli_marks_success_validation_failure_as_committed(monkeypatch) -> None:
     assert result["batch_id"] == response["batch_id"]
 
 
-def test_cli_preserves_contract_download_http_error_after_commit(monkeypatch) -> None:
+def test_formal_success_renders_contracts_locally_without_erp_download(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     response = deepcopy(_erp_result())
+    purchase_path = tmp_path / "purchase.xlsx"
+    restock_path = tmp_path / "restock.xlsx"
+    contract_path = tmp_path / "ZF20260723001-深圳正飞科技.xlsx"
+    for path in (purchase_path, restock_path, contract_path):
+        path.write_text("artifact", encoding="utf-8")
+    monkeypatch.setattr(
+        erp,
+        "build_purchase_intent",
+        lambda *args, **kwargs: (
+            _request_payload(),
+            {
+                "delivery_nos": ["SP260710001"],
+                "csv_paths": [],
+                "master_xlsx": "master.xlsx",
+            },
+        ),
+    )
+    monkeypatch.setattr(contract_cli, "validate_contract_template", lambda *args, **kwargs: {})
+    monkeypatch.setattr(erp, "import_purchase_intent", lambda _payload: (201, response))
+    monkeypatch.setattr(
+        cli,
+        "generate_purchase_batch_workbooks",
+        lambda *args, **kwargs: {
+            "success": True,
+            "purchase_summary_xlsx": str(purchase_path),
+            "restock_xlsx_paths": [str(restock_path)],
+            "restock_outputs": [
+                {"delivery_no": "SP260710001", "output_xlsx": str(restock_path)}
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        erp,
+        "apply_formal_erp_result",
+        lambda generated, erp_result, **kwargs: {
+            **generated,
+            **erp_result,
+            "mode": "formal",
+        },
+    )
+    seen: list[dict] = []
+
+    def fake_fill_formal_purchase_contracts(**kwargs):
+        seen.append(kwargs)
+        return {
+            "success": True,
+            "contract_template_xlsx": kwargs["contract_template_xlsx"],
+            "output_files": [
+                {
+                    "manufacturer": "深圳正飞科技",
+                    "sheet_name": "深圳正飞科技",
+                    "contract_no": "ZF20260723001",
+                    "output_xlsx": str(contract_path),
+                }
+            ],
+        }
+
+    monkeypatch.setattr(
+        contract_cli,
+        "fill_formal_purchase_contracts",
+        fake_fill_formal_purchase_contracts,
+    )
+    monkeypatch.setattr(
+        erp,
+        "download_contract_workbooks",
+        lambda _result: pytest.fail("formal mode must not download contracts from ERP"),
+    )
+
+    result = cli.run(
+        {
+            "delivery_no": ["SP260710001"],
+            "master_xlsx": "master.xlsx",
+            "contract_template_xlsx": "contracts.xlsx",
+            "gross_margin": "0.3",
+        }
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "completed"
+    assert result["contract_xlsx_paths"] == [str(contract_path)]
+    assert seen[0]["contracts"] == response["contracts"]
+
+
+def test_cli_preserves_local_artifacts_when_formal_contract_generation_fails(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    response = deepcopy(_erp_result())
+    purchase_path = tmp_path / "purchase.xlsx"
+    restock_path = tmp_path / "restock.xlsx"
+    completed_contract_path = tmp_path / "ZF20260723001-厂家A.xlsx"
+    for path in (purchase_path, restock_path, completed_contract_path):
+        path.write_text("artifact", encoding="utf-8")
     monkeypatch.setattr(
         erp,
         "build_purchase_intent",
@@ -523,51 +625,104 @@ def test_cli_preserves_contract_download_http_error_after_commit(monkeypatch) ->
         ),
     )
     monkeypatch.setattr(erp, "import_purchase_intent", lambda _payload: (201, response))
+    monkeypatch.setattr(contract_cli, "validate_contract_template", lambda *args, **kwargs: {})
     monkeypatch.setattr(
         cli,
         "generate_purchase_batch_workbooks",
-        lambda *args, **kwargs: {"success": True},
+        lambda *args, **kwargs: {
+            "success": True,
+            "purchase_summary_xlsx": str(purchase_path),
+            "restock_xlsx_paths": [str(restock_path)],
+            "restock_outputs": [
+                {"delivery_no": "SP260710001", "output_xlsx": str(restock_path)}
+            ],
+        },
     )
     monkeypatch.setattr(
         erp,
         "apply_formal_erp_result",
-        lambda generated, erp_result, **kwargs: {**generated, **erp_result},
+        lambda generated, erp_result, **kwargs: {
+            **generated,
+            **erp_result,
+            "mode": "formal",
+        },
+    )
+    monkeypatch.setattr(
+        contract_cli,
+        "fill_formal_purchase_contracts",
+        lambda **kwargs: (_ for _ in ()).throw(
+            contract_cli.FormalContractGenerationError(
+                "disk full",
+                output_files=[
+                    {
+                        "manufacturer": "厂家A",
+                        "sheet_name": "厂家A",
+                        "contract_no": "ZF20260723001",
+                        "output_xlsx": str(completed_contract_path),
+                    }
+                ],
+            )
+        ),
     )
     monkeypatch.setattr(
         erp,
         "download_contract_workbooks",
-        lambda _result: (_ for _ in ()).throw(
-            erp.ErpHttpError(
-                "contract_template_not_configured",
-                "contract template is unavailable",
-                http_status=503,
-                detail={
-                    "code": "contract_template_not_configured",
-                    "message": "contract template is unavailable",
-                },
-            )
-        ),
+        lambda _result: pytest.fail("formal mode must not download contracts from ERP"),
     )
 
     result = cli.run(
         {
             "delivery_no": ["SP260710001"],
             "master_xlsx": "master.xlsx",
+            "contract_template_xlsx": "contracts.xlsx",
             "gross_margin": "0.3",
         }
     )
 
     assert result["status"] == "batch_committed_artifact_generation_failed"
     assert result["batch_id"] == response["batch_id"]
+    assert result["purchase_summary_xlsx"] == str(purchase_path)
+    assert result["restock_xlsx_paths"] == [str(restock_path)]
+    assert result["contract_xlsx_paths"] == [str(completed_contract_path)]
     assert result["artifact_error"] == {
-        "code": "contract_template_not_configured",
-        "message": "contract template is unavailable",
-        "http_status": 503,
-        "detail": {
-            "code": "contract_template_not_configured",
-            "message": "contract template is unavailable",
-        },
+        "code": "FormalContractGenerationError",
+        "message": "disk full",
     }
+
+
+def test_invalid_contract_template_stops_before_erp_commit(monkeypatch, tmp_path: Path) -> None:
+    invalid_template = tmp_path / "invalid-contract-template.xlsx"
+    invalid_template.write_text("not an xlsx", encoding="utf-8")
+    monkeypatch.setattr(
+        erp,
+        "build_purchase_intent",
+        lambda *args, **kwargs: (
+            _request_payload(),
+            {
+                "delivery_nos": ["SP260710001"],
+                "csv_paths": [],
+                "master_xlsx": "master.xlsx",
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        erp,
+        "import_purchase_intent",
+        lambda _payload: pytest.fail("invalid local template must stop before ERP commit"),
+    )
+
+    result = cli.run(
+        {
+            "delivery_no": ["SP260710001"],
+            "master_xlsx": "master.xlsx",
+            "contract_template_xlsx": str(invalid_template),
+            "gross_margin": "0.3",
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"]["code"] == "purchase_batch_generation_failed"
+    assert "不是有效 xlsx" in result["error"]["message"]
 
 
 def _xlsx_bytes() -> bytes:

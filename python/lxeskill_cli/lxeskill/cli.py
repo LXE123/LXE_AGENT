@@ -194,6 +194,18 @@ def _asset_slot_fields(entry: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def _field_is_conditionally_optional(
+    property_schema: dict[str, Any],
+    arguments: dict[str, Any],
+) -> bool:
+    optional_when = dict(property_schema.get("x-lxe-optional-when") or {})
+    optional_field = str(optional_when.get("field") or "").strip()
+    return bool(
+        optional_field
+        and arguments.get(optional_field) == optional_when.get("equals")
+    )
+
+
 def _apply_stored_assets(entry: dict[str, Any], arguments: dict[str, Any]) -> dict[str, dict[str, str]]:
     """Fill slot-backed fields from storage, and report where each value came from.
 
@@ -201,7 +213,11 @@ def _apply_stored_assets(entry: dict[str, Any], arguments: dict[str, Any]) -> di
     succeeds; only an omitted field falls back to the stored current version.
     """
     sources: dict[str, dict[str, str]] = {}
+    properties = dict(dict(entry.get("input_schema") or {}).get("properties") or {})
     for name, slot_id in _asset_slot_fields(entry).items():
+        property_schema = dict(properties.get(name) or {})
+        if _field_is_conditionally_optional(property_schema, arguments):
+            continue
         if not _is_missing(arguments.get(name)):
             sources[name] = {"slot": slot_id, "from": "upload"}
             continue
@@ -245,6 +261,8 @@ def _require_uploaded_file_inputs(entry: dict[str, Any], arguments: dict[str, An
     # when the slot has never been filled — ask for the upload just the same.
     for name in sorted(required | set(slots)):
         property_schema = dict(properties.get(name) or {})
+        if _field_is_conditionally_optional(property_schema, arguments):
+            continue
         upload = dict(property_schema.get("x-lxe-file-input") or {})
         if not upload:
             continue
@@ -365,13 +383,15 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
         )
         raw = str(content[0].get("text") or "{}") if content else "{}"
         data = json.loads(raw)
+        if asset_sources and isinstance(data, dict):
+            data = {**data, "asset_sources": asset_sources}
         if not ok:
             failure: dict[str, Any] = {
                     "type": "result",
                     "command": command,
                     "ok": False,
                     "data": data,
-                    "files": [],
+                    "files": files,
                     "error": {
                         "code": str((error or {}).get("code") or "business_failed"),
                         "message": str((error or {}).get("message") or "business command failed"),
@@ -383,8 +403,6 @@ def _run_entry(entry: dict[str, Any], argv: list[str]) -> int:
             _emit(failure)
             return EXIT_BUSINESS
     _promote_supplied_assets(entry, arguments, asset_sources)
-    if asset_sources and isinstance(data, dict):
-        data = {**data, "asset_sources": asset_sources}
     _emit({"type": "result", "command": command, "ok": True, "data": data, "files": files})
     return 0
 

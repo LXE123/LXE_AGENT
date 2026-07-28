@@ -1,6 +1,6 @@
 ---
 name: fba-purchase-summary-create
-description: 根据一批本地 FBA 发货单 CSV、用户提供的出口退税总表和毛利率，默认与 FBA ERP 交互，预览并确认 FIFO 历史库存抵扣后生成正式采购汇总表和每个 SP 备货单；用户明确要求离线或草稿时使用 --draft。用户要求按一批 SP 生成采购汇总、批量备货单或 ERP 采购批次时使用；不要用于上传 WMS 真实装箱量。
+description: 根据一批本地 FBA 发货单 CSV、用户提供的出口退税总表和毛利率，默认与 FBA ERP 交互，预览并确认 FIFO 历史库存抵扣后，在本地生成正式采购汇总表、每个 SP 备货单和正式合同；用户明确要求离线或草稿时使用 --draft。用户要求按一批 SP 生成采购汇总、批量备货单或 ERP 采购批次时使用；不要用于上传 WMS 真实装箱量。
 type: amazon_fba
 commands:
   - lxeskill fba purchase summary-create
@@ -22,6 +22,7 @@ commands:
 
 - `delivery_no`：一个或多个 `SP` 开头的发货单号，顺序就是 ERP 跨 SP 分配库存的顺序。
 - `master_xlsx`：出口退税总表，由系统记忆，见下方「长期资产」。
+- `contract_template_xlsx`：正式合同模板汇总，由系统记忆；草稿模式不需要。
 - `gross_margin`：`0.2`～`0.5`。
 - 正式模式要求发货单 CSV 包含 `MSKU`、`MSKU发货量`、`SKU发货量`；CLI 只上传每 1 个 MSKU 的准确 `quantity_per_msku`，不上传 MSKU 计划量。
 - 正式模式要求 `供应商合同信息` 中的 `单位`、`合同产品名称`、`合同编号前缀`、`税率` 完整且无冲突。
@@ -32,6 +33,8 @@ commands:
 - 只有用户在本轮对话里上传了新版本时才传它的绝对路径；CLI 会自动把它升为当前版，旧版留一份可回退。
 - 用户没上传、系统也没存过时，CLI 会返回 `input_required`，这时才向用户索取。
 - 结果里的 `asset_sources.master_xlsx` 必须转述给用户，例如「使用出口退税总表：xxx.xlsx（文件日期 07-06）」，让用户能发现用错了版本。
+- `contract_template_xlsx`（采购合同模板汇总）也是**长期资产**：正式模式自动使用当前版，平时不要传参数；只有用户上传新版时才传绝对路径。
+- 正式模式缺少合同模板时，CLI 会在提交 ERP 前返回 `input_required`。结果里的 `asset_sources.contract_template_xlsx` 也必须转述给用户。
 
 ## Commands
 
@@ -46,6 +49,8 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 ```text
 lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利率> --master-xlsx "<新版出口退税总表.xlsx>"
 ```
+
+用户上传新版合同模板时追加 `--contract-template-xlsx "<新版采购合同模板汇总.xlsx>"`。
 
 多 SP 重复传 `--delivery-no`。用户明确要求草稿/离线时追加：
 
@@ -66,11 +71,11 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 
 ## Result Handling
 
-- `success=true`：对 terminal `files` 中的每个附件调用 `send_file`；附件包括采购汇总、各 SP 备货单以及 ERP 生成的正式合同，并报告 `batch_no`、`version_no`、`contracts`、`purchase_lines`。
+- `success=true`：对 terminal `files` 中的每个附件调用 `send_file`；附件包括本地生成的采购汇总、各 SP 备货单和正式合同，并报告 `batch_no`、`version_no`、`contracts`、`purchase_lines`。
 - 正式采购汇总和备货单将 `数量` 拆为 `计划发货量`、`本次采购量`、`留存库存抵扣量`。
 - 备货单的新采购行在上方，使用新合同号；历史库存行在底部且整行黄色，使用旧合同号和历史单价。
 - 同一型号使用多个旧合同时，每个“旧合同号＋历史单价”单独一条黄色行。
 - 正飞正式 `均价` 只按 `本次采购量` 加权；黄色行不使用新均价。
-- `status=batch_committed_artifact_generation_failed`：ERP 已提交但本地文件或合同下载失败。报告批次/合同 ID；需要恢复时用完全相同的正式命令重试，让确定性请求 ID 只补齐缺失附件，不得改参数另建批次。
+- `status=batch_committed_artifact_generation_failed`：ERP 已提交但本地文件生成不完整。先报告批次/合同 ID 和真实 `artifact_error`，再发送 terminal `files` 中已经成功生成的附件，并明确哪些文件尚未生成。需要恢复时用完全相同的正式命令重试，让确定性请求 ID 只补齐缺失附件，不得改参数另建批次。
 - `mode=draft`：明确说明文件名含 `DRAFT`、工作表含“草稿-未同步ERP”、没有正式合同号；三个数量列仍存在，且草稿中 `计划发货量=本次采购量`、`留存库存抵扣量=0`。
 - 失败时转述 `error.code`、`error.message` 和可用的 `http_status/detail`，不要用通用提示覆盖。

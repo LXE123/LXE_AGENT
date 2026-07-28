@@ -267,6 +267,15 @@ def test_stdin_json_normalizes_progress_and_terminal_result(monkeypatch, capsys)
         (["fba", "invoice", "fill", "--input-xlsx", "C:/uploads/order.xlsx"], "template_xlsx"),
         (["fba", "export-tax", "delivery-summary", "--delivery-no", "SP260508022"], "products_path"),
         (["fba", "export-tax", "products-import", "--sku", "SKU-1"], "products_path"),
+        (
+            [
+                "fba", "purchase", "summary-create",
+                "--delivery-no", "SP260710001",
+                "--gross-margin", "0.3",
+                "--master-xlsx", "C:/uploads/master.xlsx",
+            ],
+            "contract_template_xlsx",
+        ),
     ],
 )
 def test_missing_user_workbook_returns_structured_input_required(arguments, field, monkeypatch, capsys) -> None:
@@ -321,6 +330,39 @@ def test_stored_asset_fills_an_omitted_slot_field_and_is_reported(
     assert source["updated_at"]
 
 
+def test_draft_purchase_summary_does_not_use_stored_contract_template(
+    tmp_path,
+    monkeypatch,
+    capsys,
+) -> None:
+    from shared import input_assets
+
+    monkeypatch.setattr(input_assets, "input_root", lambda: tmp_path / "inputs")
+    stored = tmp_path / "upload" / "合同模板.xlsx"
+    stored.parent.mkdir(parents=True, exist_ok=True)
+    stored.write_text("template", encoding="utf-8")
+    input_assets.promote_asset("contract_template", stored)
+    seen: list[dict] = []
+
+    def fake_execute(entry, arguments, session, *, on_event, on_text):
+        seen.append(dict(arguments))
+        return True, [{"type": "text", "text": '{"success":true,"mode":"draft"}'}], [], None
+
+    monkeypatch.setattr(lxeskill, "execute_module_json", fake_execute)
+
+    assert lxeskill.main(
+        [
+            "fba", "purchase", "summary-create",
+            "--delivery-no", "SP260710001",
+            "--gross-margin", "0.3",
+            "--master-xlsx", "C:/uploads/master.xlsx",
+            "--draft",
+        ]
+    ) == 0
+    assert seen[0]["draft"] is True
+    assert "contract_template_xlsx" not in seen[0]
+
+
 def test_supplied_asset_is_promoted_only_after_the_command_succeeds(
     tmp_path, monkeypatch, capsys
 ) -> None:
@@ -341,6 +383,11 @@ def test_supplied_asset_is_promoted_only_after_the_command_succeeds(
         "--template-xlsx", str(uploaded),
     ]) == lxeskill.EXIT_BUSINESS
     assert input_assets.current_asset("customs_template") is None, "a failed run must not promote"
+    failure_record = _records(capsys)[0]
+    assert failure_record["data"]["asset_sources"]["template_xlsx"] == {
+        "from": "upload",
+        "slot": "customs_template",
+    }
 
     monkeypatch.setattr(
         lxeskill,
@@ -375,7 +422,7 @@ def test_business_failure_preserves_payload_in_the_only_terminal(monkeypatch, ca
         return (
             False,
             [{"type": "text", "text": '{"success":false,"context":{"stage":"download"}}'}],
-            [],
+            ["/safe/partial.xlsx"],
             {"code": "business_cli_failed", "message": "login expired"},
         )
 
@@ -387,6 +434,7 @@ def test_business_failure_preserves_payload_in_the_only_terminal(monkeypatch, ca
     assert records[0]["ok"] is False
     assert records[0]["data"]["context"] == {"stage": "download"}
     assert records[0]["error"] == {"code": "business_cli_failed", "message": "login expired"}
+    assert records[0]["files"] == ["/safe/partial.xlsx"]
     assert records[0]["recovery"] == {"command": "lxeskill auth refresh"}
 
 

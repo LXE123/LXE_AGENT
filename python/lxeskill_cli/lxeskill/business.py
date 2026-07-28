@@ -229,12 +229,13 @@ def _finalize_payload(
         success = True
     if "finished" in payload:
         success = success and bool(payload.get("finished"))
-    files = collect_declared_artifacts(entry, payload) if success else []
+    deliver_on_failure = bool(entry.get("deliver_artifacts_on_failure", False))
+    files = collect_declared_artifacts(entry, payload) if success or deliver_on_failure else []
     content = [{"type": "text", "text": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))}]
     if success:
         return True, content, files, None
     message = str(payload.get("exception") or payload.get("message") or payload.get("notice") or f"{module_name} failed").strip()
-    return False, content, [], {"code": "business_cli_failed", "message": message}
+    return False, content, files, {"code": "business_cli_failed", "message": message}
 
 
 __all__ = [

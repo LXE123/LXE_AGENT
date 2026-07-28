@@ -328,6 +328,73 @@ def test_fill_purchase_contracts_generates_one_file_per_manufacturer(tmp_path):
     assert "税率：9%" in str(_cell_value(output_by_manufacturer["厂家B"], "深圳厂家B模板", "E3"))
 
 
+def test_fill_formal_purchase_contracts_writes_erp_number_to_both_sheets(tmp_path):
+    purchase_path = tmp_path / "purchase_summary.xlsx"
+    _write_purchase_summary(
+        purchase_path,
+        [
+            _purchase_row(
+                manufacturer="厂家A",
+                model="A-1",
+                quantity=6,
+                unit_price=3.5,
+                total_price=21,
+            )
+        ],
+    )
+    template_path = tmp_path / "contract_template.xlsx"
+    _write_contract_template(template_path, ["厂家A"])
+
+    payload = cli.fill_formal_purchase_contracts(
+        purchase_summary_xlsx=purchase_path,
+        contract_template_xlsx=template_path,
+        contracts=[{"supplier_name": "厂家A", "contract_no": "HT20260728001"}],
+        purchase_lines=[
+            {
+                "supplier_name": "厂家A",
+                "model": "A-1",
+                "purchase_quantity": 6,
+                "tax_unit_price": 4.25,
+            },
+            {
+                "supplier_name": "厂家A",
+                "model": "全部由旧库存抵扣",
+                "purchase_quantity": 0,
+            },
+        ],
+        output_dir=tmp_path / "out",
+        today=date(2026, 7, 28),
+    )
+
+    assert payload["success"] is True
+    assert payload["mode"] == "formal"
+    assert payload["generated_count"] == 1
+    output_path = Path(payload["output_files"][0]["output_xlsx"])
+    assert output_path.name == "HT20260728001-厂家A.xlsx"
+    assert _cell_value(output_path, "厂家A", "E2") == (
+        "合同编号：HT20260728001\nDate：2026年7月28日"
+    )
+    assert _cell_value(output_path, cli.ADDENDUM_OUTPUT_SHEET, "A2") == (
+        "采购合同编号：HT20260728001"
+    )
+    assert _sheet_values(output_path, "厂家A", "A5:G6") == [
+        (1, "合同产品A", "A-1", "条", 6, 4.25, 25.5),
+        ("合计", None, None, None, 6, None, 25.5),
+    ]
+
+
+def test_validate_contract_template_rejects_missing_supplier_sheet(tmp_path):
+    template_path = tmp_path / "contract_template.xlsx"
+    _write_contract_template(template_path, ["厂家A"])
+
+    with pytest.raises(RuntimeError, match="未找到厂家 `厂家B`"):
+        cli.validate_contract_template(
+            template_path,
+            ["厂家A", "厂家B"],
+            output_dir=tmp_path / "out",
+        )
+
+
 def test_fill_purchase_contracts_uses_zhengfei_average_price(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from services.agent_cli._shared.json_cli import exception_text as _exception_text
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
@@ -62,6 +62,14 @@ class DetailTableLayout:
     summary_row: int
     columns: dict[str, int]
     header_column_spans: dict[str, tuple[int, int]]
+
+
+class FormalContractGenerationError(RuntimeError):
+    """Formal rendering failed after zero or more safe contracts were written."""
+
+    def __init__(self, message: str, *, output_files: list[dict[str, str]]) -> None:
+        super().__init__(message)
+        self.output_files = list(output_files)
 
 
 def _clean_cell(value: Any) -> str:
@@ -557,24 +565,57 @@ def _extract_contract_number(value: str) -> str:
     return _clean_cell(match.group(1)) if match else ""
 
 
-def _fill_contract_info_block(worksheet: Any, *, contract_date: date) -> bool:
-    date_text = _format_date_text(contract_date)
+def _contract_info_cell(worksheet: Any) -> Any | None:
     for row in worksheet.iter_rows():
         for cell in row:
             raw_text = cell.value
-            if not isinstance(raw_text, str):
+            if not isinstance(raw_text, str) or "交货日期" in raw_text:
                 continue
-            if "交货日期" in raw_text:
-                continue
-            if "合同编号" not in raw_text and "Date" not in raw_text and "日期" not in raw_text:
-                continue
-            contract_number = _extract_contract_number(raw_text)
-            if not contract_number:
-                continue
-            cell.value = f"合同编号：{contract_number}\nDate：{date_text}"
-            _apply_info_block_alignment(cell)
-            return True
-    return False
+            if "合同编号" in raw_text or "Date" in raw_text or "日期" in raw_text:
+                return cell
+    return None
+
+
+def _delivery_payment_tax_cell(worksheet: Any) -> Any | None:
+    for row in worksheet.iter_rows():
+        for cell in row:
+            if isinstance(cell.value, str) and "交货日期" in cell.value:
+                return cell
+    return None
+
+
+def _addendum_contract_number_cell(worksheet: Any) -> Any | None:
+    for row in worksheet.iter_rows():
+        for cell in row:
+            if isinstance(cell.value, str) and "采购合同编号" in cell.value:
+                return cell
+    return None
+
+
+def _fill_contract_info_block(
+    worksheet: Any,
+    *,
+    contract_date: date,
+    contract_number: str | None = None,
+) -> bool:
+    date_text = _format_date_text(contract_date)
+    cell = _contract_info_cell(worksheet)
+    if cell is None:
+        return False
+    number = _clean_cell(contract_number) if contract_number is not None else _extract_contract_number(cell.value)
+    if not number:
+        return False
+    cell.value = f"合同编号：{number}\nDate：{date_text}"
+    _apply_info_block_alignment(cell)
+    return True
+
+
+def _fill_addendum_contract_number(worksheet: Any, *, contract_number: str) -> bool:
+    cell = _addendum_contract_number_cell(worksheet)
+    if cell is None:
+        return False
+    cell.value = f"采购合同编号：{_clean_cell(contract_number)}"
+    return True
 
 
 def _fill_delivery_payment_tax_block(
@@ -626,10 +667,15 @@ def _fill_date_and_tax(
     tax_rate: str,
     warnings: list[str],
     manufacturer: str,
+    contract_number: str | None = None,
 ) -> None:
     tax_rate_text = _format_tax_rate(tax_rate)
 
-    if not _fill_contract_info_block(worksheet, contract_date=contract_date):
+    if not _fill_contract_info_block(
+        worksheet,
+        contract_date=contract_date,
+        contract_number=contract_number,
+    ):
         warnings.append(f"厂家 `{manufacturer}` 合同模板未找到合同日期位置")
     if not tax_rate_text:
         warnings.append(f"厂家 `{manufacturer}` 采购汇总表税率为空")
@@ -721,6 +767,8 @@ def _save_single_company_contract(
     lines: list[PurchaseContractLine],
     contract_date: date,
     warnings: list[str],
+    contract_number: str | None = None,
+    strict_layout: bool = False,
 ) -> str:
     try:
         from openpyxl import load_workbook
@@ -735,6 +783,7 @@ def _save_single_company_contract(
             if other_sheet.title not in {sheet_name, ADDENDUM_OUTPUT_SHEET}:
                 workbook.remove(other_sheet)
 
+        warning_count = len(warnings)
         _fill_date_and_tax(
             worksheet,
             contract_date=contract_date,
@@ -742,11 +791,25 @@ def _save_single_company_contract(
             tax_rate=lines[0].tax_rate if lines else "",
             warnings=warnings,
             manufacturer=manufacturer,
+            contract_number=contract_number,
         )
         _fill_detail_rows(worksheet, lines)
         _fill_detail_rows(addendum_worksheet, lines)
 
-        output_path = output_dir / f"{_safe_file_stem(manufacturer)}_purchase_contract.xlsx"
+        if contract_number and not _fill_addendum_contract_number(
+            addendum_worksheet,
+            contract_number=contract_number,
+        ):
+            warnings.append(f"厂家 `{manufacturer}` 的附加件模板未找到采购合同编号位置")
+        if strict_layout and len(warnings) > warning_count:
+            raise RuntimeError("; ".join(warnings[warning_count:]))
+
+        output_name = (
+            f"{_safe_file_stem(contract_number)}-{_safe_file_stem(manufacturer)}.xlsx"
+            if contract_number
+            else f"{_safe_file_stem(manufacturer)}_purchase_contract.xlsx"
+        )
+        output_path = output_dir / output_name
         workbook.save(output_path)
         return str(output_path)
     finally:
@@ -824,6 +887,196 @@ def fill_purchase_contracts(
         "generated_count": len(output_files),
         "skipped_manufacturer_count": len(skipped_manufacturers),
         "skipped_manufacturers": skipped_manufacturers,
+        "warnings": warnings,
+        "source": SOURCE,
+    }
+
+
+def validate_contract_template(
+    contract_template_xlsx: str | Path,
+    manufacturers: list[str] | tuple[str, ...],
+    *,
+    output_dir: str | Path | None = None,
+) -> dict[str, str]:
+    """Validate every static template requirement before the ERP batch is committed."""
+    template_path = Path(contract_template_xlsx).expanduser()
+    if not template_path.is_file():
+        raise RuntimeError(f"找不到合同汇总模板: {template_path}")
+
+    directory = Path(OUTPUT_DIR if output_dir is None else output_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    if not directory.is_dir():
+        raise RuntimeError(f"合同输出目录不可用: {directory}")
+
+    try:
+        from openpyxl import load_workbook
+    except Exception as exc:
+        raise RuntimeError("缺少 openpyxl 依赖，无法读取合同汇总模板") from exc
+
+    try:
+        workbook = load_workbook(template_path, read_only=False, data_only=False)
+    except Exception as exc:
+        raise RuntimeError(f"合同汇总模板不是有效 xlsx: {template_path}: {_exception_text(exc)}") from exc
+    try:
+        if ADDENDUM_TEMPLATE_SHEET not in workbook.sheetnames:
+            raise RuntimeError(f"合同汇总模板缺少 sheet: {ADDENDUM_TEMPLATE_SHEET}")
+        addendum = workbook[ADDENDUM_TEMPLATE_SHEET]
+        _find_detail_table_layout(addendum)
+        if _addendum_contract_number_cell(addendum) is None:
+            raise RuntimeError("附加件明细模板未找到采购合同编号位置")
+
+        resolved: dict[str, str] = {}
+        for raw_manufacturer in manufacturers:
+            manufacturer = _clean_cell(raw_manufacturer)
+            if not manufacturer or manufacturer in resolved:
+                continue
+            sheet_name, warning = _resolve_company_sheet(workbook.sheetnames, manufacturer)
+            if warning or sheet_name is None:
+                raise RuntimeError(warning or f"合同模板中未找到厂家 `{manufacturer}`")
+            worksheet = workbook[sheet_name]
+            _find_detail_table_layout(worksheet)
+            if _contract_info_cell(worksheet) is None:
+                raise RuntimeError(f"厂家 `{manufacturer}` 合同模板未找到合同编号和日期位置")
+            if _delivery_payment_tax_cell(worksheet) is None:
+                raise RuntimeError(f"厂家 `{manufacturer}` 合同模板未找到交货日期和税率位置")
+            resolved[manufacturer] = sheet_name
+        return resolved
+    finally:
+        workbook.close()
+
+
+def fill_formal_purchase_contracts(
+    *,
+    purchase_summary_xlsx: str | Path,
+    contract_template_xlsx: str | Path,
+    contracts: list[Mapping[str, Any]],
+    purchase_lines: list[Mapping[str, Any]],
+    output_dir: str | Path | None = None,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Render official contract files locally using contract numbers assigned by ERP."""
+    purchase_summary_path = Path(purchase_summary_xlsx).expanduser()
+    template_path = Path(contract_template_xlsx).expanduser()
+    grouped_lines = load_purchase_summary_lines(purchase_summary_path)
+
+    contract_numbers: dict[str, str] = {}
+    for index, raw_contract in enumerate(contracts):
+        supplier = _clean_cell(raw_contract.get("supplier_name"))
+        contract_number = _clean_cell(raw_contract.get("contract_no"))
+        if not supplier or not contract_number:
+            raise RuntimeError(f"ERP 正式合同数据不完整: contracts[{index}]")
+        if supplier in contract_numbers:
+            raise RuntimeError(f"ERP 同一供应商返回多个正式合同: {supplier}")
+        contract_numbers[supplier] = contract_number
+
+    expected_suppliers = set(grouped_lines)
+    actual_suppliers = set(contract_numbers)
+    if actual_suppliers != expected_suppliers:
+        raise RuntimeError(
+            "ERP 正式合同与采购汇总厂家不一致: "
+            f"missing={sorted(expected_suppliers - actual_suppliers)}, "
+            f"unexpected={sorted(actual_suppliers - expected_suppliers)}"
+        )
+    for manufacturer, lines in grouped_lines.items():
+        if any(not _clean_cell(line.tax_rate) for line in lines):
+            raise RuntimeError(f"厂家 `{manufacturer}` 的正式合同税率不能为空")
+
+    erp_lines: dict[tuple[str, str], tuple[Decimal, Decimal]] = {}
+    for index, raw_line in enumerate(purchase_lines):
+        supplier = _clean_cell(raw_line.get("supplier_name"))
+        model = _clean_cell(raw_line.get("model"))
+        try:
+            purchase_quantity = Decimal(str(raw_line.get("purchase_quantity")))
+        except (InvalidOperation, ValueError) as exc:
+            raise RuntimeError(f"ERP 正式采购数量无效: purchase_lines[{index}]") from exc
+        if not purchase_quantity.is_finite() or purchase_quantity < 0:
+            raise RuntimeError(f"ERP 正式采购数量无效: purchase_lines[{index}]")
+        if purchase_quantity == 0:
+            continue
+        try:
+            tax_unit_price = Decimal(str(raw_line.get("tax_unit_price")))
+        except (InvalidOperation, ValueError) as exc:
+            raise RuntimeError(f"ERP 正式采购价格无效: purchase_lines[{index}]") from exc
+        if not tax_unit_price.is_finite():
+            raise RuntimeError(f"ERP 正式采购价格无效: purchase_lines[{index}]")
+        if not supplier or not model or tax_unit_price < 0:
+            raise RuntimeError(f"ERP 正式采购数据不完整: purchase_lines[{index}]")
+        key = (supplier, model.casefold())
+        if key in erp_lines:
+            raise RuntimeError(f"ERP 正式采购行重复: 厂家={supplier}, 型号={model}")
+        erp_lines[key] = (purchase_quantity, tax_unit_price)
+
+    summary_quantities: dict[tuple[str, str], Decimal] = {}
+    for manufacturer, lines in grouped_lines.items():
+        for line in lines:
+            key = (manufacturer, line.model.casefold())
+            summary_quantities[key] = summary_quantities.get(key, Decimal("0")) + line.quantity
+            erp_line = erp_lines.get(key)
+            if erp_line is None:
+                raise RuntimeError(
+                    f"ERP 正式采购结果缺少合同明细: 厂家={manufacturer}, 型号={line.model}"
+                )
+            line.tax_unit_price = erp_line[1]
+            line.tax_amount = erp_line[1] * line.quantity
+    if set(erp_lines) != set(summary_quantities):
+        raise RuntimeError(
+            "ERP 正式采购行与采购汇总不一致: "
+            f"missing={sorted(set(summary_quantities) - set(erp_lines))}, "
+            f"unexpected={sorted(set(erp_lines) - set(summary_quantities))}"
+        )
+    for key, summary_quantity in summary_quantities.items():
+        if erp_lines[key][0] != summary_quantity:
+            raise RuntimeError(
+                "ERP 正式采购数量与采购汇总不一致: "
+                f"厂家={key[0]}, 型号={key[1]}, "
+                f"erp={erp_lines[key][0]}, summary={summary_quantity}"
+            )
+
+    sheet_names = validate_contract_template(
+        template_path,
+        list(grouped_lines),
+        output_dir=output_dir,
+    )
+    directory = Path(OUTPUT_DIR if output_dir is None else output_dir)
+    contract_date = today or date.today()
+    warnings: list[str] = []
+    output_files: list[dict[str, str]] = []
+    for manufacturer, lines in grouped_lines.items():
+        contract_number = contract_numbers[manufacturer]
+        try:
+            output_xlsx = _save_single_company_contract(
+                template_xlsx=template_path,
+                output_dir=directory,
+                manufacturer=manufacturer,
+                sheet_name=sheet_names[manufacturer],
+                lines=lines,
+                contract_date=contract_date,
+                warnings=warnings,
+                contract_number=contract_number,
+                strict_layout=True,
+            )
+        except Exception as exc:
+            raise FormalContractGenerationError(
+                f"厂家 `{manufacturer}` 正式合同生成失败: {_exception_text(exc)}",
+                output_files=output_files,
+            ) from exc
+        output_files.append(
+            {
+                "manufacturer": manufacturer,
+                "sheet_name": sheet_names[manufacturer],
+                "contract_no": contract_number,
+                "output_xlsx": output_xlsx,
+            }
+        )
+
+    return {
+        "success": True,
+        "mode": "formal",
+        "purchase_summary_xlsx": str(purchase_summary_path),
+        "contract_template_xlsx": str(template_path),
+        "output_dir": str(directory),
+        "output_files": output_files,
+        "generated_count": len(output_files),
         "warnings": warnings,
         "source": SOURCE,
     }
