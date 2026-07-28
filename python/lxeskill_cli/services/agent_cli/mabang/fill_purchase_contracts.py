@@ -14,7 +14,7 @@ from services.agent_cli.mabang import generate_restock_workbook as purchase_summ
 from shared.datasets import dataset_dir
 
 OUTPUT_DIR = dataset_dir("fba_purchase_contracts")
-SOURCE = "fba_purchase_contract_fill"
+SOURCE = "fba_purchase_summary_create"
 
 PURCHASE_SUMMARY_SHEET = purchase_summary.SUMMARY_SHEET_NAME
 ADDENDUM_TEMPLATE_SHEET = "附加件明细模板"
@@ -28,7 +28,7 @@ REQUIRED_PURCHASE_COLUMNS = (
     "总价",
     "税率",
 )
-PURCHASE_QUANTITY_COLUMNS = ("本次采购量", "数量")
+PURCHASE_QUANTITY_COLUMN = "本次采购量"
 DETAIL_HEADER_MATCHERS = {
     "sequence": ("序号",),
     "product_name": ("产品名称",),
@@ -113,16 +113,11 @@ def _header_indexes(header_values: tuple[Any, ...]) -> dict[str, int]:
     missing = [header for header in REQUIRED_PURCHASE_COLUMNS if header not in indexes]
     if missing:
         raise RuntimeError(f"采购汇总表 {PURCHASE_SUMMARY_SHEET} sheet 缺少必需列: {', '.join(missing)}")
-    quantity_header = next(
-        (header for header in PURCHASE_QUANTITY_COLUMNS if header in indexes),
-        None,
-    )
-    if quantity_header is None:
+    if PURCHASE_QUANTITY_COLUMN not in indexes:
         raise RuntimeError(
             f"采购汇总表 {PURCHASE_SUMMARY_SHEET} sheet 缺少必需列: "
-            f"{PURCHASE_QUANTITY_COLUMNS[0]} 或 {PURCHASE_QUANTITY_COLUMNS[1]}"
+            f"{PURCHASE_QUANTITY_COLUMN}"
         )
-    indexes["数量"] = indexes[quantity_header]
     return indexes
 
 
@@ -170,15 +165,19 @@ def load_purchase_summary_lines(
                 header: row[indexes[header] - 1] if indexes[header] - 1 < len(row) else None
                 for header in REQUIRED_PURCHASE_COLUMNS
             }
-            values["数量"] = (
-                row[indexes["数量"] - 1]
-                if indexes["数量"] - 1 < len(row)
+            values[PURCHASE_QUANTITY_COLUMN] = (
+                row[indexes[PURCHASE_QUANTITY_COLUMN] - 1]
+                if indexes[PURCHASE_QUANTITY_COLUMN] - 1 < len(row)
                 else None
             )
             manufacturer = _clean_cell(values["厂家"])
             if not manufacturer:
                 raise RuntimeError(f"采购汇总表 第{row_number}行 厂家不能为空")
-            quantity = _decimal_from_value(values["数量"], field_name="数量", row_number=row_number)
+            quantity = _decimal_from_value(
+                values[PURCHASE_QUANTITY_COLUMN],
+                field_name=PURCHASE_QUANTITY_COLUMN,
+                row_number=row_number,
+            )
             if quantity <= 0:
                 continue
             tax_unit_price = _decimal_from_value(values["原价"], field_name="原价", row_number=row_number)
@@ -816,82 +815,6 @@ def _save_single_company_contract(
         workbook.close()
 
 
-def fill_purchase_contracts(
-    *,
-    purchase_summary_xlsx: str | Path,
-    contract_template_xlsx: str | Path,
-    output_dir: str | Path | None = None,
-    today: date | None = None,
-) -> dict[str, Any]:
-    purchase_summary_path = Path(purchase_summary_xlsx).expanduser()
-    template_path = Path(contract_template_xlsx).expanduser()
-    if not template_path.is_file():
-        raise RuntimeError(f"找不到合同汇总模板: {template_path}")
-
-    grouped_lines = load_purchase_summary_lines(purchase_summary_path)
-    directory = Path(OUTPUT_DIR if output_dir is None else output_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    contract_date = today or date.today()
-
-    try:
-        from openpyxl import load_workbook
-    except Exception as exc:
-        raise RuntimeError("缺少 openpyxl 依赖，无法读取合同汇总模板") from exc
-
-    template_workbook = load_workbook(template_path, read_only=True)
-    try:
-        sheet_names = list(template_workbook.sheetnames)
-    finally:
-        template_workbook.close()
-    if ADDENDUM_TEMPLATE_SHEET not in sheet_names:
-        raise RuntimeError(f"合同汇总模板缺少 sheet: {ADDENDUM_TEMPLATE_SHEET}")
-
-    warnings: list[str] = []
-    output_files: list[dict[str, str]] = []
-    skipped_manufacturers: list[str] = []
-    for manufacturer, lines in grouped_lines.items():
-        sheet_name, warning = _resolve_company_sheet(sheet_names, manufacturer)
-        if warning:
-            warnings.append(warning)
-            skipped_manufacturers.append(manufacturer)
-            continue
-        assert sheet_name is not None
-        try:
-            output_xlsx = _save_single_company_contract(
-                template_xlsx=template_path,
-                output_dir=directory,
-                manufacturer=manufacturer,
-                sheet_name=sheet_name,
-                lines=lines,
-                contract_date=contract_date,
-                warnings=warnings,
-            )
-        except Exception as exc:
-            warnings.append(f"厂家 `{manufacturer}` 合同填写失败: {_exception_text(exc)}")
-            skipped_manufacturers.append(manufacturer)
-            continue
-        output_files.append(
-            {
-                "manufacturer": manufacturer,
-                "sheet_name": sheet_name,
-                "output_xlsx": output_xlsx,
-            }
-        )
-
-    return {
-        "success": True,
-        "purchase_summary_xlsx": str(purchase_summary_path),
-        "contract_template_xlsx": str(template_path),
-        "output_dir": str(directory),
-        "output_files": output_files,
-        "generated_count": len(output_files),
-        "skipped_manufacturer_count": len(skipped_manufacturers),
-        "skipped_manufacturers": skipped_manufacturers,
-        "warnings": warnings,
-        "source": SOURCE,
-    }
-
-
 def validate_contract_template(
     contract_template_xlsx: str | Path,
     manufacturers: list[str] | tuple[str, ...],
@@ -1080,22 +1003,3 @@ def fill_formal_purchase_contracts(
         "warnings": warnings,
         "source": SOURCE,
     }
-
-
-def run(arguments: dict[str, Any]) -> dict[str, Any]:
-    """lxeskill entrypoint — the catalog input_schema is the argument contract."""
-    purchase_summary_xlsx = str(arguments.get("purchase_summary_xlsx") or "")
-    contract_template_xlsx = str(arguments.get("contract_template_xlsx") or "")
-    try:
-        return fill_purchase_contracts(
-            purchase_summary_xlsx=purchase_summary_xlsx,
-            contract_template_xlsx=contract_template_xlsx,
-        )
-    except Exception as exc:  # noqa: BLE001 — failure context belongs in the payload
-        return {
-            "success": False,
-            "purchase_summary_xlsx": purchase_summary_xlsx,
-            "contract_template_xlsx": contract_template_xlsx,
-            "exception": _exception_text(exc),
-            "source": SOURCE,
-        }

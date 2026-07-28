@@ -68,8 +68,8 @@ describe("ExecShellAdapter", () => {
     expect(posix.normalizeCommand("/work/demo", "pip install demo")).toBe(
       "'/work/demo/.venv/bin/python' -m pip install demo",
     );
-    expect(posix.normalizeCommand("/work/demo", "lxeskill fba purchase contracts-fill --input-json args.json")).toBe(
-      "'/work/demo/.venv/bin/python' '-I' '-B' '-m' 'lxeskill' fba purchase contracts-fill --input-json args.json",
+    expect(posix.normalizeCommand("/work/demo", "lxeskill fba purchase summary-create --input-json args.json")).toBe(
+      "'/work/demo/.venv/bin/python' '-I' '-B' '-m' 'lxeskill' fba purchase summary-create --input-json args.json",
     );
 
     const windows = new ExecShellAdapter({

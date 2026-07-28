@@ -163,14 +163,6 @@
       "input_schema": {"type": "object", "properties": {"ship_no": {"type": "string"}, "delivery_no": {"type": "string"}}, "additionalProperties": false}
     },
     {
-      "name": "mabang_fill_purchase_contracts", "module": "services.agent_cli.mabang.fill_purchase_contracts",
-      "command_path": ["fba", "purchase", "contracts-fill"],
-      "legacy_aliases": ["mabang_fill_purchase_contracts"],
-      "visibility": "business", "session_mode": "none",
-      "owner_skills": ["fba-purchase-contract-fill"], "artifact_paths": [{"field": "output_files[].output_xlsx", "role": "deliverable"}], "timeout_ms": 300000, "exposed": true,
-      "input_schema": {"type": "object", "properties": {"purchase_summary_xlsx": {"type": "string"}, "contract_template_xlsx": {"type": "string", "x-lxe-file-input": {"accepted_extensions": [".xlsx"], "instruction": "请上传采购合同模板汇总，并使用附件保存后的真实绝对路径。"}, "x-lxe-asset-slot": "contract_template"}}, "required": ["purchase_summary_xlsx"], "additionalProperties": false}
-    },
-    {
       "name": "mabang_generate_purchase_batch_workbooks", "module": "services.agent_cli.mabang.generate_purchase_batch_workbooks",
       "command_path": ["fba", "purchase", "summary-create"],
       "legacy_aliases": ["mabang_generate_purchase_batch_workbooks"],

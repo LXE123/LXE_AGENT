@@ -12,6 +12,17 @@ from services.agent_cli.mabang import fill_purchase_contracts as cli
 from services.agent_cli.mabang import generate_restock_workbook as purchase_summary
 
 
+FORMAL_MANUFACTURER_COLUMNS = tuple(
+    column
+    for legacy_column in purchase_summary.MANUFACTURER_COLUMNS
+    for column in (
+        ("计划发货量", "本次采购量", "留存库存抵扣量")
+        if legacy_column == "数量"
+        else (legacy_column,)
+    )
+)
+
+
 def _purchase_row(
     *,
     manufacturer: str,
@@ -38,17 +49,19 @@ def _purchase_row(
         "合同产品名称": product_name,
         "合同编号前缀": "JY",
         "税率": tax_rate,
-        "数量": quantity,
+        "计划发货量": quantity,
+        "本次采购量": quantity,
+        "留存库存抵扣量": 0,
         "总价": total_price,
     }
-    return [values.get(column) for column in purchase_summary.MANUFACTURER_COLUMNS]
+    return [values.get(column) for column in FORMAL_MANUFACTURER_COLUMNS]
 
 
 def _purchase_summary_total_row(*, quantity: object, total_price: object) -> list[object]:
-    values = [""] * len(purchase_summary.MANUFACTURER_COLUMNS)
+    values = [""] * len(FORMAL_MANUFACTURER_COLUMNS)
     values[0] = "合计"
-    values[purchase_summary.MANUFACTURER_COLUMNS.index("数量")] = quantity
-    values[purchase_summary.MANUFACTURER_COLUMNS.index("总价")] = total_price
+    values[FORMAL_MANUFACTURER_COLUMNS.index("本次采购量")] = quantity
+    values[FORMAL_MANUFACTURER_COLUMNS.index("总价")] = total_price
     return values
 
 
@@ -56,10 +69,42 @@ def _write_purchase_summary(path: Path, rows: list[list[object]]) -> None:
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = purchase_summary.SUMMARY_SHEET_NAME
-    worksheet.append(list(purchase_summary.MANUFACTURER_COLUMNS))
+    worksheet.append(list(FORMAL_MANUFACTURER_COLUMNS))
     for row in rows:
         worksheet.append(row)
     workbook.save(path)
+
+
+def _fill_formal_contracts(
+    *,
+    purchase_summary_xlsx: str | Path,
+    contract_template_xlsx: str | Path,
+    output_dir: str | Path,
+    today: date,
+) -> dict[str, object]:
+    grouped = cli.load_purchase_summary_lines(purchase_summary_xlsx)
+    contracts = [
+        {"supplier_name": manufacturer, "contract_no": f"HT{index:04d}"}
+        for index, manufacturer in enumerate(grouped, start=1)
+    ]
+    purchase_lines = [
+        {
+            "supplier_name": manufacturer,
+            "model": line.model,
+            "purchase_quantity": line.quantity,
+            "tax_unit_price": line.tax_unit_price,
+        }
+        for manufacturer, lines in grouped.items()
+        for line in lines
+    ]
+    return cli.fill_formal_purchase_contracts(
+        purchase_summary_xlsx=purchase_summary_xlsx,
+        contract_template_xlsx=contract_template_xlsx,
+        contracts=contracts,
+        purchase_lines=purchase_lines,
+        output_dir=output_dir,
+        today=today,
+    )
 
 
 def _style_detail_row(worksheet) -> None:
@@ -266,7 +311,7 @@ def _single_row_merged_ranges(path: Path, sheet_name: str, row_index: int) -> li
         workbook.close()
 
 
-def test_fill_purchase_contracts_generates_one_file_per_manufacturer(tmp_path):
+def test_fill_formal_contracts_generates_one_file_per_manufacturer(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -288,7 +333,7 @@ def test_fill_purchase_contracts_generates_one_file_per_manufacturer(tmp_path):
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template(template_path, ["厂家A", "深圳厂家B模板", "无关模板"])
 
-    payload = cli.fill_purchase_contracts(
+    payload = _fill_formal_contracts(
         purchase_summary_xlsx=purchase_path,
         contract_template_xlsx=template_path,
         output_dir=tmp_path / "out",
@@ -312,13 +357,13 @@ def test_fill_purchase_contracts_generates_one_file_per_manufacturer(tmp_path):
         (1, "合同产品A", "JY-1", "条", 300, 6.8, 2040),
         ("合计", None, None, None, 300, None, 2040),
     ]
-    assert _cell_value(output_by_manufacturer["厂家A"], cli.ADDENDUM_OUTPUT_SHEET, "A2") == "采购合同编号：KEEP-ADDENDUM"
+    assert _cell_value(output_by_manufacturer["厂家A"], cli.ADDENDUM_OUTPUT_SHEET, "A2") == "采购合同编号：HT0001"
     assert _single_row_merged_ranges(output_by_manufacturer["厂家A"], cli.ADDENDUM_OUTPUT_SHEET, 1) == ["A1:H1"]
     assert _row_height(output_by_manufacturer["厂家A"], cli.ADDENDUM_OUTPUT_SHEET, 5) == 33
     assert _column_width(output_by_manufacturer["厂家A"], cli.ADDENDUM_OUTPUT_SHEET, "B") == 31
     assert cli.ADDENDUM_TEMPLATE_SHEET not in _workbook_sheet_names(output_by_manufacturer["厂家A"])
     assert _cell_value(output_by_manufacturer["厂家A"], "厂家A", "E2") == (
-        "合同编号：KEEP-厂家A\nDate：2026年7月1日"
+        "合同编号：HT0001\nDate：2026年7月1日"
     )
     assert _cell_value(output_by_manufacturer["厂家A"], "厂家A", "E3") == (
         "交货日期：2026年7月4日\n付款期限：发货验收付款\n币种：人民币 税率：13%"
@@ -395,7 +440,7 @@ def test_validate_contract_template_rejects_missing_supplier_sheet(tmp_path):
         )
 
 
-def test_fill_purchase_contracts_uses_zhengfei_average_price(tmp_path):
+def test_fill_formal_contracts_uses_zhengfei_average_price(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -422,7 +467,7 @@ def test_fill_purchase_contracts_uses_zhengfei_average_price(tmp_path):
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template(template_path, ["深圳正飞科技"])
 
-    payload = cli.fill_purchase_contracts(
+    payload = _fill_formal_contracts(
         purchase_summary_xlsx=purchase_path,
         contract_template_xlsx=template_path,
         output_dir=tmp_path / "out",
@@ -443,7 +488,7 @@ def test_fill_purchase_contracts_uses_zhengfei_average_price(tmp_path):
     ]
 
 
-def test_fill_purchase_contracts_rejects_zhengfei_missing_average_price(tmp_path):
+def test_fill_formal_contracts_rejects_zhengfei_missing_average_price(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -461,7 +506,7 @@ def test_fill_purchase_contracts_rejects_zhengfei_missing_average_price(tmp_path
     _write_contract_template(template_path, ["深圳正飞科技"])
 
     with pytest.raises(RuntimeError, match="正飞均价不能为空"):
-        cli.fill_purchase_contracts(
+        _fill_formal_contracts(
             purchase_summary_xlsx=purchase_path,
             contract_template_xlsx=template_path,
             output_dir=tmp_path / "out",
@@ -495,7 +540,31 @@ def test_load_purchase_summary_lines_rejects_only_total_row(tmp_path):
         cli.load_purchase_summary_lines(purchase_path)
 
 
-def test_fill_purchase_contracts_skips_missing_and_ambiguous_template_sheets(tmp_path):
+def test_load_purchase_summary_lines_rejects_legacy_quantity_column(tmp_path):
+    purchase_path = tmp_path / "legacy-summary.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = purchase_summary.SUMMARY_SHEET_NAME
+    worksheet.append(
+        [
+            "厂家",
+            "合同产品名称",
+            "型号",
+            "单位",
+            "数量",
+            "原价",
+            "总价",
+            "税率",
+        ]
+    )
+    worksheet.append(["厂家A", "产品A", "A-1", "个", 1, 2, 2, "13%"])
+    workbook.save(purchase_path)
+
+    with pytest.raises(RuntimeError, match="缺少必需列: 本次采购量"):
+        cli.load_purchase_summary_lines(purchase_path)
+
+
+def test_fill_formal_contracts_rejects_ambiguous_template_sheets(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -508,23 +577,16 @@ def test_fill_purchase_contracts_skips_missing_and_ambiguous_template_sheets(tmp
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template(template_path, ["厂家A", "厂家B模板1", "厂家B模板2"])
 
-    payload = cli.fill_purchase_contracts(
-        purchase_summary_xlsx=purchase_path,
-        contract_template_xlsx=template_path,
-        output_dir=tmp_path / "out",
-        today=date(2026, 7, 1),
-    )
-
-    assert payload["generated_count"] == 1
-    assert payload["skipped_manufacturer_count"] == 2
-    assert payload["skipped_manufacturers"] == ["厂家B", "厂家C"]
-    assert payload["warnings"] == [
-        "合同模板中厂家 `厂家B` 匹配到多个 sheet: 厂家B模板1, 厂家B模板2，已跳过",
-        "合同模板中未找到厂家 `厂家C` 对应的 sheet，已跳过",
-    ]
+    with pytest.raises(RuntimeError, match="厂家 `厂家B` 匹配到多个 sheet"):
+        _fill_formal_contracts(
+            purchase_summary_xlsx=purchase_path,
+            contract_template_xlsx=template_path,
+            output_dir=tmp_path / "out",
+            today=date(2026, 7, 1),
+        )
 
 
-def test_fill_purchase_contracts_rejects_missing_addendum_template(tmp_path):
+def test_fill_formal_contracts_rejects_missing_addendum_template(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -534,7 +596,7 @@ def test_fill_purchase_contracts_rejects_missing_addendum_template(tmp_path):
     _write_contract_template(template_path, ["厂家A"], include_addendum=False)
 
     with pytest.raises(RuntimeError, match="合同汇总模板缺少 sheet: 附加件明细模板"):
-        cli.fill_purchase_contracts(
+        _fill_formal_contracts(
             purchase_summary_xlsx=purchase_path,
             contract_template_xlsx=template_path,
             output_dir=tmp_path / "out",
@@ -542,7 +604,7 @@ def test_fill_purchase_contracts_rejects_missing_addendum_template(tmp_path):
         )
 
 
-def test_fill_purchase_contracts_applies_header_column_spans_to_detail_rows(tmp_path):
+def test_fill_formal_contracts_applies_header_column_spans_to_detail_rows(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -551,7 +613,7 @@ def test_fill_purchase_contracts_applies_header_column_spans_to_detail_rows(tmp_
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template_with_merged_tax_amount_header(template_path, "厂家A")
 
-    payload = cli.fill_purchase_contracts(
+    payload = _fill_formal_contracts(
         purchase_summary_xlsx=purchase_path,
         contract_template_xlsx=template_path,
         output_dir=tmp_path / "out",
@@ -575,7 +637,7 @@ def test_fill_purchase_contracts_applies_header_column_spans_to_detail_rows(tmp_
             )
 
 
-def test_fill_purchase_contracts_inserts_rows_preserves_style_and_keeps_contract_no(tmp_path):
+def test_fill_formal_contracts_inserts_rows_preserves_style_and_writes_contract_no(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -587,7 +649,7 @@ def test_fill_purchase_contracts_inserts_rows_preserves_style_and_keeps_contract
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template(template_path, ["厂家A"])
 
-    payload = cli.fill_purchase_contracts(
+    payload = _fill_formal_contracts(
         purchase_summary_xlsx=purchase_path,
         contract_template_xlsx=template_path,
         output_dir=tmp_path / "out",
@@ -595,7 +657,7 @@ def test_fill_purchase_contracts_inserts_rows_preserves_style_and_keeps_contract
     )
 
     output_path = Path(payload["output_files"][0]["output_xlsx"])
-    assert _cell_value(output_path, "厂家A", "E2") == "合同编号：KEEP-厂家A\nDate：2026年7月1日"
+    assert _cell_value(output_path, "厂家A", "E2") == "合同编号：HT0001\nDate：2026年7月1日"
     assert _sheet_values(output_path, "厂家A", "A5:G7") == [
         (1, "合同产品A", "A-1", "条", 2, 3, 6),
         (2, "合同产品A", "A-2", "条", 4, 5, 20),
@@ -605,7 +667,7 @@ def test_fill_purchase_contracts_inserts_rows_preserves_style_and_keeps_contract
     assert _row_height(output_path, "厂家A", 6) == 33
 
 
-def test_fill_purchase_contracts_resets_malformed_detail_row_merges(tmp_path):
+def test_fill_formal_contracts_resets_malformed_detail_row_merges(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -617,7 +679,7 @@ def test_fill_purchase_contracts_resets_malformed_detail_row_merges(tmp_path):
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template_with_malformed_detail_rows(template_path, "厂家A")
 
-    payload = cli.fill_purchase_contracts(
+    payload = _fill_formal_contracts(
         purchase_summary_xlsx=purchase_path,
         contract_template_xlsx=template_path,
         output_dir=tmp_path / "out",
@@ -646,7 +708,7 @@ def test_fill_purchase_contracts_resets_malformed_detail_row_merges(tmp_path):
     assert _row_height(output_path, "厂家A", 7) == 33
 
 
-def test_fill_purchase_contracts_preserves_summary_and_terms_merges_when_inserting_rows(tmp_path):
+def test_fill_formal_contracts_preserves_summary_and_terms_merges_when_inserting_rows(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -660,7 +722,7 @@ def test_fill_purchase_contracts_preserves_summary_and_terms_merges_when_inserti
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template_with_merged_summary_and_terms(template_path, "厂家A")
 
-    payload = cli.fill_purchase_contracts(
+    payload = _fill_formal_contracts(
         purchase_summary_xlsx=purchase_path,
         contract_template_xlsx=template_path,
         output_dir=tmp_path / "out",
@@ -747,7 +809,7 @@ def test_fill_detail_rows_tolerates_dirty_merged_cell_records():
     )
 
 
-def test_fill_purchase_contracts_does_not_pollute_delivery_date_when_tax_value_is_missing(tmp_path):
+def test_fill_formal_contracts_does_not_pollute_delivery_date_when_tax_value_is_missing(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -756,7 +818,7 @@ def test_fill_purchase_contracts_does_not_pollute_delivery_date_when_tax_value_i
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template_with_empty_tax_value(template_path, "厂家A")
 
-    payload = cli.fill_purchase_contracts(
+    payload = _fill_formal_contracts(
         purchase_summary_xlsx=purchase_path,
         contract_template_xlsx=template_path,
         output_dir=tmp_path / "out",
@@ -771,7 +833,7 @@ def test_fill_purchase_contracts_does_not_pollute_delivery_date_when_tax_value_i
     assert payload["warnings"] == []
 
 
-def test_fill_purchase_contracts_allows_missing_model_column(tmp_path):
+def test_fill_formal_contracts_allows_missing_model_column(tmp_path):
     purchase_path = tmp_path / "purchase_summary.xlsx"
     _write_purchase_summary(
         purchase_path,
@@ -780,7 +842,7 @@ def test_fill_purchase_contracts_allows_missing_model_column(tmp_path):
     template_path = tmp_path / "contract_template.xlsx"
     _write_contract_template_without_model(template_path, "厂家A")
 
-    payload = cli.fill_purchase_contracts(
+    payload = _fill_formal_contracts(
         purchase_summary_xlsx=purchase_path,
         contract_template_xlsx=template_path,
         output_dir=tmp_path / "out",
@@ -793,19 +855,3 @@ def test_fill_purchase_contracts_allows_missing_model_column(tmp_path):
         (1, "合同产品A", "条", 2, 3, 6),
         ("合计", None, None, 2, None, 6),
     ]
-
-
-def test_fill_purchase_contracts_main_outputs_success_json(monkeypatch, tmp_path, capsys):
-    purchase_path = tmp_path / "purchase_summary.xlsx"
-    _write_purchase_summary(
-        purchase_path,
-        [_purchase_row(manufacturer="厂家A", model="A-1", quantity=1, unit_price=1, total_price=1)],
-    )
-    template_path = tmp_path / "contract_template.xlsx"
-    _write_contract_template(template_path, ["厂家A"])
-    monkeypatch.setattr(cli, "OUTPUT_DIR", tmp_path / "out")
-
-    payload = cli.run({"purchase_summary_xlsx": str(purchase_path), "contract_template_xlsx": str(template_path)})
-    assert payload["success"] is True
-    assert payload["source"] == "fba_purchase_contract_fill"
-    assert payload["generated_count"] == 1
