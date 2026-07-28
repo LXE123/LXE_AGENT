@@ -2,6 +2,8 @@ import type {
   DashboardRpcCall,
   DesktopCloudActivationInput,
   DesktopSetupInput,
+  DesktopSyntheticPerformerSourceKind,
+  DesktopSyntheticPerformerTaskInput,
 } from "@lxe/desktop-protocol";
 import { parseDashboardRpcCall } from "@lxe/desktop-protocol";
 
@@ -23,6 +25,45 @@ export function validateConfigImportId(value: unknown): string {
   const importId = boundedText(value, "Configuration import ID", 128);
   if (!/^[A-Za-z0-9-]+$/u.test(importId)) throw new Error("Configuration import ID is invalid");
   return importId;
+}
+
+export function validateSyntheticPerformerId(value: unknown): string {
+  const identifier = boundedText(value, "Synthetic performer identifier", 128);
+  if (!/^[A-Za-z0-9-]+$/u.test(identifier)) {
+    throw new Error("Synthetic performer identifier is invalid");
+  }
+  return identifier;
+}
+
+export function validateSyntheticPerformerSourceKind(
+  value: unknown,
+): DesktopSyntheticPerformerSourceKind {
+  if (value !== "files" && value !== "folder") {
+    throw new Error("Synthetic performer source kind is unsupported");
+  }
+  return value;
+}
+
+export function validateSyntheticPerformerTaskInput(
+  value: unknown,
+): DesktopSyntheticPerformerTaskInput {
+  const input = objectValue(value, "Synthetic performer task input");
+  const selectionId = validateSyntheticPerformerId(input.selection_id);
+  if (typeof input.recursive !== "boolean") {
+    throw new Error("Synthetic performer recursive flag must be a boolean");
+  }
+  if (input.action === "scan") {
+    return { action: "scan", selection_id: selectionId, recursive: input.recursive };
+  }
+  if (input.action === "apply") {
+    return {
+      action: "apply",
+      selection_id: selectionId,
+      output_id: validateSyntheticPerformerId(input.output_id),
+      recursive: input.recursive,
+    };
+  }
+  throw new Error("Synthetic performer task action is unsupported");
 }
 
 export function validateCloudActivationInput(value: unknown): DesktopCloudActivationInput {

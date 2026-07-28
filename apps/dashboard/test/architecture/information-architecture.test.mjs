@@ -11,16 +11,27 @@ const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
 const tools = readFileSync(path.join(sourceDir, "features/tools/view.tsx"), "utf8");
 const integrations = readFileSync(path.join(sourceDir, "features/integrations/view.tsx"), "utf8");
 const skills = readFileSync(path.join(sourceDir, "features/skills/view.tsx"), "utf8");
+const workbench = readFileSync(path.join(sourceDir, "features/workbench/view.tsx"), "utf8");
 
-test("sidebar exposes only the four primary destinations", () => {
+test("sidebar exposes the workbench as a primary destination", () => {
   const primaryTabs = main.match(/const tabs:[^=]+ = \[([\s\S]*?)\n\s*\];/)?.[1] ?? "";
-  for (const id of ["home", "sessions", "capabilities", "activity"]) {
+  for (const id of ["home", "sessions", "workbench", "capabilities", "activity"]) {
     assert.match(primaryTabs, new RegExp(`\\{ id: "${id}", label:`));
   }
   for (const id of ["models", "skills", "tools", "mcp", "connectors", "background-tasks", "stats", "docs"]) {
     assert.doesNotMatch(primaryTabs, new RegExp(`\\{ id: "${id}", label:`));
   }
   assert.doesNotMatch(main, /sidebar-utility|tab-docs/);
+});
+
+test("media workbench keeps filesystem paths behind the desktop bridge", () => {
+  assert.match(workbench, /selectSyntheticPerformerSources\(kind\)/);
+  assert.match(workbench, /startSyntheticPerformerTask\(\{/);
+  assert.match(workbench, /getSyntheticPerformerTask\(\)/);
+  assert.match(workbench, /cancelSyntheticPerformerTask\(task\.task_id\)/);
+  assert.match(workbench, /openSyntheticPerformerOutput\(task\.task_id\)/);
+  assert.match(workbench, /onSyntheticPerformerTaskChanged/);
+  assert.doesNotMatch(workbench, /source_paths|output_directory:/);
 });
 
 test("capabilities and activity use compact child navigation", () => {

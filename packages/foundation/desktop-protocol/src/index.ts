@@ -414,6 +414,65 @@ export interface DesktopSetupInput {
   };
 }
 
+export type DesktopSyntheticPerformerSourceKind = "files" | "folder";
+
+export interface DesktopSyntheticPerformerSourceSelection {
+  selection_id: string;
+  kind: DesktopSyntheticPerformerSourceKind;
+  display_path: string;
+  selected_count: number;
+}
+
+export interface DesktopSyntheticPerformerOutputSelection {
+  output_id: string;
+  display_path: string;
+}
+
+export type DesktopSyntheticPerformerScanStatus =
+  | "needs_tag"
+  | "already_tagged"
+  | "unsupported"
+  | "failed";
+
+export type DesktopSyntheticPerformerApplyStatus = "tagged" | "copied" | "failed";
+
+export interface DesktopSyntheticPerformerItem {
+  name: string;
+  relative_path: string;
+  media_type: "image" | "video";
+  status: DesktopSyntheticPerformerScanStatus | DesktopSyntheticPerformerApplyStatus;
+  size_bytes: number;
+  error?: string;
+}
+
+export type DesktopSyntheticPerformerTaskInput =
+  | {
+      action: "scan";
+      selection_id: string;
+      recursive: boolean;
+    }
+  | {
+      action: "apply";
+      selection_id: string;
+      output_id: string;
+      recursive: boolean;
+    };
+
+export interface DesktopSyntheticPerformerTask {
+  task_id: string;
+  action: "scan" | "apply";
+  state: "queued" | "running" | "completed" | "cancelled" | "failed";
+  stage: "idle" | "scan" | "apply" | "verify" | "done";
+  processed: number;
+  total: number;
+  current_file: string;
+  selection_id: string;
+  recursive: boolean;
+  items: DesktopSyntheticPerformerItem[];
+  counts: Record<string, number>;
+  error: string;
+}
+
 export interface LxeDesktopBridge {
   dashboard: DashboardTransport;
   desktop: {
@@ -433,6 +492,19 @@ export interface LxeDesktopBridge {
     restartAgent(): Promise<DesktopHealth>;
     getSetupState(): Promise<DesktopSetupState>;
     saveSetup(input: DesktopSetupInput): Promise<DesktopSetupState>;
+    selectSyntheticPerformerSources(
+      kind: DesktopSyntheticPerformerSourceKind,
+    ): Promise<DesktopSyntheticPerformerSourceSelection | null>;
+    selectSyntheticPerformerOutput(): Promise<DesktopSyntheticPerformerOutputSelection | null>;
+    startSyntheticPerformerTask(
+      input: DesktopSyntheticPerformerTaskInput,
+    ): Promise<DesktopSyntheticPerformerTask>;
+    getSyntheticPerformerTask(): Promise<DesktopSyntheticPerformerTask | null>;
+    cancelSyntheticPerformerTask(taskId: string): Promise<DesktopSyntheticPerformerTask | null>;
+    openSyntheticPerformerOutput(taskId: string): Promise<void>;
+    onSyntheticPerformerTaskChanged(
+      listener: (task: DesktopSyntheticPerformerTask) => void,
+    ): () => void;
     onCloudStateChanged(listener: (state: DesktopCloudState) => void): () => void;
     onConversationEvent(listener: (event: DesktopConversationEvent) => void): () => void;
     onDashboardInvalidated(listener: (invalidation: DesktopDashboardInvalidation) => void): () => void;

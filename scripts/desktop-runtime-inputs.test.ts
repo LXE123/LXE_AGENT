@@ -28,12 +28,20 @@ const createRuntimeInputs = (root: string) => {
   const playwrightRoot = join(root, "playwright");
   const uvExecutable = join(root, "uv.exe");
   const ripgrepExecutable = join(root, "rg.exe");
-  for (const directory of [nodeRoot, pythonRoot, playwrightRoot]) {
+  const exifToolRoot = join(root, "exiftool");
+  for (const directory of [nodeRoot, pythonRoot, playwrightRoot, exifToolRoot]) {
     mkdirSync(directory, { recursive: true });
   }
   writeFileSync(uvExecutable, "uv", "utf8");
   writeFileSync(ripgrepExecutable, "rg", "utf8");
-  return { nodeRoot, pythonRoot, playwrightRoot, uvExecutable, ripgrepExecutable };
+  return {
+    nodeRoot,
+    pythonRoot,
+    playwrightRoot,
+    uvExecutable,
+    ripgrepExecutable,
+    exifToolRoot,
+  };
 };
 
 const writeDescriptor = (
@@ -50,6 +58,7 @@ const writeDescriptor = (
       python_root: inputs.pythonRoot,
       uv_path: inputs.uvExecutable,
       rg_path: inputs.ripgrepExecutable,
+      exiftool_root: inputs.exifToolRoot,
       playwright_root: inputs.playwrightRoot,
     },
   }), "utf8");
@@ -103,6 +112,7 @@ describe("desktop runtime input resolution", () => {
         LXE_DESKTOP_PYTHON_ROOT: inputs.pythonRoot,
         LXE_DESKTOP_UV_PATH: inputs.uvExecutable,
         LXE_DESKTOP_RG_PATH: inputs.ripgrepExecutable,
+        LXE_DESKTOP_EXIFTOOL_ROOT: inputs.exifToolRoot,
         LXE_DESKTOP_PLAYWRIGHT_ROOT: inputs.playwrightRoot,
       },
     });

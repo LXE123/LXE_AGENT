@@ -97,6 +97,7 @@ LXE Agent 不是只有一个 Electron 页面。它同时包含 TypeScript、Pyth
 - 私有 Python。
 - Playwright Chromium。
 - ripgrep。
+- ExifTool，用来读取和写入图片、视频元数据。
 - WireGuard 安装包和受控配置脚本。
 - 安装在私有 Node 中的 DWS、Lark 和 Whiteboard CLI。
 
@@ -124,7 +125,7 @@ python.exe -I -m lxeskill ...
 ```mermaid
 flowchart TD
     SOURCE["五类输入<br/>TS/TSX、资源、JS 依赖、外部 Runtime、Python"]
-    RUNTIME["准备受管 Runtime<br/>Node、Python、Playwright、ripgrep、WireGuard"]
+    RUNTIME["准备受管 Runtime<br/>Node、Python、Playwright、ripgrep、ExifTool、WireGuard"]
     JS["构建 JS/TS<br/>Main、Preload、Dashboard、Agent CLI"]
     PY["构建 Python wheel<br/>安装进私有 Python overlay"]
     INPUTS["准备发布输入<br/>挑选 Skills、配置、品牌和法律文件"]
@@ -147,7 +148,7 @@ flowchart TD
 
 ## 第一步：准备受管 Runtime
 
-Windows 打包首先准备应用自带的运行环境，包括 Node、Python、Playwright Chromium 和 ripgrep。WireGuard MSI 也会在这个阶段单独准备。
+Windows 打包首先准备应用自带的运行环境，包括 Node、Python、Playwright Chromium、ripgrep 和 ExifTool。WireGuard MSI 也会在这个阶段单独准备。
 
 第一次联网构建需要下载这些固定版本的文件。准备完成后会保存在本地缓存中，后续构建可以直接复用，避免每次都重新下载几百 MiB 的 Runtime。
 
@@ -266,7 +267,11 @@ resources/
 │   ├── node/
 │   ├── python/
 │   ├── playwright/
-│   └── tools/rg.exe
+│   └── tools/
+│       ├── rg.exe
+│       └── exiftool/
+│           ├── exiftool.exe
+│           └── exiftool_files/
 ├── wireguard/
 ├── agent/SOUL.md
 ├── skills/
@@ -342,7 +347,7 @@ LXE Agent/
 2. Main 确定 `resources` 和 `var` 路径，初始化配置、日志、数据库和单实例锁。
 3. 配置完成后，Main 在自己的进程里启动 Gateway。
 4. Gateway 启动 `resources/runtime/agent-cli/agent-cli.exe` 子进程，通过 NDJSON 与它通信。
-5. Agent CLI 按任务需要调用私有 Python、`lxeskill`、Node CLI、ripgrep 或 Playwright Chromium。
+5. Agent CLI 按任务需要调用私有 Python、`lxeskill`、Node CLI、ripgrep 或 Playwright Chromium；桌面工作台的媒体任务则由 Main 直接启动私有 Python 和 ExifTool，不绕经 Agent CLI。
 6. Main 创建 BrowserWindow，通过 Preload 暴露的白名单 IPC，让 Dashboard 与 Main、Gateway 和 Agent 交互。
 
 ```mermaid
@@ -355,6 +360,7 @@ flowchart LR
     AGENT --> PY["私有 Python<br/>lxeskill"]
     AGENT --> NODE["私有 Node<br/>DWS、Lark、Whiteboard"]
     AGENT --> TOOLS["Playwright、ripgrep 等工具"]
+    MAIN --> MEDIA["工作台媒体任务<br/>私有 Python → ExifTool"]
 ```
 
 关闭窗口只会把应用隐藏到托盘，Gateway 和 Agent 仍可在后台工作。从托盘选择退出后，Main 才会依次停止 Gateway、Agent 和相关子进程。
@@ -409,9 +415,10 @@ desktop-resource-sizes.json
 - 覆盖升级后 `var` 数据仍然存在。
 - 卸载保留数据和主动删除数据两种选择都符合预期。
 - 公司云端设备场景下的 WireGuard UAC 和隧道配置正常。
+- 工作台能分别处理一张图片和一个视频，输出文件带有目标标签，而且原文件没有变化。
 
 ## 一句话总结
 
 LXE Agent 的桌面打包不是简单地把 TypeScript 变成一个 EXE，而是：
 
-> 先分别构建 Electron、Dashboard、Agent CLI 和 Python wheel，再准备私有 Node、Python、浏览器和工具，随后由 electron-builder 组装成可运行目录，最后由 NSIS 封装成 Windows 安装程序。
+> 先分别构建 Electron、Dashboard、Agent CLI 和 Python wheel，再准备私有 Node、Python、浏览器、ExifTool 和其他工具，随后由 electron-builder 组装成可运行目录，最后由 NSIS 封装成 Windows 安装程序。

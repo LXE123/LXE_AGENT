@@ -22,6 +22,7 @@ export const ZH_TEXT = {
   nav: {
     home: "首页",
     sessions: "会话",
+    workbench: "工作台",
     capabilities: "能力",
     activity: "活动",
     models: "模型",
@@ -96,6 +97,58 @@ export const ZH_TEXT = {
     noSkills: "近 7 天暂无技能使用",
     executionsUnit: (count: string) => `${count} 次执行`,
     loadError: "总览数据加载失败"
+  },
+  workbench: {
+    eyebrow: "工作台 · 媒体工具",
+    title: "亚马逊 AI 人物标签",
+    subtitle: "批量给图片和视频添加亚马逊要求的 AI 人物媒体标签。原文件不会被修改。",
+    windowsOnly: "当前平台暂不支持",
+    windowsOnlyHint: "这个工具第一版只在 Windows 桌面应用中提供。",
+    sourceTitle: "选择媒体",
+    sourceHint: "可以一次选择多张媒体文件，也可以选择一个文件夹。支持 JPG、JPEG、PNG、MP4 和 MOV。",
+    selectFiles: "选择媒体文件",
+    selectFilesHint: "可多选图片和视频",
+    selectFolder: "选择文件夹",
+    selectFolderHint: "默认只处理这一层",
+    selectionReady: "媒体来源已选择",
+    includeSubfolders: "包含子文件夹",
+    scanning: "正在扫描…",
+    scan: "扫描标签",
+    reviewTitle: "检查结果",
+    reviewHint: "先看哪些文件需要添加标签，再决定是否生成副本。",
+    preparing: "正在准备…",
+    progress: (processed: number, total: number) => total > 0
+      ? `已处理 ${processed} / ${total}`
+      : "正在处理当前文件",
+    cancel: "取消任务",
+    statuses: {
+      needs_tag: "需要添加",
+      already_tagged: "已有标签",
+      unsupported: "不支持",
+      failed: "失败",
+      tagged: "已添加",
+      copied: "已复制"
+    },
+    file: "文件",
+    kind: "类型",
+    size: "大小",
+    status: "状态",
+    mediaTypes: {
+      image: "图片",
+      video: "视频"
+    },
+    noItems: "没有可显示的媒体文件。",
+    outputTitle: "生成带标签的副本",
+    outputHint: "选择保存位置后，应用会新建一个独立任务文件夹，不覆盖任何已有文件。",
+    selectOutput: "选择输出目录",
+    generating: "正在生成…",
+    generate: "生成媒体副本",
+    complete: "处理完成",
+    completeHint: "带标签的媒体副本已经放入任务输出文件夹。",
+    completeWithFailures: "处理结束，部分文件失败",
+    completeWithFailuresHint: "成功文件已经生成。请查看上方失败原因，再处理剩余文件。",
+    openOutput: "打开输出目录",
+    disclaimer: "这个工具只负责添加并验证元数据，不会判断媒体是否真的包含 AI 生成人物，也不会检查视频分辨率、时长等其他亚马逊上传要求。"
   },
   stats: {
     sessions: "会话",
@@ -594,6 +647,7 @@ export const UI_TEXT: Record<Language, UiText> = {
     nav: {
       home: "Home",
       sessions: "Sessions",
+      workbench: "Workbench",
       capabilities: "Capabilities",
       activity: "Activity",
       models: "Models",
@@ -668,6 +722,58 @@ export const UI_TEXT: Record<Language, UiText> = {
       noSkills: "No skill usage in the last 7 days",
       executionsUnit: (count: string) => `${count} runs`,
       loadError: "Failed to load overview"
+    },
+    workbench: {
+      eyebrow: "Workbench · Media tools",
+      title: "Amazon AI performer tag",
+      subtitle: "Add Amazon's AI performer media tag to images and videos in batches. Original files are never modified.",
+      windowsOnly: "Not supported on this platform",
+      windowsOnlyHint: "The first version of this tool is available only in the Windows desktop app.",
+      sourceTitle: "Select media",
+      sourceHint: "Choose multiple media files or one folder. JPG, JPEG, PNG, MP4, and MOV are supported.",
+      selectFiles: "Select media files",
+      selectFilesHint: "Select multiple images and videos",
+      selectFolder: "Select a folder",
+      selectFolderHint: "Only the top level by default",
+      selectionReady: "Media source selected",
+      includeSubfolders: "Include subfolders",
+      scanning: "Scanning…",
+      scan: "Scan tags",
+      reviewTitle: "Review results",
+      reviewHint: "See which files need the tag before creating copies.",
+      preparing: "Preparing…",
+      progress: (processed: number, total: number) => total > 0
+        ? `Processed ${processed} / ${total}`
+        : "Processing the current file",
+      cancel: "Cancel task",
+      statuses: {
+        needs_tag: "Needs tag",
+        already_tagged: "Already tagged",
+        unsupported: "Unsupported",
+        failed: "Failed",
+        tagged: "Tagged",
+        copied: "Copied"
+      },
+      file: "File",
+      kind: "Type",
+      size: "Size",
+      status: "Status",
+      mediaTypes: {
+        image: "Image",
+        video: "Video"
+      },
+      noItems: "No media files to show.",
+      outputTitle: "Create tagged copies",
+      outputHint: "Choose a destination. The app creates a separate task folder and never overwrites an existing file.",
+      selectOutput: "Select output folder",
+      generating: "Generating…",
+      generate: "Create media copies",
+      complete: "Task complete",
+      completeHint: "The tagged media copies are ready in the task output folder.",
+      completeWithFailures: "Task finished with failures",
+      completeWithFailuresHint: "Successful files are ready. Review the errors above before retrying the remaining files.",
+      openOutput: "Open output folder",
+      disclaimer: "This tool only adds and verifies metadata. It does not decide whether media contains an AI-generated performer, and it does not check resolution, duration, or other Amazon upload requirements."
     },
     stats: {
       sessions: "Sessions",

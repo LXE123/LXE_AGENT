@@ -38,7 +38,7 @@ Windows 安装包在 ASAR 外携带固定版本的运行资源，包括：
 - Node.js 22 与 DingTalk、Lark、Whiteboard CLI。
 - Python 3.12.10、生产依赖和当前源码构建的 LXE wheel。
 - Playwright Chromium、Selenium 所需 Python 依赖和浏览器认证能力。
-- ripgrep 与编译后的 `agent-cli.exe`。
+- ripgrep、ExifTool 13.59 与编译后的 `agent-cli.exe`。
 - 官方 WireGuard 1.1 x64 MSI、许可证与受控提权配置脚本。
 
 应用只向自己创建的子进程注入私有工具路径，不修改系统 `PATH`。最终安装包保留运行所需的 Node、Python、pip、CLI 和浏览器，但不会携带构建期使用的 npm/npx、npm cache 或 `uv.exe`。
@@ -50,6 +50,12 @@ python.exe -I -m lxeskill ...
 ```
 
 `-I` 启用隔离模式，避免用户级 Python 配置和 site-packages 污染运行环境；`-m` 按模块启动 `lxeskill`。运行时同时设置 `PYTHONNOUSERSITE=1`。
+
+### 工作台媒体标签
+
+Windows 桌面的“工作台”提供“亚马逊 AI 人物标签”。第一版图片支持 JPG、JPEG、PNG；视频范围按 [Amazon 商品视频说明](https://sell.amazon.com/blog/amazon-product-video) 收窄为 MP4 和 MOV。工具固定向 XMP `dc:subject` 的 `rdf:Bag` 追加 `contains-synthetic-performer`，再重新读取元数据确认标签写入成功。它不判断画面是否真的包含 AI 人物，也不检查分辨率、时长等其他上传要求。
+
+文件选择和输出目录由 Electron Main 管理，Renderer 只拿到一次性的选择编号和任务编号，不能自己拼磁盘路径。Main 直接启动私有 Python 中的 `lxeskill media synthetic-performer --stdin-json`，Python 再调用随安装包携带的 ExifTool；这条路线不经过 Agent CLI。原文件始终不修改，输出放进独立的任务文件夹。应用同一时间只运行一个媒体任务，关闭应用时会终止尚未完成的 Python 和 ExifTool 进程。
 
 ## 桌面配置与安全
 
@@ -66,6 +72,7 @@ python.exe -I -m lxeskill ...
 - `.env` 配置文件选择、脱敏预览和一次性应用/取消。
 - 公司云端设备文件选择、激活、状态读取和连接重试。
 - 紫鸟 APP 与驱动目录选择。
+- 工作台媒体来源和输出目录选择，以及媒体任务的启动、恢复、取消和结果目录打开。
 - 日志目录打开。
 - 后台健康状态查询。
 - Agent 重启。
@@ -177,7 +184,7 @@ bun run verify:platform:win
 
 两条 Windows 打包路线共用同一包装器：准备或复用可直接发布的运行时，只构建一次当前 wheel overlay、`agent-cli.exe`、Dashboard 与 Electron，再由 electron-builder 从模块各自的生产目录直接组装 `win-unpacked`，不经过统一的大型资源 staging，也不在包装器中提前重复校验 Builder 配置。每个阶段都会输出耗时，正式路线另外生成 NSIS；产物位于 `dist/desktop/`，安装程序命名为 `LXE-Agent-<version>-windows-x64.exe`。`verify:platform:win` 的顺序固定为一次 `verify:source` 加一次 `desktop:dist:win`。
 
-首次联网构建会缓存固定 URL 和版本的 Node、Python、uv、ripgrep、Playwright Chromium 和 WireGuard 1.1 MSI；构建流程不再对这些下载物追加固定哈希或签名门禁。后续可使用缓存离线重建，员工安装和激活阶段不会下载 WireGuard。完整的运行时锁定、缓存、资源裁剪、体积基线和平台门禁说明见 [Electron desktop packaging](../record/20260715-electron-desktop-packaging.md)。
+首次联网构建会缓存固定 URL 和版本的 Node、Python、uv、ripgrep、ExifTool 13.59、Playwright Chromium 和 WireGuard 1.1 MSI；构建流程不再对这些下载物追加固定哈希或签名门禁。后续可使用缓存离线重建，员工安装和激活阶段不会下载 WireGuard。完整的运行时锁定、缓存、资源裁剪、体积基线和平台门禁说明见 [Electron desktop packaging](../record/20260715-electron-desktop-packaging.md)。
 
 ## 日志与诊断
 

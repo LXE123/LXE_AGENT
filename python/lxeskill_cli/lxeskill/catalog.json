@@ -38,6 +38,28 @@
       "input_schema": {"type": "object", "properties": {"account": {"type": "string"}}, "additionalProperties": false}
     },
     {
+      "name": "media_synthetic_performer",
+      "command_path": ["media", "synthetic-performer"],
+      "legacy_aliases": ["media_synthetic_performer"],
+      "visibility": "internal",
+      "session_mode": "none",
+      "module": "services.media.synthetic_performer",
+      "owner_skills": [],
+      "timeout_ms": 1800000,
+      "exposed": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {"type": "string", "enum": ["scan", "apply"]},
+          "sources": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+          "recursive": {"type": "boolean"},
+          "output_directory": {"type": "string", "minLength": 1}
+        },
+        "required": ["action", "sources"],
+        "additionalProperties": false
+      }
+    },
+    {
       "name": "amazon_operations_analyze_listing",
       "command_path": ["amazon", "listing", "analyze"],
       "legacy_aliases": ["amazon_operations_analyze_listing"],

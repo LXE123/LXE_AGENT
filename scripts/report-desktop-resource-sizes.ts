@@ -49,7 +49,13 @@ export interface DesktopResourceSizeReport {
       playwright: SizeSummary;
       agent_cli: SizeSummary;
       uv: SizeSummary;
-      tools: SizeSummary;
+      tools: {
+        total: SizeSummary;
+        ripgrep: SizeSummary;
+        exiftool: SizeSummary;
+        exiftool_executable: SizeSummary;
+        exiftool_support: SizeSummary;
+      };
     };
     dashboard: SizeSummary;
     agent: SizeSummary;
@@ -152,7 +158,13 @@ export const createDesktopResourceSizeReport = (unpackedRoot: string): DesktopRe
         playwright: summarizePath(join(runtimeRoot, "playwright")),
         agent_cli: summarizePath(join(runtimeRoot, "agent-cli")),
         uv: summarizePath(join(runtimeRoot, "uv")),
-        tools: summarizePath(join(runtimeRoot, "tools")),
+        tools: {
+          total: summarizePath(join(runtimeRoot, "tools")),
+          ripgrep: summarizePath(join(runtimeRoot, "tools", "rg.exe")),
+          exiftool: summarizePath(join(runtimeRoot, "tools", "exiftool")),
+          exiftool_executable: summarizePath(join(runtimeRoot, "tools", "exiftool", "exiftool.exe")),
+          exiftool_support: summarizePath(join(runtimeRoot, "tools", "exiftool", "exiftool_files")),
+        },
       },
       dashboard: summarizePath(join(resourcesRoot, "dashboard")),
       agent: summarizePath(join(resourcesRoot, "agent")),
@@ -179,6 +191,10 @@ export const assertDesktopResourceSizeBudgets = (report: DesktopResourceSizeRepo
     failures.push(
       `Playwright driver contains a duplicate Node runtime (${playwrightDriverNode.mib} MiB)`,
     );
+  }
+  const tools = report.resources.runtime.tools;
+  if (tools.exiftool_executable.files !== 1 || tools.exiftool_support.files === 0) {
+    failures.push("ExifTool executable or exiftool_files support directory is missing");
   }
   if (failures.length > 0) {
     throw new Error(`Desktop size budget exceeded: ${failures.join("; ")}`);

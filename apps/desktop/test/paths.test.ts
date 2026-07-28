@@ -68,6 +68,9 @@ describe("desktop private runtime paths", () => {
     expect(paths.lxeskillModulePath).toBe(
       win32.join(root, "runtime", "python", "Lib", "site-packages", "lxeskill", "__init__.py"),
     );
+    expect(paths.exifToolPath).toBe(
+      win32.join(root, "runtime", "tools", "exiftool", "exiftool.exe"),
+    );
     expect(paths.managedPath.split(";")).not.toContain(win32.join(root, "runtime", "agent-cli"));
     expect(paths.managedPath.split(";")).toContain(win32.join(root, "runtime", "node"));
     expect(paths.managedPath.split(";")).not.toContain(win32.join(root, "runtime", "uv"));

@@ -17,6 +17,7 @@ const runtimeInputFields = [
   ["LXE_DESKTOP_PYTHON_ROOT", "python_root"],
   ["LXE_DESKTOP_UV_PATH", "uv_path"],
   ["LXE_DESKTOP_RG_PATH", "rg_path"],
+  ["LXE_DESKTOP_EXIFTOOL_ROOT", "exiftool_root"],
   ["LXE_DESKTOP_PLAYWRIGHT_ROOT", "playwright_root"],
 ] as const;
 
@@ -27,6 +28,7 @@ export interface DesktopRuntimeInputs {
   pythonRoot: string;
   uvExecutable: string;
   ripgrepExecutable: string;
+  exifToolRoot: string;
   playwrightRoot: string;
 }
 
@@ -127,6 +129,7 @@ export const resolveDesktopRuntimeInputs = (
     pythonRoot: values.python_root,
     uvExecutable: values.uv_path,
     ripgrepExecutable: values.rg_path,
+    exifToolRoot: values.exiftool_root,
     playwrightRoot: values.playwright_root,
   };
 };

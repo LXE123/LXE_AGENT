@@ -23,6 +23,10 @@
     "version": "15.1.0",
     "archive_url": "https://github.com/BurntSushi/ripgrep/releases/download/15.1.0/ripgrep-15.1.0-x86_64-pc-windows-msvc.zip"
   },
+  "exiftool": {
+    "version": "13.59",
+    "archive_url": "https://downloads.sourceforge.net/project/exiftool/exiftool-13.59_64.zip"
+  },
   "playwright": {
     "version": "1.58.0",
     "browser": "chromium",

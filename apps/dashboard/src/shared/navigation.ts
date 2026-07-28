@@ -1,4 +1,4 @@
-export type DashboardSection = "home" | "sessions" | "capabilities" | "activity";
+export type DashboardSection = "home" | "sessions" | "workbench" | "capabilities" | "activity";
 
 export type CapabilityView = "models" | "skills" | "tools" | "connections";
 
@@ -16,6 +16,7 @@ const LEGACY_CAPABILITY_VIEW_STORAGE_KEY = "lxe-dashboard-capability-view";
 const DASHBOARD_SECTIONS = new Set<DashboardSection>([
   "home",
   "sessions",
+  "workbench",
   "capabilities",
   "activity",
 ]);

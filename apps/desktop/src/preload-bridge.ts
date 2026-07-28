@@ -4,6 +4,7 @@ import type {
   DesktopDashboardInvalidation,
   DesktopHealth,
   DesktopPlatform,
+  DesktopSyntheticPerformerTask,
   LxeDesktopBridge,
 } from "@lxe/desktop-protocol";
 import { IPC_CHANNELS } from "./ipc-channels";
@@ -42,6 +43,18 @@ export function createDesktopBridge(
       restartAgent: () => ipc.invoke(IPC_CHANNELS.restartAgent),
       getSetupState: () => ipc.invoke(IPC_CHANNELS.getSetupState),
       saveSetup: (input) => ipc.invoke(IPC_CHANNELS.saveSetup, input),
+      selectSyntheticPerformerSources: (kind) =>
+        ipc.invoke(IPC_CHANNELS.selectSyntheticPerformerSources, kind),
+      selectSyntheticPerformerOutput: () =>
+        ipc.invoke(IPC_CHANNELS.selectSyntheticPerformerOutput),
+      startSyntheticPerformerTask: (input) =>
+        ipc.invoke(IPC_CHANNELS.startSyntheticPerformerTask, input),
+      getSyntheticPerformerTask: () =>
+        ipc.invoke(IPC_CHANNELS.getSyntheticPerformerTask),
+      cancelSyntheticPerformerTask: (taskId) =>
+        ipc.invoke(IPC_CHANNELS.cancelSyntheticPerformerTask, taskId),
+      openSyntheticPerformerOutput: (taskId) =>
+        ipc.invoke(IPC_CHANNELS.openSyntheticPerformerOutput, taskId),
       onCloudStateChanged: (listener) => {
         const handler: IpcListener = (_event, state) => listener(state as DesktopCloudState);
         ipc.on(IPC_CHANNELS.cloudStateChanged, handler);
@@ -63,6 +76,12 @@ export function createDesktopBridge(
         const handler: IpcListener = (_event, health) => listener(health as DesktopHealth);
         ipc.on(IPC_CHANNELS.statusChanged, handler);
         return () => ipc.removeListener(IPC_CHANNELS.statusChanged, handler);
+      },
+      onSyntheticPerformerTaskChanged: (listener) => {
+        const handler: IpcListener = (_event, task) =>
+          listener(task as DesktopSyntheticPerformerTask);
+        ipc.on(IPC_CHANNELS.syntheticPerformerTaskChanged, handler);
+        return () => ipc.removeListener(IPC_CHANNELS.syntheticPerformerTaskChanged, handler);
       },
     },
   };

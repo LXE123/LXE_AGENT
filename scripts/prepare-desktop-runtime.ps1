@@ -318,6 +318,9 @@ function Assert-LxeLockConfiguration {
     if ([string]$script:RuntimeLock.python.version -ne "3.12.10") {
         throw "The desktop Python runtime must remain pinned to 3.12.10."
     }
+    if ([string]$script:RuntimeLock.exiftool.version -ne "13.59") {
+        throw "The desktop ExifTool runtime must remain pinned to 13.59."
+    }
 }
 
 function Get-LxeLockFingerprint {
@@ -380,6 +383,22 @@ function Assert-LxeRuntimeMarker {
     }
     if ([string]$marker.lock_sha256 -ne $script:LockSha256) {
         throw "Managed runtime lock fingerprint is stale: $markerPath"
+    }
+    foreach ($requiredPath in @(
+        "node\node.exe",
+        "python\python.exe",
+        "uv\uv.exe",
+        "tools\rg.exe",
+        "tools\exiftool\exiftool.exe"
+    )) {
+        $absolutePath = Join-Path $Root $requiredPath
+        if (-not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
+            throw "Managed runtime file is missing: $absolutePath"
+        }
+    }
+    $exifToolFiles = Join-Path $Root "tools\exiftool\exiftool_files"
+    if (-not (Test-Path -LiteralPath $exifToolFiles -PathType Container)) {
+        throw "Managed ExifTool support directory is missing: $exifToolFiles"
     }
 }
 
@@ -589,7 +608,7 @@ function Install-LxePlaywrightBrowser {
     }
 }
 
-function Install-LxeUvAndRipgrep {
+function Install-LxeUvRipgrepAndExifTool {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
         [Parameter(Mandatory = $true)][string]$WorkRoot
@@ -612,6 +631,25 @@ function Install-LxeUvAndRipgrep {
     $rgDestination = Join-Path $Root "tools\rg.exe"
     New-Item -ItemType Directory -Path (Split-Path -Parent $rgDestination) -Force | Out-Null
     Copy-Item -LiteralPath $rgCandidate[0].FullName -Destination $rgDestination -Force
+
+    $exifToolArchive = Get-LxeCachedArchive -Label "ExifTool $($script:RuntimeLock.exiftool.version)" -Url $script:RuntimeLock.exiftool.archive_url
+    $exifToolExtract = Join-Path $WorkRoot "exiftool"
+    Expand-LxeArchiveFresh -Archive $exifToolArchive -Destination $exifToolExtract
+    $exifToolCandidates = @(Get-ChildItem -LiteralPath $exifToolExtract -File -Recurse | Where-Object {
+        $_.Name -in @("exiftool(-k).exe", "exiftool.exe")
+    } | Select-Object -First 1)
+    if ($exifToolCandidates.Count -eq 0) {
+        throw "The pinned ExifTool archive did not contain exiftool(-k).exe."
+    }
+    $exifToolSourceRoot = $exifToolCandidates[0].Directory.FullName
+    $exifToolFilesSource = Join-Path $exifToolSourceRoot "exiftool_files"
+    if (-not (Test-Path -LiteralPath $exifToolFilesSource -PathType Container)) {
+        throw "The pinned ExifTool archive did not contain exiftool_files."
+    }
+    $exifToolDestination = Join-Path $Root "tools\exiftool"
+    New-Item -ItemType Directory -Path $exifToolDestination -Force | Out-Null
+    Copy-Item -LiteralPath $exifToolCandidates[0].FullName -Destination (Join-Path $exifToolDestination "exiftool.exe") -Force
+    Copy-LxeDirectoryContents -Source $exifToolFilesSource -Destination (Join-Path $exifToolDestination "exiftool_files")
 }
 
 function Write-LxeRuntimeMarker {
@@ -638,6 +676,7 @@ function Write-LxeRuntimeDescriptor {
             python_root = Join-Path $Root "python"
             uv_path = Join-Path $Root "uv\uv.exe"
             rg_path = Join-Path $Root "tools\rg.exe"
+            exiftool_root = Join-Path $Root "tools\exiftool"
             playwright_root = Join-Path $Root "playwright"
         }
     }
@@ -784,7 +823,7 @@ try {
     }
 
     if (-not $usedCachedImage) {
-        Install-LxeUvAndRipgrep -Root $stagedRoot -WorkRoot $workRoot
+        Install-LxeUvRipgrepAndExifTool -Root $stagedRoot -WorkRoot $workRoot
         Install-LxeNodeRuntime -Destination (Join-Path $stagedRoot "node") -WorkRoot $workRoot
         Install-LxePythonRuntime -Destination (Join-Path $stagedRoot "python") -UvExecutable (Join-Path $stagedRoot "uv\uv.exe") -WorkRoot $workRoot
         Install-LxePlaywrightBrowser -PythonRoot (Join-Path $stagedRoot "python") -Destination (Join-Path $stagedRoot "playwright")

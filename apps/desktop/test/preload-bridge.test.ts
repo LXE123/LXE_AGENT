@@ -23,24 +23,31 @@ describe("preload bridge", () => {
     expect(Object.keys(bridge.desktop).sort()).toEqual([
       "activateCloudEnrollment",
       "applyConfigImport",
+      "cancelSyntheticPerformerTask",
       "discardConfigImport",
       "getCloudState",
       "getHealth",
       "getSetupState",
+      "getSyntheticPerformerTask",
       "onCloudStateChanged",
       "onConversationEvent",
       "onDashboardInvalidated",
       "onStatusChanged",
+      "onSyntheticPerformerTaskChanged",
       "openLogsDirectory",
+      "openSyntheticPerformerOutput",
       "platform",
       "restartAgent",
       "retryCloudConnection",
       "saveSetup",
       "selectCloudEnrollment",
       "selectConfigImport",
+      "selectSyntheticPerformerOutput",
+      "selectSyntheticPerformerSources",
       "selectWorkspace",
       "selectZiniaoApp",
       "selectZiniaoWebDriverDirectory",
+      "startSyntheticPerformerTask",
     ]);
     expect(bridge.desktop.platform).toBe("win32");
     await bridge.dashboard.call({ operation: "models.list", input: {} });
@@ -55,6 +62,16 @@ describe("preload bridge", () => {
     await bridge.desktop.selectZiniaoWebDriverDirectory();
     await bridge.desktop.openLogsDirectory();
     await bridge.desktop.getHealth();
+    await bridge.desktop.selectSyntheticPerformerSources("files");
+    await bridge.desktop.selectSyntheticPerformerOutput();
+    await bridge.desktop.startSyntheticPerformerTask({
+      action: "scan",
+      selection_id: "selection-1",
+      recursive: false,
+    });
+    await bridge.desktop.getSyntheticPerformerTask();
+    await bridge.desktop.cancelSyntheticPerformerTask("task-1");
+    await bridge.desktop.openSyntheticPerformerOutput("task-1");
     let cloudConnection = "";
     const unsubscribeCloud = bridge.desktop.onCloudStateChanged((state) => {
       cloudConnection = state.connection;
@@ -97,6 +114,27 @@ describe("preload bridge", () => {
     expect(revision).toBe(7);
     unsubscribeInvalidation();
     expect(listeners.has(IPC_CHANNELS.dashboardInvalidated)).toBe(false);
+    let mediaTaskId = "";
+    const unsubscribeMediaTask = bridge.desktop.onSyntheticPerformerTaskChanged((task) => {
+      mediaTaskId = task.task_id;
+    });
+    listeners.get(IPC_CHANNELS.syntheticPerformerTaskChanged)?.({}, {
+      task_id: "task-1",
+      action: "scan",
+      state: "running",
+      stage: "scan",
+      processed: 1,
+      total: 2,
+      current_file: "sample.jpg",
+      selection_id: "selection-1",
+      recursive: false,
+      items: [],
+      counts: {},
+      error: "",
+    });
+    expect(mediaTaskId).toBe("task-1");
+    unsubscribeMediaTask();
+    expect(listeners.has(IPC_CHANNELS.syntheticPerformerTaskChanged)).toBe(false);
     expect(invocations.map((item) => item.channel)).toEqual([
       IPC_CHANNELS.dashboardCall,
       IPC_CHANNELS.selectConfigImport,
@@ -110,9 +148,20 @@ describe("preload bridge", () => {
       IPC_CHANNELS.selectZiniaoWebDriverDirectory,
       IPC_CHANNELS.openLogsDirectory,
       IPC_CHANNELS.getHealth,
+      IPC_CHANNELS.selectSyntheticPerformerSources,
+      IPC_CHANNELS.selectSyntheticPerformerOutput,
+      IPC_CHANNELS.startSyntheticPerformerTask,
+      IPC_CHANNELS.getSyntheticPerformerTask,
+      IPC_CHANNELS.cancelSyntheticPerformerTask,
+      IPC_CHANNELS.openSyntheticPerformerOutput,
     ]);
     expect(invocations[3]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
     expect(invocations[6]?.arguments).toEqual(["import-123"]);
     expect(invocations[7]?.arguments).toEqual(["import-123"]);
+    expect(invocations[14]?.arguments).toEqual([{
+      action: "scan",
+      selection_id: "selection-1",
+      recursive: false,
+    }]);
   });
 });

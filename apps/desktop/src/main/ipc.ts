@@ -12,6 +12,11 @@ import type {
   DesktopHealth,
   DesktopSetupInput,
   DesktopSetupState,
+  DesktopSyntheticPerformerOutputSelection,
+  DesktopSyntheticPerformerSourceKind,
+  DesktopSyntheticPerformerSourceSelection,
+  DesktopSyntheticPerformerTask,
+  DesktopSyntheticPerformerTaskInput,
 } from "@lxe/desktop-protocol";
 import { IPC_CHANNELS } from "../ipc-channels";
 import {
@@ -19,6 +24,9 @@ import {
   validateConfigImportId,
   validateDashboardRpcCall,
   validateSetupInput,
+  validateSyntheticPerformerId,
+  validateSyntheticPerformerSourceKind,
+  validateSyntheticPerformerTaskInput,
 } from "./ipc-validation";
 
 export interface DesktopIpcApplication {
@@ -35,6 +43,15 @@ export interface DesktopIpcApplication {
   getCloudState(): DesktopCloudState;
   retryCloudConnection(): Promise<DesktopCloudState>;
   logsDirectory: string;
+  registerSyntheticPerformerSources(
+    kind: DesktopSyntheticPerformerSourceKind,
+    paths: string[],
+  ): DesktopSyntheticPerformerSourceSelection;
+  registerSyntheticPerformerOutput(path: string): DesktopSyntheticPerformerOutputSelection;
+  startSyntheticPerformerTask(input: DesktopSyntheticPerformerTaskInput): DesktopSyntheticPerformerTask;
+  getSyntheticPerformerTask(): DesktopSyntheticPerformerTask | null;
+  cancelSyntheticPerformerTask(taskId: string): Promise<DesktopSyntheticPerformerTask | null>;
+  syntheticPerformerOutputPath(taskId: string): string;
 }
 
 export function registerDesktopIpc(application: DesktopIpcApplication): () => void {
@@ -98,12 +115,47 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
   ipcMain.handle(IPC_CHANNELS.restartAgent, () => application.restartAgent());
   ipcMain.handle(IPC_CHANNELS.getSetupState, () => application.getSetupState());
   ipcMain.handle(IPC_CHANNELS.saveSetup, (_event, input: unknown) => application.saveSetup(validateSetupInput(input)));
+  ipcMain.handle(IPC_CHANNELS.selectSyntheticPerformerSources, async (_event, rawKind: unknown) => {
+    const kind = validateSyntheticPerformerSourceKind(rawKind);
+    const selection = await dialog.showOpenDialog({
+      title: kind === "folder" ? "选择媒体文件夹" : "选择图片或视频",
+      buttonLabel: "选择",
+      properties: kind === "folder" ? ["openDirectory"] : ["openFile", "multiSelections"],
+      ...(kind === "files" ? {
+        filters: [{ name: "图片和视频", extensions: ["jpg", "jpeg", "png", "mp4", "mov"] }],
+      } : {}),
+    });
+    return selection.canceled
+      ? null
+      : application.registerSyntheticPerformerSources(kind, selection.filePaths);
+  });
+  ipcMain.handle(IPC_CHANNELS.selectSyntheticPerformerOutput, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: "选择合规媒体输出目录",
+      buttonLabel: "选择输出目录",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    const path = selection.canceled ? undefined : selection.filePaths[0];
+    return path ? application.registerSyntheticPerformerOutput(path) : null;
+  });
+  ipcMain.handle(IPC_CHANNELS.startSyntheticPerformerTask, (_event, input: unknown) =>
+    application.startSyntheticPerformerTask(validateSyntheticPerformerTaskInput(input)));
+  ipcMain.handle(IPC_CHANNELS.getSyntheticPerformerTask, () => application.getSyntheticPerformerTask());
+  ipcMain.handle(IPC_CHANNELS.cancelSyntheticPerformerTask, (_event, taskId: unknown) =>
+    application.cancelSyntheticPerformerTask(validateSyntheticPerformerId(taskId)));
+  ipcMain.handle(IPC_CHANNELS.openSyntheticPerformerOutput, async (_event, taskId: unknown) => {
+    const path = application.syntheticPerformerOutputPath(validateSyntheticPerformerId(taskId));
+    const error = await shell.openPath(path);
+    if (error) throw new Error(error);
+  });
   return () => {
     for (const channel of Object.values(IPC_CHANNELS)) {
       if (channel !== IPC_CHANNELS.statusChanged
         && channel !== IPC_CHANNELS.cloudStateChanged
         && channel !== IPC_CHANNELS.conversationEvent
         && channel !== IPC_CHANNELS.dashboardInvalidated) {
+        // Event-only channels do not have invoke handlers.
+        if (channel === IPC_CHANNELS.syntheticPerformerTaskChanged) continue;
         ipcMain.removeHandler(channel);
       }
     }

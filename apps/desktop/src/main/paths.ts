@@ -21,6 +21,7 @@ export interface DesktopPaths {
   agentArguments: string[];
   lxeskillModulePath: string;
   managedPythonPath: string;
+  exifToolPath: string;
   managedPath: string;
   playwrightBrowsersPath: string;
 }
@@ -73,6 +74,10 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
   const managedPythonPath = options.packaged
     ? targetPath.join(options.resourcesPath, "runtime", "python", platform === "win32" ? "python.exe" : "bin/python3")
     : targetPath.join(sourceRoot, ".venv", platform === "win32" ? "Scripts/python.exe" : "bin/python");
+  const exifToolPath = options.packaged
+    ? targetPath.join(options.resourcesPath, "runtime", "tools", "exiftool", "exiftool.exe")
+    : String(environment.LXE_EXIFTOOL_PATH ?? "").trim()
+      || targetPath.join(sourceRoot, "build", "desktop-runtime", "win32-x64", "tools", "exiftool", "exiftool.exe");
   const managedDirectories = options.packaged
     ? [
         targetPath.join(options.resourcesPath, "runtime", "node"),
@@ -114,6 +119,7 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
     agentArguments,
     lxeskillModulePath,
     managedPythonPath,
+    exifToolPath,
     managedPath: existingDirectories(managedDirectories).join(targetPath.delimiter),
     playwrightBrowsersPath: options.packaged
       ? targetPath.join(options.resourcesPath, "runtime", "playwright")

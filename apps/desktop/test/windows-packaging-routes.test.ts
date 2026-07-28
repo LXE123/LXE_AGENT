@@ -165,6 +165,38 @@ describe("Windows desktop packaging routes", () => {
     );
   });
 
+  test("pins and packages ExifTool with its Windows support directory", () => {
+    const runtimeLock = JSON.parse(readFileSync(
+      join(repositoryRoot, "config", "desktop-runtime", "windows-x64", "runtime.lock.json"),
+      "utf8",
+    )) as { exiftool?: { version?: string; archive_url?: string } };
+    const runtimePreparation = readFileSync(
+      join(repositoryRoot, "scripts", "prepare-desktop-runtime.ps1"),
+      "utf8",
+    );
+    const resourcePreparation = readFileSync(
+      join(repositoryRoot, "scripts", "prepare-desktop-resources.ts"),
+      "utf8",
+    );
+    const buildWrapper = readFileSync(
+      join(repositoryRoot, "scripts", "build-desktop-windows.ps1"),
+      "utf8",
+    );
+
+    expect(runtimeLock.exiftool).toEqual({
+      version: "13.59",
+      archive_url: "https://downloads.sourceforge.net/project/exiftool/exiftool-13.59_64.zip",
+    });
+    expect(runtimePreparation).toContain('"exiftool(-k).exe", "exiftool.exe"');
+    expect(runtimePreparation).toContain('"tools\\exiftool\\exiftool.exe"');
+    expect(runtimePreparation).toContain('"tools\\exiftool\\exiftool_files"');
+    expect(resourcePreparation).toContain('from: exifToolRoot');
+    expect(resourcePreparation).toContain('`${scopeEntry("runtime-tools").target}/exiftool`');
+    expect(resourcePreparation).toContain('join(exifToolRoot, "exiftool_files")');
+    expect(buildWrapper).toContain("LXE_DESKTOP_EXIFTOOL_ROOT");
+    expect(buildWrapper).toContain('(Join-Path $effectiveExifToolRoot "exiftool_files")');
+  });
+
   test("resource preparation selects files without semantic scope or Skill validation", () => {
     const resourcePreparation = readFileSync(
       join(repositoryRoot, "scripts", "prepare-desktop-resources.ts"),

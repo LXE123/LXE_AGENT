@@ -109,6 +109,7 @@ $runtimeEnvironment = @{
     LXE_DESKTOP_PYTHON_ROOT = [string]$descriptor.inputs.python_root
     LXE_DESKTOP_UV_PATH = [string]$descriptor.inputs.uv_path
     LXE_DESKTOP_RG_PATH = [string]$descriptor.inputs.rg_path
+    LXE_DESKTOP_EXIFTOOL_ROOT = [string]$descriptor.inputs.exiftool_root
     LXE_DESKTOP_PLAYWRIGHT_ROOT = [string]$descriptor.inputs.playwright_root
 }
 foreach ($entry in $runtimeEnvironment.GetEnumerator()) {
@@ -121,12 +122,15 @@ $effectiveNodeRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_NODE_ROO
 $effectivePythonRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_PYTHON_ROOT")
 $effectiveUvPath = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_UV_PATH")
 $effectiveRipgrepPath = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_RG_PATH")
+$effectiveExifToolRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_EXIFTOOL_ROOT")
 $effectivePlaywrightRoot = [Environment]::GetEnvironmentVariable("LXE_DESKTOP_PLAYWRIGHT_ROOT")
 foreach ($requiredPath in @(
     $effectiveNodeRoot,
     $effectivePythonRoot,
     $effectiveUvPath,
     $effectiveRipgrepPath,
+    (Join-Path $effectiveExifToolRoot "exiftool.exe"),
+    (Join-Path $effectiveExifToolRoot "exiftool_files"),
     $effectivePlaywrightRoot
 )) {
     if ([string]::IsNullOrWhiteSpace($requiredPath) -or -not (Test-Path -LiteralPath $requiredPath)) {

@@ -28,21 +28,33 @@ describe("desktop resource size report", () => {
       recursive: true,
     });
     mkdirSync(join(runtime, "playwright"), { recursive: true });
+    mkdirSync(join(runtime, "tools", "exiftool", "exiftool_files"), { recursive: true });
     writeFileSync(join(root, "LXE Agent.exe"), Buffer.alloc(11));
     writeFileSync(join(runtime, "node", "node.exe"), Buffer.alloc(13));
     writeFileSync(join(runtime, "node", "node_modules", "module.js"), Buffer.alloc(17));
     writeFileSync(join(runtime, "python", "python.exe"), Buffer.alloc(19));
     writeFileSync(join(runtime, "playwright", "chrome.exe"), Buffer.alloc(23));
+    writeFileSync(join(runtime, "tools", "rg.exe"), Buffer.alloc(29));
+    writeFileSync(join(runtime, "tools", "exiftool", "exiftool.exe"), Buffer.alloc(31));
+    writeFileSync(
+      join(runtime, "tools", "exiftool", "exiftool_files", "perl.dll"),
+      Buffer.alloc(37),
+    );
 
     const report = createDesktopResourceSizeReport(root);
 
-    expect(report.total.bytes).toBe(83);
+    expect(report.total.bytes).toBe(180);
     expect(report.electron.bytes).toBe(11);
-    expect(report.resources.runtime.total.bytes).toBe(72);
+    expect(report.resources.runtime.total.bytes).toBe(169);
     expect(report.resources.runtime.node.node_modules.bytes).toBe(17);
     expect(report.resources.runtime.node.npm_cache.bytes).toBe(0);
     expect(report.resources.runtime.python.playwright_driver_node.bytes).toBe(0);
     expect(report.resources.runtime.uv.bytes).toBe(0);
+    expect(report.resources.runtime.tools.total.bytes).toBe(97);
+    expect(report.resources.runtime.tools.ripgrep.bytes).toBe(29);
+    expect(report.resources.runtime.tools.exiftool.bytes).toBe(68);
+    expect(report.resources.runtime.tools.exiftool_executable.bytes).toBe(31);
+    expect(report.resources.runtime.tools.exiftool_support.bytes).toBe(37);
     expect(report.budgets.runtime.limit_bytes).toBe(DESKTOP_RUNTIME_BUDGET_BYTES);
     expect(report.budgets.unpacked.limit_bytes).toBe(DESKTOP_UNPACKED_BUDGET_BYTES);
     expect(report.budgets.runtime.passed).toBe(true);
@@ -67,13 +79,26 @@ describe("desktop resource size report", () => {
     writeFileSync(join(root, "LXE Agent.exe"), "desktop", "utf8");
     writeFileSync(join(driver, "node.exe"), Buffer.alloc(1024));
 
-    const report = createDesktopResourceSizeReport(root);
+    mkdirSync(join(root, "resources", "runtime", "tools", "exiftool", "exiftool_files"), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(root, "resources", "runtime", "tools", "exiftool", "exiftool.exe"),
+      "tool",
+      "utf8",
+    );
+    writeFileSync(
+      join(root, "resources", "runtime", "tools", "exiftool", "exiftool_files", "perl.dll"),
+      "support",
+      "utf8",
+    );
+    const reportWithExifTool = createDesktopResourceSizeReport(root);
 
-    expect(report.resources.runtime.python.playwright_driver_node).toMatchObject({
+    expect(reportWithExifTool.resources.runtime.python.playwright_driver_node).toMatchObject({
       bytes: 1024,
       files: 1,
     });
-    expect(() => assertDesktopResourceSizeBudgets(report)).toThrow(
+    expect(() => assertDesktopResourceSizeBudgets(reportWithExifTool)).toThrow(
       "Playwright driver contains a duplicate Node runtime",
     );
   });
@@ -84,9 +109,24 @@ describe("desktop resource size report", () => {
     mkdirSync(join(root, "resources", "runtime"), { recursive: true });
     writeFileSync(join(root, "LXE Agent.exe"), "desktop", "utf8");
     const report = createDesktopResourceSizeReport(root);
+    report.resources.runtime.tools.exiftool_executable.files = 1;
+    report.resources.runtime.tools.exiftool_support.files = 1;
     report.budgets.runtime.passed = false;
     report.budgets.runtime.mib = 951;
 
     expect(() => assertDesktopResourceSizeBudgets(report)).toThrow("runtime is 951 MiB");
+  });
+
+  test("fails when the packaged ExifTool runtime is incomplete", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-exiftool-missing-"));
+    temporaryRoots.push(root);
+    mkdirSync(join(root, "resources", "runtime"), { recursive: true });
+    writeFileSync(join(root, "LXE Agent.exe"), "desktop", "utf8");
+
+    const report = createDesktopResourceSizeReport(root);
+
+    expect(() => assertDesktopResourceSizeBudgets(report)).toThrow(
+      "ExifTool executable or exiftool_files support directory is missing",
+    );
   });
 });

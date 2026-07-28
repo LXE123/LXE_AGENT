@@ -25,6 +25,11 @@ describe("Dashboard information architecture", () => {
   });
 
   test("keeps valid new routes and rejects invalid child views", () => {
+    expect(dashboardRouteFromHistory({ section: "workbench" }, "skills")).toEqual({
+      section: "workbench",
+      capabilityView: "skills",
+      activityView: "stats",
+    });
     expect(dashboardRouteFromHistory({
       section: "capabilities",
       capabilityView: "connections",

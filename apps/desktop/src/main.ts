@@ -23,6 +23,7 @@ import type {
   DesktopHealth,
   DesktopSetupInput,
   DesktopSetupState,
+  DesktopSyntheticPerformerTask,
 } from "@lxe/desktop-protocol";
 import {
   DEVELOPMENT_SECRET_ENV_NAMES,
@@ -57,6 +58,7 @@ import { bootstrapDesktopState } from "./main/migration";
 import { resolveDesktopPaths } from "./main/paths";
 import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./main/runtime-state";
 import { reportDesktopStartupFailure } from "./main/startup-failure";
+import { DesktopSyntheticPerformerService } from "./main/synthetic-performer";
 import { desktopWindowAppearance } from "./main/window-options";
 import { WindowsWireGuardProvisioner } from "./main/wireguard-provisioner";
 import { normalizeDesktopPlatform } from "./platform";
@@ -118,6 +120,7 @@ let activeGateway: DesktopGateway | undefined;
 let activeCloud: DesktopCloudService | undefined;
 let activeInvalidationBatcher: DashboardInvalidationBatcher | undefined;
 let activeLogging: DesktopLoggingManager | undefined;
+let activeSyntheticPerformer: DesktopSyntheticPerformerService | undefined;
 let removeCloudResumeListener: (() => void) | undefined;
 
 const shutdownApplication = (exitCode = 0): Promise<void> => {
@@ -132,6 +135,12 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
       logger.error("desktop_cloud_stop_failed", { error });
     }
     activeCloud = undefined;
+    try {
+      await activeSyntheticPerformer?.stop();
+    } catch (error) {
+      logger.error("desktop_synthetic_performer_stop_failed", { error });
+    }
+    activeSyntheticPerformer = undefined;
     try {
       await activeGateway?.stop();
     } catch (error) {
@@ -214,6 +223,13 @@ async function bootstrap(): Promise<void> {
       if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.conversationEvent, event);
     }
   };
+  const broadcastSyntheticPerformerTask = (task: DesktopSyntheticPerformerTask): void => {
+    for (const browserWindow of BrowserWindow.getAllWindows()) {
+      if (!browserWindow.isDestroyed()) {
+        browserWindow.webContents.send(IPC_CHANNELS.syntheticPerformerTaskChanged, task);
+      }
+    }
+  };
   const broadcastInvalidation = (invalidation: DesktopDashboardInvalidation): void => {
     for (const browserWindow of BrowserWindow.getAllWindows()) {
       if (!browserWindow.isDestroyed()) {
@@ -271,6 +287,18 @@ async function bootstrap(): Promise<void> {
     onStateChanged: broadcastCloudState,
   });
   activeCloud = cloud;
+  const syntheticPerformer = new DesktopSyntheticPerformerService({
+    platform: process.platform,
+    pythonPath: paths.managedPythonPath,
+    exifToolPath: paths.exifToolPath,
+    dataRoot: paths.dataRoot,
+    managedPath: paths.managedPath,
+    onTaskChanged: broadcastSyntheticPerformerTask,
+    onStderr: (line) => {
+      if (line.trim()) process.stderr.write(`[lxeskill-media] ${line}\n`);
+    },
+  });
+  activeSyntheticPerformer = syntheticPerformer;
   const checkCloudAfterResume = (): void => { void cloud.check(); };
   powerMonitor.on("resume", checkCloudAfterResume);
   removeCloudResumeListener = () => powerMonitor.removeListener("resume", checkCloudAfterResume);
@@ -320,6 +348,13 @@ async function bootstrap(): Promise<void> {
     getCloudState: () => cloud.state(),
     retryCloudConnection: () => cloud.retry(),
     logsDirectory: join(paths.dataRoot, "logs"),
+    registerSyntheticPerformerSources: (kind, selectedPaths) =>
+      syntheticPerformer.registerSources(kind, selectedPaths),
+    registerSyntheticPerformerOutput: (path) => syntheticPerformer.registerOutput(path),
+    startSyntheticPerformerTask: (input) => syntheticPerformer.start(input),
+    getSyntheticPerformerTask: () => syntheticPerformer.current(),
+    cancelSyntheticPerformerTask: (taskId) => syntheticPerformer.cancel(taskId),
+    syntheticPerformerOutputPath: (taskId) => syntheticPerformer.outputPath(taskId),
   };
   removeIpcHandlers = registerDesktopIpc(ipcApplication);
 

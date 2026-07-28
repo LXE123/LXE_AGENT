@@ -91,6 +91,8 @@ def load_catalog() -> dict[str, dict[str, Any]]:
                 if module.startswith("services.agent_cli.browser.amazon_fba.")
                 else f"amazon_operations_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.agent_cli.amazon_operations.")
+                else f"media_{module.rsplit('.', 1)[-1]}"
+                if module.startswith("services.media.")
                 else ""
             )
             if expected != name:
@@ -199,7 +201,12 @@ def execute_module_json(
     if not callable(run):
         raise RuntimeError(f"business module has no callable run(): {module_name}")
     try:
-        payload = run(dict(arguments or {}))
+        run_with_events = getattr(module, "run_with_events", None)
+        payload = (
+            run_with_events(dict(arguments or {}), on_event or (lambda _event: None))
+            if callable(run_with_events)
+            else run(dict(arguments or {}))
+        )
     except Exception as exc:  # noqa: BLE001 — business failures become envelopes
         payload = {"success": False, "exception": f"{type(exc).__name__}: {exc}"}
     finally:

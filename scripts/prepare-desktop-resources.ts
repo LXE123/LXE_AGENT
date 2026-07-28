@@ -108,6 +108,7 @@ const {
   pythonRoot,
   uvExecutable,
   ripgrepExecutable,
+  exifToolRoot,
   playwrightRoot,
 } = runtimeInputs;
 const playwrightEmbeddedNodeSource = join(
@@ -122,10 +123,12 @@ for (const path of [
   join(pythonRoot, "python.exe"),
   playwrightEmbeddedNodeSource,
   ripgrepExecutable,
+  join(exifToolRoot, "exiftool.exe"),
 ]) {
   if (!existsSync(path)) throw new Error(`Managed desktop runtime is incomplete: ${path}`);
 }
 requireResourceSourceDirectory(playwrightRoot);
+requireResourceSourceDirectory(join(exifToolRoot, "exiftool_files"));
 
 rmSync(publishRoot, { recursive: true, force: true });
 const pythonOverlay = join(publishRoot, "python-site-packages");
@@ -201,6 +204,11 @@ const extraResources: BuilderFileSet[] = [
   },
   { from: playwrightRoot, to: scopeEntry("runtime-playwright").target, filter: ["**/*"] },
   exactFileSet(ripgrepExecutable, `${scopeEntry("runtime-tools").target}/rg.exe`),
+  {
+    from: exifToolRoot,
+    to: `${scopeEntry("runtime-tools").target}/exiftool`,
+    filter: ["**/*"],
+  },
   exactFileSet(agentCli, `${scopeEntry("runtime-agent-cli").target}/agent-cli.exe`),
   { from: dashboardRoot, to: scopeEntry("dashboard").target, filter: ["**/*"] },
   exactFileSet(agentSource, agentScope.target),

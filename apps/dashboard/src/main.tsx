@@ -9,6 +9,7 @@ import type {
 } from "@lxe/desktop-protocol";
 import {
   ChartColumn,
+  BriefcaseBusiness,
   House,
   MessageSquareText,
   PanelLeftClose,
@@ -76,6 +77,7 @@ import { SkillsView } from "./features/skills/view";
 import { StatsView } from "./features/stats/view";
 import { BackgroundTasksView } from "./features/tasks/view";
 import { ToolsView } from "./features/tools/view";
+import { SyntheticPerformerWorkbench } from "./features/workbench/view";
 import { DesktopShell } from "./desktop/shell";
 import type { DesktopSettingsSection } from "./desktop/settings-model";
 import { DashboardRootErrorBoundary } from "./root-error-boundary";
@@ -608,7 +610,9 @@ function App({
     : null;
   const conversationRuntimeReady = desktopHealth.gateway === "ready" && desktopHealth.agent_cli === "ready";
   const showDashboardHome = activeSection === "home";
-  const hasEmbeddedPageHeader = activeSection === "capabilities" || activeSection === "activity";
+  const hasEmbeddedPageHeader = activeSection === "capabilities"
+    || activeSection === "activity"
+    || activeSection === "workbench";
   const mcpToolset = toolsetsQuery.data?.items.find((toolset) => toolset.name === "mcp");
   const activeQueries = activeSection === "sessions"
     ? [sessionsQuery, sessionDetailQuery, conversationActivityQuery]
@@ -630,6 +634,7 @@ function App({
   const tabs: Array<{ id: DashboardSection; label: string; icon: ReactNode }> = [
     { id: "home", label: t.nav.home, icon: <House size={16} /> },
     { id: "sessions", label: t.nav.sessions, icon: <MessageSquareText size={16} /> },
+    { id: "workbench", label: t.nav.workbench, icon: <BriefcaseBusiness size={16} /> },
     { id: "capabilities", label: t.nav.capabilities, icon: <Sparkles size={16} /> },
     { id: "activity", label: t.nav.activity, icon: <ChartColumn size={16} /> },
   ];
@@ -802,6 +807,7 @@ function App({
                 onOpenStats={() => openActivityView("stats")}
               />
             ) : null}
+            {activeSection === "workbench" ? <SyntheticPerformerWorkbench /> : null}
             {activeSection === "capabilities" ? (
               <WorkspaceView
                 activeView={capabilityView}

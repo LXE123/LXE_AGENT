@@ -4,9 +4,40 @@ import {
   validateConfigImportId,
   validateDashboardRpcCall,
   validateSetupInput,
+  validateSyntheticPerformerId,
+  validateSyntheticPerformerSourceKind,
+  validateSyntheticPerformerTaskInput,
 } from "../src/main/ipc-validation";
 
 describe("desktop IPC validation", () => {
+  test("validates the synthetic performer task boundary", () => {
+    expect(validateSyntheticPerformerSourceKind("files")).toBe("files");
+    expect(validateSyntheticPerformerSourceKind("folder")).toBe("folder");
+    expect(() => validateSyntheticPerformerSourceKind("path")).toThrow("unsupported");
+    expect(validateSyntheticPerformerId("task-123")).toBe("task-123");
+    expect(() => validateSyntheticPerformerId("../task")).toThrow("invalid");
+    expect(validateSyntheticPerformerTaskInput({
+      action: "scan",
+      selection_id: "selection-1",
+      recursive: false,
+    })).toEqual({ action: "scan", selection_id: "selection-1", recursive: false });
+    expect(validateSyntheticPerformerTaskInput({
+      action: "apply",
+      selection_id: "selection-1",
+      output_id: "output-1",
+      recursive: true,
+    })).toEqual({
+      action: "apply",
+      selection_id: "selection-1",
+      output_id: "output-1",
+      recursive: true,
+    });
+    expect(() => validateSyntheticPerformerTaskInput({
+      action: "apply",
+      selection_id: "selection-1",
+      recursive: true,
+    })).toThrow("identifier");
+  });
   test("accepts only opaque enrollment ids and bounded passwords", () => {
     expect(validateCloudActivationInput({
       enrollment_id: "enroll-123",

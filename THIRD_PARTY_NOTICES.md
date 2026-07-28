@@ -48,6 +48,24 @@ ripgrep is dual-licensed under the Unlicense and MIT licenses. The installer
 copies the upstream `LICENSE-MIT` and `UNLICENSE` files beside the executable.
 Upstream source and release artifacts: https://github.com/BurntSushi/ripgrep
 
+## ExifTool
+
+Windows x64 installations include the official ExifTool 13.59 64-bit executable
+distribution by Phil Harvey. It is stored under
+`resources/runtime/tools/exiftool` and is used internally to read, write, and
+verify media metadata. LXE Agent does not expose ExifTool as a general-purpose
+command-line interface.
+
+Copyright 2003-2026 Phil Harvey.
+
+ExifTool is free software distributed under the same terms as Perl itself: the
+GNU General Public License version 1 or later, or the Artistic License. Project,
+license, source, and release information: https://exiftool.org/
+
+The Windows distribution's upstream `LICENSE` and
+`Licenses_Strawberry_Perl.zip` files remain inside the packaged
+`exiftool_files` directory, next to the executable and its bundled Perl runtime.
+
 ## Amazon Operations Skills
 
 Portions of the Amazon Operations analysis heuristics are adapted
