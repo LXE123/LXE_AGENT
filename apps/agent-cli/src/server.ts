@@ -1,5 +1,4 @@
 import type { AgentJob, EmitRequest, JsonObject, JsonValue } from "@lxe/protocol";
-import type { RuntimeHandle } from "@lxe/runtime";
 import {
   configureLogging,
   createLogger,
@@ -17,6 +16,7 @@ import {
   createAgentRuntimeHost,
   type AgentRuntimeHost,
 } from "./runtime-host";
+import { AgentRunHandle } from "./run-handle";
 
 type Environment = Record<string, string | undefined>;
 
@@ -38,51 +38,6 @@ export interface AgentProtocolServerOptions {
   exit?: (code: number) => void;
 }
 
-class ProtocolRunHandle implements RuntimeHandle {
-  private readonly abortController = new AbortController();
-  private readonly processes = new Set<{
-    kill(): void | Promise<void>;
-    forceKill(): void | Promise<void>;
-  }>();
-  private steering: Array<{
-    text: string;
-    response_route_id?: string;
-    message_id?: string;
-  }> = [];
-
-  get signal(): AbortSignal {
-    return this.abortController.signal;
-  }
-
-  get cancelled(): boolean {
-    return this.signal.aborted;
-  }
-
-  pushSteering(message: { text: string; response_route_id: string; message_id: string }): void {
-    this.steering.push(message);
-  }
-
-  drainSteering(): Array<{ text: string; response_route_id?: string; message_id?: string }> {
-    const messages = this.steering;
-    this.steering = [];
-    return messages;
-  }
-
-  registerProcess(process: {
-    kill(): void | Promise<void>;
-    forceKill(): void | Promise<void>;
-  }): () => void {
-    this.processes.add(process);
-    return () => this.processes.delete(process);
-  }
-
-  async abort(force = false): Promise<void> {
-    if (!this.signal.aborted) this.abortController.abort();
-    await Promise.allSettled([...this.processes].map((process) =>
-      Promise.resolve(force ? process.forceKill() : process.kill())));
-  }
-}
-
 const errorResponse = (id: string, cause: unknown): AgentResponse => {
   const error = cause instanceof Error ? cause : new Error(String(cause));
   const code = typeof (error as Error & { code?: unknown }).code === "string"
@@ -102,7 +57,7 @@ const errorResponse = (id: string, cause: unknown): AgentResponse => {
 export class AgentProtocolServer {
   private readonly environment: Environment;
   private readonly createHost: typeof createAgentRuntimeHost;
-  private readonly activeRuns = new Map<string, ProtocolRunHandle>();
+  private readonly activeRuns = new Map<string, AgentRunHandle>();
   private host: AgentRuntimeHost | undefined;
   private logging: LoggingController | undefined;
   private shuttingDown = false;
@@ -285,7 +240,7 @@ export class AgentProtocolServer {
     const runId = job.job_id.trim();
     if (!runId) throw new Error("job_id required");
     if (this.activeRuns.has(runId)) throw new Error(`run already active: ${runId}`);
-    const handle = new ProtocolRunHandle();
+    const handle = new AgentRunHandle();
     this.activeRuns.set(runId, handle);
     await this.options.write({
       version: AGENT_PROTOCOL_VERSION,

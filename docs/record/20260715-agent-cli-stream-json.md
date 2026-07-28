@@ -15,22 +15,23 @@ Claude Code's stream JSON mode:
 - every request has an `id`, so responses can complete out of order;
 - lifecycle and turn progress are independent event envelopes.
 
-The protocol is private to the Electron application. It is not installed on the
-system `PATH` and is versioned independently. The current persisted-session
-change contract uses `version: 5`; version 4 is rejected instead of running a
-mixed Desktop/agent-cli pair.
+The `serve` protocol is private to the Electron application. It is not installed
+on the system `PATH` and is versioned independently. The current contract uses
+`version: 8`; any other version is rejected instead of running a mixed
+Desktop/agent-cli pair. The separately versioned, one-shot `agent-cli exec`
+interface is documented in [Agent CLI exec](../harness/runtime/agent_cli_exec.md).
 
 ## Request and response envelopes
 
 ```json
-{"version":5,"id":"request-1","command":"has_pending_events","payload":{"session_id":"session-1"}}
-{"version":5,"id":"request-1","ok":true,"result":{"pending":false}}
+{"version":8,"id":"request-1","command":"has_pending_events","payload":{"session_id":"session-1"}}
+{"version":8,"id":"request-1","ok":true,"result":{"pending":false}}
 ```
 
 Errors preserve the request ID:
 
 ```json
-{"version":5,"id":"request-1","ok":false,"error":{"code":"RunUnavailable","message":"run not found"}}
+{"version":8,"id":"request-1","ok":false,"error":{"code":"RunUnavailable","message":"run not found"}}
 ```
 
 Supported commands are `initialize`, `run_turn`, `cancel_turn`, `steer_turn`,

@@ -10,6 +10,8 @@ Gateway 通过版本化 NDJSON 协议提交任务和取消请求。Runtime 只�
 
 Runtime package 提供执行核心，但不提供产品 composition root。真正的宿主装配位于 [`apps/agent-cli/src/runtime-host.ts`](/apps/agent-cli/src/runtime-host.ts)：它创建 Store、Provider、Runtime、MCP、Python CLI、Workspace、Agent 工具和 DashboardService，并只向 NDJSON server 暴露最小宿主接口。Gateway 不依赖 Runtime package。
 
+同一个 composition root 也供一次性 [Agent CLI exec](agent_cli_exec.md) 复用。`exec` 直接调用宿主，不经过 Desktop 私有请求 envelope，并把 CLI 会话放在独立数据库中。
+
 ## 主要职责
 
 | 领域 | Runtime 做什么 |
@@ -41,6 +43,7 @@ Runtime package 提供执行核心，但不提供产品 composition root。真�
 ## 专题导航
 
 - [Runtime Flow](runtime_flow.md)：从平台消息到最终 delivery 的端到端边界。
+- [Agent CLI exec](agent_cli_exec.md)：一次性脚本调用、输出、会话与安全边界。
 - [Turn Execution](turn_execution.md)：turn snapshot、provider、tool 和 final outcome。
 - [Turn Step Lifecycle](turn_step_lifecycle.md)：单个 step 的固定顺序。
 - [Workspace Instance](workspace_instances.md)：会话工作区、AGENTS 指令、缓存刷新和回收。

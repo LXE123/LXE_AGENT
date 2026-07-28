@@ -1072,6 +1072,39 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
+  test("streams a CLI turn through the runtime emitter", async () => {
+    const store = new MemoryStore();
+    const emitted: EmitRequest[] = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async (request) => {
+          await request.onEvent?.({ type: "text_delta", text: "cli answer" });
+          return {
+            content: [{ type: "text", text: "cli answer" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 2 },
+          };
+        },
+      },
+      emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    await runtime.runTurn({
+      ...job(),
+      source: { platform: "cli", chat_id: "s1", chat_type: "local" },
+      session_key: "agent:main:cli:session:s1",
+    }, handle());
+
+    expect(emitted.some((request) => request.emit_kind === "stream" && request.content === "cli answer"))
+      .toBe(true);
+    expect(store.metrics[0]).toMatchObject({ platform: "cli" });
+    await runtime.stop();
+  });
+
   test("persists tool state patches and emits returned files through the gateway", async () => {
     const responses: RuntimeTurnResponse[] = [
       {

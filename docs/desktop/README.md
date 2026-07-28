@@ -9,7 +9,7 @@ Status: Current
 - Electron Desktop 是默认产品线，当前正式分发目标为 Windows x64。
 - React Dashboard 直接作为 Electron Renderer 加载，不在正式安装包中启动 localhost Dashboard 服务。
 - Electron Main 集成 Gateway，并负责窗口、托盘、配置、凭证和后台组件生命周期。
-- Agent Runtime 编译为私有 `agent-cli.exe`，其本地 `AgentRuntimeHost` 负责 Store、Provider、Runtime、MCP、Python CLI、Workspace、工具与 Dashboard 生命周期；它不安装系统命令，也不加入系统 `PATH`。
+- Agent Runtime 编译为私有 `agent-cli.exe`，其本地 `AgentRuntimeHost` 负责 Store、Provider、Runtime、MCP、Python CLI、Workspace、工具与 Dashboard 生命周期；它不安装系统命令，也不加入系统 `PATH`。同一可执行文件提供显式调用的一次性 `exec` 入口，但 Desktop 仍只使用长驻 `serve`。
 - `lxeskill` 保持 Python 原生实现，以 wheel 形式安装到应用携带的私有 Python。
 - 会话交互首版继续通过飞书等渠道完成，Dashboard 只承担管理和查看职责。
 
@@ -27,7 +27,7 @@ Electron 自身会创建 Main、Renderer、GPU 和 utility 等多个进程。LXE
 
 Renderer 只能访问 preload 暴露的白名单接口。Dashboard 业务请求始终通过类型化 IPC 进入 Main；开发模式仅由 Vite 提供 Renderer 资源，不提供浏览器版业务 Transport。Main 会校验 operation 和结构化 input，Renderer 不能直接访问 Node.js、文件系统或 Shell。
 
-会话数据更新由 Agent 协议 v5 的 `session.changed` 持久化事件驱动。message 或 turn usage 成功提交后，Desktop 将 session ID 合并进固定两秒窗口，再通过 IPC 失效对应查询；流式 `item.completed` 只负责渠道展示，不能触发 Dashboard 重载。Session 列表和详情不使用定时轮询，超大 tool result 只在 Dashboard DTO 中返回带真实字节标记的有界预览。
+会话数据更新由 Agent 协议 v8 的 `session.changed` 持久化事件驱动。message 或 turn usage 成功提交后，Desktop 将 session ID 合并进固定两秒窗口，再通过 IPC 失效对应查询；流式 `item.completed` 只负责渠道展示，不能触发 Dashboard 重载。Session 列表和详情不使用定时轮询，超大 tool result 只在 Dashboard DTO 中返回带真实字节标记的有界预览。
 
 Main 与 `agent-cli` 使用 NDJSON 协议通信：每行是一个完整 JSON 消息，通过标准输入输出传递初始化、执行回合、取消、关闭、状态和错误事件。两个进程分别拥有自己的 SQLite 数据库，禁止并发写入同一个数据库。Main 内的 Gateway 不依赖 Runtime package；`agent-cli` 也不依赖 Gateway package。
 
@@ -201,7 +201,7 @@ Windows 安装包把全部受管运行状态和默认工作区放在 `LXE Agent.
 | 路径 | 内容 |
 | --- | --- |
 | `apps/desktop` | Electron Main、preload、桌面 IPC 和安装器组装 |
-| `apps/agent-cli` | 私有 NDJSON Agent CLI |
+| `apps/agent-cli` | Desktop 私有 NDJSON `serve` 与一次性 `exec` 入口 |
 | `apps/gateway` | Gateway、平台接入、调度和 Dashboard API |
 | `apps/dashboard` | React Dashboard 与 Electron 桌面外壳 |
 | `packages/agent/runtime` | TypeScript Agent Runtime、模型和工具执行 |

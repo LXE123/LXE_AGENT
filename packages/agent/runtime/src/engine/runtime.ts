@@ -203,7 +203,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
     });
     const turnPlatform = String(job.source.platform ?? session.source.platform ?? "").trim();
-    const finalAnswerStreamer = job.response_route_id && (turnPlatform === "feishu" || turnPlatform === "desktop")
+    const finalAnswerStreamer = job.response_route_id
+      && (turnPlatform === "feishu" || turnPlatform === "desktop" || turnPlatform === "cli")
       ? new FinalAnswerStreamer({
           sessionId: job.session_id,
           turnId: job.job_id,

@@ -14,12 +14,13 @@ Desktop 不再把所有状态塞进一个 `local_agent.sqlite3`。Electron Main�
 | --- | --- | --- |
 | `db/gateway.sqlite3` | Electron Main / Gateway | Gateway session、平台来源和 response route |
 | `db/agent.sqlite3` | 私有 `agent-cli` / Runtime | Agent session、pending event、usage、模型信息和 transcript 索引 |
+| `db/exec-sessions/<thread-id>/agent.sqlite3` | 一次性 `agent-cli exec` / Runtime | 单个 CLI thread 的 session、usage、模型信息和 transcript 索引 |
 | `db/lxeskill.sqlite3` | 一次性 Python `lxeskill` 命令 | Python 业务侧状态，目前主要是紫鸟浏览器会话 |
 | `db/sessions.json` | Gateway | 平台 source 到 session id 的稳定绑定 |
 | `db/session_transcripts/<session>.jsonl` | Runtime | 原始消息、turn metadata 和 `context_patch` |
 | `db/machine_identity.json` | Desktop 与 Runtime maintenance（共用 Core 实现） | Cloud、WireGuard 和可选 Data Server 共用的本机身份 |
 
-这些路径都位于规范 `var` 根。Desktop dev/preview 使用仓库或 worktree 的 `var/`，Windows 安装包使用安装目录的 `var/`；`LXE_DATA_ROOT` 下发的就是这个目录本身。
+这些路径都位于规范 `var` 根。每个持久化的 CLI thread 还在自己的目录内使用 `session_transcripts/`，并用独占锁保证同一时刻只有一个 `exec resume` 写该数据库。`--ephemeral` 改用系统临时目录并在结束时删除。Desktop dev/preview 使用仓库或 worktree 的 `var/`，Windows 安装包使用安装目录的 `var/`；`LXE_DATA_ROOT` 下发的就是这个目录本身。
 
 测试 fixture 或旧源码环境里仍可能出现 `local_agent.sqlite3` 这个文件名；它不是 Desktop 当前默认的单库布局。
 
