@@ -105,6 +105,7 @@ export interface FileToolDependencies {
   ledger: FileVersionLedger;
   imageProcessor: ModelImageProcessor;
   toolOutputLimit: number;
+  attachmentPaths?: (sessionId: string) => Promise<readonly string[]>;
 }
 
 export function createFileTools(dependencies: FileToolDependencies): ToolDefinition[] {
@@ -112,10 +113,11 @@ export function createFileTools(dependencies: FileToolDependencies): ToolDefinit
   return [
     {
       name: "read",
-      description: "Read a text or image file from the workspace, bundled skills, runtime artifacts, or the configured user Skill root. External roots are read-only. Reading records the file version required by edit/write.",
+      description: "Read a text or image file from the workspace, bundled skills, runtime artifacts, the configured user Skill root, or an exact local file attached to this conversation. External roots are read-only. Reading records the file version required by edit/write.",
       input_schema: { type: "object", properties: { path: { type: "string" }, offset: { type: "integer" }, limit: { type: "integer" } }, required: ["path"], additionalProperties: false },
       execute: async (input, context) => {
-        const path = paths.resolveReadable(context.workspace, input.path).path;
+        const attachmentPaths = await dependencies.attachmentPaths?.(context.session_id) ?? [];
+        const path = paths.resolveReadable(context.workspace, input.path, attachmentPaths).path;
         let info: BigIntStats;
         try {
           info = await stat(path, { bigint: true });

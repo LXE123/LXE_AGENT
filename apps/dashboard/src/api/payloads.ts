@@ -18,6 +18,7 @@ export type {
   DesktopConversationStopPayload,
   DesktopConversationStreamPayload,
   DesktopConversationTurnPayload,
+  DesktopInputAttachmentPayload,
   McpServerListPayload,
   McpServerPayload,
   MessagesPagePayload,

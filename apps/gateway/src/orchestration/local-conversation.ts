@@ -6,6 +6,7 @@ import type {
   DesktopConversationStopPayload,
   DesktopConversationStreamPayload,
   DesktopConversationTurnPayload,
+  DesktopInputAttachmentPayload,
 } from "@lxe/desktop-protocol";
 import type {
   AgentJob,
@@ -48,6 +49,11 @@ export class LocalConversationSessionNotFoundError extends Error {
     super(`session not found: ${sessionId}`);
   }
 }
+
+export type LocalConversationAttachment = DesktopInputAttachmentPayload & {
+  path: string;
+  image_block?: JsonObject;
+};
 
 interface InternalTurn {
   payload: DesktopConversationTurnPayload;
@@ -92,9 +98,14 @@ export class LocalConversationController {
     this.now = options.now ?? Date.now;
   }
 
-  async send(input: { session_id?: string; text: string }): Promise<DesktopConversationSendPayload> {
+  async send(input: {
+    session_id?: string;
+    text: string;
+    attachments?: LocalConversationAttachment[];
+  }): Promise<DesktopConversationSendPayload> {
     const text = clean(input.text);
-    if (!text) throw new Error("message text required");
+    const attachments = input.attachments ?? [];
+    if (!text && attachments.length === 0) throw new Error("message text or attachment required");
     let sessionId = clean(input.session_id);
     let created = false;
     let session = sessionId ? await this.options.storage.getSession(sessionId) : undefined;
@@ -107,7 +118,7 @@ export class LocalConversationController {
         session_id: sessionId,
         source,
         workspace,
-        entry_text: text,
+        entry_text: text || attachments[0]!.name,
       });
       session = { session_id: sessionId, source, workspace };
       created = true;
@@ -129,6 +140,22 @@ export class LocalConversationController {
       extra_data: { platform: DESKTOP_PLATFORM },
     });
 
+    const createdAt = Math.trunc(this.now() / 1_000);
+    const userContentBlocks: JsonObject[] = [];
+    for (const attachment of attachments) {
+      userContentBlocks.push({
+        type: "local_file",
+        attachment_id: attachment.attachment_id,
+        turn_id: turnId,
+        path: attachment.path,
+        name: attachment.name,
+        size_bytes: attachment.size_bytes,
+        media_type: attachment.media_type,
+        ts: createdAt,
+      });
+      if (attachment.image_block) userContentBlocks.push(attachment.image_block);
+    }
+    if (text) userContentBlocks.push({ type: "text", text });
     const job: AgentJob = {
       job_id: turnId,
       session_id: sessionId,
@@ -144,7 +171,7 @@ export class LocalConversationController {
       workspace: session.workspace,
       source,
       raw_data: { origin: DESKTOP_PLATFORM },
-      user_content_blocks: [],
+      user_content_blocks: userContentBlocks,
       diagnostics: [],
     };
     const activity = this.sessionActivity(sessionId);
@@ -155,6 +182,7 @@ export class LocalConversationController {
         turn_id: turnId,
         message_id: messageId,
         text,
+        ...(attachments.length > 0 ? { attachments: attachments.map(publicAttachment) } : {}),
         state: "queued",
         user_persisted_at: 0,
         settled_at: 0,
@@ -340,6 +368,9 @@ export class LocalConversationController {
           display_metrics: { ...turn.payload.stream.display_metrics },
         },
       } : {}),
+      ...(turn.payload.attachments ? {
+        attachments: turn.payload.attachments.map((attachment) => ({ ...attachment })),
+      } : {}),
     };
   }
 
@@ -361,6 +392,15 @@ export class LocalConversationController {
     if (activity.latestTurnId) this.turns.delete(activity.latestTurnId);
     activity.latestTurnId = undefined;
   }
+}
+
+function publicAttachment(attachment: LocalConversationAttachment): DesktopInputAttachmentPayload {
+  return {
+    attachment_id: attachment.attachment_id,
+    name: attachment.name,
+    size_bytes: attachment.size_bytes,
+    media_type: attachment.media_type,
+  };
 }
 
 function sanitizeStream(payload: JsonObject): DesktopConversationStreamPayload | undefined {

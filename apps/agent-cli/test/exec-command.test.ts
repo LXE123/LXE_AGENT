@@ -105,6 +105,7 @@ const fakeHostFactory = (fake: FakeHostOptions = {}): CreateHost =>
       appendPendingEvent: (sessionId, event) => store.appendPendingEvent(sessionId, event),
       hasPendingEvents: (sessionId) => store.hasPendingEvents(sessionId),
       resolveArtifact: async () => undefined,
+      resolveAttachment: async () => undefined,
       dashboardCall: async () => ({}) as never,
       health: () => ({ ready: true }),
       runTurn: async (job, handle) => {

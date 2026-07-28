@@ -83,7 +83,15 @@ export type SessionMessage = {
   tool_name?: string;
   tool_calls?: unknown;
   artifacts?: SessionArtifactPayload[];
+  attachments?: DesktopInputAttachmentPayload[];
   [key: string]: unknown;
+};
+
+export type DesktopInputAttachmentPayload = {
+  attachment_id: string;
+  name: string;
+  size_bytes: number;
+  media_type: string;
 };
 
 export type SessionArtifactPayload = {
@@ -150,6 +158,7 @@ export type DesktopConversationTurnPayload = {
   turn_id: string;
   message_id: string;
   text: string;
+  attachments?: DesktopInputAttachmentPayload[];
   state: DesktopConversationTurnState;
   user_persisted_at: number;
   settled_at: number;
@@ -421,7 +430,7 @@ export interface DashboardRpcSpec {
     result: SessionDetailPayload;
   };
   "sessions.send": {
-    input: { session_id?: string; text: string };
+    input: { session_id?: string; text: string; attachment_ids?: string[] };
     result: DesktopConversationSendPayload;
   };
   "sessions.stop": {
@@ -434,6 +443,10 @@ export interface DashboardRpcSpec {
   };
   "sessions.file.open": {
     input: { session_id: string; artifact_id: string };
+    result: DesktopConversationFileOpenPayload;
+  };
+  "sessions.attachment.open": {
+    input: { session_id: string; attachment_id: string };
     result: DesktopConversationFileOpenPayload;
   };
   "sessions.workspace.reload": {
@@ -477,7 +490,8 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
-  "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity" | "sessions.file.open"
+  "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
+    | "sessions.file.open" | "sessions.attachment.open"
 >;
 
 export type AgentDashboardRpcCall<
@@ -516,6 +530,7 @@ export class DashboardRpcError extends Error {
 
 const MAX_INPUT_BYTES = 1_000_000;
 const MAX_TEXT_LENGTH = 8_192;
+const MAX_ATTACHMENTS = 5;
 
 const rpcError = (message: string): never => {
   throw new DashboardRpcError("invalid_request", message);
@@ -568,6 +583,15 @@ const booleanValue = (value: unknown, label: string): boolean => {
   return value;
 };
 
+const attachmentIdsValue = (value: unknown, label: string): string[] | undefined => {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) return rpcError(`${label} must be an array`);
+  if (value.length > MAX_ATTACHMENTS) rpcError(`${label} must contain at most ${MAX_ATTACHMENTS} items`);
+  const ids = value.map((item, index) => textValue(item, `${label}[${index}]`)!);
+  if (new Set(ids).size !== ids.length) rpcError(`${label} must not contain duplicate IDs`);
+  return ids.length > 0 ? ids : undefined;
+};
+
 const emptyInput = (input: Record<string, unknown>, operation: string): DashboardRpcEmptyInput => {
   exactKeys(input, [], `${operation}.input`);
   return {};
@@ -606,14 +630,19 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
           message_page: integerValue(input.message_page, `${operation}.message_page`, 1, 1, Number.MAX_SAFE_INTEGER),
         }),
       } };
-    case "sessions.send":
-      exactKeys(input, ["session_id", "text"], `${operation}.input`);
+    case "sessions.send": {
+      exactKeys(input, ["session_id", "text", "attachment_ids"], `${operation}.input`);
+      const text = textValue(input.text, `${operation}.text`, { allowEmpty: true })!;
+      const attachmentIds = attachmentIdsValue(input.attachment_ids, `${operation}.attachment_ids`);
+      if (!text && !attachmentIds?.length) rpcError(`${operation} requires text or an attachment`);
       return { operation, input: {
         ...(input.session_id === undefined
           ? {}
           : { session_id: textValue(input.session_id, `${operation}.session_id`)! }),
-        text: textValue(input.text, `${operation}.text`)!,
+        text,
+        ...(attachmentIds ? { attachment_ids: attachmentIds } : {}),
       } };
+    }
     case "sessions.stop":
     case "sessions.activity":
       exactKeys(input, ["session_id"], `${operation}.input`);
@@ -623,6 +652,12 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       return { operation, input: {
         session_id: textValue(input.session_id, `${operation}.session_id`)!,
         artifact_id: textValue(input.artifact_id, `${operation}.artifact_id`)!,
+      } };
+    case "sessions.attachment.open":
+      exactKeys(input, ["session_id", "attachment_id"], `${operation}.input`);
+      return { operation, input: {
+        session_id: textValue(input.session_id, `${operation}.session_id`)!,
+        attachment_id: textValue(input.attachment_id, `${operation}.attachment_id`)!,
       } };
     case "sessions.workspace.reload":
       exactKeys(input, ["session_id"], `${operation}.input`);
@@ -689,7 +724,8 @@ export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCal
     || call.operation === "sessions.send"
     || call.operation === "sessions.stop"
     || call.operation === "sessions.activity"
-    || call.operation === "sessions.file.open") {
+    || call.operation === "sessions.file.open"
+    || call.operation === "sessions.attachment.open") {
     return rpcError(`${call.operation} is owned by Electron Main`);
   }
   return call;

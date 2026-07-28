@@ -35,6 +35,7 @@ import { registerDashboardProtocol } from "./main/app-protocol";
 import { createTrayIcon } from "./main/brand";
 import { resolveDesktopBrandAssets } from "./main/brand-assets";
 import { DesktopConfigImportManager } from "./main/config-import";
+import { DesktopConversationAttachmentService } from "./main/conversation-attachments";
 import { applyDesktopConfigImport } from "./main/config-import-application";
 import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
 import { DesktopConfigStore } from "./main/config-store";
@@ -121,6 +122,7 @@ let activeCloud: DesktopCloudService | undefined;
 let activeInvalidationBatcher: DashboardInvalidationBatcher | undefined;
 let activeLogging: DesktopLoggingManager | undefined;
 let activeSyntheticPerformer: DesktopSyntheticPerformerService | undefined;
+let activeConversationAttachments: DesktopConversationAttachmentService | undefined;
 let removeCloudResumeListener: (() => void) | undefined;
 
 const shutdownApplication = (exitCode = 0): Promise<void> => {
@@ -141,6 +143,8 @@ const shutdownApplication = (exitCode = 0): Promise<void> => {
       logger.error("desktop_synthetic_performer_stop_failed", { error });
     }
     activeSyntheticPerformer = undefined;
+    activeConversationAttachments?.clear();
+    activeConversationAttachments = undefined;
     try {
       await activeGateway?.stop();
     } catch (error) {
@@ -252,12 +256,15 @@ async function bootstrap(): Promise<void> {
   logging.configure();
   const invalidations = new DashboardInvalidationBatcher(broadcastInvalidation);
   activeInvalidationBatcher = invalidations;
+  const conversationAttachments = new DesktopConversationAttachmentService();
+  activeConversationAttachments = conversationAttachments;
   gateway = new DesktopGateway({
     paths,
     config,
     version: app.getVersion(),
     packaged: packagedRuntime,
     desktopLoggingStatus: () => logging.status(),
+    attachments: conversationAttachments,
     onHealthChanged: broadcastHealth,
     onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
     onConversationActivity: broadcastConversationActivity,
@@ -355,6 +362,8 @@ async function bootstrap(): Promise<void> {
     getSyntheticPerformerTask: () => syntheticPerformer.current(),
     cancelSyntheticPerformerTask: (taskId) => syntheticPerformer.cancel(taskId),
     syntheticPerformerOutputPath: (taskId) => syntheticPerformer.outputPath(taskId),
+    registerConversationFiles: (selectedPaths) => conversationAttachments.register(selectedPaths),
+    discardConversationFiles: (attachmentIds) => conversationAttachments.discard(attachmentIds),
   };
   removeIpcHandlers = registerDesktopIpc(ipcApplication);
 

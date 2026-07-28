@@ -69,7 +69,10 @@ export interface TypeScriptAgentRuntimeOptions {
   workspaceInstances?: RuntimeWorkspaceInstanceProvider;
   resolveSkillMetadata?: (skillName: string) => { module: string } | undefined;
   emitter: RuntimeEmitter;
-  onSessionChanged?: (sessionId: string, change: "messages" | "usage" | "artifacts") => Promise<void> | void;
+  onSessionChanged?: (
+    sessionId: string,
+    change: "messages" | "usage" | "artifacts" | "attachments",
+  ) => Promise<void> | void;
   systemPrompt: string | ((context: SystemPromptContext) => string);
   maxSteps?: number;
   contextWindowTokens?: number;
@@ -118,7 +121,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
 
   private async notifySessionChanged(
     sessionId: string,
-    change: "messages" | "usage" | "artifacts",
+    change: "messages" | "usage" | "artifacts" | "attachments",
   ): Promise<void> {
     try {
       await this.options.onSessionChanged?.(sessionId, change);
@@ -370,6 +373,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         pendingEventCount: pendingEvents.length,
       });
       await this.appendMessage(job.session_id, userMessage, heartbeat ? "heartbeat" : "turn_input");
+      if (!heartbeat && job.user_content_blocks.some((block) => block.type === "local_file")) {
+        await this.notifySessionChanged(job.session_id, "attachments");
+      }
 
       const appendSteering = async (steeringMessages = handle.drainSteering()): Promise<number> => {
         let appended = 0;

@@ -168,6 +168,12 @@ describe("desktop agent protocol", () => {
       command: "resolve_artifact",
       payload: { session_id: "session-1" },
     }))).toThrow("resolve_artifact.artifact_id");
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "request-4",
+      command: "resolve_attachment",
+      payload: { session_id: "session-1" },
+    }))).toThrow("resolve_attachment.attachment_id");
   });
 
   test("normalizes typed Dashboard RPC inputs", () => {
@@ -197,11 +203,22 @@ describe("desktop agent protocol", () => {
       input: { text: " first message " },
     })).toEqual({ operation: "sessions.send", input: { text: "first message" } });
     expect(parseDashboardRpcCall({
+      operation: "sessions.send",
+      input: { text: "", attachment_ids: [" file-1 "] },
+    })).toEqual({ operation: "sessions.send", input: { text: "", attachment_ids: ["file-1"] } });
+    expect(parseDashboardRpcCall({
       operation: "sessions.file.open",
       input: { session_id: " session-1 ", artifact_id: " artifact-1 " },
     })).toEqual({
       operation: "sessions.file.open",
       input: { session_id: "session-1", artifact_id: "artifact-1" },
+    });
+    expect(parseDashboardRpcCall({
+      operation: "sessions.attachment.open",
+      input: { session_id: " session-1 ", attachment_id: " attachment-1 " },
+    })).toEqual({
+      operation: "sessions.attachment.open",
+      input: { session_id: "session-1", attachment_id: "attachment-1" },
     });
   });
 
@@ -219,8 +236,11 @@ describe("desktop agent protocol", () => {
     const mainOwnedInput: Record<string, unknown> = {
       "sessions.send": { text: "hello" },
       "sessions.file.open": { session_id: "session-1", artifact_id: "artifact-1" },
+      "sessions.attachment.open": { session_id: "session-1", attachment_id: "attachment-1" },
     };
-    for (const operation of ["sessions.send", "sessions.stop", "sessions.activity", "sessions.file.open"]) {
+    for (const operation of [
+      "sessions.send", "sessions.stop", "sessions.activity", "sessions.file.open", "sessions.attachment.open",
+    ]) {
       expect(() => parseAgentWireMessage(JSON.stringify({
         version: AGENT_PROTOCOL_VERSION,
         id: `request-${operation}`,
@@ -235,7 +255,15 @@ describe("desktop agent protocol", () => {
       input: { session_id: "s", artifact_id: "artifact-1", reveal: true },
     })).toThrow("unsupported fields");
     expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: " " } }))
-      .toThrow("non-empty string");
+      .toThrow("requires text or an attachment");
+    expect(() => parseDashboardRpcCall({
+      operation: "sessions.send",
+      input: { text: "", attachment_ids: ["same", "same"] },
+    })).toThrow("duplicate IDs");
+    expect(() => parseDashboardRpcCall({
+      operation: "sessions.send",
+      input: { text: "", attachment_ids: ["1", "2", "3", "4", "5", "6"] },
+    })).toThrow("at most 5");
     expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: "x".repeat(8_193) } }))
       .toThrow("too long");
     expect(() => parseDashboardRpcCall({ operation: "sessions.stop", input: { session_id: "s", all: true } }))

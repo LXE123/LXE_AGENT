@@ -17,10 +17,15 @@ export interface IpcRendererPort {
   removeListener(channel: string, listener: IpcListener): void;
 }
 
+export interface DesktopFilePathPort {
+  getPathForFile(file: File): string;
+}
+
 /** Construct the complete and intentionally narrow Renderer API whitelist. */
 export function createDesktopBridge(
   ipc: IpcRendererPort,
   platform: DesktopPlatform,
+  files?: DesktopFilePathPort,
 ): LxeDesktopBridge {
   return {
     dashboard: {
@@ -47,6 +52,17 @@ export function createDesktopBridge(
         ipc.invoke(IPC_CHANNELS.selectSyntheticPerformerSources, kind),
       selectSyntheticPerformerOutput: () =>
         ipc.invoke(IPC_CHANNELS.selectSyntheticPerformerOutput),
+      selectConversationFiles: () =>
+        ipc.invoke(IPC_CHANNELS.selectConversationFiles),
+      stageDroppedConversationFiles: (droppedFiles) => {
+        if (!files) return Promise.reject(new Error("Local file paths are unavailable"));
+        return ipc.invoke(
+          IPC_CHANNELS.stageDroppedConversationFiles,
+          droppedFiles.map((file) => files.getPathForFile(file)),
+        );
+      },
+      discardConversationFiles: (attachmentIds) =>
+        ipc.invoke(IPC_CHANNELS.discardConversationFiles, attachmentIds),
       startSyntheticPerformerTask: (input) =>
         ipc.invoke(IPC_CHANNELS.startSyntheticPerformerTask, input),
       getSyntheticPerformerTask: () =>

@@ -13,6 +13,68 @@ afterEach(() => {
 });
 
 describe("SqliteRuntimeStore", () => {
+  test("persists local file references while projecting only safe attachment metadata", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-runtime-attachments-"));
+    roots.push(root);
+    const databasePath = join(root, "local_agent.sqlite3");
+    const selectedPath = join(root, "selected.csv");
+    writeFileSync(selectedPath, "sku,qty\nA,1\n", "utf8");
+    const localFile = {
+      type: "local_file",
+      attachment_id: "attachment-1",
+      turn_id: "turn-1",
+      path: selectedPath,
+      name: "renderer-cannot-trust-this-name.csv",
+      size_bytes: 14,
+      media_type: "text/csv",
+      ts: 100,
+    };
+    const store = new SqliteRuntimeStore(databasePath);
+    await store.start();
+    await store.ensureSession({ workspace: testWorkspace, session_id: "s1", source: { platform: "desktop" } });
+    await store.appendMessage("s1", {
+      role: "user",
+      content: [localFile, { type: "text", text: "summarize this" }],
+    }, "turn_input");
+
+    expect(await store.loadMessages("s1")).toEqual([{
+      role: "user",
+      content: [localFile, { type: "text", text: "summarize this" }],
+    }]);
+    expect(await store.resolveAttachment("s1", "attachment-1")).toEqual(expect.objectContaining({
+      path: selectedPath,
+      name: "selected.csv",
+      media_type: "text/csv",
+    }));
+    expect(await store.resolveAttachment("other", "attachment-1")).toBeUndefined();
+    expect(await store.attachmentPaths("s1")).toEqual([selectedPath]);
+    const detail = await store.sessionDetail("s1", { limit: 10 });
+    expect(JSON.stringify(detail)).not.toContain(selectedPath);
+    expect(detail).toMatchObject({
+      session: { message_count: 1, title: "summarize this" },
+      messages: [{
+        role: "user",
+        content: [{ type: "text", text: "summarize this" }],
+        attachments: [{
+          attachment_id: "attachment-1",
+          name: "selected.csv",
+          size_bytes: 14,
+          media_type: "text/csv",
+        }],
+      }],
+    });
+    await store.stop();
+
+    const database = new Database(databasePath);
+    database.exec("DELETE FROM transcript_attachments; DELETE FROM transcript_file_state;");
+    database.close(true);
+    const rebuilt = new SqliteRuntimeStore(databasePath);
+    await rebuilt.start();
+    expect(await rebuilt.resolveAttachment("s1", "attachment-1"))
+      .toEqual(expect.objectContaining({ path: selectedPath }));
+    await rebuilt.stop();
+  });
+
   test("backfills legacy sessions once and never allows a workspace change", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-runtime-workspace-migration-"));
     roots.push(root);

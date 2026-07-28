@@ -8,6 +8,7 @@ import type { JsonObject, JsonValue, SessionWorkspaceRequest, WorkspaceContext }
 import type {
   RuntimeMessage,
   RuntimeArtifactRecord,
+  RuntimeAttachmentRecord,
   RuntimeSessionRecord,
   RuntimeStore,
   RuntimeTurnContextRecord,
@@ -69,6 +70,48 @@ const publicArtifact = (artifact: RuntimeArtifactRecord): JsonObject => ({
   name: artifact.name,
 });
 
+const transcriptAttachment = (value: unknown): RuntimeAttachmentRecord | undefined => {
+  const block = parseObject(value);
+  if (text(block.type) !== "local_file") return undefined;
+  const attachment: RuntimeAttachmentRecord = {
+    attachment_id: text(block.attachment_id),
+    turn_id: text(block.turn_id),
+    path: text(block.path),
+    name: basename(text(block.path)),
+    size_bytes: Math.max(0, Math.trunc(Number(block.size_bytes ?? 0))),
+    media_type: text(block.media_type),
+    ts: Number(block.ts ?? 0),
+  };
+  if (!attachment.attachment_id || !attachment.turn_id || !attachment.path || !attachment.name
+    || !isAbsolute(attachment.path) || !attachment.media_type
+    || !Number.isFinite(attachment.ts) || attachment.ts < 0) return undefined;
+  return attachment;
+};
+
+const publicAttachment = (attachment: RuntimeAttachmentRecord): JsonObject => ({
+  attachment_id: attachment.attachment_id,
+  name: attachment.name,
+  size_bytes: attachment.size_bytes,
+  media_type: attachment.media_type,
+});
+
+const publicMessage = (value: JsonObject): JsonObject => {
+  const message = structuredClone(value);
+  delete message.artifacts;
+  delete message.attachments;
+  if (!Array.isArray(message.content)) return message;
+  const attachments: JsonObject[] = [];
+  const content: JsonValue[] = [];
+  for (const block of message.content) {
+    const attachment = transcriptAttachment(block);
+    if (attachment) attachments.push(publicAttachment(attachment));
+    else content.push(block);
+  }
+  message.content = content;
+  if (attachments.length > 0) message.attachments = attachments;
+  return message;
+};
+
 const mergeObjects = (base: JsonObject, patch: JsonObject): JsonObject => {
   const merged: JsonObject = { ...base };
   for (const [key, value] of Object.entries(patch)) {
@@ -103,15 +146,27 @@ const sanitizePersistedValue = (value: JsonValue): JsonValue => {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizePersistedValue(item)]));
 };
 
-const persistedMessage = (message: RuntimeMessage): RuntimeMessage =>
-  sanitizePersistedValue(message as unknown as JsonObject) as unknown as RuntimeMessage;
+const persistedMessage = (message: RuntimeMessage): RuntimeMessage => {
+  if (Array.isArray(message.content) && message.content.some((block) => transcriptAttachment(block))) {
+    return sanitizePersistedValue({
+      ...message,
+      // Attached images remain durable through their local_file reference;
+      // their transient visual block is only for the current provider call.
+      content: message.content.filter((block) => text(block.type) !== "image"),
+    }) as unknown as RuntimeMessage;
+  }
+  return sanitizePersistedValue(message as unknown as JsonObject) as unknown as RuntimeMessage;
+};
 
 const sessionTitle = (message: RuntimeMessage, reason: string): string => {
   if (message.role !== "user" || !["turn_input", "user_input", "inbound"].includes(reason)) return "";
-  const content = typeof message.content === "string"
-    ? message.content
-    : message.content.filter((block) => block.type === "text" && typeof block.text === "string")
-      .map((block) => String(block.text)).join(" ");
+  const content = typeof message.content === "string" ? message.content : (() => {
+    const textContent = message.content
+      .filter((block) => block.type === "text" && typeof block.text === "string")
+      .map((block) => String(block.text)).join(" ").trim();
+    if (textContent) return textContent;
+    return message.content.map((block) => transcriptAttachment(block)?.name ?? "").filter(Boolean).join(" ");
+  })();
   return content.replaceAll(/\s+/g, " ").trim().slice(0, 120);
 };
 
@@ -169,7 +224,7 @@ const transcriptDisplayPage = (
   for (const event of selectedEvents) {
     if (text(event.kind) === "message") {
       const message = parseObject(event.message);
-      if (text(message.role)) messages.push(structuredClone(message));
+      if (text(message.role)) messages.push(publicMessage(message));
       continue;
     }
     const marker = transcriptDisplayMarker(event);
@@ -357,6 +412,17 @@ export class SqliteRuntimeStore implements RuntimeStore {
           created_at REAL NOT NULL,
           PRIMARY KEY (session_id, artifact_id)
         );
+        CREATE TABLE IF NOT EXISTS transcript_attachments (
+          session_id TEXT NOT NULL,
+          attachment_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          path TEXT NOT NULL,
+          name TEXT NOT NULL,
+          size_bytes INTEGER NOT NULL,
+          media_type TEXT NOT NULL,
+          created_at REAL NOT NULL,
+          PRIMARY KEY (session_id, attachment_id)
+        );
         CREATE INDEX IF NOT EXISTS idx_turn_usage_started_at ON turn_usage (started_at);
         CREATE INDEX IF NOT EXISTS idx_turn_usage_items_kind_name ON turn_usage_items (kind, name, started_at);
         CREATE INDEX IF NOT EXISTS idx_turn_usage_items_turn_id ON turn_usage_items (turn_id);
@@ -364,6 +430,8 @@ export class SqliteRuntimeStore implements RuntimeStore {
           ON transcript_display_groups (session_id, group_number);
         CREATE INDEX IF NOT EXISTS idx_transcript_artifacts_turn
           ON transcript_artifacts (session_id, turn_id);
+        CREATE INDEX IF NOT EXISTS idx_transcript_attachments_turn
+          ON transcript_attachments (session_id, turn_id);
       `);
       const columns = this.allPrepared<{ name: string }>("PRAGMA table_info(agent_sessions)");
       if (!columns.some((column) => column.name === "reasoning_effort")) {
@@ -759,6 +827,39 @@ export class SqliteRuntimeStore implements RuntimeStore {
       name: text(row.name),
       ts: Number(row.created_at ?? 0),
     });
+  }
+
+  async resolveAttachment(sessionId: string, attachmentId: string): Promise<RuntimeAttachmentRecord | undefined> {
+    const safeSessionId = text(sessionId);
+    const safeAttachmentId = text(attachmentId);
+    if (!safeSessionId || !safeAttachmentId) return undefined;
+    await this.waitForSessionWrites(safeSessionId);
+    await this.enqueueIndexSync(safeSessionId, this.transcriptPath(safeSessionId));
+    const row = this.getPrepared<Record<string, unknown>>(`
+      SELECT attachment_id, turn_id, path, name, size_bytes, media_type, created_at
+      FROM transcript_attachments WHERE session_id = ? AND attachment_id = ?
+    `, safeSessionId, safeAttachmentId);
+    if (!row) return undefined;
+    return transcriptAttachment({
+      type: "local_file",
+      attachment_id: text(row.attachment_id),
+      turn_id: text(row.turn_id),
+      path: text(row.path),
+      name: text(row.name),
+      size_bytes: Number(row.size_bytes ?? 0),
+      media_type: text(row.media_type),
+      ts: Number(row.created_at ?? 0),
+    });
+  }
+
+  async attachmentPaths(sessionId: string): Promise<string[]> {
+    const safeSessionId = text(sessionId);
+    if (!safeSessionId) return [];
+    await this.waitForSessionWrites(safeSessionId);
+    await this.enqueueIndexSync(safeSessionId, this.transcriptPath(safeSessionId));
+    return this.allPrepared<{ path: string }>(`
+      SELECT DISTINCT path FROM transcript_attachments WHERE session_id = ? ORDER BY path
+    `, safeSessionId).map((row) => text(row.path)).filter(Boolean);
   }
 
   async replaceMessages(
@@ -1480,6 +1581,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     this.db().transaction(() => {
       this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(sessionId);
       this.db().query("DELETE FROM transcript_artifacts WHERE session_id = ?").run(sessionId);
+      this.db().query("DELETE FROM transcript_attachments WHERE session_id = ?").run(sessionId);
       this.db().query("DELETE FROM transcript_file_state WHERE session_id = ?").run(sessionId);
       this.db().query(`
         UPDATE agent_sessions SET model = '', reasoning_effort = '', model_config = '{}'
@@ -1555,6 +1657,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
       if (rebuild) {
         this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(sessionId);
         this.db().query("DELETE FROM transcript_artifacts WHERE session_id = ?").run(sessionId);
+        this.db().query("DELETE FROM transcript_attachments WHERE session_id = ?").run(sessionId);
         this.db().query(`
           UPDATE agent_sessions SET model = '', reasoning_effort = '', model_config = '{}'
           WHERE session_id = ?
@@ -1567,6 +1670,26 @@ export class SqliteRuntimeStore implements RuntimeStore {
         if (text(event.kind) === "message") {
           rawMessageCount += 1;
           const message = parseObject(event.message);
+          if (Array.isArray(message.content)) {
+            for (const block of message.content) {
+              const attachment = transcriptAttachment(block);
+              if (!attachment) continue;
+              this.db().query(`
+                INSERT OR REPLACE INTO transcript_attachments
+                  (session_id, attachment_id, turn_id, path, name, size_bytes, media_type, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              `).run(
+                sessionId,
+                attachment.attachment_id,
+                attachment.turn_id,
+                attachment.path,
+                attachment.name,
+                attachment.size_bytes,
+                attachment.media_type,
+                attachment.ts,
+              );
+            }
+          }
           const role = text(message.role).toLowerCase();
           if (role === "assistant" || role === "tool") {
             if (lastDisplayKind === "assistant_tool" && displayGroupCount > 0) {
@@ -1720,10 +1843,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
         if (text(event.kind) === "message") {
           const message = parseObject(event.message);
           if (text(message.role)) {
-            latestMessage = structuredClone(message);
-            // `artifacts` is a Dashboard-only projection. Never trust a field
-            // with the same name from persisted model messages.
-            delete latestMessage.artifacts;
+            latestMessage = publicMessage(message);
             messages.push(latestMessage);
           }
           continue;

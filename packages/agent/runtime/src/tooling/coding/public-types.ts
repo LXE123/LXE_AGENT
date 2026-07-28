@@ -28,6 +28,7 @@ export interface CodingToolOptions {
   repositorySkillsRoot?: string;
   userSkillsRoot?: string;
   artifactRoot?: string;
+  attachmentPaths?: (sessionId: string) => Promise<readonly string[]>;
   homeDirectory?: string;
   maxOutputChars?: number;
   sendFile?: (request: { path: string; session_id: string; response_route_id: string }) => Promise<void>;

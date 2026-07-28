@@ -254,6 +254,43 @@ describe("native coding tools", () => {
     await processes.stop();
   });
 
+  test("reads only the exact regular files attached to the current session", async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), "lxe-attachment-workspace-"));
+    const externalRoot = mkdtempSync(join(tmpdir(), "lxe-attachment-external-"));
+    roots.push(workspaceRoot, externalRoot);
+    const attached = join(externalRoot, "selected.txt");
+    const adjacent = join(externalRoot, "private.txt");
+    writeFileSync(attached, "selected content", "utf8");
+    writeFileSync(adjacent, "private content", "utf8");
+    const registry = new ToolRegistry();
+    const processes = registerCodingTools(registry, {
+      attachmentPaths: async (sessionId) => sessionId === "s1" ? [attached] : [],
+    });
+    try {
+      const read = await registry.execute("read", { path: attached }, context(workspaceRoot));
+      expect(read.content[0]?.text).toContain("selected content");
+      await expect(registry.execute("read", { path: externalRoot }, context(workspaceRoot)))
+        .rejects.toThrow("escapes workspace");
+      await expect(registry.execute("read", { path: adjacent }, context(workspaceRoot)))
+        .rejects.toThrow("escapes workspace");
+      await expect(registry.execute("read", { path: attached }, { ...context(workspaceRoot), session_id: "s2" }))
+        .rejects.toThrow("escapes workspace");
+      await expect(registry.execute("write", { file_path: attached, content: "changed" }, context(workspaceRoot)))
+        .rejects.toThrow("escapes workspace");
+      await expect(registry.execute("send_file", { path: attached }, context(workspaceRoot)))
+        .rejects.toThrow("escapes workspace");
+
+      rmSync(attached);
+      symlinkSync(adjacent, attached);
+      await expect(registry.execute("read", { path: attached }, context(workspaceRoot)))
+        .rejects.toThrow("not a regular file");
+      await expect(registry.execute("read", { path: adjacent }, context(workspaceRoot)))
+        .rejects.toThrow("escapes workspace");
+    } finally {
+      await processes.stop();
+    }
+  });
+
   test("rejects unavailable lxeskill commands before spawning without blocking other exec work", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-coding-lxeskill-unavailable-"));
     roots.push(root);

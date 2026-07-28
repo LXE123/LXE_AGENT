@@ -146,6 +146,16 @@ export interface RuntimeArtifactRecord extends JsonObject {
   ts: number;
 }
 
+export interface RuntimeAttachmentRecord extends JsonObject {
+  attachment_id: string;
+  turn_id: string;
+  path: string;
+  name: string;
+  size_bytes: number;
+  media_type: string;
+  ts: number;
+}
+
 export interface RuntimeSkillSnapshot {
   readonly names: readonly string[];
   readonly prompt: string;
@@ -162,6 +172,8 @@ export interface RuntimeStore {
   appendTurnContext(sessionId: string, context: RuntimeTurnContextRecord): Promise<void>;
   appendArtifact(sessionId: string, artifact: RuntimeArtifactRecord): Promise<void>;
   resolveArtifact(sessionId: string, artifactId: string): Promise<RuntimeArtifactRecord | undefined>;
+  resolveAttachment(sessionId: string, attachmentId: string): Promise<RuntimeAttachmentRecord | undefined>;
+  attachmentPaths(sessionId: string): Promise<string[]>;
   appendMessage(sessionId: string, message: RuntimeMessage, reason?: string): Promise<void>;
   replaceMessages(
     sessionId: string,

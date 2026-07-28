@@ -10,6 +10,7 @@ import type {
   DesktopCloudEnrollmentSelection,
   DesktopCloudState,
   DesktopHealth,
+  DesktopInputAttachmentPayload,
   DesktopSetupInput,
   DesktopSetupState,
   DesktopSyntheticPerformerOutputSelection,
@@ -52,7 +53,16 @@ export interface DesktopIpcApplication {
   getSyntheticPerformerTask(): DesktopSyntheticPerformerTask | null;
   cancelSyntheticPerformerTask(taskId: string): Promise<DesktopSyntheticPerformerTask | null>;
   syntheticPerformerOutputPath(taskId: string): string;
+  registerConversationFiles(paths: string[]): DesktopInputAttachmentPayload[];
+  discardConversationFiles(attachmentIds: string[]): void;
 }
+
+const stringArray = (value: unknown, label: string): string[] => {
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
+    throw new Error(`${label} must be an array of non-empty strings`);
+  }
+  return value as string[];
+};
 
 export function registerDesktopIpc(application: DesktopIpcApplication): () => void {
   ipcMain.handle(IPC_CHANNELS.dashboardCall, (_event, call: unknown) =>
@@ -138,6 +148,27 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     const path = selection.canceled ? undefined : selection.filePaths[0];
     return path ? application.registerSyntheticPerformerOutput(path) : null;
   });
+  ipcMain.handle(IPC_CHANNELS.selectConversationFiles, async () => {
+    const selection = await dialog.showOpenDialog({
+      title: "选择对话文件",
+      buttonLabel: "添加",
+      properties: ["openFile", "multiSelections"],
+      filters: [{
+        name: "支持的文件",
+        extensions: [
+          "pdf", "doc", "docx", "ppt", "pptx", "txt", "md",
+          "xls", "xlsx", "xlsm", "csv", "tsv",
+          "json", "jsonl", "xml", "yaml", "yml",
+          "png", "jpg", "jpeg", "webp", "gif",
+        ],
+      }],
+    });
+    return selection.canceled ? [] : application.registerConversationFiles(selection.filePaths);
+  });
+  ipcMain.handle(IPC_CHANNELS.stageDroppedConversationFiles, (_event, paths: unknown) =>
+    application.registerConversationFiles(stringArray(paths, "dropped file paths")));
+  ipcMain.handle(IPC_CHANNELS.discardConversationFiles, (_event, attachmentIds: unknown) =>
+    application.discardConversationFiles(stringArray(attachmentIds, "attachment IDs")));
   ipcMain.handle(IPC_CHANNELS.startSyntheticPerformerTask, (_event, input: unknown) =>
     application.startSyntheticPerformerTask(validateSyntheticPerformerTaskInput(input)));
   ipcMain.handle(IPC_CHANNELS.getSyntheticPerformerTask, () => application.getSyntheticPerformerTask());

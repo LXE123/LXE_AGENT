@@ -22,7 +22,7 @@ import type {
 
 const workspace = resolveWorkspaceContext(repositoryRoot(import.meta.dir));
 
-const job = (): AgentJob => ({
+const job = (overrides: Partial<AgentJob> = {}): AgentJob => ({
   job_id: "j1",
   session_id: "s1",
   session_key: "agent:main:feishu:dm:c1",
@@ -39,6 +39,7 @@ const job = (): AgentJob => ({
   user_content_blocks: [],
   diagnostics: [],
   workspace,
+  ...overrides,
 });
 
 class MemoryStore implements RuntimeStore {
@@ -77,6 +78,8 @@ class MemoryStore implements RuntimeStore {
   async resolveArtifact(_sessionId: string, artifactId: string): Promise<RuntimeArtifactRecord | undefined> {
     return this.artifacts.find((artifact) => artifact.artifact_id === artifactId);
   }
+  async resolveAttachment(): Promise<undefined> { return undefined; }
+  async attachmentPaths(): Promise<string[]> { return []; }
   async appendMessage(_sessionId: string, message: RuntimeMessage): Promise<void> {
     this.messages.push(message);
     this.operations.push("message");
@@ -196,6 +199,54 @@ describe("TypeScriptAgentRuntime", () => {
     expect((await failedMessageRuntime.runTurn(job(), handle())).status).toBe("error");
     expect(failedMessageChanges).toEqual(["usage"]);
     await failedMessageRuntime.stop();
+  });
+
+  test("keeps local file and image blocks in the current turn and announces attachment persistence", async () => {
+    const store = new MemoryStore();
+    const changes: string[] = [];
+    let observedUserContent: RuntimeMessage["content"] | undefined;
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async (request) => {
+          observedUserContent = [...request.messages].reverse().find((message) => message.role === "user")?.content;
+          return {
+            content: [{ type: "text", text: "done" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          };
+        },
+      },
+      emitter: { emit: async () => undefined, typing: async () => undefined },
+      systemPrompt: "test",
+      onSessionChanged: (_sessionId, change) => { changes.push(change); },
+    });
+    await runtime.start();
+    await runtime.runTurn(job({
+      user_input: "analyze it",
+      user_content_blocks: [
+        {
+          type: "local_file",
+          attachment_id: "attachment-1",
+          turn_id: "j1",
+          path: "/private/input/photo.png",
+          name: "photo.png",
+          size_bytes: 12,
+          media_type: "image/png",
+          ts: 1,
+        },
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "encoded" } },
+        { type: "text", text: "analyze it" },
+      ],
+    }), handle());
+    expect(observedUserContent).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "local_file", path: "/private/input/photo.png" }),
+      expect.objectContaining({ type: "image" }),
+    ]));
+    expect(changes).toEqual(["messages", "attachments", "messages", "usage"]);
+    await runtime.stop();
   });
 
   test("holds one workspace snapshot lease across prompt and tool execution", async () => {

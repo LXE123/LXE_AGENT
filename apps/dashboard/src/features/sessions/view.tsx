@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -12,13 +12,15 @@ import {
   Info,
   LoaderCircle,
   PackageCheck,
+  Paperclip,
   Plus,
   Search,
   SendHorizontal,
   Settings2,
   Square,
   UserRound,
-  Wrench
+  Wrench,
+  X
 } from "lucide-react";
 
 import { EmptyState } from "../../shared/components";
@@ -42,6 +44,7 @@ import type {
   DesktopConversationActivityPayload,
   DesktopConversationStreamPayload,
   DesktopConversationTurnPayload,
+  DesktopInputAttachmentPayload,
   SessionArtifactPayload,
   SessionDetailPayload,
   SessionMessage,
@@ -535,6 +538,58 @@ function TurnFileList({
   );
 }
 
+function InputAttachmentList({
+  attachments,
+  onOpen,
+  onRemove,
+}: {
+  attachments: DesktopInputAttachmentPayload[];
+  onOpen?: (attachmentId: string) => Promise<void>;
+  onRemove?: (attachmentId: string) => void;
+}) {
+  const t = useUiText();
+  const [error, setError] = useState("");
+  const open = async (attachmentId: string) => {
+    if (!onOpen) return;
+    setError("");
+    try {
+      await onOpen(attachmentId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  return (
+    <div className="turn-file-list input-attachment-list">
+      <span className="turn-file-label">{t.conversation.attachments}</span>
+      {attachments.map((attachment) => (
+        <span className="input-attachment-chip" key={attachment.attachment_id}>
+          <button
+            className="turn-file-chip"
+            disabled={!onOpen}
+            onClick={() => void open(attachment.attachment_id)}
+            title={onOpen ? t.conversation.openFile(attachment.name) : attachment.name}
+            type="button"
+          >
+            <Paperclip size={14} />
+            <span>{attachment.name}</span>
+          </button>
+          {onRemove ? (
+            <button
+              aria-label={t.conversation.removeAttachment(attachment.name)}
+              className="input-attachment-remove"
+              onClick={() => onRemove(attachment.attachment_id)}
+              type="button"
+            >
+              <X size={12} />
+            </button>
+          ) : null}
+        </span>
+      ))}
+      {error ? <div className="turn-file-error" role="alert">{t.conversation.openFileFailed(error)}</div> : null}
+    </div>
+  );
+}
+
 function LocalTurnCards({
   turn,
   transcriptFetchedAt,
@@ -566,7 +621,10 @@ function LocalTurnCards({
             <RoleBadge role="user" />
             {stateBadge}
           </div>
-          <MessageMarkdown text={turn.text} />
+          {turn.text ? <MessageMarkdown text={turn.text} /> : null}
+          {turn.attachments?.length ? (
+            <InputAttachmentList attachments={turn.attachments} />
+          ) : null}
         </article>
       ) : null}
       {turn.stream && !assistantPersisted ? <LiveAssistantCard stream={turn.stream} /> : null}
@@ -577,13 +635,15 @@ function LocalTurnCards({
 
 function ConversationComposer({
   activity,
+  conversationKey,
   runtimeReady,
   onSend,
   onStop,
 }: {
   activity: DesktopConversationActivityPayload | null;
+  conversationKey: string;
   runtimeReady: boolean;
-  onSend: (text: string) => Promise<void>;
+  onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
 }) {
   const t = useUiText();
@@ -591,16 +651,89 @@ function ConversationComposer({
   const [sending, setSending] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState("");
+  const [attachments, setAttachments] = useState<DesktopInputAttachmentPayload[]>([]);
+  const [dragActive, setDragActive] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const previousConversationKey = useRef(conversationKey);
   const hasWork = Boolean(activity?.active || activity?.queued.length);
+  const addAttachments = useCallback((selected: DesktopInputAttachmentPayload[]) => {
+    setAttachments((current) => {
+      const known = new Set(current.map((item) => item.attachment_id));
+      const additions = selected.filter((item) => !known.has(item.attachment_id));
+      if (current.length + additions.length > 5) {
+        const rejected = additions.map((item) => item.attachment_id);
+        if (rejected.length) void window.lxe?.desktop.discardConversationFiles(rejected);
+        setError(t.conversation.tooManyAttachments);
+        return current;
+      }
+      return [...current, ...additions];
+    });
+  }, [t]);
+  const selectFiles = async () => {
+    setError("");
+    try {
+      if (!window.lxe) throw new Error(t.conversation.unavailable);
+      addAttachments(await window.lxe.desktop.selectConversationFiles());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+  const stageDroppedFiles = useCallback(async (files: File[]) => {
+    setError("");
+    try {
+      if (!window.lxe) throw new Error(t.conversation.unavailable);
+      addAttachments(await window.lxe.desktop.stageDroppedConversationFiles(files));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, [addAttachments, t]);
+  const removeAttachment = (attachmentId: string) => {
+    setAttachments((current) => current.filter((item) => item.attachment_id !== attachmentId));
+    void window.lxe?.desktop.discardConversationFiles([attachmentId]);
+  };
+  useEffect(() => {
+    if (previousConversationKey.current === conversationKey) return;
+    previousConversationKey.current = conversationKey;
+    const attachmentIds = attachments.map((item) => item.attachment_id);
+    if (attachmentIds.length) void window.lxe?.desktop.discardConversationFiles(attachmentIds);
+    setAttachments([]);
+    setText("");
+    setError("");
+  }, [attachments, conversationKey]);
+  useEffect(() => {
+    const dragOver = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes("Files")) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      setDragActive(true);
+    };
+    const dragLeave = (event: DragEvent) => {
+      if (event.relatedTarget === null) setDragActive(false);
+    };
+    const drop = (event: DragEvent) => {
+      if (!event.dataTransfer?.files.length) return;
+      event.preventDefault();
+      setDragActive(false);
+      void stageDroppedFiles(Array.from(event.dataTransfer.files));
+    };
+    window.addEventListener("dragover", dragOver);
+    window.addEventListener("dragleave", dragLeave);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragover", dragOver);
+      window.removeEventListener("dragleave", dragLeave);
+      window.removeEventListener("drop", drop);
+    };
+  }, [stageDroppedFiles]);
   const submit = async () => {
     const message = text.trim();
-    if (!runtimeReady || sending || !message) return;
+    if (!runtimeReady || sending || (!message && attachments.length === 0)) return;
     setSending(true);
     setError("");
     try {
-      await onSend(message);
+      await onSend(message, attachments);
       setText("");
+      setAttachments([]);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -622,7 +755,11 @@ function ConversationComposer({
     }
   };
   return (
-    <div className="conversation-composer">
+    <div className={`conversation-composer ${dragActive ? "drag-active" : ""}`}>
+      {dragActive ? <div className="conversation-drop-hint">{t.conversation.dropFiles}</div> : null}
+      {attachments.length ? (
+        <InputAttachmentList attachments={attachments} onRemove={removeAttachment} />
+      ) : null}
       <div className="conversation-compose-box">
         <textarea
           aria-label={t.conversation.placeholder}
@@ -644,6 +781,16 @@ function ConversationComposer({
           value={text}
         />
         <div className="conversation-compose-actions">
+          <button
+            aria-label={t.conversation.addFiles}
+            className="conversation-attach-button"
+            disabled={!runtimeReady || sending || attachments.length >= 5}
+            onClick={() => void selectFiles()}
+            title={t.conversation.addFiles}
+            type="button"
+          >
+            <Paperclip size={17} />
+          </button>
           {hasWork ? (
             <button className="conversation-stop-button" disabled={stopping} onClick={() => void stop()} type="button">
               {stopping ? <LoaderCircle className="conversation-spinner" size={15} /> : <Square size={14} />}
@@ -653,7 +800,7 @@ function ConversationComposer({
           <button
             aria-label={sending ? t.conversation.sending : t.conversation.send}
             className="conversation-send-button"
-            disabled={!runtimeReady || sending || !text.trim()}
+            disabled={!runtimeReady || sending || (!text.trim() && attachments.length === 0)}
             onClick={() => void submit()}
             title={sending ? t.conversation.sending : t.conversation.send}
             type="button"
@@ -692,6 +839,7 @@ export function SessionDetailView({
   onSend,
   onStop,
   onOpenFile,
+  onOpenAttachment,
 }: {
   fallbackSession: SessionPayload | null;
   detail: SessionDetailPayload | null;
@@ -705,9 +853,10 @@ export function SessionDetailView({
   loadingOlder: boolean;
   loadOlderError: string;
   onLoadOlder: () => Promise<unknown>;
-  onSend: (text: string) => Promise<void>;
+  onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
   onOpenFile: (artifactId: string) => Promise<void>;
+  onOpenAttachment: (attachmentId: string) => Promise<void>;
 }) {
   const t = useUiText();
   const session = detail?.session || fallbackSession;
@@ -871,6 +1020,9 @@ export function SessionDetailView({
                           </div>
                         ) : null}
                         <MessageContent content={message.content} message={message} />
+                        {message.attachments?.length ? (
+                          <InputAttachmentList attachments={message.attachments} onOpen={onOpenAttachment} />
+                        ) : null}
                       </article>
                       {toolGroups.length ? (
                         <div className="process-step">
@@ -908,7 +1060,13 @@ export function SessionDetailView({
           ? t.conversation.stopping
           : activity?.active ? t.conversation.running : activity?.queued.length ? t.conversation.queued : ""}
       </div>
-      <ConversationComposer activity={activity} runtimeReady={runtimeReady} onSend={onSend} onStop={onStop} />
+      <ConversationComposer
+        activity={activity}
+        conversationKey={session?.session_id ?? (newConversation ? "new" : "")}
+        runtimeReady={runtimeReady}
+        onSend={onSend}
+        onStop={onStop}
+      />
     </div>
   );
 }

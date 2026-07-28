@@ -35,7 +35,13 @@ export function registerCodingTools(
   processes.onComplete = options.onProcessComplete;
   processes.onConsume = options.onProcessConsume;
 
-  for (const tool of createFileTools({ paths, ledger, imageProcessor, toolOutputLimit })) {
+  for (const tool of createFileTools({
+    paths,
+    ledger,
+    imageProcessor,
+    toolOutputLimit,
+    ...(options.attachmentPaths ? { attachmentPaths: options.attachmentPaths } : {}),
+  })) {
     registry.register(tool);
   }
   for (const tool of createSearchTools({

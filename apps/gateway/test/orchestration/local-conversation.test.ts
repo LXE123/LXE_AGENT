@@ -146,6 +146,44 @@ describe("LocalConversationController", () => {
     h.controller.dispose();
   });
 
+  test("creates a file-only turn with durable local-file and visual blocks without exposing its path", async () => {
+    const h = harness(["new-session", "turn-1", "message-1", "route-1"]);
+    const result = await h.controller.send({
+      text: "",
+      attachments: [{
+        attachment_id: "attachment-1",
+        name: "photo.png",
+        size_bytes: 123,
+        media_type: "image/png",
+        path: "/private/files/photo.png",
+        image_block: { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "encoded" } },
+      }],
+    });
+    await tick();
+    expect(result.created).toBe(true);
+    expect(h.storage.ensured[0]?.entry_text).toBe("photo.png");
+    expect(h.runtime.started[0]?.user_content_blocks).toEqual([
+      expect.objectContaining({
+        type: "local_file",
+        attachment_id: "attachment-1",
+        turn_id: "turn-1",
+        path: "/private/files/photo.png",
+        name: "photo.png",
+      }),
+      expect.objectContaining({ type: "image" }),
+    ]);
+    const activity = h.controller.activity("new-session");
+    expect(activity.active?.attachments).toEqual([{
+      attachment_id: "attachment-1",
+      name: "photo.png",
+      size_bytes: 123,
+      media_type: "image/png",
+    }]);
+    expect(JSON.stringify(activity)).not.toContain("/private/files");
+    expect(JSON.stringify(activity)).not.toContain("encoded");
+    h.controller.dispose();
+  });
+
   test("rejects a missing existing session", async () => {
     const h = harness([]);
     expect(h.controller.send({ session_id: "missing", text: "hello" }))

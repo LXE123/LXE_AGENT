@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { WorkspaceContext } from "@lxe/protocol";
@@ -35,6 +35,11 @@ const normalizedPathKey = (path: string): string => {
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 };
 
+const exactPathKey = (path: string): string => {
+  const normalized = resolve(path);
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+};
+
 const containsCanonicalPath = (root: string, path: string): boolean =>
   containsPath(root, path)
   && containsPath(canonicalCandidate(root), canonicalCandidate(path));
@@ -48,7 +53,7 @@ const safePath = (root: string, value: unknown, base = root): string => {
   return path;
 };
 
-export type ReadableScopeKind = "workspace" | "skills" | "artifacts";
+export type ReadableScopeKind = "workspace" | "skills" | "artifacts" | "attachment";
 
 export interface ReadableScope {
   root: string;
@@ -120,12 +125,23 @@ export class CodingPathPolicy {
     this.externalScopes = [...scopes.values()];
   }
 
-  resolveReadable(workspace: WorkspaceContext, value: unknown): ReadableTarget {
+  resolveReadable(
+    workspace: WorkspaceContext,
+    value: unknown,
+    exactAttachmentPaths: readonly string[] = [],
+  ): ReadableTarget {
     const requested = String(value ?? "").trim();
     if (!requested) throw new Error("path is required");
     const path = requestedPath(workspace.directory, this.home, requested);
     const scope = this.readableScopes(workspace).find((candidate) => containsCanonicalPath(candidate.root, path));
     if (scope) return { path, scope };
+    const key = exactPathKey(path);
+    const attachmentPath = exactAttachmentPaths.find((candidate) => exactPathKey(candidate) === key);
+    if (attachmentPath) {
+      const info = lstatSync(path);
+      if (info.isSymbolicLink() || !info.isFile()) throw new Error(`attachment is not a regular file: ${requested}`);
+      return { path, scope: { root: path, kind: "attachment" } };
+    }
     throw new Error(`path escapes workspace and approved read-only roots: ${requested}`);
   }
 

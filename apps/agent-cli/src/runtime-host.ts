@@ -72,6 +72,7 @@ export interface AgentRuntimeHost {
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   hasPendingEvents(sessionId: string): Promise<boolean>;
   resolveArtifact(sessionId: string, artifactId: string): Promise<{ path: string } | undefined>;
+  resolveAttachment(sessionId: string, attachmentId: string): Promise<{ path: string } | undefined>;
   dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>>;
@@ -169,6 +170,7 @@ export function createAgentRuntimeHost(
     repositorySkillsRoot: options.skillsRoot,
     userSkillsRoot: options.userSkillsRoot,
     artifactRoot: join(options.dataRoot, "artifacts"),
+    attachmentPaths: (sessionId) => store.attachmentPaths(sessionId),
     businessCommands,
     businessCommandCatalog: cliCommands,
     execShell,
@@ -320,6 +322,10 @@ export function createAgentRuntimeHost(
     resolveArtifact: async (sessionId, artifactId) => {
       const artifact = await store.resolveArtifact(sessionId, artifactId);
       return artifact ? { path: artifact.path } : undefined;
+    },
+    resolveAttachment: async (sessionId, attachmentId) => {
+      const attachment = await store.resolveAttachment(sessionId, attachmentId);
+      return attachment ? { path: attachment.path } : undefined;
     },
     dashboardCall: (call) => dashboardService.call(call),
     health: () => {

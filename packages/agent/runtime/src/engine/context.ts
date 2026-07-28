@@ -1,4 +1,5 @@
 import type { JsonObject, JsonValue } from "@lxe/protocol";
+import { isAbsolute } from "node:path";
 import { createLogger } from "@lxe/core";
 import type {
   RuntimeMessage,
@@ -162,6 +163,22 @@ const cleanBlock = (raw: unknown, role: RuntimeMessage["role"]): JsonObject | un
   const type = String(block.type ?? "").trim();
   if (type === "text") return { type, text: text(block.text) };
   if (type === "image" && role === "user") return jsonObject(block);
+  if (type === "local_file" && role === "user") {
+    const path = text(block.path).trim();
+    const attachmentId = text(block.attachment_id).trim();
+    const turnId = text(block.turn_id).trim();
+    if (!path || !isAbsolute(path) || !attachmentId || !turnId) return undefined;
+    return {
+      type,
+      attachment_id: attachmentId,
+      turn_id: turnId,
+      path,
+      name: text(block.name).trim(),
+      size_bytes: Math.max(0, Math.trunc(Number(block.size_bytes ?? 0))),
+      media_type: text(block.media_type).trim(),
+      ts: Math.max(0, Number(block.ts ?? 0)),
+    };
+  }
   if (type === "thinking" && role === "assistant") {
     return { type, thinking: text(block.thinking), signature: text(block.signature) };
   }
@@ -488,6 +505,9 @@ const userText = (content: RuntimeMessage["content"]): string => {
     const block = object(raw);
     if (block.type === "text") return text(block.text).trim();
     if (block.type === "image") return "[image omitted]";
+    if (block.type === "local_file") {
+      return `Attached local file: name=${JSON.stringify(text(block.name).trim() || "file")} path=${JSON.stringify(text(block.path).trim())}`;
+    }
     return "";
   }).filter(Boolean).join("\n");
 };

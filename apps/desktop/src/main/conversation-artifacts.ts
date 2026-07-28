@@ -15,3 +15,17 @@ export async function openConversationArtifact(
   const error = await dependencies.openPath(path);
   return { opened: !error, error };
 }
+
+export async function openConversationAttachment(
+  dependencies: {
+    resolveAttachment(sessionId: string, attachmentId: string): Promise<string | undefined>;
+    openPath(path: string): Promise<string>;
+  },
+  sessionId: string,
+  attachmentId: string,
+): Promise<DesktopConversationFileOpenPayload> {
+  const path = await dependencies.resolveAttachment(sessionId, attachmentId);
+  if (!path) throw new DashboardRpcError("not_found", "attachment is not part of this conversation");
+  const error = await dependencies.openPath(path);
+  return { opened: !error, error };
+}

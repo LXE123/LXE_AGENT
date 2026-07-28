@@ -16,6 +16,9 @@ test("sessions view exposes text conversation controls and IME-safe keyboard beh
   assert.match(view, /conversation-stop-button/);
   assert.match(view, /conversation-load-earlier/);
   assert.match(view, /session-new-button/);
+  assert.match(view, /selectConversationFiles/);
+  assert.match(view, /stageDroppedConversationFiles/);
+  assert.match(main, /attachment_ids: attachments\.map/);
 });
 
 test("optimistic cards retire on transcript watermarks, never on message text", () => {
@@ -60,6 +63,14 @@ test("tool files reach the conversation and open through Main", () => {
   assert.match(main, /if \(!result\.opened\) throw new Error\(result\.error\)/);
 });
 
+test("input attachments expose opaque chips and open through Main", () => {
+  assert.match(view, /InputAttachmentList/);
+  assert.match(view, /message\.attachments/);
+  assert.match(main, /operation: "sessions\.attachment\.open"/);
+  assert.match(main, /attachment_id: attachmentId/);
+  assert.doesNotMatch(main, /sessions\.attachment\.open"[\s\S]{0,160}path/);
+});
+
 test("dashboard sends through Main, restores activity, and uses latest-first history paging", () => {
   assert.match(main, /operation: "sessions\.send"/);
   assert.match(main, /operation: "sessions\.stop"/);
@@ -98,6 +109,6 @@ test("a tool reads the same live as it does in history", () => {
   assert.doesNotMatch(view, /<span>\{step\.title\}<\/span>/);
   // Beside a growing textarea the composer buttons must not be squeezed until
   // their label breaks one character per line.
-  assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button \{[^}]*flex: 0 0 auto/);
-  assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button \{[^}]*white-space: nowrap/);
+  assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button,\n\.conversation-attach-button \{[^}]*flex: 0 0 auto/);
+  assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button,\n\.conversation-attach-button \{[^}]*white-space: nowrap/);
 });

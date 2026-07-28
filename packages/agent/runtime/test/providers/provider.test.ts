@@ -467,6 +467,42 @@ describe("Anthropic-compatible provider", () => {
       .toEqual(expect.objectContaining({ retryable: true, category: "服务器繁忙" }));
   });
 
+  test("adapts local-file blocks into exact-path model instructions while retaining image input", () => {
+    const descriptor = loadProviderDescriptor(repositoryRoot(import.meta.dir), {
+      AGENT_LLM_PROVIDER: "kimi_coding",
+      AGENT_LLM_MODEL: "kimi-for-coding",
+      KIMI_CODE_API_KEY: "secret-key",
+    });
+    const adapted = adaptMessagesForProvider([{
+      role: "user",
+      content: [
+        {
+          type: "local_file",
+          attachment_id: "attachment-1",
+          turn_id: "turn-1",
+          path: "/private/input/report.csv",
+          name: "report.csv",
+          size_bytes: 10,
+          media_type: "text/csv",
+          ts: 1,
+        },
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "encoded" } },
+        { type: "text", text: "analyze it" },
+      ],
+    }], descriptor);
+    expect(adapted).toEqual([{
+      role: "user",
+      content: [
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining('Absolute path: "/private/input/report.csv"'),
+        }),
+        expect.objectContaining({ type: "image" }),
+        { type: "text", text: "analyze it" },
+      ],
+    }]);
+  });
+
   test("maps canonical tool and system messages only at the Provider boundary", () => {
     const projectRoot = repositoryRoot(import.meta.dir);
     const descriptor = loadProviderDescriptor(projectRoot, {

@@ -6,6 +6,7 @@ import {
   type InboundImageProcessResult,
   type InboundImageProcessorPort,
 } from "@lxe/gateway/desktop";
+import type { JsonObject } from "@lxe/protocol";
 
 const MAX_PIXELS = 40_000_000;
 const MAX_EDGE = 1_024;
@@ -27,12 +28,21 @@ const fittedSize = (width: number, height: number): { width: number; height: num
 
 /** Electron-backed image preparation used by the Node.js desktop Gateway. */
 export class ElectronInboundImageProcessor implements InboundImageProcessorPort {
-  async process(request: InboundImageProcessRequest): Promise<InboundImageProcessResult> {
-    if (request.bytes.byteLength === 0) {
+  prepareModelBlock(bytes: Uint8Array, _originalMime: string): JsonObject {
+    return this.prepare(bytes).modelBlock;
+  }
+
+  private prepare(bytes: Uint8Array): {
+    encoded: Buffer;
+    modelBlock: JsonObject;
+    originalSize: { width: number; height: number };
+    processedSize: { width: number; height: number };
+  } {
+    if (bytes.byteLength === 0) {
       throw new InboundImageError("ERR_IMAGE_UNKNOWN_FORMAT", "image input is empty");
     }
 
-    const source = nativeImage.createFromBuffer(Buffer.from(request.bytes));
+    const source = nativeImage.createFromBuffer(Buffer.from(bytes));
     if (source.isEmpty()) {
       throw new InboundImageError("ERR_IMAGE_DECODE_FAILED", "Electron could not decode the image");
     }
@@ -52,12 +62,11 @@ export class ElectronInboundImageProcessor implements InboundImageProcessorPort 
     if (encoded.byteLength === 0) {
       throw new InboundImageError("ERR_IMAGE_ENCODE_FAILED", "Electron could not encode the image as JPEG");
     }
-    writeFileSync(request.outputPath, encoded);
     const processedSize = prepared.getSize();
-    const bytes = new Uint8Array(encoded);
-
     return {
-      bytes,
+      encoded,
+      originalSize,
+      processedSize,
       modelBlock: {
         type: "image",
         source: {
@@ -66,6 +75,17 @@ export class ElectronInboundImageProcessor implements InboundImageProcessorPort 
           data: encoded.toString("base64"),
         },
       },
+    };
+  }
+
+  async process(request: InboundImageProcessRequest): Promise<InboundImageProcessResult> {
+    const prepared = this.prepare(request.bytes);
+    writeFileSync(request.outputPath, prepared.encoded);
+    const bytes = new Uint8Array(prepared.encoded);
+
+    return {
+      bytes,
+      modelBlock: prepared.modelBlock,
       savedPath: request.outputPath,
       metadata: {
         ...request.resource,
@@ -73,17 +93,17 @@ export class ElectronInboundImageProcessor implements InboundImageProcessorPort 
         original: {
           mime: request.originalMime,
           format: imageFormat(request.originalMime),
-          width: originalSize.width,
-          height: originalSize.height,
+          width: prepared.originalSize.width,
+          height: prepared.originalSize.height,
           size_bytes: request.bytes.byteLength,
           file_name: request.originalFileName,
         },
         processed: {
           mime: "image/jpeg",
           format: "jpeg",
-          width: processedSize.width,
-          height: processedSize.height,
-          size_bytes: encoded.byteLength,
+          width: prepared.processedSize.width,
+          height: prepared.processedSize.height,
+          size_bytes: prepared.encoded.byteLength,
           quality: JPEG_QUALITY,
           progressive: false,
         },

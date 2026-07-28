@@ -16,7 +16,9 @@ describe("preload bridge", () => {
         if (listeners.get(channel) === listener) listeners.delete(channel);
       },
     };
-    const bridge = createDesktopBridge(ipc, "win32");
+    const bridge = createDesktopBridge(ipc, "win32", {
+      getPathForFile: (file) => `/private/drop/${file.name}`,
+    });
 
     expect(Object.keys(bridge).sort()).toEqual(["dashboard", "desktop"]);
     expect(Object.keys(bridge.dashboard)).toEqual(["call"]);
@@ -25,6 +27,7 @@ describe("preload bridge", () => {
       "applyConfigImport",
       "cancelSyntheticPerformerTask",
       "discardConfigImport",
+      "discardConversationFiles",
       "getCloudState",
       "getHealth",
       "getSetupState",
@@ -42,11 +45,13 @@ describe("preload bridge", () => {
       "saveSetup",
       "selectCloudEnrollment",
       "selectConfigImport",
+      "selectConversationFiles",
       "selectSyntheticPerformerOutput",
       "selectSyntheticPerformerSources",
       "selectWorkspace",
       "selectZiniaoApp",
       "selectZiniaoWebDriverDirectory",
+      "stageDroppedConversationFiles",
       "startSyntheticPerformerTask",
     ]);
     expect(bridge.desktop.platform).toBe("win32");
@@ -72,6 +77,9 @@ describe("preload bridge", () => {
     await bridge.desktop.getSyntheticPerformerTask();
     await bridge.desktop.cancelSyntheticPerformerTask("task-1");
     await bridge.desktop.openSyntheticPerformerOutput("task-1");
+    await bridge.desktop.selectConversationFiles();
+    await bridge.desktop.stageDroppedConversationFiles([new File(["hello"], "notes.txt")]);
+    await bridge.desktop.discardConversationFiles(["attachment-1"]);
     let cloudConnection = "";
     const unsubscribeCloud = bridge.desktop.onCloudStateChanged((state) => {
       cloudConnection = state.connection;
@@ -154,7 +162,12 @@ describe("preload bridge", () => {
       IPC_CHANNELS.getSyntheticPerformerTask,
       IPC_CHANNELS.cancelSyntheticPerformerTask,
       IPC_CHANNELS.openSyntheticPerformerOutput,
+      IPC_CHANNELS.selectConversationFiles,
+      IPC_CHANNELS.stageDroppedConversationFiles,
+      IPC_CHANNELS.discardConversationFiles,
     ]);
+    expect(invocations[19]?.arguments).toEqual([["/private/drop/notes.txt"]]);
+    expect(invocations[20]?.arguments).toEqual([["attachment-1"]]);
     expect(invocations[3]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
     expect(invocations[6]?.arguments).toEqual(["import-123"]);
     expect(invocations[7]?.arguments).toEqual(["import-123"]);

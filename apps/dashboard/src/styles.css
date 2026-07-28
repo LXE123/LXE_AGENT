@@ -4353,6 +4353,11 @@ h1 {
   border-color: var(--border-strong);
 }
 
+.turn-file-chip:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
 .turn-file-chip span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4363,6 +4368,40 @@ h1 {
   flex-basis: 100%;
   color: var(--danger);
   font-size: 0.75rem;
+}
+
+.input-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(100%, 320px);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.input-attachment-chip .turn-file-chip {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+}
+
+.input-attachment-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 3px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.input-attachment-remove:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .live-assistant {
@@ -4438,6 +4477,18 @@ h1 {
   backdrop-filter: blur(14px);
 }
 
+.conversation-composer.drag-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.conversation-drop-hint {
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-align: center;
+}
+
 .conversation-compose-box {
   display: flex;
   align-items: flex-end;
@@ -4472,7 +4523,8 @@ h1 {
 }
 
 .conversation-send-button,
-.conversation-stop-button {
+.conversation-stop-button,
+.conversation-attach-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4496,6 +4548,18 @@ h1 {
   color: white;
 }
 
+.conversation-attach-button {
+  width: 34px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.conversation-attach-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
 .conversation-stop-button {
   padding: 6px 9px;
   border: 1px solid var(--danger-border);
@@ -4504,7 +4568,8 @@ h1 {
 }
 
 .conversation-send-button:disabled,
-.conversation-stop-button:disabled {
+.conversation-stop-button:disabled,
+.conversation-attach-button:disabled {
   cursor: default;
   opacity: 0.5;
 }

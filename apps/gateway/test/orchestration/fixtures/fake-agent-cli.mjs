@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-const protocolVersion = 9;
+const protocolVersion = 10;
 let activeRunRequest;
 let steered = [];
 let cancelCount = 0;
@@ -100,6 +100,10 @@ for await (const line of input) {
       ok: true,
       result: found ? { found: true, path: "/tmp/report.xlsx" } : { found: false },
     });
+    continue;
+  }
+  if (request.command === "resolve_attachment") {
+    write({ version: protocolVersion, id: request.id, ok: true, result: { found: false } });
     continue;
   }
   if (request.command === "cancel_turn") {

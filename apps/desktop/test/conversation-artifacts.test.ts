@@ -1,8 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { DashboardRpcError } from "@lxe/desktop-protocol";
-import { openConversationArtifact } from "../src/main/conversation-artifacts";
+import { openConversationArtifact, openConversationAttachment } from "../src/main/conversation-artifacts";
 
 describe("conversation artifact opening", () => {
+  test("opens an input attachment only after agent-owned session resolution", async () => {
+    const opened: string[] = [];
+    const result = await openConversationAttachment({
+      resolveAttachment: async (sessionId, attachmentId) =>
+        sessionId === "session-1" && attachmentId === "attachment-1" ? "/private/input/orders.csv" : undefined,
+      openPath: async (path) => { opened.push(path); return ""; },
+    }, "session-1", "attachment-1");
+    expect(result).toEqual({ opened: true, error: "" });
+    expect(opened).toEqual(["/private/input/orders.csv"]);
+    await expect(openConversationAttachment({
+      resolveAttachment: async () => undefined,
+      openPath: async () => { throw new Error("must not open"); },
+    }, "other", "attachment-1")).rejects.toMatchObject({ code: "not_found" });
+  });
+
   test("opens only the path resolved by the agent-owned transcript", async () => {
     const resolved: string[] = [];
     const opened: string[] = [];

@@ -219,7 +219,7 @@ export const ZH_TEXT = {
   },
   conversation: {
     newTitle: "新对话",
-    newHint: "输入消息，开始与 Agent 对话。",
+    newHint: "输入消息或添加文件，开始与 Agent 对话。",
     placeholder: "给 Agent 发送消息…",
     send: "发送",
     stop: "停止",
@@ -238,6 +238,11 @@ export const ZH_TEXT = {
     sending: "正在发送…",
     jumpToLatest: "跳到最新",
     files: "本轮产出的文件",
+    attachments: "传入的文件",
+    addFiles: "添加文件",
+    dropFiles: "松开以添加到对话",
+    tooManyAttachments: "每轮最多添加 5 个文件",
+    removeAttachment: (name: string) => `移除 ${name}`,
     openFile: (name: string) => `打开 ${name}`,
     openFileFailed: (reason: string) => `打开文件失败：${reason}`
   },
@@ -847,7 +852,7 @@ export const UI_TEXT: Record<Language, UiText> = {
     },
     conversation: {
       newTitle: "New chat",
-      newHint: "Send a message to start a conversation with the Agent.",
+      newHint: "Send a message or add files to start a conversation with the Agent.",
       placeholder: "Message the Agent…",
       send: "Send",
       stop: "Stop",
@@ -866,6 +871,11 @@ export const UI_TEXT: Record<Language, UiText> = {
       sending: "Sending…",
       jumpToLatest: "Jump to latest",
       files: "Files from this turn",
+      attachments: "Attached files",
+      addFiles: "Add files",
+      dropFiles: "Drop to add files to this chat",
+      tooManyAttachments: "You can attach at most 5 files per turn",
+      removeAttachment: (name: string) => `Remove ${name}`,
       openFile: (name: string) => `Open ${name}`,
       openFileFailed: (reason: string) => `Could not open the file: ${reason}`
     },

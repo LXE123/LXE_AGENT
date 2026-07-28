@@ -6,6 +6,7 @@ import type {
   DesktopCloudState,
   DesktopConversationActivityPayload,
   DesktopHealth,
+  DesktopInputAttachmentPayload,
 } from "@lxe/desktop-protocol";
 import {
   ChartColumn,
@@ -351,10 +352,14 @@ function App({
     setNewConversation(true);
   }
 
-  async function sendConversation(text: string): Promise<void> {
+  async function sendConversation(text: string, attachments: DesktopInputAttachmentPayload[]): Promise<void> {
     const result = await callDashboard({
       operation: "sessions.send",
-      input: { ...(selectedSessionId ? { session_id: selectedSessionId } : {}), text },
+      input: {
+        ...(selectedSessionId ? { session_id: selectedSessionId } : {}),
+        text,
+        ...(attachments.length ? { attachment_ids: attachments.map((item) => item.attachment_id) } : {}),
+      },
     });
     setConversationActivities((current) => current[result.session_id]
       ? current
@@ -366,6 +371,7 @@ function App({
               turn_id: result.turn_id,
               message_id: result.message_id,
               text,
+              ...(attachments.length ? { attachments } : {}),
               state: "running",
               user_persisted_at: 0,
               settled_at: 0,
@@ -374,6 +380,7 @@ function App({
               turn_id: result.turn_id,
               message_id: result.message_id,
               text,
+              ...(attachments.length ? { attachments } : {}),
               state: "queued",
               user_persisted_at: 0,
               settled_at: 0,
@@ -401,6 +408,15 @@ function App({
       input: { session_id: selectedSessionId, artifact_id: artifactId },
     });
     // The operating system's own message is the only useful thing to show here.
+    if (!result.opened) throw new Error(result.error);
+  }
+
+  async function openConversationAttachment(attachmentId: string): Promise<void> {
+    if (!selectedSessionId) return;
+    const result = await callDashboard({
+      operation: "sessions.attachment.open",
+      input: { session_id: selectedSessionId, attachment_id: attachmentId },
+    });
     if (!result.opened) throw new Error(result.error);
   }
 
@@ -791,6 +807,7 @@ function App({
                       onSend={sendConversation}
                       onStop={stopConversation}
                       onOpenFile={openConversationFile}
+                      onOpenAttachment={openConversationAttachment}
                     />
                   ) : (
                     <EmptyState label={selectedSessionId ? t.sessionDetail.loading : t.sessions.selectPrompt} />

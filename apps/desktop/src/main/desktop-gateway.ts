@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { shell } from "electron";
 import { DashboardRpcError } from "@lxe/desktop-protocol";
@@ -24,6 +24,7 @@ import {
   loadPermissionPolicy,
   ProcessAgentRuntime,
   LocalConversationSessionNotFoundError,
+  type LocalConversationAttachment,
   type DirectGatewayComposition,
   type DirectGatewayStorage,
   type ResponseRoutePatch,
@@ -39,7 +40,8 @@ import {
 } from "./dashboard-invalidation";
 import { publicDashboardChannelHealth } from "./dashboard-channel-health";
 import { desktopLxeSkillState } from "./lxeskill-health";
-import { openConversationArtifact } from "./conversation-artifacts";
+import { openConversationArtifact, openConversationAttachment } from "./conversation-artifacts";
+import type { DesktopConversationAttachmentService } from "./conversation-attachments";
 import {
   resolveDataServerRuntimeEnvironment,
   withoutDataServerEnvironment,
@@ -92,6 +94,7 @@ export interface DesktopGatewayOptions {
   version: string;
   packaged: boolean;
   desktopLoggingStatus: () => DesktopLoggingSinkStatus;
+  attachments: DesktopConversationAttachmentService;
   onHealthChanged?: (health: DesktopHealth) => void;
   onDashboardInvalidated?: (
     domains: DesktopDashboardDataDomain[],
@@ -101,6 +104,7 @@ export interface DesktopGatewayOptions {
 }
 
 export class DesktopGateway {
+  private readonly imageProcessor = new ElectronInboundImageProcessor();
   private composition: DirectGatewayComposition | undefined;
   private runtime: ProcessAgentRuntime | undefined;
   private store: NodeGatewayStore | undefined;
@@ -324,7 +328,28 @@ export class DesktopGateway {
     }
     if (call.operation === "sessions.send") {
       try {
-        return await this.composition.parts.conversations.send(call.input) as DashboardRpcResult<O>;
+        const attachmentIds = call.input.attachment_ids ?? [];
+        const staged = attachmentIds.length > 0 ? this.options.attachments.resolve(attachmentIds) : [];
+        const attachments: LocalConversationAttachment[] = staged.map((attachment) => ({
+          attachment_id: attachment.attachment_id,
+          name: attachment.name,
+          size_bytes: attachment.size_bytes,
+          media_type: attachment.media_type,
+          path: attachment.path,
+          ...(attachment.media_type.startsWith("image/") ? {
+            image_block: this.imageProcessor.prepareModelBlock(
+              new Uint8Array(readConversationImage(attachment.path)),
+              attachment.media_type,
+            ),
+          } : {}),
+        }));
+        const result = await this.composition.parts.conversations.send({
+          ...(call.input.session_id ? { session_id: call.input.session_id } : {}),
+          text: call.input.text,
+          attachments,
+        });
+        this.options.attachments.consume(attachmentIds);
+        return result as DashboardRpcResult<O>;
       } catch (error) {
         if (error instanceof LocalConversationSessionNotFoundError) {
           throw new DashboardRpcError("not_found", error.message);
@@ -347,6 +372,14 @@ export class DesktopGateway {
         // "" means it opened.
         openPath: (path) => shell.openPath(path),
       }, sessionId, artifactId) as DashboardRpcResult<O>;
+    }
+    if (call.operation === "sessions.attachment.open") {
+      const { session_id: sessionId, attachment_id: attachmentId } = call.input;
+      return await openConversationAttachment({
+        resolveAttachment: (targetSessionId, targetAttachmentId) =>
+          this.runtime!.resolveAttachment(targetSessionId, targetAttachmentId),
+        openPath: (path) => shell.openPath(path),
+      }, sessionId, attachmentId) as DashboardRpcResult<O>;
     }
     const result = await this.runtime.dashboardCall(call as AgentDashboardRpcCall) as DashboardRpcResult<O>;
     if (call.operation === "models.update" || call.operation === "models.thinking.update") {
@@ -389,5 +422,17 @@ export class DesktopGateway {
 
   private publishHealth(): void {
     this.options.onHealthChanged?.(this.health());
+  }
+}
+
+function readConversationImage(path: string): Buffer {
+  try {
+    return readFileSync(path);
+  } catch (cause) {
+    const code = String((cause as NodeJS.ErrnoException)?.code ?? "").trim();
+    throw new DashboardRpcError(
+      "invalid_argument",
+      `Selected image is unavailable or changed${code ? ` (${code})` : ""}`,
+    );
   }
 }

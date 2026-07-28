@@ -297,6 +297,19 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     return path;
   }
 
+  async resolveAttachment(sessionId: string, attachmentId: string): Promise<string | undefined> {
+    const result = objectValue(await this.request("resolve_attachment", {
+      session_id: sessionId,
+      attachment_id: attachmentId,
+    }));
+    if (result.found === false) return undefined;
+    const path = String(result.path ?? "").trim();
+    if (result.found !== true || !path) {
+      throw new AgentProcessError("agent-cli returned a malformed attachment resolution", "AgentProtocolError");
+    }
+    return path;
+  }
+
   async dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>> {

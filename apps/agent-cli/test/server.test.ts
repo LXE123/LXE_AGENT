@@ -90,6 +90,7 @@ describe("AgentProtocolServer", () => {
     await notify?.("session-1", "messages");
     await notify?.("session-1", "usage");
     await notify?.("session-1", "artifacts");
+    await notify?.("session-1", "attachments");
 
     const changes = output.filter((message): message is Extract<AgentEvent, { type: "session.changed" }> =>
       "type" in message && message.type === "session.changed");
@@ -112,6 +113,12 @@ describe("AgentProtocolServer", () => {
         thread_id: "session-1",
         payload: { changes: ["artifacts"] },
       },
+      {
+        version: AGENT_PROTOCOL_VERSION,
+        type: "session.changed",
+        thread_id: "session-1",
+        payload: { changes: ["attachments"] },
+      },
     ]);
     expect(JSON.stringify(changes)).not.toContain("content");
     await server.shutdown();
@@ -126,6 +133,10 @@ describe("AgentProtocolServer", () => {
       resolveArtifact: async (sessionId: string, artifactId: string) =>
         sessionId === "session-1" && artifactId === "artifact-1"
           ? { path: "/private/artifacts/report.xlsx" }
+          : undefined,
+      resolveAttachment: async (sessionId: string, attachmentId: string) =>
+        sessionId === "session-1" && attachmentId === "attachment-1"
+          ? { path: "/private/input/orders.csv" }
           : undefined,
     })) as unknown as CreateHost;
     const root = process.cwd();
@@ -159,6 +170,14 @@ describe("AgentProtocolServer", () => {
       .toMatchObject({ ok: true, result: { found: false } });
     expect(output.find((message) => !("type" in message) && message.id === "artifact-unknown"))
       .toMatchObject({ ok: true, result: { found: false } });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "attachment-found",
+      command: "resolve_attachment",
+      payload: { session_id: "session-1", attachment_id: "attachment-1" },
+    }));
+    expect(output.find((message) => !("type" in message) && message.id === "attachment-found"))
+      .toMatchObject({ ok: true, result: { found: true, path: "/private/input/orders.csv" } });
     await server.shutdown();
   });
 

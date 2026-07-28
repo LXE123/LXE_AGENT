@@ -127,6 +127,13 @@ export class AgentProtocolServer {
         );
         return artifact ? { found: true, path: artifact.path } : { found: false };
       }
+      case "resolve_attachment": {
+        const attachment = await this.readyHost().resolveAttachment(
+          request.payload.session_id,
+          request.payload.attachment_id,
+        );
+        return attachment ? { found: true, path: attachment.path } : { found: false };
+      }
       case "dashboard_call":
         return this.readyHost().dashboardCall(request.payload) as Promise<JsonValue>;
       case "shutdown":
