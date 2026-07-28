@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  CircleAlert,
   Copy,
   FileText,
   Info,
@@ -24,11 +25,14 @@ import { EmptyState } from "../../shared/components";
 import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText } from "../../shared/content";
 import {
   buildConversationItems,
+  hasReaderFacingText,
   hasToolError,
   roleLabel,
   toolCallBlocks,
+  toolOperations,
   toolResultBlocks,
 } from "./conversation";
+import type { ToolOperation } from "./conversation";
 import { formatDate, formatDurationMs, formatNumber } from "../../shared/format";
 import { useUiText } from "../../shared/i18n";
 import type { UiText } from "../../shared/i18n";
@@ -371,24 +375,48 @@ function ToolTurnGroup({
         </div>
         <ChevronRight size={14} className={expanded ? "tool-turn-chevron expanded" : "tool-turn-chevron"} />
       </button>
-      {expanded ? (
-        <div className="tool-turn-body">
-          {group.messages.map((message, index) => {
-            const role = roleLabel(message.role);
-            return (
-              <div className="tool-turn-message" key={`${group.key}-${index}`}>
-                <div className="message-header">
-                  <RoleBadge role={role} />
-                  {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
-                  {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
-                </div>
-                <MessageContent content={message.content} message={message} />
-              </div>
-            );
-          })}
-        </div>
-      ) : null}
+      {expanded ? <ToolOperationList group={group} /> : null}
     </section>
+  );
+}
+
+function ToolOperationList({ group }: { group: ConversationToolGroup }) {
+  const operations = useMemo(() => toolOperations(group.messages), [group.messages]);
+  // A failed line opens itself: the reason it failed is the whole point of
+  // having drilled in this far.
+  const [openOperations, setOpenOperations] = useState<Map<string, boolean>>(() => new Map());
+  const isOpen = (operation: ToolOperation): boolean =>
+    openOperations.get(operation.key) ?? operation.status === "error";
+  const toggle = (operation: ToolOperation): void => {
+    const next = !isOpen(operation);
+    setOpenOperations((current) => new Map(current).set(operation.key, next));
+  };
+  return (
+    <ul className="tool-op-list">
+      {operations.map((operation) => (
+        <li className={`tool-op state-${operation.status}`} key={`${group.key}-${operation.key}`}>
+          <button
+            aria-expanded={isOpen(operation)}
+            className="tool-op-summary"
+            onClick={() => toggle(operation)}
+            type="button"
+          >
+            <Wrench aria-hidden="true" size={13} />
+            <span className="tool-op-name">{operation.name}</span>
+            {operation.argument ? <span className="tool-op-argument">{operation.argument}</span> : null}
+            {operation.status === "error"
+              ? <CircleAlert aria-hidden="true" className="tool-op-mark error" size={13} />
+              : <CheckCircle2 aria-hidden="true" className="tool-op-mark" size={13} />}
+          </button>
+          {isOpen(operation) ? (
+            <div className="tool-op-body">
+              {operation.call === undefined ? null : <MessageBlock block={operation.call} />}
+              {operation.result === undefined ? null : <MessageBlock block={operation.result} />}
+            </div>
+          ) : null}
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -786,12 +814,27 @@ export function SessionDetailView({
                   }
                   const { message, index, toolGroups } = item;
                   const role = roleLabel(message.role);
+                  // A step that only thought and called a tool gets no card,
+                  // no role badge: it reads as one line of process, and the
+                  // thinking stays where it happened instead of being swept
+                  // into the tool group beside it.
+                  if (role === "assistant" && !hasReaderFacingText(message)) {
+                    return (
+                      <div className="process-step" key={`process-${index}`}>
+                        <MessageContent content={message.content} message={message} />
+                        {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}
+                          group={group} key={group.key} onToggle={() => toggleToolGroup(group)} />)}
+                      </div>
+                    );
+                  }
                   const previousItem = renderItems[itemIndex - 1];
                   const nextItem = renderItems[itemIndex + 1];
-                  const previousIsAssistant = previousItem?.type === "message"
-                    && roleLabel(previousItem.message.role) === "assistant";
-                  const nextIsAssistant = nextItem?.type === "message"
-                    && roleLabel(nextItem.message.role) === "assistant";
+                  const isAssistantReply = (candidate: typeof previousItem): boolean =>
+                    candidate?.type === "message"
+                    && roleLabel(candidate.message.role) === "assistant"
+                    && hasReaderFacingText(candidate.message);
+                  const previousIsAssistant = isAssistantReply(previousItem);
+                  const nextIsAssistant = isAssistantReply(nextItem);
                   const showRoleBadge = !(role === "assistant" && previousIsAssistant);
                   const hasMessageHeader = showRoleBadge || Boolean(message.tool_name || message.tool_call_id);
                   const chainClass = role === "assistant"

@@ -4809,6 +4809,88 @@ h1 {
   transition: transform 0.16s ease;
 }
 
+/* A thinking-plus-tool-call step: no card, no badge, just the two rows. */
+.process-step {
+  display: grid;
+  gap: 2px;
+  width: min(100%, var(--assistant-content-width));
+}
+
+.tool-op-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 3px;
+  background: var(--tool-muted);
+  list-style: none;
+}
+
+.tool-op-summary {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  text-align: left;
+}
+
+.tool-op-summary:hover,
+.tool-op-summary:focus-visible {
+  background: var(--surface);
+}
+
+.tool-op-summary:focus-visible {
+  outline: 2px solid var(--tool-border-strong);
+  outline-offset: -2px;
+}
+
+.tool-op-summary > svg:first-child {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.tool-op-name {
+  flex: 0 0 auto;
+  font-weight: 600;
+}
+
+.tool-op-argument {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-op-mark {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--muted-light);
+}
+
+.tool-op-mark.error {
+  color: var(--danger);
+}
+
+.tool-op.state-error .tool-op-name {
+  color: var(--danger);
+}
+
+.tool-op-body {
+  display: grid;
+  gap: 2px;
+  padding: 2px 8px 6px;
+}
+
 .tool-turn-chevron.expanded {
   transform: rotate(90deg);
 }

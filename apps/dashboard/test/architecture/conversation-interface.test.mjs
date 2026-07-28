@@ -66,11 +66,18 @@ test("dashboard sends through Main, restores activity, and uses latest-first his
   assert.doesNotMatch(main, /response_route_id/);
 });
 
-test("tool activity collapses instead of burying the answer", () => {
+test("tool activity collapses without swallowing the thinking beside it", () => {
   // The group header leads with which tools ran; the counts are secondary.
   assert.match(view, /<div className="tool-turn-title">\{stats\.title\}<\/div>/);
   assert.match(view, /<div className="tool-turn-subtitle">\{stats\.detail\}<\/div>/);
   // A group that failed opens itself; everything else stays collapsed until
   // the reader asks for it.
   assert.match(view, /toolGroupOverrides\.get\(group\.key\) \?\? hasToolError\(group\.messages\)/);
+  // Thinking keeps its own row rather than hiding inside the group: a step with
+  // nothing to say loses the card chrome instead of losing its place.
+  assert.match(view, /role === "assistant" && !hasReaderFacingText\(message\)/);
+  assert.match(view, /className="process-step"/);
+  // Expanded, the group is one line per operation, not a dump of each message.
+  assert.match(view, /className="tool-op-list"/);
+  assert.match(view, /className="tool-op-argument"/);
 });
