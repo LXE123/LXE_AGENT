@@ -84,11 +84,34 @@ describe("session conversation projection", () => {
       { role: "tool", content: [{ type: "tool_result", tool_call_id: "c1", content: "ok" }] },
     ]);
 
-    expect(items.map((item) => item.type)).toEqual(["message", "message"]);
-    const narrated = items[1];
+    // The thinking splits off into its own bare row so a reply card only ever
+    // holds what the reader is meant to read.
+    expect(items.map((item) => item.type)).toEqual(["message", "message", "message"]);
+    const thinkingOnly = items[1];
+    if (thinkingOnly?.type !== "message") throw new Error("thinking row required");
+    expect(hasReaderFacingText(thinkingOnly.message)).toBe(false);
+    expect(thinkingOnly.toolGroups).toHaveLength(0);
+
+    const narrated = items[2];
     if (narrated?.type !== "message") throw new Error("assistant message required");
+    expect(hasReaderFacingText(narrated.message)).toBe(true);
+    expect((narrated.message.content as unknown[]).some(
+      (block) => (block as { type?: string }).type === "thinking",
+    )).toBe(false);
     expect(narrated.toolGroups).toHaveLength(1);
     expect(narrated.toolGroups[0]?.messages.flatMap(toolCallBlocks)).toHaveLength(1);
+  });
+
+  test("describes a lone call by what it ran, not by a step count", () => {
+    const operations = toolOperations([
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "c1", name: "exec", input: { command: "python analyze.py --asin B0CPJ72QDS" } }],
+      },
+      { role: "tool", content: [{ type: "tool_result", tool_call_id: "c1", content: "ok" }] },
+    ]);
+    expect(operations).toHaveLength(1);
+    expect(operations[0]?.argument).toBe("python analyze.py --asin B0CPJ72QDS");
   });
 
   test("reports tool errors so the group can open itself", () => {

@@ -7,6 +7,7 @@ const sourceDir = path.resolve(import.meta.dirname, "../../src");
 const view = readFileSync(path.join(sourceDir, "features/sessions/view.tsx"), "utf8");
 const main = readFileSync(path.join(sourceDir, "main.tsx"), "utf8");
 const queries = readFileSync(path.join(sourceDir, "api/queries.ts"), "utf8");
+const conversation = readFileSync(path.join(sourceDir, "features/sessions/conversation.ts"), "utf8");
 
 test("sessions view exposes text conversation controls and IME-safe keyboard behavior", () => {
   assert.match(view, /maxLength=\{8192\}/);
@@ -66,17 +67,21 @@ test("dashboard sends through Main, restores activity, and uses latest-first his
   assert.doesNotMatch(main, /response_route_id/);
 });
 
-test("tool activity collapses without swallowing the thinking beside it", () => {
-  // The group header leads with which tools ran; the counts are secondary.
+test("thinking, tool activity and replies each read at one level", () => {
+  // The group header leads with which tools ran; a lone call shows what it ran
+  // rather than a step count that always reads the same.
   assert.match(view, /<div className="tool-turn-title">\{stats\.title\}<\/div>/);
-  assert.match(view, /<div className="tool-turn-subtitle">\{stats\.detail\}<\/div>/);
+  assert.match(view, /stats\.detailIsArgument \? "tool-turn-subtitle argument" : "tool-turn-subtitle"/);
+  assert.match(view, /const single = callCount === 1 \? operations\[0\] : undefined/);
   // A group that failed opens itself; everything else stays collapsed until
   // the reader asks for it.
   assert.match(view, /toolGroupOverrides\.get\(group\.key\) \?\? hasToolError\(group\.messages\)/);
-  // Thinking keeps its own row rather than hiding inside the group: a step with
-  // nothing to say loses the card chrome instead of losing its place.
+  // Thinking keeps its own bare row and tool groups sit beside a reply rather
+  // than inside it, so neither ever appears at two different nesting levels.
   assert.match(view, /role === "assistant" && !hasReaderFacingText\(message\)/);
   assert.match(view, /className="process-step"/);
+  assert.doesNotMatch(view, /assistant-tool-stack/);
+  assert.match(conversation, /function splitAssistantThinking/);
   // Expanded, the group is one line per operation, not a dump of each message.
   assert.match(view, /className="tool-op-list"/);
   assert.match(view, /className="tool-op-argument"/);

@@ -185,6 +185,31 @@ function splitAssistantInlineToolCalls(message: SessionMessage): {
   return { message: visibleMessage, toolCallMessage };
 }
 
+const isProcessBlock = (block: unknown): boolean =>
+  blockType(block) === "thinking" || blockType(block) === "redacted_thinking";
+
+/**
+ * Splits the thinking off an assistant message that also speaks, so thinking is
+ * always its own bare row and a reply card only ever holds what the reader is
+ * meant to read. Without this the same thinking control appears at two nesting
+ * levels depending on whether the message happened to carry text.
+ */
+function splitAssistantThinking(message: SessionMessage): {
+  thinkingMessage: SessionMessage | null;
+  message: SessionMessage;
+} {
+  if (roleLabel(message.role) !== "assistant" || !Array.isArray(message.content)) {
+    return { thinkingMessage: null, message };
+  }
+  const thinking = message.content.filter(isProcessBlock);
+  const spoken = message.content.filter((block) => !isProcessBlock(block));
+  if (!thinking.length || !spoken.length) return { thinkingMessage: null, message };
+  return {
+    thinkingMessage: { ...message, content: thinking },
+    message: { ...message, content: spoken },
+  };
+}
+
 export function buildConversationItems(messages: SessionMessage[]): ConversationRenderItem[] {
   const items: ConversationRenderItem[] = [];
   let pending: SessionMessage[] = [];
@@ -215,9 +240,13 @@ export function buildConversationItems(messages: SessionMessage[]): Conversation
     }
     flushPending();
     const split = splitAssistantInlineToolCalls(message);
+    const thought = splitAssistantThinking(split.message);
+    if (thought.thinkingMessage) {
+      items.push({ type: "message", message: thought.thinkingMessage, index, toolGroups: [] });
+    }
     const item: Extract<ConversationRenderItem, { type: "message" }> = {
       type: "message",
-      message: split.message,
+      message: thought.message,
       index,
       toolGroups: [],
     };

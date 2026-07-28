@@ -4725,19 +4725,6 @@ h1 {
   background: var(--danger-soft);
 }
 
-.assistant-tool-stack {
-  display: grid;
-  justify-items: start;
-  width: min(100%, var(--assistant-content-width));
-  justify-self: start;
-  gap: 2px;
-  margin-top: 2px;
-}
-
-.message-card.role-assistant > .message-content:has(> .message-text, > .message-markdown, .message-block-list > .message-text, .message-block-list > .message-markdown) + .assistant-tool-stack {
-  margin-top: 6px;
-}
-
 .tool-turn-group.embedded {
   width: 100%;
   border: 1px solid var(--border);
@@ -4800,6 +4787,32 @@ h1 {
 .tool-turn-group.has-error .tool-turn-subtitle {
   color: var(--danger);
   font-weight: 550;
+}
+
+/* What a lone call ran, shown on the collapsed row itself. */
+.tool-turn-subtitle.argument {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-turn-group.has-error .tool-turn-subtitle.argument {
+  color: var(--danger);
+  font-weight: 400;
+}
+
+.tool-turn-mark {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--danger);
+}
+
+.tool-turn-mark + .tool-turn-chevron {
+  margin-left: 6px;
 }
 
 .tool-turn-chevron {

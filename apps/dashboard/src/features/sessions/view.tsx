@@ -308,21 +308,27 @@ function messageToolNames(message: SessionMessage): string[] {
 const TOOL_NAMES_SHOWN = 3;
 
 function toolGroupStats(messages: SessionMessage[], t: UiText) {
-  let callCount = 0;
-  let errorCount = 0;
-  const names: string[] = [];
+  const operations = toolOperations(messages);
+  const errorCount = operations.filter((operation) => operation.status === "error").length;
+  const callCount = operations.length;
 
-  for (const message of messages) {
-    callCount += toolCallBlocks(message).length;
-    for (const result of toolResultBlocks(message)) {
-      if (isRecord(result) && result.is_error) errorCount += 1;
-    }
-    names.push(...messageToolNames(message));
+  // A lone call describes itself: showing what it ran beats a step count that
+  // always reads "1 步", and usually removes any reason to expand the row.
+  const single = callCount === 1 ? operations[0] : undefined;
+  if (single) {
+    return {
+      callCount,
+      errorCount,
+      hasError: errorCount > 0,
+      title: single.name,
+      detail: single.argument,
+      detailIsArgument: true,
+    };
   }
 
   // Which tools ran is the part worth reading, so it leads; the counts are
   // context for it rather than the other way round.
-  const uniqueNames = Array.from(new Set(names));
+  const uniqueNames = Array.from(new Set(operations.map((operation) => operation.name)));
   const shown = uniqueNames.slice(0, TOOL_NAMES_SHOWN);
   const overflow = uniqueNames.length - shown.length;
   const title = shown.length
@@ -334,6 +340,7 @@ function toolGroupStats(messages: SessionMessage[], t: UiText) {
     errorCount,
     hasError: errorCount > 0,
     title,
+    detailIsArgument: false,
     detail: [
       t.message.toolSteps(formatNumber(Math.max(callCount, 1))),
       errorCount > 0 ? t.message.toolErrors(formatNumber(errorCount)) : "",
@@ -371,8 +378,13 @@ function ToolTurnGroup({
       >
         <div>
           <div className="tool-turn-title">{stats.title}</div>
-          <div className="tool-turn-subtitle">{stats.detail}</div>
+          {stats.detail ? (
+            <div className={stats.detailIsArgument ? "tool-turn-subtitle argument" : "tool-turn-subtitle"}>
+              {stats.detail}
+            </div>
+          ) : null}
         </div>
+        {stats.hasError ? <CircleAlert aria-hidden="true" className="tool-turn-mark" size={13} /> : null}
         <ChevronRight size={14} className={expanded ? "tool-turn-chevron expanded" : "tool-turn-chevron"} />
       </button>
       {expanded ? <ToolOperationList group={group} /> : null}
@@ -841,23 +853,27 @@ export function SessionDetailView({
                     ? [previousIsAssistant ? "assistant-chain-from-previous" : "", nextIsAssistant ? "assistant-chain-to-next" : ""]
                       .filter(Boolean).join(" ")
                     : "";
+                  // Tool activity sits beside the reply, never inside it, so a
+                  // group is always read at the same level wherever it occurs.
                   return (
-                    <article className={`message-card role-${role} ${chainClass}`} key={`${role}-${index}`}>
-                      {hasMessageHeader ? (
-                        <div className="message-header">
-                          {showRoleBadge ? <RoleBadge role={role} /> : null}
-                          {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
-                          {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
-                        </div>
-                      ) : null}
-                      <MessageContent content={message.content} message={message} />
+                    <React.Fragment key={`${role}-${index}`}>
+                      <article className={`message-card role-${role} ${chainClass}`}>
+                        {hasMessageHeader ? (
+                          <div className="message-header">
+                            {showRoleBadge ? <RoleBadge role={role} /> : null}
+                            {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
+                            {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
+                          </div>
+                        ) : null}
+                        <MessageContent content={message.content} message={message} />
+                      </article>
                       {toolGroups.length ? (
-                        <div className="assistant-tool-stack">
+                        <div className="process-step">
                           {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}
                             group={group} key={group.key} onToggle={() => toggleToolGroup(group)} />)}
                         </div>
                       ) : null}
-                    </article>
+                    </React.Fragment>
                   );
                 })}
               </div>
