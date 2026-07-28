@@ -7794,7 +7794,7 @@ pre {
 .response-process-body {
   display: grid;
   min-width: 0;
-  gap: 3px;
+  gap: 2px;
   padding: 0 0 4px;
 }
 
@@ -7969,15 +7969,16 @@ pre {
 
 .conversation-feed .tool-turn-summary,
 .conversation-feed .tool-turn-group.embedded .tool-turn-summary {
-  min-height: 30px;
+  min-height: 27px;
   gap: 6px;
-  padding: 3px 2px;
+  padding: 2px;
   border-radius: 7px;
 }
 
 .conversation-feed .tool-turn-title {
   min-width: 0;
   flex: 1 1 auto;
+  color: var(--muted);
   font-size: 0.75rem;
   font-weight: 500;
 }
