@@ -7642,6 +7642,41 @@ pre {
 .conversation-transcript {
   padding: 0;
   scrollbar-gutter: stable;
+  scrollbar-color: rgba(122, 112, 101, 0.22) transparent;
+  scrollbar-width: thin;
+}
+
+.conversation-transcript:hover {
+  scrollbar-color: rgba(122, 112, 101, 0.42) transparent;
+}
+
+.conversation-transcript::-webkit-scrollbar {
+  width: 10px;
+}
+
+.conversation-transcript::-webkit-scrollbar-track,
+.conversation-transcript::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.conversation-transcript::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: rgba(122, 112, 101, 0.22);
+  background-clip: padding-box;
+}
+
+.conversation-transcript:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(122, 112, 101, 0.42);
+}
+
+.conversation-transcript::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(122, 112, 101, 0.58);
+}
+
+.conversation-transcript::-webkit-scrollbar-thumb:active {
+  background-color: rgba(180, 106, 77, 0.72);
 }
 
 .conversation-feed {
