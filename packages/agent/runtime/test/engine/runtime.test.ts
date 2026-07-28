@@ -1081,6 +1081,60 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
+  test("shortens tool paths for a Feishu card but not for the desktop window", async () => {
+    const artifact = "/private/var/artifacts/report.json";
+    const stepDetailFor = async (platform: string): Promise<string> => {
+      const responses: RuntimeTurnResponse[] = [
+        {
+          content: [{ type: "tool_call", id: "tool-1", name: "read", arguments: { path: artifact } }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+        {
+          content: [{ type: "text", text: "done" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      ];
+      const tools = new ToolRegistry();
+      tools.register({
+        name: "read",
+        description: "read a file",
+        input_schema: { type: "object", properties: { path: { type: "string" } } },
+        execute: async () => ({ content: [{ type: "text", text: "ok" }] }),
+      });
+      const emitted: EmitRequest[] = [];
+      const runtime = new TypeScriptAgentRuntime({
+        store: new MemoryStore(),
+        tools,
+        provider: { summarize, turn: async () => responses.shift()! },
+        emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
+        systemPrompt: "test",
+        // The Feishu-owned default, which used to decide this for every platform.
+        display: { model: "m", contextWindowTokens: 200_000, toolUseMode: "on", showFullPaths: false },
+      });
+      await runtime.start();
+      await runtime.runTurn({
+        ...job(),
+        source: { platform, chat_id: "s1", chat_type: "dm" },
+        session_key: `agent:main:${platform}:session:s1`,
+      }, handle());
+      await runtime.stop();
+      const details = new Set(emitted.flatMap((request) => request.tool_steps)
+        .filter((item) => item?.name === "read")
+        .map((item) => String(item?.detail ?? "")));
+      // Running and finished steps must agree, or the path changes under the
+      // reader the moment the call completes.
+      expect(details.size).toBe(1);
+      return [...details][0]!;
+    };
+
+    // A card is read in a group chat by people who are not on this machine.
+    expect(await stepDetailFor("feishu")).toBe(".../report.json");
+    // The desktop window is this machine's own owner reading their own paths.
+    expect(await stepDetailFor("desktop")).toBe(artifact);
+  });
+
   test("streams a CLI turn through the runtime emitter", async () => {
     const store = new MemoryStore();
     const emitted: EmitRequest[] = [];

@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { basename } from "node:path";
 import type {
   AgentEvent,
   DesktopConversationActivityPayload,
@@ -24,7 +23,6 @@ import type { SchedulerJobStateEvent, SessionScheduler } from "./scheduler";
 
 const DESKTOP_PLATFORM = "desktop";
 const DESKTOP_USER_ID = "desktop-local";
-const ABSOLUTE_PATH = /(?:[A-Za-z]:\\|\/(?:Users|home|var|tmp|private|Volumes|opt|usr)\/)[^\s"'`,;:)]*/g;
 
 const clean = (value: unknown): string => String(value ?? "").trim();
 const integer = (value: unknown): number => Math.max(0, Math.trunc(Number(value) || 0));
@@ -402,10 +400,10 @@ function sanitizeToolStep(value: unknown): ToolStep | undefined {
     id: clean(step.id),
     name,
     title,
-    detail: String(step.detail ?? "").replace(
-      ABSOLUTE_PATH,
-      (path) => `.../${basename(path.replaceAll("\\", "/")) || "path"}`,
-    ),
+    // Paths reach the desktop window intact. Shortening them here hid the
+    // reader's own filesystem from them, made a path read one way live and
+    // another in history, and rewrote paths inside real error text.
+    detail: String(step.detail ?? ""),
     icon_token: iconToken,
     status,
     duration_ms: integer(step.duration_ms),

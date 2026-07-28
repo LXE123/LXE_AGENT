@@ -117,7 +117,11 @@ export class FinalAnswerStreamer {
     if (this.terminal || this.options.toolUseMode === "off") return;
     this.activeToolStartedAt = this.now();
     this.toolPending = false;
-    this.upsertTool(buildToolDisplayStep(call.id, call.name, call.arguments, "running", 0));
+    // Same path treatment as the finished step, or the path visibly changes
+    // under the reader the moment the call completes.
+    this.upsertTool(buildToolDisplayStep(call.id, call.name, call.arguments, "running", 0, {
+      ...(this.options.showFullPaths === undefined ? {} : { showFullPaths: this.options.showFullPaths }),
+    }));
     this.scheduleDelta();
   }
 

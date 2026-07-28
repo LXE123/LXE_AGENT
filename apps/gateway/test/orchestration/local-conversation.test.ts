@@ -258,7 +258,7 @@ describe("LocalConversationController", () => {
           id: "tool-1",
           name: "read",
           title: "Read",
-          detail: "/private/secret.txt",
+          detail: "/private/var/artifacts/report.json not found",
           icon_token: "file-link-text_outlined",
           status: "running",
           duration_ms: 0,
@@ -274,7 +274,7 @@ describe("LocalConversationController", () => {
           context_tokens: 1,
           context_window_tokens: 100,
         },
-        files: ["/private/secret.txt"],
+        files: ["/private/var/artifacts/report.json"],
       },
     });
     h.controller.handleAgentEvent({
@@ -286,9 +286,12 @@ describe("LocalConversationController", () => {
     const activity = h.controller.activity("session-1");
     expect(activity.active?.user_persisted_at).toBeGreaterThan(0);
     expect(activity.active?.stream?.content).toBe("answer");
-    expect(activity.active?.stream?.tool_steps[0]?.detail).toBe(".../secret.txt");
+    // The reader owns this filesystem: a path stays whole, so it reads the same
+    // live as in history and an error keeps saying which file it was about.
+    expect(activity.active?.stream?.tool_steps[0]?.detail)
+      .toBe("/private/var/artifacts/report.json not found");
+    // Routing identifiers are still not the renderer's business.
     expect(JSON.stringify(activity)).not.toContain("secret-route");
-    expect(JSON.stringify(activity)).not.toContain("/private/secret.txt");
     // A stream emit's own `files` field is not a delivery channel: only an
     // explicit send_file outbound is eligible for artifact persistence.
     expect(activity.active?.stream).not.toHaveProperty("files");

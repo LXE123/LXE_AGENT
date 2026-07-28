@@ -219,7 +219,13 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             contextWindowTokens: descriptor?.contextWindowTokens ?? this.options.display.contextWindowTokens,
           } : {}),
           toolUseMode: this.options.display?.toolUseMode ?? "on",
-          showFullPaths: this.options.display?.showFullPaths ?? false,
+          // Path shortening exists because a Feishu card is read in a group
+          // chat by people who are not on this machine - hence the FEISHU_
+          // setting behind it. The desktop window is the machine's own owner
+          // looking at their own filesystem, so it does not apply there.
+          // Secret redaction is separate and still runs either way.
+          showFullPaths: turnPlatform === "desktop"
+            || (this.options.display?.showFullPaths ?? false),
         })
       : undefined;
     this.active.add(handle);
