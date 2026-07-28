@@ -483,10 +483,13 @@ function LiveAssistantCard({ stream }: { stream: DesktopConversationStreamPayloa
             // The raw tool name, matching how the same call reads once it is
             // history: a curated title cannot be searched for or matched
             // against a log, and the detail beside it already says what it did.
-            <div className={`live-tool-step state-${step.status}`} key={step.id || `${step.name}-${step.title}`}>
+            <div
+              className={`live-tool-step state-${step.status}${step.detail ? " has-detail" : ""}`}
+              key={step.id || `${step.name}-${step.title}`}
+            >
               <Wrench size={14} />
-              <span>{step.name}</span>
-              {step.detail ? <small>{step.detail}</small> : null}
+              <span className="live-tool-name">{step.name}</span>
+              {step.detail ? <small className="live-tool-detail">{step.detail}</small> : null}
             </div>
           ))}
         </div>

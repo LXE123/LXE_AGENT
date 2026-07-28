@@ -4207,18 +4207,23 @@ h1 {
   flex: 1;
   flex-direction: column;
   gap: 4px;
+  overflow-x: hidden;
   overflow-y: auto;
   padding-right: 4px;
 }
 
 /* Children keep their natural height instead of being squeezed to fit. */
 .conversation-transcript > * {
+  min-width: 0;
+  max-width: 100%;
   flex: 0 0 auto;
 }
 
 .conversation-scroll-area {
   position: relative;
   display: flex;
+  width: 100%;
+  min-width: 0;
   min-height: 0;
   flex: 1;
   flex-direction: column;
@@ -4283,6 +4288,8 @@ h1 {
 
 .local-turn {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 2px;
 }
 
@@ -4391,6 +4398,8 @@ h1 {
 
 .live-assistant {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 8px;
   background: var(--message-assistant-soft);
 }
@@ -4404,11 +4413,15 @@ h1 {
 .live-assistant > .live-tool-list,
 .live-assistant > .live-tool-pending {
   width: min(100%, var(--assistant-content-width));
+  min-width: 0;
+  max-width: 100%;
 }
 
 .live-tool-pending,
 .live-tool-step {
   display: flex;
+  min-width: 0;
+  max-width: 100%;
   align-items: center;
   gap: 7px;
   color: var(--muted);
@@ -4417,14 +4430,39 @@ h1 {
 
 .live-tool-list {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 5px;
 }
 
-.live-tool-step small {
+.live-tool-step {
+  width: 100%;
+}
+
+.live-tool-pending > svg,
+.live-tool-step > svg {
+  flex: 0 0 auto;
+}
+
+.live-tool-name,
+.live-tool-detail {
   overflow: hidden;
-  color: var(--muted-light);
+  min-width: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.live-tool-name {
+  flex: 1 1 auto;
+}
+
+.live-tool-step.has-detail .live-tool-name {
+  max-width: min(38%, 220px);
+}
+
+.live-tool-detail {
+  flex: 1 1 0;
+  color: var(--muted-light);
 }
 
 .live-tool-step.state-error {
@@ -7719,6 +7757,8 @@ pre {
 
 .conversation-feed .message-list {
   display: flex;
+  min-width: 0;
+  max-width: 100%;
   flex-direction: column;
   gap: 4px;
 }

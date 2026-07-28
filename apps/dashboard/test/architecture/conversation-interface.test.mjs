@@ -134,8 +134,14 @@ test("a tool reads the same live as it does in history", () => {
   const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
   // Live steps carry a curated title as well as the name the model called; a
   // tool that changes label when it scrolls into history reads as two tools.
-  assert.match(view, /<span>\{step\.name\}<\/span>/);
+  assert.match(view, /<span className="live-tool-name">\{step\.name\}<\/span>/);
   assert.doesNotMatch(view, /<span>\{step\.title\}<\/span>/);
+  // One unbroken command must shrink inside its row instead of turning the
+  // transcript itself into a horizontal scroller.
+  assert.match(view, /<small className="live-tool-detail">\{step\.detail\}<\/small>/);
+  assert.match(styles, /\.conversation-transcript \{[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/s);
+  assert.match(styles, /\.live-tool-detail \{[^}]*flex:\s*1 1 0[^}]*color:/s);
+  assert.match(styles, /\.live-tool-name,\n\.live-tool-detail \{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s);
   // Beside a growing textarea the composer buttons must not be squeezed until
   // their label breaks one character per line.
   assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button,\n\.conversation-attach-button \{[^}]*flex: 0 0 auto/);
