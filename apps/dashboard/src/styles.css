@@ -7739,7 +7739,7 @@ pre {
   display: grid;
   width: 100%;
   min-width: 0;
-  gap: 8px;
+  gap: 4px;
   margin-top: 14px;
 }
 

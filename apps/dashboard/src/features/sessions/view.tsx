@@ -490,7 +490,7 @@ function PersistedResponseGroup({ group }: { group: ConversationResponseGroup })
             onClick={() => setExpanded((current) => !current)}
             type="button"
           >
-            {failed ? <CircleAlert aria-hidden="true" size={14} /> : <Brain aria-hidden="true" size={14} />}
+            {failed ? <CircleAlert aria-hidden="true" size={14} /> : null}
             <span>{responseProcessLabel(group, t)}</span>
             {hasProcess
               ? <ChevronRight aria-hidden="true" className={expanded ? "expanded" : ""} size={14} />
