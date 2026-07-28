@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { basename, isAbsolute } from "node:path";
 import type { AgentJob, EmitRequest, JsonObject, WorkspaceContext } from "@lxe/protocol";
 import {
   assertWorkspaceAvailable,
@@ -68,7 +69,7 @@ export interface TypeScriptAgentRuntimeOptions {
   workspaceInstances?: RuntimeWorkspaceInstanceProvider;
   resolveSkillMetadata?: (skillName: string) => { module: string } | undefined;
   emitter: RuntimeEmitter;
-  onSessionChanged?: (sessionId: string, change: "messages" | "usage") => Promise<void> | void;
+  onSessionChanged?: (sessionId: string, change: "messages" | "usage" | "artifacts") => Promise<void> | void;
   systemPrompt: string | ((context: SystemPromptContext) => string);
   maxSteps?: number;
   contextWindowTokens?: number;
@@ -115,7 +116,10 @@ export const MAX_STEP_REPLY = "本轮已达到最大步骤，请发送下一条�
 export class TypeScriptAgentRuntime implements AgentRuntime {
   private readonly logger: Logger;
 
-  private async notifySessionChanged(sessionId: string, change: "messages" | "usage"): Promise<void> {
+  private async notifySessionChanged(
+    sessionId: string,
+    change: "messages" | "usage" | "artifacts",
+  ): Promise<void> {
     try {
       await this.options.onSessionChanged?.(sessionId, change);
     } catch (error) {
@@ -227,6 +231,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     let workspaceLease: Awaited<ReturnType<RuntimeWorkspaceInstanceProvider["acquire"]>> | undefined;
     const startedAt = Date.now() / 1_000;
     const toolUsage = new Map<string, { calls: number; errors: number; duration_ms: number }>();
+    const emittedArtifactPaths = new Set<string>();
     const toolRecoveryAttempts = new Map<string, number>();
     let usageRecorded = false;
     const accountContext = (result: ContextCompactionResult): void => {
@@ -596,24 +601,39 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               await this.options.store.patchSessionState(job.session_id, result.state_patch);
             }
             if (result.files?.length && job.response_route_id) {
-              await this.options.emitter.emit({
-                session_id: job.session_id,
-                turn_id: job.job_id,
-                response_route_id: job.response_route_id,
-                content: "",
-                thinking: "",
-                redacted_thinking_count: 0,
-                thinking_elapsed_ms: 0,
-                tool_pending: false,
-                tool_elapsed_ms: Date.now() - startedToolAt,
-                tool_steps: [],
-                files: result.files,
-                emit_kind: "tool",
-                emit_id: randomUUID().replaceAll("-", ""),
-                stream_type: "",
-                state: "",
-                seq: 0,
-              });
+              for (const value of result.files) {
+                const path = String(value ?? "").trim();
+                if (!path || emittedArtifactPaths.has(path)) continue;
+                if (!isAbsolute(path)) throw new Error("tool file path must be absolute");
+                await this.options.emitter.emit({
+                  session_id: job.session_id,
+                  turn_id: job.job_id,
+                  response_route_id: job.response_route_id,
+                  content: "",
+                  thinking: "",
+                  redacted_thinking_count: 0,
+                  thinking_elapsed_ms: 0,
+                  tool_pending: false,
+                  tool_elapsed_ms: Date.now() - startedToolAt,
+                  tool_steps: [],
+                  files: [path],
+                  emit_kind: "tool",
+                  emit_id: randomUUID().replaceAll("-", ""),
+                  stream_type: "",
+                  state: "",
+                  seq: 0,
+                });
+                await this.options.store.appendArtifact(job.session_id, {
+                  artifact_id: randomUUID().replaceAll("-", ""),
+                  turn_id: job.job_id,
+                  tool_call_id: call.id,
+                  path,
+                  name: basename(path),
+                  ts: Date.now() / 1_000,
+                });
+                emittedArtifactPaths.add(path);
+                await this.notifySessionChanged(job.session_id, "artifacts");
+              }
             }
             results.push({
               type: "tool_result",

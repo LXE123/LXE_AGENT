@@ -71,6 +71,7 @@ export interface AgentRuntimeHost {
   ensureSession(request: SessionWorkspaceRequest): Promise<void>;
   appendPendingEvent(sessionId: string, event: JsonObject): Promise<void>;
   hasPendingEvents(sessionId: string): Promise<boolean>;
+  resolveArtifact(sessionId: string, artifactId: string): Promise<{ path: string } | undefined>;
   dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>>;
@@ -316,6 +317,10 @@ export function createAgentRuntimeHost(
     ensureSession: (request) => store.ensureSession(request),
     appendPendingEvent: (sessionId, event) => store.appendPendingEvent(sessionId, event),
     hasPendingEvents: (sessionId) => store.hasPendingEvents(sessionId),
+    resolveArtifact: async (sessionId, artifactId) => {
+      const artifact = await store.resolveArtifact(sessionId, artifactId);
+      return artifact ? { path: artifact.path } : undefined;
+    },
     dashboardCall: (call) => dashboardService.call(call),
     health: () => {
       const lxeSkillStatus = lxeSkillRuntime.snapshot();

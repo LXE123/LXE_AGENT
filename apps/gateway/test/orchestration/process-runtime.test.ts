@@ -100,6 +100,8 @@ describe("ProcessAgentRuntime", () => {
     });
     expect(await runtime.dashboardCall({ operation: "models.list", input: {} }))
       .toEqual({ items: [], total: 0 });
+    expect(await runtime.resolveArtifact("session-1", "artifact-1")).toBe("/tmp/report.xlsx");
+    expect(await runtime.resolveArtifact("session-2", "artifact-1")).toBeUndefined();
     await runtime.stop();
 
     expect(runtime.status().state).toBe("stopped");

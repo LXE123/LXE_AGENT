@@ -16,7 +16,7 @@ import type { DesktopConversationEvent } from "./dashboard-rpc";
 
 export * from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 8 as const;
+export const AGENT_PROTOCOL_VERSION = 9 as const;
 
 export class AgentProtocolError extends Error {
   readonly code = "AgentProtocolError";
@@ -52,6 +52,7 @@ export type AgentCommandPayloads = {
   ensure_session: { request: SessionWorkspaceRequest };
   append_pending_event: { session_id: string; event: JsonObject };
   has_pending_events: { session_id: string };
+  resolve_artifact: { session_id: string; artifact_id: string };
   dashboard_call: AgentDashboardRpcCall;
   shutdown: Record<string, never>;
 };
@@ -166,7 +167,7 @@ export type AgentErrorResponse = {
 
 export type AgentResponse = AgentSuccessResponse | AgentErrorResponse;
 
-export type AgentSessionChange = "messages" | "usage";
+export type AgentSessionChange = "messages" | "usage" | "artifacts";
 
 export type AgentSessionChangedPayload = {
   changes: AgentSessionChange[];
@@ -525,6 +526,7 @@ const agentCommands = new Set<AgentCommand>([
   "ensure_session",
   "append_pending_event",
   "has_pending_events",
+  "resolve_artifact",
   "dashboard_call",
   "shutdown",
 ]);
@@ -599,6 +601,10 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
     case "has_pending_events":
       requireText("session_id");
       break;
+    case "resolve_artifact":
+      requireText("session_id");
+      requireText("artifact_id");
+      break;
     case "append_pending_event":
       requireText("session_id");
       requireObject("event");
@@ -657,7 +663,7 @@ export function parseAgentWireMessage(line: string): AgentWireMessage {
         throw new Error("agent protocol session.changed.changes must be a non-empty array");
       }
       const changes = [...new Set(payload.changes)];
-      if (changes.some((change) => change !== "messages" && change !== "usage")) {
+      if (changes.some((change) => change !== "messages" && change !== "usage" && change !== "artifacts")) {
         throw new Error("agent protocol session.changed.changes contains an unsupported change type");
       }
       payload.changes = changes;

@@ -17,7 +17,7 @@ const lifecycleEvent = (
   payload: {},
 } as AgentEvent);
 
-const sessionChanged = (changes: Array<"messages" | "usage"> = ["messages"]): AgentEvent => ({
+const sessionChanged = (changes: Array<"messages" | "usage" | "artifacts"> = ["messages"]): AgentEvent => ({
   version: AGENT_PROTOCOL_VERSION,
   type: "session.changed",
   thread_id: "session-1",
@@ -43,7 +43,6 @@ const itemCompleted = (
     tool_pending: false,
     tool_elapsed_ms: 0,
     tool_steps: [],
-    files: [],
     emit_id: "emit-1",
     ...(emitKind === "stream"
       ? {
@@ -69,7 +68,7 @@ const itemCompleted = (
 
 describe("Dashboard invalidation bridge", () => {
   test("maps runtime events to the minimum data domains", () => {
-    expect(dashboardInvalidationForAgentEvent(sessionChanged(["messages", "usage"]))).toEqual({
+    expect(dashboardInvalidationForAgentEvent(sessionChanged(["messages", "usage", "artifacts"]))).toEqual({
       domains: ["sessions"],
       sessionIds: ["session-1"],
     });

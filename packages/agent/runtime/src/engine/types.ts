@@ -137,6 +137,15 @@ export interface RuntimeTurnContextRecord extends JsonObject {
   ts: number;
 }
 
+export interface RuntimeArtifactRecord extends JsonObject {
+  artifact_id: string;
+  turn_id: string;
+  tool_call_id: string;
+  path: string;
+  name: string;
+  ts: number;
+}
+
 export interface RuntimeSkillSnapshot {
   readonly names: readonly string[];
   readonly prompt: string;
@@ -151,6 +160,8 @@ export interface RuntimeStore {
   popPendingEvents(sessionId: string): Promise<JsonObject[]>;
   loadMessages(sessionId: string): Promise<RuntimeMessage[]>;
   appendTurnContext(sessionId: string, context: RuntimeTurnContextRecord): Promise<void>;
+  appendArtifact(sessionId: string, artifact: RuntimeArtifactRecord): Promise<void>;
+  resolveArtifact(sessionId: string, artifactId: string): Promise<RuntimeArtifactRecord | undefined>;
   appendMessage(sessionId: string, message: RuntimeMessage, reason?: string): Promise<void>;
   replaceMessages(
     sessionId: string,

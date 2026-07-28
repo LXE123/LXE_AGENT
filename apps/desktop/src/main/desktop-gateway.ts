@@ -39,6 +39,7 @@ import {
 } from "./dashboard-invalidation";
 import { publicDashboardChannelHealth } from "./dashboard-channel-health";
 import { desktopLxeSkillState } from "./lxeskill-health";
+import { openConversationArtifact } from "./conversation-artifacts";
 import {
   resolveDataServerRuntimeEnvironment,
   withoutDataServerEnvironment,
@@ -338,14 +339,14 @@ export class DesktopGateway {
       return this.composition.parts.conversations.activity(call.input.session_id) as DashboardRpcResult<O>;
     }
     if (call.operation === "sessions.file.open") {
-      const { session_id: sessionId, path } = call.input;
-      if (!this.composition.parts.conversations.hasFile(sessionId, path)) {
-        throw new DashboardRpcError("not_found", "file is not part of this conversation");
-      }
-      // shell.openPath answers with the operating system's own failure text,
-      // which is what the user needs to see; "" means it opened.
-      const error = await shell.openPath(path);
-      return { opened: !error, error } as DashboardRpcResult<O>;
+      const { session_id: sessionId, artifact_id: artifactId } = call.input;
+      return await openConversationArtifact({
+        resolveArtifact: (targetSessionId, targetArtifactId) =>
+          this.runtime!.resolveArtifact(targetSessionId, targetArtifactId),
+        // shell.openPath answers with the operating system's own failure text;
+        // "" means it opened.
+        openPath: (path) => shell.openPath(path),
+      }, sessionId, artifactId) as DashboardRpcResult<O>;
     }
     const result = await this.runtime.dashboardCall(call as AgentDashboardRpcCall) as DashboardRpcResult<O>;
     if (call.operation === "models.update" || call.operation === "models.thinking.update") {

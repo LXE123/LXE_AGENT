@@ -284,6 +284,19 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
     return objectValue(await this.request("has_pending_events", { session_id: sessionId })).pending === true;
   }
 
+  async resolveArtifact(sessionId: string, artifactId: string): Promise<string | undefined> {
+    const result = objectValue(await this.request("resolve_artifact", {
+      session_id: sessionId,
+      artifact_id: artifactId,
+    }));
+    if (result.found === false) return undefined;
+    const path = String(result.path ?? "").trim();
+    if (result.found !== true || !path) {
+      throw new AgentProcessError("agent-cli returned a malformed artifact resolution", "AgentProtocolError");
+    }
+    return path;
+  }
+
   async dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>> {

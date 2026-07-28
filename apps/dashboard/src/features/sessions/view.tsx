@@ -29,6 +29,7 @@ import {
   hasToolError,
   roleLabel,
   toolCallBlocks,
+  toolGroupArtifacts,
   toolOperations,
   toolResultBlocks,
 } from "./conversation";
@@ -39,9 +40,9 @@ import type { UiText } from "../../shared/i18n";
 import type {
   ConversationToolGroup,
   DesktopConversationActivityPayload,
-  DesktopConversationFilePayload,
   DesktopConversationStreamPayload,
   DesktopConversationTurnPayload,
+  SessionArtifactPayload,
   SessionDetailPayload,
   SessionMessage,
   SessionPayload,
@@ -352,15 +353,18 @@ function ToolTurnGroup({
   group,
   expanded,
   embedded = false,
-  onToggle
+  onOpenFile,
+  onToggle,
 }: {
   group: ConversationToolGroup;
   expanded: boolean;
   embedded?: boolean;
+  onOpenFile: (artifactId: string) => Promise<void>;
   onToggle: () => void;
 }) {
   const t = useUiText();
   const stats = toolGroupStats(group.messages, t);
+  const artifacts = toolGroupArtifacts(group.messages);
   const className = [
     "tool-turn-group",
     embedded ? "embedded" : "standalone",
@@ -388,6 +392,7 @@ function ToolTurnGroup({
         <ChevronRight size={14} className={expanded ? "tool-turn-chevron expanded" : "tool-turn-chevron"} />
       </button>
       {expanded ? <ToolOperationList group={group} /> : null}
+      {artifacts.length ? <TurnFileList files={artifacts} onOpenFile={onOpenFile} /> : null}
     </section>
   );
 }
@@ -494,15 +499,15 @@ function TurnFileList({
   files,
   onOpenFile,
 }: {
-  files: DesktopConversationFilePayload[];
-  onOpenFile: (path: string) => Promise<void>;
+  files: SessionArtifactPayload[];
+  onOpenFile: (artifactId: string) => Promise<void>;
 }) {
   const t = useUiText();
   const [error, setError] = useState("");
-  const open = async (path: string) => {
+  const open = async (artifactId: string) => {
     setError("");
     try {
-      await onOpenFile(path);
+      await onOpenFile(artifactId);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -513,8 +518,8 @@ function TurnFileList({
       {files.map((file) => (
         <button
           className="turn-file-chip"
-          key={file.path}
-          onClick={() => void open(file.path)}
+          key={file.artifact_id}
+          onClick={() => void open(file.artifact_id)}
           title={t.conversation.openFile(file.name)}
           type="button"
         >
@@ -530,11 +535,9 @@ function TurnFileList({
 function LocalTurnCards({
   turn,
   transcriptFetchedAt,
-  onOpenFile,
 }: {
   turn: DesktopConversationTurnPayload;
   transcriptFetchedAt: number;
-  onOpenFile: (path: string) => Promise<void>;
 }) {
   const t = useUiText();
   const userPersisted = transcriptCaughtUp(turn.user_persisted_at, transcriptFetchedAt);
@@ -564,9 +567,6 @@ function LocalTurnCards({
         </article>
       ) : null}
       {turn.stream && !assistantPersisted ? <LiveAssistantCard stream={turn.stream} /> : null}
-      {/* Files are an emit artifact, not a transcript message, so they stay
-          with the live turn rather than following the persistence watermark. */}
-      {turn.files.length ? <TurnFileList files={turn.files} onOpenFile={onOpenFile} /> : null}
       {showStandaloneBadge ? <div className="conversation-turn-state-row">{stateBadge}</div> : null}
     </div>
   );
@@ -704,7 +704,7 @@ export function SessionDetailView({
   onLoadOlder: () => Promise<unknown>;
   onSend: (text: string) => Promise<void>;
   onStop: () => Promise<void>;
-  onOpenFile: (path: string) => Promise<void>;
+  onOpenFile: (artifactId: string) => Promise<void>;
 }) {
   const t = useUiText();
   const session = detail?.session || fallbackSession;
@@ -822,7 +822,8 @@ export function SessionDetailView({
                 {renderItems.map((item, itemIndex) => {
                   if (item.type === "tool_group") {
                     return <ToolTurnGroup expanded={toolGroupExpanded(item.group)} group={item.group}
-                      key={item.group.key} onToggle={() => toggleToolGroup(item.group)} />;
+                      key={item.group.key} onOpenFile={onOpenFile}
+                      onToggle={() => toggleToolGroup(item.group)} />;
                   }
                   const { message, index, toolGroups } = item;
                   const role = roleLabel(message.role);
@@ -835,7 +836,8 @@ export function SessionDetailView({
                       <div className="process-step" key={`process-${index}`}>
                         <MessageContent content={message.content} message={message} />
                         {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}
-                          group={group} key={group.key} onToggle={() => toggleToolGroup(group)} />)}
+                          group={group} key={group.key} onOpenFile={onOpenFile}
+                          onToggle={() => toggleToolGroup(group)} />)}
                       </div>
                     );
                   }
@@ -870,7 +872,8 @@ export function SessionDetailView({
                       {toolGroups.length ? (
                         <div className="process-step">
                           {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}
-                            group={group} key={group.key} onToggle={() => toggleToolGroup(group)} />)}
+                            group={group} key={group.key} onOpenFile={onOpenFile}
+                            onToggle={() => toggleToolGroup(group)} />)}
                         </div>
                       ) : null}
                     </React.Fragment>
@@ -881,7 +884,6 @@ export function SessionDetailView({
             {liveTurns.map((turn) => (
               <LocalTurnCards
                 key={turn.turn_id}
-                onOpenFile={onOpenFile}
                 transcriptFetchedAt={transcriptFetchedAt}
                 turn={turn}
               />

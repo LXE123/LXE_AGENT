@@ -82,7 +82,15 @@ export type SessionMessage = {
   tool_call_id?: string;
   tool_name?: string;
   tool_calls?: unknown;
+  artifacts?: SessionArtifactPayload[];
   [key: string]: unknown;
+};
+
+export type SessionArtifactPayload = {
+  artifact_id: string;
+  turn_id: string;
+  tool_call_id: string;
+  name: string;
 };
 
 export type DashboardContentTruncationPayload = {
@@ -138,16 +146,6 @@ export type DesktopConversationStreamPayload = {
  * fetched at or after the matching watermark, so nothing depends on message
  * text surviving the runtime's system-event prefixing untouched.
  */
-/**
- * A file a tool produced during the turn. `path` is absolute on the machine
- * running the desktop app and is what `sessions.file.open` takes back; Main
- * only opens paths a turn actually emitted, so the renderer cannot name one.
- */
-export type DesktopConversationFilePayload = {
-  path: string;
-  name: string;
-};
-
 export type DesktopConversationTurnPayload = {
   turn_id: string;
   message_id: string;
@@ -155,7 +153,6 @@ export type DesktopConversationTurnPayload = {
   state: DesktopConversationTurnState;
   user_persisted_at: number;
   settled_at: number;
-  files: DesktopConversationFilePayload[];
   stream?: DesktopConversationStreamPayload;
 };
 
@@ -436,7 +433,7 @@ export interface DashboardRpcSpec {
     result: DesktopConversationActivityPayload;
   };
   "sessions.file.open": {
-    input: { session_id: string; path: string };
+    input: { session_id: string; artifact_id: string };
     result: DesktopConversationFileOpenPayload;
   };
   "sessions.workspace.reload": {
@@ -622,10 +619,10 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
     case "sessions.file.open":
-      exactKeys(input, ["session_id", "path"], `${operation}.input`);
+      exactKeys(input, ["session_id", "artifact_id"], `${operation}.input`);
       return { operation, input: {
         session_id: textValue(input.session_id, `${operation}.session_id`)!,
-        path: textValue(input.path, `${operation}.path`)!,
+        artifact_id: textValue(input.artifact_id, `${operation}.artifact_id`)!,
       } };
     case "sessions.workspace.reload":
       exactKeys(input, ["session_id"], `${operation}.input`);

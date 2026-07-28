@@ -51,8 +51,11 @@ test("the conversation takes its height from the panel, not a guess at the chrom
 
 test("tool files reach the conversation and open through Main", () => {
   assert.match(view, /turn-file-chip/);
-  assert.match(view, /turn\.files\.length/);
+  assert.match(view, /toolGroupArtifacts\(group\.messages\)/);
+  assert.match(view, /file\.artifact_id/);
   assert.match(main, /operation: "sessions\.file\.open"/);
+  assert.match(main, /artifact_id: artifactId/);
+  assert.doesNotMatch(main, /sessions\.file\.open"[\s\S]{0,160}path/);
   // The OS failure text is what surfaces, not a stand-in message.
   assert.match(main, /if \(!result\.opened\) throw new Error\(result\.error\)/);
 });

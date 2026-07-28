@@ -1,6 +1,7 @@
 import type {
   ConversationRenderItem,
   ConversationToolGroup,
+  SessionArtifactPayload,
   SessionMessage,
 } from "../../api/payloads";
 import { isRecord } from "../../shared/content";
@@ -59,6 +60,11 @@ function isToolGroupMessage(message: SessionMessage): boolean {
 export function hasToolError(messages: SessionMessage[]): boolean {
   return messages.some((message) =>
     toolResultBlocks(message).some((result) => isRecord(result) && result.is_error));
+}
+
+export function toolGroupArtifacts(messages: SessionMessage[]): SessionArtifactPayload[] {
+  const artifacts = messages.flatMap((message) => Array.isArray(message.artifacts) ? message.artifacts : []);
+  return [...new Map(artifacts.map((artifact) => [artifact.artifact_id, artifact])).values()];
 }
 
 export interface ToolOperation {

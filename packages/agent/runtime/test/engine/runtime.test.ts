@@ -12,6 +12,7 @@ import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
 import { WorkspaceSearchService } from "../../src/tooling/workspace-search";
 import type {
   RuntimeHandle,
+  RuntimeArtifactRecord,
   RuntimeMessage,
   RuntimeProviderRequest,
   RuntimeStore,
@@ -47,6 +48,7 @@ class MemoryStore implements RuntimeStore {
   turnContexts: RuntimeTurnContextRecord[] = [];
   statePatches: JsonObject[] = [];
   replacements: RuntimeMessage[][] = [];
+  artifacts: RuntimeArtifactRecord[] = [];
   operations: string[] = [];
   async start(): Promise<void> {}
   async stop(): Promise<void> {}
@@ -67,6 +69,13 @@ class MemoryStore implements RuntimeStore {
   async appendTurnContext(_sessionId: string, context: RuntimeTurnContextRecord): Promise<void> {
     this.turnContexts.push(structuredClone(context));
     this.operations.push("turn_context");
+  }
+  async appendArtifact(_sessionId: string, artifact: RuntimeArtifactRecord): Promise<void> {
+    this.artifacts.push(structuredClone(artifact));
+    this.operations.push("artifact");
+  }
+  async resolveArtifact(_sessionId: string, artifactId: string): Promise<RuntimeArtifactRecord | undefined> {
+    return this.artifacts.find((artifact) => artifact.artifact_id === artifactId);
   }
   async appendMessage(_sessionId: string, message: RuntimeMessage): Promise<void> {
     this.messages.push(message);
@@ -1105,7 +1114,7 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
-  test("persists tool state patches and emits returned files through the gateway", async () => {
+  test("persists tool state patches and records emitted files as artifacts", async () => {
     const responses: RuntimeTurnResponse[] = [
       {
         content: [{ type: "tool_call", id: "tool-1", name: "bridge", arguments: {} }],
@@ -1127,15 +1136,17 @@ describe("TypeScriptAgentRuntime", () => {
       execute: async () => ({
         content: [{ type: "text", text: "created" }],
         state_patch: { browser: { session_id: "remote-1" } },
-        files: ["C:\\tmp\\report.xlsx"],
+        files: ["/tmp/report.xlsx"],
       }),
     });
     const emitted: EmitRequest[] = [];
+    const changes: string[] = [];
     const runtime = new TypeScriptAgentRuntime({
       store,
       tools,
       provider: { summarize, turn: async () => responses.shift()! },
       emitter: { emit: async (request) => { emitted.push(request); }, typing: async () => undefined },
+      onSessionChanged: async (_sessionId, change) => { changes.push(change); },
       systemPrompt: "test",
     });
 
@@ -1147,8 +1158,17 @@ describe("TypeScriptAgentRuntime", () => {
       session_id: "s1",
       response_route_id: "r1",
       emit_kind: "tool",
-      files: ["C:\\tmp\\report.xlsx"],
+      files: ["/tmp/report.xlsx"],
     }));
+    expect(store.artifacts).toEqual([
+      expect.objectContaining({
+        turn_id: "j1",
+        tool_call_id: "tool-1",
+        path: "/tmp/report.xlsx",
+        name: "report.xlsx",
+      }),
+    ]);
+    expect(changes).toContain("artifacts");
     await runtime.stop();
   });
 
@@ -1161,7 +1181,7 @@ describe("TypeScriptAgentRuntime", () => {
       name: "report",
       description: "report",
       input_schema: { type: "object" },
-      execute: async () => ({ content: [{ type: "text", text: "created" }], files: ["report.xlsx"] }),
+      execute: async () => ({ content: [{ type: "text", text: "created" }], files: ["/tmp/report.xlsx"] }),
     });
     const runtime = new TypeScriptAgentRuntime({
       store,
@@ -1196,6 +1216,58 @@ describe("TypeScriptAgentRuntime", () => {
 
     expect(secondRequestMessages.at(-1)?.content).toEqual([
       expect.objectContaining({ type: "tool_result", tool_call_id: "tool-1", is_error: true }),
+    ]);
+    expect(store.artifacts).toEqual([]);
+    await runtime.stop();
+  });
+
+  test("records each successfully delivered file before a later file fails", async () => {
+    const store = new MemoryStore();
+    const tools = new ToolRegistry();
+    tools.register({
+      name: "reports",
+      description: "reports",
+      input_schema: { type: "object" },
+      execute: async () => ({
+        content: [{ type: "text", text: "created" }],
+        files: ["/tmp/first.xlsx", "/tmp/first.xlsx", "/tmp/second.xlsx"],
+      }),
+    });
+    let providerCalls = 0;
+    const delivered: string[] = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools,
+      provider: { summarize, turn: async () => {
+        providerCalls += 1;
+        return providerCalls === 1 ? {
+          content: [{ type: "tool_call", id: "tool-1", name: "reports", arguments: {} }],
+          stop_reason: "tool_use",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        } : {
+          content: [{ type: "text", text: "partial delivery reported" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+        };
+      } },
+      emitter: {
+        emit: async (request) => {
+          if (request.emit_kind !== "tool") return;
+          const path = request.files[0]!;
+          delivered.push(path);
+          if (path.endsWith("second.xlsx")) throw new Error("second upload failed");
+        },
+        typing: async () => undefined,
+      },
+      systemPrompt: "test",
+    });
+
+    await runtime.start();
+    await runtime.runTurn(job(), handle());
+
+    expect(delivered).toEqual(["/tmp/first.xlsx", "/tmp/second.xlsx"]);
+    expect(store.artifacts).toEqual([
+      expect.objectContaining({ path: "/tmp/first.xlsx", tool_call_id: "tool-1" }),
     ]);
     await runtime.stop();
   });

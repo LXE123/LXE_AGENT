@@ -120,6 +120,13 @@ export class AgentProtocolServer {
         return { appended: true };
       case "has_pending_events":
         return { pending: await this.readyHost().hasPendingEvents(request.payload.session_id) };
+      case "resolve_artifact": {
+        const artifact = await this.readyHost().resolveArtifact(
+          request.payload.session_id,
+          request.payload.artifact_id,
+        );
+        return artifact ? { found: true, path: artifact.path } : { found: false };
+      }
       case "dashboard_call":
         return this.readyHost().dashboardCall(request.payload) as Promise<JsonValue>;
       case "shutdown":

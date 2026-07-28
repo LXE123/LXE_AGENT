@@ -39,12 +39,12 @@ describe("desktop agent protocol", () => {
       version: AGENT_PROTOCOL_VERSION,
       type: "session.changed",
       thread_id: "session-1",
-      payload: { changes: ["messages", "usage", "messages"] },
+      payload: { changes: ["messages", "usage", "artifacts", "messages"] },
     }))).toEqual({
       version: AGENT_PROTOCOL_VERSION,
       type: "session.changed",
       thread_id: "session-1",
-      payload: { changes: ["messages", "usage"] },
+      payload: { changes: ["messages", "usage", "artifacts"] },
     });
 
     for (const payload of [
@@ -162,6 +162,12 @@ describe("desktop agent protocol", () => {
       command: "cancel_turn",
       payload: {},
     }))).toThrow("cancel_turn.run_id");
+    expect(() => parseAgentWireMessage(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "request-3",
+      command: "resolve_artifact",
+      payload: { session_id: "session-1" },
+    }))).toThrow("resolve_artifact.artifact_id");
   });
 
   test("normalizes typed Dashboard RPC inputs", () => {
@@ -192,10 +198,10 @@ describe("desktop agent protocol", () => {
     })).toEqual({ operation: "sessions.send", input: { text: "first message" } });
     expect(parseDashboardRpcCall({
       operation: "sessions.file.open",
-      input: { session_id: " session-1 ", path: " /tmp/exports/orders.xlsx " },
+      input: { session_id: " session-1 ", artifact_id: " artifact-1 " },
     })).toEqual({
       operation: "sessions.file.open",
-      input: { session_id: "session-1", path: "/tmp/exports/orders.xlsx" },
+      input: { session_id: "session-1", artifact_id: "artifact-1" },
     });
   });
 
@@ -212,7 +218,7 @@ describe("desktop agent protocol", () => {
     }))).toThrow("owned by Electron Main");
     const mainOwnedInput: Record<string, unknown> = {
       "sessions.send": { text: "hello" },
-      "sessions.file.open": { session_id: "session-1", path: "/tmp/orders.xlsx" },
+      "sessions.file.open": { session_id: "session-1", artifact_id: "artifact-1" },
     };
     for (const operation of ["sessions.send", "sessions.stop", "sessions.activity", "sessions.file.open"]) {
       expect(() => parseAgentWireMessage(JSON.stringify({
@@ -223,10 +229,10 @@ describe("desktop agent protocol", () => {
       }))).toThrow("owned by Electron Main");
     }
     expect(() => parseDashboardRpcCall({ operation: "sessions.file.open", input: { session_id: "s" } }))
-      .toThrow("sessions.file.open.path must be a string");
+      .toThrow("sessions.file.open.artifact_id must be a string");
     expect(() => parseDashboardRpcCall({
       operation: "sessions.file.open",
-      input: { session_id: "s", path: "/tmp/a", reveal: true },
+      input: { session_id: "s", artifact_id: "artifact-1", reveal: true },
     })).toThrow("unsupported fields");
     expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: " " } }))
       .toThrow("non-empty string");

@@ -4,6 +4,7 @@ import {
   hasReaderFacingText,
   hasToolError,
   toolCallBlocks,
+  toolGroupArtifacts,
   toolOperations,
   toolResultBlocks,
 } from "../../../src/features/sessions/conversation";
@@ -128,6 +129,24 @@ describe("session conversation projection", () => {
     ];
     expect(hasToolError(failing)).toBe(true);
     expect(hasToolError(passing)).toBe(false);
+  });
+
+  test("keeps durable artifacts attached to a collapsed tool group", () => {
+    const artifacts = toolGroupArtifacts([
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "c1", name: "send_file", arguments: {} }],
+        artifacts: [{ artifact_id: "a1", turn_id: "t1", tool_call_id: "c1", name: "report.xlsx" }],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool_result", tool_call_id: "c1", content: "sent" }],
+        artifacts: [{ artifact_id: "a1", turn_id: "t1", tool_call_id: "c1", name: "report.xlsx" }],
+      },
+    ]);
+    expect(artifacts).toEqual([
+      { artifact_id: "a1", turn_id: "t1", tool_call_id: "c1", name: "report.xlsx" },
+    ]);
   });
 
   test("pairs each call with its result so the group can list one line per operation", () => {

@@ -369,7 +369,6 @@ function App({
               state: "running",
               user_persisted_at: 0,
               settled_at: 0,
-              files: [],
             } : null,
             queued: result.state === "queued" ? [{
               turn_id: result.turn_id,
@@ -378,7 +377,6 @@ function App({
               state: "queued",
               user_persisted_at: 0,
               settled_at: 0,
-              files: [],
             }] : [],
             latest: null,
           },
@@ -396,11 +394,11 @@ function App({
     await callDashboard({ operation: "sessions.stop", input: { session_id: selectedSessionId } });
   }
 
-  async function openConversationFile(path: string): Promise<void> {
+  async function openConversationFile(artifactId: string): Promise<void> {
     if (!selectedSessionId) return;
     const result = await callDashboard({
       operation: "sessions.file.open",
-      input: { session_id: selectedSessionId, path },
+      input: { session_id: selectedSessionId, artifact_id: artifactId },
     });
     // The operating system's own message is the only useful thing to show here.
     if (!result.opened) throw new Error(result.error);

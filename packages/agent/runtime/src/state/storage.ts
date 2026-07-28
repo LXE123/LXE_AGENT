@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { appendFile, mkdir, open, readFile, stat, truncate } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
 import type { SQLQueryBindings } from "bun:sqlite";
 import type { JsonObject, JsonValue, SessionWorkspaceRequest, WorkspaceContext } from "@lxe/protocol";
 import type {
   RuntimeMessage,
+  RuntimeArtifactRecord,
   RuntimeSessionRecord,
   RuntimeStore,
   RuntimeTurnContextRecord,
@@ -28,6 +29,8 @@ import {
   tryParseTranscriptEvent,
 } from "./transcript";
 
+const text = (value: unknown): string => String(value ?? "").trim();
+
 const parseObject = (value: unknown): JsonObject => {
   if (value !== null && typeof value === "object" && !Array.isArray(value)) return value as JsonObject;
   try {
@@ -39,6 +42,32 @@ const parseObject = (value: unknown): JsonObject => {
     return {};
   }
 };
+
+const transcriptArtifact = (event: JsonObject): RuntimeArtifactRecord | undefined => {
+  if (text(event.kind) !== "artifact") return undefined;
+  const artifact = {
+    artifact_id: text(event.artifact_id),
+    turn_id: text(event.turn_id),
+    tool_call_id: text(event.tool_call_id),
+    path: text(event.path),
+    name: basename(text(event.path)),
+    ts: Number(event.ts ?? 0),
+  };
+  if (
+    !artifact.artifact_id || !artifact.turn_id || !artifact.tool_call_id || !artifact.path || !artifact.name
+    || !isAbsolute(artifact.path) || !Number.isFinite(artifact.ts) || artifact.ts < 0
+  ) {
+    return undefined;
+  }
+  return artifact;
+};
+
+const publicArtifact = (artifact: RuntimeArtifactRecord): JsonObject => ({
+  artifact_id: artifact.artifact_id,
+  turn_id: artifact.turn_id,
+  tool_call_id: artifact.tool_call_id,
+  name: artifact.name,
+});
 
 const mergeObjects = (base: JsonObject, patch: JsonObject): JsonObject => {
   const merged: JsonObject = { ...base };
@@ -52,7 +81,6 @@ const mergeObjects = (base: JsonObject, patch: JsonObject): JsonObject => {
   return merged;
 };
 
-const text = (value: unknown): string => String(value ?? "").trim();
 const clippedText = (value: unknown, maximum: number): string => text(value).slice(0, maximum);
 const retiredWorkspaceColumn = ["workspace", "server", "scope"].join("_");
 
@@ -319,11 +347,23 @@ export class SqliteRuntimeStore implements RuntimeStore {
           group_kind TEXT NOT NULL,
           PRIMARY KEY (session_id, group_number)
         );
+        CREATE TABLE IF NOT EXISTS transcript_artifacts (
+          session_id TEXT NOT NULL,
+          artifact_id TEXT NOT NULL,
+          turn_id TEXT NOT NULL,
+          tool_call_id TEXT NOT NULL,
+          path TEXT NOT NULL,
+          name TEXT NOT NULL,
+          created_at REAL NOT NULL,
+          PRIMARY KEY (session_id, artifact_id)
+        );
         CREATE INDEX IF NOT EXISTS idx_turn_usage_started_at ON turn_usage (started_at);
         CREATE INDEX IF NOT EXISTS idx_turn_usage_items_kind_name ON turn_usage_items (kind, name, started_at);
         CREATE INDEX IF NOT EXISTS idx_turn_usage_items_turn_id ON turn_usage_items (turn_id);
         CREATE INDEX IF NOT EXISTS idx_transcript_display_groups_session
           ON transcript_display_groups (session_id, group_number);
+        CREATE INDEX IF NOT EXISTS idx_transcript_artifacts_turn
+          ON transcript_artifacts (session_id, turn_id);
       `);
       const columns = this.allPrepared<{ name: string }>("PRAGMA table_info(agent_sessions)");
       if (!columns.some((column) => column.name === "reasoning_effort")) {
@@ -664,6 +704,60 @@ export class SqliteRuntimeStore implements RuntimeStore {
       });
       if (cached) await this.refreshReplayCacheMetadata(safeSessionId, path, cached);
       await this.enqueueIndexSync(safeSessionId, path);
+    });
+  }
+
+  async appendArtifact(sessionId: string, artifact: RuntimeArtifactRecord): Promise<void> {
+    const safeSessionId = text(sessionId);
+    const safePath = text(artifact.path);
+    if (!safeSessionId || !text(artifact.artifact_id) || !text(artifact.turn_id) || !text(artifact.tool_call_id)) {
+      throw new Error("invalid transcript artifact identity");
+    }
+    if (!isAbsolute(safePath)) throw new Error("transcript artifact path must be absolute");
+    const timestamp = Number(artifact.ts);
+    if (!Number.isFinite(timestamp) || timestamp < 0) throw new Error("invalid transcript artifact timestamp");
+    const persisted: RuntimeArtifactRecord = {
+      artifact_id: text(artifact.artifact_id),
+      turn_id: text(artifact.turn_id),
+      tool_call_id: text(artifact.tool_call_id),
+      path: safePath,
+      name: basename(safePath),
+      ts: timestamp,
+    };
+    await this.enqueueSessionWrite(safeSessionId, async () => {
+      const path = this.transcriptPath(safeSessionId);
+      await this.enqueueIndexSync(safeSessionId, path);
+      const duplicate = this.getPrepared<{ artifact_id: string }>(`
+        SELECT artifact_id FROM transcript_artifacts
+        WHERE session_id = ? AND turn_id = ? AND path = ? LIMIT 1
+      `, safeSessionId, persisted.turn_id, persisted.path);
+      if (duplicate) return;
+      const cached = this.validCacheBeforeWrite(safeSessionId, path);
+      await this.appendTranscriptEvent(safeSessionId, { kind: "artifact", ...persisted });
+      if (cached) await this.refreshReplayCacheMetadata(safeSessionId, path, cached);
+      await this.enqueueIndexSync(safeSessionId, path);
+    });
+  }
+
+  async resolveArtifact(sessionId: string, artifactId: string): Promise<RuntimeArtifactRecord | undefined> {
+    const safeSessionId = text(sessionId);
+    const safeArtifactId = text(artifactId);
+    if (!safeSessionId || !safeArtifactId) return undefined;
+    await this.waitForSessionWrites(safeSessionId);
+    await this.enqueueIndexSync(safeSessionId, this.transcriptPath(safeSessionId));
+    const row = this.getPrepared<Record<string, unknown>>(`
+      SELECT artifact_id, turn_id, tool_call_id, path, name, created_at
+      FROM transcript_artifacts WHERE session_id = ? AND artifact_id = ?
+    `, safeSessionId, safeArtifactId);
+    if (!row) return undefined;
+    return transcriptArtifact({
+      kind: "artifact",
+      artifact_id: text(row.artifact_id),
+      turn_id: text(row.turn_id),
+      tool_call_id: text(row.tool_call_id),
+      path: text(row.path),
+      name: text(row.name),
+      ts: Number(row.created_at ?? 0),
     });
   }
 
@@ -1385,6 +1479,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
   private clearTranscriptIndex(sessionId: string): void {
     this.db().transaction(() => {
       this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(sessionId);
+      this.db().query("DELETE FROM transcript_artifacts WHERE session_id = ?").run(sessionId);
       this.db().query("DELETE FROM transcript_file_state WHERE session_id = ?").run(sessionId);
       this.db().query(`
         UPDATE agent_sessions SET model = '', reasoning_effort = '', model_config = '{}'
@@ -1459,6 +1554,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const transaction = this.db().transaction(() => {
       if (rebuild) {
         this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(sessionId);
+        this.db().query("DELETE FROM transcript_artifacts WHERE session_id = ?").run(sessionId);
         this.db().query(`
           UPDATE agent_sessions SET model = '', reasoning_effort = '', model_config = '{}'
           WHERE session_id = ?
@@ -1496,6 +1592,37 @@ export class SqliteRuntimeStore implements RuntimeStore {
             displayGroupCount += 1;
             lastDisplayKind = "message";
           }
+          continue;
+        }
+        const artifact = transcriptArtifact(event);
+        if (artifact) {
+          this.db().query(`
+            INSERT OR REPLACE INTO transcript_artifacts
+              (session_id, artifact_id, turn_id, tool_call_id, path, name, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            sessionId,
+            artifact.artifact_id,
+            artifact.turn_id,
+            artifact.tool_call_id,
+            artifact.path,
+            artifact.name,
+            artifact.ts,
+          );
+          if (lastDisplayKind === "assistant_tool" && displayGroupCount > 0) {
+            this.db().query(`
+              UPDATE transcript_display_groups SET byte_end = ?
+              WHERE session_id = ? AND group_number = ?
+            `).run(line.byteEnd, sessionId, displayGroupCount - 1);
+          } else {
+            this.db().query(`
+              INSERT INTO transcript_display_groups
+                (session_id, group_number, byte_start, byte_end, group_kind)
+              VALUES (?, ?, ?, ?, 'artifact')
+            `).run(sessionId, displayGroupCount, line.byteStart, line.byteEnd);
+            displayGroupCount += 1;
+          }
+          lastDisplayKind = "assistant_tool";
           continue;
         }
         if (transcriptDisplayMarker(event)) {
@@ -1587,14 +1714,34 @@ export class SqliteRuntimeStore implements RuntimeStore {
       const byteStart = Number(groups[0]!.byte_start);
       const byteEnd = Number(groups.at(-1)!.byte_end);
       const bytes = await this.readByteRange(path, byteStart, byteEnd);
+      let latestMessage: JsonObject | undefined;
+      const visibleArtifactPaths = new Set<string>();
       for (const { event } of scanTranscriptBuffer(bytes, byteStart, true).lines) {
         if (text(event.kind) === "message") {
           const message = parseObject(event.message);
-          if (text(message.role)) messages.push(structuredClone(message));
+          if (text(message.role)) {
+            latestMessage = structuredClone(message);
+            // `artifacts` is a Dashboard-only projection. Never trust a field
+            // with the same name from persisted model messages.
+            delete latestMessage.artifacts;
+            messages.push(latestMessage);
+          }
+          continue;
+        }
+        const artifact = transcriptArtifact(event);
+        if (artifact && latestMessage) {
+          const key = `${artifact.turn_id}\u0000${artifact.path}`;
+          if (visibleArtifactPaths.has(key)) continue;
+          visibleArtifactPaths.add(key);
+          const existing = Array.isArray(latestMessage.artifacts) ? latestMessage.artifacts : [];
+          latestMessage.artifacts = [...existing, publicArtifact(artifact)];
           continue;
         }
         const marker = transcriptDisplayMarker(event);
-        if (marker) messages.push(marker);
+        if (marker) {
+          latestMessage = marker;
+          messages.push(marker);
+        }
       }
     }
     return {

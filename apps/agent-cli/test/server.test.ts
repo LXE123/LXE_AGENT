@@ -89,6 +89,7 @@ describe("AgentProtocolServer", () => {
     }));
     await notify?.("session-1", "messages");
     await notify?.("session-1", "usage");
+    await notify?.("session-1", "artifacts");
 
     const changes = output.filter((message): message is Extract<AgentEvent, { type: "session.changed" }> =>
       "type" in message && message.type === "session.changed");
@@ -105,8 +106,59 @@ describe("AgentProtocolServer", () => {
         thread_id: "session-1",
         payload: { changes: ["usage"] },
       },
+      {
+        version: AGENT_PROTOCOL_VERSION,
+        type: "session.changed",
+        thread_id: "session-1",
+        payload: { changes: ["artifacts"] },
+      },
     ]);
     expect(JSON.stringify(changes)).not.toContain("content");
+    await server.shutdown();
+  });
+
+  test("resolves artifact paths only through the Main-facing agent command", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    const createHost = (() => ({
+      start: async () => undefined,
+      stop: async () => undefined,
+      health: () => ({ ready: true }),
+      resolveArtifact: async (sessionId: string, artifactId: string) =>
+        sessionId === "session-1" && artifactId === "artifact-1"
+          ? { path: "/private/artifacts/report.xlsx" }
+          : undefined,
+    })) as unknown as CreateHost;
+    const root = process.cwd();
+    const server = new AgentProtocolServer({
+      write: (message) => { output.push(message); },
+      createHost,
+      environment: { LOCAL_LOGS_ENABLED: "0" },
+    });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "initialize-artifact",
+      command: "initialize",
+      payload: initializePayload(root),
+    }));
+    for (const [id, sessionId, artifactId] of [
+      ["artifact-found", "session-1", "artifact-1"],
+      ["artifact-cross-session", "session-2", "artifact-1"],
+      ["artifact-unknown", "session-1", "artifact-2"],
+    ]) {
+      await server.accept(JSON.stringify({
+        version: AGENT_PROTOCOL_VERSION,
+        id,
+        command: "resolve_artifact",
+        payload: { session_id: sessionId, artifact_id: artifactId },
+      }));
+    }
+
+    expect(output.find((message) => !("type" in message) && message.id === "artifact-found"))
+      .toMatchObject({ ok: true, result: { found: true, path: "/private/artifacts/report.xlsx" } });
+    expect(output.find((message) => !("type" in message) && message.id === "artifact-cross-session"))
+      .toMatchObject({ ok: true, result: { found: false } });
+    expect(output.find((message) => !("type" in message) && message.id === "artifact-unknown"))
+      .toMatchObject({ ok: true, result: { found: false } });
     await server.shutdown();
   });
 

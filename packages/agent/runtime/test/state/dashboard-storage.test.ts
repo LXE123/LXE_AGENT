@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { RuntimeMessage } from "../../src/engine/types";
 import { SqliteRuntimeStore } from "../../src/state/storage";
 import { testWorkspace } from "../workspace";
 
@@ -79,6 +80,86 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       has_previous: true,
       has_next: false,
     });
+    await store.stop();
+  });
+
+  test("persists artifact references outside model replay and rebuilds their index", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-artifact-"));
+    roots.push(root);
+    const databasePath = join(root, "agent.sqlite3");
+    const artifactPath = join(root, "artifacts", "report.xlsx");
+    let store = new SqliteRuntimeStore(databasePath);
+    await store.start();
+    await store.ensureSession({ workspace: testWorkspace, session_id: "artifact-session", source: { platform: "desktop" } });
+    await store.appendMessage("artifact-session", { role: "user", content: "create report" });
+    await store.appendMessage("artifact-session", {
+      role: "assistant",
+      content: [{ type: "tool_call", id: "call-1", name: "report", arguments: {} }],
+      artifacts: [{
+        artifact_id: "forged",
+        turn_id: "turn-1",
+        tool_call_id: "call-1",
+        name: artifactPath,
+        path: artifactPath,
+      }],
+    } as RuntimeMessage);
+    await store.appendArtifact("artifact-session", {
+      artifact_id: "artifact-1",
+      turn_id: "turn-1",
+      tool_call_id: "call-1",
+      path: artifactPath,
+      name: "report.xlsx",
+      ts: 123,
+    });
+    await store.appendArtifact("artifact-session", {
+      artifact_id: "artifact-duplicate",
+      turn_id: "turn-1",
+      tool_call_id: "call-1",
+      path: artifactPath,
+      name: "ignored-name.xlsx",
+      ts: 124,
+    });
+    await store.appendMessage("artifact-session", {
+      role: "tool",
+      content: [{ type: "tool_result", tool_call_id: "call-1", content: "created" }],
+    });
+    await store.appendMessage("artifact-session", { role: "assistant", content: "done" });
+
+    expect(await store.loadMessages("artifact-session")).toEqual([
+      { role: "user", content: "create report" },
+      { role: "assistant", content: [{ type: "tool_call", id: "call-1", name: "report", arguments: {} }] },
+      { role: "tool", content: [{ type: "tool_result", tool_call_id: "call-1", content: "created" }] },
+      { role: "assistant", content: "done" },
+    ]);
+    const detail = await store.sessionDetail("artifact-session", { limit: 1, page: 2 });
+    expect(detail?.session).toMatchObject({ message_count: 4 });
+    expect(detail?.messages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        artifacts: [{
+          artifact_id: "artifact-1",
+          turn_id: "turn-1",
+          tool_call_id: "call-1",
+          name: "report.xlsx",
+        }],
+      }),
+      expect.objectContaining({ role: "tool" }),
+      expect.objectContaining({ role: "assistant", content: "done" }),
+    ]);
+    expect(JSON.stringify(detail)).not.toContain(artifactPath);
+    expect(await store.resolveArtifact("artifact-session", "artifact-1")).toMatchObject({ path: artifactPath });
+    expect(await store.resolveArtifact("artifact-session", "artifact-duplicate")).toBeUndefined();
+    expect(await store.resolveArtifact("other-session", "artifact-1")).toBeUndefined();
+    await store.stop();
+
+    rmSync(databasePath, { force: true });
+    rmSync(`${databasePath}-wal`, { force: true });
+    rmSync(`${databasePath}-shm`, { force: true });
+    store = new SqliteRuntimeStore(databasePath);
+    await store.start();
+    await store.ensureSession({ workspace: testWorkspace, session_id: "artifact-session", source: { platform: "desktop" } });
+    expect(await store.resolveArtifact("artifact-session", "artifact-1")).toMatchObject({ path: artifactPath });
+    expect(JSON.stringify(await store.sessionDetail("artifact-session", { limit: 10 }))).not.toContain(artifactPath);
     await store.stop();
   });
 
