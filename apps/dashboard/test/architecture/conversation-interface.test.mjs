@@ -38,6 +38,16 @@ test("the transcript stays scrollable back through history", () => {
   assert.match(view, /conversation-jump-latest/);
 });
 
+test("the conversation takes its height from the panel, not a guess at the chrome", () => {
+  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
+  // Guessing the surrounding chrome left the columns ending at different
+  // heights and pushed the composer under the fixed runtime-status trigger.
+  assert.doesNotMatch(styles, /\.conversation-view \{[^}]*height: calc\(100vh/);
+  assert.doesNotMatch(styles, /\.sessions-split-index \{[^}]*max-height: calc\(100vh/);
+  assert.match(styles, /\.sessions-split \{[^}]*align-items: stretch/s);
+  assert.match(main, /"content-panel content-panel-fill"/);
+});
+
 test("tool files reach the conversation and open through Main", () => {
   assert.match(view, /turn-file-chip/);
   assert.match(view, /turn\.files\.length/);

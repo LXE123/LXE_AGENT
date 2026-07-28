@@ -2170,6 +2170,15 @@ h1 {
   background: transparent;
 }
 
+/*
+ * The conversation owns its own scrolling, so this panel must not scroll too.
+ * The 92px bottom padding stays: it is the clearance the fixed runtime-status
+ * trigger (52px tall, 24px from the bottom) needs to sit clear of the composer.
+ */
+.content-panel-fill {
+  overflow: hidden;
+}
+
 .workspace-view {
   display: grid;
   width: min(1480px, 100%);
@@ -4192,8 +4201,7 @@ h1 {
 
 .conversation-view {
   display: flex;
-  height: calc(100vh - 150px);
-  min-height: 520px;
+  min-height: 0;
   flex-direction: column;
 }
 
@@ -5804,6 +5812,20 @@ pre {
     max-height: 60vh;
   }
 
+  /* The shell hands scrolling back to the page here, so the conversation can no
+     longer take its height from a panel that no longer bounds it. */
+  .content-panel-fill {
+    overflow: visible;
+  }
+
+  .sessions-split {
+    height: auto;
+  }
+
+  .conversation-view {
+    height: min(70vh, 620px);
+    min-height: 420px;
+  }
 }
 
 @media (max-width: 620px) {
@@ -7119,17 +7141,21 @@ pre {
 
 /* -------------------------------------------------------- sessions split */
 
+/*
+ * Both columns take their height from the panel rather than guessing at the
+ * surrounding chrome, so they end level with each other and the conversation
+ * gets exactly the room that is actually available.
+ */
 .sessions-split {
   display: grid;
+  height: 100%;
+  min-height: 0;
   grid-template-columns: minmax(250px, 295px) minmax(0, 1fr);
   gap: 22px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .sessions-split-index {
-  position: sticky;
-  top: 0;
-  max-height: calc(100vh - 150px);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -7151,17 +7177,35 @@ pre {
 }
 
 .sessions-split-detail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+
+.sessions-split-detail > * {
+  flex: 1;
   min-width: 0;
 }
 
 @container dashboard-main (max-width: 760px) {
+  /* Stacked columns no longer fit one viewport, so the panel scrolls again and
+     the conversation falls back to a fixed slice of it. */
+  .content-panel-fill {
+    overflow: auto;
+  }
+
   .sessions-split {
+    height: auto;
     grid-template-columns: 1fr;
   }
 
   .sessions-split-index {
-    position: static;
     max-height: 300px;
+  }
+
+  .conversation-view {
+    height: min(70vh, 620px);
+    min-height: 420px;
   }
 }
 

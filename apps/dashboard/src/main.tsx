@@ -741,7 +741,7 @@ function App({
               </div>
             </header>
           ) : null}
-          <section className="content-panel">
+          <section className={activeSection === "sessions" ? "content-panel content-panel-fill" : "content-panel"}>
             {visibleError ? (
               <div className="dashboard-query-notice" role="status">
                 {t.common.errorPrefix(t.errors.api, visibleError)}
