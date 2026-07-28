@@ -7795,7 +7795,7 @@ pre {
   display: grid;
   min-width: 0;
   gap: 3px;
-  padding: 0 0 4px 20px;
+  padding: 0 0 4px;
 }
 
 .process-message-content {
