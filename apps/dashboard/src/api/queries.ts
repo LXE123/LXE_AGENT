@@ -2,11 +2,17 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useQuery,
+  useQueryClient,
 } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { callDashboard } from "./client";
 import { dashboardQueryKeys } from "./query-keys";
-import { normalizeSessionList } from "../features/sessions/model";
+import {
+  mergeLatestConversationWindow,
+  normalizeSessionList,
+  prependConversationWindow,
+} from "../features/sessions/model";
 import type {
   ApiList,
   BackgroundTaskPayload,
@@ -80,8 +86,8 @@ export function flattenSessionPages(
   };
 }
 
-export function useSessionDetailQuery(sessionId: string, page: number | undefined, enabled = true) {
-  const pageKey = page ?? "latest";
+export function useSessionDetailQuery(sessionId: string, before: string | undefined, enabled = true) {
+  const pageKey = before ?? "latest";
   return useQuery({
     queryKey: dashboardQueryKeys.sessions.detail(sessionId, pageKey),
     queryFn: () => callDashboard({
@@ -89,34 +95,92 @@ export function useSessionDetailQuery(sessionId: string, page: number | undefine
       input: {
         session_id: sessionId,
         message_limit: SESSION_MESSAGE_PAGE_LIMIT,
-        ...(page === undefined ? {} : { message_page: page }),
+        ...(before === undefined ? {} : { message_before: before }),
       },
     }),
     enabled: enabled && Boolean(sessionId),
     staleTime: ACTIVE_DATA_STALE_TIME_MS,
-    placeholderData: keepPreviousData,
   });
 }
 
 export function useSessionConversationQuery(sessionId: string, enabled = true) {
-  return useInfiniteQuery({
-    queryKey: dashboardQueryKeys.sessions.conversation(sessionId),
-    queryFn: ({ pageParam }) => callDashboard({
-      operation: "sessions.detail",
-      input: {
-        session_id: sessionId,
-        message_limit: SESSION_MESSAGE_PAGE_LIMIT,
-        ...(pageParam === undefined ? {} : { message_page: pageParam }),
-      },
-    }),
-    initialPageParam: undefined as number | undefined,
-    getNextPageParam: () => undefined,
-    getPreviousPageParam: (firstPage) => firstPage.messages_page.has_previous
-      ? firstPage.messages_page.current_page - 1
-      : undefined,
-    enabled: enabled && Boolean(sessionId),
-    staleTime: ACTIVE_DATA_STALE_TIME_MS,
-  });
+  const queryClient = useQueryClient();
+  const latestQuery = useSessionDetailQuery(sessionId, undefined, enabled);
+  const [windowState, setWindowState] = useState<{
+    sessionId: string;
+    data: SessionDetailPayload;
+  } | null>(null);
+  const [fetchingPrevious, setFetchingPrevious] = useState(false);
+  const [previousError, setPreviousError] = useState<unknown>(null);
+  const windowRef = useRef(windowState);
+  const previousRequestRef = useRef<Promise<SessionDetailPayload | undefined> | null>(null);
+  windowRef.current = windowState;
+
+  useEffect(() => {
+    setWindowState(null);
+    windowRef.current = null;
+    setPreviousError(null);
+    previousRequestRef.current = null;
+  }, [sessionId]);
+
+  useEffect(() => {
+    const latest = latestQuery.data;
+    if (!latest || latest.session.session_id !== sessionId) return;
+    setWindowState((current) => ({
+      sessionId,
+      data: mergeLatestConversationWindow(
+        current?.sessionId === sessionId ? current.data : undefined,
+        latest,
+      ),
+    }));
+  }, [latestQuery.data, sessionId]);
+
+  const data = windowState?.sessionId === sessionId ? windowState.data : undefined;
+  const fetchPreviousPage = useCallback((): Promise<SessionDetailPayload | undefined> => {
+    if (previousRequestRef.current) return previousRequestRef.current;
+    const current = windowRef.current?.sessionId === sessionId ? windowRef.current.data : undefined;
+    const before = current?.messages_page.previous_cursor;
+    if (!enabled || !sessionId || !before) return Promise.resolve(undefined);
+    setFetchingPrevious(true);
+    setPreviousError(null);
+    const request = queryClient.fetchQuery({
+      queryKey: dashboardQueryKeys.sessions.detail(sessionId, before),
+      queryFn: () => callDashboard({
+        operation: "sessions.detail",
+        input: {
+          session_id: sessionId,
+          message_limit: SESSION_MESSAGE_PAGE_LIMIT,
+          message_before: before,
+        },
+      }),
+      staleTime: Number.POSITIVE_INFINITY,
+    }).then((earlier) => {
+      setWindowState((latest) => latest?.sessionId === sessionId
+        ? { sessionId, data: prependConversationWindow(latest.data, earlier) }
+        : latest);
+      return earlier;
+    }).catch((error: unknown) => {
+      setPreviousError(error);
+      throw error;
+    }).finally(() => {
+      previousRequestRef.current = null;
+      setFetchingPrevious(false);
+    });
+    previousRequestRef.current = request;
+    return request;
+  }, [enabled, queryClient, sessionId]);
+
+  return {
+    data,
+    error: previousError ?? latestQuery.error,
+    isPending: latestQuery.isPending && !data,
+    isFetching: latestQuery.isFetching || fetchingPrevious,
+    isRefetchError: latestQuery.isRefetchError,
+    hasPreviousPage: Boolean(data?.messages_page.has_previous),
+    isFetchingPreviousPage: fetchingPrevious,
+    isFetchPreviousPageError: previousError !== null,
+    fetchPreviousPage,
+  };
 }
 
 export function useConversationActivityQuery(sessionId: string, enabled = true) {

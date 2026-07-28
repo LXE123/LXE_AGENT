@@ -459,7 +459,7 @@ describe("SqliteRuntimeStore", () => {
     });
 
     expect(store.listSessions({ limit: 10, offset: 0 }).items).toHaveLength(1);
-    expect((await store.sessionDetail("s1", { limit: 10, page: 1 }))?.messages).toHaveLength(1);
+    expect((await store.sessionDetail("s1", { limit: 10 }))?.messages).toHaveLength(1);
     expect(store.exportTurnUsage(30)).toEqual([
       expect.objectContaining({ turn_id: "turn-1", items: expect.any(Array) }),
     ]);

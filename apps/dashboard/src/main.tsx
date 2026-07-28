@@ -62,7 +62,6 @@ import type {
   ModelPayload,
   McpServerPayload,
   SessionPayload,
-  SessionDetailPayload,
   ToolsetPayload
 } from "./api/payloads";
 import type { DetailTarget } from "./shared/ui/detail-target";
@@ -96,15 +95,6 @@ import type {
   DashboardSection,
 } from "./shared/navigation";
 const DOCS_HOME_PATH = "README.md";
-
-function mergeConversationPages(pages: SessionDetailPayload[] | undefined): SessionDetailPayload | null {
-  if (!pages?.length) return null;
-  const latest = pages.at(-1)!;
-  return {
-    ...latest,
-    messages: pages.flatMap((page) => page.messages),
-  };
-}
 
 function WorkspaceView<T extends string>({
   activeView,
@@ -644,10 +634,7 @@ function App({
     if (!mcpMutation.isPending) mcpMutation.mutate(server);
   }
 
-  const sessionDetail = useMemo(
-    () => mergeConversationPages(sessionDetailQuery.data?.pages),
-    [sessionDetailQuery.data?.pages],
-  );
+  const sessionDetail = sessionDetailQuery.data ?? null;
   const selectedSession = sessions.items.find((session) => session.session_id === selectedSessionId)
     || sessionDetail?.session
     || null;

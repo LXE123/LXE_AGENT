@@ -23,6 +23,7 @@ describe("DashboardService", () => {
     const detail = {
       session: { session_id: "large-session" },
       messages: [{
+        display_group_id: "group-1",
         role: "tool",
         content: Array.from({ length: 12 }, (_, index) => ({
           type: "tool_result",
@@ -30,7 +31,7 @@ describe("DashboardService", () => {
           content: large,
         })),
       }],
-      messages_page: { current_page: 1 },
+      messages_page: { oldest_cursor: "group-1", newest_cursor: "group-1" },
     };
 
     const preview = dashboardSessionDetailPreview(detail) as {
@@ -208,14 +209,36 @@ describe("DashboardService", () => {
       total: 1,
       summary: { total_sessions: 1 },
     });
+    const latestDetail = await call({
+      operation: "sessions.detail",
+      input: { session_id: "session-one", message_limit: 1 },
+    }) as {
+      messages: Array<{ display_group_id: string; role: string }>;
+      messages_page: { previous_cursor: string };
+    };
+    const previousCursor = latestDetail.messages_page.previous_cursor;
+    expect(latestDetail).toMatchObject({
+      session: { session_id: "session-one" },
+      messages: [
+        { display_group_id: expect.any(String), role: "assistant" },
+        { display_group_id: expect.any(String), role: "tool" },
+        { display_group_id: expect.any(String), role: "assistant" },
+      ],
+      messages_page: {
+        total: 2,
+        raw_message_total: 4,
+        previous_cursor: expect.any(String),
+        has_previous: true,
+      },
+    });
     expect(await call({
       operation: "sessions.detail",
-      input: { session_id: "session-one", message_limit: 1, message_page: 2 },
-    })).toMatchObject({
-      session: { session_id: "session-one" },
-      messages: [{ role: "assistant" }, { role: "tool" }, { role: "assistant" }],
-      messages_page: { total: 2, raw_message_total: 4, current_page: 2 },
-    });
+      input: {
+        session_id: "session-one",
+        message_limit: 1,
+        message_before: previousCursor,
+      },
+    })).toMatchObject({ messages: [{ role: "user" }], messages_page: { has_previous: false } });
     const stampedBefore = Date.now();
     const stamped = await call({
       operation: "sessions.detail",
@@ -225,6 +248,10 @@ describe("DashboardService", () => {
     expect(stamped.messages_page.fetched_at).toBeLessThanOrEqual(Date.now());
     await expect(call({ operation: "sessions.detail", input: { session_id: "missing" } }))
       .rejects.toMatchObject({ code: "not_found", message: "session not found" });
+    await expect(call({
+      operation: "sessions.detail",
+      input: { session_id: "session-one", message_before: "not-a-cursor" },
+    })).rejects.toMatchObject({ code: "invalid_argument", message: expect.stringContaining("cursor") });
     expect(await call({ operation: "sessions.workspace.reload", input: { session_id: "session-one" } }))
       .toMatchObject({ changed: true, generation: 2 });
     expect(workspaceReloads).toEqual(["session-one"]);

@@ -18,6 +18,7 @@ import {
 } from "@lxe/desktop-protocol";
 import type { JsonObject } from "@lxe/protocol";
 import {
+  InvalidTranscriptCursorError,
   mcpServerPrefix,
   normalizeThinkingEffort,
   providerPreferencePatch,
@@ -299,17 +300,21 @@ export class DashboardService {
   }
 
   private async session(input: DashboardRpcSpec["sessions.detail"]["input"]): Promise<JsonObject> {
-    const detail = await this.options.store.sessionDetail(input.session_id, {
-      limit: integer(input.message_limit, 10, 1, 200),
-      ...(input.message_page === undefined
-        ? {}
-        : { page: integer(input.message_page, 1, 1, Number.MAX_SAFE_INTEGER) }),
-    });
+    let detail: JsonObject | undefined;
+    try {
+      detail = await this.options.store.sessionDetail(input.session_id, {
+        limit: integer(input.message_limit, 10, 1, 200),
+        ...(input.message_before === undefined ? {} : { before: input.message_before }),
+      });
+    } catch (error) {
+      if (error instanceof InvalidTranscriptCursorError) rpcError("invalid_argument", error.message);
+      throw error;
+    }
     if (!detail) return rpcError("not_found", "session not found");
     const preview = dashboardSessionDetailPreview(detail);
-    // Stamped per page so the desktop conversation view can tell whether the
-    // newest page it holds already contains a turn. Paging backwards through
-    // history must not make an older snapshot of the newest page look fresh.
+    // Stamped per window so the desktop can retire optimistic turn content only
+    // after the latest transcript window has caught up. Older cursor reads do
+    // not replace that latest-window watermark in the Renderer.
     preview.messages_page = { ...object(preview.messages_page), fetched_at: Date.now() };
     return preview;
   }

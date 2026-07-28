@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RuntimeMessage } from "../../src/engine/types";
-import { SqliteRuntimeStore } from "../../src/state/storage";
+import { InvalidTranscriptCursorError, SqliteRuntimeStore } from "../../src/state/storage";
 import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
@@ -33,13 +33,61 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     expect(listed.items[0]?.source_summary).toEqual({ platform: "feishu", chat_type: "p2p" });
     expect(listed.items[0]?.workspace).toEqual(testWorkspace);
 
-    const detail = await store.sessionDetail("s-1", { limit: 1, page: 2 });
+    const detail = await store.sessionDetail("s-1", { limit: 1 });
+    const previousCursor = String((detail?.messages_page as { previous_cursor: string }).previous_cursor);
     expect(detail).toMatchObject({ session: { workspace: testWorkspace } });
-    expect(detail?.messages).toEqual([{ role: "assistant", content: "world" }]);
-    expect(detail?.messages_page).toMatchObject({ total: 2, current_page: 2, total_pages: 2, has_previous: true, has_next: false });
+    expect(detail?.messages).toEqual([
+      { display_group_id: expect.any(String), role: "assistant", content: "world" },
+    ]);
+    expect(new Set((detail?.messages as Array<{ display_group_id: string }>)
+      .map((message) => message.display_group_id)).size).toBe(1);
+    expect(detail?.messages_page).toMatchObject({
+      total: 2,
+      raw_message_total: 2,
+      limit: 1,
+      oldest_cursor: expect.any(String),
+      newest_cursor: expect.any(String),
+      previous_cursor: expect.any(String),
+      has_previous: true,
+    });
+    expect((await store.sessionDetail("s-1", { limit: 1, before: previousCursor }))?.messages)
+      .toEqual([{ display_group_id: expect.any(String), role: "user", content: "hello" }]);
     expect(await store.sessionDetail("missing", { limit: 10 })).toBeUndefined();
     expect(store.usageOverview(30)).toMatchObject({ totals: { turns: 1, tool_calls: 2, llm_calls: 1, input_tokens: 7, output_tokens: 3 } });
     expect(store.toolUsageStats(30)).toEqual([expect.objectContaining({ name: "read", calls: 2, errors: 0 })]);
+    await store.stop();
+  });
+
+  test("keeps display cursors stable when a new latest window is created", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-cursor-"));
+    roots.push(root);
+    const store = new SqliteRuntimeStore(join(root, "agent.sqlite3"));
+    await store.start();
+    await store.ensureSession({ workspace: testWorkspace, session_id: "cursor-session", source: { platform: "desktop" } });
+    for (let index = 0; index < 10; index += 1) {
+      await store.appendMessage("cursor-session", { role: "user", content: `message-${index}` });
+    }
+    const original = await store.sessionDetail("cursor-session", { limit: 10 });
+    const originalIds = (original?.messages as Array<{ display_group_id: string }>)
+      .map((message) => message.display_group_id);
+
+    await store.appendMessage("cursor-session", { role: "user", content: "message-10" });
+    const latest = await store.sessionDetail("cursor-session", { limit: 10 });
+    const latestIds = (latest?.messages as Array<{ display_group_id: string }>)
+      .map((message) => message.display_group_id);
+
+    expect(latestIds.slice(0, 9)).toEqual(originalIds.slice(1));
+    expect(latestIds.at(-1)).not.toBe(originalIds.at(-1));
+    const previousCursor = String((latest?.messages_page as { previous_cursor: string }).previous_cursor);
+    expect((await store.sessionDetail("cursor-session", { limit: 10, before: previousCursor }))?.messages)
+      .toEqual([expect.objectContaining({ content: "message-0", display_group_id: originalIds[0] })]);
+
+    await store.ensureSession({ workspace: testWorkspace, session_id: "other-session", source: { platform: "desktop" } });
+    await store.appendMessage("other-session", { role: "user", content: "other" });
+    await expect(store.sessionDetail("other-session", { limit: 10, before: previousCursor }))
+      .rejects.toBeInstanceOf(InvalidTranscriptCursorError);
+    await expect(store.sessionDetail("cursor-session", { limit: 10, before: "not-a-cursor" }))
+      .rejects.toBeInstanceOf(InvalidTranscriptCursorError);
     await store.stop();
   });
 
@@ -63,22 +111,22 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       content: [{ type: "text", text: "done" }],
     });
 
-    const detail = await store.sessionDetail("tool-page", { limit: 1, page: 2 });
+    const detail = await store.sessionDetail("tool-page", { limit: 1 });
     expect(detail?.messages).toEqual([
-      expect.objectContaining({ role: "assistant" }),
-      expect.objectContaining({ role: "tool" }),
-      expect.objectContaining({ role: "assistant" }),
+      expect.objectContaining({ display_group_id: expect.any(String), role: "assistant" }),
+      expect.objectContaining({ display_group_id: expect.any(String), role: "tool" }),
+      expect.objectContaining({ display_group_id: expect.any(String), role: "assistant" }),
     ]);
-    expect(detail?.messages_page).toEqual({
+    expect(new Set((detail?.messages as Array<{ display_group_id: string }>)
+      .map((message) => message.display_group_id)).size).toBe(1);
+    expect(detail?.messages_page).toMatchObject({
       total: 2,
       raw_message_total: 4,
-      start: 1,
-      end: 2,
       limit: 1,
-      current_page: 2,
-      total_pages: 2,
+      oldest_cursor: expect.any(String),
+      newest_cursor: expect.any(String),
+      previous_cursor: expect.any(String),
       has_previous: true,
-      has_next: false,
     });
     await store.stop();
   });
@@ -131,7 +179,8 @@ describe("SqliteRuntimeStore dashboard queries", () => {
       { role: "tool", content: [{ type: "tool_result", tool_call_id: "call-1", content: "created" }] },
       { role: "assistant", content: "done" },
     ]);
-    const detail = await store.sessionDetail("artifact-session", { limit: 1, page: 2 });
+    const detail = await store.sessionDetail("artifact-session", { limit: 1 });
+    const artifactGroupId = String((detail?.messages as Array<{ display_group_id: string }>)[0]?.display_group_id);
     expect(detail?.session).toMatchObject({ message_count: 4 });
     expect(detail?.messages).toEqual([
       expect.objectContaining({
@@ -159,7 +208,10 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     await store.start();
     await store.ensureSession({ workspace: testWorkspace, session_id: "artifact-session", source: { platform: "desktop" } });
     expect(await store.resolveArtifact("artifact-session", "artifact-1")).toMatchObject({ path: artifactPath });
-    expect(JSON.stringify(await store.sessionDetail("artifact-session", { limit: 10 }))).not.toContain(artifactPath);
+    const rebuiltDetail = await store.sessionDetail("artifact-session", { limit: 1 });
+    expect((rebuiltDetail?.messages as Array<{ display_group_id: string }>)
+      .every((message) => message.display_group_id === artifactGroupId)).toBe(true);
+    expect(JSON.stringify(rebuiltDetail)).not.toContain(artifactPath);
     await store.stop();
   });
 
@@ -182,10 +234,14 @@ describe("SqliteRuntimeStore dashboard queries", () => {
     ]);
     const detail = await store.sessionDetail("compacted", { limit: 10 });
     expect(detail?.messages).toEqual([
-      { role: "user", content: "old question" },
-      { role: "assistant", content: "old answer" },
-      { role: "system", content: "[上下文已压缩：2 条消息 → 摘要]" },
-      { role: "user", content: "after compaction" },
+      expect.objectContaining({ role: "user", content: "old question", display_group_id: expect.any(String) }),
+      expect.objectContaining({ role: "assistant", content: "old answer", display_group_id: expect.any(String) }),
+      expect.objectContaining({
+        role: "system",
+        content: "[上下文已压缩：2 条消息 → 摘要]",
+        display_group_id: expect.any(String),
+      }),
+      expect.objectContaining({ role: "user", content: "after compaction", display_group_id: expect.any(String) }),
     ]);
     expect(detail?.messages_page).toMatchObject({ total: 4, raw_message_total: 3 });
 

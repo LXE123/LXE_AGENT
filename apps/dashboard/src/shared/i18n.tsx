@@ -217,7 +217,8 @@ export const ZH_TEXT = {
     pageBlocks: (visible: string, total: string) => `当前页 ${visible} / 总 ${total} 对话块`,
     rawMessages: (count: string) => `原始消息 ${count} 条`,
     loadEarlier: "加载更早消息",
-    loadingEarlier: "正在加载更早消息…"
+    loadingEarlier: "正在加载更早消息…",
+    retryEarlier: "重试加载"
   },
   conversation: {
     newTitle: "新对话",
@@ -852,7 +853,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       pageBlocks: (visible: string, total: string) => `${visible} / ${total} conversation blocks on this page`,
       rawMessages: (count: string) => `${count} raw messages`,
       loadEarlier: "Load earlier messages",
-      loadingEarlier: "Loading earlier messages…"
+      loadingEarlier: "Loading earlier messages…",
+      retryEarlier: "Retry loading"
     },
     conversation: {
       newTitle: "New chat",

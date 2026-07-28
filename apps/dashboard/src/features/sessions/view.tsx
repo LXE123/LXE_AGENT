@@ -865,7 +865,7 @@ export function SessionDetailView({
   hasOlder: boolean;
   loadingOlder: boolean;
   loadOlderError: string;
-  onLoadOlder: () => Promise<unknown>;
+  onLoadOlder: () => Promise<SessionDetailPayload | undefined>;
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
   onOpenFile: (artifactId: string) => Promise<void>;
@@ -884,6 +884,7 @@ export function SessionDetailView({
   // the default, which opens a group that contains an error.
   const [toolGroupOverrides, setToolGroupOverrides] = useState<Map<string, boolean>>(() => new Map());
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const olderSentinelRef = useRef<HTMLDivElement>(null);
   const loadingOlderRef = useRef(false);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const liveTurns = [activity?.latest, activity?.active, ...(activity?.queued ?? [])]
@@ -923,21 +924,33 @@ export function SessionDetailView({
     const next = !toolGroupExpanded(group);
     setToolGroupOverrides((current) => new Map(current).set(group.key, next));
   };
-  const loadOlder = async () => {
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current) return;
     const transcript = transcriptRef.current;
     const previousHeight = transcript?.scrollHeight ?? 0;
     const previousTop = transcript?.scrollTop ?? 0;
     loadingOlderRef.current = true;
     try {
-      await onLoadOlder();
+      const earlier = await onLoadOlder();
       window.requestAnimationFrame(() => {
         if (transcript) transcript.scrollTop = previousTop + transcript.scrollHeight - previousHeight;
         loadingOlderRef.current = false;
+        if (transcript && earlier?.messages_page.has_previous && transcript.scrollTop <= 120) void loadOlder();
       });
     } catch {
       loadingOlderRef.current = false;
     }
-  };
+  }, [onLoadOlder]);
+  useEffect(() => {
+    const root = transcriptRef.current;
+    const target = olderSentinelRef.current;
+    if (!root || !target || !hasOlder || loadingOlder || loadOlderError) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) void loadOlder();
+    }, { root, rootMargin: "120px 0px 0px 0px" });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasOlder, loadOlder, loadOlderError, loadingOlder]);
   const handleTranscriptScroll = () => {
     const transcript = transcriptRef.current;
     if (!transcript || loadingOlderRef.current) return;
@@ -1019,14 +1032,23 @@ export function SessionDetailView({
       {!loading && !error ? (
         <div className="conversation-scroll-area">
           <div className="conversation-transcript" onScroll={handleTranscriptScroll} ref={transcriptRef}>
-            <div className="conversation-feed">
-              {hasOlder ? (
-                <button className="conversation-load-earlier" disabled={loadingOlder} onClick={() => void loadOlder()} type="button">
-                  {loadingOlder ? <LoaderCircle className="conversation-spinner" size={14} /> : null}
-                  {loadingOlder ? t.sessionDetail.loadingEarlier : t.sessionDetail.loadEarlier}
-                </button>
-              ) : null}
-              {loadOlderError ? <div className="message-page-error">{loadOlderError}</div> : null}
+            <div className={showEmpty ? "conversation-feed is-empty" : "conversation-feed"}>
+              <div className="conversation-history-sentinel" ref={olderSentinelRef}>
+                {loadingOlder ? (
+                  <span aria-live="polite" className="conversation-history-loading">
+                    <LoaderCircle className="conversation-spinner" size={14} />
+                    {t.sessionDetail.loadingEarlier}
+                  </span>
+                ) : null}
+                {loadOlderError ? (
+                  <div className="message-page-error" role="alert">
+                    <span>{loadOlderError}</span>
+                    <button className="conversation-load-earlier" onClick={() => void loadOlder()} type="button">
+                      {t.sessionDetail.retryEarlier}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               {messages.length ? (
                 <div className="message-list">
                   {renderItems.map((item, itemIndex) => {

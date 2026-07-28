@@ -4,9 +4,8 @@ export const dashboardQueryKeys = {
     lists: ["sessions", "list"] as const,
     list: (query: string) => ["sessions", "list", query.trim()] as const,
     details: ["sessions", "detail"] as const,
-    detail: (sessionId: string, page: number | "latest") =>
-      ["sessions", "detail", sessionId, page] as const,
-    conversation: (sessionId: string) => ["sessions", "detail", sessionId, "conversation"] as const,
+    detail: (sessionId: string, cursor: string | "latest") =>
+      ["sessions", "detail", sessionId, cursor] as const,
     detailSession: (sessionId: string) => ["sessions", "detail", sessionId] as const,
     activity: (sessionId: string) => ["sessions", "activity", sessionId] as const,
   },

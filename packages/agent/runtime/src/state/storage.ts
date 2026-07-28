@@ -175,7 +175,60 @@ interface TranscriptDisplayPage {
   page: JsonObject;
 }
 
+export class InvalidTranscriptCursorError extends Error {
+  override readonly name = "InvalidTranscriptCursorError";
+}
+
+const displayGroupCursor = (sessionId: string, groupNumber: number): string =>
+  `dg1_${Buffer.from(JSON.stringify([sessionId, groupNumber]), "utf8").toString("base64url")}`;
+
+const displayGroupNumber = (sessionId: string, cursor: string): number => {
+  try {
+    if (!cursor.startsWith("dg1_")) throw new Error("unsupported cursor version");
+    const decoded: unknown = JSON.parse(Buffer.from(cursor.slice(4), "base64url").toString("utf8"));
+    if (!Array.isArray(decoded) || decoded.length !== 2 || decoded[0] !== sessionId
+      || !Number.isSafeInteger(decoded[1]) || Number(decoded[1]) < 0
+      || displayGroupCursor(sessionId, Number(decoded[1])) !== cursor) {
+      throw new Error("cursor payload is invalid");
+    }
+    return Number(decoded[1]);
+  } catch (cause) {
+    throw new InvalidTranscriptCursorError("message cursor is invalid or belongs to another session", { cause });
+  }
+};
+
+const displayWindow = (
+  sessionId: string,
+  total: number,
+  options: DashboardSessionPageOptions,
+): { limit: number; start: number; end: number } => {
+  const limit = Math.max(1, Math.min(Math.trunc(options.limit), 200));
+  const end = options.before === undefined ? total : displayGroupNumber(sessionId, options.before);
+  if (end < 0 || end > total || (options.before !== undefined && end === total)) {
+    throw new InvalidTranscriptCursorError("message cursor is outside the current transcript");
+  }
+  return { limit, start: Math.max(0, end - limit), end };
+};
+
+const displayPageMetadata = (
+  sessionId: string,
+  total: number,
+  rawMessageTotal: number,
+  limit: number,
+  start: number,
+  end: number,
+): JsonObject => ({
+  total,
+  raw_message_total: rawMessageTotal,
+  limit,
+  oldest_cursor: start < end ? displayGroupCursor(sessionId, start) : null,
+  newest_cursor: start < end ? displayGroupCursor(sessionId, end - 1) : null,
+  previous_cursor: start > 0 ? displayGroupCursor(sessionId, start) : null,
+  has_previous: start > 0,
+});
+
 const transcriptDisplayPage = (
+  sessionId: string,
   events: JsonObject[],
   options: DashboardSessionPageOptions,
 ): TranscriptDisplayPage => {
@@ -202,47 +255,60 @@ const transcriptDisplayPage = (
       }
       continue;
     }
+    if (transcriptArtifact(event) && pendingStart !== undefined) {
+      pendingEnd = index + 1;
+      continue;
+    }
     if (!transcriptDisplayMarker(event)) continue;
     flushPending();
     ranges.push([index, index + 1]);
   }
   flushPending();
 
-  const limit = Math.max(1, Math.min(Math.trunc(options.limit), 200));
   const total = ranges.length;
-  const totalPages = Math.max(1, Math.ceil(total / limit));
-  const currentPage = options.page === undefined
-    ? totalPages
-    : Math.max(1, Math.min(Math.trunc(options.page), totalPages));
-  const start = Math.min(total, (currentPage - 1) * limit);
-  const end = Math.min(total, start + limit);
+  const { limit, start, end } = displayWindow(sessionId, total, options);
   const selected = ranges.slice(start, end);
-  const selectedEvents = selected.length > 0
-    ? events.slice(selected[0]![0], selected.at(-1)![1])
-    : [];
   const messages: JsonObject[] = [];
-  for (const event of selectedEvents) {
-    if (text(event.kind) === "message") {
-      const message = parseObject(event.message);
-      if (text(message.role)) messages.push(publicMessage(message));
-      continue;
+  const visibleArtifactPaths = new Set<string>();
+  for (let selectedIndex = 0; selectedIndex < selected.length; selectedIndex += 1) {
+    const [eventStart, eventEnd] = selected[selectedIndex]!;
+    const displayGroupId = displayGroupCursor(sessionId, start + selectedIndex);
+    let latestMessage: JsonObject | undefined;
+    for (const event of events.slice(eventStart, eventEnd)) {
+      if (text(event.kind) === "message") {
+        const message = parseObject(event.message);
+        if (text(message.role)) {
+          latestMessage = { ...publicMessage(message), display_group_id: displayGroupId };
+          messages.push(latestMessage);
+        }
+        continue;
+      }
+      const artifact = transcriptArtifact(event);
+      if (artifact && latestMessage) {
+        const key = `${artifact.turn_id}\u0000${artifact.path}`;
+        if (visibleArtifactPaths.has(key)) continue;
+        visibleArtifactPaths.add(key);
+        const existing = Array.isArray(latestMessage.artifacts) ? latestMessage.artifacts : [];
+        latestMessage.artifacts = [...existing, publicArtifact(artifact)];
+        continue;
+      }
+      const marker = transcriptDisplayMarker(event);
+      if (marker) {
+        latestMessage = { ...marker, display_group_id: displayGroupId };
+        messages.push(latestMessage);
+      }
     }
-    const marker = transcriptDisplayMarker(event);
-    if (marker) messages.push(marker);
   }
   return {
     messages,
-    page: {
+    page: displayPageMetadata(
+      sessionId,
       total,
-      raw_message_total: events.filter((event) => text(event.kind) === "message").length,
+      events.filter((event) => text(event.kind) === "message").length,
+      limit,
       start,
       end,
-      limit,
-      current_page: currentPage,
-      total_pages: totalPages,
-      has_previous: currentPage > 1,
-      has_next: currentPage < totalPages,
-    },
+    ),
   };
 };
 
@@ -254,7 +320,7 @@ export interface DashboardSessionListOptions {
 
 export interface DashboardSessionPageOptions {
   limit: number;
-  page?: number;
+  before?: string;
 }
 
 interface ReplayCacheEntry {
@@ -725,7 +791,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const path = this.transcriptPath(safeSessionId);
     await this.waitForSessionWrites(safeSessionId);
     const state = await this.enqueueIndexSync(safeSessionId, path);
-    if (!state) return transcriptDisplayPage([], options);
+    if (!state) return transcriptDisplayPage(safeSessionId, [], options);
     return await this.readIndexedDisplayPage(safeSessionId, path, state, options);
   }
 
@@ -1819,16 +1885,10 @@ export class SqliteRuntimeStore implements RuntimeStore {
     state: TranscriptFileState,
     options: DashboardSessionPageOptions,
   ): Promise<TranscriptDisplayPage> {
-    const limit = Math.max(1, Math.min(Math.trunc(options.limit), 200));
     const total = state.display_group_count;
-    const totalPages = Math.max(1, Math.ceil(total / limit));
-    const currentPage = options.page === undefined
-      ? totalPages
-      : Math.max(1, Math.min(Math.trunc(options.page), totalPages));
-    const start = Math.min(total, (currentPage - 1) * limit);
-    const end = Math.min(total, start + limit);
-    const groups = this.allPrepared<{ byte_start: number; byte_end: number }>(`
-      SELECT byte_start, byte_end FROM transcript_display_groups
+    const { limit, start, end } = displayWindow(sessionId, total, options);
+    const groups = this.allPrepared<{ group_number: number; byte_start: number; byte_end: number }>(`
+      SELECT group_number, byte_start, byte_end FROM transcript_display_groups
       WHERE session_id = ? AND group_number >= ? AND group_number < ?
       ORDER BY group_number ASC
     `, sessionId, start, end);
@@ -1837,46 +1897,42 @@ export class SqliteRuntimeStore implements RuntimeStore {
       const byteStart = Number(groups[0]!.byte_start);
       const byteEnd = Number(groups.at(-1)!.byte_end);
       const bytes = await this.readByteRange(path, byteStart, byteEnd);
-      let latestMessage: JsonObject | undefined;
       const visibleArtifactPaths = new Set<string>();
-      for (const { event } of scanTranscriptBuffer(bytes, byteStart, true).lines) {
-        if (text(event.kind) === "message") {
-          const message = parseObject(event.message);
-          if (text(message.role)) {
-            latestMessage = publicMessage(message);
+      for (const group of groups) {
+        const groupStart = Number(group.byte_start);
+        const groupEnd = Number(group.byte_end);
+        const groupBytes = bytes.subarray(groupStart - byteStart, groupEnd - byteStart);
+        const displayGroupId = displayGroupCursor(sessionId, Number(group.group_number));
+        let latestMessage: JsonObject | undefined;
+        for (const { event } of scanTranscriptBuffer(groupBytes, groupStart, true).lines) {
+          if (text(event.kind) === "message") {
+            const message = parseObject(event.message);
+            if (text(message.role)) {
+              latestMessage = { ...publicMessage(message), display_group_id: displayGroupId };
+              messages.push(latestMessage);
+            }
+            continue;
+          }
+          const artifact = transcriptArtifact(event);
+          if (artifact && latestMessage) {
+            const key = `${artifact.turn_id}\u0000${artifact.path}`;
+            if (visibleArtifactPaths.has(key)) continue;
+            visibleArtifactPaths.add(key);
+            const existing = Array.isArray(latestMessage.artifacts) ? latestMessage.artifacts : [];
+            latestMessage.artifacts = [...existing, publicArtifact(artifact)];
+            continue;
+          }
+          const marker = transcriptDisplayMarker(event);
+          if (marker) {
+            latestMessage = { ...marker, display_group_id: displayGroupId };
             messages.push(latestMessage);
           }
-          continue;
-        }
-        const artifact = transcriptArtifact(event);
-        if (artifact && latestMessage) {
-          const key = `${artifact.turn_id}\u0000${artifact.path}`;
-          if (visibleArtifactPaths.has(key)) continue;
-          visibleArtifactPaths.add(key);
-          const existing = Array.isArray(latestMessage.artifacts) ? latestMessage.artifacts : [];
-          latestMessage.artifacts = [...existing, publicArtifact(artifact)];
-          continue;
-        }
-        const marker = transcriptDisplayMarker(event);
-        if (marker) {
-          latestMessage = marker;
-          messages.push(marker);
         }
       }
     }
     return {
       messages,
-      page: {
-        total,
-        raw_message_total: state.raw_message_count,
-        start,
-        end,
-        limit,
-        current_page: currentPage,
-        total_pages: totalPages,
-        has_previous: currentPage > 1,
-        has_next: currentPage < totalPages,
-      },
+      page: displayPageMetadata(sessionId, total, state.raw_message_count, limit, start, end),
     };
   }
 

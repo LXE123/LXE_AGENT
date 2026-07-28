@@ -186,10 +186,10 @@ describe("desktop agent protocol", () => {
     });
     expect(parseDashboardRpcCall({
       operation: "sessions.detail",
-      input: { session_id: "session-1", message_page: 2 },
+      input: { session_id: "session-1", message_before: " cursor-2 " },
     })).toEqual({
       operation: "sessions.detail",
-      input: { session_id: "session-1", message_limit: 10, message_page: 2 },
+      input: { session_id: "session-1", message_limit: 10, message_before: "cursor-2" },
     });
     expect(parseDashboardRpcCall({
       operation: "sessions.send",
@@ -223,6 +223,10 @@ describe("desktop agent protocol", () => {
   });
 
   test("rejects malformed and agent-local Dashboard RPC calls", () => {
+    expect(() => parseDashboardRpcCall({
+      operation: "sessions.detail",
+      input: { session_id: "session-1", message_page: 2 },
+    })).toThrow("unsupported fields");
     expect(() => parseDashboardRpcCall({
       operation: "models.update",
       input: { provider: "kimi_coding", enabled: true },

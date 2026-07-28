@@ -77,6 +77,7 @@ export type SessionPayload = {
 };
 
 export type SessionMessage = {
+  display_group_id: string;
   role: string;
   content?: unknown;
   tool_call_id?: string;
@@ -112,13 +113,11 @@ export type MessagesPagePayload = {
   fetched_at: number;
   total: number;
   raw_message_total: number;
-  start: number;
-  end: number;
   limit: number;
-  current_page: number;
-  total_pages: number;
+  oldest_cursor: string | null;
+  newest_cursor: string | null;
+  previous_cursor: string | null;
   has_previous: boolean;
-  has_next: boolean;
 };
 
 export type SessionDetailPayload = {
@@ -426,7 +425,7 @@ export interface DashboardRpcSpec {
     result: SessionListPayload;
   };
   "sessions.detail": {
-    input: { session_id: string; message_limit?: number; message_page?: number };
+    input: { session_id: string; message_limit?: number; message_before?: string };
     result: SessionDetailPayload;
   };
   "sessions.send": {
@@ -621,15 +620,15 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         limit: integerValue(input.limit, `${operation}.limit`, 50, 1, 200),
         offset: integerValue(input.offset, `${operation}.offset`, 0, 0, Number.MAX_SAFE_INTEGER),
       } };
-    case "sessions.detail":
-      exactKeys(input, ["session_id", "message_limit", "message_page"], `${operation}.input`);
+    case "sessions.detail": {
+      exactKeys(input, ["session_id", "message_limit", "message_before"], `${operation}.input`);
+      const messageBefore = textValue(input.message_before, `${operation}.message_before`, { optional: true });
       return { operation, input: {
         session_id: textValue(input.session_id, `${operation}.session_id`)!,
         message_limit: integerValue(input.message_limit, `${operation}.message_limit`, 10, 1, 200),
-        ...(input.message_page === undefined ? {} : {
-          message_page: integerValue(input.message_page, `${operation}.message_page`, 1, 1, Number.MAX_SAFE_INTEGER),
-        }),
+        ...(messageBefore === undefined ? {} : { message_before: messageBefore }),
       } };
+    }
     case "sessions.send": {
       exactKeys(input, ["session_id", "text", "attachment_ids"], `${operation}.input`);
       const text = textValue(input.text, `${operation}.text`, { allowEmpty: true })!;

@@ -4211,17 +4211,6 @@ h1 {
   padding-right: 4px;
 }
 
-/*
- * Pins a short transcript to the bottom the way `align-content: end` did,
- * without its defect: grid/flex end-alignment pushes overflow past the top
- * edge, and scrollable overflow never extends that way, so older messages
- * became unreachable. An auto margin collapses to zero once content overflows,
- * which leaves the container scrollable from the very first message.
- */
-.conversation-transcript > :first-child {
-  margin-top: auto;
-}
-
 /* Children keep their natural height instead of being squeezed to fit. */
 .conversation-transcript > * {
   flex: 0 0 auto;
@@ -7655,10 +7644,6 @@ pre {
   scrollbar-gutter: stable;
 }
 
-.conversation-transcript > :first-child {
-  margin-top: auto;
-}
-
 .conversation-feed {
   display: flex;
   width: min(820px, calc(100% - 48px));
@@ -7668,6 +7653,33 @@ pre {
   gap: 4px;
   margin-inline: auto;
   padding: 28px 0 34px;
+}
+
+.conversation-feed.is-empty {
+  margin-block: auto;
+}
+
+.conversation-history-sentinel {
+  display: flex;
+  min-height: 1px;
+  align-items: center;
+  justify-content: center;
+}
+
+.conversation-history-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.conversation-history-sentinel .message-page-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .conversation-feed .message-list {

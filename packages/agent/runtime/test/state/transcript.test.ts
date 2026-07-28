@@ -107,8 +107,8 @@ describe("Transcript v2", () => {
     for (const line of lines) expect(() => JSON.parse(line)).not.toThrow();
     const page = await store.loadTranscriptDisplayPage("torn", { limit: 10 });
     expect(page.messages).toEqual([
-      { role: "user", content: "hello" },
-      { role: "user", content: "next" },
+      expect.objectContaining({ role: "user", content: "hello", display_group_id: expect.any(String) }),
+      expect.objectContaining({ role: "user", content: "next", display_group_id: expect.any(String) }),
     ]);
     await store.stop();
   });

@@ -32,11 +32,11 @@ test("optimistic cards retire on transcript watermarks, never on message text", 
 
 test("the transcript stays scrollable back through history", () => {
   const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
-  // End-alignment pushes overflow past the top edge, where scrollable overflow
-  // never reaches, which made older messages unreachable. An auto margin pins a
-  // short transcript to the bottom without that defect.
   assert.doesNotMatch(styles, /\.conversation-transcript \{[^}]*align-content: end/);
-  assert.match(styles, /\.conversation-transcript > :first-child \{\s*margin-top: auto;/);
+  assert.doesNotMatch(styles, /\.conversation-transcript > :first-child \{\s*margin-top: auto;/);
+  assert.match(view, /new IntersectionObserver/);
+  assert.match(view, /rootMargin: "120px 0px 0px 0px"/);
+  assert.match(view, /previousHeight[\s\S]*?transcript\.scrollHeight - previousHeight/);
   // Following every stream delta would drag the reader back down mid-scroll.
   assert.match(view, /if \(!loadingOlderRef\.current && pinnedToBottom\) scrollToLatest\(\)/);
   assert.match(view, /conversation-jump-latest/);
@@ -91,13 +91,15 @@ test("input attachments expose opaque chips and open through Main", () => {
   assert.doesNotMatch(main, /sessions\.attachment\.open"[\s\S]{0,160}path/);
 });
 
-test("dashboard sends through Main, restores activity, and uses latest-first history paging", () => {
+test("dashboard sends through Main, restores activity, and merges cursor history", () => {
   assert.match(main, /operation: "sessions\.send"/);
   assert.match(main, /operation: "sessions\.stop"/);
   assert.match(main, /onConversationEvent/);
   assert.match(main, /useConversationActivityQuery/);
   assert.match(queries, /operation: "sessions\.activity"/);
-  assert.match(queries, /getPreviousPageParam/);
+  assert.match(queries, /message_before: before/);
+  assert.match(queries, /mergeLatestConversationWindow/);
+  assert.match(queries, /prependConversationWindow/);
   assert.doesNotMatch(main, /response_route_id/);
 });
 
