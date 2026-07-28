@@ -32,6 +32,25 @@ test("macOS collapsed sidebar contains all native traffic lights", () => {
   );
 });
 
+test("macOS conversations merge the page header into the native title-bar row", () => {
+  assert.match(
+    styles,
+    /\.desktop-platform-darwin \.app-shell\.sessions-focus > \.main-panel\s*\{\s*padding-top:\s*0;/
+  );
+  assert.match(
+    styles,
+    /\.desktop-platform-darwin:has\(\.app-shell\.sessions-focus\) > \.desktop-window-drag-region\s*\{[^}]*pointer-events:\s*none;[^}]*-webkit-app-region:\s*no-drag;/s
+  );
+  assert.match(
+    styles,
+    /\.desktop-platform-darwin \.sessions-focus \.conversation-header\s*\{[^}]*z-index:\s*21;[^}]*background:\s*var\(--surface\);[^}]*-webkit-app-region:\s*drag;/s
+  );
+  assert.match(
+    styles,
+    /\.desktop-platform-darwin \.sessions-focus \.conversation-header button\s*\{[^}]*-webkit-app-region:\s*no-drag;/s
+  );
+});
+
 test("sidebar header omits the dedicated brand control", () => {
   assert.doesNotMatch(main, /sidebar-brand/);
   assert.doesNotMatch(styles, /\.sidebar-brand/);

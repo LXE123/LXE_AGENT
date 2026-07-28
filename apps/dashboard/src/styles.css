@@ -147,6 +147,16 @@ button {
   padding-top: 40px;
 }
 
+.desktop-platform-darwin:has(.app-shell.sessions-focus) > .desktop-window-drag-region {
+  pointer-events: none;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-platform-darwin .app-shell.sessions-focus > .main-panel {
+  padding-top: 0;
+}
+
 .desktop-loading,
 .desktop-onboarding,
 .desktop-fatal {
@@ -7520,6 +7530,18 @@ pre {
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 96%, transparent);
   backdrop-filter: blur(14px);
+}
+
+.desktop-platform-darwin .sessions-focus .conversation-header {
+  z-index: 21;
+  background: var(--surface);
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+.desktop-platform-darwin .sessions-focus .conversation-header button {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
 
 .conversation-header-sidebar-toggle {
