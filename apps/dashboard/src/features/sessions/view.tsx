@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import {
   Brain,
   CheckCircle2,
+  ChevronDown,
   ChevronRight,
   Copy,
   FileText,
@@ -42,6 +43,9 @@ import type {
   SourceSummary
 } from "../../api/payloads";
 import { markdownComponents } from "../../shared/ui/markdown";
+
+/** How close to the bottom still counts as "following the reply". */
+const BOTTOM_PIN_THRESHOLD_PX = 80;
 
 function sourceLabel(source: SourceSummary | Record<string, unknown>): string {
   const platform = String(source.platform || "unknown");
@@ -666,17 +670,28 @@ export function SessionDetailView({
   const renderItems = useMemo(() => buildConversationItems(messages), [messages]);
   const [sessionInfoOpen, setSessionInfoOpen] = useState(false);
   const [expandedToolGroups, setExpandedToolGroups] = useState<Set<string>>(() => new Set());
-  const bottomRef = useRef<HTMLDivElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const loadingOlderRef = useRef(false);
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
   const liveTurns = [activity?.latest, activity?.active, ...(activity?.queued ?? [])]
     .filter((turn): turn is DesktopConversationTurnPayload => Boolean(turn));
+  const scrollToLatest = () => {
+    const transcript = transcriptRef.current;
+    if (!transcript) return;
+    // Moving this container's own scrollTop, rather than scrollIntoView, keeps
+    // the surrounding page where the user left it.
+    transcript.scrollTop = transcript.scrollHeight;
+    setPinnedToBottom(true);
+  };
   useEffect(() => {
     setSessionInfoOpen(false);
+    setPinnedToBottom(true);
   }, [session?.session_id]);
   useEffect(() => {
-    if (!loadingOlderRef.current) bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [activity?.active?.stream?.seq, activity?.queued.length, detail?.messages.length]);
+    // Following every delta would fight anyone reading back through the turn,
+    // so only stay glued to the bottom when that is already where they are.
+    if (!loadingOlderRef.current && pinnedToBottom) scrollToLatest();
+  }, [activity?.active?.stream?.seq, activity?.queued.length, detail?.messages.length, pinnedToBottom]);
   const detailItems = session ? [
     { label: t.sessionDetail.sessionId, value: session.session_id, mono: true },
     { label: t.sessionDetail.source, value: sourceLabel(session.source_summary || session.source) },
@@ -712,7 +727,14 @@ export function SessionDetailView({
       loadingOlderRef.current = false;
     }
   };
+  const handleTranscriptScroll = () => {
+    const transcript = transcriptRef.current;
+    if (!transcript || loadingOlderRef.current) return;
+    const distanceFromBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight;
+    setPinnedToBottom(distanceFromBottom <= BOTTOM_PIN_THRESHOLD_PX);
+  };
   const showEmpty = !loading && !error && !messages.length && !liveTurns.length;
+  const showJumpToLatest = !pinnedToBottom && (Boolean(messages.length) || Boolean(liveTurns.length));
   return (
     <div className="session-detail conversation-view">
       {session ? (
@@ -744,68 +766,75 @@ export function SessionDetailView({
       {loading ? <EmptyState label={t.sessionDetail.loading} /> : null}
       {error ? <EmptyState label={t.common.errorPrefix(t.sessionDetail.errorLabel, error)} /> : null}
       {!loading && !error ? (
-        <div className="conversation-transcript" ref={transcriptRef}>
-          {hasOlder ? (
-            <button className="conversation-load-earlier" disabled={loadingOlder} onClick={() => void loadOlder()} type="button">
-              {loadingOlder ? <LoaderCircle className="conversation-spinner" size={14} /> : null}
-              {loadingOlder ? t.sessionDetail.loadingEarlier : t.sessionDetail.loadEarlier}
+        <div className="conversation-scroll-area">
+          <div className="conversation-transcript" onScroll={handleTranscriptScroll} ref={transcriptRef}>
+            {hasOlder ? (
+              <button className="conversation-load-earlier" disabled={loadingOlder} onClick={() => void loadOlder()} type="button">
+                {loadingOlder ? <LoaderCircle className="conversation-spinner" size={14} /> : null}
+                {loadingOlder ? t.sessionDetail.loadingEarlier : t.sessionDetail.loadEarlier}
+              </button>
+            ) : null}
+            {loadOlderError ? <div className="message-page-error">{loadOlderError}</div> : null}
+            {messages.length ? (
+              <div className="message-list">
+                {renderItems.map((item, itemIndex) => {
+                  if (item.type === "tool_group") {
+                    return <ToolTurnGroup expanded={expandedToolGroups.has(item.group.key)} group={item.group}
+                      key={item.group.key} onToggle={() => toggleToolGroup(item.group.key)} />;
+                  }
+                  const { message, index, toolGroups } = item;
+                  const role = roleLabel(message.role);
+                  const previousItem = renderItems[itemIndex - 1];
+                  const nextItem = renderItems[itemIndex + 1];
+                  const previousIsAssistant = previousItem?.type === "message"
+                    && roleLabel(previousItem.message.role) === "assistant";
+                  const nextIsAssistant = nextItem?.type === "message"
+                    && roleLabel(nextItem.message.role) === "assistant";
+                  const showRoleBadge = !(role === "assistant" && previousIsAssistant);
+                  const hasMessageHeader = showRoleBadge || Boolean(message.tool_name || message.tool_call_id);
+                  const chainClass = role === "assistant"
+                    ? [previousIsAssistant ? "assistant-chain-from-previous" : "", nextIsAssistant ? "assistant-chain-to-next" : ""]
+                      .filter(Boolean).join(" ")
+                    : "";
+                  return (
+                    <article className={`message-card role-${role} ${chainClass}`} key={`${role}-${index}`}>
+                      {hasMessageHeader ? (
+                        <div className="message-header">
+                          {showRoleBadge ? <RoleBadge role={role} /> : null}
+                          {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
+                          {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
+                        </div>
+                      ) : null}
+                      <MessageContent content={message.content} message={message} />
+                      {toolGroups.length ? (
+                        <div className="assistant-tool-stack">
+                          {toolGroups.map((group) => <ToolTurnGroup embedded expanded={expandedToolGroups.has(group.key)}
+                            group={group} key={group.key} onToggle={() => toggleToolGroup(group.key)} />)}
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            ) : null}
+            {liveTurns.map((turn) => (
+              <LocalTurnCards
+                key={turn.turn_id}
+                onOpenFile={onOpenFile}
+                transcriptFetchedAt={transcriptFetchedAt}
+                turn={turn}
+              />
+            ))}
+            {showEmpty ? (
+              <EmptyState label={newConversation ? t.conversation.newHint : t.sessionDetail.empty} />
+            ) : null}
+          </div>
+          {showJumpToLatest ? (
+            <button className="conversation-jump-latest" onClick={scrollToLatest} type="button">
+              <ChevronDown size={14} />
+              <span>{t.conversation.jumpToLatest}</span>
             </button>
           ) : null}
-          {loadOlderError ? <div className="message-page-error">{loadOlderError}</div> : null}
-          {messages.length ? (
-            <div className="message-list">
-              {renderItems.map((item, itemIndex) => {
-                if (item.type === "tool_group") {
-                  return <ToolTurnGroup expanded={expandedToolGroups.has(item.group.key)} group={item.group}
-                    key={item.group.key} onToggle={() => toggleToolGroup(item.group.key)} />;
-                }
-                const { message, index, toolGroups } = item;
-                const role = roleLabel(message.role);
-                const previousItem = renderItems[itemIndex - 1];
-                const nextItem = renderItems[itemIndex + 1];
-                const previousIsAssistant = previousItem?.type === "message"
-                  && roleLabel(previousItem.message.role) === "assistant";
-                const nextIsAssistant = nextItem?.type === "message"
-                  && roleLabel(nextItem.message.role) === "assistant";
-                const showRoleBadge = !(role === "assistant" && previousIsAssistant);
-                const hasMessageHeader = showRoleBadge || Boolean(message.tool_name || message.tool_call_id);
-                const chainClass = role === "assistant"
-                  ? [previousIsAssistant ? "assistant-chain-from-previous" : "", nextIsAssistant ? "assistant-chain-to-next" : ""]
-                    .filter(Boolean).join(" ")
-                  : "";
-                return (
-                  <article className={`message-card role-${role} ${chainClass}`} key={`${role}-${index}`}>
-                    {hasMessageHeader ? (
-                      <div className="message-header">
-                        {showRoleBadge ? <RoleBadge role={role} /> : null}
-                        {message.tool_name ? <span className="muted">{message.tool_name}</span> : null}
-                        {message.tool_call_id ? <code>{message.tool_call_id}</code> : null}
-                      </div>
-                    ) : null}
-                    <MessageContent content={message.content} message={message} />
-                    {toolGroups.length ? (
-                      <div className="assistant-tool-stack">
-                        {toolGroups.map((group) => <ToolTurnGroup embedded expanded={expandedToolGroups.has(group.key)}
-                          group={group} key={group.key} onToggle={() => toggleToolGroup(group.key)} />)}
-                      </div>
-                    ) : null}
-                  </article>
-                );
-              })}
-            </div>
-          ) : null}
-          {liveTurns.map((turn) => (
-            <LocalTurnCards
-              key={turn.turn_id}
-              onOpenFile={onOpenFile}
-              transcriptFetchedAt={transcriptFetchedAt}
-              turn={turn}
-            />
-          ))}
-          {showEmpty ? (
-            <EmptyState label={newConversation ? t.conversation.newHint : t.sessionDetail.empty} />
-          ) : null}
-          <div ref={bottomRef} />
         </div>
       ) : null}
       <div className="conversation-live-status" aria-live="polite">

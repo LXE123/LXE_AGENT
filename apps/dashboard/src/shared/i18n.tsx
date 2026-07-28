@@ -183,6 +183,7 @@ export const ZH_TEXT = {
     thinking: "正在思考",
     toolPending: "正在准备工具",
     sending: "正在发送…",
+    jumpToLatest: "跳到最新",
     files: "本轮产出的文件",
     openFile: (name: string) => `打开 ${name}`,
     openFileFailed: (reason: string) => `打开文件失败：${reason}`
@@ -754,6 +755,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       thinking: "Thinking",
       toolPending: "Preparing tools",
       sending: "Sending…",
+      jumpToLatest: "Jump to latest",
       files: "Files from this turn",
       openFile: (name: string) => `Open ${name}`,
       openFileFailed: (reason: string) => `Could not open the file: ${reason}`

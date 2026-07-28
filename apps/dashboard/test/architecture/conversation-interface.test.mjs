@@ -26,6 +26,18 @@ test("optimistic cards retire on transcript watermarks, never on message text", 
   assert.match(main, /transcriptFetchedAt=\{sessionDetail\?\.messages_page\.fetched_at/);
 });
 
+test("the transcript stays scrollable back through history", () => {
+  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
+  // End-alignment pushes overflow past the top edge, where scrollable overflow
+  // never reaches, which made older messages unreachable. An auto margin pins a
+  // short transcript to the bottom without that defect.
+  assert.doesNotMatch(styles, /\.conversation-transcript \{[^}]*align-content: end/);
+  assert.match(styles, /\.conversation-transcript > :first-child \{\s*margin-top: auto;/);
+  // Following every stream delta would drag the reader back down mid-scroll.
+  assert.match(view, /if \(!loadingOlderRef\.current && pinnedToBottom\) scrollToLatest\(\)/);
+  assert.match(view, /conversation-jump-latest/);
+});
+
 test("tool files reach the conversation and open through Main", () => {
   assert.match(view, /turn-file-chip/);
   assert.match(view, /turn\.files\.length/);

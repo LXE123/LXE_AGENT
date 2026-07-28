@@ -4198,19 +4198,70 @@ h1 {
 }
 
 .conversation-transcript {
-  display: grid;
+  display: flex;
   min-height: 0;
   flex: 1;
-  align-content: end;
+  flex-direction: column;
   gap: 4px;
   overflow-y: auto;
   padding-right: 4px;
 }
 
+/*
+ * Pins a short transcript to the bottom the way `align-content: end` did,
+ * without its defect: grid/flex end-alignment pushes overflow past the top
+ * edge, and scrollable overflow never extends that way, so older messages
+ * became unreachable. An auto margin collapses to zero once content overflows,
+ * which leaves the container scrollable from the very first message.
+ */
+.conversation-transcript > :first-child {
+  margin-top: auto;
+}
+
+/* Children keep their natural height instead of being squeezed to fit. */
+.conversation-transcript > * {
+  flex: 0 0 auto;
+}
+
+.conversation-scroll-area {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.conversation-jump-latest {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  gap: 6px;
+  padding: 5px 12px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  color: var(--text-soft);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.conversation-jump-latest:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
 .conversation-load-earlier {
   display: inline-flex;
   align-items: center;
-  justify-self: center;
+  align-self: center;
   min-height: 32px;
   gap: 7px;
   padding: 5px 11px;
