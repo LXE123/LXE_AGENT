@@ -7832,10 +7832,6 @@ pre {
   margin-bottom: 0;
 }
 
-.response-group .response-final-answer {
-  margin-top: 0;
-}
-
 .conversation-feed .message-card {
   min-width: 0;
 }
@@ -7847,6 +7843,10 @@ pre {
   border: 0;
   border-radius: 0;
   background: transparent;
+}
+
+.conversation-feed .message-card.role-assistant.response-final-answer {
+  margin-top: 0;
 }
 
 .conversation-feed .message-card.role-assistant.assistant-chain-from-previous {
