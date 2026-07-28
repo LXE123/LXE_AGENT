@@ -1,4 +1,5 @@
 import type {
+  ConversationArtifactGroup,
   ConversationRenderItem,
   ConversationToolGroup,
   SessionArtifactPayload,
@@ -65,6 +66,67 @@ export function hasToolError(messages: SessionMessage[]): boolean {
 export function toolGroupArtifacts(messages: SessionMessage[]): SessionArtifactPayload[] {
   const artifacts = messages.flatMap((message) => Array.isArray(message.artifacts) ? message.artifacts : []);
   return [...new Map(artifacts.map((artifact) => [artifact.artifact_id, artifact])).values()];
+}
+
+function renderItemArtifacts(item: ConversationRenderItem): SessionArtifactPayload[] {
+  if (item.type === "artifact_group") return item.group.files;
+  if (item.type === "tool_group") return toolGroupArtifacts(item.group.messages);
+  return toolGroupArtifacts([
+    item.message,
+    ...item.toolGroups.flatMap((group) => group.messages),
+  ]);
+}
+
+/**
+ * Artifacts are persisted on the exact display message that was current when
+ * the file was sent. A single turn can therefore expose the same artifact on
+ * both sides of a tool result, or expose several batches across multiple tool
+ * groups. The conversation presents one durable file section per turn, placed
+ * after that turn's last artifact-bearing render item.
+ */
+function appendArtifactGroups(items: ConversationRenderItem[]): ConversationRenderItem[] {
+  const aggregates = new Map<string, {
+    group: ConversationArtifactGroup;
+    ids: Set<string>;
+    lastIndex: number;
+  }>();
+
+  items.forEach((item, index) => {
+    for (const artifact of renderItemArtifacts(item)) {
+      const turnId = String(artifact.turn_id || "").trim();
+      if (!turnId) continue;
+      let aggregate = aggregates.get(turnId);
+      if (!aggregate) {
+        aggregate = {
+          group: { turnId, files: [], key: `artifacts-${turnId}` },
+          ids: new Set<string>(),
+          lastIndex: index,
+        };
+        aggregates.set(turnId, aggregate);
+      }
+      aggregate.lastIndex = index;
+      if (!aggregate.ids.has(artifact.artifact_id)) {
+        aggregate.ids.add(artifact.artifact_id);
+        aggregate.group.files.push(artifact);
+      }
+    }
+  });
+
+  if (!aggregates.size) return items;
+  const groupsAfter = new Map<number, ConversationArtifactGroup[]>();
+  for (const aggregate of aggregates.values()) {
+    const groups = groupsAfter.get(aggregate.lastIndex) ?? [];
+    groups.push(aggregate.group);
+    groupsAfter.set(aggregate.lastIndex, groups);
+  }
+
+  return items.flatMap((item, index) => [
+    item,
+    ...(groupsAfter.get(index) ?? []).map((group): ConversationRenderItem => ({
+      type: "artifact_group",
+      group,
+    })),
+  ]);
 }
 
 export interface ToolOperation {
@@ -266,5 +328,5 @@ export function buildConversationItems(messages: SessionMessage[]): Conversation
     items.push(item);
   });
   flushPending();
-  return items;
+  return appendArtifactGroups(items);
 }

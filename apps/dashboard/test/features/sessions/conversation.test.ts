@@ -149,6 +149,75 @@ describe("session conversation projection", () => {
     ]);
   });
 
+  test("collects one artifact group after the last file-producing step in a turn", () => {
+    const items = buildConversationItems([
+      { role: "user", content: "make the reports" },
+      {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "c1", name: "send_file", arguments: {} }],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool_result", tool_call_id: "c1", content: "sent" }],
+        artifacts: [
+          { artifact_id: "a1", turn_id: "t1", tool_call_id: "c1", name: "first.xlsx" },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "one more" },
+          { type: "tool_call", id: "c2", name: "send_file", arguments: {} },
+        ],
+      },
+      {
+        role: "tool",
+        content: [{ type: "tool_result", tool_call_id: "c2", content: "sent" }],
+        artifacts: [
+          { artifact_id: "a1", turn_id: "t1", tool_call_id: "c1", name: "first.xlsx" },
+          { artifact_id: "a2", turn_id: "t1", tool_call_id: "c2", name: "second.xlsx" },
+        ],
+      },
+    ]);
+
+    expect(items.map((item) => item.type)).toEqual([
+      "message",
+      "tool_group",
+      "message",
+      "artifact_group",
+    ]);
+    const files = items.at(-1);
+    if (files?.type !== "artifact_group") throw new Error("artifact group required");
+    expect(files.group.turnId).toBe("t1");
+    expect(files.group.files.map((file) => file.artifact_id)).toEqual(["a1", "a2"]);
+  });
+
+  test("keeps separate turns and same-name files distinct", () => {
+    const items = buildConversationItems([
+      {
+        role: "tool",
+        content: [{ type: "tool_result", tool_call_id: "c1", content: "sent" }],
+        artifacts: [
+          { artifact_id: "a1", turn_id: "t1", tool_call_id: "c1", name: "report.xlsx" },
+          { artifact_id: "a2", turn_id: "t1", tool_call_id: "c1", name: "report.xlsx" },
+        ],
+      },
+      { role: "assistant", content: "next turn" },
+      {
+        role: "tool",
+        content: [{ type: "tool_result", tool_call_id: "c2", content: "sent" }],
+        artifacts: [
+          { artifact_id: "a3", turn_id: "t2", tool_call_id: "c2", name: "report.xlsx" },
+        ],
+      },
+    ]);
+
+    const groups = items.filter((item) => item.type === "artifact_group");
+    expect(groups).toHaveLength(2);
+    expect(groups[0]?.group.files.map((file) => file.artifact_id)).toEqual(["a1", "a2"]);
+    expect(groups[1]?.group.files.map((file) => file.artifact_id)).toEqual(["a3"]);
+  });
+
   test("pairs each call with its result so the group can list one line per operation", () => {
     const operations = toolOperations([
       {

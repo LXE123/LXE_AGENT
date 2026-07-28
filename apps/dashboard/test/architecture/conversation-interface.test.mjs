@@ -58,7 +58,8 @@ test("conversation messages and composer share the same focused reading axis", (
   assert.match(styles, /\.conversation-feed \{[^}]*width:\s*min\(820px,/s);
   assert.match(styles, /\.conversation-live-status,\s*\.conversation-composer \{[^}]*width:\s*min\(820px,/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-assistant,[\s\S]*?background:\s*transparent/);
-  assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(640px, 76%\)/s);
+  assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(620px, 78%\)[^}]*border:\s*1px solid var\(--border\)[^}]*background:\s*var\(--surface-subtle\)/s);
+  assert.match(styles, /\.conversation-feed \.message-card\.role-user \.message-markdown > :last-child \{[^}]*margin-bottom:\s*0/s);
   assert.match(view, /const showCharacterCount = text\.length >= Math\.floor\(8192 \* 0\.75\)/);
   assert.match(view, /showRoleBadge = role !== "assistant" && role !== "user"/);
 });
@@ -73,8 +74,11 @@ test("details and runtime status overlay the conversation without moving the rea
 });
 
 test("tool files reach the conversation and open through Main", () => {
-  assert.match(view, /turn-file-chip/);
-  assert.match(view, /toolGroupArtifacts\(group\.messages\)/);
+  assert.match(view, /turn-file-card/);
+  assert.match(view, /item\.type === "artifact_group"/);
+  assert.match(conversation, /function appendArtifactGroups/);
+  assert.match(conversation, /artifact\.turn_id/);
+  assert.doesNotMatch(view, /toolGroupArtifacts\(group\.messages\)/);
   assert.match(view, /file\.artifact_id/);
   assert.match(main, /operation: "sessions\.file\.open"/);
   assert.match(main, /artifact_id: artifactId/);

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  ArrowUpRight,
   Brain,
   CheckCircle2,
   ChevronDown,
@@ -33,7 +34,6 @@ import {
   hasToolError,
   roleLabel,
   toolCallBlocks,
-  toolGroupArtifacts,
   toolOperations,
   toolResultBlocks,
 } from "./conversation";
@@ -359,18 +359,15 @@ function ToolTurnGroup({
   group,
   expanded,
   embedded = false,
-  onOpenFile,
   onToggle,
 }: {
   group: ConversationToolGroup;
   expanded: boolean;
   embedded?: boolean;
-  onOpenFile: (artifactId: string) => Promise<void>;
   onToggle: () => void;
 }) {
   const t = useUiText();
   const stats = toolGroupStats(group.messages, t);
-  const artifacts = toolGroupArtifacts(group.messages);
   const className = [
     "tool-turn-group",
     embedded ? "embedded" : "standalone",
@@ -398,7 +395,6 @@ function ToolTurnGroup({
         <ChevronRight size={14} className={expanded ? "tool-turn-chevron expanded" : "tool-turn-chevron"} />
       </button>
       {expanded ? <ToolOperationList group={group} /> : null}
-      {artifacts.length ? <TurnFileList files={artifacts} onOpenFile={onOpenFile} /> : null}
     </section>
   );
 }
@@ -514,33 +510,67 @@ function TurnFileList({
   onOpenFile: (artifactId: string) => Promise<void>;
 }) {
   const t = useUiText();
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState<Map<string, string>>(() => new Map());
+  const [opening, setOpening] = useState<Set<string>>(() => new Set());
   const open = async (artifactId: string) => {
-    setError("");
+    setErrors((current) => {
+      const next = new Map(current);
+      next.delete(artifactId);
+      return next;
+    });
+    setOpening((current) => new Set(current).add(artifactId));
     try {
       await onOpenFile(artifactId);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setErrors((current) => new Map(current).set(artifactId, message));
+    } finally {
+      setOpening((current) => {
+        const next = new Set(current);
+        next.delete(artifactId);
+        return next;
+      });
     }
   };
   return (
-    <div className="turn-file-list">
-      <span className="turn-file-label">{t.conversation.files}</span>
-      {files.map((file) => (
-        <button
-          className="turn-file-chip"
-          key={file.artifact_id}
-          onClick={() => void open(file.artifact_id)}
-          title={t.conversation.openFile(file.name)}
-          type="button"
-        >
-          <FileText size={14} />
-          <span>{file.name}</span>
-        </button>
-      ))}
-      {error ? <div className="turn-file-error" role="alert">{t.conversation.openFileFailed(error)}</div> : null}
-    </div>
+    <section className="turn-file-section" aria-label={t.conversation.files(formatNumber(files.length))}>
+      <div className="turn-file-heading">{t.conversation.files(formatNumber(files.length))}</div>
+      <div className="turn-file-grid">
+        {files.map((file) => {
+          const extension = fileExtensionLabel(file.name);
+          const isOpening = opening.has(file.artifact_id);
+          const error = errors.get(file.artifact_id) ?? "";
+          return (
+            <div className={error ? "turn-file-item has-error" : "turn-file-item"} key={file.artifact_id}>
+              <button
+                aria-busy={isOpening}
+                aria-label={t.conversation.openFile(file.name)}
+                className="turn-file-card"
+                disabled={isOpening}
+                onClick={() => void open(file.artifact_id)}
+                title={t.conversation.openFile(file.name)}
+                type="button"
+              >
+                <span aria-hidden="true" className="turn-file-extension">{extension}</span>
+                <span className="turn-file-name" title={file.name}>{file.name}</span>
+                {isOpening
+                  ? <LoaderCircle aria-hidden="true" className="conversation-spinner turn-file-action" size={14} />
+                  : <ArrowUpRight aria-hidden="true" className="turn-file-action" size={14} />}
+              </button>
+              {error ? (
+                <div className="turn-file-card-error" role="alert">{t.conversation.openFileFailed(error)}</div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
+}
+
+function fileExtensionLabel(name: string): string {
+  const match = /\.([a-z0-9]{1,8})$/i.exec(name.trim());
+  return match?.[1] ? match[1].slice(0, 5).toUpperCase() : "FILE";
 }
 
 function InputAttachmentList({
@@ -621,7 +651,9 @@ function LocalTurnCards({
   return (
     <div className="local-turn" data-turn-id={turn.turn_id}>
       {!userPersisted ? (
-        <article className="message-card role-user optimistic-message">
+        <article className={turn.attachments?.length
+          ? "message-card role-user optimistic-message has-attachments"
+          : "message-card role-user optimistic-message"}>
           {turn.text ? <MessageMarkdown text={turn.text} /> : null}
           {turn.attachments?.length ? (
             <InputAttachmentList attachments={turn.attachments} />
@@ -1052,9 +1084,12 @@ export function SessionDetailView({
               {messages.length ? (
                 <div className="message-list">
                   {renderItems.map((item, itemIndex) => {
+                    if (item.type === "artifact_group") {
+                      return <TurnFileList files={item.group.files} key={item.group.key} onOpenFile={onOpenFile} />;
+                    }
                     if (item.type === "tool_group") {
                       return <ToolTurnGroup expanded={toolGroupExpanded(item.group)} group={item.group}
-                        key={item.group.key} onOpenFile={onOpenFile}
+                        key={item.group.key}
                         onToggle={() => toggleToolGroup(item.group)} />;
                     }
                     const { message, index, toolGroups } = item;
@@ -1068,7 +1103,7 @@ export function SessionDetailView({
                         <div className="process-step" key={`process-${index}`}>
                           <MessageContent content={message.content} message={message} />
                           {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}
-                            group={group} key={group.key} onOpenFile={onOpenFile}
+                            group={group} key={group.key}
                             onToggle={() => toggleToolGroup(group)} />)}
                         </div>
                       );
@@ -1087,11 +1122,12 @@ export function SessionDetailView({
                       ? [previousIsAssistant ? "assistant-chain-from-previous" : "", nextIsAssistant ? "assistant-chain-to-next" : ""]
                         .filter(Boolean).join(" ")
                       : "";
+                    const attachmentClass = message.attachments?.length ? "has-attachments" : "";
                     // Tool activity sits beside the reply, never inside it, so a
                     // group is always read at the same level wherever it occurs.
                     return (
                       <React.Fragment key={`${role}-${index}`}>
-                        <article className={`message-card role-${role} ${chainClass}`}>
+                        <article className={`message-card role-${role} ${chainClass} ${attachmentClass}`}>
                           {hasMessageHeader ? (
                             <div className="message-header">
                               {showRoleBadge ? <RoleBadge role={role} /> : null}
@@ -1107,7 +1143,7 @@ export function SessionDetailView({
                         {toolGroups.length ? (
                           <div className="process-step">
                             {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}
-                              group={group} key={group.key} onOpenFile={onOpenFile}
+                              group={group} key={group.key}
                               onToggle={() => toggleToolGroup(group)} />)}
                           </div>
                         ) : null}
