@@ -29,11 +29,10 @@ import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortTe
 import {
   buildConversationItems,
   hasReaderFacingText,
-  hasToolError,
   roleLabel,
-  toolCallBlocks,
+  summarizeToolOperations,
+  toolOperationPresentation,
   toolOperations,
-  toolResultBlocks,
 } from "./conversation";
 import type { ToolOperation } from "./conversation";
 import { formatDate, formatDurationMs, formatNumber } from "../../shared/format";
@@ -324,64 +323,21 @@ function ProcessMessageContent({ message }: { message: SessionMessage }) {
   );
 }
 
-function messageToolNames(message: SessionMessage): string[] {
-  const names: string[] = [];
-  for (const block of toolCallBlocks(message)) {
-    if (isRecord(block)) {
-      const name = String(block.name || "").trim();
-      if (name) {
-        names.push(name);
-      }
-    }
-  }
-  const toolName = String(message.tool_name || "").trim();
-  if (toolName) {
-    names.push(toolName);
-  }
-  return names;
-}
+const toolBatchLabels = (t: UiText) => ({
+  actions: t.message.toolActions,
+  more: t.message.toolBatchMore,
+  failures: t.message.toolBatchFailures,
+});
 
-const TOOL_NAMES_SHOWN = 3;
+type ToolOperationBody = (operation: ToolOperation) => React.ReactNode;
 
-function toolGroupStats(messages: SessionMessage[], t: UiText) {
-  const operations = toolOperations(messages);
-  const errorCount = operations.filter((operation) => operation.status === "error").length;
-  const callCount = operations.length;
-
-  // A lone call describes itself: showing what it ran beats a step count that
-  // always reads "1 步", and usually removes any reason to expand the row.
-  const single = callCount === 1 ? operations[0] : undefined;
-  if (single) {
-    return {
-      callCount,
-      errorCount,
-      hasError: errorCount > 0,
-      title: single.name,
-      detail: single.argument,
-      detailIsArgument: true,
-    };
-  }
-
-  // Which tools ran is the part worth reading, so it leads; the counts are
-  // context for it rather than the other way round.
-  const uniqueNames = Array.from(new Set(operations.map((operation) => operation.name)));
-  const shown = uniqueNames.slice(0, TOOL_NAMES_SHOWN);
-  const overflow = uniqueNames.length - shown.length;
-  const title = shown.length
-    ? [shown.join(" · "), overflow > 0 ? t.message.toolNamesOverflow(formatNumber(overflow)) : ""]
-      .filter(Boolean).join(" ")
-    : t.message.toolActivity;
-  return {
-    callCount,
-    errorCount,
-    hasError: errorCount > 0,
-    title,
-    detailIsArgument: false,
-    detail: [
-      t.message.toolSteps(formatNumber(Math.max(callCount, 1))),
-      errorCount > 0 ? t.message.toolErrors(formatNumber(errorCount)) : "",
-    ].filter(Boolean).join(" · "),
-  };
+function defaultToolOperationBody(operation: ToolOperation): React.ReactNode {
+  return (
+    <>
+      {operation.call === undefined ? null : <MessageBlock block={operation.call} />}
+      {operation.result === undefined ? null : <MessageBlock block={operation.result} />}
+    </>
+  );
 }
 
 function ToolTurnGroup({
@@ -389,18 +345,29 @@ function ToolTurnGroup({
   expanded,
   embedded = false,
   onToggle,
+  operations: suppliedOperations,
+  renderOperationBody = defaultToolOperationBody,
 }: {
-  group: ConversationToolGroup;
+  group?: ConversationToolGroup;
   expanded: boolean;
   embedded?: boolean;
   onToggle: () => void;
+  operations?: ToolOperation[];
+  renderOperationBody?: ToolOperationBody;
 }) {
   const t = useUiText();
-  const stats = toolGroupStats(group.messages, t);
+  const historicalOperations = useMemo(
+    () => group ? toolOperations(group.messages) : [],
+    [group],
+  );
+  const operations = suppliedOperations ?? historicalOperations;
+  const summary = summarizeToolOperations(operations, toolBatchLabels(t));
+  const hasError = summary.errorCount > 0;
+  const hasRunning = operations.some((operation) => operation.status === "running");
   const className = [
     "tool-turn-group",
     embedded ? "embedded" : "standalone",
-    stats.hasError ? "has-error" : ""
+    hasError ? "has-error" : ""
   ]
     .filter(Boolean)
     .join(" ");
@@ -411,30 +378,30 @@ function ToolTurnGroup({
         type="button"
         aria-expanded={expanded}
         onClick={onToggle}
+        title={summary.text}
       >
-        <div>
-          <div className="tool-turn-title">{stats.title}</div>
-          {stats.detail ? (
-            <div className={stats.detailIsArgument ? "tool-turn-subtitle argument" : "tool-turn-subtitle"}>
-              {stats.detail}
-            </div>
-          ) : null}
-        </div>
-        {stats.hasError ? <CircleAlert aria-hidden="true" className="tool-turn-mark" size={13} /> : null}
+        <span className="tool-turn-title">{summary.text || t.message.toolActivity}</span>
+        {hasRunning ? <LoaderCircle aria-hidden="true" className="conversation-spinner tool-turn-mark" size={13} /> : null}
+        {hasError ? <CircleAlert aria-hidden="true" className="tool-turn-mark" size={13} /> : null}
         <ChevronRight size={14} className={expanded ? "tool-turn-chevron expanded" : "tool-turn-chevron"} />
       </button>
-      {expanded ? <ToolOperationList group={group} /> : null}
+      {expanded ? (
+        <ToolOperationList operations={operations} renderOperationBody={renderOperationBody} />
+      ) : null}
     </section>
   );
 }
 
-function ToolOperationList({ group }: { group: ConversationToolGroup }) {
-  const operations = useMemo(() => toolOperations(group.messages), [group.messages]);
-  // A failed line opens itself: the reason it failed is the whole point of
-  // having drilled in this far.
+function ToolOperationList({
+  operations,
+  renderOperationBody,
+}: {
+  operations: ToolOperation[];
+  renderOperationBody: ToolOperationBody;
+}) {
+  const t = useUiText();
   const [openOperations, setOpenOperations] = useState<Map<string, boolean>>(() => new Map());
-  const isOpen = (operation: ToolOperation): boolean =>
-    openOperations.get(operation.key) ?? operation.status === "error";
+  const isOpen = (operation: ToolOperation): boolean => openOperations.get(operation.key) ?? false;
   const toggle = (operation: ToolOperation): void => {
     const next = !isOpen(operation);
     setOpenOperations((current) => new Map(current).set(operation.key, next));
@@ -442,25 +409,30 @@ function ToolOperationList({ group }: { group: ConversationToolGroup }) {
   return (
     <ul className="tool-op-list">
       {operations.map((operation) => (
-        <li className={`tool-op state-${operation.status}`} key={`${group.key}-${operation.key}`}>
+        <li className={`tool-op state-${operation.status}`} key={operation.key}>
           <button
             aria-expanded={isOpen(operation)}
             className="tool-op-summary"
             onClick={() => toggle(operation)}
+            title={[t.message.toolActions[operation.action], operation.target].filter(Boolean).join(" ")}
             type="button"
           >
-            <Wrench aria-hidden="true" size={13} />
-            <span className="tool-op-name">{operation.name}</span>
-            {operation.argument ? <span className="tool-op-argument">{operation.argument}</span> : null}
+            <span className="tool-op-name">{t.message.toolActions[operation.action]}</span>
+            {operation.target ? <span className="tool-op-argument">{operation.target}</span> : null}
+            {operation.status === "running"
+              ? <LoaderCircle aria-hidden="true" className="conversation-spinner tool-op-mark" size={13} />
+              : null}
             {operation.status === "error"
               ? <CircleAlert aria-hidden="true" className="tool-op-mark error" size={13} />
-              : <CheckCircle2 aria-hidden="true" className="tool-op-mark" size={13} />}
+              : null}
+            <ChevronRight
+              aria-hidden="true"
+              className={isOpen(operation) ? "tool-op-chevron expanded" : "tool-op-chevron"}
+              size={14}
+            />
           </button>
           {isOpen(operation) ? (
-            <div className="tool-op-body">
-              {operation.call === undefined ? null : <MessageBlock block={operation.call} />}
-              {operation.result === undefined ? null : <MessageBlock block={operation.result} />}
-            </div>
+            <div className="tool-op-body">{renderOperationBody(operation)}</div>
           ) : null}
         </li>
       ))}
@@ -469,7 +441,7 @@ function ToolOperationList({ group }: { group: ConversationToolGroup }) {
 }
 
 function ProcessToolGroup({ group }: { group: ConversationToolGroup }) {
-  const [expanded, setExpanded] = useState(() => hasToolError(group.messages));
+  const [expanded, setExpanded] = useState(false);
   return (
     <ToolTurnGroup
       embedded
@@ -602,6 +574,64 @@ function LiveProgressStatus({
   );
 }
 
+type LiveToolStep = DesktopConversationStreamPayload["tool_steps"][number];
+
+function liveToolOperations(steps: LiveToolStep[]): ToolOperation[] {
+  return steps.map((step, index) => {
+    const name = String(step.name || "tool");
+    const argument = String(step.detail || "");
+    return {
+      key: `live-${step.id || `${name}-${index}`}`,
+      name,
+      argument,
+      ...toolOperationPresentation(name, argument),
+      status: step.status,
+      call: undefined,
+      result: step,
+    };
+  });
+}
+
+function LiveToolOperationBody({ operation }: { operation: ToolOperation }) {
+  const step = operation.result as LiveToolStep;
+  return (
+    <>
+      {step.detail ? <pre className="message-json live-tool-operation-detail">{step.detail}</pre> : null}
+      {step.result_block ? (
+        <ToolResultBlock block={{ type: "tool_result", content: step.result_block.content }} />
+      ) : null}
+      {step.error_block ? (
+        <ToolResultBlock block={{ type: "tool_result", content: step.error_block.content, is_error: true }} />
+      ) : null}
+    </>
+  );
+}
+
+function LiveToolBatch({ steps }: { steps: LiveToolStep[] }) {
+  const operations = useMemo(() => liveToolOperations(steps), [steps]);
+  const [expanded, setExpanded] = useState(false);
+  const appeared = useRef(false);
+  const manuallyToggled = useRef(false);
+  useEffect(() => {
+    if (!appeared.current && operations.length > 0) {
+      appeared.current = true;
+      if (!manuallyToggled.current) setExpanded(true);
+    }
+  }, [operations.length]);
+  return (
+    <ToolTurnGroup
+      embedded
+      expanded={expanded}
+      operations={operations}
+      onToggle={() => {
+        manuallyToggled.current = true;
+        setExpanded((current) => !current);
+      }}
+      renderOperationBody={(operation) => <LiveToolOperationBody operation={operation} />}
+    />
+  );
+}
+
 function LiveResponseGroup({
   elapsedMs,
   hasElapsed,
@@ -648,18 +678,7 @@ function LiveResponseGroup({
           <div className="response-process-body">
             {stream?.thinking ? <div className="process-thinking-text">{stream.thinking}</div> : null}
             {stream?.tool_steps.length ? (
-              <div className="live-tool-list">
-                {stream.tool_steps.map((step) => (
-                  <div
-                    className={`live-tool-step state-${step.status}${step.detail ? " has-detail" : ""}`}
-                    key={step.id || `${step.name}-${step.title}`}
-                  >
-                    <Wrench size={14} />
-                    <span className="live-tool-name">{step.name}</span>
-                    {step.detail ? <small className="live-tool-detail">{step.detail}</small> : null}
-                  </div>
-                ))}
-              </div>
+              <LiveToolBatch steps={stream.tool_steps} />
             ) : null}
             {processContent ? <MessageMarkdown text={processContent} /> : null}
           </div>
@@ -1164,7 +1183,7 @@ export function SessionDetailView({
     { label: t.stats.apiCalls, value: formatNumber(session.api_call_count) },
   ] : [];
   const toolGroupExpanded = (group: ConversationToolGroup): boolean =>
-    toolGroupOverrides.get(group.key) ?? hasToolError(group.messages);
+    toolGroupOverrides.get(group.key) ?? false;
   const toggleToolGroup = (group: ConversationToolGroup) => {
     const next = !toolGroupExpanded(group);
     setToolGroupOverrides((current) => new Map(current).set(group.key, next));

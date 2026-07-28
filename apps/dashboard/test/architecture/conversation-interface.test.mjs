@@ -132,9 +132,9 @@ test("dashboard sends through Main, restores activity, and merges cursor history
 });
 
 test("thinking and tools fold into one response process while the final answer stays outside", () => {
-  assert.match(view, /<div className="tool-turn-title">\{stats\.title\}<\/div>/);
-  assert.match(view, /stats\.detailIsArgument \? "tool-turn-subtitle argument" : "tool-turn-subtitle"/);
-  assert.match(view, /const single = callCount === 1 \? operations\[0\] : undefined/);
+  assert.match(view, /<span className="tool-turn-title">\{summary\.text/);
+  assert.match(view, /summarizeToolOperations\(operations, toolBatchLabels\(t\)\)/);
+  assert.match(conversation, /previous\?\.type === "tool_group"/);
   assert.match(conversation, /type: "response_group"/);
   assert.match(conversation, /finalMessage/);
   assert.match(view, /className="response-process-summary"/);
@@ -147,20 +147,22 @@ test("thinking and tools fold into one response process while the final answer s
   assert.doesNotMatch(view, /assistant-tool-stack/);
   assert.match(view, /className="tool-op-list"/);
   assert.match(view, /className="tool-op-argument"/);
+  assert.match(view, /function ProcessToolGroup[\s\S]*?useState\(false\)/);
+  assert.doesNotMatch(view, /openOperations\.get\(operation\.key\) \?\? operation\.status === "error"/);
 });
 
 test("a tool reads the same live as it does in history", () => {
   const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
-  // Live steps carry a curated title as well as the name the model called; a
-  // tool that changes label when it scrolls into history reads as two tools.
-  assert.match(view, /<span className="live-tool-name">\{step\.name\}<\/span>/);
+  // Both sources use the raw name and the same deterministic presentation;
+  // the curated live title cannot make the wording jump at persistence time.
+  assert.match(view, /toolOperationPresentation\(name, argument\)/);
+  assert.match(view, /const name = String\(step\.name \|\| "tool"\)/);
   assert.doesNotMatch(view, /<span>\{step\.title\}<\/span>/);
   // One unbroken command must shrink inside its row instead of turning the
   // transcript itself into a horizontal scroller.
-  assert.match(view, /<small className="live-tool-detail">\{step\.detail\}<\/small>/);
+  assert.match(view, /className="tool-op-argument"/);
   assert.match(styles, /\.conversation-transcript \{[^}]*overflow-x:\s*hidden[^}]*overflow-y:\s*auto/s);
-  assert.match(styles, /\.live-tool-detail \{[^}]*flex:\s*1 1 0[^}]*color:/s);
-  assert.match(styles, /\.live-tool-name,\n\.live-tool-detail \{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s);
+  assert.match(styles, /\.tool-op-argument \{[^}]*overflow:\s*hidden[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s);
   // Beside a growing textarea the composer buttons must not be squeezed until
   // their label breaks one character per line.
   assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button,\n\.conversation-attach-button \{[^}]*flex: 0 0 auto/);

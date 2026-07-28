@@ -136,9 +136,115 @@ export interface ToolOperation {
   key: string;
   name: string;
   argument: string;
-  status: "success" | "error";
+  action: ToolAction;
+  target: string;
+  status: "running" | "success" | "error";
   call: unknown;
   result: unknown;
+}
+
+export type ToolAction =
+  | "read"
+  | "edit"
+  | "write"
+  | "search"
+  | "list"
+  | "run"
+  | "send"
+  | "web"
+  | "tool";
+
+export type ToolActionLabels = Record<ToolAction, string>;
+
+export interface ToolBatchSummaryLabels {
+  actions: ToolActionLabels;
+  more: (count: number) => string;
+  failures: (count: number) => string;
+}
+
+export interface ToolBatchSummary {
+  text: string;
+  errorCount: number;
+  operationCount: number;
+}
+
+const TOOL_ACTIONS: Record<string, ToolAction> = {
+  read: "read",
+  read_file: "read",
+  edit: "edit",
+  edit_file: "edit",
+  write: "write",
+  write_file: "write",
+  grep: "search",
+  find: "search",
+  search: "search",
+  tool_search: "search",
+  ls: "list",
+  list: "list",
+  list_files: "list",
+  exec: "run",
+  process: "run",
+  send_file: "send",
+  send_files: "send",
+  web_search: "web",
+  web_fetch: "web",
+};
+
+const fileBasename = (value: string): string => {
+  const normalized = value.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  return normalized.split("/").at(-1) || normalized;
+};
+
+export function toolOperationPresentation(name: string, argument: string): {
+  action: ToolAction;
+  target: string;
+} {
+  const normalizedName = name.trim().toLowerCase();
+  const action = TOOL_ACTIONS[normalizedName] ?? "tool";
+  if (action === "tool") return { action, target: name.trim() || "tool" };
+  if (["read", "edit", "write", "list", "send"].includes(action)) {
+    return { action, target: fileBasename(argument) };
+  }
+  return { action, target: argument.trim() };
+}
+
+/** Build a stable, local summary without asking the model to narrate its own tools. */
+export function summarizeToolOperations(
+  operations: ToolOperation[],
+  labels: ToolBatchSummaryLabels,
+): ToolBatchSummary {
+  const grouped = new Map<ToolAction, { action: ToolAction; count: number; targets: Set<string> }>();
+  for (const operation of operations) {
+    const current = grouped.get(operation.action);
+    if (current) {
+      current.count += 1;
+      if (operation.target) current.targets.add(operation.target);
+    } else {
+      grouped.set(operation.action, {
+        action: operation.action,
+        count: 1,
+        targets: new Set(operation.target ? [operation.target] : []),
+      });
+    }
+  }
+
+  const groups = [...grouped.values()];
+  const shown = groups.slice(0, 3);
+  const segments = shown.map((group) => {
+    const oneTarget = group.targets.size === 1 ? [...group.targets][0] : "";
+    const target = group.count === 1 || oneTarget ? oneTarget : "";
+    return [labels.actions[group.action], target, group.count > 1 ? `×${group.count}` : ""]
+      .filter(Boolean).join(" ");
+  });
+  const hiddenCount = groups.slice(3).reduce((total, group) => total + group.count, 0);
+  if (hiddenCount > 0) segments.push(labels.more(hiddenCount));
+  const errorCount = operations.filter((operation) => operation.status === "error").length;
+  if (errorCount > 0) segments.push(labels.failures(errorCount));
+  return {
+    text: segments.join(" · "),
+    errorCount,
+    operationCount: operations.length,
+  };
 }
 
 /**
@@ -208,20 +314,25 @@ export function toolOperations(messages: SessionMessage[]): ToolOperation[] {
   const operations: ToolOperation[] = calls.map((call, index) => {
     const callId = blockId(call, ["id", "tool_call_id", "tool_use_id"]);
     const result = take(callId);
+    const name = (isRecord(call) ? scalarText(call.name) : "") || "tool";
+    const argument = operationArgument(call);
     return {
       key: callId || `call-${index}`,
-      name: (isRecord(call) ? scalarText(call.name) : "") || "tool",
-      argument: operationArgument(call),
+      name,
+      argument,
+      ...toolOperationPresentation(name, argument),
       status: isRecord(result) && result.is_error ? "error" : "success",
       call,
       result,
     };
   });
   unclaimed.forEach((result, index) => {
+    const name = (isRecord(result) ? scalarText(result.tool_name) : "") || "tool";
     operations.push({
       key: blockId(result, ["tool_call_id", "tool_use_id"]) || `result-${index}`,
-      name: (isRecord(result) ? scalarText(result.tool_name) : "") || "tool",
+      name,
       argument: "",
+      ...toolOperationPresentation(name, ""),
       status: isRecord(result) && result.is_error ? "error" : "success",
       call: undefined,
       result,
@@ -305,15 +416,20 @@ function buildResponseGroup(
   let toolOrdinal = 0;
   const flushTools = (): void => {
     if (!pendingTools.length) return;
-    process.push({
-      type: "tool_group",
-      group: {
-        messages: pendingTools,
-        startIndex,
-        key: `tools-${displayGroupId}-${toolOrdinal}`,
-      },
-    });
-    toolOrdinal += 1;
+    const previous = process.at(-1);
+    if (previous?.type === "tool_group") {
+      previous.group.messages.push(...pendingTools);
+    } else {
+      process.push({
+        type: "tool_group",
+        group: {
+          messages: pendingTools,
+          startIndex,
+          key: `tools-${displayGroupId}-${toolOrdinal}`,
+        },
+      });
+      toolOrdinal += 1;
+    }
     pendingTools = [];
   };
 

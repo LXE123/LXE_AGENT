@@ -3,8 +3,10 @@ import {
   buildConversationItems,
   hasReaderFacingText,
   hasToolError,
+  summarizeToolOperations,
   toolCallBlocks,
   toolGroupArtifacts,
+  toolOperationPresentation,
   toolOperations,
   toolResultBlocks,
 } from "../../../src/features/sessions/conversation";
@@ -106,6 +108,32 @@ describe("session conversation projection", () => {
     expect(response.group.finalMessage?.content).toEqual([{ type: "text", text: "已发送" }]);
   });
 
+  test("merges adjacent tool groups when no thinking or narration separates them", () => {
+    const items = buildConversationItems(group("response-1", [{
+      role: "assistant",
+      content: [{ type: "tool_call", id: "c1", name: "read", arguments: { path: "src/a.ts" } }],
+    }, {
+      role: "tool",
+      content: [{ type: "tool_result", tool_call_id: "c1", content: "a" }],
+    }, {
+      role: "assistant",
+      content: [{ type: "tool_call", id: "c2", name: "exec", arguments: { command: "bun test" } }],
+    }, {
+      role: "tool",
+      content: [{ type: "tool_result", tool_call_id: "c2", content: "ok" }],
+    }, {
+      role: "assistant",
+      content: [{ type: "text", text: "done" }],
+    }]));
+
+    const response = items[0];
+    if (response?.type !== "response_group") throw new Error("response group required");
+    expect(response.group.process).toHaveLength(1);
+    const tools = response.group.process[0];
+    if (tools?.type !== "tool_group") throw new Error("tool group required");
+    expect(toolOperations(tools.group.messages).map((operation) => operation.name)).toEqual(["read", "exec"]);
+  });
+
   test("keeps narrated intermediate text in the process when it also calls a tool", () => {
     const items = buildConversationItems([
       ...group("user-1", [{ role: "user", content: "go" }]),
@@ -143,6 +171,72 @@ describe("session conversation projection", () => {
     ]);
     expect(operations).toHaveLength(1);
     expect(operations[0]?.argument).toBe("python analyze.py --asin B0CPJ72QDS");
+  });
+
+  test("classifies actions and shortens file targets without guessing command content", () => {
+    expect(toolOperationPresentation("read", "/var/workspace/src/runtime.test.ts"))
+      .toEqual({ action: "read", target: "runtime.test.ts" });
+    expect(toolOperationPresentation("ls", "..\\inputs\\fba\\"))
+      .toEqual({ action: "list", target: "fba" });
+    expect(toolOperationPresentation("exec", "uv run python -c 'print(1)'"))
+      .toEqual({ action: "run", target: "uv run python -c 'print(1)'" });
+    expect(toolOperationPresentation("custom_mcp_tool", "secret argument"))
+      .toEqual({ action: "tool", target: "custom_mcp_tool" });
+  });
+
+  test("summarizes tool batches by first action and reports overflow and failures", () => {
+    const operations = toolOperations([{
+      role: "assistant",
+      content: [
+        { type: "tool_call", id: "run-1", name: "exec", arguments: { command: "bun test one" } },
+        { type: "tool_call", id: "run-2", name: "exec", arguments: { command: "bun test two" } },
+        { type: "tool_call", id: "read-1", name: "read", arguments: { path: "/tmp/runtime.test.ts" } },
+        { type: "tool_call", id: "edit-1", name: "edit", arguments: { path: "/tmp/runtime.test.ts" } },
+        { type: "tool_call", id: "web-1", name: "web_fetch", arguments: { url: "https://example.com" } },
+      ],
+    }, {
+      role: "tool",
+      content: [
+        { type: "tool_result", tool_call_id: "run-1", content: "ok" },
+        { type: "tool_result", tool_call_id: "run-2", content: "bad", is_error: true },
+        { type: "tool_result", tool_call_id: "read-1", content: "ok" },
+        { type: "tool_result", tool_call_id: "edit-1", content: "ok" },
+        { type: "tool_result", tool_call_id: "web-1", content: "ok" },
+      ],
+    }]);
+    const summary = summarizeToolOperations(operations, {
+      actions: {
+        read: "读取", edit: "编辑", write: "写入", search: "搜索", list: "查看目录",
+        run: "运行命令", send: "发送文件", web: "访问网页", tool: "调用工具",
+      },
+      more: (count) => `另 ${count} 项`,
+      failures: (count) => `失败 ${count}`,
+    });
+
+    expect(summary).toEqual({
+      text: "运行命令 ×2 · 读取 runtime.test.ts · 编辑 runtime.test.ts · 另 1 项 · 失败 1",
+      errorCount: 1,
+      operationCount: 5,
+    });
+  });
+
+  test("keeps a shared target in a repeated action summary", () => {
+    const operations = toolOperations([{
+      role: "assistant",
+      content: [
+        { type: "tool_call", id: "r1", name: "read", arguments: { path: "/one/runtime.test.ts" } },
+        { type: "tool_call", id: "r2", name: "read", arguments: { path: "/two/runtime.test.ts" } },
+      ],
+    }]);
+    const summary = summarizeToolOperations(operations, {
+      actions: {
+        read: "读取", edit: "编辑", write: "写入", search: "搜索", list: "查看目录",
+        run: "运行命令", send: "发送文件", web: "访问网页", tool: "调用工具",
+      },
+      more: (count) => `另 ${count} 项`,
+      failures: (count) => `失败 ${count}`,
+    });
+    expect(summary.text).toBe("读取 runtime.test.ts ×2");
   });
 
   test("reports tool errors so the group can open itself", () => {
