@@ -58,7 +58,7 @@ forbidText("apps/desktop/src/main/desktop-gateway.ts", /parts\.scheduler\.setRun
 forbidText("packages/agent/runtime/src/engine/system-events.ts", /mergePendingSystemEvents/, "Runtime must not restore the retired embedded/stored pending-event merge");
 forbidText("packages/agent/runtime/src/engine/runtime.ts", /job\.raw_data\.system_events/, "Runtime pending events must come only from its Store");
 requireText("apps/desktop/src/main.ts", /registerDashboardProtocol/, "packaged Renderer must load through the Electron app protocol");
-requireText("package.json", /"desktop:preview"\s*:\s*"bun run dashboard:build && bun run --cwd apps\/desktop preview"/, "workspace must expose the production Renderer preview");
+requireText("package.json", /"desktop:preview"\s*:\s*"[^\"]*bun run dashboard:build && bun run --cwd apps\/desktop preview"/, "workspace must expose the production Renderer preview");
 requireText("package.json", /"desktop:pack:win"\s*:\s*"[^"]*-PackageTarget Unpacked"/, "workspace must expose the Windows unpacked verification route");
 requireText("package.json", /"verify:platform:win"\s*:\s*"[^"]*desktop:dist:win"/, "Windows release verification must retain the complete NSIS route");
 requireText("apps/desktop/package.json", /"preview"\s*:\s*"bun run build && bun src\/preview\.ts"/, "desktop package must build Main and Preload before preview");

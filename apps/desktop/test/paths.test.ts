@@ -17,6 +17,7 @@ describe("desktop private runtime paths", () => {
         HOME: "/Users/tester",
       },
       platform: "darwin",
+      arch: "arm64",
       pathExists: () => true,
     });
 
@@ -34,6 +35,9 @@ describe("desktop private runtime paths", () => {
     expect(paths.dashboardRoot).toBe(posix.join(sourceRoot, "apps", "dashboard", "dist"));
     expect(paths.agentCommand).toBe("bun");
     expect(paths.agentArguments).toEqual([posix.join(sourceRoot, "apps", "agent-cli", "src", "main.ts")]);
+    expect(paths.exifToolPath).toBe(
+      posix.join(sourceRoot, "build", "desktop-runtime", "darwin-arm64", "tools", "exiftool", "exiftool"),
+    );
   });
 
   test("uses Windows paths when Windows is the target platform", () => {
@@ -86,6 +90,7 @@ describe("desktop private runtime paths", () => {
         executablePath: "/opt/lxe-agent/LXE Agent",
         resourcesPath: root,
         platform,
+        arch: "arm64",
         pathExists: () => true,
       });
 
@@ -93,9 +98,24 @@ describe("desktop private runtime paths", () => {
       expect(paths.defaultWorkspaceRoot).toBe("/opt/lxe-agent/var/workspace");
       expect(paths.agentCommand).toBe(posix.join(root, "runtime", "agent-cli", "agent-cli"));
       expect(paths.managedPythonPath).toBe(posix.join(root, "runtime", "python", "bin", "python3"));
+      expect(paths.exifToolPath).toBe(posix.join(root, "runtime", "tools", "exiftool", "exiftool"));
       expect(paths.managedPath.split(":")).toContain(posix.join(root, "runtime", "python", "bin"));
       expect(paths.managedPath).not.toContain("\\");
       expect(paths.managedPath).not.toContain(";");
     });
   }
+
+  test("allows an explicit ExifTool override in Mac source development", () => {
+    const paths = resolveDesktopPaths({
+      packaged: false,
+      appPath: "/workspace/apps/desktop",
+      executablePath: "/Applications/Electron.app/Contents/MacOS/Electron",
+      resourcesPath: "/Applications/Electron.app/Contents/Resources",
+      environment: { LXE_SOURCE_ROOT: "/workspace", LXE_EXIFTOOL_PATH: "/opt/tools/exiftool" },
+      platform: "darwin",
+      arch: "x64",
+      pathExists: () => true,
+    });
+    expect(paths.exifToolPath).toBe("/opt/tools/exiftool");
+  });
 });

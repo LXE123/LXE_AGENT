@@ -32,6 +32,7 @@ test("media workbench keeps filesystem paths behind the desktop bridge", () => {
   assert.match(workbench, /openSyntheticPerformerOutput\(task\.task_id\)/);
   assert.match(workbench, /onSyntheticPerformerTaskChanged/);
   assert.doesNotMatch(workbench, /source_paths|output_directory:/);
+  assert.match(workbench, /desktop\?\.platform === "win32" \|\| desktop\?\.platform === "darwin"/);
 });
 
 test("capabilities and activity use compact child navigation", () => {

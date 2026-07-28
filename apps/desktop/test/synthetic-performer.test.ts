@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DesktopSyntheticPerformerTask } from "@lxe/desktop-protocol";
@@ -126,7 +126,7 @@ exit 4
     const sourceFile = join(files.sources, "sample.jpg");
     writeFileSync(sourceFile, "image", "utf8");
     const service = new DesktopSyntheticPerformerService({
-      platform: "darwin",
+      platform: "linux",
       pythonPath: files.python,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
@@ -134,7 +134,7 @@ exit 4
     });
     const selection = service.registerSources("files", [sourceFile]);
     expect(() => service.start({ action: "scan", selection_id: selection.selection_id, recursive: false }))
-      .toThrow("Windows only");
+      .toThrow("Windows and macOS only");
     expect(() => service.outputPath("missing")).toThrow("not found");
   });
 
@@ -165,6 +165,53 @@ exit 4
 
     expect(cancelled?.state).toBe("cancelled");
     expect(service.current()?.state).toBe("cancelled");
+  });
+
+  test("cancels the complete Python and ExifTool process group on macOS", async () => {
+    if (process.platform === "win32") return;
+    const files = fixture("");
+    const childPidPath = join(files.root, "exiftool-child.pid");
+    writeFileSync(files.python, `#!/bin/sh
+read input
+sleep 30 &
+echo $! > "${childPidPath}"
+wait
+`, "utf8");
+    chmodSync(files.python, 0o755);
+    const sourceFile = join(files.sources, "sample.mov");
+    writeFileSync(sourceFile, "video", "utf8");
+    const service = new DesktopSyntheticPerformerService({
+      platform: "darwin",
+      pythonPath: files.python,
+      exifToolPath: files.exiftool,
+      dataRoot: files.dataRoot,
+      managedPath: files.root,
+    });
+    const selection = service.registerSources("files", [sourceFile]);
+    const started = service.start({ action: "scan", selection_id: selection.selection_id, recursive: false });
+    const deadline = Date.now() + 2_000;
+    while (!existsSync(childPidPath) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(existsSync(childPidPath)).toBe(true);
+    const grandchildPid = Number(readFileSync(childPidPath, "utf8").trim());
+
+    const cancelled = await service.cancel(started.task_id);
+    const processExists = (): boolean => {
+      try {
+        process.kill(grandchildPid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const exitDeadline = Date.now() + 2_000;
+    while (processExists() && Date.now() < exitDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    expect(cancelled?.state).toBe("cancelled");
+    expect(processExists()).toBe(false);
   });
 
   test("rejects unsafe item paths returned by the Python boundary", async () => {

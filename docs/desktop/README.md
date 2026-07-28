@@ -53,9 +53,17 @@ python.exe -I -m lxeskill ...
 
 ### 工作台媒体标签
 
-Windows 桌面的“工作台”提供“亚马逊 AI 人物标签”。第一版图片支持 JPG、JPEG、PNG；视频范围按 [Amazon 商品视频说明](https://sell.amazon.com/blog/amazon-product-video) 收窄为 MP4 和 MOV。工具固定向 XMP `dc:subject` 的 `rdf:Bag` 追加 `contains-synthetic-performer`，再重新读取元数据确认标签写入成功。它不判断画面是否真的包含 AI 人物，也不检查分辨率、时长等其他上传要求。
+Windows 桌面以及 macOS 源码版、预览版的“工作台”提供“亚马逊 AI 人物标签”。第一版图片支持 JPG、JPEG、PNG；视频范围按 [Amazon 商品视频说明](https://sell.amazon.com/blog/amazon-product-video) 收窄为 MP4 和 MOV。工具固定向 XMP `dc:subject` 的 `rdf:Bag` 追加 `contains-synthetic-performer`，再重新读取元数据确认标签写入成功。它不判断画面是否真的包含 AI 人物，也不检查分辨率、时长等其他上传要求。
 
-文件选择和输出目录由 Electron Main 管理，Renderer 只拿到一次性的选择编号和任务编号，不能自己拼磁盘路径。Main 直接启动私有 Python 中的 `lxeskill media synthetic-performer --stdin-json`，Python 再调用随安装包携带的 ExifTool；这条路线不经过 Agent CLI。原文件始终不修改，输出放进独立的任务文件夹。应用同一时间只运行一个媒体任务，关闭应用时会终止尚未完成的 Python 和 ExifTool 进程。
+文件选择和输出目录由 Electron Main 管理，Renderer 只拿到一次性的选择编号和任务编号，不能自己拼磁盘路径。Main 直接启动私有 Python 中的 `lxeskill media synthetic-performer --stdin-json`，Python 再调用 Windows 安装包或 Mac 项目缓存里的私有 ExifTool；这条路线不经过 Agent CLI。原文件始终不修改，输出放进独立的任务文件夹。应用同一时间只运行一个媒体任务，关闭应用时会终止尚未完成的 Python 和 ExifTool 进程。
+
+在 Mac 上运行 `bun run desktop:dev` 或 `bun run desktop:preview` 时，会先检查项目自己的 ExifTool 13.59。首次启动会从官方 SourceForge 下载约 8 MB 的完整 Perl 版本，核对 SHA-256 后，只保留 `exiftool` 和它必须配套的 `lib` 目录。缓存放在 `build/desktop-runtime/darwin-<arch>`，以后启动直接复用，不要求用户通过 Homebrew 或系统安装包安装 ExifTool。需要单独检查或重新准备时，可以运行：
+
+```bash
+bun run desktop:tools:mac
+```
+
+这项支持只覆盖 Mac 源码开发和生产页面预览；当前仍不生成 DMG，也不代表 Mac 正式发布流水线已经完成。
 
 ## 桌面配置与安全
 
@@ -144,7 +152,7 @@ bun run verify:source
 
 `bun run verify` 和 `bun run verify:platform` 是这个命令的兼容别名，不再构建 wheel、Agent CLI、Dashboard 或 Electron。
 
-macOS 只运行源码验证，不会生成缺少私有运行时的伪 DMG，也不再把本机源码检查称为完整发布验证：
+macOS 不生成缺少完整私有运行时的伪 DMG。Mac 平台验证会先准备私有 ExifTool，完成源码检查，再用真实的 JPG、PNG、MP4 和 MOV 验证媒体标签；它仍然不是正式安装包验证：
 
 ```bash
 bun run verify:platform:mac

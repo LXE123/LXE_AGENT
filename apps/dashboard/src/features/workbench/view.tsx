@@ -33,7 +33,7 @@ const formatBytes = (bytes: number): string => {
 export function SyntheticPerformerWorkbench() {
   const t = useUiText().workbench;
   const desktop = window.lxe?.desktop;
-  const supported = desktop?.platform === "win32";
+  const supported = desktop?.platform === "win32" || desktop?.platform === "darwin";
   const [selection, setSelection] = useState<DesktopSyntheticPerformerSourceSelection | null>(null);
   const [output, setOutput] = useState<DesktopSyntheticPerformerOutputSelection | null>(null);
   const [task, setTask] = useState<DesktopSyntheticPerformerTask | null>(null);

@@ -22,10 +22,11 @@
     "dashboard:build": "bun run --cwd apps/dashboard build",
     "agent-cli:build": "bun run --cwd apps/agent-cli build",
     "agent-cli:compile": "bun run --cwd apps/agent-cli compile",
-    "desktop:dev": "bun run --cwd apps/desktop dev",
-    "desktop:preview": "bun run dashboard:build && bun run --cwd apps/desktop preview",
+    "desktop:dev": "bun run desktop:tools:mac && bun run --cwd apps/desktop dev",
+    "desktop:preview": "bun run desktop:tools:mac && bun run dashboard:build && bun run --cwd apps/desktop preview",
     "desktop:build": "bun run dashboard:build && bun run --cwd apps/desktop build",
     "desktop:runtime:win": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-desktop-runtime.ps1",
+    "desktop:tools:mac": "bun scripts/prepare-desktop-macos-exiftool.ts",
     "desktop:resources": "bun scripts/prepare-desktop-resources.ts",
     "desktop:sizes:win": "bun scripts/report-desktop-resource-sizes.ts",
     "desktop:pack:win": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop-windows.ps1 -PackageTarget Unpacked",
@@ -37,7 +38,7 @@
     "verify": "bun run verify:source",
     "verify:platform": "bun run verify:source",
     "verify:platform:win": "bun scripts/assert-host-platform.ts win32 x64 && bun run verify:source && bun run desktop:dist:win",
-    "verify:platform:mac": "bun scripts/assert-host-platform.ts darwin && bun run verify:source"
+    "verify:platform:mac": "bun scripts/assert-host-platform.ts darwin && bun run desktop:tools:mac && bun run verify:source && bun scripts/verify-desktop-macos-media.ts"
   },
   "devDependencies": {
     "typescript": "7.0.2"

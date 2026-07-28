@@ -227,8 +227,8 @@ export class DesktopSyntheticPerformerService {
   }
 
   private requireRuntime(): void {
-    if (this.options.platform !== "win32") {
-      throw new Error("Amazon AI person media tagging currently supports Windows only");
+    if (this.options.platform !== "win32" && this.options.platform !== "darwin") {
+      throw new Error("Amazon AI person media tagging currently supports Windows and macOS only");
     }
     if (!existsSync(this.options.pythonPath)) throw new Error(`Managed Python is unavailable: ${this.options.pythonPath}`);
     if (!existsSync(this.options.exifToolPath)) throw new Error(`ExifTool is unavailable: ${this.options.exifToolPath}`);
@@ -278,6 +278,7 @@ export class DesktopSyntheticPerformerService {
           PYTHONUTF8: "1",
         },
         stdio: ["pipe", "pipe", "pipe"],
+        detached: this.options.platform === "darwin",
         windowsHide: true,
       },
     );
@@ -446,6 +447,34 @@ export class DesktopSyntheticPerformerService {
         killer.once("error", () => resolve());
         killer.once("close", () => resolve());
       });
+    } else if (this.options.platform === "darwin" && child.pid) {
+      const processGroup = -child.pid;
+      try {
+        process.kill(processGroup, "SIGTERM");
+      } catch {
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          // The process already exited.
+        }
+      }
+      await new Promise<void>((resolve) => {
+        if (child.exitCode !== null) {
+          resolve();
+          return;
+        }
+        const timeout = setTimeout(resolve, 1_500);
+        child.once("close", () => {
+          clearTimeout(timeout);
+          resolve();
+        });
+      });
+      try {
+        process.kill(processGroup, 0);
+        process.kill(processGroup, "SIGKILL");
+      } catch {
+        // The complete process group already exited.
+      }
     }
     try {
       child.kill();

@@ -51,9 +51,10 @@ Upstream source and release artifacts: https://github.com/BurntSushi/ripgrep
 ## ExifTool
 
 Windows x64 installations include the official ExifTool 13.59 64-bit executable
-distribution by Phil Harvey. It is stored under
-`resources/runtime/tools/exiftool` and is used internally to read, write, and
-verify media metadata. LXE Agent does not expose ExifTool as a general-purpose
+distribution by Phil Harvey. macOS source development and Preview download the
+official ExifTool 13.59 full Perl distribution into the ignored local build
+cache. In both cases ExifTool is used internally to read, write, and verify
+media metadata. LXE Agent does not expose ExifTool as a general-purpose
 command-line interface.
 
 Copyright 2003-2026 Phil Harvey.
@@ -65,6 +66,8 @@ license, source, and release information: https://exiftool.org/
 The Windows distribution's upstream `LICENSE` and
 `Licenses_Strawberry_Perl.zip` files remain inside the packaged
 `exiftool_files` directory, next to the executable and its bundled Perl runtime.
+The macOS development cache keeps the upstream `exiftool` script and its `lib`
+directory together, as required by the upstream portable installation layout.
 
 ## Amazon Operations Skills
 

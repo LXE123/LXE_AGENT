@@ -33,12 +33,14 @@ export interface DesktopPathOptions {
   resourcesPath: string;
   environment?: Record<string, string | undefined>;
   platform?: NodeJS.Platform;
+  arch?: string;
   pathExists?: (path: string) => boolean;
 }
 
 export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
   const environment = options.environment ?? process.env;
   const platform = options.platform ?? process.platform;
+  const arch = options.arch ?? process.arch;
   const targetPath = platform === "win32" ? win32 : posix;
   const pathExists = options.pathExists ?? existsSync;
   const existingDirectories = (paths: string[]): string[] =>
@@ -74,10 +76,20 @@ export function resolveDesktopPaths(options: DesktopPathOptions): DesktopPaths {
   const managedPythonPath = options.packaged
     ? targetPath.join(options.resourcesPath, "runtime", "python", platform === "win32" ? "python.exe" : "bin/python3")
     : targetPath.join(sourceRoot, ".venv", platform === "win32" ? "Scripts/python.exe" : "bin/python");
+  const exifToolName = platform === "win32" ? "exiftool.exe" : "exiftool";
+  const sourceExifToolPlatform = platform === "win32" ? "win32-x64" : `${platform}-${arch}`;
   const exifToolPath = options.packaged
-    ? targetPath.join(options.resourcesPath, "runtime", "tools", "exiftool", "exiftool.exe")
+    ? targetPath.join(options.resourcesPath, "runtime", "tools", "exiftool", exifToolName)
     : String(environment.LXE_EXIFTOOL_PATH ?? "").trim()
-      || targetPath.join(sourceRoot, "build", "desktop-runtime", "win32-x64", "tools", "exiftool", "exiftool.exe");
+      || targetPath.join(
+        sourceRoot,
+        "build",
+        "desktop-runtime",
+        sourceExifToolPlatform,
+        "tools",
+        "exiftool",
+        exifToolName,
+      );
   const managedDirectories = options.packaged
     ? [
         targetPath.join(options.resourcesPath, "runtime", "node"),

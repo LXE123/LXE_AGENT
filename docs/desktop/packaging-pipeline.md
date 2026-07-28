@@ -14,6 +14,7 @@ Status: Current
 | --- | --- | --- |
 | 开发桌面界面 | `bun run desktop:dev` | Vite 热更新页面和源码运行的 Electron |
 | 预览生产版页面 | `bun run desktop:preview` | 生产版 Dashboard，但 Gateway 和 Agent Runtime 仍从源码运行 |
+| 单独准备 Mac 媒体工具 | `bun run desktop:tools:mac` | 项目私有的 ExifTool 13.59；开发和预览会自动执行 |
 | 只检查源码 | `bun run verify:source` | 类型检查、Bun 测试和 Python 测试结果，不生成安装包 |
 | 准备 Windows 私有运行环境 | `bun run desktop:runtime:win` | 可重复使用的 Node、Python、浏览器等受管 Runtime |
 | 快速检查真实打包目录 | `bun run desktop:pack:win` | `dist/desktop-unpacked/win-unpacked/LXE Agent.exe` |
@@ -26,7 +27,9 @@ Status: Current
 - 想确认真实打包目录时用 `bun run desktop:pack:win`。
 - 准备发布时用 `bun run verify:platform:win`。
 
-目前正式打包只支持 **Windows x64**。macOS 只能执行源码验证，不生成正式 DMG。
+目前正式打包只支持 **Windows x64**。macOS 可以运行源码版、预览版和工作台媒体标签，但不生成正式 DMG。
+
+Mac 第一次运行 `desktop:dev` 或 `desktop:preview` 时，会自动下载约 8 MB 的 ExifTool 13.59 完整 Perl 版本，核对固定 SHA-256，再把 `exiftool` 和 `lib` 放进项目的 `build/desktop-runtime/darwin-<arch>` 缓存。以后启动只检查并复用缓存，不要求用户另外安装 ExifTool。这个缓存服务于源码开发，不会把缺少其他私有 Runtime 的 Mac 应用伪装成正式安装包。
 
 ### 正式打包时选择版本
 
