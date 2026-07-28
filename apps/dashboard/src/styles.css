@@ -4797,6 +4797,22 @@ h1 {
   font-size: 0.75rem;
 }
 
+.tool-turn-group.has-error .tool-turn-subtitle {
+  color: var(--danger);
+  font-weight: 550;
+}
+
+.tool-turn-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--muted);
+  transition: transform 0.16s ease;
+}
+
+.tool-turn-chevron.expanded {
+  transform: rotate(90deg);
+}
+
 .tool-turn-body {
   display: grid;
   gap: 2px;

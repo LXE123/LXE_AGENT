@@ -24,6 +24,7 @@ import { EmptyState } from "../../shared/components";
 import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText } from "../../shared/content";
 import {
   buildConversationItems,
+  hasToolError,
   roleLabel,
   toolCallBlocks,
   toolResultBlocks,
@@ -300,35 +301,39 @@ function messageToolNames(message: SessionMessage): string[] {
   return names;
 }
 
+const TOOL_NAMES_SHOWN = 3;
+
 function toolGroupStats(messages: SessionMessage[], t: UiText) {
   let callCount = 0;
-  let resultCount = 0;
-  let hasError = false;
+  let errorCount = 0;
   const names: string[] = [];
 
   for (const message of messages) {
-    const calls = toolCallBlocks(message);
-    const results = toolResultBlocks(message);
-    callCount += calls.length;
-    if (roleLabel(message.role) === "tool") {
-      resultCount += Math.max(results.length, 1);
-    } else {
-      resultCount += results.length;
-    }
-    for (const result of results) {
-      if (isRecord(result) && result.is_error) {
-        hasError = true;
-      }
+    callCount += toolCallBlocks(message).length;
+    for (const result of toolResultBlocks(message)) {
+      if (isRecord(result) && result.is_error) errorCount += 1;
     }
     names.push(...messageToolNames(message));
   }
 
-  const uniqueNames = Array.from(new Set(names)).slice(0, 3);
+  // Which tools ran is the part worth reading, so it leads; the counts are
+  // context for it rather than the other way round.
+  const uniqueNames = Array.from(new Set(names));
+  const shown = uniqueNames.slice(0, TOOL_NAMES_SHOWN);
+  const overflow = uniqueNames.length - shown.length;
+  const title = shown.length
+    ? [shown.join(" · "), overflow > 0 ? t.message.toolNamesOverflow(formatNumber(overflow)) : ""]
+      .filter(Boolean).join(" ")
+    : t.message.toolActivity;
   return {
     callCount,
-    resultCount,
-    hasError,
-    summary: uniqueNames.length ? uniqueNames.join(", ") : t.message.toolActivity,
+    errorCount,
+    hasError: errorCount > 0,
+    title,
+    detail: [
+      t.message.toolSteps(formatNumber(Math.max(callCount, 1))),
+      errorCount > 0 ? t.message.toolErrors(formatNumber(errorCount)) : "",
+    ].filter(Boolean).join(" · "),
   };
 }
 
@@ -361,13 +366,10 @@ function ToolTurnGroup({
         onClick={onToggle}
       >
         <div>
-          <div className="tool-turn-title">
-            {embedded ? t.message.toolOperation : t.message.toolContinuation} · {formatNumber(stats.callCount)}{" "}
-            {t.message.calls} · {formatNumber(stats.resultCount)} {t.message.results}
-          </div>
-          <div className="tool-turn-subtitle">{stats.summary}</div>
+          <div className="tool-turn-title">{stats.title}</div>
+          <div className="tool-turn-subtitle">{stats.detail}</div>
         </div>
-        {stats.hasError ? <span className="pill warn">{t.message.error}</span> : null}
+        <ChevronRight size={14} className={expanded ? "tool-turn-chevron expanded" : "tool-turn-chevron"} />
       </button>
       {expanded ? (
         <div className="tool-turn-body">
@@ -669,7 +671,9 @@ export function SessionDetailView({
   const messages = detail?.messages || [];
   const renderItems = useMemo(() => buildConversationItems(messages), [messages]);
   const [sessionInfoOpen, setSessionInfoOpen] = useState(false);
-  const [expandedToolGroups, setExpandedToolGroups] = useState<Set<string>>(() => new Set());
+  // Only the groups the reader has explicitly toggled; everything else follows
+  // the default, which opens a group that contains an error.
+  const [toolGroupOverrides, setToolGroupOverrides] = useState<Map<string, boolean>>(() => new Map());
   const transcriptRef = useRef<HTMLDivElement>(null);
   const loadingOlderRef = useRef(false);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
@@ -704,13 +708,11 @@ export function SessionDetailView({
     { label: t.stats.tokens, value: formatNumber(session.input_tokens + session.output_tokens) },
     { label: t.stats.apiCalls, value: formatNumber(session.api_call_count) },
   ] : [];
-  const toggleToolGroup = (key: string) => {
-    setExpandedToolGroups((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const toolGroupExpanded = (group: ConversationToolGroup): boolean =>
+    toolGroupOverrides.get(group.key) ?? hasToolError(group.messages);
+  const toggleToolGroup = (group: ConversationToolGroup) => {
+    const next = !toolGroupExpanded(group);
+    setToolGroupOverrides((current) => new Map(current).set(group.key, next));
   };
   const loadOlder = async () => {
     const transcript = transcriptRef.current;
@@ -779,8 +781,8 @@ export function SessionDetailView({
               <div className="message-list">
                 {renderItems.map((item, itemIndex) => {
                   if (item.type === "tool_group") {
-                    return <ToolTurnGroup expanded={expandedToolGroups.has(item.group.key)} group={item.group}
-                      key={item.group.key} onToggle={() => toggleToolGroup(item.group.key)} />;
+                    return <ToolTurnGroup expanded={toolGroupExpanded(item.group)} group={item.group}
+                      key={item.group.key} onToggle={() => toggleToolGroup(item.group)} />;
                   }
                   const { message, index, toolGroups } = item;
                   const role = roleLabel(message.role);
@@ -808,8 +810,8 @@ export function SessionDetailView({
                       <MessageContent content={message.content} message={message} />
                       {toolGroups.length ? (
                         <div className="assistant-tool-stack">
-                          {toolGroups.map((group) => <ToolTurnGroup embedded expanded={expandedToolGroups.has(group.key)}
-                            group={group} key={group.key} onToggle={() => toggleToolGroup(group.key)} />)}
+                          {toolGroups.map((group) => <ToolTurnGroup embedded expanded={toolGroupExpanded(group)}
+                            group={group} key={group.key} onToggle={() => toggleToolGroup(group)} />)}
                         </div>
                       ) : null}
                     </article>

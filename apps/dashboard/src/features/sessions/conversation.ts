@@ -31,14 +31,29 @@ export function toolResultBlocks(message: SessionMessage): unknown[] {
   return Array.isArray(message.content) ? message.content.filter(isToolResultBlock) : [];
 }
 
-function isPureToolAssistantMessage(message: SessionMessage): boolean {
+function isReaderFacingTextBlock(block: unknown): boolean {
+  return blockType(block) === "text" && Boolean(isRecord(block) && String(block.text ?? "").trim());
+}
+
+/**
+ * An assistant message that says nothing to the reader - thinking, tool calls,
+ * or both - is part of how the answer was reached rather than the answer. Left
+ * on its own it breaks a run of tool activity into separate cards, which is how
+ * a single file transfer came to occupy a dozen rows.
+ */
+function isProcessOnlyAssistantMessage(message: SessionMessage): boolean {
   if (roleLabel(message.role) !== "assistant") return false;
   if (!Array.isArray(message.content) || message.content.length === 0) return false;
-  return message.content.every(isToolCallBlock);
+  return !message.content.some(isReaderFacingTextBlock);
 }
 
 function isToolGroupMessage(message: SessionMessage): boolean {
-  return isPureToolAssistantMessage(message) || roleLabel(message.role) === "tool";
+  return isProcessOnlyAssistantMessage(message) || roleLabel(message.role) === "tool";
+}
+
+export function hasToolError(messages: SessionMessage[]): boolean {
+  return messages.some((message) =>
+    toolResultBlocks(message).some((result) => isRecord(result) && result.is_error));
 }
 
 function splitAssistantInlineToolCalls(message: SessionMessage): {

@@ -252,6 +252,9 @@ export const ZH_TEXT = {
     toolActivity: "工具活动",
     toolOperation: "工具操作",
     toolContinuation: "工具操作续段",
+    toolSteps: (count: string) => `${count} 步`,
+    toolErrors: (count: string) => `${count} 个出错`,
+    toolNamesOverflow: (count: string) => `+${count}`,
     calls: "调用",
     results: "结果",
     error: "错误"
@@ -877,6 +880,9 @@ export const UI_TEXT: Record<Language, UiText> = {
       toolActivity: "tool activity",
       toolOperation: "Tool activity",
       toolContinuation: "Tool activity continuation",
+      toolSteps: (count: string) => `${count} steps`,
+      toolErrors: (count: string) => `${count} failed`,
+      toolNamesOverflow: (count: string) => `+${count}`,
       calls: "calls",
       results: "results",
       error: "error"
