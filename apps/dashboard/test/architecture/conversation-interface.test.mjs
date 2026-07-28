@@ -54,6 +54,8 @@ test("the focused conversation takes the full panel without a second session col
   assert.doesNotMatch(main, /sessions-split/);
   assert.match(styles, /\.sessions-conversation-shell \{[^}]*height:\s*100%[^}]*min-height:\s*0/s);
   assert.match(main, /"content-panel content-panel-fill"/);
+  assert.doesNotMatch(view, /conversation-header-sidebar-toggle/);
+  assert.match(styles, /\.conversation-header \{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto;/s);
 });
 
 test("conversation messages and composer share the same focused reading axis", () => {

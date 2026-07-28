@@ -14,8 +14,6 @@ import {
   LoaderCircle,
   PackageCheck,
   Paperclip,
-  PanelLeftClose,
-  PanelLeftOpen,
   Plus,
   Search,
   SendHorizontal,
@@ -886,8 +884,6 @@ export function SessionDetailView({
   onStop,
   onOpenFile,
   onOpenAttachment,
-  sidebarExpanded,
-  onToggleSidebar,
 }: {
   fallbackSession: SessionPayload | null;
   detail: SessionDetailPayload | null;
@@ -905,8 +901,6 @@ export function SessionDetailView({
   onStop: () => Promise<void>;
   onOpenFile: (artifactId: string) => Promise<void>;
   onOpenAttachment: (attachmentId: string) => Promise<void>;
-  sidebarExpanded: boolean;
-  onToggleSidebar: () => void;
 }) {
   const t = useUiText();
   const session = detail?.session || fallbackSession;
@@ -998,17 +992,6 @@ export function SessionDetailView({
   return (
     <div className="session-detail conversation-view">
       <header className="conversation-header">
-        <button
-          aria-controls="app-sidebar"
-          aria-expanded={sidebarExpanded}
-          aria-label={sidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
-          className="conversation-header-sidebar-toggle"
-          onClick={onToggleSidebar}
-          title={sidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
-          type="button"
-        >
-          {sidebarExpanded ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-        </button>
         <div className="conversation-header-copy">
           <h2>{title}</h2>
           {session ? <span>{sourceLabel(session.source_summary || session.source)}</span> : null}

@@ -868,8 +868,6 @@ function App({
                     onStop={stopConversation}
                     onOpenFile={openConversationFile}
                     onOpenAttachment={openConversationAttachment}
-                    sidebarExpanded={sessionSidebarExpanded}
-                    onToggleSidebar={handleSidebarToggle}
                   />
                 ) : (
                   <EmptyState label={selectedSessionId ? t.sessionDetail.loading : t.sessions.selectPrompt} />

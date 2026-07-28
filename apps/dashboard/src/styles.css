@@ -7523,7 +7523,7 @@ pre {
   z-index: 8;
   display: grid;
   min-height: 56px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   padding: 8px 18px;
@@ -7542,24 +7542,6 @@ pre {
 .desktop-platform-darwin .sessions-focus .conversation-header button {
   app-region: no-drag;
   -webkit-app-region: no-drag;
-}
-
-.conversation-header-sidebar-toggle {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.conversation-header-sidebar-toggle:hover,
-.conversation-header-sidebar-toggle:focus-visible {
-  background: var(--surface-muted);
-  color: var(--text-strong);
 }
 
 .conversation-header-copy {
