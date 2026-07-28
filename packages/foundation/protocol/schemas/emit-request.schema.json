@@ -79,11 +79,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "status", "elapsed_ms", "model", "input_tokens", "output_tokens",
+        "status", "phase", "elapsed_ms", "model", "input_tokens", "output_tokens",
         "cache_read_input_tokens", "cache_creation_input_tokens", "context_tokens", "context_window_tokens"
       ],
       "properties": {
         "status": { "enum": ["running", "completed", "error", "cancelled"] },
+        "phase": {
+          "enum": ["preparing_context", "waiting_model", "thinking", "running_tool", "generating_answer"]
+        },
         "elapsed_ms": { "type": "integer", "minimum": 0 },
         "model": { "type": "string" },
         "input_tokens": { "type": "integer", "minimum": 0 },

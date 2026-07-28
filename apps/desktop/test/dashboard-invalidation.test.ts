@@ -52,6 +52,7 @@ const itemCompleted = (
           seq: 1,
           display_metrics: {
             status: "running" as const,
+            phase: "generating_answer" as const,
             elapsed_ms: 1,
             model: "test",
             input_tokens: 0,

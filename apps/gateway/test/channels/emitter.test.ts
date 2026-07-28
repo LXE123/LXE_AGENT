@@ -62,6 +62,7 @@ describe("GatewayEmitter", () => {
       tool_steps: [{ id: "1", name: "web", title: "Search", detail: "", icon_token: "search_outlined", status: "running", duration_ms: 0 }],
       display_metrics: {
         status: "running",
+        phase: "running_tool",
         elapsed_ms: 123,
         model: "model-1",
         input_tokens: 1,
@@ -83,7 +84,7 @@ describe("GatewayEmitter", () => {
         redacted_thinking_count: 1,
         tool_pending: true,
         seq: 2,
-        display_metrics: expect.objectContaining({ model: "model-1" }),
+        display_metrics: expect.objectContaining({ model: "model-1", phase: "running_tool" }),
       }),
     })]);
   });

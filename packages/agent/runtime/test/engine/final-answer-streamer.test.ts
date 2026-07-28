@@ -56,6 +56,7 @@ describe("FinalAnswerStreamer display contract", () => {
     expect(terminal.redacted_thinking_count).toBe(1);
     expect(terminal.display_metrics).toEqual(expect.objectContaining({
       status: "completed",
+      phase: "generating_answer",
       elapsed_ms: 4_600,
       model: "model-1",
       input_tokens: 100,
@@ -77,6 +78,37 @@ describe("FinalAnswerStreamer display contract", () => {
     expect(terminal.tool_steps[1]?.error_block?.content.length).toBeLessThanOrEqual(2_000);
     expect(emitted.map((frame) => frame.seq)).toEqual(emitted.map((_, index) => index + 1));
     expect(emitted.every((frame) => frame.turn_id === "turn-1")).toBe(true);
+  });
+
+  test("reports explicit context, provider, thinking, answer and tool phases", async () => {
+    const emitted: EmitRequest[] = [];
+    const flush = async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+    const streamer = new FinalAnswerStreamer({
+      sessionId: "s1",
+      turnId: "turn-1",
+      responseRouteId: "r1",
+      minIntervalMs: 0,
+      emit: async (request) => { emitted.push(request); return true; },
+    });
+
+    await streamer.startPreparingContext();
+    await flush();
+    expect(emitted.at(-1)?.display_metrics?.phase).toBe("preparing_context");
+    await streamer.startWaitingModel();
+    await flush();
+    expect(emitted.at(-1)?.display_metrics?.phase).toBe("waiting_model");
+    await streamer.pushEvent({ type: "thinking_delta", thinking: "checking" });
+    await flush();
+    expect(emitted.at(-1)?.display_metrics?.phase).toBe("thinking");
+    await streamer.pushEvent({ type: "text_delta", text: "answer" });
+    await flush();
+    expect(emitted.at(-1)?.display_metrics?.phase).toBe("generating_answer");
+    await streamer.pushToolStart({ type: "tool_call", id: "tool-1", name: "read", arguments: {} });
+    await flush();
+    expect(emitted.at(-1)?.display_metrics?.phase).toBe("running_tool");
   });
 
   test("reports cancelled without creating a stream when no frame was delivered", async () => {

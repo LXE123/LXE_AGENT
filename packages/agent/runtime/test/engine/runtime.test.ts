@@ -1043,7 +1043,10 @@ describe("TypeScriptAgentRuntime", () => {
       name: "echo",
       description: "echo text",
       input_schema: { type: "object", properties: { text: { type: "string" } } },
-      execute: async (input) => ({ content: [{ type: "text", text: String(input.text) }] }),
+      execute: async (input) => {
+        await Bun.sleep(160);
+        return { content: [{ type: "text", text: String(input.text) }] };
+      },
     });
     const emitted: EmitRequest[] = [];
     const services: string[] = [];
@@ -1051,6 +1054,7 @@ describe("TypeScriptAgentRuntime", () => {
       store,
       tools,
       provider: { summarize, turn: async (request) => {
+        if (responses.length === 2) await Bun.sleep(160);
         if (responses.length === 1) await request.onEvent?.({ type: "text_delta", text: "done" });
         return responses.shift()!;
       } },
@@ -1089,6 +1093,11 @@ describe("TypeScriptAgentRuntime", () => {
     expect(streamFrames.map((request) => request.seq)).toEqual(
       streamFrames.map((_, index) => index + 1),
     );
+    const phases = streamFrames.flatMap((request) => request.display_metrics?.phase ?? []);
+    expect(phases).toContain("preparing_context");
+    expect(phases).toContain("waiting_model");
+    expect(phases).toContain("running_tool");
+    expect(phases.at(-1)).toBe("generating_answer");
     await runtime.stop();
     expect(services).toEqual(["start", "stop"]);
   });

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { DisplayMetrics, EmitRequest, ToolStep } from "@lxe/protocol";
+import type { DisplayMetrics, EmitRequest, ToolStep, TurnDisplayPhase } from "@lxe/protocol";
 import { buildToolDisplayStep } from "../tooling/tool-display";
 import type { RuntimeStreamEvent, ToolCallBlock } from "./types";
 
@@ -60,6 +60,7 @@ export class FinalAnswerStreamer {
   private cacheCreationInputTokens = 0;
   private contextTokens = 0;
   private displayStatus: DisplayMetrics["status"] = "running";
+  private displayPhase: TurnDisplayPhase = "preparing_context";
 
   constructor(private readonly options: FinalAnswerStreamerOptions) {
     this.emitId = String(options.emitId ?? "").trim() || randomUUID().replaceAll("-", "");
@@ -74,6 +75,7 @@ export class FinalAnswerStreamer {
     if (event.type === "thinking_delta") return this.pushDelta({ thinking: event.thinking });
     if (this.terminal) return;
     this.redactedThinkingCount += 1;
+    this.displayPhase = "thinking";
     if (!this.content && !this.thinkingStartedAt) this.thinkingStartedAt = this.now();
     this.scheduleDelta();
   }
@@ -98,6 +100,8 @@ export class FinalAnswerStreamer {
     if (this.terminal) return;
     const text = String(delta.text ?? "");
     const thinking = String(delta.thinking ?? "");
+    if (text) this.displayPhase = "generating_answer";
+    else if (thinking) this.displayPhase = "thinking";
     if (thinking && !this.content && !this.thinkingStartedAt) this.thinkingStartedAt = this.now();
     if (text && this.thinkingStartedAt && !this.thinkingElapsedMs) {
       this.thinkingElapsedMs = Math.max(0, this.now() - this.thinkingStartedAt);
@@ -105,6 +109,14 @@ export class FinalAnswerStreamer {
     this.content += text;
     this.thinking += thinking;
     this.scheduleDelta();
+  }
+
+  async startPreparingContext(): Promise<void> {
+    this.setDisplayPhase("preparing_context");
+  }
+
+  async startWaitingModel(): Promise<void> {
+    this.setDisplayPhase("waiting_model");
   }
 
   async startToolPending(): Promise<void> {
@@ -115,6 +127,7 @@ export class FinalAnswerStreamer {
 
   async pushToolStart(call: ToolCallBlock): Promise<void> {
     if (this.terminal || this.options.toolUseMode === "off") return;
+    this.displayPhase = "running_tool";
     this.activeToolStartedAt = this.now();
     this.toolPending = false;
     // Same path treatment as the finished step, or the path visibly changes
@@ -146,7 +159,10 @@ export class FinalAnswerStreamer {
 
   async finish(content: string): Promise<boolean> {
     const finalContent = String(content ?? "").trim();
-    if (finalContent && finalContent.length >= this.content.length) this.content = finalContent;
+    if (finalContent) {
+      this.displayPhase = "generating_answer";
+      if (finalContent.length >= this.content.length) this.content = finalContent;
+    }
     this.displayStatus = "completed";
     return this.close("final");
   }
@@ -242,6 +258,7 @@ export class FinalAnswerStreamer {
       toolSteps: cloneSteps(this.toolSteps),
       displayMetrics: {
         status: this.displayStatus,
+        phase: this.displayPhase,
         elapsed_ms: Math.max(0, Math.trunc(this.now() - this.startedAt)),
         model: String(this.options.model ?? ""),
         input_tokens: this.inputTokens,
@@ -256,6 +273,12 @@ export class FinalAnswerStreamer {
 
   private snapshotKey(): string {
     return JSON.stringify(this.snapshot());
+  }
+
+  private setDisplayPhase(phase: TurnDisplayPhase): void {
+    if (this.terminal) return;
+    this.displayPhase = phase;
+    this.scheduleDelta();
   }
 
   private upsertTool(step: ToolStep): void {

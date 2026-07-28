@@ -174,8 +174,13 @@ const displayMetrics = (value: JsonValue | undefined): DisplayMetrics => {
   const status = metrics.status === "completed" || metrics.status === "error" || metrics.status === "cancelled"
     ? metrics.status
     : "running";
+  const phase = metrics.phase === "waiting_model" || metrics.phase === "thinking"
+    || metrics.phase === "running_tool" || metrics.phase === "generating_answer"
+    ? metrics.phase
+    : "preparing_context";
   return {
     status,
+    phase,
     elapsed_ms: Math.max(0, integer(metrics.elapsed_ms)),
     model: stringValue(metrics.model),
     input_tokens: Math.max(0, integer(metrics.input_tokens)),

@@ -61,12 +61,28 @@ test("the focused conversation takes the full panel without a second session col
 test("conversation messages and composer share the same focused reading axis", () => {
   const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
   assert.match(styles, /\.conversation-feed \{[^}]*width:\s*min\(820px,/s);
-  assert.match(styles, /\.conversation-live-status,\s*\.conversation-composer \{[^}]*width:\s*min\(820px,/s);
+  assert.match(styles, /\.conversation-composer \{[^}]*width:\s*min\(820px,/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-assistant,[\s\S]*?background:\s*transparent/);
   assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(620px, 78%\)[^}]*border:\s*1px solid var\(--border\)[^}]*background:\s*var\(--surface-subtle\)/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-user \.message-markdown > :last-child \{[^}]*margin-bottom:\s*0/s);
   assert.match(view, /const showCharacterCount = text\.length >= Math\.floor\(8192 \* 0\.75\)/);
   assert.match(view, /showRoleBadge = role !== "assistant" && role !== "user"/);
+});
+
+test("live turns expose one truthful phase and locally ticking elapsed time", () => {
+  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
+  assert.match(view, /case "preparing_context": return t\.conversation\.preparingContext/);
+  assert.match(view, /case "waiting_model": return t\.conversation\.waitingModel/);
+  assert.match(view, /case "thinking": return t\.conversation\.thinking/);
+  assert.match(view, /case "running_tool": return t\.conversation\.runningTool/);
+  assert.match(view, /case "generating_answer": return t\.conversation\.generatingAnswer/);
+  assert.match(view, /if \(!stream\) return t\.conversation\.preparingContext/);
+  assert.match(view, /turn\.started_at > 0/);
+  assert.match(view, /window\.setInterval\(\(\) => setClock\(Date\.now\(\)\), 250\)/);
+  assert.match(view, /elapsedMs >= 1_000/);
+  assert.match(styles, /\.live-progress-status \{[^}]*width:\s*min\(100%, var\(--assistant-content-width\)\)/s);
+  assert.doesNotMatch(view, /conversation-live-status|live-response-status|live-response-meta|toolPending/);
+  assert.doesNotMatch(styles, /\.conversation-live-status|\.live-response-status|\.live-response-meta/);
 });
 
 test("details and runtime status overlay the conversation without moving the reading axis", () => {

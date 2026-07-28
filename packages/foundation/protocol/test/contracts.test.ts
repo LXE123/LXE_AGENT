@@ -73,6 +73,16 @@ describe("protocol contracts", () => {
     expect(validateEmitRequest({ ...stream, stream_type: "content_block_delta" })).toBe(false);
     expect(validateEmitRequest({ ...stream, state: "running" })).toBe(false);
     expect(validateEmitRequest({ ...stream, seq: 0 })).toBe(false);
+    expect(validateEmitRequest({
+      ...stream,
+      display_metrics: { ...stream.display_metrics, phase: "waiting_model" },
+    })).toBe(true);
+    const { phase: _phase, ...metricsWithoutPhase } = stream.display_metrics;
+    expect(validateEmitRequest({ ...stream, display_metrics: metricsWithoutPhase })).toBe(false);
+    expect(validateEmitRequest({
+      ...stream,
+      display_metrics: { ...stream.display_metrics, phase: "waiting_vendor" },
+    })).toBe(false);
 
     const { display_metrics: _displayMetrics, ...base } = stream;
     const final = { ...base, emit_kind: "final", stream_type: "", state: "", seq: 0 };

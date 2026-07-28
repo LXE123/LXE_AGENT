@@ -34,6 +34,7 @@ const frame = (state: "delta" | "final", seq: number): EmitRequest => ({
   seq,
   display_metrics: {
     status: state === "final" ? "completed" : "running",
+    phase: "generating_answer",
     elapsed_ms: 1,
     model: "test-model",
     input_tokens: 1,

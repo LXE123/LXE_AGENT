@@ -70,6 +70,7 @@ const streamRequest = (job: AgentJob, state: "delta" | "final", seq: number): Em
   seq,
   display_metrics: {
     status: state === "final" ? "completed" : "running",
+    phase: state === "final" ? "generating_answer" : "running_tool",
     elapsed_ms: 5,
     model: "test",
     input_tokens: 3,

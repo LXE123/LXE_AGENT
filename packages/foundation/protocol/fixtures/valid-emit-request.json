@@ -27,6 +27,7 @@
   "seq": 1,
   "display_metrics": {
     "status": "completed",
+    "phase": "generating_answer",
     "elapsed_ms": 3200,
     "model": "kimi-for-coding",
     "input_tokens": 100,

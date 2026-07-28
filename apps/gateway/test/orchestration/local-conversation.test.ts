@@ -129,6 +129,7 @@ describe("LocalConversationController", () => {
       user_input: "continue here",
     });
     expect(h.controller.activity("session-1").active?.state).toBe("running");
+    expect(h.controller.activity("session-1").active?.started_at).toBeGreaterThan(0);
     h.controller.dispose();
   });
 
@@ -202,6 +203,7 @@ describe("LocalConversationController", () => {
     await tick();
     const result = await h.controller.send({ session_id: "session-1", text: "local follow-up" });
     expect(result.state).toBe("queued");
+    expect(h.controller.activity("session-1").queued[0]?.started_at).toBe(0);
 
     const stopped = await h.controller.stop("session-1");
     expect(stopped).toEqual({
@@ -303,6 +305,7 @@ describe("LocalConversationController", () => {
         }],
         display_metrics: {
           status: "running",
+          phase: "running_tool",
           elapsed_ms: 10,
           model: "model",
           input_tokens: 1,
@@ -324,6 +327,7 @@ describe("LocalConversationController", () => {
     const activity = h.controller.activity("session-1");
     expect(activity.active?.user_persisted_at).toBeGreaterThan(0);
     expect(activity.active?.stream?.content).toBe("answer");
+    expect(activity.active?.stream?.display_metrics.phase).toBe("running_tool");
     // The reader owns this filesystem: a path stays whole, so it reads the same
     // live as in history and an error keeps saying which file it was about.
     expect(activity.active?.stream?.tool_steps[0]?.detail)
@@ -333,6 +337,20 @@ describe("LocalConversationController", () => {
     // A stream emit's own `files` field is not a delivery channel: only an
     // explicit send_file outbound is eligible for artifact persistence.
     expect(activity.active?.stream).not.toHaveProperty("files");
+    h.controller.handleOutbound({
+      action: "stream_message",
+      platform: "desktop",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "secret-route",
+      event_id: "event-2",
+      payload: {
+        ...activity.active!.stream!,
+        seq: 2,
+        display_metrics: { ...activity.active!.stream!.display_metrics, phase: "waiting_vendor" },
+      } as unknown as JsonObject,
+    });
+    expect(h.controller.activity("session-1").active?.stream?.seq).toBe(1);
     h.controller.dispose();
   });
 

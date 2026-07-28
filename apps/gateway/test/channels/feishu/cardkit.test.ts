@@ -37,6 +37,7 @@ const request = (state: "delta" | "final" | "error", seq: number, patch: JsonObj
     tool_steps: [{ id: "t1", name: "search", title: "Search", detail: "ok", icon_token: "search_outlined", status: "success", duration_ms: 700 }],
     display_metrics: {
       status: state === "error" ? "error" : state === "final" ? "completed" : "running",
+      phase: "generating_answer",
       elapsed_ms: 3200,
       model: "model-1",
       input_tokens: 10,

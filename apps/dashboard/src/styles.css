@@ -4420,14 +4420,12 @@ h1 {
 
 .live-assistant > .message-markdown,
 .live-assistant > .thinking-block,
-.live-assistant > .live-tool-list,
-.live-assistant > .live-tool-pending {
+.live-assistant > .live-tool-list {
   width: min(100%, var(--assistant-content-width));
   min-width: 0;
   max-width: 100%;
 }
 
-.live-tool-pending,
 .live-tool-step {
   display: flex;
   min-width: 0;
@@ -4449,7 +4447,6 @@ h1 {
   width: 100%;
 }
 
-.live-tool-pending > svg,
 .live-tool-step > svg {
   flex: 0 0 auto;
 }
@@ -4479,22 +4476,25 @@ h1 {
   color: var(--danger);
 }
 
-.live-response-meta {
+.live-progress-status {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px 10px;
-  color: var(--muted-light);
-  font-size: 0.625rem;
+  width: min(100%, var(--assistant-content-width));
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
 }
 
-.live-assistant.state-error .live-response-meta {
+.live-progress-status.state-error {
   color: var(--danger);
 }
 
-.conversation-live-status {
-  min-height: 18px;
-  color: var(--muted);
-  font-size: 0.6875rem;
+.live-progress-separator,
+.live-progress-elapsed {
+  color: var(--muted-light);
+  font-weight: 500;
 }
 
 .conversation-composer {
@@ -7923,7 +7923,6 @@ pre {
   background: var(--surface-subtle);
 }
 
-.live-response-status,
 .optimistic-message-state {
   display: flex;
   align-items: center;
@@ -7931,10 +7930,6 @@ pre {
   color: var(--muted);
   font-size: 0.6875rem;
   font-weight: 600;
-}
-
-.live-response-status {
-  margin-bottom: 8px;
 }
 
 .optimistic-message-state {
@@ -8070,15 +8065,9 @@ pre {
   background: linear-gradient(to bottom, transparent, var(--surface) 18px);
 }
 
-.conversation-live-status,
 .conversation-composer {
   width: min(820px, 100%);
   margin-inline: auto;
-}
-
-.conversation-live-status {
-  min-height: 20px;
-  padding: 2px 4px;
 }
 
 .conversation-composer {

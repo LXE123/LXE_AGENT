@@ -14,6 +14,7 @@ import type {
   JsonObject,
   SessionWorkspaceRequest,
   ToolStep,
+  TurnDisplayPhase,
   WorkspaceContext,
 } from "@lxe/protocol";
 import { createLogger } from "@lxe/core";
@@ -184,6 +185,7 @@ export class LocalConversationController {
         text,
         ...(attachments.length > 0 ? { attachments: attachments.map(publicAttachment) } : {}),
         state: "queued",
+        started_at: 0,
         user_persisted_at: 0,
         settled_at: 0,
       },
@@ -283,6 +285,9 @@ export class LocalConversationController {
       activity.queuedTurnIds = activity.queuedTurnIds.filter((value) => value !== turnId);
       activity.activeTurnId = turnId;
       turn.payload.state = "running";
+      if (turn.payload.started_at <= 0) {
+        turn.payload.started_at = Math.max(1, Math.trunc(this.now()));
+      }
     } else {
       activity.queuedTurnIds = activity.queuedTurnIds.filter((value) => value !== turnId);
       if (activity.activeTurnId === turnId) activity.activeTurnId = undefined;
@@ -457,8 +462,12 @@ function sanitizeMetrics(value: unknown): DisplayMetrics | undefined {
   if (status !== "running" && status !== "completed" && status !== "error" && status !== "cancelled") {
     return undefined;
   }
+  const phase = clean(metrics.phase) as TurnDisplayPhase;
+  if (phase !== "preparing_context" && phase !== "waiting_model" && phase !== "thinking"
+    && phase !== "running_tool" && phase !== "generating_answer") return undefined;
   return {
     status,
+    phase,
     elapsed_ms: integer(metrics.elapsed_ms),
     model: String(metrics.model ?? ""),
     input_tokens: integer(metrics.input_tokens),
@@ -483,6 +492,7 @@ function fallbackStream(content: string, seq: number): DesktopConversationStream
     tool_steps: [],
     display_metrics: {
       status: "completed",
+      phase: "generating_answer",
       elapsed_ms: 0,
       model: "",
       input_tokens: 0,

@@ -311,6 +311,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         await recordUsage("completed");
         return this.outcome("completed", "", inputTokens, outputTokens, toolCalls);
       }
+      await finalAnswerStreamer?.startPreparingContext();
       workspaceLease = await this.options.workspaceInstances?.acquire(workspace);
       const skillSnapshot = workspaceLease?.snapshot.skills ?? this.options.skillSnapshot?.(workspace);
       const skillModule = (name: string): string => skillSnapshot
@@ -393,6 +394,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
       const maxSteps = Math.max(1, Math.trunc(this.options.maxSteps ?? DEFAULT_MAX_STEPS));
       await finalAnswerStreamer?.startToolPending();
       for (let step = 0; step < maxSteps; step += 1) {
+        await finalAnswerStreamer?.startPreparingContext();
         if (isCancelled(handle)) {
           await finalAnswerStreamer?.cancel();
           await recordUsage("cancelled");
@@ -454,6 +456,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
               timeoutMs: descriptor?.requestIdleTimeoutMs ?? 0,
             });
             try {
+              await finalAnswerStreamer?.startWaitingModel();
               const response = await provider.turn(providerRequest(attemptObserver, wireTrace));
               attemptObserver.succeed(response);
               return response;
@@ -479,6 +482,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           response = await invokeProvider();
         } catch (error) {
           if (!isContextOverflowError(error)) throw error;
+          await finalAnswerStreamer?.startPreparingContext();
           const overflow = await contextPipeline.prepare({
             sessionId: job.session_id,
             messages,

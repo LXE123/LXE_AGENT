@@ -22,6 +22,7 @@ const state = (): CardDisplayState => ({
   }],
   metrics: {
     status: "completed",
+    phase: "generating_answer",
     elapsed_ms: 32_100,
     model: "model-1",
     input_tokens: 100,

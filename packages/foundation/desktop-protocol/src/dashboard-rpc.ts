@@ -159,6 +159,8 @@ export type DesktopConversationTurnPayload = {
   text: string;
   attachments?: DesktopInputAttachmentPayload[];
   state: DesktopConversationTurnState;
+  /** Epoch milliseconds; zero until the scheduler starts this turn. */
+  started_at: number;
   user_persisted_at: number;
   settled_at: number;
   stream?: DesktopConversationStreamPayload;

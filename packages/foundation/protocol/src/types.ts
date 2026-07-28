@@ -99,8 +99,16 @@ export interface ToolStep {
 
 export type TurnDisplayStatus = "running" | "completed" | "error" | "cancelled";
 
+export type TurnDisplayPhase =
+  | "preparing_context"
+  | "waiting_model"
+  | "thinking"
+  | "running_tool"
+  | "generating_answer";
+
 export interface DisplayMetrics extends JsonObject {
   status: TurnDisplayStatus;
+  phase: TurnDisplayPhase;
   elapsed_ms: number;
   model: string;
   input_tokens: number;

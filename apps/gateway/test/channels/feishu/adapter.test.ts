@@ -71,6 +71,7 @@ const finalCard = (
   toolSteps,
   metrics: {
     status: "completed",
+    phase: "generating_answer",
     elapsed_ms: 1_200,
     model: "test-model",
     input_tokens: 10,

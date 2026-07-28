@@ -448,33 +448,71 @@ function transcriptCaughtUp(watermark: number, transcriptFetchedAt: number): boo
   return watermark > 0 && transcriptFetchedAt >= watermark;
 }
 
-function LiveAssistantCard({ stream }: { stream: DesktopConversationStreamPayload }) {
-  const t = useUiText();
-  const hasBody = Boolean(
-    stream.content || stream.thinking || stream.tool_pending || stream.tool_steps.length || stream.state !== "delta",
+function liveProgressLabel(
+  stream: DesktopConversationStreamPayload | undefined,
+  turnState: DesktopConversationTurnPayload["state"],
+  t: UiText,
+): string {
+  if (turnState === "stopping") return t.conversation.stopping;
+  if (turnState === "cancelled" || stream?.display_metrics.status === "cancelled") return t.conversation.cancelled;
+  if (turnState === "error" || stream?.display_metrics.status === "error") return t.conversation.error;
+  if (turnState === "completed" || stream?.display_metrics.status === "completed") return t.conversation.completed;
+  if (!stream) return t.conversation.preparingContext;
+  switch (stream.display_metrics.phase) {
+    case "preparing_context": return t.conversation.preparingContext;
+    case "waiting_model": return t.conversation.waitingModel;
+    case "thinking": return t.conversation.thinking;
+    case "running_tool": return t.conversation.runningTool;
+    case "generating_answer": return t.conversation.generatingAnswer;
+  }
+}
+
+function LiveProgressStatus({
+  elapsedMs,
+  label,
+  state,
+}: {
+  elapsedMs: number;
+  label: string;
+  state: DesktopConversationTurnPayload["state"];
+}) {
+  const active = state === "running" || state === "stopping";
+  const failed = state === "error";
+  return (
+    <div
+      aria-live={failed ? "assertive" : "polite"}
+      className={`live-progress-status state-${state}`}
+      role={failed ? "alert" : "status"}
+    >
+      {active ? <LoaderCircle aria-hidden="true" className="conversation-spinner" size={13} /> : null}
+      <span className="live-progress-label">{label}</span>
+      {elapsedMs >= 1_000 ? (
+        <>
+          <span aria-hidden="true" className="live-progress-separator">·</span>
+          <span aria-hidden="true" className="live-progress-elapsed">{formatDurationMs(elapsedMs)}</span>
+        </>
+      ) : null}
+    </div>
   );
-  if (!hasBody) return null;
+}
+
+function LiveAssistantCard({
+  elapsedMs,
+  stream,
+  turnState,
+}: {
+  elapsedMs: number;
+  stream: DesktopConversationStreamPayload;
+  turnState: DesktopConversationTurnPayload["state"];
+}) {
+  const t = useUiText();
   const metrics = stream.display_metrics;
-  const statusLabel = metrics.status === "completed"
-    ? t.conversation.completed
-    : metrics.status === "cancelled"
-      ? t.conversation.cancelled
-      : metrics.status === "error" ? t.conversation.error : t.conversation.running;
-  const totalTokens = metrics.input_tokens + metrics.output_tokens;
+  const displayState = metrics.status === "running" ? turnState : metrics.status;
   return (
     <article
       className={`message-card role-assistant live-assistant state-${metrics.status}`}
-      aria-live="polite"
-      role={metrics.status === "error" ? "alert" : undefined}
     >
-      {stream.state === "delta" ? (
-        <div className="live-response-status">
-          <LoaderCircle className="conversation-spinner" size={13} />
-          <span>{statusLabel}</span>
-        </div>
-      ) : null}
       {stream.thinking ? <ThinkingBlock block={{ thinking: stream.thinking }} /> : null}
-      {stream.tool_pending ? <div className="live-tool-pending"><LoaderCircle size={14} />{t.conversation.toolPending}</div> : null}
       {stream.tool_steps.length ? (
         <div className="live-tool-list">
           {stream.tool_steps.map((step) => (
@@ -493,12 +531,11 @@ function LiveAssistantCard({ stream }: { stream: DesktopConversationStreamPayloa
         </div>
       ) : null}
       {stream.content ? <MessageMarkdown text={stream.content} /> : null}
-      <div className="live-response-meta">
-        <span>{statusLabel}</span>
-        <span>{formatDurationMs(metrics.elapsed_ms)}</span>
-        {metrics.model ? <span>{metrics.model}</span> : null}
-        {totalTokens ? <span>{formatNumber(totalTokens)} {t.stats.tokens}</span> : null}
-      </div>
+      <LiveProgressStatus
+        elapsedMs={elapsedMs}
+        label={liveProgressLabel(stream, turnState, t)}
+        state={displayState}
+      />
     </article>
   );
 }
@@ -634,6 +671,16 @@ function LocalTurnCards({
   transcriptFetchedAt: number;
 }) {
   const t = useUiText();
+  const ticking = turn.started_at > 0 && (turn.state === "running" || turn.state === "stopping");
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    setClock(Date.now());
+    if (!ticking) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, [ticking, turn.started_at]);
+  const elapsedEnd = ticking ? clock : turn.settled_at || clock;
+  const elapsedMs = turn.started_at > 0 ? Math.max(0, elapsedEnd - turn.started_at) : 0;
   const userPersisted = transcriptCaughtUp(turn.user_persisted_at, transcriptFetchedAt);
   const assistantPersisted = transcriptCaughtUp(turn.settled_at, transcriptFetchedAt);
   const statusLabel = turn.state === "queued"
@@ -648,7 +695,8 @@ function LocalTurnCards({
   const stateBadge = <span className={`conversation-turn-state state-${turn.state}`}>{statusLabel}</span>;
   // The badge outlives the optimistic card so a cancelled or failed turn keeps
   // saying so after the transcript catches up and the card is dropped.
-  const showStandaloneBadge = userPersisted && turn.state !== "completed" && turn.state !== "running";
+  const showStandaloneBadge = userPersisted
+    && (turn.state === "queued" || turn.state === "cancelled" || turn.state === "error");
   return (
     <div className="local-turn" data-turn-id={turn.turn_id}>
       {!userPersisted ? (
@@ -659,11 +707,18 @@ function LocalTurnCards({
           {turn.attachments?.length ? (
             <InputAttachmentList attachments={turn.attachments} />
           ) : null}
-          <div className="optimistic-message-state">{stateBadge}</div>
+          {!turn.stream ? <div className="optimistic-message-state">{stateBadge}</div> : null}
         </article>
       ) : null}
-      {turn.stream && !assistantPersisted ? <LiveAssistantCard stream={turn.stream} /> : null}
-      {showStandaloneBadge ? <div className="conversation-turn-state-row">{stateBadge}</div> : null}
+      {turn.stream && !assistantPersisted ? (
+        <LiveAssistantCard elapsedMs={elapsedMs} stream={turn.stream} turnState={turn.state} />
+      ) : null}
+      {userPersisted && !assistantPersisted && !turn.stream && (turn.state === "running" || turn.state === "stopping") ? (
+        <LiveProgressStatus elapsedMs={elapsedMs} label={liveProgressLabel(undefined, turn.state, t)} state={turn.state} />
+      ) : null}
+      {showStandaloneBadge && (!turn.stream || assistantPersisted) ? (
+        <div className="conversation-turn-state-row">{stateBadge}</div>
+      ) : null}
     </div>
   );
 }
@@ -1159,11 +1214,6 @@ export function SessionDetailView({
         </div>
       ) : null}
       <div className="conversation-composer-dock">
-        <div className="conversation-live-status" aria-live="polite">
-          {activity?.active?.state === "stopping"
-            ? t.conversation.stopping
-            : activity?.active ? t.conversation.running : activity?.queued.length ? t.conversation.queued : ""}
-        </div>
         <ConversationComposer
           activity={activity}
           conversationKey={session?.session_id ?? (newConversation ? "new" : "")}
