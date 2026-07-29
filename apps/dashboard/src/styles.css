@@ -7435,7 +7435,7 @@ pre {
   grid-template-columns: 14px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
-  padding: 5px 8px;
+  padding: 5.5px 8px;
   color: var(--sidebar-ink-soft);
 }
 
@@ -7459,7 +7459,7 @@ pre {
   overflow: hidden;
   min-width: 0;
   color: inherit;
-  font-size: 0.78125rem;
+  font-size: 0.9375rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
