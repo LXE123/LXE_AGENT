@@ -224,6 +224,30 @@ function Copy-LxeDirectoryContents {
     }
 }
 
+function Assert-LxeZipArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$Label,
+        [Parameter(Mandatory = $true)][string]$Archive
+    )
+
+    $zipArchive = $null
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+        $zipArchive = [System.IO.Compression.ZipFile]::OpenRead($Archive)
+        if ($zipArchive.Entries.Count -eq 0) {
+            throw "The ZIP archive contains no entries."
+        }
+    }
+    catch {
+        throw "$Label is not a valid ZIP archive: $Archive. $($_.Exception.Message)"
+    }
+    finally {
+        if ($null -ne $zipArchive) {
+            $zipArchive.Dispose()
+        }
+    }
+}
+
 function Get-LxeCachedArchive {
     param(
         [Parameter(Mandatory = $true)][string]$Label,
@@ -237,7 +261,18 @@ function Get-LxeCachedArchive {
     New-Item -ItemType Directory -Path $downloadRoot -Force | Out-Null
 
     if (Test-Path -LiteralPath $destination -PathType Leaf) {
-        return $destination
+        try {
+            Assert-LxeZipArchive -Label $Label -Archive $destination
+            return $destination
+        }
+        catch {
+            $cacheFailure = $_.Exception.Message
+            if ($Offline) {
+                throw "Cached $Label archive is invalid and cannot be repaired offline: $cacheFailure"
+            }
+            Write-Warning "Discarding invalid cached $Label archive: $cacheFailure"
+            Remove-Item -LiteralPath $destination -Force
+        }
     }
     if ($Offline) {
         throw "$Label is not available in the offline cache: $destination"
@@ -253,16 +288,44 @@ function Get-LxeCachedArchive {
         $temporary = "$destination.download-$([Guid]::NewGuid().ToString('N'))"
         try {
             Write-Host "Downloading $Label (attempt $attempt/3)..."
-            $requestParameters = @{
-                Uri = $Url
-                OutFile = $temporary
-                UseBasicParsing = $true
-                TimeoutSec = 120
+            if ($uri.Host.EndsWith(".sourceforge.net", [StringComparison]::OrdinalIgnoreCase)) {
+                $curlCommand = Get-Command curl.exe -CommandType Application -ErrorAction SilentlyContinue
+                if ($null -eq $curlCommand) {
+                    throw "$Label requires curl.exe to download from SourceForge."
+                }
+                $curlArguments = @(
+                    "--fail",
+                    "--location",
+                    "--silent",
+                    "--show-error",
+                    "--connect-timeout", "30",
+                    "--max-time", "120",
+                    "--output", $temporary,
+                    $Url
+                )
+                if (-not [string]::IsNullOrWhiteSpace($proxy)) {
+                    $curlArguments = @("--proxy", $proxy) + $curlArguments
+                }
+                Invoke-LxeNative `
+                    -Label "$Label download" `
+                    -FilePath $curlCommand.Source `
+                    -Arguments $curlArguments `
+                    -TimeoutSeconds 130 `
+                    -Quiet | Out-Null
             }
-            if (-not [string]::IsNullOrWhiteSpace($proxy)) {
-                $requestParameters.Proxy = $proxy
+            else {
+                $requestParameters = @{
+                    Uri = $Url
+                    OutFile = $temporary
+                    UseBasicParsing = $true
+                    TimeoutSec = 120
+                }
+                if (-not [string]::IsNullOrWhiteSpace($proxy)) {
+                    $requestParameters.Proxy = $proxy
+                }
+                Invoke-WebRequest @requestParameters
             }
-            Invoke-WebRequest @requestParameters
+            Assert-LxeZipArchive -Label $Label -Archive $temporary
             Move-Item -LiteralPath $temporary -Destination $destination -Force
             return $destination
         }

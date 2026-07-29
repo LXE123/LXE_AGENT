@@ -199,6 +199,36 @@ describe("Windows desktop packaging routes", () => {
     expect(buildWrapper).toContain('(Join-Path $effectiveExifToolRoot "exiftool_files")');
   });
 
+  test("validates runtime ZIP downloads and repairs invalid online caches", () => {
+    const runtimePreparation = readFileSync(
+      join(repositoryRoot, "scripts", "prepare-desktop-runtime.ps1"),
+      "utf8",
+    );
+    const archiveValidation = runtimePreparation.slice(
+      runtimePreparation.indexOf("function Assert-LxeZipArchive"),
+      runtimePreparation.indexOf("function Get-LxeCachedArchive"),
+    );
+    const cachedArchive = runtimePreparation.slice(
+      runtimePreparation.indexOf("function Get-LxeCachedArchive"),
+      runtimePreparation.indexOf("function Expand-LxeArchiveFresh"),
+    );
+
+    expect(archiveValidation).toContain("[System.IO.Compression.ZipFile]::OpenRead($Archive)");
+    expect(archiveValidation).toContain("$zipArchive.Entries.Count -eq 0");
+    expect(cachedArchive).toContain("Assert-LxeZipArchive -Label $Label -Archive $destination");
+    expect(cachedArchive).toContain("Cached $Label archive is invalid and cannot be repaired offline");
+    expect(cachedArchive).toContain("Discarding invalid cached $Label archive");
+    expect(cachedArchive).toContain("Remove-Item -LiteralPath $destination -Force");
+    expect(cachedArchive).toContain('$uri.Host.EndsWith(".sourceforge.net"');
+    expect(cachedArchive).toContain("Get-Command curl.exe -CommandType Application");
+    expect(cachedArchive).toContain('"--fail"');
+    expect(cachedArchive).toContain('"--location"');
+    expect(cachedArchive).toContain('"--output", $temporary');
+    expect(cachedArchive.indexOf("Assert-LxeZipArchive -Label $Label -Archive $temporary")).toBeLessThan(
+      cachedArchive.indexOf("Move-Item -LiteralPath $temporary -Destination $destination -Force"),
+    );
+  });
+
   test("resource preparation selects files without semantic scope or Skill validation", () => {
     const resourcePreparation = readFileSync(
       join(repositoryRoot, "scripts", "prepare-desktop-resources.ts"),
