@@ -116,8 +116,11 @@ try {
         }
     }
 
+    # Reattach: the branch survived a release (e.g. the merge failed after the
+    # slot was freed). Check it out again instead of refusing, so recovery stays
+    # inside the pool workflow rather than forcing work in the main workspace.
     $branchResult = Invoke-LxeGit -WorkingDirectory $mainRoot -Arguments @("show-ref", "--verify", "--quiet", "refs/heads/$branchName") -AllowFailure
-    if ($branchResult.ExitCode -eq 0) { throw "branch $branchName already exists; pick a new slug or release/finish the old task" }
+    $reattach = $branchResult.ExitCode -eq 0
 
     for ($index = 1; $index -le $maxSlots; $index += 1) {
         $directory = Join-Path $poolRoot "pool-$index"
@@ -131,10 +134,16 @@ try {
             Write-Warning "skipping pool-$index (dirty but unclaimed - inspect manually)"
             continue
         }
-        Invoke-LxeGit -WorkingDirectory $directory -Arguments @("checkout", "--quiet", "-b", $branchName, "main") | Out-Null
+        if ($reattach) {
+            Invoke-LxeGit -WorkingDirectory $directory -Arguments @("checkout", "--quiet", $branchName) | Out-Null
+        }
+        else {
+            Invoke-LxeGit -WorkingDirectory $directory -Arguments @("checkout", "--quiet", "-b", $branchName, "main") | Out-Null
+        }
         [System.IO.File]::WriteAllText("$directory.claim", "$slug`n", [System.Text.UTF8Encoding]::new($false))
         Sync-LxeWorktreeDependencies $directory
-        Write-Output "claimed pool-$index on $branchName"
+        $verb = if ($reattach) { "reattached" } else { "claimed" }
+        Write-Output "$verb pool-$index on $branchName"
         Write-Output $directory
         exit 0
     }
