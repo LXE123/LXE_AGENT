@@ -120,6 +120,7 @@ describe("DesktopCloudService", () => {
     const requests: Array<{ url: string; authorization: string }> = [];
     const events: LogEvent[] = [];
     let configured = 0;
+    let role = "admin";
     const service = new DesktopCloudService({
       dataRoot: root,
       supported: false,
@@ -134,13 +135,14 @@ describe("DesktopCloudService", () => {
           url: String(input),
           authorization: String(new Headers(init?.headers).get("authorization")),
         });
-        return Response.json({ status: "ok", role: "admin" });
+        return Response.json({ status: "ok", role });
       },
     });
 
     expect(service.state()).toMatchObject({
       configured: true,
       connection: "connecting",
+      is_admin: false,
       device_id: "",
       vpn_ip: "",
     });
@@ -149,6 +151,7 @@ describe("DesktopCloudService", () => {
     expect(await service.start()).toMatchObject({
       configured: true,
       connection: "connected",
+      is_admin: true,
       device_id: "",
       device_name: "",
       vpn_ip: "",
@@ -163,6 +166,10 @@ describe("DesktopCloudService", () => {
     expect(JSON.stringify(service.state())).not.toContain(previewUrl);
     expect(JSON.stringify(events)).not.toContain(previewToken);
     expect(JSON.stringify(events)).not.toContain(previewUrl);
+
+    role = "device";
+    expect(await service.retry()).toMatchObject({ connection: "error", is_admin: false });
+    expect(requests).toHaveLength(2);
   });
 
   test("never activates a Preview target and rejects a non-admin response", async () => {
@@ -194,6 +201,7 @@ describe("DesktopCloudService", () => {
 
     expect(await service.check()).toMatchObject({
       connection: "error",
+      is_admin: false,
       last_error: "公司云端返回了无效响应",
     });
     expect(requests).toEqual([{
@@ -223,6 +231,7 @@ describe("DesktopCloudService", () => {
 
     expect(await service.check()).toMatchObject({
       connection: "error",
+      is_admin: false,
       last_error: "管理员凭证无效，请检查开发配置",
     });
     expect(events.at(-1)).toMatchObject({
@@ -447,7 +456,11 @@ describe("DesktopCloudService", () => {
       },
     });
 
-    expect(await service.start()).toMatchObject({ connection: "connected", last_checked_at: 1 });
+    expect(await service.start()).toMatchObject({
+      connection: "connected",
+      is_admin: false,
+      last_checked_at: 1,
+    });
     expect(requests).toEqual([{
       url: "http://10.88.0.1:8000/api/v1/agent-data/devices/status",
       method: "GET",

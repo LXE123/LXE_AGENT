@@ -264,6 +264,7 @@ export type DesktopCloudDestination =
 
 export interface DesktopCloudState {
   configured: boolean;
+  is_admin: boolean;
   device_name: string;
   device_id: string;
   vpn_ip: string;

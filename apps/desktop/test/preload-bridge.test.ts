@@ -90,6 +90,7 @@ describe("preload bridge", () => {
     });
     listeners.get(IPC_CHANNELS.cloudStateChanged)?.({}, {
       configured: true,
+      is_admin: false,
       device_name: "Finance PC",
       device_id: "device01",
       vpn_ip: "10.88.0.3",

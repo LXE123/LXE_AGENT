@@ -83,6 +83,7 @@ const objectValue = (value: unknown): Record<string, unknown> | undefined =>
 
 export class DesktopCloudService {
   private connection: DesktopCloudState["connection"];
+  private isAdmin = false;
   private lastError = "";
   private lastCheckedAt = 0;
   private readonly fetch: typeof globalThis.fetch;
@@ -112,6 +113,7 @@ export class DesktopCloudService {
     if (this.options.previewTarget) {
       return {
         configured: true,
+        is_admin: this.isAdmin,
         device_name: "",
         device_id: "",
         vpn_ip: "",
@@ -123,6 +125,7 @@ export class DesktopCloudService {
     const cloud = this.options.config.cloudConfiguration();
     return {
       configured: cloud.managed && cloud.api_key_configured,
+      is_admin: this.isAdmin,
       device_name: cloud.device_name,
       device_id: cloud.device_id,
       vpn_ip: cloud.vpn_ip,
@@ -292,7 +295,7 @@ export class DesktopCloudService {
         http_status: response.status,
         connection: "connected",
       });
-      return this.setConnection("connected", "", true);
+      return this.setConnection("connected", "", true, true);
     }
     if (!payload || payload.status !== "ok" || typeof payload.activation_required !== "boolean") {
       return this.invalidCloudResponse(logger, startedAt, "invalid device status response");
@@ -488,8 +491,10 @@ export class DesktopCloudService {
     connection: DesktopCloudState["connection"],
     lastError: string,
     checked = false,
+    isAdmin = false,
   ): DesktopCloudState {
     this.connection = connection;
+    this.isAdmin = isAdmin;
     this.lastError = lastError;
     if (checked) this.lastCheckedAt = Math.floor(this.now() / 1_000);
     const state = this.state();

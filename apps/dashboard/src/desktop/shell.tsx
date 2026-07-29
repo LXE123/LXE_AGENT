@@ -339,7 +339,7 @@ function DesktopCloudPanel({
             ) : null}
           </div>
           <div className="desktop-cloud-shortcuts-grid">
-            {shortcuts.map((shortcut) => {
+            {shortcuts.filter((shortcut) => !shortcut.admin || cloud.is_admin).map((shortcut) => {
               const Icon = shortcut.icon;
               return (
                 <button
