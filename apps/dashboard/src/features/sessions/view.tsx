@@ -1391,8 +1391,8 @@ export function SessionDetailView({
                   ) : null}
                 </React.Fragment>
               ))}
-              {showEmpty ? (
-                <EmptyState label={newConversation ? t.conversation.newHint : t.sessionDetail.empty} />
+              {showEmpty && !newConversation ? (
+                <EmptyState label={t.sessionDetail.empty} />
               ) : null}
             </div>
           </div>
