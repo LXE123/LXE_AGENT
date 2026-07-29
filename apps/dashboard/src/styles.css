@@ -7525,8 +7525,11 @@ pre {
 .sidebar-session-section .session-index-list {
   gap: 1px;
   margin-right: -6px;
+  overflow-x: hidden;
+  overflow-y: scroll;
   padding: 0;
-  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.16) rgba(255, 255, 255, 0.025);
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
 }
 
@@ -7534,15 +7537,40 @@ pre {
   width: 6px;
 }
 
+.sidebar-session-section .session-index-list::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.sidebar-session-section .session-index-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
 .sidebar-session-section .session-index-item {
-  grid-template-columns: minmax(0, 1fr) 28px;
-  align-items: center;
+  display: block;
   padding: 0 3px 0 0;
   color: var(--sidebar-ink-soft);
 }
 
 .sidebar-session-section .session-index-open {
-  padding: 5.5px 2px 5.5px 8px;
+  width: 100%;
+  padding: 5.5px 8px;
+}
+
+.sidebar-session-section .session-index-actions {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+}
+
+.sidebar-session-section .session-index-item:hover .session-index-actions,
+.sidebar-session-section .session-index-item:focus-within .session-index-actions,
+.sidebar-session-section .session-index-item.menu-open .session-index-actions {
+  background: color-mix(in srgb, var(--sidebar-bg) 94%, white 6%);
+  box-shadow: -14px 0 12px 3px color-mix(in srgb, var(--sidebar-bg) 94%, white 6%);
 }
 
 .sidebar-session-section .session-index-icon {

@@ -64,10 +64,11 @@ test("sessions persist in the application sidebar with title-only rows", () => {
   assert.match(styles, /\.sidebar-session-section\s*\{[^}]*margin-top:\s*8px;[^}]*padding-top:\s*8px;/s);
   assert.match(styles, /\.session-index-heading\s*\{[^}]*color:\s*color-mix\([^;]+68%, transparent\);[^}]*font-weight:\s*500;/s);
   assert.match(styles, /\.sidebar-session-section \.session-index-list\s*\{[^}]*gap:\s*1px;/s);
-  assert.match(styles, /\.sidebar-session-section \.session-index-item\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 28px;/s);
-  assert.match(styles, /\.sidebar-session-section \.session-index-open\s*\{[^}]*padding:\s*5\.5px 2px 5\.5px 8px;/s);
+  assert.match(styles, /\.sidebar-session-section \.session-index-item\s*\{[^}]*display:\s*block;/s);
+  assert.match(styles, /\.sidebar-session-section \.session-index-open\s*\{[^}]*width:\s*100%;[^}]*padding:\s*5\.5px 8px;/s);
+  assert.match(styles, /\.sidebar-session-section \.session-index-actions\s*\{[^}]*position:\s*absolute;[^}]*right:\s*4px;/s);
   assert.match(styles, /\.sidebar-session-section \.session-index-item \.primary-cell\s*\{[^}]*font-size:\s*0\.8375rem;[^}]*text-overflow:\s*clip;[^}]*mask-image:\s*linear-gradient\(to right,/s);
-  assert.match(styles, /\.sidebar-session-section \.session-index-list\s*\{[^}]*margin-right:\s*-6px;[^}]*scrollbar-width:\s*thin;/s);
+  assert.match(styles, /\.sidebar-session-section \.session-index-list\s*\{[^}]*margin-right:\s*-6px;[^}]*overflow-y:\s*scroll;[^}]*scrollbar-gutter:\s*stable;[^}]*scrollbar-width:\s*thin;/s);
   assert.doesNotMatch(main, /sessions-split/);
   assert.doesNotMatch(styles, /\.sessions-split/);
   assert.match(main, /activeSection === "sessions";?\s*$/m);
