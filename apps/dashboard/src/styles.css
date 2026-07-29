@@ -3774,7 +3774,7 @@ h1 {
 }
 
 .catalog-section-toggle {
-  grid-template-columns: auto minmax(0, 1fr) repeat(3, auto);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   min-height: 68px;
   gap: 12px;
   padding: 12px 15px;
@@ -3818,8 +3818,7 @@ h1 {
   font-weight: 500;
 }
 
-.catalog-count-badge,
-.catalog-section-status {
+.catalog-count-badge {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
@@ -3837,30 +3836,6 @@ h1 {
   font-weight: 650;
 }
 
-.catalog-section-status {
-  gap: 5px;
-  color: var(--muted);
-  font-size: 0.65625rem;
-  font-weight: 650;
-}
-
-.catalog-section-status > span {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--muted-light);
-}
-
-.catalog-section-status.on {
-  color: var(--success);
-}
-
-.catalog-section-status.on > span {
-  background: var(--rate-good);
-  box-shadow: 0 0 0 3px var(--rate-good-soft);
-}
-
 .catalog-section.is-disabled {
   --catalog-hue: var(--muted-light);
   --catalog-hue-strong: var(--muted);
@@ -3870,10 +3845,6 @@ h1 {
 
 .catalog-section.is-disabled .catalog-section-toggle h2 {
   color: var(--muted);
-}
-
-.catalog-section-toggle .section-chevron {
-  color: var(--catalog-hue-strong);
 }
 
 .catalog-section-heading {
@@ -4049,20 +4020,6 @@ h1 {
 .section-title-button:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
-}
-
-.section-chevron {
-  color: var(--muted-light);
-  transition: transform 0.16s ease, color 0.16s ease;
-}
-
-.section-title-button:hover .section-chevron,
-.section-title-button:focus-visible .section-chevron {
-  color: var(--text-soft);
-}
-
-.section-chevron.expanded {
-  transform: rotate(90deg);
 }
 
 .section-title-row h2,
@@ -6073,16 +6030,6 @@ pre {
 
   .catalog-section-toggle .catalog-count-badge {
     display: none;
-  }
-
-  .catalog-section-toggle .catalog-section-status {
-    grid-column: 2;
-    justify-self: start;
-  }
-
-  .catalog-section-toggle .section-chevron {
-    grid-column: 3;
-    grid-row: 1 / span 2;
   }
 
   .catalog-section-heading {

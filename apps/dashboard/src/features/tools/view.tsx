@@ -1,4 +1,4 @@
-import { Boxes, ChevronRight, Plug, SlidersHorizontal, Wrench } from "lucide-react";
+import { Boxes, Plug, SlidersHorizontal, Wrench } from "lucide-react";
 
 import { EmptyState } from "../../shared/components";
 import { formatNumber } from "../../shared/format";
@@ -63,14 +63,9 @@ export function ToolsView({
                 <div>
                   <h2>{toolset.label}</h2>
                 </div>
-                <span className={toolset.enabled ? "catalog-section-status on" : "catalog-section-status"}>
-                  <span aria-hidden="true" />
-                  {toolset.enabled ? t.tools.enabled : t.tools.disabled}
-                </span>
                 <span className="catalog-count-badge">
                   {t.common.countItems(formatNumber(toolset.tools.length), t.tools.itemUnit)}
                 </span>
-                <ChevronRight className={expanded ? "section-chevron expanded" : "section-chevron"} size={17} />
               </button>
               <div className={expanded ? "catalog-collapsible expanded" : "catalog-collapsible"}>
                 <div className="catalog-collapsible-inner">
@@ -85,7 +80,6 @@ export function ToolsView({
                         >
                           <div className="item-heading">
                             <h3>{tool.name}</h3>
-                            <ChevronRight className="chevron" size={18} />
                           </div>
                           <p className="description">{tool.description}</p>
                           <div className="pill-row">
