@@ -19,6 +19,8 @@
 
 - Python 一律用 `uv`（禁 pip），JS 一律用 `bun`（禁 npm/yarn）；安装带 `--frozen`，不要动 lockfile 之外的版本。
 - 测试必须从仓库根运行：`uv run pytest python/lxeskill_cli/tests`。从子目录运行会因相对路径假失败。
+- **验证必须拿真实结果，警惕假通过**：管道会吞掉退出码（`cmd | tail` 的退出码是 tail 的，不是 cmd 的——用 `set -o pipefail` 或先落盘再查 `$?`）；扫描类校验匹配到空集也会"通过"（cwd 漂移、glob 写错时扫了 0 个文件照样报绿）。报告通过之前，先确认命令真的执行了、扫描真的扫到了东西。
+- `catalog.json` 是 Python 和 Bun 双端消费的契约，改它的定向测试必须两边都跑：`uv run pytest python/lxeskill_cli/tests/lxeskill python/lxeskill_cli/tests/infra` 加 `bun test packages/agent/runtime/test/tooling/lxeskill-command.test.ts`。
 - 开发过程中只运行与改动直接相关的定向测试；每个任务的全量测试只在合并到 `main` 前、完成最终 rebase 后运行一次，不得在代码和基线均未变化时重复执行。
 - 如果全量测试后代码发生修改，或 `main` 的变化实际进入了当前分支，则原验证结果失效，需要重新运行；无变化的 rebase 不构成重复测试理由。
 
@@ -35,7 +37,7 @@
 1. **领取**：在仓库任意位置执行 `scripts/wt-claim <task-slug>`；Windows PowerShell 执行 `scripts/wt-claim.ps1 <task-slug>`（slug 用 kebab-case 描述任务，如 `fix-store-lock`）。脚本输出的最后一行是 worktree 路径，分支自动建为 `codex/<task-slug>`，bun/uv 依赖已同步好。之后所有开发、测试都在这个目录里进行。
 2. **开发与提交**：修改 → 运行受影响模块的定向测试（在 worktree 内使用它自己的 `.venv`）→ commit；开发阶段不重复跑全量测试。
 3. **合并前唯一一次全量验证**：把 worktree 分支 rebase 到最新 `main` → 运行一次完整验证 → 在主工作区 fast-forward 合并。若 rebase 无变化，不在验证前后额外重复测试；多任务并行开发，但必须依次合并，后合并者先 rebase。
-4. **归还**：合并完成后 Bash 执行 `scripts/wt-claim release <task-slug>`，Windows PowerShell 执行 `scripts/wt-claim.ps1 release <task-slug>`。脚本会自动删除已合并的分支并把 slot 还给池子；未合并的分支会保留并提示。
+4. **归还**：合并完成后 Bash 执行 `scripts/wt-claim release <task-slug>`，Windows PowerShell 执行 `scripts/wt-claim.ps1 release <task-slug>`。脚本会自动删除已合并的分支并把 slot 还给池子；未合并的分支会保留并提示。若 release 后才发现分支没合并成（比如合并被拒），直接再次 `wt-claim <task-slug>`——脚本会把这条分支重新附着到空闲 slot，在池子里继续修，不要在主工作区 checkout 任务分支。
 
 硬性约束：
 
