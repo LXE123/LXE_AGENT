@@ -27,6 +27,7 @@ export interface PrepareMacExifToolOptions {
   lock?: MacExifToolLock;
   downloadArchive?: (url: string, destination: string) => Promise<void>;
   extractArchive?: (archive: string, destination: string, lock: MacExifToolLock) => void;
+  readInstalledVersion?: (root: string, perlPath: string) => string;
 }
 
 export interface PreparedMacExifTool {
@@ -139,14 +140,19 @@ const installedVersion = (root: string, perlPath: string): string => {
   return outputText(result.stdout);
 };
 
-const cacheReady = (root: string, perlPath: string, lock: MacExifToolLock): boolean => {
+const cacheReady = (
+  root: string,
+  perlPath: string,
+  lock: MacExifToolLock,
+  readInstalledVersion: (root: string, perlPath: string) => string,
+): boolean => {
   if (!layoutExists(root)) return false;
   try {
     const marker = JSON.parse(readFileSync(join(root, markerName), "utf8")) as Record<string, unknown>;
     const expected = expectedMarker(lock);
     return marker.version === expected.version
       && marker.archive_sha256 === expected.archive_sha256
-      && installedVersion(root, perlPath) === lock.version;
+      && readInstalledVersion(root, perlPath) === lock.version;
   } catch {
     return false;
   }
@@ -164,9 +170,12 @@ export async function prepareMacExifTool(
 
   const perlPath = options.perlPath ?? "/usr/bin/perl";
   if (!existsSync(perlPath)) throw new Error(`Mac Perl runtime is unavailable: ${perlPath}`);
+  const readInstalledVersion = options.readInstalledVersion ?? installedVersion;
   const lock = options.lock ?? readLock(join(root, "config", "desktop-runtime", "macos", "exiftool.lock.json"));
   validateLock(lock);
-  if (cacheReady(toolRoot, perlPath, lock)) return { status: "cached", exifToolPath: executable };
+  if (cacheReady(toolRoot, perlPath, lock, readInstalledVersion)) {
+    return { status: "cached", exifToolPath: executable };
+  }
 
   const parent = dirname(toolRoot);
   mkdirSync(parent, { recursive: true });
@@ -185,13 +194,13 @@ export async function prepareMacExifTool(
       throw new Error("The Mac ExifTool archive is missing exiftool or lib/Image/ExifTool.pm");
     }
     chmodSync(join(stagedToolRoot, "exiftool"), 0o755);
-    const version = installedVersion(stagedToolRoot, perlPath);
+    const version = readInstalledVersion(stagedToolRoot, perlPath);
     if (version !== lock.version) {
       throw new Error(`Mac ExifTool version mismatch: expected ${lock.version}, received ${version || "empty output"}`);
     }
     writeFileSync(join(stagedToolRoot, markerName), `${JSON.stringify(expectedMarker(lock), null, 2)}\n`, "utf8");
 
-    if (cacheReady(toolRoot, perlPath, lock)) {
+    if (cacheReady(toolRoot, perlPath, lock, readInstalledVersion)) {
       return { status: "cached", exifToolPath: executable };
     }
     rmSync(toolRoot, { recursive: true, force: true });

@@ -760,7 +760,11 @@ def test_contract_download_is_safe_deliverable_and_retry_restores_missing_file(
     assert contract_path.parent == tmp_path.resolve()
     assert contract_path.name == "正飞合同_.xlsx"
     assert first["contract_outputs"][0]["output_xlsx"] == str(contract_path)
-    assert load_workbook(contract_path, read_only=True).active["A1"].value == "ERP正式合同"
+    workbook = load_workbook(contract_path, read_only=True)
+    try:
+        assert workbook.active["A1"].value == "ERP正式合同"
+    finally:
+        workbook.close()
 
     contract_path.unlink()
     second = erp.download_contract_workbooks(dict(source), output_dir=tmp_path)

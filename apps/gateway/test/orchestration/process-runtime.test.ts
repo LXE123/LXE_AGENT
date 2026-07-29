@@ -10,6 +10,28 @@ import { testWorkspace, workspaceFor } from "../workspace";
 
 const runtimes: ProcessAgentRuntime[] = [];
 const temporaryRoots: string[] = [];
+const waitFor = async (
+  predicate: () => boolean,
+  label: string,
+  details: () => string,
+  timeoutMs = 8_000,
+): Promise<void> => {
+  const deadline = performance.now() + timeoutMs;
+  while (!predicate() && performance.now() < deadline) await Bun.sleep(10);
+  if (!predicate()) throw new Error(`timed out waiting for ${label}: ${details()}`);
+};
+const removeTemporaryRoot = async (root: string): Promise<void> => {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? "";
+      if (!["EBUSY", "ENOTEMPTY", "EPERM"].includes(code) || attempt >= 19) throw error;
+      await Bun.sleep(50);
+    }
+  }
+};
 const resourcePaths = (root: string) => ({
   agentSoulPath: join(root, "SOUL.md"),
   skillsRoot: join(root, "skills"),
@@ -39,7 +61,7 @@ const agentJob = (): AgentJob => ({
 
 afterEach(async () => {
   await Promise.allSettled(runtimes.splice(0).map((runtime) => runtime.stop()));
-  for (const root of temporaryRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+  for (const root of temporaryRoots.splice(0)) await removeTemporaryRoot(root);
 });
 
 describe("ProcessAgentRuntime", () => {
@@ -201,10 +223,12 @@ describe("ProcessAgentRuntime", () => {
     runtimes.push(runtime);
 
     await runtime.start();
-    const deadline = performance.now() + 10_000;
-    while (runtime.status().logging?.disabled_reason !== "sink_failed" && performance.now() < deadline) {
-      await Bun.sleep(10);
-    }
+    await runtime.dashboardCall({ operation: "models.list", input: {} });
+    await waitFor(
+      () => runtime.status().logging?.disabled_reason === "sink_failed",
+      "logging sink failure status",
+      () => JSON.stringify(runtime.status().logging),
+    );
 
     expect(runtime.status()).toMatchObject({
       state: "ready",
@@ -240,10 +264,11 @@ describe("ProcessAgentRuntime", () => {
 
     await expect(runtime.dashboardCall({ operation: "models.list", input: {} })).rejects.toThrow("exited");
     expect(existsSync(crashMarker)).toBe(true);
-    const deadline = performance.now() + 3_000;
-    while (states.filter((state) => state === "ready").length < 2 && performance.now() < deadline) {
-      await Bun.sleep(10);
-    }
+    await waitFor(
+      () => states.filter((state) => state === "ready").length >= 2,
+      "agent process restart",
+      () => `observed states: ${states.join(", ")}`,
+    );
 
     expect(states).toContain("error");
     expect(states.filter((state) => state === "ready")).toHaveLength(2);

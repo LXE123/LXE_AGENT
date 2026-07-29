@@ -37,22 +37,6 @@ for await (const line of input) {
         logging: loggingStatus,
       },
     });
-    if (process.env.FAKE_LOGGING_FAILURE_EVENT === "1") {
-      loggingStatus = {
-        ...loggingStatus,
-        local_file_enabled: false,
-        disabled_reason: "sink_failed",
-        last_error: "disk unavailable",
-      };
-      setTimeout(() => write({
-        version: protocolVersion,
-        type: "system.status",
-        payload: {
-          state: "ready",
-          logging: loggingStatus,
-        },
-      }), 10);
-    }
     if (process.env.FAKE_SESSION_CHANGE_EVENT === "1") {
       setTimeout(() => write({
         version: protocolVersion,
@@ -122,6 +106,19 @@ for await (const line of input) {
     if (request.payload.operation === "models.list" && crashMarker && !existsSync(crashMarker)) {
       writeFileSync(crashMarker, "crashed", "utf8");
       process.exit(23);
+    }
+    if (process.env.FAKE_LOGGING_FAILURE_EVENT === "1") {
+      loggingStatus = {
+        ...loggingStatus,
+        local_file_enabled: false,
+        disabled_reason: "sink_failed",
+        last_error: "disk unavailable",
+      };
+      write({
+        version: protocolVersion,
+        type: "system.status",
+        payload: { state: "ready", logging: loggingStatus },
+      });
     }
     write({
       version: protocolVersion,

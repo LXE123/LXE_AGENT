@@ -8,6 +8,7 @@ const view = readFileSync(path.join(sourceDir, "features/sessions/view.tsx"), "u
 const main = readFileSync(path.join(sourceDir, "main.tsx"), "utf8");
 const queries = readFileSync(path.join(sourceDir, "api/queries.ts"), "utf8");
 const conversation = readFileSync(path.join(sourceDir, "features/sessions/conversation.ts"), "utf8");
+const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8").replaceAll("\r\n", "\n");
 
 test("sessions view exposes text conversation controls and IME-safe keyboard behavior", () => {
   assert.match(view, /maxLength=\{8192\}/);
@@ -31,7 +32,6 @@ test("optimistic cards retire on transcript watermarks, never on message text", 
 });
 
 test("the transcript stays scrollable back through history", () => {
-  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
   assert.doesNotMatch(styles, /\.conversation-transcript \{[^}]*align-content: end/);
   assert.doesNotMatch(styles, /\.conversation-transcript > :first-child \{\s*margin-top: auto;/);
   assert.match(styles, /\.conversation-transcript \{[^}]*scrollbar-gutter:\s*stable[^}]*scrollbar-color:\s*rgba\(122, 112, 101, 0\.22\) transparent[^}]*scrollbar-width:\s*thin/s);
@@ -47,7 +47,6 @@ test("the transcript stays scrollable back through history", () => {
 });
 
 test("the focused conversation takes the full panel without a second session column", () => {
-  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
   // The old nested session panel competed with both the transcript and the
   // composer for width and height. The application sidebar owns that list now.
   assert.doesNotMatch(styles, /\.conversation-view \{[^}]*height: calc\(100vh/);
@@ -60,7 +59,6 @@ test("the focused conversation takes the full panel without a second session col
 });
 
 test("conversation messages and composer share the same focused reading axis", () => {
-  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
   assert.match(styles, /\.conversation-feed \{[^}]*width:\s*min\(820px,/s);
   assert.match(styles, /\.conversation-composer \{[^}]*width:\s*min\(820px,/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-assistant \{[^}]*background:\s*transparent/s);
@@ -71,7 +69,6 @@ test("conversation messages and composer share the same focused reading axis", (
 });
 
 test("live turns expose one truthful phase and locally ticking elapsed time", () => {
-  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
   assert.match(view, /case "preparing_context": return t\.conversation\.preparingContext/);
   assert.match(view, /case "waiting_model": return t\.conversation\.waitingModel/);
   assert.match(view, /case "thinking": return t\.conversation\.thinking/);
@@ -87,7 +84,6 @@ test("live turns expose one truthful phase and locally ticking elapsed time", ()
 });
 
 test("details and runtime status overlay the conversation without moving the reading axis", () => {
-  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
   assert.match(view, /useDialogFocus<HTMLElement>\(sessionInfoOpen, closeSessionInfo\)/);
   assert.match(view, /className="session-detail-panel"[\s\S]*?role="dialog"/);
   assert.match(styles, /\.session-detail-panel \{[^}]*position:\s*absolute[^}]*width:\s*min\(380px,/s);
@@ -164,7 +160,6 @@ test("thinking and tools fold into one response process while the final answer s
 });
 
 test("a tool reads the same live as it does in history", () => {
-  const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
   // Both sources use the raw name and the same deterministic presentation;
   // the curated live title cannot make the wording jump at persistence time.
   assert.match(view, /toolOperationPresentation\(name, argument\)/);

@@ -124,12 +124,16 @@ describe("DesktopConfigImportManager", () => {
       MABANG_STOCK_SKU_EXPORT_DIR: join(root, "exports", "stock-sku"),
     });
     const settingsJson = readFileSync(join(root, "config", "settings.json"), "utf8");
+    const settings = JSON.parse(settingsJson) as {
+      output_directories: Record<string, string>;
+    };
     const encryptedSecrets = readFileSync(join(root, "config", "secrets.bin"), "utf8");
     for (const secret of ["deepseek-secret", "ziniao-secret", "mabang-secret", "feishu-secret", "data-server-secret", "erp-secret", "saihu-mcp-secret"]) {
       expect(settingsJson).not.toContain(secret);
       expect(encryptedSecrets).not.toContain(secret);
     }
-    expect(settingsJson).toContain(join(root, "exports", "stock-sku"));
+    expect(settings.output_directories.MABANG_STOCK_SKU_EXPORT_DIR)
+      .toBe(join(root, "exports", "stock-sku"));
     expect(() => manager.apply(preview.import_id)).toThrow("不存在或已失效");
   });
 

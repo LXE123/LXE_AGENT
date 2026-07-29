@@ -42,17 +42,25 @@ const createLayout = (destination: string): void => {
   writeFileSync(join(destination, "lib", "Image", "ExifTool.pm"), "1;\n", "utf8");
 };
 
+const fakePerl = (root: string): string => {
+  const path = join(root, "perl-fixture");
+  writeFileSync(path, "fixture", "utf8");
+  return path;
+};
+
 describe("Mac ExifTool preparation", () => {
   test("prepares the pinned private tool once and then reuses the cache", async () => {
     const root = temporaryRoot();
+    const perlPath = fakePerl(root);
     let downloads = 0;
     let extractions = 0;
     const options = {
       platform: "darwin" as const,
       arch: "arm64",
       repositoryRoot: root,
-      perlPath: "/usr/bin/perl",
+      perlPath,
       lock: lock(),
+      readInstalledVersion: () => "13.59",
       downloadArchive: async (_url: string, destination: string) => {
         downloads += 1;
         writeFileSync(destination, archiveBytes);
@@ -76,6 +84,7 @@ describe("Mac ExifTool preparation", () => {
 
   test("stops on missing Perl, download failures, and checksum mismatches", async () => {
     const root = temporaryRoot();
+    const perlPath = fakePerl(root);
     await expect(prepareMacExifTool({
       platform: "darwin",
       repositoryRoot: root,
@@ -86,7 +95,7 @@ describe("Mac ExifTool preparation", () => {
     await expect(prepareMacExifTool({
       platform: "darwin",
       repositoryRoot: root,
-      perlPath: "/usr/bin/perl",
+      perlPath,
       lock: lock(),
       downloadArchive: async () => { throw new Error("network refused by fixture"); },
     })).rejects.toThrow("network refused by fixture");
@@ -94,7 +103,7 @@ describe("Mac ExifTool preparation", () => {
     await expect(prepareMacExifTool({
       platform: "darwin",
       repositoryRoot: root,
-      perlPath: "/usr/bin/perl",
+      perlPath,
       lock: lock("0".repeat(64)),
       downloadArchive: async (_url, destination) => { writeFileSync(destination, archiveBytes); },
     })).rejects.toThrow("SHA-256 mismatch");
@@ -102,13 +111,14 @@ describe("Mac ExifTool preparation", () => {
 
   test("reports the real tar error for a corrupt archive", async () => {
     const root = temporaryRoot();
+    const perlPath = fakePerl(root);
     const corruptArchive = join(root, "corrupt.tar.gz");
     writeFileSync(corruptArchive, archiveBytes);
 
     await expect(prepareMacExifTool({
       platform: "darwin",
       repositoryRoot: root,
-      perlPath: "/usr/bin/perl",
+      perlPath,
       lock: lock(),
       downloadArchive: async (_url, destination) => { copyFileSync(corruptArchive, destination); },
     })).rejects.toThrow("Could not extract Mac ExifTool");

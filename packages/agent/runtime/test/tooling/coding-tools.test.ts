@@ -12,6 +12,7 @@ import {
 import { ToolExecutionError, ToolRegistry } from "../../src/tooling/registry";
 import { registerToolSearch } from "../../src/tooling/tool-search";
 import type { WorkspaceSearchService } from "../../src/tooling/workspace-search";
+import { removeTemporaryRoot } from "../temp-directory";
 import { workspaceFor } from "../workspace";
 
 const roots: string[] = [];
@@ -20,8 +21,8 @@ const evalCommand = (source: string): string => {
   const executable = `"${process.execPath}"`;
   return `${process.platform === "win32" ? "& " : ""}${executable} -e "${source}"`;
 };
-afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+afterEach(async () => {
+  for (const root of roots.splice(0)) await removeTemporaryRoot(root);
 });
 
 const context = (workspaceRoot: string = projectRoot, controller = new AbortController()) => ({
@@ -254,9 +255,10 @@ describe("native coding tools", () => {
       paths: [assetPath, artifactPath, `${artifactRoot}/nested/../report.txt`],
     }, context(root));
     expect(sent.files).toEqual([assetPath, artifactPath]);
-    expect(String(sent.content[0]?.text)).toContain("Sent 2 files:");
-    expect(String(sent.content[0]?.text)).toContain(assetPath);
-    expect(String(sent.content[0]?.text)).toContain(artifactPath);
+    const sentText = String(sent.content[0]?.text).replaceAll("\\", "/");
+    expect(sentText).toContain("Sent 2 files:");
+    expect(sentText).toContain(assetPath.replaceAll("\\", "/"));
+    expect(sentText).toContain(artifactPath.replaceAll("\\", "/"));
     await expect(registry.execute("send_files", { paths: [artifactPath, skillPath] }, context(root)))
       .rejects.toThrow("skill assets");
     await expect(registry.execute("send_files", {

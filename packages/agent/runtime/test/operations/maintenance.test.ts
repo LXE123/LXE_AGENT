@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { Database } from "bun:sqlite";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SqliteRuntimeStore } from "../../src/state/storage";
 import { MaintenanceScheduler, type MaintenanceClock } from "../../src/operations/maintenance";
 import type { CliTerminalResult } from "../../src/tooling/one-shot-cli";
+import { removeTemporaryRoot } from "../temp-directory";
 import { testWorkspace } from "../workspace";
 
 const cliSuccess = (): CliTerminalResult => ({
@@ -68,7 +70,7 @@ const waitFor = async (predicate: () => boolean, label: string, timeoutMs = 2_50
 };
 
 afterEach(async () => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  for (const root of roots.splice(0)) await removeTemporaryRoot(root);
 });
 
 const createStore = async (prefix: string): Promise<SqliteRuntimeStore> => {
@@ -126,6 +128,27 @@ const recordTurn = async (
       duration_ms: 4,
     }],
   });
+};
+
+const seedTurnUsage = (store: SqliteRuntimeStore, count: number): void => {
+  const database = new Database(store.path);
+  const insert = database.prepare(`
+    INSERT INTO turn_usage
+      (turn_id, sequence, session_id, started_at, platform, status, elapsed_ms)
+    VALUES (?, ?, 's1', ?, 'feishu', 'completed', 1)
+  `);
+  const insertAll = database.transaction((total: number) => {
+    const startedAt = Date.now() / 1_000;
+    for (let index = 0; index < total; index += 1) {
+      insert.run(`turn-${index}`, index + 1, startedAt + index / 1_000);
+    }
+  });
+  try {
+    insertAll(count);
+  } finally {
+    insert.finalize();
+    database.close(true);
+  }
 };
 
 const ackingFetch = (
@@ -357,7 +380,7 @@ describe("MaintenanceScheduler", () => {
 
   test("stops after ten batches and schedules backlog continuation after 60 seconds", async () => {
     const store = await createStore("lxe-maintenance-backlog-");
-    for (let index = 0; index < 2_001; index += 1) await recordTurn(store, `turn-${index}`);
+    seedTurnUsage(store, 2_001);
     const clock = new ManualMaintenanceClock();
     const uploads: UploadedBatch[] = [];
     const scheduler = schedulerFor(store, ackingFetch(uploads), { clock });

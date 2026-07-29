@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DesktopSyntheticPerformerTask } from "@lxe/desktop-protocol";
 import {
   DesktopSyntheticPerformerService,
+  syntheticPerformerPythonArguments,
   syntheticPerformerTaskDirectoryName,
 } from "../src/main/synthetic-performer";
 
@@ -14,10 +15,15 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+const runnerSource = (scriptBody: string): string => `
+for await (const _chunk of process.stdin) {}
+${scriptBody}
+`;
+
 const fixture = (scriptBody: string) => {
   const root = mkdtempSync(join(tmpdir(), "lxe-synthetic-performer-"));
   roots.push(root);
-  const python = join(root, "python.exe");
+  const runner = join(root, "cli-fixture.mjs");
   const exiftool = join(root, "exiftool.exe");
   const dataRoot = join(root, "data");
   const sources = join(root, "sources");
@@ -25,10 +31,18 @@ const fixture = (scriptBody: string) => {
   mkdirSync(dataRoot);
   mkdirSync(sources);
   mkdirSync(output);
-  writeFileSync(python, `#!/bin/sh\n${scriptBody}\n`, "utf8");
-  chmodSync(python, 0o755);
+  writeFileSync(runner, runnerSource(scriptBody), "utf8");
   writeFileSync(exiftool, "fixture", "utf8");
-  return { root, python, exiftool, dataRoot, sources, output };
+  return {
+    root,
+    runner,
+    python: process.execPath,
+    pythonArguments: [runner],
+    exiftool,
+    dataRoot,
+    sources,
+    output,
+  };
 };
 
 const waitForTerminal = (
@@ -48,6 +62,18 @@ const waitForTerminal = (
 });
 
 describe("desktop synthetic performer service", () => {
+  test("keeps the managed Python CLI command as the production default", () => {
+    expect(syntheticPerformerPythonArguments).toEqual([
+      "-I",
+      "-B",
+      "-m",
+      "lxeskill",
+      "media",
+      "synthetic-performer",
+      "--stdin-json",
+    ]);
+  });
+
   test("uses a stable human-readable output directory name", () => {
     expect(syntheticPerformerTaskDirectoryName(new Date(2026, 6, 28, 14, 35, 20)))
       .toBe("AI人物标签-20260728-143520");
@@ -55,9 +81,8 @@ describe("desktop synthetic performer service", () => {
 
   test("keeps paths behind opaque selections and streams a completed scan", async () => {
     const files = fixture(`
-read input
-printf '%s\\n' '{"protocol_version":"1","type":"progress","command":"media synthetic-performer","stage":"scan","processed":1,"total":1,"current_file":"sample.jpg"}'
-printf '%s\\n' '{"protocol_version":"1","type":"result","command":"media synthetic-performer","ok":true,"data":{"items":[{"name":"sample.jpg","relative_path":"sample.jpg","media_type":"image","status":"needs_tag","size_bytes":12,"absolute_path":"/secret/source/sample.jpg"}],"counts":{"needs_tag":1}},"files":[]}'
+console.log('{"protocol_version":"1","type":"progress","command":"media synthetic-performer","stage":"scan","processed":1,"total":1,"current_file":"sample.jpg"}');
+console.log('{"protocol_version":"1","type":"result","command":"media synthetic-performer","ok":true,"data":{"items":[{"name":"sample.jpg","relative_path":"sample.jpg","media_type":"image","status":"needs_tag","size_bytes":12,"absolute_path":"/secret/source/sample.jpg"}],"counts":{"needs_tag":1}},"files":[]}');
 `);
     const sourceFile = join(files.sources, "sample.jpg");
     writeFileSync(sourceFile, "image", "utf8");
@@ -65,6 +90,7 @@ printf '%s\\n' '{"protocol_version":"1","type":"result","command":"media synthet
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
       pythonPath: files.python,
+      pythonArguments: files.pythonArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
@@ -91,15 +117,15 @@ printf '%s\\n' '{"protocol_version":"1","type":"result","command":"media synthet
 
   test("creates a unique output directory and preserves real CLI errors", async () => {
     const files = fixture(`
-read input
-printf '%s\\n' '{"protocol_version":"1","type":"result","command":"media synthetic-performer","ok":false,"data":{},"files":[],"error":{"code":"business_cli_failed","message":"ExifTool exited with 9: malformed XMP packet"}}'
-exit 4
+console.log('{"protocol_version":"1","type":"result","command":"media synthetic-performer","ok":false,"data":{},"files":[],"error":{"code":"business_cli_failed","message":"ExifTool exited with 9: malformed XMP packet"}}');
+process.exitCode = 4;
 `);
     const sourceFile = join(files.sources, "sample.mp4");
     writeFileSync(sourceFile, "video", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
       pythonPath: files.python,
+      pythonArguments: files.pythonArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
@@ -122,12 +148,13 @@ exit 4
   });
 
   test("rejects unsupported platforms and expired identifiers", () => {
-    const files = fixture("exit 0");
+    const files = fixture("");
     const sourceFile = join(files.sources, "sample.jpg");
     writeFileSync(sourceFile, "image", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "linux",
       pythonPath: files.python,
+      pythonArguments: files.pythonArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
@@ -139,12 +166,13 @@ exit 4
   });
 
   test("allows only one task and cancels the Python process", async () => {
-    const files = fixture("read input\nsleep 30");
+    const files = fixture("setInterval(() => undefined, 30_000);");
     const sourceFile = join(files.sources, "sample.mov");
     writeFileSync(sourceFile, "video", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
       pythonPath: files.python,
+      pythonArguments: files.pythonArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
@@ -171,18 +199,19 @@ exit 4
     if (process.platform === "win32") return;
     const files = fixture("");
     const childPidPath = join(files.root, "exiftool-child.pid");
-    writeFileSync(files.python, `#!/bin/sh
-read input
-sleep 30 &
-echo $! > "${childPidPath}"
-wait
-`, "utf8");
-    chmodSync(files.python, 0o755);
+    writeFileSync(files.runner, runnerSource(`
+const { spawn } = await import("node:child_process");
+const { writeFileSync } = await import("node:fs");
+const child = spawn(process.execPath, ["-e", "setInterval(() => undefined, 30_000)"], { stdio: "ignore" });
+writeFileSync(${JSON.stringify(childPidPath)}, String(child.pid), "utf8");
+setInterval(() => undefined, 30_000);
+`), "utf8");
     const sourceFile = join(files.sources, "sample.mov");
     writeFileSync(sourceFile, "video", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "darwin",
       pythonPath: files.python,
+      pythonArguments: files.pythonArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,
@@ -216,14 +245,14 @@ wait
 
   test("rejects unsafe item paths returned by the Python boundary", async () => {
     const files = fixture(`
-read input
-printf '%s\\n' '{"protocol_version":"1","type":"result","command":"media synthetic-performer","ok":true,"data":{"items":[{"name":"secret.jpg","relative_path":"../secret.jpg","media_type":"image","status":"needs_tag","size_bytes":1}],"counts":{"needs_tag":1}},"files":[]}'
+console.log('{"protocol_version":"1","type":"result","command":"media synthetic-performer","ok":true,"data":{"items":[{"name":"secret.jpg","relative_path":"../secret.jpg","media_type":"image","status":"needs_tag","size_bytes":1}],"counts":{"needs_tag":1}},"files":[]}');
 `);
     const sourceFile = join(files.sources, "sample.jpg");
     writeFileSync(sourceFile, "image", "utf8");
     const service = new DesktopSyntheticPerformerService({
       platform: "win32",
       pythonPath: files.python,
+      pythonArguments: files.pythonArguments,
       exifToolPath: files.exiftool,
       dataRoot: files.dataRoot,
       managedPath: files.root,

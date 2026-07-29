@@ -39,12 +39,23 @@ interface CliRecord {
 export interface DesktopSyntheticPerformerServiceOptions {
   platform: NodeJS.Platform;
   pythonPath: string;
+  pythonArguments?: readonly string[];
   exifToolPath: string;
   dataRoot: string;
   managedPath: string;
   onTaskChanged?: (task: DesktopSyntheticPerformerTask) => void;
   onStderr?: (line: string) => void;
 }
+
+export const syntheticPerformerPythonArguments = [
+  "-I",
+  "-B",
+  "-m",
+  "lxeskill",
+  "media",
+  "synthetic-performer",
+  "--stdin-json",
+] as const;
 
 const cloneTask = (task: DesktopSyntheticPerformerTask): DesktopSyntheticPerformerTask => ({
   ...task,
@@ -259,7 +270,8 @@ export class DesktopSyntheticPerformerService {
     mkdirSync(temporaryRoot, { recursive: true });
     const child = spawn(
       this.options.pythonPath,
-      ["-I", "-B", "-m", "lxeskill", "media", "synthetic-performer", "--stdin-json"],
+      this.options.pythonArguments
+        ?? syntheticPerformerPythonArguments,
       {
         cwd: this.options.dataRoot,
         env: {
