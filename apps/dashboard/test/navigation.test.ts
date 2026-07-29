@@ -13,6 +13,7 @@ describe("Dashboard information architecture", () => {
       section: "capabilities",
       capabilityView: "models",
       activityView: "stats",
+      workbenchView: "index",
     });
     expect(dashboardRouteFromHistory({ tab: "mcp" }, "models").capabilityView).toBe("connections");
     expect(dashboardRouteFromHistory({ tab: "connectors" }, "models").capabilityView).toBe("connections");
@@ -20,6 +21,7 @@ describe("Dashboard information architecture", () => {
       section: "activity",
       capabilityView: "tools",
       activityView: "background-tasks",
+      workbenchView: "index",
     });
     expect(dashboardRouteFromHistory({ tab: "stats" }, "tools").activityView).toBe("stats");
   });
@@ -29,6 +31,7 @@ describe("Dashboard information architecture", () => {
       section: "workbench",
       capabilityView: "skills",
       activityView: "stats",
+      workbenchView: "index",
     });
     expect(dashboardRouteFromHistory({
       section: "capabilities",
@@ -38,6 +41,7 @@ describe("Dashboard information architecture", () => {
       section: "capabilities",
       capabilityView: "connections",
       activityView: "stats",
+      workbenchView: "index",
     });
     expect(dashboardRouteFromHistory({
       section: "capabilities",

@@ -38,6 +38,18 @@
       "input_schema": {"type": "object", "properties": {"account": {"type": "string"}}, "additionalProperties": false}
     },
     {
+      "name": "assets_inspect",
+      "command_path": ["assets", "list"],
+      "legacy_aliases": ["assets_inspect"],
+      "visibility": "internal",
+      "session_mode": "none",
+      "module": "services.assets.inspect",
+      "owner_skills": [],
+      "timeout_ms": 30000,
+      "exposed": false,
+      "input_schema": {"type": "object", "properties": {"action": {"type": "string", "enum": ["list"]}}, "additionalProperties": false}
+    },
+    {
       "name": "media_synthetic_performer",
       "command_path": ["media", "synthetic-performer"],
       "legacy_aliases": ["media_synthetic_performer"],

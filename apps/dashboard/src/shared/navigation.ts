@@ -4,10 +4,14 @@ export type CapabilityView = "models" | "skills" | "tools" | "connections";
 
 export type ActivityView = "stats" | "background-tasks";
 
+/** Workbench starts on the tool index and drills into one tool at a time. */
+export type WorkbenchView = "index" | "synthetic-performer" | "input-assets";
+
 export type DashboardRouteSelection = {
   section: DashboardSection;
   capabilityView: CapabilityView;
   activityView: ActivityView;
+  workbenchView: WorkbenchView;
 };
 
 export const CAPABILITY_VIEW_STORAGE_KEY = "lxe.window.main.capability-view.v1";
@@ -29,6 +33,8 @@ const CAPABILITY_VIEWS = new Set<CapabilityView>([
 ]);
 
 const ACTIVITY_VIEWS = new Set<ActivityView>(["stats", "background-tasks"]);
+
+const WORKBENCH_VIEWS = new Set<WorkbenchView>(["index", "synthetic-performer", "input-assets"]);
 
 function objectRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -68,6 +74,12 @@ export function storeCapabilityView(
   }
 }
 
+export function normalizeWorkbenchView(value: unknown): WorkbenchView {
+  return typeof value === "string" && WORKBENCH_VIEWS.has(value as WorkbenchView)
+    ? value as WorkbenchView
+    : "index";
+}
+
 export function dashboardRouteFromHistory(
   historyState: unknown,
   storedCapabilityView: CapabilityView,
@@ -84,30 +96,34 @@ export function dashboardRouteFromHistory(
         && ACTIVITY_VIEWS.has(state.activityView as ActivityView)
         ? state.activityView as ActivityView
         : "stats",
+      workbenchView: section === "workbench"
+        ? normalizeWorkbenchView(state.workbenchView)
+        : "index",
     };
   }
 
   switch (state.tab) {
     case "sessions":
-      return { section: "sessions", capabilityView: storedCapabilityView, activityView: "stats" };
+      return { section: "sessions", capabilityView: storedCapabilityView, activityView: "stats", workbenchView: "index" };
     case "models":
-      return { section: "capabilities", capabilityView: "models", activityView: "stats" };
+      return { section: "capabilities", capabilityView: "models", activityView: "stats", workbenchView: "index" };
     case "skills":
-      return { section: "capabilities", capabilityView: "skills", activityView: "stats" };
+      return { section: "capabilities", capabilityView: "skills", activityView: "stats", workbenchView: "index" };
     case "tools":
-      return { section: "capabilities", capabilityView: "tools", activityView: "stats" };
+      return { section: "capabilities", capabilityView: "tools", activityView: "stats", workbenchView: "index" };
     case "mcp":
     case "connectors":
-      return { section: "capabilities", capabilityView: "connections", activityView: "stats" };
+      return { section: "capabilities", capabilityView: "connections", activityView: "stats", workbenchView: "index" };
     case "background-tasks":
       return {
         section: "activity",
         capabilityView: storedCapabilityView,
         activityView: "background-tasks",
+        workbenchView: "index",
       };
     case "stats":
-      return { section: "activity", capabilityView: storedCapabilityView, activityView: "stats" };
+      return { section: "activity", capabilityView: storedCapabilityView, activityView: "stats", workbenchView: "index" };
     default:
-      return { section: "home", capabilityView: storedCapabilityView, activityView: "stats" };
+      return { section: "home", capabilityView: storedCapabilityView, activityView: "stats", workbenchView: "index" };
   }
 }

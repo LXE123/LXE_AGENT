@@ -59,6 +59,7 @@ import { bootstrapDesktopState } from "./main/migration";
 import { resolveDesktopPaths } from "./main/paths";
 import { configureElectronRuntimeState, prepareDesktopRuntimeState } from "./main/runtime-state";
 import { reportDesktopStartupFailure } from "./main/startup-failure";
+import { DesktopInputAssetsService } from "./main/input-assets";
 import { DesktopSyntheticPerformerService } from "./main/synthetic-performer";
 import { desktopWindowAppearance } from "./main/window-options";
 import { WindowsWireGuardProvisioner } from "./main/wireguard-provisioner";
@@ -306,6 +307,12 @@ async function bootstrap(): Promise<void> {
     },
   });
   activeSyntheticPerformer = syntheticPerformer;
+  const inputAssets = new DesktopInputAssetsService({
+    platform: process.platform,
+    pythonPath: paths.managedPythonPath,
+    dataRoot: paths.dataRoot,
+    managedPath: paths.managedPath,
+  });
   const checkCloudAfterResume = (): void => { void cloud.check(); };
   powerMonitor.on("resume", checkCloudAfterResume);
   removeCloudResumeListener = () => powerMonitor.removeListener("resume", checkCloudAfterResume);
@@ -362,6 +369,8 @@ async function bootstrap(): Promise<void> {
     getSyntheticPerformerTask: () => syntheticPerformer.current(),
     cancelSyntheticPerformerTask: (taskId) => syntheticPerformer.cancel(taskId),
     syntheticPerformerOutputPath: (taskId) => syntheticPerformer.outputPath(taskId),
+    listInputAssets: () => inputAssets.list(),
+    inputAssetSlotDirectory: (slot) => inputAssets.directoryFor(slot),
     registerConversationFiles: (selectedPaths) => conversationAttachments.register(selectedPaths),
     discardConversationFiles: (attachmentIds) => conversationAttachments.discard(attachmentIds),
   };

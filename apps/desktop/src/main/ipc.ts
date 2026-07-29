@@ -10,6 +10,7 @@ import type {
   DesktopCloudEnrollmentSelection,
   DesktopCloudState,
   DesktopHealth,
+  DesktopInputAssetSlot,
   DesktopInputAttachmentPayload,
   DesktopSetupInput,
   DesktopSetupState,
@@ -53,9 +54,18 @@ export interface DesktopIpcApplication {
   getSyntheticPerformerTask(): DesktopSyntheticPerformerTask | null;
   cancelSyntheticPerformerTask(taskId: string): Promise<DesktopSyntheticPerformerTask | null>;
   syntheticPerformerOutputPath(taskId: string): string;
+  listInputAssets(): Promise<DesktopInputAssetSlot[]>;
+  inputAssetSlotDirectory(slot: string): Promise<string>;
   registerConversationFiles(paths: string[]): DesktopInputAttachmentPayload[];
   discardConversationFiles(attachmentIds: string[]): void;
 }
+
+const inputAssetSlotId = (value: unknown): string => {
+  const slot = typeof value === "string" ? value.trim() : "";
+  // Slot ids come from the catalog registry; anything else must not reach the shell.
+  if (!/^[a-z][a-z0-9_]*$/u.test(slot)) throw new Error("invalid input asset slot");
+  return slot;
+};
 
 const stringArray = (value: unknown, label: string): string[] => {
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
@@ -177,6 +187,12 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
   ipcMain.handle(IPC_CHANNELS.openSyntheticPerformerOutput, async (_event, taskId: unknown) => {
     const path = application.syntheticPerformerOutputPath(validateSyntheticPerformerId(taskId));
     const error = await shell.openPath(path);
+    if (error) throw new Error(error);
+  });
+  ipcMain.handle(IPC_CHANNELS.listInputAssets, () => application.listInputAssets());
+  ipcMain.handle(IPC_CHANNELS.revealInputAssetSlot, async (_event, slot: unknown) => {
+    const directory = await application.inputAssetSlotDirectory(inputAssetSlotId(slot));
+    const error = await shell.openPath(directory);
     if (error) throw new Error(error);
   });
   return () => {

@@ -19,22 +19,34 @@ commands:
 - 一次只能处理一个 `SP` 发货单号；多个 SP 要拆成多次运行，每个 SP 一个文件。
 - 这是兼容入口；如果用户在处理一批 SP，或要求正飞按整批统一均价，必须改用 `fba-purchase-summary-create`。
 - 发货单 CSV 只从本地 `artifacts/fba/delivery_csv/<SP>_*.csv` 查找；缺少时直接转述 CLI 失败原因，不自动下载。
-- 出口退税总表必须由用户提供，不使用默认路径。
+- 出口退税总表由系统记忆，见下方「长期资产」；只有用户上传新版时才传 `master_xlsx`。
 - 不生成厂家分类 sheet。
 
 ## Required Input
 
 - `delivery_no`: 一个 `SP` 开头的发货单号。
-- `master_xlsx`: 用户提供的出口退税总表 xlsx。
 - `gross_margin`: 用户指定的毛利率，必须在 `0.2` 到 `0.5` 之间。
 - 出口退税总表必须包含 `SKU表` sheet；其中库存 SKU 列名可写 `库存sku` 或 `库存SKU`。
 - 出口退税总表的 `供应商合同信息` sheet 用 `供货方` 匹配 `SKU表` 的 `厂家`，读取 `单位`、`合同产品名称` 和 `税率`；缺失或冲突时 CLI 会失败或在 `warnings` 中提醒。
-- 缺少 `SP...`、出口退税总表路径或毛利率时先追问，不要启动 CLI。
+- 缺少 `SP...` 或毛利率时先追问，不要启动 CLI。
+
+## 长期资产（自动记忆）
+
+- `master_xlsx`（出口退税总表）是**长期资产**：系统记住当前版，**平时不要传这个参数**。
+- 只有用户在本轮对话里上传了新版本时才传它的绝对路径；CLI 会自动把它升为当前版，旧版留一份可回退。
+- 用户没上传、系统也没存过时，CLI 会返回 `input_required`，这时才向用户索取。
+- 结果里的 `asset_sources.master_xlsx` 必须转述给用户，例如「使用出口退税总表：xxx.xlsx（07-06 上传）」，让用户能发现用错了版本。
 
 ## Command
 
 ```text
-lxeskill fba restock workbook-create --delivery-no <delivery_no> --master-xlsx "<出口退税总表.xlsx>" --gross-margin <毛利率>
+lxeskill fba restock workbook-create --delivery-no <delivery_no> --gross-margin <毛利率>
+```
+
+用户上传了新版本时（只有这种情况才传该参数）：
+
+```text
+lxeskill fba restock workbook-create --delivery-no <delivery_no> --gross-margin <毛利率> --master-xlsx "<新版出口退税总表.xlsx>"
 ```
 
 只把最后一条 `type="result"` 记录作为 terminal；业务字段位于 `data`，附件位于 `files`。

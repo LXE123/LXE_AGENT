@@ -71,6 +71,8 @@ export function createDesktopBridge(
         ipc.invoke(IPC_CHANNELS.cancelSyntheticPerformerTask, taskId),
       openSyntheticPerformerOutput: (taskId) =>
         ipc.invoke(IPC_CHANNELS.openSyntheticPerformerOutput, taskId),
+      listInputAssets: () => ipc.invoke(IPC_CHANNELS.listInputAssets),
+      revealInputAssetSlot: (slot) => ipc.invoke(IPC_CHANNELS.revealInputAssetSlot, slot),
       onCloudStateChanged: (listener) => {
         const handler: IpcListener = (_event, state) => listener(state as DesktopCloudState);
         ipc.on(IPC_CHANNELS.cloudStateChanged, handler);

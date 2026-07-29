@@ -32,7 +32,7 @@ commands:
 - `master_xlsx`（出口退税总表）是**长期资产**：系统记住当前版，**平时不要传这个参数**。
 - 只有用户在本轮对话里上传了新版本时才传它的绝对路径；CLI 会自动把它升为当前版，旧版留一份可回退。
 - 用户没上传、系统也没存过时，CLI 会返回 `input_required`，这时才向用户索取。
-- 结果里的 `asset_sources.master_xlsx` 必须转述给用户，例如「使用出口退税总表：xxx.xlsx（文件日期 07-06）」，让用户能发现用错了版本。
+- 结果里的 `asset_sources.master_xlsx` 必须转述给用户，例如「使用出口退税总表：xxx.xlsx（07-06 上传）」，让用户能发现用错了版本。
 - `contract_template_xlsx`（采购合同模板汇总）也是**长期资产**：正式模式自动使用当前版，平时不要传参数；只有用户上传新版时才传绝对路径。
 - 正式模式缺少合同模板时，CLI 会在提交 ERP 前返回 `input_required`。结果里的 `asset_sources.contract_template_xlsx` 也必须转述给用户。
 

@@ -112,6 +112,12 @@ def current_asset(slot_id: str) -> AssetVersion | None:
     return _describe(path) if path else None
 
 
+def previous_asset(slot_id: str) -> AssetVersion | None:
+    """The retained rollback copy. Never handed to a command or shown to the model."""
+    path = _generation_file(slot_id, _PREVIOUS)
+    return _describe(path) if path else None
+
+
 def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -155,6 +161,7 @@ __all__ = [
     "asset",
     "current_asset",
     "load_input_assets",
+    "previous_asset",
     "promote_asset",
     "slot_dir",
 ]

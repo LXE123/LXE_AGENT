@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
   CheckCircle2,
   FileImage,
   Files,
@@ -30,8 +31,9 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
-export function SyntheticPerformerWorkbench() {
-  const t = useUiText().workbench;
+export function SyntheticPerformerWorkbench({ onBack }: { onBack: () => void }) {
+  const text = useUiText();
+  const t = text.workbench;
   const desktop = window.lxe?.desktop;
   const supported = desktop?.platform === "win32" || desktop?.platform === "darwin";
   const [selection, setSelection] = useState<DesktopSyntheticPerformerSourceSelection | null>(null);
@@ -156,6 +158,10 @@ export function SyntheticPerformerWorkbench() {
     <section className="workbench-page" aria-labelledby="synthetic-performer-title">
       <header className="workbench-header">
         <div>
+          <button className="workbench-back" onClick={onBack} type="button">
+            <ArrowLeft size={14} />
+            {text.workbenchIndex.back}
+          </button>
           <span>{t.eyebrow}</span>
           <h2 id="synthetic-performer-title">{t.title}</h2>
           <p>{t.subtitle}</p>

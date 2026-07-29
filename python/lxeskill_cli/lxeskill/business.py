@@ -93,6 +93,8 @@ def load_catalog() -> dict[str, dict[str, Any]]:
                 if module.startswith("services.agent_cli.amazon_operations.")
                 else f"media_{module.rsplit('.', 1)[-1]}"
                 if module.startswith("services.media.")
+                else f"assets_{module.rsplit('.', 1)[-1]}"
+                if module.startswith("services.assets.")
                 else ""
             )
             if expected != name:

@@ -475,6 +475,24 @@ export interface DesktopSyntheticPerformerTask {
   error: string;
 }
 
+/** One stored generation of a long-lived user asset. */
+export interface DesktopInputAssetVersion {
+  file_name: string;
+  path: string;
+  size_bytes: number;
+  updated_at: string;
+}
+
+export interface DesktopInputAssetSlot {
+  slot: string;
+  holds: string;
+  directory: string;
+  /** The version commands use when the field is omitted; null when never filled. */
+  current: DesktopInputAssetVersion | null;
+  /** Retained rollback copy. Shown to the user, never to the model. */
+  previous: DesktopInputAssetVersion | null;
+}
+
 export interface LxeDesktopBridge {
   dashboard: DashboardTransport;
   desktop: {
@@ -507,6 +525,8 @@ export interface LxeDesktopBridge {
     getSyntheticPerformerTask(): Promise<DesktopSyntheticPerformerTask | null>;
     cancelSyntheticPerformerTask(taskId: string): Promise<DesktopSyntheticPerformerTask | null>;
     openSyntheticPerformerOutput(taskId: string): Promise<void>;
+    listInputAssets(): Promise<DesktopInputAssetSlot[]>;
+    revealInputAssetSlot(slot: string): Promise<void>;
     onSyntheticPerformerTaskChanged(
       listener: (task: DesktopSyntheticPerformerTask) => void,
     ): () => void;

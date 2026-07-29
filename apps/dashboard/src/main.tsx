@@ -79,12 +79,15 @@ import { StatsView } from "./features/stats/view";
 import { BackgroundTasksView } from "./features/tasks/view";
 import { ToolsView } from "./features/tools/view";
 import { SyntheticPerformerWorkbench } from "./features/workbench/view";
+import { WorkbenchIndex } from "./features/workbench/index-view";
+import { InputAssetsWorkbench, useInputAssetSlots } from "./features/workbench/input-assets-view";
 import { DesktopShell } from "./desktop/shell";
 import type { DesktopSettingsSection } from "./desktop/settings-model";
 import { DashboardRootErrorBoundary } from "./root-error-boundary";
 import { BrandMark } from "./shared/ui/brand-mark";
 import {
   dashboardRouteFromHistory,
+  type WorkbenchView,
   readStoredCapabilityView,
   storeCapabilityView,
 } from "./shared/navigation";
@@ -177,6 +180,14 @@ function App({
   const [activeSection, setActiveSection] = useState<DashboardSection>(initialRoute.section);
   const [capabilityView, setCapabilityView] = useState<CapabilityView>(initialRoute.capabilityView);
   const [activityView, setActivityView] = useState<ActivityView>(initialRoute.activityView);
+  const [workbenchView, setWorkbenchView] = useState<WorkbenchView>(initialRoute.workbenchView);
+  const assetSlots = useInputAssetSlots();
+  const assetSlotStatus = assetSlots.slots
+    ? t.inputAssets.slotSummary(
+        assetSlots.slots.filter((slot) => slot.current !== null).length,
+        assetSlots.slots.length,
+      )
+    : "";
   const [error, setError] = useState("");
   const [detailTarget, setDetailTarget] = useState<DetailTarget>(null);
   const [query, setQuery] = useState("");
@@ -232,6 +243,7 @@ function App({
       setActiveSection(nextRoute.section);
       setCapabilityView(nextRoute.capabilityView);
       setActivityView(nextRoute.activityView);
+      setWorkbenchView(nextRoute.workbenchView);
     };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
@@ -277,16 +289,19 @@ function App({
     section: DashboardSection,
     nextCapabilityView = capabilityView,
     nextActivityView = activityView,
+    nextWorkbenchView = workbenchView,
   ) {
     const nextState = {
       section,
       capabilityView: nextCapabilityView,
       activityView: nextActivityView,
+      workbenchView: nextWorkbenchView,
     };
     const currentState = window.history.state;
     const stateChanged = currentState?.section !== section
       || currentState?.capabilityView !== nextCapabilityView
-      || currentState?.activityView !== nextActivityView;
+      || currentState?.activityView !== nextActivityView
+      || currentState?.workbenchView !== nextWorkbenchView;
     if (window.location.pathname !== "/" || stateChanged) {
       window.history.pushState(nextState, "", "/");
     }
@@ -294,9 +309,18 @@ function App({
 
   function openDashboardSection(section: DashboardSection) {
     const nextActivityView = section === "activity" ? "stats" : activityView;
-    pushDashboardRoute(section, capabilityView, nextActivityView);
+    // Re-entering the workbench from the sidebar always lands on the tool index.
+    const nextWorkbenchView = section === "workbench" ? "index" : workbenchView;
+    pushDashboardRoute(section, capabilityView, nextActivityView, nextWorkbenchView);
     setActiveSection(section);
     setActivityView(nextActivityView);
+    setWorkbenchView(nextWorkbenchView);
+  }
+
+  function openWorkbenchView(view: WorkbenchView) {
+    pushDashboardRoute("workbench", capabilityView, activityView, view);
+    setActiveSection("workbench");
+    setWorkbenchView(view);
   }
 
   function openCapabilityView(view: CapabilityView) {
@@ -819,7 +843,25 @@ function App({
                 onOpenStats={() => openActivityView("stats")}
               />
             ) : null}
-            {activeSection === "workbench" ? <SyntheticPerformerWorkbench /> : null}
+            {activeSection === "workbench" && workbenchView === "index" ? (
+              <WorkbenchIndex
+                assetStatus={assetSlotStatus}
+                onOpen={openWorkbenchView}
+                syntheticPerformerStatus=""
+              />
+            ) : null}
+            {activeSection === "workbench" && workbenchView === "synthetic-performer" ? (
+              <SyntheticPerformerWorkbench onBack={() => openWorkbenchView("index")} />
+            ) : null}
+            {activeSection === "workbench" && workbenchView === "input-assets" ? (
+              <InputAssetsWorkbench
+                error={assetSlots.error}
+                loading={assetSlots.loading}
+                onBack={() => openWorkbenchView("index")}
+                refresh={assetSlots.refresh}
+                slots={assetSlots.slots}
+              />
+            ) : null}
             {activeSection === "capabilities" ? (
               <WorkspaceView
                 activeView={capabilityView}

@@ -150,6 +150,39 @@ export const ZH_TEXT = {
     openOutput: "打开输出目录",
     disclaimer: "这个工具只负责添加并验证元数据，不会判断媒体是否真的包含 AI 生成人物，也不会检查视频分辨率、时长等其他亚马逊上传要求。"
   },
+  workbenchIndex: {
+    eyebrow: "工作台",
+    title: "工具",
+    subtitle: "选一个工具开始。",
+    back: "返回工作台",
+    tools: {
+      syntheticPerformer: {
+        name: "亚马逊 AI 人物标签",
+        summary: "批量给图片和视频添加亚马逊要求的 AI 人物标签。"
+      },
+      inputAssets: {
+        name: "模板与数据源",
+        summary: "查看技能正在使用的模板和长期数据表。"
+      }
+    }
+  },
+  inputAssets: {
+    eyebrow: "工作台 · 模板与数据源",
+    title: "模板与数据源",
+    subtitle: "技能会自动记住这些文件的当前版本。上传新版本时会自动升档，上一版保留一份备用。",
+    slotSummary: (filled: number, total: number) => `${filled} / ${total} 已就绪`,
+    empty: "还没有存过",
+    emptyHint: "第一次在对话里上传后，这里就会显示当前版本。",
+    current: "当前版本",
+    previous: "上一版",
+    uploadedOn: (date: string) => `${date} 上传`,
+    reveal: "在文件夹中显示",
+    refresh: "刷新",
+    loading: "正在读取…",
+    loadError: "读取失败",
+    neverUsed: "尚未使用",
+    note: "这里只做查看。要更换版本，在对话里上传新文件即可。"
+  },
   stats: {
     sessions: "会话",
     toolCalls: "工具调用",
@@ -811,6 +844,39 @@ export const UI_TEXT: Record<Language, UiText> = {
       completeWithFailuresHint: "Successful files are ready. Review the errors above before retrying the remaining files.",
       openOutput: "Open output folder",
       disclaimer: "This tool only adds and verifies metadata. It does not decide whether media contains an AI-generated performer, and it does not check resolution, duration, or other Amazon upload requirements."
+    },
+    workbenchIndex: {
+      eyebrow: "Workbench",
+      title: "Tools",
+      subtitle: "Pick a tool to get started.",
+      back: "Back to workbench",
+      tools: {
+        syntheticPerformer: {
+          name: "Amazon AI performer tag",
+          summary: "Batch-add Amazon's required AI performer tag to images and videos."
+        },
+        inputAssets: {
+          name: "Templates & data sources",
+          summary: "See the templates and long-lived tables your skills are using."
+        }
+      }
+    },
+    inputAssets: {
+      eyebrow: "Workbench · Templates & data sources",
+      title: "Templates & data sources",
+      subtitle: "Skills remember the current version of these files. Uploading a new one promotes it automatically and keeps the previous version as a spare.",
+      slotSummary: (filled: number, total: number) => `${filled} / ${total} ready`,
+      empty: "Nothing stored yet",
+      emptyHint: "The current version appears here after your first upload in a conversation.",
+      current: "Current",
+      previous: "Previous",
+      uploadedOn: (date: string) => `Uploaded ${date}`,
+      reveal: "Show in folder",
+      refresh: "Refresh",
+      loading: "Loading…",
+      loadError: "Could not load",
+      neverUsed: "Not used yet",
+      note: "This view is read-only. To change a version, upload a new file in a conversation."
     },
     stats: {
       sessions: "Sessions",

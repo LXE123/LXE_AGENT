@@ -24,6 +24,8 @@ export const IPC_CHANNELS = {
   getSyntheticPerformerTask: "lxe:desktop:synthetic-performer:get-task",
   cancelSyntheticPerformerTask: "lxe:desktop:synthetic-performer:cancel",
   openSyntheticPerformerOutput: "lxe:desktop:synthetic-performer:open-output",
+  listInputAssets: "lxe:desktop:input-assets:list",
+  revealInputAssetSlot: "lxe:desktop:input-assets:reveal",
   syntheticPerformerTaskChanged: "lxe:desktop:synthetic-performer:task-changed",
   cloudStateChanged: "lxe:desktop:cloud-state-changed",
   conversationEvent: "lxe:desktop:conversation-event",
