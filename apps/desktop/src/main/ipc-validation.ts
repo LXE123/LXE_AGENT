@@ -1,6 +1,7 @@
 import type {
   DashboardRpcCall,
   DesktopCloudActivationInput,
+  DesktopCloudDestination,
   DesktopSetupInput,
   DesktopSyntheticPerformerSourceKind,
   DesktopSyntheticPerformerTaskInput,
@@ -72,6 +73,13 @@ export function validateCloudActivationInput(value: unknown): DesktopCloudActiva
   const password = boundedText(input.password, "Enrollment password", 256);
   if (password.length < 12) throw new Error("Enrollment password is invalid");
   return { enrollment_id: enrollmentId, password };
+}
+
+export function validateCloudDestination(value: unknown): DesktopCloudDestination {
+  if (value !== "agent_dashboard" && value !== "erp_dashboard" && value !== "admin_dashboard") {
+    throw new Error("Cloud destination is unsupported");
+  }
+  return value;
 }
 
 export function validateDashboardRpcCall(value: unknown): DashboardRpcCall {

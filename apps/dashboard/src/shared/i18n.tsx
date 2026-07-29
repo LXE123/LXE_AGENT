@@ -595,7 +595,19 @@ export const ZH_TEXT = {
       checking: "正在检查公司网络",
       retry: "重试连接",
       activatedConnected: "公司云端已连接",
-      activatedRetry: "公司云端已配置，将自动重试连接"
+      activatedRetry: "公司云端已配置，将自动重试连接",
+      shortcuts: {
+        title: "快速访问",
+        description: "使用系统默认浏览器打开公司云端页面。",
+        unavailable: "连接后可用",
+        agentTitle: "Agent 数据看板",
+        agentDescription: "查看运行数据与使用统计",
+        erpTitle: "FBA ERP",
+        erpDescription: "查看采购、合同与库存对账",
+        adminTitle: "云端管理后台",
+        adminDescription: "管理设备与服务配置",
+        adminBadge: "管理员"
+      }
     },
     base: {
       badge: "必填",
@@ -1292,7 +1304,19 @@ export const UI_TEXT: Record<Language, UiText> = {
         checking: "Checking the company network",
         retry: "Retry connection",
         activatedConnected: "Company cloud connected",
-        activatedRetry: "Company cloud configured; the connection will retry automatically"
+        activatedRetry: "Company cloud configured; the connection will retry automatically",
+        shortcuts: {
+          title: "Quick access",
+          description: "Open company cloud pages in your default browser.",
+          unavailable: "Available when connected",
+          agentTitle: "Agent dashboard",
+          agentDescription: "View runtime data and usage statistics",
+          erpTitle: "FBA ERP",
+          erpDescription: "Review purchases, contracts, and inventory",
+          adminTitle: "Cloud administration",
+          adminDescription: "Manage devices and service configuration",
+          adminBadge: "Admin"
+        }
       },
       base: {
         badge: "Required",

@@ -7,6 +7,7 @@ import type {
   DesktopConfigImportApplyResult,
   DesktopConfigImportPreview,
   DesktopCloudActivationInput,
+  DesktopCloudDestination,
   DesktopCloudEnrollmentSelection,
   DesktopCloudState,
   DesktopHealth,
@@ -23,6 +24,7 @@ import type {
 import { IPC_CHANNELS } from "../ipc-channels";
 import {
   validateCloudActivationInput,
+  validateCloudDestination,
   validateConfigImportId,
   validateDashboardRpcCall,
   validateSetupInput,
@@ -44,6 +46,7 @@ export interface DesktopIpcApplication {
   activateCloudEnrollment(input: DesktopCloudActivationInput): Promise<DesktopCloudState>;
   getCloudState(): DesktopCloudState;
   retryCloudConnection(): Promise<DesktopCloudState>;
+  openCloudDestination(destination: DesktopCloudDestination): Promise<void>;
   logsDirectory: string;
   registerSyntheticPerformerSources(
     kind: DesktopSyntheticPerformerSourceKind,
@@ -122,6 +125,8 @@ export function registerDesktopIpc(application: DesktopIpcApplication): () => vo
     application.activateCloudEnrollment(validateCloudActivationInput(input)));
   ipcMain.handle(IPC_CHANNELS.getCloudState, () => application.getCloudState());
   ipcMain.handle(IPC_CHANNELS.retryCloudConnection, () => application.retryCloudConnection());
+  ipcMain.handle(IPC_CHANNELS.openCloudDestination, (_event, destination: unknown) =>
+    application.openCloudDestination(validateCloudDestination(destination)));
   ipcMain.handle(IPC_CHANNELS.applyConfigImport, (_event, importId: unknown) =>
     application.applyConfigImport(validateConfigImportId(importId)));
   ipcMain.handle(IPC_CHANNELS.discardConfigImport, (_event, importId: unknown) =>

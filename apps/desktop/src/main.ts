@@ -8,6 +8,7 @@ import {
   protocol,
   safeStorage,
   session,
+  shell,
   Tray,
 } from "electron";
 import { createLogger } from "@lxe/core";
@@ -16,6 +17,7 @@ import type {
   DashboardRpcOperation,
   DashboardRpcResult,
   DesktopCloudActivationInput,
+  DesktopCloudDestination,
   DesktopCloudState,
   DesktopConversationActivityPayload,
   DesktopConversationEvent,
@@ -38,6 +40,7 @@ import { DesktopConfigImportManager } from "./main/config-import";
 import { DesktopConversationAttachmentService } from "./main/conversation-attachments";
 import { applyDesktopConfigImport } from "./main/config-import-application";
 import { DesktopCloudEnrollmentManager } from "./main/cloud-enrollment";
+import { resolveCloudDestinationUrl } from "./main/cloud-destinations";
 import { DesktopConfigStore } from "./main/config-store";
 import { DesktopCloudService } from "./main/desktop-cloud";
 import { resolvePreviewDataServerTarget } from "./main/data-server-policy";
@@ -361,6 +364,17 @@ async function bootstrap(): Promise<void> {
     activateCloudEnrollment: (input: DesktopCloudActivationInput) => cloud.activate(input),
     getCloudState: () => cloud.state(),
     retryCloudConnection: () => cloud.retry(),
+    openCloudDestination: async (destination: DesktopCloudDestination): Promise<void> => {
+      const state = cloud.state();
+      const dataServerUrl = previewCloudTarget?.dataServerUrl
+        ?? config.cloudConfiguration().data_server_url;
+      await shell.openExternal(resolveCloudDestinationUrl({
+        configured: state.configured,
+        connection: state.connection,
+        dataServerUrl,
+        destination,
+      }));
+    },
     logsDirectory: join(paths.dataRoot, "logs"),
     registerSyntheticPerformerSources: (kind, selectedPaths) =>
       syntheticPerformer.registerSources(kind, selectedPaths),

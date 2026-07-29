@@ -32,3 +32,13 @@ test("ready status stays quiet while failures retain the health message", () => 
   assert.match(shell, /health\?\.message && hasHealthError/);
   assert.match(shell, /desktop-maintenance-panel/);
 });
+
+test("company cloud exposes only the fixed browser shortcuts when connected", () => {
+  for (const destination of ["agent_dashboard", "erp_dashboard", "admin_dashboard"]) {
+    assert.match(shell, new RegExp(`destination: "${destination}"`));
+  }
+  assert.match(shell, /cloud\.configured \? \(/);
+  assert.match(shell, /disabled=\{!connected\}/);
+  assert.match(shell, /desktop\.openCloudDestination\(destination\)/);
+  assert.match(shell, /desktop-cloud-admin-badge/);
+});

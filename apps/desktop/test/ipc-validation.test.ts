@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   validateCloudActivationInput,
+  validateCloudDestination,
   validateConfigImportId,
   validateDashboardRpcCall,
   validateSetupInput,
@@ -10,6 +11,15 @@ import {
 } from "../src/main/ipc-validation";
 
 describe("desktop IPC validation", () => {
+  test("accepts only the fixed cloud destinations", () => {
+    expect(validateCloudDestination("agent_dashboard")).toBe("agent_dashboard");
+    expect(validateCloudDestination("erp_dashboard")).toBe("erp_dashboard");
+    expect(validateCloudDestination("admin_dashboard")).toBe("admin_dashboard");
+    expect(() => validateCloudDestination("https://attacker.example")).toThrow("unsupported");
+    expect(() => validateCloudDestination("docs")).toThrow("unsupported");
+    expect(() => validateCloudDestination({ destination: "erp_dashboard" })).toThrow("unsupported");
+  });
+
   test("validates the synthetic performer task boundary", () => {
     expect(validateSyntheticPerformerSourceKind("files")).toBe("files");
     expect(validateSyntheticPerformerSourceKind("folder")).toBe("folder");

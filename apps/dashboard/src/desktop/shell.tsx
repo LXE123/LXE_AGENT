@@ -23,6 +23,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type {
   DesktopConfigImportPreview,
+  DesktopCloudDestination,
   DesktopCloudEnrollmentSelection,
   DesktopCloudState,
   DesktopHealth,
@@ -216,6 +217,7 @@ function DesktopCloudPanel({
   headingRef,
   password,
   onActivate,
+  onOpenDestination,
   onPasswordChange,
   onRetry,
   onSelect,
@@ -226,6 +228,7 @@ function DesktopCloudPanel({
   headingRef: RefObject<HTMLHeadingElement | null>;
   password: string;
   onActivate: () => void;
+  onOpenDestination: (destination: DesktopCloudDestination) => void;
   onPasswordChange: (value: string) => void;
   onRetry: () => void;
   onSelect: () => void;
@@ -233,6 +236,33 @@ function DesktopCloudPanel({
   const t = useUiText();
   const connected = cloud.connection === "connected";
   const supported = cloud.connection !== "unsupported";
+  const shortcuts: Array<{
+    admin?: boolean;
+    description: string;
+    destination: DesktopCloudDestination;
+    icon: LucideIcon;
+    label: string;
+  }> = [
+    {
+      destination: "agent_dashboard",
+      icon: Activity,
+      label: t.desktop.cloud.shortcuts.agentTitle,
+      description: t.desktop.cloud.shortcuts.agentDescription,
+    },
+    {
+      destination: "erp_dashboard",
+      icon: Store,
+      label: t.desktop.cloud.shortcuts.erpTitle,
+      description: t.desktop.cloud.shortcuts.erpDescription,
+    },
+    {
+      admin: true,
+      destination: "admin_dashboard",
+      icon: ShieldCheck,
+      label: t.desktop.cloud.shortcuts.adminTitle,
+      description: t.desktop.cloud.shortcuts.adminDescription,
+    },
+  ];
   return (
     <section className="desktop-settings-section desktop-cloud-panel">
       <DesktopSectionHeading
@@ -295,6 +325,49 @@ function DesktopCloudPanel({
           ) : null}
         </div>
       ) : cloud.last_error ? <p className="desktop-form-error" role="alert">{cloud.last_error}</p> : null}
+      {cloud.configured ? (
+        <div className="desktop-cloud-shortcuts">
+          <div className="desktop-cloud-shortcuts-heading">
+            <div>
+              <strong>{t.desktop.cloud.shortcuts.title}</strong>
+              <span>{t.desktop.cloud.shortcuts.description}</span>
+            </div>
+            {!connected ? (
+              <span className="desktop-cloud-shortcuts-unavailable">
+                {t.desktop.cloud.shortcuts.unavailable}
+              </span>
+            ) : null}
+          </div>
+          <div className="desktop-cloud-shortcuts-grid">
+            {shortcuts.map((shortcut) => {
+              const Icon = shortcut.icon;
+              return (
+                <button
+                  aria-label={`${shortcut.label}: ${shortcut.description}`}
+                  disabled={!connected}
+                  key={shortcut.destination}
+                  onClick={() => onOpenDestination(shortcut.destination)}
+                  type="button"
+                >
+                  <Icon aria-hidden size={19} />
+                  <span className="desktop-cloud-shortcut-copy">
+                    <strong>
+                      {shortcut.label}
+                      {shortcut.admin ? (
+                        <span className="desktop-cloud-admin-badge">
+                          {t.desktop.cloud.shortcuts.adminBadge}
+                        </span>
+                      ) : null}
+                    </strong>
+                    <span>{shortcut.description}</span>
+                  </span>
+                  <ExternalLink aria-hidden className="desktop-cloud-shortcut-open" size={15} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1039,6 +1112,15 @@ export function DesktopShell({
       setCloudActivating(false);
     }
   };
+  const openCloudDestination = async (destination: DesktopCloudDestination): Promise<void> => {
+    if (importApplying || cloud.connection !== "connected") return;
+    setError("");
+    try {
+      await desktop.openCloudDestination(destination);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
   const cancelConfigImport = async (): Promise<void> => {
     const preview = importPreview;
     setImportPreview(null);
@@ -1239,6 +1321,7 @@ export function DesktopShell({
       enrollment={cloudEnrollment}
       headingRef={sectionHeadingRef}
       onActivate={() => { void activateCloudEnrollment(); }}
+      onOpenDestination={(destination) => { void openCloudDestination(destination); }}
       onPasswordChange={setCloudPassword}
       onRetry={() => { void retryCloudConnection(); }}
       onSelect={() => { void selectCloudEnrollment(); }}

@@ -257,6 +257,11 @@ export type DesktopCloudConnectionState =
   | "error"
   | "unsupported";
 
+export type DesktopCloudDestination =
+  | "agent_dashboard"
+  | "erp_dashboard"
+  | "admin_dashboard";
+
 export interface DesktopCloudState {
   configured: boolean;
   device_name: string;
@@ -507,6 +512,7 @@ export interface LxeDesktopBridge {
     activateCloudEnrollment(input: DesktopCloudActivationInput): Promise<DesktopCloudState>;
     getCloudState(): Promise<DesktopCloudState>;
     retryCloudConnection(): Promise<DesktopCloudState>;
+    openCloudDestination(destination: DesktopCloudDestination): Promise<void>;
     applyConfigImport(importId: string): Promise<DesktopConfigImportApplyResult>;
     discardConfigImport(importId: string): Promise<void>;
     openLogsDirectory(): Promise<void>;

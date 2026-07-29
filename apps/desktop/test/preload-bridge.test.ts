@@ -38,6 +38,7 @@ describe("preload bridge", () => {
       "onDashboardInvalidated",
       "onStatusChanged",
       "onSyntheticPerformerTaskChanged",
+      "openCloudDestination",
       "openLogsDirectory",
       "openSyntheticPerformerOutput",
       "platform",
@@ -63,6 +64,7 @@ describe("preload bridge", () => {
     await bridge.desktop.activateCloudEnrollment({ enrollment_id: "enroll-123", password: "password-value" });
     await bridge.desktop.getCloudState();
     await bridge.desktop.retryCloudConnection();
+    await bridge.desktop.openCloudDestination("erp_dashboard");
     await bridge.desktop.applyConfigImport("import-123");
     await bridge.desktop.discardConfigImport("import-123");
     await bridge.desktop.selectZiniaoApp();
@@ -152,6 +154,7 @@ describe("preload bridge", () => {
       IPC_CHANNELS.activateCloudEnrollment,
       IPC_CHANNELS.getCloudState,
       IPC_CHANNELS.retryCloudConnection,
+      IPC_CHANNELS.openCloudDestination,
       IPC_CHANNELS.applyConfigImport,
       IPC_CHANNELS.discardConfigImport,
       IPC_CHANNELS.selectZiniaoApp,
@@ -168,12 +171,13 @@ describe("preload bridge", () => {
       IPC_CHANNELS.stageDroppedConversationFiles,
       IPC_CHANNELS.discardConversationFiles,
     ]);
-    expect(invocations[19]?.arguments).toEqual([["/private/drop/notes.txt"]]);
-    expect(invocations[20]?.arguments).toEqual([["attachment-1"]]);
+    expect(invocations[20]?.arguments).toEqual([["/private/drop/notes.txt"]]);
+    expect(invocations[21]?.arguments).toEqual([["attachment-1"]]);
     expect(invocations[3]?.arguments).toEqual([{ enrollment_id: "enroll-123", password: "password-value" }]);
-    expect(invocations[6]?.arguments).toEqual(["import-123"]);
+    expect(invocations[6]?.arguments).toEqual(["erp_dashboard"]);
     expect(invocations[7]?.arguments).toEqual(["import-123"]);
-    expect(invocations[14]?.arguments).toEqual([{
+    expect(invocations[8]?.arguments).toEqual(["import-123"]);
+    expect(invocations[15]?.arguments).toEqual([{
       action: "scan",
       selection_id: "selection-1",
       recursive: false,

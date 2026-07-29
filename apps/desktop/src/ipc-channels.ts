@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
   activateCloudEnrollment: "lxe:desktop:activate-cloud-enrollment",
   getCloudState: "lxe:desktop:get-cloud-state",
   retryCloudConnection: "lxe:desktop:retry-cloud-connection",
+  openCloudDestination: "lxe:desktop:open-cloud-destination",
   applyConfigImport: "lxe:desktop:apply-config-import",
   discardConfigImport: "lxe:desktop:discard-config-import",
   openLogsDirectory: "lxe:desktop:open-logs-directory",
