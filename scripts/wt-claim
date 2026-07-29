@@ -67,8 +67,11 @@ cmd_claim() {
     fi
   done
 
-  git -C "$MAIN_ROOT" show-ref --verify --quiet "refs/heads/$branch" \
-    && die "branch $branch already exists; pick a new slug or release/finish the old task"
+  # Reattach: the branch survived a release (e.g. the merge failed after the
+  # slot was freed). Check it out again instead of refusing, so recovery stays
+  # inside the pool workflow rather than forcing work in the main workspace.
+  local reattach=""
+  git -C "$MAIN_ROOT" show-ref --verify --quiet "refs/heads/$branch" && reattach=1
 
   for i in $(seq 1 "$MAX_SLOTS"); do
     dir="$POOL_DIR/pool-$i"
@@ -80,10 +83,14 @@ cmd_claim() {
       echo "wt-claim: skipping pool-$i (dirty but unclaimed — inspect manually)" >&2
       continue
     fi
-    git -C "$dir" checkout --quiet -b "$branch" main
+    if [ -n "$reattach" ]; then
+      git -C "$dir" checkout --quiet "$branch"
+    else
+      git -C "$dir" checkout --quiet -b "$branch" main
+    fi
     echo "$slug" > "$dir.claim"
     sync_deps "$dir"
-    echo "claimed pool-$i on $branch"
+    echo "$([ -n "$reattach" ] && echo reattached || echo claimed) pool-$i on $branch"
     echo "$dir"
     return 0
   done
