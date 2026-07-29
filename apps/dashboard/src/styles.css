@@ -7524,8 +7524,14 @@ pre {
 
 .sidebar-session-section .session-index-list {
   gap: 1px;
+  margin-right: -6px;
   padding: 0;
   scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+  scrollbar-width: thin;
+}
+
+.sidebar-session-section .session-index-list::-webkit-scrollbar {
+  width: 6px;
 }
 
 .sidebar-session-section .session-index-item {
