@@ -97,6 +97,30 @@ export interface ToolStep {
   error_block?: ToolDisplayBlock;
 }
 
+export type TurnProcessPart =
+  | {
+      type: "thinking";
+      part_id: string;
+      sequence: number;
+      status: "streaming" | "completed";
+      text: string;
+      redacted_count: number;
+    }
+  | {
+      type: "text";
+      part_id: string;
+      sequence: number;
+      status: "streaming" | "completed";
+      presentation: "process" | "final";
+      text: string;
+    }
+  | {
+      type: "tool";
+      part_id: string;
+      sequence: number;
+      tool_step: ToolStep;
+    };
+
 export type TurnDisplayStatus = "running" | "completed" | "error" | "cancelled";
 
 export type TurnDisplayPhase =
@@ -141,6 +165,7 @@ export type EmitRequest = EmitRequestPayload & (
       state: "delta" | "final" | "error";
       seq: number;
       display_metrics: DisplayMetrics;
+      process_parts: TurnProcessPart[];
     }
   | {
       emit_kind: "final" | "tool" | "progress";
@@ -148,5 +173,6 @@ export type EmitRequest = EmitRequestPayload & (
       state: "";
       seq: 0;
       display_metrics?: never;
+      process_parts?: never;
     }
 );

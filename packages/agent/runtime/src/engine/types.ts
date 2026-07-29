@@ -24,9 +24,13 @@ export interface ToolResultBlock extends JsonObject {
 export type RuntimeContentBlock = TextBlock | ToolCallBlock | ToolResultBlock | JsonObject;
 
 export type RuntimeStreamEvent =
-  | { type: "text_delta"; text: string }
-  | { type: "thinking_delta"; thinking: string }
-  | { type: "redacted_thinking" };
+  | { type: "text_start"; part_id: string }
+  | { type: "text_delta"; part_id?: string; text: string }
+  | { type: "text_end"; part_id: string }
+  | { type: "thinking_start"; part_id: string }
+  | { type: "thinking_delta"; part_id?: string; thinking: string }
+  | { type: "thinking_end"; part_id: string }
+  | { type: "redacted_thinking"; part_id?: string };
 
 export interface RuntimeMessage {
   role: "user" | "assistant" | "tool" | "system";

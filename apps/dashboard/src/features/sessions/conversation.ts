@@ -1,11 +1,13 @@
 import type {
   ConversationArtifactGroup,
+  ConversationLiveProcessItem,
   ConversationProcessItem,
   ConversationRenderItem,
   ConversationResponseGroup,
   ConversationToolGroup,
   SessionArtifactPayload,
   SessionMessage,
+  DesktopConversationStreamPayload,
 } from "../../api/payloads";
 import { isRecord } from "../../shared/content";
 
@@ -504,4 +506,48 @@ export function buildConversationItems(messages: SessionMessage[]): Conversation
     index = end;
   }
   return appendArtifactGroups(items);
+}
+
+export function buildLiveProcessItems(
+  parts: DesktopConversationStreamPayload["process_parts"],
+): ConversationLiveProcessItem[] {
+  const items: ConversationLiveProcessItem[] = [];
+  const ordered = [...parts].sort((left, right) => left.sequence - right.sequence);
+  for (const part of ordered) {
+    if (part.type === "text" && part.presentation === "final") continue;
+    if (part.type === "tool") {
+      const previous = items.at(-1);
+      if (previous?.type === "tool_group") previous.group.parts.push(part);
+      else items.push({
+        type: "tool_group",
+        group: { parts: [part], key: `live-tools-${part.part_id}` },
+      });
+      continue;
+    }
+    const content = part.type === "thinking"
+      ? [
+          ...(part.text ? [{ type: "thinking", thinking: part.text }] : []),
+          ...Array.from({ length: part.redacted_count }, () => ({ type: "redacted_thinking" })),
+        ]
+      : [{ type: "text", text: part.text }];
+    items.push({
+      type: "message",
+      message: {
+        role: "assistant",
+        content,
+        display_group_id: `live-${part.part_id}`,
+      },
+      key: `live-${part.part_id}`,
+    });
+  }
+  return items;
+}
+
+export function liveFinalText(parts: DesktopConversationStreamPayload["process_parts"]): string {
+  return [...parts]
+    .sort((left, right) => left.sequence - right.sequence)
+    .filter((part): part is Extract<typeof part, { type: "text" }> =>
+      part.type === "text" && part.presentation === "final")
+    .map((part) => part.text)
+    .join("");
 }

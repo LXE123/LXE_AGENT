@@ -518,6 +518,8 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         const forcedLastStepReply = isLastStep && calls.length > 0
           ? textContent(response.content) || MAX_STEP_REPLY
           : "";
+        const responseText = forcedLastStepReply || textContent(response.content);
+        finalAnswerStreamer?.completeModelResponse(responseText, calls.length === 0 || isLastStep);
         const assistantContent: RuntimeContentBlock[] = forcedLastStepReply
           ? [{ type: "text", text: forcedLastStepReply }]
           : response.content;
@@ -525,7 +527,7 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
         messages.push(assistant);
         await this.appendMessage(job.session_id, assistant, "assistant_response", job.job_id);
         if (calls.length === 0 || isLastStep) {
-          const reply = forcedLastStepReply || textContent(response.content);
+          const reply = responseText;
           const streamDelivered = finalAnswerStreamer ? await finalAnswerStreamer.finish(reply) : false;
           if (reply && job.response_route_id && !streamDelivered) {
             if (finalAnswerStreamer) await this.emitStreamFallback(job, reply, "final");

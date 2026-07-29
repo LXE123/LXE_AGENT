@@ -37,6 +37,7 @@ export class GatewayEmitter {
     if (!context) throw new Error("response context unexpectedly unavailable");
     const adapter = this.options.registry.get(context.platform);
     const kind = safeText(emit.emit_kind);
+    const processParts = emit.emit_kind === "stream" ? emit.process_parts : [];
     const logger = this.logger.child({
       session_id: emit.session_id,
       turn_id: emit.turn_id,
@@ -49,7 +50,7 @@ export class GatewayEmitter {
     if (kind === "stream") {
       const content = safeText(emit.content);
       const thinking = safeText(emit.thinking);
-      if (!content && !thinking && emit.redacted_thinking_count <= 0 && !emit.tool_pending && emit.tool_steps.length === 0) return;
+      if (!content && !thinking && emit.redacted_thinking_count <= 0 && !emit.tool_pending && emit.tool_steps.length === 0 && processParts.length === 0) return;
       logger.debug("outbound dispatch", { action: "stream_message", state: emit.state, seq: emit.seq });
       await adapter.handleOutbound(this.request(emit, context.platform, "stream_message", {
         stream_type: safeText(emit.stream_type),
@@ -62,6 +63,16 @@ export class GatewayEmitter {
         tool_pending: emit.tool_pending,
         tool_elapsed_ms: emit.tool_elapsed_ms,
         tool_steps: emit.tool_steps.map((item) => ({ ...item })),
+        process_parts: processParts.map((part) => part.type === "tool"
+          ? {
+              ...part,
+              tool_step: {
+                ...part.tool_step,
+                ...(part.tool_step.result_block ? { result_block: { ...part.tool_step.result_block } } : {}),
+                ...(part.tool_step.error_block ? { error_block: { ...part.tool_step.error_block } } : {}),
+              },
+            }
+          : { ...part }),
         display_metrics: { ...emit.display_metrics },
       }));
       logger.debug("outbound completed", { action: "stream_message", state: emit.state, seq: emit.seq });

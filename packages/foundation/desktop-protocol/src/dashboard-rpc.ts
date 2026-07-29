@@ -1,4 +1,5 @@
-import type { DisplayMetrics, ToolStep } from "@lxe/protocol";
+import type { DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
+export type { TurnProcessPart } from "@lxe/protocol";
 
 export type CapabilityPayload = {
   provider: string;
@@ -151,6 +152,7 @@ export type DesktopConversationStreamPayload = {
   tool_pending: boolean;
   tool_elapsed_ms: number;
   tool_steps: ToolStep[];
+  process_parts: TurnProcessPart[];
   display_metrics: DisplayMetrics;
 };
 

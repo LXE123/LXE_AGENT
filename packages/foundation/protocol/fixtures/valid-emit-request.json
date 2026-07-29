@@ -19,6 +19,16 @@
       "duration_ms": 12
     }
   ],
+  "process_parts": [
+    {
+      "type": "text",
+      "part_id": "part_1",
+      "sequence": 1,
+      "status": "completed",
+      "presentation": "final",
+      "text": "Inventory checked."
+    }
+  ],
   "files": [],
   "emit_kind": "stream",
   "emit_id": "emit_1",

@@ -34,25 +34,11 @@
     "tool_elapsed_ms": { "type": "integer", "minimum": 0 },
     "tool_steps": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "name", "title", "detail", "icon_token", "status", "duration_ms"],
-        "properties": {
-          "id": { "type": "string" },
-          "name": { "type": "string", "minLength": 1 },
-          "title": { "type": "string", "minLength": 1 },
-          "detail": { "type": "string" },
-          "icon_token": { "type": "string", "minLength": 1 },
-          "status": {
-            "type": "string",
-            "enum": ["running", "success", "error"]
-          },
-          "duration_ms": { "type": "integer", "minimum": 0 },
-          "result_block": { "$ref": "#/$defs/toolDisplayBlock" },
-          "error_block": { "$ref": "#/$defs/toolDisplayBlock" }
-        }
-      }
+      "items": { "$ref": "#/$defs/toolStep" }
+    },
+    "process_parts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/turnProcessPart" }
     },
     "files": {
       "type": "array",
@@ -66,6 +52,63 @@
     "display_metrics": { "$ref": "#/$defs/displayMetrics" }
   },
   "$defs": {
+    "turnProcessPart": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "part_id", "sequence", "status", "text", "redacted_count"],
+          "properties": {
+            "type": { "const": "thinking" },
+            "part_id": { "type": "string", "minLength": 1 },
+            "sequence": { "type": "integer", "minimum": 1 },
+            "status": { "enum": ["streaming", "completed"] },
+            "text": { "type": "string" },
+            "redacted_count": { "type": "integer", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "part_id", "sequence", "status", "presentation", "text"],
+          "properties": {
+            "type": { "const": "text" },
+            "part_id": { "type": "string", "minLength": 1 },
+            "sequence": { "type": "integer", "minimum": 1 },
+            "status": { "enum": ["streaming", "completed"] },
+            "presentation": { "enum": ["process", "final"] },
+            "text": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "part_id", "sequence", "tool_step"],
+          "properties": {
+            "type": { "const": "tool" },
+            "part_id": { "type": "string", "minLength": 1 },
+            "sequence": { "type": "integer", "minimum": 1 },
+            "tool_step": { "$ref": "#/$defs/toolStep" }
+          }
+        }
+      ]
+    },
+    "toolStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "title", "detail", "icon_token", "status", "duration_ms"],
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string" },
+        "icon_token": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["running", "success", "error"] },
+        "duration_ms": { "type": "integer", "minimum": 0 },
+        "result_block": { "$ref": "#/$defs/toolDisplayBlock" },
+        "error_block": { "$ref": "#/$defs/toolDisplayBlock" }
+      }
+    },
     "toolDisplayBlock": {
       "type": "object",
       "additionalProperties": false,
@@ -105,9 +148,13 @@
         "required": ["emit_kind"]
       },
       "then": {
-        "required": ["display_metrics"],
+        "required": ["display_metrics", "process_parts"],
         "properties": {
           "display_metrics": { "$ref": "#/$defs/displayMetrics" },
+          "process_parts": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/turnProcessPart" }
+          },
           "stream_type": { "const": "final_answer" },
           "state": { "enum": ["delta", "final", "error"] },
           "seq": { "type": "integer", "minimum": 1 }
@@ -116,6 +163,7 @@
       "else": {
         "properties": {
           "display_metrics": false,
+          "process_parts": false,
           "stream_type": { "const": "" },
           "state": { "const": "" },
           "seq": { "const": 0 }

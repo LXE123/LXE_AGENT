@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildConversationItems,
+  buildLiveProcessItems,
   hasLiveToolOperationDetails,
   hasReaderFacingText,
   hasToolError,
+  liveFinalText,
   summarizeToolOperations,
   toolCallBlocks,
   toolGroupArtifacts,
@@ -22,6 +24,53 @@ describe("session conversation projection", () => {
     expect(hasLiveToolOperationDetails({ status: "success", result_block: { content: "" } })).toBe(false);
     expect(hasLiveToolOperationDetails({ status: "success", result_block: { content: "ok" } })).toBe(true);
     expect(hasLiveToolOperationDetails({ status: "error", error_block: { content: "failed" } })).toBe(true);
+  });
+
+  test("projects live parts in sequence and only merges adjacent tools", () => {
+    const tool = (partId: string, sequence: number, id: string) => ({
+      type: "tool" as const,
+      part_id: partId,
+      sequence,
+      tool_step: {
+        id,
+        name: "exec",
+        title: "Run",
+        detail: id,
+        icon_token: "setting_outlined",
+        status: "success" as const,
+        duration_ms: 1,
+      },
+    });
+    const parts = [{
+      type: "thinking" as const,
+      part_id: "think-1",
+      sequence: 1,
+      status: "completed" as const,
+      text: "first",
+      redacted_count: 0,
+    }, tool("tool-1", 2, "call-1"), tool("tool-2", 3, "call-2"), {
+      type: "text" as const,
+      part_id: "narration-1",
+      sequence: 4,
+      status: "completed" as const,
+      presentation: "process" as const,
+      text: "next",
+    }, tool("tool-3", 5, "call-3"), {
+      type: "text" as const,
+      part_id: "answer-1",
+      sequence: 6,
+      status: "completed" as const,
+      presentation: "final" as const,
+      text: "done",
+    }];
+
+    const items = buildLiveProcessItems(parts);
+    expect(items.map((item) => item.type)).toEqual(["message", "tool_group", "message", "tool_group"]);
+    expect(items[1]?.type === "tool_group" ? items[1].group.parts.map((part) => part.part_id) : [])
+      .toEqual(["tool-1", "tool-2"]);
+    expect(items[3]?.type === "tool_group" ? items[3].group.parts.map((part) => part.part_id) : [])
+      .toEqual(["tool-3"]);
+    expect(liveFinalText(parts)).toBe("done");
   });
 
   test("folds thinking and tools into one response while leaving the final answer outside", () => {

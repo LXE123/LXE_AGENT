@@ -73,6 +73,15 @@ describe("protocol contracts", () => {
     expect(validateEmitRequest({ ...stream, stream_type: "content_block_delta" })).toBe(false);
     expect(validateEmitRequest({ ...stream, state: "running" })).toBe(false);
     expect(validateEmitRequest({ ...stream, seq: 0 })).toBe(false);
+    expect(validateEmitRequest({ ...stream, process_parts: undefined })).toBe(false);
+    expect(validateEmitRequest({
+      ...stream,
+      process_parts: [{ ...stream.process_parts[0], sequence: 0 }],
+    })).toBe(false);
+    expect(validateEmitRequest({
+      ...stream,
+      process_parts: [{ ...stream.process_parts[0], status: "waiting" }],
+    })).toBe(false);
     expect(validateEmitRequest({
       ...stream,
       display_metrics: { ...stream.display_metrics, phase: "waiting_model" },
@@ -84,9 +93,10 @@ describe("protocol contracts", () => {
       display_metrics: { ...stream.display_metrics, phase: "waiting_vendor" },
     })).toBe(false);
 
-    const { display_metrics: _displayMetrics, ...base } = stream;
+    const { display_metrics: _displayMetrics, process_parts: _processParts, ...base } = stream;
     const final = { ...base, emit_kind: "final", stream_type: "", state: "", seq: 0 };
     expect(validateEmitRequest(final)).toBe(true);
+    expect(validateEmitRequest({ ...final, process_parts: [] })).toBe(false);
     expect(validateEmitRequest({ ...final, display_metrics: validEmitRequest.display_metrics })).toBe(false);
     expect(validateEmitRequest({ ...final, stream_type: "final_answer", state: "final", seq: 1 })).toBe(false);
   });

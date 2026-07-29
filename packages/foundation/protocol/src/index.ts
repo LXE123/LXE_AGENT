@@ -11,6 +11,7 @@ export type {
   ToolDisplayBlock,
   ToolStep,
   ToolStepStatus,
+  TurnProcessPart,
   TurnDisplayPhase,
   TurnDisplayStatus,
   SessionWorkspaceRequest,

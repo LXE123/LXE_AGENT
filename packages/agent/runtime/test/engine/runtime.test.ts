@@ -1102,6 +1102,18 @@ describe("TypeScriptAgentRuntime", () => {
       })],
     }));
     expect(emitted.some((request) => request.emit_kind === "final")).toBe(false);
+    const terminalStream = streamFrames.at(-1);
+    if (terminalStream?.emit_kind !== "stream") throw new Error("terminal stream expected");
+    expect(terminalStream.process_parts.map((part) => part.type)).toEqual(["tool", "text"]);
+    expect(terminalStream.process_parts[0]).toEqual(expect.objectContaining({
+      type: "tool",
+      tool_step: expect.objectContaining({ id: "tool-1", status: "success" }),
+    }));
+    expect(terminalStream.process_parts[1]).toEqual(expect.objectContaining({
+      type: "text",
+      presentation: "final",
+      text: "done",
+    }));
     expect(new Set(streamFrames.map((request) => request.emit_id)).size).toBe(1);
     expect(streamFrames.map((request) => request.seq)).toEqual(
       streamFrames.map((_, index) => index + 1),

@@ -29,8 +29,10 @@ import { EmptyState } from "../../shared/components";
 import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText } from "../../shared/content";
 import {
   buildConversationItems,
+  buildLiveProcessItems,
   hasLiveToolOperationDetails,
   hasReaderFacingText,
+  liveFinalText,
   roleLabel,
   summarizeToolOperations,
   toolOperationPresentation,
@@ -42,6 +44,7 @@ import { useUiText } from "../../shared/i18n";
 import type { UiText } from "../../shared/i18n";
 import type {
   ConversationProcessItem,
+  ConversationLiveProcessItem,
   ConversationResponseGroup,
   ConversationToolGroup,
   DesktopConversationActivityPayload,
@@ -644,6 +647,16 @@ function LiveToolBatch({ steps }: { steps: LiveToolStep[] }) {
   );
 }
 
+function LiveProcessBody({ items }: { items: ConversationLiveProcessItem[] }) {
+  return (
+    <div className="response-process-body">
+      {items.map((item) => item.type === "tool_group"
+        ? <LiveToolBatch key={item.group.key} steps={item.group.parts.map((part) => part.tool_step)} />
+        : <ProcessMessageContent key={item.key} message={item.message} />)}
+    </div>
+  );
+}
+
 function LiveResponseGroup({
   elapsedMs,
   hasElapsed,
@@ -674,8 +687,14 @@ function LiveResponseGroup({
       : displayState === "error"
         ? t.conversation.processFailed(duration)
         : liveProgressLabel(stream, turnState, t);
-  const finalContent = displayState === "completed" ? stream?.content ?? "" : "";
-  const processContent = displayState === "completed" ? "" : stream?.content ?? "";
+  const processItems = useMemo(
+    () => buildLiveProcessItems(stream?.process_parts ?? []),
+    [stream?.process_parts],
+  );
+  const finalContent = useMemo(
+    () => liveFinalText(stream?.process_parts ?? []),
+    [stream?.process_parts],
+  );
   return (
     <div className={`response-group live-response-group state-${displayState}`}>
       <section className="response-process">
@@ -686,15 +705,7 @@ function LiveResponseGroup({
           onToggle={() => setExpanded((current) => !current)}
           state={displayState}
         />
-        {expanded ? (
-          <div className="response-process-body">
-            {stream?.thinking ? <div className="process-thinking-text">{stream.thinking}</div> : null}
-            {stream?.tool_steps.length ? (
-              <LiveToolBatch steps={stream.tool_steps} />
-            ) : null}
-            {processContent ? <MessageMarkdown text={processContent} /> : null}
-          </div>
-        ) : null}
+        {expanded && processItems.length ? <LiveProcessBody items={processItems} /> : null}
       </section>
       {finalContent ? (
         <article className="message-card role-assistant response-final-answer">

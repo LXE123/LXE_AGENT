@@ -63,6 +63,7 @@ const streamRequest = (job: AgentJob, state: "delta" | "final", seq: number): Em
     status: state === "final" ? "success" : "running",
     duration_ms: state === "final" ? 5 : 0,
   }],
+  process_parts: [],
   files: [],
   emit_kind: "stream",
   stream_type: "final_answer",

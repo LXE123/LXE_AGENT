@@ -50,6 +50,7 @@ const itemCompleted = (
           stream_type: "final_answer" as const,
           state: state as "delta" | "final" | "error",
           seq: 1,
+          process_parts: [],
           display_metrics: {
             status: "running" as const,
             phase: "generating_answer" as const,

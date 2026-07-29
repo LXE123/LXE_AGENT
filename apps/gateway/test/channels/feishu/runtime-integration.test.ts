@@ -26,6 +26,7 @@ const frame = (state: "delta" | "final", seq: number): EmitRequest => ({
   tool_pending: false,
   tool_elapsed_ms: 0,
   tool_steps: [],
+  process_parts: [],
   files: [],
   emit_id: "emit-1",
   emit_kind: "stream",

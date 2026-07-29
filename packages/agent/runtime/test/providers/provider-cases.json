@@ -231,26 +231,16 @@
       "type": "redacted_thinking",
       "data": "fixture-encrypted-thinking"
     },
-    "expected_runtime_events": [
-      {
-        "type": "thinking_delta",
-        "thinking": "plan"
-      },
-      {
-        "type": "thinking_delta",
-        "thinking": " more"
-      },
-      {
-        "type": "text_delta",
-        "text": "Hello"
-      },
-      {
-        "type": "text_delta",
-        "text": " world"
-      },
-      {
-        "type": "redacted_thinking"
-      }
+    "expected_runtime_event_types": [
+      "thinking_start",
+      "thinking_delta",
+      "thinking_delta",
+      "thinking_end",
+      "text_start",
+      "text_delta",
+      "text_delta",
+      "text_end",
+      "redacted_thinking"
     ],
     "final_message": {
       "content": [

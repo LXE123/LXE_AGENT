@@ -14,6 +14,8 @@ import type {
   JsonObject,
   SessionWorkspaceRequest,
   ToolStep,
+  ToolDisplayBlock,
+  TurnProcessPart,
   TurnDisplayPhase,
   WorkspaceContext,
 } from "@lxe/protocol";
@@ -369,7 +371,10 @@ export class LocalConversationController {
       ...(turn.payload.stream ? {
         stream: {
           ...turn.payload.stream,
-          tool_steps: turn.payload.stream.tool_steps.map((step) => ({ ...step })),
+          tool_steps: turn.payload.stream.tool_steps.map(cloneToolStep),
+          process_parts: turn.payload.stream.process_parts.map((part) => part.type === "tool"
+            ? { ...part, tool_step: cloneToolStep(part.tool_step) }
+            : { ...part }),
           display_metrics: { ...turn.payload.stream.display_metrics },
         },
       } : {}),
@@ -415,6 +420,8 @@ function sanitizeStream(payload: JsonObject): DesktopConversationStreamPayload |
   if (seq < 1) return undefined;
   const metrics = sanitizeMetrics(payload.display_metrics);
   if (!metrics) return undefined;
+  const processParts = sanitizeProcessParts(payload.process_parts);
+  if (!processParts) return undefined;
   return {
     seq,
     state,
@@ -427,8 +434,64 @@ function sanitizeStream(payload: JsonObject): DesktopConversationStreamPayload |
     tool_steps: Array.isArray(payload.tool_steps)
       ? payload.tool_steps.map(sanitizeToolStep).filter((step): step is ToolStep => Boolean(step))
       : [],
+    process_parts: processParts,
     display_metrics: metrics,
   };
+}
+
+function sanitizeProcessParts(value: unknown): TurnProcessPart[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result: TurnProcessPart[] = [];
+  const ids = new Set<string>();
+  let lastSequence = 0;
+  for (const valuePart of value) {
+    const part = record(valuePart);
+    if (!part) return undefined;
+    const type = clean(part.type);
+    const partId = clean(part.part_id);
+    const sequence = Math.trunc(Number(part.sequence));
+    if (!partId || ids.has(partId) || !Number.isSafeInteger(sequence) || sequence <= lastSequence) return undefined;
+    ids.add(partId);
+    lastSequence = sequence;
+    if (type === "thinking") {
+      const status = clean(part.status);
+      if (status !== "streaming" && status !== "completed") return undefined;
+      const redactedCount = Math.trunc(Number(part.redacted_count));
+      if (!Number.isSafeInteger(redactedCount) || redactedCount < 0) return undefined;
+      result.push({
+        type,
+        part_id: partId,
+        sequence,
+        status,
+        text: String(part.text ?? ""),
+        redacted_count: redactedCount,
+      });
+      continue;
+    }
+    if (type === "text") {
+      const status = clean(part.status);
+      const presentation = clean(part.presentation);
+      if ((status !== "streaming" && status !== "completed") ||
+        (presentation !== "process" && presentation !== "final")) return undefined;
+      result.push({
+        type,
+        part_id: partId,
+        sequence,
+        status,
+        presentation,
+        text: String(part.text ?? ""),
+      });
+      continue;
+    }
+    if (type === "tool") {
+      const toolStep = sanitizeToolStep(part.tool_step);
+      if (!toolStep) return undefined;
+      result.push({ type, part_id: partId, sequence, tool_step: toolStep });
+      continue;
+    }
+    return undefined;
+  }
+  return result;
 }
 
 function sanitizeToolStep(value: unknown): ToolStep | undefined {
@@ -441,6 +504,8 @@ function sanitizeToolStep(value: unknown): ToolStep | undefined {
   if (!name || !title || !iconToken || (status !== "running" && status !== "success" && status !== "error")) {
     return undefined;
   }
+  const resultBlock = sanitizeToolDisplayBlock(step.result_block);
+  const errorBlock = sanitizeToolDisplayBlock(step.error_block);
   return {
     id: clean(step.id),
     name,
@@ -452,6 +517,24 @@ function sanitizeToolStep(value: unknown): ToolStep | undefined {
     icon_token: iconToken,
     status,
     duration_ms: integer(step.duration_ms),
+    ...(resultBlock ? { result_block: resultBlock } : {}),
+    ...(errorBlock ? { error_block: errorBlock } : {}),
+  };
+}
+
+function sanitizeToolDisplayBlock(value: unknown): ToolDisplayBlock | undefined {
+  const block = record(value);
+  if (!block) return undefined;
+  const language = clean(block.language);
+  if (language !== "json" && language !== "text") return undefined;
+  return { language, content: String(block.content ?? "") };
+}
+
+function cloneToolStep(step: ToolStep): ToolStep {
+  return {
+    ...step,
+    ...(step.result_block ? { result_block: { ...step.result_block } } : {}),
+    ...(step.error_block ? { error_block: { ...step.error_block } } : {}),
   };
 }
 
@@ -490,6 +573,14 @@ function fallbackStream(content: string, seq: number): DesktopConversationStream
     tool_pending: false,
     tool_elapsed_ms: 0,
     tool_steps: [],
+    process_parts: content ? [{
+      type: "text",
+      part_id: randomUUID(),
+      sequence: 1,
+      status: "completed",
+      presentation: "final",
+      text: content,
+    }] : [],
     display_metrics: {
       status: "completed",
       phase: "generating_answer",

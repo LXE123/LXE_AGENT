@@ -111,6 +111,64 @@ describe("FinalAnswerStreamer display contract", () => {
     expect(emitted.at(-1)?.display_metrics?.phase).toBe("running_tool");
   });
 
+  test("keeps thinking, tools and narration in one stable ordered part sequence", async () => {
+    const emitted: EmitRequest[] = [];
+    const streamer = new FinalAnswerStreamer({
+      sessionId: "s1",
+      turnId: "turn-ordered",
+      responseRouteId: "r1",
+      minIntervalMs: 0,
+      toolUseMode: "full",
+      emit: async (request) => { emitted.push(request); return true; },
+    });
+    const firstTool = { type: "tool_call" as const, id: "tool-1", name: "read", arguments: { path: "a.txt" } };
+    const secondTool = { type: "tool_call" as const, id: "tool-2", name: "exec", arguments: { command: "bun test" } };
+
+    await streamer.startWaitingModel();
+    await streamer.pushEvent({ type: "thinking_start", part_id: "thinking-1" });
+    await streamer.pushEvent({ type: "thinking_delta", part_id: "thinking-1", thinking: "inspect" });
+    await streamer.pushEvent({ type: "thinking_end", part_id: "thinking-1" });
+    streamer.completeModelResponse("", false);
+    await streamer.pushToolStart(firstTool);
+    await streamer.pushToolFinish(firstTool, "success", 10, { result: "read ok" });
+
+    await streamer.startWaitingModel();
+    await streamer.pushEvent({ type: "text_start", part_id: "narration-1" });
+    await streamer.pushEvent({ type: "text_delta", part_id: "narration-1", text: "run tests" });
+    await streamer.pushEvent({ type: "text_end", part_id: "narration-1" });
+    streamer.completeModelResponse("run tests", false);
+    await streamer.pushToolStart(secondTool);
+    await streamer.pushToolFinish(secondTool, "error", 20, { error: "test failed" });
+
+    await streamer.startWaitingModel();
+    await streamer.pushEvent({ type: "thinking_start", part_id: "thinking-2" });
+    await streamer.pushEvent({ type: "thinking_delta", part_id: "thinking-2", thinking: "summarize" });
+    await streamer.pushEvent({ type: "thinking_end", part_id: "thinking-2" });
+    await streamer.pushEvent({ type: "text_start", part_id: "answer-1" });
+    await streamer.pushEvent({ type: "text_delta", part_id: "answer-1", text: "finished" });
+    await streamer.pushEvent({ type: "text_end", part_id: "answer-1" });
+    streamer.completeModelResponse("finished", true);
+    expect(await streamer.finish("finished")).toBe(true);
+
+    const terminal = emitted.at(-1);
+    if (terminal?.emit_kind !== "stream") throw new Error("terminal stream frame expected");
+    expect(terminal.process_parts.map((part) => part.type)).toEqual([
+      "thinking", "tool", "text", "tool", "thinking", "text",
+    ]);
+    expect(terminal.process_parts.map((part) => part.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(terminal.process_parts[0]).toEqual(expect.objectContaining({ part_id: "thinking-1", text: "inspect" }));
+    expect(terminal.process_parts[1]).toEqual(expect.objectContaining({
+      type: "tool",
+      tool_step: expect.objectContaining({ id: "tool-1", status: "success" }),
+    }));
+    expect(terminal.process_parts[2]).toEqual(expect.objectContaining({ presentation: "process", text: "run tests" }));
+    expect(terminal.process_parts[3]).toEqual(expect.objectContaining({
+      type: "tool",
+      tool_step: expect.objectContaining({ id: "tool-2", status: "error" }),
+    }));
+    expect(terminal.process_parts[5]).toEqual(expect.objectContaining({ presentation: "final", text: "finished" }));
+  });
+
   test("reports cancelled without creating a stream when no frame was delivered", async () => {
     const emitted: EmitRequest[] = [];
     const streamer = new FinalAnswerStreamer({

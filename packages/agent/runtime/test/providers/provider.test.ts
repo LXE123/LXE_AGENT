@@ -12,6 +12,7 @@ import {
   loadProviderDescriptor,
   normalizeThinkingEffort,
   normalizeProviderError,
+  ProviderStreamNormalizer,
   ProviderIdleWatchdog,
   type ProviderMessage,
 } from "../../src/providers/provider";
@@ -19,6 +20,38 @@ import { providerErrorStatusCode } from "../../src/providers/provider-errors";
 import type { RuntimeContentBlock, RuntimeMessage, RuntimeStreamEvent } from "../../src/engine/types";
 
 describe("Anthropic-compatible provider", () => {
+  test("normalizes raw block boundaries and synthesizes missing starts without duplicate deltas", () => {
+    const events: RuntimeStreamEvent[] = [];
+    let nextId = 0;
+    const normalizer = new ProviderStreamNormalizer(
+      (event) => events.push(event),
+      () => `part-${++nextId}`,
+    );
+    normalizer.streamEvent({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "thinking", thinking: "plan" },
+    });
+    normalizer.thinking(" more");
+    normalizer.streamEvent({ type: "content_block_stop", index: 0 });
+    normalizer.text("answer");
+    normalizer.thinking("after answer");
+    normalizer.finish();
+
+    expect(events).toEqual([
+      { type: "thinking_start", part_id: "part-1" },
+      { type: "thinking_delta", part_id: "part-1", thinking: "plan" },
+      { type: "thinking_delta", part_id: "part-1", thinking: " more" },
+      { type: "thinking_end", part_id: "part-1" },
+      { type: "text_start", part_id: "part-2" },
+      { type: "text_delta", part_id: "part-2", text: "answer" },
+      { type: "text_end", part_id: "part-2" },
+      { type: "thinking_start", part_id: "part-3" },
+      { type: "thinking_delta", part_id: "part-3", thinking: "after answer" },
+      { type: "thinking_end", part_id: "part-3" },
+    ]);
+  });
+
   test("loads the existing provider catalog and auth profile without changing env names", () => {
     const projectRoot = repositoryRoot(import.meta.dir);
     const descriptor = loadProviderDescriptor(projectRoot, {
@@ -357,11 +390,16 @@ describe("Anthropic-compatible provider", () => {
       stop_reason: "tool_use",
       usage: { input_tokens: 3, output_tokens: 4, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
     });
-    expect(deltas).toEqual([
-      { type: "thinking_delta", thinking: "reason" },
-      { type: "redacted_thinking" },
-      { type: "text_delta", text: "done" },
+    expect(deltas.map((event) => (event as { type: string }).type)).toEqual([
+      "thinking_start", "thinking_delta", "thinking_end", "redacted_thinking", "text_start", "text_delta",
+      "text_end",
     ]);
+    const thinkingId = (deltas[0] as { part_id: string }).part_id;
+    const textId = (deltas[4] as { part_id: string }).part_id;
+    expect(deltas[1]).toEqual({ type: "thinking_delta", part_id: thinkingId, thinking: "reason" });
+    expect(deltas[2]).toEqual({ type: "thinking_end", part_id: thinkingId });
+    expect(deltas[5]).toEqual({ type: "text_delta", part_id: textId, text: "done" });
+    expect(deltas[6]).toEqual({ type: "text_end", part_id: textId });
     expect(JSON.stringify(deltas)).not.toContain("encrypted-secret");
     expect(wireCalls.map((call) => call.kind)).toEqual([
       "request_start",
@@ -677,7 +715,23 @@ describe("Anthropic-compatible provider", () => {
       },
     });
 
-    expect(runtimeEvents).toEqual(fixture.expected_runtime_events as RuntimeStreamEvent[]);
+    expect(runtimeEvents.map((event) => event.type)).toEqual(
+      fixture.expected_runtime_event_types as RuntimeStreamEvent["type"][],
+    );
+    const thinkingId = String(runtimeEvents[0]?.part_id ?? "");
+    const textId = String(runtimeEvents[4]?.part_id ?? "");
+    expect(thinkingId).not.toBe("");
+    expect(textId).not.toBe("");
+    expect(runtimeEvents.filter((event) => event.type === "thinking_delta"))
+      .toEqual([
+        { type: "thinking_delta", part_id: thinkingId, thinking: "plan" },
+        { type: "thinking_delta", part_id: thinkingId, thinking: " more" },
+      ]);
+    expect(runtimeEvents.filter((event) => event.type === "text_delta"))
+      .toEqual([
+        { type: "text_delta", part_id: textId, text: "Hello" },
+        { type: "text_delta", part_id: textId, text: " world" },
+      ]);
     expect(runtimeEvents.filter((event) => event.type === "redacted_thinking")).toHaveLength(1);
     expect(JSON.stringify(runtimeEvents)).not.toContain("fixture-encrypted-thinking");
     expect(parseErrors).toEqual([]);

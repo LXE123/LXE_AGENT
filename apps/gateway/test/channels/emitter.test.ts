@@ -60,6 +60,7 @@ describe("GatewayEmitter", () => {
       tool_pending: true,
       tool_elapsed_ms: 42,
       tool_steps: [{ id: "1", name: "web", title: "Search", detail: "", icon_token: "search_outlined", status: "running", duration_ms: 0 }],
+      process_parts: [],
       display_metrics: {
         status: "running",
         phase: "running_tool",

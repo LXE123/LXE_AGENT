@@ -303,6 +303,28 @@ describe("LocalConversationController", () => {
           status: "running",
           duration_ms: 0,
         }],
+        process_parts: [{
+          type: "thinking",
+          part_id: "part-1",
+          sequence: 1,
+          status: "completed",
+          text: "thought",
+          redacted_count: 0,
+        }, {
+          type: "tool",
+          part_id: "part-2",
+          sequence: 2,
+          tool_step: {
+            id: "tool-1",
+            name: "read",
+            title: "Read",
+            detail: "/private/var/artifacts/report.json not found",
+            icon_token: "file-link-text_outlined",
+            status: "success",
+            duration_ms: 10,
+            result_block: { language: "text", content: "result" },
+          },
+        }],
         display_metrics: {
           status: "running",
           phase: "running_tool",
@@ -328,6 +350,11 @@ describe("LocalConversationController", () => {
     expect(activity.active?.user_persisted_at).toBeGreaterThan(0);
     expect(activity.active?.stream?.content).toBe("answer");
     expect(activity.active?.stream?.display_metrics.phase).toBe("running_tool");
+    expect(activity.active?.stream?.process_parts.map((part) => part.part_id)).toEqual(["part-1", "part-2"]);
+    expect(activity.active?.stream?.process_parts[1]).toEqual(expect.objectContaining({
+      type: "tool",
+      tool_step: expect.objectContaining({ result_block: { language: "text", content: "result" } }),
+    }));
     // The reader owns this filesystem: a path stays whole, so it reads the same
     // live as in history and an error keeps saying which file it was about.
     expect(activity.active?.stream?.tool_steps[0]?.detail)
@@ -337,6 +364,23 @@ describe("LocalConversationController", () => {
     // A stream emit's own `files` field is not a delivery channel: only an
     // explicit send_file outbound is eligible for artifact persistence.
     expect(activity.active?.stream).not.toHaveProperty("files");
+    h.controller.handleOutbound({
+      action: "stream_message",
+      platform: "desktop",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "secret-route",
+      event_id: "event-duplicate-part",
+      payload: {
+        ...activity.active!.stream!,
+        seq: 2,
+        process_parts: [
+          activity.active!.stream!.process_parts[0],
+          { ...activity.active!.stream!.process_parts[1], part_id: "part-1" },
+        ],
+      } as unknown as JsonObject,
+    });
+    expect(h.controller.activity("session-1").active?.stream?.seq).toBe(1);
     h.controller.handleOutbound({
       action: "stream_message",
       platform: "desktop",

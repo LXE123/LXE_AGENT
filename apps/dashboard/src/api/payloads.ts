@@ -22,6 +22,7 @@ export type {
   DesktopConversationStopPayload,
   DesktopConversationStreamPayload,
   DesktopConversationTurnPayload,
+  TurnProcessPart,
   DesktopInputAttachmentPayload,
   McpServerListPayload,
   McpServerPayload,
@@ -67,6 +68,15 @@ export type ConversationArtifactGroup = {
 export type ConversationProcessItem =
   | { type: "message"; message: SessionMessage; key: string }
   | { type: "tool_group"; group: ConversationToolGroup };
+
+export type ConversationLiveToolGroup = {
+  parts: Array<Extract<import("@lxe/desktop-protocol").TurnProcessPart, { type: "tool" }>>;
+  key: string;
+};
+
+export type ConversationLiveProcessItem =
+  | { type: "message"; message: SessionMessage; key: string }
+  | { type: "tool_group"; group: ConversationLiveToolGroup };
 
 export type ConversationResponseGroup = {
   displayGroupId: string;
