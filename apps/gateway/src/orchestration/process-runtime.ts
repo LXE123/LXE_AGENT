@@ -130,9 +130,13 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   private restartAttempt = 0;
   private restartTimer: ReturnType<typeof setTimeout> | undefined;
   private remoteHealthSnapshot: JsonObject = {};
+  private allowedSkillTypes: string[];
 
   constructor(private readonly options: ProcessAgentRuntimeOptions) {
     this.logger = options.logger ?? createLogger("gateway.agent_process");
+    this.allowedSkillTypes = [...new Set(
+      (options.allowedSkillTypes ?? []).map((item) => item.trim()).filter(Boolean),
+    )];
   }
 
   get isReady(): boolean {
@@ -206,9 +210,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
         permission_policy_path: this.options.permissionPolicyPath,
         data_root: this.options.dataRoot,
         legacy_workspace: this.options.legacyWorkspace,
-        ...(this.options.allowedSkillTypes
-          ? { allowed_skill_types: [...this.options.allowedSkillTypes] }
-          : {}),
+        allowed_skill_types: [...this.allowedSkillTypes],
       }, this.options.requestTimeoutMs ?? 30_000));
       this.setStatus("ready", "agent-cli is ready");
       this.restartAttempt = 0;
@@ -277,6 +279,26 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
 
   async ensureSession(request: SessionWorkspaceRequest): Promise<void> {
     await this.request("ensure_session", { request });
+  }
+
+  async updateSkillPermissions(allowedSkillTypes: readonly string[]): Promise<void> {
+    const normalized = [...new Set(
+      allowedSkillTypes.map((item) => item.trim()).filter(Boolean),
+    )];
+    if (normalized.length === this.allowedSkillTypes.length
+      && normalized.every((item) => this.allowedSkillTypes.includes(item))) return;
+    this.allowedSkillTypes = normalized;
+    if (!this.isReady) return;
+    const result = objectValue(await this.request(
+      "update_skill_permissions",
+      { allowed_skill_types: [...normalized] },
+    ));
+    if (result.updated !== true) {
+      throw new AgentProcessError(
+        "agent-cli rejected the Skill permission update",
+        "AgentProtocolError",
+      );
+    }
   }
 
   async appendPendingEvent(sessionId: string, event: JsonObject): Promise<void> {

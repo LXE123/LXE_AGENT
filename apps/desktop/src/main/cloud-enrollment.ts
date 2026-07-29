@@ -2,13 +2,20 @@ import { createDecipheriv, randomUUID, scryptSync } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import type { DesktopCloudEnrollmentSelection } from "@lxe/desktop-protocol";
+import type { DesktopPermissionProfile } from "@lxe/desktop-protocol";
 
 const ENROLLMENT_AAD = Buffer.from("lxe-agent-enrollment:v1", "ascii");
 const MAX_ENROLLMENT_BYTES = 128 * 1024;
 const SELECTION_TTL_MS = 10 * 60_000;
 
 export interface CloudEnrollmentPayload {
-  device: { id: string; name: string };
+  enrollment_version: 1 | 2;
+  device: {
+    id: string;
+    name: string;
+    permission_profile?: DesktopPermissionProfile;
+    permission_version?: number;
+  };
   wireguard: {
     private_key: string;
     address: string;
@@ -71,9 +78,11 @@ const wireGuardKey = (value: unknown, label: string): string => {
 
 const validatePayload = (value: unknown): CloudEnrollmentPayload => {
   const payload = objectValue(value, "Enrollment payload");
-  if (payload.format !== "lxe-agent-enrollment-payload" || payload.version !== 1) {
+  if (payload.format !== "lxe-agent-enrollment-payload"
+    || (payload.version !== 1 && payload.version !== 2)) {
     throw new Error("不支持的设备文件版本");
   }
+  const enrollmentVersion = payload.version;
   const device = objectValue(payload.device, "Device");
   const wireguard = objectValue(payload.wireguard, "WireGuard");
   const dataServer = objectValue(payload.data_server, "Data server");
@@ -81,6 +90,31 @@ const validatePayload = (value: unknown): CloudEnrollmentPayload => {
   const deviceId = exactText(device.id, "Device ID", 64);
   if (!/^[a-f0-9]{32}$/u.test(deviceId)) throw new Error("Device ID is invalid");
   const deviceName = exactText(device.name, "Device name", 128);
+  let enrollmentPermission: {
+    permission_profile: DesktopPermissionProfile;
+    permission_version: number;
+  } | undefined;
+  if (enrollmentVersion === 2) {
+    const permissionProfile = exactText(
+      device.permission_profile,
+      "Device permission profile",
+      32,
+    );
+    if (permissionProfile !== "fba"
+      && permissionProfile !== "replenishment"
+      && permissionProfile !== "full_access") {
+      throw new Error("Device permission profile is invalid");
+    }
+    if (typeof device.permission_version !== "number"
+      || !Number.isSafeInteger(device.permission_version)
+      || device.permission_version < 1) {
+      throw new Error("Device permission version is invalid");
+    }
+    enrollmentPermission = {
+      permission_profile: permissionProfile,
+      permission_version: device.permission_version,
+    };
+  }
   const address = exactText(wireguard.address, "WireGuard address", 32);
   if (!/^10\.88\.0\.(?:[2-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])\/32$/u.test(address)) {
     throw new Error("WireGuard address is invalid");
@@ -102,7 +136,12 @@ const validatePayload = (value: unknown): CloudEnrollmentPayload => {
   if (dataServer.sync_interval_seconds !== 3_600) throw new Error("Data sync interval is invalid");
   const erpApiToken = erp === undefined ? "" : exactText(erp.api_token, "ERP API token", 512);
   return {
-    device: { id: deviceId, name: deviceName },
+    enrollment_version: enrollmentVersion,
+    device: {
+      id: deviceId,
+      name: deviceName,
+      ...enrollmentPermission,
+    },
     wireguard: {
       private_key: wireGuardKey(wireguard.private_key, "WireGuard private key"),
       address,

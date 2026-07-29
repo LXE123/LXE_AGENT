@@ -44,7 +44,7 @@ forbidText("apps/agent-cli/src/dashboard-service.ts", /\bRequest\b|\bResponse\b|
 forbidText("apps/agent-cli/src/runtime-host.ts", /dashboard_request|new Request|new URL|response\.status/, "Agent host must forward typed Dashboard RPC calls directly");
 forbidText("apps/desktop/src/main/ipc-validation.ts", /\/api\/|GET_PATHS|PATCH_PATHS/, "Desktop IPC must validate Dashboard operations instead of paths");
 forbidText("packages/foundation/desktop-protocol/src/index.ts", /dashboard_request|DashboardRequestPayload/, "agent protocol must not expose the retired pseudo-REST command");
-requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*14\s+as const/, "agent protocol must use the session-mutation v14 contract");
+requireText("packages/foundation/desktop-protocol/src/index.ts", /AGENT_PROTOCOL_VERSION\s*=\s*14\s+as const/, "agent protocol must use the session-mutation and device-permission v14 contract");
 forbidText("packages/foundation/desktop-protocol/src/index.ts", /runtime_env_path/, "agent protocol must not expose a dotenv path");
 requireText("packages/foundation/desktop-protocol/src/index.ts", /type:\s*"session\.changed"/, "agent protocol must expose persisted session changes");
 forbidText("apps/desktop/src/main/dashboard-invalidation.ts", /item\.completed/, "outbound item events must not invalidate Dashboard session data");
@@ -82,6 +82,10 @@ requireText("apps/desktop/src/main/desktop-gateway.ts", /sourceEnvironment:\s*\{
 requireText("apps/desktop/src/main/desktop-gateway.ts", /managedEnvironment:\s*configuredEnvironment/, "packaged Desktop must use the managed Data Server environment");
 requireText("apps/desktop/src/main/desktop-gateway.ts", /withoutDataServerEnvironment\(configuredEnvironment\)/, "Gateway must remove inherited Data Server values before applying its mode policy");
 requireText("apps/desktop/src/main/desktop-gateway.ts", /machineIdentityPath:\s*join\(this\.options\.paths\.dataRoot, "db", "machine_identity\.json"\)/, "Data Server machine identity must remain under the canonical var root");
+requireText("apps/desktop/src/main/desktop-gateway.ts", /allowedSkillTypes:\s*\(\)\s*=>\s*readonly string\[\]/, "Desktop Runtime Skill visibility must come from the device permission snapshot");
+forbidText("apps/desktop/src/main/desktop-gateway.ts", /botSkillPolicy/, "new Desktop runtimes must not derive Skill visibility from the Feishu admission policy");
+requirePath("apps/gateway/src/channels/feishu/adapter.ts", "Feishu remote ingress must remain available");
+requirePath("config/permission_policy.yaml", "Feishu app_id and union_id admission policy must remain available");
 requireText("scripts/install.sh", /REF="lxe-agent-TUI"/, "legacy shell installer must forward to the TUI product line");
 requireText("scripts/install.ps1", /\$Ref\s*=\s*"lxe-agent-TUI"/, "legacy PowerShell installer must forward to the TUI product line");
 forbidText("apps/agent-cli/src/dashboard-service.ts", /\.env\.local|persistEnvironment/, "Agent Dashboard must not persist dotenv files");
@@ -164,7 +168,9 @@ forbidPath("apps/gateway/src/channels/feishu/image.ts", "Gateway must receive an
 forbidPath("packages/agent/runtime/src/operations/machine-identity.ts", "machine identity belongs to Core");
 requirePath("apps/agent-cli/src/runtime-host.ts", "agent-cli must own its Runtime composition root");
 requirePath("apps/agent-cli/src/dashboard-service.ts", "agent-cli must own Agent Dashboard queries");
-requirePath("apps/agent-cli/src/feishu-tools.ts", "agent-cli must own Agent-native Feishu tools");
+forbidPath("apps/agent-cli/src/feishu-tools.ts", "built-in Feishu message tools must remain retired in favor of lark-cli");
+forbidPath("skills/feishu-im-read/SKILL.md", "the retired feishu-im-read Skill must not re-enter the build");
+requirePath("skills/larksuite-cli/lark-im/SKILL.md", "lark-cli IM operations must remain available");
 requirePath("packages/foundation/core/src/machine-identity.ts", "Core must own the shared machine identity implementation");
 forbidPath("packages/foundation/protocol/schemas/worker-envelope.schema.json", "the worker envelope contract must be deleted");
 forbidPath("packages/agent/runtime/src/tooling/script-tools.ts", "the retired script-tool runner must be deleted");

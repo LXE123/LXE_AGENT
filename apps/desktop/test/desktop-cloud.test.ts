@@ -62,6 +62,7 @@ class FakeClock implements DesktopCloudClock {
 }
 
 const enrollmentPayload: CloudEnrollmentPayload & { format: string; version: number } = {
+  enrollment_version: 1,
   format: "lxe-agent-enrollment-payload",
   version: 1,
   device: { id: "0123456789abcdef0123456789abcdef", name: "Finance-PC-01" },
@@ -80,6 +81,19 @@ const enrollmentPayload: CloudEnrollmentPayload & { format: string; version: num
   },
   erp: { api_token: "erp-dedicated-secret" },
 };
+
+const devicePermission = (
+  permissionProfile: "fba" | "replenishment" | "full_access" | null = "fba",
+  permissionVersion = permissionProfile === null ? 0 : 1,
+) => ({
+  permission_profile: permissionProfile,
+  permission_version: permissionVersion,
+  allowed_skill_types: permissionProfile === "fba"
+    ? ["amazon_fba", "ziniao_browser", "default"]
+    : permissionProfile === "replenishment"
+      ? ["amazon_replenish", "default"]
+      : permissionProfile === "full_access" ? ["*"] : [],
+});
 
 const encryptedEnrollment = (password: string): Buffer => {
   const salt = randomBytes(16);
@@ -202,7 +216,7 @@ describe("DesktopCloudService", () => {
     expect(await service.check()).toMatchObject({
       connection: "error",
       is_admin: false,
-      last_error: "公司云端返回了无效响应",
+      last_error: "公司云端权限响应无效：invalid admin status response",
     });
     expect(requests).toEqual([{
       url: `${enrollmentPayload.data_server.url}/api/v1/agent-data/admin/status`,
@@ -293,6 +307,7 @@ describe("DesktopCloudService", () => {
           display_name: enrollmentPayload.device.name,
           wireguard_ip: "10.88.0.8",
           machine_id: "",
+          permission: devicePermission(),
         });
       }
       const request = JSON.parse(String(init?.body)) as { machine_id: string };
@@ -303,6 +318,7 @@ describe("DesktopCloudService", () => {
         display_name: enrollmentPayload.device.name,
         wireguard_ip: "10.88.0.8",
         machine_id: request.machine_id,
+        permission: devicePermission(),
       });
     };
     const service = new DesktopCloudService({
@@ -325,7 +341,14 @@ describe("DesktopCloudService", () => {
     expect(config.environment().LXE_DATA_SERVER_API_KEY).toBe(enrollmentPayload.data_server.api_token);
     expect(config.environment().LXE_ERP_API_KEY).toBe(enrollmentPayload.erp?.api_token);
     online = true;
-    expect(await service.retry()).toMatchObject({ configured: true, connection: "connected" });
+    expect(await service.retry()).toMatchObject({
+      configured: true,
+      connection: "connected",
+      permission_status: "verified",
+      permission_profile: "fba",
+      permission_version: 1,
+    });
+    expect(service.allowedSkillTypes()).toEqual(["amazon_fba", "ziniao_browser", "default"]);
     expect(provisioned).toBe(1);
     expect(events.map(({ message }) => message)).toEqual([
       "cloud_enrollment_activation_started",
@@ -452,6 +475,7 @@ describe("DesktopCloudService", () => {
           display_name: enrollmentPayload.device.name,
           wireguard_ip: "10.88.0.8",
           machine_id: machineId,
+          permission: devicePermission(),
         });
       },
     });
@@ -460,6 +484,8 @@ describe("DesktopCloudService", () => {
       connection: "connected",
       is_admin: false,
       last_checked_at: 1,
+      permission_status: "verified",
+      permission_profile: "fba",
     });
     expect(requests).toEqual([{
       url: "http://10.88.0.1:8000/api/v1/agent-data/devices/status",
@@ -537,7 +563,7 @@ describe("DesktopCloudService", () => {
     });
     expect(await mapped.check()).toMatchObject({
       connection: "error",
-      last_error: "公司云端返回了无效响应",
+      last_error: "公司云端权限响应无效：invalid device status response",
     });
 
     const timeoutClock = new FakeClock();
@@ -557,5 +583,164 @@ describe("DesktopCloudService", () => {
     const pending = timedOut.check();
     timeoutClock.fireTimeouts();
     expect(await pending).toMatchObject({ connection: "offline" });
+  });
+
+  test("uses the encrypted permission snapshot indefinitely while offline", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-cached-permission-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    config.saveCloudEnrollment({
+      deviceId: enrollmentPayload.device.id,
+      deviceName: enrollmentPayload.device.name,
+      vpnIp: "10.88.0.8",
+      dataServerUrl: enrollmentPayload.data_server.url,
+      tunnelName: "lxe-agent",
+      apiKey: enrollmentPayload.data_server.api_token,
+    });
+    config.saveCloudPermissionSnapshot({
+      device_id: enrollmentPayload.device.id,
+      permission_profile: "fba",
+      permission_version: 7,
+      allowed_skill_types: ["amazon_fba", "ziniao_browser", "default"],
+      verified_at: 1,
+    });
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => undefined },
+      onConfigured: async () => undefined,
+      fetch: async () => { throw new Error("offline"); },
+    });
+
+    expect(service.state()).toMatchObject({
+      permission_status: "cached",
+      permission_profile: "fba",
+      permission_version: 7,
+    });
+    expect(await service.check()).toMatchObject({
+      connection: "offline",
+      permission_status: "cached",
+      permission_version: 7,
+    });
+    expect(service.allowedSkillTypes()).toEqual(["amazon_fba", "ziniao_browser", "default"]);
+  });
+
+  test("applies a newer permission version and retains it on malformed or regressed responses", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-permission-refresh-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    config.saveCloudEnrollment({
+      deviceId: enrollmentPayload.device.id,
+      deviceName: enrollmentPayload.device.name,
+      vpnIp: "10.88.0.8",
+      dataServerUrl: enrollmentPayload.data_server.url,
+      tunnelName: "lxe-agent",
+      apiKey: enrollmentPayload.data_server.api_token,
+    });
+    config.saveCloudPermissionSnapshot({
+      device_id: enrollmentPayload.device.id,
+      permission_profile: "fba",
+      permission_version: 2,
+      allowed_skill_types: ["amazon_fba", "ziniao_browser", "default"],
+      verified_at: 1,
+    });
+    const machineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
+    const permissions = [
+      devicePermission("replenishment", 3),
+      devicePermission("fba", 2),
+      { ...devicePermission("fba", 3), allowed_skill_types: ["*"] },
+    ];
+    const updates: string[][] = [];
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => undefined },
+      onConfigured: async () => undefined,
+      onPermissionChanged: (allowed) => { updates.push([...allowed]); },
+      fetch: async () => Response.json({
+        status: "ok",
+        activation_required: false,
+        device_id: enrollmentPayload.device.id,
+        display_name: enrollmentPayload.device.name,
+        wireguard_ip: "10.88.0.8",
+        machine_id: machineId,
+        permission: permissions.shift(),
+      }),
+    });
+
+    expect(await service.check()).toMatchObject({
+      connection: "connected",
+      permission_status: "verified",
+      permission_profile: "replenishment",
+      permission_version: 3,
+    });
+    expect(updates).toEqual([["amazon_replenish", "default"]]);
+
+    expect(await service.check()).toMatchObject({
+      connection: "error",
+      permission_status: "cached",
+      permission_profile: "replenishment",
+      permission_version: 3,
+      last_error: expect.stringContaining("regressed"),
+    });
+    expect(await service.check()).toMatchObject({
+      connection: "error",
+      permission_status: "cached",
+      permission_profile: "replenishment",
+      permission_version: 3,
+      last_error: expect.stringContaining("does not match"),
+    });
+    expect(updates).toHaveLength(1);
+    expect(config.cloudPermissionSnapshot()).toMatchObject({
+      permission_profile: "replenishment",
+      permission_version: 3,
+    });
+  });
+
+  test("keeps an unassigned device connected but exposes no repository Skill", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-cloud-unassigned-permission-"));
+    roots.push(root);
+    const config = new DesktopConfigStore(root, join(root, "workspace"), safeStorage, { platform: "win32" });
+    config.saveCloudEnrollment({
+      deviceId: enrollmentPayload.device.id,
+      deviceName: enrollmentPayload.device.name,
+      vpnIp: "10.88.0.8",
+      dataServerUrl: enrollmentPayload.data_server.url,
+      tunnelName: "lxe-agent",
+      apiKey: enrollmentPayload.data_server.api_token,
+    });
+    const machineId = resolveMachineIdentity(join(root, "db", "machine_identity.json")).machine_id;
+    const service = new DesktopCloudService({
+      dataRoot: root,
+      supported: true,
+      config,
+      enrollments: new DesktopCloudEnrollmentManager(),
+      logger: testLogger([]),
+      provisioner: { provision: async () => undefined },
+      onConfigured: async () => undefined,
+      fetch: async () => Response.json({
+        status: "ok",
+        activation_required: false,
+        device_id: enrollmentPayload.device.id,
+        display_name: enrollmentPayload.device.name,
+        wireguard_ip: "10.88.0.8",
+        machine_id: machineId,
+        permission: devicePermission(null),
+      }),
+    });
+
+    expect(await service.check()).toMatchObject({
+      connection: "connected",
+      permission_status: "unassigned",
+      permission_profile: null,
+      permission_version: 0,
+    });
+    expect(service.allowedSkillTypes()).toEqual([]);
   });
 });

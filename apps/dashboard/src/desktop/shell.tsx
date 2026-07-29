@@ -284,6 +284,26 @@ function DesktopCloudPanel({
           <div><strong>{cloud.device_name}</strong><span>{cloud.vpn_ip}</span></div>
         </div>
       ) : null}
+      {cloud.configured ? (
+        <div className={`desktop-cloud-permission ${cloud.permission_status}`}>
+          <div>
+            <strong>{t.desktop.cloud.permission.title}</strong>
+            <span>{t.desktop.cloud.permission.status[cloud.permission_status]}</span>
+          </div>
+          <dl>
+            <div>
+              <dt>{t.desktop.cloud.permission.profile}</dt>
+              <dd>{cloud.permission_profile
+                ? t.desktop.cloud.permission.profiles[cloud.permission_profile]
+                : t.desktop.cloud.permission.unassigned}</dd>
+            </div>
+            <div>
+              <dt>{t.desktop.cloud.permission.version}</dt>
+              <dd>{cloud.permission_version > 0 ? `v${cloud.permission_version}` : "—"}</dd>
+            </div>
+          </dl>
+        </div>
+      ) : null}
       {!supported ? (
         <p className="desktop-form-hint">{t.desktop.cloud.unsupportedHint}</p>
       ) : !cloud.configured ? (

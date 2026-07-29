@@ -230,6 +230,40 @@ describe("AgentProtocolServer", () => {
     await server.shutdown();
   });
 
+  test("forwards hot Skill permission updates to the initialized runtime", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    const updates: string[][] = [];
+    const createHost = (() => ({
+      start: async () => undefined,
+      stop: async () => undefined,
+      health: () => ({ ready: true }),
+      updateSkillPermissions: (allowed: readonly string[]) => { updates.push([...allowed]); },
+    })) as unknown as CreateHost;
+    const root = process.cwd();
+    const server = new AgentProtocolServer({
+      write: (message) => { output.push(message); },
+      createHost,
+      environment: { LOCAL_LOGS_ENABLED: "0" },
+    });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "initialize-permission",
+      command: "initialize",
+      payload: initializePayload(root),
+    }));
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "permission-update",
+      command: "update_skill_permissions",
+      payload: { allowed_skill_types: ["amazon_replenish", "default"] },
+    }));
+
+    expect(updates).toEqual([["amazon_replenish", "default"]]);
+    expect(output.find((message) => !("type" in message) && message.id === "permission-update"))
+      .toMatchObject({ ok: true, result: { updated: true } });
+    await server.shutdown();
+  });
+
   test("rejects commands before initialize", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     const server = new AgentProtocolServer({ write: (message) => { output.push(message); } });

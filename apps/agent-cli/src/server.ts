@@ -95,6 +95,9 @@ export class AgentProtocolServer {
     switch (request.command) {
       case "initialize":
         return this.initialize(request.payload);
+      case "update_skill_permissions":
+        this.readyHost().updateSkillPermissions(request.payload.allowed_skill_types);
+        return { updated: true };
       case "run_turn":
         return this.runTurn(request.payload.job);
       case "cancel_turn": {

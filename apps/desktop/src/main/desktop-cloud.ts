@@ -6,12 +6,17 @@ import { resolveMachineIdentity } from "@lxe/core/machine-identity";
 import type {
   DesktopCloudActivationInput,
   DesktopCloudEnrollmentSelection,
+  DesktopCloudPermissionSnapshot,
   DesktopCloudState,
 } from "@lxe/desktop-protocol";
 import { DesktopCloudEnrollmentManager } from "./cloud-enrollment";
 import type { DesktopConfigStore } from "./config-store";
 import type { PreviewDataServerTarget } from "./data-server-policy";
 import type { WireGuardProvisionerPort } from "./wireguard-provisioner";
+import {
+  parseServerDevicePermission,
+  permissionSnapshotsEqual,
+} from "./cloud-permissions";
 
 export interface DesktopCloudClock {
   setTimeout(callback: () => void, delayMs: number): unknown;
@@ -48,6 +53,7 @@ interface DesktopCloudServiceOptions {
   probeIntervalMs?: number;
   requestTimeoutMs?: number;
   onConfigured(): Promise<void>;
+  onPermissionChanged?(allowedSkillTypes: readonly string[]): Promise<void> | void;
   onStateChanged?(state: DesktopCloudState): void;
   fetch?: typeof globalThis.fetch;
 }
@@ -86,6 +92,8 @@ export class DesktopCloudService {
   private isAdmin = false;
   private lastError = "";
   private lastCheckedAt = 0;
+  private permissionSnapshot: DesktopCloudPermissionSnapshot | null;
+  private permissionFresh = false;
   private readonly fetch: typeof globalThis.fetch;
   private readonly now: () => number;
   private readonly clock: DesktopCloudClock;
@@ -102,6 +110,9 @@ export class DesktopCloudService {
     this.clock = options.clock ?? systemClock;
     const configured = Boolean(options.previewTarget) || options.config.cloudConfiguration().managed;
     this.connection = configured ? "connecting" : options.supported ? "not_configured" : "unsupported";
+    this.permissionSnapshot = options.previewTarget
+      ? null
+      : options.config.cloudPermissionSnapshot();
   }
 
   select(path: string): DesktopCloudEnrollmentSelection {
@@ -110,6 +121,7 @@ export class DesktopCloudService {
   }
 
   state(): DesktopCloudState {
+    const permission = this.permissionState();
     if (this.options.previewTarget) {
       return {
         configured: true,
@@ -120,6 +132,7 @@ export class DesktopCloudService {
         connection: this.connection,
         last_error: this.lastError,
         last_checked_at: this.lastCheckedAt,
+        ...permission,
       };
     }
     const cloud = this.options.config.cloudConfiguration();
@@ -132,7 +145,12 @@ export class DesktopCloudService {
       connection: this.connection,
       last_error: this.lastError,
       last_checked_at: this.lastCheckedAt,
+      ...permission,
     };
+  }
+
+  allowedSkillTypes(): readonly string[] {
+    return [...(this.permissionSnapshot?.allowed_skill_types ?? [])];
   }
 
   start(): Promise<DesktopCloudState> {
@@ -226,6 +244,9 @@ export class DesktopCloudService {
         apiKey: payload.data_server.api_token,
         ...(payload.erp ? { erpApiKey: payload.erp.api_token } : {}),
       });
+      this.permissionSnapshot = null;
+      this.permissionFresh = false;
+      await this.options.onPermissionChanged?.([]);
       configured = true;
       this.options.enrollments.complete(input.enrollment_id);
       this.setConnection("connecting", "");
@@ -295,6 +316,7 @@ export class DesktopCloudService {
         http_status: response.status,
         connection: "connected",
       });
+      await this.acceptPreviewPermission();
       return this.setConnection("connected", "", true, true);
     }
     if (!payload || payload.status !== "ok" || typeof payload.activation_required !== "boolean") {
@@ -321,6 +343,15 @@ export class DesktopCloudService {
     const machineIdentity = resolveMachineIdentity(join(this.options.dataRoot, "db", "machine_identity.json"));
     if (String(payload.machine_id ?? "") !== machineIdentity.machine_id) {
       return this.invalidCloudResponse(logger, startedAt, "machine identity mismatch");
+    }
+    try {
+      await this.acceptPermission(payload.permission, target.deviceId);
+    } catch (error) {
+      return this.invalidCloudResponse(
+        logger,
+        startedAt,
+        error instanceof Error ? error.message : String(error),
+      );
     }
     logger.info("cloud_status_check_completed", {
       duration_ms: Math.max(0, this.now() - startedAt),
@@ -372,6 +403,15 @@ export class DesktopCloudService {
       || !this.targetIdentityMatches(responseIdentity, expectedIdentity)
       || String(payload.machine_id ?? "") !== identity.machine_id) {
       return this.invalidCloudResponse(logger, startedAt, "activation identity mismatch");
+    }
+    try {
+      await this.acceptPermission(payload.permission, target.deviceId);
+    } catch (error) {
+      return this.invalidCloudResponse(
+        logger,
+        startedAt,
+        error instanceof Error ? error.message : String(error),
+      );
     }
     logger.info("cloud_device_activation_completed", {
       duration_ms: Math.max(0, this.now() - startedAt),
@@ -467,9 +507,77 @@ export class DesktopCloudService {
       "error",
       observedError.includes("identity")
         ? "云端返回的设备身份不一致"
-        : "公司云端返回了无效响应",
+        : `公司云端权限响应无效：${observedError}`.slice(0, 300),
       true,
     );
+  }
+
+  private async acceptPermission(value: unknown, deviceId: string): Promise<void> {
+    const next = parseServerDevicePermission(
+      value,
+      deviceId,
+      Math.floor(this.now() / 1_000),
+    );
+    const previous = this.permissionSnapshot;
+    if (previous?.device_id === deviceId) {
+      if (next.permission_version < previous.permission_version) {
+        throw new Error(
+          `device permission version regressed from ${previous.permission_version} `
+          + `to ${next.permission_version}`,
+        );
+      }
+      if (next.permission_version === previous.permission_version
+        && !permissionSnapshotsEqual(previous, next)) {
+        throw new Error("device permission content changed without a version increase");
+      }
+      if (next.permission_version === previous.permission_version) {
+        this.permissionFresh = true;
+        return;
+      }
+    }
+    this.options.config.saveCloudPermissionSnapshot(next);
+    this.permissionSnapshot = next;
+    this.permissionFresh = true;
+    if (!previous
+      || previous.allowed_skill_types.length !== next.allowed_skill_types.length
+      || previous.allowed_skill_types.some((item) => !next.allowed_skill_types.includes(item))) {
+      await this.options.onPermissionChanged?.([...next.allowed_skill_types]);
+    }
+  }
+
+  private async acceptPreviewPermission(): Promise<void> {
+    const previous = this.permissionSnapshot;
+    this.permissionSnapshot = {
+      device_id: "preview-admin",
+      permission_profile: "full_access",
+      permission_version: 0,
+      allowed_skill_types: ["*"],
+      verified_at: Math.floor(this.now() / 1_000),
+    };
+    this.permissionFresh = true;
+    if (!previous?.allowed_skill_types.includes("*")) {
+      await this.options.onPermissionChanged?.(["*"]);
+    }
+  }
+
+  private permissionState(): Pick<
+    DesktopCloudState,
+    | "permission_status"
+    | "permission_profile"
+    | "permission_version"
+    | "permission_verified_at"
+  > {
+    const snapshot = this.permissionSnapshot;
+    return {
+      permission_status: !snapshot
+        ? "pending_verification"
+        : this.permissionFresh
+          ? snapshot.permission_profile === null ? "unassigned" : "verified"
+          : "cached",
+      permission_profile: snapshot?.permission_profile ?? null,
+      permission_version: snapshot?.permission_version ?? 0,
+      permission_verified_at: snapshot?.verified_at ?? 0,
+    };
   }
 
   private async request(url: string, init: RequestInit): Promise<Response> {
@@ -493,6 +601,7 @@ export class DesktopCloudService {
     checked = false,
     isAdmin = false,
   ): DesktopCloudState {
+    if (connection !== "connected") this.permissionFresh = false;
     this.connection = connection;
     this.isAdmin = isAdmin;
     this.lastError = lastError;

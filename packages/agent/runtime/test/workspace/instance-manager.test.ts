@@ -32,6 +32,7 @@ const setup = (options: {
   watchPath?: WorkspaceInstanceManagerOptions["watchPath"];
   idleTtlMs?: number;
   connectorPolicy?: { disabled: Set<string> };
+  allowedTypes?: Set<string>;
 } = {}) => {
   const root = mkdtempSync(join(tmpdir(), "lxe-workspace-instance-"));
   roots.push(root);
@@ -51,7 +52,7 @@ const setup = (options: {
   const manager = new WorkspaceInstanceManager({
     soulPath: join(resourceRoot, "SOUL.md"),
     skillCatalog: catalog,
-    skillOptions: () => ({ allowedTypes: new Set(["default"]) }),
+    skillOptions: () => ({ allowedTypes: options.allowedTypes ?? new Set(["default"]) }),
     checkIntervalMs: 0,
     debounceMs: options.debounceMs ?? 60_000,
     sweepIntervalMs: 0,
@@ -132,6 +133,30 @@ describe("WorkspaceInstanceManager", () => {
     expect(newLease.snapshot.generation).toBeGreaterThan(oldLease.snapshot.generation);
     oldLease.release();
     newLease.release();
+  });
+
+  test("keeps the active turn frozen and applies permission invalidation to the next turn", async () => {
+    const allowedTypes = new Set(["default"]);
+    const { manager, resourceRoot, workspace } = setup({ allowedTypes });
+    mkdirSync(join(resourceRoot, "skills", "fba"));
+    writeFileSync(
+      join(resourceRoot, "skills", "fba", "SKILL.md"),
+      "---\nname: fba\ntype: amazon_fba\ndescription: FBA workflow\n---\n# FBA\n",
+      "utf8",
+    );
+    const currentTurn = await manager.acquire(workspace());
+    expect(currentTurn.snapshot.skills.names).toEqual(["demo"]);
+
+    allowedTypes.clear();
+    allowedTypes.add("amazon_fba");
+    manager.invalidate("device_permission_update");
+    const nextTurn = await manager.acquire(workspace());
+
+    expect(currentTurn.snapshot.skills.names).toEqual(["demo"]);
+    expect(nextTurn.snapshot.skills.names).toEqual(["fba"]);
+    expect(nextTurn.snapshot.generation).toBeGreaterThan(currentTurn.snapshot.generation);
+    currentTurn.release();
+    nextTurn.release();
   });
 
   test("detects a missed watcher event with the acquire-time fingerprint fallback", async () => {

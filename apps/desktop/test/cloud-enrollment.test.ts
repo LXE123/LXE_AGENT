@@ -15,6 +15,7 @@ afterEach(() => {
 });
 
 const payload: CloudEnrollmentPayload & { format: string; version: number } = {
+  enrollment_version: 1,
   format: "lxe-agent-enrollment-payload",
   version: 1,
   device: { id: "0123456789abcdef0123456789abcdef", name: "Finance-PC-01" },
@@ -59,6 +60,7 @@ describe("cloud enrollment", () => {
   test("decrypts and validates the versioned scrypt and AES-GCM bundle", () => {
     const result = decryptCloudEnrollment(encrypt("ABCD-EFGH-JKLM-NPQR-2345"), "abcd efgh jklm npqr 2345");
     expect(result).toEqual({
+      enrollment_version: 1,
       device: payload.device,
       wireguard: payload.wireguard,
       data_server: payload.data_server,
@@ -75,6 +77,24 @@ describe("cloud enrollment", () => {
     );
     expect(result.erp).toBeUndefined();
     expect(result.data_server).toEqual(payload.data_server);
+  });
+
+  test("accepts enrollment v2 metadata without treating it as runtime authorization", () => {
+    const versionTwo = structuredClone(payload);
+    versionTwo.version = 2;
+    versionTwo.enrollment_version = 2;
+    versionTwo.device.permission_profile = "fba";
+    versionTwo.device.permission_version = 1;
+
+    const result = decryptCloudEnrollment(
+      encrypt("ABCD-EFGH-JKLM-NPQR-2345", versionTwo),
+      "ABCD-EFGH-JKLM-NPQR-2345",
+    );
+
+    expect(result).toMatchObject({
+      enrollment_version: 2,
+      device: { permission_profile: "fba", permission_version: 1 },
+    });
   });
 
   test("rejects a wrong password, tampering, and routes wider than the server address", () => {

@@ -156,6 +156,22 @@ describe("desktop agent protocol", () => {
     }))).toThrow("payload must be an object");
   });
 
+  test("strictly validates hot Skill permission updates", () => {
+    const request = {
+      version: AGENT_PROTOCOL_VERSION,
+      id: "permission-1",
+      command: "update_skill_permissions",
+      payload: { allowed_skill_types: ["amazon_fba", "default"] as string[] },
+    } as const;
+    expect(parseAgentWireMessage(JSON.stringify(request))).toEqual(request);
+    for (const allowedSkillTypes of ["*", ["default", 1], null]) {
+      expect(() => parseAgentWireMessage(JSON.stringify({
+        ...request,
+        payload: { allowed_skill_types: allowedSkillTypes },
+      }))).toThrow("must be a string array");
+    }
+  });
+
   test("accepts only directory and worktree in workspace payloads", () => {
     const request = {
       version: AGENT_PROTOCOL_VERSION,

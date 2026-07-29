@@ -4,7 +4,9 @@ import type {
   DesktopPlatform,
   DesktopSetupInput,
   DesktopZiniaoVersion,
+  DesktopCloudPermissionSnapshot,
 } from "@lxe/desktop-protocol";
+import { parseStoredDevicePermission } from "../cloud-permissions";
 
 export const OUTPUT_DIRECTORY_ENV_NAMES = [
   "MABANG_STOCK_SKU_EXPORT_DIR",
@@ -69,6 +71,7 @@ export interface DesktopSecrets {
   data_server_fallback_api_key: string;
   erp_api_key: string;
   saihu_mcp_api_key: string;
+  cloud_permission_snapshot: DesktopCloudPermissionSnapshot | null;
 }
 
 export const LOG_RETENTION_DAYS = new Set<DesktopLogRetentionDays>([3, 7, 14, 30]);
@@ -123,6 +126,7 @@ const DEFAULT_SECRETS: DesktopSecrets = {
   data_server_fallback_api_key: "",
   erp_api_key: "",
   saihu_mcp_api_key: "",
+  cloud_permission_snapshot: null,
 };
 
 export const objectValue = (value: unknown): Record<string, unknown> =>
@@ -354,5 +358,8 @@ export const parseSecrets = (raw: unknown): DesktopSecrets => {
     data_server_fallback_api_key: text(value.data_server_fallback_api_key),
     erp_api_key: text(value.erp_api_key),
     saihu_mcp_api_key: text(value.saihu_mcp_api_key),
+    cloud_permission_snapshot: parseStoredDevicePermission(
+      value.cloud_permission_snapshot,
+    ),
   };
 };

@@ -256,6 +256,7 @@ async function bootstrap(): Promise<void> {
     }
   };
   let gateway: DesktopGateway;
+  let cloud: DesktopCloudService | undefined;
   const logging = new DesktopLoggingManager({
     dataRoot: paths.dataRoot,
     environment: () => ({
@@ -279,6 +280,9 @@ async function bootstrap(): Promise<void> {
     packaged: packagedRuntime,
     desktopLoggingStatus: () => logging.status(),
     attachments: conversationAttachments,
+    allowedSkillTypes: () => cloud?.allowedSkillTypes()
+      ?? config.cloudPermissionSnapshot()?.allowed_skill_types
+      ?? [],
     onHealthChanged: broadcastHealth,
     onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
     onConversationActivity: broadcastConversationActivity,
@@ -286,7 +290,7 @@ async function bootstrap(): Promise<void> {
   });
   activeGateway = gateway;
   const cloudLogger = logger.child({ subsystem: "cloud_enrollment" });
-  const cloud = new DesktopCloudService({
+  cloud = new DesktopCloudService({
     dataRoot: paths.dataRoot,
     supported: packagedRuntime && desktopPlatform === "win32" && process.arch === "x64",
     ...(previewCloudTarget ? { previewTarget: previewCloudTarget } : {}),
@@ -306,6 +310,8 @@ async function bootstrap(): Promise<void> {
       invalidations.push(ALL_DASHBOARD_DATA_DOMAINS);
       broadcastHealth(gateway.health());
     },
+    onPermissionChanged: (allowedSkillTypes) =>
+      gateway.updateSkillPermissions(allowedSkillTypes),
     onStateChanged: broadcastCloudState,
   });
   activeCloud = cloud;

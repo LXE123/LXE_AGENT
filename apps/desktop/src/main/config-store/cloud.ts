@@ -2,6 +2,7 @@ import { text } from "./model";
 import type {
   DesktopCloudConfiguration,
   DesktopCloudEnrollmentConfig,
+  DesktopCloudPermissionSnapshot,
 } from "./public-types";
 import type { DesktopConfigRepository } from "./repository";
 import { effectiveDesktopSecrets } from "./secrets";
@@ -45,7 +46,28 @@ export class DesktopCloudConfigService {
     }
     secrets.data_server_api_key = apiKey;
     secrets.erp_api_key = text(input.erpApiKey);
+    secrets.cloud_permission_snapshot = null;
     this.repository.commit(config, secrets);
     return this.configuration();
+  }
+
+  permissionSnapshot(): DesktopCloudPermissionSnapshot | null {
+    const config = this.repository.readConfig();
+    const snapshot = this.repository.readSecrets().cloud_permission_snapshot;
+    return snapshot?.device_id === config.cloud.device_id ? structuredClone(snapshot) : null;
+  }
+
+  savePermissionSnapshot(
+    snapshot: DesktopCloudPermissionSnapshot,
+  ): DesktopCloudPermissionSnapshot {
+    this.repository.requireSafeStorage();
+    const config = this.repository.readConfig();
+    if (!config.cloud.managed || snapshot.device_id !== config.cloud.device_id) {
+      throw new Error("Device permission snapshot does not match cloud enrollment");
+    }
+    const secrets = this.repository.readSecrets();
+    secrets.cloud_permission_snapshot = structuredClone(snapshot);
+    this.repository.commit(config, secrets);
+    return structuredClone(snapshot);
   }
 }

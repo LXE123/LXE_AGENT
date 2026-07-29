@@ -9,7 +9,7 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 ## 工具来源
 
 - Native direct tools：Runtime 内置的 read/write/edit/grep/find/exec/process 等能力。
-- Native Feishu tools：由 `agent-cli` 中的 `AgentRuntimeHost` 从继承环境读取最小配置并注册，用于读取会话和普通消息正文声明的资源；平台出站仍由 Gateway 负责。资源下载前必须回读消息校验来源，CardKit icon/image key 不是可下载附件。
+- 飞书远程渠道：Gateway 保留入站、回复、typing、附件与重连；Agent 主动读写飞书统一通过 `lark-cli` Skill，不再注册 Bot 专用原生读取工具。
 - MCP tools：从 enabled server 动态发现，可 direct 或 deferred。
 - Skill-owned tools：只有允许的 skill 被激活后才暴露。
 - `tool_search`：搜索 deferred definition 并更新 exposure state。
@@ -36,7 +36,7 @@ Runtime tool subsystem 把模型可见 schema、实际 handler、exposure policy
 - [`mcp.ts`](/packages/agent/runtime/src/tooling/mcp.ts)：MCP config、连接和工具注册。
 - [`skills.ts`](/packages/agent/runtime/src/tooling/skills.ts)：skill catalog 与 prompt。
 - [`runtime-host.ts`](/apps/agent-cli/src/runtime-host.ts)：产品级工具、MCP、Workspace 和 CLI scope 装配。
-- [`feishu-tools.ts`](/apps/agent-cli/src/feishu-tools.ts)：Agent 进程内的飞书只读原生工具。
+- [`lark-im/SKILL.md`](/skills/larksuite-cli/lark-im/SKILL.md)：主动读取、搜索和发送飞书消息的统一入口。
 
 ## Exposure 模型
 

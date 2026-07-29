@@ -96,6 +96,7 @@ export interface DesktopGatewayOptions {
   packaged: boolean;
   desktopLoggingStatus: () => DesktopLoggingSinkStatus;
   attachments: DesktopConversationAttachmentService;
+  allowedSkillTypes: () => readonly string[];
   onHealthChanged?: (health: DesktopHealth) => void;
   onDashboardInvalidated?: (
     domains: DesktopDashboardDataDomain[],
@@ -178,10 +179,7 @@ export class DesktopGateway {
     };
     const policy = loadPermissionPolicy(this.options.paths.permissionPolicyPath);
     const feishu = loadFeishuConfig(environment);
-    const permissionKey = policy.botIdToKey.get(feishu.appId);
-    const allowedSkillTypes = permissionKey
-      ? [...(policy.botSkillPolicy.get(permissionKey) ?? [])]
-      : undefined;
+    const allowedSkillTypes = this.options.allowedSkillTypes();
     let composition: DirectGatewayComposition | undefined;
     const runtime = new ProcessAgentRuntime({
       command: this.options.paths.agentCommand,
@@ -196,7 +194,7 @@ export class DesktopGateway {
       permissionPolicyPath: this.options.paths.permissionPolicyPath,
       dataRoot: this.options.paths.dataRoot,
       legacyWorkspace,
-      ...(allowedSkillTypes ? { allowedSkillTypes } : {}),
+      allowedSkillTypes,
       onEmit: async (request) => {
         const emitter = composition?.parts.emitter;
         if (!emitter) throw new Error("Gateway emitter is unavailable");
@@ -327,6 +325,15 @@ export class DesktopGateway {
       this.publishHealth();
     }
     return this.health();
+  }
+
+  async updateSkillPermissions(allowedSkillTypes: readonly string[]): Promise<void> {
+    if (!this.runtime) return;
+    try {
+      await this.runtime.updateSkillPermissions(allowedSkillTypes);
+    } catch {
+      await this.runtime.restart();
+    }
   }
 
   async dashboardCall<O extends DashboardRpcOperation>(call: DashboardRpcCall<O>): Promise<DashboardRpcResult<O>> {

@@ -1,4 +1,8 @@
-import type { DesktopSetupInput, DesktopSetupState } from "@lxe/desktop-protocol";
+import type {
+  DesktopCloudPermissionSnapshot,
+  DesktopSetupInput,
+  DesktopSetupState,
+} from "@lxe/desktop-protocol";
 import { DesktopCloudConfigService } from "./cloud";
 import { DesktopEnvironmentImport } from "./environment-import";
 import { LegacyEnvironmentMigration } from "./legacy-environment";
@@ -57,6 +61,16 @@ export class DesktopConfigStore {
 
   saveCloudEnrollment(input: DesktopCloudEnrollmentConfig): DesktopCloudConfiguration {
     return this.cloud.saveEnrollment(input);
+  }
+
+  cloudPermissionSnapshot(): DesktopCloudPermissionSnapshot | null {
+    return this.cloud.permissionSnapshot();
+  }
+
+  saveCloudPermissionSnapshot(
+    snapshot: DesktopCloudPermissionSnapshot,
+  ): DesktopCloudPermissionSnapshot {
+    return this.cloud.savePermissionSnapshot(snapshot);
   }
 
   migrateLegacyEnvironment(options: LegacyEnvironmentMigrationOptions): DesktopSetupState {

@@ -41,9 +41,6 @@ import {
 } from "@lxe/runtime";
 import { DashboardService } from "./dashboard-service";
 import { loadAgentFeishuConfig } from "./feishu-runtime-config";
-import {
-  registerConfiguredFeishuImTools,
-} from "./feishu-tools";
 
 type Environment = Record<string, string | undefined>;
 
@@ -76,6 +73,7 @@ export interface AgentRuntimeHost {
   dashboardCall<O extends AgentDashboardRpcOperation>(
     call: AgentDashboardRpcCall<O>,
   ): Promise<DashboardRpcResult<O>>;
+  updateSkillPermissions(allowedSkillTypes: readonly string[]): void;
   health(): JsonObject;
 }
 
@@ -83,6 +81,7 @@ export function createAgentRuntimeHost(
   options: AgentRuntimeHostOptions,
 ): AgentRuntimeHost {
   const logger = options.logger ?? createLogger("agent.host");
+  const allowedSkillTypes = new Set(options.allowedSkillTypes ?? []);
   const environment: Environment = {
     ...options.environment,
     LXE_AGENT_SOUL_PATH: options.agentSoulPath,
@@ -214,9 +213,6 @@ export function createAgentRuntimeHost(
       });
     },
   });
-  registerConfiguredFeishuImTools(tools, feishu, {
-    sessionSource: async (sessionId) => store.getSession(sessionId).then((session) => session?.source),
-  });
   const runtimeServices: Array<{
     start(registry: ToolRegistry): Promise<void>;
     stop(): Promise<void>;
@@ -246,7 +242,7 @@ export function createAgentRuntimeHost(
     mcpStatus: (serverName) => mcpManager.status(serverName),
     skillCatalog,
     cliCommands,
-    ...(options.allowedSkillTypes ? { allowedSkillTypes: options.allowedSkillTypes } : {}),
+    allowedSkillTypes,
     providerManager,
     reloadWorkspace: async (sessionId) => {
       const session = await store.getSession(sessionId);
@@ -261,9 +257,7 @@ export function createAgentRuntimeHost(
     skillOptions: () => {
       const policy = dashboardService.runtimeConnectorPolicy();
       return {
-        ...(options.allowedSkillTypes
-          ? { allowedTypes: options.allowedSkillTypes }
-          : { allowedTypes: new Set<string>() }),
+        allowedTypes: allowedSkillTypes,
         disabledNames: policy.disabledSkillNames,
       };
     },
@@ -328,6 +322,16 @@ export function createAgentRuntimeHost(
       return attachment ? { path: attachment.path } : undefined;
     },
     dashboardCall: (call) => dashboardService.call(call),
+    updateSkillPermissions: (nextAllowedSkillTypes) => {
+      const normalized = new Set(
+        nextAllowedSkillTypes.map((item) => item.trim()).filter(Boolean),
+      );
+      if (normalized.size === allowedSkillTypes.size
+        && [...normalized].every((item) => allowedSkillTypes.has(item))) return;
+      allowedSkillTypes.clear();
+      for (const item of normalized) allowedSkillTypes.add(item);
+      workspaceInstances.invalidate("device_permission_update");
+    },
     health: () => {
       const lxeSkillStatus = lxeSkillRuntime.snapshot();
       return {

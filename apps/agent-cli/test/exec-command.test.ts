@@ -110,6 +110,7 @@ const fakeHostFactory = (fake: FakeHostOptions = {}): CreateHost =>
       resolveAttachment: async () => undefined,
       dashboardCall: async () => ({}) as never,
       health: () => ({ ready: true }),
+      updateSkillPermissions: () => undefined,
       runTurn: async (job, handle) => {
         fake.prompts?.push(job.user_input);
         if (fake.waitForAbort) {

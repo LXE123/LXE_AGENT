@@ -608,6 +608,23 @@ export const ZH_TEXT = {
       retry: "重试连接",
       activatedConnected: "公司云端已连接",
       activatedRetry: "公司云端已配置，将自动重试连接",
+      permission: {
+        title: "设备 Skill 权限",
+        profile: "权限档案",
+        version: "版本",
+        unassigned: "未分配",
+        profiles: {
+          fba: "FBA",
+          replenishment: "备货",
+          full_access: "完整权限"
+        },
+        status: {
+          pending_verification: "待服务器验证，当前不开放仓库 Skill",
+          verified: "已由服务器验证",
+          cached: "正在沿用最近一次验证快照",
+          unassigned: "服务器尚未分配权限，当前不开放仓库 Skill"
+        }
+      },
       shortcuts: {
         title: "快速访问",
         description: "使用系统默认浏览器打开公司云端页面。",
@@ -1329,6 +1346,23 @@ export const UI_TEXT: Record<Language, UiText> = {
         retry: "Retry connection",
         activatedConnected: "Company cloud connected",
         activatedRetry: "Company cloud configured; the connection will retry automatically",
+        permission: {
+          title: "Device Skill access",
+          profile: "Permission profile",
+          version: "Version",
+          unassigned: "Unassigned",
+          profiles: {
+            fba: "FBA",
+            replenishment: "Replenishment",
+            full_access: "Full access"
+          },
+          status: {
+            pending_verification: "Awaiting server verification; repository Skills are unavailable",
+            verified: "Verified by the server",
+            cached: "Using the most recently verified snapshot",
+            unassigned: "No server profile is assigned; repository Skills are unavailable"
+          }
+        },
         shortcuts: {
           title: "Quick access",
           description: "Open company cloud pages in your default browser.",

@@ -356,6 +356,11 @@ export class WorkspaceInstanceManager {
     for (const instance of [...this.instances.values()]) this.removeInstance(instance, reason);
   }
 
+  invalidate(reason: string): void {
+    this.markAllDirty();
+    this.logger.info("workspace_snapshots_invalidated", { reason });
+  }
+
   diagnostics(): JsonObject {
     let dirty = 0;
     let reloading = 0;

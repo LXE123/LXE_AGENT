@@ -8,6 +8,7 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const sourceDir = path.resolve(testDir, "../../src");
 const shell = readFileSync(path.join(sourceDir, "desktop/shell.tsx"), "utf8");
 const styles = readFileSync(path.join(sourceDir, "styles.css"), "utf8");
+const i18n = readFileSync(path.join(sourceDir, "shared/i18n.tsx"), "utf8");
 
 test("desktop settings render one navigable panel instead of stacked integrations", () => {
   for (const key of ["status", "appearance", "base", "ziniao", "mabang", "feishu", "logging"]) {
@@ -42,4 +43,13 @@ test("company cloud exposes fixed browser shortcuts and gates admin access by ro
   assert.match(shell, /shortcuts\.filter\(\(shortcut\) => !shortcut\.admin \|\| cloud\.is_admin\)/);
   assert.match(shell, /desktop\.openCloudDestination\(destination\)/);
   assert.match(shell, /desktop-cloud-admin-badge/);
+});
+
+test("company cloud shows the server-verified device Skill permission state", () => {
+  assert.match(shell, /cloud\.permission_status/);
+  assert.match(shell, /cloud\.permission_profile/);
+  assert.match(shell, /cloud\.permission_version/);
+  assert.match(i18n, /pending_verification/);
+  assert.match(styles, /\.desktop-cloud-permission\.cached/);
+  assert.match(styles, /\.desktop-cloud-permission\.unassigned/);
 });

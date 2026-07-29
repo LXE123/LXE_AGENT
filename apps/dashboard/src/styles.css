@@ -456,6 +456,28 @@ button {
   font-size: 0.6875rem;
 }
 
+.desktop-cloud-permission {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.desktop-cloud-permission > div { display: grid; gap: 4px; }
+.desktop-cloud-permission strong { font-size: 0.8125rem; }
+.desktop-cloud-permission span { color: var(--muted); font-size: 0.6875rem; }
+.desktop-cloud-permission.cached { border-color: #dfc99d; }
+.desktop-cloud-permission.pending_verification,
+.desktop-cloud-permission.unassigned { border-color: #e7b8b0; }
+.desktop-cloud-permission dl { display: flex; gap: 18px; margin: 0; }
+.desktop-cloud-permission dl div { display: grid; gap: 3px; }
+.desktop-cloud-permission dt { color: var(--muted); font-size: 0.625rem; }
+.desktop-cloud-permission dd { margin: 0; font-size: 0.75rem; font-weight: 750; }
+
 .desktop-cloud-status {
   display: flex;
   max-width: 520px;

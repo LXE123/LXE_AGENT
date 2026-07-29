@@ -7,6 +7,7 @@ const protocolVersion = 14;
 let activeRunRequest;
 let steered = [];
 let cancelCount = 0;
+let allowedSkillTypes = [];
 let loggingStatus = {
   local_file_enabled: true,
   file_path: "/tmp/runtime.log",
@@ -19,6 +20,10 @@ let loggingStatus = {
 for await (const line of input) {
   const request = JSON.parse(line);
   if (request.command === "initialize") {
+    allowedSkillTypes = request.payload.allowed_skill_types ?? [];
+    if (process.env.FAKE_SKILL_PERMISSION_PATH) {
+      writeFileSync(process.env.FAKE_SKILL_PERMISSION_PATH, JSON.stringify(allowedSkillTypes), "utf8");
+    }
     const lxeskillAvailable = process.env.FAKE_LXESKILL_UNAVAILABLE !== "1";
     write({ version: protocolVersion, type: "system.ready", payload: { state: "ready", logging: loggingStatus } });
     write({
@@ -82,6 +87,14 @@ for await (const line of input) {
         },
       }), 10);
     }
+    continue;
+  }
+  if (request.command === "update_skill_permissions") {
+    allowedSkillTypes = request.payload.allowed_skill_types;
+    if (process.env.FAKE_SKILL_PERMISSION_PATH) {
+      writeFileSync(process.env.FAKE_SKILL_PERMISSION_PATH, JSON.stringify(allowedSkillTypes), "utf8");
+    }
+    write({ version: protocolVersion, id: request.id, ok: true, result: { updated: true } });
     continue;
   }
   if (request.command === "run_turn") {

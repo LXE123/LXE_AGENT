@@ -26,6 +26,7 @@ afterEach(() => {
 });
 
 const payload: CloudEnrollmentPayload = {
+  enrollment_version: 1,
   device: { id: "0123456789abcdef0123456789abcdef", name: "Finance-PC-01" },
   wireguard: {
     private_key: Buffer.alloc(32, 1).toString("base64"),

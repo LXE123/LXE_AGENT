@@ -47,6 +47,7 @@ export type AgentInitializePayload = {
 
 export type AgentCommandPayloads = {
   initialize: AgentInitializePayload;
+  update_skill_permissions: { allowed_skill_types: string[] };
   run_turn: { job: AgentJob };
   cancel_turn: { run_id: string };
   steer_turn: {
@@ -275,6 +276,22 @@ export type DesktopCloudDestination =
   | "erp_dashboard"
   | "admin_dashboard";
 
+export type DesktopPermissionProfile = "fba" | "replenishment" | "full_access";
+
+export type DesktopCloudPermissionStatus =
+  | "pending_verification"
+  | "verified"
+  | "cached"
+  | "unassigned";
+
+export interface DesktopCloudPermissionSnapshot {
+  device_id: string;
+  permission_profile: DesktopPermissionProfile | null;
+  permission_version: number;
+  allowed_skill_types: string[];
+  verified_at: number;
+}
+
 export interface DesktopCloudState {
   configured: boolean;
   is_admin: boolean;
@@ -284,6 +301,10 @@ export interface DesktopCloudState {
   connection: DesktopCloudConnectionState;
   last_error: string;
   last_checked_at: number;
+  permission_status: DesktopCloudPermissionStatus;
+  permission_profile: DesktopPermissionProfile | null;
+  permission_version: number;
+  permission_verified_at: number;
 }
 
 export interface DesktopCloudEnrollmentSelection {
@@ -567,6 +588,7 @@ const objectValue = (value: unknown): Record<string, unknown> | undefined =>
 
 const agentCommands = new Set<AgentCommand>([
   "initialize",
+  "update_skill_permissions",
   "run_turn",
   "cancel_turn",
   "steer_turn",
@@ -631,6 +653,14 @@ const validateRequestPayload = (command: AgentCommand, payload: Record<string, u
         && (!Array.isArray(payload.allowed_skill_types)
           || payload.allowed_skill_types.some((value) => typeof value !== "string"))) {
         throw new Error("agent protocol initialize.allowed_skill_types must be a string array");
+      }
+      break;
+    case "update_skill_permissions":
+      if (!Array.isArray(payload.allowed_skill_types)
+        || payload.allowed_skill_types.some((value) => typeof value !== "string")) {
+        throw new Error(
+          "agent protocol update_skill_permissions.allowed_skill_types must be a string array",
+        );
       }
       break;
     case "run_turn":

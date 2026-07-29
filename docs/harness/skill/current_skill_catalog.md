@@ -62,7 +62,6 @@ LXE formally maintains these modules' command and failure contracts. Their resul
 ## Default Skills
 
 - `dws`: DingTalk Workspace operations, subject to local connector visibility.
-- `feishu-im-read`: Feishu IM read operations, subject to platform authorization and connector visibility.
 - `minimax-xlsx`: general workbook creation and transformation utilities.
 
 ## Ziniao Browser

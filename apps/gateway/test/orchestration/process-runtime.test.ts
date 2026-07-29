@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { AgentJob } from "@lxe/protocol";
@@ -160,6 +160,29 @@ describe("ProcessAgentRuntime", () => {
       lxeskillAvailable: false,
       lxeskillMessage: "No module named lxeskill",
     });
+  });
+
+  test("starts fail-closed and updates Skill permissions without restarting", async () => {
+    const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");
+    const root = mkdtempSync(join(tmpdir(), "lxe-agent-permission-"));
+    temporaryRoots.push(root);
+    const permissionPath = join(root, "permissions.json");
+    const runtime = new ProcessAgentRuntime({
+      command: process.execPath,
+      arguments: [fixture],
+      cwd: process.cwd(),
+      environment: { ...process.env, FAKE_SKILL_PERMISSION_PATH: permissionPath },
+      ...resourcePaths(process.cwd()),
+      dataRoot: root,
+      legacyWorkspace: workspaceFor(root),
+    });
+    runtimes.push(runtime);
+
+    await runtime.start();
+    expect(JSON.parse(readFileSync(permissionPath, "utf8"))).toEqual([]);
+    await runtime.updateSkillPermissions(["amazon_fba", "default", "default"]);
+    expect(JSON.parse(readFileSync(permissionPath, "utf8"))).toEqual(["amazon_fba", "default"]);
+    expect(runtime.isReady).toBe(true);
   });
 
   test("propagates an agent logging sink failure without changing process health", async () => {

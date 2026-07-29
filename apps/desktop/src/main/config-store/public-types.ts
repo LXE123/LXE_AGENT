@@ -1,6 +1,7 @@
 import type {
   DesktopConfigImportApplyResult,
   DesktopConfigImportGroupPreview,
+  DesktopCloudPermissionSnapshot,
   DesktopPlatform,
 } from "@lxe/desktop-protocol";
 
@@ -23,6 +24,8 @@ export interface DesktopCloudEnrollmentConfig {
   apiKey: string;
   erpApiKey?: string;
 }
+
+export type { DesktopCloudPermissionSnapshot };
 
 export interface DesktopConfigStoreOptions {
   platform?: DesktopPlatform;

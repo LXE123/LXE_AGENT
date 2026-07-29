@@ -402,5 +402,31 @@ describe("DesktopConfigStore", () => {
       LXE_ERP_API_KEY: "erp-dedicated-secret",
       LXE_DATA_SERVER_LOCAL_FALLBACK_ENABLED: "0",
     });
+
+    store.saveCloudPermissionSnapshot({
+      device_id: "0123456789abcdef0123456789abcdef",
+      permission_profile: "fba",
+      permission_version: 2,
+      allowed_skill_types: ["amazon_fba", "ziniao_browser", "default"],
+      verified_at: 123,
+    });
+    expect(store.cloudPermissionSnapshot()).toMatchObject({
+      permission_profile: "fba",
+      permission_version: 2,
+    });
+    expect(readFileSync(join(root, "config", "settings.json"), "utf8"))
+      .not.toContain("permission_profile");
+    expect(readFileSync(join(root, "config", "secrets.bin"), "utf8"))
+      .not.toContain("amazon_fba");
+
+    store.saveCloudEnrollment({
+      deviceId: "fedcba9876543210fedcba9876543210",
+      deviceName: "Replacement device",
+      vpnIp: "10.88.0.9",
+      dataServerUrl: "http://10.88.0.1:8000",
+      tunnelName: "lxe-agent",
+      apiKey: "replacement-token",
+    });
+    expect(store.cloudPermissionSnapshot()).toBeNull();
   });
 });
