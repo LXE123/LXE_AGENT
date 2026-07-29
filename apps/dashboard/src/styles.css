@@ -2475,10 +2475,12 @@ h1 {
 
 .session-index-item {
   display: grid;
+  position: relative;
   width: 100%;
   min-width: 0;
-  gap: 3px;
-  padding: 9px 10px;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  padding: 0;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -2488,15 +2490,55 @@ h1 {
   transition: background 0.16s ease, color 0.16s ease;
 }
 
-.session-index-item:hover,
-.session-index-item:focus-visible,
-.session-index-item.active {
-  background: var(--row-hover);
+.session-index-open {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 9px 4px 9px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
 }
 
-.session-index-item:focus-visible {
+.session-index-actions {
+  display: grid;
+  width: 26px;
+  height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+
+.session-index-item:hover .session-index-actions,
+.session-index-item:focus-within .session-index-actions,
+.session-index-item.menu-open .session-index-actions {
+  opacity: 1;
+}
+
+.session-index-actions:hover,
+.session-index-actions:focus-visible,
+.session-index-item.menu-open .session-index-actions {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.session-index-open:focus-visible,
+.session-index-actions:focus-visible {
   outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
+  outline-offset: -1px;
+}
+
+.session-index-item:hover,
+.session-index-item.active {
+  background: var(--row-hover);
 }
 
 .session-index-item.active .primary-cell {
@@ -7487,11 +7529,14 @@ pre {
 }
 
 .sidebar-session-section .session-index-item {
-  grid-template-columns: 14px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
-  gap: 7px;
-  padding: 5.5px 8px;
+  padding: 0 3px 0 0;
   color: var(--sidebar-ink-soft);
+}
+
+.sidebar-session-section .session-index-open {
+  padding: 5.5px 2px 5.5px 8px;
 }
 
 .sidebar-session-section .session-index-icon {
@@ -7539,6 +7584,133 @@ pre {
 
 .sidebar-session-section + .sidebar-status-card {
   margin-top: 12px;
+}
+
+.session-actions-menu {
+  position: fixed;
+  z-index: 180;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: #3b3936;
+  color: #f2ede6;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+}
+
+.session-actions-menu button {
+  display: grid;
+  min-height: 34px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.session-actions-menu button:hover,
+.session-actions-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.09);
+  outline: none;
+}
+
+.session-actions-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.46;
+}
+
+.session-actions-menu button.danger {
+  color: #ff8f8b;
+}
+
+.session-actions-hint,
+.session-actions-error {
+  margin: 4px 8px 3px;
+  color: #c7bdb2;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.session-actions-error {
+  color: #ffaaa5;
+}
+
+.session-delete-backdrop {
+  position: fixed;
+  z-index: 190;
+  display: grid;
+  inset: 0;
+  place-items: center;
+  padding: 24px;
+  background: var(--scrim);
+}
+
+.session-delete-dialog {
+  width: min(430px, 100%);
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 30px 80px var(--shadow-strong);
+}
+
+.session-delete-dialog h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1.0625rem;
+}
+
+.session-delete-dialog p {
+  margin: 9px 0 0;
+  color: var(--text-soft);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.session-delete-dialog .session-delete-note {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.session-delete-dialog .session-delete-error {
+  color: var(--danger);
+}
+
+.session-delete-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.session-delete-dialog footer button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--surface);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.session-delete-dialog footer button.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: white;
+}
+
+.session-delete-dialog footer button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 .conversation-view {

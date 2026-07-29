@@ -46,6 +46,8 @@ export interface RouterSchedulerPort {
   enqueue(job: AgentJob, options?: { front?: boolean }): Promise<void>;
   activeRun(sessionId: string): RunHandle | undefined;
   hasInflightWork(sessionId: string): boolean;
+  isSessionDeletionFenced?(sessionId: string): boolean;
+  isSessionKeyDeletionFenced?(sessionKey: string): boolean;
   clearPending(sessionId: string): number;
   requestStop(sessionId: string): Promise<boolean>;
   steerActive(sessionId: string, message: SteeringMessage): Promise<boolean>;
@@ -159,6 +161,14 @@ export class SessionRouter {
         session_id: entry?.session_id ?? "",
       });
       return { route_kind: "agent_control", platform: context.platform };
+    }
+
+    if (this.options.scheduler.isSessionKeyDeletionFenced?.(context.session_key)) {
+      throw new Error(`session binding is being deleted: ${context.session_key}`);
+    }
+    const existingBinding = this.options.bindings.get(context.session_key);
+    if (existingBinding?.session_id && this.options.scheduler.isSessionDeletionFenced?.(existingBinding.session_id)) {
+      throw new Error(`session is being deleted: ${existingBinding.session_id}`);
     }
 
     const entry = await this.loadOrCreateSession(context);

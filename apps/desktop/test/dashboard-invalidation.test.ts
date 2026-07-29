@@ -102,6 +102,8 @@ describe("Dashboard invalidation bridge", () => {
     expect(dashboardDomainsForMutation("mcp.servers.update")).toEqual(["tools"]);
     expect(dashboardDomainsForMutation("sessions.send")).toEqual(["sessions"]);
     expect(dashboardDomainsForMutation("sessions.stop")).toEqual(["sessions"]);
+    expect(dashboardDomainsForMutation("sessions.pin")).toEqual(["sessions"]);
+    expect(dashboardDomainsForMutation("sessions.delete")).toEqual(["sessions"]);
     expect(dashboardDomainsForMutation("sessions.activity")).toEqual([]);
     expect(dashboardDomainsForMutation("sessions.list")).toEqual([]);
   });

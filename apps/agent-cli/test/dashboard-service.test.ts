@@ -454,6 +454,16 @@ describe("DashboardService", () => {
       .toMatchObject({ id: "feishu", enabled: true, everConnected: true });
     expect(service.runtimeConnectorPolicy().disabledConnectorIds).toEqual(new Set(["dingtalk"]));
     expect(service.runtimeConnectorPolicy().disabledSkillNames).not.toContain("lark-im");
+    expect(await call({ operation: "sessions.pin", input: { session_id: "session-one", pinned: true } }))
+      .toMatchObject({ session_id: "session-one", pinned_at: expect.any(Number) });
+    await expect(call({ operation: "sessions.pin", input: { session_id: "missing", pinned: true } }))
+      .rejects.toMatchObject({ code: "not_found", message: "session not found" });
+    await expect(call({ operation: "sessions.delete", input: { session_id: "missing" } }))
+      .rejects.toMatchObject({ code: "not_found", message: "session not found" });
+    expect(await call({ operation: "sessions.delete", input: { session_id: "session-one" } }))
+      .toEqual({ session_id: "session-one", deleted: true });
+    expect(await call({ operation: "sessions.list", input: { query: "session-one" } }))
+      .toMatchObject({ total: 0, items: [] });
     await store.stop();
   });
 });

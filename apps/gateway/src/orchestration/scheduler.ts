@@ -126,6 +126,8 @@ export class SessionScheduler {
   private readonly readySet = new Set<string>();
   private readonly activeBySession = new Map<string, RunHandle>();
   private readonly activeByRun = new Map<string, RunHandle>();
+  private readonly sessionDeletionFences = new Set<string>();
+  private readonly sessionKeyDeletionFences = new Set<string>();
   private draining = false;
   private runtimeReady = true;
 
@@ -148,6 +150,9 @@ export class SessionScheduler {
   async enqueue(job: AgentJob, options: { front?: boolean } = {}): Promise<void> {
     const sessionId = clean(job.session_id);
     if (!sessionId) throw new Error("session_id required");
+    if (this.sessionDeletionFences.has(sessionId)) {
+      throw new Error(`session is being deleted: ${sessionId}`);
+    }
     const queue = this.pending.get(sessionId) ?? [];
     if (options.front) queue.unshift(job);
     else queue.push(job);
@@ -175,6 +180,30 @@ export class SessionScheduler {
 
   hasInflightJobs(): boolean {
     return this.activeBySession.size > 0 || [...this.pending.values()].some((items) => items.length > 0);
+  }
+
+  isSessionDeletionFenced(sessionId: string): boolean {
+    return this.sessionDeletionFences.has(clean(sessionId));
+  }
+
+  isSessionKeyDeletionFenced(sessionKey: string): boolean {
+    return this.sessionKeyDeletionFences.has(clean(sessionKey));
+  }
+
+  beginSessionDeletion(sessionId: string, sessionKeys: readonly string[] = []): (() => void) | undefined {
+    const safe = clean(sessionId);
+    if (!safe || this.sessionDeletionFences.has(safe) || this.hasInflightWork(safe)) return undefined;
+    const keys = [...new Set(sessionKeys.map(clean).filter(Boolean))];
+    if (keys.some((key) => this.sessionKeyDeletionFences.has(key))) return undefined;
+    this.sessionDeletionFences.add(safe);
+    for (const key of keys) this.sessionKeyDeletionFences.add(key);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.sessionDeletionFences.delete(safe);
+      for (const key of keys) this.sessionKeyDeletionFences.delete(key);
+    };
   }
 
   clearPending(sessionId: string): number {
@@ -479,6 +508,11 @@ export class HeartbeatWakeQueue {
   }
 
   private async process(wake: Required<HeartbeatWakeRequest>): Promise<void> {
+    if (this.options.scheduler.isSessionDeletionFenced(wake.session_id)) {
+      this.logger.debug("heartbeat_deferred", { session_id: wake.session_id, reason: "session_deleting" });
+      this.request({ ...wake, reason: "retry" });
+      return;
+    }
     if (this.options.isSuspended(wake.session_id)) {
       this.logger.debug("heartbeat_dropped", { session_id: wake.session_id, reason: "autonomy_suspended" });
       return;

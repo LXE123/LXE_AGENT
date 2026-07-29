@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -13,6 +14,7 @@ import {
   Info,
   LoaderCircle,
   MessageCircle,
+  MoreVertical,
   PackageCheck,
   Paperclip,
   Plus,
@@ -20,6 +22,9 @@ import {
   SendHorizontal,
   Settings2,
   Square,
+  Pin,
+  PinOff,
+  Trash2,
   UserRound,
   Wrench,
   X
@@ -58,6 +63,7 @@ import type {
 } from "../../api/payloads";
 import { markdownComponents } from "../../shared/ui/markdown";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
+import { groupSidebarSessions } from "./model";
 
 /** How close to the bottom still counts as "following the reply". */
 const BOTTOM_PIN_THRESHOLD_PX = 80;
@@ -1543,6 +1549,144 @@ export function SessionDetailView({
   );
 }
 
+function SessionActionsMenu({
+  anchor,
+  deletingBlocked,
+  error,
+  pending,
+  session,
+  onClose,
+  onDelete,
+  onPin,
+}: {
+  anchor: HTMLElement;
+  deletingBlocked: boolean;
+  error: string;
+  pending: boolean;
+  session: SessionPayload;
+  onClose: (restoreFocus?: boolean) => void;
+  onDelete: () => void;
+  onPin: () => void;
+}) {
+  const t = useUiText();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const rect = anchor.getBoundingClientRect();
+  const width = 190;
+  const estimatedHeight = error ? 142 : 104;
+  const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width));
+  const top = rect.bottom + 5 + estimatedHeight <= window.innerHeight
+    ? rect.bottom + 5
+    : Math.max(8, rect.top - estimatedHeight - 5);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      menuRef.current?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled)")?.focus();
+    });
+    const pointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !menuRef.current?.contains(target) && !anchor.contains(target)) {
+        onClose(false);
+      }
+    };
+    document.addEventListener("pointerdown", pointerDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointerdown", pointerDown);
+    };
+  }, [anchor, onClose]);
+
+  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose();
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const items = [...(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)") ?? [])];
+    if (!items.length) return;
+    event.preventDefault();
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next = event.key === "Home" ? 0
+      : event.key === "End" ? items.length - 1
+        : event.key === "ArrowDown" ? (current + 1 + items.length) % items.length
+          : (current - 1 + items.length) % items.length;
+    items[next]?.focus();
+  }
+
+  return createPortal(
+    <div
+      aria-label={t.sessions.actionsFor(session.title || t.common.unnamedSession)}
+      className="session-actions-menu"
+      onKeyDown={handleKeyDown}
+      ref={menuRef}
+      role="menu"
+      style={{ left, top, width }}
+    >
+      <button disabled={pending} onClick={onPin} role="menuitem" type="button">
+        {session.pinned_at > 0 ? <PinOff size={15} /> : <Pin size={15} />}
+        <span>{session.pinned_at > 0 ? t.sessions.unpin : t.sessions.pin}</span>
+      </button>
+      <button
+        className="danger"
+        disabled={pending || deletingBlocked}
+        onClick={onDelete}
+        role="menuitem"
+        title={deletingBlocked ? t.sessions.deleteRunning : undefined}
+        type="button"
+      >
+        <Trash2 size={15} />
+        <span>{t.sessions.delete}</span>
+      </button>
+      {deletingBlocked ? <p className="session-actions-hint">{t.sessions.deleteRunning}</p> : null}
+      {error ? <p className="session-actions-error" role="alert">{error}</p> : null}
+    </div>,
+    document.body,
+  );
+}
+
+function SessionDeleteDialog({
+  error,
+  pending,
+  session,
+  onCancel,
+  onConfirm,
+}: {
+  error: string;
+  pending: boolean;
+  session: SessionPayload;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const t = useUiText();
+  const dialogRef = useDialogFocus<HTMLElement>(true, onCancel);
+  const title = session.title || t.common.unnamedSession;
+  return createPortal(
+    <div className="session-delete-backdrop">
+      <section
+        aria-labelledby="session-delete-title"
+        aria-modal="true"
+        className="session-delete-dialog"
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <h2 id="session-delete-title">{t.sessions.deleteTitle}</h2>
+        <p>{t.sessions.deletePrompt(title)}</p>
+        <p className="session-delete-note">{t.sessions.deleteNote}</p>
+        {error ? <p className="session-delete-error" role="alert">{error}</p> : null}
+        <footer>
+          <button disabled={pending} onClick={onCancel} type="button">{t.sessions.cancelDelete}</button>
+          <button className="danger" disabled={pending} onClick={onConfirm} type="button">
+            {pending ? <LoaderCircle className="conversation-spinner" size={14} /> : null}
+            <span>{pending ? t.sessions.deleting : t.sessions.deleteConfirm}</span>
+          </button>
+        </footer>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
 export function SessionsIndex({
   sessions,
   query,
@@ -1557,7 +1701,10 @@ export function SessionsIndex({
   onSearchClose,
   onLoadMore,
   onNew,
-  onOpen
+  onOpen,
+  onPin,
+  onDelete,
+  deleteBlockedSessionIds = [],
 }: {
   sessions: SessionPayload[];
   query: string;
@@ -1573,6 +1720,9 @@ export function SessionsIndex({
   onLoadMore: () => void;
   onNew: () => void;
   onOpen: (session: SessionPayload) => void;
+  onPin: (session: SessionPayload, pinned: boolean) => Promise<void>;
+  onDelete: (session: SessionPayload) => Promise<void>;
+  deleteBlockedSessionIds?: readonly string[];
 }) {
   const t = useUiText();
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -1580,6 +1730,12 @@ export function SessionsIndex({
   const trimmedQuery = query.trim();
   const emptyLabel = trimmedQuery ? t.sessions.emptySearch : t.sessions.empty;
   const showTable = sessions.length > 0;
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; session: SessionPayload } | null>(null);
+  const [confirmation, setConfirmation] = useState<SessionPayload | null>(null);
+  const [actionPending, setActionPending] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const blockedIds = useMemo(() => new Set(deleteBlockedSessionIds), [deleteBlockedSessionIds]);
+  const { pinned: pinnedSessions, recent: recentSessions } = groupSidebarSessions(sessions, Boolean(trimmedQuery));
 
   useEffect(() => {
     if (searchOpen) {
@@ -1601,6 +1757,78 @@ export function SessionsIndex({
   useEffect(() => {
     maybeLoadMore();
   }, [sessions.length, loading, hasMore, loadMoreError]);
+
+  const closeMenu = useCallback((restoreFocus = true) => {
+    setMenu((current) => {
+      if (restoreFocus) current?.anchor.focus();
+      return null;
+    });
+    setActionError("");
+  }, []);
+
+  async function pinSelected() {
+    if (!menu || actionPending) return;
+    setActionPending(true);
+    setActionError("");
+    try {
+      await onPin(menu.session, menu.session.pinned_at <= 0);
+      closeMenu();
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  async function deleteConfirmed() {
+    if (!confirmation || actionPending) return;
+    setActionPending(true);
+    setActionError("");
+    try {
+      await onDelete(confirmation);
+      setConfirmation(null);
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setActionPending(false);
+    }
+  }
+
+  const renderSession = (session: SessionPayload) => {
+    const selected = selectedSessionId === session.session_id;
+    const sessionTitle = session.title || t.common.unnamedSession;
+    const menuOpen = menu?.session.session_id === session.session_id;
+    return (
+      <div className={`${selected ? "session-index-item active" : "session-index-item"}${menuOpen ? " menu-open" : ""}`} key={session.session_id}>
+        <button
+          aria-current={selected ? "page" : undefined}
+          aria-label={sessionTitle}
+          className="session-index-open"
+          title={sessionTitle}
+          type="button"
+          onClick={() => onOpen(session)}
+        >
+          <MessageCircle aria-hidden="true" className="session-index-icon" size={13} />
+          <span className="primary-cell">{sessionTitle}</span>
+        </button>
+        <button
+          aria-expanded={menuOpen}
+          aria-haspopup="menu"
+          aria-label={t.sessions.actionsFor(sessionTitle)}
+          className="session-index-actions"
+          onClick={(event) => {
+            event.stopPropagation();
+            setActionError("");
+            setMenu(menuOpen ? null : { anchor: event.currentTarget, session });
+          }}
+          title={t.sessions.actionsFor(sessionTitle)}
+          type="button"
+        >
+          <MoreVertical size={15} />
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="session-index-panel">
@@ -1628,37 +1856,61 @@ export function SessionsIndex({
           </button>
         </div>
       ) : null}
-      <div className="session-index-heading">
-        <span>{trimmedQuery ? t.sessions.searchResults(formatNumber(sessions.length)) : t.sessions.recent}</span>
-      </div>
       {error ? <EmptyState label={t.common.errorPrefix(t.sessions.errorLabel, error)} /> : null}
       {!showTable && loading && !error ? <EmptyState label={t.sessions.loading} /> : null}
       {!showTable && !loading && !error ? <EmptyState label={emptyLabel} /> : null}
       {showTable ? (
-        <div className="session-index-list" onScroll={maybeLoadMore} ref={sessionListRef}>
-          {sessions.map((session) => {
-            const selected = selectedSessionId === session.session_id;
-            const sessionTitle = session.title || t.common.unnamedSession;
-            return (
-              <button
-                aria-label={sessionTitle}
-                aria-current={selected ? "page" : undefined}
-                className={selected ? "session-index-item active" : "session-index-item"}
-                key={session.session_id}
-                title={sessionTitle}
-                type="button"
-                onClick={() => onOpen(session)}
-              >
-                <MessageCircle aria-hidden="true" className="session-index-icon" size={13} />
-                <span className="primary-cell">{sessionTitle}</span>
-              </button>
-            );
-          })}
+        <div
+          className="session-index-list"
+          onScroll={() => {
+            closeMenu(false);
+            maybeLoadMore();
+          }}
+          ref={sessionListRef}
+        >
+          {trimmedQuery ? <div className="session-index-heading">{t.sessions.searchResults(formatNumber(sessions.length))}</div> : null}
+          {pinnedSessions.length > 0 ? (
+            <div className="session-index-heading">{t.sessions.pinned}</div>
+          ) : null}
+          {pinnedSessions.map(renderSession)}
+          {!trimmedQuery && recentSessions.length > 0 ? (
+            <div className="session-index-heading">{t.sessions.recent}</div>
+          ) : null}
+          {recentSessions.map(renderSession)}
           {loading ? <span className="pill sessions-loading-pill">{t.common.loading}</span> : null}
           {loadMoreError ? (
             <div className="session-load-more-error">{t.common.errorPrefix(t.sessions.errorLabel, loadMoreError)}</div>
           ) : null}
         </div>
+      ) : null}
+      {menu ? (
+        <SessionActionsMenu
+          anchor={menu.anchor}
+          deletingBlocked={blockedIds.has(menu.session.session_id)}
+          error={actionError}
+          pending={actionPending}
+          session={menu.session}
+          onClose={closeMenu}
+          onDelete={() => {
+            if (blockedIds.has(menu.session.session_id)) return;
+            setConfirmation(menu.session);
+            closeMenu(false);
+          }}
+          onPin={() => void pinSelected()}
+        />
+      ) : null}
+      {confirmation ? (
+        <SessionDeleteDialog
+          error={actionError}
+          pending={actionPending}
+          session={confirmation}
+          onCancel={() => {
+            if (actionPending) return;
+            setConfirmation(null);
+            setActionError("");
+          }}
+          onConfirm={() => void deleteConfirmed()}
+        />
       ) : null}
     </div>
   );

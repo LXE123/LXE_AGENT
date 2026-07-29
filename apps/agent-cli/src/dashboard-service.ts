@@ -237,6 +237,8 @@ export class DashboardService {
   private readonly handlers: AgentDashboardRpcHandlers = {
     "sessions.list": (input) => this.sessions(input) as DashboardRpcResult<"sessions.list">,
     "sessions.detail": (input) => this.session(input) as Promise<DashboardRpcResult<"sessions.detail">>,
+    "sessions.pin": (input) => this.pinSession(input) as DashboardRpcResult<"sessions.pin">,
+    "sessions.delete": (input) => this.deleteSession(input) as Promise<DashboardRpcResult<"sessions.delete">>,
     "sessions.workspace.reload": (input) => this.reloadWorkspace(input),
     "skills.list": () => this.listPayload(
       this.skills().map((manifest) => this.skillPayload(manifest)),
@@ -297,6 +299,19 @@ export class DashboardService {
       offset: integer(input.offset, 0, 0, Number.MAX_SAFE_INTEGER),
       query: input.query ?? "",
     });
+  }
+
+  private pinSession(input: DashboardRpcSpec["sessions.pin"]["input"]): JsonObject {
+    const session = this.options.store.pinSession(input.session_id, input.pinned);
+    if (!session) return rpcError("not_found", "session not found");
+    return session;
+  }
+
+  private async deleteSession(input: DashboardRpcSpec["sessions.delete"]["input"]): Promise<JsonObject> {
+    if (!await this.options.store.deleteSession(input.session_id)) {
+      return rpcError("not_found", "session not found");
+    }
+    return { session_id: input.session_id, deleted: true };
   }
 
   private async session(input: DashboardRpcSpec["sessions.detail"]["input"]): Promise<JsonObject> {

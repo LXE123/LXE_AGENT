@@ -64,12 +64,28 @@ test("sessions persist in the application sidebar with title-only rows", () => {
   assert.match(styles, /\.sidebar-session-section\s*\{[^}]*margin-top:\s*8px;[^}]*padding-top:\s*8px;/s);
   assert.match(styles, /\.session-index-heading\s*\{[^}]*color:\s*color-mix\([^;]+68%, transparent\);[^}]*font-weight:\s*500;/s);
   assert.match(styles, /\.sidebar-session-section \.session-index-list\s*\{[^}]*gap:\s*1px;/s);
-  assert.match(styles, /\.sidebar-session-section \.session-index-item\s*\{[^}]*grid-template-columns:\s*14px minmax\(0, 1fr\);[^}]*padding:\s*5\.5px 8px;/s);
+  assert.match(styles, /\.sidebar-session-section \.session-index-item\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 28px;/s);
+  assert.match(styles, /\.sidebar-session-section \.session-index-open\s*\{[^}]*padding:\s*5\.5px 2px 5\.5px 8px;/s);
   assert.match(styles, /\.sidebar-session-section \.session-index-item \.primary-cell\s*\{[^}]*font-size:\s*0\.8375rem;/s);
   assert.doesNotMatch(main, /sessions-split/);
   assert.doesNotMatch(styles, /\.sessions-split/);
   assert.match(main, /activeSection === "sessions";?\s*$/m);
   assert.doesNotMatch(styles, /\.main-header\.tab-home \.main-title h2::before/);
+});
+
+test("session rows expose an accessible pinned and destructive action menu", () => {
+  assert.match(sessions, /createPortal\(/);
+  assert.match(sessions, /aria-haspopup="menu"/);
+  assert.match(sessions, /role="menu"/);
+  assert.match(sessions, /role="menuitem"/);
+  assert.match(sessions, /event\.key === "Escape"/);
+  assert.match(sessions, /\["ArrowDown", "ArrowUp", "Home", "End"\]/);
+  assert.match(sessions, /t\.sessions\.deleteNote/);
+  assert.match(sessions, /useDialogFocus<HTMLElement>\(true, onCancel\)/);
+  assert.match(styles, /\.session-index-actions\s*\{[^}]*opacity:\s*0;/s);
+  assert.match(styles, /\.session-index-item:hover \.session-index-actions,[\s\S]*?opacity:\s*1;/s);
+  assert.match(styles, /\.session-actions-menu\s*\{[^}]*position:\s*fixed;[^}]*z-index:\s*180;/s);
+  assert.match(styles, /\.session-actions-menu button\.danger\s*\{[^}]*color:/s);
 });
 
 test("statistics and connections use progressive disclosure instead of card grids", () => {

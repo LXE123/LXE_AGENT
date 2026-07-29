@@ -50,6 +50,8 @@ export function dashboardDomainsForMutation(operation: DashboardRpcOperation): D
       return ["tools"];
     case "sessions.send":
     case "sessions.stop":
+    case "sessions.pin":
+    case "sessions.delete":
       return ["sessions"];
     default:
       return [];

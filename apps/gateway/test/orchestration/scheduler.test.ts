@@ -77,6 +77,27 @@ describe("RunHandle", () => {
 });
 
 describe("SessionScheduler", () => {
+  test("fences idle sessions during deletion and rejects active or queued sessions", async () => {
+    const runtime = new RecordingRuntime();
+    const scheduler = new SessionScheduler({ runtime, maxConcurrency: 1 });
+    const release = scheduler.beginSessionDeletion("idle", ["agent:main:feishu:dm:chat"]);
+    expect(release).toBeFunction();
+    expect(scheduler.isSessionDeletionFenced("idle")).toBe(true);
+    expect(scheduler.isSessionKeyDeletionFenced("agent:main:feishu:dm:chat")).toBe(true);
+    await expect(scheduler.enqueue(job("idle", "blocked"))).rejects.toThrow("session is being deleted");
+    release?.();
+    release?.();
+    expect(scheduler.isSessionDeletionFenced("idle")).toBe(false);
+    expect(scheduler.isSessionKeyDeletionFenced("agent:main:feishu:dm:chat")).toBe(false);
+
+    scheduler.setRuntimeReady(false);
+    await scheduler.enqueue(job("queued", "j1"));
+    expect(scheduler.beginSessionDeletion("queued")).toBeUndefined();
+    scheduler.setRuntimeReady(true);
+    await tick();
+    expect(scheduler.beginSessionDeletion("queued")).toBeUndefined();
+  });
+
   test("keeps a rejected start active until its completion event arrives", async () => {
     const runtime = new RecordingRuntime();
     runtime.startTurn = async (value: AgentJob): Promise<void> => {

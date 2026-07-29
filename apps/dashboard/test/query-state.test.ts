@@ -32,6 +32,7 @@ const session = (sessionId: string): SessionPayload => ({
   model: "test",
   reasoning_effort: "",
   model_config: {},
+  pinned_at: 0,
   created_at: 1,
   last_active_at: 1,
   message_count: 1,

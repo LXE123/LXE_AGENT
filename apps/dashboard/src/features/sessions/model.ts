@@ -2,6 +2,7 @@ import type {
   SessionDetailPayload,
   SessionListPayload,
   SessionMessage,
+  SessionPayload,
   SessionSummaryPayload,
 } from "../../api/payloads";
 
@@ -29,6 +30,17 @@ export function normalizeSessionList(payload: SessionListPayload, pageSize: numb
 
 export function shortId(value: string): string {
   return value.length > 12 ? `${value.slice(0, 8)}...${value.slice(-4)}` : value;
+}
+
+export function groupSidebarSessions(
+  sessions: SessionPayload[],
+  searching: boolean,
+): { pinned: SessionPayload[]; recent: SessionPayload[] } {
+  if (searching) return { pinned: [], recent: sessions };
+  return {
+    pinned: sessions.filter((session) => session.pinned_at > 0),
+    recent: sessions.filter((session) => session.pinned_at <= 0),
+  };
 }
 
 type ConversationDisplayGroup = {

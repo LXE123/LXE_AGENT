@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { appendFile, mkdir, open, readFile, stat, truncate } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, rename, stat, truncate, unlink } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
@@ -429,6 +429,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
           input_tokens INTEGER NOT NULL DEFAULT 0,
           output_tokens INTEGER NOT NULL DEFAULT 0,
           title TEXT NOT NULL DEFAULT '',
+          pinned_at REAL NOT NULL DEFAULT 0,
           api_call_count INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS agent_session_pending_events (
@@ -535,6 +536,9 @@ export class SqliteRuntimeStore implements RuntimeStore {
       const columns = this.allPrepared<{ name: string }>("PRAGMA table_info(agent_sessions)");
       if (!columns.some((column) => column.name === "reasoning_effort")) {
         database.exec("ALTER TABLE agent_sessions ADD COLUMN reasoning_effort TEXT NOT NULL DEFAULT ''");
+      }
+      if (!columns.some((column) => column.name === "pinned_at")) {
+        database.exec("ALTER TABLE agent_sessions ADD COLUMN pinned_at REAL NOT NULL DEFAULT 0");
       }
       for (const [name, declaration] of [
         ["workspace_directory", "TEXT NOT NULL DEFAULT ''"],
@@ -1418,9 +1422,11 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const rows = this.allPrepared<Record<string, unknown>>(`
       SELECT session_id, source, workspace_directory, workspace_worktree,
              model, reasoning_effort, model_config, created_at, last_active_at,
-             message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
+             message_count, tool_call_count, input_tokens, output_tokens, title, pinned_at, api_call_count
       FROM agent_sessions ${where}
-      ORDER BY last_active_at DESC, created_at DESC, session_id ASC LIMIT ? OFFSET ?
+      ORDER BY CASE WHEN pinned_at > 0 THEN 0 ELSE 1 END ASC,
+               CASE WHEN pinned_at > 0 THEN pinned_at ELSE last_active_at END DESC,
+               created_at DESC, session_id ASC LIMIT ? OFFSET ?
     `, ...whereArgs, limit, offset);
     const summary = this.getPrepared<Record<string, number>>(`
       SELECT COUNT(*) AS total_sessions, COALESCE(SUM(tool_call_count), 0) AS tool_call_count,
@@ -1439,6 +1445,82 @@ export class SqliteRuntimeStore implements RuntimeStore {
     };
   }
 
+  pinSession(sessionId: string, pinned: boolean): JsonObject | undefined {
+    const safeSessionId = text(sessionId);
+    const result = this.db().query(
+      "UPDATE agent_sessions SET pinned_at = ? WHERE session_id = ?",
+    ).run(pinned ? Date.now() / 1_000 : 0, safeSessionId);
+    if (Number(result.changes ?? 0) !== 1) return undefined;
+    const row = this.getPrepared<Record<string, unknown>>(`
+      SELECT session_id, source, workspace_directory, workspace_worktree,
+             model, reasoning_effort, model_config, created_at, last_active_at,
+             message_count, tool_call_count, input_tokens, output_tokens, title, pinned_at, api_call_count
+      FROM agent_sessions WHERE session_id = ?
+    `, safeSessionId);
+    return row ? this.sessionPayload(row) : undefined;
+  }
+
+  async deleteSession(sessionId: string): Promise<boolean> {
+    const safeSessionId = text(sessionId);
+    if (!safeSessionId) return false;
+    let deleted = false;
+    await this.enqueueSessionWrite(safeSessionId, async () => {
+      const exists = this.getPrepared<{ present: number }>(
+        "SELECT 1 AS present FROM agent_sessions WHERE session_id = ?",
+        safeSessionId,
+      );
+      if (!exists) return;
+      const path = this.transcriptPath(safeSessionId);
+      const tombstone = `${path}.deleting-${randomUUID().replaceAll("-", "")}`;
+      let movedTranscript = false;
+      try {
+        await rename(path, tombstone);
+        movedTranscript = true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      try {
+        this.db().transaction(() => {
+          this.db().query("DELETE FROM transcript_display_groups WHERE session_id = ?").run(safeSessionId);
+          this.db().query("DELETE FROM transcript_artifacts WHERE session_id = ?").run(safeSessionId);
+          this.db().query("DELETE FROM transcript_attachments WHERE session_id = ?").run(safeSessionId);
+          this.db().query("DELETE FROM transcript_file_state WHERE session_id = ?").run(safeSessionId);
+          this.db().query("DELETE FROM agent_sessions WHERE session_id = ?").run(safeSessionId);
+          const remaining = this.getPrepared<{ present: number }>(
+            "SELECT 1 AS present FROM agent_sessions WHERE session_id = ?",
+            safeSessionId,
+          );
+          if (remaining) throw new Error(`session delete did not complete: ${safeSessionId}`);
+        })();
+      } catch (error) {
+        if (movedTranscript) {
+          try {
+            await rename(tombstone, path);
+          } catch (restoreError) {
+            this.logger.error("transcript_delete_rollback_failed", {
+              session_id: safeSessionId,
+              error: restoreError,
+            });
+          }
+        }
+        throw error;
+      }
+      this.removeReplayCacheEntry(safeSessionId);
+      if (movedTranscript) {
+        try {
+          await unlink(tombstone);
+        } catch (error) {
+          this.logger.warn("transcript_tombstone_cleanup_failed", {
+            session_id: safeSessionId,
+            error,
+          });
+        }
+      }
+      deleted = true;
+    });
+    return deleted;
+  }
+
   async sessionDetail(sessionId: string, options: DashboardSessionPageOptions): Promise<JsonObject | undefined> {
     const safeSessionId = text(sessionId);
     const exists = this.getPrepared<{ present: number }>(
@@ -1450,7 +1532,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     const row = this.getPrepared<Record<string, unknown>>(`
       SELECT session_id, source, workspace_directory, workspace_worktree,
              model, reasoning_effort, model_config, created_at, last_active_at,
-             message_count, tool_call_count, input_tokens, output_tokens, title, api_call_count
+             message_count, tool_call_count, input_tokens, output_tokens, title, pinned_at, api_call_count
       FROM agent_sessions WHERE session_id = ?
     `, safeSessionId);
     if (!row) return undefined;
@@ -1491,6 +1573,7 @@ export class SqliteRuntimeStore implements RuntimeStore {
     return {
       session_id: text(row.session_id),
       title: text(row.title),
+      pinned_at: Math.max(0, Number(row.pinned_at ?? 0)),
       source,
       workspace,
       source_summary: {

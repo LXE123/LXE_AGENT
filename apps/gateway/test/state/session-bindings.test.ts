@@ -95,6 +95,27 @@ describe("SessionBindingStore", () => {
     expect(Object.keys(store.loadAll())).toEqual([first.session_key]);
   });
 
+  test("removes every binding for a session and restores the exact snapshot", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-bindings-delete-"));
+    roots.push(root);
+    const store = new SessionBindingStore(join(root, "sessions.json"));
+    const first = SessionSource.from({ platform: "feishu", chat_id: "chat-1", chat_type: "dm" });
+    const second = SessionSource.from({
+      platform: "feishu", chat_id: "chat-2", chat_type: "group", user_id: "user-2",
+    });
+    store.bind(first, "shared-session");
+    store.bind(second, "shared-session");
+
+    const removed = store.removeSession("shared-session");
+    expect(removed.map((entry) => entry.session_key).sort()).toEqual([first.sessionKey, second.sessionKey].sort());
+    expect(store.loadAll()).toEqual({});
+    expect(store.removeSession("missing")).toEqual([]);
+
+    store.restore(removed);
+    expect(Object.values(store.loadAll()).map((entry) => entry.session_id))
+      .toEqual(["shared-session", "shared-session"]);
+  });
+
   test("rejects invalid sessions roots and ignores invalid entries", () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-bindings-invalid-"));
     roots.push(root);

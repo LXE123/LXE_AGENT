@@ -337,6 +337,37 @@ export class DesktopGateway {
       );
       return { items, total: Object.keys(items).length } as DashboardRpcResult<O>;
     }
+    if (call.operation === "sessions.delete") {
+      const sessionId = call.input.session_id;
+      const sessionKeys = Object.values(this.composition.parts.bindings.loadAll())
+        .filter((entry) => entry.session_id === sessionId)
+        .map((entry) => entry.session_key);
+      const releaseFence = this.composition.parts.scheduler.beginSessionDeletion(sessionId, sessionKeys);
+      if (!releaseFence) {
+        throw new DashboardRpcError(
+          "failed_precondition",
+          "session has an active or queued turn; stop it before deleting",
+        );
+      }
+      let gatewaySnapshot: ReturnType<NodeGatewayStore["detachSession"]> = undefined;
+      let removedBindings: ReturnType<DirectGatewayComposition["parts"]["bindings"]["removeSession"]> = [];
+      try {
+        gatewaySnapshot = this.store?.detachSession(sessionId);
+        removedBindings = this.composition.parts.bindings.removeSession(sessionId);
+        const result = await this.runtime.dashboardCall(
+          call as AgentDashboardRpcCall<"sessions.delete">,
+        );
+        this.composition.parts.conversations.forgetSession(sessionId);
+        this.composition.parts.runtimeState.forget(sessionId);
+        return result as DashboardRpcResult<O>;
+      } catch (error) {
+        this.store?.restoreSession(gatewaySnapshot);
+        this.composition.parts.bindings.restore(removedBindings);
+        throw error;
+      } finally {
+        releaseFence();
+      }
+    }
     if (call.operation === "sessions.send") {
       try {
         const attachmentIds = call.input.attachment_ids ?? [];

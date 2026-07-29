@@ -35,4 +35,10 @@ export class SessionRuntimeState {
   isAutonomySuspended(sessionId: string): boolean {
     return this.autonomySuspended.has(clean(sessionId));
   }
+
+  forget(sessionId: string): void {
+    const safe = clean(sessionId);
+    this.steeringEnabled.delete(safe);
+    this.autonomySuspended.delete(safe);
+  }
 }

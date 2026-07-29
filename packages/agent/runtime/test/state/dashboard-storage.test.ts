@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import type { RuntimeMessage } from "../../src/engine/types";
 import { InvalidTranscriptCursorError, SqliteRuntimeStore } from "../../src/state/storage";
 import { testWorkspace } from "../workspace";
@@ -12,6 +13,114 @@ afterEach(() => {
 });
 
 describe("SqliteRuntimeStore dashboard queries", () => {
+  test("restores the transcript when the database refuses a session delete", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-session-delete-rollback-"));
+    roots.push(root);
+    const databasePath = join(root, "agent.sqlite3");
+    let store = new SqliteRuntimeStore(databasePath);
+    await store.start();
+    await store.ensureSession({ workspace: testWorkspace, session_id: "protected", source: { platform: "desktop" } });
+    await store.appendMessage("protected", { role: "user", content: "keep me" }, "turn_input", "turn-1");
+    await store.stop();
+
+    const database = new Database(databasePath);
+    database.exec(`
+      CREATE TRIGGER prevent_protected_session_delete
+      BEFORE DELETE ON agent_sessions WHEN OLD.session_id = 'protected'
+      BEGIN SELECT RAISE(ABORT, 'delete blocked by test'); END;
+    `);
+    database.close(true);
+
+    store = new SqliteRuntimeStore(databasePath);
+    await store.start();
+    await expect(store.deleteSession("protected")).rejects.toThrow("delete blocked by test");
+    expect(existsSync(join(root, "session_transcripts", "protected.jsonl"))).toBe(true);
+    expect(await store.loadMessages("protected")).toEqual([{ role: "user", content: "keep me" }]);
+    expect(await store.sessionDetail("protected", { limit: 10 })).toMatchObject({
+      session: { session_id: "protected" },
+    });
+    await store.stop();
+  });
+
+  test("persists pin ordering and deletes only local conversation history", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-session-mutations-"));
+    roots.push(root);
+    const databasePath = join(root, "agent.sqlite3");
+    const inputPath = join(root, "inputs", "brief.csv");
+    const outputPath = join(root, "artifacts", "report.xlsx");
+    mkdirSync(join(root, "inputs"), { recursive: true });
+    mkdirSync(join(root, "artifacts"), { recursive: true });
+    writeFileSync(inputPath, "sku,qty\nA,1\n", "utf8");
+    writeFileSync(outputPath, "output", "utf8");
+
+    let store = new SqliteRuntimeStore(databasePath);
+    await store.start();
+    for (const sessionId of ["recent", "first-pin", "delete-me", "last-pin"]) {
+      await store.ensureSession({ workspace: testWorkspace, session_id: sessionId, source: { platform: "desktop" } });
+    }
+    expect(store.pinSession("missing", true)).toBeUndefined();
+    expect(store.pinSession("first-pin", true)).toMatchObject({ session_id: "first-pin", pinned_at: expect.any(Number) });
+    await Bun.sleep(2);
+    expect(store.pinSession("last-pin", true)).toMatchObject({ session_id: "last-pin", pinned_at: expect.any(Number) });
+    expect(store.listSessions({ limit: 20, offset: 0, query: "" }).items.map((item) => item.session_id))
+      .toEqual(["last-pin", "first-pin", "delete-me", "recent"]);
+    expect(store.listSessions({ limit: 20, offset: 0, query: "pin" }).items.map((item) => item.session_id))
+      .toEqual(["last-pin", "first-pin"]);
+
+    await store.appendMessage("delete-me", {
+      role: "user",
+      content: [{
+        type: "local_file",
+        attachment_id: "attachment-1",
+        turn_id: "turn-delete",
+        path: inputPath,
+        name: "brief.csv",
+        size_bytes: 14,
+        media_type: "text/csv",
+        ts: 100,
+      }],
+    }, "turn_input", "turn-delete");
+    await store.appendArtifact("delete-me", {
+      artifact_id: "artifact-1",
+      turn_id: "turn-delete",
+      tool_call_id: "call-1",
+      path: outputPath,
+      name: "report.xlsx",
+      ts: 101,
+    });
+    await store.appendPendingEvent("delete-me", { event_id: "pending-1", job_id: "job-1", text: "wake" });
+    await store.recordTurn("delete-me", {
+      turn_id: "turn-delete", started_at: Date.now() / 1_000, status: "completed", elapsed_ms: 20,
+      input_tokens: 2, output_tokens: 3, tool_calls: 1, api_calls: 1,
+      tools: [{ name: "read", calls: 1, errors: 0, duration_ms: 4 }], activations: [], executions: [],
+    });
+    expect(await store.resolveAttachment("delete-me", "attachment-1")).toMatchObject({ path: inputPath });
+    expect(await store.resolveArtifact("delete-me", "artifact-1")).toMatchObject({ path: outputPath });
+    const transcriptPath = join(root, "session_transcripts", "delete-me.jsonl");
+    expect(existsSync(transcriptPath)).toBe(true);
+
+    expect(await store.deleteSession("delete-me")).toBe(true);
+    expect(await store.deleteSession("delete-me")).toBe(false);
+    expect(await store.sessionDetail("delete-me", { limit: 10 })).toBeUndefined();
+    expect(await store.hasPendingEvents("delete-me")).toBe(false);
+    expect(await store.resolveAttachment("delete-me", "attachment-1")).toBeUndefined();
+    expect(await store.resolveArtifact("delete-me", "artifact-1")).toBeUndefined();
+    expect(existsSync(transcriptPath)).toBe(false);
+    expect(existsSync(inputPath)).toBe(true);
+    expect(existsSync(outputPath)).toBe(true);
+    expect(store.usageOverview(30)).toMatchObject({ totals: { turns: 1, tool_calls: 1, input_tokens: 2, output_tokens: 3 } });
+    await store.stop();
+
+    store = new SqliteRuntimeStore(databasePath);
+    await store.start();
+    expect(store.listSessions({ limit: 20, offset: 0, query: "" }).items.map((item) => item.session_id))
+      .toEqual(["last-pin", "first-pin", "recent"]);
+    expect(store.pinSession("first-pin", false)).toMatchObject({ session_id: "first-pin", pinned_at: 0 });
+    expect(store.listSessions({ limit: 20, offset: 0, query: "" }).items.map((item) => item.session_id))
+      .toEqual(["last-pin", "first-pin", "recent"]);
+    await store.stop();
+  });
+
   test("lists, searches, summarizes, and pages transcript messages", async () => {
     const root = mkdtempSync(join(tmpdir(), "lxe-dashboard-store-"));
     roots.push(root);

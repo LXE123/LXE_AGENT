@@ -259,6 +259,14 @@ describe("desktop agent protocol", () => {
       operation: "sessions.attachment.open",
       input: { session_id: "session-1", attachment_id: "attachment-1" },
     });
+    expect(parseDashboardRpcCall({
+      operation: "sessions.pin",
+      input: { session_id: " session-1 ", pinned: true },
+    })).toEqual({ operation: "sessions.pin", input: { session_id: "session-1", pinned: true } });
+    expect(parseDashboardRpcCall({
+      operation: "sessions.delete",
+      input: { session_id: " session-1 " },
+    })).toEqual({ operation: "sessions.delete", input: { session_id: "session-1" } });
   });
 
   test("rejects malformed and agent-local Dashboard RPC calls", () => {
@@ -310,6 +318,10 @@ describe("desktop agent protocol", () => {
     expect(() => parseDashboardRpcCall({ operation: "sessions.send", input: { text: "x".repeat(8_193) } }))
       .toThrow("too long");
     expect(() => parseDashboardRpcCall({ operation: "sessions.stop", input: { session_id: "s", all: true } }))
+      .toThrow("unsupported fields");
+    expect(() => parseDashboardRpcCall({ operation: "sessions.pin", input: { session_id: "s", pinned: "yes" } }))
+      .toThrow("sessions.pin.pinned must be a boolean");
+    expect(() => parseDashboardRpcCall({ operation: "sessions.delete", input: { session_id: "s", force: true } }))
       .toThrow("unsupported fields");
     expect(() => parseDashboardRpcCall({
       operation: "sessions.search",

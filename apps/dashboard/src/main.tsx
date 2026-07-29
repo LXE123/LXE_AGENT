@@ -446,6 +446,25 @@ function App({
     await callDashboard({ operation: "sessions.stop", input: { session_id: selectedSessionId } });
   }
 
+  async function setSessionPinned(session: SessionPayload, pinned: boolean): Promise<void> {
+    await callDashboard({
+      operation: "sessions.pin",
+      input: { session_id: session.session_id, pinned },
+    });
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
+  }
+
+  async function deleteSession(session: SessionPayload): Promise<void> {
+    await callDashboard({
+      operation: "sessions.delete",
+      input: { session_id: session.session_id },
+    });
+    queryClient.removeQueries({ queryKey: dashboardQueryKeys.sessions.detailSession(session.session_id) });
+    queryClient.removeQueries({ queryKey: dashboardQueryKeys.sessions.activity(session.session_id) });
+    if (selectedSessionId === session.session_id) startNewConversation();
+    await queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.sessions.lists });
+  }
+
   async function openConversationFile(artifactId: string): Promise<void> {
     if (!selectedSessionId) return;
     const result = await callDashboard({
@@ -810,6 +829,11 @@ function App({
                 onOpen={(session) => {
                   openSession(session);
                 }}
+                onPin={setSessionPinned}
+                onDelete={deleteSession}
+                deleteBlockedSessionIds={conversationActivity?.active || conversationActivity?.queued.length
+                  ? [selectedSessionId]
+                  : []}
               />
             </div>
           ) : null}

@@ -169,6 +169,7 @@ describe("SqliteRuntimeStore", () => {
     const newColumns = oldDatabase.query("PRAGMA table_info(agent_sessions)").all() as Array<{ name: string }>;
     expect(newColumns.map((column) => column.name)).toContain("workspace_directory");
     expect(newColumns.map((column) => column.name)).toContain("workspace_worktree");
+    expect(newColumns.map((column) => column.name)).toContain("pinned_at");
     expect(newColumns.map((column) => column.name)).not.toContain(retiredWorkspaceColumn);
     oldDatabase.exec(`
       ALTER TABLE agent_sessions

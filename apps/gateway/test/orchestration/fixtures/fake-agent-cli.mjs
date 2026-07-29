@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-const protocolVersion = 13;
+const protocolVersion = 14;
 let activeRunRequest;
 let steered = [];
 let cancelCount = 0;

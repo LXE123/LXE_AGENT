@@ -244,4 +244,23 @@ export class SessionBindingStore {
   rotate(source: SessionSource): SessionBindingEntry {
     return this.bind(source, this.id());
   }
+
+  removeSession(sessionId: string): SessionBindingEntry[] {
+    const safe = clean(sessionId);
+    const entries = this.loadAll();
+    const removed = Object.values(entries).filter((entry) => entry.session_id === safe);
+    if (removed.length === 0) return [];
+    for (const entry of removed) delete entries[entry.session_key];
+    this.saveAll(entries);
+    return removed;
+  }
+
+  restore(entriesToRestore: readonly SessionBindingEntry[]): void {
+    if (entriesToRestore.length === 0) return;
+    const entries = this.loadAll();
+    for (const entry of entriesToRestore) {
+      if (entry.session_key && entry.session_id) entries[entry.session_key] = { ...entry };
+    }
+    this.saveAll(entries);
+  }
 }

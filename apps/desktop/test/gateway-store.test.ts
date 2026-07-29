@@ -25,6 +25,33 @@ const createRoot = (): string => {
 };
 
 describe("NodeGatewayStore workspace migration", () => {
+  test("detaches and restores a gateway session snapshot", async () => {
+    const root = createRoot();
+    const directory = join(root, "workspace");
+    mkdirSync(directory);
+    const workspace = resolveWorkspaceContext(directory);
+    const store = new NodeGatewayStore(join(root, "gateway.sqlite3"), workspace);
+    store.start();
+    await store.ensureSession({
+      session_id: "session-delete",
+      source: { platform: "feishu", chat_id: "chat-1" },
+      workspace,
+    });
+
+    const snapshot = store.detachSession("session-delete");
+    expect(snapshot).toMatchObject({ session_id: "session-delete" });
+    expect(await store.getSession("session-delete")).toBeUndefined();
+    expect(store.detachSession("missing")).toBeUndefined();
+
+    store.restoreSession(snapshot);
+    expect(await store.getSession("session-delete")).toMatchObject({
+      session_id: "session-delete",
+      source: { platform: "feishu", chat_id: "chat-1" },
+      workspace,
+    });
+    store.stop();
+  });
+
   test("binds legacy sessions once and rejects later workspace changes", async () => {
     const root = createRoot();
     const firstDirectory = join(root, "first workspace");

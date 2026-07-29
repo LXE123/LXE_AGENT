@@ -88,6 +88,8 @@ class FakeScheduler implements RouterSchedulerPort {
   readonly steered: Array<{ sessionId: string; message: SteeringMessage }> = [];
   readonly active = new Set<string>();
   readonly pending = new Map<string, number>();
+  readonly deletingSessions = new Set<string>();
+  readonly deletingSessionKeys = new Set<string>();
   acceptSteering = true;
   beforeEnqueue?: () => void | Promise<void>;
 
@@ -100,6 +102,12 @@ class FakeScheduler implements RouterSchedulerPort {
   }
   hasInflightWork(sessionId: string): boolean {
     return this.active.has(sessionId) || (this.pending.get(sessionId) ?? 0) > 0;
+  }
+  isSessionDeletionFenced(sessionId: string): boolean {
+    return this.deletingSessions.has(sessionId);
+  }
+  isSessionKeyDeletionFenced(sessionKey: string): boolean {
+    return this.deletingSessionKeys.has(sessionKey);
   }
   clearPending(sessionId: string): number {
     const count = this.pending.get(sessionId) ?? 0;
@@ -149,6 +157,14 @@ const setup = (defaultWorkspace: () => WorkspaceContext = () => testWorkspace) =
 };
 
 describe("SessionRouter permission and normal routes", () => {
+  test("does not recreate a binding while its previous session is being deleted", async () => {
+    const { router, storage, scheduler } = setup();
+    scheduler.deletingSessionKeys.add("agent:main:feishu:dm:chat-1");
+    await expect(router.routeMessage(event())).rejects.toThrow("session binding is being deleted");
+    expect(storage.ensured).toEqual([]);
+    expect(scheduler.jobs).toEqual([]);
+  });
+
   test("denies unknown bots and unauthorized users before touching sessions", async () => {
     const unknown = setup();
     const decision = await unknown.router.routeMessage(

@@ -115,6 +115,9 @@ export class LocalConversationController {
     const attachments = input.attachments ?? [];
     if (!text && attachments.length === 0) throw new Error("message text or attachment required");
     let sessionId = clean(input.session_id);
+    if (sessionId && this.options.scheduler.isSessionDeletionFenced(sessionId)) {
+      throw new Error(`session is being deleted: ${sessionId}`);
+    }
     let created = false;
     let session = sessionId ? await this.options.storage.getSession(sessionId) : undefined;
     if (sessionId && !session) throw new LocalConversationSessionNotFoundError(sessionId);
@@ -415,6 +418,19 @@ export class LocalConversationController {
   dispose(): void {
     this.sessions.clear();
     this.turns.clear();
+  }
+
+  forgetSession(sessionId: string): void {
+    const safe = clean(sessionId);
+    const activity = this.sessions.get(safe);
+    for (const turnId of [
+      ...(activity?.activeTurnId ? [activity.activeTurnId] : []),
+      ...(activity?.queuedTurnIds ?? []),
+      ...(activity?.latestTurnId ? [activity.latestTurnId] : []),
+    ]) {
+      this.turns.delete(turnId);
+    }
+    this.sessions.delete(safe);
   }
 
   private desktopSource(sessionId: string): JsonObject {

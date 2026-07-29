@@ -35,6 +35,15 @@ const parseObject = (value: unknown): JsonObject => {
 
 type PreparedStatement = ReturnType<DatabaseSync["prepare"]>;
 
+export interface GatewaySessionSnapshot {
+  session_id: string;
+  source: string;
+  workspace_directory: string;
+  workspace_worktree: string;
+  created_at: string;
+  updated_at: string;
+}
+
 const withStatement = <Result>(
   database: DatabaseSync,
   sql: string,
@@ -194,6 +203,51 @@ export class NodeGatewayStore implements Omit<
     const workspace = this.workspaceFromRow(row);
     if (!workspace) throw new Error(`session workspace is missing: ${row.session_id}`);
     return { session_id: row.session_id, source: parseObject(row.source), workspace };
+  }
+
+  detachSession(sessionId: string): GatewaySessionSnapshot | undefined {
+    const safe = text(sessionId);
+    const database = this.db();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const snapshot = withStatement(
+        database,
+        "SELECT * FROM gateway_sessions WHERE session_id = ?",
+        (statement) => statement.get(safe),
+      ) as GatewaySessionSnapshot | undefined;
+      if (snapshot) {
+        withStatement(
+          database,
+          "DELETE FROM gateway_sessions WHERE session_id = ?",
+          (statement) => statement.run(safe),
+        );
+      }
+      database.exec("COMMIT");
+      return snapshot ?? undefined;
+    } catch (error) {
+      try { database.exec("ROLLBACK"); } catch { /* Preserve the delete failure. */ }
+      throw error;
+    }
+  }
+
+  restoreSession(snapshot: GatewaySessionSnapshot | undefined): void {
+    if (!snapshot) return;
+    withStatement(
+      this.db(),
+      `
+        INSERT OR REPLACE INTO gateway_sessions (
+          session_id, source, workspace_directory, workspace_worktree, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      (statement) => statement.run(
+        snapshot.session_id,
+        snapshot.source,
+        snapshot.workspace_directory,
+        snapshot.workspace_worktree,
+        snapshot.created_at,
+        snapshot.updated_at,
+      ),
+    );
   }
 
   private workspaceFromRow(row: {

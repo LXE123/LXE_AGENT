@@ -62,6 +62,7 @@ export type SourceSummary = {
 export type SessionPayload = {
   session_id: string;
   title: string;
+  pinned_at: number;
   source: Record<string, unknown>;
   source_summary: SourceSummary;
   workspace: WorkspacePayload;
@@ -451,6 +452,14 @@ export interface DashboardRpcSpec {
     input: { session_id: string; message_limit?: number; message_before?: string };
     result: SessionDetailPayload;
   };
+  "sessions.pin": {
+    input: { session_id: string; pinned: boolean };
+    result: SessionPayload;
+  };
+  "sessions.delete": {
+    input: { session_id: string };
+    result: { session_id: string; deleted: true };
+  };
   "sessions.send": {
     input: { session_id?: string; text: string; attachment_ids?: string[] };
     result: DesktopConversationSendPayload;
@@ -652,6 +661,15 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
         ...(messageBefore === undefined ? {} : { message_before: messageBefore }),
       } };
     }
+    case "sessions.pin":
+      exactKeys(input, ["session_id", "pinned"], `${operation}.input`);
+      return { operation, input: {
+        session_id: textValue(input.session_id, `${operation}.session_id`)!,
+        pinned: booleanValue(input.pinned, `${operation}.pinned`),
+      } };
+    case "sessions.delete":
+      exactKeys(input, ["session_id"], `${operation}.input`);
+      return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
     case "sessions.send": {
       exactKeys(input, ["session_id", "text", "attachment_ids"], `${operation}.input`);
       const text = textValue(input.text, `${operation}.text`, { allowEmpty: true })!;

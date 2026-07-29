@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionDetailPayload, SessionMessage } from "../../../src/api/payloads";
+import type { SessionDetailPayload, SessionMessage, SessionPayload } from "../../../src/api/payloads";
 import {
+  groupSidebarSessions,
   mergeLatestConversationWindow,
   prependConversationWindow,
 } from "../../../src/features/sessions/model";
@@ -24,6 +25,7 @@ const detail = (
     model: "test",
     reasoning_effort: "",
     model_config: {},
+    pinned_at: 0,
     created_at: 1,
     last_active_at: 1,
     message_count: ids.length,
@@ -43,6 +45,27 @@ const detail = (
     previous_cursor: options.previous ?? null,
     has_previous: Boolean(options.previous),
   },
+});
+
+const sidebarSession = (sessionId: string, pinnedAt: number): SessionPayload => ({
+  ...detail([]).session,
+  session_id: sessionId,
+  title: sessionId,
+  pinned_at: pinnedAt,
+});
+
+describe("sidebar session groups", () => {
+  test("separates pinned sessions while preserving server order", () => {
+    const sessions = [sidebarSession("pin-2", 2), sidebarSession("pin-1", 1), sidebarSession("recent", 0)];
+    const grouped = groupSidebarSessions(sessions, false);
+    expect(grouped.pinned.map((session) => session.session_id)).toEqual(["pin-2", "pin-1"]);
+    expect(grouped.recent.map((session) => session.session_id)).toEqual(["recent"]);
+  });
+
+  test("keeps search results in one server-ordered group", () => {
+    const sessions = [sidebarSession("pinned", 2), sidebarSession("recent", 0)];
+    expect(groupSidebarSessions(sessions, true)).toEqual({ pinned: [], recent: sessions });
+  });
 });
 
 describe("conversation cursor windows", () => {
