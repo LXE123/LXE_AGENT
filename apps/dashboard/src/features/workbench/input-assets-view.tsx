@@ -93,7 +93,6 @@ export function InputAssetsWorkbench({
                 {copy.reveal}
               </button>
             </header>
-            <p className="asset-slot-holds">{slot.holds}</p>
             <p className="asset-slot-used-by">
               <strong>{copy.usedBy}</strong>
               {slot.used_by.join(copy.usedBySeparator)}

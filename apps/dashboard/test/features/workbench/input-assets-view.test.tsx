@@ -26,5 +26,6 @@ describe("InputAssetsWorkbench", () => {
     expect(markup).toContain("<h3>出口退税总表</h3>");
     expect(markup).toContain("<code>export_tax_master</code>");
     expect(markup).toContain("用于：</strong>采购汇总、备货工作簿");
+    expect(markup).not.toContain("提供采购和备货所需资料。");
   });
 });
