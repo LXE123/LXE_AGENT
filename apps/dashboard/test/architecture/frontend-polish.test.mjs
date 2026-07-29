@@ -51,6 +51,11 @@ test("sessions persist in the application sidebar with title-only rows", () => {
   assert.match(sessions, /<MessageCircle aria-hidden="true" className="session-index-icon" size=\{13\} \/>/);
   assert.match(sessions, /aria-label=\{sessionTitle\}/);
   assert.match(sessions, /title=\{sessionTitle\}/);
+  assert.doesNotMatch(sessions, /pill sessions-loading-pill/);
+  assert.match(sessions, /loadingMore \? \([\s\S]*?sessions-load-more-indicator[\s\S]*?LoaderCircle/);
+  assert.match(main, /initialLoading=\{sessionsQuery\.isPending && !sessions\.items\.length\}/);
+  assert.match(main, /loadingMore=\{sessionsQuery\.isFetchingNextPage\}/);
+  assert.doesNotMatch(main, /loading=\{sessionsQuery\.isFetching\}/);
 
   const searchToggle = main.slice(
     main.indexOf("function handleSessionSearchToggle()"),

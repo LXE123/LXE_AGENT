@@ -691,7 +691,7 @@ function App({
     || activeSection === "sessions";
   const mcpToolset = toolsetsQuery.data?.items.find((toolset) => toolset.name === "mcp");
   const activeQueries = activeSection === "sessions"
-    ? [sessionsQuery, sessionDetailQuery, conversationActivityQuery]
+    ? [sessionDetailQuery, conversationActivityQuery]
     : activeSection === "capabilities" && capabilityView === "models"
       ? [modelsQuery, currentModelQuery]
       : activeSection === "capabilities" && capabilityView === "tools"
@@ -810,7 +810,8 @@ function App({
                 query={query}
                 searchOpen={sessionSearchOpen}
                 searchFocusKey={sessionSearchFocusKey}
-                loading={sessionsQuery.isFetching}
+                initialLoading={sessionsQuery.isPending && !sessions.items.length}
+                loadingMore={sessionsQuery.isFetchingNextPage}
                 error={!sessions.items.length ? queryError(sessionsQuery.error) : ""}
                 hasMore={Boolean(sessionsQuery.hasNextPage)}
                 loadMoreError={sessions.items.length && sessionsQuery.isFetchNextPageError

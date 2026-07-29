@@ -2736,8 +2736,12 @@ h1 {
   gap: 10px;
 }
 
-.sessions-loading-pill {
-  justify-self: start;
+.sessions-load-more-indicator {
+  display: grid;
+  min-height: 24px;
+  place-items: center;
+  color: var(--sidebar-ink-soft, var(--muted));
+  opacity: 0.62;
 }
 
 .table-shell {

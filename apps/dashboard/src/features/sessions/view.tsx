@@ -1692,7 +1692,8 @@ export function SessionsIndex({
   query,
   searchOpen,
   searchFocusKey = 0,
-  loading,
+  initialLoading,
+  loadingMore,
   error,
   hasMore,
   loadMoreError,
@@ -1710,7 +1711,8 @@ export function SessionsIndex({
   query: string;
   searchOpen: boolean;
   searchFocusKey?: number;
-  loading: boolean;
+  initialLoading: boolean;
+  loadingMore: boolean;
   error: string;
   hasMore: boolean;
   loadMoreError: string;
@@ -1745,7 +1747,7 @@ export function SessionsIndex({
 
   function maybeLoadMore() {
     const list = sessionListRef.current;
-    if (!list || loading || !hasMore || loadMoreError) {
+    if (!list || initialLoading || loadingMore || !hasMore || loadMoreError) {
       return;
     }
     const distanceToBottom = list.scrollHeight - list.scrollTop - list.clientHeight;
@@ -1756,7 +1758,7 @@ export function SessionsIndex({
 
   useEffect(() => {
     maybeLoadMore();
-  }, [sessions.length, loading, hasMore, loadMoreError]);
+  }, [sessions.length, initialLoading, loadingMore, hasMore, loadMoreError]);
 
   const closeMenu = useCallback((restoreFocus = true) => {
     setMenu((current) => {
@@ -1857,8 +1859,8 @@ export function SessionsIndex({
         </div>
       ) : null}
       {error ? <EmptyState label={t.common.errorPrefix(t.sessions.errorLabel, error)} /> : null}
-      {!showTable && loading && !error ? <EmptyState label={t.sessions.loading} /> : null}
-      {!showTable && !loading && !error ? <EmptyState label={emptyLabel} /> : null}
+      {!showTable && initialLoading && !error ? <EmptyState label={t.sessions.loading} /> : null}
+      {!showTable && !initialLoading && !error ? <EmptyState label={emptyLabel} /> : null}
       {showTable ? (
         <div
           className="session-index-list"
@@ -1877,7 +1879,11 @@ export function SessionsIndex({
             <div className="session-index-heading">{t.sessions.recent}</div>
           ) : null}
           {recentSessions.map(renderSession)}
-          {loading ? <span className="pill sessions-loading-pill">{t.common.loading}</span> : null}
+          {loadingMore ? (
+            <span aria-label={t.common.loading} className="sessions-load-more-indicator" role="status">
+              <LoaderCircle aria-hidden="true" className="conversation-spinner" size={14} />
+            </span>
+          ) : null}
           {loadMoreError ? (
             <div className="session-load-more-error">{t.common.errorPrefix(t.sessions.errorLabel, loadMoreError)}</div>
           ) : null}
