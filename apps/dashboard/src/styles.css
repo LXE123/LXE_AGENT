@@ -2096,7 +2096,7 @@ h1 {
 
 .tab-list {
   display: grid;
-  gap: 2px;
+  gap: 1px;
   flex: 0 0 auto;
 }
 
@@ -2105,9 +2105,9 @@ h1 {
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 38px;
+  min-height: 34px;
   gap: 10px;
-  padding: 7px 10px;
+  padding: 5px 8px;
   border: 0;
   border-radius: 9px;
   background: transparent;
@@ -2127,7 +2127,7 @@ h1 {
 
 .app-sidebar.collapsed .tab {
   justify-content: center;
-  padding: 7px 0;
+  padding: 5px 0;
 }
 
 .app-sidebar.collapsed .tab span {
@@ -7352,8 +7352,8 @@ pre {
   display: flex;
   min-height: 0;
   flex: 1;
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 8px;
+  padding-top: 8px;
   overflow: hidden;
   border-top: 1px solid var(--sidebar-border);
 }
@@ -7432,8 +7432,8 @@ pre {
 }
 
 .sidebar-session-section .session-index-item {
-  gap: 4px;
-  padding: 8px;
+  gap: 0;
+  padding: 7px 8px;
   color: var(--sidebar-ink-soft);
 }
 
@@ -7456,12 +7456,6 @@ pre {
   white-space: nowrap;
 }
 
-.sidebar-session-section .session-index-item .session-meta-line {
-  color: var(--sidebar-ink-soft);
-  font-size: 0.625rem;
-  opacity: 0.82;
-}
-
 .sidebar-session-section .empty-state {
   min-height: 90px;
   background: transparent;
@@ -7472,12 +7466,8 @@ pre {
   color: #edaa98;
 }
 
-.sessions-focus .sidebar-status-card {
+.sidebar-session-section + .sidebar-status-card {
   margin-top: 12px;
-}
-
-.session-sidebar-scrim {
-  display: none;
 }
 
 .conversation-view {
@@ -8224,68 +8214,6 @@ pre {
 .sessions-focus .runtime-status-floating {
   right: 18px;
   bottom: 18px;
-}
-
-@media (max-width: 1180px) {
-  .app-shell.sessions-focus {
-    height: 100vh;
-    min-height: 0;
-    grid-template-columns: var(--sidebar-collapsed-width, 64px) minmax(0, 1fr);
-    overflow: hidden;
-  }
-
-  .desktop-platform-darwin .app-shell.sessions-focus {
-    grid-template-columns: 80px minmax(0, 1fr);
-  }
-
-  .app-shell.sessions-focus > .main-panel {
-    grid-column: 2;
-    height: 100vh;
-    min-height: 0;
-    overflow: hidden;
-  }
-
-  .app-shell.sessions-focus > .app-sidebar.collapsed {
-    grid-column: 1;
-    grid-row: 1;
-    height: 100vh;
-    max-height: none;
-    border-right: 1px solid #2a2622;
-    border-bottom: 0;
-  }
-
-  .app-shell.sessions-focus.session-sidebar-overlay-open > .app-sidebar:not(.collapsed) {
-    position: fixed;
-    z-index: 31;
-    inset: 0 auto 0 0;
-    width: min(288px, 88vw);
-    height: 100vh;
-    max-height: none;
-    border-right: 1px solid #2a2622;
-    border-bottom: 0;
-    box-shadow: 18px 0 48px rgba(20, 17, 15, 0.28);
-  }
-
-  .app-shell.sessions-focus .tab-list {
-    grid-template-columns: 1fr;
-  }
-
-  .app-shell.sessions-focus > .app-sidebar:not(.collapsed) .tab {
-    justify-content: flex-start;
-  }
-
-  .app-shell.sessions-focus > .app-sidebar:not(.collapsed) .tab span {
-    display: inline;
-  }
-
-  .session-sidebar-scrim {
-    position: fixed;
-    z-index: 30;
-    inset: 0;
-    display: block;
-    border: 0;
-    background: rgba(25, 22, 20, 0.3);
-  }
 }
 
 @media (max-width: 1060px) {

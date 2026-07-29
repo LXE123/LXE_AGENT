@@ -56,7 +56,6 @@ import {
   FONT_SIZE_STORAGE_KEY,
   initialDashboardFontSize,
 } from "./shared/appearance";
-import { useDialogFocus } from "./shared/ui/use-dialog-focus";
 import type {
   ApiList,
   ConnectorPayload,
@@ -185,21 +184,10 @@ function App({
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [newConversation, setNewConversation] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sessionSidebarOverlayOpen, setSessionSidebarOverlayOpen] = useState(false);
-  const [compactSessionLayout, setCompactSessionLayout] = useState(
-    () => window.matchMedia("(max-width: 1180px)").matches,
-  );
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
-  const sessionSidebarDialogOpen = activeSection === "sessions"
-    && compactSessionLayout
-    && sessionSidebarOverlayOpen;
-  const sessionSidebarRef = useDialogFocus<HTMLElement>(
-    sessionSidebarDialogOpen,
-    closeSessionSidebarOverlay,
-  );
 
-  const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery, activeSection === "sessions");
+  const sessionsQuery = useSessionsInfiniteQuery(debouncedQuery);
   const sessionDetailQuery = useSessionConversationQuery(
     selectedSessionId,
     activeSection === "sessions" && !newConversation,
@@ -255,19 +243,6 @@ function App({
   }, [query]);
 
   useEffect(() => {
-    const media = window.matchMedia("(max-width: 1180px)");
-    const update = () => setCompactSessionLayout(media.matches);
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
-
-  useEffect(() => {
-    if (activeSection !== "sessions" || !compactSessionLayout) {
-      setSessionSidebarOverlayOpen(false);
-    }
-  }, [activeSection, compactSessionLayout]);
-
-  useEffect(() => {
     storeCapabilityView(capabilityView, browserStorage());
   }, [capabilityView]);
 
@@ -282,24 +257,13 @@ function App({
   }
 
   function handleSessionSearchToggle() {
-    if (compactSessionLayout) setSessionSidebarOverlayOpen(true);
-    else if (sidebarCollapsed) setSidebarCollapsed(false);
-    pushDashboardRoute("sessions");
-    setActiveSection("sessions");
+    if (sidebarCollapsed) setSidebarCollapsed(false);
     setSessionSearchOpen(true);
     setSessionSearchFocusKey((current) => current + 1);
   }
 
   function handleSidebarToggle() {
-    if (activeSection === "sessions" && compactSessionLayout) {
-      setSessionSidebarOverlayOpen((current) => !current);
-      return;
-    }
     setSidebarCollapsed((current) => !current);
-  }
-
-  function closeSessionSidebarOverlay() {
-    if (compactSessionLayout) setSessionSidebarOverlayOpen(false);
   }
 
   // Keep the focused conversation populated by default.
@@ -699,51 +663,33 @@ function App({
       onOpenSettings={(section) => onOpenDesktopSettings?.(section)}
     />
   );
-  const sessionSidebarExpanded = activeSection === "sessions"
-    ? compactSessionLayout ? sessionSidebarOverlayOpen : !sidebarCollapsed
-    : !sidebarCollapsed;
+  const sessionSidebarExpanded = !sidebarCollapsed;
   const effectiveSidebarCollapsed = !sessionSidebarExpanded;
   const shellClassName = [
     "app-shell",
     effectiveSidebarCollapsed ? "sidebar-collapsed" : "",
     activeSection === "sessions" ? "sessions-focus" : "",
-    activeSection === "sessions" && compactSessionLayout ? "sessions-compact" : "",
-    sessionSidebarOverlayOpen ? "session-sidebar-overlay-open" : "",
   ].filter(Boolean).join(" ");
 
   return (
     <>
       <main className={shellClassName}>
-        {activeSection === "sessions" && compactSessionLayout && sessionSidebarOverlayOpen ? (
-          <button
-            aria-label={t.sidebar.collapse}
-            className="session-sidebar-scrim"
-            onClick={() => setSessionSidebarOverlayOpen(false)}
-            type="button"
-          />
-        ) : null}
         <aside
           aria-label={t.nav.aria}
-          aria-modal={sessionSidebarDialogOpen ? "true" : undefined}
           className={effectiveSidebarCollapsed ? "app-sidebar collapsed" : "app-sidebar"}
           id="app-sidebar"
-          ref={sessionSidebarRef}
-          role={sessionSidebarDialogOpen ? "dialog" : undefined}
-          tabIndex={sessionSidebarDialogOpen ? -1 : undefined}
         >
           <div className="sidebar-topbar">
             <div className="sidebar-topbar-actions">
-              {activeSection === "sessions" ? (
-                <button
-                  aria-label={t.sessions.searchAria}
-                  className={sessionSearchOpen ? "sidebar-icon-button active" : "sidebar-icon-button"}
-                  onClick={handleSessionSearchToggle}
-                  title={t.sessions.searchAria}
-                  type="button"
-                >
-                  <Search size={17} />
-                </button>
-              ) : null}
+              <button
+                aria-label={t.sessions.searchAria}
+                className={sessionSearchOpen ? "sidebar-icon-button active" : "sidebar-icon-button"}
+                onClick={handleSessionSearchToggle}
+                title={t.sessions.searchAria}
+                type="button"
+              >
+                <Search size={17} />
+              </button>
               <button
                 aria-controls="app-sidebar"
                 aria-expanded={sessionSidebarExpanded}
@@ -773,7 +719,7 @@ function App({
               </button>
             ))}
           </nav>
-          {activeSection === "sessions" && sessionSidebarExpanded ? (
+          {sessionSidebarExpanded ? (
             <div className="sidebar-session-section">
               <SessionsIndex
                 sessions={sessions.items}
@@ -786,7 +732,7 @@ function App({
                 loadMoreError={sessions.items.length && sessionsQuery.isFetchNextPageError
                   ? queryError(sessionsQuery.error)
                   : ""}
-                selectedSessionId={selectedSessionId}
+                selectedSessionId={activeSection === "sessions" ? selectedSessionId : ""}
                 onQueryChange={handleSessionQueryChange}
                 onSearchClose={() => {
                   setSessionSearchOpen(false);
@@ -794,11 +740,9 @@ function App({
                 }}
                 onLoadMore={loadMoreSessions}
                 onNew={() => {
-                  closeSessionSidebarOverlay();
                   startNewConversation();
                 }}
                 onOpen={(session) => {
-                  closeSessionSidebarOverlay();
                   openSession(session);
                 }}
               />

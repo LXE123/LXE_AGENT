@@ -1512,22 +1512,18 @@ export function SessionsIndex({
         <div className="session-index-list" onScroll={maybeLoadMore} ref={sessionListRef}>
           {sessions.map((session) => {
             const selected = selectedSessionId === session.session_id;
+            const sessionTitle = session.title || t.common.unnamedSession;
             return (
               <button
+                aria-label={sessionTitle}
                 aria-current={selected ? "page" : undefined}
                 className={selected ? "session-index-item active" : "session-index-item"}
                 key={session.session_id}
+                title={sessionTitle}
                 type="button"
                 onClick={() => onOpen(session)}
               >
-                <span className="primary-cell">{session.title || t.common.unnamedSession}</span>
-                <span className="session-meta-line">
-                  <span>{sourceLabel(session.source_summary || session.source)}</span>
-                  <span aria-hidden="true" className="session-meta-separator">
-                    ·
-                  </span>
-                  <span>{formatDate(session.last_active_at)}</span>
-                </span>
+                <span className="primary-cell">{sessionTitle}</span>
               </button>
             );
           })}
