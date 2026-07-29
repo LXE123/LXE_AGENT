@@ -41,6 +41,8 @@ class InputAssetError(RuntimeError):
 
 class InputAsset(NamedTuple):
     id: str
+    display_name: str
+    used_by: tuple[str, ...]
     dir: str
     holds: str
 
@@ -67,8 +69,21 @@ def load_input_assets() -> dict[str, InputAsset]:
         if not _SLOT_ID.fullmatch(str(slot_id)):
             raise InputAssetError(f"invalid input asset id: {slot_id}")
         item = dict(value or {})
+        display_name = str(item.get("display_name") or "").strip()
+        raw_used_by = item.get("used_by")
+        if not isinstance(raw_used_by, list):
+            raise InputAssetError(f"input asset usages must be a list: {slot_id}")
+        used_by = tuple(
+            str(usage).strip()
+            for usage in raw_used_by
+            if str(usage).strip()
+        )
         directory = str(item.get("dir") or "").strip()
         holds = str(item.get("holds") or "").strip()
+        if not display_name:
+            raise InputAssetError(f"input asset has no display name: {slot_id}")
+        if not used_by:
+            raise InputAssetError(f"input asset has no usage descriptions: {slot_id}")
         if not _SLOT_DIR.fullmatch(directory) or "/" not in directory:
             raise InputAssetError(f"invalid input asset dir for {slot_id}: {directory}")
         if not holds:
@@ -78,7 +93,13 @@ def load_input_assets() -> dict[str, InputAsset]:
                 f"duplicate input asset dir {directory}: {seen_dirs[directory]} and {slot_id}"
             )
         seen_dirs[directory] = slot_id
-        assets[slot_id] = InputAsset(id=slot_id, dir=directory, holds=holds)
+        assets[slot_id] = InputAsset(
+            id=slot_id,
+            display_name=display_name,
+            used_by=used_by,
+            dir=directory,
+            holds=holds,
+        )
     return assets
 
 

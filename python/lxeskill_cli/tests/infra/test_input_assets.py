@@ -96,6 +96,13 @@ def test_empty_slot_reports_no_current_version(slot_root: Path) -> None:
     assert current_asset("export_tax_products") is None
 
 
+def test_registered_slots_describe_business_name_and_usage() -> None:
+    master = ASSETS["export_tax_master"]
+    assert master.display_name == "出口退税总表"
+    assert master.used_by == ("采购汇总", "备货工作簿")
+    assert all(asset.display_name and asset.used_by for asset in ASSETS.values())
+
+
 def test_unknown_slot_and_missing_file_fail_loudly(slot_root: Path, tmp_path: Path) -> None:
     with pytest.raises(InputAssetError):
         current_asset("not_a_slot")

@@ -38,6 +38,8 @@ def run(arguments: dict[str, Any]) -> dict[str, Any]:
         slots = [
             {
                 "slot": entry.id,
+                "display_name": entry.display_name,
+                "used_by": list(entry.used_by),
                 "holds": entry.holds,
                 "directory": str(slot_dir(entry.id)),
                 "current": _generation(current_asset(entry.id)),

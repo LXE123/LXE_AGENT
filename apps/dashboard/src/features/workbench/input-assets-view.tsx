@@ -84,13 +84,20 @@ export function InputAssetsWorkbench({
         {(slots ?? []).map((slot) => (
           <article className="asset-slot" key={slot.slot}>
             <header className="asset-slot-header">
-              <h3>{slot.slot}</h3>
+              <div className="asset-slot-title">
+                <h3>{slot.display_name}</h3>
+                <code>{slot.slot}</code>
+              </div>
               <button onClick={() => void reveal(slot.slot)} type="button">
                 <FolderOpen size={14} />
                 {copy.reveal}
               </button>
             </header>
             <p className="asset-slot-holds">{slot.holds}</p>
+            <p className="asset-slot-used-by">
+              <strong>{copy.usedBy}</strong>
+              {slot.used_by.join(copy.usedBySeparator)}
+            </p>
             {slot.current ? (
               <dl className="asset-slot-versions">
                 <div>

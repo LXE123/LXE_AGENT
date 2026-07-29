@@ -355,10 +355,10 @@
     "browser_workflows": {"dir": "browser/workflows", "holds": "紫鸟浏览器固定流程的中间产物，按 session_id 分子目录。", "legacy_dirs": []}
   },
   "input_assets": {
-    "export_tax_master": {"dir": "fba/export_tax_master", "holds": "出口退税总表：SKU表 提供库存sku/型号/原价/厂家，供应商合同信息 提供供货方/单位/合同产品名称。"},
-    "contract_template": {"dir": "fba/contract_template", "holds": "采购合同模板汇总：附加件明细模板 + 每个供应商一个 sheet。"},
-    "customs_template": {"dir": "fba/customs_template", "holds": "报关资料模板；CLI 只复制副本填写，原件不改。"},
-    "invoice_template": {"dir": "fba/invoice_template", "holds": "发票模板；CLI 只复制副本填写，原件不改。"},
-    "export_tax_products": {"dir": "fba/export_tax_whitelist", "holds": "出口退税产品表（白名单）当前版：Sheet1，列 sku 与 产品名称。products-import 生成的更新副本落在产物目录 fba/export_tax_products，不自动成为当前版。"}
+    "export_tax_master": {"display_name": "出口退税总表", "used_by": ["采购汇总", "备货工作簿"], "dir": "fba/export_tax_master", "holds": "SKU表 提供库存sku/型号/原价/厂家，供应商合同信息 提供供货方/单位/合同产品名称。"},
+    "contract_template": {"display_name": "采购合同模板", "used_by": ["采购汇总（正式模式）", "采购合同"], "dir": "fba/contract_template", "holds": "包含附加件明细模板，以及每个供应商一个 sheet。"},
+    "customs_template": {"display_name": "报关资料模板", "used_by": ["报关资料填写"], "dir": "fba/customs_template", "holds": "CLI 只复制副本填写，原件不改。"},
+    "invoice_template": {"display_name": "发票模板", "used_by": ["发票填写"], "dir": "fba/invoice_template", "holds": "CLI 只复制副本填写，原件不改。"},
+    "export_tax_products": {"display_name": "出口退税产品表", "used_by": ["出口退税发货单汇总", "退税商品资料导入"], "dir": "fba/export_tax_whitelist", "holds": "白名单当前版：Sheet1，列 sku 与 产品名称。products-import 生成的更新副本落在产物目录 fba/export_tax_products，不自动成为当前版。"}
   }
 }

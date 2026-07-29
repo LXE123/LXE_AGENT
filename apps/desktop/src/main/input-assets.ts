@@ -38,10 +38,16 @@ const slotValue = (value: unknown): DesktopInputAssetSlot | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const item = value as Record<string, unknown>;
   const slot = String(item.slot ?? "").trim();
+  const displayName = String(item.display_name ?? "").trim();
+  const usedBy = Array.isArray(item.used_by)
+    ? item.used_by.map((usage) => String(usage).trim()).filter(Boolean)
+    : [];
   const directory = String(item.directory ?? "").trim();
-  if (!slot || !directory) return null;
+  if (!slot || !displayName || usedBy.length === 0 || !directory) return null;
   return {
     slot,
+    display_name: displayName,
+    used_by: usedBy,
     holds: String(item.holds ?? ""),
     directory,
     current: versionValue(item.current),

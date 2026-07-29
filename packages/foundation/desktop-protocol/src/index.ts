@@ -485,6 +485,8 @@ export interface DesktopInputAssetVersion {
 
 export interface DesktopInputAssetSlot {
   slot: string;
+  display_name: string;
+  used_by: string[];
   holds: string;
   directory: string;
   /** The version commands use when the field is omitted; null when never filled. */

@@ -8967,12 +8967,25 @@ pre {
   gap: 16px;
 }
 
-.asset-slot-header h3 {
+.asset-slot-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.asset-slot-title h3 {
   margin: 0;
   color: var(--text-strong);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
   font-weight: 650;
+}
+
+.asset-slot-title code {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
 }
 
 .asset-slot-header button {
@@ -8998,6 +9011,19 @@ pre {
   color: var(--muted);
   font-size: 0.8125rem;
   line-height: 1.6;
+}
+
+.asset-slot-used-by {
+  display: flex;
+  gap: 4px;
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.75rem;
+}
+
+.asset-slot-used-by strong {
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .asset-slot-versions {
