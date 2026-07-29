@@ -1,6 +1,5 @@
 import {
   BookOpen,
-  ChevronRight,
   Layers3,
   PackagePlus,
   Sparkles,
@@ -72,10 +71,6 @@ export function SkillsView({
               <span className="catalog-count-badge">
                 {t.common.countItems(formatNumber(maintenanceCommands.length), t.skills.commandUnit)}
               </span>
-              <ChevronRight
-                className={maintenanceExpanded ? "section-chevron expanded" : "section-chevron"}
-                size={17}
-              />
             </button>
             <div className={maintenanceExpanded ? "catalog-collapsible expanded" : "catalog-collapsible"}>
               <div className="catalog-collapsible-inner">
@@ -118,7 +113,6 @@ export function SkillsView({
                 <span className="catalog-count-badge">
                   {t.common.countItems(formatNumber(group.skills.length), t.skills.itemUnit)}
                 </span>
-                <ChevronRight className={expanded ? "section-chevron expanded" : "section-chevron"} size={17} />
               </button>
               <div className={expanded ? "catalog-collapsible expanded" : "catalog-collapsible"}>
                 <div className="catalog-collapsible-inner">

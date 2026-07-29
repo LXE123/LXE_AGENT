@@ -61,6 +61,7 @@ test("MCP tools and servers have one semantic home each", () => {
 test("catalog decoration is removed while low-frequency details remain available", () => {
   assert.doesNotMatch(tools, /CatalogOverview/);
   assert.doesNotMatch(skills, /CatalogOverview/);
+  assert.doesNotMatch(skills, /<ChevronRight/);
   assert.match(skills, /maintenanceExpanded/);
   assert.doesNotMatch(styles, /\.catalog-overview\s*\{/);
   assert.match(styles, /\.model-capabilities-details/);
