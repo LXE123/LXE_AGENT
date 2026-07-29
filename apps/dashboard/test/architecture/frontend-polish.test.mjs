@@ -66,7 +66,7 @@ test("sessions persist in the application sidebar with title-only rows", () => {
   assert.match(styles, /\.sidebar-session-section \.session-index-list\s*\{[^}]*gap:\s*1px;/s);
   assert.match(styles, /\.sidebar-session-section \.session-index-item\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 28px;/s);
   assert.match(styles, /\.sidebar-session-section \.session-index-open\s*\{[^}]*padding:\s*5\.5px 2px 5\.5px 8px;/s);
-  assert.match(styles, /\.sidebar-session-section \.session-index-item \.primary-cell\s*\{[^}]*font-size:\s*0\.8375rem;/s);
+  assert.match(styles, /\.sidebar-session-section \.session-index-item \.primary-cell\s*\{[^}]*font-size:\s*0\.8375rem;[^}]*text-overflow:\s*clip;[^}]*mask-image:\s*linear-gradient\(to right,/s);
   assert.doesNotMatch(main, /sessions-split/);
   assert.doesNotMatch(styles, /\.sessions-split/);
   assert.match(main, /activeSection === "sessions";?\s*$/m);

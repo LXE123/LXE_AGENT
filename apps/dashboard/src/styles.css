@@ -7560,8 +7560,10 @@ pre {
   min-width: 0;
   color: inherit;
   font-size: 0.8375rem;
-  text-overflow: ellipsis;
+  text-overflow: clip;
   white-space: nowrap;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
 }
 
 .sidebar-session-section .empty-state {
