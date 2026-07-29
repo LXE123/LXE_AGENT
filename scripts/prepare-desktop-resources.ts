@@ -7,6 +7,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import {
+  applyDesktopProductVersion,
+  type DesktopBuilderConfiguration,
+} from "./desktop-builder-version";
 import { resolveDesktopRuntimeInputs } from "./desktop-runtime-inputs";
 import {
   approvedSkillFile,
@@ -21,9 +25,8 @@ interface BuilderFileSet {
   filter?: string[];
 }
 
-interface BuilderConfiguration {
+interface BuilderConfiguration extends DesktopBuilderConfiguration {
   extraResources?: BuilderFileSet[];
-  [key: string]: unknown;
 }
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
@@ -235,6 +238,7 @@ const extraResources: BuilderFileSet[] = [
 
 const builderConfigPath = join(repositoryRoot, "apps", "desktop", "electron-builder.yml");
 const builderConfig = Bun.YAML.parse(readFileSync(builderConfigPath, "utf8")) as BuilderConfiguration;
+applyDesktopProductVersion(builderConfig, environment.LXE_DESKTOP_PRODUCT_VERSION);
 builderConfig.extraResources = extraResources;
 writeFileSync(generatedBuilderConfig, `${JSON.stringify(builderConfig, null, 2)}\n`, "utf8");
 

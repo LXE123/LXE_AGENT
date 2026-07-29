@@ -190,7 +190,7 @@ bun run desktop:dist:win
 bun run verify:platform:win
 ```
 
-两条 Windows 打包路线共用同一包装器：准备或复用可直接发布的运行时，只构建一次当前 wheel overlay、`agent-cli.exe`、Dashboard 与 Electron，再由 electron-builder 从模块各自的生产目录直接组装 `win-unpacked`，不经过统一的大型资源 staging，也不在包装器中提前重复校验 Builder 配置。每个阶段都会输出耗时，正式路线另外生成 NSIS；产物位于 `dist/desktop/`，安装程序命名为 `LXE-Agent-<version>-windows-x64.exe`。`verify:platform:win` 的顺序固定为一次 `verify:source` 加一次 `desktop:dist:win`。
+两条 Windows 打包路线共用同一包装器：准备或复用可直接发布的运行时，只构建一次当前 wheel overlay、`agent-cli.exe`、Dashboard 与 Electron，再由 electron-builder 从模块各自的生产目录直接组装 `win-unpacked`，不经过统一的大型资源 staging，也不在包装器中提前重复校验 Builder 配置。每个阶段都会输出耗时，正式路线另外生成 NSIS；产物位于 `dist/desktop/`，安装程序命名为 `LXE-Agent-<version>-windows-x64.exe`。版本来自 Git 忽略的 `config/desktop-version.local.json`：Unpacked 复用当前版本，NSIS 成功并完成资源检查后才推进版本；仓库 `package.json` 保持占位版本 `0.1.0`。`verify:platform:win` 的顺序固定为一次 `verify:source` 加一次 `desktop:dist:win`。
 
 首次联网构建会缓存固定 URL 和版本的 Node、Python、uv、ripgrep、ExifTool 13.59、Playwright Chromium 和 WireGuard 1.1 MSI；构建流程不再对这些下载物追加固定哈希或签名门禁。后续可使用缓存离线重建，员工安装和激活阶段不会下载 WireGuard。完整的运行时锁定、缓存、资源裁剪、体积基线和平台门禁说明见 [Electron desktop packaging](../record/20260715-electron-desktop-packaging.md)。
 

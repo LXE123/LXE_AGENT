@@ -74,14 +74,23 @@ if ($LASTEXITCODE -ne 0 -or $bunVersion -ne "1.3.14") {
     throw "Bun 1.3.14 is required; found '$bunVersion' at $($bunCommand.Source)."
 }
 
-if ($PackageTarget -eq "Nsis") {
-    $versionSelector = Join-Path $repositoryRoot "apps\desktop\scripts\select-desktop-version.ts"
-    Write-Host "==> Select desktop product version"
-    & $bunCommand.Source $versionSelector
-    if ($LASTEXITCODE -ne 0) {
-        throw "Desktop product version selection failed with exit code $LASTEXITCODE."
-    }
+$versionSelector = Join-Path $repositoryRoot "apps\desktop\scripts\select-desktop-version.ts"
+$versionSelectionPath = Join-Path $repositoryRoot "build\desktop-version-selection.json"
+$versionAction = if ($PackageTarget -eq "Nsis") { "select" } else { "current" }
+$versionStage = if ($PackageTarget -eq "Nsis") { "Select desktop product version" } else { "Load desktop product version" }
+Write-Host "==> $versionStage"
+& $bunCommand.Source $versionSelector $versionAction
+if ($LASTEXITCODE -ne 0) {
+    throw "Desktop product version selection failed with exit code $LASTEXITCODE."
 }
+if (-not (Test-Path -LiteralPath $versionSelectionPath -PathType Leaf)) {
+    throw "Desktop product version selection file is missing: $versionSelectionPath"
+}
+$selection = Get-Content -LiteralPath $versionSelectionPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ([int]$selection.schema_version -ne 1 -or [string]$selection.selected_version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+    throw "Desktop product version selection is invalid: $versionSelectionPath"
+}
+$env:LXE_DESKTOP_PRODUCT_VERSION = [string]$selection.selected_version
 
 $prepareParameters = @{}
 if (-not [string]::IsNullOrWhiteSpace($RuntimeRoot)) { $prepareParameters.RuntimeRoot = $RuntimeRoot }
@@ -272,6 +281,13 @@ try {
         (Split-Path -Parent $packagedExecutable),
         $sizeReport
     )
+    if ($PackageTarget -eq "Nsis") {
+        Write-Host "==> Record successful desktop product version"
+        & $bunCommand.Source $versionSelector "commit"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Desktop product version commit failed with exit code $LASTEXITCODE."
+        }
+    }
     Write-LxeDesktopBuildTimingSummary
 }
 finally {

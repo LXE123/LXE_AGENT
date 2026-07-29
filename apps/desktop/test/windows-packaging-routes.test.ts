@@ -57,11 +57,18 @@ describe("Windows desktop packaging routes", () => {
 
     expect(wrapper).toMatch(/ValidateSet\("Nsis", "Unpacked"\)/u);
     expect(wrapper).toMatch(/\[string\]\$PackageTarget = "Nsis"/u);
-    expect(wrapper).toMatch(
-      /if \(\$PackageTarget -eq "Nsis"\) \{\s+\$versionSelector = Join-Path \$repositoryRoot "apps\\desktop\\scripts\\select-desktop-version\.ts"/u,
+    expect(wrapper).toContain(
+      '$versionSelector = Join-Path $repositoryRoot "apps\\desktop\\scripts\\select-desktop-version.ts"',
     );
-    expect(wrapper).toContain('Write-Host "==> Select desktop product version"');
-    expect(wrapper.match(/select-desktop-version\.ts/gu)).toHaveLength(1);
+    expect(wrapper).toContain(
+      '$versionAction = if ($PackageTarget -eq "Nsis") { "select" } else { "current" }',
+    );
+    expect(wrapper).toContain('"Select desktop product version"');
+    expect(wrapper).toContain('"Load desktop product version"');
+    expect(wrapper).toContain('$env:LXE_DESKTOP_PRODUCT_VERSION = [string]$selection.selected_version');
+    expect(wrapper).toMatch(
+      /"Enforce desktop resource size budgets"[\s\S]+if \(\$PackageTarget -eq "Nsis"\) \{[\s\S]+& \$bunCommand\.Source \$versionSelector "commit"/u,
+    );
     expect(wrapper).toContain('if ($PackageTarget -eq "Unpacked")');
     expect(wrapper).toContain('"dist\\desktop-unpacked"');
     expect(wrapper).toContain('"Build unpacked Electron application"');
@@ -80,6 +87,13 @@ describe("Windows desktop packaging routes", () => {
     expect(wrapper).not.toContain("audit-packaged-desktop");
     expect(wrapper).not.toContain("Re-audit packaged desktop resources after smoke");
     expect(wrapper).toContain("Write-LxeDesktopBuildTimingSummary");
+
+    const resourcePreparation = readFileSync(
+      join(repositoryRoot, "scripts", "prepare-desktop-resources.ts"),
+      "utf8",
+    );
+    expect(resourcePreparation).toContain("LXE_DESKTOP_PRODUCT_VERSION");
+    expect(resourcePreparation).toContain("applyDesktopProductVersion");
   });
 
   test("does not restore file-change manifests or supply-chain checksum gates", () => {

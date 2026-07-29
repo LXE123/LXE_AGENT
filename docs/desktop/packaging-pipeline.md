@@ -33,7 +33,9 @@ Mac 第一次运行 `desktop:dev` 或 `desktop:preview` 时，会自动下载约
 
 ### 正式打包时选择版本
 
-`desktop:dist:win` 在开始构建前读取 `apps/desktop/package.json`，显示当前桌面产品版本，并给出自动增加修订号后的版本：
+仓库中的 `apps/desktop/package.json` 固定保留占位版本 `0.1.0`，不会在本地打包时改写。Windows 打包版本保存在当前电脑的 `config/desktop-version.local.json`；该文件由脚本自动创建并被 Git 忽略，未来可以由云端版本服务替代。
+
+`desktop:dist:win` 在开始构建前读取本地文件中的最后成功版本，并给出自动增加修订号后的版本：
 
 ```text
 Current desktop version: 0.1.0
@@ -44,7 +46,9 @@ Automatically bump patch version to 0.1.1? [Y/n]:
 
 输入 `n` 可以手动填写纯数字 `x.y.z`。手动版本可以等于当前版本，方便上一次构建失败后用原版本重试；也可以高于当前版本，但不能降级。
 
-选定的版本会立即写回 `apps/desktop/package.json`，即使后续构建失败也不会自动回退。`desktop:pack:win` 是快速 Unpacked 路线，不会询问或修改版本。`verify:platform:win` 会先完成源码验证，随后进入 `desktop:dist:win` 时再询问版本。
+选中的版本通过 `LXE_DESKTOP_PRODUCT_VERSION` 注入当前打包进程，electron-builder 会把它写入应用元数据和安装包文件名。只有 NSIS 安装包生成并通过资源检查后，脚本才把版本记为本地最后成功版本；构建失败不会消耗版本号。
+
+`desktop:pack:win` 是快速 Unpacked 路线，不询问也不递增版本，但会使用同一份本地版本；如果本地文件尚不存在，两条路线都会先以 `0.1.0` 创建它。`verify:platform:win` 会先完成源码验证，随后进入 `desktop:dist:win` 时再询问版本。
 
 ## “构建”“打包”“安装”“启动”不是一回事
 

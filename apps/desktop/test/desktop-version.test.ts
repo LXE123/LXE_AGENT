@@ -1,14 +1,18 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { applyDesktopProductVersion } from "../../../scripts/desktop-builder-version";
+
 import {
   bumpDesktopPatchVersion,
+  commitDesktopVersionSelection,
   formatDesktopVersion,
   parseDesktopVersion,
+  prepareDesktopVersionSelection,
+  readDesktopVersionState,
   selectDesktopVersion,
-  updateDesktopPackageVersion,
 } from "../scripts/select-desktop-version";
 
 const temporaryRoots: string[] = [];
@@ -77,32 +81,125 @@ describe("desktop product version selection", () => {
     expect(parseDesktopVersion("0.02.0")).toBeUndefined();
   });
 
-  test("preserves the version command's real failure detail", () => {
-    expect(() => updateDesktopPackageVersion(
-      "/missing/desktop",
-      { major: 0, minor: 2, patch: 0 },
-      () => ({
-        exitCode: 7,
-        stdout: new Uint8Array(),
-        stderr: new TextEncoder().encode("actual package update failure"),
-      }),
-    )).toThrow("actual package update failure");
+  test("initializes missing local state at 0.1.0", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-desktop-version-"));
+    temporaryRoots.push(root);
+    const statePath = join(root, "config", "desktop-version.local.json");
+    const selectionPath = join(root, "build", "desktop-version-selection.json");
+
+    const selected = await prepareDesktopVersionSelection(
+      "current",
+      statePath,
+      selectionPath,
+      answers(),
+    );
+
+    expect(formatDesktopVersion(selected)).toBe("0.1.0");
+    expect(readDesktopVersionState(statePath)).toEqual({ major: 0, minor: 1, patch: 0 });
+    expect(JSON.parse(readFileSync(statePath, "utf8"))).toEqual({
+      schema_version: 1,
+      last_successful_version: "0.1.0",
+    });
   });
 
-  test("writes the selected version through Bun package metadata", () => {
-    const desktopRoot = mkdtempSync(join(tmpdir(), "lxe-desktop-version-"));
-    temporaryRoots.push(desktopRoot);
+  test("stages an NSIS version without advancing successful local state", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-desktop-version-"));
+    temporaryRoots.push(root);
+    const statePath = join(root, "config", "desktop-version.local.json");
+    const selectionPath = join(root, "build", "desktop-version-selection.json");
+
+    const selected = await prepareDesktopVersionSelection(
+      "select",
+      statePath,
+      selectionPath,
+      answers(""),
+    );
+
+    expect(formatDesktopVersion(selected)).toBe("0.1.1");
+    expect(readDesktopVersionState(statePath)).toEqual({ major: 0, minor: 1, patch: 0 });
+    expect(JSON.parse(readFileSync(selectionPath, "utf8"))).toEqual({
+      schema_version: 1,
+      selected_version: "0.1.1",
+    });
+  });
+
+  test("commits the selected version only after a successful build", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-desktop-version-"));
+    temporaryRoots.push(root);
+    const statePath = join(root, "config", "desktop-version.local.json");
+    const selectionPath = join(root, "build", "desktop-version-selection.json");
+
+    await prepareDesktopVersionSelection("select", statePath, selectionPath, answers(""));
+    commitDesktopVersionSelection(statePath, selectionPath);
+
+    expect(readDesktopVersionState(statePath)).toEqual({ major: 0, minor: 1, patch: 1 });
+  });
+
+  test("uses the current version for unpacked builds without incrementing it", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-desktop-version-"));
+    temporaryRoots.push(root);
+    const statePath = join(root, "config", "desktop-version.local.json");
+    const selectionPath = join(root, "build", "desktop-version-selection.json");
+    mkdirSync(join(root, "config"), { recursive: true });
     writeFileSync(
-      join(desktopRoot, "package.json"),
-      `${JSON.stringify({ name: "desktop-version-test", version: "0.1.0" }, null, 2)}\n`,
+      statePath,
+      `${JSON.stringify({ schema_version: 1, last_successful_version: "0.4.7" }, null, 2)}\n`,
       "utf8",
     );
 
-    updateDesktopPackageVersion(desktopRoot, { major: 0, minor: 2, patch: 0 });
+    const selected = await prepareDesktopVersionSelection(
+      "current",
+      statePath,
+      selectionPath,
+      answers(),
+    );
 
-    const manifest = JSON.parse(readFileSync(join(desktopRoot, "package.json"), "utf8")) as {
-      version: string;
-    };
-    expect(manifest.version).toBe("0.2.0");
+    expect(formatDesktopVersion(selected)).toBe("0.4.7");
+    expect(readDesktopVersionState(statePath)).toEqual({ major: 0, minor: 4, patch: 7 });
+  });
+
+  test("preserves actual parse failures from an invalid local state file", () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-desktop-version-"));
+    temporaryRoots.push(root);
+    const statePath = join(root, "desktop-version.local.json");
+    writeFileSync(statePath, "{ definitely not json", "utf8");
+
+    expect(() => readDesktopVersionState(statePath)).toThrow(/desktop version state.*JSON/iu);
+  });
+
+  test("never modifies the tracked desktop package manifest", async () => {
+    const root = mkdtempSync(join(tmpdir(), "lxe-desktop-version-"));
+    temporaryRoots.push(root);
+    const statePath = join(root, "config", "desktop-version.local.json");
+    const selectionPath = join(root, "build", "desktop-version-selection.json");
+    const packagePath = join(import.meta.dir, "..", "package.json");
+    const before = readFileSync(packagePath, "utf8");
+
+    await prepareDesktopVersionSelection("select", statePath, selectionPath, answers(""));
+    commitDesktopVersionSelection(statePath, selectionPath);
+
+    expect(readFileSync(packagePath, "utf8")).toBe(before);
+    expect(JSON.parse(before)).toMatchObject({ version: "0.1.0" });
+    expect(existsSync(statePath)).toBeTrue();
+  });
+
+  test("injects the local version into generated electron-builder metadata", () => {
+    const builderConfig = { extraMetadata: { release_channel: "local" } };
+
+    applyDesktopProductVersion(builderConfig, "0.7.3");
+
+    expect(builderConfig.extraMetadata).toEqual({
+      release_channel: "local",
+      version: "0.7.3",
+    });
+    expect(() => applyDesktopProductVersion({}, undefined)).toThrow("<missing>");
+    expect(() => applyDesktopProductVersion({}, "v0.7.3")).toThrow("v0.7.3");
+  });
+
+  test("ignores the machine-local desktop version state", () => {
+    const repositoryRoot = join(import.meta.dir, "..", "..", "..");
+    const gitignore = readFileSync(join(repositoryRoot, ".gitignore"), "utf8");
+
+    expect(gitignore).toContain("config/desktop-version.local.json");
   });
 });
