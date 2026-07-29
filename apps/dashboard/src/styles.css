@@ -4863,9 +4863,13 @@ h1 {
   text-align: left;
 }
 
-.tool-op-summary:hover,
+.tool-op-summary:not(:disabled):hover,
 .tool-op-summary:focus-visible {
   background: var(--surface);
+}
+
+.tool-op-summary:disabled {
+  cursor: default;
 }
 
 .tool-op-summary:focus-visible {
@@ -4877,6 +4881,13 @@ h1 {
   flex: 0 0 auto;
   color: var(--muted);
   font-weight: 500;
+}
+
+.tool-op-status {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
 }
 
 .tool-op-argument {
@@ -4925,13 +4936,6 @@ h1 {
   gap: 4px;
   padding: 4px 10px 10px;
   background: var(--surface-subtle);
-}
-
-.live-tool-operation-detail {
-  max-width: 100%;
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .tool-turn-chevron.expanded {

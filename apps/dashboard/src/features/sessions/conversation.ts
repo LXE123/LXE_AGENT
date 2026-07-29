@@ -139,8 +139,17 @@ export interface ToolOperation {
   action: ToolAction;
   target: string;
   status: "running" | "success" | "error";
+  expandable?: boolean;
   call: unknown;
   result: unknown;
+}
+
+/** A live row is only expandable when the stream contains real output. */
+export function hasLiveToolOperationDetails(step: unknown): boolean {
+  if (!isRecord(step)) return false;
+  const result = isRecord(step.result_block) ? String(step.result_block.content ?? "").trim() : "";
+  const error = isRecord(step.error_block) ? String(step.error_block.content ?? "").trim() : "";
+  return Boolean(result || error);
 }
 
 export type ToolAction =

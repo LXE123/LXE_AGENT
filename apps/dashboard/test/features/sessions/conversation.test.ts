@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildConversationItems,
+  hasLiveToolOperationDetails,
   hasReaderFacingText,
   hasToolError,
   summarizeToolOperations,
@@ -15,6 +16,13 @@ import type { SessionMessage } from "../../../src/api/payloads";
 describe("session conversation projection", () => {
   const group = (displayGroupId: string, messages: Array<Omit<SessionMessage, "display_group_id">>): SessionMessage[] =>
     messages.map((message) => ({ ...message, display_group_id: displayGroupId }));
+
+  test("only treats non-empty live tool results and errors as expandable", () => {
+    expect(hasLiveToolOperationDetails({ status: "running" })).toBe(false);
+    expect(hasLiveToolOperationDetails({ status: "success", result_block: { content: "" } })).toBe(false);
+    expect(hasLiveToolOperationDetails({ status: "success", result_block: { content: "ok" } })).toBe(true);
+    expect(hasLiveToolOperationDetails({ status: "error", error_block: { content: "failed" } })).toBe(true);
+  });
 
   test("folds thinking and tools into one response while leaving the final answer outside", () => {
     const items = buildConversationItems([

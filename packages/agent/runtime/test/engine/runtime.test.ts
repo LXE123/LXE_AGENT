@@ -1154,9 +1154,9 @@ describe("TypeScriptAgentRuntime", () => {
     await runtime.stop();
   });
 
-  test("shortens tool paths for a Feishu card but not for the desktop window", async () => {
+  test("keeps desktop tool paths local and includes successful live results", async () => {
     const artifact = "/private/var/artifacts/report.json";
-    const stepDetailFor = async (platform: string): Promise<string> => {
+    const streamFor = async (platform: string): Promise<{ detail: string; results: string[] }> => {
       const responses: RuntimeTurnResponse[] = [
         {
           content: [{ type: "tool_call", id: "tool-1", name: "read", arguments: { path: artifact } }],
@@ -1193,19 +1193,27 @@ describe("TypeScriptAgentRuntime", () => {
         session_key: `agent:main:${platform}:session:s1`,
       }, handle());
       await runtime.stop();
-      const details = new Set(emitted.flatMap((request) => request.tool_steps)
-        .filter((item) => item?.name === "read")
-        .map((item) => String(item?.detail ?? "")));
+      const steps = emitted.flatMap((request) => request.tool_steps)
+        .filter((item) => item?.name === "read");
+      const details = new Set(steps.map((item) => String(item?.detail ?? "")));
       // Running and finished steps must agree, or the path changes under the
       // reader the moment the call completes.
       expect(details.size).toBe(1);
-      return [...details][0]!;
+      return {
+        detail: [...details][0]!,
+        // Stream frames are cumulative, so the same finished step can appear
+        // in both a delta and the terminal frame.
+        results: [...new Set(steps.flatMap((item) => item?.result_block?.content ?? []))],
+      };
     };
 
     // A card is read in a group chat by people who are not on this machine.
-    expect(await stepDetailFor("feishu")).toBe(".../report.json");
+    expect(await streamFor("feishu")).toEqual({ detail: ".../report.json", results: [] });
     // The desktop window is this machine's own owner reading their own paths.
-    expect(await stepDetailFor("desktop")).toBe(artifact);
+    const desktop = await streamFor("desktop");
+    expect(desktop.detail).toBe(artifact);
+    expect(desktop.results).toHaveLength(1);
+    expect(desktop.results[0]).toContain("ok");
   });
 
   test("streams a CLI turn through the runtime emitter", async () => {

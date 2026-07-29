@@ -227,7 +227,12 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
             model: descriptor?.model ?? this.options.display.model,
             contextWindowTokens: descriptor?.contextWindowTokens ?? this.options.display.contextWindowTokens,
           } : {}),
-          toolUseMode: this.options.display?.toolUseMode ?? "on",
+          // Desktop owns its own expandable tool-result presentation. Do not
+          // let the Feishu card setting strip successful results from the
+          // local live view; other channels keep their configured behaviour.
+          toolUseMode: turnPlatform === "desktop"
+            ? "full"
+            : (this.options.display?.toolUseMode ?? "on"),
           // Path shortening exists because a Feishu card is read in a group
           // chat by people who are not on this machine - hence the FEISHU_
           // setting behind it. The desktop window is the machine's own owner

@@ -149,6 +149,9 @@ test("thinking and tools fold into one response process while the final answer s
   assert.match(view, /className="tool-op-argument"/);
   assert.match(view, /function ProcessToolGroup[\s\S]*?useState\(false\)/);
   assert.doesNotMatch(view, /openOperations\.get\(operation\.key\) \?\? operation\.status === "error"/);
+  assert.match(view, /expandable: hasLiveToolOperationDetails\(step\)/);
+  assert.match(view, /disabled=\{!expandable\}/);
+  assert.doesNotMatch(view, /live-tool-operation-detail/);
 });
 
 test("a tool reads the same live as it does in history", () => {

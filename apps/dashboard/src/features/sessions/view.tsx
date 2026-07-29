@@ -29,6 +29,7 @@ import { EmptyState } from "../../shared/components";
 import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText } from "../../shared/content";
 import {
   buildConversationItems,
+  hasLiveToolOperationDetails,
   hasReaderFacingText,
   roleLabel,
   summarizeToolOperations,
@@ -409,34 +410,44 @@ function ToolOperationList({
   };
   return (
     <ul className="tool-op-list">
-      {operations.map((operation) => (
-        <li className={`tool-op state-${operation.status}`} key={operation.key}>
-          <button
-            aria-expanded={isOpen(operation)}
-            className="tool-op-summary"
-            onClick={() => toggle(operation)}
-            title={[t.message.toolActions[operation.action], operation.target].filter(Boolean).join(" ")}
-            type="button"
-          >
-            <span className="tool-op-name">{t.message.toolActions[operation.action]}</span>
-            {operation.target ? <span className="tool-op-argument">{operation.target}</span> : null}
-            {operation.status === "running"
-              ? <LoaderCircle aria-hidden="true" className="conversation-spinner tool-op-mark" size={13} />
-              : null}
-            {operation.status === "error"
-              ? <CircleAlert aria-hidden="true" className="tool-op-mark error" size={13} />
-              : null}
-            <ChevronRight
-              aria-hidden="true"
-              className={isOpen(operation) ? "tool-op-chevron expanded" : "tool-op-chevron"}
-              size={14}
-            />
-          </button>
-          {isOpen(operation) ? (
-            <div className="tool-op-body">{renderOperationBody(operation)}</div>
-          ) : null}
-        </li>
-      ))}
+      {operations.map((operation) => {
+        const expandable = operation.expandable !== false;
+        const expanded = expandable && isOpen(operation);
+        return (
+          <li className={`tool-op state-${operation.status}`} key={operation.key}>
+            <button
+              aria-expanded={expandable ? expanded : undefined}
+              className="tool-op-summary"
+              disabled={!expandable}
+              onClick={() => toggle(operation)}
+              title={[t.message.toolActions[operation.action], operation.target].filter(Boolean).join(" ")}
+              type="button"
+            >
+              <span className="tool-op-name">{t.message.toolActions[operation.action]}</span>
+              {operation.target ? <span className="tool-op-argument">{operation.target}</span> : null}
+              {operation.status === "running"
+                ? <LoaderCircle aria-hidden="true" className="conversation-spinner tool-op-mark" size={13} />
+                : null}
+              {operation.status === "error"
+                ? <CircleAlert aria-hidden="true" className="tool-op-mark error" size={13} />
+                : null}
+              {operation.status === "success" && !expandable
+                ? <span className="tool-op-status">{t.conversation.completed}</span>
+                : null}
+              {expandable ? (
+                <ChevronRight
+                  aria-hidden="true"
+                  className={expanded ? "tool-op-chevron expanded" : "tool-op-chevron"}
+                  size={14}
+                />
+              ) : null}
+            </button>
+            {expanded ? (
+              <div className="tool-op-body">{renderOperationBody(operation)}</div>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -587,6 +598,7 @@ function liveToolOperations(steps: LiveToolStep[]): ToolOperation[] {
       argument,
       ...toolOperationPresentation(name, argument),
       status: step.status,
+      expandable: hasLiveToolOperationDetails(step),
       call: undefined,
       result: step,
     };
@@ -597,7 +609,6 @@ function LiveToolOperationBody({ operation }: { operation: ToolOperation }) {
   const step = operation.result as LiveToolStep;
   return (
     <>
-      {step.detail ? <pre className="message-json live-tool-operation-detail">{step.detail}</pre> : null}
       {step.result_block ? (
         <ToolResultBlock block={{ type: "tool_result", content: step.result_block.content }} />
       ) : null}
