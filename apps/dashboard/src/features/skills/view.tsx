@@ -133,7 +133,6 @@ export function SkillsView({
                         >
                           <div className="item-heading">
                             <h3>{skill.name}</h3>
-                            <ChevronRight className="chevron" size={18} />
                           </div>
                           <p className="description">{skill.description}</p>
                           {skill.commands.length || skill.references.length ? (
