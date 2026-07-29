@@ -7475,7 +7475,7 @@ pre {
 }
 
 .sidebar-session-section .session-index-item .primary-cell {
-  color: color-mix(in srgb, var(--sidebar-ink) 82%, var(--sidebar-ink-soft));
+  color: var(--sidebar-ink);
 }
 
 .sidebar-session-section .session-index-item.active .primary-cell {
