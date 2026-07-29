@@ -5110,7 +5110,7 @@ h1 {
 .message-markdown h1,
 .message-markdown h2,
 .message-markdown h3 {
-  margin: 12px 0 6px;
+  margin: 10px 0 5px;
   color: var(--text-strong);
   line-height: 1.28;
 }
@@ -7924,7 +7924,7 @@ pre {
 .conversation-feed .message-markdown table,
 .conversation-feed .message-markdown pre,
 .conversation-feed .message-markdown hr {
-  margin-bottom: 10px;
+  margin-bottom: 7px;
 }
 
 .process-step {
