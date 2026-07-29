@@ -7823,7 +7823,7 @@ pre {
 .response-process-body > .message-markdown,
 .process-message-content > .message-markdown {
   margin: 0;
-  color: var(--muted);
+  color: var(--text);
   font-size: 0.8125rem;
 }
 
