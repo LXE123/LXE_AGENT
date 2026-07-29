@@ -35,6 +35,7 @@ describe("preload bridge", () => {
       "listInputAssets",
       "onCloudStateChanged",
       "onConversationEvent",
+      "onConversationStreamEvent",
       "onDashboardInvalidated",
       "onStatusChanged",
       "onSyntheticPerformerTaskChanged",
@@ -111,6 +112,16 @@ describe("preload bridge", () => {
     expect(conversationSession).toBe("session-1");
     unsubscribeConversation();
     expect(listeners.has(IPC_CHANNELS.conversationEvent)).toBe(false);
+    let streamSequence = 0;
+    const unsubscribeStream = bridge.desktop.onConversationStreamEvent((event) => {
+      streamSequence = event.batch.seq;
+    });
+    listeners.get(IPC_CHANNELS.conversationStreamEvent)?.({}, {
+      batch: { session_id: "session-1", turn_id: "turn-1", emit_id: "emit-1", seq: 3, mutations: [] },
+    });
+    expect(streamSequence).toBe(3);
+    unsubscribeStream();
+    expect(listeners.has(IPC_CHANNELS.conversationStreamEvent)).toBe(false);
     const unsubscribe = bridge.desktop.onStatusChanged(() => undefined);
     expect(listeners.has(IPC_CHANNELS.statusChanged)).toBe(true);
     unsubscribe();

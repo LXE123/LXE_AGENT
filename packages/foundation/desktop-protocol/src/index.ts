@@ -1,6 +1,8 @@
 import {
   validateAgentJob,
+  validateDesktopStreamBatchRequest,
   type AgentJob,
+  type DesktopStreamBatchRequest,
   type EmitRequest,
   type JsonObject,
   type JsonValue,
@@ -12,11 +14,15 @@ import {
   type AgentDashboardRpcCall,
   type DashboardTransport,
 } from "./dashboard-rpc";
-import type { DesktopConversationEvent, DesktopInputAttachmentPayload } from "./dashboard-rpc";
+import type {
+  DesktopConversationEvent,
+  DesktopConversationStreamEvent,
+  DesktopInputAttachmentPayload,
+} from "./dashboard-rpc";
 
 export * from "./dashboard-rpc";
 
-export const AGENT_PROTOCOL_VERSION = 12 as const;
+export const AGENT_PROTOCOL_VERSION = 13 as const;
 
 export class AgentProtocolError extends Error {
   readonly code = "AgentProtocolError";
@@ -181,6 +187,13 @@ export type AgentEvent =
       thread_id: string;
       turn_id: string;
       payload: EmitRequest;
+    }
+  | {
+      version: typeof AGENT_PROTOCOL_VERSION;
+      type: "conversation.stream.delta";
+      thread_id: string;
+      turn_id: string;
+      payload: DesktopStreamBatchRequest;
     }
   | {
       version: typeof AGENT_PROTOCOL_VERSION;
@@ -541,6 +554,7 @@ export interface LxeDesktopBridge {
     ): () => void;
     onCloudStateChanged(listener: (state: DesktopCloudState) => void): () => void;
     onConversationEvent(listener: (event: DesktopConversationEvent) => void): () => void;
+    onConversationStreamEvent(listener: (event: DesktopConversationStreamEvent) => void): () => void;
     onDashboardInvalidated(listener: (invalidation: DesktopDashboardInvalidation) => void): () => void;
     onStatusChanged(listener: (health: DesktopHealth) => void): () => void;
   };
@@ -566,6 +580,7 @@ const agentCommands = new Set<AgentCommand>([
 ]);
 const agentEventTypes = new Set<AgentEvent["type"]>([
   "item.completed",
+  "conversation.stream.delta",
   "typing.changed",
   "agent.wake",
   "session.changed",
@@ -706,6 +721,21 @@ export function parseAgentWireMessage(line: string): AgentWireMessage {
         throw new Error("agent protocol session.changed.changes contains an unsupported change type");
       }
       payload.changes = changes;
+    }
+    if (object.type === "conversation.stream.delta") {
+      if (typeof object.thread_id !== "string" || !object.thread_id.trim()
+        || typeof object.turn_id !== "string" || !object.turn_id.trim()) {
+        throw new Error("agent protocol conversation.stream.delta identifiers must be non-empty strings");
+      }
+      const payload = objectValue(object.payload)!;
+      if (!validateDesktopStreamBatchRequest(payload)) {
+        throw new Error(
+          `agent protocol conversation.stream.delta payload is invalid: ${validateDesktopStreamBatchRequest.errors?.[0]?.message ?? "invalid request"}`,
+        );
+      }
+      if (payload.session_id !== object.thread_id || payload.turn_id !== object.turn_id) {
+        throw new Error("agent protocol conversation.stream.delta envelope does not match payload");
+      }
     }
     return object as AgentEvent;
   }

@@ -1,4 +1,11 @@
-import type { AgentJob, EmitRequest, JsonObject, JsonValue, WorkspaceContext } from "@lxe/protocol";
+import type {
+  AgentJob,
+  DesktopStreamBatchRequest,
+  EmitRequest,
+  JsonObject,
+  JsonValue,
+  WorkspaceContext,
+} from "@lxe/protocol";
 import type { RuntimeWireTraceAttempt } from "../providers/wire-trace";
 import type { WorkspaceLease, WorkspaceSnapshot } from "../workspace/instance-manager";
 
@@ -218,6 +225,7 @@ export interface ToolExecutionResult {
 
 export interface RuntimeEmitter {
   emit(request: EmitRequest): Promise<void>;
+  desktopStream?(request: DesktopStreamBatchRequest): Promise<void>;
   typing(request: {
     session_id: string;
     turn_id: string;

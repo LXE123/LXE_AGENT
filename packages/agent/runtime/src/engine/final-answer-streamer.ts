@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { DisplayMetrics, EmitRequest, ToolStep, TurnDisplayPhase, TurnProcessPart } from "@lxe/protocol";
+import type {
+  DesktopStreamBatchRequest,
+  DesktopStreamMutation,
+  DisplayMetrics,
+  EmitRequest,
+  ToolStep,
+  TurnDisplayPhase,
+  TurnProcessPart,
+} from "@lxe/protocol";
 import { buildToolDisplayStep } from "../tooling/tool-display";
 import type { RuntimeStreamEvent, ToolCallBlock } from "./types";
 
@@ -20,8 +28,10 @@ export interface FinalAnswerStreamerOptions {
   turnId: string;
   responseRouteId: string;
   emit(request: EmitRequest): Promise<boolean>;
+  emitDesktopBatch?(request: DesktopStreamBatchRequest): Promise<boolean>;
   emitId?: string;
   minIntervalMs?: number;
+  desktopBatchIntervalMs?: number;
   now?: () => number;
   delay?: (milliseconds: number) => Promise<void>;
   model?: string;
@@ -46,6 +56,7 @@ export class FinalAnswerStreamer {
   private readonly minIntervalMs: number;
   private readonly now: () => number;
   private readonly delay: (milliseconds: number) => Promise<void>;
+  private readonly desktopBatchIntervalMs: number;
   private content = "";
   private thinking = "";
   private redactedThinkingCount = 0;
@@ -69,6 +80,8 @@ export class FinalAnswerStreamer {
   private deltaFailed = false;
   private terminal = false;
   private pending: Promise<void> | undefined;
+  private batchDirty = false;
+  private queuedMutations: DesktopStreamMutation[] = [];
   private readonly startedAt: number;
   private inputTokens = 0;
   private outputTokens = 0;
@@ -81,6 +94,7 @@ export class FinalAnswerStreamer {
   constructor(private readonly options: FinalAnswerStreamerOptions) {
     this.emitId = String(options.emitId ?? "").trim() || randomUUID().replaceAll("-", "");
     this.minIntervalMs = Math.max(0, Math.trunc(options.minIntervalMs ?? 150));
+    this.desktopBatchIntervalMs = Math.max(0, Math.trunc(options.desktopBatchIntervalMs ?? 16));
     this.now = options.now ?? Date.now;
     this.delay = options.delay ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
     this.startedAt = this.now();
@@ -142,6 +156,9 @@ export class FinalAnswerStreamer {
     this.cacheReadInputTokens += cacheRead;
     this.cacheCreationInputTokens += cacheCreation;
     this.contextTokens = input + cacheRead + cacheCreation;
+    // Legacy cumulative channels historically pick usage up with the next
+    // content/lifecycle frame. Only Desktop needs a metrics-only mutation.
+    if (this.options.emitDesktopBatch) this.scheduleDelta();
   }
 
   async pushDelta(delta: { text?: string; thinking?: string }): Promise<void> {
@@ -188,7 +205,10 @@ export class FinalAnswerStreamer {
       });
       this.generationPartIds.push(partId);
     } else if (terminal) {
-      for (const part of textParts) part.presentation = "final";
+      for (const part of textParts) {
+        part.presentation = "final";
+        this.queuePartUpdated(part);
+      }
     }
     this.scheduleDelta();
   }
@@ -239,7 +259,10 @@ export class FinalAnswerStreamer {
     });
     this.upsertTool(step);
     const part = this.processPart(this.toolPartIds.get(call.id) ?? "");
-    if (part?.type === "tool") part.tool_step = { ...step };
+    if (part?.type === "tool") {
+      part.tool_step = { ...step };
+      this.queuePartUpdated(part);
+    }
     this.scheduleDelta();
   }
 
@@ -262,12 +285,15 @@ export class FinalAnswerStreamer {
 
   async cancel(): Promise<boolean> {
     this.completeOpenParts();
-    this.terminal = true;
     this.displayStatus = "cancelled";
-    await this.pending;
-    if (!this.delivered) return false;
-    this.content = this.lastSentContent;
-    return this.emitFrame("final");
+    if (!this.options.emitDesktopBatch) {
+      this.terminal = true;
+      await this.pending;
+      if (!this.delivered) return false;
+      this.content = this.lastSentContent;
+      return this.emitFrame("final");
+    }
+    return this.close("final");
   }
 
   private async close(state: "final" | "error"): Promise<boolean> {
@@ -276,13 +302,25 @@ export class FinalAnswerStreamer {
     this.finishTimers();
     this.finalizeRunningTools();
     await this.pending;
-    if (!this.deltaFailed && this.snapshotKey() !== this.lastSent) await this.emitFrame("delta");
-    if (this.deltaFailed && !this.delivered) return false;
+    if (this.options.emitDesktopBatch) {
+      if (!this.deltaFailed && (this.batchDirty || this.queuedMutations.length > 0)) {
+        await this.emitDesktopBatch(state);
+      }
+    } else if (!this.deltaFailed && this.snapshotKey() !== this.lastSent) {
+      await this.emitFrame("delta");
+    }
+    if (!this.options.emitDesktopBatch && this.deltaFailed && !this.delivered) return false;
     return this.emitFrame(state);
   }
 
   private scheduleDelta(): void {
-    if (this.terminal || this.deltaFailed || this.pending || this.snapshotKey() === this.lastSent) return;
+    if (this.terminal || this.deltaFailed) return;
+    if (this.options.emitDesktopBatch) {
+      this.batchDirty = true;
+      this.scheduleDesktopBatch();
+      return;
+    }
+    if (this.pending || this.snapshotKey() === this.lastSent) return;
     const elapsed = this.lastAttemptAt ? this.now() - this.lastAttemptAt : this.minIntervalMs;
     const waitMs = Math.max(0, this.minIntervalMs - elapsed);
     this.pending = (async () => {
@@ -294,6 +332,51 @@ export class FinalAnswerStreamer {
       this.pending = undefined;
       if (!this.terminal && !this.deltaFailed && this.snapshotKey() !== this.lastSent) this.scheduleDelta();
     });
+  }
+
+  private scheduleDesktopBatch(): void {
+    if (this.terminal || this.deltaFailed || this.pending || !this.batchDirty) return;
+    const elapsed = this.lastAttemptAt ? this.now() - this.lastAttemptAt : 0;
+    const waitMs = Math.max(0, this.desktopBatchIntervalMs - elapsed);
+    this.pending = (async () => {
+      if (waitMs > 0) await this.delay(waitMs);
+      if (!this.terminal && !this.deltaFailed && this.batchDirty) await this.emitDesktopBatch("delta");
+    })().finally(() => {
+      this.pending = undefined;
+      if (!this.terminal && !this.deltaFailed && this.batchDirty) this.scheduleDesktopBatch();
+    });
+  }
+
+  private async emitDesktopBatch(state: "delta" | "final" | "error"): Promise<boolean> {
+    const mutations = this.queuedMutations;
+    this.queuedMutations = [];
+    this.batchDirty = false;
+    mutations.push({
+      kind: "stream_updated",
+      state,
+      display_metrics: { ...this.snapshot().displayMetrics },
+    });
+    this.sequence += 1;
+    this.lastAttemptAt = this.now();
+    let ok = false;
+    try {
+      ok = await this.options.emitDesktopBatch?.({
+        session_id: this.options.sessionId,
+        turn_id: this.options.turnId,
+        response_route_id: this.options.responseRouteId,
+        emit_id: this.emitId,
+        seq: this.sequence,
+        mutations,
+      }) ?? false;
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      this.deltaFailed = true;
+      return false;
+    }
+    this.delivered = true;
+    return true;
   }
 
   private async emitFrame(state: "delta" | "final" | "error"): Promise<boolean> {
@@ -409,12 +492,17 @@ export class FinalAnswerStreamer {
     this.startPart(type, partId);
     const part = this.processPart(partId);
     if (!part || part.type !== type) return;
-    part.text += String(value ?? "");
+    const delta = String(value ?? "");
+    part.text += delta;
+    if (delta) this.queuePartDelta(part.part_id, delta);
   }
 
   private endPart(type: "text" | "thinking", partId: string): void {
     const part = this.processPart(partId);
-    if (part?.type === type) part.status = "completed";
+    if (part?.type === type) {
+      part.status = "completed";
+      this.queuePartUpdated(part);
+    }
     if (type === "text" && this.activeTextPartId === partId) this.activeTextPartId = "";
     if (type === "thinking" && this.activeThinkingPartId === partId) this.activeThinkingPartId = "";
     this.scheduleDelta();
@@ -429,6 +517,7 @@ export class FinalAnswerStreamer {
     if (this.processPartIndexes.has(part.part_id)) return;
     this.processPartIndexes.set(part.part_id, this.processParts.length);
     this.processParts.push(part);
+    this.queuePartUpdated(part);
   }
 
   private processPart(partId: string): TurnProcessPart | undefined {
@@ -458,7 +547,30 @@ export class FinalAnswerStreamer {
           status: "error",
           duration_ms: Math.max(part.tool_step.duration_ms, this.toolElapsedMs),
         };
+        this.queuePartUpdated(part);
       }
     }
+  }
+
+  private queuePartDelta(partId: string, delta: string): void {
+    if (!this.options.emitDesktopBatch || !delta) return;
+    const previous = this.queuedMutations.at(-1);
+    if (previous?.kind === "part_delta" && previous.part_id === partId && previous.field === "text") {
+      previous.delta += delta;
+      return;
+    }
+    this.queuedMutations.push({ kind: "part_delta", part_id: partId, field: "text", delta });
+  }
+
+  private queuePartUpdated(part: TurnProcessPart): void {
+    if (!this.options.emitDesktopBatch) return;
+    const clone = cloneProcessParts([part])[0];
+    if (!clone) return;
+    const previous = this.queuedMutations.at(-1);
+    if (previous?.kind === "part_updated" && previous.part.part_id === part.part_id) {
+      previous.part = clone;
+      return;
+    }
+    this.queuedMutations.push({ kind: "part_updated", part: clone });
   }
 }

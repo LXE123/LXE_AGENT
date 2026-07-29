@@ -41,7 +41,8 @@ test("the transcript stays scrollable back through history", () => {
   assert.match(view, /rootMargin: "120px 0px 0px 0px"/);
   assert.match(view, /previousHeight[\s\S]*?transcript\.scrollHeight - previousHeight/);
   // Following every stream delta would drag the reader back down mid-scroll.
-  assert.match(view, /if \(!loadingOlderRef\.current && pinnedToBottom\) scrollToLatest\(\)/);
+  assert.match(view, /if \(loadingOlderRef\.current \|\| !pinnedToBottom\) return;/);
+  assert.match(view, /requestAnimationFrame\(scrollToLatest\)/);
   assert.match(view, /conversation-jump-latest/);
 });
 
@@ -120,6 +121,9 @@ test("dashboard sends through Main, restores activity, and merges cursor history
   assert.match(main, /operation: "sessions\.send"/);
   assert.match(main, /operation: "sessions\.stop"/);
   assert.match(main, /onConversationEvent/);
+  assert.match(main, /onConversationStreamEvent/);
+  assert.match(main, /requestAnimationFrame\(flush\)/);
+  assert.match(main, /applyDesktopStreamBatch\(activity, batch\)/);
   assert.match(main, /setQueryData\(\s*dashboardQueryKeys\.sessions\.activity\(activity\.session_id\)/s);
   assert.match(main, /useConversationActivityQuery/);
   assert.doesNotMatch(main, /conversationActivities|setConversationActivities/);
@@ -150,7 +154,8 @@ test("thinking and tools fold into one response process while the final answer s
   assert.match(view, /function ProcessToolGroup[\s\S]*?useState\(false\)/);
   assert.doesNotMatch(view, /openOperations\.get\(operation\.key\) \?\? operation\.status === "error"/);
   assert.match(view, /expandable: hasLiveToolOperationDetails\(step\)/);
-  assert.match(view, /buildLiveProcessItems\(stream\?\.process_parts \?\? \[\]\)/);
+  assert.match(view, /<LiveProcessBody parts=\{processParts\}/);
+  assert.match(view, /function liveTimeline\(parts: TurnProcessPart\[\]\)/);
   assert.match(conversation, /previous\?\.type === "tool_group"/);
   assert.match(conversation, /part\.presentation === "final"/);
   assert.doesNotMatch(view, /stream\?\.tool_steps\.length/);

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { DesktopStreamBatchRequest } from "@lxe/protocol";
 import {
   AGENT_PROTOCOL_VERSION,
   AgentProtocolError,
@@ -59,6 +60,44 @@ describe("desktop agent protocol", () => {
         payload,
       }))).toThrow("session.changed");
     }
+  });
+
+  test("strictly parses desktop stream batches and matching envelopes", () => {
+    const payload: DesktopStreamBatchRequest = {
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      emit_id: "emit-1",
+      seq: 1,
+      mutations: [{
+        kind: "stream_updated",
+        state: "delta",
+        display_metrics: {
+          status: "running",
+          phase: "waiting_model",
+          elapsed_ms: 10,
+          model: "model",
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          context_tokens: 0,
+          context_window_tokens: 100,
+        },
+      }],
+    };
+    const event = {
+      version: AGENT_PROTOCOL_VERSION,
+      type: "conversation.stream.delta",
+      thread_id: "session-1",
+      turn_id: "turn-1",
+      payload,
+    } as const;
+    expect(parseAgentWireMessage(JSON.stringify(event))).toEqual(event);
+    expect(() => parseAgentWireMessage(JSON.stringify({ ...event, turn_id: "turn-other" })))
+      .toThrow("envelope does not match");
+    expect(() => parseAgentWireMessage(JSON.stringify({ ...event, payload: { ...payload, seq: 0 } })))
+      .toThrow("payload is invalid");
   });
 
   test("strictly parses run_turn results", () => {

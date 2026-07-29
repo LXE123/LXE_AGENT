@@ -223,6 +223,9 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
           turnId: job.job_id,
           responseRouteId: job.response_route_id,
           emit: (request) => this.emitBestEffort(request, "stream"),
+          ...(turnPlatform === "desktop" && this.options.emitter.desktopStream
+            ? { emitDesktopBatch: (request) => this.emitDesktopStreamBestEffort(request) }
+            : {}),
           ...(this.options.display ? {
             model: descriptor?.model ?? this.options.display.model,
             contextWindowTokens: descriptor?.contextWindowTokens ?? this.options.display.contextWindowTokens,
@@ -770,6 +773,25 @@ export class TypeScriptAgentRuntime implements AgentRuntime {
     } catch (error) {
       this.logger.warn("outbound delivery failed", {
         phase,
+        session_id: request.session_id,
+        turn_id: request.turn_id,
+        response_route_id: request.response_route_id,
+        emit_id: request.emit_id,
+        error,
+      });
+      return false;
+    }
+  }
+
+  private async emitDesktopStreamBestEffort(
+    request: Parameters<NonNullable<RuntimeEmitter["desktopStream"]>>[0],
+  ): Promise<boolean> {
+    try {
+      await this.options.emitter.desktopStream?.(request);
+      return true;
+    } catch (error) {
+      this.logger.warn("desktop stream delivery failed", {
+        phase: "stream_delta",
         session_id: request.session_id,
         turn_id: request.turn_id,
         response_route_id: request.response_route_id,

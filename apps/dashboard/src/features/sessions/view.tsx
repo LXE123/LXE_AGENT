@@ -29,7 +29,6 @@ import { EmptyState } from "../../shared/components";
 import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText } from "../../shared/content";
 import {
   buildConversationItems,
-  buildLiveProcessItems,
   hasLiveToolOperationDetails,
   hasReaderFacingText,
   liveFinalText,
@@ -44,7 +43,6 @@ import { useUiText } from "../../shared/i18n";
 import type { UiText } from "../../shared/i18n";
 import type {
   ConversationProcessItem,
-  ConversationLiveProcessItem,
   ConversationResponseGroup,
   ConversationToolGroup,
   DesktopConversationActivityPayload,
@@ -55,7 +53,8 @@ import type {
   SessionDetailPayload,
   SessionMessage,
   SessionPayload,
-  SourceSummary
+  SourceSummary,
+  TurnProcessPart
 } from "../../api/payloads";
 import { markdownComponents } from "../../shared/ui/markdown";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
@@ -116,15 +115,56 @@ function StatTile({
   );
 }
 
-function MessageMarkdown({ text }: { text: string }) {
+const TEXT_RENDER_PACE_MS = 24;
+const TEXT_RENDER_IMMEDIATE = 512;
+const TEXT_RENDER_SNAP = /[\s.,!?;:)\]]/;
+
+function pacedTextEnd(text: string, start: number): number {
+  const remaining = text.length - start;
+  const step = remaining <= 12 ? 2 : remaining <= 48 ? 4 : remaining <= 96 ? 8 : Math.min(256, Math.ceil(remaining / 4));
+  const end = Math.min(text.length, start + step);
+  const limit = Math.min(text.length, end + 8);
+  for (let index = end; index < limit; index += 1) {
+    if (TEXT_RENDER_SNAP.test(text[index] ?? "")) return index + 1;
+  }
+  return end;
+}
+
+function usePacedText(text: string, streaming: boolean): string {
+  const [shown, setShown] = useState(() => streaming && text.length > TEXT_RENDER_IMMEDIATE ? "" : text);
+  useEffect(() => {
+    if (!streaming || !text.startsWith(shown) || text.length <= shown.length) {
+      if (shown !== text) setShown(text);
+      return;
+    }
+    if (text.length - shown.length <= TEXT_RENDER_IMMEDIATE) {
+      setShown(text);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setShown(text.slice(0, pacedTextEnd(text, shown.length)));
+    }, TEXT_RENDER_PACE_MS);
+    return () => window.clearTimeout(timer);
+  }, [shown, streaming, text]);
+  return streaming ? shown : text;
+}
+
+const MessageMarkdown = React.memo(function MessageMarkdown({
+  text,
+  streaming = false,
+}: {
+  text: string;
+  streaming?: boolean;
+}) {
+  const visibleText = usePacedText(text, streaming);
   return (
     <div className="message-markdown">
       <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
-        {text}
+        {visibleText}
       </ReactMarkdown>
     </div>
   );
-}
+});
 
 function MessageBlock({ block }: { block: unknown }) {
   const t = useUiText();
@@ -647,12 +687,76 @@ function LiveToolBatch({ steps }: { steps: LiveToolStep[] }) {
   );
 }
 
-function LiveProcessBody({ items }: { items: ConversationLiveProcessItem[] }) {
+type LiveTimelineItem =
+  | { type: "part"; partId: string }
+  | { type: "tool_group"; key: string; partIds: string[] };
+
+function liveTimeline(parts: TurnProcessPart[]): LiveTimelineItem[] {
+  const items: LiveTimelineItem[] = [];
+  for (const part of [...parts].sort((left, right) => left.sequence - right.sequence)) {
+    if (part.type === "text" && part.presentation === "final") continue;
+    if (part.type === "tool") {
+      const previous = items.at(-1);
+      if (previous?.type === "tool_group") previous.partIds.push(part.part_id);
+      else items.push({ type: "tool_group", key: `live-tools-${part.part_id}`, partIds: [part.part_id] });
+    } else {
+      items.push({ type: "part", partId: part.part_id });
+    }
+  }
+  return items;
+}
+
+const LiveThinkingPart = React.memo(function LiveThinkingPart({
+  part,
+}: {
+  part: Extract<TurnProcessPart, { type: "thinking" }>;
+}) {
+  const t = useUiText();
+  const text = usePacedText(part.text, part.status === "streaming");
+  return (
+    <div className="process-message-content">
+      {text ? <div className="process-thinking-text">{text}</div> : null}
+      {Array.from({ length: part.redacted_count }, (_, index) => (
+        <div className="process-thinking-text redacted" key={index}>{t.message.redactedThinking}</div>
+      ))}
+    </div>
+  );
+});
+
+const LiveTextPart = React.memo(function LiveTextPart({
+  part,
+}: {
+  part: Exclude<TurnProcessPart, { type: "tool" }>;
+}) {
+  return part.type === "thinking"
+    ? <LiveThinkingPart part={part} />
+    : <MessageMarkdown streaming={part.status === "streaming"} text={part.text} />;
+});
+
+function LiveProcessBody({ parts }: { parts: TurnProcessPart[] }) {
+  const timeline = useRef<{ key: string; items: LiveTimelineItem[] } | undefined>(undefined);
+  const structureKey = parts
+    .map((part) => `${part.sequence}:${part.part_id}:${part.type}:${part.type === "text" ? part.presentation : ""}`)
+    .join("|");
+  if (timeline.current?.key !== structureKey) {
+    timeline.current = { key: structureKey, items: liveTimeline(parts) };
+  }
+  const partById = new Map(parts.map((part) => [part.part_id, part]));
   return (
     <div className="response-process-body">
-      {items.map((item) => item.type === "tool_group"
-        ? <LiveToolBatch key={item.group.key} steps={item.group.parts.map((part) => part.tool_step)} />
-        : <ProcessMessageContent key={item.key} message={item.message} />)}
+      {timeline.current.items.map((item) => {
+        if (item.type === "tool_group") {
+          const steps = item.partIds.flatMap((partId) => {
+            const part = partById.get(partId);
+            return part?.type === "tool" ? [part.tool_step] : [];
+          });
+          return <LiveToolBatch key={item.key} steps={steps} />;
+        }
+        const part = partById.get(item.partId);
+        return part && part.type !== "tool"
+          ? <LiveTextPart key={part.part_id} part={part} />
+          : null;
+      })}
     </div>
   );
 }
@@ -687,10 +791,7 @@ function LiveResponseGroup({
       : displayState === "error"
         ? t.conversation.processFailed(duration)
         : liveProgressLabel(stream, turnState, t);
-  const processItems = useMemo(
-    () => buildLiveProcessItems(stream?.process_parts ?? []),
-    [stream?.process_parts],
-  );
+  const processParts = stream?.process_parts ?? [];
   const finalContent = useMemo(
     () => liveFinalText(stream?.process_parts ?? []),
     [stream?.process_parts],
@@ -705,7 +806,7 @@ function LiveResponseGroup({
           onToggle={() => setExpanded((current) => !current)}
           state={displayState}
         />
-        {expanded && processItems.length ? <LiveProcessBody items={processItems} /> : null}
+        {expanded && processParts.length ? <LiveProcessBody parts={processParts} /> : null}
       </section>
       {finalContent ? (
         <article className="message-card role-assistant response-final-answer">
@@ -1191,7 +1292,9 @@ export function SessionDetailView({
   useEffect(() => {
     // Following every delta would fight anyone reading back through the turn,
     // so only stay glued to the bottom when that is already where they are.
-    if (!loadingOlderRef.current && pinnedToBottom) scrollToLatest();
+    if (loadingOlderRef.current || !pinnedToBottom) return;
+    const frame = window.requestAnimationFrame(scrollToLatest);
+    return () => window.cancelAnimationFrame(frame);
   }, [activity?.active?.stream?.seq, activity?.queued.length, detail?.messages.length, pinnedToBottom]);
   const detailItems = session ? [
     { label: t.sessionDetail.sessionId, value: session.session_id, mono: true },

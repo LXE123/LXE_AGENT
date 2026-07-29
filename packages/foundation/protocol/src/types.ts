@@ -143,6 +143,33 @@ export interface DisplayMetrics extends JsonObject {
   context_window_tokens: number;
 }
 
+export type DesktopStreamMutation =
+  | {
+      kind: "part_updated";
+      part: TurnProcessPart;
+    }
+  | {
+      kind: "part_delta";
+      part_id: string;
+      field: "text";
+      delta: string;
+    }
+  | {
+      kind: "stream_updated";
+      state: "delta" | "final" | "error";
+      display_metrics: DisplayMetrics;
+    };
+
+/** Runtime-to-Gateway request. The response route is removed before Renderer IPC. */
+export interface DesktopStreamBatchRequest {
+  session_id: string;
+  turn_id: string;
+  response_route_id: string;
+  emit_id: string;
+  seq: number;
+  mutations: DesktopStreamMutation[];
+}
+
 interface EmitRequestPayload {
   session_id: string;
   turn_id: string;

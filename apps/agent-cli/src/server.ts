@@ -173,6 +173,15 @@ export class AgentProtocolServer {
         legacyWorkspace: payload.legacy_workspace,
         environment,
         emitter: {
+          desktopStream: async (streamBatch) => {
+            await this.options.write({
+              version: AGENT_PROTOCOL_VERSION,
+              type: "conversation.stream.delta",
+              thread_id: streamBatch.session_id,
+              turn_id: streamBatch.turn_id,
+              payload: streamBatch,
+            });
+          },
           emit: async (emitRequest: EmitRequest) => {
             await this.options.write({
               version: AGENT_PROTOCOL_VERSION,

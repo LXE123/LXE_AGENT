@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { createLogger, repositoryRoot, resolveWorkspaceContext } from "@lxe/core";
-import type { AgentJob, EmitRequest, JsonObject } from "@lxe/protocol";
+import type { AgentJob, DesktopStreamBatchRequest, EmitRequest, JsonObject } from "@lxe/protocol";
 import { TypeScriptAgentRuntime } from "../../src/engine/runtime";
 import {
   RuntimeProviderError,
@@ -1163,6 +1163,55 @@ describe("TypeScriptAgentRuntime", () => {
       .toBe(true);
     expect(store.metrics[0]).toMatchObject({ platform: "desktop" });
     expect((await store.getSession()).source.platform).toBe("feishu");
+    await runtime.stop();
+  });
+
+  test("uses lightweight batches for Desktop and a full terminal reconciliation frame", async () => {
+    const store = new MemoryStore();
+    const frames: EmitRequest[] = [];
+    const batches: DesktopStreamBatchRequest[] = [];
+    const runtime = new TypeScriptAgentRuntime({
+      store,
+      tools: new ToolRegistry(),
+      provider: {
+        summarize,
+        turn: async (request) => {
+          await request.onEvent?.({ type: "text_start", part_id: "answer-1" });
+          for (const text of ["desktop ", "answer"]) {
+            await request.onEvent?.({ type: "text_delta", part_id: "answer-1", text });
+          }
+          await request.onEvent?.({ type: "text_end", part_id: "answer-1" });
+          return {
+            content: [{ type: "text", text: "desktop answer" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 1, output_tokens: 2 },
+          };
+        },
+      },
+      emitter: {
+        emit: async (request) => { frames.push(request); },
+        desktopStream: async (batch) => { batches.push(batch); },
+        typing: async () => undefined,
+      },
+      systemPrompt: "test",
+    });
+    await runtime.start();
+    await runtime.runTurn({
+      ...job(),
+      source: { platform: "desktop", chat_id: "s1", chat_type: "dm" },
+      session_key: "agent:main:desktop:session:s1",
+    }, handle());
+
+    expect(batches.length).toBeGreaterThan(0);
+    expect(batches.flatMap((batch) => batch.mutations).some((mutation) =>
+      mutation.kind === "part_delta" && mutation.delta === "desktop answer")).toBe(true);
+    const streamFrames = frames.filter((request) => request.emit_kind === "stream");
+    expect(streamFrames).toHaveLength(1);
+    expect(streamFrames[0]).toEqual(expect.objectContaining({
+      state: "final",
+      content: "desktop answer",
+      seq: batches.at(-1)!.seq + 1,
+    }));
     await runtime.stop();
   });
 

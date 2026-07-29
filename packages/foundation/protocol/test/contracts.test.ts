@@ -101,6 +101,34 @@ describe("protocol contracts", () => {
     expect(validateEmitRequest({ ...final, stream_type: "final_answer", state: "final", seq: 1 })).toBe(false);
   });
 
+  test("strictly validates desktop stream mutation batches", async () => {
+    const { validateDesktopStreamBatchRequest } = await loadProtocol();
+    const batch = {
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      emit_id: "emit-1",
+      seq: 1,
+      mutations: [
+        { kind: "part_updated", part: validEmitRequest.process_parts[0] },
+        { kind: "part_delta", part_id: "part-thinking", field: "text", delta: "hello" },
+        { kind: "stream_updated", state: "delta", display_metrics: validEmitRequest.display_metrics },
+      ],
+    };
+    expect(validateDesktopStreamBatchRequest(batch)).toBe(true);
+    expect(validateDesktopStreamBatchRequest({ ...batch, response_route_id: "" })).toBe(false);
+    expect(validateDesktopStreamBatchRequest({ ...batch, seq: 0 })).toBe(false);
+    expect(validateDesktopStreamBatchRequest({ ...batch, mutations: [] })).toBe(false);
+    expect(validateDesktopStreamBatchRequest({
+      ...batch,
+      mutations: [{ kind: "part_delta", part_id: "part-thinking", field: "content", delta: "x" }],
+    })).toBe(false);
+    expect(validateDesktopStreamBatchRequest({
+      ...batch,
+      mutations: [{ kind: "part_delta", part_id: "part-thinking", field: "text", delta: "" }],
+    })).toBe(false);
+  });
+
   test("allows an empty heartbeat message id but keeps normal turns strict", async () => {
     const { validateAgentJob } = await loadProtocol();
     const heartbeat = {

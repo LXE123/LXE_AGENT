@@ -30,6 +30,7 @@ export const IPC_CHANNELS = {
   syntheticPerformerTaskChanged: "lxe:desktop:synthetic-performer:task-changed",
   cloudStateChanged: "lxe:desktop:cloud-state-changed",
   conversationEvent: "lxe:desktop:conversation-event",
+  conversationStreamEvent: "lxe:desktop:conversation-stream-event",
   dashboardInvalidated: "lxe:desktop:dashboard-invalidated",
   statusChanged: "lxe:desktop:status-changed",
 } as const;

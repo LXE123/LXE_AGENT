@@ -1,4 +1,4 @@
-import type { DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
+import type { DesktopStreamMutation, DisplayMetrics, ToolStep, TurnProcessPart } from "@lxe/protocol";
 export type { TurnProcessPart } from "@lxe/protocol";
 
 export type CapabilityPayload = {
@@ -184,6 +184,18 @@ export type DesktopConversationActivityPayload = {
 
 export type DesktopConversationEvent = {
   activity: DesktopConversationActivityPayload;
+};
+
+export type DesktopConversationStreamBatch = {
+  session_id: string;
+  turn_id: string;
+  emit_id: string;
+  seq: number;
+  mutations: DesktopStreamMutation[];
+};
+
+export type DesktopConversationStreamEvent = {
+  batch: DesktopConversationStreamBatch;
 };
 
 export type DesktopConversationSendPayload = {

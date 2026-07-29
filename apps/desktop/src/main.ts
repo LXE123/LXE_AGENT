@@ -21,6 +21,8 @@ import type {
   DesktopCloudState,
   DesktopConversationActivityPayload,
   DesktopConversationEvent,
+  DesktopConversationStreamBatch,
+  DesktopConversationStreamEvent,
   DesktopDashboardInvalidation,
   DesktopHealth,
   DesktopSetupInput,
@@ -231,6 +233,14 @@ async function bootstrap(): Promise<void> {
       if (!browserWindow.isDestroyed()) browserWindow.webContents.send(IPC_CHANNELS.conversationEvent, event);
     }
   };
+  const broadcastConversationStream = (batch: DesktopConversationStreamBatch): void => {
+    const event: DesktopConversationStreamEvent = { batch };
+    for (const browserWindow of BrowserWindow.getAllWindows()) {
+      if (!browserWindow.isDestroyed()) {
+        browserWindow.webContents.send(IPC_CHANNELS.conversationStreamEvent, event);
+      }
+    }
+  };
   const broadcastSyntheticPerformerTask = (task: DesktopSyntheticPerformerTask): void => {
     for (const browserWindow of BrowserWindow.getAllWindows()) {
       if (!browserWindow.isDestroyed()) {
@@ -272,6 +282,7 @@ async function bootstrap(): Promise<void> {
     onHealthChanged: broadcastHealth,
     onDashboardInvalidated: (domains, sessionIds) => invalidations.push(domains, sessionIds),
     onConversationActivity: broadcastConversationActivity,
+    onConversationStreamBatch: broadcastConversationStream,
   });
   activeGateway = gateway;
   const cloudLogger = logger.child({ subsystem: "cloud_enrollment" });

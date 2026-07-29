@@ -6,7 +6,11 @@ import type {
   SessionWorkspaceRequest,
   WorkspaceContext,
 } from "@lxe/protocol";
-import type { AgentRunTurnResult, DesktopConversationActivityPayload } from "@lxe/desktop-protocol";
+import type {
+  AgentRunTurnResult,
+  DesktopConversationActivityPayload,
+  DesktopConversationStreamBatch,
+} from "@lxe/desktop-protocol";
 import { ChannelRegistry, type ChannelAdapter } from "../channels/registry";
 import { GatewayEmitter } from "../channels/emitter";
 import { FeishuAdapter, type FeishuAdapterOptions } from "../channels/feishu/adapter";
@@ -62,6 +66,7 @@ export interface DirectGatewayCompositionOptions {
   onRunFailure?: (handle: RunHandle, error: Error) => void;
   onObserverError?: (error: Error) => void;
   onConversationActivity?: (activity: DesktopConversationActivityPayload) => void;
+  onConversationStreamBatch?: (batch: DesktopConversationStreamBatch) => void;
 }
 
 export interface DirectGatewayComposition {
@@ -176,6 +181,7 @@ export function createDirectGatewayComposition(options: DirectGatewayComposition
     runtimeState,
     defaultWorkspace: options.defaultWorkspace,
     ...(options.onConversationActivity ? { onActivity: options.onConversationActivity } : {}),
+    ...(options.onConversationStreamBatch ? { onStreamBatch: options.onConversationStreamBatch } : {}),
   });
   channels.register(new DesktopConversationChannel((request) => conversations.handleOutbound(request)));
   const emitter = channels.keys().length > 0 ? new GatewayEmitter({ registry: channels, routes: options.storage }) : undefined;

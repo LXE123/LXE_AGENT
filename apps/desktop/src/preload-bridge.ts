@@ -1,6 +1,7 @@
 import type {
   DesktopCloudState,
   DesktopConversationEvent,
+  DesktopConversationStreamEvent,
   DesktopDashboardInvalidation,
   DesktopHealth,
   DesktopPlatform,
@@ -84,6 +85,12 @@ export function createDesktopBridge(
           listener(conversationEvent as DesktopConversationEvent);
         ipc.on(IPC_CHANNELS.conversationEvent, handler);
         return () => ipc.removeListener(IPC_CHANNELS.conversationEvent, handler);
+      },
+      onConversationStreamEvent: (listener) => {
+        const handler: IpcListener = (_event, conversationEvent) =>
+          listener(conversationEvent as DesktopConversationStreamEvent);
+        ipc.on(IPC_CHANNELS.conversationStreamEvent, handler);
+        return () => ipc.removeListener(IPC_CHANNELS.conversationStreamEvent, handler);
       },
       onDashboardInvalidated: (listener) => {
         const handler: IpcListener = (_event, invalidation) =>

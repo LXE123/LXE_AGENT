@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createLogger } from "@lxe/core";
+import type { DesktopStreamBatchRequest } from "@lxe/protocol";
 import {
   AGENT_PROTOCOL_VERSION,
   DashboardRpcError,
@@ -63,6 +64,54 @@ const fakeHost: CreateHost = (() => ({
 })) as unknown as CreateHost;
 
 describe("AgentProtocolServer", () => {
+  test("writes Desktop stream batches as dedicated agent events", async () => {
+    const output: Array<AgentResponse | AgentEvent> = [];
+    let emitDesktop: ((batch: DesktopStreamBatchRequest) => Promise<void>) | undefined;
+    const createHost = ((options: Parameters<CreateHost>[0]) => {
+      emitDesktop = options.emitter.desktopStream;
+      return {
+        start: async () => undefined,
+        stop: async () => undefined,
+        health: () => ({ ready: true }),
+      };
+    }) as unknown as CreateHost;
+    const root = process.cwd();
+    const server = new AgentProtocolServer({
+      write: (message) => { output.push(message); },
+      createHost,
+      environment: { LOCAL_LOGS_ENABLED: "0" },
+    });
+    await server.accept(JSON.stringify({
+      version: AGENT_PROTOCOL_VERSION,
+      id: "initialize-desktop-stream",
+      command: "initialize",
+      payload: initializePayload(root),
+    }));
+    const batch: DesktopStreamBatchRequest = {
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      emit_id: "emit-1",
+      seq: 1,
+      mutations: [{
+        kind: "part_delta",
+        part_id: "part-1",
+        field: "text",
+        delta: "hello",
+      }],
+    };
+    await emitDesktop?.(batch);
+
+    expect(output).toContainEqual({
+      version: AGENT_PROTOCOL_VERSION,
+      type: "conversation.stream.delta",
+      thread_id: "session-1",
+      turn_id: "turn-1",
+      payload: batch,
+    });
+    await server.shutdown();
+  });
+
   test("wraps persisted session changes in content-free protocol events", async () => {
     const output: Array<AgentResponse | AgentEvent> = [];
     let notify: NonNullable<Parameters<CreateHost>[0]["onSessionChanged"]> | undefined;

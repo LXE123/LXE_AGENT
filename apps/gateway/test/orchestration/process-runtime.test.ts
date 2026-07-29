@@ -43,6 +43,36 @@ afterEach(async () => {
 });
 
 describe("ProcessAgentRuntime", () => {
+  test("forwards Desktop stream batches through their dedicated callback", async () => {
+    const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");
+    const batches: Array<Extract<AgentEvent, { type: "conversation.stream.delta" }>["payload"]> = [];
+    const events: AgentEvent[] = [];
+    const runtime = new ProcessAgentRuntime({
+      command: process.execPath,
+      arguments: [fixture],
+      cwd: process.cwd(),
+      environment: { ...process.env, FAKE_DESKTOP_STREAM_EVENT: "1" },
+      ...resourcePaths(process.cwd()),
+      dataRoot: process.cwd(),
+      legacyWorkspace: testWorkspace,
+      onDesktopStream: (batch) => { batches.push(batch); },
+      onEvent: (event) => { events.push(event); },
+    });
+    runtimes.push(runtime);
+    await runtime.start();
+    const deadline = performance.now() + 2_000;
+    while (batches.length === 0 && performance.now() < deadline) await Bun.sleep(10);
+
+    expect(batches).toEqual([expect.objectContaining({
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      emit_id: "emit-1",
+      seq: 1,
+    })]);
+    expect(events.some((event) => event.type === "conversation.stream.delta")).toBe(true);
+  });
+
   test("forwards content-free persisted session change events", async () => {
     const fixture = resolve(import.meta.dirname, "fixtures/fake-agent-cli.mjs");
     const events: AgentEvent[] = [];

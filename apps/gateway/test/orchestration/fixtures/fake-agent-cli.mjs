@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
-const protocolVersion = 12;
+const protocolVersion = 13;
 let activeRunRequest;
 let steered = [];
 let cancelCount = 0;
@@ -54,6 +54,32 @@ for await (const line of input) {
         type: "session.changed",
         thread_id: "session-1",
         payload: { changes: ["messages"] },
+      }), 10);
+    }
+    if (process.env.FAKE_DESKTOP_STREAM_EVENT === "1") {
+      setTimeout(() => write({
+        version: protocolVersion,
+        type: "conversation.stream.delta",
+        thread_id: "session-1",
+        turn_id: "turn-1",
+        payload: {
+          session_id: "session-1",
+          turn_id: "turn-1",
+          response_route_id: "route-1",
+          emit_id: "emit-1",
+          seq: 1,
+          mutations: [{
+            kind: "part_updated",
+            part: {
+              type: "text",
+              part_id: "part-1",
+              sequence: 1,
+              status: "streaming",
+              presentation: "process",
+              text: "hello",
+            },
+          }],
+        },
       }), 10);
     }
     continue;

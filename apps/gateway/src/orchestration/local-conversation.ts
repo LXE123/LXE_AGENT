@@ -4,12 +4,14 @@ import type {
   DesktopConversationActivityPayload,
   DesktopConversationSendPayload,
   DesktopConversationStopPayload,
+  DesktopConversationStreamBatch,
   DesktopConversationStreamPayload,
   DesktopConversationTurnPayload,
   DesktopInputAttachmentPayload,
 } from "@lxe/desktop-protocol";
 import type {
   AgentJob,
+  DesktopStreamBatchRequest,
   DisplayMetrics,
   JsonObject,
   SessionWorkspaceRequest,
@@ -60,7 +62,9 @@ export type LocalConversationAttachment = DesktopInputAttachmentPayload & {
 
 interface InternalTurn {
   payload: DesktopConversationTurnPayload;
+  sessionId: string;
   responseRouteId: string;
+  streamEmitId?: string;
 }
 
 interface InternalActivity {
@@ -75,6 +79,7 @@ export interface LocalConversationControllerOptions {
   runtimeState: SessionRuntimeState;
   defaultWorkspace(): WorkspaceContext;
   onActivity?: (activity: DesktopConversationActivityPayload) => void;
+  onStreamBatch?: (batch: DesktopConversationStreamBatch) => void;
   id?: () => string;
   now?: () => number;
 }
@@ -180,6 +185,7 @@ export class LocalConversationController {
     const activity = this.sessionActivity(sessionId);
     this.clearLatest(activity);
     const turn: InternalTurn = {
+      sessionId,
       responseRouteId,
       payload: {
         turn_id: turnId,
@@ -335,6 +341,77 @@ export class LocalConversationController {
     this.publish(request.session_id);
   }
 
+  handleStreamBatch(request: DesktopStreamBatchRequest): boolean {
+    const turn = this.turns.get(clean(request.turn_id));
+    if (!turn || turn.responseRouteId !== clean(request.response_route_id)) return false;
+    const sessionId = clean(request.session_id);
+    const emitId = clean(request.emit_id);
+    const currentSequence = turn.payload.stream?.seq ?? 0;
+    if (!sessionId || sessionId !== turn.sessionId || !emitId ||
+      (turn.streamEmitId && turn.streamEmitId !== emitId) ||
+      request.seq !== currentSequence + 1) return false;
+
+    const previous = turn.payload.stream;
+    const parts = previous?.process_parts.map(cloneProcessPart) ?? [];
+    const indexes = new Map(parts.map((part, index) => [part.part_id, index]));
+    let state: DesktopConversationStreamPayload["state"] = previous?.state ?? "delta";
+    let metrics = previous?.display_metrics ? { ...previous.display_metrics } : undefined;
+    for (const mutation of request.mutations) {
+      if (mutation.kind === "part_delta") {
+        const index = indexes.get(clean(mutation.part_id));
+        const part = index === undefined ? undefined : parts[index];
+        if (!part || (part.type !== "thinking" && part.type !== "text") || !mutation.delta) return false;
+        part.text += mutation.delta;
+        continue;
+      }
+      if (mutation.kind === "stream_updated") {
+        state = mutation.state;
+        metrics = { ...mutation.display_metrics };
+        continue;
+      }
+      const incoming = cloneProcessPart(mutation.part);
+      const index = indexes.get(incoming.part_id);
+      if (index === undefined) {
+        const previousPart = parts.at(-1);
+        if (previousPart && incoming.sequence <= previousPart.sequence) return false;
+        indexes.set(incoming.part_id, parts.length);
+        parts.push(incoming);
+        continue;
+      }
+      const current = parts[index];
+      if (!current || current.type !== incoming.type || current.sequence !== incoming.sequence) return false;
+      parts[index] = incoming;
+    }
+    if (!metrics) return false;
+    const toolSteps = parts
+      .filter((part): part is Extract<TurnProcessPart, { type: "tool" }> => part.type === "tool")
+      .map((part) => cloneToolStep(part.tool_step));
+    turn.payload.stream = {
+      seq: request.seq,
+      state,
+      content: parts.filter((part) => part.type === "text").map((part) => part.text).join(""),
+      thinking: parts.filter((part) => part.type === "thinking").map((part) => part.text).join(""),
+      redacted_thinking_count: parts
+        .filter((part): part is Extract<TurnProcessPart, { type: "thinking" }> => part.type === "thinking")
+        .reduce((total, part) => total + part.redacted_count, 0),
+      thinking_elapsed_ms: previous?.thinking_elapsed_ms ?? 0,
+      tool_pending: false,
+      tool_elapsed_ms: toolSteps.reduce((total, step) => total + step.duration_ms, 0),
+      tool_steps: toolSteps,
+      process_parts: parts,
+      display_metrics: metrics,
+    };
+    turn.streamEmitId = emitId;
+    this.options.onStreamBatch?.({
+      session_id: sessionId,
+      turn_id: request.turn_id,
+      emit_id: request.emit_id,
+      seq: request.seq,
+      mutations: request.mutations.map(cloneStreamMutation),
+    });
+    return true;
+  }
+
   dispose(): void {
     this.sessions.clear();
     this.turns.clear();
@@ -437,6 +514,22 @@ function sanitizeStream(payload: JsonObject): DesktopConversationStreamPayload |
     process_parts: processParts,
     display_metrics: metrics,
   };
+}
+
+function cloneProcessPart(part: TurnProcessPart): TurnProcessPart {
+  return part.type === "tool"
+    ? { ...part, tool_step: cloneToolStep(part.tool_step) }
+    : { ...part };
+}
+
+function cloneStreamMutation(
+  mutation: DesktopStreamBatchRequest["mutations"][number],
+): DesktopConversationStreamBatch["mutations"][number] {
+  if (mutation.kind === "part_updated") return { ...mutation, part: cloneProcessPart(mutation.part) };
+  if (mutation.kind === "stream_updated") {
+    return { ...mutation, display_metrics: { ...mutation.display_metrics } };
+  }
+  return { ...mutation };
 }
 
 function sanitizeProcessParts(value: unknown): TurnProcessPart[] | undefined {

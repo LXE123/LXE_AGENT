@@ -62,6 +62,9 @@ export interface ProcessAgentRuntimeOptions {
   shutdownTimeoutMs?: number;
   restartDelaysMs?: readonly number[];
   onEmit?: (request: EmitRequest) => Promise<void> | void;
+  onDesktopStream?: (
+    request: Extract<AgentEvent, { type: "conversation.stream.delta" }>["payload"],
+  ) => Promise<void> | void;
   onTyping?: (request: Extract<AgentEvent, { type: "typing.changed" }>["payload"]) => Promise<void> | void;
   onWake?: (request: JsonObject) => Promise<void> | void;
   onEvent?: (event: AgentEvent) => Promise<void> | void;
@@ -392,6 +395,7 @@ export class ProcessAgentRuntime implements DirectAgentRuntime {
   private async handleEvent(event: AgentEvent): Promise<void> {
     try {
       if (event.type === "item.completed") await this.options.onEmit?.(event.payload);
+      else if (event.type === "conversation.stream.delta") await this.options.onDesktopStream?.(event.payload);
       else if (event.type === "typing.changed") await this.options.onTyping?.(event.payload);
       else if (event.type === "agent.wake") await this.options.onWake?.(event.payload);
       else if (event.type === "system.ready" || event.type === "system.status") {

@@ -68,6 +68,7 @@ import type { DetailTarget } from "./shared/ui/detail-target";
 import { DetailModal } from "./features/details/view";
 import { ConnectionsView } from "./features/integrations/view";
 import { DashboardHome } from "./features/home/view";
+import { applyDesktopStreamBatch } from "./features/sessions/live-stream";
 import { ModelsView } from "./features/models/view";
 import { RuntimeStatusPopover } from "./features/runtime-status/view";
 import {
@@ -235,6 +236,46 @@ function App({
         ]);
       }
     });
+  }, [queryClient]);
+
+  useEffect(() => {
+    const desktop = window.lxe?.desktop;
+    if (!desktop) return;
+    const pending = new Map<string, Parameters<typeof applyDesktopStreamBatch>[1][]>();
+    let frame = 0;
+    const flush = () => {
+      frame = 0;
+      const batches = [...pending.entries()];
+      pending.clear();
+      for (const [sessionId, sessionBatches] of batches) {
+        const key = dashboardQueryKeys.sessions.activity(sessionId);
+        let gap = false;
+        queryClient.setQueryData<DesktopConversationActivityPayload>(key, (current) => {
+          if (!current) return current;
+          let activity = current;
+          for (const batch of sessionBatches) {
+            const result = applyDesktopStreamBatch(activity, batch);
+            if (result.status === "gap") {
+              gap = true;
+              break;
+            }
+            activity = result.activity;
+          }
+          return gap ? current : activity;
+        });
+        if (gap) void queryClient.invalidateQueries({ queryKey: key });
+      }
+    };
+    const unsubscribe = desktop.onConversationStreamEvent(({ batch }) => {
+      const queued = pending.get(batch.session_id) ?? [];
+      queued.push(batch);
+      pending.set(batch.session_id, queued);
+      if (!frame) frame = window.requestAnimationFrame(flush);
+    });
+    return () => {
+      unsubscribe();
+      if (frame) window.cancelAnimationFrame(frame);
+    };
   }, [queryClient]);
 
   useEffect(() => {

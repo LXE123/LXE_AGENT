@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { AGENT_PROTOCOL_VERSION } from "@lxe/desktop-protocol";
-import type { AgentJob, JsonObject, SessionWorkspaceRequest, WorkspaceContext } from "@lxe/protocol";
+import type {
+  AgentJob,
+  DesktopStreamBatchRequest,
+  JsonObject,
+  SessionWorkspaceRequest,
+  WorkspaceContext,
+} from "@lxe/protocol";
 import {
   LocalConversationController,
   LocalConversationSessionNotFoundError,
@@ -54,6 +60,7 @@ function harness(ids: string[]) {
   const storage = new MemoryStorage();
   const events: SchedulerJobStateEvent[] = [];
   const activities: unknown[] = [];
+  const streamBatches: unknown[] = [];
   const clock = { value: 1_000 };
   let controller!: LocalConversationController;
   const scheduler = new SessionScheduler({
@@ -70,6 +77,7 @@ function harness(ids: string[]) {
     runtimeState: new SessionRuntimeState(),
     defaultWorkspace: () => testWorkspace,
     onActivity: (activity) => activities.push(activity),
+    onStreamBatch: (batch) => streamBatches.push(batch),
     id: () => {
       const next = ids.shift();
       if (!next) throw new Error("test id exhausted");
@@ -77,7 +85,7 @@ function harness(ids: string[]) {
     },
     now: () => (clock.value += 1),
   });
-  return { runtime, storage, scheduler, controller, events, activities, clock };
+  return { runtime, storage, scheduler, controller, events, activities, streamBatches, clock };
 }
 
 const externalJob = (sessionId: string): AgentJob => ({
@@ -100,6 +108,54 @@ const externalJob = (sessionId: string): AgentJob => ({
 });
 
 describe("LocalConversationController", () => {
+  test("applies desktop deltas to canonical activity without publishing full activity frames", async () => {
+    const h = harness(["session-1", "turn-1", "message-1", "route-1"]);
+    await h.controller.send({ text: "hello" });
+    const beforeActivities = h.activities.length;
+    const metrics = {
+      status: "running" as const,
+      phase: "thinking" as const,
+      elapsed_ms: 16,
+      model: "model",
+      input_tokens: 0,
+      output_tokens: 1,
+      cache_read_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+      context_tokens: 0,
+      context_window_tokens: 100,
+    };
+    const batch: DesktopStreamBatchRequest = {
+      session_id: "session-1",
+      turn_id: "turn-1",
+      response_route_id: "route-1",
+      emit_id: "emit-1",
+      seq: 1,
+      mutations: [
+        {
+          kind: "part_updated",
+          part: {
+            type: "thinking",
+            part_id: "thinking-1",
+            sequence: 1,
+            status: "streaming",
+            text: "",
+            redacted_count: 0,
+          },
+        },
+        { kind: "part_delta", part_id: "thinking-1", field: "text", delta: "inspect" },
+        { kind: "stream_updated", state: "delta", display_metrics: metrics },
+      ],
+    };
+    expect(h.controller.handleStreamBatch(batch)).toBe(true);
+    expect(h.activities).toHaveLength(beforeActivities);
+    expect(h.controller.activity("session-1").active?.stream?.thinking).toBe("inspect");
+    expect(h.streamBatches).toHaveLength(1);
+    expect(JSON.stringify(h.streamBatches)).not.toContain("response_route_id");
+    expect(h.controller.handleStreamBatch({ ...batch, seq: 3 })).toBe(false);
+    expect(h.controller.handleStreamBatch({ ...batch, session_id: "session-2", seq: 2 })).toBe(false);
+    expect(h.controller.handleStreamBatch({ ...batch, emit_id: "emit-2", seq: 2 })).toBe(false);
+    expect(h.controller.activity("session-1").active?.stream?.seq).toBe(1);
+  });
   test("continues an existing transcript without changing its source or workspace", async () => {
     const h = harness(["turn-1", "message-1", "route-1"]);
     const originalSource = { platform: "feishu", chat_id: "chat-1", chat_type: "dm", user_id: "user-1" };

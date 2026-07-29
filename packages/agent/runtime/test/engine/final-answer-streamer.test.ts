@@ -1,8 +1,45 @@
 import { describe, expect, test } from "bun:test";
-import type { EmitRequest } from "@lxe/protocol";
+import type { DesktopStreamBatchRequest, EmitRequest } from "@lxe/protocol";
 import { FinalAnswerStreamer } from "../../src/engine/final-answer-streamer";
 
 describe("FinalAnswerStreamer display contract", () => {
+  test("coalesces desktop text deltas into one lightweight frame and reconciles at terminal", async () => {
+    const emitted: EmitRequest[] = [];
+    const batches: DesktopStreamBatchRequest[] = [];
+    let release: (() => void) | undefined;
+    const streamer = new FinalAnswerStreamer({
+      sessionId: "session-1",
+      turnId: "turn-1",
+      responseRouteId: "route-1",
+      emitId: "emit-1",
+      desktopBatchIntervalMs: 16,
+      delay: () => new Promise<void>((resolve) => { release = resolve; }),
+      emitDesktopBatch: async (batch) => { batches.push(batch); return true; },
+      emit: async (request) => { emitted.push(request); return true; },
+    });
+
+    for (let index = 0; index < 10_000; index += 1) {
+      await streamer.pushEvent({ type: "text_delta", part_id: "text-1", text: "x" });
+    }
+    expect(batches).toHaveLength(0);
+    release?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(batches).toHaveLength(1);
+    expect(batches[0]?.mutations.filter((mutation) => mutation.kind === "part_delta")).toEqual([{
+      kind: "part_delta",
+      part_id: "text-1",
+      field: "text",
+      delta: "x".repeat(10_000),
+    }]);
+    expect(JSON.stringify(batches[0])).not.toContain("process_parts");
+    expect(await streamer.finish("x".repeat(10_000))).toBe(true);
+    const terminal = emitted.at(-1);
+    expect(terminal?.emit_kind).toBe("stream");
+    if (terminal?.emit_kind !== "stream") throw new Error("terminal stream frame expected");
+    expect(terminal.seq).toBe((batches.at(-1)?.seq ?? 0) + 1);
+    expect(terminal.process_parts[0]).toEqual(expect.objectContaining({ text: "x".repeat(10_000) }));
+  });
   test("emits redacted counts, cumulative metrics, sanitized tool output and one terminal frame", async () => {
     let clock = 1_000;
     const emitted: EmitRequest[] = [];

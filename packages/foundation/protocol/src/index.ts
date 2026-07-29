@@ -1,6 +1,8 @@
 export type {
   AgentDiagnostic,
   AgentJob,
+  DesktopStreamBatchRequest,
+  DesktopStreamMutation,
   DisplayMetrics,
   EmitRequest,
   InboundEvent,
@@ -19,5 +21,6 @@ export type {
 } from "./types";
 export {
   validateAgentJob,
+  validateDesktopStreamBatchRequest,
   validateEmitRequest,
 } from "./validation";

@@ -8,6 +8,7 @@ import type {
   DashboardRpcOperation,
   DashboardRpcResult,
   DesktopConversationActivityPayload,
+  DesktopConversationStreamBatch,
   DesktopDashboardDataDomain,
   DesktopHealth,
   DesktopLoggingSinkStatus,
@@ -101,6 +102,7 @@ export interface DesktopGatewayOptions {
     sessionIds: string[],
   ) => void;
   onConversationActivity?: (activity: DesktopConversationActivityPayload) => void;
+  onConversationStreamBatch?: (batch: DesktopConversationStreamBatch) => void;
 }
 
 export class DesktopGateway {
@@ -200,6 +202,12 @@ export class DesktopGateway {
         if (!emitter) throw new Error("Gateway emitter is unavailable");
         await emitter.emit(request);
       },
+      onDesktopStream: (request) => {
+        const conversations = composition?.parts.conversations;
+        if (!conversations || !conversations.handleStreamBatch(request)) {
+          throw new Error("Gateway rejected a desktop stream batch");
+        }
+      },
       onTyping: async (request) => {
         await composition?.parts.emitter?.typing(request);
       },
@@ -256,6 +264,9 @@ export class DesktopGateway {
       },
       ...(this.options.onConversationActivity
         ? { onConversationActivity: this.options.onConversationActivity }
+        : {}),
+      ...(this.options.onConversationStreamBatch
+        ? { onConversationStreamBatch: this.options.onConversationStreamBatch }
         : {}),
     });
     this.runtime = runtime;
