@@ -48,6 +48,7 @@ test("sessions persist in the application sidebar with title-only rows", () => {
   assert.doesNotMatch(main, /compactSessionLayout|sessionSidebarOverlayOpen|sessionSidebarDialogOpen/);
   assert.doesNotMatch(styles, /session-sidebar-scrim|session-sidebar-overlay-open/);
   assert.doesNotMatch(sessions, /className="session-meta-line"/);
+  assert.match(sessions, /<MessageCircle aria-hidden="true" className="session-index-icon" size=\{13\} \/>/);
   assert.match(sessions, /aria-label=\{sessionTitle\}/);
   assert.match(sessions, /title=\{sessionTitle\}/);
 
@@ -61,6 +62,9 @@ test("sessions persist in the application sidebar with title-only rows", () => {
   assert.match(styles, /\.tab-list\s*\{[^}]*gap:\s*1px;/s);
   assert.match(styles, /\.tab\s*\{[^}]*min-height:\s*34px;[^}]*padding:\s*5px 8px;/s);
   assert.match(styles, /\.sidebar-session-section\s*\{[^}]*margin-top:\s*8px;[^}]*padding-top:\s*8px;/s);
+  assert.match(styles, /\.session-index-heading\s*\{[^}]*color:\s*color-mix\([^;]+68%, transparent\);[^}]*font-weight:\s*500;/s);
+  assert.match(styles, /\.sidebar-session-section \.session-index-list\s*\{[^}]*gap:\s*1px;/s);
+  assert.match(styles, /\.sidebar-session-section \.session-index-item\s*\{[^}]*grid-template-columns:\s*14px minmax\(0, 1fr\);[^}]*padding:\s*5px 8px;/s);
   assert.doesNotMatch(main, /sessions-split/);
   assert.doesNotMatch(styles, /\.sessions-split/);
   assert.match(main, /activeSection === "sessions";?\s*$/m);

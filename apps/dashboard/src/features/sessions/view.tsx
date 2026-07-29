@@ -12,6 +12,7 @@ import {
   FileText,
   Info,
   LoaderCircle,
+  MessageCircle,
   PackageCheck,
   Paperclip,
   Plus,
@@ -1523,6 +1524,7 @@ export function SessionsIndex({
                 type="button"
                 onClick={() => onOpen(session)}
               >
+                <MessageCircle aria-hidden="true" className="session-index-icon" size={13} />
                 <span className="primary-cell">{sessionTitle}</span>
               </button>
             );
