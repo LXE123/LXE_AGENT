@@ -1850,9 +1850,7 @@ button {
   color: var(--sidebar-ink-soft);
 }
 
-.app-sidebar .sidebar-icon-button:hover,
-.app-sidebar .sidebar-icon-button:focus-visible,
-.app-sidebar .sidebar-icon-button.active {
+.app-sidebar .sidebar-icon-button:hover {
   border-color: var(--sidebar-border);
   background: var(--sidebar-hover);
   color: var(--sidebar-ink);
@@ -1884,13 +1882,23 @@ button {
   background: transparent;
   color: var(--text-soft);
   cursor: pointer;
-  transition: background 0.16s ease, color 0.16s ease;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease,
+    transform 80ms ease;
 }
 
-.sidebar-icon-button:hover,
-.sidebar-icon-button:focus-visible,
-.sidebar-icon-button.active {
+.sidebar-icon-button:hover {
   background: var(--row-hover);
+  color: var(--accent-strong);
+}
+
+.sidebar-icon-button:active {
+  transform: scale(0.94);
+}
+
+.sidebar-icon-button.is-open,
+.sidebar-icon-button.is-selected {
   color: var(--accent-strong);
 }
 
@@ -1903,11 +1911,18 @@ button {
   color: #a89d90;
 }
 
-.sidebar-window-controls.sidebar-visible .sidebar-icon-button:hover,
-.sidebar-window-controls.sidebar-visible .sidebar-icon-button:focus-visible,
-.sidebar-window-controls.sidebar-visible .sidebar-icon-button.active {
+.sidebar-window-controls.sidebar-visible .sidebar-icon-button.is-open,
+.sidebar-window-controls.sidebar-visible .sidebar-icon-button.is-selected {
+  color: #f2ede6;
+}
+
+.sidebar-window-controls.sidebar-visible .sidebar-icon-button:hover {
   background: rgba(255, 255, 255, 0.08);
   color: #f2ede6;
+}
+
+.sidebar-window-controls.sidebar-visible .sidebar-icon-button:active {
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .app-sidebar.is-expanded {

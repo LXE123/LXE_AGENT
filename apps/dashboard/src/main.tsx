@@ -765,7 +765,11 @@ function App({
             aria-controls="app-sidebar"
             aria-expanded={sidebarVisible}
             aria-label={sessionSidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
-            className={sidebarVisible ? "sidebar-icon-button active" : "sidebar-icon-button"}
+            className={
+              sidebarVisible
+                ? "sidebar-icon-button sidebar-toggle-button is-open"
+                : "sidebar-icon-button sidebar-toggle-button"
+            }
             onClick={sidebar.toggle}
             ref={sidebar.toggleRef}
             title={sessionSidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
@@ -776,7 +780,12 @@ function App({
           {sidebarVisible ? (
             <button
               aria-label={t.sessions.searchAria}
-              className={sessionSearchOpen ? "sidebar-icon-button active" : "sidebar-icon-button"}
+              aria-pressed={sessionSearchOpen}
+              className={
+                sessionSearchOpen
+                  ? "sidebar-icon-button sidebar-search-button is-selected"
+                  : "sidebar-icon-button sidebar-search-button"
+              }
               onClick={handleSessionSearchToggle}
               title={t.sessions.searchAria}
               type="button"
