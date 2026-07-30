@@ -388,11 +388,6 @@ button {
   font-weight: 700;
 }
 
-.desktop-cloud-badge.connected {
-  background: var(--success-soft);
-  color: var(--rate-good);
-}
-
 .desktop-cloud-activation {
   display: grid;
   max-width: 520px;
@@ -427,79 +422,59 @@ button {
   min-width: 112px;
 }
 
-.desktop-cloud-identity {
-  display: flex;
-  max-width: 520px;
+.desktop-cloud-panel {
+  gap: 14px;
+}
+
+.desktop-cloud-overview {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 11px;
-  padding: 12px;
-  border: 1px solid var(--success-border);
-  border-radius: 8px;
-  background: var(--success-soft);
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--warning-border);
+  border-radius: 10px;
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.desktop-cloud-overview.connected {
+  border-color: var(--success-border);
+  background: var(--rate-good-soft);
   color: var(--rate-good);
 }
 
-.desktop-cloud-identity > div {
+.desktop-cloud-overview-icon {
   display: grid;
-  min-width: 0;
-  gap: 3px;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 9px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
 }
 
-.desktop-cloud-identity strong {
+.desktop-cloud-overview-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.desktop-cloud-overview-copy strong {
   overflow-wrap: anywhere;
   color: var(--text-strong);
   font-size: 0.8125rem;
 }
 
-.desktop-cloud-identity span {
+.desktop-cloud-overview-copy span {
+  overflow: hidden;
+  color: var(--muted);
   font-family: var(--font-mono);
   font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.desktop-cloud-permission {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 18px;
-  padding: 14px 16px;
-  background: var(--surface-soft);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-}
-
-.desktop-cloud-permission > div { display: grid; gap: 4px; }
-.desktop-cloud-permission strong { font-size: 0.8125rem; }
-.desktop-cloud-permission span { color: var(--muted); font-size: 0.6875rem; }
-.desktop-cloud-permission.cached { border-color: #dfc99d; }
-.desktop-cloud-permission.pending_verification,
-.desktop-cloud-permission.unassigned { border-color: #e7b8b0; }
-.desktop-cloud-permission dl { display: flex; gap: 18px; margin: 0; }
-.desktop-cloud-permission dl div { display: grid; gap: 3px; }
-.desktop-cloud-permission dt { color: var(--muted); font-size: 0.625rem; }
-.desktop-cloud-permission dd { margin: 0; font-size: 0.75rem; font-weight: 750; }
-
-.desktop-cloud-status {
-  display: flex;
-  max-width: 520px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--warning-border);
-  border-radius: 8px;
-  background: var(--warning-soft);
-  color: var(--warning);
-  font-size: 0.75rem;
-  line-height: 1.5;
-}
-
-.desktop-cloud-status.connected {
-  border-color: var(--success-border);
-  background: var(--success-soft);
-  color: var(--rate-good);
-}
-
-.desktop-cloud-status button {
+.desktop-cloud-overview button {
   display: inline-flex;
   min-height: 30px;
   flex: 0 0 auto;
@@ -515,10 +490,31 @@ button {
   font-weight: 650;
 }
 
+.desktop-cloud-permission {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.desktop-cloud-permission > div { display: grid; gap: 4px; }
+.desktop-cloud-permission strong { font-size: 0.8125rem; }
+.desktop-cloud-permission span { color: var(--muted); font-size: 0.6875rem; }
+.desktop-cloud-permission.cached { border-color: #dfc99d; }
+.desktop-cloud-permission.pending_verification,
+.desktop-cloud-permission.unassigned { border-color: #e7b8b0; }
+.desktop-cloud-permission dl { display: flex; gap: 18px; margin: 0; }
+.desktop-cloud-permission dl div { display: grid; gap: 3px; }
+.desktop-cloud-permission dt { color: var(--muted); font-size: 0.625rem; }
+.desktop-cloud-permission dd { margin: 0; font-size: 0.75rem; font-weight: 750; }
+
 .desktop-cloud-shortcuts {
   display: grid;
-  max-width: 720px;
-  gap: 10px;
+  gap: 9px;
 }
 
 .desktop-cloud-shortcuts-heading {
@@ -559,7 +555,7 @@ button {
 .desktop-cloud-shortcuts-grid > button {
   display: grid;
   min-width: 0;
-  min-height: 82px;
+  min-height: 76px;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
   gap: 9px;
@@ -570,12 +566,15 @@ button {
   color: var(--accent-strong);
   cursor: pointer;
   text-align: left;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
 .desktop-cloud-shortcuts-grid > button:hover:not(:disabled),
 .desktop-cloud-shortcuts-grid > button:focus-visible:not(:disabled) {
   border-color: var(--accent);
   background: var(--accent-soft);
+  box-shadow: 0 5px 14px var(--shadow-soft);
+  transform: translateY(-1px);
 }
 
 .desktop-cloud-shortcuts-grid > button:disabled {

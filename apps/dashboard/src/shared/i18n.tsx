@@ -593,8 +593,6 @@ export const ZH_TEXT = {
     },
     cloud: {
       description: "连接公司内网并启用每小时云端同步。",
-      connectedBadge: "已连接",
-      configuredBadge: "已配置",
       unconfiguredBadge: "未配置",
       unsupportedBadge: "仅 Windows",
       unsupportedHint: "请在 Windows 10/11 x64 安装包中导入管理员提供的设备文件。",
@@ -1331,8 +1329,6 @@ export const UI_TEXT: Record<Language, UiText> = {
       },
       cloud: {
         description: "Connect to the company intranet and enable hourly cloud sync.",
-        connectedBadge: "Connected",
-        configuredBadge: "Configured",
         unconfiguredBadge: "Not configured",
         unsupportedBadge: "Windows only",
         unsupportedHint: "Import the device file from your admin with the Windows 10/11 x64 installer.",

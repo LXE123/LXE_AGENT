@@ -46,6 +46,10 @@ test("company cloud exposes fixed browser shortcuts and gates admin access by ro
 });
 
 test("company cloud shows the server-verified device Skill permission state", () => {
+  assert.match(shell, /desktop-cloud-overview/);
+  assert.match(shell, /deviceIdentity \? <span>\{deviceIdentity\}<\/span> : null/);
+  assert.doesNotMatch(shell, /desktop-cloud-identity/);
+  assert.doesNotMatch(shell, /desktop-cloud-status/);
   assert.match(shell, /cloud\.permission_status/);
   assert.match(shell, /cloud\.permission_profile/);
   assert.match(shell, /cloud\.permission_version/);

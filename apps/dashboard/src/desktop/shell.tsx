@@ -263,25 +263,33 @@ function DesktopCloudPanel({
       description: t.desktop.cloud.shortcuts.adminDescription,
     },
   ];
+  const deviceIdentity = [cloud.device_name.trim(), cloud.vpn_ip.trim()].filter(Boolean).join(" · ");
   return (
     <section className="desktop-settings-section desktop-cloud-panel">
       <DesktopSectionHeading
-        badge={connected
-          ? t.desktop.cloud.connectedBadge
-          : cloud.configured
-            ? t.desktop.cloud.configuredBadge
-            : supported
-              ? t.desktop.cloud.unconfiguredBadge
-              : t.desktop.cloud.unsupportedBadge}
-        badgeClassName={connected ? "desktop-cloud-badge connected" : "desktop-cloud-badge"}
+        badge={!cloud.configured
+          ? supported
+            ? t.desktop.cloud.unconfiguredBadge
+            : t.desktop.cloud.unsupportedBadge
+          : undefined}
+        badgeClassName="desktop-cloud-badge"
         description={t.desktop.cloud.description}
         headingRef={headingRef}
         title={t.desktop.sectionTitles.cloud}
       />
       {cloud.configured ? (
-        <div className="desktop-cloud-identity">
-          <ShieldCheck aria-hidden size={20} />
-          <div><strong>{cloud.device_name}</strong><span>{cloud.vpn_ip}</span></div>
+        <div className={`desktop-cloud-overview ${cloud.connection}`}>
+          <span className="desktop-cloud-overview-icon"><Cloud aria-hidden size={18} /></span>
+          <div aria-live="polite" className="desktop-cloud-overview-copy">
+            <strong>{connected ? t.desktop.cloud.connected : cloud.last_error || t.desktop.cloud.checking}</strong>
+            {deviceIdentity ? <span>{deviceIdentity}</span> : null}
+          </div>
+          {!connected ? (
+            <button disabled={activating} onClick={onRetry} type="button">
+              <RotateCcw size={15} />
+              {t.desktop.cloud.retry}
+            </button>
+          ) : null}
         </div>
       ) : null}
       {cloud.configured ? (
@@ -334,17 +342,7 @@ function DesktopCloudPanel({
           </button>
         </div>
       ) : null}
-      {cloud.configured ? (
-        <div className={`desktop-cloud-status ${cloud.connection}`}>
-          <span>{connected ? t.desktop.cloud.connected : cloud.last_error || t.desktop.cloud.checking}</span>
-          {!connected ? (
-            <button disabled={activating} onClick={onRetry} type="button">
-              <RotateCcw size={15} />
-              {t.desktop.cloud.retry}
-            </button>
-          ) : null}
-        </div>
-      ) : cloud.last_error ? <p className="desktop-form-error" role="alert">{cloud.last_error}</p> : null}
+      {!cloud.configured && cloud.last_error ? <p className="desktop-form-error" role="alert">{cloud.last_error}</p> : null}
       {cloud.configured ? (
         <div className="desktop-cloud-shortcuts">
           <div className="desktop-cloud-shortcuts-heading">
