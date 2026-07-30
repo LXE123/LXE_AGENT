@@ -4935,7 +4935,7 @@ h1 {
   border-left: 2px solid var(--message-border-tool);
   border-right: 0;
   border-radius: 8px;
-  background: var(--tool-soft);
+  background: transparent;
 }
 
 .tool-turn-group.has-error {
@@ -4945,7 +4945,16 @@ h1 {
 .tool-turn-group.embedded {
   width: 100%;
   border: 1px solid var(--border);
-  background: var(--surface-subtle);
+  background: transparent;
+}
+
+.tool-turn-group.embedded.single {
+  border: 0;
+  border-radius: 0;
+}
+
+.tool-turn-group.embedded.single .tool-op-list {
+  margin-top: 0;
 }
 
 .tool-turn-group.embedded.has-error {
@@ -5036,7 +5045,7 @@ h1 {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: var(--surface);
+  background: transparent;
   list-style: none;
 }
 
@@ -5141,7 +5150,8 @@ h1 {
   min-width: 0;
   gap: 4px;
   padding: 4px 10px 10px;
-  background: var(--surface-subtle);
+  border-top: 1px solid var(--border);
+  background: transparent;
 }
 
 .tool-turn-chevron.expanded {
@@ -5152,7 +5162,7 @@ h1 {
   display: grid;
   gap: 2px;
   padding: 3px;
-  background: var(--tool-muted);
+  background: transparent;
 }
 
 .tool-turn-group.embedded .tool-turn-body {
@@ -5166,7 +5176,7 @@ h1 {
   justify-items: start;
   padding: 3px;
   border-radius: 8px;
-  background: var(--surface);
+  background: transparent;
 }
 
 .tool-turn-group.embedded .tool-turn-message {
@@ -5408,11 +5418,11 @@ h1 {
 }
 
 .message-block.tool-block {
-  background: var(--info-soft);
+  background: transparent;
 }
 
 .message-block.result-block {
-  background: var(--tool-soft);
+  background: transparent;
 }
 
 .message-block.result-block.error {
@@ -5501,7 +5511,7 @@ h1 {
   padding: 4px 8px;
   border: 1px solid var(--tool-border);
   border-radius: 6px;
-  background: var(--surface);
+  background: transparent;
   color: var(--tool);
   cursor: pointer;
   font-size: 0.75rem;
@@ -5569,7 +5579,7 @@ code {
 
 .code-block.tool-result-full {
   max-height: min(620px, 70vh);
-  background: var(--tool-soft);
+  background: transparent;
 }
 
 .tool-result-truncation {
@@ -5626,11 +5636,9 @@ code {
   align-items: center;
   gap: 5px;
   padding: 2px 8px;
-  /* The op body is --surface-subtle, so a --surface-muted chip would vanish
-     into it; white plus a hairline is what reads as a chip here. */
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--surface);
+  background: transparent;
   font-family: var(--font-mono);
   font-size: 0.625rem;
 }
@@ -5647,6 +5655,9 @@ code {
 .tool-call-id {
   overflow: hidden;
   max-width: 180px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--muted-light);
   font-size: 0.625rem;
   text-overflow: ellipsis;
@@ -5656,13 +5667,18 @@ code {
 
 .code-block {
   border-radius: 8px;
-  background: var(--surface-subtle);
+  background: transparent;
   /* Identifiers and paths break badly under `anywhere`; let a genuinely long
      token scroll instead of splitting mid-word. */
   overflow-wrap: normal;
 }
 
-.code-block code {
+.code-block > code {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
   font-family: var(--font-mono);
 }
 

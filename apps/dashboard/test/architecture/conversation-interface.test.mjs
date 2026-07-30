@@ -180,3 +180,12 @@ test("a tool reads the same live as it does in history", () => {
   assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button,\n\.conversation-attach-button \{[^}]*flex: 0 0 auto/);
   assert.match(styles, /\.conversation-send-button,\n\.conversation-stop-button,\n\.conversation-attach-button \{[^}]*white-space: nowrap/);
 });
+
+test("expanded tool details use dividers instead of stacked tinted surfaces", () => {
+  assert.match(styles, /\.tool-turn-group\.embedded\.single \{[^}]*border:\s*0/s);
+  assert.match(styles, /\.tool-op-body \{[^}]*border-top:\s*1px solid var\(--border\)[^}]*background:\s*transparent/s);
+  assert.match(styles, /\.message-block\.tool-block \{[^}]*background:\s*transparent/s);
+  assert.match(styles, /\.message-block\.result-block \{[^}]*background:\s*transparent/s);
+  assert.match(styles, /\.code-block\.tool-result-full \{[^}]*background:\s*transparent/s);
+  assert.match(styles, /\.code-block > code \{[^}]*background:\s*transparent/s);
+});
