@@ -51,7 +51,10 @@ test("sessions persist in the application sidebar with title-only rows", () => {
   assert.match(sessions, /onTransientInteractionChange\?\.\(transientInteractionActive\)/);
   assert.match(sessions, /if \(visible\) return;\s*closeMenu\(false\);/);
   assert.doesNotMatch(sessions, /className="session-meta-line"/);
-  assert.match(sessions, /<MessageCircle aria-hidden="true" className="session-index-icon" size=\{13\} \/>/);
+  // A bare marker, not an icon: the row already says "conversation".
+  assert.match(sessions, /<span aria-hidden="true" className="session-index-icon" \/>/);
+  assert.doesNotMatch(sessions, /MessageCircle/);
+  assert.match(styles, /\.session-index-open \{[^}]*grid-template-columns:\s*5px minmax\(0, 1fr\);/s);
   assert.match(sessions, /aria-label=\{sessionTitle\}/);
   assert.match(sessions, /title=\{sessionTitle\}/);
   assert.doesNotMatch(sessions, /pill sessions-loading-pill/);

@@ -59,10 +59,15 @@ test("the focused conversation takes the full panel without a second session col
 });
 
 test("conversation messages and composer share the same focused reading axis", () => {
-  assert.match(styles, /\.conversation-feed \{[^}]*width:\s*min\(820px,/s);
-  assert.match(styles, /\.conversation-composer \{[^}]*width:\s*min\(820px,/s);
+  // Feed, composer and assistant content all track the one variable, so the
+  // axis cannot drift apart the way a hard-coded width per rule allowed.
+  assert.match(styles, /\.conversation-feed \{[^}]*width:\s*min\(var\(--assistant-content-width\),/s);
+  assert.match(styles, /\.conversation-composer \{[^}]*width:\s*min\(var\(--assistant-content-width\),/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-assistant \{[^}]*background:\s*transparent/s);
-  assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(620px, 78%\)[^}]*border:\s*1px solid var\(--border\)[^}]*background:\s*var\(--surface-subtle\)/s);
+  // White bubble on the --bg plane: --surface-subtle is too close to the
+  // conversation background to read as a separate card.
+  assert.match(styles, /\.conversation-feed \.message-card\.role-user \{[^}]*max-width:\s*min\(620px, 78%\)[^}]*border:\s*1px solid var\(--border\)[^}]*background:\s*var\(--surface\)/s);
+  assert.match(styles, /\.sessions-focus \.content-panel-fill \{[^}]*background:\s*var\(--bg\)/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-user \.message-markdown > :last-child \{[^}]*margin-bottom:\s*0/s);
   assert.match(view, /const showCharacterCount = text\.length >= Math\.floor\(8192 \* 0\.75\)/);
   assert.match(view, /showRoleBadge = role !== "assistant" && role !== "user"/);

@@ -2543,15 +2543,29 @@ h1 {
 .session-index-open {
   display: grid;
   min-width: 0;
-  grid-template-columns: 14px minmax(0, 1fr);
+  grid-template-columns: 5px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   padding: 9px 4px 9px 10px;
   border: 0;
   background: transparent;
   color: inherit;
   cursor: pointer;
   text-align: left;
+}
+
+/* A bare marker, not an icon: every row says "conversation", so a full-weight
+   glyph spends the most valuable 20px of the row repeating itself. */
+.session-index-icon {
+  width: 5px;
+  height: 5px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  opacity: 0.4;
+}
+
+.session-index-item.active .session-index-icon {
+  opacity: 0.85;
 }
 
 .session-index-actions {
@@ -4550,7 +4564,7 @@ h1 {
 }
 
 .input-attachment-remove:hover {
-  background: var(--surface-hover);
+  background: var(--row-hover);
   color: var(--text);
 }
 
@@ -4689,7 +4703,7 @@ h1 {
 }
 
 .conversation-attach-button:hover:not(:disabled) {
-  background: var(--surface-hover);
+  background: var(--row-hover);
   color: var(--text);
 }
 
@@ -5054,9 +5068,11 @@ h1 {
   text-align: left;
 }
 
+/* The list itself is --surface, so the hover tint has to be a step darker or
+   it reads as no feedback at all. */
 .tool-op-summary:not(:disabled):hover,
 .tool-op-summary:focus-visible {
-  background: var(--surface);
+  background: var(--row-hover);
 }
 
 .tool-op-summary:disabled {
@@ -5283,7 +5299,7 @@ h1 {
 .message-markdown ul,
 .message-markdown ol,
 .message-markdown blockquote,
-.message-markdown table,
+.message-markdown .markdown-table-scroll,
 .message-markdown pre,
 .message-markdown hr {
   margin: 0 0 8px;
@@ -5341,26 +5357,48 @@ h1 {
   color: inherit;
 }
 
+/* Horizontal rules only: vertical gridlines turn every table into a
+   spreadsheet. The wrapper owns the overflow and the rounded frame; the table
+   keeps its natural width so cells scroll rather than compress. */
+.markdown-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
 .message-markdown table {
-  display: block;
-  width: 100%;
-  overflow: auto;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
 }
 
 .message-markdown th,
 .message-markdown td {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
+  padding: 7px 11px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: normal;
   text-align: left;
   vertical-align: top;
 }
 
+.message-markdown tr:last-child td {
+  border-bottom: 0;
+}
+
 .message-markdown th {
-  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--border-strong);
+  background: transparent;
   color: var(--text-soft);
   font-size: 0.75rem;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.message-markdown tbody tr:hover {
+  background: var(--surface-subtle);
 }
 
 .message-block {
@@ -7449,9 +7487,12 @@ pre {
 
 /* ---------------------------------------- Codex-style conversation workspace */
 
+/* Warm paper, not white: the cards (tool steps, tables, user bubbles) are the
+   --surface plane, so they have to sit on something a shade below them or the
+   whole transcript flattens into one sheet. */
 .sessions-focus .content-panel-fill {
   padding: 0;
-  background: var(--surface);
+  background: var(--bg);
 }
 
 .runtime-status-host {
@@ -7616,7 +7657,12 @@ pre {
 
 .sidebar-session-section .session-index-icon {
   color: currentColor;
-  opacity: 0.72;
+  opacity: 0.35;
+}
+
+.sidebar-session-section .session-index-item.active .session-index-icon {
+  border-color: var(--sidebar-accent);
+  opacity: 1;
 }
 
 .sidebar-session-section .session-index-item:hover,
@@ -7860,7 +7906,7 @@ pre {
   border-radius: 6px;
   background: var(--surface-muted);
   color: var(--muted);
-  font-size: 0.65625rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -8012,15 +8058,18 @@ pre {
   background-color: rgba(180, 106, 77, 0.72);
 }
 
+/* One content column for everything. The feed used to be 820px while assistant
+   content capped at --assistant-content-width (760px), so user bubbles, tool
+   traces and replies each ended on a different right edge. */
 .conversation-feed {
   display: flex;
-  width: min(820px, calc(100% - 48px));
+  width: min(var(--assistant-content-width), calc(100% - 48px));
   min-width: 0;
   flex: 0 0 auto;
   flex-direction: column;
   gap: 4px;
   margin-inline: auto;
-  padding: 28px 0 34px;
+  padding: 24px 0 32px;
 }
 
 .conversation-feed.is-empty {
@@ -8063,7 +8112,7 @@ pre {
   width: 100%;
   min-width: 0;
   gap: 4px;
-  margin-top: 14px;
+  margin-top: 8px;
 }
 
 .response-process {
@@ -8109,28 +8158,42 @@ pre {
   cursor: default;
 }
 
+/* Without this the button falls back to the UA focus ring, which on macOS
+   paints in the system accent colour and reads as an error state. */
+.response-process-summary:focus-visible {
+  border-radius: 7px;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .response-group.has-error .response-process-summary,
 .live-response-group.state-error .live-progress-status {
   color: var(--danger);
 }
 
+/* One rule for the whole step list. Thinking text used to carry its own left
+   border plus indent while tool cards started at x=0, so the expanded trace had
+   a zig-zag left edge. */
 .response-process-body {
   display: grid;
   min-width: 0;
-  gap: 2px;
-  padding: 0 0 4px;
+  gap: 6px;
+  margin-left: 1px;
+  padding: 2px 0 4px 12px;
+  border-left: 2px solid var(--border);
 }
 
 .process-message-content {
   display: grid;
   min-width: 0;
   gap: 4px;
+  /* Matches the 2px inset of the tool summary rows it alternates with. */
+  padding-inline: 2px;
 }
 
 .process-thinking-text {
   min-width: 0;
-  padding: 2px 0 2px 10px;
-  border-left: 2px solid var(--border);
+  padding: 0;
   color: var(--muted);
   font-size: 0.8125rem;
   line-height: 1.58;
@@ -8161,7 +8224,7 @@ pre {
 
 .conversation-feed .message-card.role-assistant {
   width: 100%;
-  margin-top: 16px;
+  margin-top: 8px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -8192,11 +8255,11 @@ pre {
   max-width: min(620px, 78%);
   align-self: flex-end;
   justify-self: end;
-  margin: 18px 0 6px;
-  padding: 8px 12px;
+  margin: 20px 0 0;
+  padding: 9px 13px;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: var(--surface-subtle);
+  background: var(--surface);
 }
 
 .conversation-feed .message-card.role-user > .message-content,
@@ -8244,16 +8307,16 @@ pre {
 .conversation-feed .message-markdown ul,
 .conversation-feed .message-markdown ol,
 .conversation-feed .message-markdown blockquote,
-.conversation-feed .message-markdown table,
+.conversation-feed .message-markdown .markdown-table-scroll,
 .conversation-feed .message-markdown pre,
 .conversation-feed .message-markdown hr {
   margin-bottom: 7px;
 }
 
 .process-step {
-  gap: 3px;
+  gap: 4px;
   width: 100%;
-  margin: 3px 0 8px;
+  margin: 4px 0 8px;
 }
 
 .conversation-feed .thinking-block {
@@ -8342,8 +8405,8 @@ pre {
 .turn-file-section {
   display: grid;
   width: min(100%, var(--assistant-content-width));
-  gap: 7px;
-  margin: 6px 0 12px;
+  gap: 8px;
+  margin: 8px 0 12px;
 }
 
 .turn-file-heading {
@@ -8463,11 +8526,12 @@ pre {
   z-index: 7;
   flex: 0 0 auto;
   padding: 0 24px 18px;
-  background: linear-gradient(to bottom, transparent, var(--surface) 18px);
+  background: linear-gradient(to bottom, transparent, var(--bg) 18px);
 }
 
+/* Same axis as .conversation-feed — both track --assistant-content-width. */
 .conversation-composer {
-  width: min(820px, 100%);
+  width: min(var(--assistant-content-width), 100%);
   margin-inline: auto;
 }
 
