@@ -5,11 +5,12 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import type { RuntimeMessage } from "../../src/engine/types";
 import { InvalidTranscriptCursorError, SqliteRuntimeStore } from "../../src/state/storage";
+import { removeTemporaryRoot } from "../temp-directory";
 import { testWorkspace } from "../workspace";
 
 const roots: string[] = [];
-afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+afterEach(async () => {
+  for (const root of roots.splice(0)) await removeTemporaryRoot(root);
 });
 
 describe("SqliteRuntimeStore dashboard queries", () => {
