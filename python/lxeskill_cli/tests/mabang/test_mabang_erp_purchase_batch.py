@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from io import BytesIO
 from pathlib import Path
@@ -293,10 +294,39 @@ def test_confirmation_response_does_not_generate_files(monkeypatch) -> None:
     assert result["success"] is False
     assert result["status"] == "confirmation_required"
     assert result["error"]["code"] == "purchase_inventory_confirmation_required"
-    assert result["erp"] == response
+    assert "detail" not in result["error"]
+    assert result["erp"] == {
+        "quote_id": "00000000-0000-0000-0000-000000000004",
+        "planned_shipment_quantity": 10,
+        "carryover_applied_quantity": 4,
+        "purchase_quantity": 6,
+        "all_line_count": 1,
+        "affected_line_count": 1,
+        "omitted_unaffected_line_count": 0,
+        "omitted_unused_inventory_source_count": 0,
+        "affected_lines": [
+            {
+                "supplier_name": "深圳正飞科技",
+                "model": "A-1",
+                "contract_product_name": "合同产品A",
+                "planned_shipment_quantity": 10,
+                "carryover_applied_quantity": 4,
+                "purchase_quantity": 6,
+                "inventory_sources": [
+                    {
+                        "source_contract_no": "ZF20260601001",
+                        "historical_tax_unit_price": 3,
+                        "suggested_applied_quantity": 4,
+                    }
+                ],
+            }
+        ],
+    }
+    assert "allocation_details" not in json.dumps(result, ensure_ascii=False)
+    assert "carryover_entry_id" not in json.dumps(result, ensure_ascii=False)
 
 
-def test_stale_quote_preserves_latest_server_quote(monkeypatch) -> None:
+def test_stale_quote_returns_compact_latest_quote(monkeypatch) -> None:
     payload = _request_payload()
     response = _quote_response(status="quote_stale")
     monkeypatch.setattr(
@@ -322,7 +352,135 @@ def test_stale_quote_preserves_latest_server_quote(monkeypatch) -> None:
     assert result["success"] is False
     assert result["status"] == "quote_stale"
     assert result["error"]["code"] == "purchase_inventory_quote_stale"
-    assert result["erp"]["latest_quote"] == response["latest_quote"]
+    assert "detail" not in result["error"]
+    latest_quote = result["erp"]["latest_quote"]
+    assert latest_quote["quote_id"] == response["latest_quote"]["quote_id"]
+    assert latest_quote["affected_lines"][0]["model"] == "A-1"
+    assert "intent_sha256" not in latest_quote
+    assert "allocation_details" not in json.dumps(result, ensure_ascii=False)
+
+
+def test_replace_confirmation_keeps_only_conflict_decision_fields() -> None:
+    response = {
+        "status": "confirmation_required",
+        "detail": {
+            "code": "purchase_batch_replace_confirmation_required",
+            "message": "one or more SP numbers already belong to a current batch",
+            "conflicts": [
+                {
+                    "sp_no": "SP260710001",
+                    "batch_id": "00000000-0000-0000-0000-000000000010",
+                    "batch_no": "PB20260723-0002",
+                    "version_no": 3,
+                    "revision_id": "internal-revision-id",
+                    "status": "current",
+                }
+            ],
+        },
+    }
+
+    erp.validate_purchase_response(
+        status_code=409,
+        response=response,
+        request_payload=_request_payload(),
+    )
+    result = erp.confirmation_result(
+        response=response,
+        status_code=409,
+        request_payload=_request_payload(),
+    )
+
+    assert result["erp"] == {
+        "conflicts": [
+            {
+                "sp_no": "SP260710001",
+                "batch_id": "00000000-0000-0000-0000-000000000010",
+                "batch_no": "PB20260723-0002",
+                "version_no": 3,
+            }
+        ]
+    }
+    assert "detail" not in result["error"]
+    assert "internal-revision-id" not in json.dumps(result)
+
+
+def test_confirmation_summary_filters_unaffected_lines_and_is_bounded() -> None:
+    base_line = deepcopy(_quote_response()["lines"][0])
+    lines: list[dict[str, Any]] = []
+    affected_indexes = {0, 8, 15}
+    final_model = "MODEL-16-完整编号-不得截断"
+    for index in range(16):
+        line = deepcopy(base_line)
+        line["line_ref"] = f"L{index + 1:04d}"
+        line["model"] = final_model if index == 15 else f"MODEL-{index + 1:02d}"
+        line["inventory_sources"].append(
+            {
+                "carryover_entry_id": f"unused-{index}",
+                "source_contract_no": f"UNUSED-{index}",
+                "historical_tax_unit_price": 99,
+                "source_reference": "unused",
+                "acquired_on": "2026-01-01",
+                "available_quantity": 100,
+                "suggested_applied_quantity": 0,
+                "version_no": 99,
+            }
+        )
+        if index not in affected_indexes:
+            line["carryover_applied_quantity"] = 0
+            line["purchase_quantity"] = 10
+            line["inventory_sources"][0]["suggested_applied_quantity"] = 0
+        lines.append(line)
+    response = {
+        "status": "confirmation_required",
+        "error": {
+            "code": "purchase_inventory_confirmation_required",
+            "message": "ERP inventory is available; confirmation is required",
+        },
+        "quote_id": "quote-large",
+        "intent_sha256": "b" * 64,
+        "inventory_sha256": "c" * 64,
+        "planned_shipment_quantity": 160,
+        "carryover_applied_quantity": 12,
+        "purchase_quantity": 148,
+        "inventory_issues": [],
+        "lines": lines,
+    }
+    request_payload = _request_payload()
+    result = erp.confirmation_result(
+        response=response,
+        status_code=409,
+        request_payload=request_payload,
+    )
+    legacy_result = {
+        "success": False,
+        "status": "confirmation_required",
+        "request_id": request_payload["request_id"],
+        "source_sha256": request_payload["source_sha256"],
+        "error": {
+            "code": "purchase_inventory_confirmation_required",
+            "message": "ERP inventory is available; confirmation is required",
+            "http_status": 409,
+            "detail": response,
+        },
+        "erp": response,
+    }
+
+    summary = result["erp"]
+    assert summary["all_line_count"] == 16
+    assert summary["affected_line_count"] == 3
+    assert summary["omitted_unaffected_line_count"] == 13
+    assert summary["omitted_unused_inventory_source_count"] == 29
+    assert [line["model"] for line in summary["affected_lines"]][-1] == final_model
+    assert all(
+        source["suggested_applied_quantity"] > 0
+        for line in summary["affected_lines"]
+        for source in line["inventory_sources"]
+    )
+    compact_size = len(json.dumps(result, ensure_ascii=False, separators=(",", ":")))
+    legacy_size = len(
+        json.dumps(legacy_result, ensure_ascii=False, separators=(",", ":"))
+    )
+    assert compact_size <= legacy_size * 0.35
 
 
 def test_draft_never_calls_erp_and_marks_outputs(monkeypatch, tmp_path: Path) -> None:

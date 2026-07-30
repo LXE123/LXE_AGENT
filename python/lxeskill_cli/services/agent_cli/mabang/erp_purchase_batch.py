@@ -911,6 +911,36 @@ def confirmation_result(
     fields = detail or top_error
     code = str(fields.get("code") or "purchase_confirmation_required")
     message = str(fields.get("message") or "ERP 要求用户确认后才能创建采购批次")
+    if code == "purchase_inventory_confirmation_required":
+        erp_summary = _inventory_quote_summary(response, field_prefix="quote")
+    elif code == "purchase_inventory_quote_stale":
+        latest_quote = response.get("latest_quote")
+        if not isinstance(latest_quote, Mapping):
+            raise _incomplete("报价过期响应缺少 latest_quote", field="latest_quote")
+        erp_summary = {
+            "latest_quote": _inventory_quote_summary(
+                latest_quote,
+                field_prefix="latest_quote",
+            )
+        }
+    elif code == "purchase_batch_replace_confirmation_required":
+        conflicts = _required_result_list(
+            fields.get("conflicts"), field="error.conflicts"
+        )
+        erp_summary = {
+            "conflicts": [
+                {
+                    "sp_no": conflict.get("sp_no"),
+                    "batch_id": conflict.get("batch_id"),
+                    "batch_no": conflict.get("batch_no"),
+                    "version_no": conflict.get("version_no"),
+                }
+                for conflict in conflicts
+                if isinstance(conflict, Mapping)
+            ]
+        }
+    else:
+        erp_summary = {}
     return {
         "success": False,
         "status": str(response.get("status") or "confirmation_required"),
@@ -920,9 +950,108 @@ def confirmation_result(
             "code": code,
             "message": message,
             "http_status": status_code,
-            "detail": dict(response),
         },
-        "erp": dict(response),
+        "erp": erp_summary,
+    }
+
+
+def _inventory_quote_summary(
+    quote: Mapping[str, Any],
+    *,
+    field_prefix: str,
+) -> dict[str, Any]:
+    quote_id = _required_result_text(
+        quote.get("quote_id"), field=f"{field_prefix}.quote_id"
+    )
+    _required_result_decimal(
+        quote.get("planned_shipment_quantity"),
+        field=f"{field_prefix}.planned_shipment_quantity",
+    )
+    _required_result_decimal(
+        quote.get("carryover_applied_quantity"),
+        field=f"{field_prefix}.carryover_applied_quantity",
+    )
+    _required_result_decimal(
+        quote.get("purchase_quantity"),
+        field=f"{field_prefix}.purchase_quantity",
+    )
+    raw_lines = _required_result_list(quote.get("lines"), field=f"{field_prefix}.lines")
+    affected_lines: list[dict[str, Any]] = []
+    omitted_unused_sources = 0
+    for line_index, raw_line in enumerate(raw_lines):
+        line_field = f"{field_prefix}.lines[{line_index}]"
+        if not isinstance(raw_line, Mapping):
+            raise _incomplete(f"{line_field} 必须是对象", field=line_field)
+        line_carryover = _required_result_decimal(
+            raw_line.get("carryover_applied_quantity"),
+            field=f"{line_field}.carryover_applied_quantity",
+        )
+        raw_sources = _required_result_list(
+            raw_line.get("inventory_sources"),
+            field=f"{line_field}.inventory_sources",
+        )
+        used_sources: list[dict[str, Any]] = []
+        for source_index, raw_source in enumerate(raw_sources):
+            source_field = f"{line_field}.inventory_sources[{source_index}]"
+            if not isinstance(raw_source, Mapping):
+                raise _incomplete(f"{source_field} 必须是对象", field=source_field)
+            suggested = _required_result_decimal(
+                raw_source.get("suggested_applied_quantity"),
+                field=f"{source_field}.suggested_applied_quantity",
+            )
+            if suggested <= 0:
+                omitted_unused_sources += 1
+                continue
+            used_sources.append(
+                {
+                    "source_contract_no": _required_result_text(
+                        raw_source.get("source_contract_no"),
+                        field=f"{source_field}.source_contract_no",
+                    ),
+                    "historical_tax_unit_price": raw_source.get(
+                        "historical_tax_unit_price"
+                    ),
+                    "suggested_applied_quantity": raw_source.get(
+                        "suggested_applied_quantity"
+                    ),
+                }
+            )
+        if line_carryover <= 0:
+            continue
+        affected_lines.append(
+            {
+                "supplier_name": _required_result_text(
+                    raw_line.get("supplier_name"),
+                    field=f"{line_field}.supplier_name",
+                ),
+                "model": _required_result_text(
+                    raw_line.get("model"),
+                    field=f"{line_field}.model",
+                ),
+                "contract_product_name": _required_result_text(
+                    raw_line.get("contract_product_name"),
+                    field=f"{line_field}.contract_product_name",
+                ),
+                "planned_shipment_quantity": raw_line.get(
+                    "planned_shipment_quantity"
+                ),
+                "carryover_applied_quantity": raw_line.get(
+                    "carryover_applied_quantity"
+                ),
+                "purchase_quantity": raw_line.get("purchase_quantity"),
+                "inventory_sources": used_sources,
+            }
+        )
+    return {
+        "quote_id": quote_id,
+        "planned_shipment_quantity": quote.get("planned_shipment_quantity"),
+        "carryover_applied_quantity": quote.get("carryover_applied_quantity"),
+        "purchase_quantity": quote.get("purchase_quantity"),
+        "all_line_count": len(raw_lines),
+        "affected_line_count": len(affected_lines),
+        "omitted_unaffected_line_count": len(raw_lines) - len(affected_lines),
+        "omitted_unused_inventory_source_count": omitted_unused_sources,
+        "affected_lines": affected_lines,
     }
 
 

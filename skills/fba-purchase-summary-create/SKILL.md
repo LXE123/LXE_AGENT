@@ -62,12 +62,13 @@ lxeskill fba purchase summary-create --delivery-no <SP> --gross-margin <毛利�
 
 当 `data.error.code=purchase_inventory_confirmation_required` 时：
 
-1. 展示 `data.erp.lines` 中每个型号的计划量、建议抵扣量和本次采购量；从 `inventory_sources` 逐条展示旧合同号、历史单价、可用量和建议使用量。
-2. 未取得用户明确确认前不要继续。
-3. 确认后重试原命令，追加 `--confirm-inventory-quote-id <data.erp.quote_id>`。
+1. 展示 `data.erp.affected_lines` 中每个受库存抵扣影响型号的供应商、完整型号、合同产品名称、计划量、抵扣量和本次采购量；从 `inventory_sources` 逐条展示实际使用的旧合同号、历史单价和本次使用量。
+2. 说明 `data.erp.omitted_unaffected_line_count` 是未发生库存抵扣、因此未展开的采购型号数；不要把它说成数据截断。
+3. 未取得用户明确确认前不要继续。
+4. 确认后重试原命令，追加 `--confirm-inventory-quote-id <data.erp.quote_id>`。
 
-- `purchase_inventory_quote_stale`：库存已变化，展示 `data.erp.latest_quote` 并重新询问，不沿用旧 quote ID。
-- `purchase_batch_replace_confirmation_required`：展示重复 SP 和当前批次；用户确认后使用 `--replace-batch-id`、`--expected-version-no` 和 `--change-reason`。
+- `purchase_inventory_quote_stale`：库存已变化，按相同规则展示 `data.erp.latest_quote.affected_lines` 并重新询问，不沿用旧 quote ID；重试时使用 `data.erp.latest_quote.quote_id`。
+- `purchase_batch_replace_confirmation_required`：展示 `data.erp.conflicts` 中的重复 SP 和当前批次；用户确认后使用 `--replace-batch-id`、`--expected-version-no` 和 `--change-reason`。
 
 ## Result Handling
 
