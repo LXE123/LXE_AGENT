@@ -57,11 +57,19 @@ test("macOS conversations merge the page header into the native title-bar row", 
   );
   assert.match(
     styles,
-    /\.desktop-platform-darwin \.sessions-focus \.conversation-header\s*\{[^}]*z-index:\s*21;[^}]*background:\s*var\(--surface\);[^}]*-webkit-app-region:\s*drag;/s
+    /\.desktop-platform-darwin \.sessions-focus \.conversation-header\s*\{[^}]*z-index:\s*21;[^}]*background:\s*var\(--surface\);[^}]*-webkit-app-region:\s*no-drag;/s
+  );
+  assert.match(
+    styles,
+    /\.desktop-platform-darwin \.sessions-focus \.conversation-header-copy\s*\{[^}]*-webkit-app-region:\s*drag;/s
   );
   assert.match(
     styles,
     /\.desktop-platform-darwin \.sessions-focus \.conversation-header button\s*\{[^}]*-webkit-app-region:\s*no-drag;/s
+  );
+  assert.match(
+    styles,
+    /\.sidebar-window-controls\s*\{[^}]*pointer-events:\s*auto;[^}]*-webkit-app-region:\s*no-drag;/s
   );
   assert.match(
     styles,

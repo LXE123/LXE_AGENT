@@ -1864,6 +1864,7 @@ button {
   display: flex;
   align-items: center;
   gap: 4px;
+  pointer-events: auto;
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
@@ -7812,6 +7813,11 @@ pre {
 .desktop-platform-darwin .sessions-focus .conversation-header {
   z-index: 21;
   background: var(--surface);
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-platform-darwin .sessions-focus .conversation-header-copy {
   app-region: drag;
   -webkit-app-region: drag;
 }
