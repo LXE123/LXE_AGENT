@@ -336,6 +336,8 @@ export const ZH_TEXT = {
     },
     toolBatchMore: (count: number) => `另 ${count} 项`,
     toolBatchFailures: (count: number) => `失败 ${count}`,
+    toolOtherArguments: "其他参数",
+    toolCallIdLabel: "调用 ID",
     calls: "调用",
     results: "结果",
     error: "错误"
@@ -1072,6 +1074,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       },
       toolBatchMore: (count: number) => `${count} more`,
       toolBatchFailures: (count: number) => `${count} failed`,
+      toolOtherArguments: "Other arguments",
+      toolCallIdLabel: "Call ID",
       calls: "calls",
       results: "results",
       error: "error"

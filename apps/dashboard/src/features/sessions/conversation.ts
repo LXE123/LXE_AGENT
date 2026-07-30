@@ -287,6 +287,26 @@ function operationArgument(call: unknown): string {
   return "";
 }
 
+/**
+ * Splits a call's input into the one value that describes it — the command, the
+ * path, the query — and everything else, so the detail view can lead with the
+ * former instead of printing the whole input object as JSON.
+ */
+export function splitCallArguments(call: unknown): { primary: string; rest: Record<string, unknown> } {
+  if (!isRecord(call)) return { primary: "", rest: {} };
+  const input = call.input ?? call.arguments;
+  if (!isRecord(input)) return { primary: scalarText(input), rest: {} };
+  const keys = Object.keys(input);
+  const primaryKey = OPERATION_ARGUMENT_KEYS.find((key) => scalarText(input[key]))
+    ?? keys.find((key) => scalarText(input[key]))
+    ?? "";
+  const rest: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (key !== primaryKey) rest[key] = input[key];
+  }
+  return { primary: primaryKey ? scalarText(input[primaryKey]) : "", rest };
+}
+
 const blockId = (block: unknown, keys: string[]): string => {
   if (!isRecord(block)) return "";
   for (const key of keys) {

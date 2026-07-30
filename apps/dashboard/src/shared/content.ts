@@ -15,6 +15,30 @@ export function shortText(value: unknown, limit = 2200): string {
   return text.length > limit ? `${text.slice(0, limit)}\n... [truncated]` : text;
 }
 
+/**
+ * A tool result's payload is usually an Anthropic-style content array whose
+ * readable part lives in text blocks. Running JSON.stringify over the array
+ * escapes those blocks' newlines into literal \n and buries the output in an
+ * envelope, so pull the text out and hand back whatever else was in there
+ * untouched — nothing is dropped, the caller renders the residue as JSON.
+ */
+export function splitContentBlocks(value: unknown): { text: string; residual: unknown[] } {
+  if (typeof value === "string") return { text: value, residual: [] };
+  if (!Array.isArray(value)) return { text: "", residual: value === undefined ? [] : [value] };
+  const texts: string[] = [];
+  const residual: unknown[] = [];
+  for (const block of value) {
+    if (isRecord(block) && block.type === "text" && typeof block.text === "string") {
+      texts.push(block.text);
+    } else if (typeof block === "string") {
+      texts.push(block);
+    } else {
+      residual.push(block);
+    }
+  }
+  return { text: texts.join("\n"), residual };
+}
+
 export function sanitizeForDisplay(value: unknown, options: { truncateStrings?: boolean } = {}): unknown {
   const truncateStrings = options.truncateStrings ?? true;
   if (typeof value === "string") {

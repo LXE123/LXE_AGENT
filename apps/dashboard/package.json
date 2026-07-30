@@ -12,6 +12,7 @@
     "@lxe/desktop-protocol": "workspace:*",
     "@lxe/protocol": "workspace:*",
     "@tanstack/react-query": "^5.90.21",
+    "highlight.js": "^11.11.1",
     "lucide-react": "^0.562.0",
     "mermaid": "^11.15.0",
     "react": "^19.2.3",

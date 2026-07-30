@@ -5567,15 +5567,160 @@ code {
   background: transparent;
 }
 
-.message-json.tool-result-full {
+.code-block.tool-result-full {
   max-height: min(620px, 70vh);
   background: var(--tool-soft);
 }
 
 .tool-result-truncation {
-  color: var(--text-muted);
+  color: var(--muted);
   font-size: 0.75rem;
   margin: 8px 0 0;
+}
+
+.message-json.tool-result-residual {
+  max-height: 240px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* ------------------------------------------------------ tool call detail */
+
+.tool-call-args {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.tool-call-path {
+  overflow: hidden;
+  padding: 2px 2px 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-call-rest {
+  display: grid;
+  gap: 2px;
+}
+
+.tool-call-rest-label {
+  padding-left: 2px;
+  color: var(--muted-light);
+  font-size: 0.625rem;
+  font-weight: 600;
+}
+
+.tool-call-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 2px;
+}
+
+.tool-call-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  /* The op body is --surface-subtle, so a --surface-muted chip would vanish
+     into it; white plus a hairline is what reads as a chip here. */
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+}
+
+.tool-call-chip-key {
+  color: var(--muted-light);
+}
+
+.tool-call-chip-value {
+  color: var(--text-soft);
+}
+
+/* Present for log correlation, recessive so it never reads as the title. */
+.tool-call-id {
+  overflow: hidden;
+  max-width: 180px;
+  color: var(--muted-light);
+  font-size: 0.625rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.code-block {
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  /* Identifiers and paths break badly under `anywhere`; let a genuinely long
+     token scroll instead of splitting mid-word. */
+  overflow-wrap: normal;
+}
+
+.code-block code {
+  font-family: var(--font-mono);
+}
+
+/* highlight.js emits class names rather than inline colours, so the palette
+   below is the app's own — it follows the theme instead of fighting it. */
+.hljs-comment,
+.hljs-quote {
+  color: var(--muted-light);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag {
+  color: var(--accent-strong);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition {
+  color: var(--rate-good);
+}
+
+.hljs-number,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-attr,
+.hljs-selector-attr {
+  color: var(--warning);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--message-user-text);
+}
+
+.hljs-type,
+.hljs-attribute,
+.hljs-meta,
+.hljs-built_in,
+.hljs-symbol {
+  color: var(--tool);
+}
+
+.hljs-deletion {
+  color: var(--danger);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 650;
 }
 
 .modal-backdrop {

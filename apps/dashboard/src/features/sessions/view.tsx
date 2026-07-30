@@ -30,13 +30,14 @@ import {
 } from "lucide-react";
 
 import { EmptyState } from "../../shared/components";
-import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText } from "../../shared/content";
+import { copyTextToClipboard, displayText, isRecord, sanitizeForDisplay, shortText, splitContentBlocks } from "../../shared/content";
 import {
   buildConversationItems,
   hasLiveToolOperationDetails,
   hasReaderFacingText,
   liveFinalText,
   roleLabel,
+  splitCallArguments,
   summarizeToolOperations,
   toolOperationPresentation,
   toolOperations,
@@ -60,6 +61,7 @@ import type {
   SourceSummary,
   TurnProcessPart
 } from "../../api/payloads";
+import { CodeBlock, languageForPath } from "../../shared/ui/code-block";
 import { markdownComponents } from "../../shared/ui/markdown";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { groupSidebarSessions } from "./model";
@@ -271,10 +273,17 @@ function RedactedThinkingBlock() {
   );
 }
 
-function ToolResultBlock({ block }: { block: Record<string, unknown> }) {
+function ToolResultBlock({ block, language = "" }: { block: Record<string, unknown>; language?: string }) {
   const t = useUiText();
   const [copied, setCopied] = useState(false);
-  const resultText = displayText(sanitizeForDisplay(block.content ?? "", { truncateStrings: false }));
+  // Pull the text out of the content blocks first. Stringifying the array turns
+  // every real newline in the output into a literal \n and the result arrives
+  // as one unreadable wall.
+  const { text, residual } = splitContentBlocks(block.content ?? "");
+  const resultText = text || (residual.length ? "" : displayText(block.content ?? ""));
+  const residualText = residual.length
+    ? displayText(sanitizeForDisplay(residual, { truncateStrings: false }))
+    : "";
   const copyLabel = copied ? t.common.copied : t.message.copyResult;
   const truncation = isRecord(block.dashboard_truncation) ? block.dashboard_truncation : null;
   const originalBytes = Math.max(0, Number(truncation?.original_bytes) || 0);
@@ -282,7 +291,7 @@ function ToolResultBlock({ block }: { block: Record<string, unknown> }) {
 
   const handleCopy = async () => {
     try {
-      await copyTextToClipboard(resultText);
+      await copyTextToClipboard([resultText, residualText].filter(Boolean).join("\n"));
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
@@ -296,9 +305,15 @@ function ToolResultBlock({ block }: { block: Record<string, unknown> }) {
         <div className="block-title-main">
           <PackageCheck size={14} />
           <span>{block.is_error ? t.message.toolResultError : t.message.toolResult}</span>
-          {block.tool_call_id ? <code>{String(block.tool_call_id)}</code> : null}
         </div>
         <div className="tool-result-actions">
+          {/* Correlating an id with the logs is a debugging need, not the
+              headline the reader came for. */}
+          {block.tool_call_id ? (
+            <code className="tool-call-id" title={`${t.message.toolCallIdLabel}: ${String(block.tool_call_id)}`}>
+              {String(block.tool_call_id)}
+            </code>
+          ) : null}
           <button className="tool-result-button" type="button" onClick={handleCopy}>
             {copied ? <CheckCircle2 size={13} /> : <Copy size={13} />}
             <span>{copyLabel}</span>
@@ -310,7 +325,68 @@ function ToolResultBlock({ block }: { block: Record<string, unknown> }) {
           {t.message.toolResultTruncated(formatNumber(previewBytes), formatNumber(originalBytes))}
         </div>
       ) : null}
-      <pre className="message-json tool-result-full">{resultText}</pre>
+      {resultText ? <CodeBlock className="tool-result-full" code={resultText} language={language} /> : null}
+      {residualText ? <pre className="message-json tool-result-residual">{residualText}</pre> : null}
+    </div>
+  );
+}
+
+/**
+ * `timeout: 120` deserves a chip, not three lines of JSON. Anything with
+ * structure inside it still gets the JSON block, so nothing is flattened away.
+ */
+function ToolCallRest({ rest }: { rest: Record<string, unknown> }) {
+  const t = useUiText();
+  const entries = Object.entries(rest);
+  const scalars = entries.filter(([, value]) =>
+    value === null || ["string", "number", "boolean"].includes(typeof value));
+  const structured = Object.fromEntries(entries.filter(([key]) =>
+    !scalars.some(([scalarKey]) => scalarKey === key)));
+  const hasStructured = Object.keys(structured).length > 0;
+  return (
+    <div className="tool-call-rest">
+      {scalars.length ? (
+        <div className="tool-call-chips">
+          {scalars.map(([key, value]) => (
+            <span className="tool-call-chip" key={key}>
+              <span className="tool-call-chip-key">{key}</span>
+              <span className="tool-call-chip-value">{String(value)}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {hasStructured ? (
+        <>
+          <span className="tool-call-rest-label">{t.message.toolOtherArguments}</span>
+          <pre className="message-json">{shortText(sanitizeForDisplay(structured))}</pre>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The call side of one operation: the value that describes it rendered as what
+ * it is — a shell command as shell, a path as a path — with the remaining
+ * arguments kept below rather than dropped.
+ */
+function ToolCallArguments({ operation }: { operation: ToolOperation }) {
+  const t = useUiText();
+  const { primary, rest } = splitCallArguments(operation.call);
+  const restKeys = Object.keys(rest);
+  if (!primary && !restKeys.length) return null;
+  const primaryLanguage = operation.action === "run"
+    ? "bash"
+    : languageForPath(primary);
+  const isPath = ["read", "edit", "write", "list", "send"].includes(operation.action);
+  return (
+    <div className="tool-call-args">
+      {primary
+        ? (isPath
+          ? <div className="tool-call-path" title={primary}>{primary}</div>
+          : <CodeBlock code={primary} language={primaryLanguage} />)
+        : null}
+      {restKeys.length ? <ToolCallRest rest={rest} /> : null}
     </div>
   );
 }
@@ -381,11 +457,25 @@ const toolBatchLabels = (t: UiText) => ({
 
 type ToolOperationBody = (operation: ToolOperation) => React.ReactNode;
 
+/**
+ * A read hands back file contents, so its result is highlighted as that file's
+ * language. Everything else returns prose or a report and stays plain — guessing
+ * a grammar for it would only mis-colour it.
+ */
+function resultLanguage(operation: ToolOperation): string {
+  return operation.action === "read" ? languageForPath(operation.target) : "";
+}
+
 function defaultToolOperationBody(operation: ToolOperation): React.ReactNode {
+  const result = operation.result;
   return (
     <>
-      {operation.call === undefined ? null : <MessageBlock block={operation.call} />}
-      {operation.result === undefined ? null : <MessageBlock block={operation.result} />}
+      <ToolCallArguments operation={operation} />
+      {result === undefined
+        ? null
+        : isRecord(result) && (result.type === "tool_result" || result.content !== undefined)
+          ? <ToolResultBlock block={result} language={resultLanguage(operation)} />
+          : <MessageBlock block={result} />}
     </>
   );
 }
@@ -421,6 +511,16 @@ function ToolTurnGroup({
   ]
     .filter(Boolean)
     .join(" ");
+  // A one-operation batch summarises to exactly the operation's own row, so the
+  // group header would print the same command a second time. The operation row
+  // already carries its own chevron, spinner and error mark.
+  if (operations.length === 1) {
+    return (
+      <section className={`${className} single`}>
+        <ToolOperationList operations={operations} renderOperationBody={renderOperationBody} />
+      </section>
+    );
+  }
   return (
     <section className={className}>
       <button
@@ -655,10 +755,12 @@ function liveToolOperations(steps: LiveToolStep[]): ToolOperation[] {
 
 function LiveToolOperationBody({ operation }: { operation: ToolOperation }) {
   const step = operation.result as LiveToolStep;
+  const language = resultLanguage(operation);
   return (
     <>
+      <ToolCallArguments operation={operation} />
       {step.result_block ? (
-        <ToolResultBlock block={{ type: "tool_result", content: step.result_block.content }} />
+        <ToolResultBlock block={{ type: "tool_result", content: step.result_block.content }} language={language} />
       ) : null}
       {step.error_block ? (
         <ToolResultBlock block={{ type: "tool_result", content: step.error_block.content, is_error: true }} />
