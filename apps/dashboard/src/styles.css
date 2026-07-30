@@ -5651,6 +5651,29 @@ code {
   color: var(--text-soft);
 }
 
+.tool-call-long-values {
+  display: grid;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.tool-call-long-value {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.tool-call-long-value > .tool-call-rest-label {
+  padding: 2px 0 0;
+}
+
+.tool-call-long-value > .message-json {
+  min-width: 0;
+  padding: 0;
+}
+
 /* Present for log correlation, recessive so it never reads as the title. */
 .tool-call-id {
   overflow: hidden;

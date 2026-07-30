@@ -331,27 +331,44 @@ function ToolResultBlock({ block, language = "" }: { block: Record<string, unkno
   );
 }
 
+const COMPACT_TOOL_ARGUMENT_MAX_CHARS = 80;
+
 /**
- * `timeout: 120` deserves a chip, not three lines of JSON. Anything with
- * structure inside it still gets the JSON block, so nothing is flattened away.
+ * `timeout: 120` deserves a chip, not three lines of JSON. Long strings and
+ * structured values stay in the detail flow so a pill never stretches around
+ * a paragraph-sized payload.
  */
 function ToolCallRest({ rest }: { rest: Record<string, unknown> }) {
   const t = useUiText();
   const entries = Object.entries(rest);
   const scalars = entries.filter(([, value]) =>
     value === null || ["string", "number", "boolean"].includes(typeof value));
+  const compactScalars = scalars.filter(([, value]) =>
+    typeof value !== "string" || value.length <= COMPACT_TOOL_ARGUMENT_MAX_CHARS);
+  const longScalars = scalars.filter(([, value]) =>
+    typeof value === "string" && value.length > COMPACT_TOOL_ARGUMENT_MAX_CHARS);
   const structured = Object.fromEntries(entries.filter(([key]) =>
     !scalars.some(([scalarKey]) => scalarKey === key)));
   const hasStructured = Object.keys(structured).length > 0;
   return (
     <div className="tool-call-rest">
-      {scalars.length ? (
+      {compactScalars.length ? (
         <div className="tool-call-chips">
-          {scalars.map(([key, value]) => (
+          {compactScalars.map(([key, value]) => (
             <span className="tool-call-chip" key={key}>
               <span className="tool-call-chip-key">{key}</span>
               <span className="tool-call-chip-value">{String(value)}</span>
             </span>
+          ))}
+        </div>
+      ) : null}
+      {longScalars.length ? (
+        <div className="tool-call-long-values">
+          {longScalars.map(([key, value]) => (
+            <div className="tool-call-long-value" key={key}>
+              <span className="tool-call-rest-label">{key}</span>
+              <pre className="message-json">{String(value)}</pre>
+            </div>
           ))}
         </div>
       ) : null}
