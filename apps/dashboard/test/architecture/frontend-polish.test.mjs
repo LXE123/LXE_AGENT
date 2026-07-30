@@ -14,6 +14,7 @@ const details = readSource("features/details/view.tsx");
 const integrations = readSource("features/integrations/view.tsx");
 const models = readSource("features/models/view.tsx");
 const sessions = readSource("features/sessions/view.tsx");
+const sidebar = readSource("shared/use-three-state-sidebar.ts");
 const stats = readSource("features/stats/view.tsx");
 const styles = readSource("styles.css");
 const dialogFocus = readSource("shared/ui/use-dialog-focus.ts");
@@ -31,22 +32,24 @@ test("status and settings have one sidebar entry and no floating duplicate", () 
   const statusCardRule = styles.match(/\.sidebar-status-card\s*\{([\s\S]*?)\}/)?.[1] || "";
   assert.match(statusCardRule, /flex:\s*0 0 auto/);
   assert.match(statusCardRule, /margin-top:\s*auto/);
-  const collapsedRule = styles.match(
-    /\.app-sidebar\.collapsed \.sidebar-status-card\s*\{([\s\S]*?)\}/,
-  )?.[1] || "";
-  assert.doesNotMatch(collapsedRule, /margin-top:/);
+  assert.doesNotMatch(styles, /\.app-sidebar\.collapsed \.sidebar-status-card/);
 });
 
 test("sessions persist in the application sidebar with title-only rows", () => {
   assert.match(styles, /container-name:\s*dashboard-main/);
   assert.equal((main.match(/<SessionsIndex/g) || []).length, 1);
   assert.match(main, /const sessionsQuery = useSessionsInfiniteQuery\(debouncedQuery\);/);
-  assert.match(main, /\{sessionSidebarExpanded \? \(/);
+  assert.match(main, /const sidebarMode = sidebar\.mode;/);
   assert.doesNotMatch(main, /activeSection === "sessions" && sessionSidebarExpanded/);
   assert.match(main, /className="sidebar-session-section"/);
   assert.match(main, /selectedSessionId=\{activeSection === "sessions" \? selectedSessionId : ""\}/);
   assert.doesNotMatch(main, /compactSessionLayout|sessionSidebarOverlayOpen|sessionSidebarDialogOpen/);
   assert.doesNotMatch(styles, /session-sidebar-scrim|session-sidebar-overlay-open/);
+  assert.match(main, /onTransientInteractionChange=\{sidebar\.onTransientInteractionChange\}/);
+  assert.match(main, /visible=\{sidebarVisible\}/);
+  assert.match(sessions, /const transientInteractionActive = Boolean\(menu\);/);
+  assert.match(sessions, /onTransientInteractionChange\?\.\(transientInteractionActive\)/);
+  assert.match(sessions, /if \(visible\) return;\s*closeMenu\(false\);/);
   assert.doesNotMatch(sessions, /className="session-meta-line"/);
   assert.match(sessions, /<MessageCircle aria-hidden="true" className="session-index-icon" size=\{13\} \/>/);
   assert.match(sessions, /aria-label=\{sessionTitle\}/);
@@ -59,9 +62,10 @@ test("sessions persist in the application sidebar with title-only rows", () => {
 
   const searchToggle = main.slice(
     main.indexOf("function handleSessionSearchToggle()"),
-    main.indexOf("function handleSidebarToggle()"),
+    main.indexOf("// Keep the focused conversation populated by default."),
   );
-  assert.match(searchToggle, /setSidebarCollapsed\(false\)/);
+  assert.match(searchToggle, /sidebar\.openForSearch\(\)/);
+  assert.match(sidebar, /if \(collapsed && !peekOpen\) setPeekOpen\(true\);/);
   assert.doesNotMatch(searchToggle, /pushDashboardRoute|setActiveSection/);
 
   assert.match(styles, /\.tab-list\s*\{[^}]*gap:\s*1px;/s);

@@ -1705,6 +1705,8 @@ export function SessionsIndex({
   onOpen,
   onPin,
   onDelete,
+  onTransientInteractionChange,
+  visible = true,
   deleteBlockedSessionIds = [],
 }: {
   sessions: SessionPayload[];
@@ -1724,6 +1726,8 @@ export function SessionsIndex({
   onOpen: (session: SessionPayload) => void;
   onPin: (session: SessionPayload, pinned: boolean) => Promise<void>;
   onDelete: (session: SessionPayload) => Promise<void>;
+  onTransientInteractionChange?: (active: boolean) => void;
+  visible?: boolean;
   deleteBlockedSessionIds?: readonly string[];
 }) {
   const t = useUiText();
@@ -1738,6 +1742,14 @@ export function SessionsIndex({
   const [actionError, setActionError] = useState("");
   const blockedIds = useMemo(() => new Set(deleteBlockedSessionIds), [deleteBlockedSessionIds]);
   const { pinned: pinnedSessions, recent: recentSessions } = groupSidebarSessions(sessions, Boolean(trimmedQuery));
+  const transientInteractionActive = Boolean(menu);
+
+  useEffect(() => {
+    onTransientInteractionChange?.(transientInteractionActive);
+    return () => {
+      if (transientInteractionActive) onTransientInteractionChange?.(false);
+    };
+  }, [onTransientInteractionChange, transientInteractionActive]);
 
   useEffect(() => {
     if (searchOpen) {
@@ -1767,6 +1779,11 @@ export function SessionsIndex({
     });
     setActionError("");
   }, []);
+
+  useEffect(() => {
+    if (visible) return;
+    closeMenu(false);
+  }, [closeMenu, visible]);
 
   async function pinSelected() {
     if (!menu || actionPending) return;

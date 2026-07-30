@@ -92,6 +92,7 @@ import {
   readStoredCapabilityView,
   storeCapabilityView,
 } from "./shared/navigation";
+import { useThreeStateSidebar } from "./shared/use-three-state-sidebar";
 import type {
   ActivityView,
   CapabilityView,
@@ -195,7 +196,7 @@ function App({
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [newConversation, setNewConversation] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebar = useThreeStateSidebar(browserStorage());
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionSearchFocusKey, setSessionSearchFocusKey] = useState(0);
 
@@ -310,13 +311,9 @@ function App({
   }
 
   function handleSessionSearchToggle() {
-    if (sidebarCollapsed) setSidebarCollapsed(false);
+    sidebar.openForSearch();
     setSessionSearchOpen(true);
     setSessionSearchFocusKey((current) => current + 1);
-  }
-
-  function handleSidebarToggle() {
-    setSidebarCollapsed((current) => !current);
   }
 
   // Keep the focused conversation populated by default.
@@ -747,46 +744,56 @@ function App({
       onOpenSettings={(section) => onOpenDesktopSettings?.(section)}
     />
   );
-  const sessionSidebarExpanded = !sidebarCollapsed;
-  const effectiveSidebarCollapsed = !sessionSidebarExpanded;
+  const sessionSidebarExpanded = sidebar.expanded;
+  const sidebarMode = sidebar.mode;
+  const sidebarVisible = sidebar.visible;
   const shellClassName = [
     "app-shell",
-    effectiveSidebarCollapsed ? "sidebar-collapsed" : "",
+    sidebar.collapsed ? "sidebar-collapsed" : "",
+    sidebar.peekOpen ? "sidebar-peeking" : "",
     activeSection === "sessions" ? "sessions-focus" : "",
   ].filter(Boolean).join(" ");
 
   return (
     <>
       <main className={shellClassName}>
-        <aside
-          aria-label={t.nav.aria}
-          className={effectiveSidebarCollapsed ? "app-sidebar collapsed" : "app-sidebar"}
-          id="app-sidebar"
+        <div
+          className={sidebarVisible ? "sidebar-window-controls sidebar-visible" : "sidebar-window-controls"}
+          {...sidebar.controlProps}
         >
-          <div className="sidebar-topbar">
-            <div className="sidebar-topbar-actions">
-              <button
-                aria-label={t.sessions.searchAria}
-                className={sessionSearchOpen ? "sidebar-icon-button active" : "sidebar-icon-button"}
-                onClick={handleSessionSearchToggle}
-                title={t.sessions.searchAria}
-                type="button"
-              >
-                <Search size={17} />
-              </button>
-              <button
-                aria-controls="app-sidebar"
-                aria-expanded={sessionSidebarExpanded}
-                aria-label={sessionSidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
-                className="sidebar-icon-button"
-                onClick={handleSidebarToggle}
-                title={sessionSidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
-                type="button"
-              >
-                {sessionSidebarExpanded ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-              </button>
-            </div>
-          </div>
+          <button
+            aria-controls="app-sidebar"
+            aria-expanded={sidebarVisible}
+            aria-label={sessionSidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
+            className={sidebarVisible ? "sidebar-icon-button active" : "sidebar-icon-button"}
+            onClick={sidebar.toggle}
+            ref={sidebar.toggleRef}
+            title={sessionSidebarExpanded ? t.sidebar.collapse : t.sidebar.expand}
+            type="button"
+          >
+            {sessionSidebarExpanded ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+          </button>
+          {sidebarVisible ? (
+            <button
+              aria-label={t.sessions.searchAria}
+              className={sessionSearchOpen ? "sidebar-icon-button active" : "sidebar-icon-button"}
+              onClick={handleSessionSearchToggle}
+              title={t.sessions.searchAria}
+              type="button"
+            >
+              <Search size={17} />
+            </button>
+          ) : null}
+        </div>
+        <aside
+          aria-hidden={!sidebarVisible}
+          aria-label={t.nav.aria}
+          className={`app-sidebar is-${sidebarMode}`}
+          id="app-sidebar"
+          inert={!sidebarVisible}
+          ref={sidebar.panelRef}
+          {...sidebar.panelProps}
+        >
           <nav className="tab-list" aria-label={t.nav.aria}>
             {tabs.map((tab) => (
               <button
@@ -803,41 +810,41 @@ function App({
               </button>
             ))}
           </nav>
-          {sessionSidebarExpanded ? (
-            <div className="sidebar-session-section">
-              <SessionsIndex
-                sessions={sessions.items}
-                query={query}
-                searchOpen={sessionSearchOpen}
-                searchFocusKey={sessionSearchFocusKey}
-                initialLoading={sessionsQuery.isPending && !sessions.items.length}
-                loadingMore={sessionsQuery.isFetchingNextPage}
-                error={!sessions.items.length ? queryError(sessionsQuery.error) : ""}
-                hasMore={Boolean(sessionsQuery.hasNextPage)}
-                loadMoreError={sessions.items.length && sessionsQuery.isFetchNextPageError
-                  ? queryError(sessionsQuery.error)
-                  : ""}
-                selectedSessionId={activeSection === "sessions" ? selectedSessionId : ""}
-                onQueryChange={handleSessionQueryChange}
-                onSearchClose={() => {
-                  setSessionSearchOpen(false);
-                  setQuery("");
-                }}
-                onLoadMore={loadMoreSessions}
-                onNew={() => {
-                  startNewConversation();
-                }}
-                onOpen={(session) => {
-                  openSession(session);
-                }}
-                onPin={setSessionPinned}
-                onDelete={deleteSession}
-                deleteBlockedSessionIds={conversationActivity?.active || conversationActivity?.queued.length
-                  ? [selectedSessionId]
-                  : []}
-              />
-            </div>
-          ) : null}
+          <div className="sidebar-session-section">
+            <SessionsIndex
+              sessions={sessions.items}
+              query={query}
+              searchOpen={sessionSearchOpen}
+              searchFocusKey={sessionSearchFocusKey}
+              initialLoading={sessionsQuery.isPending && !sessions.items.length}
+              loadingMore={sessionsQuery.isFetchingNextPage}
+              error={!sessions.items.length ? queryError(sessionsQuery.error) : ""}
+              hasMore={Boolean(sessionsQuery.hasNextPage)}
+              loadMoreError={sessions.items.length && sessionsQuery.isFetchNextPageError
+                ? queryError(sessionsQuery.error)
+                : ""}
+              selectedSessionId={activeSection === "sessions" ? selectedSessionId : ""}
+              onQueryChange={handleSessionQueryChange}
+              onSearchClose={() => {
+                setSessionSearchOpen(false);
+                setQuery("");
+              }}
+              onLoadMore={loadMoreSessions}
+              onNew={() => {
+                startNewConversation();
+              }}
+              onOpen={(session) => {
+                openSession(session);
+              }}
+              onPin={setSessionPinned}
+              onDelete={deleteSession}
+              onTransientInteractionChange={sidebar.onTransientInteractionChange}
+              visible={sidebarVisible}
+              deleteBlockedSessionIds={conversationActivity?.active || conversationActivity?.queued.length
+                ? [selectedSessionId]
+                : []}
+            />
+          </div>
           <button
             aria-label={t.sidebar.statusAndSettings}
             className="sidebar-status-card"
