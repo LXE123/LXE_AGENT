@@ -303,10 +303,12 @@ describe("desktop agent protocol", () => {
     const mainOwnedInput: Record<string, unknown> = {
       "sessions.send": { text: "hello" },
       "sessions.file.open": { session_id: "session-1", artifact_id: "artifact-1" },
+      "sessions.file.reveal": { session_id: "session-1", artifact_id: "artifact-1" },
       "sessions.attachment.open": { session_id: "session-1", attachment_id: "attachment-1" },
     };
     for (const operation of [
-      "sessions.send", "sessions.stop", "sessions.activity", "sessions.file.open", "sessions.attachment.open",
+      "sessions.send", "sessions.stop", "sessions.activity", "sessions.file.open",
+      "sessions.file.reveal", "sessions.attachment.open",
     ]) {
       expect(() => parseAgentWireMessage(JSON.stringify({
         version: AGENT_PROTOCOL_VERSION,
@@ -317,6 +319,12 @@ describe("desktop agent protocol", () => {
     }
     expect(() => parseDashboardRpcCall({ operation: "sessions.file.open", input: { session_id: "s" } }))
       .toThrow("sessions.file.open.artifact_id must be a string");
+    expect(() => parseDashboardRpcCall({ operation: "sessions.file.reveal", input: { session_id: "s" } }))
+      .toThrow("sessions.file.reveal.artifact_id must be a string");
+    expect(parseDashboardRpcCall({
+      operation: "sessions.file.reveal",
+      input: { session_id: "s", artifact_id: "a" },
+    })).toEqual({ operation: "sessions.file.reveal", input: { session_id: "s", artifact_id: "a" } });
     expect(() => parseDashboardRpcCall({
       operation: "sessions.file.open",
       input: { session_id: "s", artifact_id: "artifact-1", reveal: true },

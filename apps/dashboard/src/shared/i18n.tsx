@@ -310,6 +310,7 @@ export const ZH_TEXT = {
     tooManyAttachments: "每轮最多添加 5 个文件",
     removeAttachment: (name: string) => `移除 ${name}`,
     openFile: (name: string) => `打开 ${name}`,
+    revealFile: (name: string) => `在文件夹中显示 ${name}`,
     openFileFailed: (reason: string) => `打开文件失败：${reason}`
   },
   message: {
@@ -1048,6 +1049,7 @@ export const UI_TEXT: Record<Language, UiText> = {
       tooManyAttachments: "You can attach at most 5 files per turn",
       removeAttachment: (name: string) => `Remove ${name}`,
       openFile: (name: string) => `Open ${name}`,
+      revealFile: (name: string) => `Show ${name} in folder`,
       openFileFailed: (reason: string) => `Could not open the file: ${reason}`
     },
     message: {

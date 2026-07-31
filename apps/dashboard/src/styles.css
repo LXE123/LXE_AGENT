@@ -8610,6 +8610,7 @@ pre {
 
 .turn-file-item {
   display: grid;
+  position: relative;
   min-width: 0;
   gap: 4px;
 }
@@ -8617,6 +8618,7 @@ pre {
 .turn-file-card {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr) 18px;
+  /* The reveal button sits over this last track. */
   min-width: 0;
   min-height: 44px;
   align-items: center;
@@ -8678,8 +8680,47 @@ pre {
   white-space: nowrap;
 }
 
-/* Every card opens on click, so a permanent arrow on all twelve says nothing.
-   The column stays reserved so nothing shifts when it fades in. */
+/* Overlays the card's last track rather than sitting inside it: a button
+   cannot nest in a button, and the card stays one clickable surface. */
+.turn-file-reveal {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+
+.turn-file-item:hover .turn-file-reveal,
+.turn-file-reveal:focus-visible {
+  opacity: 1;
+}
+
+.turn-file-reveal:hover:not(:disabled) {
+  background: var(--accent-muted);
+  color: var(--accent-strong);
+}
+
+.turn-file-reveal:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.turn-file-reveal:disabled {
+  cursor: default;
+  opacity: 0;
+}
+
+/* Progress still belongs on the card itself. */
 .turn-file-action {
   color: var(--muted);
   opacity: 0;

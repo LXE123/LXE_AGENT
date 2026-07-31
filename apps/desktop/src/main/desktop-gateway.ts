@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { shell } from "electron";
 import { DashboardRpcError } from "@lxe/desktop-protocol";
@@ -41,7 +42,11 @@ import {
 } from "./dashboard-invalidation";
 import { publicDashboardChannelHealth } from "./dashboard-channel-health";
 import { desktopLxeSkillState } from "./lxeskill-health";
-import { openConversationArtifact, openConversationAttachment } from "./conversation-artifacts";
+import {
+  openConversationArtifact,
+  openConversationAttachment,
+  revealConversationArtifact,
+} from "./conversation-artifacts";
 import type { DesktopConversationAttachmentService } from "./conversation-attachments";
 import {
   resolveDataServerRuntimeEnvironment,
@@ -420,6 +425,17 @@ export class DesktopGateway {
         // shell.openPath answers with the operating system's own failure text;
         // "" means it opened.
         openPath: (path) => shell.openPath(path),
+      }, sessionId, artifactId) as DashboardRpcResult<O>;
+    }
+    if (call.operation === "sessions.file.reveal") {
+      const { session_id: sessionId, artifact_id: artifactId } = call.input;
+      return await revealConversationArtifact({
+        resolveArtifact: (targetSessionId, targetArtifactId) =>
+          this.runtime!.resolveArtifact(targetSessionId, targetArtifactId),
+        // access rejects with the filesystem's own ENOENT text, which is what
+        // the conversation shows when a produced file has been moved away.
+        assertExists: (path) => access(path),
+        revealPath: (path) => shell.showItemInFolder(path),
       }, sessionId, artifactId) as DashboardRpcResult<O>;
     }
     if (call.operation === "sessions.attachment.open") {

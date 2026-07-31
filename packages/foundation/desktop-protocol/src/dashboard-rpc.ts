@@ -219,6 +219,18 @@ export type DesktopConversationFileOpenPayload = {
   error: string;
 };
 
+/**
+ * `error` carries the operating system's own failure text where one exists.
+ * shell.showItemInFolder reports nothing back, so a reveal can only speak for
+ * the steps that do report: resolving the artifact, and confirming the file is
+ * still on disk. Past that point `revealed` means the request was made, and the
+ * payload says nothing it cannot know.
+ */
+export type DesktopConversationFileRevealPayload = {
+  revealed: boolean;
+  error: string;
+};
+
 export type SessionSummaryPayload = {
   total_sessions: number;
   tool_call_count: number;
@@ -476,6 +488,10 @@ export interface DashboardRpcSpec {
     input: { session_id: string; artifact_id: string };
     result: DesktopConversationFileOpenPayload;
   };
+  "sessions.file.reveal": {
+    input: { session_id: string; artifact_id: string };
+    result: DesktopConversationFileRevealPayload;
+  };
   "sessions.attachment.open": {
     input: { session_id: string; attachment_id: string };
     result: DesktopConversationFileOpenPayload;
@@ -522,7 +538,7 @@ export type DashboardRpcResult<O extends DashboardRpcOperation> =
 export type AgentDashboardRpcOperation = Exclude<
   DashboardRpcOperation,
   "channels.health" | "sessions.send" | "sessions.stop" | "sessions.activity"
-    | "sessions.file.open" | "sessions.attachment.open"
+    | "sessions.file.open" | "sessions.file.reveal" | "sessions.attachment.open"
 >;
 
 export type AgentDashboardRpcCall<
@@ -688,6 +704,7 @@ export function parseDashboardRpcCall(value: unknown): DashboardRpcCall {
       exactKeys(input, ["session_id"], `${operation}.input`);
       return { operation, input: { session_id: textValue(input.session_id, `${operation}.session_id`)! } };
     case "sessions.file.open":
+    case "sessions.file.reveal":
       exactKeys(input, ["session_id", "artifact_id"], `${operation}.input`);
       return { operation, input: {
         session_id: textValue(input.session_id, `${operation}.session_id`)!,
@@ -765,6 +782,7 @@ export function parseAgentDashboardRpcCall(value: unknown): AgentDashboardRpcCal
     || call.operation === "sessions.stop"
     || call.operation === "sessions.activity"
     || call.operation === "sessions.file.open"
+    || call.operation === "sessions.file.reveal"
     || call.operation === "sessions.attachment.open") {
     return rpcError(`${call.operation} is owned by Electron Main`);
   }

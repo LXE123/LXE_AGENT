@@ -472,6 +472,17 @@ function App({
     if (!result.opened) throw new Error(result.error);
   }
 
+  async function revealConversationFile(artifactId: string): Promise<void> {
+    if (!selectedSessionId) return;
+    const result = await callDashboard({
+      operation: "sessions.file.reveal",
+      input: { session_id: selectedSessionId, artifact_id: artifactId },
+    });
+    // Only the filesystem's own text reaches here; a reveal past that point
+    // has nothing to report either way.
+    if (!result.revealed) throw new Error(result.error);
+  }
+
   async function openConversationAttachment(attachmentId: string): Promise<void> {
     if (!selectedSessionId) return;
     const result = await callDashboard({
@@ -911,6 +922,7 @@ function App({
                     onSend={sendConversation}
                     onStop={stopConversation}
                     onOpenFile={openConversationFile}
+                    onRevealFile={revealConversationFile}
                     onOpenAttachment={openConversationAttachment}
                   />
                 ) : (

@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  ArrowUpRight,
   Brain,
   CheckCircle2,
   ChevronDown,
@@ -11,6 +10,7 @@ import {
   CircleAlert,
   Copy,
   FileText,
+  FolderOpen,
   Info,
   LoaderCircle,
   MoreVertical,
@@ -944,14 +944,18 @@ function LiveResponseGroup({
 function TurnFileList({
   files,
   onOpenFile,
+  onRevealFile,
 }: {
   files: SessionArtifactPayload[];
   onOpenFile: (artifactId: string) => Promise<void>;
+  onRevealFile: (artifactId: string) => Promise<void>;
 }) {
   const t = useUiText();
   const [errors, setErrors] = useState<Map<string, string>>(() => new Map());
   const [opening, setOpening] = useState<Set<string>>(() => new Set());
-  const open = async (artifactId: string) => {
+  // Both actions land in the same busy and error slots: only one of them runs
+  // at a time per file, and either failure belongs on the same row.
+  const run = async (artifactId: string, action: (id: string) => Promise<void>) => {
     setErrors((current) => {
       const next = new Map(current);
       next.delete(artifactId);
@@ -959,7 +963,7 @@ function TurnFileList({
     });
     setOpening((current) => new Set(current).add(artifactId));
     try {
-      await onOpenFile(artifactId);
+      await action(artifactId);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       setErrors((current) => new Map(current).set(artifactId, message));
@@ -971,6 +975,8 @@ function TurnFileList({
       });
     }
   };
+  const open = (artifactId: string) => run(artifactId, onOpenFile);
+  const reveal = (artifactId: string) => run(artifactId, onRevealFile);
   // The type marker stays on every row even when the whole set shares a type:
   // it doubles as the anchor the eye lands on, and without it the list reads as
   // a wall of text. It earns that by being quiet - the extension itself still
@@ -999,7 +1005,20 @@ function TurnFileList({
                 <span className="turn-file-name" title={file.name}>{fileDisplayName(file.name)}</span>
                 {isOpening
                   ? <LoaderCircle aria-hidden="true" className="conversation-spinner turn-file-action" size={14} />
-                  : <ArrowUpRight aria-hidden="true" className="turn-file-action" size={14} />}
+                  : null}
+              </button>
+              {/* A second action needs its own button - one cannot nest inside
+                  the card's - and its own shape. An arrow would read as "open",
+                  which is what the card already does. */}
+              <button
+                aria-label={t.conversation.revealFile(file.name)}
+                className="turn-file-reveal"
+                disabled={isOpening}
+                onClick={() => void reveal(file.artifact_id)}
+                title={t.conversation.revealFile(file.name)}
+                type="button"
+              >
+                <FolderOpen aria-hidden="true" size={14} />
               </button>
               {error ? (
                 <div className="turn-file-card-error" role="alert">{t.conversation.openFileFailed(error)}</div>
@@ -1362,6 +1381,7 @@ export function SessionDetailView({
   onSend,
   onStop,
   onOpenFile,
+  onRevealFile,
   onOpenAttachment,
 }: {
   fallbackSession: SessionPayload | null;
@@ -1379,6 +1399,7 @@ export function SessionDetailView({
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
   onOpenFile: (artifactId: string) => Promise<void>;
+  onRevealFile: (artifactId: string) => Promise<void>;
   onOpenAttachment: (attachmentId: string) => Promise<void>;
 }) {
   const t = useUiText();
@@ -1574,7 +1595,8 @@ export function SessionDetailView({
                 <div className="message-list">
                   {renderItems.map((item, itemIndex) => {
                     if (item.type === "artifact_group") {
-                      return <TurnFileList files={item.group.files} key={item.group.key} onOpenFile={onOpenFile} />;
+                      return <TurnFileList files={item.group.files} key={item.group.key}
+                        onOpenFile={onOpenFile} onRevealFile={onRevealFile} />;
                     }
                     if (item.type === "response_group") {
                       return <PersistedResponseGroup group={item.group} key={item.group.key} />;
@@ -1655,6 +1677,7 @@ export function SessionDetailView({
                     <TurnFileList
                       files={liveArtifactGroups.get(turn.turn_id)!.files}
                       onOpenFile={onOpenFile}
+                      onRevealFile={onRevealFile}
                     />
                   ) : null}
                 </React.Fragment>
