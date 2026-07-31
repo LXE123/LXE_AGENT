@@ -571,3 +571,42 @@ export function liveFinalText(parts: DesktopConversationStreamPayload["process_p
     .map((part) => part.text)
     .join("");
 }
+
+export type LiveAnswerProjection = {
+  partIds: string[];
+  streaming: boolean;
+  text: string;
+};
+
+/**
+ * The runtime cannot mark a text block as final until the model response ends:
+ * the provider may still follow it with a tool call. While the current phase is
+ * generating text, treat the text after the latest tool as the provisional
+ * answer so it renders outside the process panel immediately. If a tool does
+ * follow, the phase changes and the same block naturally returns to process.
+ */
+export function liveAnswerProjection(
+  parts: DesktopConversationStreamPayload["process_parts"],
+  phase: DesktopConversationStreamPayload["display_metrics"]["phase"] | undefined,
+): LiveAnswerProjection {
+  const ordered = [...parts].sort((left, right) => left.sequence - right.sequence);
+  const finalParts = ordered.filter((part): part is Extract<typeof part, { type: "text" }> =>
+    part.type === "text" && part.presentation === "final");
+  const latestToolSequence = ordered.reduce(
+    (sequence, part) => part.type === "tool" ? Math.max(sequence, part.sequence) : sequence,
+    Number.NEGATIVE_INFINITY,
+  );
+  const answerParts = finalParts.length > 0
+    ? finalParts
+    : phase === "generating_answer"
+      ? ordered.filter((part): part is Extract<typeof part, { type: "text" }> =>
+          part.type === "text"
+          && part.presentation === "process"
+          && part.sequence > latestToolSequence)
+      : [];
+  return {
+    partIds: answerParts.map((part) => part.part_id),
+    streaming: answerParts.some((part) => part.status === "streaming"),
+    text: answerParts.map((part) => part.text).join(""),
+  };
+}

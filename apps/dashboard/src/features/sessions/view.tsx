@@ -36,7 +36,7 @@ import {
   buildConversationItems,
   hasLiveToolOperationDetails,
   hasReaderFacingText,
-  liveFinalText,
+  liveAnswerProjection,
   roleLabel,
   splitCallArguments,
   summarizeToolOperations,
@@ -920,9 +920,14 @@ function LiveResponseGroup({
         ? t.conversation.processFailed(duration)
         : liveProgressLabel(stream, turnState, t);
   const processParts = stream?.process_parts ?? [];
-  const finalContent = useMemo(
-    () => liveFinalText(stream?.process_parts ?? []),
-    [stream?.process_parts],
+  const answer = useMemo(
+    () => liveAnswerProjection(processParts, stream?.display_metrics.phase),
+    [processParts, stream?.display_metrics.phase],
+  );
+  const answerPartIds = useMemo(() => new Set(answer.partIds), [answer.partIds]);
+  const visibleProcessParts = useMemo(
+    () => processParts.filter((part) => !answerPartIds.has(part.part_id)),
+    [answerPartIds, processParts],
   );
   return (
     <div className={`response-group live-response-group state-${displayState}`}>
@@ -934,11 +939,11 @@ function LiveResponseGroup({
           onToggle={() => setExpanded((current) => !current)}
           state={displayState}
         />
-        {expanded && processParts.length ? <LiveProcessBody parts={processParts} /> : null}
+        {expanded && visibleProcessParts.length ? <LiveProcessBody parts={visibleProcessParts} /> : null}
       </section>
-      {finalContent ? (
+      {answer.text ? (
         <article className="message-card role-assistant response-final-answer">
-          <MessageMarkdown text={finalContent} />
+          <MessageMarkdown streaming={answer.streaming} text={answer.text} />
         </article>
       ) : null}
     </div>

@@ -191,13 +191,22 @@ test("thinking and tools fold into one response process while the final answer s
   assert.match(view, /function ProcessToolGroup[\s\S]*?useState\(false\)/);
   assert.doesNotMatch(view, /openOperations\.get\(operation\.key\) \?\? operation\.status === "error"/);
   assert.match(view, /expandable: hasLiveToolOperationDetails\(step\)/);
-  assert.match(view, /<LiveProcessBody parts=\{processParts\}/);
+  assert.match(view, /<LiveProcessBody parts=\{visibleProcessParts\}/);
   assert.match(view, /function liveTimeline\(parts: TurnProcessPart\[\]\)/);
   assert.match(conversation, /previous\?\.type === "tool_group"/);
   assert.match(conversation, /part\.presentation === "final"/);
   assert.doesNotMatch(view, /stream\?\.tool_steps\.length/);
   assert.match(view, /disabled=\{!expandable\}/);
   assert.doesNotMatch(view, /live-tool-operation-detail/);
+});
+
+test("the in-flight final answer leaves the process panel before the turn settles", () => {
+  assert.match(view, /liveAnswerProjection\(processParts, stream\?\.display_metrics\.phase\)/);
+  assert.match(view, /processParts\.filter\(\(part\) => !answerPartIds\.has\(part\.part_id\)\)/);
+  assert.match(view, /<LiveProcessBody parts=\{visibleProcessParts\}/);
+  assert.match(view, /<MessageMarkdown streaming=\{answer\.streaming\} text=\{answer\.text\}/);
+  assert.match(conversation, /phase === "generating_answer"/);
+  assert.match(conversation, /part\.sequence > latestToolSequence/);
 });
 
 test("a tool reads the same live as it does in history", () => {

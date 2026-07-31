@@ -5,6 +5,7 @@ import {
   hasLiveToolOperationDetails,
   hasReaderFacingText,
   hasToolError,
+  liveAnswerProjection,
   liveFinalText,
   summarizeToolOperations,
   toolCallBlocks,
@@ -71,6 +72,72 @@ describe("session conversation projection", () => {
     expect(items[3]?.type === "tool_group" ? items[3].group.parts.map((part) => part.part_id) : [])
       .toEqual(["tool-3"]);
     expect(liveFinalText(parts)).toBe("done");
+  });
+
+  test("promotes the text after the latest tool while the answer is streaming", () => {
+    const parts = [{
+      type: "text" as const,
+      part_id: "narration-1",
+      sequence: 1,
+      status: "completed" as const,
+      presentation: "process" as const,
+      text: "I will check.",
+    }, {
+      type: "tool" as const,
+      part_id: "tool-1",
+      sequence: 2,
+      tool_step: {
+        id: "call-1",
+        name: "exec",
+        title: "Run",
+        detail: "pwd",
+        icon_token: "setting_outlined",
+        status: "success" as const,
+        duration_ms: 1,
+      },
+    }, {
+      type: "thinking" as const,
+      part_id: "think-2",
+      sequence: 3,
+      status: "completed" as const,
+      text: "summarize",
+      redacted_count: 0,
+    }, {
+      type: "text" as const,
+      part_id: "answer-1",
+      sequence: 4,
+      status: "streaming" as const,
+      presentation: "process" as const,
+      text: "Here is the answer.",
+    }];
+
+    expect(liveAnswerProjection(parts, "generating_answer")).toEqual({
+      partIds: ["answer-1"],
+      streaming: true,
+      text: "Here is the answer.",
+    });
+    expect(liveAnswerProjection(parts, "running_tool")).toEqual({
+      partIds: [],
+      streaming: false,
+      text: "",
+    });
+  });
+
+  test("keeps confirmed final text outside the process regardless of phase", () => {
+    const parts = [{
+      type: "text" as const,
+      part_id: "answer-1",
+      sequence: 1,
+      status: "completed" as const,
+      presentation: "final" as const,
+      text: "Done.",
+    }];
+
+    expect(liveAnswerProjection(parts, "waiting_model")).toEqual({
+      partIds: ["answer-1"],
+      streaming: false,
+      text: "Done.",
+    });
   });
 
   test("folds thinking and tools into one response while leaving the final answer outside", () => {
