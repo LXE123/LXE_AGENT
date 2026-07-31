@@ -50,8 +50,25 @@ describe("dark palette", () => {
   const dark = tokens(':root[data-theme="dark"]');
 
   test("keeps the requested lighter page plane without changing dark mode", () => {
-    expect(light["--bg"]).toBe("#fcfaf8");
+    expect(light["--bg"]).toBe("#fbfaf9");
     expect(dark["--bg"]).toBe("#242322");
+  });
+
+  test("keeps the light plane a hair off white rather than a tint", () => {
+    // The intent behind the exact value above: paper, not aged paper. A wider
+    // spread between the channels is what reads as yellow, and the plane sits
+    // next to a pure white composer where any cast shows.
+    const channels = (hex: string): number[] =>
+      [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16));
+    const spread = (hex: string): number => {
+      const c = channels(hex);
+      return Math.max(...c) - Math.min(...c);
+    };
+    expect(spread(light["--bg"])).toBeLessThanOrEqual(3);
+    expect(Math.min(...channels(light["--bg"]))).toBeGreaterThanOrEqual(245);
+    // Still darker than the cards, or the layering the transcript relies on
+    // stops working.
+    expect(light["--bg"]).not.toBe(light["--surface"]);
   });
 
   test("defines a dark value for every themeable light token", () => {
