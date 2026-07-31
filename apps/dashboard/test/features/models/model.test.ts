@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   conversationModelChoices,
   modelsInDisplayOrder,
+  reconcileShowcaseSelections,
   thinkingStateForModelOption,
 } from "../../../src/features/models/model";
 
@@ -67,6 +68,50 @@ describe("conversation model choices", () => {
       { provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-chat" },
       { provider: "deepseek", providerLabel: "DeepSeek", model: "deepseek-reasoner" },
     ]);
+  });
+});
+
+describe("showcase model browsing", () => {
+  const providers = [
+    {
+      provider: "kimi_coding",
+      model: "kimi-default",
+      model_options: [{ model: "kimi-default" }, { model: "kimi-long" }],
+    },
+    {
+      provider: "deepseek",
+      model: "deepseek-flash",
+      model_options: [{ model: "deepseek-pro" }, { model: "deepseek-flash" }],
+    },
+  ];
+
+  test("starts the active provider on its current model and other providers on their defaults", () => {
+    expect(reconcileShowcaseSelections(
+      providers,
+      { provider: "deepseek", model: "deepseek-pro" },
+    )).toEqual({
+      kimi_coding: "kimi-default",
+      deepseek: "deepseek-pro",
+    });
+  });
+
+  test("preserves a valid local browsing choice without changing the current model", () => {
+    expect(reconcileShowcaseSelections(
+      providers,
+      { provider: "deepseek", model: "deepseek-flash" },
+      { kimi_coding: "kimi-long", deepseek: "deepseek-pro" },
+    )).toEqual({
+      kimi_coding: "kimi-long",
+      deepseek: "deepseek-pro",
+    });
+  });
+
+  test("falls back when a browsed variant or provider disappears", () => {
+    expect(reconcileShowcaseSelections(
+      providers.slice(1),
+      null,
+      { kimi_coding: "kimi-long", deepseek: "removed-model" },
+    )).toEqual({ deepseek: "deepseek-flash" });
   });
 });
 

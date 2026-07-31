@@ -20,6 +20,7 @@ test("model and runtime surfaces share local provider marks", () => {
   assert.match(models, /providerBrandKind/);
   assert.match(models, /className="models-showcase-hero"/);
   assert.match(models, /className="model-showcase-variants"/);
+  assert.match(models, /className="model-showcase-select"/);
   assert.match(models, /className="model-showcase-metrics"/);
   assert.match(models, /className="model-brand-watermark"/);
   assert.match(models, /className="model-kimi-dust"/);
@@ -30,7 +31,9 @@ test("model and runtime surfaces share local provider marks", () => {
   );
   assert.doesNotMatch(models, /size=\{520\}/);
   assert.doesNotMatch(models, /<Brain\b/);
-  assert.doesNotMatch(models, /<select\b|<button\b|onCurrentModelChange|onThinkingLevelChange|onConfigureCredentials/);
+  assert.doesNotMatch(models, /<button\b|onCurrentModelChange|onThinkingLevelChange|onConfigureCredentials/);
+  assert.doesNotMatch(models, /<code>\{option\.model\}<\/code>/);
+  assert.match(models, /reconcileShowcaseSelections/);
   assert.match(runtimeStatus, /ProviderBrandMark provider=\{currentModel\?\.provider\}/);
   assert.match(runtimeStatus, /provider=\{currentModel\?\.provider\}/);
   assert.match(providerMark, /kimi-icon-round\.png/);
@@ -76,6 +79,7 @@ test("Kimi and DeepSeek use distinct responsive card themes", () => {
   assert.match(styles, /\.model-deepseek-waves[\s\S]*?mask-image:\s*linear-gradient/);
   assert.match(styles, /\.models-showcase-hero[\s\S]*?radial-gradient/);
   assert.match(styles, /\.model-showcase-variant\.current/);
+  assert.match(styles, /\.model-showcase-select:focus-visible/);
   assert.match(styles, /\.model-showcase-thinking-levels > span\.active/);
   assert.match(styles, /\.model-kimi-dust[\s\S]*?mask-image:\s*linear-gradient/);
   const kimiDustImage = styles.match(

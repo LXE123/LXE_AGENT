@@ -18,6 +18,31 @@ export function modelsInDisplayOrder<T extends Pick<ModelPayload, "provider">>(m
     .map(({ model }) => model);
 }
 
+type ShowcaseModelSource = Pick<ModelPayload, "provider" | "model"> & {
+  model_options: readonly Pick<ModelOptionPayload, "model">[];
+};
+
+export function reconcileShowcaseSelections(
+  models: readonly ShowcaseModelSource[],
+  current: Pick<ModelPayload, "provider" | "model"> | null,
+  existing: Readonly<Record<string, string>> = {},
+): Record<string, string> {
+  const selections: Record<string, string> = {};
+  for (const provider of models) {
+    const options = provider.model_options.map((option) => option.model);
+    if (!options.length) {
+      continue;
+    }
+    const currentModel = current?.provider === provider.provider ? current.model : "";
+    const selection = [existing[provider.provider], currentModel, provider.model, options[0]]
+      .find((model): model is string => Boolean(model && options.includes(model)));
+    if (selection) {
+      selections[provider.provider] = selection;
+    }
+  }
+  return selections;
+}
+
 export type ConversationModelChoice = {
   provider: string;
   providerLabel: string;

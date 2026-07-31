@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { Check, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, ChevronDown, Sparkles } from "lucide-react";
 
 import kimiMoonDust from "../../assets/providers/kimi/kimi-moon-dust.png";
 import { formatCompactNumber, formatNumber } from "../../shared/format";
@@ -8,6 +8,7 @@ import {
   modelsInDisplayOrder,
   modelThinkingLevelLabel,
   modelWithOption,
+  reconcileShowcaseSelections,
 } from "./model";
 import { useUiText } from "../../shared/i18n";
 import type { ModelPayload } from "../../api/payloads";
@@ -98,6 +99,13 @@ export function ModelsView({
   const t = useUiText();
   const displayedModels = useMemo(() => modelsInDisplayOrder(models), [models]);
   const variantCount = models.reduce((count, model) => count + model.model_options.length, 0);
+  const [showcaseSelections, setShowcaseSelections] = useState<Record<string, string>>(() => (
+    reconcileShowcaseSelections(models, current)
+  ));
+
+  useEffect(() => {
+    setShowcaseSelections((existing) => reconcileShowcaseSelections(models, current, existing));
+  }, [current, models]);
 
   return (
     <div className="models-page models-showcase-page">
@@ -120,8 +128,16 @@ export function ModelsView({
       </section>
 
       <div className="grid-list models-grid models-showcase-grid">
-        {displayedModels.map((model) => {
+        {displayedModels.map((model, index) => {
           const providerActive = current?.provider === model.provider;
+          const displayedOption = model.model_options.find(
+            (option) => option.model === showcaseSelections[model.provider],
+          ) ?? model.model_options[0];
+          const isCurrent = providerActive && current?.model === displayedOption?.model;
+          const displayedModel = displayedOption
+            ? modelWithOption(model, displayedOption, isCurrent ? current?.thinking_state : undefined)
+            : null;
+          const selectId = `model-showcase-select-${index}`;
           return (
             <article
               aria-current={providerActive ? "true" : undefined}
@@ -155,49 +171,66 @@ export function ModelsView({
               </div>
 
               <div className="model-showcase-variants">
-                {model.model_options.length ? model.model_options.map((option) => {
-                  const isCurrent = providerActive && current?.model === option.model;
-                  const displayedModel = modelWithOption(
-                    model,
-                    option,
-                    isCurrent ? current?.thinking_state : undefined,
-                  );
-                  return (
-                    <section
-                      aria-current={isCurrent ? "true" : undefined}
-                      className={`model-showcase-variant ${isCurrent ? "current" : ""}`}
-                      key={option.model}
-                    >
-                      <header>
-                        <code>{option.model}</code>
-                        {isCurrent ? (
-                          <span><Check aria-hidden size={12} />{t.models.current}</span>
-                        ) : null}
-                      </header>
-                      <dl className="model-showcase-metrics">
-                        <div>
-                          <dt>{t.models.context}</dt>
-                          <CompactTokenMetric value={displayedModel.capabilities.context_window_tokens} />
-                        </div>
-                        <div>
-                          <dt>{t.models.output}</dt>
-                          <CompactTokenMetric
-                            value={displayedModel.capabilities.max_tokens
-                              ?? displayedModel.capabilities.max_output_tokens
-                              ?? 0}
-                          />
-                        </div>
-                        <div>
-                          <dt>{t.models.vision}</dt>
-                          <dd className={displayedModel.capabilities.supports_vision ? "metric-positive" : undefined}>
-                            {displayedModel.capabilities.supports_vision ? t.common.yes : t.common.no}
-                          </dd>
-                        </div>
-                      </dl>
-                      <ThinkingSpec current={isCurrent} model={displayedModel} />
-                    </section>
-                  );
-                }) : (
+                {displayedModel && displayedOption ? (
+                  <section
+                    aria-current={isCurrent ? "true" : undefined}
+                    className={`model-showcase-variant ${isCurrent ? "current" : ""}`}
+                  >
+                    <header className="model-showcase-variant-header">
+                      <label htmlFor={selectId}>{t.models.displayVariant}</label>
+                      <div className="model-showcase-select-wrap">
+                        <select
+                          aria-label={`${model.label} ${t.models.displayVariant}`}
+                          className="model-showcase-select"
+                          disabled={model.model_options.length < 2}
+                          id={selectId}
+                          onChange={(event) => {
+                            const selectedModel = event.currentTarget.value;
+                            setShowcaseSelections((existing) => ({
+                              ...existing,
+                              [model.provider]: selectedModel,
+                            }));
+                          }}
+                          value={displayedOption.model}
+                        >
+                          {model.model_options.map((option) => (
+                            <option key={option.model} value={option.model}>
+                              {option.model}
+                              {providerActive && current?.model === option.model
+                                ? ` · ${t.models.current}`
+                                : ""}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown aria-hidden size={15} />
+                      </div>
+                      {isCurrent ? (
+                        <span><Check aria-hidden size={12} />{t.models.current}</span>
+                      ) : null}
+                    </header>
+                    <dl className="model-showcase-metrics">
+                      <div>
+                        <dt>{t.models.context}</dt>
+                        <CompactTokenMetric value={displayedModel.capabilities.context_window_tokens} />
+                      </div>
+                      <div>
+                        <dt>{t.models.output}</dt>
+                        <CompactTokenMetric
+                          value={displayedModel.capabilities.max_tokens
+                            ?? displayedModel.capabilities.max_output_tokens
+                            ?? 0}
+                        />
+                      </div>
+                      <div>
+                        <dt>{t.models.vision}</dt>
+                        <dd className={displayedModel.capabilities.supports_vision ? "metric-positive" : undefined}>
+                          {displayedModel.capabilities.supports_vision ? t.common.yes : t.common.no}
+                        </dd>
+                      </div>
+                    </dl>
+                    <ThinkingSpec current={isCurrent} model={displayedModel} />
+                  </section>
+                ) : (
                   <div className="model-showcase-empty">{t.models.modelOptionUnavailable}</div>
                 )}
               </div>
