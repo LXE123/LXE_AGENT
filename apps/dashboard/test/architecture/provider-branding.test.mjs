@@ -82,6 +82,8 @@ test("Kimi and DeepSeek use distinct responsive card themes", () => {
   assert.doesNotMatch(kimiDustImage, /filter:/);
   assert.match(styles, /\.runtime-status-item\[data-provider="kimi_coding"\] \.runtime-status-icon/);
   assert.match(styles, /\.runtime-status-item\[data-provider="deepseek"\] \.runtime-status-icon/);
+  assert.match(styles, /\.provider-brand-mark\[data-provider-mark="deepseek"\] \{[^}]*color:\s*#4d6bfe/s);
+  assert.match(styles, /:root\[data-theme="dark"\] \.provider-brand-mark\[data-provider-mark="deepseek"\] \{[^}]*color:\s*#9db4f5/s);
   assert.doesNotMatch(providerMark, /provider-brand-(?:orbit|scan|pulse)/);
   assert.match(styles, /@container model-card \(max-width:\s*340px\)/);
 });

@@ -3592,6 +3592,16 @@ h1 {
   user-select: none;
 }
 
+/* The DeepSeek mark is a currentColor SVG. Give it the brand hue directly so
+   neutral menu text cannot turn the whale grey. */
+.provider-brand-mark[data-provider-mark="deepseek"] {
+  color: #4d6bfe;
+}
+
+:root[data-theme="dark"] .provider-brand-mark[data-provider-mark="deepseek"] {
+  color: #9db4f5;
+}
+
 .model-card[data-provider="kimi_coding"] .item-icon {
   overflow: hidden;
   border-color: rgba(255, 255, 255, 0.16);
@@ -8979,14 +8989,15 @@ pre {
   gap: 7px;
 }
 
-.conversation-model-picker {
+.conversation-model-picker,
+.conversation-thinking-picker {
   position: relative;
   min-width: 0;
 }
 
-.conversation-model-trigger {
+.conversation-model-trigger,
+.conversation-thinking-trigger {
   display: inline-flex;
-  max-width: 180px;
   min-height: 30px;
   align-items: center;
   gap: 6px;
@@ -9001,7 +9012,16 @@ pre {
   font-weight: 600;
 }
 
-.conversation-model-trigger > span {
+.conversation-model-trigger {
+  max-width: 180px;
+}
+
+.conversation-thinking-trigger {
+  max-width: 112px;
+}
+
+.conversation-model-trigger > span,
+.conversation-thinking-trigger > span {
   overflow: hidden;
   min-width: 0;
   text-overflow: ellipsis;
@@ -9009,24 +9029,30 @@ pre {
 }
 
 .conversation-model-trigger > svg,
-.conversation-model-trigger > img {
+.conversation-model-trigger > img,
+.conversation-thinking-trigger > svg {
   flex: 0 0 auto;
 }
 
 .conversation-model-trigger:hover:not(:disabled),
-.conversation-model-trigger:focus-visible {
+.conversation-model-trigger:focus-visible,
+.conversation-thinking-trigger:hover:not(:disabled),
+.conversation-thinking-trigger:focus-visible {
   border-color: var(--border);
   background: var(--surface-muted);
 }
 
 .conversation-model-trigger:focus-visible,
 .conversation-model-option:focus-visible,
-.conversation-model-menu-footer button:focus-visible {
+.conversation-model-menu-footer button:focus-visible,
+.conversation-thinking-trigger:focus-visible,
+.conversation-thinking-level:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
 
-.conversation-model-trigger:disabled {
+.conversation-model-trigger:disabled,
+.conversation-thinking-trigger:disabled {
   cursor: default;
   opacity: 0.58;
 }
@@ -9165,6 +9191,108 @@ pre {
   line-height: 1.4;
 }
 
+.conversation-thinking-menu {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  bottom: calc(100% + 9px);
+  display: grid;
+  width: min(290px, calc(100vw - 52px));
+  gap: 11px;
+  padding: 13px 14px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 13px;
+  background: var(--surface);
+  box-shadow: 0 18px 50px var(--shadow-strong);
+}
+
+.conversation-thinking-heading,
+.conversation-thinking-scale-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.conversation-thinking-heading {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.conversation-thinking-heading strong {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.conversation-thinking-scale-labels {
+  color: var(--muted-light);
+  font-size: 0.625rem;
+}
+
+.conversation-thinking-levels {
+  position: relative;
+  display: flex;
+  align-items: start;
+  padding-top: 1px;
+}
+
+.conversation-thinking-levels::before {
+  position: absolute;
+  top: 10px;
+  right: 16px;
+  left: 16px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--border);
+  content: "";
+}
+
+.conversation-thinking-level {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-width: 0;
+  flex: 1 1 0;
+  place-items: center;
+  gap: 6px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.625rem;
+}
+
+.conversation-thinking-dot {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border: 5px solid var(--surface);
+  border-radius: 50%;
+  background: var(--muted-light);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.conversation-thinking-level:hover:not(:disabled),
+.conversation-thinking-level.selected {
+  color: var(--text);
+}
+
+.conversation-thinking-level.selected .conversation-thinking-dot {
+  border-color: var(--accent-soft);
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 1px var(--accent-muted);
+}
+
+.conversation-thinking-level:disabled {
+  cursor: default;
+}
+
+.conversation-thinking-menu > small {
+  color: var(--muted-light);
+  font-size: 0.625rem;
+  line-height: 1.4;
+}
+
 .conversation-input-hint,
 .conversation-character-count {
   color: var(--muted-light);
@@ -9225,6 +9353,10 @@ pre {
 
   .conversation-model-trigger {
     max-width: 120px;
+  }
+
+  .conversation-thinking-trigger {
+    max-width: 84px;
   }
 
   .sessions-focus .runtime-status-floating {

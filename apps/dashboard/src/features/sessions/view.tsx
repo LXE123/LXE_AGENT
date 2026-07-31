@@ -21,6 +21,7 @@ import {
   Search,
   SendHorizontal,
   Settings2,
+  Sparkles,
   Square,
   Pin,
   PinOff,
@@ -67,7 +68,7 @@ import { CodeBlock, languageForPath } from "../../shared/ui/code-block";
 import { markdownComponents } from "../../shared/ui/markdown";
 import { useDialogFocus } from "../../shared/ui/use-dialog-focus";
 import { ProviderBrandMark } from "../../shared/ui/provider-brand-mark";
-import { conversationModelChoices } from "../models/model";
+import { conversationModelChoices, modelThinkingLevelLabel } from "../models/model";
 import { groupSidebarSessions } from "./model";
 
 /** How close to the bottom still counts as "following the reply". */
@@ -1286,6 +1287,114 @@ function ConversationModelPicker({
   );
 }
 
+function ConversationThinkingPicker({
+  current,
+  disabled,
+  saving,
+  onChange,
+}: {
+  current: ModelPayload | null;
+  disabled: boolean;
+  saving: boolean;
+  onChange: (level: string) => void;
+}) {
+  const t = useUiText();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const levels = current?.thinking_levels ?? [];
+  const selectedLevel = current?.thinking_state?.level || current?.thinking_default || levels[0] || "";
+  const selectedLabel = current ? modelThinkingLevelLabel(current, selectedLevel) : "-";
+  const editable = Boolean(current?.thinking_state?.editable && levels.length > 1);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!editable) setOpen(false);
+  }, [editable]);
+
+  if (!current || levels.length === 0) return null;
+
+  const selectLevel = (level: string) => {
+    setOpen(false);
+    if (level !== selectedLevel) onChange(level);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+
+  return (
+    <div className="conversation-thinking-picker" ref={rootRef}>
+      <button
+        aria-expanded={editable ? open : undefined}
+        aria-haspopup={editable ? "menu" : undefined}
+        aria-label={`${t.models.thinkingEffort}: ${selectedLabel}`}
+        className="conversation-thinking-trigger"
+        disabled={disabled || saving || !editable}
+        onClick={() => setOpen((value) => !value)}
+        ref={triggerRef}
+        title={editable ? t.models.thinkingEffectiveNextTurn : t.models.providerManaged}
+        type="button"
+      >
+        <Sparkles aria-hidden size={14} />
+        <span>{selectedLabel}</span>
+        {saving
+          ? <LoaderCircle aria-hidden className="conversation-spinner" size={13} />
+          : editable ? <ChevronDown aria-hidden size={13} /> : null}
+      </button>
+      {open ? (
+        <div aria-label={t.models.thinkingEffort} className="conversation-thinking-menu" role="menu">
+          <div className="conversation-thinking-heading">
+            <span>{t.models.thinkingEffort}</span>
+            <strong>{selectedLabel}</strong>
+          </div>
+          <div aria-hidden className="conversation-thinking-scale-labels">
+            <span>{t.models.faster}</span>
+            <span>{t.models.smarter}</span>
+          </div>
+          <div className="conversation-thinking-levels">
+            {levels.map((level) => {
+              const selected = level === selectedLevel;
+              const label = modelThinkingLevelLabel(current, level);
+              return (
+                <button
+                  aria-checked={selected}
+                  aria-label={label}
+                  className={selected ? "conversation-thinking-level selected" : "conversation-thinking-level"}
+                  disabled={saving}
+                  key={level}
+                  onClick={() => selectLevel(level)}
+                  role="menuitemradio"
+                  title={label}
+                  type="button"
+                >
+                  <span aria-hidden className="conversation-thinking-dot" />
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <small>{t.models.thinkingEffectiveNextTurn}</small>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ConversationComposer({
   activity,
   conversationKey,
@@ -1293,9 +1402,11 @@ function ConversationComposer({
   modelLoading,
   models,
   modelSaving,
+  thinkingSaving,
   runtimeReady,
   onModelChange,
   onOpenModels,
+  onThinkingLevelChange,
   onSend,
   onStop,
 }: {
@@ -1305,9 +1416,11 @@ function ConversationComposer({
   modelLoading: boolean;
   models: ModelPayload[];
   modelSaving: boolean;
+  thinkingSaving: boolean;
   runtimeReady: boolean;
   onModelChange: (provider: string, model: string) => void;
   onOpenModels: () => void;
+  onThinkingLevelChange: (level: string) => void;
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
 }) {
@@ -1393,7 +1506,7 @@ function ConversationComposer({
   }, [stageDroppedFiles]);
   const submit = async () => {
     const message = text.trim();
-    if (!runtimeReady || modelSaving || sending || (!message && attachments.length === 0)) return;
+    if (!runtimeReady || modelSaving || thinkingSaving || sending || (!message && attachments.length === 0)) return;
     setSending(true);
     setError("");
     try {
@@ -1465,12 +1578,18 @@ function ConversationComposer({
           <div className="conversation-compose-trailing">
             <ConversationModelPicker
               current={currentModel}
-              disabled={!runtimeReady || sending || modelSaving}
+              disabled={!runtimeReady || sending || modelSaving || thinkingSaving}
               loading={modelLoading}
               models={models}
               onChange={onModelChange}
               onOpenModels={onOpenModels}
               saving={modelSaving}
+            />
+            <ConversationThinkingPicker
+              current={currentModel}
+              disabled={!runtimeReady || sending || modelSaving || thinkingSaving}
+              onChange={onThinkingLevelChange}
+              saving={thinkingSaving}
             />
             {showCharacterCount ? (
               <span className="conversation-character-count">
@@ -1486,7 +1605,7 @@ function ConversationComposer({
             <button
               aria-label={sending ? t.conversation.sending : t.conversation.send}
               className="conversation-send-button"
-              disabled={!runtimeReady || modelSaving || sending || (!text.trim() && attachments.length === 0)}
+              disabled={!runtimeReady || modelSaving || thinkingSaving || sending || (!text.trim() && attachments.length === 0)}
               onClick={() => void submit()}
               title={sending ? t.conversation.sending : t.conversation.send}
               type="button"
@@ -1514,6 +1633,7 @@ export function SessionDetailView({
   models,
   modelLoading,
   modelSaving,
+  thinkingSaving,
   newConversation,
   runtimeReady,
   transcriptFetchedAt,
@@ -1525,6 +1645,7 @@ export function SessionDetailView({
   onLoadOlder,
   onModelChange,
   onOpenModels,
+  onThinkingLevelChange,
   onSend,
   onStop,
   onOpenFile,
@@ -1538,6 +1659,7 @@ export function SessionDetailView({
   models: ModelPayload[];
   modelLoading: boolean;
   modelSaving: boolean;
+  thinkingSaving: boolean;
   newConversation: boolean;
   runtimeReady: boolean;
   transcriptFetchedAt: number;
@@ -1549,6 +1671,7 @@ export function SessionDetailView({
   onLoadOlder: () => Promise<SessionDetailPayload | undefined>;
   onModelChange: (provider: string, model: string) => void;
   onOpenModels: () => void;
+  onThinkingLevelChange: (level: string) => void;
   onSend: (text: string, attachments: DesktopInputAttachmentPayload[]) => Promise<void>;
   onStop: () => Promise<void>;
   onOpenFile: (artifactId: string) => Promise<void>;
@@ -1856,8 +1979,10 @@ export function SessionDetailView({
           modelLoading={modelLoading}
           models={models}
           modelSaving={modelSaving}
+          thinkingSaving={thinkingSaving}
           onModelChange={onModelChange}
           onOpenModels={onOpenModels}
+          onThinkingLevelChange={onThinkingLevelChange}
           runtimeReady={runtimeReady}
           onSend={onSend}
           onStop={onStop}

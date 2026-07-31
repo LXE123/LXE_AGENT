@@ -28,11 +28,22 @@ test("the composer switches the shared model before the next turn", () => {
   assert.match(view, /role="menuitemradio"/);
   assert.match(view, /event\.key !== "Escape"/);
   assert.match(view, /current\?\.provider !== provider \|\| current\.model !== model/);
-  assert.match(view, /!runtimeReady \|\| modelSaving \|\| sending/);
+  assert.match(view, /!runtimeReady \|\| modelSaving \|\| thinkingSaving \|\| sending/);
   assert.match(main, /activeSection === "sessions" \|\| \(capabilitiesOpen && capabilityView === "models"\)/);
   assert.match(main, /onModelChange=\{setCurrentModel\}/);
   assert.match(main, /onOpenModels=\{\(\) => openCapabilityView\("models"\)\}/);
   assert.match(styles, /\.conversation-model-menu \{[^}]*position:\s*absolute[^}]*bottom:\s*calc\(100% \+ 9px\)/s);
+});
+
+test("the composer edits thinking effort using the shared next-turn preference", () => {
+  assert.match(view, /function ConversationThinkingPicker/);
+  assert.match(view, /current\?\.thinking_state\?\.editable && levels\.length > 1/);
+  assert.match(view, /modelThinkingLevelLabel\(current, level\)/);
+  assert.match(view, /className="conversation-thinking-levels"/);
+  assert.match(view, /onThinkingLevelChange/);
+  assert.match(main, /thinkingSaving=\{thinkingMutation\.isPending\}/);
+  assert.match(main, /onThinkingLevelChange=\{setCurrentThinkingLevel\}/);
+  assert.match(styles, /\.conversation-thinking-menu \{[^}]*bottom:\s*calc\(100% \+ 9px\)/s);
 });
 
 test("optimistic cards retire on transcript watermarks, never on message text", () => {

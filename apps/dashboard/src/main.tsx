@@ -916,6 +916,7 @@ function App({
                     models={modelsQuery.data?.items ?? []}
                     modelLoading={modelsQuery.isPending || currentModelQuery.isPending}
                     modelSaving={modelMutation.isPending}
+                    thinkingSaving={thinkingMutation.isPending}
                     newConversation={newConversation}
                     runtimeReady={conversationRuntimeReady}
                     transcriptFetchedAt={sessionDetail?.messages_page.fetched_at ?? 0}
@@ -931,6 +932,7 @@ function App({
                     onLoadOlder={() => sessionDetailQuery.fetchPreviousPage()}
                     onModelChange={setCurrentModel}
                     onOpenModels={() => openCapabilityView("models")}
+                    onThinkingLevelChange={setCurrentThinkingLevel}
                     onSend={sendConversation}
                     onStop={stopConversation}
                     onOpenFile={openConversationFile}
