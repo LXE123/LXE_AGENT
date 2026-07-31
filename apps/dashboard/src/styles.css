@@ -18,6 +18,10 @@
   --surface: #ffffff;
   --surface-muted: #f7f4f0;
   --surface-subtle: #f5f2ee;
+  /* Tables get their own fill rather than borrowing --surface-subtle, which 31
+     other rules depend on. Cool on purpose: the chrome around it is warm, so a
+     neutral here would read as warmth that missed rather than as a choice. */
+  --table-cell: #eff1f5;
   --row-hover: #f3efe9;
   --border: #ebe4da;
   --border-strong: #ddd2c4;
@@ -131,6 +135,7 @@ button {
   --surface: #32302e;
   --surface-muted: #2e2c2a;
   --surface-subtle: #2a2827;
+  --table-cell: #343841;
   --row-hover: #3b3835;
   --border: #47423e;
   --border-strong: #5c554e;
@@ -5761,7 +5766,7 @@ h1 {
   padding: 7px 11px;
   border: 0;
   border-radius: 6px;
-  background: var(--surface-subtle);
+  background: var(--table-cell);
   overflow-wrap: normal;
   text-align: left;
   vertical-align: top;

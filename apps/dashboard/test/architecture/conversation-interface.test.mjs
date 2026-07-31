@@ -102,7 +102,10 @@ test("conversation messages and composer share the same focused reading axis", (
 test("conversation markdown tables use separated cells instead of a framed grid", () => {
   assert.match(styles, /\.message-markdown \.markdown-table-scroll \{[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*background:\s*transparent;/s);
   assert.match(styles, /\.message-markdown table \{[^}]*border-collapse:\s*separate;[^}]*border-spacing:\s*3px;/s);
-  assert.match(styles, /\.message-markdown th,\s*\.message-markdown td \{[^}]*border:\s*0;[^}]*border-radius:\s*6px;[^}]*background:\s*var\(--surface-subtle\);/s);
+  // Cells own their fill: --surface-subtle is shared with 31 other rules, so
+  // the table cannot be re-tinted through it without recolouring the app.
+  assert.match(styles, /\.message-markdown th,\s*\.message-markdown td \{[^}]*border:\s*0;[^}]*border-radius:\s*6px;[^}]*background:\s*var\(--table-cell\);/s);
+  assert.doesNotMatch(styles, /\.message-markdown th,\s*\.message-markdown td \{[^}]*background:\s*var\(--surface-subtle\);/s);
   assert.doesNotMatch(styles, /\.message-markdown th \{[^}]*background:/s);
   assert.doesNotMatch(styles, /\.message-markdown (?:th|td|tr:last-child td) \{[^}]*border-bottom:/s);
 });
