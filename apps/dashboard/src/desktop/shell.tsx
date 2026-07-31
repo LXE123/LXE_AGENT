@@ -36,7 +36,7 @@ import type {
 import { BrandMark } from "../shared/ui/brand-mark";
 import { useUiText } from "../shared/i18n";
 import type { Language, UiText } from "../shared/i18n";
-import type { DashboardFontSize } from "../shared/appearance";
+import type { DashboardFontSize, DashboardTheme } from "../shared/appearance";
 import { LanguageSwitch } from "../shared/ui/language-switch";
 import { useDialogFocus } from "../shared/ui/use-dialog-focus";
 import {
@@ -64,6 +64,7 @@ type DesktopConfirmation =
 const setupForm = desktopSettingsForm;
 
 const FONT_SIZE_VALUES: ReadonlyArray<DashboardFontSize> = ["small", "standard", "large"];
+const THEME_VALUES: ReadonlyArray<DashboardTheme> = ["system", "light", "dark"];
 
 const fontSizeLabel = (text: UiText["desktop"], fontSize: DashboardFontSize): string =>
   text.fontSizeOptions[fontSize].label;
@@ -479,10 +480,14 @@ function DesktopAppearancePanel({
   fontSize,
   headingRef,
   onFontSizeChange,
+  onThemeChange,
+  theme,
 }: {
   fontSize: DashboardFontSize;
   headingRef: RefObject<HTMLHeadingElement | null>;
   onFontSizeChange: (fontSize: DashboardFontSize) => void;
+  onThemeChange: (theme: DashboardTheme) => void;
+  theme: DashboardTheme;
 }) {
   const t = useUiText();
   return (
@@ -494,6 +499,23 @@ function DesktopAppearancePanel({
         headingRef={headingRef}
         title={t.desktop.sectionTitles.appearance}
       />
+      <div aria-label={t.desktop.appearance.themeAria} className="desktop-appearance-options" role="group">
+        {THEME_VALUES.map((value) => {
+          const option = t.desktop.themeOptions[value];
+          return (
+            <button
+              aria-pressed={theme === value}
+              className={`desktop-appearance-option${theme === value ? " active" : ""}`}
+              key={value}
+              onClick={() => onThemeChange(value)}
+              type="button"
+            >
+              <strong>{option.label}</strong>
+              <span>{option.description}</span>
+            </button>
+          );
+        })}
+      </div>
       <div aria-label={t.desktop.appearance.fontSizeAria} className="desktop-appearance-options" role="group">
         {FONT_SIZE_VALUES.map((value) => {
           const option = t.desktop.fontSizeOptions[value];
@@ -953,6 +975,8 @@ export function DesktopShell({
   language,
   onFontSizeChange,
   onLanguageChange,
+  onThemeChange,
+  theme,
 }: {
   children: (context: {
     cloud: DesktopCloudState;
@@ -963,6 +987,8 @@ export function DesktopShell({
   language: Language;
   onFontSizeChange: (fontSize: DashboardFontSize) => void;
   onLanguageChange: (language: Language) => void;
+  onThemeChange: (theme: DashboardTheme) => void;
+  theme: DashboardTheme;
 }) {
   const queryClient = useQueryClient();
   const t = useUiText();
@@ -1350,6 +1376,8 @@ export function DesktopShell({
       fontSize={fontSize}
       headingRef={sectionHeadingRef}
       onFontSizeChange={onFontSizeChange}
+      onThemeChange={onThemeChange}
+      theme={theme}
     />
   ) : settingsFields;
   const settingsBody = (

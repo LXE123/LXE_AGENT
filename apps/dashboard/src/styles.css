@@ -114,6 +114,134 @@ button {
   color: inherit;
 }
 
+/* --------------------------------------------------------------- dark theme
+   Not an inversion. The identity is warm, and the app already owned its dark:
+   the sidebar's graphite. That colour becomes the content plane here, and the
+   sidebar drops below it so the chrome still recedes and the plane still reads
+   as the stage.
+
+   One rule governs everything else: --surface stays LIGHTER than --bg in both
+   themes. Cards catch more light than the plane they sit on, so swapping the
+   two would turn every card into a dent. Shadows barely register on dark, so
+   that lightness step is what elevation is made of here. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1c1917;
+  --bg-soft: #241f1c;
+  --surface: #2a2522;
+  --surface-muted: #262220;
+  --surface-subtle: #232020;
+  --row-hover: #332d29;
+  --border: #3a332e;
+  --border-strong: #4f463e;
+  --text: #e9e2d8;
+  --text-strong: #f7f2ea;
+  --text-soft: #c0b5a7;
+  --muted: #998e81;
+  --muted-light: #7f7568;
+  --accent: #c8805f;
+  /* "strong" means more emphasis, which on a dark plane means lighter. */
+  --accent-strong: #e3a685;
+  --accent-soft: #2f2521;
+  --accent-muted: #4c3930;
+  --active-dot: #d9a488;
+  --success: #a89b8a;
+  --success-soft: #24211d;
+  --success-border: #3c352e;
+  --warning: #d8a95f;
+  --warning-soft: #241f17;
+  --warning-border: #453a28;
+  --warning-border-strong: #c79a49;
+  --warning-strong-soft: #3b3020;
+  --tool: #c4a577;
+  --tool-soft: #201d19;
+  --tool-muted: #242019;
+  --tool-border: #3e372a;
+  --tool-border-strong: #574b38;
+  --message-border: #3a332e;
+  --message-border-user: #7fb0d0;
+  --message-border-assistant: #d59478;
+  --message-border-tool: #d9b56f;
+  --message-border-system: #857b71;
+  --message-user-soft: #1c2831;
+  --message-user-text: #93c4e3;
+  --message-assistant-soft: #2c221d;
+  --message-assistant-text: #e2a488;
+  --message-tool-soft: #27211a;
+  --message-tool-text: #d9b57e;
+  --message-system-soft: #24211e;
+  --message-system-text: #aba196;
+  --danger: #e59079;
+  --danger-soft: #2d1f1b;
+  --danger-border: #5c3c32;
+  --info: #a89b8a;
+  --info-soft: #221f1c;
+  --focus-ring: rgba(227, 166, 133, 0.3);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-soft: rgba(0, 0, 0, 0.35);
+  --shadow-medium: rgba(0, 0, 0, 0.45);
+  --shadow-strong: rgba(0, 0, 0, 0.65);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.3);
+  --rate-good: #82c082;
+  --rate-good-soft: #1f2721;
+  --rate-warn: #d8a95f;
+  --rate-bad: #e59079;
+}
+
+/* Decision A: the sidebar sits below the content plane rather than above it, so
+   the "chrome recedes, content is the stage" relationship survives the switch. */
+:root[data-theme="dark"] .app-sidebar {
+  --sidebar-bg: #141110;
+  --sidebar-border: rgba(255, 255, 255, 0.05);
+  --sidebar-ink: #ece5db;
+  --sidebar-ink-soft: #968b7e;
+  --sidebar-accent: #d9a488;
+  --sidebar-hover: rgba(255, 255, 255, 0.045);
+  --sidebar-active: rgba(255, 255, 255, 0.075);
+  border-right-color: #241f1c;
+}
+
+/* Brand palettes are absolute, not themed - the hue is the brand's. Only the
+   surfaces under it move, so the card stops being a bright slab on a dark page.
+   kimi_coding already ships a fully dark palette and needs nothing here. */
+:root[data-theme="dark"] .model-card[data-provider="deepseek"],
+:root[data-theme="dark"] .models-current-summary[data-provider="deepseek"] {
+  --model-soft: #1d2440;
+  --model-ring: #33417a;
+  --model-card-bg: #1a1f33;
+  --model-card-active-bg: #1e2440;
+  --model-card-text: #cfdcfb;
+  --model-card-muted: #8fa3cc;
+  --model-card-soft-text: #adbfe6;
+  --model-panel-bg: rgba(255, 255, 255, 0.04);
+  --model-panel-border: #2f3a63;
+  --model-input-bg: rgba(0, 0, 0, 0.32);
+  --model-input-disabled-bg: #232a45;
+  --model-input-text: #cfdcfb;
+  border-color: #2f3a63;
+}
+
+:root[data-theme="dark"] .model-card[data-provider="glm"] {
+  --model-hue: #a892c4;
+  --model-hue-strong: #c3b0da;
+  --model-soft: #2a2333;
+  --model-ring: #453a54;
+}
+
+:root[data-theme="dark"] .skills-catalog {
+  --catalog-hue: #a892c4;
+  --catalog-hue-strong: #c3b0da;
+  --catalog-soft: #272130;
+  --catalog-ring: #423851;
+}
+
+:root[data-theme="dark"] .tools-catalog {
+  --catalog-hue: #cf9a5f;
+  --catalog-hue-strong: #e2b783;
+  --catalog-soft: #2a2219;
+  --catalog-ring: #4a3b28;
+}
+
 /* Electron-only shell. These classes are dormant in the standalone WebUI. */
 .desktop-window-frame {
   position: relative;
@@ -7365,6 +7493,18 @@ pre {
 
 .runtime-status-item[data-provider="deepseek"] .runtime-status-value-line strong {
   color: #294bcf;
+}
+
+/* The runtime-status chip carries the same brand hues as the model cards and
+   needs the same treatment: keep the hue, move the surface under it. */
+:root[data-theme="dark"] .runtime-status-item[data-provider="deepseek"] .runtime-status-icon {
+  border-color: #33417a;
+  background: #1d2440;
+  color: #9db4f5;
+}
+
+:root[data-theme="dark"] .runtime-status-item[data-provider="deepseek"] .runtime-status-value-line strong {
+  color: #9db4f5;
 }
 
 .runtime-status-copy {

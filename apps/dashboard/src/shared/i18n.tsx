@@ -536,6 +536,11 @@ export const ZH_TEXT = {
       standard: { label: "标准", description: "默认" },
       large: { label: "大", description: "更易阅读" }
     },
+    themeOptions: {
+      system: { label: "跟随系统", description: "随系统切换" },
+      light: { label: "浅色", description: "始终浅色" },
+      dark: { label: "深色", description: "始终深色" }
+    },
     cloudStates: {
       connected: "已连接",
       connecting: "连接中",
@@ -592,7 +597,8 @@ export const ZH_TEXT = {
     },
     appearance: {
       description: "调整整个界面的文字大小，选择后立即生效。",
-      fontSizeAria: "字体大小"
+      fontSizeAria: "字体大小",
+      themeAria: "外观主题"
     },
     cloud: {
       description: "连接公司内网并启用每小时云端同步。",
@@ -1275,6 +1281,11 @@ export const UI_TEXT: Record<Language, UiText> = {
         standard: { label: "Standard", description: "Default" },
         large: { label: "Large", description: "Easier to read" }
       },
+      themeOptions: {
+        system: { label: "System", description: "Follow the OS" },
+        light: { label: "Light", description: "Always light" },
+        dark: { label: "Dark", description: "Always dark" }
+      },
       cloudStates: {
         connected: "Connected",
         connecting: "Connecting",
@@ -1331,7 +1342,8 @@ export const UI_TEXT: Record<Language, UiText> = {
       },
       appearance: {
         description: "Adjust the text size across the interface; changes apply immediately.",
-        fontSizeAria: "Font size"
+        fontSizeAria: "Font size",
+        themeAria: "Appearance theme"
       },
       cloud: {
         description: "Connect to the company intranet and enable hourly cloud sync.",

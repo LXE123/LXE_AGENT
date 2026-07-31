@@ -53,8 +53,12 @@ import {
 } from "./shared/i18n";
 import type { Language } from "./shared/i18n";
 import {
+  DARK_MEDIA_QUERY,
   FONT_SIZE_STORAGE_KEY,
+  THEME_STORAGE_KEY,
   initialDashboardFontSize,
+  initialDashboardTheme,
+  resolveTheme,
 } from "./shared/appearance";
 import type {
   ApiList,
@@ -1042,7 +1046,34 @@ function App({
 function DashboardApplication() {
   const [language, setLanguage] = useState<Language>(() => initialLanguage());
   const [fontSize, setFontSize] = useState(() => initialDashboardFontSize());
+  const [theme, setTheme] = useState(() => initialDashboardTheme());
+  const [prefersDark, setPrefersDark] = useState(
+    () => window.matchMedia?.(DARK_MEDIA_QUERY).matches ?? false,
+  );
   const t = UI_TEXT[language];
+
+  // "system" has to keep following the OS after the window is already open, so
+  // the query stays subscribed rather than being read once at startup.
+  useEffect(() => {
+    const query = window.matchMedia?.(DARK_MEDIA_QUERY);
+    if (!query) return;
+    const listener = (event: MediaQueryListEvent) => setPrefersDark(event.matches);
+    query.addEventListener("change", listener);
+    return () => query.removeEventListener("change", listener);
+  }, []);
+
+  useLayoutEffect(() => {
+    const resolved = resolveTheme(theme, prefersDark);
+    document.documentElement.dataset.theme = resolved;
+    // Native controls - scrollbars, selects, form widgets - follow this and
+    // nothing else, so leaving it out gives light scrollbars on a dark page.
+    document.documentElement.style.colorScheme = resolved;
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // The selected theme still applies when persistent storage is unavailable.
+    }
+  }, [theme, prefersDark]);
 
   useLayoutEffect(() => {
     document.documentElement.dataset.fontSize = fontSize;
@@ -1069,6 +1100,8 @@ function DashboardApplication() {
         language={language}
         onFontSizeChange={setFontSize}
         onLanguageChange={setLanguage}
+        onThemeChange={setTheme}
+        theme={theme}
       >
         {({ cloud, health, openSettings }) => (
           <App
