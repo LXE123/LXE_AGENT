@@ -49,8 +49,8 @@ describe("dark palette", () => {
   const light = tokens(":root");
   const dark = tokens(':root[data-theme="dark"]');
 
-  test("keeps the light page plane ten percent closer to white without changing dark mode", () => {
-    expect(light["--bg"]).toBe("#fbf9f6");
+  test("keeps the requested lighter page plane without changing dark mode", () => {
+    expect(light["--bg"]).toBe("#fcfaf8");
     expect(dark["--bg"]).toBe("#242322");
   });
 
