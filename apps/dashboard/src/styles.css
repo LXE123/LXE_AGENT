@@ -8861,6 +8861,7 @@ pre {
 .conversation-feed .message-text,
 .conversation-feed .message-markdown {
   font-size: 0.875rem;
+  font-weight: 370;
   line-height: 1.7;
 }
 

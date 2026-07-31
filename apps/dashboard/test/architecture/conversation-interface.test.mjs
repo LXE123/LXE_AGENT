@@ -87,6 +87,7 @@ test("conversation messages and composer share the same focused reading axis", (
   // Feed, composer and assistant content all track the one variable, so the
   // axis cannot drift apart the way a hard-coded width per rule allowed.
   assert.match(styles, /\.conversation-feed \{[^}]*width:\s*min\(var\(--assistant-content-width\),/s);
+  assert.match(styles, /\.conversation-feed \.message-text,\s*\.conversation-feed \.message-markdown \{[^}]*font-size:\s*0\.875rem;[^}]*font-weight:\s*370;[^}]*line-height:\s*1\.7;/s);
   assert.match(styles, /\.conversation-composer \{[^}]*width:\s*min\(var\(--assistant-content-width\),/s);
   assert.match(styles, /\.conversation-feed \.message-card\.role-assistant \{[^}]*background:\s*transparent/s);
   // White bubble on the --bg plane: --surface-subtle is too close to the
