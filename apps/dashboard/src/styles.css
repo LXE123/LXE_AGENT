@@ -4708,6 +4708,9 @@ h1 {
   display: flex;
   min-height: 0;
   flex-direction: column;
+  /* The element also carries .session-detail, whose grid gap survives the
+     switch to flex and inserts a band between the header and the transcript. */
+  gap: 0;
 }
 
 .conversation-transcript {
@@ -8403,7 +8406,9 @@ pre {
   position: relative;
   z-index: 8;
   display: grid;
-  min-height: 50px;
+  /* The row's own content is 44px: a 30px button inside 7px of padding. Asking
+     for more than that only pads the title away from the conversation. */
+  min-height: 44px;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;

@@ -251,6 +251,18 @@ test("expanded tool details use dividers instead of stacked tinted surfaces", ()
   assert.match(styles, /\.tool-call-long-value \{[^}]*grid-template-columns:\s*max-content minmax\(0, 1fr\)/s);
 });
 
+test("nothing pads the header away from the transcript", () => {
+  // The conversation element also carries .session-detail, a grid container
+  // with gap: 12px. Switching display to flex keeps that gap, which put a band
+  // between the header and the first message that no rule asked for.
+  assert.match(styles, /\.conversation-view \{[^}]*gap:\s*0;/s);
+  assert.match(styles, /\.session-detail \{[^}]*gap:\s*12px;/s);
+  // min-height above the row's own content is pure padding: a 30px button
+  // inside 7px of padding needs 44.
+  assert.match(styles, /\.conversation-header \{[^}]*min-height:\s*44px;/s);
+  assert.match(styles, /\.session-detail-toggle \{[^}]*min-height:\s*30px;/s);
+});
+
 test("the transcript dissolves under the header instead of being cut by a rule", () => {
   // A border has to be drawn because content is sliced at a hard edge. Fading
   // it removes the thing the border was there to explain, which is why the
