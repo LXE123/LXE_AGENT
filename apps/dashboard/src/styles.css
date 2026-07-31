@@ -294,6 +294,19 @@ button {
   padding-top: 0;
 }
 
+/* Windows already draws its native controls inside a 40px title-bar overlay.
+   Conversation pages reuse that row instead of stacking a second 44px header
+   below it. Other sections keep the generic title-bar clearance above. */
+.desktop-platform-win32:has(.app-shell.sessions-focus) > .desktop-window-drag-region {
+  pointer-events: none;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-platform-win32 .app-shell.sessions-focus > .main-panel {
+  padding-top: 0;
+}
+
 .desktop-loading,
 .desktop-onboarding,
 .desktop-fatal {
@@ -8442,6 +8455,31 @@ pre {
 }
 
 .desktop-platform-darwin .sessions-focus .conversation-header button {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-platform-win32 .sessions-focus .conversation-header {
+  z-index: 21;
+  min-height: 40px;
+  padding-top: 5px;
+  padding-right: calc(
+    18px + max(
+      138px,
+      calc(
+        100vw
+        - env(titlebar-area-x, 0px)
+        - env(titlebar-area-width, calc(100vw - 138px))
+      )
+    )
+  );
+  padding-bottom: 5px;
+  background: var(--bg);
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
+.desktop-platform-win32 .sessions-focus .conversation-header button {
   app-region: no-drag;
   -webkit-app-region: no-drag;
 }
